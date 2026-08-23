@@ -91,7 +91,11 @@ namespace OloEngine
         glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
 #endif
 
-        glEnable(GL_BLEND);
+        // Through the facade, not a raw glEnable: SetBlendState owns the
+        // m_BlendEnabled mirror a per-attachment withdrawal reads, and a raw
+        // call here would leave it claiming "disabled" while GL blends
+        // (issue #896).
+        SetBlendState(true);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         // Disable dithering — legacy feature for 8-bit displays that triggers
@@ -611,6 +615,8 @@ namespace OloEngine
             s_BlendEnabled = value;
         }
 
+        m_BlendEnabled = value;
+
         if (value)
         {
             glEnable(GL_BLEND);
@@ -619,6 +625,13 @@ namespace OloEngine
         {
             glDisable(GL_BLEND);
         }
+
+        // glEnable(GL_BLEND) is glEnablei for EVERY draw buffer, so the call
+        // above just flattened any per-attachment opinion a pass is holding.
+        // The engine's contract is that an opinion survives until it is
+        // explicitly withdrawn, so put them back -- see the declaration of
+        // m_AttachmentBlend (issue #896).
+        ReassertAttachmentBlendOpinions();
     }
     void OpenGLRendererAPI::SetBlendFunc(RHI::BlendFactor sfactor, RHI::BlendFactor dfactor)
     {
@@ -1047,6 +1060,13 @@ namespace OloEngine
             return;
         }
 
+        if (attachment < kMaxTrackedDrawBuffers)
+        {
+            m_AttachmentBlend[attachment] =
+                enabled ? AttachmentBlendOpinion::Enabled : AttachmentBlendOpinion::Disabled;
+            m_AnyAttachmentBlendOpinion = true;
+        }
+
         if (enabled)
         {
             glEnablei(GL_BLEND, attachment);
@@ -1054,6 +1074,71 @@ namespace OloEngine
         else
         {
             glDisablei(GL_BLEND, attachment);
+        }
+    }
+
+    void OpenGLRendererAPI::ResetBlendStateForAttachment(u32 attachment)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (attachment >= static_cast<u32>(m_MaxDrawBuffers))
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI::ResetBlendStateForAttachment - attachment index {} exceeds GL_MAX_DRAW_BUFFERS {}",
+                           attachment, m_MaxDrawBuffers);
+            return;
+        }
+
+        if (attachment < kMaxTrackedDrawBuffers)
+        {
+            m_AttachmentBlend[attachment] = AttachmentBlendOpinion::None;
+            m_AnyAttachmentBlendOpinion = false;
+            for (const AttachmentBlendOpinion opinion : m_AttachmentBlend)
+            {
+                if (opinion != AttachmentBlendOpinion::None)
+                {
+                    m_AnyAttachmentBlendOpinion = true;
+                    break;
+                }
+            }
+        }
+
+        // "No opinion" is not a state a GL draw buffer can hold, so withdrawing
+        // one means re-issuing the GLOBAL enable at this index. Read from the
+        // mirror, because GL will not answer the question — see the
+        // m_BlendEnabled declaration for the measurement.
+        if (m_BlendEnabled)
+        {
+            glEnablei(GL_BLEND, attachment);
+        }
+        else
+        {
+            glDisablei(GL_BLEND, attachment);
+        }
+    }
+
+    void OpenGLRendererAPI::ReassertAttachmentBlendOpinions()
+    {
+        // Nothing to put back in the common case: no pass is mid-flight, so no
+        // attachment carries an opinion and the global call stands alone.
+        if (!m_AnyAttachmentBlendOpinion)
+            return;
+
+        const u32 trackedCount =
+            m_MaxDrawBuffers > 0 ? std::min(static_cast<u32>(m_MaxDrawBuffers), kMaxTrackedDrawBuffers)
+                                 : kMaxTrackedDrawBuffers;
+        for (u32 i = 0; i < trackedCount; ++i)
+        {
+            switch (m_AttachmentBlend[i])
+            {
+                case AttachmentBlendOpinion::Enabled:
+                    glEnablei(GL_BLEND, i);
+                    break;
+                case AttachmentBlendOpinion::Disabled:
+                    glDisablei(GL_BLEND, i);
+                    break;
+                case AttachmentBlendOpinion::None:
+                    break;
+            }
         }
     }
 

@@ -270,8 +270,10 @@ namespace OloEngine
                     packet->Execute(rendererAPI);
             }
 
-            RenderCommand::SetBlendStateForAttachment(0, false);
-            RenderCommand::SetBlendStateForAttachment(1, false);
+            // Withdraw the per-attachment opinions this path stated — see
+            // issue #896: `false` is a standing DISABLE, not a restore.
+            RenderCommand::ResetBlendStateForAttachment(0);
+            RenderCommand::ResetBlendStateForAttachment(1);
             RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
             context.SetBlendState(false);
 
@@ -506,8 +508,18 @@ namespace OloEngine
 
         // Restore RT2 blend state — emissive additive blending leaks into
         // the next pass otherwise (observed as SSAO / GTAO darkening the
-        // emissive channel during composite).
-        RenderCommand::SetBlendStateForAttachment(2, false);
+        // emissive channel during composite). WITHDRAW the opinion rather than
+        // disabling: a standing disable would leak just as far, in the other
+        // direction (issue #896).
+        RenderCommand::ResetBlendStateForAttachment(2);
+        // ...and the FUNC divert that went with it. SetBlendFuncForAttachment
+        // above pointed RT2 at One/One, and only a GLOBAL SetBlendFunc takes
+        // that back (glBlendFunc overwrites every buffer's func). This path,
+        // unlike the OIT one below, had no global func call of its own — so
+        // RT2 kept One/One and would have blended additively with it the next
+        // time anything enabled blending. Same restore line the OIT path and
+        // ParticleRenderPass already use.
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
         // The per-attachment mask / blend / draw-buffer calls above bypass the
         // cached render-state tracking; invalidate so the

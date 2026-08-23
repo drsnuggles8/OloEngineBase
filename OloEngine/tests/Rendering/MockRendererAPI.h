@@ -843,6 +843,13 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
         }
 
+        void ResetBlendStateForAttachment(u32 attachment) override
+        {
+            RecordedCall c{ "ResetBlendStateForAttachment" };
+            c.ParamU32_0 = attachment;
+            m_Calls.push_back(c);
+        }
+
         void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) override
         {
             RecordedCall c{ "SetBlendFuncForAttachment" };

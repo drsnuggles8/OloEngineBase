@@ -795,4 +795,227 @@ void main()
     api.SetColorMask(true, true, true, true);
 }
 
+// =============================================================================
+// A per-attachment blend opinion outranks the global enable, BOTH WAYS
+// (issue #896, and the half of #823 that was deliberately left open).
+//
+// The recorded per-attachment blend state used to be a bool that could only
+// OR onto the global flag, so `SetBlendStateForAttachment(i, false)` did not
+// mean what its name says: the moment anything enabled blending globally the
+// call was a no-op. OITResolveRenderPass asks for exactly that on RT1 (entity
+// ID, an integer target) and RT2 (view normals) and did not get it on Vulkan,
+// where GL would have disabled them. It was invisible because the same pass
+// also colour-masks those two attachments to zero — a broken contract with no
+// symptom, waiting for the first caller who disables without also masking.
+//
+// It is a TRI-STATE now, so all three states need pinning, and they need
+// pinning from ONE recording: the state is process-scoped, so a fresh frame
+// per case would reset the very thing under test.
+//
+//   ForceOff  — survives a global ENABLE.                  (the #896 fix)
+//   ForceOn   — survives a global DISABLE.                 (the #823 tenant:
+//               DecalRenderPass's Emissive additive accumulation, which the
+//               naive "match GL" fix deleted and which this must not.)
+//   Inherit   — after ResetBlendStateForAttachment, follows the global again.
+//
+// Each phase is the next one's control. Attachments 0 and 2 are never given an
+// opinion in any phase, so they read out the global flag and say whether the
+// blend that phase asserts about was live at all — without them a build where
+// blending never happened would pass the ForceOff assertion trivially.
+//
+// The probe: clear RED, draw GREEN with a One/One blend func. A texel that
+// blended reads YELLOW (green + red); one that did not reads GREEN.
+// =============================================================================
+TEST_F(VulkanDrawPath, PerAttachmentBlendOpinionOutranksTheGlobalEnable)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kSize = 32;
+    constexpr u32 kAttachments = 3;
+
+    constexpr const char* kMrtBlendFragmentSrc = R"(
+#version 460 core
+layout(location = 0) in vec2 v_TexCoord;
+layout(location = 0) out vec4 o_Rt0;
+layout(location = 1) out vec4 o_Rt1;
+layout(location = 2) out vec4 o_Rt2;
+
+layout(std140, binding = 3) uniform TintBlock
+{
+    vec4 u_Tint;
+};
+
+void main()
+{
+    o_Rt0 = u_Tint;
+    o_Rt1 = u_Tint;
+    o_Rt2 = u_Tint;
+}
+)";
+
+    FramebufferSpecification fbSpec;
+    fbSpec.Width = kSize;
+    fbSpec.Height = kSize;
+    fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA8,
+                           FramebufferTextureFormat::RGBA8 };
+    auto forcedOff = Framebuffer::Create(fbSpec);
+    ASSERT_NE(forcedOff, nullptr);
+    auto forcedOn = Framebuffer::Create(fbSpec);
+    ASSERT_NE(forcedOn, nullptr);
+    auto withdrawn = Framebuffer::Create(fbSpec);
+    ASSERT_NE(withdrawn, nullptr);
+
+    const f32 vertices[] = { -1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f };
+    auto vertexBuffer = VertexBuffer::Create(vertices, sizeof(vertices));
+    u32 indices[] = { 0, 1, 2 };
+    auto indexBuffer = IndexBuffer::Create(indices, 3);
+    auto vertexArray = VertexArray::Create();
+    vertexArray->AddVertexBuffer(vertexBuffer);
+    vertexArray->SetIndexBuffer(indexBuffer);
+
+    auto tintUbo = UniformBuffer::Create(16, 3);
+    auto shader = Ref<VulkanShader>::Create("DrawPathMrtBlend", kVertexSrc, kMrtBlendFragmentSrc);
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    VulkanRendererAPI api;
+
+    constexpr f32 kGreen[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+
+    const auto transitionAll = [&api](const Ref<Framebuffer>& target, const RHI::Access before,
+                                      const RHI::Access after)
+    {
+        for (u32 i = 0; i < kAttachments; ++i)
+        {
+            RHI::Barrier barrier{};
+            barrier.Resource = target->GetColorAttachmentHandle(i);
+            barrier.Before = before;
+            barrier.After = after;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &barrier, 1 });
+        }
+    };
+
+    const auto drawGreenOver = [&](Ref<Framebuffer>& target, const std::function<void()>& installBlendState)
+    {
+        target->Bind();
+        api.SetViewport(0, 0, kSize, kSize);
+        api.SetClearColor({ 1.0f, 0.0f, 0.0f, 1.0f });
+        api.Clear();
+        installBlendState();
+        tintUbo->SetData(kGreen, sizeof(kGreen));
+        api.DrawIndexed(vertexArray, 3);
+        target->Unbind();
+    };
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    transitionAll(forcedOff, RHI::Access::Undefined, RHI::Access::ColorAttachmentWrite);
+                    transitionAll(forcedOn, RHI::Access::Undefined, RHI::Access::ColorAttachmentWrite);
+                    transitionAll(withdrawn, RHI::Access::Undefined, RHI::Access::ColorAttachmentWrite);
+
+                    shader->Bind();
+                    tintUbo->Bind();
+                    api.SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
+
+                    // Phase 1 — the OITResolveRenderPass shape. Blending on
+                    // globally, one attachment disabled per-attachment.
+                    drawGreenOver(forcedOff,
+                                  [&]()
+                                  {
+                                      api.SetBlendState(true);
+                                      api.SetBlendStateForAttachment(1, false);
+                                  });
+
+                    // Phase 2 — the DecalRenderPass Emissive shape, with the
+                    // global call AFTER the indexed one, the order
+                    // ApplyPODRenderState actually produces.
+                    drawGreenOver(forcedOn,
+                                  [&]()
+                                  {
+                                      api.SetBlendStateForAttachment(1, true);
+                                      api.SetBlendState(false);
+                                  });
+
+                    // Phase 3 — the withdrawal. Global is still false from
+                    // phase 2, so attachment 1 must stop blending; if the
+                    // reset did nothing it would still carry phase 2's
+                    // ForceOn and blend.
+                    drawGreenOver(withdrawn, [&]()
+                                  { api.ResetBlendStateForAttachment(1); });
+
+                    transitionAll(forcedOff, RHI::Access::ColorAttachmentWrite, RHI::Access::ShaderSampleRead);
+                    transitionAll(forcedOn, RHI::Access::ColorAttachmentWrite, RHI::Access::ShaderSampleRead);
+                    transitionAll(withdrawn, RHI::Access::ColorAttachmentWrite, RHI::Access::ShaderSampleRead);
+                });
+
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u) << "the MRT blend path must not fall through to a stub";
+
+    // `target` is deliberately NOT const — see the same note on the colour-mask
+    // test above (Ref<T>::Raw() const-propagates).
+    const auto centreTexel = [](Ref<Framebuffer>& target, u32 attachmentIndex,
+                                std::array<u8, 4>& out) -> bool
+    {
+        auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(target.Raw());
+        const auto attachment = vkFramebuffer->GetColorAttachmentImage(attachmentIndex);
+        if (attachment == nullptr)
+            return false;
+        std::vector<u8> pixels;
+        if (!attachment->GetData(pixels, 0) || pixels.size() != sizet{ kSize } * kSize * 4)
+            return false;
+        const sizet offset = ((sizet{ kSize } / 2) * kSize + kSize / 2) * 4;
+        out = { pixels[offset + 0], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3] };
+        return true;
+    };
+
+    // green over red, One/One: R and G both saturate, alpha 1+1 clamps to 1.
+    constexpr std::array<u8, 4> kBlendedTexel{ 0xFF, 0xFF, 0x00, 0xFF };
+    constexpr std::array<u8, 4> kGreenTexel{ 0x00, 0xFF, 0x00, 0xFF };
+
+    std::array<u8, 4> texel{};
+
+    // Phase 1. Attachments 0 and 2 are the control: they carry no opinion, so
+    // they show whether the global enable was live at all.
+    ASSERT_TRUE(centreTexel(forcedOff, 0, texel));
+    EXPECT_EQ(texel, kBlendedTexel) << "attachment 0 has no per-attachment opinion and must follow SetBlendState(true)";
+    ASSERT_TRUE(centreTexel(forcedOff, 2, texel));
+    EXPECT_EQ(texel, kBlendedTexel) << "attachment 2 has no per-attachment opinion and must follow SetBlendState(true)";
+    ASSERT_TRUE(centreTexel(forcedOff, 1, texel));
+    EXPECT_EQ(texel, kGreenTexel)
+        << "SetBlendStateForAttachment(1, false) did not survive the global SetBlendState(true) — a "
+           "per-attachment DISABLE has to outrank the global enable, which is what OITResolveRenderPass "
+           "asks for on its entity-ID and view-normal targets (issue #896)";
+
+    // Phase 2. The direction the naive #823 fix broke: this is what
+    // DecalRenderPass's Emissive additive accumulation rides on.
+    ASSERT_TRUE(centreTexel(forcedOn, 0, texel));
+    EXPECT_EQ(texel, kGreenTexel) << "attachment 0 has no opinion and must follow SetBlendState(false)";
+    ASSERT_TRUE(centreTexel(forcedOn, 2, texel));
+    EXPECT_EQ(texel, kGreenTexel) << "attachment 2 has no opinion and must follow SetBlendState(false)";
+    ASSERT_TRUE(centreTexel(forcedOn, 1, texel));
+    EXPECT_EQ(texel, kBlendedTexel)
+        << "SetBlendStateForAttachment(1, true) did not survive the global SetBlendState(false) that followed "
+           "it — DecalRenderPass enables RT2 this way for an Emissive decal whose PODRenderState carries "
+           "blendEnabled=false (issue #823)";
+
+    // Phase 3. Withdrawing the opinion puts the attachment back on the global
+    // flag — the only way out of the two states above, and the reason a pass
+    // restoring its state must not just pass `false`.
+    for (u32 i = 0; i < kAttachments; ++i)
+    {
+        ASSERT_TRUE(centreTexel(withdrawn, i, texel)) << "attachment " << i << " readback failed";
+        EXPECT_EQ(texel, kGreenTexel)
+            << "attachment " << i
+            << " blended after ResetBlendStateForAttachment(1) with the global enable off — the withdrawal "
+               "must put attachment 1 back on SetBlendState (issue #896)";
+    }
+
+    // Leave nothing standing for the next test in this binary — the very leak
+    // the tri-state makes possible.
+    for (u32 i = 0; i < VulkanRecordedPipelineState::kMaxAttachments; ++i)
+        api.ResetBlendStateForAttachment(i);
+    api.SetBlendState(false);
+    api.SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+}
+
 #endif // OLO_WITH_VULKAN

@@ -137,9 +137,11 @@ namespace OloEngine
             ParticleBatchRenderer::SetOITMode(false);
 
             // Restore global blend state so subsequent passes don't inherit
-            // the per-attachment WB-OIT factors.
-            RenderCommand::SetBlendStateForAttachment(0, false);
-            RenderCommand::SetBlendStateForAttachment(1, false);
+            // the per-attachment WB-OIT factors. WITHDRAW the enables rather
+            // than disabling them — a per-attachment opinion outranks the
+            // global flag until it is withdrawn (issue #896).
+            RenderCommand::ResetBlendStateForAttachment(0);
+            RenderCommand::ResetBlendStateForAttachment(1);
             RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
             context.SetBlendState(false);
 
@@ -168,7 +170,12 @@ namespace OloEngine
 
             RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
             context.SetDepthMask(true);
-            RenderCommand::SetBlendStateForAttachment(0, false);
+            // All three opinions this path stated, withdrawn (issue #896) —
+            // attachments 1 and 2 were disabled above and would otherwise stay
+            // disabled for the rest of the process.
+            RenderCommand::ResetBlendStateForAttachment(0);
+            RenderCommand::ResetBlendStateForAttachment(1);
+            RenderCommand::ResetBlendStateForAttachment(2);
             context.SetBlendState(false);
 
             m_SceneFramebuffer->Unbind();

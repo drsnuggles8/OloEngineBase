@@ -101,7 +101,7 @@ namespace OloEngine
         u32 PatchVertexCount = 3;
 
         // THE COLOUR MASK AND THE BLEND ENABLE COMPOSE DIFFERENTLY HERE, on
-        // purpose — do not "make them consistent" without re-reading this.
+        // purpose -- do not "make them consistent" without re-reading this.
         //
         // AttachmentColorMask is the lowering's ONLY input: SetColorMask
         // overwrites every entry (glColorMask is defined as glColorMaski for
@@ -110,35 +110,84 @@ namespace OloEngine
         // DISABLES the attachments a command names and relies on the global
         // call to have re-enabled the rest. Before that fill existed, a
         // narrowing indexed call was permanent for the PROCESS, and one
-        // Renderer3D::DrawLine killed every G-Buffer attachment above 0 —
+        // Renderer3D::DrawLine killed every G-Buffer attachment above 0 --
         // issue #823.
         //
-        // AttachmentBlend does NOT work that way: it ORs on top of `Blend`, so
-        // SetBlendState deliberately leaves it alone. GL would clear it, but
-        // the engine's passes are written against the OR — DecalRenderPass
-        // enables RT2 per-attachment for an Emissive decal whose
-        // PODRenderState carries blendEnabled=false, and matching GL would
-        // delete that additive accumulation on Vulkan without fixing it on GL.
-        // The consequence is that a per-attachment blend DISABLE cannot
-        // override a global enable (OITResolveRenderPass asks for one); that
-        // asymmetry is real, is GL-divergent in the other direction, and is
-        // filed as ISSUE #896 rather than changed here. Any fix must keep the
-        // DecalRenderPass Emissive case above working -- the naive symmetric
-        // version was written during #823 and reverted because it deleted that
-        // additive accumulation on Vulkan while fixing nothing on GL.
-        bool AttachmentBlend[kMaxAttachments] = {};
+        // AttachmentBlend does NOT work that way. It is a TRI-STATE per
+        // attachment and it OUTRANKS the global `Blend`, in BOTH directions:
+        //
+        //   Inherit  -- no pass has an opinion; the attachment follows `Blend`.
+        //   ForceOn  -- blend this attachment even if `Blend` is false.
+        //   ForceOff -- do not blend it even if `Blend` is true.
+        //
+        // so SetBlendState writes `Blend` and leaves this array alone, and only
+        // SetBlendStateForAttachment / ResetBlendStateForAttachment move it.
+        // GL's global glEnable(GL_BLEND) would flatten the array instead; the
+        // GL backend re-asserts the standing opinions on top of the global call
+        // so both backends implement THIS rule rather than two different ones
+        // (OpenGLRendererAPI::ReassertAttachmentBlendOpinions).
+        //
+        // Both arms are load-bearing and each was a bug once:
+        //
+        //   ForceOn  -- DecalRenderPass enables RT2 per-attachment for an
+        //               Emissive decal whose PODRenderState carries
+        //               blendEnabled=false, and the additive One/One
+        //               accumulation depends on that enable surviving the
+        //               global disable ApplyPODRenderState then issues. The
+        //               naive "match GL, let the global win" version was
+        //               written during #823 and reverted because it deleted
+        //               exactly this. Pinned by the Emissive arm of
+        //               VulkanPassSuite.DecalGBufferModeMatrixMasksItsTargetRenderTargets.
+        //   ForceOff -- OITResolveRenderPass disables RT1 (entity ID, an
+        //               integer target) and RT2 (view normals) per attachment
+        //               while compositing. Under the OR this array used to be,
+        //               those two calls were no-ops the moment anything had
+        //               enabled blending globally, so the pass silently did not
+        //               get the disables it asked for -- issue #896. Pinned by
+        //               VulkanDrawPath.PerAttachmentBlendOpinionOutranksTheGlobalEnable.
+        //
+        // THE PRICE, and it is the #823 archetype pointing the other way: an
+        // opinion left behind outlives the pass that stated it, for the rest of
+        // the process. A pass that turns an attachment on or off MUST call
+        // ResetBlendStateForAttachment before it returns -- restoring by
+        // passing `false` to the setter is NOT a withdrawal, it is a ForceOff
+        // that would kill blending on that attachment permanently.
+        enum class AttachmentBlendOpinion : u8
+        {
+            Inherit = 0,
+            ForceOff,
+            ForceOn,
+        };
+        AttachmentBlendOpinion AttachmentBlend[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendSrc[kMaxAttachments] = {};
         RHI::BlendFactor AttachmentBlendDst[kMaxAttachments] = {};
+        // The same "did a pass state an opinion for attachment i" idea, one arm
+        // narrower -- the FUNC has no on/off, only diverted or inherited, so
+        // Inherit/Diverted is the whole state space.
+        //
         // GL parity (#691, found by the OITResolve tenant):
         // glEnablei(GL_BLEND, i) alone does NOT give buffer i its own blend
-        // func — the GLOBAL glBlendFunc applies until glBlendFunci names the
+        // func -- the GLOBAL glBlendFunc applies until glBlendFunci names the
         // buffer. A pass that per-attachment-ENABLES but sets only the global
         // func (OITResolve) must therefore blend with the global factors, not
-        // the never-written per-attachment defaults (Zero/Zero). This flag
-        // records "SetBlendFuncForAttachment was called for i"; the global
-        // SetBlendFunc/SetBlendFuncSeparate clear it (glBlendFunc overwrites
-        // every buffer's func in GL).
-        bool AttachmentBlendFuncSet[kMaxAttachments] = {};
+        // the never-written per-attachment defaults (Zero/Zero).
+        // SetBlendFuncForAttachment diverts buffer i; the global
+        // SetBlendFunc/SetBlendFuncSeparate withdraw every divert (glBlendFunc
+        // overwrites every buffer's func in GL). AttachmentBlendSrc/Dst are
+        // meaningful only where this says Diverted.
+        //
+        // Note the asymmetry with AttachmentBlend directly above: the global
+        // func setter DOES flatten this array while the global enable does not
+        // flatten that one. That is not an oversight -- no caller wants a
+        // surviving per-attachment FUNC (the passes here always re-state theirs
+        // next to the enable), and the global-flatten is what makes a missed
+        // withdrawal self-healing for the one of the pair where it can be.
+        enum class AttachmentBlendFuncOpinion : u8
+        {
+            Inherit = 0,
+            Diverted,
+        };
+        AttachmentBlendFuncOpinion AttachmentBlendFunc[kMaxAttachments] = {};
         u8 AttachmentColorMask[kMaxAttachments] = { 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF };
     };
 
@@ -435,6 +484,7 @@ namespace OloEngine
         void SetColorMask(bool red, bool green, bool blue, bool alpha) override;
         void SetColorMaskForAttachment(u32 attachment, bool red, bool green, bool blue, bool alpha) override;
         void SetBlendStateForAttachment(u32 attachment, bool enabled) override;
+        void ResetBlendStateForAttachment(u32 attachment) override;
         void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) override;
         void CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget, RHI::ResourceHandle dst, TextureTargetType dstTarget, u32 width, u32 height) override;
         void CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ, RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ, u32 width, u32 height) override;

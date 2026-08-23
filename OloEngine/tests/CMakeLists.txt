@@ -416,6 +416,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/McpPerfSettleTest.cpp
 		Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
+		Rendering/PropertyTests/GLAttachmentBlendOpinionTest.cpp
 		Rendering/PropertyTests/GPUReadbackStatsEvidenceTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp
 		Rendering/PropertyTests/TestFailureCaptureTest.cpp
