@@ -547,6 +547,17 @@ namespace OloEngine
                                    "completion or device loss before recycling the command buffer");
                     result = vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
                 }
+                else
+                {
+                    // The recording is on the queue AND retired: recorded and
+                    // executed layouts have converged (issue #800). This is
+                    // deliberately NOT gated on the aggregate `ok` below — a
+                    // failure to REOPEN the bracket does not un-execute what
+                    // the GPU already ran, and leaving the executed layout
+                    // stale would make the fallback read barrier from a layout
+                    // the image is no longer in.
+                    api.LayoutTracker().CommitRecordedToExecuted();
+                }
                 if (result != VK_SUCCESS)
                 {
                     OLO_CORE_ERROR("[Vulkan] flush: vkWaitForFences failed (VkResult {})", static_cast<int>(result));

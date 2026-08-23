@@ -81,6 +81,63 @@ namespace OloEngine
 
         void Reset();
 
+        // ---- Recorded vs EXECUTED layout (issue #800) --------------------
+        // SetLayout below advances the RECORDED layout: what the command
+        // buffer currently being recorded will have left the image in, once it
+        // is submitted. That is the right answer for a barrier recorded into
+        // that same command buffer, and the WRONG answer for work that will
+        // execute BEFORE it.
+        //
+        // VulkanOneShot::Submit is exactly that work: it submits its own
+        // command buffer immediately, so it runs ahead of the frame command
+        // buffer still being recorded (ADR 0011 amendment 72). A one-shot that
+        // barriers an image with oldLayout = CurrentLayout(...) is therefore
+        // naming a layout the queue has not reached yet. On a steady frame the
+        // two agree by construction — the graph ends every frame in the layouts
+        // it started in — and nothing goes wrong, which is why this only ever
+        // fired on the ONE frame where an attachment is brand new: a window
+        // resize. That is issue #800.
+        //
+        // So the tracker keeps a second layout per subresource: the layout
+        // after all SUBMITTED work. CommitRecordedToExecuted() advances it when
+        // the recording bracket closes; an immediate-execution scope advances
+        // it for the work recorded inside, but only once that work has really
+        // reached the queue (see ImmediateExecutionScope::MarkSubmitted).
+        void CommitRecordedToExecuted();
+        [[nodiscard]] VkImageLayout CurrentExecutedLayout(VkImage image, const VkImageSubresourceRange& range) const;
+
+        // RAII, opened by VulkanOneShot::Submit. It must span the WHOLE
+        // submission — record, submit, fence wait — not just the record
+        // callback, because a layout written while recording is speculative
+        // until that command buffer is actually on the queue. Inside the
+        // scope, SetLayout advances the recorded layout immediately (a later
+        // barrier in the same buffer must transition from it) and QUEUES the
+        // executed-layout write; MarkSubmitted() is what promotes the queued
+        // writes, and the destructor discards them if it was never called.
+        //
+        // Two things that buys, both of which the eager version got wrong: a
+        // one-shot that fails before reaching the queue no longer claims its
+        // transitions happened, and a nested one-shot — should one ever be
+        // recorded from inside another's callback — cannot barrier from the
+        // OUTER submission's not-yet-executed layout. Scopes nest as a stack,
+        // each owning its own queued writes.
+        class ImmediateExecutionScope
+        {
+          public:
+            ImmediateExecutionScope();
+            ~ImmediateExecutionScope();
+            // Call once the recorded work has reached the queue and retired.
+            void MarkSubmitted();
+            ImmediateExecutionScope(const ImmediateExecutionScope&) = delete;
+            ImmediateExecutionScope& operator=(const ImmediateExecutionScope&) = delete;
+            ImmediateExecutionScope(ImmediateExecutionScope&&) = delete;
+            ImmediateExecutionScope& operator=(ImmediateExecutionScope&&) = delete;
+
+          private:
+            bool m_Submitted = false;
+        };
+        [[nodiscard]] static bool InImmediateExecutionScope();
+
         // Record that `range` now sits in `layout` (call AFTER recording the
         // barrier that performs the transition).
         void SetLayout(VkImage image, const VkImageSubresourceRange& range, VkImageLayout layout);
@@ -107,6 +164,9 @@ namespace OloEngine
             u64 RegistrationId = 0;
             // Indexed [layer * MipCount + mip].
             std::vector<VkImageLayout> Layouts;
+            // Same indexing; the layout after all SUBMITTED work (see
+            // CommitRecordedToExecuted).
+            std::vector<VkImageLayout> Executed;
         };
 
         // Clamp an open (VK_REMAINING_*) range against the image's extents.

@@ -4,6 +4,10 @@
 
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
 
+#include "Platform/Vulkan/VulkanDebugNames.h"
+
+#include <format>
+
 namespace OloEngine
 {
     VulkanImageInfoRegistry& VulkanImageInfoRegistry::Get()
@@ -23,7 +27,20 @@ namespace OloEngine
         // VulkanImageInfo::RegistrationId.
         static u64 s_NextRegistrationId = 0;
         m_Infos[image] = info;
-        m_Infos[image].RegistrationId = ++s_NextRegistrationId;
+        const u64 registrationId = ++s_NextRegistrationId;
+        m_Infos[image].RegistrationId = registrationId;
+
+        // Name the image for the validation layer (#800). One site covers
+        // every image the barrier machinery can see, and the registration id
+        // is exactly the identity a layout message needs to be actionable:
+        // it distinguishes a driver-recycled handle VALUE from the image the
+        // trackers were following. No-op outside a validated Debug run.
+        if (VulkanDebugNames::Enabled())
+        {
+            VulkanDebugNames::SetImageName(
+                image, std::format("image#{} {}x{} fmt={} mips={} layers={}", registrationId, info.Width, info.Height,
+                                   static_cast<u32>(info.Format), info.MipLevels, info.ArrayLayers));
+        }
     }
 
     const VulkanImageInfo* VulkanImageInfoRegistry::Lookup(VkImage image) const

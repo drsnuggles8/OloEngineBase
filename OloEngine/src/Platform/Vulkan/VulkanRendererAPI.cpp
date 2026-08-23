@@ -262,6 +262,13 @@ namespace OloEngine
         // lose its clear, nor may the clear leak into the next recording's
         // first scope as a spurious CLEAR loadOp (#691).
         MaterializePendingClear();
+        // Everything this command buffer recorded — MaterializePendingClear's
+        // late transitions included — is about to be submitted (every opener
+        // submits: the frame loop, the device-gated test harnesses), so it
+        // becomes the images' EXECUTED layout. Until this point a one-shot,
+        // which reaches the queue ahead of this buffer, must not believe those
+        // transitions have happened; that is issue #800.
+        m_LayoutTracker.CommitRecordedToExecuted();
         m_Cmd = VK_NULL_HANDLE;
         // A backbuffer publication is scoped to ONE recording by construction:
         // the next frame acquires a different image (see FrameBackbuffer).
@@ -4954,7 +4961,16 @@ namespace OloEngine
         VkImageLayout borrowedLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         if (borrowLayout)
         {
-            borrowedLayout = m_LayoutTracker.CurrentLayout(image, range);
+            // The EXECUTED layout, not the recorded one: this one-shot is
+            // submitted immediately and therefore runs BEFORE the frame command
+            // buffer whose transitions the recorded layout already reflects
+            // (issue #800). On a steady frame the two are equal; on the frame
+            // an attachment is (re)created — a window resize — the recorded
+            // layout already reads SHADER_READ_ONLY while the image has never
+            // been touched by submitted work and is still UNDEFINED. Barriering
+            // from the recorded layout there is what produced one
+            // VUID-vkCmdDraw-None-09600 per resize.
+            borrowedLayout = m_LayoutTracker.CurrentExecutedLayout(image, range);
             if (borrowedLayout == VK_IMAGE_LAYOUT_UNDEFINED)
             {
                 vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);

@@ -62,6 +62,27 @@ namespace OloEngine
             {
                 s_ValidationErrorCount.fetch_add(1, std::memory_order_relaxed);
                 OLO_CORE_ERROR("[Vulkan] {}", message);
+                // The command-buffer label stack the offending command sat
+                // inside. `pMessage` never carries it, so without this an
+                // error recorded deep in the frame can only be narrowed by
+                // inference — which is exactly the cost issue #800 paid.
+                // Costs nothing: the layer already assembled the list.
+                if (callbackData != nullptr && callbackData->cmdBufLabelCount > 0u &&
+                    callbackData->pCmdBufLabels != nullptr)
+                {
+                    std::string stack;
+                    for (u32 i = 0; i < callbackData->cmdBufLabelCount; ++i)
+                    {
+                        const char* name = callbackData->pCmdBufLabels[i].pLabelName;
+                        if (name == nullptr)
+                            continue;
+                        if (!stack.empty())
+                            stack += " / ";
+                        stack += name;
+                    }
+                    if (!stack.empty())
+                        OLO_CORE_ERROR("[Vulkan]   ...inside command-buffer label region: {}", stack);
+                }
             }
             else if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0)
             {
