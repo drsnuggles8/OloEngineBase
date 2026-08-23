@@ -136,22 +136,30 @@ namespace OloEngine
         if (m_SelectedSceneDepthTexture.IsValid())
             depthTextureID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
 
-        // Detector-only guard: captures GL state at entry and on destruction
-        // diffs against exit state, logging any field this pass failed to
-        // restore. The explicit restore calls further down are what actually
-        // restore -- the default Policy::Log does not roll anything back.
+        // ISSUE #895 (fixed): the manual restore below only ever covered
+        // DepthMask/BlendState(enable)/DepthFunc/Cull, so DepthTest, the
+        // blend func factors, ActiveProgram and VAO escaped every frame that
+        // drained a decal -- 2723 GLStateGuard ERROR lines in a couple of
+        // minutes under Policy::Log, which rolls nothing back.
         //
-        // ISSUE #895: it does not restore enough. This reports 8-9 escaped
-        // fields at ERROR level on EVERY frame that drains a decal, on both
-        // rendering paths (DepthTest, the four blend factors, ActiveProgram,
-        // VAO and the two bound texture slots). Note GLStateGuard::Policy
-        // ::Restore exists and DOES roll back via GLStateSnapshot::ApplyCore()
-        // -- an earlier version of this comment said rollback was impossible,
-        // which is probably why this call site never asked for it. Fixing the
-        // leak is #895; check render-pass-published-state.md before switching
-        // policy, since a pass whose outputs are engine-global bindings must
-        // not be wrapped in a restoring guard at all.
-        GLStateGuard guard("DecalRenderPass");
+        // Policy::Restore is safe here, unlike the DDGI/fog pattern
+        // render-pass-published-state.md warns about: GLStateSnapshot::
+        // ApplyCore() restores only the *core* GL subset (depth/blend/
+        // stencil/cull/polygon-mode/viewport/scissor/FBO/program/VAO) and
+        // deliberately never touches per-slot texture bindings. So it fixes
+        // exactly the fields above without undoing this pass's texture
+        // publishes at TEX_POSTPROCESS_DEPTH / TEX_USER_0 -- both of which
+        // are re-published fresh by whichever pass needs them next (every
+        // other TEX_POSTPROCESS_DEPTH consumer -- SSAO, Fog, DOF, MotionBlur,
+        // TAA, ToneMap -- rebinds it before sampling; TEX_USER_0-2 are
+        // documented pass-local-reuse slots), so nothing downstream depends
+        // on this pass's texture bindings surviving. Residual texture diffs
+        // still surface, just at TRACE instead of ERROR, keeping the log
+        // quiet in steady state while staying discoverable for a leak hunt.
+        // Same shape as PlanarReflectionRenderPass / OverdrawRenderPass /
+        // ShaderDebugDrawPass, which replay geometry with their own
+        // programs/VAOs under Policy::Restore.
+        GLStateGuard guard("DecalRenderPass", GLStateGuard::Policy::Restore);
 
         // Helper: decide whether a packet should be drained by *this*
         // (the graph-scheduled) Execute. In the Deferred path the opaque
@@ -304,6 +312,7 @@ namespace OloEngine
         context.SetBlendState(false);
         RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::BackCull();
+        CommandDispatch::InvalidateRenderStateCache();
 
         m_SceneFramebuffer->Unbind();
 
