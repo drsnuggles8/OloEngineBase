@@ -109,7 +109,16 @@ namespace
     /// depending on a wall-clock measurement that would flake under CI load.
     struct CountingNode final : public sg::NodeProcessor
     {
-        explicit CountingNode(UUID id) : NodeProcessor("CountingNode", id) {}
+        explicit CountingNode(UUID id) : NodeProcessor("CountingNode", id)
+        {
+            // A bindable in-event, so a graph-input route can target this node. Without a
+            // bound handler SoundGraph::SendInputEvent returns false and the source never
+            // flips m_IsPlaying - see MakePlayRoutedCountingGraph.
+            AddInEvent(Identifier("In"), [this](f32 value, i32 sampleOffset)
+                       { (void)value; (void)sampleOffset; ++m_EventsReceived; });
+        }
+
+        u32 m_EventsReceived = 0;
 
         u32 m_ProcessCalls = 0;
         u64 m_FramesProcessed = 0;
@@ -378,4 +387,61 @@ TEST_F(SoundGraphVoiceSuspendTest, AVoiceSuspendedByTheBudgetProducesNoSamples)
     const std::vector<f32> afterThaw = PumpBlocks(*stolen->GetSource(), 2);
     EXPECT_GT(PeakAbs(afterThaw), 0.5f) << "a thawed voice must produce audio again";
     EXPECT_EQ(stolen->GetSource()->GetCurrentFrame(), static_cast<u64>(kBlock) * 2u);
+}
+
+namespace
+{
+    /// A graph whose `Play` input event is actually ROUTED. This matters: `SoundGraph`'s
+    /// constructor adds the `Play` endpoint but binds no handler (`InitializeEndpoints()`
+    /// has no call sites anywhere in the engine), so on an unrouted graph
+    /// `SendInputEvent(IDs::Play)` returns false and `SoundGraphSource::m_IsPlaying` never
+    /// becomes true - which makes the natural-completion path unreachable. A real authored
+    /// one-shot routes Play to its WavePlayer, so it does reach it.
+    Ref<sg::SoundGraph> MakePlayRoutedCountingGraph(CountingNode** outNode)
+    {
+        auto counting = CreateScope<CountingNode>(UUID());
+        *outNode = counting.get();
+        const UUID countingID = counting->m_ID;
+
+        auto graph = Ref<sg::SoundGraph>::Create("PlayRoutedCounting", UUID());
+        graph->AddNode(std::move(counting));
+        EXPECT_TRUE(graph->AddInputEventsRoute(sg::SoundGraph::IDs::Play, countingID, Identifier("In")));
+        graph->SetSampleRate(48000.0f);
+        graph->Init();
+        return graph;
+    }
+} // namespace
+
+TEST_F(SoundGraphVoiceSuspendTest, AGraphSoundCanBeReplayedAfterItRunsToItsEnd)
+{
+    // Natural completion parks the source on the OTHER suspension axis:
+    // SoundGraphSource::Update calls SuspendProcessing(true) once the graph reports
+    // finished. Nothing but a graph swap ever cleared that, so a sound that ran to its end
+    // could never be played again - it stayed in the graph-swap silence path forever while
+    // the wrapper cheerfully reported it playing. Play is the one point where resetting the
+    // source's playback counters is correct, because SendPlayEvent restarts the stream.
+    CountingNode* counting = nullptr;
+    auto sound = CreateScope<sg::SoundGraphSound>();
+    ASSERT_TRUE(sound->InitializeDetachedSource());
+    ASSERT_TRUE(sound->InitializeFromGraph(MakePlayRoutedCountingGraph(&counting)));
+    auto* source = sound->GetSource();
+    ASSERT_NE(source, nullptr);
+
+    ASSERT_TRUE(sound->Play());
+    PumpBlocks(*source, 1); // fires the latched Play request; this graph has no wave
+                            // sources, so AreAllDataSourcesAtEnd() reports finished at once
+    ASSERT_EQ(counting->m_EventsReceived, 1u) << "the Play route must actually be bound";
+
+    sound->Update(0.016f);  // source Update -> SuspendProcessing(true)
+    PumpBlocks(*source, 1); // audio thread acks the suspend
+    sound->Update(0.016f);  // wrapper picks up the finish and retires the voice
+    ASSERT_TRUE(sound->IsFinished()) << "the probe must actually reach natural completion";
+
+    const u32 callsAtCompletion = counting->m_ProcessCalls;
+    ASSERT_TRUE(sound->Play());
+    PumpBlocks(*source, 2);
+    EXPECT_GT(counting->m_ProcessCalls, callsAtCompletion)
+        << "a graph sound must be steppable again after it ended";
+    EXPECT_EQ(counting->m_EventsReceived, 2u)
+        << "the replay's Play trigger must reach the graph";
 }
