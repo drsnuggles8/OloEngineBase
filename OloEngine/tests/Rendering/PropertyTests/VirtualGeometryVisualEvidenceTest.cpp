@@ -1027,7 +1027,20 @@ namespace OloEngine::Tests
         // Stream: each frame the cull requests the missing finer pages and the
         // residency manager uploads/evicts under the budget. The mesh must stay
         // visible (no holes) and the budget must never be exceeded.
+        //
+        // Issue #719: ProcessResidency no longer does a synchronous GetData off
+        // SSBO_VIRTUAL_GROUP_STATES — it captures into a 3-slot fenced ring and
+        // polls (never waits), so a request is decided against a snapshot that
+        // is a few frames old rather than blocking the frame that wants it.
+        // firstUploadFrame pins the acceptance criterion ("newly visible
+        // geometry appears within one or two frames") as a latency bound rather
+        // than just "eventually converges over 20 frames" — a regression to
+        // e.g. always re-applying a stale snapshot (never advancing the ring)
+        // would still converge here, just far slower, and this catches that.
         u32 minRed = coarseBaseline;
+        int firstUploadFrame = -1;
+        int saturatedFrames = 0;
+        u64 const pinnedPages = registry.GetResidencyStats().PinnedPages;
         for (int frameIndex = 0; frameIndex < 20; ++frameIndex)
         {
             RunEditorFrames(camera, 1);
@@ -1037,7 +1050,23 @@ namespace OloEngine::Tests
             const VirtualResidencyStats& stats = registry.GetResidencyStats();
             EXPECT_LE(stats.ResidentPages, stats.BudgetSlots)
                 << "streaming exceeded the fixed page budget at frame " << frameIndex;
+            // RequestReadbackSlotsInFlight is structurally <= the ring's 3
+            // slots (PollResidencyReadback counts it inside a 3-iteration
+            // loop), so a bare upper bound on it can never fail — including on
+            // a wedged ring. What's worth catching is PERMANENT saturation
+            // (nothing ever retires), tracked below and asserted after the loop.
+            if (stats.RequestReadbackSlotsInFlight >= 3u)
+            {
+                ++saturatedFrames;
+            }
+            if (firstUploadFrame < 0 && stats.PageUploads > pinnedPages)
+            {
+                firstUploadFrame = frameIndex;
+            }
         }
+        EXPECT_LT(saturatedFrames, 20)
+            << "the readback ring reported every slot in flight on all 20 frames — no slot ever retired, "
+               "so the ring is wedged and residency requests are never applied";
 
         {
             const VirtualResidencyStats& stats = registry.GetResidencyStats();
@@ -1045,6 +1074,19 @@ namespace OloEngine::Tests
                 << "no pages streamed in beyond the pinned set — request path broken";
             EXPECT_GT(stats.PageEvictions, 0ull)
                 << "a fine cut over a tight budget must evict pages (LRU) — none happened";
+            EXPECT_GE(firstUploadFrame, 0) << "no requested page ever streamed in";
+            // A generous margin over the ring's 3-slot depth, not a tight
+            // latency bound: this is real GPU fence-completion timing, which
+            // can lag further than usual on a loaded box (this machine also
+            // runs concurrent gh-runners) without the ring itself being
+            // broken. The property under test is "does not drift
+            // indefinitely" (a stuck ring — e.g. always re-applying the same
+            // stale snapshot — would never converge inside the whole 20-frame
+            // loop below), not a precise frame count.
+            EXPECT_LE(firstUploadFrame, 15)
+                << "the first streamed-in page took " << firstUploadFrame
+                << " frames — the non-stalling readback ring (issue #719) should resolve within a bounded "
+                   "number of frames, not drift indefinitely";
         }
         EXPECT_GE(minRed, coarseBaseline / 2)
             << "the sphere dropped out (hole) during streaming — the residency-clamped cut must "

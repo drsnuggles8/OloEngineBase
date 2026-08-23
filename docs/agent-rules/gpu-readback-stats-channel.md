@@ -297,3 +297,36 @@ restored. A new guard you have never seen fail is a guard you are guessing about
 **Generalise it:** before hooking a per-frame reset next to an existing one, check that the *work
 you are instrumenting* happens inside the same bracket. "Where the similar feature does it" is a
 guess about your feature's timing, not a fact about it.
+
+## 12. Converting a synchronous per-frame republish to an async ring: the reset does not move with the read
+
+Issue #719 (`VirtualMeshRegistry::ProcessResidency`). Not a stats counter, but the same failure
+family: a buffer that mixes a **persistent** bit (residency) with **transient** bits (a
+GPU-`atomicOr`'d request/touch flag) that the CPU used to republish clean, once per frame,
+synchronously.
+
+The direct instinct when moving that read onto a fenced ring (§3) is to move the *whole*
+read-process-republish sequence into the async path — capture, poll, and only *then* clear the
+transient bits, using whatever the polled snapshot says. That is wrong, and it does not crash or
+mis-render: it silently stops the transient bits from ever being cleared for a group the poll
+never happens to touch, because the poll only republishes groups whose *persistent* state changed
+(the targeted-write optimization in §5 applies equally well here). A "touched" bit that is
+`atomicOr`'d in every frame a page is actually visible, and never cleared once the camera looks
+away, freezes an LRU timestamp at "just used" forever — no wrong pixel, no error, no crash, just
+eviction picking worse and worse victims under budget pressure, days later, on a scene nobody
+thought to test with tight streaming pressure.
+
+The fix: keep the transient-bit reset on the OLD synchronous cadence — unconditional, every frame,
+right after the async capture's copy is issued (not gated on whether the copy was actually taken;
+see the full-ring-skip case in §3) — and let ONLY the read/decide half move onto the fence-poll
+ring. The shader re-derives and re-asserts every transient bit it still needs the very next
+dispatch, so nothing is lost by resetting before that snapshot is even read back; the reset and the
+async read are decoupled on purpose. Caught in this PR's own `/code-review` self-review, not by any
+test — the existing multi-frame streaming-convergence evidence test (which predates #719) could not
+distinguish "LRU works" from "LRU never has to work because nothing else is competing for the
+budget" over its own short run, which is exactly the gap a stale-touched-bit bug hides in.
+
+**Generalise it:** when a buffer holds both persistent and transient state and you're moving its
+*read* off the critical path, check whether its *write-back* was doing double duty — cleaning up
+transient state as a side effect of publishing persistent state. Splitting the read from the write
+without re-deriving that side effect separately drops it.
