@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Math/Math.h"
 
 #include <sstream>
 #include <string>
@@ -19,6 +20,31 @@ namespace OloEngine::SettingsChangeLog
 
         std::ostringstream oss;
         oss << name << ": " << (before ? "true" : "false") << " -> " << (after ? "true" : "false");
+        changes.emplace_back(oss.str());
+    }
+
+    // Floating-point overloads. The question a settings panel asks is "did this
+    // value move at all", so a bit-for-bit comparison is the right one — but it
+    // must not be spelled `==` (see docs/agent-rules/cpp-coding-quality.md §2).
+    // These are exact-match non-template overloads, so every f32/f64 field in
+    // every panel routes here rather than to the generic template below.
+    inline void AppendChange(std::vector<std::string>& changes, const char* name, const f32 before, const f32 after)
+    {
+        if (Math::BitwiseEqual(before, after))
+            return;
+
+        std::ostringstream oss;
+        oss << name << ": " << before << " -> " << after;
+        changes.emplace_back(oss.str());
+    }
+
+    inline void AppendChange(std::vector<std::string>& changes, const char* name, const f64 before, const f64 after)
+    {
+        if (Math::BitwiseEqual(before, after))
+            return;
+
+        std::ostringstream oss;
+        oss << name << ": " << before << " -> " << after;
         changes.emplace_back(oss.str());
     }
 

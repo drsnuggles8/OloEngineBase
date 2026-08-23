@@ -547,11 +547,14 @@ vectors FSR2 reconstructs from, so the output is soft and crawling rather than w
 > the setting instead and the graph keeps whichever resource was declared when the decision last
 > changed, and the upscale silently stops running. Same rule as §13's `Upscale` hash, one level down.
 
-**Exposure is FSR2's own, deliberately.** `FFX_FSR2_ENABLE_AUTO_EXPOSURE` is set rather than feeding
-the engine's metered value, because `ToneMapRenderPass` (which owns auto-exposure) runs **after** the
-upscaler — so FSR2's input is genuinely un-exposed HDR, which is the case that flag exists for. Its
-exposure also lives in an SSBO, not a 1×1 texture, so the explicit path would additionally be a
-frame-late SSBO→texture copy for no benefit.
+**Exposure is the engine's, and FSR2 is told to leave it alone.** `FFX_FSR2_ENABLE_AUTO_EXPOSURE` is
+deliberately **not** set: FSR2's auto-exposure bakes its metered value *into* the output, and
+`ToneMapRenderPass` (which owns auto-exposure here) runs **after** the upscaler and would then expose
+that frame a second time — measured as a pixel-correct first frame followed by a constant ~36%
+darkening. Clearing the flag is not enough on its own; with no exposure resource bound the runtime
+falls back to its internal one, so the backend also supplies a neutral 1.0 exposure texture
+(`OpenGLTemporalUpscaler::EnsureNeutralExposureTexture`) plus `preExposure = 1.0f`. That is the
+sanctioned "my colour is already in the space I want it back in" path.
 
 ## 14. GPU timer queries
 

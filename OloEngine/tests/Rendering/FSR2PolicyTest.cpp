@@ -279,8 +279,12 @@ TEST(FSR2PolicyTest, JitterIsExpressedAgainstTheRenderExtentNotTheDisplayExtent)
 
 TEST(FSR2PolicyTest, JitterIsLinearSignPreservingAndZeroSafe)
 {
-    EXPECT_EQ(JitterPixelsToNDC(glm::vec2(0.5f, -0.5f), 0u, 720u), glm::vec2(0.0f));
-    EXPECT_EQ(JitterPixelsToNDC(glm::vec2(0.5f, -0.5f), 1280u, 0u), glm::vec2(0.0f));
+    const glm::vec2 zeroWidth = JitterPixelsToNDC(glm::vec2(0.5f, -0.5f), 0u, 720u);
+    EXPECT_FLOAT_EQ(zeroWidth.x, 0.0f);
+    EXPECT_FLOAT_EQ(zeroWidth.y, 0.0f);
+    const glm::vec2 zeroHeight = JitterPixelsToNDC(glm::vec2(0.5f, -0.5f), 1280u, 0u);
+    EXPECT_FLOAT_EQ(zeroHeight.x, 0.0f);
+    EXPECT_FLOAT_EQ(zeroHeight.y, 0.0f);
 
     const glm::vec2 positive = JitterPixelsToNDC(glm::vec2(0.25f, 0.25f), 1280u, 720u);
     const glm::vec2 negative = JitterPixelsToNDC(glm::vec2(-0.25f, -0.25f), 1280u, 720u);
@@ -291,7 +295,9 @@ TEST(FSR2PolicyTest, JitterIsLinearSignPreservingAndZeroSafe)
     EXPECT_FLOAT_EQ(doubled.x, 2.0f * positive.x);
     EXPECT_FLOAT_EQ(doubled.y, 2.0f * positive.y);
 
-    EXPECT_EQ(JitterPixelsToNDC(glm::vec2(0.0f), 1280u, 720u), glm::vec2(0.0f));
+    const glm::vec2 zeroJitter = JitterPixelsToNDC(glm::vec2(0.0f), 1280u, 720u);
+    EXPECT_FLOAT_EQ(zeroJitter.x, 0.0f);
+    EXPECT_FLOAT_EQ(zeroJitter.y, 0.0f);
 }
 
 // -----------------------------------------------------------------------------

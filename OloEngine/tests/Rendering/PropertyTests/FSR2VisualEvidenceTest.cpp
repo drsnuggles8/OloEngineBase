@@ -324,8 +324,10 @@ namespace OloEngine::Tests
 
         EXPECT_LT(std::abs(fsr2Mean - nativeMean), nativeMean * 0.15)
             << "FSR2 shifted overall brightness (native=" << nativeMean << " fsr2=" << fsr2Mean
-            << "). Exposure is FSR2's own (FFX_FSR2_ENABLE_AUTO_EXPOSURE) — a large shift here means "
-               "its metering disagrees with the un-exposed HDR input it is supposed to receive.";
+            << "). FSR2 is configured with auto-exposure OFF and a neutral 1.0 exposure input, so it must "
+               "hand the frame back in the space it received it — a large shift here means that neutral "
+               "exposure is not reaching the runtime and it metered its own, which ToneMapRenderPass then "
+               "applies a second time.";
 
         const f64 nativeEnergy = GradientEnergy(nativePixels);
         const f64 fsr2Energy = GradientEnergy(fsr2Pixels);

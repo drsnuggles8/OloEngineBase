@@ -1655,7 +1655,7 @@ namespace OloEngine::Tests
         };
         constexpr Resolution kResolutions[] = { { 1280u, 720u }, { 1920u, 1080u }, { 2560u, 1440u } };
 
-        std::cout << "[FSR2 dispatch cost, RTX 4090]" << std::endl;
+        std::cout << "[FSR2 dispatch cost, " << GetPerfMachineTag() << "]" << std::endl;
         for (const auto& res : kResolutions)
         {
             ResizeRenderTarget(res.Width, res.Height);
@@ -1674,7 +1674,7 @@ namespace OloEngine::Tests
         pp.Technique = UpscalerTechnique::Spatial;
     }
 
-    TEST_F(FSR2Perf, TemporalUpscaleReducesGpuFrameTimeAtQualityAndBalanced)
+    TEST_F(FSR2Perf, ReportsTemporalUpscaleGpuFrameTimeAtQualityAndBalanced)
     {
         OLO_ENSURE_GPU_OR_SKIP();
         if (!TemporalIsUsable())

@@ -449,7 +449,9 @@ cmake --preset dev-cached -DOLO_WITH_FSR2=OFF
 ```
 
 The first configure after enabling it pays the clone; the permutation compile is an
-`add_custom_command` keyed on the pass sources, so it runs once per build tree.
+`add_custom_command` keyed on each pass source **and** on every shared `ffx_*.h` shader header
+(`OLO_FSR2_SHADER_INCLUDES`), so it re-runs when either changes and is otherwise paid once per build
+tree.
 
 ---
 

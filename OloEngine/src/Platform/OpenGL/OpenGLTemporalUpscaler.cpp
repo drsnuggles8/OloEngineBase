@@ -345,7 +345,7 @@ namespace OloEngine
                 if (const FfxErrorCode err = ffxFsr2GetInterfaceGL(&backendInterface,
                                                                    m_ScratchBuffer.data(),
                                                                    m_ScratchBuffer.size(),
-                                                                   reinterpret_cast<ffx_glGetProcAddress>(GLFWAPI::glfwGetProcAddress));
+                                                                   reinterpret_cast<ffx_glGetProcAddress>(::glfwGetProcAddress));
                     err != FFX_OK)
                 {
                     OLO_CORE_ERROR("FSR2: ffxFsr2GetInterfaceGL failed ({})", static_cast<i32>(err));
@@ -551,7 +551,7 @@ namespace OloEngine
                 if (const FfxErrorCode err = ffxFsr2GetInterfaceGL(&backendInterface,
                                                                    probeScratch.data(),
                                                                    probeScratch.size(),
-                                                                   reinterpret_cast<ffx_glGetProcAddress>(GLFWAPI::glfwGetProcAddress));
+                                                                   reinterpret_cast<ffx_glGetProcAddress>(::glfwGetProcAddress));
                     err != FFX_OK)
                 {
                     OLO_CORE_WARN("FSR2: ffxFsr2GetInterfaceGL failed during the device probe ({})", static_cast<i32>(err));
