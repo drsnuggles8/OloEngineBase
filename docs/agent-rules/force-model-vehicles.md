@@ -370,6 +370,30 @@ Once the achievable drive is not positive, hold the current angle. The vehicle
 still gets the (negative) force, which is the correct behaviour: a boat in irons
 is pushed astern and has to be backed out.
 
+### Measuring one of these in a test: three ways "0 m/s" lied (issue #899)
+
+Every one of these reported itself as **the vehicle made no speed**, which reads as a weak
+force model and points nowhere near the cause. Budget for them before writing the harness:
+
+* **Nobody was steering.** A rig aft of the centre of mass gives weather helm, so an unsteered
+  boat rounds up, luffs and stalls. A *bigger* sail rounds it up faster and therefore measures
+  SLOWER — the reading is not just wrong, it is inverted. Fix: a PD controller on the heading
+  error, writing the same steer input a player's hands would.
+* **It sailed off the water tile.** With no water volume under it, the keel, the rudder and
+  buoyancy all silently stop existing. A 9 m/s boat leaves an 800 m tile inside one 45 s window.
+  Fix: an absurdly large analytic surface, plus an explicit still-floating assertion.
+* **It capsized, and an inverted hull still floats at the waterline.** So a height check passes
+  while the sail's own heel factor has gone to zero and it makes no force. Fix: assert the hull
+  is UPRIGHT (`(rot * up).y > 0.5`), never just that it is at the right height.
+
+And the one that took longest: **reusing one vehicle for several conditions in a row.** The third
+leg inherited the previous leg's way and a few degrees of heading error, rounded up, and parked on
+the no-go boundary — where the drive is identically zero and the rudder cannot bear it away,
+because rudder authority needs the forward speed it no longer has. All of that is the model being
+right. Resetting the hull between legs made it worse: the rotation write did not reach the
+transform (see the note in memory), so the reset silently did nothing while reading as though it
+had. **Spawn a fresh vehicle per measurement**, disabled until its turn.
+
 ### And the tuning is a RATIO spread across components, which is how it rots
 
 Drift's sail area lives on `SailComponent`, the hull's forward drag on
