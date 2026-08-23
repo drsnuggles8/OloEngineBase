@@ -432,13 +432,32 @@ namespace OloEngine::Audio::SoundGraph
             m_Source->SuspendProcessing(false);
         }
 
-        // Register with the shared concurrent-voice budget BEFORE raising the graph's Play
-        // event, and stay VIRTUALIZED across the whole admission decision: the graph must
-        // not produce a single audible block before the budget has ruled. Acquire drives
-        // OnVoiceStart synchronously if this voice wins a slot, and that is what thaws and
-        // un-mutes it. Releasing first also drops any previous registration so the budget
-        // never holds two records for one graph.
+        // Freeze first, then latch the Play request, then let the budget rule — and stay
+        // VIRTUALIZED across the whole admission decision: the graph must not produce a
+        // single audible block before the budget has ruled. Acquire drives OnVoiceStart
+        // synchronously if this voice wins a slot, and that is what thaws and un-mutes it.
+        // Releasing first also drops any previous registration so the budget never holds
+        // two records for one graph.
         ReleaseVoice(/*resumePlayback=*/false);
+
+        // Forward the Play trigger into the runtime graph. Without this the play state
+        // flips to Playing on the sound wrapper but the graph's "Play" event input is
+        // never raised, so any node listening for that event (WavePlayer, envelopes,
+        // trigger nodes) never fires — the audio callback runs but every node stays at
+        // its idle/silent default.
+        //
+        // Latched HERE, after the freeze and before Acquire, not after the admission
+        // decision: SendPlayEvent only sets a dirty flag that Process consumes on its
+        // first non-suspended block, and the suspended early-out leaves that flag alone
+        // (unlike the input-event ring, which it drains). Raising it after Acquire would
+        // leave a winner thawed and un-muted for the window between OnVoiceStart and this
+        // call, and the audio thread can enter a block inside that window — running the
+        // graph from the PREVIOUS stream's m_CurrentFrame at full gain before the
+        // retrigger lands. Setting the latch while the source is still frozen means the
+        // first audible block is already the restarted one.
+        if (m_Source)
+            m_Source->SendPlayEvent();
+
         const auto handle = OloEngine::Audio::VoiceManager::Get().Acquire(this, BuildVoiceParams());
         m_VoiceHandle.store(handle, std::memory_order_release);
         if (handle == OloEngine::Audio::kInvalidVoiceHandle)
@@ -453,17 +472,6 @@ namespace OloEngine::Audio::SoundGraph
         // source until something thaws it. Acquire only emits transitions for state CHANGES
         // and every voice ENTERS virtual, so an over-budget voice is never handed to
         // OnVoiceStop; not thawing in the first place is what keeps it silent.
-
-        // Forward the Play trigger into the runtime graph. Without this the play state
-        // flips to Playing on the sound wrapper but the graph's "Play" event input is
-        // never raised, so any node listening for that event (WavePlayer, envelopes,
-        // trigger nodes) never fires — the audio callback runs but every node stays at
-        // its idle/silent default. Raised unconditionally, including when this voice lost
-        // the budget above: the request is a latched flag on the source, so a virtualized
-        // voice simply fires it on the first block after it is thawed, starting the graph
-        // when the player can actually hear it rather than burning DSP to run it silently.
-        if (m_Source)
-            m_Source->SendPlayEvent();
 
         return true;
     }
