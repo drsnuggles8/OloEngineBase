@@ -33,14 +33,18 @@ namespace OloEngine::Debug
 
     u64 NativeHandleForDiagnostics(const RenderGraph& graph, const RGTextureHandle handle)
     {
-        // Same order as the u32 form, and for the same reason: the native leg
-        // is the currency most resources still carry and it costs no registry
-        // lookup. A GL name widens losslessly, so nothing is lost by taking it
-        // first — unlike the truncation on the way OUT, which is what #890 was.
-        if (const u32 nativeId = graph.ResolveTexture(handle); nativeId != 0)
-            return static_cast<u64>(nativeId);
+        // IDENTITY FIRST, unlike the u32 twin above — and for the same reason
+        // HasLiveTextureStorage asks it first. `ResolveTexture` answers the
+        // graph's LEGACY 32-bit currency; the identity answers the backend's
+        // real one. Where both exist they agree under GL, so preferring the
+        // narrow one costs nothing there and silently discards the upper 32
+        // bits of anything wider. Taking the identity first means this function
+        // returns a handle a capture tool can actually match, which is the only
+        // reason it exists.
+        if (const RHI::ResourceHandle identity = graph.ResolveTextureHandle(handle); identity.IsValid())
+            return NativeHandleForDiagnostics(identity);
 
-        return NativeHandleForDiagnostics(graph.ResolveTextureHandle(handle));
+        return static_cast<u64>(graph.ResolveTexture(handle));
     }
 
     u64 NativeHandleForDiagnostics(const RHI::ResourceHandle identity)

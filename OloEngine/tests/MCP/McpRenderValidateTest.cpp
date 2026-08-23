@@ -153,6 +153,7 @@ TEST(McpRenderValidate, PhysicalKeyPrefersIdentityOverNativeHandle)
 {
     ResourceIdentity a;
     a.TextureIdentity = 0x0000000100000007ull;
+    a.TextureHasStorage = true;
     a.NativeTextureHandle = 999;
     EXPECT_EQ(0x0000000100000007ull, PhysicalKey(a));
 
@@ -164,6 +165,42 @@ TEST(McpRenderValidate, PhysicalKeyPrefersIdentityOverNativeHandle)
     EXPECT_EQ(0ull, PhysicalKey(unbacked)) << "unbacked is not a physical object everything shares";
 }
 
+// A physical key is only meaningful for a resource that HAS a physical object.
+// An unallocated transient still carries a live identity, so keying on "an id
+// is present" made VersionGroupsJson count it as a distinct physical resource
+// and report multiplePhysicalIds for a group whose versions all print
+// `backed: false` — a verdict contradicting the data printed beside it.
+// (CodeRabbit, PR #911.)
+TEST(McpRenderValidate, UnbackedResourceContributesNoPhysicalKey)
+{
+    ResourceIdentity unallocatedTransient;
+    unallocatedTransient.Name = "GTAOEdge";
+    unallocatedTransient.TextureIdentity = 0x000000010000003Cull; // live handle...
+    unallocatedTransient.TextureHasStorage = false;               // ...no storage
+    unallocatedTransient.NativeTextureHandle = 60;
+
+    EXPECT_FALSE(HasTextureBacking(unallocatedTransient));
+    EXPECT_EQ(0ull, PhysicalKey(unallocatedTransient))
+        << "an unbacked resource is not a physical object and must not be counted as one";
+
+    // Two unbacked versions of one base must not read as "two physical ids".
+    std::vector<ResourceIdentity> identities;
+    ResourceIdentity a = unallocatedTransient;
+    a.Name = "GTAOEdge";
+    ResourceIdentity b = unallocatedTransient;
+    b.Name = "GTAOEdge@GTAOPass";
+    b.TextureIdentity = 0x000000010000003Dull; // a DIFFERENT live handle
+    b.NativeTextureHandle = 61;
+    identities.push_back(a);
+    identities.push_back(b);
+
+    const Json groups = VersionGroupsJson(identities);
+    ASSERT_EQ(1u, groups.size());
+    EXPECT_FALSE(groups[0]["multiplePhysicalIds"].get<bool>())
+        << "neither version has a physical object, so there is nothing to split";
+    EXPECT_FALSE(groups[0]["versions"][0]["backed"].get<bool>());
+}
+
 // The token spelling matches the engine's own fmt formatter for RHI::Handle,
 // so a value copied out of an MCP reply matches what a log line prints.
 TEST(McpRenderValidate, IdentityTokenMatchesTheEngineSpelling)
@@ -173,6 +210,12 @@ TEST(McpRenderValidate, IdentityTokenMatchesTheEngineSpelling)
     EXPECT_EQ("0x1F", OloEngine::MCP::NativeHandleHex(31));
     // The value that used to be truncated: a 64-bit handle survives intact.
     EXPECT_EQ("0x1D2C3B4A5F6E7", OloEngine::MCP::NativeHandleHex(0x1D2C3B4A5F6E7ull));
+    // A VkImage whose UPPER 32 bits are set is the case the widening exists for:
+    // truncation would print "0x3C2" for this and correlate with nothing.
+    EXPECT_EQ("0x3C200000003C2", OloEngine::MCP::NativeHandleHex(0x3C200000003C2ull));
+    EXPECT_NE(OloEngine::MCP::NativeHandleHex(0x3C200000003C2ull),
+              OloEngine::MCP::NativeHandleHex(0x00000000000003C2ull))
+        << "two handles sharing only their low 32 bits must not print the same";
 }
 
 TEST(McpRenderValidate, VersionGroupsReportDistinctPhysicalIds)
@@ -181,16 +224,19 @@ TEST(McpRenderValidate, VersionGroupsReportDistinctPhysicalIds)
     ResourceIdentity base;
     base.Name = "SceneColor";
     base.TextureIdentity = 10;
+    base.TextureHasStorage = true;
     base.LastWriter = "Lighting";
     identities.push_back(base);
     ResourceIdentity version;
     version.Name = "SceneColor@ParticlePass";
     version.TextureIdentity = 11; // copy-on-write: a DIFFERENT physical resource
+    version.TextureHasStorage = true;
     version.LastWriter = "ParticlePass";
     identities.push_back(version);
     ResourceIdentity lone;
     lone.Name = "SceneDepth"; // single version — no group emitted
     lone.TextureIdentity = 12;
+    lone.TextureHasStorage = true;
     identities.push_back(lone);
 
     const Json groups = VersionGroupsJson(identities);
@@ -209,6 +255,7 @@ TEST(McpRenderValidate, VersionGroupSharedPhysicalIdIsNotFlagged)
         ResourceIdentity identity;
         identity.Name = name;
         identity.TextureIdentity = 33; // SSA versions aliasing ONE physical texture
+        identity.TextureHasStorage = true;
         identities.push_back(identity);
     }
     const Json groups = VersionGroupsJson(identities);

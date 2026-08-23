@@ -126,15 +126,20 @@ namespace OloEngine::MCP::RenderValidate
     // bare native id, which has no identity to give. Returns 0 for "unbacked",
     // which callers exclude from the distinctness count rather than treating
     // as a physical object shared by everything unbacked.
-    [[nodiscard]] inline u64 PhysicalKey(const ResourceIdentity& r) noexcept
+    [[nodiscard("The physical key is the version-group comparison; discarding it compares nothing.")]]
+    inline u64 PhysicalKey(const ResourceIdentity& r) noexcept
     {
-        if (r.TextureIdentity != 0)
-            return r.TextureIdentity;
-        if (r.BufferIdentity != 0)
-            return r.BufferIdentity;
-        if (r.NativeTextureHandle != 0)
-            return r.NativeTextureHandle;
-        return r.NativeBufferHandle;
+        // Gated on BACKING, not merely on "an id is present". A transient the
+        // planner never allocated still carries a live identity, and counting
+        // that as a distinct physical resource would let VersionGroupsJson
+        // report `multiplePhysicalIds` for a group whose versions are all
+        // unbacked — contradicting the `backed: false` printed beside them.
+        if (HasTextureBacking(r))
+            return r.TextureIdentity != 0 ? r.TextureIdentity : r.NativeTextureHandle;
+        if (HasBufferBacking(r))
+            return r.BufferIdentity != 0 ? r.BufferIdentity : r.NativeBufferHandle;
+
+        return 0;
     }
 
     // Group identities by base name and report every group where versions

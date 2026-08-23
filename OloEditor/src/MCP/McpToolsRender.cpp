@@ -556,8 +556,15 @@ namespace OloEngine::MCP
                     }
                     if (resource.BufferHandle.IsValid())
                     {
-                        info.NativeBufferHandle = static_cast<u64>(graph->ResolveBuffer(resource.BufferHandle));
-                        info.BufferIdentity = RHI::HashKey(graph->ResolveBufferHandle(resource.BufferHandle));
+                        // Through the IDENTITY where there is one: every Vulkan
+                        // buffer class answers 0 to GetRendererID(), so widening
+                        // ResolveBuffer's u32 would report 0 for a buffer whose
+                        // real VkBuffer handle we are holding.
+                        const RHI::ResourceHandle buffer = graph->ResolveBufferHandle(resource.BufferHandle);
+                        info.NativeBufferHandle =
+                            buffer.IsValid() ? Debug::NativeHandleForDiagnostics(buffer)
+                                             : static_cast<u64>(graph->ResolveBuffer(resource.BufferHandle));
+                        info.BufferIdentity = RHI::HashKey(buffer);
                     }
 
                     snap.Resources.push_back(std::move(info));
@@ -4173,10 +4180,13 @@ namespace OloEngine::MCP
                     }
                     if (resource.BufferHandle.IsValid())
                     {
+                        // Same as the topology export: the identity carries the
+                        // real native handle, ResolveBuffer's u32 is 0 on Vulkan.
+                        const RHI::ResourceHandle buffer = graph->ResolveBufferHandle(resource.BufferHandle);
                         identity.NativeBufferHandle =
-                            static_cast<u64>(graph->ResolveBuffer(resource.BufferHandle));
-                        identity.BufferIdentity =
-                            RHI::HashKey(graph->ResolveBufferHandle(resource.BufferHandle));
+                            buffer.IsValid() ? Debug::NativeHandleForDiagnostics(buffer)
+                                             : static_cast<u64>(graph->ResolveBuffer(resource.BufferHandle));
+                        identity.BufferIdentity = RHI::HashKey(buffer);
                     }
                     identity.HasProducers = !resource.Producers.empty();
                     identity.HasConsumers = !resource.Consumers.empty();
@@ -5905,7 +5915,7 @@ namespace OloEngine::MCP
                 "that produce and consume it. Each pass reports its work type (Graphics/Compute/Copy), whether "
                 "it declares resources, whether it is an async-compute candidate, whether it was culled "
                 "(unreachable from the final pass this frame), whether it is the final/output pass, and its "
-                "'accesses' — every resource it reads/writes WITH the resolved physical GL object id, so 'do "
+                "'accesses' — every resource it reads/writes WITH its resolved physical identity, so 'do "
                 "these two passes touch the same physical texture this frame' is a single lookup (each "
                 "resource also carries a 'gl' block: texture/framebuffer/attachment/buffer ids as of the last "
                 "executed frame; texture views resolve to their parent object). Use format:\"mermaid\" or "
@@ -5957,7 +5967,8 @@ namespace OloEngine::MCP
                                                                          .Prop("hasExternalBacking", Schema::Bool())
                                                                          .Prop("producers", Schema::Array(Schema::String()))
                                                                          .Prop("consumers", Schema::Array(Schema::String()))
-                                                                         .Prop("gl", Schema::Object().Desc("Resolved physical GL object ids as of the last executed frame (textureId, framebufferId, colorAttachmentIds, depthAttachmentId, bufferId, viewOfParentLayer); omitted when unbacked."))))
+                                                                         .Prop("native", Schema::Object().Desc("Backend-native object handles as hex, as of the last executed frame (texture, framebuffer, colorAttachments, depthAttachment, buffer). DISPLAY ONLY - what a RenderDoc / RGP capture shows. \"0x0\" is legitimate under Vulkan, so absence never means unbacked. Omitted when nothing native resolved."))
+                                                                         .Prop("identity", Schema::Object().Desc("Resolved RHI identities as \"#index:generation\" (texture, buffer, colorAttachments, depthAttachment), plus viewOfParentLayer for a layer/face view. This is the currency to COMPARE and to decide on - two resources sharing one answer touch the same physical object on every backend. Omitted when unbacked."))))
                                     .Prop("note", Schema::String())
                                     .Required({ "finalPass", "passCount", "passes", "executionOrder", "edgeCount", "edges", "resourceCount", "resources", "note" });
             tool.MainMarshaled = true;
@@ -6189,7 +6200,8 @@ namespace OloEngine::MCP
                 "resource-aliasing decisions are made, which olo_render_graph_topology_export (per-pass "
                 "resolved ids) does not show. Per plan entry: alias group + slot, whether it allocates a GPU "
                 "object (and the planner's skip reason if not), its FirstPass->LastPass lifetime, its resolved "
-                "GL texture id, what it is a version-alias OF, and the poison hue it would leak as. Per pool: "
+                "physical identity (plus the display-only native handle), what it is a version-alias OF, and the "
+                "poison hue it would leak as. Per pool: "
                 "bucket descriptors with free counts, estimated/acquired bytes, and this frame's ACQUIRE ORDER "
                 "(unsorted — two entries sharing an identity shared one GPU object). Use it when a target shows "
                 "one-frame garbage after a plan rebuild, when you suspect two live resources share a physical, "
@@ -6881,7 +6893,7 @@ namespace OloEngine::MCP
                 "On-demand render-graph frame validation: runs the compiled resource-hazard sweep "
                 "(read-after-write / write-after-write / cycle / imported-lifetime misuse), reports the "
                 "graph's barrier and build diagnostics and any execute-path resolve failures, and maps "
-                "every resource's RESOLVED physical GL id — flagging resources that are consumed but "
+                "every resource's RESOLVED physical identity — flagging resources that are consumed but "
                 "resolve to no backing, and grouping versioned names (SceneColor@PassB) with their "
                 "physical ids so copy-on-write aliasing is visible. 'ok': true means the sweep found "
                 "nothing. Optionally pass 'compare' to check two targets BIT-EXACTLY (channel 0, "
