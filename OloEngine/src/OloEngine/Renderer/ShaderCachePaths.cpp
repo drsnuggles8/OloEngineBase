@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Core/Environment.h"
 
 namespace OloEngine::ShaderCachePaths
@@ -9,10 +10,12 @@ namespace OloEngine::ShaderCachePaths
     {
         [[nodiscard("Store this!")]] std::filesystem::path ResolveRoot()
         {
-            // Routed through OloEngine::Env rather than a raw std::getenv call
-            // — see that header's rationale (cpp:S990, one suppression instead
-            // of one per call site). A developer override always wins.
-            if (const std::optional<std::string> dirOverride = Env::Get("OLO_SHADER_CACHE_DIR"); dirOverride)
+            // OLO_SHADER_CACHE_DIR is a registered lever (Core/DebugLevers.inl)
+            // rather than a raw Env::Get, so it gets the startup log, the MCP
+            // tool and DebugLevers.NoEngineCodeReadsAnOloVariableOutsideTheRegistry
+            // coverage for free. LOCALAPPDATA below is a real OS environment
+            // variable, not an engine lever, so it stays a direct Env::Get.
+            if (const std::optional<std::string> dirOverride = Levers::ShaderCacheDir(); dirOverride)
             {
                 return std::filesystem::path(*dirOverride);
             }
