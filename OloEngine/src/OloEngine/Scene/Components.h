@@ -1358,7 +1358,11 @@ namespace OloEngine
     struct VehicleComponent
     {
         // --- Wheel layout, in the chassis body's local space (meters) ---
-        // Half the track width: the left/right wheels sit at -/+ this on local X.
+        // Half the track width. The chassis is +Z-forward and +Y-up, so its
+        // right-hand side is forward x up == local -X (see Scene/EntityFacing.h):
+        // the LEFT wheels sit at +this and the RIGHT wheels at -this. Naming
+        // those the other way round is what made m_LeftRightSplit feed the wrong
+        // pair before issue #897.
         OLO_PROPERTY()
         OLO_SERIALIZE(Clamp, Min = 1.0e-3f, Max = 100.0f)
         f32 m_HalfTrackWidth = 0.9f;

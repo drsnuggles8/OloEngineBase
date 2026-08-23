@@ -7,7 +7,13 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .scenebin — Binary Scene Sidecar Cache — Version 1  (issue #525)
+    // .scenebin — Binary Scene Sidecar Cache  (issue #525)
+    //
+    // The wire-format version is OSceneFormat::CurrentVersion below, which
+    // carries its own per-bump changelog. Deliberately NOT restated here: this
+    // banner said "Version 1" through the v2 bump (#723) and the v3 one (#897),
+    // because a number copied into prose has no reason to be updated with the
+    // constant it duplicates.
     //
     // A derived, disposable cache written next to a scene's `.olo`/`.yaml` source
     // (`<scene>.scenebin`). YAML stays the source of truth; the sidecar exists
