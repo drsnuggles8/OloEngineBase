@@ -538,6 +538,14 @@ namespace OloEngine
         // Returns 0 for an invalid handle.
         [[nodiscard]] u32 ResolveBuffer(RGBufferHandle handle) const;
 
+        // The IDENTITY twin of ResolveBuffer, mirroring ResolveTextureHandle
+        // (issue #890). A buffer resource carries both currencies wherever the
+        // graph itself does the setting; a native-only ImportBuffer keeps a
+        // null handle, exactly as PhysicalBuffer documents. Needed because a
+        // diagnostic must not decide "unbacked" from a native id: every Vulkan
+        // buffer class answers 0 to GetRendererID() by design.
+        [[nodiscard]] RHI::ResourceHandle ResolveBufferHandle(RGBufferHandle handle) const;
+
         // Resolve a typed handle back to its current graph resource name.
         // For opt-in versioned writes this may be a derived version name
         // rather than the original canonical blackboard/import name.

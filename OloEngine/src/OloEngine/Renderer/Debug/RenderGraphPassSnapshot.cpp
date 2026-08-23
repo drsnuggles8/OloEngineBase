@@ -157,7 +157,7 @@ namespace OloEngine
             return;
         }
         out.SourceHandle = source;
-        out.NativeSourceId = static_cast<u32>(RHI::GetNativeHandleForDebug(source).Value);
+        out.NativeSourceHandle = RHI::GetNativeHandleForDebug(source).Value;
 
         RHI::TextureFormatInfo format;
         if (!RenderCommand::QueryTextureFormat(source, 0u, format))
@@ -221,7 +221,7 @@ namespace OloEngine
 
         out.Captured = true;
         out.Handle = clone;
-        out.NativeCloneId = static_cast<u32>(RHI::GetNativeHandleForDebug(clone).Value);
+        out.NativeCloneHandle = RHI::GetNativeHandleForDebug(clone).Value;
         out.Width = width;
         out.Height = height;
         out.DepthOrLayers = depthOrLayers;

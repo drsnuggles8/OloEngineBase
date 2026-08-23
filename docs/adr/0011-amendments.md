@@ -1962,3 +1962,138 @@ one's meaning further.
 
 Narrative and the mutual-exclusion invariant's exact code shape:
 [baked-lightmap-pipeline.md](../agent-rules/baked-lightmap-pipeline.md) §6.
+
+## Amendments from issue #890 (2026-08-22) — which currency decides
+
+### (90) A native handle may be PRINTED; only the identity may be DECIDED on
+
+Amendment (77) settled that a diagnostic surfaces **both** currencies. It did
+not say what a tool may do with each, and that gap was a live defect for as
+long as anyone could see it: `olo_render_validate` returned `ok: false` on
+Vulkan naming 13 resources as `consumedButUnbacked`, while
+`olo_render_capture_target` and `olo_render_target_stats` read real HDR scene
+content out of `SceneColor` — one of the 13 — in the same session. A
+*validation* tool that cries wolf is worse than no tool: the next session
+either chases phantom resources or learns to ignore the verdict.
+
+**The rule, and it is a rule about callers rather than about the cast.** The
+backend-native handle is a **display** value — what a RenderDoc / RGP capture
+shows, and nothing else. `RHI::ResourceHandle` is the **decision** value. A
+native `0` is legitimate and common: every Vulkan texture class returns 0 from
+`GetRendererID()` by design, a Vulkan framebuffer has no object at all under
+dynamic rendering (amendment (83)), and an arena-backed uniform buffer never
+had one. So a native handle can only ever **confirm** that an object exists;
+it can never **deny** it. `Debug::NativeTextureIdForDiagnostics` returning
+`u32` was never the bug — it is documented GL-shaped and it feeds the graph's
+own native currency. What varied was whether a caller printed the value or
+branched on it.
+
+**Two branches produced the 13, and only one of them was the suspected one.**
+The issue guessed at a truncated `VkImage`; measuring it found something
+simpler and worse. Eleven were **framebuffer-backed** — `SceneColor`,
+`BloomMip0..4` and five `@Pass` version aliases resolving through the same
+framebuffers — where the resolve ended at
+`VulkanFramebuffer::GetColorAttachmentRendererID`, which returns 0 by design.
+The topology export showed it plainly: `SceneColor` reported
+`colorAttachmentIds: [0,0,0,0]`.
+
+**And the tool was wrong on OpenGL too, in the opposite direction.** This is the
+half that no single-backend session can see, and the reason the acceptance
+evidence for a diagnostic has to be a real A/B. On OpenGL the same sweep
+returned `ok: true` with an empty list — while `GTAOEdge` and
+`GTAODenoisePong` answered *"has no storage at mip 0"* there as well. The
+topology export showed them carrying `textureId: 60` and `59`: non-zero GL
+names recycled out of the transient pool with nothing behind them. The old
+predicate saw non-zero and called it backed. So one root cause produced **11
+false positives on Vulkan and 2 false negatives on OpenGL**, and a fix
+validated on either backend alone would have looked complete while leaving the
+other half live.
+
+**The other two were TRUE positives, and that is the part worth keeping.**
+`GTAOEdge` and `GTAODenoisePong` really had no storage. A fix that merely
+stopped trusting the native id, or that tested "the identity is non-null",
+would have flipped those two into false negatives on Vulkan as well — turning a
+noisy tool into a silent one, which is the worse of the two failures. **So the predicate is a STORAGE QUERY**, not a null check:
+`Debug::HasLiveTextureStorage` asks the backend through the facade
+(`RenderCommand::GetTextureDimensions`) after checking the registry says the
+handle is live.
+
+**And the ORDER of the three questions is the fix — getting it subtly wrong
+reproduces the opposite bug.** The first cut of this change let a valid
+identity *confirm* backing alongside the storage query. It made Vulkan report
+`ok: true` with an empty list, which looked like a clean pass, while
+`olo_render_target_stats` still answered *"has no storage at mip 0"* for
+`GTAOEdge` in the same session — the exact false negative this amendment warns
+about, now shipped by the fix for it. The unit test passed throughout, because
+it encoded the assumption (`identity == 0`) instead of the real shape: a
+render-graph resource can carry a perfectly live handle and still have no
+storage this frame, when the planner never allocated the transient.
+
+The rule that survives: **an identity means the backend CAN be asked, not that
+the answer is yes.** Its storage answer is final in both directions. The native
+handle is consulted only when there is no identity to ask about — a resource
+imported as a bare native id — where a non-zero name is the only evidence
+available, and where it still cannot deny backing.
+
+**The same mistake then turned up one layer down, and only the OTHER backend
+showed it.** With the MCP predicate corrected, Vulkan reported exactly the two
+true positives — but OpenGL went back to `ok: true` with an empty list while
+`olo_render_target_stats` still said "has no storage at mip 0" for both.
+`Debug::HasLiveTextureStorage(graph, handle)` was testing the native leg
+*first* and returning early on a non-zero result, so on OpenGL a transient the
+planner never allocated still resolved to a recycled, non-zero GL name
+(`0x3C`) and the storage query never ran. Native-first reads as a harmless
+ordering choice; it is the whole bug. The identity is asked first and its
+answer is final, and the native leg is reached only when there is no identity
+to interrogate.
+
+Three cuts, three places, one rule — which is the point worth carrying: this
+is not a predicate to fix once, it is an ORDERING that every layer resolving a
+resource has to repeat. Both spellings now carry a comment saying so.
+
+This is also the standing argument for the live A/B over a green suite. The
+defect, the fix, and both of the fix's own regressions were each invisible to
+the tests and each obvious in one `olo_render_target_stats` call — and the
+second regression was visible on OpenGL only, having been introduced while
+making Vulkan correct.
+
+The generalisable form: **when a diagnostic's verdict flips a boolean, check
+what a legitimate zero in that field means on every backend before treating
+its absence as absence of the thing.** The dangerous predicate is not the one
+that is obviously backend-specific; it is the one whose sentinel value is
+*valid data* somewhere else.
+
+**Consequences carried out with it.**
+
+- **Every `gl*` display field is now `nativeHandle`-shaped**: `u64`, rendered
+  as hex, named off the `gl` prefix — matching what `olo_gpu_resources` has
+  emitted since #888 and amendment (88)'s "native ids are u64 through the whole
+  inspector". `olo_render_graph_topology_export` grew parallel `native` and
+  `identity` blocks per resource (and `physicalKey` per pass access);
+  `olo_render_transient_plan` and the pool's `acquireOrder`, `olo_material_get`
+  and the `afterPass` snapshot meta all report both. These are MCP
+  output-schema changes and shipped with their schemas.
+- **`RenderGraph` grew `ResolveBufferHandle`**, the identity twin of
+  `ResolveBuffer`. Its absence was why buffer-backed resources had no honest
+  backing answer at all; every Vulkan buffer class answers 0 to
+  `GetRendererID()` for the same reason the texture classes do.
+- **`ResolveTargetTexture` is deleted, not renamed.** Both remaining callers
+  now resolve through `ResolveTargetHandle` and report both currencies. The
+  name read like "the texture you can use", and the next caller to hand its
+  result to GL would have re-created the SEH-at-0x0 crash #888 fixed. A
+  loaded gun is not made safe by relabelling it.
+- **`ShadowMap::GetCSMRawRendererID` / `GetAtlasRawRendererID` are gone — but
+  they were NOT the callerless accessors the issue described.** Their one
+  caller was `RenderPipeline`'s raw-view *declaration gate*
+  (`if (csmRawID != 0)`), which is the same defect as the headline one: on
+  Vulkan the existence of `ShadowCSMRaw` / `ShadowAtlasRaw` in the graph rested
+  entirely on a truncated handle happening to be nonzero. The gate reads
+  `csmRawTexture.IsValid()` now, and only then could the accessors go. Worth
+  not re-deriving: an accessor reported as dead may be alive at exactly the
+  site that matters.
+- **Still a documented latent hazard, not rebuilt**: `RenderGraphFrameCapture`
+  and `RenderGraphDebugger` pass the same truncated ids to `ImGui::ImageButton`
+  as an `ImTextureID`. Nothing consumes them because the Vulkan ImGui
+  *renderer* backend is skipped (amendment (88), consequence 3). That is a
+  shield, not a fix, and it becomes real the day that backend is enabled.
+

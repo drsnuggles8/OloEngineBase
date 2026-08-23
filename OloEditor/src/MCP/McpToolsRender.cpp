@@ -504,22 +504,31 @@ namespace OloEngine::MCP
                     info.Producers = resource.Producers;
                     info.Consumers = resource.Consumers;
 
-                    // Resolved physical GL object ids (issue #607) — the
-                    // one-call answer to "do these two passes touch the same
-                    // physical texture this frame". Resolved inside this same
+                    // Resolved physical backing (issue #607) — the one-call
+                    // answer to "do these two passes touch the same physical
+                    // texture this frame". Resolved inside this same
                     // main-thread job as the enumeration so the snapshot is
-                    // internally consistent; the ids are the LAST EXECUTED
+                    // internally consistent; the values are the LAST EXECUTED
                     // frame's (transients can re-alias next frame).
+                    //
+                    // BOTH currencies (issue #890, ADR 0011 amendment (90)):
+                    // the identity is what the "same physical object?" question
+                    // is answered in, the native handle is what a RenderDoc
+                    // capture shows. Filling only the latter is what made this
+                    // export unreadable on Vulkan, where every framebuffer
+                    // attachment reports 0.
                     if (resource.TextureHandle.IsValid())
                     {
-                        info.GLTextureId = Debug::NativeTextureIdForDiagnostics(*graph, resource.TextureHandle);
+                        info.NativeTextureHandle =
+                            Debug::NativeHandleForDiagnostics(*graph, resource.TextureHandle);
+                        info.TextureIdentity = RHI::HashKey(graph->ResolveTextureHandle(resource.TextureHandle));
                         info.ViewOfParentLayer = graph->GetTextureViewLayerIndex(resource.Name);
                     }
                     if (resource.FramebufferHandle.IsValid())
                     {
                         if (const Ref<Framebuffer> framebuffer = graph->ResolveFramebuffer(resource.FramebufferHandle))
                         {
-                            info.GLFramebufferId = framebuffer->GetRendererID();
+                            info.NativeFramebufferHandle = static_cast<u64>(framebuffer->GetRendererID());
                             const auto& attachments = framebuffer->GetSpecification().Attachments.Attachments;
                             u32 colorIndex = 0;
                             for (const auto& attachment : attachments)
@@ -529,19 +538,34 @@ namespace OloEngine::MCP
                                 if (attachment.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
                                     attachment.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F)
                                 {
-                                    info.GLDepthAttachmentId = framebuffer->GetDepthAttachmentRendererID();
+                                    const RHI::ResourceHandle depth = framebuffer->GetDepthAttachmentHandle();
+                                    info.NativeDepthAttachmentHandle = Debug::NativeHandleForDiagnostics(depth);
+                                    info.DepthAttachmentIdentity = RHI::HashKey(depth);
                                 }
                                 else
                                 {
-                                    info.GLColorAttachmentIds.push_back(
-                                        framebuffer->GetColorAttachmentRendererID(colorIndex));
+                                    const RHI::ResourceHandle color =
+                                        framebuffer->GetColorAttachmentHandle(colorIndex);
+                                    info.NativeColorAttachmentHandles.push_back(
+                                        Debug::NativeHandleForDiagnostics(color));
+                                    info.ColorAttachmentIdentities.push_back(RHI::HashKey(color));
                                     ++colorIndex;
                                 }
                             }
                         }
                     }
                     if (resource.BufferHandle.IsValid())
-                        info.GLBufferId = graph->ResolveBuffer(resource.BufferHandle);
+                    {
+                        // Through the IDENTITY where there is one: every Vulkan
+                        // buffer class answers 0 to GetRendererID(), so widening
+                        // ResolveBuffer's u32 would report 0 for a buffer whose
+                        // real VkBuffer handle we are holding.
+                        const RHI::ResourceHandle buffer = graph->ResolveBufferHandle(resource.BufferHandle);
+                        info.NativeBufferHandle =
+                            buffer.IsValid() ? Debug::NativeHandleForDiagnostics(buffer)
+                                             : static_cast<u64>(graph->ResolveBuffer(resource.BufferHandle));
+                        info.BufferIdentity = RHI::HashKey(buffer);
+                    }
 
                     snap.Resources.push_back(std::move(info));
                 }
@@ -562,46 +586,16 @@ namespace OloEngine::MCP
             return ToolResult::Structured(transport);
         }
 
-        // (main thread) Resolve a render-graph resource name to a physical GL
-        // texture id, or 0 when the name is unknown / has no GPU backing this
-        // frame. First as a graph texture (covers attachment views like
-        // SceneDepth / GBufferAlbedo and imported textures like ShadowMapCSM),
-        // then as a framebuffer (colour attachment 0, or the depth attachment for
-        // depth-only targets). Shared by olo_render_capture_target and
-        // olo_render_probe_pixel so both resolve names identically.
-        u32 ResolveTargetTexture(const std::string& name)
-        {
-            if (const u32 textureId = Renderer3D::ResolveFrameGraphTexture(name); textureId != 0)
-                return textureId;
-
-            // Same fallback, by name rather than by handle — this path is what
-            // olo_render_capture_target uses, and the by-name lookups live on
-            // Renderer3D rather than on RenderGraph.
-            if (const u32 nativeId =
-                    Debug::NativeTextureIdForDiagnostics(Renderer3D::ResolveFrameGraphTextureHandle(name));
-                nativeId != 0)
-            {
-                return nativeId;
-            }
-
-            const Ref<Framebuffer> framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(name);
-            if (!framebuffer)
-                return 0;
-
-            bool hasColor = false;
-            for (const auto& attachment : framebuffer->GetSpecification().Attachments.Attachments)
-            {
-                if (attachment.TextureFormat != FramebufferTextureFormat::DEPTH24STENCIL8 &&
-                    attachment.TextureFormat != FramebufferTextureFormat::DEPTH_COMPONENT32F &&
-                    attachment.TextureFormat != FramebufferTextureFormat::None)
-                {
-                    hasColor = true;
-                    break;
-                }
-            }
-            return hasColor ? framebuffer->GetColorAttachmentRendererID(0)
-                            : framebuffer->GetDepthAttachmentRendererID();
-        }
+        // (main thread) `ResolveTargetTexture(name)` used to live here: a
+        // render-graph resource name to a truncated backend-native texture id.
+        // It is GONE (issue #890). Both of its remaining callers only REPORTED
+        // the value, but the name read like "the texture you can use", and the
+        // next caller to hand the result to GL would have re-created the
+        // SEH-at-0x0 crash #888 had just fixed — a `VkImage` truncated into a
+        // u32 is nonzero garbage that passes every validity check on the way.
+        // Both callers now resolve through ResolveTargetHandle below and report
+        // BOTH currencies; the native handle they print comes from
+        // Debug::NativeHandleForDiagnostics at full 64-bit width.
 
         const char* GpuResourceTypeName(GPUResourceInspector::ResourceType type)
         {
@@ -647,11 +641,13 @@ namespace OloEngine::MCP
             return "none";
         }
 
-        // (main thread) The IDENTITY twin of ResolveTargetTexture: a
-        // render-graph resource name to the RHI handle that names it, with the
-        // same fallback order. This is the resolve every readback tool uses
-        // since #810 — the native-id form above survives only where the source
-        // really is a GL object (the mid-frame afterPass clone).
+        // (main thread) A render-graph resource name to the RHI handle that
+        // names it: as a graph texture first (covers attachment views like
+        // SceneDepth / GBufferAlbedo and imported textures like ShadowMapCSM),
+        // then as a framebuffer (colour attachment 0, or the depth attachment
+        // for depth-only targets). This is the ONE resolve every render tool
+        // uses since #810, and since #890 the only one there is — the
+        // native-id twin that used to sit above it is gone.
         //
         // `outDepthFromFramebuffer` reports that the name resolved through a
         // depth-only framebuffer attachment, which is the one case where the
@@ -1173,7 +1169,10 @@ namespace OloEngine::MCP
                 if (!afterPass.empty())
                 {
                     meta["afterPass"] = afterPass;
-                    meta["snapshotSourceTextureId"] = snapshotResult.NativeSourceId;
+                    meta["snapshotSourceNativeHandle"] =
+                        MCP::NativeHandleHex(snapshotResult.NativeSourceHandle);
+                    meta["snapshotSourceIdentity"] =
+                        MCP::IdentityToken(RHI::HashKey(snapshotResult.SourceHandle));
                     meta["frameIndexNote"] = "frameIndex is the collect-time frame; the snapshot was cloned "
                                              "mid-frame during the immediately preceding rendered frame.";
                 }
@@ -2760,11 +2759,21 @@ namespace OloEngine::MCP
                     // orphan-allocation bug this whole diagnostic exists to catch.
                     if (const auto aliasIt = versionAliases.find(entry.Resource); aliasIt != versionAliases.end())
                         j["versionAliasOf"] = aliasIt->second;
-                    // The resolved physical id, so "did these two plan entries get
-                    // the same GPU object" is one lookup rather than an inference
-                    // from alias group + slot.
-                    if (const u32 textureId = ResolveTargetTexture(entry.Resource); textureId != 0)
-                        j["glTexture"] = textureId;
+                    // The resolved physical backing, so "did these two plan
+                    // entries get the same GPU object" is one lookup rather
+                    // than an inference from alias group + slot. Compare
+                    // `identity` for that — it is the currency that answers it
+                    // on both backends (issue #890); `nativeTexture` is the
+                    // hex a RenderDoc capture shows and is display only.
+                    {
+                        bool depthFromFramebuffer = false;
+                        const RHI::ResourceHandle texture =
+                            ResolveTargetHandle(entry.Resource, depthFromFramebuffer);
+                        if (const u64 native = Debug::NativeHandleForDiagnostics(texture); native != 0)
+                            j["nativeTexture"] = MCP::NativeHandleHex(native);
+                        if (const std::string token = MCP::IdentityToken(RHI::HashKey(texture)); !token.empty())
+                            j["identity"] = token;
+                    }
                     // Poison hue is reported unconditionally — knowing which colour
                     // a resource WOULD leak as is what lets you plan the hunt before
                     // turning poison mode on.
@@ -2831,7 +2840,9 @@ namespace OloEngine::MCP
                         for (const auto& acquired : pool.GetAcquireOrder(&liveFrame))
                         {
                             Json a{ { "kind", acquired.Kind },
-                                    { "glId", acquired.RendererID },
+                                    { "nativeHandle", MCP::NativeHandleHex(
+                                                          Debug::NativeHandleForDiagnostics(acquired.Handle)) },
+                                    { "identity", MCP::IdentityToken(RHI::HashKey(acquired.Handle)) },
                                     { "identityIndex", acquired.Handle.Index },
                                     { "identityGeneration", acquired.Handle.Generation } };
                             if (acquired.Kind == "buffer")
@@ -2853,7 +2864,9 @@ namespace OloEngine::MCP
                         out["pool"]["acquireOrderNote"] =
                             std::string("Acquisition order, not sorted — the order the alias-slot assigner consumed "
                                         "the pool. A LIFO pool's reuse pattern is only readable in this order; two "
-                                        "entries sharing a glId shared one GPU object. ") +
+                                        "entries sharing an identity shared one GPU object. Compare 'identity', not "
+                                        "'nativeHandle' - the native handle is display only and is legitimately 0 on "
+                                        "Vulkan, where every entry would then appear to share one object. ") +
                             (liveFrame ? "This is the IN-PROGRESS frame."
                                        : "This is the last COMPLETED frame (ReleaseAll() returns every object to the "
                                          "pool at end of frame, so a between-frames read has no live acquisitions).");
@@ -4133,12 +4146,48 @@ namespace OloEngine::MCP
                 {
                     RenderValidate::ResourceIdentity identity;
                     identity.Name = resource.Name;
+
+                    // BOTH currencies, and the BACKING verdict comes from the
+                    // identity leg (issue #890, ADR 0011 amendment (90)). The
+                    // old code decided `consumedButUnbacked` from a GL-shaped
+                    // u32. Measured live, that was wrong on BOTH backends in
+                    // opposite directions: on Vulkan it reported 11 readable,
+                    // scene-content-carrying resources as unbacked (a native 0
+                    // is what every framebuffer attachment reports there, by
+                    // design), and on OpenGL it MISSED two genuinely storage-
+                    // less resources carrying recycled non-zero GL names.
                     if (resource.TextureHandle.IsValid())
-                        identity.GLTextureId = Debug::NativeTextureIdForDiagnostics(*graph, resource.TextureHandle);
+                    {
+                        const RHI::ResourceHandle texture = graph->ResolveTextureHandle(resource.TextureHandle);
+                        identity.NativeTextureHandle =
+                            Debug::NativeHandleForDiagnostics(*graph, resource.TextureHandle);
+                        identity.TextureIdentity = RHI::HashKey(texture);
+                        identity.TextureHasStorage =
+                            Debug::HasLiveTextureStorage(*graph, resource.TextureHandle);
+                    }
                     else if (resource.FramebufferHandle.IsValid())
-                        identity.GLTextureId = ResolveTargetTexture(resource.Name);
+                    {
+                        // A framebuffer-backed resource is asked the same
+                        // question through its attachment, which is where the
+                        // identity lives. This is the branch that produced all
+                        // 11 of the Vulkan false positives.
+                        bool depthFromFramebuffer = false;
+                        const RHI::ResourceHandle attachment =
+                            ResolveTargetHandle(resource.Name, depthFromFramebuffer);
+                        identity.NativeTextureHandle = Debug::NativeHandleForDiagnostics(attachment);
+                        identity.TextureIdentity = RHI::HashKey(attachment);
+                        identity.TextureHasStorage = Debug::HasLiveTextureStorage(attachment);
+                    }
                     if (resource.BufferHandle.IsValid())
-                        identity.GLBufferId = graph->ResolveBuffer(resource.BufferHandle);
+                    {
+                        // Same as the topology export: the identity carries the
+                        // real native handle, ResolveBuffer's u32 is 0 on Vulkan.
+                        const RHI::ResourceHandle buffer = graph->ResolveBufferHandle(resource.BufferHandle);
+                        identity.NativeBufferHandle =
+                            buffer.IsValid() ? Debug::NativeHandleForDiagnostics(buffer)
+                                             : static_cast<u64>(graph->ResolveBuffer(resource.BufferHandle));
+                        identity.BufferIdentity = RHI::HashKey(buffer);
+                    }
                     identity.HasProducers = !resource.Producers.empty();
                     identity.HasConsumers = !resource.Consumers.empty();
                     identity.LastWriter = graph->GetLastWriterPassName(resource.Name);
@@ -4899,17 +4948,34 @@ namespace OloEngine::MCP
         Json ResolvedMaterialJson(const Material& material, const PODMaterialData& data,
                                   u32 submeshIndex, std::string_view source)
         {
-            // NATIVE ids, matching this tool's published schema ("Bound GL
-            // texture id per slot ... 0 = none") and comparable with the ids
-            // olo_render_list_targets reports. The fields are identities since
-            // issue #691, so resolve rather than reformat — printing
-            // "#3:1" here would silently break every existing consumer.
+            // BOTH currencies per slot (issue #890). The fields are identities
+            // since issue #691; `textures` reports the backend-native handle
+            // as hex for RenderDoc correlation, and `textureIdentities` the
+            // RHI handle, which is the only one that means anything under
+            // Vulkan — where a truncated `VkImage` correlates with nothing a
+            // capture shows, and slots the shader really samples would print
+            // as an arbitrary 32-bit number.
+            const auto nativeSlot = [](RHI::ResourceHandle handle)
+            { return MCP::NativeHandleHex(Debug::NativeHandleForDiagnostics(handle)); };
+            const auto identitySlot = [](RHI::ResourceHandle handle)
+            {
+                const std::string token = MCP::IdentityToken(RHI::HashKey(handle));
+                return token.empty() ? std::string("<none>") : token;
+            };
+
             Json textures;
-            textures["albedo"] = Debug::NativeTextureIdForDiagnostics(data.albedoMapID);
-            textures["metallicRoughness"] = Debug::NativeTextureIdForDiagnostics(data.metallicRoughnessMapID);
-            textures["normal"] = Debug::NativeTextureIdForDiagnostics(data.normalMapID);
-            textures["ao"] = Debug::NativeTextureIdForDiagnostics(data.aoMapID);
-            textures["emissive"] = Debug::NativeTextureIdForDiagnostics(data.emissiveMapID);
+            textures["albedo"] = nativeSlot(data.albedoMapID);
+            textures["metallicRoughness"] = nativeSlot(data.metallicRoughnessMapID);
+            textures["normal"] = nativeSlot(data.normalMapID);
+            textures["ao"] = nativeSlot(data.aoMapID);
+            textures["emissive"] = nativeSlot(data.emissiveMapID);
+
+            Json textureIdentities;
+            textureIdentities["albedo"] = identitySlot(data.albedoMapID);
+            textureIdentities["metallicRoughness"] = identitySlot(data.metallicRoughnessMapID);
+            textureIdentities["normal"] = identitySlot(data.normalMapID);
+            textureIdentities["ao"] = identitySlot(data.aoMapID);
+            textureIdentities["emissive"] = identitySlot(data.emissiveMapID);
 
             Json useMaps;
             useMaps["useAlbedoMap"] = data.albedoMapID.IsValid();
@@ -4938,6 +5004,7 @@ namespace OloEngine::MCP
             j["iblIntensity"] = data.iblIntensity;
             j["useMaps"] = std::move(useMaps);
             j["textureIds"] = std::move(textures);
+            j["textureIdentities"] = std::move(textureIdentities);
             return j;
         }
 
@@ -5848,7 +5915,7 @@ namespace OloEngine::MCP
                 "that produce and consume it. Each pass reports its work type (Graphics/Compute/Copy), whether "
                 "it declares resources, whether it is an async-compute candidate, whether it was culled "
                 "(unreachable from the final pass this frame), whether it is the final/output pass, and its "
-                "'accesses' — every resource it reads/writes WITH the resolved physical GL object id, so 'do "
+                "'accesses' — every resource it reads/writes WITH its resolved physical identity, so 'do "
                 "these two passes touch the same physical texture this frame' is a single lookup (each "
                 "resource also carries a 'gl' block: texture/framebuffer/attachment/buffer ids as of the last "
                 "executed frame; texture views resolve to their parent object). Use format:\"mermaid\" or "
@@ -5877,8 +5944,10 @@ namespace OloEngine::MCP
                                                                       .Prop("accesses", Schema::Array(Schema::Object()
                                                                                                           .Prop("resource", Schema::String())
                                                                                                           .Prop("mode", Schema::String().Enum({ "write", "read" }))
-                                                                                                          .Prop("glTextureId", Schema::Int().Desc("Resolved physical texture id; omitted when unbacked."))
-                                                                                                          .Prop("glBufferId", Schema::Int().Desc("Omitted when not buffer-backed.")))
+                                                                                                          .Prop("physicalKey", Schema::String().Desc("Resolved physical object as \"#index:generation\" - two accesses sharing it touch the same object, on every backend. Omitted when unbacked."))
+                                                                                                          .Prop("nativeTexture", Schema::String().Desc("Backend-native texture handle as hex; display only, omitted when 0."))
+                                                                                                          .Prop("nativeBuffer", Schema::String().Desc("Backend-native buffer handle as hex; display only, omitted when 0."))
+                                                                                                          .Prop("bufferIdentity", Schema::String().Desc("Resolved buffer identity; omitted when not buffer-backed.")))
                                                                                             .Desc("Resources the pass reads/writes; omitted when it accesses none."))))
                                     .Prop("executionOrder", Schema::Array(Schema::String()).Desc("Topologically-sorted run order."))
                                     .Prop("edgeCount", Schema::Int().Min(0))
@@ -5898,7 +5967,8 @@ namespace OloEngine::MCP
                                                                          .Prop("hasExternalBacking", Schema::Bool())
                                                                          .Prop("producers", Schema::Array(Schema::String()))
                                                                          .Prop("consumers", Schema::Array(Schema::String()))
-                                                                         .Prop("gl", Schema::Object().Desc("Resolved physical GL object ids as of the last executed frame (textureId, framebufferId, colorAttachmentIds, depthAttachmentId, bufferId, viewOfParentLayer); omitted when unbacked."))))
+                                                                         .Prop("native", Schema::Object().Desc("Backend-native object handles as hex, as of the last executed frame (texture, framebuffer, colorAttachments, depthAttachment, buffer). DISPLAY ONLY - what a RenderDoc / RGP capture shows. \"0x0\" is legitimate under Vulkan, so absence never means unbacked. Omitted when nothing native resolved."))
+                                                                         .Prop("identity", Schema::Object().Desc("Resolved RHI identities as \"#index:generation\" (texture, buffer, colorAttachments, depthAttachment), plus viewOfParentLayer for a layer/face view. This is the currency to COMPARE and to decide on - two resources sharing one answer touch the same physical object on every backend. Omitted when unbacked."))))
                                     .Prop("note", Schema::String())
                                     .Required({ "finalPass", "passCount", "passes", "executionOrder", "edgeCount", "edges", "resourceCount", "resources", "note" });
             tool.MainMarshaled = true;
@@ -5959,7 +6029,8 @@ namespace OloEngine::MCP
                                     .Prop("liveness", EditorLiveness::SchemaNode())
                                     .Prop("name", Schema::String().Desc("Captured render-graph resource name."))
                                     .Prop("afterPass", Schema::String().Desc("Mid-frame snapshot pass; omitted unless 'afterPass' was given."))
-                                    .Prop("snapshotSourceTextureId", Schema::Int().Desc("Source texture of the afterPass snapshot clone; omitted without 'afterPass'."))
+                                    .Prop("snapshotSourceNativeHandle", Schema::String().Desc("Backend-native handle of the afterPass snapshot's SOURCE texture, as hex; display only. Omitted without 'afterPass'."))
+                                    .Prop("snapshotSourceIdentity", Schema::String().Desc("RHI identity of the afterPass snapshot's SOURCE texture; omitted without 'afterPass'."))
                                     .Prop("frameIndexNote", Schema::String().Desc("afterPass frameIndex semantics; omitted without 'afterPass'."))
                                     .Prop("layer", Schema::Int().Min(0).Desc("GL array layer / cube face / z-slice actually read."))
                                     .Prop("layers", Schema::Int().Desc("Layer count; array/cube/3D targets only."))
@@ -6129,9 +6200,10 @@ namespace OloEngine::MCP
                 "resource-aliasing decisions are made, which olo_render_graph_topology_export (per-pass "
                 "resolved ids) does not show. Per plan entry: alias group + slot, whether it allocates a GPU "
                 "object (and the planner's skip reason if not), its FirstPass->LastPass lifetime, its resolved "
-                "GL texture id, what it is a version-alias OF, and the poison hue it would leak as. Per pool: "
+                "physical identity (plus the display-only native handle), what it is a version-alias OF, and the "
+                "poison hue it would leak as. Per pool: "
                 "bucket descriptors with free counts, estimated/acquired bytes, and this frame's ACQUIRE ORDER "
-                "(unsorted — two entries sharing a glId shared one GPU object). Use it when a target shows "
+                "(unsorted — two entries sharing an identity shared one GPU object). Use it when a target shows "
                 "one-frame garbage after a plan rebuild, when you suspect two live resources share a physical, "
                 "or to check that a versioned name (SceneColor@SomePass) resolves to its base's physical rather "
                 "than an orphan — the exact question behind the one-frame black-square artifact, which "
@@ -6158,7 +6230,8 @@ namespace OloEngine::MCP
                                                                        .Prop("lastPassIndex", Schema::Int())
                                                                        .Prop("skipReason", Schema::String().Desc("Why the planner did not allocate; omitted when it did."))
                                                                        .Prop("versionAliasOf", Schema::String().Desc("Source resource this versioned name renames; omitted for a base name."))
-                                                                       .Prop("glTexture", Schema::Int().Desc("Resolved physical texture id; omitted when unbacked this frame."))
+                                                                       .Prop("nativeTexture", Schema::String().Desc("Backend-native texture handle as hex; display only, omitted when 0."))
+                                                                       .Prop("identity", Schema::String().Desc("Resolved physical object as \"#index:generation\" - compare THIS to tell whether two entries got the same GPU object. Omitted when unbacked this frame."))
                                                                        .Prop("poisonColor", Schema::String().Desc("Hue this resource is cleared to under poisonTransients."))))
                                     .Prop("planSize", Schema::Int().Min(0).Desc("Total plan entries before any 'resource' filter."))
                                     .Prop("topologyGeneration", Schema::Int().Min(0).Desc("Bumped on every topology teardown — a change means the plan was rebuilt."))
@@ -6820,7 +6893,7 @@ namespace OloEngine::MCP
                 "On-demand render-graph frame validation: runs the compiled resource-hazard sweep "
                 "(read-after-write / write-after-write / cycle / imported-lifetime misuse), reports the "
                 "graph's barrier and build diagnostics and any execute-path resolve failures, and maps "
-                "every resource's RESOLVED physical GL id — flagging resources that are consumed but "
+                "every resource's RESOLVED physical identity — flagging resources that are consumed but "
                 "resolve to no backing, and grouping versioned names (SceneColor@PassB) with their "
                 "physical ids so copy-on-write aliasing is visible. 'ok': true means the sweep found "
                 "nothing. Optionally pass 'compare' to check two targets BIT-EXACTLY (channel 0, "
@@ -6865,16 +6938,19 @@ namespace OloEngine::MCP
                                                                                .Prop("pass", Schema::String())
                                                                                .Prop("reason", Schema::String())
                                                                                .Prop("count", Schema::Int().Min(0))))
-                                    .Prop("consumedButUnbacked", Schema::Array(Schema::String()).Desc("Resources consumed but resolving to no GL backing."))
+                                    .Prop("consumedButUnbacked", Schema::Array(Schema::String()).Desc("Resources read by at least one pass that resolve to no GPU storage at all. Decided from the RHI identity and a storage query, never from a native handle - a native 0 is legitimate on Vulkan."))
                                     .Prop("versionGroups", Schema::Array(Schema::Object()
                                                                              .Prop("baseName", Schema::String())
                                                                              .Prop("versions", Schema::Array(Schema::Object()
                                                                                                                  .Prop("name", Schema::String())
-                                                                                                                 .Prop("glTextureId", Schema::Int().Desc("Omitted when unbacked."))
-                                                                                                                 .Prop("glBufferId", Schema::Int().Desc("Omitted when not buffer-backed."))
+                                                                                                                 .Prop("nativeTextureHandle", Schema::String().Desc("Backend-native texture handle as hex; display only, omitted when 0."))
+                                                                                                                 .Prop("nativeBufferHandle", Schema::String().Desc("Backend-native buffer handle as hex; display only, omitted when 0."))
+                                                                                                                 .Prop("textureIdentity", Schema::String().Desc("Resolved texture identity as \"#index:generation\"; omitted when there is none."))
+                                                                                                                 .Prop("bufferIdentity", Schema::String().Desc("Resolved buffer identity; omitted when there is none."))
+                                                                                                                 .Prop("backed", Schema::Bool().Desc("Whether this version resolves to real GPU storage."))
                                                                                                                  .Prop("lastWriter", Schema::String().Desc("Omitted when unknown."))))
                                                                              .Prop("multiplePhysicalIds", Schema::Bool()))
-                                                               .Desc("Versioned names (Base@Pass) grouped with their physical ids; single-version groups are dropped."))
+                                                               .Desc("Versioned names (Base@Pass) grouped with their resolved physical backing; single-version groups are dropped. multiplePhysicalIds compares the IDENTITY, not the native handle."))
                                     .Prop("compare", Schema::Object().Desc("Only when 'compare' was requested: 'a'/'b' echoes plus either 'error' or the bit-exact result (comparedRegion/comparedTexels/bitwiseEqual/differingTexels/maxAbsDiff?/firstDiffs/note; firstDiffs a/b encode non-finite floats as the strings 'NaN'/'Inf')."))
                                     .Prop("meta", Schema::Object()
                                                       .Prop("frameIndex", Schema::Int().Min(0))
@@ -7099,7 +7175,8 @@ namespace OloEngine::MCP
                                                                          .Prop("enableIBL", Schema::Bool())
                                                                          .Prop("iblIntensity", Schema::Number())
                                                                          .Prop("useMaps", Schema::Object().Desc("Booleans per slot: useAlbedoMap/useMetallicRoughnessMap/useNormalMap/useAOMap/useEmissiveMap."))
-                                                                         .Prop("textureIds", Schema::Object().Desc("Bound GL texture id per slot (albedo/metallicRoughness/normal/ao/emissive; 0 = none)."))))
+                                                                         .Prop("textureIds", Schema::Object().Desc("Bound backend-native texture handle per slot as hex (albedo/metallicRoughness/normal/ao/emissive). DISPLAY ONLY - what a RenderDoc capture shows; \"0x0\" is legitimate on Vulkan and does not mean the slot is unbound."))
+                                                                         .Prop("textureIdentities", Schema::Object().Desc("Bound RHI identity per slot as \"#index:generation\", or \"<none>\" when the slot is unbound. This is the currency to compare and to decide on."))))
                                     .Required({ "entity", "renderableKind", "submeshCount", "hasMaterialComponentOverride", "submeshes" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_MaterialGet;

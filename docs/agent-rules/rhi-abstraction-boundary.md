@@ -3058,3 +3058,23 @@ When sweeping for "which tools are gated on backend X", the dangerous entries
 are the ones the sweep does not match. A truncating cast to a smaller native
 type is the specific mechanism to grep for: it turns "no answer" into "an
 answer that passes a validity check".
+
+**Issue #890 is the sequel, and it inverts the lesson.** With the crash fixed,
+`olo_render_validate` could finally run on Vulkan — and returned a false
+`ok: false` naming 13 resources as unbacked while `olo_render_capture_target`
+read real HDR pixels out of one of them in the same session. The mechanism was
+not truncation at all. Eleven of the 13 were framebuffer-backed, and
+`VulkanFramebuffer::GetColorAttachmentRendererID` returns **0** by design; the
+predicate read that 0 as "no object". So the grep above catches half the
+family. The other half is the opposite shape: **a legitimate zero read as an
+absence.**
+
+The check that covers both: for any predicate a diagnostic *branches* on, ask
+what a native `0` means on every backend before treating it as "nothing here".
+Under Vulkan a framebuffer attachment, an arena-backed uniform buffer and every
+texture class all report 0 legitimately — so a native handle can CONFIRM that
+an object exists and can never DENY it. The decision belongs to
+`RHI::ResourceHandle`, and the honest predicate is a storage query
+(`Debug::HasLiveTextureStorage`), not a null test: two of those 13 were true
+positives, and a fix built on "the identity is non-null" would have silenced
+them. ADR 0011 amendment (90) carries the full rule.

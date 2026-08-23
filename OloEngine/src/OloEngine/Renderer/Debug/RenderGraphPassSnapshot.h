@@ -86,11 +86,15 @@ namespace OloEngine
             u32 DepthOrLayers = 1;
             u32 MipLevels = 1;
             // BOTH currencies, per ADR 0011 amendment (77): the identity above
-            // is what the tools read through, the native id below is what a
-            // RenderDoc / RGP capture shows. Native is 0 on a backend whose
-            // object has no 32-bit name.
-            u32 NativeCloneId = 0;
-            u32 NativeSourceId = 0;
+            // is what the tools read through, the native handle below is what
+            // a RenderDoc / RGP capture shows. 0 is legitimate on a backend
+            // whose object has no native name, so nothing may DECIDE on it.
+            //
+            // u64, not u32 (issue #890): these were truncating, and a `VkImage`
+            // squeezed into 32 bits correlates with nothing a capture shows —
+            // which defeats the only purpose the field has.
+            u64 NativeCloneHandle = 0;
+            u64 NativeSourceHandle = 0;
             // The clone's storage format, in the neutral diagnostic vocabulary
             // (token + native enum value); the tools report the token and
             // decode with the rest.

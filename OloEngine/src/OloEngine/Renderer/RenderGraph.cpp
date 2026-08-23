@@ -1979,6 +1979,52 @@ namespace OloEngine
         return m_PhysicalBuffers[handle.Index].BufferID;
     }
 
+    RHI::ResourceHandle RenderGraph::ResolveBufferHandle(RGBufferHandle handle) const
+    {
+        EnsureResourceRegistryBuilt();
+
+        if (!handle.IsValid() || handle.Index >= m_PhysicalBuffers.size())
+            return {};
+        if (handle.Index >= m_BufferHandleSlots.size())
+            return {};
+        const auto& slot = m_BufferHandleSlots[handle.Index];
+        if (!slot.Alive || slot.Generation != handle.Generation)
+            return {};
+
+        // Deliberately does NOT re-emit the placeholder warning ResolveBuffer
+        // logs: the two are asked back to back for the same resource by the
+        // introspection tools, and warning twice per resource per frame would
+        // bury the signal the warning exists to raise.
+
+        // A WriteNewVersion rename is bookkeeping over the SAME physical
+        // buffer, so walk to the source exactly as ResolveBuffer does —
+        // iterative and depth-capped so a corrupt alias map cannot recurse the
+        // stack to death.
+        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
+            aliasIt != m_VersionAliasTargets.end())
+        {
+            const std::string* current = &aliasIt->second;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+            {
+                const auto sourceIt = m_BufferHandlesByName.find(*current);
+                if (sourceIt == m_BufferHandlesByName.end() || !IsBufferHandleCurrent(sourceIt->second))
+                    return {};
+
+                const auto nextIt = m_VersionAliasTargets.find(*current);
+                if (nextIt == m_VersionAliasTargets.end())
+                    return ResolveBufferHandle(sourceIt->second);
+
+                current = &nextIt->second;
+            }
+
+            return {};
+        }
+
+        // An entry imported as a native id has no identity to give — same
+        // contract as ResolveTextureHandle's tail.
+        return m_PhysicalBuffers[handle.Index].Handle;
+    }
+
     std::string RenderGraph::GetResourceName(RGTextureHandle handle) const
     {
         if (!handle.IsValid() || handle.Index >= m_TextureHandleSlots.size())
