@@ -14,10 +14,13 @@
 // leak (the ratchet polices OloEngine/* → Platform/*, not backends helping
 // each other).
 #include "Platform/OpenGL/OpenGLShader.h"
+#include "OloEngine/Core/Hash.h"
+#include "OloEngine/Renderer/ShaderCachePaths.h"
 
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
 
+#include <format>
 #include <fstream>
 #include <utility>
 
@@ -27,7 +30,26 @@ namespace OloEngine
     {
         VulkanShader* s_CurrentlyBound = nullptr; // render thread only
 
-        constexpr const char* kCacheDirectory = "assets/cache/shader/vulkan";
+        // Relocated behind OLO_SHADER_CACHE_DIR (issue #906) — see
+        // ShaderCachePaths::Root() for the sharing rationale. This tier is
+        // content-addressed (below), which is what makes sharing across
+        // worktrees safe: an mtime-keyed cache moved here would invalidate
+        // the shared store on every OTHER worktree's checkout.
+        std::filesystem::path CacheDirectory()
+        {
+            return ShaderCachePaths::Root() / "vulkan";
+        }
+
+        // Text description of the shaderc options BuildFromSources applies
+        // below (target env vulkan_1_4, SPIR-V 1.6, preserve bindings, no
+        // auto-bind, debug info, performance opt, suppressed warnings, the
+        // OLO_VULKAN macro) — hashed into the cache key alongside the source
+        // (issue #906). MUST be updated alongside that options block, or a
+        // changed option silently keeps reusing blobs compiled under the old
+        // settings.
+        constexpr std::string_view kOptionsDescriptor =
+            "env=vulkan1.4;spirv=1.6;preserve_bindings=1;auto_bind_uniforms=0;"
+            "debug_info=1;opt=performance;suppress_warnings=1;define=OLO_VULKAN=1";
 
         [[nodiscard]] const char* StageCacheExtension(VkShaderStageFlagBits stage)
         {
@@ -219,18 +241,15 @@ namespace OloEngine
 
         // Split FIRST, then resolve includes per stage with a fresh include
         // set — two stages including the same header is normal, not circular
-        // (the OpenGLShader::PreProcess ordering rule).
+        // (the OpenGLShader::PreProcess ordering rule). Includes are spliced
+        // verbatim into the stage text, so the content hash BuildFromSources
+        // computes from it is already sensitive to an included header
+        // changing (issue #906) — no separate include-path tracking needed.
         auto stages = SplitStages(raw);
-        m_IncludedFilePaths.clear();
         for (auto& [stage, source] : stages)
         {
-            std::vector<std::string> stageIncludes;
-            source = OpenGLShader::ProcessIncludes(source, "", stageIncludes);
-            m_IncludedFilePaths.insert(m_IncludedFilePaths.end(), stageIncludes.begin(), stageIncludes.end());
+            source = OpenGLShader::ProcessIncludes(source, "");
         }
-        std::sort(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end());
-        m_IncludedFilePaths.erase(std::unique(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end()),
-                                  m_IncludedFilePaths.end());
 
         if (BuildFromSources(stages, /*useCache=*/true))
         {
@@ -268,38 +287,10 @@ namespace OloEngine
         m_RHIHandle.Reset();
     }
 
-    std::filesystem::path VulkanShader::CachePathForStage(VkShaderStageFlagBits stage) const
+    std::filesystem::path VulkanShader::CachePathForStage(VkShaderStageFlagBits stage, const std::string& contentHash) const
     {
-        return std::filesystem::path(kCacheDirectory) /
-               (std::filesystem::path(m_FilePath).filename().string() + StageCacheExtension(stage));
-    }
-
-    bool VulkanShader::IsCacheStale(const std::filesystem::path& cachedPath) const
-    {
-        std::error_code ec;
-        const auto cacheTime = std::filesystem::last_write_time(cachedPath, ec);
-        if (ec)
-        {
-            return true;
-        }
-        const auto sourceTime = std::filesystem::last_write_time(m_FilePath, ec);
-        if (ec || sourceTime > cacheTime)
-        {
-            return true;
-        }
-        for (const auto& include : m_IncludedFilePaths)
-        {
-            const auto includeTime = std::filesystem::last_write_time(include, ec);
-            if (ec)
-            {
-                continue; // A vanished include does not invalidate (GL-tier rule).
-            }
-            if (includeTime > cacheTime)
-            {
-                return true;
-            }
-        }
-        return false;
+        return CacheDirectory() /
+               (std::filesystem::path(m_FilePath).filename().string() + "." + contentHash + StageCacheExtension(stage));
     }
 
     bool VulkanShader::BuildFromSources(const std::unordered_map<VkShaderStageFlagBits, std::string>& sources,
@@ -323,15 +314,24 @@ namespace OloEngine
         std::error_code ec;
         if (useCache)
         {
-            std::filesystem::create_directories(kCacheDirectory, ec); // best-effort
+            std::filesystem::create_directories(CacheDirectory(), ec); // best-effort
         }
 
         std::unordered_map<VkShaderStageFlagBits, std::vector<u32>> spirv;
         for (const auto& [stage, source] : sources)
         {
-            const auto cachePath = CachePathForStage(stage);
+            // Content-addressed key (issue #906): the preprocessed source plus
+            // the fixed shaderc option set below plus the stage. Existence
+            // alone is validity — no mtime staleness check needed, and a
+            // fresh worktree with byte-identical shaders lands on the exact
+            // filename a warm cache already produced.
+            const std::string contentHash =
+                std::format("{:016x}", Hash::FNV1a64(source.data(), source.size(),
+                                                     Hash::FNV1a64(kOptionsDescriptor.data(), kOptionsDescriptor.size(),
+                                                                   Hash::FNV1a64(&stage, sizeof(stage)))));
+            const auto cachePath = CachePathForStage(stage, contentHash);
             bool loaded = false;
-            if (useCache && !m_FilePath.empty() && !IsCacheStale(cachePath))
+            if (useCache && !m_FilePath.empty())
             {
                 std::ifstream in(cachePath, std::ios::in | std::ios::binary | std::ios::ate);
                 if (in)
@@ -682,16 +682,10 @@ namespace OloEngine
             return;
         }
         auto stages = SplitStages(raw);
-        m_IncludedFilePaths.clear();
         for (auto& [stage, source] : stages)
         {
-            std::vector<std::string> stageIncludes;
-            source = OpenGLShader::ProcessIncludes(source, "", stageIncludes);
-            m_IncludedFilePaths.insert(m_IncludedFilePaths.end(), stageIncludes.begin(), stageIncludes.end());
+            source = OpenGLShader::ProcessIncludes(source, "");
         }
-        std::sort(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end());
-        m_IncludedFilePaths.erase(std::unique(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end()),
-                                  m_IncludedFilePaths.end());
 
         // Dependent pipelines are invalidated only AFTER a successful rebuild
         // (deferred destruction, §3(d)); the old modules keep the

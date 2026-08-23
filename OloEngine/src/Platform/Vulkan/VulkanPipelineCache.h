@@ -58,9 +58,11 @@ namespace OloEngine
         // the same act — a second owner here caused a double-destroy on the
         // first device run). This class is the DISK BLOB only.
 
-        // Where the blob lives: <working-dir>/assets/cache/shader/vulkan/
-        // (created on demand). Separate from the GL tiers' directory so the
-        // two backends' cache stories stay independently deletable.
+        // Where the blob lives: ShaderCachePaths::Root()/vulkan/pipeline_cache.vkpc
+        // (created on demand; relocated out of the source tree behind
+        // OLO_SHADER_CACHE_DIR by issue #906). Separate subdirectory from the
+        // GL tiers so the two backends' cache stories stay independently
+        // deletable.
         [[nodiscard]] static std::filesystem::path CacheFilePath();
 
       private:

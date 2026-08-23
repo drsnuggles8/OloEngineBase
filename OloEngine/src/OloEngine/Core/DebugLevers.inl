@@ -62,6 +62,11 @@ OLO_LEVER_TOGGLE(ModelImportDiagnostics, "OLO_MODEL_IMPORT_DIAGNOSTICS",
                  "signal for a material/texture misbinding.")
 OLO_LEVER_TEXT(PhysicsCacheDir, "OLO_PHYSICS_CACHE_DIR",
                "Override the directory Jolt cooked-shape caches are read from and written to.")
+OLO_LEVER_TEXT(ShaderCacheDir, "OLO_SHADER_CACHE_DIR",
+               "Override the directory the shader cache (SPIR-V, cross-compiled GLSL, program "
+               "binaries) is read from and written to. Defaults to "
+               "%LOCALAPPDATA%\\OloEngine\\ShaderCache — shared across every worktree on this "
+               "machine, since the cache is content-addressed (issue #906).")
 OLO_LEVER_TEXT(UsdPluginPath, "OLO_USD_PLUGIN_PATH",
                "Override where the USD importer looks for OpenUSD plugins.")
 

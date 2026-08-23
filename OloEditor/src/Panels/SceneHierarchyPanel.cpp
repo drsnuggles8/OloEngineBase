@@ -7849,6 +7849,22 @@ namespace OloEngine
             DrawEntityReferenceField("Target", "CameraRigTarget", component.m_Target);
             ImGui::DragFloat3("Pivot Offset", &component.m_PivotOffset.x, 0.05f);
 
+            // Which way the target counts as facing. Auto asks the target's own
+            // components (a boat / car / aircraft is +Z forward, everything else
+            // is -Z) — issue #897. The override is for a proxy transform that
+            // carries a vehicle's heading but has no vehicle component to be
+            // recognised by.
+            {
+                static constexpr const char* kForwardLabels[] = { "Auto (from target's components)",
+                                                                  "-Z forward (camera / player)",
+                                                                  "+Z forward (Jolt vehicle)" };
+                int forwardIndex = static_cast<int>(component.m_TargetForward);
+                if (forwardIndex < 0 || forwardIndex > 2)
+                    forwardIndex = 0;
+                if (ImGui::Combo("Target Forward", &forwardIndex, kForwardLabels, IM_ARRAYSIZE(kForwardLabels)))
+                    component.m_TargetForward = static_cast<ForwardConvention>(forwardIndex);
+            }
+
             ImGui::SeparatorText("Boom");
             ImGui::DragFloat("Length", &component.m_BoomLength, 0.05f, 0.0f, 1000.0f, "%.2f m");
             if (component.m_BoomLength <= 0.0f)

@@ -111,7 +111,6 @@ namespace OloEngine
 
         std::string m_Name;
         std::string m_FilePath;
-        std::vector<std::string> m_IncludedFilePaths;
         std::vector<u32> m_SPIRV;
         VkShaderModule m_Module = VK_NULL_HANDLE;
         std::vector<VulkanShaderBinding> m_Bindings;

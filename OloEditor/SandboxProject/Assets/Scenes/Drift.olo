@@ -122,10 +122,11 @@ Entities:
   # RuntimeControl is OFF. The free-fly camera and the rig would both write this
   # transform every tick, and the rig — running last — would win silently.
   #
-  # Target is the Camera Target proxy, NOT the boat. DriftFollowCamera.lua has
-  # the full reasoning; the short version is that the rig reads a non-player
-  # target's facing as rotation * (0,0,-1) while every Jolt vehicle is
-  # +Z-forward, so aimed at the boat the rig frames it head-on.
+  # Target is the Camera Target proxy, NOT the boat — the proxy is where the
+  # yaw smoothing and the look-astern hold live (DriftFollowCamera.lua).
+  # TargetForward 2 tells the rig that proxy carries a +Z-forward heading:
+  # the proxy is a bare transform, so the rig's Auto mode has no vehicle
+  # component to read the convention off (issue #897).
   #
   # BoomLength / PivotOffset are the values the script eases between, so the
   # first tick starts from a sane pose rather than from zero.
@@ -170,16 +171,17 @@ Entities:
       # boom that puts the eye 3.4-5.1 m above the pivot, i.e. 6-7.7 m above the
       # waterline. The roughest sea state here crests around 3 m.
       FallbackPitchDeg: -21.5
+      TargetForward: 2
 
   # ── Camera target proxy ───────────────────────────────────────────────────
-  # A root transform that tracks the boat's position and carries its heading
-  # turned through 180 degrees, smoothed. See DriftFollowCamera.lua.
+  # A root transform that tracks the boat's position and carries its heading,
+  # smoothed. See DriftFollowCamera.lua.
   - Entity: 879000000000010
     TagComponent:
       Tag: Camera Target
     TransformComponent:
       Translation: [0, 0, -250]
-      Rotation: [0, 3.1415927, 0]
+      Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     LuaScriptComponent:
       ScriptFile: Scripts/LuaScripts/DriftFollowCamera.lua

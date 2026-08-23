@@ -249,11 +249,14 @@ run again, and diff the PNGs it writes to `OloEditor/assets/tests/visual/`.
 
 Two things will silently defeat that:
 
-- **The shader cache.** Delete
-  `OloEditor/assets/cache/shader/opengl/<Name>.glsl.cached_*` between arms, or the
-  engine serves the previous compile and both runs produce a **byte-identical**
-  image. That happened here, and the log said "Compiling shader … from source"
-  while it did it.
+- **The shader cache.** This used to require deleting the cached binary by hand
+  between arms — since issue #906 the cache key is a content hash of the
+  preprocessed source, so editing the `.glsl` changes the key automatically and
+  the previous compile is never served. If you're on a pre-#906 checkout,
+  delete `OloEditor/assets/cache/shader/opengl/<Name>.glsl.cached_*` between
+  arms, or the engine serves the previous compile and both runs produce a
+  **byte-identical** image. That happened here, and the log said "Compiling
+  shader … from source" while it did it.
 - **The obvious capture tools.** `olo_screenshot` and `olo_render_capture_target`
   were both measured returning byte-identical images at SSGI intensity 0.0 and
   8.0, with `frameIndex` advancing. Neither reflects live post-process settings.

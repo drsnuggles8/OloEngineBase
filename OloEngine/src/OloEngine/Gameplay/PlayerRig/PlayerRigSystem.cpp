@@ -12,6 +12,7 @@
 #include "OloEngine/Physics3D/SceneQueries.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/EntityFacing.h"
 #include "OloEngine/Scene/Scene.h"
 
 #include <glm/gtc/constants.hpp>
@@ -125,15 +126,12 @@ namespace OloEngine
         // agree with YawRotation by construction.
         [[nodiscard]] f32 YawDegreesFromRotation(const glm::quat& rotation)
         {
-            // YawRotation(t) maps -Z to (-sin t, 0, -cos t), so atan2(-x, -z)
-            // is its inverse.
-            const glm::vec3 forward = rotation * kLocalForward;
-            if (!Math::IsFinite(forward))
-                return 0.0f;
-            const f32 planarLengthSq = forward.x * forward.x + forward.z * forward.z;
-            if (planarLengthSq <= kDegenerateLengthSq)
-                return 0.0f; // looking straight up/down — yaw is undefined
-            return glm::degrees(std::atan2(-forward.x, -forward.z));
+            // The math lives in EntityFacing so the camera rig — which has to
+            // handle a +Z-forward target too (issue #897) — cannot end up with a
+            // second, subtly different definition of "yaw" next to this one.
+            // A player body is always the -Z convention: PlayerRigSystem is what
+            // writes its rotation, via YawRotation below.
+            return EntityFacing::YawDegrees(rotation, ForwardConvention::MinusZ);
         }
     } // namespace
 
@@ -531,6 +529,14 @@ namespace OloEngine
             // (see PlayerRigComponents.h). Following something that is not a
             // player — a vehicle, a prop — falls back to the target's own
             // facing plus an authored pitch.
+            //
+            // "The target's own facing" is convention-dependent, and reading it
+            // in the camera convention unconditionally was issue #897: aimed at
+            // a boat, the rig parked itself AHEAD of the hull looking back at
+            // it. EntityFacing::Resolve asks the target's own components which
+            // way it points, so a rig aimed at a vehicle picks the right one up
+            // with nothing authored; m_TargetForward is the override for a
+            // target whose components can't say (a proxy transform).
             f32 yawDeg = 0.0f;
             f32 pitchDeg = rig.m_FallbackPitchDeg;
             if (target.HasComponent<PlayerRigComponent>())
@@ -541,7 +547,8 @@ namespace OloEngine
             }
             else if (target.HasComponent<TransformComponent>())
             {
-                yawDeg = YawDegreesFromRotation(target.GetComponent<TransformComponent>().GetRotation());
+                const ForwardConvention convention = EntityFacing::Resolve(target, rig.m_TargetForward);
+                yawDeg = EntityFacing::YawDegrees(target.GetComponent<TransformComponent>().GetRotation(), convention);
             }
 
             const glm::quat yawRotation = PlayerRigSystem::YawRotation(yawDeg);

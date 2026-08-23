@@ -193,6 +193,8 @@ if (auto node = entity["CameraRigComponent"]; node)
         comp.m_HeadBobFrequency = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(50.0f));
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FallbackPitchDeg"], v))
         comp.m_FallbackPitchDeg = std::clamp(v, static_cast<f32>(-89.9f), static_cast<f32>(89.9f));
+    if (const int v = node["TargetForward"].as<int>(static_cast<int>(comp.m_TargetForward)); v >= static_cast<int>(0) && v <= static_cast<int>(2))
+        comp.m_TargetForward = static_cast<decltype(comp.m_TargetForward)>(v);
 }
 
 if (auto node = entity["CharacterController3DComponent"]; node)

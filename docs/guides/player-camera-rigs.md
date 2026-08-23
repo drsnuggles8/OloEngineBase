@@ -134,6 +134,26 @@ authored.
 | `PositionSmoothTime` | exponential smoothing time constant, in seconds. `0` is rigid (what first person wants); 0.05–0.15 suits a third-person follow |
 | `HeadBobAmplitude` / `HeadBobFrequency` | vertical bob, in metres and cycles **per metre travelled**. `0` amplitude disables it |
 | `FallbackPitchDeg` | pitch used when the target has **no** `PlayerRigComponent` — i.e. when following a vehicle or a prop, where yaw comes from the target's own facing |
+| `TargetForward` | which local axis the **target** counts as forward, for that same no-`PlayerRigComponent` case. `0` = Auto (recommended), `1` = `-Z` (camera / player), `2` = `+Z` (Jolt vehicle) |
+
+### Following a vehicle
+
+Leave `TargetForward` on **Auto**. The engine has two forward conventions —
+cameras and players are `-Z` forward, every force-model vehicle is `+Z` forward
+to match Jolt — and Auto reads the answer off the target's own components, so a
+rig aimed at an entity with a `BoatComponent` / `VehicleComponent` /
+`AircraftComponent` frames it from behind with nothing authored.
+
+Set it explicitly only when the target's components **cannot** say which way it
+points. The usual case is a proxy: a bare root transform that carries a
+vehicle's heading with some scene-side treatment on top — smoothing, a
+look-astern hold — which the rig itself does not do. Drift's chase camera is
+exactly that, and its proxy is declared `TargetForward: 2`.
+
+Getting this wrong is not subtle but it does not look like a bug: the camera
+parks **ahead** of the target looking back at it, which is a steady, well-framed
+shot that reads as deliberate. If a follow camera is showing you the front of
+the thing it is following, this is the field.
 
 ---
 

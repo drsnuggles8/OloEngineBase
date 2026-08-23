@@ -73,7 +73,11 @@ namespace OloEngine
     //      m_VTSectorsWide, m_VTMaxImagePagesWide, m_VTTrilinearEnabled, m_VTCompressedCache —
     //      issue #715; v18 and older saves omit them and keep the constructor
     //      defaults, which have the adaptive path ON — the upgraded look, same as a fresh scene)
-    static constexpr u32 kSaveGameFormatVersion = 19;
+    // v20: CameraRigComponent gained m_TargetForward, the target's forward-axis
+    //      convention (issue #897; v19 and older saves omit it and keep the
+    //      constructor default ForwardConvention::Auto, which derives the answer
+    //      from the target's own components — the behaviour a fresh scene gets)
+    static constexpr u32 kSaveGameFormatVersion = 20;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to
