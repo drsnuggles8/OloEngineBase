@@ -80,7 +80,7 @@ namespace OloEngine
         return nullptr;
     }
 
-    Ref<Texture2D> Texture2D::Create(const std::string& path, bool srgb)
+    Ref<Texture2D> Texture2D::Create(const std::string& path, bool srgb, const std::string& identityPath)
     {
         switch (Renderer::GetAPI())
         {
@@ -95,7 +95,7 @@ namespace OloEngine
                 // #691: file-load arm (stbi + one-shot upload).
                 if (VulkanDevice::Get() != nullptr)
                 {
-                    return Ref<VulkanTexture2D>::Create(path, srgb);
+                    return Ref<VulkanTexture2D>::Create(path, srgb, identityPath);
                 }
 #endif
                 OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out)!");
@@ -103,7 +103,7 @@ namespace OloEngine
             }
             case RendererAPI::API::OpenGL:
             {
-                return Ref<OpenGLTexture2D>::Create(path, srgb);
+                return Ref<OpenGLTexture2D>::Create(path, srgb, identityPath);
             }
         }
 

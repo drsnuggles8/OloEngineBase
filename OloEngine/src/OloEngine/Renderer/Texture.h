@@ -186,7 +186,13 @@ namespace OloEngine
         // emissive, UI) so the GPU converts samples from sRGB to linear on
         // read. Leave srgb=false (default) for data textures (normal map,
         // metallic-roughness, AO, heightmap) where bytes are already linear.
-        static Ref<Texture2D> Create(const std::string& path, bool srgb = false);
+        // `path` is read from directly (stbi_load gets it verbatim) and becomes
+        // GetPath()'s value UNLESS `identityPath` is non-empty, in which case
+        // `identityPath` is stored instead — used by the asset pipeline, which
+        // must read from an absolute, project-rooted path (the process's cwd is
+        // not the project directory) while still reporting the project-relative
+        // path scene YAML expects back from GetPath().
+        static Ref<Texture2D> Create(const std::string& path, bool srgb = false, const std::string& identityPath = "");
 
         // Asset interface
         static constexpr AssetType GetStaticType() noexcept
