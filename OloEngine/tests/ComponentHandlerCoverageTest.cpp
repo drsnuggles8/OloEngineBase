@@ -170,6 +170,9 @@ namespace OloEngine::Tests
             // VisualScriptSystem, keyed by entity UUID, so removing the
             // component has to drop it explicitly.
             "VisualScriptComponent",
+            // Issue #711: a generated LOD chain owns memory-only Mesh assets
+            // that nothing else frees, so removal has to release them.
+            "LODGroupComponent",
         };
 
         // The full universe of declared `struct *Component`, reconstructed as

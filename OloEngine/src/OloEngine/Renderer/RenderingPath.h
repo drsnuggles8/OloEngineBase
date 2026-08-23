@@ -84,6 +84,17 @@ namespace OloEngine
         // --- Depth pre-pass ---
         bool DepthPrepassEnabled = false;
 
+        // --- Mesh LOD selection (issue #711) ---
+        // Estimated screen-space error, in pixels, that a generated LOD level may
+        // introduce before it is rejected in favour of a finer one. 1 px makes LOD
+        // switches imperceptible; larger values are a real performance lever.
+        //
+        // Applies only to LOD groups carrying generated per-level error
+        // (LODGroup::HasErrorData()); hand-authored groups keep their distance
+        // thresholds. The pixel estimate scales with render-target height, so this
+        // value does NOT need retuning between 1080p and 4K.
+        f32 LODPixelErrorThreshold = 1.0f;
+
         // --- Forward+ tuning (when Path == ForwardPlus or Auto) ---
         bool ForwardPlusAutoSwitch = true; // Auto-switch from Forward to Forward+ at threshold
         u32 ForwardPlusLightThreshold = 8;

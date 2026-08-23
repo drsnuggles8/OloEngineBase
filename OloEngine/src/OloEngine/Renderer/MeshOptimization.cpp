@@ -523,6 +523,385 @@ namespace OloEngine::MeshOptimization
         return group;
     }
 
+    // ── Automatic LOD chain (issue #711) ───────────────────────────
+
+    namespace
+    {
+        // Average of each triangle's longest edge, plus the largest bounding-box
+        // extent, over the vertices the given index buffer actually references.
+        //
+        // The RATIO of the two is what matters: meshoptimizer rescales positions to
+        // unit extent internally (simplifier.cpp `rescalePositions`) but multiplies
+        // attributes by their weight untouched, so an attribute weight is expressed
+        // in *normalized position* units. A normal weight therefore has to be scaled
+        // by the average vertex distance divided by the model extent, or it means
+        // something different on every mesh.
+        struct MeshSpacing
+        {
+            f32 Extent = 0.0f;                   // largest bounding-box side, model units
+            f32 NormalizedVertexDistance = 0.0f; // mean longest edge / Extent
+        };
+
+        [[nodiscard]] MeshSpacing MeasureMeshSpacing(const Vertex* vertices, sizet vertexCount,
+                                                     const u32* indices, sizet indexCount)
+        {
+            MeshSpacing spacing;
+            if (vertexCount == 0 || indexCount < 3)
+            {
+                return spacing;
+            }
+
+            glm::vec3 minPos(std::numeric_limits<f32>::max());
+            glm::vec3 maxPos(std::numeric_limits<f32>::lowest());
+            f64 edgeSum = 0.0;
+            sizet triangleCount = 0;
+
+            for (sizet tri = 0; tri + 2 < indexCount; tri += 3)
+            {
+                u32 const i0 = indices[tri + 0];
+                u32 const i1 = indices[tri + 1];
+                u32 const i2 = indices[tri + 2];
+                if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+                {
+                    continue;
+                }
+
+                glm::vec3 const c0 = vertices[i0].Position;
+                glm::vec3 const c1 = vertices[i1].Position;
+                glm::vec3 const c2 = vertices[i2].Position;
+                if (!Math::IsFinite(c0) || !Math::IsFinite(c1) || !Math::IsFinite(c2))
+                {
+                    continue;
+                }
+
+                minPos = glm::min(minPos, glm::min(c0, glm::min(c1, c2)));
+                maxPos = glm::max(maxPos, glm::max(c0, glm::max(c1, c2)));
+
+                f32 const longestEdge = std::max({ glm::length(c0 - c1), glm::length(c1 - c2), glm::length(c2 - c0) });
+                edgeSum += static_cast<f64>(longestEdge);
+                ++triangleCount;
+            }
+
+            if (triangleCount == 0)
+            {
+                return spacing;
+            }
+
+            glm::vec3 const size = maxPos - minPos;
+            spacing.Extent = std::max({ size.x, size.y, size.z });
+            if (!std::isfinite(spacing.Extent) || spacing.Extent <= 0.0f)
+            {
+                spacing.Extent = 0.0f;
+                return spacing;
+            }
+
+            auto const meanLongestEdge = static_cast<f32>(edgeSum / static_cast<f64>(triangleCount));
+            spacing.NormalizedVertexDistance = meanLongestEdge / spacing.Extent;
+            return spacing;
+        }
+
+        // Packs one simplified index buffer into a standalone MeshSource with a
+        // COMPACT vertex array. Compaction matters here in a way it does not for the
+        // one-off GenerateLODMesh helpers: an auto chain is 8-12 levels deep, and
+        // copying the full source vertex buffer into each of them would multiply a
+        // mesh's vertex memory by the level count for vertices most levels never
+        // reference.
+        [[nodiscard]] Ref<MeshSource> BuildLODMeshSource(const MeshSource& meshSource,
+                                                         const u32* indices, sizet indexCount)
+        {
+            const auto& srcVertices = meshSource.GetVertices();
+            auto const vertexCount = static_cast<sizet>(srcVertices.Num());
+            if (indexCount < 3 || vertexCount == 0)
+            {
+                return nullptr;
+            }
+
+            std::vector<u32> compactIndices(indices, indices + indexCount);
+            std::vector<Vertex> compactVertices(vertexCount);
+            sizet const uniqueVertexCount = meshopt_optimizeVertexFetch(
+                compactVertices.data(), compactIndices.data(), indexCount,
+                srcVertices.GetData(), vertexCount, sizeof(Vertex));
+
+            if (uniqueVertexCount == 0)
+            {
+                return nullptr;
+            }
+            compactVertices.resize(uniqueVertexCount);
+
+            TArray<Vertex> lodVertices;
+            lodVertices.Reserve(static_cast<i32>(uniqueVertexCount));
+            lodVertices.Append(compactVertices.data(), static_cast<i32>(uniqueVertexCount));
+
+            TArray<u32> lodIndices;
+            lodIndices.Reserve(static_cast<i32>(indexCount));
+            lodIndices.Append(compactIndices.data(), static_cast<i32>(indexCount));
+
+            auto lodMesh = Ref<MeshSource>::Create(MoveTemp(lodVertices), MoveTemp(lodIndices));
+
+            for (const auto& [index, handle] : meshSource.GetMaterials())
+            {
+                lodMesh->SetMaterial(index, handle);
+            }
+
+            Submesh submesh;
+            if (const auto& srcSubmeshes = meshSource.GetSubmeshes(); srcSubmeshes.Num() == 1)
+            {
+                submesh = srcSubmeshes[0];
+            }
+            else
+            {
+                submesh.m_MaterialIndex = 0;
+            }
+            submesh.m_BaseVertex = 0;
+            submesh.m_BaseIndex = 0;
+            submesh.m_VertexCount = static_cast<u32>(uniqueVertexCount);
+            submesh.m_IndexCount = static_cast<u32>(indexCount);
+            lodMesh->AddSubmesh(submesh);
+
+            return lodMesh;
+        }
+
+        // Fills MaxDistance for a chain that was selected by pixel error, so the
+        // group still reads sensibly in the inspector and still works if it is ever
+        // routed through the legacy distance path.
+        //
+        // Level i is the one in use until level i+1 becomes acceptable, i.e. until
+        // the mesh is far enough away that `pixelSize * Error[i+1]` drops below one
+        // pixel. Inverting EstimateProjectedPixelSize at a reference 1080p / 90° FOV
+        // camera and a unit-scale transform gives the distance below. These are
+        // NOMINAL: the runtime selection does not read them.
+        void FillNominalLODDistances(LODGroup& group, f32 modelExtent)
+        {
+            constexpr f32 kReferenceScreenHeight = 1080.0f;
+            constexpr f32 kReferenceTanHalfFovY = 1.0f; // 90 degrees vertical
+            constexpr f32 kReferencePixelError = 1.0f;
+            constexpr f32 kFarDistance = 100000.0f;
+
+            f32 const pixelsPerRadian = kReferenceScreenHeight / (2.0f * kReferenceTanHalfFovY);
+            bool const usable = std::isfinite(modelExtent) && modelExtent > 0.0f;
+
+            for (sizet i = 0; i < group.Levels.size(); ++i)
+            {
+                if (i + 1 >= group.Levels.size())
+                {
+                    group.Levels[i].MaxDistance = kFarDistance;
+                    break;
+                }
+
+                f32 const nextError = group.Levels[i + 1].Error;
+                if (!usable || !std::isfinite(nextError) || nextError <= 0.0f)
+                {
+                    group.Levels[i].MaxDistance = kFarDistance;
+                    continue;
+                }
+
+                f32 const distance = modelExtent * pixelsPerRadian * nextError / kReferencePixelError;
+                group.Levels[i].MaxDistance = std::clamp(distance, 0.0f, kFarDistance);
+            }
+        }
+    } // namespace
+
+    f32 MeasureModelExtent(const MeshSource& meshSource)
+    {
+        const auto& vertices = meshSource.GetVertices();
+        const auto& indices = meshSource.GetIndices();
+        if (vertices.IsEmpty() || indices.IsEmpty())
+        {
+            return 0.0f;
+        }
+        return MeasureMeshSpacing(vertices.GetData(), static_cast<sizet>(vertices.Num()),
+                                  indices.GetData(), static_cast<sizet>(indices.Num()))
+            .Extent;
+    }
+
+    std::vector<AutoLODChainEntry> BuildAutoLODChain(const MeshSource& meshSource, const AutoLODSettings& settings)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<AutoLODChainEntry> chain;
+
+        const auto& srcVertices = meshSource.GetVertices();
+        const auto& srcIndices = meshSource.GetIndices();
+        if (srcVertices.IsEmpty() || srcIndices.IsEmpty())
+        {
+            return chain;
+        }
+
+        auto const vertexCount = static_cast<sizet>(srcVertices.Num());
+        auto const baseIndexCount = static_cast<sizet>(srcIndices.Num());
+
+        // Entry 0 is the source mesh itself and is exact, so its error is 0.
+        chain.push_back(AutoLODChainEntry{ nullptr, static_cast<u32>(baseIndexCount / 3), 0.0f });
+
+        if (meshSource.GetSubmeshes().Num() > 1)
+        {
+            OLO_CORE_WARN("MeshOptimization::BuildAutoLODChain: Multi-submesh LOD not supported ({} submeshes)",
+                          meshSource.GetSubmeshes().Num());
+            return chain;
+        }
+        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets() || !meshSource.GetBoneInfo().IsEmpty())
+        {
+            OLO_CORE_WARN("MeshOptimization::BuildAutoLODChain: Animated sources with bone/morph/skinning data are not supported for LOD generation");
+            return chain;
+        }
+
+        // Sanitize settings — they can come from serialized project / UI data.
+        u32 const maxLevels = std::clamp(settings.MaxLevels, 2u, 32u);
+        u32 const minTriangleCount = std::max(settings.MinTriangleCount, 4u);
+        f32 const maxStepError = (std::isfinite(settings.MaxStepError) && settings.MaxStepError > 0.0f) ? settings.MaxStepError : 0.5f;
+        f32 const normalImportance = (std::isfinite(settings.NormalImportance) && settings.NormalImportance >= 0.0f) ? settings.NormalImportance : 3.0f;
+        f32 const texCoordWeight = (std::isfinite(settings.TexCoordWeight) && settings.TexCoordWeight >= 0.0f) ? settings.TexCoordWeight : 1.0f;
+
+        // Position-weld once, up front (issue #653): an unwelded source is a
+        // disconnected triangle soup to the simplifier and will not reduce at all.
+        std::vector<u32> prevIndices =
+            WeldIndicesByPosition(srcVertices.GetData(), vertexCount, srcIndices.GetData(), baseIndexCount);
+
+        // Attribute stream stays indexed by ORIGINAL vertex for the whole chain —
+        // every level's index buffer references the same vertex array.
+        constexpr sizet kAttributeCount = 5; // normal xyz + uv xy
+        std::vector<f32> attributes(vertexCount * kAttributeCount);
+        for (sizet i = 0; i < vertexCount; ++i)
+        {
+            const auto& v = srcVertices[static_cast<i32>(i)];
+            attributes[i * kAttributeCount + 0] = v.Normal.x;
+            attributes[i * kAttributeCount + 1] = v.Normal.y;
+            attributes[i * kAttributeCount + 2] = v.Normal.z;
+            attributes[i * kAttributeCount + 3] = v.TexCoord.x;
+            attributes[i * kAttributeCount + 4] = v.TexCoord.y;
+        }
+
+        f32 accumulatedError = 0.0f;
+        MeshSpacing const baseSpacing =
+            MeasureMeshSpacing(srcVertices.GetData(), vertexCount, prevIndices.data(), baseIndexCount);
+
+        for (u32 level = 1; level < maxLevels; ++level)
+        {
+            sizet const prevIndexCount = prevIndices.size();
+            if (prevIndexCount / 3 <= static_cast<sizet>(minTriangleCount))
+            {
+                break;
+            }
+
+            // Halve the PREVIOUS level's triangle count, not LOD 0's: each level is a
+            // simplification of the one above it, which is what makes the accumulated
+            // error a chain rather than a set of unrelated measurements.
+            sizet targetIndexCount = ((prevIndexCount / 3 + 1) / 2) * 3;
+            targetIndexCount = std::max(targetIndexCount, static_cast<sizet>(minTriangleCount) * 3);
+
+            // Recompute the average vertex distance from the level actually being
+            // simplified. This is the consistency property the error metric rests on:
+            // a normal deviation is only visible across the span between two adjacent
+            // vertices, so its visual weight grows as the mesh coarsens. Estimating it
+            // as sqrt(2)^level (the usual shortcut) assumes every step really halved,
+            // which stops being true the moment a step is topology-limited — and then
+            // the levels are no longer mutually consistent, silently.
+            MeshSpacing const spacing =
+                MeasureMeshSpacing(srcVertices.GetData(), vertexCount, prevIndices.data(), prevIndexCount);
+            f32 const normalizedVertexDistance = (spacing.NormalizedVertexDistance > 0.0f)
+                                                     ? spacing.NormalizedVertexDistance
+                                                     : baseSpacing.NormalizedVertexDistance;
+            f32 const normalWeight = normalImportance * normalizedVertexDistance;
+
+            f32 const attributeWeights[kAttributeCount] = { normalWeight, normalWeight, normalWeight,
+                                                            texCoordWeight, texCoordWeight };
+
+            std::vector<u32> simplified(prevIndexCount);
+            f32 stepError = 0.0f;
+            // No target_error cap: the triangle target is the goal, and the error the
+            // step actually cost is what decides whether the level is kept.
+            sizet const resultIndexCount = meshopt_simplifyWithAttributes(
+                simplified.data(), prevIndices.data(), prevIndexCount,
+                &srcVertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
+                attributes.data(), sizeof(f32) * kAttributeCount,
+                attributeWeights, kAttributeCount,
+                nullptr, // no vertex locking
+                targetIndexCount, std::numeric_limits<f32>::max(), meshopt_SimplifySparse, &stepError);
+
+            if (resultIndexCount < 12 || resultIndexCount >= prevIndexCount)
+            {
+                // Topology-limited: the simplifier cannot go further, so neither can
+                // the chain. Stop rather than emit a level identical to its parent.
+                break;
+            }
+            if (!std::isfinite(stepError) || stepError < 0.0f)
+            {
+                break;
+            }
+
+            // Undo the deliberate normal boost. `stepError` is the quadric error with
+            // the attribute term scaled up for PRIORITISATION; the number stored on the
+            // level is meant to read as a fraction of the model extent, so it is
+            // renormalised by the weight that inflated it. With normalWeight == 0
+            // (normals ignored) this is a no-op, and it degrades smoothly in between.
+            f32 const renormalizedError = stepError / (1.0f + normalWeight);
+            if (renormalizedError > maxStepError)
+            {
+                // Past this point a level is visibly a different mesh, not a cheaper
+                // one. Stop; the caller keeps the chain built so far.
+                break;
+            }
+
+            auto lodMeshSource = BuildLODMeshSource(meshSource, simplified.data(), resultIndexCount);
+            if (!lodMeshSource)
+            {
+                OLO_CORE_WARN("MeshOptimization::BuildAutoLODChain: Failed to build LOD level {}", level);
+                break;
+            }
+
+            // Strictly increasing: two levels with the SAME error are indistinguishable
+            // to the selector, which then has no reason ever to keep the finer one, so
+            // a zero-cost step would silently delete a level's worth of detail. nextafter
+            // is the smallest nudge that cannot itself change a selection decision.
+            accumulatedError = std::nextafter(accumulatedError + renormalizedError,
+                                              std::numeric_limits<f32>::max());
+            chain.push_back(AutoLODChainEntry{ lodMeshSource, static_cast<u32>(resultIndexCount / 3), accumulatedError });
+
+            OLO_CORE_TRACE("MeshOptimization::BuildAutoLODChain: LOD {} - {} triangles, step error {:.4f}, accumulated {:.4f}",
+                           level, resultIndexCount / 3, renormalizedError, accumulatedError);
+
+            prevIndices.assign(simplified.begin(),
+                               simplified.begin() + static_cast<std::ptrdiff_t>(resultIndexCount));
+        }
+
+        return chain;
+    }
+
+    LODGroup GenerateAutoLODGroup(const MeshSource& meshSource, AssetHandle baseMeshHandle,
+                                  const AutoLODSettings& settings)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        LODGroup group;
+
+        // Non-const: Ref<T> propagates constness, so a const chain would hand
+        // MeshSource::Build() a const `this`.
+        std::vector<AutoLODChainEntry> chain = BuildAutoLODChain(meshSource, settings);
+        if (chain.empty())
+        {
+            return group;
+        }
+
+        group.Levels.emplace_back(baseMeshHandle, 0.0f, chain[0].TriangleCount, 0.0f);
+
+        for (sizet i = 1; i < chain.size(); ++i)
+        {
+            auto& entry = chain[i]; // non-const: Ref<T> propagates constness to Build()
+            if (!entry.Source)
+            {
+                continue;
+            }
+            entry.Source->Build();
+
+            auto lodMesh = Ref<Mesh>::Create(entry.Source, 0);
+            AssetHandle const handle = AssetManager::AddMemoryOnlyAsset(lodMesh);
+            group.Levels.emplace_back(handle, 0.0f, entry.TriangleCount, entry.Error);
+        }
+
+        FillNominalLODDistances(group, MeasureModelExtent(meshSource));
+        return group;
+    }
+
     // ── Shadow rendering ───────────────────────────────────────────
 
     void GenerateShadowIndices(MeshSource& meshSource)

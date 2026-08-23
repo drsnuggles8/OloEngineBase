@@ -89,6 +89,10 @@ namespace OloEngine
         // or flying closer silently swaps in a different mesh and the "frozen"
         // picture stops being the one the culler saw.
         glm::vec3 CullViewPosition = glm::vec3(0.0f);
+        // Pixel-error LOD inputs for the CULLING camera (issue #711) — position,
+        // FOV, render height and threshold, no view matrix. Mirrors
+        // Renderer3DData::LODView; see the comment there.
+        LODViewParams LODView;
         // Frustum of the CULLING camera (frozen when the observer is active).
         Frustum ViewFrustum;
         bool FrustumCullingEnabled = true;
@@ -1854,6 +1858,15 @@ namespace OloEngine
             // distance. The virtual-geometry cull's screen-error math needs both
             // and has no other route to the frozen projection.
             glm::vec2 CullProjParams = glm::vec2(1.0f, 0.1f);
+
+            // Pixel-error mesh-LOD selection inputs (issue #711), derived once per
+            // frame in PrepareFrame from the CULLING camera + the render target.
+            // Deliberately carries no view matrix: LOD must not move when the
+            // camera merely rotates, so only position, FOV and resolution are
+            // inputs. Culling camera rather than render camera for the same reason
+            // CullViewPos is used for LOD today (issue #726) — a frozen cut must
+            // keep the levels it was cut with.
+            LODViewParams LODView;
 
             Statistics Stats;
             u32 CommandCounter = 0;

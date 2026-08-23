@@ -437,6 +437,39 @@ namespace OloEngine
                 return (std::isfinite(nearPlane) && nearPlane > 0.0f) ? nearPlane : 1e-4f;
             }());
 
+        // Pixel-error mesh-LOD inputs (issue #711). Everything here comes from the
+        // CULLING camera's POSITION and projection plus the render-target height —
+        // never from the view matrix, because a rotation-sensitive input is exactly
+        // what makes LODs pop when the camera sways.
+        //
+        // CullProjParams.x is cot(fovY/2) for a PERSPECTIVE projection, so its
+        // reciprocal is tan(fovY/2).
+        //
+        // Orthographic has to be detected structurally, not by magnitude: there
+        // P[1][1] is 2/orthoHeight, which for a 20-unit height is 0.1 — a perfectly
+        // ordinary-looking positive number that a "near zero" guard waves through
+        // and then reads as tan(fovY/2) = 10, making every mesh look ~10x smaller
+        // and selecting levels far too coarse. The P[3][3] == 1 test is the same
+        // one the TAA jitter block above uses, with an epsilon rather than a float
+        // equality (cpp-coding-quality.md §2).
+        //
+        // An orthographic view has no perspective divide, so there is no single
+        // "distance" the estimate is a function of; the 90-degree fallback keeps it
+        // finite and conservative rather than pretending otherwise.
+        {
+            const bool cullIsOrthographic = std::abs(data.CullProjectionMatrix[3][3] - 1.0f) < 1e-5f;
+            const f32 cotHalfFovY = data.CullProjParams.x;
+            data.LODView.ViewPosition = data.CullViewPos;
+            data.LODView.TanHalfFovY = (!cullIsOrthographic && std::isfinite(cotHalfFovY) && cotHalfFovY > 1e-6f)
+                                           ? (1.0f / cotHalfFovY)
+                                           : 1.0f;
+            // Render height, not physical: the scene is rasterised at the DRS-scaled
+            // size, so that is where a pixel of error is actually a pixel.
+            const u32 renderHeight = data.RGraph ? data.RGraph->GetRenderHeight() : 0u;
+            data.LODView.ScreenHeight = (renderHeight > 0u) ? renderHeight : 1080u;
+            data.LODView.PixelErrorThreshold = data.Settings.LODPixelErrorThreshold;
+        }
+
         data.Stats.Reset();
         data.CommandCounter = 0;
 
@@ -519,6 +552,7 @@ namespace OloEngine
         data.ParallelContext.ViewProjectionMatrix = data.ViewProjectionMatrix;
         data.ParallelContext.ViewPosition = data.ViewPos;
         data.ParallelContext.CullViewPosition = data.CullViewPos;
+        data.ParallelContext.LODView = data.LODView;
         data.ParallelContext.ViewFrustum = data.ViewFrustum;
         data.ParallelContext.FrustumCullingEnabled = data.FrustumCullingEnabled;
         data.ParallelContext.DynamicCullingEnabled = data.DynamicCullingEnabled;
