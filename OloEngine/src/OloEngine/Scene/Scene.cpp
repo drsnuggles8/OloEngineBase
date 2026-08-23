@@ -8046,6 +8046,33 @@ namespace OloEngine
                                 static_cast<f32>(m_ViewportHeight));
                         }
                     }
+
+                    // GPU terrain picking (issue #717). DELIBERATELY OUTSIDE the
+                    // tessellation gate above: picking is an editor interaction
+                    // that has to answer in every terrain scene, and the LOD
+                    // descent's gate is a rendering choice. Hanging it off the
+                    // same flag is how the quadtree ended up with zero runtime
+                    // coverage for months — docs/agent-rules/
+                    // terrain-gpu-lod-quadtree.md §1.
+                    //
+                    // The whole block is skipped until something has actually
+                    // asked for a pick (GetGPUPicker() stays null until the first
+                    // GetOrCreateGPUPicker()), so a game that never picks pays
+                    // nothing for this.
+                    if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt() &&
+                        terrain.m_ChunkManager->GetGPUPicker())
+                    {
+                        TerrainGPUPicker::TerrainInputs pickInputs;
+                        if (terrain.m_TerrainData && terrain.m_TerrainData->GetGPUHeightmap())
+                        {
+                            pickInputs.Heightmap = terrain.m_TerrainData->GetGPUHeightmap()->GetRHIHandle();
+                            pickInputs.HeightmapResolution = terrain.m_TerrainData->GetResolution();
+                        }
+                        pickInputs.WorldSizeX = terrain.m_WorldSizeX;
+                        pickInputs.WorldSizeZ = terrain.m_WorldSizeZ;
+                        pickInputs.HeightScale = terrain.m_HeightScale;
+                        terrain.m_ChunkManager->UpdateGPUPicking(pickInputs);
+                    }
                 }
 
                 // ── Voxel override layer ──

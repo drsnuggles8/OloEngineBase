@@ -25,6 +25,8 @@
 #include "UndoRedo/EntityCommands.h"
 #include "UndoRedo/ComponentCommands.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Terrain/TerrainChunkManager.h"
+#include "OloEngine/Terrain/TerrainGPUPicker.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer2D.h"
@@ -4542,7 +4544,120 @@ namespace OloEngine
         return Math::IsFinite(outRay.Origin) && Math::IsFinite(outRay.Direction);
     }
 
+    bool EditorLayer::IsGpuTerrainPickingEnabled()
+    {
+        // Read once. A per-call getenv on a path the brush cursor hits every
+        // frame is not free, and a lever that changes mid-session would make
+        // "which path answered this" unanswerable after the fact — the exact
+        // question the lever exists to settle.
+        static const bool s_Enabled = []
+        {
+            const char* value = std::getenv("OLO_TERRAIN_CPU_PICK");
+            return !(value != nullptr && value[0] == '1');
+        }();
+        return s_Enabled;
+    }
+
+    EditorLayer::TerrainPickState EditorLayer::TerrainRaycastGPU(const glm::vec2& mousePos,
+                                                                 const glm::vec2& viewportSize,
+                                                                 glm::vec3& outHitPos, bool& outHit) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        outHit = false;
+        if (!IsGpuTerrainPickingEnabled() || !m_ActiveScene)
+        {
+            return TerrainPickState::Unavailable;
+        }
+
+        Entity terrainEntity;
+        auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
+        if (auto it = view.begin(); it != view.end())
+        {
+            terrainEntity = Entity(*it, m_ActiveScene.get());
+        }
+        if (!terrainEntity)
+        {
+            return TerrainPickState::Unavailable;
+        }
+
+        auto& tc = terrainEntity.GetComponent<TerrainComponent>();
+        const auto& transform = terrainEntity.GetComponent<TransformComponent>();
+        if (!tc.m_ChunkManager || !tc.m_ChunkManager->IsBuilt())
+        {
+            return TerrainPickState::Unavailable;
+        }
+        const auto& quadtree = tc.m_ChunkManager->GetGPUQuadtree();
+        if (!quadtree || !quadtree->IsBuilt())
+        {
+            return TerrainPickState::Unavailable;
+        }
+
+        Ray mouseRay;
+        if (!BuildMouseRay(mousePos, viewportSize, mouseRay))
+        {
+            return TerrainPickState::Unavailable;
+        }
+
+        // Terrain-LOCAL, because that is the space the node pyramid and the
+        // heightmap live in — the same reason the LOD descent evaluates there
+        // (MakeTerrainLocalCullInputs, #429). The full inverse transform rather
+        // than a translation subtraction: it reduces to the same thing for an
+        // unrotated, unscaled terrain (which is every terrain the CPU path ever
+        // handled correctly) and is right for the ones it did not.
+        const glm::mat4 invModel = glm::inverse(transform.GetTransform());
+        const glm::vec3 localOrigin = glm::vec3(invModel * glm::vec4(mouseRay.Origin, 1.0f));
+        const glm::vec3 localDir = glm::vec3(invModel * glm::vec4(mouseRay.Direction, 0.0f));
+
+        auto& picker = tc.m_ChunkManager->GetOrCreateGPUPicker();
+        if (!picker)
+        {
+            return TerrainPickState::Unavailable;
+        }
+
+        TerrainGPUPicker::RayRequest request;
+        request.OriginLocal = localOrigin;
+        request.DirectionLocal = localDir;
+        // Same reach as the CPU march below, so the two paths agree about what
+        // is out of range as well as about where the ground is.
+        request.MaxDistance = 2000.0f;
+        request.RayId = ++m_TerrainPickRayId;
+        if (!picker->SubmitRay(request))
+        {
+            return TerrainPickState::Unavailable;
+        }
+
+        const auto& result = picker->GetLatest();
+        if (!result.Valid)
+        {
+            // Nothing has come back yet — the first frames of a hover, or the
+            // frames right after the ring was drained. The caller marches on the
+            // CPU for those, which is what keeps the cursor from popping into
+            // existence two frames late.
+            return TerrainPickState::Pending;
+        }
+
+        outHit = result.Hit;
+        if (result.Hit)
+        {
+            outHitPos = glm::vec3(transform.GetTransform() * glm::vec4(result.PositionLocal, 1.0f));
+        }
+        return TerrainPickState::Answered;
+    }
+
     bool EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        bool gpuHit = false;
+        if (TerrainRaycastGPU(mousePos, viewportSize, outHitPos, gpuHit) == TerrainPickState::Answered)
+        {
+            return gpuHit;
+        }
+        return TerrainRaycastCPU(mousePos, viewportSize, outHitPos);
+    }
+
+    bool EditorLayer::TerrainRaycastCPU(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
     {
         OLO_PROFILE_FUNCTION();
 

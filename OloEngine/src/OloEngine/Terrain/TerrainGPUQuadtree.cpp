@@ -199,6 +199,11 @@ namespace OloEngine
         return m_VisibleNodes ? m_VisibleNodes->GetRHIHandle() : RHI::ResourceHandle{};
     }
 
+    RHI::ResourceHandle TerrainGPUQuadtree::GetNodeBoundsHandle() const
+    {
+        return m_NodeBoundsBuffer ? m_NodeBoundsBuffer->GetRHIHandle() : RHI::ResourceHandle{};
+    }
+
     void TerrainGPUQuadtree::EnsureShaders()
     {
         if (m_ShadersLoaded || m_ShaderLoadFailed)

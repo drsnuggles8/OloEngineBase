@@ -207,8 +207,45 @@ namespace OloEngine
         bool ConfirmDiscardChanges();
         bool OnWindowClose(WindowCloseEvent const& e);
 
-        // Terrain editing: screen-to-world raycast against heightmap
+        // Terrain editing: screen-to-world raycast against the heightmap.
+        //
+        // Prefers the GPU picker (issue #717) and falls back to the CPU march
+        // only while the GPU answer has not come back yet, or when the GPU path
+        // is unusable at all. Both halves are below.
         bool TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;
+
+        // How far the GPU picker has got with the ray for this frame.
+        enum class TerrainPickState : u8
+        {
+            Unavailable, // no terrain, no GPU tree, or the A/B lever is off
+            Pending,     // ray submitted, answer still in flight
+            Answered,    // `outHit` / `outHitPos` are this pick's real result
+        };
+
+        // Submit this frame's ray to the GPU picker and read whatever the ring
+        // has already retired. Never stalls: the answer is one or two frames
+        // old by construction, which is what a hovering brush cursor can afford
+        // and a synchronous readback is not.
+        TerrainPickState TerrainRaycastGPU(const glm::vec2& mousePos, const glm::vec2& viewportSize,
+                                           glm::vec3& outHitPos, bool& outHit) const;
+
+        // The pre-#717 path: march the CPU-side heightmap mirror in 1-unit
+        // steps and bisect. Still the fallback, and still the reference the GPU
+        // path's accuracy is measured against.
+        bool TerrainRaycastCPU(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const;
+
+        // Process-wide A/B lever for GPU terrain picking, the twin of
+        // TerrainChunkManager::IsGpuDrivenLODEnabled. Defaults to enabled unless
+        // OLO_TERRAIN_CPU_PICK=1 — when the brush cursor sits in the wrong
+        // place, the first question is which of the two paths put it there, and
+        // that has to be answerable without a rebuild.
+        [[nodiscard]] static bool IsGpuTerrainPickingEnabled();
+
+        // Monotonic id stamped onto each submitted pick ray, so a returned
+        // answer can be told apart from the one before it. Mutable because the
+        // raycast entry points are const — submitting a ray is a query from the
+        // caller's point of view.
+        mutable u32 m_TerrainPickRayId = 0;
 
         // Unproject a viewport mouse position into a world-space picking ray
         // (normalized direction, unbounded TMax). False when the viewport is

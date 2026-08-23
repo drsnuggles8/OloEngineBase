@@ -1,0 +1,113 @@
+#version 450 core
+
+// =============================================================================
+// GPU terrain picking — the ray-guided descent, one dispatch per tree level
+// (issue #717).
+//
+// The ray-guided twin of TerrainNodeSelect.comp. Structurally identical: pop a
+// node off the pending worklist, test it, then either append its four children
+// for the next level or retire it. Two differences, both deliberate:
+//
+//   1. The test is a ray/AABB slab test against the node's INFLATED terrain-
+//      local bounds, not a frustum test. That is the whole "descend only the
+//      patches the pick ray intersects" property — a ray touches O(2^level)
+//      nodes per level rather than O(4^level), so the descent's cost is a line
+//      through the tree instead of a sweep of it.
+//   2. There is no screen-space error term. Picking always descends to the
+//      finest level: a coarse node's min/max-Y box says the ray MIGHT hit
+//      somewhere in it, never where, so stopping early would only hand the
+//      resolve kernel a bigger box to march. The pyramid is the accelerator,
+//      not the answer.
+//
+// The reservation rule is copied verbatim from TerrainNodeSelect.comp — all
+// four children or none, with the OLO_TERRAIN_NODE_SKIP sentinel filling
+// whatever a straddling reservation already took, because PendingCount is
+// clamped to capacity and an unwritten slot would be read next level as
+// whatever the previous level left there. Falling through to append the parent
+// as a candidate keeps the answer CORRECT under overflow rather than merely
+// unbroken: the resolve kernel marches by world position, so a coarser
+// candidate rect costs more marching and finds the same surface.
+// =============================================================================
+
+#include "../include/TerrainPickCommon.glsl"
+
+layout(local_size_x = 64) in;
+
+// Per-node world-space height extremes, level-major (oloTerrainNodeIndex) —
+// the SAME buffer TerrainNodeSelect.comp reads, bound at the same slot by the
+// picker. Sharing the pyramid is what makes "picking reuses the culling
+// machinery" true in the literal sense.
+layout(std430, binding = 65) readonly buffer TerrainNodeBounds
+{
+    vec2 b_NodeMinMaxY[];
+};
+
+layout(std430, binding = 66) readonly buffer TerrainPickNodeListIn
+{
+    uint b_NodesIn[];
+};
+
+layout(std430, binding = 67) writeonly buffer TerrainPickNodeListOut
+{
+    uint b_NodesOut[];
+};
+
+void main()
+{
+    // No barrier() anywhere in this kernel, so an early return is safe here —
+    // unlike a kernel fronting a work-group scan, where the same three lines are
+    // undefined behaviour (docs/agent-rules/gpu-scan-compaction.md §1).
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= b_Pick.PendingCount)
+        return;
+
+    uint nodeCoord = b_NodesIn[idx];
+    if (nodeCoord == OLO_TERRAIN_NODE_SKIP)
+        return;
+
+    uint level = oloTerrainNodeLevel(nodeCoord);
+    uint nx = oloTerrainNodeX(nodeCoord);
+    uint ny = oloTerrainNodeY(nodeCoord);
+
+    vec2 heightRange = b_NodeMinMaxY[oloTerrainNodeIndex(level, nx, ny)];
+    vec3 boundsMin;
+    vec3 boundsMax;
+    oloTerrainPickNodeBounds(level, nx, ny, heightRange, b_Pick.RayDirAndInflate.w, boundsMin, boundsMax);
+
+    float tMin = 0.0;
+    float tMax = b_Pick.RayOriginAndMaxDist.w;
+    if (!oloTerrainPickRayAABB(b_Pick.RayOriginAndMaxDist.xyz, b_Pick.RayDirAndInflate.xyz,
+                               boundsMin, boundsMax, tMin, tMax))
+    {
+        return;
+    }
+
+    uint maxDepth = b_Pick.PickParams.x;
+    if (level < maxDepth)
+    {
+        uint capacity = b_Pick.PickParams.y;
+        uint base = atomicAdd(b_Pick.NextCount, 4u);
+        uint childLevel = level + 1u;
+
+        if (base + 4u <= capacity)
+        {
+            b_NodesOut[base + 0u] = oloTerrainPackNode(childLevel, nx * 2u, ny * 2u);
+            b_NodesOut[base + 1u] = oloTerrainPackNode(childLevel, nx * 2u + 1u, ny * 2u);
+            b_NodesOut[base + 2u] = oloTerrainPackNode(childLevel, nx * 2u, ny * 2u + 1u);
+            b_NodesOut[base + 3u] = oloTerrainPackNode(childLevel, nx * 2u + 1u, ny * 2u + 1u);
+            return;
+        }
+
+        for (uint slot = base; slot < capacity; ++slot)
+            b_NodesOut[slot] = OLO_TERRAIN_NODE_SKIP;
+
+        atomicOr(b_Pick.OverflowFlags, OLO_TERRAIN_PICK_OVERFLOW_NODES);
+        // Deliberately no `return` — fall through and march this node instead.
+    }
+
+    uint outIdx = atomicAdd(b_Pick.CandidateCount, 1u);
+    if (outIdx < b_Pick.PickParams.z)
+        b_Pick.Candidates[outIdx] = nodeCoord;
+    else
+        atomicOr(b_Pick.OverflowFlags, OLO_TERRAIN_PICK_OVERFLOW_CANDIDATES);
+}
