@@ -419,8 +419,19 @@ namespace OloEngine
             REGISTER_COMPONENT(CloudscapeComponent),
             // Streaming
             REGISTER_COMPONENT(StreamingVolumeComponent),
-            // Terrain
+            // Terrain & water
             REGISTER_COMPONENT(TerrainComponent),
+            // WaterComponent had a full Sol2 usertype (~50 properties, added
+            // with the water renderer) but was never in THIS registry, which is
+            // what `entity_utils.get_component` resolves against — so the whole
+            // surface was unreachable from a script and every lookup logged
+            // "unknown or missing component 'WaterComponent'". Found wiring
+            // Drift's sea state to the wind (#882). Nothing guards this list
+            // against a usertype it forgot, by design (CLAUDE.md: many
+            // components legitimately aren't Lua-exposed, so a completeness
+            // test here would be noise) — so the usertype and the registry
+            // entry are two edits, not one.
+            REGISTER_COMPONENT(WaterComponent),
             // Animation
             REGISTER_COMPONENT(AnimationGraphComponent),
             REGISTER_COMPONENT(MorphTargetComponent),
@@ -1114,6 +1125,27 @@ namespace OloEngine
                                          "reflectivity", sol::property([](const WaterComponent& w)
                                                                        { return w.m_Reflectivity; }, [](WaterComponent& w, f32 v)
                                                                        { if (std::isfinite(v) && v >= 0.0f && v <= 1.0f) w.m_Reflectivity = v; }),
+                                         // Surface detail (issue #882). These are the knobs a
+                                         // sea state is legible through in a still frame —
+                                         // whitecaps appearing lower down the wave, the
+                                         // specular track breaking up, the fine normal detail
+                                         // coming forward — so a script that couples the sea
+                                         // to the wind needs them alongside waveAmplitude.
+                                         "specularIntensity", sol::property([](const WaterComponent& w)
+                                                                            { return w.m_SpecularIntensity; }, [](WaterComponent& w, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f && v <= 10.0f) w.m_SpecularIntensity = v; }),
+                                         "noiseIntensity", sol::property([](const WaterComponent& w)
+                                                                         { return w.m_NoiseIntensity; }, [](WaterComponent& w, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f && v <= 1.0f) w.m_NoiseIntensity = v; }),
+                                         "foamHeightStart", sol::property([](const WaterComponent& w)
+                                                                          { return w.m_FoamHeightStart; }, [](WaterComponent& w, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f && v <= 10.0f) w.m_FoamHeightStart = v; }),
+                                         "foamFadeDistance", sol::property([](const WaterComponent& w)
+                                                                           { return w.m_FoamFadeDistance; }, [](WaterComponent& w, f32 v)
+                                                                           { if (std::isfinite(v) && v > 0.0f && v <= 10.0f) w.m_FoamFadeDistance = v; }),
+                                         "foamBrightness", sol::property([](const WaterComponent& w)
+                                                                         { return w.m_FoamBrightness; }, [](WaterComponent& w, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f && v <= 10.0f) w.m_FoamBrightness = v; }),
                                          "underwaterFogColor", sol::property([](const WaterComponent& w)
                                                                              { return w.m_UnderwaterFogColor; }, [](WaterComponent& w, const glm::vec3& v)
                                                                              { if (std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z)) w.m_UnderwaterFogColor = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f)); }),

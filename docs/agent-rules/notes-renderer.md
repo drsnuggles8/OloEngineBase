@@ -456,3 +456,32 @@ that guess is usually wrong.
 
 The same trick has a headless twin: a shader-only fix can be re-measured by re-running the test
 binary, with no relink at all. Only C++ changes need the mutex.
+
+## 20. A scene's `PrecipitationSettings` block must be COMPLETE, because the struct defaults are snow
+
+`WeatherSystem::ApplyBlended` writes only `Enabled` and `Intensity` into the scene's
+`PrecipitationSettings` on an ordinary tick. Everything else — fall speed, particle size,
+lifetime, rotation, screen streaks, colour — comes from the scene, and is stamped over with
+`PrecipitationSettings::GetDefaultsForType(kind)` on **exactly one event**: the blended preset's
+`PrecipitationKind` differing from `settings.Type`.
+
+That makes the coherent-looking authoring choice the wrong one. Author `Type: 1` (Rain) to match a
+scene whose every weather state rains, and the type switch **never fires** — so the block you
+wrote is the block that runs, forever. And `PrecipitationSettings`'s own member initialisers are
+**snow**: `GravityScale 0.8`, `NearFieldSpeedMin 0.8`, `NearFieldLifetime 10`, `RotationSpeed 30`,
+`FeedAccumulation true`. A partial block ("Type, Enabled, GroundY, and the two screen-effect flags
+I care about") therefore renders a squall as drifting, tumbling, slowly-settling flakes tinted
+rain-blue. It is plausible enough in a still that it ships.
+
+Two rules:
+
+- If you author `Type` in a scene, author the **whole** parameter set for that type. Copy the
+  values out of `GetDefaultsForType` and then override.
+- If you author `Type` as something the scene's weather states never produce, the first blend that
+  disagrees will stamp the defaults over your block and silently discard every field except the
+  seven `ApplyBlended` preserves by hand (`GroundY`, `GroundCollisionEnabled`, `LODNearDistance`,
+  `LODFarDistance`, `FrameBudgetMs`, `MaxParticlesNearField`, `MaxParticlesFarField`).
+
+Found authoring Drift's storm leg (#882). The seven-field preserve list is the tell that this seam
+was already known to be sharp; the "no switch, so no defaults at all" half is the one that is not
+written down anywhere else.

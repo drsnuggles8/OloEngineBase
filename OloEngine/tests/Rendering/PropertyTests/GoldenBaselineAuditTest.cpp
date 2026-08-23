@@ -167,6 +167,29 @@ namespace OloEngine::Tests
             "Atmosphere_NightStorm.png",
         };
 
+        // The Drift weather/time-of-day matrix (issue #882). A SEPARATE list
+        // from kAtmosphereFiles even though the two grids look alike, because
+        // they are different pictures with different band layouts: the
+        // Atmosphere set is a lit ground plane and reads a "ground" band from
+        // the bottom 25%, while Drift's subject is open water and reads a
+        // "sea" band from the bottom 40%, below a horizon that sits lower in
+        // frame. Folding them together would compare the wrong rows.
+        constexpr std::array<const char*, 13> kDriftFiles{
+            "Drift_DawnClear.png",
+            "Drift_DawnOvercast.png",
+            "Drift_DawnStorm.png",
+            "Drift_NoonClear.png",
+            "Drift_NoonOvercast.png",
+            "Drift_NoonStorm.png",
+            "Drift_DuskClear.png",
+            "Drift_DuskOvercast.png",
+            "Drift_DuskStorm.png",
+            "Drift_NightClear.png",
+            "Drift_NightOvercast.png",
+            "Drift_NightStorm.png",
+            "Drift_DawnHero.png",
+        };
+
         // One baseline set: the shared root, or a per-vendor subdirectory.
         struct BaselineSet
         {
@@ -875,6 +898,14 @@ namespace OloEngine::Tests
             Band{ "horizon", 38u, 46u },
             Band{ "ground", 75u, 100u },
         };
+        // Mirrors DriftWeatherVisualEvidenceTest::Capture's own bands — the
+        // sea band deliberately starts below the horizon line so the headland
+        // and sky cannot contribute to it.
+        static constexpr std::array<Band, 3> kDriftBands{
+            Band{ "sky", 0u, 20u },
+            Band{ "horizon", 42u, 50u },
+            Band{ "sea", 60u, 100u },
+        };
 
         u32 comparisons = 0;
         for (std::size_t i = 1; i < sets.size(); ++i)
@@ -957,6 +988,44 @@ namespace OloEngine::Tests
                        "a vendor bug, check whether the two sets were baked at different commits — see "
                        "docs/agent-rules/vendor-golden-baseline-crosscheck.md";
             }
+
+            // ---- Tier 3: Drift, same contract as Atmosphere, own bands ----
+            for (const char* cell : kDriftFiles)
+            {
+                Image lhs;
+                Image rhs;
+                bool sizeMismatch = false;
+                if (!LoadPairForCompare(vendor.m_VisualDir / cell, shared.m_VisualDir / cell,
+                                        lhs, rhs, sizeMismatch))
+                {
+                    EXPECT_FALSE(sizeMismatch)
+                        << cell << " differs in resolution between '" << vendor.m_Label
+                        << "' and the shared set";
+                    continue;
+                }
+                ++comparisons;
+
+                for (const Band& band : kDriftBands)
+                {
+                    const f64 vendorLuma = MeanBandPercent(lhs, band.m_Lo, band.m_Hi).Luma();
+                    const f64 sharedLuma = MeanBandPercent(rhs, band.m_Lo, band.m_Hi).Luma();
+                    const f64 delta = std::abs(vendorLuma - sharedLuma);
+                    EXPECT_LT(delta, kBandLumaDelta)
+                        << cell << ", " << band.m_Name << " band: '" << vendor.m_Label
+                        << "' reads luma " << vendorLuma << " but the shared baseline reads "
+                        << sharedLuma << " (delta " << delta
+                        << ") — band means are insensitive to bake-date drift, so this is the two "
+                           "vendors depicting different scenes";
+                }
+
+                const f64 rmse255 = ComputeRgbRmse255(lhs, rhs);
+                EXPECT_LE(rmse255, kAtmosphereRmse255)
+                    << cell << ": '" << vendor.m_Label << "' vs the shared baseline is RMSE " << rmse255
+                    << ", past the threshold DriftWeatherVisualEvidenceTest applies to its own "
+                       "goldens. Before calling this a vendor bug, check whether the two sets were "
+                       "baked at different commits — see "
+                       "docs/agent-rules/vendor-golden-baseline-crosscheck.md";
+            }
         }
 
         EXPECT_GT(comparisons, 0u)
@@ -997,6 +1066,12 @@ namespace OloEngine::Tests
                    "(expected <repo>/OloEditor)";
         }
         for (const char* name : kAtmosphereFiles)
+        {
+            Image image;
+            EXPECT_TRUE(LoadForAudit(shared.m_VisualDir / name, image))
+                << "shared baseline missing or unreadable: " << (shared.m_VisualDir / name).string();
+        }
+        for (const char* name : kDriftFiles)
         {
             Image image;
             EXPECT_TRUE(LoadForAudit(shared.m_VisualDir / name, image))
