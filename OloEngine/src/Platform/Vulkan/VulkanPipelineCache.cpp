@@ -5,6 +5,7 @@
 #include "Platform/Vulkan/VulkanPipelineCache.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+#include "OloEngine/Renderer/ShaderCachePaths.h"
 
 #include <fstream>
 
@@ -18,7 +19,13 @@ namespace OloEngine
 
     std::filesystem::path VulkanPipelineCache::CacheFilePath()
     {
-        return std::filesystem::path("assets") / "cache" / "shader" / "vulkan" / "pipeline_cache.vkpc";
+        // Relocated behind OLO_SHADER_CACHE_DIR (issue #906), same root as the
+        // portable SPIR-V tiers — safe to co-locate because this blob is
+        // driver-produced and the driver itself is the guard: an unrecognised
+        // VkPipelineCacheHeaderVersionOne (wrong vendor/device/UUID) is
+        // required to be rejected at vkCreatePipelineCache, handled below by
+        // the soft-fail/recreate-empty path.
+        return ShaderCachePaths::Root() / "vulkan" / "pipeline_cache.vkpc";
     }
 
     VkPipelineCache VulkanPipelineCache::Handle()
