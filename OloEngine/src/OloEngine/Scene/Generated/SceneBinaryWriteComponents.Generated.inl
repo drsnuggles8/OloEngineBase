@@ -591,6 +591,23 @@ if (entity.HasComponent<RetargetingComponent>())
     }
 }
 
+if (entity.HasComponent<SailComponent>())
+{
+    SceneBinIO::WriteU32(out, 232052979u); // SailComponent
+    auto const& comp = entity.GetComponent<SailComponent>();
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_SailArea);
+    SceneBinIO::Write(out, comp.m_AirDensity);
+    SceneBinIO::Write(out, comp.m_MaxNormalCoefficient);
+    SceneBinIO::Write(out, comp.m_MaxYardAngleDeg);
+    SceneBinIO::Write(out, comp.m_TrimRateDeg);
+    SceneBinIO::Write(out, comp.m_CentreOfEffortY);
+    SceneBinIO::Write(out, comp.m_CentreOfEffortZ);
+    SceneBinIO::Write(out, comp.m_AutoTrim);
+    SceneBinIO::Write(out, comp.m_TrimInput);
+    SceneBinIO::Write(out, comp.m_SailSetInput);
+}
+
 if (entity.HasComponent<SnowDeformerComponent>())
 {
     SceneBinIO::WriteU32(out, 1922789083u); // SnowDeformerComponent

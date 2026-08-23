@@ -822,6 +822,19 @@ registry.push_back(OLO_GFW_FIELD(Rigidbody3DComponent, "InitialAngularVelocity",
 registry.push_back(OLO_GFW_FIELD(Rigidbody3DComponent, "MaxLinearVelocity", m_MaxLinearVelocity));
 registry.push_back(OLO_GFW_FIELD(Rigidbody3DComponent, "MaxAngularVelocity", m_MaxAngularVelocity));
 
+// SailComponent
+registry.push_back(OLO_GFW_FIELD(SailComponent, "Enabled", m_Enabled));
+registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "SailArea", m_SailArea, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "AirDensity", m_AirDensity, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "MaxNormalCoefficient", m_MaxNormalCoefficient, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "MaxYardAngleDeg", m_MaxYardAngleDeg, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(90.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "TrimRateDeg", m_TrimRateDeg, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(3600.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "CentreOfEffortY", m_CentreOfEffortY, OLO_GFW_BOUND(-1000.0f), OLO_GFW_BOUND(1000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "CentreOfEffortZ", m_CentreOfEffortZ, OLO_GFW_BOUND(-1000.0f), OLO_GFW_BOUND(1000.0f)));
+registry.push_back(OLO_GFW_FIELD(SailComponent, "AutoTrim", m_AutoTrim));
+registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "TrimInput", m_TrimInput, OLO_GFW_BOUND(-1.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "SailSetInput", m_SailSetInput, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+
 // ScriptComponent
 registry.push_back(OLO_GFW_FIELD(ScriptComponent, "ClassName", ClassName));
 
@@ -839,6 +852,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(SphereAreaLightComponent, "Radius", m_Rad
 registry.push_back(OLO_GFW_FIELD_RANGE(SphereAreaLightComponent, "Range", m_Range, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "CastShadows", m_CastShadows));
 
+}
+
+static void BuildRegistryChunk11(std::vector<FieldEntry>& registry)
+{
 // SphereCollider3DComponent
 registry.push_back(OLO_GFW_FIELD(SphereCollider3DComponent, "Radius", m_Radius));
 registry.push_back(OLO_GFW_FIELD(SphereCollider3DComponent, "Offset", m_Offset));
@@ -855,10 +872,6 @@ registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "CastShadows", m_CastShadow
 registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "ShadowBias", m_ShadowBias));
 registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "ShadowNormalBias", m_ShadowNormalBias));
 
-}
-
-static void BuildRegistryChunk11(std::vector<FieldEntry>& registry)
-{
 // SpringBoneComponent
 registry.push_back(OLO_GFW_FIELD(SpringBoneComponent, "Enabled", Enabled));
 registry.push_back(OLO_GFW_FIELD(SpringBoneComponent, "EndBoneIndex", EndBoneIndex));

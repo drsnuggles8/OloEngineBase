@@ -113,4 +113,65 @@ namespace OloEngine::Tests
         storm.SunDimming = 0.75f;
         storm.WetnessTarget = 1.0f;
     }
+
+    // Mirrors the hull, buoyancy and rig blocks on Drift.olo's Boat entity
+    // (issue #899). Same one-definition rule, and the same caveat, as the
+    // weather table above: nothing enforces the pairing with the scene, so the
+    // rationale for each number stays in the scene's own comments and this file
+    // carries only the values.
+    //
+    // What it is FOR: the three numbers that decide whether Drift is playable
+    // under sail - the hull's ForwardDrag, BuoyancyComponent's LinearDrag and
+    // SailComponent's SailArea - are a single ratio, and each of the three is a
+    // plausible-looking thing to tidy up in isolation. SailTest's Drift cases
+    // sail this exact rig in the exact wind speeds the weather table above
+    // authors, so a tidy-up that becalms the game fails a test instead of being
+    // discovered by playing it.
+    namespace DriftBoat
+    {
+        inline constexpr f32 kMass = 2600.0f;
+        inline constexpr glm::vec3 kColliderHalfExtents{ 1.0f, 0.4f, 2.5f };
+    } // namespace DriftBoat
+
+    inline void ApplyDriftBuoyancy(BuoyancyComponent& b)
+    {
+        b.m_Enabled = true;
+        b.m_ProbeExtents = glm::vec3(1.35f, 0.45f, 2.5f);
+        b.m_FluidDensity = 1000.0f;
+        b.m_BuoyancyScale = 1.0f;
+        b.m_LinearDrag = 0.35f;
+        b.m_AngularDrag = 2.2f;
+        b.m_SubmergenceRamp = 0.8f;
+    }
+
+    inline void ApplyDriftHull(BoatComponent& c)
+    {
+        c.m_Enabled = true;
+        c.m_MaxThrust = 900.0f;
+        c.m_ThrustOffsetZ = -2.2f;
+        c.m_ThrustOffsetY = -0.55f;
+        c.m_MaxRudderTorque = 5400.0f;
+        c.m_RudderAuthoritySpeed = 7.0f;
+        c.m_LateralDrag = 3.5f;
+        c.m_ForwardDrag = 0.12f;
+        c.m_YawDrag = 2.2f;
+        c.m_ImmersionDepth = 0.3f;
+        c.m_ThrottleInput = 0.0f;
+        c.m_SteerInput = 0.0f;
+    }
+
+    inline void ApplyDriftRig(SailComponent& s)
+    {
+        s.m_Enabled = true;
+        s.m_SailArea = 260.0f;
+        s.m_AirDensity = 1.225f;
+        s.m_MaxNormalCoefficient = 1.5f;
+        s.m_MaxYardAngleDeg = 45.0f;
+        s.m_TrimRateDeg = 28.0f;
+        s.m_CentreOfEffortY = 2.0f;
+        s.m_CentreOfEffortZ = -0.36f;
+        s.m_AutoTrim = true;
+        s.m_TrimInput = 0.0f;
+        s.m_SailSetInput = 1.0f;
+    }
 } // namespace OloEngine::Tests

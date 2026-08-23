@@ -195,3 +195,41 @@ It is the single TU that compiles the third-party pl_mpeg amalgam
 SonarQube `cpp:S988` "remove this include" is a false positive there.
 
 The first-party wrapper is `Video/PlMpegBackend.cpp` and *is* fair game.
+
+## Splitting one model into several entities (issue #899)
+
+`Model` flattens the imported node graph under `aiProcess_PreTransformVertices`
+and draws every submesh with the entity's single transform, so **there is no way
+to move one part of a `ModelComponent` relative to another**. When a part of a
+model has to animate independently — a sail that trims, a turret that traverses,
+a door that opens — the cheap answer is not an engine feature, it is to split the
+source file.
+
+The glTF importer does keep node names (`ProcessMesh` writes
+`submesh.m_NodeName`), so a `.glb` authored with named nodes can be subset into
+one file per moving part. `scripts/split-glb-nodes.py` does it over the JSON
+chunk: keep the nodes you want, keep every material/texture/image entry, and
+repack only the `bufferView`s the surviving accessors reach. `ship-small.glb` went from 116 KB to
+a 104 KB hull and a 12 KB sail this way, both still pointing at the one shared
+external atlas, so the pair costs no extra texture memory.
+
+**The load-bearing part is the RE-ORIGIN, and it is easy to miss.** Because the
+node transforms are baked into the vertices, the extracted part's geometry is
+still at its position inside the whole model. Rotating an entity that carries it
+swings the part around the MODEL's origin, not around its own hinge. Dropping the
+extracted node's `translation` puts its own pivot at the file origin, and the
+scene then places the entity at exactly that translation in the parent's space —
+so the split is invisible and a plain Y rotation on the child is the hinge angle.
+Get it wrong and the part still moves, plausibly, around the wrong point.
+
+Two more things that bite:
+
+* **`.glb` is a supported asset extension**, so any new one under
+  `SandboxProject/Assets/` must be in `AssetRegistry.oar` or
+  `AssetContentValidity.EverySupportedAssetOnDiskIsInTheRegistry` fails. Launching
+  OloEditor once rescans and adds it; commit the updated `.oar`.
+* **Check the model's forward axis before trusting a rotation sign.** The Kenney
+  vehicle models face +Z, matching the engine's vehicle convention, which is why
+  `VehiclesTest.olo` gives them no yaw correction — but a model authored facing
+  -Z (the usual glTF/Blender export) would need one, and then every hinge angle
+  copied onto it reads mirrored.

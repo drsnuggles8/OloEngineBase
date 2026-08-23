@@ -1131,6 +1131,40 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, SailComponent& c)
+    {
+        ar << c.m_Enabled;
+        ar << c.m_SailArea << c.m_AirDensity << c.m_MaxNormalCoefficient;
+        ar << c.m_MaxYardAngleDeg << c.m_TrimRateDeg;
+        ar << c.m_CentreOfEffortY << c.m_CentreOfEffortZ;
+        ar << c.m_AutoTrim << c.m_TrimInput << c.m_SailSetInput;
+        // The runtime readouts (m_YardAngle, the apparent-wind pair, the force
+        // pair, m_Luffing) are deliberately NOT written. SailSystem rewrites all
+        // of them on the first physics step after a load, so saving them would
+        // only add bytes that are stale by one tick — and a loaded yard angle
+        // that disagreed with the loaded wind would show as the sail snapping
+        // round the instant play resumes.
+
+        // Sanitize untrusted on-disk values (mirrors the OLO_SERIALIZE(Clamp)
+        // ranges the scene serializer generates). SailSystem re-sanitizes before
+        // touching Jolt, but a garbage value must not survive a save round-trip.
+        if (ar.IsLoading())
+        {
+            const auto ranged = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                v = std::isfinite(v) ? std::clamp(v, lo, hi) : fallback;
+            };
+            ranged(c.m_SailArea, 0.0f, 100000.0f, 38.0f);
+            ranged(c.m_AirDensity, 0.0f, 100.0f, 1.225f);
+            ranged(c.m_MaxNormalCoefficient, 0.0f, 100.0f, 1.5f);
+            ranged(c.m_MaxYardAngleDeg, 0.0f, 90.0f, 45.0f);
+            ranged(c.m_TrimRateDeg, 0.0f, 3600.0f, 35.0f);
+            ranged(c.m_CentreOfEffortY, -1000.0f, 1000.0f, 2.6f);
+            ranged(c.m_CentreOfEffortZ, -1000.0f, 1000.0f, -0.36f);
+            ranged(c.m_TrimInput, -1.0f, 1.0f, 0.0f);
+            ranged(c.m_SailSetInput, 0.0f, 1.0f, 1.0f);
+        }
+    }
     void SaveGameComponentSerializer::Serialize(FArchive& ar, AircraftComponent& c)
     {
         ar << c.m_Enabled;
@@ -4409,6 +4443,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(PhysicsJoint3DComponent);
         REGISTER_SAVE_COMPONENT(VehicleComponent);
         REGISTER_SAVE_COMPONENT(BoatComponent);
+        REGISTER_SAVE_COMPONENT(SailComponent);
         REGISTER_SAVE_COMPONENT(AircraftComponent);
         REGISTER_SAVE_COMPONENT(RagdollComponent);
         REGISTER_SAVE_COMPONENT(ClothComponent);

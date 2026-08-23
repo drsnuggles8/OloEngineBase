@@ -2398,6 +2398,75 @@ namespace OloEngine
 		}
 	}
 
+	public partial class SailComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.SailComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.SailComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public float SailArea
+		{
+			get => InternalCalls.SailComponent_GetSailArea(Entity.ID);
+			set => InternalCalls.SailComponent_SetSailArea(Entity.ID, value);
+		}
+
+		public float AirDensity
+		{
+			get => InternalCalls.SailComponent_GetAirDensity(Entity.ID);
+			set => InternalCalls.SailComponent_SetAirDensity(Entity.ID, value);
+		}
+
+		public float MaxNormalCoefficient
+		{
+			get => InternalCalls.SailComponent_GetMaxNormalCoefficient(Entity.ID);
+			set => InternalCalls.SailComponent_SetMaxNormalCoefficient(Entity.ID, value);
+		}
+
+		public float MaxYardAngleDeg
+		{
+			get => InternalCalls.SailComponent_GetMaxYardAngleDeg(Entity.ID);
+			set => InternalCalls.SailComponent_SetMaxYardAngleDeg(Entity.ID, value);
+		}
+
+		public float TrimRateDeg
+		{
+			get => InternalCalls.SailComponent_GetTrimRateDeg(Entity.ID);
+			set => InternalCalls.SailComponent_SetTrimRateDeg(Entity.ID, value);
+		}
+
+		public float CentreOfEffortY
+		{
+			get => InternalCalls.SailComponent_GetCentreOfEffortY(Entity.ID);
+			set => InternalCalls.SailComponent_SetCentreOfEffortY(Entity.ID, value);
+		}
+
+		public float CentreOfEffortZ
+		{
+			get => InternalCalls.SailComponent_GetCentreOfEffortZ(Entity.ID);
+			set => InternalCalls.SailComponent_SetCentreOfEffortZ(Entity.ID, value);
+		}
+
+		public bool AutoTrim
+		{
+			get => InternalCalls.SailComponent_GetAutoTrim(Entity.ID);
+			set => InternalCalls.SailComponent_SetAutoTrim(Entity.ID, value);
+		}
+
+		public float TrimInput
+		{
+			get => InternalCalls.SailComponent_GetTrimInput(Entity.ID);
+			set => InternalCalls.SailComponent_SetTrimInput(Entity.ID, value);
+		}
+
+		public float SailSetInput
+		{
+			get => InternalCalls.SailComponent_GetSailSetInput(Entity.ID);
+			set => InternalCalls.SailComponent_SetSailSetInput(Entity.ID, value);
+		}
+	}
+
 	public partial class SphereAreaLightComponent : Component
 	{
 		public Vector3 Color

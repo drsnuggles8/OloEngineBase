@@ -786,6 +786,30 @@ OLO_ADD_INTERNAL_CALL(Rigidbody3DComponent_SetDisableGravity);
 OLO_ADD_INTERNAL_CALL(Rigidbody3DComponent_GetIsTrigger);
 OLO_ADD_INTERNAL_CALL(Rigidbody3DComponent_SetIsTrigger);
 
+// SailComponent
+OLO_ADD_INTERNAL_CALL(SailComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(SailComponent_SetEnabled);
+OLO_ADD_INTERNAL_CALL(SailComponent_GetSailArea);
+OLO_ADD_INTERNAL_CALL(SailComponent_SetSailArea);
+OLO_ADD_INTERNAL_CALL(SailComponent_GetAirDensity);
+OLO_ADD_INTERNAL_CALL(SailComponent_SetAirDensity);
+OLO_ADD_INTERNAL_CALL(SailComponent_GetMaxNormalCoefficient);
+OLO_ADD_INTERNAL_CALL(SailComponent_SetMaxNormalCoefficient);
+OLO_ADD_INTERNAL_CALL(SailComponent_GetMaxYardAngleDeg);
+OLO_ADD_INTERNAL_CALL(SailComponent_SetMaxYardAngleDeg);
+OLO_ADD_INTERNAL_CALL(SailComponent_GetTrimRateDeg);
+OLO_ADD_INTERNAL_CALL(SailComponent_SetTrimRateDeg);
+OLO_ADD_INTERNAL_CALL(SailComponent_GetCentreOfEffortY);
+OLO_ADD_INTERNAL_CALL(SailComponent_SetCentreOfEffortY);
+OLO_ADD_INTERNAL_CALL(SailComponent_GetCentreOfEffortZ);
+OLO_ADD_INTERNAL_CALL(SailComponent_SetCentreOfEffortZ);
+OLO_ADD_INTERNAL_CALL(SailComponent_GetAutoTrim);
+OLO_ADD_INTERNAL_CALL(SailComponent_SetAutoTrim);
+OLO_ADD_INTERNAL_CALL(SailComponent_GetTrimInput);
+OLO_ADD_INTERNAL_CALL(SailComponent_SetTrimInput);
+OLO_ADD_INTERNAL_CALL(SailComponent_GetSailSetInput);
+OLO_ADD_INTERNAL_CALL(SailComponent_SetSailSetInput);
+
 // SphereAreaLightComponent
 OLO_ADD_INTERNAL_CALL(SphereAreaLightComponent_GetColor);
 OLO_ADD_INTERNAL_CALL(SphereAreaLightComponent_SetColor);

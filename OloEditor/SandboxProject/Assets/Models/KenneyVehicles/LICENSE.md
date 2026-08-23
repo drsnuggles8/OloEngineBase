@@ -18,9 +18,65 @@ from mixed sources.
 | `van.glb` | [Car Kit](https://kenney.nl/assets/car-kit) | Car — all-wheel drive |
 | `boat-row-large.glb` | [Pirate Kit](https://kenney.nl/assets/pirate-kit) | Boat — runs straight |
 | `ship-small.glb` | [Pirate Kit](https://kenney.nl/assets/pirate-kit) | Boat — circles under rudder |
+| `ship-small-hull.glb` | derived from `ship-small.glb` | Drift's boat — hull + flags |
+| `ship-small-sail.glb` | derived from `ship-small.glb` | Drift's boat — the rig, on its own entity |
 | `craft_speederA.glb` | [Space Kit](https://kenney.nl/assets/space-kit) | Aircraft |
 
 Only the individual models the scene uses were vendored, not the whole kits.
+
+## The two derived files, and how to remake them (issue #899)
+
+The two commands that produce them, from the repository root — they rewrite the
+committed files byte-for-byte, so a regeneration that differs means the tool or
+the source moved:
+
+```bash
+python scripts/split-glb-nodes.py \
+    OloEditor/SandboxProject/Assets/Models/KenneyVehicles/ship-small.glb \
+    --keep ship-small --drop sail-a --scene-name ship-small-hull \
+    --out OloEditor/SandboxProject/Assets/Models/KenneyVehicles/ship-small-hull.glb
+
+python scripts/split-glb-nodes.py \
+    OloEditor/SandboxProject/Assets/Models/KenneyVehicles/ship-small.glb \
+    --keep sail-a --re-origin --scene-name ship-small-sail \
+    --out OloEditor/SandboxProject/Assets/Models/KenneyVehicles/ship-small-sail.glb
+```
+
+`ship-small-hull.glb` and `ship-small-sail.glb` are a **subset split** of
+`ship-small.glb`, not new art. CC0 permits it without condition; this section is
+here so the pair can be regenerated rather than reverse-engineered.
+
+The reason for the split is that Drift's sail has to move. `Model` flattens the
+imported node graph and draws every submesh with the entity's one transform, so
+a part of a `ModelComponent` cannot be posed independently — the rig had to
+become its own entity, which meant its own file.
+
+The source has four named nodes (`ship-small`, `flag-a`, `flag-b`, `sail-a`), so
+the split is a straight subset of the same glTF:
+
+* **hull** — the `ship-small` subtree with the `sail-a` child dropped, every
+  surviving node left at its ORIGINAL model-space translation, so the existing
+  scene transform frames the boat identically;
+* **sail** — `sail-a` alone, promoted to the scene root **with its node
+  translation removed**. That re-origin is the load-bearing part: node transforms
+  are baked into the vertices by `aiProcess_PreTransformVertices`, so without it
+  a Y rotation on the sail entity would swing the sail around the BOAT instead of
+  around its own mast. With it, the entity's Y rotation is the yard angle, and
+  `Drift.olo` places the entity at the translation that was baked out
+  (`[0, 3.13852, -0.6333724]`, in the hull mesh's own space) so the split is
+  invisible.
+
+Both keep the shared external `Textures/colormap-pirate.png` reference, so the
+pair costs one extra 12 KB file and no extra texture memory. Geometry, UVs and
+materials are untouched; only the node list, the accessor/bufferView packing and
+that one translation differ.
+
+Both are registered in `AssetRegistry.oar` — `.glb` is a supported asset
+extension, and `AssetContentValidity.EverySupportedAssetOnDiskIsInTheRegistry`
+fails on any that is not.
+
+`ship-small.glb` itself is **kept**: `VehiclesTest.olo` still uses the whole boat,
+and it is the source the pair is derived from.
 
 ## Why there are two colormaps, and why the models were repointed
 

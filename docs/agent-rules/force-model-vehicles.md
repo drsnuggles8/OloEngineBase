@@ -313,3 +313,73 @@ A convention error also hides indefinitely in a **symmetric** consumer.
 symmetric about the keel; it only mattered the day an asymmetric consumer (the
 rudder, `m_LeftRightSplit`) read the same helper. So when you find one of these,
 grep for every reader of the axis, not just the one that failed.
+
+## 12. Wind-driven vehicles: the medium moves, and that changes the shape (issue #899)
+
+Everything above assumes the medium is still and the vehicle moves through it.
+A sail (and a balloon, a windmill, a kite) is the other case: **the medium is
+moving and the vehicle's own velocity is subtracted from it**. `SailSystem` is
+the worked example.
+
+Four things fall out of that which none of the earlier sections cover.
+
+### The force depends on APPARENT velocity, so it is self-limiting downwind
+
+`apparent = trueWind - hullVelocity`. Run downwind and the wind you feel drops
+toward zero, so a boat can never outrun the breeze on a dead run and no clamp is
+needed to say so. Skip the subtraction — sample the wind and push — and the
+vehicle accelerates without bound in the one direction a player will point it
+first. Nothing in a static test catches this; the discriminator has to *move*
+the vehicle downwind and re-read the apparent speed.
+
+### Solve the control surface's angle in closed form, don't search it
+
+For a flat sail whose normal is `n(phi) = cos(phi)*forward + sin(phi)*port`, the
+forward drive is `(a cos phi + b sin phi) cos phi` with `a = wind.forward`,
+`b = wind.port`. That is one cosine in `2phi`, so the optimum is
+`phi = atan2(b, a) / 2` — a single call, no iteration, and because it is unimodal
+over `(-90, 90]` degrees, **clamping the unconstrained optimum into the control's
+travel limit gives the constrained optimum too**. Worth knowing before anyone
+writes a sampling loop.
+
+### The travel limit is the no-go zone AND the speed governor, and that is a design lever
+
+The same clamp does both jobs, which makes it the highest-leverage number in the
+whole model:
+
+* **upwind** — with the wind on the bow no reachable angle produces positive
+  drive, so there is no sailing dead upwind and the boat must tack. Where the
+  no-go zone starts is decided by the limit (45 deg of yard brace puts it at
+  roughly 55-60 deg off the wind, which is about what a square rigger managed);
+* **on a reach** — the drive dies once the boat is fast enough that the apparent
+  wind draws forward of the braced sail, which caps speed near the true wind
+  speed. Nothing else in the model caps it: linear hull drag cannot, because the
+  sail's force grows with apparent speed squared while the drag grows linearly.
+
+So raising it to make the boat point higher also makes it faster, always, and by
+a lot. Tune it knowing that, and don't reach for a separate speed clamp — one
+already exists.
+
+### Auto-trim must STOP CHASING when nothing can be reached
+
+Head to wind the solved optimum is the least-bad angle rather than a good one,
+and its **sign** is decided by which side of dead-ahead the apparent wind has
+wandered onto. Chase it and the control slams hard across every time that
+flickers — a rig that looks possessed, from arithmetic that is entirely correct.
+Once the achievable drive is not positive, hold the current angle. The vehicle
+still gets the (negative) force, which is the correct behaviour: a boat in irons
+is pushed astern and has to be backed out.
+
+### And the tuning is a RATIO spread across components, which is how it rots
+
+Drift's sail area lives on `SailComponent`, the hull's forward drag on
+`BoatComponent`, and a second forward damping term on `BuoyancyComponent` — whose
+`m_LinearDrag` reads as a vertical bobbing damper and is applied to the whole
+velocity vector. Three components, three plausible-looking independent knobs, one
+ratio. Halving any one of them alone changes every speed in the game, and the
+one that gets 'tidied up' is whichever looks least physical in isolation.
+
+There is no way to make that self-enforcing, so it is pinned by test instead:
+`SailTest`'s `DriftSailingTest` cases sail the shipped rig in the shipped wind
+speeds and assert the boat is neither becalmed nor uncapped. See also §10 — this
+is the same class of failure, where the wrong value still simulates perfectly.

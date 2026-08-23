@@ -748,6 +748,31 @@ if (auto node = entity["RetargetingComponent"]; node)
     }
 }
 
+if (auto node = entity["SailComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<SailComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SailArea"], v))
+        comp.m_SailArea = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["AirDensity"], v))
+        comp.m_AirDensity = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxNormalCoefficient"], v))
+        comp.m_MaxNormalCoefficient = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxYardAngleDeg"], v))
+        comp.m_MaxYardAngleDeg = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(90.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TrimRateDeg"], v))
+        comp.m_TrimRateDeg = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(3600.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["CentreOfEffortY"], v))
+        comp.m_CentreOfEffortY = std::clamp(v, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["CentreOfEffortZ"], v))
+        comp.m_CentreOfEffortZ = std::clamp(v, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    comp.m_AutoTrim = node["AutoTrim"].as<bool>(comp.m_AutoTrim);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TrimInput"], v))
+        comp.m_TrimInput = std::clamp(v, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SailSetInput"], v))
+        comp.m_SailSetInput = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+}
+
 if (auto node = entity["SnowDeformerComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<SnowDeformerComponent>();

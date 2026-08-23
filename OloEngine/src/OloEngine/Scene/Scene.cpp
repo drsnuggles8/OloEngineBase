@@ -64,6 +64,7 @@
 #include "OloEngine/Physics3D/JoltShapes.h"
 #include "OloEngine/Physics3D/AircraftSystem.h"
 #include "OloEngine/Physics3D/BoatSystem.h"
+#include "OloEngine/Physics3D/SailSystem.h"
 #include "OloEngine/Physics3D/BuoyancySystem.h"
 #include "OloEngine/Physics3D/ClothWindSystem.h"
 #include "OloEngine/Fluid/FluidSettings.h"
@@ -2686,11 +2687,13 @@ namespace OloEngine
         // against its domain walls (coupling is skipped inside).
         FluidSystem::OnUpdate(this, ts.GetSeconds());
 
-        // Boat / aircraft force models (issue #438) — mirrors their "Boat" /
-        // "Aircraft" scheduler nodes, which are ordered Before("PhysicsKick") on
-        // the runtime path. Same queue-before-step contract as Fluid above; keep
-        // the two call sites in sync. Both no-op without a Jolt scene.
+        // Boat / sail / aircraft force models (issues #438, #899) — mirrors their
+        // "Boat" / "Sail" / "Aircraft" scheduler nodes, which are ordered
+        // Before("PhysicsKick") on the runtime path. Same queue-before-step
+        // contract as Fluid above; keep the two call sites in sync. All three
+        // no-op without a Jolt scene.
         BoatSystem::OnUpdate(this, m_SimulationTime, ts.GetSeconds());
+        SailSystem::OnUpdate(this, m_SimulationTime, ts.GetSeconds());
         AircraftSystem::OnUpdate(this, ts.GetSeconds());
 
         // Update 3D physics
@@ -2962,6 +2965,13 @@ namespace OloEngine
         // today; queue-before-step contract, see JoltBody::AddForce). Written by
         // Fluid, consumed by PhysicsKick whose step integrates them.
         constexpr std::string_view kBodyForces = "BodyForces";
+        // The scene-level atmosphere settings WeatherSystem::ApplyBlended
+        // rewrites every tick (WindSettings / FogSettings / Precipitation).
+        // Declared so a reader that needs THIS tick's wind — SailSystem — has a
+        // real RAW edge to it rather than inheriting the order from the
+        // registration tie-break, which would silently become a race the day
+        // either system is marked Parallelizable (issue #899).
+        constexpr std::string_view kWeather = "AtmosphereSettings";
     } // namespace GameplayChannel
 
     SystemScheduler& Scene::GetGameplayScheduler()
@@ -3072,6 +3082,7 @@ namespace OloEngine
             // should feel this tick's wind.
             sched.AddSystem("Weather", [](Scene& s, Timestep ts)
                             { WeatherSystem::Tick(s, ts); })
+                .Writes(kWeather)
                 .Before("PhysicsKick");
 
             // Locomotion controller (issue #631): measures character
@@ -3161,6 +3172,23 @@ namespace OloEngine
             sched.AddSystem("Boat", [](Scene& s, Timestep ts)
                             { BoatSystem::OnUpdate(&s, s.GetSimulationTime(), ts.GetSeconds()); })
                 .Reads(kLocalTransforms)
+                .Writes(kBodyForces)
+                .Before("PhysicsKick");
+
+            // Wind propulsion for a sailing rig (issue #899). Same
+            // queue-before-step contract as Boat, and deliberately a system of
+            // its own rather than a branch inside BoatSystem: the two model
+            // different media (water vs air) and a boat may carry either, both,
+            // or neither. Their forces simply sum, so no edge between them is
+            // needed. Reads no water tiles, but does read the scene-level
+            // WindSettings, which WeatherSystem has already written this tick.
+            // UNMARKED (join-all barrier) for the same reason as Boat. The
+            // editor Simulate path mirrors this with a direct call in
+            // Scene::StepPhysics — keep the two call sites in sync.
+            sched.AddSystem("Sail", [](Scene& s, Timestep ts)
+                            { SailSystem::OnUpdate(&s, s.GetSimulationTime(), ts.GetSeconds()); })
+                .Reads(kLocalTransforms)
+                .Reads(kWeather)
                 .Writes(kBodyForces)
                 .Before("PhysicsKick");
 

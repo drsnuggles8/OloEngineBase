@@ -679,6 +679,25 @@ if (entity.HasComponent<RetargetingComponent>())
     out << YAML::EndMap; // RetargetingComponent
 }
 
+if (entity.HasComponent<SailComponent>())
+{
+    out << YAML::Key << "SailComponent";
+    out << YAML::BeginMap; // SailComponent
+    auto const& comp = entity.GetComponent<SailComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "SailArea" << YAML::Value << comp.m_SailArea;
+    out << YAML::Key << "AirDensity" << YAML::Value << comp.m_AirDensity;
+    out << YAML::Key << "MaxNormalCoefficient" << YAML::Value << comp.m_MaxNormalCoefficient;
+    out << YAML::Key << "MaxYardAngleDeg" << YAML::Value << comp.m_MaxYardAngleDeg;
+    out << YAML::Key << "TrimRateDeg" << YAML::Value << comp.m_TrimRateDeg;
+    out << YAML::Key << "CentreOfEffortY" << YAML::Value << comp.m_CentreOfEffortY;
+    out << YAML::Key << "CentreOfEffortZ" << YAML::Value << comp.m_CentreOfEffortZ;
+    out << YAML::Key << "AutoTrim" << YAML::Value << comp.m_AutoTrim;
+    out << YAML::Key << "TrimInput" << YAML::Value << comp.m_TrimInput;
+    out << YAML::Key << "SailSetInput" << YAML::Value << comp.m_SailSetInput;
+    out << YAML::EndMap; // SailComponent
+}
+
 if (entity.HasComponent<SnowDeformerComponent>())
 {
     out << YAML::Key << "SnowDeformerComponent";

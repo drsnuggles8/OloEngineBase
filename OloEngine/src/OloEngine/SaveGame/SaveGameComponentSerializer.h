@@ -39,6 +39,7 @@ namespace OloEngine
     struct DestructibleComponent;
     struct VehicleComponent;
     struct BoatComponent;
+    struct SailComponent;
     struct AircraftComponent;
     struct RagdollComponent;
     struct ClothComponent;
@@ -170,6 +171,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, PhysicsJoint3DComponent& c);
         static void Serialize(FArchive& ar, VehicleComponent& c);
         static void Serialize(FArchive& ar, BoatComponent& c);
+        static void Serialize(FArchive& ar, SailComponent& c);
         static void Serialize(FArchive& ar, AircraftComponent& c);
         static void Serialize(FArchive& ar, RagdollComponent& c);
         static void Serialize(FArchive& ar, ClothComponent& c);

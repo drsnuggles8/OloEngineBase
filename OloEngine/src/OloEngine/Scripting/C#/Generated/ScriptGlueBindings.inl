@@ -7751,6 +7751,248 @@ static void Rigidbody3DComponent_SetIsTrigger(UUID entityID, bool value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// SailComponent                                                                  //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool SailComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    return comp.m_Enabled;
+}
+
+static void SailComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    comp.m_Enabled = value;
+}
+
+static float SailComponent_GetSailArea(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    return comp.m_SailArea;
+}
+
+static void SailComponent_SetSailArea(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SailComponent>();
+    comp.m_SailArea = value;
+}
+
+static float SailComponent_GetAirDensity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    return comp.m_AirDensity;
+}
+
+static void SailComponent_SetAirDensity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SailComponent>();
+    comp.m_AirDensity = value;
+}
+
+static float SailComponent_GetMaxNormalCoefficient(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    return comp.m_MaxNormalCoefficient;
+}
+
+static void SailComponent_SetMaxNormalCoefficient(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SailComponent>();
+    comp.m_MaxNormalCoefficient = value;
+}
+
+static float SailComponent_GetMaxYardAngleDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    return comp.m_MaxYardAngleDeg;
+}
+
+static void SailComponent_SetMaxYardAngleDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SailComponent>();
+    comp.m_MaxYardAngleDeg = value;
+}
+
+static float SailComponent_GetTrimRateDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    return comp.m_TrimRateDeg;
+}
+
+static void SailComponent_SetTrimRateDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SailComponent>();
+    comp.m_TrimRateDeg = value;
+}
+
+static float SailComponent_GetCentreOfEffortY(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    return comp.m_CentreOfEffortY;
+}
+
+static void SailComponent_SetCentreOfEffortY(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SailComponent>();
+    comp.m_CentreOfEffortY = value;
+}
+
+static float SailComponent_GetCentreOfEffortZ(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    return comp.m_CentreOfEffortZ;
+}
+
+static void SailComponent_SetCentreOfEffortZ(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SailComponent>();
+    comp.m_CentreOfEffortZ = value;
+}
+
+static bool SailComponent_GetAutoTrim(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    return comp.m_AutoTrim;
+}
+
+static void SailComponent_SetAutoTrim(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    comp.m_AutoTrim = value;
+}
+
+static float SailComponent_GetTrimInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    return comp.m_TrimInput;
+}
+
+static void SailComponent_SetTrimInput(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SailComponent>();
+    comp.m_TrimInput = value;
+}
+
+static float SailComponent_GetSailSetInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SailComponent>();
+    return comp.m_SailSetInput;
+}
+
+static void SailComponent_SetSailSetInput(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<SailComponent>();
+    comp.m_SailSetInput = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // SphereAreaLightComponent                                                       //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

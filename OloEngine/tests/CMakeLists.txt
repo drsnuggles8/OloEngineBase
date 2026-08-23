@@ -903,6 +903,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/VehicleTest.cpp
 		Functional/AnimationPhysics/VehicleDifferentialTest.cpp
 		Functional/AnimationPhysics/BoatTest.cpp
+		Functional/AnimationPhysics/SailTest.cpp
 		Functional/AnimationPhysics/AircraftTest.cpp
 		Functional/AnimationPhysics/RagdollTest.cpp
 		Functional/AnimationPhysics/WaterBuoyancyTest.cpp

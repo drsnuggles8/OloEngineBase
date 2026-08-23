@@ -1,34 +1,46 @@
--- DriftBoatController.lua — Drift (issue #879), the player's boat.
+-- DriftBoatController.lua — Drift (issues #879, #899), the player's boat.
 --
--- Attach to the boat ROOT (the entity carrying Rigidbody3D + Buoyancy + Boat)
--- via LuaScriptComponent, ScriptFile = "Scripts/LuaScripts/DriftBoatController.lua".
+-- Attach to the boat ROOT (the entity carrying Rigidbody3D + Buoyancy + Boat +
+-- Sail) via LuaScriptComponent,
+-- ScriptFile = "Scripts/LuaScripts/DriftBoatController.lua".
 --
 -- What this script owns and what it deliberately does not:
 --
---   * It owns INPUT SHAPING only. Every hull number (thrust, rudder torque,
---     drag, immersion) is authored on BoatComponent in the scene, so the feel
---     pass is a scene edit and needs no rebuild. The script writes exactly two
---     fields — throttleInput and steerInput — and reads none of the others.
+--   * It owns INPUT SHAPING only. Every hull and rig number (thrust, rudder
+--     torque, drag, immersion, sail area, yard limits, centre of effort) is
+--     authored in the scene, so the feel pass is a scene edit and needs no
+--     rebuild. The script writes exactly three fields — throttleInput,
+--     steerInput and sailSetInput — and reads none of the tuning.
 --   * It does NOT read key codes. Everything goes through InputActionManager
 --     action names defined in <project>/Config/InputActions.yaml, which is what
 --     makes the rebinding UI (#883) free later. Keyboard and gamepad both work
 --     with no branch in here: a gamepad stick reports its analog deflection and
 --     a key reports a full-scale press, through the same call.
---   * It owns the VISUAL heel. BoatSystem applies its hull drag at the centre
---     of mass (BoatSystem.cpp, the "Hull drag" block passes no application
---     point), so the physics hull cannot roll into a turn no matter how it is
---     tuned — the only roll a boat gets is from buoyancy reacting to waves.
---     Rolling the hull MESH, a child of the physics root, is what puts the boat
---     on its ear in a hard turn without touching the collider, the buoyancy
---     probe box or the camera (all of which read the root).
+--   * It owns the SAIL'S POSE, but not its angle. SailSystem solves the yard
+--     angle from the apparent wind and publishes it as SailComponent.yardAngle
+--     (read-only from Lua, on purpose). All this script does is copy that onto
+--     the sail entity's Y rotation, which is what makes the drawn sail and the
+--     applied force the same thing rather than two things that agree by luck.
+--
+-- WHAT #899 REMOVED, and why it is worth knowing it is gone:
+--
+--   This script used to roll the hull MESH to fake heel, because BoatSystem
+--   applies hull drag at the centre of mass and so the physics body could not
+--   heel at all. The sail's force is applied at the centre of effort, well above
+--   the centre of mass, so the body now heels for real, against buoyancy's
+--   righting moment — and it heels to LEEWARD under wind pressure rather than
+--   INTO the turn off yaw rate, which is a different motion and the correct one.
+--   The fake, the yaw-rate differentiator and the euler-branch heading helper it
+--   needed are all deleted. If a future change makes the boat stop heeling, the
+--   thing to check is SailComponent.centreOfEffortY, not this file.
 --
 -- Two feel notes worth not re-deriving:
 --
 --   * Every smoothing step here is 1 - exp(-dt/tau), never a fixed per-frame
---     lerp factor. Scripts run inside the fixed-step tick, which runs 0..N
---     times per rendered frame, so a per-frame factor would make the boat
---     respond differently at different frame rates. The exponential form
---     composes exactly, so it does not.
+--     lerp factor. Scripts run inside the fixed-step tick, which runs 0..N times
+--     per rendered frame, so a per-frame factor would make the boat respond
+--     differently at different frame rates. The exponential form composes
+--     exactly, so it does not.
 --   * Throttle spools up slower than it spools down (kThrottleTauUp vs
 --     kThrottleTauDown). A boat that answers the throttle instantly reads as a
 --     car; a boat that also takes as long to slow down reads as broken. The
@@ -37,7 +49,7 @@
 local BoatController = {}
 
 -- ── Input shaping ───────────────────────────────────────────────────────────
-local kThrottleTauUp     = 0.85   -- s, engine spooling up (deliberately slow)
+local kThrottleTauUp     = 0.85   -- s, auxiliary engine spooling up
 local kThrottleTauDown   = 0.35   -- s, backing off
 local kRudderTau         = 0.30   -- s, rudder slewing hard over
 local kInputDeadzone     = 0.12   -- gamepad stick/trigger deadzone
@@ -49,27 +61,45 @@ local kInputDeadzone     = 0.12   -- gamepad stick/trigger deadzone
 local kSteerFalloffSpeed = 16.0   -- m/s at which the falloff reaches full effect
 local kSteerFalloffMin   = 0.62   -- rudder command multiplier at/above that speed
 
--- ── Visual heel (hull mesh child only — see the header) ─────────────────────
-local kHeelPerYawRate    = 0.45   -- radians of roll per rad/s of yaw rate
-local kHeelMaxDeg        = 14.0
-local kHeelTau           = 0.28   -- s, how fast the hull leans in and back out
-local kHeelSpeedRef      = 6.0    -- m/s at which heel reaches full scale
-local kHullChildName     = "Boat Hull"
+-- ── Sail handling ───────────────────────────────────────────────────────────
+-- Shortening sail is a WINCH, not a switch: holding Q/E walks the sail set up
+-- and down at this rate so the player commits to a decision rather than
+-- toggling it. Roughly four seconds from bare poles to full canvas.
+local kSailSetRate       = 0.28   -- units of sail set per second, held
+
+-- Automatic reefing. Above kReefWind of APPARENT wind the boat starts taking
+-- canvas in on its own, reaching kReefFloor by kReefWindMax. This exists so a
+-- player who sails into the storm state without touching anything gets a boat
+-- that is hard work rather than a boat on its beam ends — but it only ever
+-- LOWERS the ceiling, so a player who has already shortened sail further keeps
+-- their setting.
+local kReefWind          = 11.0   -- m/s apparent, where auto-reefing begins
+local kReefWindMax       = 20.0   -- m/s apparent, where it bottoms out
+local kReefFloor         = 0.42   -- least canvas auto-reefing will leave set
+
+local kSailChildName     = "Boat Sail"
 
 -- ── Runtime state ───────────────────────────────────────────────────────────
 local throttle   = 0.0
 local steer      = 0.0
-local heel       = 0.0
-local prevYaw    = nil
+local sailSet    = 1.0
 local prevPos    = nil
 local speed      = 0.0
-local hullID     = nil
+local sailID     = nil
 local warnedNoBoat = false
+local warnedNoSail = false
+local wasLuffing = false
 
 -- Exponential blend factor for a time constant, frame-rate independent.
 local function blend(tau, dt)
     if tau <= 0.0 or dt <= 0.0 then return 1.0 end
     return 1.0 - math.exp(-dt / tau)
+end
+
+local function clamp(v, lo, hi)
+    if v < lo then return lo end
+    if v > hi then return hi end
+    return v
 end
 
 local function deadzone(v)
@@ -86,66 +116,19 @@ local function axisMagnitude(actionName)
     return deadzone(Input.GetActionAxisValue(actionName))
 end
 
-local function wrapAngle(a)
-    while a > math.pi do a = a - 2.0 * math.pi end
-    while a < -math.pi do a = a + 2.0 * math.pi end
-    return a
-end
-
--- Compass heading of an entity's local +Z (the hull's forward, Jolt convention),
--- in radians, measured the same way atan2(x, z) measures it.
---
--- DO NOT use the euler triple's .y for this, however obviously "yaw" it looks.
--- TransformComponent stores a quaternion and derives the euler through
--- glm::eulerAngles, whose middle angle is confined to [-pi/2, pi/2]; a heading
--- past 90 degrees is therefore represented on the OTHER branch, as
--- (x +/- pi, pi - y, z +/- pi). The engine picks whichever branch is closest to
--- the previous frame's, so the triple stays continuous — but .y ON ITS OWN
--- mirrors and reverses sign at exactly the moment the boat turns hard, which is
--- exactly when this is being read. Measured here: on a hard turn the heel
--- flipped to the wrong side mid-turn, and the sampled .y read -1.54 rad while
--- the boat's own course over ground said it was past 90 degrees and still
--- swinging.
---
--- glm::quat(vec3) composes as Rx.Ry.Rz, so local +Z lands on
--- (sin y, -cos y * sin x, cos y * cos x). The cos y * cos x denominator is what
--- carries the mirrored branch: where |x| is near pi it goes negative and atan2
--- returns sign(y) * (pi - |y|), the correct continuation, instead of y.
---
--- The composition order was established by MEASUREMENT, not from the header:
--- the first attempt assumed Ry.Rx.Rz (which the follow-camera agent-rules doc's
--- pitch/yaw example implies) and produced (sin y * cos x, ..., cos y * cos x).
--- That agrees with this everywhere |x| is small and disagrees by a sign flip on
--- exactly the mirrored branch — i.e. it looks right in every gentle test and is
--- wrong precisely when it matters. Cross-checked against the boat's course over
--- ground on a logged hard turn.
-local function headingOf(entityID)
-    local e = entity_utils.get_rotation(entityID)
-    local fx = math.sin(e.y)
-    local fz = math.cos(e.y) * math.cos(e.x)
-    if math.abs(fx) < 1e-9 and math.abs(fz) < 1e-9 then
-        return nil -- hull pointing straight up or down: heading is undefined
-    end
-    return math.atan(fx, fz)
-end
-
-local function clamp(v, lo, hi)
-    if v < lo then return lo end
-    if v > hi then return hi end
-    return v
-end
-
 function BoatController.OnCreate(id)
     -- The boat's bindings live in the Vehicle context (Config/InputActions.yaml).
     -- Nothing else in this scene wants the Gameplay context, so a hard switch is
     -- correct here; a scene that layered a menu over the boat would push instead.
     Input.SetInputContext(InputContext.Vehicle)
 
-    throttle, steer, heel = 0.0, 0.0, 0.0
-    prevYaw, prevPos, speed = nil, nil, 0.0
-    hullID = entity_utils.find_by_name(kHullChildName)
+    throttle, steer = 0.0, 0.0
+    sailSet = 1.0
+    prevPos, speed = nil, 0.0
+    wasLuffing = false
+    sailID = entity_utils.find_by_name(kSailChildName)
 
-    Log.Info("[Drift] Boat ready — W/S throttle, A/D rudder, C look astern (gamepad: triggers + left stick).")
+    Log.Info("[Drift] Under sail — A/D helm, Q/E sail set, W/S auxiliary engine, C look astern.")
 end
 
 function BoatController.OnUpdate(id, dt)
@@ -158,6 +141,12 @@ function BoatController.OnUpdate(id, dt)
             Log.Warn("[Drift] DriftBoatController is attached to an entity with no BoatComponent.")
         end
         return
+    end
+
+    local sail = entity_utils.get_component(id, "SailComponent")
+    if not sail and not warnedNoSail then
+        warnedNoSail = true
+        Log.Warn("[Drift] No SailComponent on the boat — the auxiliary engine is the only propulsion.")
     end
 
     -- A context switch elsewhere (or a script reload mid-session) would silently
@@ -177,11 +166,12 @@ function BoatController.OnUpdate(id, dt)
     end
     prevPos = pos
 
-    -- ── Throttle ────────────────────────────────────────────────────────────
+    -- ── Auxiliary engine ────────────────────────────────────────────────────
     local throttleTarget = axisMagnitude("Boat.ThrottleAhead") - axisMagnitude("Boat.ThrottleAstern")
     throttleTarget = clamp(throttleTarget, -1.0, 1.0)
     local tau = (math.abs(throttleTarget) > math.abs(throttle)) and kThrottleTauUp or kThrottleTauDown
     throttle = throttle + (throttleTarget - throttle) * blend(tau, dt)
+    boat.throttleInput = clamp(throttle, -1.0, 1.0)
 
     -- ── Rudder ──────────────────────────────────────────────────────────────
     local steerTarget = axisMagnitude("Boat.SteerStarboard") - axisMagnitude("Boat.SteerPort")
@@ -189,8 +179,6 @@ function BoatController.OnUpdate(id, dt)
     steer = steer + (steerTarget - steer) * blend(kRudderTau, dt)
 
     local falloff = 1.0 - (1.0 - kSteerFalloffMin) * clamp(speed / kSteerFalloffSpeed, 0.0, 1.0)
-
-    boat.throttleInput = clamp(throttle, -1.0, 1.0)
 
     -- Straight through: BoatComponent's "1 = full starboard" now really is
     -- starboard. This line used to be negated because BoatSystem applied a +Y
@@ -200,31 +188,45 @@ function BoatController.OnUpdate(id, dt)
     -- turns.
     boat.steerInput = clamp(steer * falloff, -1.0, 1.0)
 
-    -- ── Visual heel ─────────────────────────────────────────────────────────
-    if not hullID then
-        hullID = entity_utils.find_by_name(kHullChildName)
+    if not sail then return end
+
+    -- ── Sail set ────────────────────────────────────────────────────────────
+    local setDelta = axisMagnitude("Boat.SailMore") - axisMagnitude("Boat.SailLess")
+    sailSet = clamp(sailSet + setDelta * kSailSetRate * dt, 0.0, 1.0)
+
+    -- The auto-reef CEILING. Applied to the commanded value rather than stored
+    -- into it, so easing off in a blow does not silently throw away what the
+    -- player had set for when the wind drops again.
+    local gale = clamp((sail.apparentWindSpeed - kReefWind) / (kReefWindMax - kReefWind), 0.0, 1.0)
+    local ceiling = 1.0 - (1.0 - kReefFloor) * gale
+    sail.sailSetInput = clamp(math.min(sailSet, ceiling), 0.0, 1.0)
+
+    -- ── Pose the sail ───────────────────────────────────────────────────────
+    -- The one line this whole issue was about. SailComponent.yardAngle is in
+    -- radians about the hull's +Y (positive = the trim for wind from starboard,
+    -- see SailComponent for why that is not the same as "braced to starboard"),
+    -- and the sail model was re-origined onto its mast so this rotation braces
+    -- the yard round the mast rather than swinging it around the boat — see the
+    -- sail entity's comment in Drift.olo.
+    if not sailID then
+        sailID = entity_utils.find_by_name(kSailChildName)
     end
-    if hullID then
-        local heading = headingOf(id)
-        local yawRate = 0.0
-        if heading and prevYaw then
-            yawRate = wrapAngle(heading - prevYaw) / dt
+    if sailID then
+        local rot = entity_utils.get_rotation(sailID)
+        rot.y = sail.yardAngle
+        entity_utils.set_rotation(sailID, rot)
+    end
+
+    -- ── In irons ────────────────────────────────────────────────────────────
+    -- Told once per transition, not per tick. Without a cue, a player who has
+    -- luffed head to wind sees a boat that has simply stopped answering, which
+    -- reads as a bug rather than as a mistake they made.
+    local luffing = sail.luffing
+    if luffing ~= wasLuffing then
+        if luffing then
+            Log.Info("[Drift] In irons — the sail is not drawing. Bear away with the helm.")
         end
-        prevYaw = heading or prevYaw
-
-        -- Bank INTO the turn. A starboard turn is a NEGATIVE yaw rate about +Y
-        -- (starboard is -X for a +Z-forward hull, so the bow swings toward -X),
-        -- and it should drop the starboard rail. A positive roll about the
-        -- hull's own +Z lifts +X — the port rail — toward up, i.e. it drops
-        -- starboard. Hence the one negation here.
-        local speedScale = clamp(speed / kHeelSpeedRef, 0.0, 1.0)
-        local maxHeel = math.rad(kHeelMaxDeg)
-        local heelTarget = clamp(-yawRate * kHeelPerYawRate * speedScale, -maxHeel, maxHeel)
-        heel = heel + (heelTarget - heel) * blend(kHeelTau, dt)
-
-        local hullRot = entity_utils.get_rotation(hullID)
-        hullRot.z = heel
-        entity_utils.set_rotation(hullID, hullRot)
+        wasLuffing = luffing
     end
 end
 

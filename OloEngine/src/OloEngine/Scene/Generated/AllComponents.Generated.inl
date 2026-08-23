@@ -91,6 +91,7 @@ using AllComponents = ComponentGroup<
     RetargetingComponent,
     Rigidbody2DComponent,
     Rigidbody3DComponent,
+    SailComponent,
     ScriptComponent,
     SkeletonComponent,
     SnowDeformerComponent,

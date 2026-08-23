@@ -279,6 +279,10 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         // body forces the kick's world step integrates, so they sit here by the
         // same Before("PhysicsKick") edge, with registration order as tie-break.
         "Boat",
+        // Sail (issue #899) is the air-side sibling of Boat: same
+        // Before("PhysicsKick") edge, no edge to Boat (their forces sum), so
+        // registration order alone decides it sits between them.
+        "Sail",
         "Aircraft",
         "PhysicsKick",
         "Dialogue",
@@ -512,8 +516,17 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     // way no unit test would otherwise notice. Both also read posed transforms,
     // so a script setting throttle this tick is honoured this tick.
     EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Boat"));
+    EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Sail"));
+
+    // Sail reads the wind WeatherSystem rewrites this tick (issue #899). A real
+    // RAW edge on the AtmosphereSettings channel, not the registration
+    // tie-break: without it the sail would read LAST tick's wind the moment
+    // either system moved onto a worker, and a one-tick-stale wind is exactly
+    // the kind of wrongness no assertion here would otherwise see.
+    EXPECT_TRUE(sched.DependsOn("Sail", "Weather"));
     EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Aircraft"));
     EXPECT_TRUE(sched.DependsOn("Boat", "Scripts"));
+    EXPECT_TRUE(sched.DependsOn("Sail", "Scripts"));
     EXPECT_TRUE(sched.DependsOn("Aircraft", "Scripts"));
 
     // The physics shadow's legality is the ABSENCE of paths: Dialogue, Quest,
