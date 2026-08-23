@@ -380,6 +380,8 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view OverdrawColorTexture = "OverdrawColorTexture";                 // Color attachment view of OverdrawColor
     inline constexpr std::string_view EASUColor = "EASUColor";                                       // After FSR1 EASU spatial upscale (only valid when Upscale != Off) — display-res HDR, runs early before Bloom
     inline constexpr std::string_view EASUColorTexture = "EASUColorTexture";                         // Color attachment view of EASUColor
+    inline constexpr std::string_view FSR2Color = "FSR2Color";                                       // After FSR2 temporal upscale (#684) — same slot and contract as EASUColor, produced by the Temporal technique instead of the Spatial one
+    inline constexpr std::string_view FSR2ColorTexture = "FSR2ColorTexture";                         // Color attachment view of FSR2Color
     inline constexpr std::string_view UpscaledDepthVelocity = "UpscaledDepthVelocity";               // FSR1 full-res depth+velocity FBO (RT0 = R32F depth, RT1 = RG16F velocity), only valid when Upscale != Off
     inline constexpr std::string_view UpscaledSceneDepthTexture = "UpscaledSceneDepthTexture";       // RT0 view of UpscaledDepthVelocity (nearest-upscaled scene depth)
     inline constexpr std::string_view UpscaledVelocityTexture = "UpscaledVelocityTexture";           // RT1 view of UpscaledDepthVelocity (nearest-upscaled motion vectors)

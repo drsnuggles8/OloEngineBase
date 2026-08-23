@@ -1995,6 +1995,26 @@ namespace OloEngine
             glm::vec2 CurrJitterUV = glm::vec2(0.0f);
             glm::vec2 PrevJitterUV = glm::vec2(0.0f);
 
+            // FSR2 temporal upscaling (#684).
+            //
+            // `TemporalUpscaleActive` is the ONE authoritative answer to "is FSR2
+            // running this frame", derived once per frame at the top of
+            // `RenderPipeline::PrepareFrame(...)` from the settings AND from
+            // whether the backend can actually do it. Everything downstream —
+            // the jitter branch below, the EASU/FSR2/TAA/Upscaler enable calls,
+            // the blackboard resource declaration and the pipeline fingerprint —
+            // reads this rather than re-deriving it, because re-deriving it is
+            // how one site ends up disagreeing with another and the frame ends up
+            // jittered with nothing accumulating it.
+            //
+            // `TemporalUpscaleJitterPixels` is the sub-pixel offset actually
+            // baked into ProjectionMatrix this frame, in RENDER-resolution
+            // pixels. FSR2 subtracts exactly this value, so it is passed to the
+            // pass rather than recomputed there.
+            bool TemporalUpscaleActive = false;
+            u32 TemporalUpscalePhaseIndex = 0;
+            glm::vec2 TemporalUpscaleJitterPixels = glm::vec2(0.0f);
+
             // Engine-wide counter for the shared blue-noise sampler (issue
             // #706), advanced once per frame in RenderPipeline regardless of
             // which passes are enabled — see the comment at the increment for

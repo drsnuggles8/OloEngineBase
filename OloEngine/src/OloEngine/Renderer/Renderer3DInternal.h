@@ -42,6 +42,7 @@
 #include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
 #include "OloEngine/Renderer/Passes/UpscalerRenderPass.h"
 #include "OloEngine/Renderer/Passes/EASURenderPass.h"
+#include "OloEngine/Renderer/Passes/FSR2RenderPass.h"
 #include "OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
 #include "OloEngine/Renderer/Passes/ColorBlindRenderPass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
@@ -64,6 +65,7 @@ namespace OloEngine
         Ref<SSRRenderPass> SSR;
         Ref<ContactShadowRenderPass> ContactShadow;
         Ref<EASURenderPass> EASU;
+        Ref<FSR2RenderPass> FSR2; // #684 temporal upscale; the Technique setting picks it OR EASU, never both
         Ref<DepthVelocityUpscalePass> DepthVelocityUpscale;
         Ref<BloomRenderPass> Bloom;
         Ref<DOFRenderPass> DOF;
@@ -93,6 +95,7 @@ namespace OloEngine
             SSR.Reset();
             ContactShadow.Reset();
             EASU.Reset();
+            FSR2.Reset();
             DepthVelocityUpscale.Reset();
             Bloom.Reset();
             DOF.Reset();

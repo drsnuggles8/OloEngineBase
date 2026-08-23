@@ -6177,6 +6177,13 @@ namespace OloEngine
             out << YAML::Key << "CASSharpness" << YAML::Value << pp.CASSharpness;
             out << YAML::Key << "Upscale" << YAML::Value << std::to_underlying(pp.Upscale);
             out << YAML::Key << "RCASSharpness" << YAML::Value << pp.RCASSharpness;
+            // FSR2 temporal upscaling (#684). Technique is written as its
+            // ordinal like Upscale above; SanitizeUpscale rejects an unknown
+            // one back to Spatial on load rather than saturating into the
+            // other valid algorithm.
+            out << YAML::Key << "UpscaleTechnique" << YAML::Value << std::to_underlying(pp.Technique);
+            out << YAML::Key << "FSR2SharpeningEnabled" << YAML::Value << pp.FSR2SharpeningEnabled;
+            out << YAML::Key << "FSR2Sharpness" << YAML::Value << pp.FSR2Sharpness;
         }
         out << YAML::EndMap;
 
@@ -6364,6 +6371,9 @@ namespace OloEngine
             TrySet(pp.CASSharpness, ppNode["CASSharpness"]);
             TrySetEnum(pp.Upscale, ppNode["Upscale"]);
             TrySet(pp.RCASSharpness, ppNode["RCASSharpness"]);
+            TrySetEnum(pp.Technique, ppNode["UpscaleTechnique"]);
+            TrySet(pp.FSR2SharpeningEnabled, ppNode["FSR2SharpeningEnabled"]);
+            TrySet(pp.FSR2Sharpness, ppNode["FSR2Sharpness"]);
 
             // Floats read from YAML must be finite and ordered (min<=max).
             SanitizeAutoExposure(pp);
@@ -6736,6 +6746,13 @@ namespace OloEngine
             out << YAML::Key << "CASSharpness" << YAML::Value << pp.CASSharpness;
             out << YAML::Key << "Upscale" << YAML::Value << std::to_underlying(pp.Upscale);
             out << YAML::Key << "RCASSharpness" << YAML::Value << pp.RCASSharpness;
+            // FSR2 temporal upscaling (#684). Technique is written as its
+            // ordinal like Upscale above; SanitizeUpscale rejects an unknown
+            // one back to Spatial on load rather than saturating into the
+            // other valid algorithm.
+            out << YAML::Key << "UpscaleTechnique" << YAML::Value << std::to_underlying(pp.Technique);
+            out << YAML::Key << "FSR2SharpeningEnabled" << YAML::Value << pp.FSR2SharpeningEnabled;
+            out << YAML::Key << "FSR2Sharpness" << YAML::Value << pp.FSR2Sharpness;
         }
         out << YAML::EndMap;
 

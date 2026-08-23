@@ -225,8 +225,10 @@ namespace OloEngine
             RGTextureHandle ContactShadowColorTexture;    // Color attachment view of ContactShadowColor
             RGFramebufferHandle OverdrawColor;            // Overdraw heatmap debug view (only valid when OverdrawDebugView is on); replaces the viewport late in the post chain
             RGTextureHandle OverdrawColorTexture;         // Color attachment view of OverdrawColor
-            RGFramebufferHandle EASUColor;                // After FSR1 EASU spatial upscale (only valid when Upscale != Off; display-res HDR, runs early before Bloom)
+            RGFramebufferHandle EASUColor;                // After FSR1 EASU spatial upscale (only valid when Upscale != Off AND Technique == Spatial; display-res HDR, runs early before Bloom)
             RGTextureHandle EASUColorTexture;             // Color attachment view of EASUColor
+            RGFramebufferHandle FSR2Color;                // After FSR2 temporal upscale (#684) — the Temporal-technique sibling of EASUColor, same slot, same display-res HDR contract. Exactly one of the two is ever valid in a frame.
+            RGTextureHandle FSR2ColorTexture;             // Color attachment view of FSR2Color
             RGFramebufferHandle UpscaledDepthVelocity;    // FSR1 full-res depth+velocity FBO (RT0 R32F depth, RT1 RG16F velocity), only valid when Upscale != Off
             RGTextureHandle UpscaledSceneDepthTexture;    // RT0 view (nearest-upscaled scene depth)
             RGTextureHandle UpscaledVelocityTexture;      // RT1 view (nearest-upscaled motion vectors)

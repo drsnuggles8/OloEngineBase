@@ -44,6 +44,28 @@ namespace OloEngine
         UltraPerformance = 4, // 0.333x linear render scale (FSR1 "Ultra Performance")
     };
 
+    // WHICH upscaler reconstructs display resolution once UpscaleMode has decided
+    // HOW FAR below it the scene renders (#684). The two are orthogonal: the mode
+    // picks the render scale, the technique picks the algorithm that undoes it.
+    //
+    //   Spatial  — FSR1: EASU edge-adaptive upscale of the single current frame,
+    //              paired with the RCAS sharpen (#480). Works everywhere, has no
+    //              history, and cannot recover detail the render scale threw away.
+    //   Temporal — FSR2: accumulates jittered frames through a motion-vector
+    //              reprojection, so it reconstructs sub-pixel detail the spatial
+    //              path cannot. Subsumes engine TAA (which is forced OFF while it
+    //              runs — two temporal accumulators fighting over the same history
+    //              is not a configuration, it is a bug), needs depth + velocity +
+    //              its own jitter sequence, and is unavailable when the frame is
+    //              MSAA-resolved or the backend is not OpenGL. When it is
+    //              unavailable the pipeline falls back to Spatial rather than to
+    //              native, so the render scale the user chose still holds.
+    enum class UpscalerTechnique : i32
+    {
+        Spatial = 0,  // FSR1 EASU + RCAS
+        Temporal = 1, // FSR2
+    };
+
     // Map an UpscaleMode preset to its linear render-scale factor in (0, 1].
     // Off (and any out-of-range value) is native 1.0. Mirrors the FSR1 presets;
     // pinned by EASUMathTest.
@@ -162,6 +184,24 @@ namespace OloEngine
         // the FSR1 RCAS attenuation in-shader, where higher UI value = sharper).
         UpscaleMode Upscale = UpscaleMode::Off;
         f32 RCASSharpness = 0.5f;
+
+        // FSR2 temporal upscale (#684). Selects which algorithm reconstructs
+        // display resolution from the render scale `Upscale` picked — see
+        // UpscalerTechnique for the trade-off and for what Temporal forces off.
+        // Ignored while Upscale == Off (nothing to reconstruct). Falling back to
+        // Spatial when FSR2 is unavailable is a PIPELINE decision, not a settings
+        // one: this field keeps what the user asked for, so the temporal path
+        // resumes by itself once the frame stops being MSAA-resolved.
+        //
+        // FSR2Sharpness drives FSR2's built-in RCAS pass, which replaces the
+        // late UpscalerRenderPass sharpen on this path (running both would sharpen
+        // twice). Kept separate from RCASSharpness because the two feed different
+        // implementations at different points in the chain — FSR2's runs on HDR
+        // before tone mapping, ours on the LDR result after it — so one value
+        // tuned against one of them is wrong for the other.
+        UpscalerTechnique Technique = UpscalerTechnique::Spatial;
+        bool FSR2SharpeningEnabled = true;
+        f32 FSR2Sharpness = 0.5f; // 0 = no sharpening, 1 = maximum
 
         // Color Grading
         bool ColorGradingEnabled = false;
@@ -537,6 +577,16 @@ namespace OloEngine
             s.Upscale = UpscaleMode::Off;
 
         s.RCASSharpness = std::clamp(finite(s.RCASSharpness, 0.5f), 0.0f, 1.0f);
+
+        // Technique is a DISCRIMINATED value, so an out-of-range one falls back to
+        // the constructor default rather than saturating — saturating an unknown
+        // ordinal would silently select the other, valid, algorithm. Same reasoning
+        // as OLO_SERIALIZE(Reject, ...) in the component codegen.
+        const i32 technique = static_cast<i32>(s.Technique);
+        if (technique < static_cast<i32>(UpscalerTechnique::Spatial) || technique > static_cast<i32>(UpscalerTechnique::Temporal))
+            s.Technique = UpscalerTechnique::Spatial;
+
+        s.FSR2Sharpness = std::clamp(finite(s.FSR2Sharpness, 0.5f), 0.0f, 1.0f);
     }
 
     // GPU-side UBO layout for Dynamic Resolution Scaling parameters (std140, binding 33).

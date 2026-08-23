@@ -425,6 +425,34 @@ pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
   'cmake --build build-vkoff --target OloEngine-Tests --config Debug --parallel 6'
 ```
 
+### `OLO_WITH_FSR2` — the FSR2 temporal upscaler (Windows + OpenGL only)
+
+Defaults **ON, on Windows only**; `cmake/fsr2.cmake` forces it OFF everywhere else and says so at
+configure time. When ON it fetches
+[JuanDiegoMontoya/FidelityFX-FSR2-OpenGL](https://github.com/JuanDiegoMontoya/FidelityFX-FSR2-OpenGL)
+(pinned to a commit SHA, submodules deliberately **not** cloned — upstream registers a
+multi-gigabyte art repo for its sample app), compiles its SPIR-V shader permutations with the
+prebuilt `tools/sc/FidelityFX_SC.exe` from that tree into `<buildDir>/fsr2-gl-shaders/`, and builds
+the `ffx_fsr2_gl` static library.
+
+**The Windows restriction is structural, not a to-do.** The upstream OpenGL backend uses
+`wcstombs_s`, `GetModuleHandleA` and `<Windows.h>`, and its shader compiler is a prebuilt Win32
+binary with no Linux build. Nothing else changes: `Platform/OpenGL/OpenGLTemporalUpscaler.cpp`
+self-guards on the macro and compiles to a stub, the render pass and its settings compile and are
+tested on every platform, and a build with the option off simply reports the temporal upscaler as
+unavailable and uses the FSR1 spatial upscaler instead (which keeps the chosen render scale).
+
+Turn it off explicitly if you want to skip the ~60 MB fetch:
+
+```powershell
+cmake --preset dev-cached -DOLO_WITH_FSR2=OFF
+```
+
+The first configure after enabling it pays the clone; the permutation compile is an
+`add_custom_command` keyed on each pass source **and** on every shared `ffx_*.h` shader header
+(`OLO_FSR2_SHADER_INCLUDES`), so it re-runs when either changes and is otherwise paid once per build
+tree.
+
 ---
 
 ## Build speed options

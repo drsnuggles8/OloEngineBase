@@ -312,6 +312,253 @@ scene band. Fixed in **#504** (every GTAO scratch resource now tracks `sceneBand
 *second*, quieter half of the same transition is **#771** — see
 [render-pipeline-caches.md](render-pipeline-caches.md).
 
+## 13b. FSR2 temporal upscaling (#684) — what is different from FSR1, and where it hides
+
+FSR2 occupies **exactly the EASU slot**: it turns the reduced-resolution pre-Bloom HDR colour into a
+display-resolution one, early, before Bloom/DOF/ToneMap. Everything in §13 about reduced-size
+targets, the fingerprint hash and the "must not list `PostProcessColor` as an input" rule applies
+unchanged. `FSR2Color` is the Temporal spelling of `EASUColor` — **exactly one of the two is ever
+declared in a frame**, and `Bloom`'s candidate list carries both so name resolution finds whichever
+ran.
+
+**The build is Windows-only and that is structural, not laziness.** `cmake/fsr2.cmake` fetches
+JuanDiegoMontoya/FidelityFX-FSR2-OpenGL and forces `OLO_WITH_FSR2` OFF everywhere else, because (a)
+`ffx_fsr2_gl.cpp` uses `wcstombs_s` / `GetModuleHandleA` / `<Windows.h>`, and (b) the shader
+permutations are compiled by `tools/sc/FidelityFX_SC.exe`, a **prebuilt Win32 binary** with no Linux
+build. `Platform/OpenGL/OpenGLTemporalUpscaler.cpp` self-guards to a stub, so the pass, its settings
+and its policy still compile (and are still tested) on every platform. Two traps in that CMake:
+`GIT_SUBMODULES ""` is load-bearing — upstream registers a **multi-gigabyte** `cauldron-media` art
+repo — and `SOURCE_SUBDIR` points at a nonexistent directory on purpose, so `MakeAvailable`
+populates without configuring upstream's DX12/Vulkan sample apps.
+
+**The failure modes are all "plausible image", which is why the rules live in
+`Renderer/Upscaling/TemporalUpscalePolicy.h` as pure functions with a test (`FSR2PolicyTest`) rather
+than inline at the call sites.** In rough order of how long each would survive review:
+
+1. **Jitter divided by the display extent instead of the render extent.** The scene renders into a
+   viewport of `renderW × renderH`, so one rendered pixel is `2 / renderW` in NDC. Use the display
+   width and the jitter shrinks in proportion to the render scale — sub-pixel coverage collapses,
+   every accumulated frame sampled the same geometric point, and FSR2 degrades into a blurry
+   bilinear upscale **that still looks like a working temporal upscaler**.
+2. **Motion-vector scale sign.** The G-Buffer writes `o_Velocity = (ndcCurr - ndcPrev) * 0.5` —
+   UV-space, current-minus-previous. FSR2 wants render-resolution **pixels pointing back** to the
+   previous position, so the scale is `(-renderW, -renderH)`. A positive scale reprojects the wrong
+   way and every moving object trails; the still frame is fine.
+3. **`frameTimeDelta` is MILLISECONDS.** It drives lock decay. Passing seconds makes locks expire
+   ~1000× too slowly, which reads as heavy ghosting.
+4. **`deviceDepthNegativeOneToOne` must be `false` here — and that is not a bug.** The engine's
+   projections *are* GL's `[-1, 1]` NDC ones, so the flag looks like it should be true. But FSR2
+   samples the depth **texture**, and a GL depth attachment stores WINDOW depth, which
+   `glDepthRange`'s default maps as `z_window = 0.5 * z_ndc + 0.5` — precisely the affine remap that
+   separates the GL and D3D projection matrices in z. The texture therefore already holds the
+   `[0, 1]` device depth FSR2 assumes. The flag would describe a pipeline whose depth *buffer* holds
+   `[-1, 1]`, which nothing here does; and this fork rejects it outright
+   (`FFX_ASSERT_MESSAGE(params->deviceDepthNegativeOneToOne == false, "OpenGL depth convention not
+   yet supported")`), so passing true is a debug assert and a silently wrong transform in release.
+5. **The jitter sequence is the UPSCALER's, not the engine's.** FSR2 derives its phase count from
+   the render/display ratio (a 67% scale needs ~2.2× the phases of native). Feeding it the engine's
+   fixed Halton-16 TAA sequence under-samples exactly the reconstruction it exists to perform.
+
+**Two things must be forced off while it runs, and both are enable-site decisions in
+`RenderPipeline`, not settings mutations:** engine **TAA** (running both means TAA resolves an
+already-resolved, already-upscaled image whose velocity buffer describes the pre-upscale frame) and
+the late **`UpscalerRenderPass`** RCAS (FSR2 runs its own RCAS on HDR before tone mapping — sharpening
+again post-tonemap is a second pass over the same edges and rings on high-contrast silhouettes). The
+user's `TAAEnabled` / `CASEnabled` settings are left untouched so they return when the technique
+changes.
+
+### A third-party GPU dispatch owns the binding namespace it writes to — FSR2's 36% darkening
+
+**Closed.** The symptom was a frame that lost ~36% of its luminance the moment `UpscalerTechnique::Temporal`
+was selected, and the cause was **not in FSR2 at all**. Recorded in full because the false trail cost
+two rounds of work and every wrong turn is reproducible.
+
+**The mechanism.** FSR2's GL backend binds its own UBOs, textures, samplers and images to *fixed* slot
+indices taken straight from the DirectX register numbers in the shader permutations, and never restores
+them. Those indices share a namespace with the engine's. `FSR2_BIND_CB_*` resolves to **3, 4, 5, 11, 12,
+14 and 18**; `PBR_MultiLight.glsl` has `MultiLightBuffer` at **5** and `ShadowData` at **6**. The
+compute-luminance-pyramid pass's `glBindBufferRange(GL_UNIFORM_BUFFER, 5, ...)` lands exactly on the light
+UBO. Because **the engine binds those UBOs once rather than per frame**, a single dispatch unlights every
+later frame: the forward shader reads FSR2's constants as its light array and every lit surface collapses
+to ambient. Fixed by `FSR2BindingScope` in `Platform/OpenGL/OpenGLTemporalUpscaler.cpp`, which captures and
+restores the slots FSR2 can touch around the dispatch.
+
+**Why it reads as a temporal-accumulation bug, and why that is the trap.** Frame 0 is *pixel-correct*
+(nothing has dispatched yet) and every frame after is *uniformly* darker by a constant factor, flat
+forever. That is precisely the signature of a bad history blend, so the whole first two rounds went into
+FSR2's accumulate path. **Every one of these was measured inert, and none of them was ever the problem**:
+auto-exposure on/off and with an explicit neutral 1.0 exposure texture, RCAS on/off,
+`MOTION_VECTORS_JITTER_CANCELLATION`, the jitter Y sign, the projection-jitter sign, a pinned jitter phase,
+`DEPTH_INVERTED`, `HIGH_DYNAMIC_RANGE`, `maxRenderSize` display-vs-render, forward vs deferred,
+`RectifyHistory` skipped entirely, the reactive factor zeroed, `fKernelBias` forced to its frame-0 value,
+`UPSAMPLE_USE_LANCZOS_TYPE` 2 → 0, and forcing **1:1** with no upsampling at all.
+
+**The four measurements that actually found it.** Each one is cheap; the ordering is the lesson.
+
+1. **Bypass the component under suspicion entirely.** A shader probe that dropped *all* of FSR2's temporal
+   work and emitted its own *input* by nearest-neighbour still read **73.3** against a native **115.7**.
+   That alone exonerates every line of FSR2 — but only because the probe read the input, not the output.
+2. **Build the control you have been assuming.** A spatial-upscaler capture at the *same* 0.667 render
+   scale read **116.7**. (The MSAA-fallback frame *looks* like a spatial control and is equally dark — it
+   is not one, because MSAA-on-deferred is independently broken here. A control has to be clean.)
+3. **Measure the engine's own buffer, with no upscaler in the measurement path.** Reading `SceneColor`
+   (683×512) directly gave spatial **65.5** vs temporal **31.9**, and the PNG showed the shape: unlit grid
+   lines and the clear colour untouched, every *lit* surface crushed. "Lighting is missing", not
+   "an upscaler is dark".
+4. **Swap the order.** With the temporal capture moved *before* the spatial one, the **spatial** frame came
+   out dark too (116.7 → 74.2). The corruption follows the **dispatch**, not the technique. That is the
+   measurement that names the bug class, and it is the one the regression test encodes.
+
+**The general rule.** A third-party GPU dispatch that binds by hard-coded slot index is not a pass — it is
+a second tenant in the binding namespace, and it will not clean up. Wrap any such dispatch in a
+capture/restore of the slots it can touch, sized from the ranges its shaders actually declare and **clamped
+to the driver's reported maxima** (`GL_MAX_IMAGE_UNITS` is 8 on plenty of drivers, well under FSR2's 18;
+querying past it is `GL_INVALID_VALUE`, and an empty image slot reports format 0, which
+`glBindImageTexture` also rejects). `GLStateGuard` is *not* this tool and says so: it documents that
+per-slot texture and UBO bindings are deliberately **not** restored, because for an ordinary engine pass
+that is ~185 GL calls of pure overhead. The trade-off inverts for a once-a-frame foreign dispatch.
+
+**Guarded by** `FSR2VisualEvidenceTest.DispatchLeavesEngineBindingsIntactForLaterFrames`, which renders
+**no FSR2 frame at the point it measures** — it compares a native frame captured before the dispatch with
+an identical one captured after. Any future state FSR2 leaks lands there too. Verified to fail (115.7 vs
+74.6) with the restore scope removed; a guard that has never been seen to fail is not a guard.
+
+**FSR2's GL sampler/texture units are its macro binding PLUS 8, and that is the whole reason the first
+restore missed them.** `cmake/fsr2.cmake` passes `--stb comp 8 --ssb comp 8` (shift texture and sampler
+bindings) with `--sib comp 0 --suavb comp 0` (images at 0), because **NVIDIA exposes only 8 image units in
+GL** and the images have to fit under that. So `FSR2_BIND_SRV_*` 5, 6 and 7 land on units **13, 14 and
+15** — and the macro maximum of 12 lands on **20**. Reading the macros and believing them is what put the
+first version of `FSR2BindingScope` at 0..12; unit 13 is `u_ShadowAtlas`. Do not re-derive the range from
+FSR2's side at all: size it from the engine's own slot space, which cannot go stale when the shift
+changes. Source: the port's author, <https://juandiegomontoya.github.io/porting_fsr2.html>.
+
+**One genuine upstream defect, and one claim of ours that was WRONG.**
+
+1. **REAL: `rw_prepared_input_color` is declared `layout (rgba16)` — UNORM — over a resource created as
+   `R16G16B16A16_FLOAT`.** `glBindImageTexture` is called with `GL_RGBA16F`, so the shader's format
+   qualifier does not match the bound image and the store is undefined; a UNORM view also cannot represent
+   the signed Co/Cg chroma that buffer carries. Worth a PR upstream — the author explicitly accepts them.
+2. **NOT A DEFECT, retracted: "`pointSampler` is created, deleted and never bound."** It is true that
+   `executeGpuJobCompute` hard-codes `linearSampler` for every SRV, and the earlier version of this note
+   concluded that integer SRVs were therefore incomplete and "every fetch returns zero". That does not
+   follow. **`texelFetch` ignores sampler state entirely**, and the only integer SRV,
+   `r_reconstructed_previous_nearest_depth`, is read exclusively through it
+   (`ffx_fsr2_callbacks_glsl2.h`). The author confirms the design: one linear/edge-clamp sampler for the
+   `texture*` paths, `texelFetch` for everything else. `pointSampler` is dead code, not a bug. The claim
+   was never measured — it was read off the source and asserted, which is exactly the move the rest of
+   this section exists to warn against.
+
+**A build trap that voided a whole round of shader experiments, now fixed.** `add_dependencies` orders
+targets but does not make the object embedding the SPIR-V depend on the generated headers, and the
+permutation command depended only on the pass `.glsl2` and not on the shared `ffx_*.h`. So editing a shader
+could regenerate nothing, or regenerate the SPIR-V and relink while the object kept the OLD blobs. Two
+different shader edits produced bit-identical frames (74.576736802867472 to 15 digits) before this was
+spotted. `cmake/fsr2.cmake` now sets `OBJECT_DEPENDS` and globs the shared headers. **The tell is a result
+identical to the last digit** — that is what a no-op experiment looks like, and it is worth checking for
+before believing any negative result. The same tell later exposed that `OLO_RG_DISABLE_ALIASING` and
+`OLO_RG_POISON_TRANSIENTS` never reached the test process: both "experiments" returned the previous run's
+numbers exactly, so both were discarded rather than read as evidence.
+
+**A polarity correction worth not re-deriving:** `ComputeDepthClip` returns **0 when nothing is
+disoccluded** (`fWeightSum == 0` falls through to `return 0.0f`). A depth-clip factor of ~0 across a static
+frame is CORRECT, not evidence of a broken reconstructed-depth buffer.
+
+
+### FSR2 on NVIDIA is a known upstream performance problem — budget for it before promising a win
+
+The port's author measured **FSR2 running "about 3x slower than expected" on an RTX 3070**, attributing it
+to high VRAM throughput in the **depth-clip** and **reproject & accumulate** passes. The Vulkan backend's
+workaround (disabling FP16 for NVIDIA's accumulate pass) was tried in GL and **did not help**; so did
+varying the input colour format. The cause is **unresolved** — the author's guess is that the shader
+compiler generates different code per API. **AMD (RX 6800) behaves as expected.**
+<https://juandiegomontoya.github.io/porting_fsr2.html#performance>
+
+**Measured here on an RTX 4090, driver 610.88, four years and many drivers later — it is still true.**
+`FSR2Perf.UpscaleCostPerMegapixelAcrossOutputResolutions` reports FSR2's own dispatch cost, which is the
+only measurement that can answer this (a whole-frame number moves the scene cost at the same time):
+
+| output | FSR2Pass | ms/MPix |
+|---|---|---|
+| 1280x720 | 0.210 ms | 0.228 |
+| 1920x1080 | 0.427 ms | 0.206 |
+| 2560x1440 | 0.711 ms | 0.193 |
+
+Almost perfectly linear in output pixels — **0.178 ms/MPix marginal, ~0.05 ms fixed** — so it is
+throughput-bound rather than dominated by small-dispatch overhead, which is the reading that would have
+excused it. Extrapolated to 4K that is **~1.5 ms on a 4090**, against AMD's quoted ~1.1-1.2 ms at 4K on an
+RX 6800 XT. Roughly 3x slower than the hardware class implies, matching the author's figure.
+
+**Two levers were tested and neither helps.** Recorded so nobody re-runs them:
+
+* **FP16 for the accumulate pass.** The backend disables it on NVIDIA ("reduced occupancy and high VRAM
+  throughput") and that looked like stale Turing-era tuning worth revisiting on Ada. Re-enabling it made
+  FSR2 **3.4-8.9x SLOWER** at every resolution (1080p: 0.42 -> 1.55 ms). The workaround is correct and
+  load-bearing, and the result corroborates the author's VRAM-throughput diagnosis rather than
+  undermining it.
+* **The `rw_prepared_input_color` `rgba16`-over-`RGBA16F` mismatch.** Fixing it is **performance-neutral**
+  (within 0.5%). Still worth fixing as correctness — it is undefined behaviour — but it is not a speed
+  lever. (Measured properly here; an earlier "inert" verdict on this was taken against BRIGHTNESS during
+  the window when the stale-shader build trap could have voided it.)
+
+`useLut` is a third candidate and probably not worth the trip: it is gated on `waveLaneCountMax == 64`
+while the GL backend hardcodes that to 0, so the reproject pass always takes the reference Lanczos — but
+DX12/Vulkan on NVIDIA (wave32) picks the same path, so it is not a GL-specific regression.
+
+**The consequence for #684's acceptance criterion is real:** "a GPU frame-time reduction at 67%/59%" may
+not be achievable on NVIDIA with this backend at all, and that is an upstream problem rather than an
+integration one. Anyone picking this up should measure on AMD before concluding the integration is at
+fault, and should not promise the win on NVIDIA without re-measuring on an idle machine.
+
+### A state restore that is free in an isolated test can be the most expensive thing in the frame
+
+`FSR2BindingScope` originally swept the engine's whole binding space — 70 texture units x 3 targets plus
+83 UBO slots, ~1000 GL calls per dispatch. It looked free when it was written, because the isolated test
+that measured it leaves most units EMPTY and rebinding 0 over 0 is a no-op the driver discards.
+
+Measured once the other renderer tests had run first and the units actually held textures, it cost
+**0.55 ms at 1080p and 1.67 ms at 1440p** — more than FSR2's own dispatch, and at 1440p more than triple
+it. The signature was a per-pass cost that was reproducible at two DIFFERENT values depending only on what
+had run before it in the same process: 0.43 ms isolated, 0.97 ms after the visual tests, both stable
+across repeats. That is not noise, and it is worth recognising: **if a measurement is reproducible at two
+values, the variable is state, not jitter.** It had also been quietly wrecking the whole-frame benchmark,
+which was being blamed on GPU contention.
+
+The fix was to size the restore to the slots FSR2 can actually REACH rather than everything the engine
+owns. The reachable set is knowable because the shift is ours: `cmake/fsr2.cmake` passes
+`--stb comp 8 --ssb comp 8 --sib comp 0`, so textures and samplers land at macro+8 and images at 0-7.
+Sizing from a constant in this repo is sound in a way that sizing from upstream's macros was not — that
+was the original bug. Narrowed cost is within ~2.5% of not restoring at all, with the shadow-sampler UB
+still at zero.
+
+**A caveat the author documents and we inherit:** OpenGL's `[-1, 1]` NDC depth against FSR2's `[0, 1]`
+assumption leaves its depth constants "subtly wrong". The author judged the result "imperceptibly wrong",
+suggests `glClipControl` as the fix, and left it open. We pass `deviceDepthNegativeOneToOne = false`
+because the backend asserts on anything else — see the note in `FSR2RenderPass`.
+
+**`GL_KHR_shader_subgroup` is a hard requirement of the backend**, not a nice-to-have: its
+`GetDeviceCapabilitiesGL` returns `FFX_ERROR_BACKEND_API_ERROR` without it (it also accepts any AMD
+vendor string as implying support). A device that lacks it fails `Configure`, the upscaler reports
+`DeviceUnsupported`, and the pipeline falls back to the spatial path with a log line — so this shows
+up as "FSR2 did nothing on that machine", never as a crash.
+
+**MSAA is a hard guard, not a note.** A resolve has already averaged the per-pixel depth and motion
+vectors FSR2 reconstructs from, so the output is soft and crawling rather than wrong-looking.
+
+> **The fingerprint must hash the RESOLVED decision (`data.TemporalUpscaleActive`), not the
+> requested `Technique`.** The decision can flip without any setting moving — the backend coming up,
+> MSAA being switched on — and it is what picks whether `FSR2Color` or `EASUColor` gets declared. Hash
+> the setting instead and the graph keeps whichever resource was declared when the decision last
+> changed, and the upscale silently stops running. Same rule as §13's `Upscale` hash, one level down.
+
+**Exposure is the engine's, and FSR2 is told to leave it alone.** `FFX_FSR2_ENABLE_AUTO_EXPOSURE` is
+deliberately **not** set: FSR2's auto-exposure bakes its metered value *into* the output, and
+`ToneMapRenderPass` (which owns auto-exposure here) runs **after** the upscaler and would then expose
+that frame a second time — measured as a pixel-correct first frame followed by a constant ~36%
+darkening. Clearing the flag is not enough on its own; with no exposure resource bound the runtime
+falls back to its internal one, so the backend also supplies a neutral 1.0 exposure texture
+(`OpenGLTemporalUpscaler::EnsureNeutralExposureTexture`) plus `preExposure = 1.0f`. That is the
+sanctioned "my colour is already in the space I want it back in" path.
+
 ## 14. GPU timer queries
 
 - **`GL_TIME_ELAPSED` scopes must not nest.** `CommandBucket::ExecuteWithGPUTiming` already owns

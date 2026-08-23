@@ -188,6 +188,8 @@ add_executable(OloEngine-Tests
 		Rendering/CASMathTest.cpp
 		Rendering/EASUMathTest.cpp
 		Rendering/RCASMathTest.cpp
+		Rendering/FSR2PolicyTest.cpp
+		Rendering/UpscaleSettingsSceneYAMLRoundTripTest.cpp
 		Rendering/SSAOMathTest.cpp
 		Rendering/GTAOMathTest.cpp
 		Rendering/ThreadGroupSwizzleTest.cpp
@@ -355,6 +357,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VirtualShadowMapLocalVisualEvidenceTest.cpp
 		Rendering/PropertyTests/CASVisualEvidenceTest.cpp
 		Rendering/PropertyTests/EASUVisualEvidenceTest.cpp
+		Rendering/PropertyTests/FSR2VisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GTAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp

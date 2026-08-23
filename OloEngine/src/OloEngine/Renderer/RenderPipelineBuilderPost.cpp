@@ -41,6 +41,16 @@ namespace OloEngine::RenderPipelineBuilderInternal
         {
             graph.AddNode(PrepareGraphNode("EASUPass", inputs.Passes->EASU));
         }
+        // FSR2 temporal upscale (#684). Occupies the SAME slot as EASU above and
+        // is registered immediately after it so the two are adjacent in the graph
+        // and in this file — they are alternatives, not a chain. Exactly one of
+        // them ever declares an output in a frame (the Technique setting decides,
+        // and RenderPipeline disables the loser), so ordering between them is
+        // documentation rather than a dependency.
+        if (inputs.Passes->FSR2)
+        {
+            graph.AddNode(PrepareGraphNode("FSR2Pass", inputs.Passes->FSR2));
+        }
         // FSR1 depth+velocity upscale (#480). Runs right after EASU (before the
         // display-res post band): nearest-upscales the reduced depth + velocity to
         // full res and swaps the blackboard SceneDepth/Velocity handles so DOF /
