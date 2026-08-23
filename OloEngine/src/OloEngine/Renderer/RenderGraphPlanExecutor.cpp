@@ -3,6 +3,7 @@
 
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #include <chrono>
 
@@ -66,9 +67,19 @@ namespace OloEngine::RenderGraphPlanExecutor
                     // the olo_perf_pass_timings MCP tool.
                     auto& gpuTimers = GPUPassTimerPool::GetInstance();
                     gpuTimers.BeginPass(cmd.NodeName);
+                    // Name the pass in the backend's command stream. This is
+                    // what makes a GPU-side diagnostic say WHICH pass: a
+                    // RenderDoc/Nsight region, and — on Vulkan — the
+                    // command-buffer label region the validation layer reports
+                    // alongside an error. Issue #800 spent two phases
+                    // narrowing a per-resize layout error by inference
+                    // precisely because no such label existed. The backends
+                    // no-op when the capability is absent.
+                    RenderCommand::PushDebugGroup(0u, cmd.NodeName);
                     const auto executeStart = std::chrono::steady_clock::now();
                     cmd.NodePointer->Execute(input.Context);
                     const auto executeEnd = std::chrono::steady_clock::now();
+                    RenderCommand::PopDebugGroup();
                     gpuTimers.EndPass();
                     input.Context.EndPass();
 

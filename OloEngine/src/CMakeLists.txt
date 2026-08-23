@@ -1637,6 +1637,8 @@
 		"Platform/Vulkan/VulkanComputeShader.h"
 		"Platform/Vulkan/VulkanContext.cpp"
 		"Platform/Vulkan/VulkanContext.h"
+		"Platform/Vulkan/VulkanDebugNames.cpp"
+		"Platform/Vulkan/VulkanDebugNames.h"
 		"Platform/Vulkan/VulkanDeferredReclaim.cpp"
 		"Platform/Vulkan/VulkanDeferredReclaim.h"
 		"Platform/Vulkan/VulkanDescriptorHeapBackend.cpp"
