@@ -836,6 +836,15 @@ namespace OloEngine
             }
         }
 
+        // Release a generated LOD chain's memory-only Mesh assets (issue #711) —
+        // m_Registry.destroy() below doesn't fire OnComponentRemoved<LODGroupComponent>
+        // either, and that hook is the only thing that owns them. Deleting an entity
+        // would otherwise strand a full chain per destroy.
+        if (entity.HasComponent<LODGroupComponent>())
+        {
+            ModelImporter::ReleaseGeneratedLODAssets(entity.GetComponent<LODGroupComponent>());
+        }
+
         m_Registry.destroy(entity);
         m_EntityMap.Remove(entityUUID);
 

@@ -144,5 +144,15 @@ namespace OloEngine
          * Only handles still registered as memory-only are removed.
          */
         static void ReleaseGeneratedLODAssets(struct LODGroupComponent& lodComp);
+
+        /**
+         * @brief Drop a GENERATED LOD group from @p entity, releasing its assets.
+         *
+         * No-op when the entity has no group or the group is authored — an authored
+         * chain is the user's data and survives a re-import. A generated one
+         * describes geometry that is about to be replaced, so keeping it would draw
+         * the previous model past LOD 0.
+         */
+        static void DiscardGeneratedLODGroup(Entity entity);
     };
 } // namespace OloEngine

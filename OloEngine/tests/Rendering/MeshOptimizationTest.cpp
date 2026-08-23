@@ -1102,8 +1102,11 @@ TEST(MeshOptimization, AutoLODChainHonoursMaxLevels)
     settings.MaxLevels = 3;
     const auto chain = MeshOptimization::BuildAutoLODChain(*mesh, settings);
 
-    EXPECT_LE(chain.size(), 3u);
-    EXPECT_GE(chain.size(), 2u) << "3 levels are reachable on this mesh, so the cap must be the binding limit";
+    // EXACTLY three, not "at most": AutoLODChainProducesMultipleLevels already pins
+    // that this same mesh reaches four or more levels uncapped, so anything shorter
+    // means generation stopped for an unrelated reason and the cap was never the
+    // binding limit this test claims to exercise.
+    EXPECT_EQ(chain.size(), 3u);
 }
 
 TEST(MeshOptimization, AutoLODChainStopsAtTheTriangleFloor)

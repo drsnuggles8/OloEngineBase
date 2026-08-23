@@ -149,8 +149,9 @@ namespace OloEngine
         // Touches no AssetManager and uploads nothing to the GPU, which is what makes
         // the error metric testable without a project or a graphics device.
         //
-        // Always returns at least entry 0. Entries after it are ordered fine -> coarse
-        // with strictly increasing Error.
+        // Returns an EMPTY chain for a source with no vertices or no indices — there is
+        // no LOD 0 to describe. Otherwise entry 0 is the source mesh, and the entries
+        // after it are ordered fine -> coarse with strictly increasing Error.
         std::vector<AutoLODChainEntry> BuildAutoLODChain(const MeshSource& meshSource,
                                                          const AutoLODSettings& settings = {});
 
