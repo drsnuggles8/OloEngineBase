@@ -15,8 +15,8 @@
 // from the surrounding log — which is how #800 stayed open across two phases.
 // Naming the object makes the layer print the name inside the message itself.
 //
-// OPT-IN, via the `OLO_VK_OBJECT_NAMES` environment variable (any value but
-// "0"), and Debug builds only, and only when VK_EXT_debug_utils actually came
+// OPT-IN, via the `OLO_VK_OBJECT_NAMES` environment variable (any value except
+// unset, empty, and exactly "0"), and Debug builds only, and only when VK_EXT_debug_utils actually came
 // up (the extension is requested alongside VK_LAYER_KHRONOS_validation, so an
 // unvalidated run has no entry point). Every entry is a no-op otherwise —
 // callers must NOT guard their call sites.

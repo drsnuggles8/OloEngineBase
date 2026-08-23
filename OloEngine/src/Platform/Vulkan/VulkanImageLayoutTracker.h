@@ -100,24 +100,41 @@ namespace OloEngine
         //
         // So the tracker keeps a second layout per subresource: the layout
         // after all SUBMITTED work. CommitRecordedToExecuted() advances it when
-        // the recording bracket closes; writes made while an immediate-
-        // execution scope is open advance BOTH, since that work reaches the
-        // queue as it is recorded.
+        // the recording bracket closes; an immediate-execution scope advances
+        // it for the work recorded inside, but only once that work has really
+        // reached the queue (see ImmediateExecutionScope::MarkSubmitted).
         void CommitRecordedToExecuted();
         [[nodiscard]] VkImageLayout CurrentExecutedLayout(VkImage image, const VkImageSubresourceRange& range) const;
 
-        // RAII, opened by VulkanOneShot::Submit around its record callback.
-        // Nesting is counted: ClearTextureFloat's load-time fallback records a
-        // one-shot from inside another one's callback.
+        // RAII, opened by VulkanOneShot::Submit. It must span the WHOLE
+        // submission — record, submit, fence wait — not just the record
+        // callback, because a layout written while recording is speculative
+        // until that command buffer is actually on the queue. Inside the
+        // scope, SetLayout advances the recorded layout immediately (a later
+        // barrier in the same buffer must transition from it) and QUEUES the
+        // executed-layout write; MarkSubmitted() is what promotes the queued
+        // writes, and the destructor discards them if it was never called.
+        //
+        // Two things that buys, both of which the eager version got wrong: a
+        // one-shot that fails before reaching the queue no longer claims its
+        // transitions happened, and a nested one-shot — should one ever be
+        // recorded from inside another's callback — cannot barrier from the
+        // OUTER submission's not-yet-executed layout. Scopes nest as a stack,
+        // each owning its own queued writes.
         class ImmediateExecutionScope
         {
           public:
             ImmediateExecutionScope();
             ~ImmediateExecutionScope();
+            // Call once the recorded work has reached the queue and retired.
+            void MarkSubmitted();
             ImmediateExecutionScope(const ImmediateExecutionScope&) = delete;
             ImmediateExecutionScope& operator=(const ImmediateExecutionScope&) = delete;
             ImmediateExecutionScope(ImmediateExecutionScope&&) = delete;
             ImmediateExecutionScope& operator=(ImmediateExecutionScope&&) = delete;
+
+          private:
+            bool m_Submitted = false;
         };
         [[nodiscard]] static bool InImmediateExecutionScope();
 

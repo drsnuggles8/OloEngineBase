@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <string>
+#include <string_view>
 
 namespace OloEngine::VulkanDebugNames
 {
@@ -23,7 +24,9 @@ namespace OloEngine::VulkanDebugNames
         bool ReadOptIn()
         {
             const char* value = std::getenv("OLO_VK_OBJECT_NAMES");
-            return value != nullptr && value[0] != '\0' && value[0] != '0';
+            // The WHOLE value, not its first character: "00" and "0ff" are not
+            // the off switch, and unset or empty is off.
+            return value != nullptr && std::string_view{ value } != "" && std::string_view{ value } != "0";
         }
 
         const bool s_OptIn = ReadOptIn();

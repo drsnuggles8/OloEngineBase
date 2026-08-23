@@ -31,25 +31,67 @@ namespace OloEngine
 
     namespace
     {
-        // Depth, not a bool: ClearTextureFloat's load-time fallback records a
-        // one-shot from inside another one's record callback.
-        u32 s_ImmediateExecutionDepth = 0;
+        // One executed-layout write queued by an open immediate-execution
+        // scope. RegistrationId is carried so a write cannot be applied to a
+        // row that was re-registered in the meantime — the same
+        // recycled-handle discipline the rest of this class uses.
+        struct QueuedExecutedWrite
+        {
+            VulkanImageLayoutTracker* Tracker = nullptr;
+            VkImage Image = VK_NULL_HANDLE;
+            u64 RegistrationId = 0;
+            sizet Index = 0;
+            VkImageLayout Layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        };
+
+        // A stack, one entry per open scope, so a nested submission's writes
+        // are promoted (or dropped) independently of the outer one's.
+        // Deliberately leaked, same rationale as LiveTrackers below.
+        std::vector<std::vector<QueuedExecutedWrite>>& QueuedWriteStack()
+        {
+            static auto* s_Stack = new std::vector<std::vector<QueuedExecutedWrite>>();
+            return *s_Stack;
+        }
     } // namespace
 
     VulkanImageLayoutTracker::ImmediateExecutionScope::ImmediateExecutionScope()
     {
-        ++s_ImmediateExecutionDepth;
+        QueuedWriteStack().emplace_back();
+    }
+
+    void VulkanImageLayoutTracker::ImmediateExecutionScope::MarkSubmitted()
+    {
+        m_Submitted = true;
     }
 
     VulkanImageLayoutTracker::ImmediateExecutionScope::~ImmediateExecutionScope()
     {
-        if (s_ImmediateExecutionDepth > 0u)
-            --s_ImmediateExecutionDepth;
+        auto& stack = QueuedWriteStack();
+        if (stack.empty())
+            return;
+        const auto queued = std::move(stack.back());
+        stack.pop_back();
+        if (!m_Submitted)
+            return; // never reached the queue — the writes were speculative
+
+        const auto& live = LiveTrackers();
+        for (const auto& write : queued)
+        {
+            // The tracker may have been destroyed while the scope was open
+            // (a fixture teardown racing a submission).
+            if (std::find(live.begin(), live.end(), write.Tracker) == live.end())
+                continue;
+            const auto it = write.Tracker->m_Images.find(write.Image);
+            if (it == write.Tracker->m_Images.end() || it->second.RegistrationId != write.RegistrationId)
+                continue; // forgotten, or a different image on a recycled handle value
+            if (write.Index < it->second.Executed.size())
+                it->second.Executed[write.Index] = write.Layout;
+        }
     }
 
     bool VulkanImageLayoutTracker::InImmediateExecutionScope()
     {
-        return s_ImmediateExecutionDepth > 0u;
+        return !QueuedWriteStack().empty();
     }
 
     void VulkanImageLayoutTracker::ForgetImageEverywhere(const VkImage image)
@@ -126,11 +168,15 @@ namespace OloEngine
             {
                 const sizet index = static_cast<sizet>(layer) * state.MipCount + mip;
                 state.Layouts[index] = layout;
-                // Work recorded inside an immediate-execution scope reaches the
-                // queue as it is recorded, so it advances the executed layout
-                // too (issue #800).
-                if (s_ImmediateExecutionDepth > 0u && index < state.Executed.size())
-                    state.Executed[index] = layout;
+                // Work recorded inside an immediate-execution scope will reach
+                // the queue ahead of the frame command buffer, so it advances
+                // the executed layout too (issue #800) — but only once it has
+                // actually been submitted, which the scope promotes.
+                if (!QueuedWriteStack().empty() && index < state.Executed.size())
+                {
+                    QueuedWriteStack().back().push_back(QueuedExecutedWrite{
+                        .Tracker = this, .Image = image, .RegistrationId = state.RegistrationId, .Index = index, .Layout = layout });
+                }
             }
         }
     }

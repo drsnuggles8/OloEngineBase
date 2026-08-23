@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 
 #include <chrono>
+#include <string_view>
 
 namespace OloEngine::RenderGraphPlanExecutor
 {
@@ -75,11 +76,33 @@ namespace OloEngine::RenderGraphPlanExecutor
                     // narrowing a per-resize layout error by inference
                     // precisely because no such label existed. The backends
                     // no-op when the capability is absent.
-                    RenderCommand::PushDebugGroup(0u, cmd.NodeName);
-                    const auto executeStart = std::chrono::steady_clock::now();
-                    cmd.NodePointer->Execute(input.Context);
-                    const auto executeEnd = std::chrono::steady_clock::now();
-                    RenderCommand::PopDebugGroup();
+                    // Scoped, not a bare push/pop pair: an Execute that
+                    // throws past an unbalanced push leaves the label region
+                    // open, and every later error is then attributed to this
+                    // pass — the exact failure this label exists to prevent.
+                    struct DebugGroupScope
+                    {
+                        explicit DebugGroupScope(std::string_view name)
+                        {
+                            RenderCommand::PushDebugGroup(0u, name);
+                        }
+                        ~DebugGroupScope()
+                        {
+                            RenderCommand::PopDebugGroup();
+                        }
+                        DebugGroupScope(const DebugGroupScope&) = delete;
+                        DebugGroupScope& operator=(const DebugGroupScope&) = delete;
+                        DebugGroupScope(DebugGroupScope&&) = delete;
+                        DebugGroupScope& operator=(DebugGroupScope&&) = delete;
+                    };
+                    std::chrono::steady_clock::time_point executeStart{};
+                    std::chrono::steady_clock::time_point executeEnd{};
+                    {
+                        const DebugGroupScope debugGroup{ cmd.NodeName };
+                        executeStart = std::chrono::steady_clock::now();
+                        cmd.NodePointer->Execute(input.Context);
+                        executeEnd = std::chrono::steady_clock::now();
+                    }
                     gpuTimers.EndPass();
                     input.Context.EndPass();
 

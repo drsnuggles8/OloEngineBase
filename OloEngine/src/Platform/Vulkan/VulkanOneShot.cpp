@@ -52,14 +52,15 @@ namespace OloEngine
                 return false;
             }
 
-            {
-                // Everything recorded here is submitted immediately, i.e. it
-                // executes BEFORE the frame command buffer that may still be
-                // recording. Layout writes made inside therefore advance the
-                // EXECUTED layout as well as the recorded one (issue #800).
-                const VulkanImageLayoutTracker::ImmediateExecutionScope immediate;
-                record(cmd);
-            }
+            // Everything recorded here is submitted immediately, i.e. it
+            // executes BEFORE the frame command buffer that may still be
+            // recording. Layout writes made inside therefore advance the
+            // EXECUTED layout as well as the recorded one (issue #800) — but
+            // only once this buffer has really reached the queue, so the scope
+            // spans the submit and is promoted by MarkSubmitted below. Every
+            // early return between here and there discards the writes.
+            VulkanImageLayoutTracker::ImmediateExecutionScope immediate;
+            record(cmd);
 
             if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
             {
@@ -104,6 +105,12 @@ namespace OloEngine
                     OLO_CORE_ERROR("VulkanOneShot::Submit({}): fence wait failed (VkResult {})", what,
                                    static_cast<int>(waited));
                     ok = false;
+                }
+                else
+                {
+                    // On the queue and retired: the layouts this buffer
+                    // transitioned are now the images' executed layouts.
+                    immediate.MarkSubmitted();
                 }
             }
 

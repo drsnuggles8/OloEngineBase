@@ -363,7 +363,7 @@ TEST(VulkanImageLayoutTracker, ExecutedLayoutLagsRecordedUntilTheBracketCloses)
     EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
-TEST(VulkanImageLayoutTracker, ImmediateExecutionScopeAdvancesBothLayouts)
+TEST(VulkanImageLayoutTracker, ImmediateExecutionScopePromotesOnlyOnceSubmitted)
 {
     VulkanImageLayoutTracker tracker;
     const auto image = FakeImage(0x42);
@@ -373,17 +373,92 @@ TEST(VulkanImageLayoutTracker, ImmediateExecutionScopeAdvancesBothLayouts)
 
     EXPECT_FALSE(VulkanImageLayoutTracker::InImmediateExecutionScope());
     {
-        // What VulkanOneShot::Submit opens around its record callback: the
-        // work is on the queue as soon as it is recorded, so it moves the
-        // executed layout too.
-        const VulkanImageLayoutTracker::ImmediateExecutionScope immediate;
+        // What VulkanOneShot::Submit opens around a whole submission. The
+        // recorded layout moves at once — a later barrier in the same buffer
+        // must transition from it — but the EXECUTED layout may not, because
+        // nothing has reached the queue yet. A nested submission reading it
+        // here would barrier from a layout the image is not in.
+        VulkanImageLayoutTracker::ImmediateExecutionScope immediate;
         EXPECT_TRUE(VulkanImageLayoutTracker::InImmediateExecutionScope());
         tracker.SetLayout(image, full, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        EXPECT_EQ(tracker.CurrentLayout(image, full), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_UNDEFINED);
+        immediate.MarkSubmitted();
+        // Still not promoted: promotion happens when the scope closes.
+        EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_UNDEFINED);
     }
     EXPECT_FALSE(VulkanImageLayoutTracker::InImmediateExecutionScope());
     EXPECT_EQ(tracker.CurrentLayout(image, full), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+}
+
+TEST(VulkanImageLayoutTracker, ImmediateExecutionScopeDiscardsWhatNeverReachedTheQueue)
+{
+    VulkanImageLayoutTracker tracker;
+    const auto image = FakeImage(0x46);
+    const VkImageSubresourceRange full{ VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+                                        VK_REMAINING_ARRAY_LAYERS };
+    tracker.RegisterImage(image, 1, 1);
+    tracker.SetLayout(image, full, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    tracker.CommitRecordedToExecuted();
+
+    {
+        // A one-shot that fails to record, create its fence, submit, or clear
+        // its fence wait never calls MarkSubmitted. Its transitions did not
+        // happen, and claiming they did is how the executed layout would start
+        // lying in the other direction.
+        const VulkanImageLayoutTracker::ImmediateExecutionScope immediate;
+        tracker.SetLayout(image, full, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    }
+    EXPECT_EQ(tracker.CurrentLayout(image, full), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+TEST(VulkanImageLayoutTracker, NestedImmediateExecutionScopesPromoteIndependently)
+{
+    VulkanImageLayoutTracker tracker;
+    const auto outerImage = FakeImage(0x47);
+    const auto innerImage = FakeImage(0x48);
+    const VkImageSubresourceRange full{ VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+                                        VK_REMAINING_ARRAY_LAYERS };
+    tracker.RegisterImage(outerImage, 1, 1);
+    tracker.RegisterImage(innerImage, 1, 1);
+
+    VulkanImageLayoutTracker::ImmediateExecutionScope outer;
+    tracker.SetLayout(outerImage, full, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    {
+        // A submission recorded from inside another one's callback reaches the
+        // queue FIRST, so it must not be able to see the outer submission's
+        // not-yet-executed layouts, and its own promotion must not drag the
+        // outer's along.
+        VulkanImageLayoutTracker::ImmediateExecutionScope inner;
+        EXPECT_EQ(tracker.CurrentExecutedLayout(outerImage, full), VK_IMAGE_LAYOUT_UNDEFINED);
+        tracker.SetLayout(innerImage, full, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        inner.MarkSubmitted();
+    }
+    EXPECT_EQ(tracker.CurrentExecutedLayout(innerImage, full), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(outerImage, full), VK_IMAGE_LAYOUT_UNDEFINED);
+
+    outer.MarkSubmitted();
+}
+
+TEST(VulkanImageLayoutTracker, AQueuedExecutedWriteIsDroppedWhenTheRowIsReRegistered)
+{
+    VulkanImageLayoutTracker tracker;
+    const auto image = FakeImage(0x49);
+    const VkImageSubresourceRange full{ VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+                                        VK_REMAINING_ARRAY_LAYERS };
+    tracker.RegisterImage(image, 1, 1, 1u);
+    {
+        VulkanImageLayoutTracker::ImmediateExecutionScope immediate;
+        tracker.SetLayout(image, full, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        immediate.MarkSubmitted();
+        // The image dies and the handle VALUE comes back for a new allocation
+        // before the scope closes. The queued write belongs to the dead image
+        // and must not land on the new one.
+        tracker.RegisterImage(image, 1, 1, 2u);
+    }
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_UNDEFINED);
 }
 
 TEST(VulkanImageLayoutTracker, RegistrationResetsTheExecutedLayoutToo)
