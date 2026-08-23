@@ -239,6 +239,38 @@ namespace OloEngine
         return true;
     }
 
+    Ref<TerrainGPUPicker>& TerrainChunkManager::GetOrCreateGPUPicker()
+    {
+        if (!m_GPUPicker)
+        {
+            m_GPUPicker = Ref<TerrainGPUPicker>::Create();
+        }
+        return m_GPUPicker;
+    }
+
+    void TerrainChunkManager::UpdateGPUPicking(const TerrainGPUPicker::TerrainInputs& terrain)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_GPUPicker)
+        {
+            return;
+        }
+
+        // Poll BEFORE dispatching, not after. Polling first retires whatever the
+        // GPU finished since last frame, so this frame's consumer sees the
+        // freshest answer the ring holds; polling after would also see it, but
+        // would have to be told about the slot the dispatch just took and would
+        // read the ring one frame later than it needs to.
+        m_GPUPicker->Poll();
+
+        if (!m_GPUQuadtree || !m_GPUQuadtree->IsBuilt())
+        {
+            return;
+        }
+        (void)m_GPUPicker->Dispatch(*m_GPUQuadtree, terrain);
+    }
+
     void TerrainChunkManager::GetVisibleChunks(const Frustum& frustum,
                                                std::vector<const TerrainChunk*>& outChunks) const
     {

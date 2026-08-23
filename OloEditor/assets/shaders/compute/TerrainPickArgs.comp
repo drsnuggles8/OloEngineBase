@@ -1,0 +1,50 @@
+#version 450 core
+
+// =============================================================================
+// The 1-thread kernel that runs between two levels of the ray-guided terrain
+// pick descent (issue #717). The pick twin of TerrainCullArgs.comp.
+//
+//   - PendingCount <- NextCount (clamped), NextCount <- 0
+//   - DescentDispatch = groups for the next TerrainRayNodeSelect.comp dispatch
+//   - ResolveDispatch = ONE WORK GROUP PER CANDIDATE for TerrainPickResolve.comp
+//
+// So the CPU never learns how many nodes the ray touched, and the whole descent
+// runs at the GPU's own pace behind glDispatchComputeIndirect.
+//
+// Clamping happens HERE, same reason as the cull twin: the descent bumps its
+// counters before it knows whether the slot fits, so the raw counter can exceed
+// capacity, and every consumer must read the clamped value while the producer's
+// overflow bit survives.
+//
+// ResolveDispatch is rewritten on EVERY level rather than only the last. The
+// candidate count is monotonic (the descent only appends), so the last write
+// before the resolve dispatch is the complete one — and writing it every level
+// means the CPU does not have to know which dispatch was the last, which is the
+// same reason the cull twin writes the draw arguments every level.
+// =============================================================================
+
+#include "../include/TerrainPickCommon.glsl"
+
+layout(local_size_x = 1) in;
+
+void main()
+{
+    uint nextCount = min(b_Pick.NextCount, b_Pick.PickParams.y);
+    b_Pick.PendingCount = nextCount;
+    b_Pick.NextCount = 0u;
+    // A zero-group dispatch is legal and does nothing — which is exactly what a
+    // ray that has left the terrain should cost for the rest of the descent.
+    b_Pick.DescentDispatch = uvec3((nextCount + 63u) / 64u, 1u, 1u);
+
+    uint candidates = min(b_Pick.CandidateCount, b_Pick.PickParams.z);
+    b_Pick.CandidateCount = candidates;
+    b_Pick.ResolveDispatch = uvec3(candidates, 1u, 1u);
+
+    // Republish the overflow bits into the RESULT block. They are set at offset
+    // 12 by the descent, and the readback ring copies only the 16 bytes at
+    // offset 48 — so without this line the CPU could only learn about a
+    // truncated worklist through a GetData(), i.e. through the stall this pass
+    // exists to avoid. TerrainGPUQuadtree pays exactly that cost and therefore
+    // only asks every 240 frames.
+    b_Pick.ResultFlags = b_Pick.OverflowFlags;
+}

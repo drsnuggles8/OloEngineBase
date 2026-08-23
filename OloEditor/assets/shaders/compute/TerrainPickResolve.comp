@@ -1,0 +1,223 @@
+#version 450 core
+
+// =============================================================================
+// GPU terrain picking — the fine march (issue #717).
+//
+// ONE WORK GROUP PER CANDIDATE, 64 lanes. The ray-guided descent
+// (TerrainRayNodeSelect.comp) has already reduced the whole terrain to the
+// handful of finest-level nodes the ray actually passes through; this kernel
+// clips the ray to each of those boxes, splits that segment 64 ways, and marches
+// its share against the heightmap looking for the first above->below crossing.
+//
+// WHY atomicMin IS THE WHOLE ORDERING STORY. Every lane of every work group
+// publishes its crossing as atomicMin(HitTBits, floatBitsToUint(t)). For t >= 0
+// the IEEE bit pattern is monotonic in t, so the minimum of the bit patterns IS
+// the nearest hit — across lanes, across candidates, in any completion order.
+// There is no per-candidate sort, no nearest-first traversal and no second pass;
+// a candidate the descent included spuriously (the inflated bounds do that on
+// purpose) simply never wins the min.
+//
+// ABOVE->BELOW ONLY, matching EditorLayer::TerrainRaycast: a lane reports a
+// crossing only where the ray goes from above the surface to on/below it, so a
+// ray that starts underground finds nothing, exactly as the CPU path does. A
+// lane does not know what happened before its own sub-segment, and does not need
+// to: a crossing at a lane boundary is inside the NEXT lane's window, and a
+// crossing at a candidate boundary is inside the next candidate's inflated box.
+//
+// No barrier() and no shared memory: the lanes are independent and everything
+// they publish goes through one global atomic. That is what makes the early
+// return below safe, unlike the same three lines in front of a work-group scan
+// (docs/agent-rules/gpu-scan-compaction.md §1).
+// =============================================================================
+
+#include "../include/TerrainPickCommon.glsl"
+
+layout(local_size_x = 64) in;
+
+// The terrain heightmap, R32F, raw normalized heights (the height scale is
+// applied below).
+//
+// Heap-bindless conversion (issue #691, §5a of glsl-shaders.md), converted with
+// TerrainGPUPicker::Dispatch's bind — the declaration and the C++ bind have to
+// move together (§5c), because HeapBinding forks on whether the program IN
+// FLIGHT is bindless: a converted shader whose bind still expects a real
+// glBindTextureUnit would stage an offset and bind nothing, and the march would
+// then sample whatever was left in slot 23.
+//
+// Unlike its five TerrainVT.* neighbours this one IS convertible: they are
+// excluded because they declare STORAGE IMAGES, which have no heap form. This
+// kernel only ever reads one plain sampler2D.
+#include "../include/BindlessHeap.glsl"
+
+#ifdef OLO_BINDLESS
+#define u_TerrainHeightmap OLO_HEAP_TEX_2D(23) // TEX_TERRAIN_HEIGHTMAP
+#else
+layout(binding = 23) uniform sampler2D u_TerrainHeightmap;
+#endif
+
+// The same min/max pyramid the descent read, bound at the same slot. Read here
+// so the marched segment can be clipped to the candidate's own height band
+// instead of to the whole ray — see the note at the clip below.
+layout(std430, binding = 65) readonly buffer TerrainNodeBounds
+{
+    vec2 b_NodeMinMaxY[];
+};
+
+// How many samples one lane may take inside its sub-segment before the step
+// stops tracking the heightmap's texel spacing. 64 lanes x 64 = 4096 samples
+// along a candidate's segment.
+//
+// Raising this costs nothing in the common case: the count below is derived
+// from DEMAND (laneSpan / texel) and only clamped here, so a short segment still
+// takes two or three samples whatever the cap is. It buys headroom for the tall-
+// height-band case described at the clamp, and the overflow bit there reports
+// the cases even this does not cover.
+const int kMaxLaneSteps = 64;
+
+// Bisection iterations once a lane has bracketed a crossing. 16 halvings take
+// the bracket to 1/65536 of a step, i.e. far under a texel — the acceptance
+// criterion for this feature is "within a texel of the CPU path", and the march
+// step, not the refinement, is what actually bounds that.
+const int kRefineSteps = 16;
+
+// TerrainData::GetHeightAt, transcribed. NOT texture(): GetHeightAt maps
+// normalized [0,1] onto the texel index range [0, N-1] and lerps between
+// integer texels, whereas a bilinear texture() fetch works in the texel-CENTRE
+// convention (uv * N - 0.5). Those differ by half a texel, which is the whole
+// error budget this feature is measured against — so the picking path mirrors
+// the CPU expression exactly and leaves the rendering path's convention alone.
+float oloTerrainPickHeight(vec2 worldXZ)
+{
+    float res = float(b_Pick.PickParams.w);
+    vec2 nrm = clamp(worldXZ / b_Pick.TerrainSizeAndScale.xy, vec2(0.0), vec2(1.0));
+    vec2 f = nrm * (res - 1.0);
+    ivec2 i0 = ivec2(f);
+    ivec2 i1 = min(i0 + ivec2(1), ivec2(int(res) - 1));
+    vec2 frac = f - vec2(i0);
+
+    float h00 = texelFetch(u_TerrainHeightmap, ivec2(i0.x, i0.y), 0).r;
+    float h10 = texelFetch(u_TerrainHeightmap, ivec2(i1.x, i0.y), 0).r;
+    float h01 = texelFetch(u_TerrainHeightmap, ivec2(i0.x, i1.y), 0).r;
+    float h11 = texelFetch(u_TerrainHeightmap, ivec2(i1.x, i1.y), 0).r;
+
+    return mix(mix(h00, h10, frac.x), mix(h01, h11, frac.x), frac.y) * b_Pick.TerrainSizeAndScale.z;
+}
+
+// Signed vertical gap: positive above the surface, negative below.
+float oloTerrainPickGap(float t)
+{
+    vec3 p = b_Pick.RayOriginAndMaxDist.xyz + b_Pick.RayDirAndInflate.xyz * t;
+    return p.y - oloTerrainPickHeight(p.xz);
+}
+
+void main()
+{
+    uint candidate = gl_WorkGroupID.x;
+    if (candidate >= b_Pick.CandidateCount)
+        return;
+
+    uint nodeCoord = b_Pick.Candidates[candidate];
+    if (nodeCoord == OLO_TERRAIN_NODE_SKIP)
+        return;
+
+    uint level = oloTerrainNodeLevel(nodeCoord);
+    uint nx = oloTerrainNodeX(nodeCoord);
+    uint ny = oloTerrainNodeY(nodeCoord);
+
+    // The bounds the descent tested, rebuilt rather than carried: passing them
+    // through the candidate list would double its width for a value that is a
+    // pure function of the coord, and a second encoding is a second thing that
+    // can drift.
+    //
+    // CLIPPING TO Y MATTERS, and it is the inflation that makes it safe. Leaving
+    // Y unbounded looks more conservative and is strictly worse: a near-vertical
+    // ray's window through one column would then be the whole remaining ray, so
+    // the fixed lane budget would spread its samples over hundreds of world
+    // units instead of the node's height band, and the march would step coarser
+    // than a texel exactly where it is being asked for texel accuracy. Clipping
+    // loses nothing because the surface inside this node lies within
+    // [minY, maxY] by construction, and a ray entering through the box's top
+    // face sits `inflate` ABOVE the highest possible surface there — so the
+    // first sample's gap is positive and the crossing is bracketed rather than
+    // straddling the window's edge.
+    vec2 heightRange = b_NodeMinMaxY[oloTerrainNodeIndex(level, nx, ny)];
+    vec3 boundsMin;
+    vec3 boundsMax;
+    oloTerrainPickNodeBounds(level, nx, ny, heightRange, b_Pick.RayDirAndInflate.w, boundsMin, boundsMax);
+
+    float tMin = 0.0;
+    float tMax = b_Pick.RayOriginAndMaxDist.w;
+    if (!oloTerrainPickRayAABB(b_Pick.RayOriginAndMaxDist.xyz, b_Pick.RayDirAndInflate.xyz,
+                               boundsMin, boundsMax, tMin, tMax))
+    {
+        return;
+    }
+
+    // Both endpoints are derived from tMin the SAME way, so lane k's end and
+    // lane k+1's start are bit-identical rather than an ulp apart. That ulp is
+    // far below a texel and would never show up as a wrong answer — it would
+    // show up as an occasional missed crossing on a ray that happens to graze a
+    // lane boundary, i.e. as an intermittent no-hit, which is the harder bug.
+    float laneSpan = (tMax - tMin) / float(gl_WorkGroupSize.x);
+    if (!(laneSpan > 0.0))
+        return;
+    float laneStart = tMin + laneSpan * float(gl_LocalInvocationID.x);
+    float laneEnd = tMin + laneSpan * float(gl_LocalInvocationID.x + 1u);
+
+    // The budget is DEMAND-DRIVEN and then capped, so the common case costs a
+    // couple of samples and only a genuinely long segment approaches the cap.
+    //
+    // NO FIXED CAP CAN BE A GUARANTEE, which is why the truncation is reported.
+    // The segment through one candidate is bounded by its inflated box, whose XZ
+    // extent is ~kPatchGridResolution texels by construction (the tree's depth is
+    // derived from the chunk grid, which is derived from the heightmap
+    // resolution, so the two scale together) — but its Y extent is the node's
+    // height band, and `heightScale` is a free authored float. A terrain with a
+    // small world size, a high heightmap resolution and a tall height scale can
+    // therefore demand more samples than any constant here provides, and a
+    // near-vertical ray through such a column is exactly the case that hits it.
+    // When that happens the step is coarser than a texel and this lane may walk
+    // over a thin crossing, so it says so instead of returning a silent no-hit.
+    float texel = max(b_Pick.TerrainSizeAndScale.w, 1e-4);
+    int wantedSteps = int(ceil(laneSpan / texel));
+    int steps = clamp(wantedSteps, 1, kMaxLaneSteps);
+    if (wantedSteps > kMaxLaneSteps)
+    {
+        // Straight into ResultFlags, NOT into OverflowFlags — and that is
+        // ordering, not preference. TerrainPickArgs.comp copies OverflowFlags
+        // into ResultFlags, and its last run happens BEFORE this dispatch, so a
+        // bit written to OverflowFlags here would never reach the 16 bytes the
+        // readback ring copies. atomicOr because the args kernel's plain store
+        // has already happened: this only ever adds a bit.
+        atomicOr(b_Pick.ResultFlags, OLO_TERRAIN_PICK_OVERFLOW_MARCH);
+    }
+    float dt = laneSpan / float(steps);
+
+    float prevT = laneStart;
+    float prevGap = oloTerrainPickGap(prevT);
+    for (int i = 1; i <= steps; ++i)
+    {
+        float t = (i == steps) ? laneEnd : (laneStart + dt * float(i));
+        float gap = oloTerrainPickGap(t);
+        if (prevGap > 0.0 && gap <= 0.0)
+        {
+            // Bracketed. Bisect on the sign of the gap — the same refinement
+            // EditorLayer::TerrainRaycast does, with more iterations because
+            // they cost nothing here.
+            float lo = prevT;
+            float hi = t;
+            for (int r = 0; r < kRefineSteps; ++r)
+            {
+                float mid = (lo + hi) * 0.5;
+                if (oloTerrainPickGap(mid) > 0.0)
+                    lo = mid;
+                else
+                    hi = mid;
+            }
+            atomicMin(b_Pick.HitTBits, floatBitsToUint((lo + hi) * 0.5));
+            return;
+        }
+        prevGap = gap;
+        prevT = t;
+    }
+}

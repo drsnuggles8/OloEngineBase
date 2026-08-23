@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Terrain/TerrainChunk.h"
+#include "OloEngine/Terrain/TerrainGPUPicker.h"
 #include "OloEngine/Terrain/TerrainGPUQuadtree.h"
 #include "OloEngine/Terrain/TerrainQuadtree.h"
 
@@ -60,6 +61,28 @@ namespace OloEngine
         {
             return m_GPUQuadtree;
         }
+
+        // The GPU ray picker (issue #717). Created on first use, which is the
+        // first frame something actually submits a ray — an editor tool, not the
+        // renderer. Null until then, so a game that never picks pays nothing.
+        //
+        // NOT gated on TerrainComponent::m_TessellationEnabled, unlike the LOD
+        // descent above. Picking is an editor interaction and has to work in
+        // every terrain scene; tying it to a flag that (before #714's test scene)
+        // no scene set is exactly how the quadtree ended up with zero runtime
+        // coverage — see docs/agent-rules/terrain-gpu-lod-quadtree.md §1.
+        // Non-const on purpose: Ref<T> propagates constness to the pointee, so a
+        // `const Ref&` here would make every SubmitRay() call at the call site a
+        // compile error. This accessor mutates anyway — it creates the picker.
+        [[nodiscard]] Ref<TerrainGPUPicker>& GetOrCreateGPUPicker();
+        [[nodiscard]] const Ref<TerrainGPUPicker>& GetGPUPicker() const
+        {
+            return m_GPUPicker;
+        }
+
+        // Poll the pick ring and, if a ray is queued, run the pick pass. No-op
+        // when nothing has ever asked for a pick. Render thread, live context.
+        void UpdateGPUPicking(const TerrainGPUPicker::TerrainInputs& terrain);
 
         // Process-wide A/B lever for the GPU LOD descent. Defaults to enabled
         // unless OLO_TERRAIN_CPU_LOD=1 is set — same shape as the gameplay
@@ -151,5 +174,6 @@ namespace OloEngine
         // built. Held by Ref because Scene.cpp hands its buffers to a render
         // command that outlives the submission call.
         Ref<TerrainGPUQuadtree> m_GPUQuadtree;
+        Ref<TerrainGPUPicker> m_GPUPicker;
     };
 } // namespace OloEngine

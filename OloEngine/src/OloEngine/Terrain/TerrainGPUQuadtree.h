@@ -164,6 +164,13 @@ namespace OloEngine
         [[nodiscard]] RHI::ResourceHandle GetDrawArgsHandle() const;
         [[nodiscard]] RHI::ResourceHandle GetVisibleNodesHandle() const;
 
+        // The min/max height pyramid, shared with the ray-guided pick descent
+        // (TerrainGPUPicker, issue #717). Exposed rather than duplicated: the
+        // pyramid is what makes picking "reuse the culling machinery" literally
+        // true, and a second copy would be a second thing to keep in step with
+        // a sculpt.
+        [[nodiscard]] RHI::ResourceHandle GetNodeBoundsHandle() const;
+
         [[nodiscard]] u32 GetMaxDepth() const
         {
             return m_MaxDepth;

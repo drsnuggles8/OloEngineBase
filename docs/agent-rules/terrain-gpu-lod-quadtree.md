@@ -320,3 +320,101 @@ non-tessellated path always has, and the chunk meshes are still built.
 That is a scope line, not a design position: a correct fix is a second GPU
 descent per cascade with the light's frustum. Until then, do not "simplify" by
 pointing the shadow pass at the camera's node list.
+
+---
+
+## 12. Picking rides the same pyramid — and must NOT ride the same gate
+
+Issue #717 added `TerrainGPUPicker` (`Terrain/TerrainGPUPicker.{h,cpp}`,
+`compute/TerrainRayNodeSelect.comp`, `TerrainPickArgs.comp`,
+`TerrainPickResolve.comp`, `include/TerrainPickCommon.glsl`). It is the same
+descent with the frustum test swapped for a ray/AABB slab test, reading the same
+`TerrainNodeBounds` buffer, so "picking reuses the culling machinery" is literal
+rather than aspirational.
+
+Four things about it that are easy to get wrong in the same shape as everything
+above.
+
+**The dispatch hangs off `IsBuilt()`, NOT off `m_TessellationEnabled`.** §1 of
+this document is about a gating flag no scene set, which left the quadtree with
+zero runtime coverage for months. Picking is an *editor interaction* and has to
+answer in every terrain scene; the LOD gate is a *rendering* choice. Hanging one
+off the other would recreate §1 exactly, one subsystem over.
+`TerrainGPUPickEvidenceTest` builds its terrain with `m_TessellationEnabled =
+false` for that reason, and one case asserts the requirement outright rather
+than only relying on the fixture's default.
+
+**The node pyramid is what makes it cheap, and the height band is what makes it
+ACCURATE.** The descent clips against the inflated node AABB, and so does the
+resolve kernel — deliberately, including Y. Leaving Y unbounded in the resolve
+looks more conservative and is strictly worse: a near-vertical ray's window
+through one column becomes the whole remaining ray, so a fixed per-lane sample
+budget spreads over hundreds of world units instead of the node's height band,
+and the march steps coarser than a texel exactly where texel accuracy is being
+asked for. Clipping loses nothing because the surface inside a node lies within
+`[minY, maxY]` by construction, and the inflation puts a ray entering through the
+box's top face strictly ABOVE the highest possible surface there — so the first
+sample's gap is positive and the crossing is bracketed rather than straddling
+the window's edge. The inflation is not decoration; the Y clip is only safe
+because of it.
+
+**`atomicMin` on `floatBitsToUint(t)` IS the whole ordering story.** For `t >= 0`
+the IEEE bit pattern is monotonic, so the minimum over every lane of every
+candidate is the nearest hit — no per-candidate sort, no nearest-first
+traversal, no second pass, and a candidate the inflated bounds included
+spuriously simply never wins. The reset value `0xFFFFFFFF` is above every finite
+positive float's pattern, which is what makes "no hit" lose to any real hit;
+`TerrainGPUPickerLayoutTest` asserts that relation rather than trusting it.
+
+**The picker samples the heightmap the way `GetHeightAt` does, not the way the
+terrain shader does — and the two differ by half a texel.** `TerrainData::
+GetHeightAt` maps normalized `[0,1]` onto the texel *index* range `[0, N-1]` and
+lerps between integer texels; a bilinear `texture()` fetch works in the texel-
+CENTRE convention (`uv * N - 0.5`). Half a texel is the whole error budget for
+"picking accuracy matches the previous CPU path within a texel", so
+`TerrainPickResolve.comp` transcribes the CPU expression with `texelFetch` and
+leaves the rendering path's convention alone. If you ever "tidy" that into a
+`texture()` call the tests still pass — the tolerance is one texel and the error
+is half of one — and the brush cursor sits consistently half a texel off. That is
+the reason the evidence test also asserts a SURFACE RESIDUAL at half a texel,
+against the CPU heightmap, independently of the CPU raycast.
+
+**A fixed sample budget cannot guarantee texel spacing, so the shortfall is
+reported.** The resolve kernel derives its per-lane step count from demand
+(`laneSpan / texel`) and clamps it. The clamp looks unreachable — a candidate's
+XZ extent is ~`kPatchGridResolution` texels by construction, because the tree's
+depth is derived from the chunk grid which is derived from the heightmap
+resolution, so the two scale together — but the segment also spans the node's
+HEIGHT band, and `heightScale` is a free authored float. A small world size, a
+high heightmap resolution and a tall height scale together demand more samples
+than any constant provides, and a near-vertical ray through such a column is the
+case that hits it. So the kernel sets `OLO_TERRAIN_PICK_OVERFLOW_MARCH`, because
+the alternative symptom is a no-hit indistinguishable from the ray genuinely
+missing — on a feature whose acceptance criterion is "within a texel". Raising
+the cap is free in the common case (the count is demand-driven) and moves the
+threshold; it never removes it. **That flag is `atomicOr`'d into `ResultFlags`,
+not `OverflowFlags`, and that is ordering rather than preference**:
+`TerrainPickArgs.comp` copies `OverflowFlags` into `ResultFlags` and its last run
+happens BEFORE the resolve dispatch, so a bit written to `OverflowFlags` there
+would never reach the 16 bytes the ring copies. Reorder the dispatches and that
+breaks silently.
+
+**Overflow rides the result block instead of costing a stall.** §9 above notes
+that reading the descent's overflow bit is a `GetData` — the exact stall the GPU
+path exists to remove — so `TerrainGPUQuadtree` only asks every 240 frames. The
+picker has a readback ring anyway, so `TerrainPickArgs.comp` republishes
+`OverflowFlags` into the 16-byte result block and the CPU learns about a
+truncated worklist for free, every query. Any future counter a GPU-driven pass
+wants on the CPU should look for a ring already going that way before it adds a
+`GetData`.
+
+**What is NOT verified live.** The pass is proven on the real driver by
+`TerrainGPUPickEvidenceTest` (it drives the engine's own compute path on a real
+GL 4.6 context — remember §6a: `glslc` accepting a `.comp` proves nothing about
+whether the driver will). What could not be driven over MCP is the **brush
+cursor itself**: `olo_input_inject` reaches the menu bar and its popups but the
+Terrain Editor panel's Edit-Mode radios never took, so `IsActive()` stayed false
+and the editor never called into the picker. There is no `olo_terrain_pick` tool
+to ask directly. Logged on the MCP follow-up tracker; until one exists, the
+brush-cursor half of this feature's acceptance is argued from the evidence test
+(the brush consumes `TerrainRaycast`'s output verbatim) rather than observed.
