@@ -310,10 +310,21 @@ namespace OloEngine
 
         static void CreateCacheDirectoryIfNeeded()
         {
+            // Non-throwing overloads (issue #906 review): the root can now be
+            // a user-supplied OLO_SHADER_CACHE_DIR or %LOCALAPPDATA%, either
+            // of which can be on an inaccessible/read-only volume — that must
+            // degrade to "no cache this session", not abort shader creation.
             const std::filesystem::path cacheDirectory = GetCacheDirectory();
-            if (!std::filesystem::exists(cacheDirectory))
+            std::error_code ec;
+            if (!std::filesystem::exists(cacheDirectory, ec))
             {
-                std::filesystem::create_directories(cacheDirectory);
+                std::filesystem::create_directories(cacheDirectory, ec);
+                if (ec)
+                {
+                    OLO_CORE_WARN("Could not create shader cache directory '{0}': {1} — shaders will "
+                                  "compile without a cache this session.",
+                                  cacheDirectory.string(), ec.message());
+                }
             }
         }
 
@@ -406,6 +417,30 @@ namespace OloEngine
             return std::format("{:016x}", hash);
         }
 
+        // A shared cache directory (issue #906) can hand a reader a truncated
+        // or non-word-aligned file — an interrupted write is now plausible in
+        // a way it wasn't for a per-worktree cache. Validate BEFORE resizing:
+        // `size / sizeof(u32)` truncates towards zero, so a non-aligned size
+        // previously under-allocated the vector while the matching
+        // `in.read(data(), size)` still wrote the full (larger) byte count —
+        // a heap buffer overflow, not just a bad read. Treat any rejected
+        // file as a cache miss, never a crash (caught in review).
+        [[nodiscard]] static bool TryReadSpirvCacheFile(std::ifstream& in, std::vector<u32>& out)
+        {
+            in.seekg(0, std::ios::end);
+            const std::streamoff size = in.tellg();
+            in.seekg(0, std::ios::beg);
+
+            if (size <= 0 || size % static_cast<std::streamoff>(sizeof(u32)) != 0)
+            {
+                return false;
+            }
+
+            out.resize(static_cast<sizet>(size) / sizeof(u32));
+            in.read(reinterpret_cast<char*>(out.data()), size);
+            return static_cast<bool>(in);
+        }
+
         // Applies the SPIR-V tier's shaderc options AND describes them as text
         // in one place — the description is hashed into the cache key, so
         // there is no second place that can fall out of sync with the actual
@@ -435,6 +470,15 @@ namespace OloEngine
             }
         };
 
+        // Bump whenever CreateProgramFromRawGLSL's patch logic changes (the
+        // `kPrologue` text or the `kVulkanBuiltinShims` substitution table) —
+        // that route's program-binary cache key hashes the RAW pre-patch
+        // source (issue #906), since there is no SPIR-V tier to key from
+        // instead, so a patch-logic-only change is otherwise invisible to the
+        // key and would silently keep serving binaries built from the old
+        // patch (caught in review).
+        constexpr std::string_view kBindlessPatchVersion = "bindless-patch-v1";
+
         // Mirrors VulkanTierOptions above for the SPIRV-Cross → GLSL → OpenGL
         // SPIR-V tier (CompileOrGetOpenGLBinaries): the cross-compiler options
         // (glslOptions) AND the re-compile options both affect the cached
@@ -445,7 +489,8 @@ namespace OloEngine
             [[nodiscard("Store this!")]] static std::string_view Descriptor()
             {
                 return "cross:version=450;es=0;vulkan_semantics=0;separate_shader_objects=0;"
-                       "enable_420pack=1;emit_ubo_as_plain_uniforms=0|"
+                       "enable_420pack=1;emit_ubo_as_plain_uniforms=0;"
+                       "require_ext=GL_ARB_separate_shader_objects|"
                        "recompile:env=opengl4.5;preserve_bindings=1;suppress_warnings=1";
             }
         };
@@ -1050,7 +1095,10 @@ namespace OloEngine
         // patch (prologue + Vulkan-builtin shim) is a pure function of the raw
         // source, so hashing it here and reusing the same value for the save
         // below keeps Load and Save looking at the same key (issue #906).
-        const std::string contentHash = Utils::HashHexSourceMap(sources);
+        // kBindlessPatchVersion covers the patch logic itself, which the raw
+        // source can't (see its declaration).
+        const std::string contentHash =
+            Utils::HashHex({ Utils::kBindlessPatchVersion }) + Utils::HashHexSourceMap(sources);
 
         // The variant-keyed cache. Same reasoning as the SPIR-V tiers: a linked
         // program binary is the expensive artefact, and it is reusable here even
@@ -1088,6 +1136,11 @@ namespace OloEngine
             // GL_ARB_shader_draw_parameters is DELIBERATELY NOT ENABLED here — see
             // the shim below. Enabling it changed what `gl_InstanceIndex` resolves
             // to and silently desynchronised every instanced draw.
+            //
+            // Editing this prologue OR kVulkanBuiltinShims below? Bump
+            // Utils::kBindlessPatchVersion — this route's program-binary
+            // cache key hashes the raw pre-patch source, which can't see a
+            // patch-logic-only change (issue #906).
             static constexpr std::string_view kPrologue =
                 "#extension GL_ARB_bindless_texture : require\n"
                 "#define OLO_BINDLESS 1\n";
@@ -1432,15 +1485,12 @@ namespace OloEngine
                 result.CachePath = cachedPath;
 
                 // Try to load from cache first — existence alone is validity,
-                // the hash already proves the content and options match.
-                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary); in.is_open() && !disableCache)
+                // the hash already proves the content and options match. A
+                // malformed file (truncated by a concurrent/interrupted write
+                // to the shared cache) is a cache miss, not a crash.
+                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
+                    in.is_open() && !disableCache && Utils::TryReadSpirvCacheFile(in, result.SpirvData))
                 {
-                    in.seekg(0, std::ios::end);
-                    const auto size = in.tellg();
-                    in.seekg(0, std::ios::beg);
-
-                    result.SpirvData.resize(size / sizeof(u32));
-                    in.read(reinterpret_cast<char*>(result.SpirvData.data()), size);
                     result.Success = true;
                     result.NeedsCache = false;
                     return;
@@ -1581,14 +1631,11 @@ namespace OloEngine
                 result.CachePath = cachedPath;
 
                 // Try to load from cache first — existence alone is validity.
-                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary); in.is_open() && !disableCache)
+                // A malformed file is a cache miss, not a crash — see
+                // TryReadSpirvCacheFile.
+                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
+                    in.is_open() && !disableCache && Utils::TryReadSpirvCacheFile(in, result.SpirvData))
                 {
-                    in.seekg(0, std::ios::end);
-                    const auto size = in.tellg();
-                    in.seekg(0, std::ios::beg);
-
-                    result.SpirvData.resize(size / sizeof(u32));
-                    in.read(reinterpret_cast<char*>(result.SpirvData.data()), size);
                     result.Success = true;
                     result.NeedsCache = false;
                     return;

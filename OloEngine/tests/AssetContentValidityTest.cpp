@@ -1468,18 +1468,21 @@ namespace OloEngine::Tests
 
         // The shader cache moved OUT of `cacheRoot` entirely (issue #906) to
         // ShaderCachePaths::Root() — every file under there is shader cache
-        // (no per-kind subdir to look up), so re-run the SAME "shader" regex
-        // against that location directly. Without this, the whitelist's
-        // shader entry above would only ever match legacy pre-#906 leftovers
-        // and stop covering the directory shaders actually write to now
-        // (caught in review).
+        // (no per-kind subdir to look up). Deliberately NOT reusing the
+        // legacy `known` "shader" entry above: that pattern's `.+?` prefix
+        // is lenient enough to admit any pre-#906 leftover filename, which
+        // means it would accept a malformed non-content-addressed name under
+        // the new root too (e.g. `Foo.glsl.not-a-hash.cached_opengl.vert`) —
+        // exactly the kind of drift this whitelist exists to catch (caught
+        // in review). Every new-root shader artifact must carry the 16-hex
+        // content-hash segment; only the two machine-local sidecar files are
+        // exempt from that shape.
+        const std::regex newRootShaderPattern(
+            R"RX((?:.+\.[0-9a-fA-F]{16}\.cached_(?:(?:opengl|vulkan(?:12)?)(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|pgr)|vulkan14(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|task|mesh|pgr)))|(?:program_binary_driver_stamp\.txt)|(?:pipeline_cache\.vkpc))RX");
+
         const fs::path shaderCacheRoot = ShaderCachePaths::Root();
         if (fs::exists(shaderCacheRoot))
         {
-            const auto shaderKind = std::ranges::find_if(known, [](const KnownCacheKind& k)
-                                                         { return k.Subdir == "shader"; });
-            ASSERT_NE(shaderKind, std::end(known)) << "the 'shader' whitelist entry above was removed or renamed";
-
             for (auto& entry : fs::recursive_directory_iterator(shaderCacheRoot, ec))
             {
                 if (ec)
@@ -1488,12 +1491,13 @@ namespace OloEngine::Tests
                     continue;
 
                 const std::string filename = entry.path().filename().generic_string();
-                if (!std::regex_match(filename, shaderKind->Pattern))
+                if (!std::regex_match(filename, newRootShaderPattern))
                 {
                     unclassified.push_back({
                         entry.path().generic_string(),
-                        "file does not match expected pattern for the shader cache (" +
-                            shaderKind->Description + ").",
+                        "file under the shader cache root does not match the content-addressed "
+                        "pattern <name>.<16-hex-hash>.cached_{opengl|vulkan}.{stage|pgr}, "
+                        "program_binary_driver_stamp.txt, or pipeline_cache.vkpc.",
                     });
                 }
             }

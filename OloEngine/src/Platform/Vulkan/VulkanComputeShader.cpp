@@ -37,7 +37,7 @@ namespace OloEngine
         // Mirrors VulkanShader.cpp's kOptionsDescriptor — same option set, same
         // "keep this in sync with the shaderc calls below" contract (issue #906).
         constexpr std::string_view kOptionsDescriptor =
-            "env=vulkan1.4;preserve_bindings=1;auto_bind_uniforms=0;"
+            "env=vulkan1.4;spirv=1.6;preserve_bindings=1;auto_bind_uniforms=0;"
             "debug_info=1;opt=performance;suppress_warnings=1;define=OLO_VULKAN=1";
 
         [[nodiscard]] std::string ReadWholeFile(const std::string& filepath)
@@ -160,6 +160,14 @@ namespace OloEngine
             shaderc::CompileOptions options;
             constexpr auto kShadercEnvVulkan14 = static_cast<shaderc_env_version>((1u << 22) | (4u << 12));
             options.SetTargetEnvironment(shaderc_target_env_vulkan, kShadercEnvVulkan14);
+            // Pin the SPIR-V dialect explicitly — same reason as
+            // VulkanShader.cpp's matching call: an older shaderc can accept
+            // the hand-encoded vulkan_1_4 env, fail to recognise it, and
+            // silently fall back to an older SPIR-V dialect than production
+            // ships (caught in review — this file was missing the pin its
+            // graphics-stage sibling has).
+            constexpr auto kShadercSpirv16 = static_cast<shaderc_spirv_version>((1u << 16) | (6u << 8));
+            options.SetTargetSpirv(kShadercSpirv16);
             options.SetPreserveBindings(true);
             options.SetAutoBindUniforms(false);
             options.SetGenerateDebugInfo();
