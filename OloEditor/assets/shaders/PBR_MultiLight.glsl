@@ -19,6 +19,22 @@ layout(std430, binding = 57) readonly buffer OloVertexPull
 {
     float v[];
 } b_Vertices;
+// Lightmap UV2 pull (issue #866). Rides the reserved SECOND pull binding (63,
+// "OloBonePull" in ShaderBindingLayout.h) rather than minting a new engine-wide
+// number: bones and baked lightmap UVs are mutually exclusive per mesh
+// (MeshSource::Build only ever builds one of the two "stream 1" buffers —
+// !HasSkeleton() gates the lightmap stream, HasSkeleton() gates the bone
+// stream), and this shader is the non-skinned PBR variant, so it never shares
+// a VAO with PBR_MultiLight_Skinned.glsl's bone data. Same precedent as
+// FoliageRenderer / ParticleBatchRenderer riding 63 for their own per-instance
+// data (ShaderBindingLayout.h's SSBO_BONE_PULL comment lists all tenants). A
+// VAO with no lightmap UV buffer (unbaked static mesh) leaves stream 1 short —
+// AssembleAndPushRootData resolves it to the zero address, and
+// LightmapScaleOffset's all-zero default gates sampling regardless.
+layout(std430, binding = 63) readonly buffer OloLightmapUVPull
+{
+    vec2 v[];
+} b_LightmapUV;
 #define OLO_PULLED_VERTEX 1
 #else
 layout(location = 0) in vec3 a_Position;
@@ -72,9 +88,21 @@ void main()
     vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
     vec3 a_Normal = vec3(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4], b_Vertices.v[vertBase + 5]);
     vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
-    // The lightmap UV stream is not pulled on the Vulkan route yet (issue #439
-    // follow-up — it is a second stream, not part of the 8-float engine Vertex).
+    // Gate the read on the SAME per-instance signal sampleLightmapIrradiance()
+    // uses (scaleOffset.x <= 0.0 => no lightmap for this draw): an unbaked
+    // static mesh never gets a stream-1 buffer (MeshSource::Build's stub
+    // branch is a Vulkan no-op), so an unconditional pull resolves to the
+    // arena's null block, and a real mesh's vertex count routinely exceeds
+    // that block's fixed size -- an out-of-bounds buffer-device-address READ,
+    // which is a GPU page fault/device loss on Vulkan, not a clamped read
+    // (amendment (78)/(84)). LightmapScaleOffset.x > 0 is only ever published
+    // for a mesh whose UV2 stream was actually built, so this branch is both
+    // necessary (skips the unsafe read) and sufficient (never skips a safe one).
     vec2 a_TexCoord2 = vec2(0.0);
+    if (instances[gl_InstanceIndex].LightmapScaleOffset.x > 0.0)
+    {
+        a_TexCoord2 = b_LightmapUV.v[gl_VertexIndex];
+    }
 #endif
     OLO_INSTANCE_FORWARD();
     v_WorldPos = vec3(u_Model * vec4(a_Position, 1.0));
@@ -496,13 +524,7 @@ void main()
     // the same helpers, and IBL specular is kept (the bake is diffuse-only).
     // The branch signal is the sample's coverage (.a), never its colour — a
     // validly-baked pure-black texel keeps its darkness.
-#ifdef OLO_VULKAN
-    // Not wired on the Vulkan route yet: nothing uploads UBO 1 / TEX 16 there,
-    // so the flag would read garbage (issue #439 follow-up).
-    vec4 lightmapSample = vec4(0.0);
-#else
     vec4 lightmapSample = sampleLightmapIrradiance(v_TexCoord2, instances[v_InstanceIndex].LightmapScaleOffset);
-#endif
     vec3 ambient = evaluateAmbientLadder(lightmapSample, v_WorldPos, N, V, albedo,
                                          metallic, roughness, ao,
                                          u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
