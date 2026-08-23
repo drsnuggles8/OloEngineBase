@@ -364,6 +364,43 @@ again post-tonemap is a second pass over the same edges and rings on high-contra
 user's `TAAEnabled` / `CASEnabled` settings are left untouched so they return when the technique
 changes.
 
+> ### OPEN: the vendored GL backend's temporal path loses ~36% of the frame's luminance
+>
+> **Status: unresolved, and the integration is NOT the cause.** Do not spend another session tuning
+> dispatch parameters — every one of them has been varied and measured inert. Written down because
+> the bisect took hours and the result is worth exactly one read.
+>
+> **The signature.** In a static-camera scene at 0.667 render scale, mean luma of the composited
+> frame is native 115.7, FSR1-at-the-same-scale 116.6, and FSR2 **74.1**. Per-frame it goes:
+> frame 0 = **116.5** (correct to 1 part in 130), frame 1 = **74.1**, and then flat forever. Frame 0
+> is the frame with `reset = true`, i.e. the only frame that does NOT read history. So the spatial
+> upsample is exact and the loss is entirely in the accumulate/reproject path. It does not compound,
+> which rules out "history decays toward black".
+>
+> **What it is not.** Each of these was changed and re-measured; all landed within 1% of 74:
+> FSR2 auto-exposure on/off (and with an explicit neutral 1.0 exposure texture), RCAS sharpening
+> on/off, `FFX_FSR2_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION` on/off, the jitter Y sign,
+> `FFX_FSR2_ENABLE_DEPTH_INVERTED` on/off, `maxRenderSize` = display vs actual render size, and the
+> forward vs deferred path. The dispatch was logged and confirmed to carry a correctly varying
+> sub-pixel jitter, the right render/display extents, and a sane frame delta; the render-graph JSON
+> dump confirms FSR2Pass runs and `ToneMapPass` reads `FSR2ColorTexture@FSR2Pass`, so its output does
+> reach the screen.
+>
+> **The measurement that settles it.** Forced to **1:1** — render size == display size, no upsampling
+> whatsoever, static camera, where FSR2 should be near-identity — it still returns **71.6** against
+> native's 115.7. Nothing about resolution, reprojection inputs or our plumbing can explain that.
+> The defect is inside `fsr2gl-src`'s temporal path.
+>
+> **Where to go next**, in order of cost: check whether the fork's `ExecuteGpuJobsGL` binds the
+> ping-pong internal resources (`INTERNAL_UPSCALED_COLOR`, `LOCK_STATUS`, `LUMA_HISTORY`) for the
+> *read* side as well as the write side — a history SRV that silently reads a wrong or stale slot
+> matches every observation; then try a different upstream commit; then raise it with the fork.
+> Note the fork ships DX12 and Vulkan samples but **no GL sample**, so its GL temporal path has no
+> upstream regression coverage.
+>
+> Until it is closed, `UpscalerTechnique::Temporal` produces a systematically dark frame. It is not
+> the default and the spatial path is unaffected.
+
 **`GL_KHR_shader_subgroup` is a hard requirement of the backend**, not a nice-to-have: its
 `GetDeviceCapabilitiesGL` returns `FFX_ERROR_BACKEND_API_ERROR` without it (it also accepts any AMD
 vendor string as implying support). A device that lacks it fails `Configure`, the upscaler reports
