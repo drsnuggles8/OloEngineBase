@@ -42,6 +42,7 @@
 // separately, and visually, by DriftWeatherVisualEvidenceTest.
 // =============================================================================
 
+#include "DriftScenePresets.h"
 #include "Functional/FunctionalTest.h"
 
 #include "OloEngine/Scene/Components.h"
@@ -110,27 +111,14 @@ class DriftLegWeatherAndSeaStateTest : public FunctionalTest
         auto& weather = m_Atmosphere.AddComponent<WeatherStateComponent>();
         weather.m_CurrentState = WeatherStateId::Clear;
         weather.m_TargetState = WeatherStateId::Clear;
-        ApplyDriftPresets(weather);
+        // Drift.olo's authored presets, from the shared table — the wind
+        // speeds in it are what the shipped script maps to a sea state, so
+        // this test and the golden captures must read the same numbers.
+        OloEngine::Tests::ApplyDriftWeatherPresets(weather);
         m_Atmosphere.AddComponent<CloudscapeComponent>();
 
         EnableLua();
         RegisterLuaScript(m_Atmosphere, ScriptPath());
-    }
-
-    // The three presets Drift.olo authors, reduced to the fields this test
-    // reads. Only WindSpeed actually drives anything asserted here — the rest
-    // are set so a settled state is a plausible one rather than the engine
-    // default, which would make a debugging session confusing.
-    static void ApplyDriftPresets(WeatherStateComponent& w)
-    {
-        w.m_TransitionDuration = 14.0f;
-        w.m_PresetClear.WindSpeed = 2.0f;
-        w.m_PresetClear.FogEnabled = false;
-        w.m_PresetClear.FogDensity = 0.0f;
-        w.m_PresetOvercast.WindSpeed = 5.0f;
-        w.m_PresetOvercast.PrecipitationEnabled = false;
-        w.m_PresetStorm.WindSpeed = 14.0f;
-        w.m_PresetStorm.PrecipitationKind = WeatherPrecipitationType::Rain;
     }
 
     [[nodiscard]] static fs::path ScriptPath()

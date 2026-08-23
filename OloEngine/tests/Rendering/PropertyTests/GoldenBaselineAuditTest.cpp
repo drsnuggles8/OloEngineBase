@@ -885,7 +885,10 @@ namespace OloEngine::Tests
         constexpr f32 kGoldenRmseUnit = 0.004f;
         constexpr u32 kGoldenMaxDelta = 2;
         constexpr f64 kBandLumaDelta = 2.0;
-        constexpr f64 kAtmosphereRmse255 = 8.0;
+        // Gates BOTH visual matrices (Atmosphere and Drift). Named for what it
+        // is rather than for the first matrix to use it — each producing test's
+        // own kGoldenRmseThreshold is 8.0, so the value is right for both.
+        constexpr f64 kMatrixRmse255 = 8.0;
 
         struct Band
         {
@@ -945,87 +948,63 @@ namespace OloEngine::Tests
                     << "' and the shared baseline — last-bit rounding is <= " << kGoldenMaxDelta;
             }
 
-            // ---- Tier 2: Atmosphere, derived band parity + pixel backstop ----
-            for (const char* cell : kAtmosphereFiles)
+            // ---- Tiers 2 and 3: the visual matrices, band parity + backstop ----
+            //
+            // One body, run per matrix. Atmosphere and Drift differ only in the
+            // file list, the band layout (Drift's subject is water, so its bands
+            // sit lower in frame) and the name in the message — and two
+            // hand-kept copies of a parity check is the same drift hazard the
+            // check itself exists to catch. Flagged in review on #922.
+            auto auditMatrix = [&](const char* matrixLabel, auto const& files, auto const& bands)
             {
-                Image lhs;
-                Image rhs;
-                bool sizeMismatch = false;
-                if (!LoadPairForCompare(vendor.m_VisualDir / cell, shared.m_VisualDir / cell,
-                                        lhs, rhs, sizeMismatch))
+                for (const char* cell : files)
                 {
-                    EXPECT_FALSE(sizeMismatch)
-                        << cell << " differs in resolution between '" << vendor.m_Label
-                        << "' and the shared set";
-                    continue;
+                    Image lhs;
+                    Image rhs;
+                    bool sizeMismatch = false;
+                    if (!LoadPairForCompare(vendor.m_VisualDir / cell, shared.m_VisualDir / cell,
+                                            lhs, rhs, sizeMismatch))
+                    {
+                        EXPECT_FALSE(sizeMismatch)
+                            << cell << " differs in resolution between '" << vendor.m_Label
+                            << "' and the shared set";
+                        continue;
+                    }
+                    ++comparisons;
+
+                    // The physics. Drift-insensitive, vendor-sensitive: a
+                    // divergence that changes what the frame depicts moves these
+                    // by tens, while a month of bake-date skew moved them by 0.43.
+                    for (const Band& band : bands)
+                    {
+                        const f64 vendorLuma = MeanBandPercent(lhs, band.m_Lo, band.m_Hi).Luma();
+                        const f64 sharedLuma = MeanBandPercent(rhs, band.m_Lo, band.m_Hi).Luma();
+                        const f64 delta = std::abs(vendorLuma - sharedLuma);
+                        EXPECT_LT(delta, kBandLumaDelta)
+                            << cell << ", " << band.m_Name << " band: '" << vendor.m_Label
+                            << "' reads luma " << vendorLuma << " but the shared baseline reads "
+                            << sharedLuma << " (delta " << delta
+                            << ") — band means are insensitive to bake-date drift, so this is the "
+                               "two vendors depicting different scenes";
+                    }
+
+                    // Backstop for a structural divergence that somehow left the
+                    // band means intact. Deliberately loose: sized against the
+                    // producing test's own threshold, NOT against the vendor
+                    // difference, precisely so bake-date skew cannot trip it.
+                    // Both matrices' tests use 8.0.
+                    const f64 rmse255 = ComputeRgbRmse255(lhs, rhs);
+                    EXPECT_LE(rmse255, kMatrixRmse255)
+                        << cell << ": '" << vendor.m_Label << "' vs the shared baseline is RMSE "
+                        << rmse255 << ", past the threshold " << matrixLabel
+                        << " applies to its own goldens. Before calling this a vendor bug, check "
+                           "whether the two sets were baked at different commits — see "
+                           "docs/agent-rules/vendor-golden-baseline-crosscheck.md";
                 }
-                ++comparisons;
+            };
 
-                // The physics. Drift-insensitive, vendor-sensitive: a divergence
-                // that changes what the frame depicts moves these by tens, while
-                // a month of bake-date skew moved them by 0.43.
-                for (const Band& band : kBands)
-                {
-                    const f64 vendorLuma = MeanBandPercent(lhs, band.m_Lo, band.m_Hi).Luma();
-                    const f64 sharedLuma = MeanBandPercent(rhs, band.m_Lo, band.m_Hi).Luma();
-                    const f64 delta = std::abs(vendorLuma - sharedLuma);
-                    EXPECT_LT(delta, kBandLumaDelta)
-                        << cell << ", " << band.m_Name << " band: '" << vendor.m_Label
-                        << "' reads luma " << vendorLuma << " but the shared baseline reads "
-                        << sharedLuma << " (delta " << delta
-                        << ") — band means are insensitive to bake-date drift, so this is the two "
-                           "vendors depicting different scenes";
-                }
-
-                // Backstop for a structural divergence that somehow left the
-                // band means intact. Deliberately loose: sized against the
-                // Atmosphere test's own threshold, NOT against the vendor
-                // difference, precisely so bake-date skew cannot trip it.
-                const f64 rmse255 = ComputeRgbRmse255(lhs, rhs);
-                EXPECT_LE(rmse255, kAtmosphereRmse255)
-                    << cell << ": '" << vendor.m_Label << "' vs the shared baseline is RMSE " << rmse255
-                    << ", past the threshold that test applies to its own goldens. Before calling this "
-                       "a vendor bug, check whether the two sets were baked at different commits — see "
-                       "docs/agent-rules/vendor-golden-baseline-crosscheck.md";
-            }
-
-            // ---- Tier 3: Drift, same contract as Atmosphere, own bands ----
-            for (const char* cell : kDriftFiles)
-            {
-                Image lhs;
-                Image rhs;
-                bool sizeMismatch = false;
-                if (!LoadPairForCompare(vendor.m_VisualDir / cell, shared.m_VisualDir / cell,
-                                        lhs, rhs, sizeMismatch))
-                {
-                    EXPECT_FALSE(sizeMismatch)
-                        << cell << " differs in resolution between '" << vendor.m_Label
-                        << "' and the shared set";
-                    continue;
-                }
-                ++comparisons;
-
-                for (const Band& band : kDriftBands)
-                {
-                    const f64 vendorLuma = MeanBandPercent(lhs, band.m_Lo, band.m_Hi).Luma();
-                    const f64 sharedLuma = MeanBandPercent(rhs, band.m_Lo, band.m_Hi).Luma();
-                    const f64 delta = std::abs(vendorLuma - sharedLuma);
-                    EXPECT_LT(delta, kBandLumaDelta)
-                        << cell << ", " << band.m_Name << " band: '" << vendor.m_Label
-                        << "' reads luma " << vendorLuma << " but the shared baseline reads "
-                        << sharedLuma << " (delta " << delta
-                        << ") — band means are insensitive to bake-date drift, so this is the two "
-                           "vendors depicting different scenes";
-                }
-
-                const f64 rmse255 = ComputeRgbRmse255(lhs, rhs);
-                EXPECT_LE(rmse255, kAtmosphereRmse255)
-                    << cell << ": '" << vendor.m_Label << "' vs the shared baseline is RMSE " << rmse255
-                    << ", past the threshold DriftWeatherVisualEvidenceTest applies to its own "
-                       "goldens. Before calling this a vendor bug, check whether the two sets were "
-                       "baked at different commits — see "
-                       "docs/agent-rules/vendor-golden-baseline-crosscheck.md";
-            }
+            auditMatrix("AtmosphereVisualEvidenceTest", kAtmosphereFiles, kBands);
+            auditMatrix("DriftWeatherVisualEvidenceTest", kDriftFiles, kDriftBands);
         }
 
         EXPECT_GT(comparisons, 0u)

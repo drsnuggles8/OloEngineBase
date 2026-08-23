@@ -60,6 +60,8 @@
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
 
+#include "DriftScenePresets.h"
+
 #include "OloEngine/Atmosphere/WeatherSystem.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -305,7 +307,7 @@ namespace OloEngine::Tests
 
                 auto& weather = atmosphere.AddComponent<WeatherStateComponent>();
                 weather.m_TransitionDuration = 0.0f; // captures snap states
-                ApplyDriftPresets(weather);
+                ApplyDriftWeatherPresets(weather);
 
                 auto& clouds = atmosphere.AddComponent<CloudscapeComponent>();
                 clouds.m_LayerBottom = 900.0f;
@@ -394,69 +396,6 @@ namespace OloEngine::Tests
                          { 0.22f, 4.4f, 0.22f }, { 0.45f, 0.3f, 0.2f });
             addPrimitive("Boat Sail", MeshPrimitive::Cube, { -6.5f, 2.6f, -9.3f },
                          { 2.6f, 3.0f, 0.08f }, { 0.86f, 0.84f, 0.78f });
-        }
-
-        // The three presets Drift.olo authors. Kept in one place so the frame
-        // this test captures is the frame the scene produces.
-        static void ApplyDriftPresets(WeatherStateComponent& w)
-        {
-            auto& clear = w.m_PresetClear;
-            clear.CloudCoverage = 0.18f;
-            clear.CloudDensity = 0.5f;
-            clear.CloudTypeBlend = 0.8f;
-            clear.CloudWetness = 0.0f;
-            // OFF — see the long note on this preset in Drift.olo. Exponential
-            // fog reaches the sky at the far plane, so a clear-state fog veils
-            // the whole frame and, at night, makes the sky brighter than noon.
-            clear.FogEnabled = false;
-            clear.FogDensity = 0.0f;
-            clear.FogColor = glm::vec3(0.66f, 0.76f, 0.86f);
-            clear.FogHeightFalloff = 0.0f;
-            clear.FogMaxOpacity = 0.85f;
-            clear.WindSpeed = 2.0f;
-            clear.WindGustStrength = 0.1f;
-            clear.WindTurbulence = 0.2f;
-            clear.PrecipitationEnabled = false;
-            clear.PrecipitationIntensity = 0.0f;
-            clear.SunDimming = 0.0f;
-            clear.WetnessTarget = 0.0f;
-
-            auto& overcast = w.m_PresetOvercast;
-            overcast.CloudCoverage = 0.8f;
-            overcast.CloudDensity = 0.75f;
-            overcast.CloudTypeBlend = 0.2f;
-            overcast.CloudWetness = 0.25f;
-            overcast.FogEnabled = true;
-            overcast.FogDensity = 0.0016f;
-            overcast.FogColor = glm::vec3(0.62f, 0.66f, 0.72f);
-            overcast.FogHeightFalloff = 0.0f;
-            overcast.FogMaxOpacity = 0.9f;
-            overcast.WindSpeed = 5.0f;
-            overcast.WindGustStrength = 0.28f;
-            overcast.WindTurbulence = 0.4f;
-            overcast.PrecipitationEnabled = false;
-            overcast.PrecipitationIntensity = 0.0f;
-            overcast.SunDimming = 0.4f;
-            overcast.WetnessTarget = 0.15f;
-
-            auto& storm = w.m_PresetStorm;
-            storm.CloudCoverage = 0.97f;
-            storm.CloudDensity = 1.0f;
-            storm.CloudTypeBlend = 0.85f;
-            storm.CloudWetness = 0.9f;
-            storm.FogEnabled = true;
-            storm.FogDensity = 0.0034f;
-            storm.FogColor = glm::vec3(0.4f, 0.44f, 0.5f);
-            storm.FogHeightFalloff = 0.0f;
-            storm.FogMaxOpacity = 0.92f;
-            storm.WindSpeed = 14.0f;
-            storm.WindGustStrength = 0.85f;
-            storm.WindTurbulence = 0.9f;
-            storm.PrecipitationEnabled = true;
-            storm.PrecipitationKind = WeatherPrecipitationType::Rain;
-            storm.PrecipitationIntensity = 1.0f;
-            storm.SunDimming = 0.75f;
-            storm.WetnessTarget = 1.0f;
         }
 
         void ApplySeaState(const SeaState& s)
