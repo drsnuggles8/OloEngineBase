@@ -127,6 +127,12 @@ set(OLO_FSR2_PASSES
 set(OLO_FSR2_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/fsr2-gl-shaders")
 file(MAKE_DIRECTORY "${OLO_FSR2_SHADER_OUTPUT_DIR}")
 
+# Every shared header a pass source can pull in. CONFIGURE_DEPENDS so adding one
+# upstream (or in a patch) re-globs instead of going unnoticed.
+file(GLOB OLO_FSR2_SHADER_INCLUDES CONFIGURE_DEPENDS
+	"${OLO_FSR2_API_DIR}/shaders/*.h"
+	"${OLO_FSR2_API_DIR}/gl/shaders/*.h")
+
 set(OLO_FSR2_PERMUTATION_HEADERS "")
 foreach(_pass IN LISTS OLO_FSR2_PASSES)
 	set(_header "${OLO_FSR2_SHADER_OUTPUT_DIR}/${_pass}_permutations.h")
@@ -139,11 +145,16 @@ foreach(_pass IN LISTS OLO_FSR2_PASSES)
 		set(_half_arg "-DFFX_HALF={0,1}")
 	endif()
 
-	# DEPENDS on the pass source only. The compiler also reads the shared
-	# ffx_*.h headers next to it, but -deps=gcc writes a depfile we cannot
-	# consume portably across the VS and Ninja generators, and a stale
-	# regeneration after an upstream header edit is not reachable without a pin
-	# bump — which re-fetches the tree and re-runs this anyway.
+	# DEPENDS on the pass source AND on every shared shader header it can
+	# include. The glob is deliberately coarse — a few unnecessary regenerations
+	# cost seconds, while a MISSED one costs a debugging session against shaders
+	# that are not the ones you edited.
+	#
+	# This is not hypothetical and is not only about upstream pin bumps: patching
+	# the fetched tree (a fork, or a .patch applied here) usually means editing a
+	# shared ffx_*.h, which is exactly the case the old "pass source only"
+	# dependency missed. It cost hours — a deliberate write-constant-red control
+	# silently did nothing — before it was caught.
 	add_custom_command(
 		OUTPUT "${_header}"
 		COMMAND "${OLO_FSR2_SC}"
@@ -153,7 +164,7 @@ foreach(_pass IN LISTS OLO_FSR2_PASSES)
 			"-I${OLO_FSR2_API_DIR}/gl/shaders"
 			"-output=${OLO_FSR2_SHADER_OUTPUT_DIR}"
 			"${OLO_FSR2_API_DIR}/shaders/${_pass}.glsl2"
-		DEPENDS "${OLO_FSR2_API_DIR}/shaders/${_pass}.glsl2"
+		DEPENDS "${OLO_FSR2_API_DIR}/shaders/${_pass}.glsl2" ${OLO_FSR2_SHADER_INCLUDES}
 		WORKING_DIRECTORY "${fsr2gl_SOURCE_DIR}"
 		COMMENT "FSR2: compiling ${_pass} SPIR-V permutations"
 		VERBATIM)

@@ -407,12 +407,30 @@ changes.
 > (74.576736802867472 to 15 digits) before this was spotted. `cmake/fsr2.cmake` now sets
 > `OBJECT_DEPENDS`; if you ever hand-edit the fetched shaders, verify the object actually recompiles.
 >
-> **Where to go next:** the fork ships DX12 and Vulkan samples but **no GL sample**, so its GL
-> temporal path has no upstream regression coverage, and our pin is already `master`'s tip (there is
-> no newer commit to move to). The remaining suspects are all inside the accumulate/rectify step —
-> `RectifyHistory`'s clipping box is the one that would produce a stable equilibrium below the
-> current frame, which is exactly the observed shape.
+> **Localised to `ComputeUpsampledColorAndWeight` under `bIsNewSample == false`.** Two shader probes,
+> with the jitter phase PINNED so every frame has identical inputs:
 >
+> * the **reprojected history at frame 1 is CORRECT** (~116, matching frame 0's output) — the
+>   internal upscaled-colour buffer round-trips, so the history read/write path is sound;
+> * the **current-frame upsample at frame 1 is 73.9**, while the identical expression on frame 0
+>   (the `bIsNewSample` branch) gives 116.5.
+>
+> Same scene, same jitter, same history — the upsample function itself returns a different result
+> depending only on `bIsNewSample`. Note `.xyz` is normalised by `.w` ONLY when `.w > FSR2_EPSILON`;
+> below that it is returned as an un-normalised near-zero sum, which is a plausible darkening
+> mechanism worth confirming with a `.w` visualisation.
+>
+> **Also eliminated in the second round** (each measured, all within 1% of 74): the jitter SIGN (the
+> engine adds +ndc to `P[2][0]`, which shifts the image by −ndc — a real asymmetry, but not this
+> bug), pinning the jitter phase, `RectifyHistory` skipped entirely, the reactive factor forced to
+> zero, `fKernelBias` forced to its frame-0 value, and `UPSAMPLE_USE_LANCZOS_TYPE` 2 → 0 (the
+> approximation vs the reference).
+>
+> **A polarity correction worth not re-deriving:** `ComputeDepthClip` returns **0 when nothing is
+> disoccluded** (`fWeightSum == 0` falls through to `return 0.0f`). A depth-clip factor of ~0 across
+> a static frame is CORRECT, not evidence of a broken reconstructed-depth buffer.
+>
+> **Where to go next:** the fork ships DX12 and Vulkan samples but **no GL sample**, so its GL
 > Until it is closed, `UpscalerTechnique::Temporal` produces a systematically dark frame. It is not
 > the default and the spatial path is unaffected.
 
