@@ -27,8 +27,18 @@ PostProcessSettings:
   SSAOIntensity: 1
   SSAOSamples: 32
   SSAODebugView: false
+# Fog, wind and precipitation are the WEATHER DIRECTOR'S (issue #882).
+# WeatherSystem::ApplyBlended overwrites Fog Enabled/Density/Color/HeightFalloff/
+# MaxOpacity, Wind Enabled/Speed/GustStrength/TurbulenceIntensity, and
+# Precipitation Enabled/Intensity every tick from the blended preset on the
+# Atmosphere entity. What is authored in these three blocks is only what the
+# director does NOT touch (fog Mode/Start/End/scattering, wind Direction and
+# grid, every precipitation field except Enabled/Intensity) plus a sane look
+# for the frame before the first Play tick.
 FogSettings:
   Enabled: true
+  # Exponential. This is why the director's per-state FogDensity is the knob
+  # that matters and Start/End below are only the Linear-mode fallback.
   Mode: 1
   Color: [0.66, 0.76, 0.86]
   Density: 0.0009
@@ -44,15 +54,84 @@ FogSettings:
   RayleighColor: [0.27, 0.51, 0.83]
   SunIntensity: 5
 WindSettings:
-  Enabled: false
-  Direction: [1, 0, 0]
-  Speed: 0
-  GustStrength: 0
-  GustFrequency: 0
-  TurbulenceIntensity: 0
+  # Blowing along the authored swell (WaveDir0 below), so wind and sea agree.
+  # Per-leg wind DIRECTION belongs with the sailing model in #899: rotating it
+  # without also rotating the wave trains puts the whitecaps across the wind.
+  Enabled: true
+  Direction: [0.989, 0, 0.148]
+  Speed: 2
+  GustStrength: 0.1
+  GustFrequency: 0.25
+  TurbulenceIntensity: 0.2
   TurbulenceScale: 0.1
   GridWorldSize: 200
   GridResolution: 128
+# Rain over open water.
+#
+# TWO things about this block are load-bearing and neither is obvious.
+#
+#   1. Type is authored as Rain (1) to MATCH what all three of this scene's
+#      weather states precipitate. WeatherSystem::ApplyBlended stamps
+#      PrecipitationSettings::GetDefaultsForType over this whole block ONLY when
+#      the kind actually changes — so keeping them equal is what lets the
+#      streaks, the impacts and the sea-level GroundY below survive into play.
+#   2. Because no type switch ever fires, this block must carry the RAIN
+#      parameters in full. The PrecipitationSettings struct defaults are SNOW
+#      (0.8 m/s fall, 10 s lifetime, 30 deg/s rotation) — a partial block here
+#      would leave a squall drifting down like a blizzard, which is a plausible
+#      enough frame to ship by accident.
+PrecipitationSettings:
+  Enabled: false
+  Type: 1
+  Intensity: 0
+  TransitionSpeed: 0.5
+  BaseEmissionRate: 8000
+  MaxParticlesNearField: 100000
+  MaxParticlesFarField: 200000
+  NearFieldExtent: [15, 20, 15]
+  NearFieldParticleSize: 0.02
+  NearFieldSizeVariance: 0.005
+  NearFieldSpeedMin: 5
+  NearFieldSpeedMax: 10
+  NearFieldLifetime: 4
+  FarFieldExtent: [60, 30, 60]
+  FarFieldParticleSize: 0.015
+  FarFieldSpeedMin: 4
+  FarFieldSpeedMax: 8
+  FarFieldLifetime: 6
+  FarFieldAlphaMultiplier: 0.35
+  GravityScale: 2.5
+  # Rain in a blow does not fall vertically. This is the field that makes the
+  # storm state read as WIND rather than as heavier drizzle — the director
+  # drives wind speed, and this is what the drops do with it.
+  WindInfluence: 1.25
+  DragCoefficient: 0.05
+  TurbulenceStrength: 0.35
+  TurbulenceFrequency: 0.3
+  # The "ground" is the waterline, so drops die at the sea surface rather than
+  # 22 m below it on the seafloor plane.
+  GroundCollisionEnabled: true
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+  # No snow in Drift, so nothing should ever settle.
+  FeedAccumulation: false
+  AccumulationFeedRate: 0.0001
+  # A squall is read through the windscreen as much as through the air: streaks
+  # and lens impacts are what make rain at sea legible behind a chase camera.
+  ScreenStreaksEnabled: true
+  ScreenStreakIntensity: 0.85
+  ScreenStreakLength: 1.2
+  LensImpactsEnabled: true
+  LensImpactRate: 9
+  LensImpactLifetime: 0.55
+  LensImpactSize: 0.045
+  LODNearDistance: 30
+  LODFarDistance: 120
+  FrameBudgetMs: 1
+  ParticleColor: [0.7, 0.75, 0.85, 0.45]
+  ColorVariance: 0.08
+  RotationSpeed: 0
 # =============================================================================
 # Drift — issue #879, the first weekend of the first game (#878).
 #
@@ -85,13 +164,27 @@ WindSettings:
 #   dies there. At this size nothing near the boat is far enough from the origin
 #   for f32 cancellation to show, so camera-relative rendering stays uninvoked.
 #
-# SEA STATE
-#   The WaterComponent below is the MODERATE state — the one the boat is tuned
-#   against. The two others used for the capture evidence are the same scene
-#   with only these two fields changed:
-#     calm     WaveAmplitude 0.05   WaveSpeed 0.8
+# SEA STATE — NOW DRIVEN BY THE WIND (issue #882)
+#   The WaterComponent below is still authored at the MODERATE state — the one
+#   the boat is tuned against, and what the scene looks like before Play. From
+#   the first runtime tick DriftWeatherDirector.lua owns these fields and eases
+#   them between the three anchors below, following the wind speed the weather
+#   director blends:
+#     calm     WaveAmplitude 0.05   WaveSpeed 0.8    wind  2 m/s   (Clear)
 #     moderate (as authored)         WaveAmplitude 0.12   WaveSpeed 1.0
-#     rough    WaveAmplitude 0.22   WaveSpeed 1.3
+#                                                     wind  5 m/s   (Overcast)
+#     rough    WaveAmplitude 0.22   WaveSpeed 1.3    wind 14 m/s   (Storm)
+#
+#   The anchors are exactly the sets #879 authored and play-tested by hand, so
+#   the boat's character at each one is the character that was signed off; the
+#   script interpolates rather than inventing new numbers. It also moves the
+#   foam threshold, the specular intensity and the water colour along the same
+#   parameter, which is what makes the sea state legible in a STILL frame
+#   rather than only in motion. Sea-state changes are eased over ~25 s, which is
+#   both what a real sea does and what stops a weather transition popping.
+#
+#   Editing WaveAmplitude/WaveSpeed here therefore changes the pre-Play frame
+#   and nothing else. Change the anchors in DriftWeatherDirector.lua.
 #
 #   WaveAmplitude is NOT metres of wave height. It is scaled by WaveFrequency
 #   and the two steepness terms, and the product is what the surface actually
@@ -113,6 +206,23 @@ WindSettings:
 #   spool, rudder slew, the speed-dependent rudder falloff) is in
 #   DriftBoatController.lua; camera feel is in DriftFollowCamera.lua. Those three
 #   places are the whole tuning surface.
+#
+# WEATHER AND TIME OF DAY — issue #882
+#   The Atmosphere entity below carries the whole of it: ProceduralSky,
+#   TimeOfDay, WeatherState (three authored presets — Clear / Overcast / Storm)
+#   and Cloudscape, plus DriftWeatherDirector.lua.
+#
+#   A LEG is the passage out to the island and back. Each leg gets its own
+#   weather state and its own hour, cross-blended rather than cut, and the sea
+#   follows the wind the blend produces. Sail out and back and the same stretch
+#   of water is a different place. The full schedule, and why the clock is
+#   warped rather than set, is at the top of DriftWeatherDirector.lua.
+#
+#   Three fields on this entity are OVERWRITTEN every tick and must not be
+#   authored as if they were settings: the Sun's DirectionalLight
+#   Direction/Color/Intensity (TimeOfDaySystem), the scene-level Wind/Fog/
+#   Precipitation Enabled+Intensity blocks (WeatherSystem), and the
+#   Cloudscape's Coverage/TypeBlend/Wetness (the blended preset).
 # =============================================================================
 Entities:
   # ── Camera ────────────────────────────────────────────────────────────────
@@ -187,8 +297,20 @@ Entities:
       ScriptFile: Scripts/LuaScripts/DriftFollowCamera.lua
 
   # ── Sun ───────────────────────────────────────────────────────────────────
-  # Low and behind-left of the start heading, so the swell reads as relief and
-  # the sea has a specular track to steer along rather than being flat blue.
+  # DRIVEN, not authored, since #882: TimeOfDaySystem::Apply rewrites Direction,
+  # Color and Intensity on this light every rendered frame (in edit mode too)
+  # from the Atmosphere entity's clock and ephemeris, with the weather
+  # director's SunDimming folded in. The values below are what the very first
+  # frame uses before Apply has run once — keep them roughly dawn-like so a cold
+  # open does not flash.
+  #
+  # The intent they encoded still holds and now comes from the clock instead:
+  # every leg's hour is low enough (5.2 / 18.9 / 22.6) or hazy enough (12.0,
+  # overcast) that the swell reads as relief and there is a specular track on
+  # the water to steer along rather than a flat blue plane.
+  #
+  # Everything below Intensity — CastShadows and the CSM tuning — is still
+  # authored and still load-bearing. See the long notes on each.
   - Entity: 879000000000001
     TagComponent:
       Tag: Sun
@@ -273,22 +395,258 @@ Entities:
       CascadeSplitLambda: 0.4
       CascadeDebugVisualization: false
 
+  # ── Atmosphere ────────────────────────────────────────────────────────────
+  # Issue #882: weather and time of day per leg. This entity REPLACES the static
+  # cubemap skybox that was here — a fixed environment map cannot follow a sun
+  # that moves, and ProceduralSkyComponent takes precedence over
+  # EnvironmentMapComponent anyway (Scene::LoadAndRenderSkybox), so leaving both
+  # would have been a dead component advertising IBL the frame never used.
+  #
+  # Everything on this entity is ENGINE work that already shipped with #633. The
+  # only new logic is DriftWeatherDirector.lua, which decides which state and
+  # what hour each leg gets and couples the sea to the wind — WeatherSystem
+  # still owns the cross-blend and TimeOfDaySystem still owns the ephemeris.
+  #
+  # WHAT DRIVES WHAT, because three of these overlap and it is easy to author a
+  # field that is overwritten every tick:
+  #   * TimeOfDaySystem::Apply REWRITES the Sun entity's DirectionalLight
+  #     Direction / Color / Intensity every rendered frame, in edit mode too.
+  #     The Sun's authored values above are the pre-first-frame placeholder;
+  #     SunIntensityMax below is the one that decides how bright noon is.
+  #   * WeatherSystem::ApplyBlended REWRITES the scene-level Wind / Fog /
+  #     Precipitation Enabled+Intensity blocks from the blended preset.
+  #   * The blended preset also OVERRIDES CloudscapeComponent's Coverage,
+  #     TypeBlend and Wetness. Density, the layer heights and the raymarch
+  #     settings below are the authored ones that survive.
   - Entity: 879000000000002
     TagComponent:
-      Tag: Skybox
+      Tag: Atmosphere
     TransformComponent:
       Translation: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    EnvironmentMapComponent:
-      FilePath: assets/textures/Skybox
-      IsCubemapFolder: true
+    ProceduralSkyComponent:
+      # SunDirection here is inert: TimeOfDaySystem feeds the bake the
+      # ephemeris sun. Turbidity is the marine one — a clean sea horizon, not
+      # a hazy inland one.
+      SunDirection: [0.3, 0.7, 0.4]
+      Turbidity: 2.6
+      Exposure: 0.1
+      SunIntensity: 1
+      SunDiskSize: 1.1
+      ShowSunDisk: true
       EnableSkybox: true
-      Rotation: 0
-      Exposure: 1
-      BlurAmount: 0
       EnableIBL: true
-      IBLIntensity: 0.7
+      # Up from the 0.7 the cubemap was authored at: the procedural sky is the
+      # only ambient source now, and at dusk/night it is nearly all of the
+      # light on the hull.
+      IBLIntensity: 0.8
+      CubemapResolution: 256
+    TimeOfDayComponent:
+      Enabled: true
+      # Leg 1's hour, so the editor frame before Play matches the first leg
+      # rather than jumping when you press it. 5.2 rather than a round 6 is
+      # DERIVED, not chosen: at the latitude and day below the ephemeris puts
+      # the sun at +3.7 deg here, which is what "dawn" looks like. 6.6 was the
+      # first guess and the sun is already 20 deg up by then — the frame reads
+      # as flat mid-morning, and no amount of sky tuning fixes a sun that is
+      # simply too high. Re-derive with olo_scene_set_time_of_day +
+      # olo_scene_get_atmosphere if the latitude or day of year ever changes.
+      TimeOfDayHours: 5.2
+      DayOfYear: 172
+      # Lower latitude than the engine default: a steeper sun path and a
+      # shorter twilight is what an island-sailing game looks like.
+      LatitudeDegrees: 34
+      # 30 real minutes per game day. Between legs the director warps the clock
+      # explicitly (DriftWeatherDirector.lua); this is the slow drift underneath
+      # it, ~48 game seconds per real second, so the sky is never quite static.
+      DayLengthMinutes: 30
+      TimeScale: 1
+      Paused: false
+      # Off: an authoring session should not have the sun crawl across the scene
+      # while you work. The inspector slider still scrubs.
+      AdvanceInEditMode: false
+      # THE most load-bearing number on this component, and it is pure art
+      # direction. It rotates the ephemeris frame around +Y, i.e. it decides
+      # WHERE in the frame the sun is. At 0 the sun rises toward +X — off the
+      # starboard beam, out of shot — and the dawn and dusk legs render as a
+      # flat grey sea under a colourless sky, because the warm part of the sky
+      # is behind the camera and the water has nothing bright to reflect. At
+      # -60 the rising sun sits almost dead ahead (+Z), which is the direction
+      # the boat starts pointing and the island lies in: the low sun then lays
+      # a specular track down the water straight at the bow, the island reads
+      # as a silhouette against it, and the sea turns gold. Established by
+      # sweeping 0 / -60 / -90 / -120 / 180 live and looking at the frames.
+      NorthOffsetDegrees: -60
+      SunIntensityMax: 3.6
+      # Up from the 0.12 default. The night leg has to be sailable, and the only
+      # thing lighting the sea is the moon.
+      MoonIntensityMax: 0.22
+      MoonPhase: 0.5
+      SkyExposureDay: 0.1
+      SkyExposureNight: 0.35
+      StarIntensity: 1.2
+      # A large moon is a cheap, honest way to give the night leg a specular
+      # track on the water to steer along — the same job the sun does by day.
+      MoonDiskSize: 1.4
+      # The sky bake hash sees the clock quantized to this many GAME minutes,
+      # and this number is a COST control, not a smoothness one — get it wrong
+      # and the clock warp is the most expensive thing in the game.
+      #
+      # Do the arithmetic against the WARP, not against the free-running clock.
+      # Free-running at 30 min/day the clock covers 48 game-minutes per real
+      # second; a leg-1-to-leg-2 warp covers 6.8 game-HOURS in 18 s, i.e. about
+      # 22.7 game-minutes per real second. At a 3-minute quantum that is ~136
+      # distinct hashes, and Scene.cpp keeps only m_LastBakeHash — a monotonic
+      # sweep misses the cache every single time, so it is 136 uncached
+      # six-face AtmosphereSky::Generate + IBL bakes inside 18 seconds.
+      #
+      # 20 game-minutes brings that to ~20 bakes over the warp (about one per
+      # 0.9 s, which still reads as a continuous sweep because the sun moves
+      # between them) and one per 25 real seconds while the clock merely
+      # drifts. Raise it further before raising CubemapResolution.
+      RebakeQuantumGameMinutes: 20
+    WeatherStateComponent:
+      Enabled: true
+      CurrentState: 0
+      TargetState: 0
+      # The director overwrites this per leg; the value here is what a scene
+      # opened cold and played without the script would use.
+      TransitionDuration: 14
+      WetnessRiseRate: 0.2
+      WetnessDryRate: 0.03
+      # ── The three states, tuned for open water ──────────────────────────
+      # Only three of the six are used. Rain / Snow / FogBank keep their engine
+      # defaults: Drift never targets them, and authoring values nothing reads
+      # would be three more numbers to keep honest.
+      #
+      # The FogHeightFalloff on all three is 0 (uniform), not the engine
+      # default: a height-falloff fog thins out above its offset, and at sea
+      # the camera and everything worth seeing sit within 15 m of y = 0, so a
+      # falloff term only makes the fog inconsistent between the boat and the
+      # island without ever reading as a layer.
+      PresetClear:
+        CloudCoverage: 0.18
+        CloudDensity: 0.5
+        CloudTypeBlend: 0.8
+        CloudWetness: 0
+        # FOG OFF in the clear state, and this is the single most consequential
+        # line in the file — it was the first draft's worst bug.
+        #
+        # Exponential fog is applied by DEPTH, and the SKY sits at the far
+        # plane. At 2500 m and density 0.0009 that is exp(-2.25) ~= 0.1, i.e.
+        # the sky itself comes through ~90% fog colour. The result is that
+        # every frame — sky, sea, island — is blended toward one pale
+        # blue-grey, which is precisely the "uniform veil" failure
+        # docs/agent-rules/volumetric-cloud-debugging.md is about. It was worst
+        # at NIGHT, where a static pale-blue fog turned a starfield into an
+        # overcast morning: the night sky measured BRIGHTER than the noon sky
+        # (166 vs 68 mean luma) in the evidence captures.
+        #
+        # Fog colour is a per-preset constant, so it cannot follow the sun.
+        # That makes "haze on a clear day" unaffordable here: the Clear state
+        # is the one that has to work at BOTH dawn and night. Overcast and
+        # Storm keep their fog — a veil is the point in those, and both of
+        # their legs are daylit, so one colour is enough.
+        FogEnabled: false
+        FogDensity: 0
+        FogColor: [0.66, 0.76, 0.86]
+        FogHeightFalloff: 0
+        FogMaxOpacity: 0.85
+        WindSpeed: 2
+        WindGustStrength: 0.1
+        WindTurbulence: 0.2
+        PrecipitationEnabled: false
+        PrecipitationKind: 1
+        PrecipitationIntensity: 0
+        SnowAccumulationEnabled: false
+        SnowAccumulationRate: 0
+        SunDimming: 0
+        WetnessTarget: 0
+      PresetOvercast:
+        CloudCoverage: 0.8
+        CloudDensity: 0.75
+        CloudTypeBlend: 0.2
+        CloudWetness: 0.25
+        FogEnabled: true
+        FogDensity: 0.0016
+        FogColor: [0.62, 0.66, 0.72]
+        FogHeightFalloff: 0
+        FogMaxOpacity: 0.9
+        WindSpeed: 5
+        WindGustStrength: 0.28
+        WindTurbulence: 0.4
+        # DRY on purpose. Three states have to be distinguishable, and "grey
+        # with a sea getting up, but not raining yet" is a different frame from
+        # both a clear day and a squall. Making it drizzle would collapse it
+        # into a weaker Storm.
+        PrecipitationEnabled: false
+        PrecipitationKind: 1
+        PrecipitationIntensity: 0
+        SnowAccumulationEnabled: false
+        SnowAccumulationRate: 0
+        SunDimming: 0.4
+        WetnessTarget: 0.15
+      PresetStorm:
+        CloudCoverage: 0.97
+        CloudDensity: 1
+        CloudTypeBlend: 0.85
+        CloudWetness: 0.9
+        FogEnabled: true
+        # 0.0034, not the engine preset's 0.009. At 0.009 the island 300-550 m
+        # out is gone entirely and the squall reads as a grey card — the
+        # uniform-veil failure volumetric-cloud-debugging.md warns about. This
+        # leaves the island heavily veiled and still findable, which is what a
+        # squall you have to steer through should look like.
+        FogDensity: 0.0034
+        FogColor: [0.4, 0.44, 0.5]
+        FogHeightFalloff: 0
+        FogMaxOpacity: 0.92
+        WindSpeed: 14
+        WindGustStrength: 0.85
+        WindTurbulence: 0.9
+        PrecipitationEnabled: true
+        PrecipitationKind: 1
+        PrecipitationIntensity: 1
+        SnowAccumulationEnabled: false
+        SnowAccumulationRate: 0
+        SunDimming: 0.75
+        WetnessTarget: 1
+    CloudscapeComponent:
+      Enabled: true
+      # Low and deep. The cloud SHADOWS crossing the water are most of what
+      # makes weather legible in the sea rather than only in the sky, and a
+      # deck this low keeps its structure inside a chase camera's frustum
+      # instead of being a texture on the zenith.
+      LayerBottom: 900
+      LayerTop: 2600
+      # Coverage / TypeBlend are overridden by the weather blend every tick;
+      # these are what an inspector shows before Play.
+      Coverage: 0.35
+      Density: 1
+      TypeBlend: 0.6
+      ErosionStrength: 0.55
+      # Driven per-tick by DriftWeatherDirector.lua from the sea state, so the
+      # sky runs harder in a blow. This is the authored baseline.
+      WindAnimationScale: 1
+      WeatherMapHandle: 0
+      WeatherMapScaleKm: 10
+      MaxSteps: 64
+      LightSteps: 6
+      SunLightScale: 1
+      AmbientScale: 1
+      MultiScatterStrength: 0.5
+      PhaseG: 0.6
+      PowderStrength: 1
+      CastCloudShadows: true
+      ShadowStrength: 0.8
+      # 6 km covers the 2 km of playable sea with room for the shadow of a cell
+      # that has not arrived yet.
+      ShadowMapWorldSize: 6000
+      TemporalBlend: 0.9
+      AffectIBL: true
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/DriftWeatherDirector.lua
 
   # ── Sea ───────────────────────────────────────────────────────────────────
   # The one surface BuoyancySystem, BoatSystem and the water shader all read.

@@ -456,3 +456,66 @@ that guess is usually wrong.
 
 The same trick has a headless twin: a shader-only fix can be re-measured by re-running the test
 binary, with no relink at all. Only C++ changes need the mutex.
+
+## 20. A scene's `PrecipitationSettings` block must be COMPLETE, because the struct defaults are snow
+
+`WeatherSystem::ApplyBlended` writes only `Enabled` and `Intensity` into the scene's
+`PrecipitationSettings` on an ordinary tick. Everything else — fall speed, particle size,
+lifetime, rotation, screen streaks, colour — comes from the scene, and is stamped over with
+`PrecipitationSettings::GetDefaultsForType(kind)` on **exactly one event**: the blended preset's
+`PrecipitationKind` differing from `settings.Type`.
+
+That makes the coherent-looking authoring choice the wrong one. Author `Type: 1` (Rain) to match a
+scene whose every weather state rains, and the type switch **never fires** — so the block you
+wrote is the block that runs, forever. And `PrecipitationSettings`'s own member initialisers are
+**snow**: `GravityScale 0.8`, `NearFieldSpeedMin 0.8`, `NearFieldLifetime 10`, `RotationSpeed 30`,
+`FeedAccumulation true`. A partial block ("Type, Enabled, GroundY, and the two screen-effect flags
+I care about") therefore renders a squall as drifting, tumbling, slowly-settling flakes tinted
+rain-blue. It is plausible enough in a still that it ships.
+
+Two rules:
+
+- If you author `Type` in a scene, author the **whole** parameter set for that type. Copy the
+  values out of `GetDefaultsForType` and then override.
+- If you author `Type` as something the scene's weather states never produce, the first blend that
+  disagrees will stamp the defaults over your block and silently discard every field except the
+  seven `ApplyBlended` preserves by hand (`GroundY`, `GroundCollisionEnabled`, `LODNearDistance`,
+  `LODFarDistance`, `FrameBudgetMs`, `MaxParticlesNearField`, `MaxParticlesFarField`).
+
+Found authoring Drift's storm leg (#882). The seven-field preserve list is the tell that this seam
+was already known to be sharp; the "no switch, so no defaults at all" half is the one that is not
+written down anywhere else.
+
+## 21. Distance fog reaches the SKY, so a "clear day haze" veils the whole frame
+
+Exponential fog (`FogMode::Exponential`, the mode most scenes use) is applied by **depth**, and the
+skybox is drawn at the far plane. So the fog factor the sky gets is
+`exp(-Density * cameraFar)` — at a 2500 m far plane and a density of 0.0009, that is `exp(-2.25)`,
+i.e. the sky comes through **about 90% fog colour**. Not the horizon. The whole sky.
+
+The consequence is that a fog density chosen to give distant geometry a pleasant haze also blends
+the sky, the ground and every distant object toward one flat colour, and the frame reads as the
+"uniform veil" [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) is about. Everything
+still looks *plausible* — it looks like a hazy day — which is why it survives review.
+
+**The tell is night.** Fog colour is authored per weather state and cannot follow the sun, so a
+pale-blue daytime fog is still pale blue at midnight. Measured on Drift's first weather pass: the
+night sky's mean luma came out at **166 against the noon sky's 68** — the night frame was brighter
+than the noon frame, and read as an overcast morning with a few stars in it. The band contract that
+caught it (`night sky < 0.4 x noon sky`) is worth having for exactly this reason; the eye accepts
+the day frames.
+
+Three things follow:
+
+- **Budget fog against `cameraFar`, not against the distance you want hazy.** If the scene's far
+  plane is kilometres out, a density that hazes a 300 m target is already opaque at the sky.
+- **A state whose frames span dawn *and* night cannot use a constant-colour fog.** Give the veil to
+  the states that are always daylit (overcast, storm, a fog bank) and leave the clear state without
+  it, or drive the colour from the time-of-day system.
+- **Do not diagnose this by toggling the fog pass over MCP without checking the argument name.**
+  `olo_render_toggle_pass` rejects an unknown property and the reply is easy to skim past as
+  success — an A/B that never actually disabled the pass sent this investigation through sky
+  exposure, turbidity, reflectivity, Fresnel power and IBL intensity first, none of which moved the
+  frame, because none of them was the cause.
+
+Found on #882 (Drift's per-leg weather).

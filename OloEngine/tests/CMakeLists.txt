@@ -177,6 +177,7 @@ add_executable(OloEngine-Tests
 		Atmosphere/CloudDensityMathTest.cpp
 		Atmosphere/AtmosphereSkyMathTest.cpp
 		Rendering/PropertyTests/AtmosphereVisualEvidenceTest.cpp
+		Rendering/PropertyTests/DriftWeatherVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricShadowVisualEvidenceTest.cpp
 		Rendering/AutoExposureMathTest.cpp
 		Rendering/ScreenSpaceReflectionMathTest.cpp
@@ -968,6 +969,7 @@ add_executable(OloEngine-Tests
 		Functional/Gameplay/TimedQuestFailsAfterDeadlineTest.cpp
 		Functional/Gameplay/AbilityCooldownTicksDownViaSceneTickTest.cpp
 		Functional/Atmosphere/WeatherTimeOfDayDirectorTest.cpp
+		Functional/Atmosphere/DriftLegWeatherAndSeaStateTest.cpp
 		Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp
 		Functional/SaveGame/AbilityComponentRoundTripTest.cpp
 		Functional/Dialogue/DialogueTextRevealsOverTicksTest.cpp
