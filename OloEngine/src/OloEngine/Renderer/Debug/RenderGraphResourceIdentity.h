@@ -65,7 +65,7 @@ namespace OloEngine::Debug
 
     // -------------------------------------------------------------------------
     // The same two questions, asked in the shapes a DIAGNOSTIC actually needs
-    // (issue #890, ADR 0011 amendment (89)). The u32 forms above stay: they are
+    // (issue #890, ADR 0011 amendment (90)). The u32 forms above stay: they are
     // GL-shaped by design and feed the graph's own native-id currency. What
     // #890 established is that they are a DISPLAY answer, and a tool that
     // *decides* on one is wrong on Vulkan in a way that looks confidently right.

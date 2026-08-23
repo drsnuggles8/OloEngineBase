@@ -1865,9 +1865,107 @@ no GL context. A crash, not a gap — fixed by the same identity resolve.
 The one honest remaining limitation is texture PREVIEWS in the inspector
 panel, which are a GL PBO+fence pipeline feeding the GL ImGui backend.
 
+### (89) The baked-lightmap UV2 stream rides the existing bone-pull binding — no third reserved number
+
+Issue #866 set out to wire baked-lightmap sampling on the Vulkan route,
+framed (in the issue text and in `docs/agent-rules/baked-lightmap-pipeline.md`
+§6) as needing a genuine THIRD engine-wide vertex-pull binding alongside the
+§5 pair (57 = `SSBO_VERTEX_PULL`, 63 = `SSBO_BONE_PULL`). That framing turned
+out to be wrong, and the reason is worth recording because the alternative —
+minting a new number — was not available cheaply: the SSBO namespace under
+the GL 4.6 `MIN_GUARANTEED_BUFFER_BINDINGS` floor (84) is **fully claimed**
+(`ShaderBindingLayout.h`'s `SSBO_GPU_STATS` comment: "NOTHING IS LEFT AFTER
+THIS"), so a new reserved slot would have had to sit above 83 — legal only
+because 57/63 already establish that a Vulkan-only pull marker never needs a
+real GL binding, but a departure from the file's established one-namespace
+convention all the same.
+
+**The actual fix needs no new number.** `SSBO_BONE_PULL` (63) is documented
+as VAO pull-stream 1 — "whatever the VAO's second buffer holds" — and already
+has two tenants beyond bones (FoliageRenderer, ParticleBatchRenderer). A third
+tenant is safe under the same rule that makes those two safe: **the reuse is
+scoped to what one COMPILED SHADER declares, not to the number globally.**
+`MeshSource::Build` builds a mesh's optional "stream 1" buffer as *either* bone
+influences (`HasSkeleton()`) *or* the baked lightmap UV2 stream
+(`!HasSkeleton() && HasLightmapUVs()`) — never both, by construction — and
+`PBR_MultiLight.glsl` (the only shader in v1 that samples the lightmap) is
+never the shader bound for a skinned draw; `PBR_MultiLight_Skinned.glsl` is a
+separate compiled program that declares binding 63 with the bone-influence
+struct and has no lightmap logic. So no single SPIR-V module ever declares
+binding 63 with two conflicting layouts, which is the actual constraint (§9c)
+— not "one number, one meaning, globally."
+
+**What shipped, concretely:** `PBR_MultiLight.glsl`'s vertex stage declares
+`layout(std430, binding = 63) readonly buffer OloLightmapUVPull { vec2 v[]; }`
+inside its existing `#ifdef OLO_VULKAN` branch and reads
+`b_LightmapUV.v[gl_VertexIndex]` for `a_TexCoord2`, replacing the old
+`vec4(0.0)` hard zero. No change to `VulkanVertexArray`,
+`AssembleAndPushRootData`, or `MeshSource::Build`'s buffer-order was
+needed — `GetPullVertexBuffer(1)` already resolved to the mesh's lightmap UV
+buffer for a static lightmapped mesh, because that buffer is the SECOND
+`AddVertexBuffer` call on such a VAO's build path (bones and lightmap UV are
+mutually exclusive, so nothing else can occupy position 1 first). A VAO with
+no lightmap UV buffer (unbaked static mesh) leaves stream 1 short exactly as
+before, and the root-data writer's null-address fallback resolves it to the
+frame arena's fixed-size zero block (amendment (78)).
+
+**That fallback is where the first live Vulkan run device-lost, and the fix
+is the actual point of this amendment.** The first cut read
+`b_LightmapUV.v[gl_VertexIndex]` UNCONDITIONALLY, reasoning (wrongly) that
+"the fallback path was already exercised safely by every lightmap-less
+static mesh" — true for bindings 57/63's PRE-existing tenants, because a real
+vertex/bone buffer, when present, is always sized to match; the null case
+was a rare edge (a skinned shader on a bone-less VAO). This change makes the
+null case the COMMON one: every unbaked static mesh — the overwhelming
+majority of scenes — now pulls stream 1 from the null block, and the null
+block is a FIXED 64 KiB, while `gl_VertexIndex` ranges over the mesh's real
+vertex count with no relationship to that size. Loading a scene with an
+unbaked ~16.6k-vertex static mesh through `PBR_MultiLight.glsl` on Vulkan hit
+exactly this: `VK_EXT_device_fault` reported a READ at an address past the
+null block, `vkWaitForFences` came back `VK_ERROR_DEVICE_LOST`, and the
+process crashed — the identical failure SHAPE amendment (84) already
+diagnosed for FoliageRenderer's single-instance-upload bug, on a different
+buffer. A buffer-device-address read has no bounds; a fixed-size fallback
+block is only as large as it is, and nothing GLSL-side stops an index past
+it. The fix threads the SAME per-instance signal `sampleLightmapIrradiance()`
+already uses to skip fragment sampling — `InstanceData::LightmapScaleOffset.x
+> 0.0` — up into the vertex stage as a REAL `if` guard around the pull, so
+the read never executes for a draw with no lightmap data. `LightmapScaleOffset`
+is published non-zero only for a mesh whose UV2 stream was actually built
+(`SceneLightmapRuntime::Resolve`'s self-healing re-unwrap runs before any
+publish), so the guard is both necessary (skips every unsafe read) and
+sufficient (never skips a safe one — a STALE bake leaves the real buffer in
+place with `LightmapScaleOffset` zeroed, which the fragment shader already
+treats as "don't sample" regardless of what UV value rode along).
+
+The fragment-stage `#ifdef OLO_VULKAN` stub that hard-coded
+`vec4(0.0)` for `lightmapSample` (added deliberately in #439 so an unbound
+sampler plus an unwritten UBO could never be sampled as live data) is
+removed: `UBO_LIGHTMAP` (binding 1) and `TEX_LIGHTMAP` (binding 16) publish on
+Vulkan for free, through the same generic `UniformBuffer::Create` /
+`HeapBinding::PublishTextureOffsetAndBind` machinery every other engine
+UBO/heap-published texture already uses — `Renderer3D::UploadLightmapData`
+needed no Vulkan-specific code at all. The only genuinely missing piece was
+the UV2 vertex input.
+
+**The generalisable rule, restated from §9c and the `SSBO_BONE_PULL` comment
+one level more explicitly:** a "reserved pull stream" number is a per-shader
+collision constraint, not a global one-tenant-per-number allocation. Before
+minting a new engine-wide binding for a Vulkan-only vertex-pull need, check
+whether an existing reserved number's current tenants are mutually exclusive,
+in the SAME sense the bone/lightmap pair are here, with whatever shader would
+newly claim it. If a future feature ever needs bone influences AND a lightmap
+UV2 stream on the same draw, this reuse breaks and a genuine third reserved
+number (above the current 83-slot ceiling, following 57/63's precedent for a
+Vulkan-only marker) must be minted instead — do not silently widen this
+one's meaning further.
+
+Narrative and the mutual-exclusion invariant's exact code shape:
+[baked-lightmap-pipeline.md](../agent-rules/baked-lightmap-pipeline.md) §6.
+
 ## Amendments from issue #890 (2026-08-22) — which currency decides
 
-### (89) A native handle may be PRINTED; only the identity may be DECIDED on
+### (90) A native handle may be PRINTED; only the identity may be DECIDED on
 
 Amendment (77) settled that a diagnostic surfaces **both** currencies. It did
 not say what a tool may do with each, and that gap was a live defect for as
@@ -1998,3 +2096,4 @@ that is obviously backend-specific; it is the one whose sentinel value is
   as an `ImTextureID`. Nothing consumes them because the Vulkan ImGui
   *renderer* backend is skipped (amendment (88), consequence 3). That is a
   shield, not a fix, and it becomes real the day that backend is enabled.
+

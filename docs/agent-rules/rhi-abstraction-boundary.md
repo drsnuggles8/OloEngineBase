@@ -3077,4 +3077,4 @@ an object exists and can never DENY it. The decision belongs to
 `RHI::ResourceHandle`, and the honest predicate is a storage query
 (`Debug::HasLiveTextureStorage`), not a null test: two of those 13 were true
 positives, and a fix built on "the identity is non-null" would have silenced
-them. ADR 0011 amendment (89) carries the full rule.
+them. ADR 0011 amendment (90) carries the full rule.

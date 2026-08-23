@@ -172,11 +172,22 @@ its acceptance criteria live there. Read the issue before re-deriving the design
   resolved bake when `RenderingPath::Deferred` is active. Every *other* unreached receiver falls
   back visibly to probes/IBL for one draw; this one silently disables the feature for the whole
   scene, which is why it earns log noise and the others do not.
-- **Vulkan lightmap sampling (#866)**: the UV2 stream needs a THIRD vertex-pull stream (the
-  reserved pair is vertex @57 + bone @63), plus UBO 1 / TEX 16 publication — an ADR 0011 §5
-  contract change, not a shader edit. The branch is compiled out (`OLO_VULKAN` stub) rather than
-  reading unbound state, because an unbound sampler plus an unwritten UBO can report *enabled*
-  and sample noise.
+- **Vulkan lightmap sampling (#866) — DONE.** Turned out not to need a third reserved vertex-pull
+  binding: bones and the lightmap UV2 stream are mutually exclusive per mesh
+  (`MeshSource::Build` only ever fills VAO stream 1 with one of the two), and
+  `PBR_MultiLight.glsl` — the only shader that samples the lightmap — is never bound for a skinned
+  draw, so it safely rides the existing `SSBO_BONE_PULL` (63) reservation instead of minting a
+  new one. UBO 1 / TEX 16 needed zero Vulkan-specific code — `Renderer3D::UploadLightmapData`
+  already goes through the same generic `UniformBuffer`/`HeapBinding::PublishTextureOffsetAndBind`
+  machinery every other engine UBO and heap-published texture uses. **The first cut still crashed
+  live**: pulling the UV2 stream unconditionally reads the frame arena's fixed 64 KiB null block
+  for every UNBAKED static mesh (now the common case, not bones' rare edge), and a real mesh's
+  vertex count routinely exceeds what that block covers — a buffer-device-address read has no
+  bounds, so Vulkan device-lost on the first ~16k-vertex unbaked mesh it hit. The fix hoists the
+  fragment shader's own `LightmapScaleOffset.x <= 0.0` early-out into the vertex stage as a real
+  `if` guard around the pull. See ADR 0011 amendment (89) for the full incident and the invariant
+  that would break the binding-reuse (a future draw needing bones AND a lightmap UV2 stream at
+  once).
 - **VirtualGeometry / InstancedMeshComponent / ModelComponent receivers (#867)**: only the classic
   `MeshComponent` path samples the lightmap in v1. Each breaks the `UUID → one region` model
   differently. Note the trap recorded there: wiring only the VirtualGeometry *fallback* path

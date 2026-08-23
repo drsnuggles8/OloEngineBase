@@ -511,7 +511,7 @@ namespace OloEngine::MCP
                     // internally consistent; the values are the LAST EXECUTED
                     // frame's (transients can re-alias next frame).
                     //
-                    // BOTH currencies (issue #890, ADR 0011 amendment (89)):
+                    // BOTH currencies (issue #890, ADR 0011 amendment (90)):
                     // the identity is what the "same physical object?" question
                     // is answered in, the native handle is what a RenderDoc
                     // capture shows. Filling only the latter is what made this
@@ -4141,7 +4141,7 @@ namespace OloEngine::MCP
                     identity.Name = resource.Name;
 
                     // BOTH currencies, and the BACKING verdict comes from the
-                    // identity leg (issue #890, ADR 0011 amendment (89)). The
+                    // identity leg (issue #890, ADR 0011 amendment (90)). The
                     // old code decided `consumedButUnbacked` from a GL-shaped
                     // u32. Measured live, that was wrong on BOTH backends in
                     // opposite directions: on Vulkan it reported 11 readable,

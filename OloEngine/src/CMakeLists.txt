@@ -201,6 +201,7 @@
 		"OloEngine/Asset/Serializers/LightmapSerializer.cpp"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
+		"OloEngine/Build/GameBuildSettings.cpp"
 		"OloEngine/Build/GameBuildPipeline.h"
 		"OloEngine/Build/GameBuildPipeline.cpp"
 		"OloEngine/Build/BuildPipelinePlatform.h"

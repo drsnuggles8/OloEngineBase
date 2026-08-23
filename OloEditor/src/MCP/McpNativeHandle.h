@@ -4,7 +4,7 @@
 // McpNativeHandle.h — how an MCP reply spells the TWO resource currencies.
 //
 // Issue #890. ADR 0011 amendment (77) settled that a diagnostic surfaces BOTH
-// currencies; (89) settled which one it may DECIDE on. This header is the
+// currencies; (90) settled which one it may DECIDE on. This header is the
 // spelling half of that, shared by every tool that prints either:
 //
 //   * the backend-NATIVE handle — a GL name or a `VkImage`, the value a

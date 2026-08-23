@@ -68,7 +68,7 @@ namespace OloEngine::MCP::RenderValidate
     // One registered resource's physical identity this frame.
     //
     // TWO currencies, and the distinction is the whole point (issue #890, ADR
-    // 0011 amendments (77) and (89)). `Native*` is what a RenderDoc / RGP
+    // 0011 amendments (77) and (90)). `Native*` is what a RenderDoc / RGP
     // capture shows and is DISPLAY ONLY; `*Identity` and `TextureHasStorage`
     // are what a verdict may rest on. The predicate below used to read a
     // GL-shaped `u32` native id. Measured live, that was wrong on BOTH

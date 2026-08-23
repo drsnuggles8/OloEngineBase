@@ -73,7 +73,7 @@ namespace OloEngine::MCP::RenderGraphTopology
 
         // Resolved physical backing, as of the last executed frame (issue
         // #607), in BOTH currencies (issue #890, ADR 0011 amendments (77) and
-        // (89)). `Native*` is the backend-native object handle — a GL name or
+        // (90)). `Native*` is the backend-native object handle — a GL name or
         // a `VkImage` — carried at full 64-bit width and printed as hex,
         // because it exists to correlate with a RenderDoc / RGP capture and a
         // truncated `VkImage` correlates with nothing. `*Identity` is
