@@ -4,6 +4,7 @@
 #if OLO_WITH_FSR2
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
@@ -25,32 +26,35 @@ namespace OloEngine
 {
     namespace
     {
-        // FSR2's GL backend binds its own UBOs, textures, samplers and images to
-        // FIXED slot indices taken straight from the DirectX register numbers in
-        // the shader permutations, and it never puts them back. Those indices are
-        // in the same namespace as the engine's: the constant buffer of the
-        // compute-luminance-pyramid pass lands on binding 5, which is
-        // `MultiLightBuffer` in PBR_MultiLight.glsl, and other passes hit 3, 4,
-        // 11, 12, 14 and 18 — `ShadowData` sits at 6 and the whole range is live.
+        // FSR2's GL backend binds its own UBOs, textures, samplers and images and
+        // never puts them back, into the same binding namespace the engine uses.
+        // The measured consequence was that `MultiLightBuffer` (UBO binding 5)
+        // came back as an FSR2 constant buffer, so the forward shader read FSR2's
+        // constants as its light array and every lit surface in EVERY LATER FRAME
+        // collapsed to ambient. The corruption follows the DISPATCH, not the
+        // technique: running the spatial upscaler after FSR2 had run once made the
+        // spatial frame equally dark (SceneColor mean 65.5 -> 32.3), which is what
+        // separates this from an FSR2 rendering bug.
         //
-        // The engine binds those UBOs once rather than per frame, so a single
-        // dispatch silently unlights EVERY LATER FRAME: the forward shader reads
-        // FSR2's constants as its light array and every lit surface collapses to
-        // ambient. Measured on the #684 evidence scene, the corruption follows
-        // the DISPATCH, not the technique — running the spatial upscaler after
-        // FSR2 had run once made the spatial frame equally dark (SceneColor mean
-        // 65.5 -> 32.3), which is what separates this from an FSR2 bug.
+        // THE RANGE IS THE ENGINE'S BINDING SPACE, NOT FSR2'S. The first version
+        // sized these loops from the `FSR2_BIND_{SRV,UAV,CB}_*` macros, on the
+        // assumption those were the GL binding points. They are not — the backend
+        // assigns its own, and it was leaving its sampler on units 13, 14 and 15
+        // while the macros peak at 12. Unit 13 is `u_ShadowAtlas`, declared
+        // `sampler2DArrayShadow`, so a sampler with comparisons disabled sat on a
+        // depth texture read by a shadow sampler: undefined behaviour, ~100k
+        // driver warnings a minute, and shadow reads that resolve as unshadowed.
         //
-        // GLStateGuard is deliberately no help here: it documents that per-slot
-        // texture and UBO bindings are NOT restored, because for a render pass
-        // that is ~185 GL calls of pure overhead. This pass is different — it is
-        // a third-party dispatch that treats the binding namespace as its own,
-        // and it runs once a frame.
+        // Sizing from what the ENGINE reads inverts that dependency and cannot go
+        // stale when FSR2 changes: a unit past the engine's own slot space is one
+        // nothing here will ever sample, so FSR2 is welcome to leave anything it
+        // likes there.
         //
-        // The ranges are the maxima the shader permutations actually declare
-        // (FSR2_BIND_{SRV,UAV,CB}_*) rather than a guess, and are then clamped to
-        // what the driver reports — a slot past the limit is not "nothing bound",
-        // it is GL_INVALID_VALUE on both the query and the bind.
+        // GLStateGuard is deliberately no help: it documents that per-slot texture
+        // and UBO bindings are NOT restored, because for an ordinary render pass
+        // that is ~185 GL calls of pure overhead. The trade-off inverts for a
+        // once-a-frame third-party dispatch that treats the namespace as its own.
+        // The three texture targets mirror the ones that guard captures.
         class FSR2BindingScope
         {
           public:
@@ -71,18 +75,22 @@ namespace OloEngine
                     m_Ubo[i] = { static_cast<GLuint>(buffer), start, size };
                 }
 
+                GLint activeUnit = GL_TEXTURE0;
+                glGetIntegerv(GL_ACTIVE_TEXTURE, &activeUnit);
+                m_ActiveTexture = static_cast<GLenum>(activeUnit);
+
                 for (u32 i = 0; i < m_TextureSlots; ++i)
                 {
-                    GLint sampler = 0;
-                    glGetIntegeri_v(GL_SAMPLER_BINDING, i, &sampler);
-                    m_Sampler[i] = static_cast<GLuint>(sampler);
-
-                    // There is no core indexed query for a texture binding, so
-                    // walk the units. The active unit is restored below.
+                    // There is no core indexed query for a texture binding, so the
+                    // units have to be walked. Per TARGET, because a unit can hold
+                    // one binding per target at once and the engine uses all three.
                     glActiveTexture(GL_TEXTURE0 + i);
-                    GLint texture = 0;
-                    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
-                    m_Texture2D[i] = static_cast<GLuint>(texture);
+                    for (u32 t = 0; t < kTargetCount; ++t)
+                    {
+                        GLint texture = 0;
+                        glGetIntegerv(kTargetBindingQuery[t], &texture);
+                        m_Textures[t][i] = static_cast<GLuint>(texture);
+                    }
                 }
 
                 for (u32 i = 0; i < m_ImageSlots; ++i)
@@ -110,10 +118,6 @@ namespace OloEngine
                                    layered != GL_FALSE, layer,
                                    static_cast<GLenum>(access), static_cast<GLenum>(format) };
                 }
-
-                GLint activeUnit = GL_TEXTURE0;
-                glGetIntegerv(GL_ACTIVE_TEXTURE, &activeUnit);
-                m_ActiveTexture = static_cast<GLenum>(activeUnit);
             }
 
             ~FSR2BindingScope()
@@ -133,8 +137,22 @@ namespace OloEngine
 
                 for (u32 i = 0; i < m_TextureSlots; ++i)
                 {
-                    glBindSampler(i, m_Sampler[i]);
-                    glBindTextureUnit(i, m_Texture2D[i]);
+                    // UNBIND rather than capture-and-replay. The engine binds no
+                    // sampler objects at all — there is not one glBindSampler in it,
+                    // and under heap-bindless the sampler rides inside the handle —
+                    // so "none bound" IS the correct state, and asserting it beats
+                    // restoring whatever was there. Replaying a capture would
+                    // faithfully put back a LEAK from an earlier dispatch; this
+                    // cannot. It also drops a query per unit.
+                    glBindSampler(i, 0u);
+
+                    // glBindTexture per target, NOT glBindTextureUnit: the latter
+                    // takes no target and resets EVERY target on the unit when the
+                    // name is 0, so replaying a 2D capture through it wipes the
+                    // array and cube bindings a unit also holds.
+                    glActiveTexture(GL_TEXTURE0 + i);
+                    for (u32 t = 0; t < kTargetCount; ++t)
+                        glBindTexture(kTarget[t], m_Textures[t][i]);
                 }
 
                 for (u32 i = 0; i < m_ImageSlots; ++i)
@@ -164,10 +182,20 @@ namespace OloEngine
                 return std::min(wanted, static_cast<u32>(limit));
             }
 
-            // Highest slot each FSR2 permutation family declares, plus one.
-            static constexpr u32 kUboSlots = 19u;     // FSR2_BIND_CB_*  peaks at 18
-            static constexpr u32 kTextureSlots = 13u; // FSR2_BIND_SRV_* peaks at 12
-            static constexpr u32 kImageSlots = 18u;   // FSR2_BIND_UAV_* peaks at 17
+            // The ENGINE's binding space — see the note above for why this is not
+            // sized from FSR2's macros.
+            static constexpr u32 kUboSlots = ShaderBindingLayout::UBO_BINDING_LIMIT;
+            static constexpr u32 kTextureSlots = ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS;
+            // Images have no engine-side constant to key off, so this is the
+            // driver's own ceiling; it is small (often 8).
+            static constexpr u32 kImageSlots = 32u;
+
+            static constexpr u32 kTargetCount = 3u;
+            static constexpr GLenum kTarget[kTargetCount] = { GL_TEXTURE_2D, GL_TEXTURE_2D_ARRAY,
+                                                              GL_TEXTURE_CUBE_MAP };
+            static constexpr GLenum kTargetBindingQuery[kTargetCount] = { GL_TEXTURE_BINDING_2D,
+                                                                          GL_TEXTURE_BINDING_2D_ARRAY,
+                                                                          GL_TEXTURE_BINDING_CUBE_MAP };
 
             struct Buffer
             {
@@ -187,8 +215,7 @@ namespace OloEngine
             };
 
             std::array<Buffer, kUboSlots> m_Ubo{};
-            std::array<GLuint, kTextureSlots> m_Sampler{};
-            std::array<GLuint, kTextureSlots> m_Texture2D{};
+            std::array<std::array<GLuint, kTextureSlots>, kTargetCount> m_Textures{};
             std::array<Image, kImageSlots> m_Image{};
             GLenum m_ActiveTexture = GL_TEXTURE0;
 
