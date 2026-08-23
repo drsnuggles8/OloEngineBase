@@ -79,7 +79,9 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/Upscaling/TemporalUpscaler.h"
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Scene/Components.h"
@@ -1441,4 +1443,178 @@ namespace OloEngine::Tests
         CheckPerfRegression("virtual_swraster_frame_1280x720", swNs);
         CheckPerfRegression("virtual_hwraster_frame_1280x720", hwNs);
     }
+
+    // =========================================================================
+    // FSR2 temporal upscaling (#684) — does it actually pay for itself?
+    //
+    // The acceptance criterion is a GPU frame-time REDUCTION at the 67% and 59%
+    // presets, so this is deliberately a relative A/B inside one process on one
+    // GPU rather than an entry in perf_baselines.txt. An absolute baseline would
+    // pin this machine's numbers and answer a different question ("did it get
+    // slower than last time?") than the one asked ("is rendering fewer pixels
+    // and reconstructing them cheaper than rendering them all?").
+    //
+    // Measured with the same GL_TIMESTAMP instrument and min-of-N policy as
+    // VirtualGeometryPerf above — see its comment for why neither wall clock nor
+    // GL_TIME_ELAPSED works for a whole engine frame.
+    // =========================================================================
+
+    namespace
+    {
+        constexpr u32 kFsrWidth = 1280;
+        constexpr u32 kFsrHeight = 720;
+    } // namespace
+
+    class FSR2Perf : public RendererAttachedTest
+    {
+      public:
+        void BuildScene() override
+        {
+            Scene& scene = GetScene();
+            EnableRendering(kFsrWidth, kFsrHeight);
+
+            {
+                Entity key = scene.CreateEntity("Key");
+                key.GetComponent<TransformComponent>().Translation = { 0.0f, 20.0f, 0.0f };
+                auto& dl = key.AddComponent<DirectionalLightComponent>();
+                dl.m_Direction = glm::normalize(glm::vec3(-0.5f, -0.7f, -0.3f));
+                dl.m_Color = glm::vec3(1.0f, 0.98f, 0.95f);
+                dl.m_Intensity = 2.0f;
+                dl.m_CastShadows = false;
+            }
+
+            // A ground plane plus a block of spheres: enough per-pixel shading
+            // that the frame is fill-bound, which is the regime a render-scale
+            // reduction is supposed to help. A geometry-bound scene would show
+            // almost no gain and would be measuring the wrong thing.
+            auto add = [&scene](const char* name, MeshPrimitive prim, const glm::vec3& pos,
+                                const glm::vec3& scale)
+            {
+                Entity e = scene.CreateEntity(name);
+                auto& tc = e.GetComponent<TransformComponent>();
+                tc.Translation = pos;
+                tc.Scale = scale;
+                auto& mc = e.AddComponent<MeshComponent>();
+                mc.m_Primitive = prim;
+                Ref<Mesh> mesh = (prim == MeshPrimitive::Plane) ? MeshPrimitives::CreatePlane()
+                                                                : MeshPrimitives::CreateSphere();
+                if (mesh)
+                    mc.m_MeshSource = mesh->GetMeshSource();
+                auto& mat = e.AddComponent<MaterialComponent>();
+                mat.m_Material.SetBaseColorFactor(glm::vec4(0.8f, 0.8f, 0.82f, 1.0f));
+                mat.m_Material.SetRoughnessFactor(0.5f);
+            };
+
+            add("Ground", MeshPrimitive::Plane, { 0.0f, 0.0f, 0.0f }, glm::vec3(80.0f));
+            for (i32 row = 0; row < 4; ++row)
+                for (i32 col = 0; col < 6; ++col)
+                    add("Sphere", MeshPrimitive::Sphere,
+                        { (static_cast<f32>(col) - 2.5f) * 3.0f, 2.0f, -static_cast<f32>(row) * 4.0f },
+                        glm::vec3(1.5f));
+        }
+
+      protected:
+        u64 MeasureFrameGpuNs()
+        {
+            EditorCamera camera(60.0f, static_cast<f32>(kFsrWidth) / static_cast<f32>(kFsrHeight), 0.1f, 500.0f);
+            camera.SetViewportSize(static_cast<f32>(kFsrWidth), static_cast<f32>(kFsrHeight));
+            camera.SetPose({ 0.0f, 6.0f, 14.0f }, 0.0f, 0.25f);
+
+            constexpr u32 kWarmup = 8; // FSR2 also needs its history to settle
+            constexpr u32 kMeasure = 20;
+
+            RunEditorFrames(camera, kWarmup);
+
+            u32 queries[2] = { 0, 0 };
+            ::glGenQueries(2, queries);
+
+            u64 best = std::numeric_limits<u64>::max();
+            for (u32 i = 0; i < kMeasure; ++i)
+            {
+                ::glQueryCounter(queries[0], GL_TIMESTAMP);
+                RunEditorFrames(camera, 1);
+                ::glQueryCounter(queries[1], GL_TIMESTAMP);
+
+                GLint available = 0;
+                while (!available)
+                    ::glGetQueryObjectiv(queries[1], GL_QUERY_RESULT_AVAILABLE, &available);
+
+                GLuint64 startNs = 0;
+                GLuint64 endNs = 0;
+                ::glGetQueryObjectui64v(queries[0], GL_QUERY_RESULT, &startNs);
+                ::glGetQueryObjectui64v(queries[1], GL_QUERY_RESULT, &endNs);
+
+                if (endNs > startNs)
+                    best = std::min(best, static_cast<u64>(endNs - startNs));
+            }
+
+            ::glDeleteQueries(2, queries);
+            return best;
+        }
+
+        [[nodiscard]] static bool TemporalIsUsable()
+        {
+            const Ref<TemporalUpscaler> upscaler = TemporalUpscaler::Create();
+            return upscaler && upscaler->IsAvailable();
+        }
+    };
+
+    TEST_F(FSR2Perf, TemporalUpscaleReducesGpuFrameTimeAtQualityAndBalanced)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (!TemporalIsUsable())
+            GTEST_SKIP() << "FSR2 is not available on this build/backend";
+
+        auto& pp = Renderer3D::GetPostProcessSettings();
+
+        pp.Upscale = UpscaleMode::Off;
+        pp.Technique = UpscalerTechnique::Spatial;
+        const u64 nativeNs = MeasureFrameGpuNs();
+
+        pp.Upscale = UpscaleMode::Quality;
+        pp.Technique = UpscalerTechnique::Spatial;
+        const u64 spatialQualityNs = MeasureFrameGpuNs();
+
+        pp.Upscale = UpscaleMode::Quality; // 0.667
+        pp.Technique = UpscalerTechnique::Temporal;
+        const u64 temporalQualityNs = MeasureFrameGpuNs();
+
+        // Structural invariant, independent of timing: this run must ACTUALLY
+        // have gone through FSR2. A benchmark that silently fell back to the
+        // spatial upscaler looks perfectly healthy — it just answers a
+        // different question than the one asked.
+        const bool fsr2Ran = Renderer3D::ResolveFrameGraphTexture(ResourceNames::FSR2ColorTexture) != 0u ||
+                             Renderer3D::ResolveFrameGraphTextureHandle(ResourceNames::FSR2ColorTexture).IsValid();
+
+        pp.Upscale = UpscaleMode::Balanced; // 0.59
+        pp.Technique = UpscalerTechnique::Temporal;
+        const u64 temporalBalancedNs = MeasureFrameGpuNs();
+
+        pp.Upscale = UpscaleMode::Off;
+        pp.Technique = UpscalerTechnique::Spatial;
+
+        const auto ms = [](u64 ns)
+        { return static_cast<f64>(ns) / 1.0e6; };
+        std::cout << "[FSR2 GPU frame time @ " << kFsrWidth << "x" << kFsrHeight << "]\n"
+                  << "  native (1.00)            " << ms(nativeNs) << " ms\n"
+                  << "  spatial  Quality (0.667) " << ms(spatialQualityNs) << " ms\n"
+                  << "  temporal Quality (0.667) " << ms(temporalQualityNs) << " ms\n"
+                  << "  temporal Balanced (0.59) " << ms(temporalBalancedNs) << " ms" << std::endl;
+
+        EXPECT_TRUE(fsr2Ran) << "no FSR2Color texture in the graph after a Temporal frame — the pipeline "
+                                "fell back to the spatial upscaler, so this benchmark compared FSR1 "
+                                "against native and the temporal numbers mean nothing";
+
+        EXPECT_LT(temporalQualityNs, nativeNs)
+            << "FSR2 at the 0.667 Quality preset did not reduce GPU frame time (native="
+            << ms(nativeNs) << "ms temporal=" << ms(temporalQualityNs)
+            << "ms). Rendering 44% of the pixels plus the upscale must cost less than rendering all of "
+               "them, or the feature has no reason to exist at this preset.";
+
+        EXPECT_LT(temporalBalancedNs, temporalQualityNs)
+            << "the 0.59 Balanced preset was not cheaper than the 0.667 Quality preset (quality="
+            << ms(temporalQualityNs) << "ms balanced=" << ms(temporalBalancedNs)
+            << "ms) — the render scale is not reaching the scene pass.";
+    }
+
 } // namespace OloEngine::Tests
