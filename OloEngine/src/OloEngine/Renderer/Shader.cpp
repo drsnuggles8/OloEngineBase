@@ -198,4 +198,69 @@ namespace OloEngine
         OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
         return nullptr;
     }
+
+    namespace
+    {
+        // Shared fallback for a backend with no CPU-only prepare step (issue
+        // #907 covers OpenGL only) — synchronous Create() per shader.
+        // FinalizeBatch()'s matching branch then passes these straight
+        // through, since Create() already fully creates them.
+        std::vector<Ref<Shader>> PrepareBatchSequentialFallback(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter)
+        {
+            std::vector<Ref<Shader>> result;
+            result.reserve(filepaths.size());
+            for (const auto& path : filepaths)
+            {
+                result.push_back(Shader::Create(path));
+                if (progressCounter != nullptr)
+                {
+                    progressCounter->fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+            return result;
+        }
+    } // namespace
+
+    std::vector<Ref<Shader>> Shader::PrepareBatch(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter)
+    {
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::None:
+            {
+                OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+                return {};
+            }
+            case RendererAPI::API::Vulkan:
+                // No CPU-only prepare step on this backend yet — a future
+                // Vulkan-side parallel prepare can slot in here without
+                // touching callers.
+                return PrepareBatchSequentialFallback(filepaths, progressCounter);
+            case RendererAPI::API::OpenGL:
+                return OpenGLShader::PrepareBatch(filepaths, progressCounter);
+        }
+
+        OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return {};
+    }
+
+    std::vector<Ref<Shader>> Shader::FinalizeBatch(std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal)
+    {
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::None:
+            {
+                OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+                return prepared;
+            }
+            case RendererAPI::API::Vulkan:
+                // PrepareBatch() already fully created these via the
+                // sequential fallback above — nothing left to do.
+                return prepared;
+            case RendererAPI::API::OpenGL:
+                return OpenGLShader::FinalizeBatch(std::move(prepared), alreadyFinal);
+        }
+
+        OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return prepared;
+    }
 } // namespace OloEngine

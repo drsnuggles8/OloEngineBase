@@ -9,6 +9,9 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Core/Window.h"
+#include "OloEngine/Async/Async.h"
+
+#include <atomic>
 
 namespace OloEngine
 {
@@ -316,6 +319,57 @@ void main()
         OLO_CORE_TRACE("RenderProgressFrame: SwapBuffers...");
         window->SwapBuffers();
         OLO_CORE_TRACE("RenderProgressFrame: Done.");
+    }
+
+    std::vector<Ref<Shader>> ShaderWarmup::LoadShadersParallel(
+        ShaderLibrary& library, Window* window, const std::vector<std::string>& filepaths,
+        const std::string_view label, const i32 phase)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (filepaths.empty())
+        {
+            return {};
+        }
+
+        // Headless mode, or the boot shader isn't ready yet: no progress UI
+        // is possible either way — RenderProgressFrame is a total no-op
+        // (no PollEvents, no SwapBuffers) whenever `!s_BootShader ||
+        // !s_BootShader->IsReady()`, same guard RunWarmupScreen makes below.
+        // Without this, the poll loop's RenderProgressFrame calls would do
+        // nothing every iteration and it would busy-spin with no window pump
+        // until the background PrepareParallel() task finishes — exactly the
+        // unresponsive-window failure mode this function exists to avoid.
+        if (!window || !s_BootShader || !s_BootShader->IsReady())
+        {
+            return library.LoadParallel(filepaths);
+        }
+
+        std::atomic<u32> prepared{ 0 };
+        const auto total = static_cast<i32>(filepaths.size());
+
+        // Phase A (CPU compile) runs on a background task so THIS thread
+        // stays free to pump window events and redraw the progress bar —
+        // mirrors RunWarmupScreen's link-wait loop below, just for the CPU
+        // half of the pipeline instead of the GPU-link half.
+        TFuture<ShaderLibrary::PreparedShaderBatch> future = Async(
+            EAsyncExecution::TaskGraph,
+            [&library, &filepaths, &prepared]() -> ShaderLibrary::PreparedShaderBatch
+            {
+                return library.PrepareParallel(filepaths, &prepared);
+            });
+
+        while (!future.IsReady())
+        {
+            const auto current = static_cast<i32>(prepared.load(std::memory_order_relaxed));
+            const f32 progress = total > 0 ? static_cast<f32>(current) / static_cast<f32>(total) : 1.0f;
+            RenderProgressFrame(progress, window, label, current, total, phase);
+        }
+
+        RenderProgressFrame(1.0f, window, label, total, total, phase);
+
+        // Phase B — GL calls, must run on this (render) thread.
+        return library.FinalizeParallel(future.Get());
     }
 
     void ShaderWarmup::RunWarmupScreen(ShaderLibrary& library, Window* window)

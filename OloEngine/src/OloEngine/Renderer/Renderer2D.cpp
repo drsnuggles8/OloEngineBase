@@ -255,26 +255,20 @@ namespace OloEngine
             samplers[i] = i;
         }
 
-        OLO_CORE_INFO("Renderer2D::Init: Loading Renderer2D_Quad...");
-        m_ShaderLibrary.Load("assets/shaders/Renderer2D_Quad.glsl");
-        OLO_CORE_INFO("Renderer2D::Init: Renderer2D_Quad loaded, calling RenderProgressFrame(1/5)");
-        ShaderWarmup::RenderProgressFrame(1.0f / 5.0f, window, "2D shaders", 1, 5, 0);
-        OLO_CORE_INFO("Renderer2D::Init: Loading Renderer2D_Polygon...");
-        m_ShaderLibrary.Load("assets/shaders/Renderer2D_Polygon.glsl");
-        OLO_CORE_INFO("Renderer2D::Init: Renderer2D_Polygon loaded, calling RenderProgressFrame(2/5)");
-        ShaderWarmup::RenderProgressFrame(2.0f / 5.0f, window, "2D shaders", 2, 5, 0);
-        OLO_CORE_INFO("Renderer2D::Init: Loading Renderer2D_Circle...");
-        m_ShaderLibrary.Load("assets/shaders/Renderer2D_Circle.glsl");
-        OLO_CORE_INFO("Renderer2D::Init: Renderer2D_Circle loaded, calling RenderProgressFrame(3/5)");
-        ShaderWarmup::RenderProgressFrame(3.0f / 5.0f, window, "2D shaders", 3, 5, 0);
-        OLO_CORE_INFO("Renderer2D::Init: Loading Renderer2D_Line...");
-        m_ShaderLibrary.Load("assets/shaders/Renderer2D_Line.glsl");
-        OLO_CORE_INFO("Renderer2D::Init: Renderer2D_Line loaded, calling RenderProgressFrame(4/5)");
-        ShaderWarmup::RenderProgressFrame(4.0f / 5.0f, window, "2D shaders", 4, 5, 0);
-        OLO_CORE_INFO("Renderer2D::Init: Loading Renderer2D_Text...");
-        m_ShaderLibrary.Load("assets/shaders/Renderer2D_Text.glsl");
-        OLO_CORE_INFO("Renderer2D::Init: Renderer2D_Text loaded, calling RenderProgressFrame(5/5)");
-        ShaderWarmup::RenderProgressFrame(5.0f / 5.0f, window, "2D shaders", 5, 5, 0);
+        // CPU-side compile of independent shaders runs in parallel across
+        // shaders (issue #907) — GL program creation/link still happens
+        // sequentially afterward on this (render) thread; see
+        // ShaderWarmup::LoadShadersParallel.
+        OLO_CORE_INFO("Renderer2D::Init: Loading 2D shaders...");
+        const std::vector<std::string> shaderPaths2D = {
+            "assets/shaders/Renderer2D_Quad.glsl",
+            "assets/shaders/Renderer2D_Polygon.glsl",
+            "assets/shaders/Renderer2D_Circle.glsl",
+            "assets/shaders/Renderer2D_Line.glsl",
+            "assets/shaders/Renderer2D_Text.glsl",
+        };
+        ShaderWarmup::LoadShadersParallel(m_ShaderLibrary, window, shaderPaths2D, "2D shaders", 0);
+        OLO_CORE_INFO("Renderer2D::Init: 2D shaders loaded");
 
         // Wait for any remaining async GPU links before resolving shader refs.
         ShaderWarmup::RunWarmupScreen(m_ShaderLibrary, window);

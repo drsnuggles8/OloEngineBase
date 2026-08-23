@@ -207,8 +207,7 @@ namespace OloEngine
             s_Data.FullscreenQuadVAO->AddVertexBuffer(quadVBO);
         }
 
-        u32 shaderIdx = 0;
-        // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
+        // NOTE: Keep totalShaders3D in sync with the number of paths in s_ShaderPaths below.
         constexpr u32 totalShaders3D = 52;
 
         // Boot + fallback are idempotent — no-ops when already initialized by
@@ -279,11 +278,12 @@ namespace OloEngine
         };
         static_assert(s_ShaderPaths.size() == totalShaders3D);
 
-        for (const auto* path : s_ShaderPaths)
-        {
-            m_ShaderLibrary.Load(path);
-            ShaderWarmup::RenderProgressFrame(static_cast<f32>(++shaderIdx) / totalShaders3D, window, "3D shaders", static_cast<i32>(shaderIdx), static_cast<i32>(totalShaders3D), 1);
-        }
+        // CPU-side compile of independent shaders runs in parallel across
+        // shaders (issue #907) — GL program creation/link still happens
+        // sequentially afterward on this (render) thread; see
+        // ShaderWarmup::LoadShadersParallel.
+        const std::vector<std::string> shaderPaths3D(s_ShaderPaths.begin(), s_ShaderPaths.end());
+        ShaderWarmup::LoadShadersParallel(m_ShaderLibrary, window, shaderPaths3D, "3D shaders", 1);
 
         // Log how many shaders are still compiling asynchronously
         if (const u32 pending = m_ShaderLibrary.GetPendingCount(); pending > 0)

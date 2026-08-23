@@ -17,6 +17,15 @@
 
 namespace OloEngine
 {
+    // NOT covered by the cross-shader parallel-compile path added for
+    // graphics shaders (issue #907, see OpenGLShader::PrepareBatch /
+    // Shader::PrepareBatch): compute shaders hand include-resolved GLSL
+    // straight to glShaderSource/glCompileShader below with no shaderc/
+    // SPIRV-Cross hop and — see the class doc — no on-disk cache at all, so
+    // there is no CPU-only tier to split out and run off the render thread;
+    // the whole compile is one GL call. Load call sites for compute shaders
+    // stay sequential. A cache (and the parallel split that would come with
+    // it) is a separate, larger change tracked outside this issue.
     OpenGLComputeShader::OpenGLComputeShader(const std::string& filepath)
         : m_FilePath(filepath)
     {

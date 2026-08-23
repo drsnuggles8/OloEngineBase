@@ -59,6 +59,94 @@ namespace OloEngine
         return shader;
     }
 
+    ShaderLibrary::PreparedShaderBatch ShaderLibrary::PrepareParallel(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const sizet count = filepaths.size();
+        PreparedShaderBatch batch;
+        batch.m_Prepared.resize(count);
+        batch.m_IsPackLoaded.assign(count, false);
+        batch.m_PackEntries.resize(count);
+
+        // Shader packs are pre-compiled SPIR-V — a lookup + decode, not a
+        // compile — so resolve them sequentially up front; only what's left
+        // needs the parallel CPU-compile path. TryReadPackEntry() (unlike the
+        // old TryLoadFromPack() this replaced here) makes NO GL call, so this
+        // whole loop stays safe on whatever thread PrepareParallel() runs on
+        // — the actual GL program is materialized later, in
+        // FinalizeParallel(), which is contractually the render thread.
+        std::vector<std::string> toCompile;
+        std::vector<sizet> toCompileIndices;
+        toCompile.reserve(count);
+        toCompileIndices.reserve(count);
+
+        for (sizet i = 0; i < count; ++i)
+        {
+            if (auto entry = TryReadPackEntry(filepaths[i]))
+            {
+                batch.m_PackEntries[i] = std::move(entry);
+                batch.m_IsPackLoaded[i] = true;
+                if (progressCounter != nullptr)
+                {
+                    progressCounter->fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+            else
+            {
+                toCompile.push_back(filepaths[i]);
+                toCompileIndices.push_back(i);
+            }
+        }
+
+        if (!toCompile.empty())
+        {
+            std::vector<Ref<Shader>> prepared = Shader::PrepareBatch(toCompile, progressCounter);
+            const sizet preparedCount = prepared.size();
+            for (sizet j = 0; j < preparedCount; ++j)
+            {
+                batch.m_Prepared[toCompileIndices[j]] = prepared[j];
+            }
+        }
+
+        return batch;
+    }
+
+    std::vector<Ref<Shader>> ShaderLibrary::FinalizeParallel(PreparedShaderBatch batch)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // GL calls below — the caller contract (ShaderLibrary::FinalizeParallel)
+        // requires this to run on the render thread. Materialize every pack-
+        // loaded entry's GL program NOW (deferred from PrepareParallel() —
+        // see PackEntryCPUData) before handing the batch to
+        // Shader::FinalizeBatch, which skips indices already marked
+        // m_IsPackLoaded and passes them through untouched.
+        const sizet count = batch.m_Prepared.size();
+        for (sizet i = 0; i < count; ++i)
+        {
+            if (batch.m_IsPackLoaded[i])
+            {
+                batch.m_Prepared[i] = CreateShaderFromPackEntry(std::move(*batch.m_PackEntries[i]));
+            }
+        }
+
+        std::vector<Ref<Shader>> finalized = Shader::FinalizeBatch(std::move(batch.m_Prepared), batch.m_IsPackLoaded);
+        for (const auto& shader : finalized)
+        {
+            if (shader)
+            {
+                Add(shader);
+            }
+        }
+        return finalized;
+    }
+
+    std::vector<Ref<Shader>> ShaderLibrary::LoadParallel(const std::vector<std::string>& filepaths)
+    {
+        return FinalizeParallel(PrepareParallel(filepaths));
+    }
+
     Ref<Shader> ShaderLibrary::Get(const std::string& name)
     {
         OLO_CORE_ASSERT(Exists(name), "Shader '{}' not found!", name);
@@ -310,30 +398,45 @@ void main()
 
     Ref<Shader> ShaderLibrary::TryLoadFromPack(const std::string& filepath)
     {
-        if (!m_ShaderPack || !m_ShaderPack->IsLoaded())
+        auto entry = TryReadPackEntry(filepath);
+        if (!entry)
         {
             return nullptr;
+        }
+        return CreateShaderFromPackEntry(std::move(*entry));
+    }
+
+    // CPU-only: pack lookup + SPIR-V decode. See the class-level comment on
+    // PackEntryCPUData — deliberately makes NO GL call (issue #907), unlike
+    // the old TryLoadFromPack() this was split out of, which called straight
+    // through to OpenGLShader::CreateFromPackData (glCreateProgram et al.).
+    std::optional<ShaderLibrary::PackEntryCPUData> ShaderLibrary::TryReadPackEntry(const std::string& filepath) const
+    {
+        if (!m_ShaderPack || !m_ShaderPack->IsLoaded())
+        {
+            return std::nullopt;
         }
 
         if (!m_ShaderPack->Contains(filepath))
         {
-            return nullptr;
+            return std::nullopt;
         }
 
         auto entry = m_ShaderPack->LoadEntry(filepath);
         if (!entry || entry->Stages.empty())
         {
             OLO_CORE_WARN("[ShaderLibrary] Pack entry '{}' loaded but empty", filepath);
-            return nullptr;
+            return std::nullopt;
         }
 
         // Convert pack stage data (u8-encoded stages) back to GLenum-keyed maps
-        std::unordered_map<unsigned int, std::vector<u32>> vulkanSPIRV;
-        std::unordered_map<unsigned int, std::vector<u32>> openGLSPIRV;
+        PackEntryCPUData data;
+        data.m_Name = entry->Name;
+        data.m_FilePath = filepath;
 
         for (auto& stageData : entry->Stages)
         {
-            unsigned int glStage = 0;
+            u32 glStage = 0;
             switch (stageData.Stage)
             {
                 case 1:
@@ -353,16 +456,23 @@ void main()
                     break; // GL_COMPUTE_SHADER
                 default:
                     OLO_CORE_ERROR("[ShaderLibrary] Unknown stage {} in pack entry '{}'", stageData.Stage, filepath);
-                    return nullptr;
+                    return std::nullopt;
             }
 
-            vulkanSPIRV[glStage] = std::move(stageData.VulkanSPIRV);
-            openGLSPIRV[glStage] = std::move(stageData.OpenGLSPIRV);
+            data.m_VulkanSPIRV[glStage] = std::move(stageData.VulkanSPIRV);
+            data.m_OpenGLSPIRV[glStage] = std::move(stageData.OpenGLSPIRV);
         }
 
-        OLO_CORE_TRACE("[ShaderLibrary] Loading '{}' from shader pack", filepath);
-        return OpenGLShader::CreateFromPackData(entry->Name, filepath,
-                                                std::move(vulkanSPIRV),
-                                                std::move(openGLSPIRV));
+        OLO_CORE_TRACE("[ShaderLibrary] Read '{}' from shader pack", filepath);
+        return data;
+    }
+
+    // GL-touching: MUST run on the render thread.
+    Ref<Shader> ShaderLibrary::CreateShaderFromPackEntry(PackEntryCPUData entry)
+    {
+        OLO_CORE_TRACE("[ShaderLibrary] Loading '{}' from shader pack", entry.m_FilePath);
+        return OpenGLShader::CreateFromPackData(entry.m_Name, entry.m_FilePath,
+                                                std::move(entry.m_VulkanSPIRV),
+                                                std::move(entry.m_OpenGLSPIRV));
     }
 } // namespace OloEngine

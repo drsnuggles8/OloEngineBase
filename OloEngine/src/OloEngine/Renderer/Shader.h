@@ -1,8 +1,10 @@
 #pragma once
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+#include <atomic>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "OloEngine/Core/Ref.h"
 #include <glm/glm.hpp>
@@ -174,5 +176,34 @@ namespace OloEngine
 
         static Ref<Shader> Create(const std::string& filepath);
         static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
+
+        // --- Batch loading with cross-shader CPU parallelism (issue #907) ---
+        //
+        // The engine's shader-compile pipeline splits into a CPU tier (disk
+        // read, GLSL preprocessing, shaderc, SPIRV-Cross, on-disk cache) and a
+        // GPU tier (glLinkProgram, which the driver itself already links in
+        // the background via GL_ARB/KHR_parallel_shader_compile — see
+        // ShaderLibrary::PollPendingShaders). The CPU tier has no GL
+        // dependency and is embarrassingly parallel ACROSS independent
+        // shaders, but GL calls are not thread-safe off the context thread —
+        // so PrepareBatch() may run on any thread (including a background
+        // task, while the caller pumps its own render loop), and
+        // FinalizeBatch() MUST run on the render thread.
+        //
+        // A backend without a CPU-only prepare step (Vulkan today) falls
+        // back to synchronous Create() per shader inside PrepareBatch(), so
+        // FinalizeBatch() is always safe to call — it is simply a no-op pass-
+        // through on such a backend.
+        //
+        // `progressCounter`, if non-null, is atomically incremented once per
+        // shader as its CPU-side work completes — poll it from another
+        // thread for progress-bar feedback while PrepareBatch() runs.
+        static std::vector<Ref<Shader>> PrepareBatch(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter = nullptr);
+
+        // `alreadyFinal[i]` marks an entry that is already a fully created,
+        // linked shader (e.g. loaded from a shader pack upstream of
+        // PrepareBatch()) — FinalizeBatch() passes such entries through
+        // unchanged instead of trying to finalize them a second time.
+        static std::vector<Ref<Shader>> FinalizeBatch(std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal);
     };
 } // namespace OloEngine
