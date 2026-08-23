@@ -244,8 +244,8 @@ namespace OloEngine
             u32 CapturedProbes = 0; // captured at their current lattice point
             u32 BlendedProbes = 0;  // written by the irradiance blend
             u32 UncapturedLive = 0; // live but still waiting for a first capture
-            u32 _pad0 = 0;
-            u32 _pad1 = 0;
+            u32 Pad0 = 0;
+            u32 Pad1 = 0;
         };
         static_assert(sizeof(ProbeStats) == 32, "ProbeStats must mirror the DDGIStatsBuffer std430 block");
 

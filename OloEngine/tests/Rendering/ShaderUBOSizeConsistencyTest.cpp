@@ -637,7 +637,7 @@ namespace OloEngine::Tests
             { "u_DDGIUpdateRateDivisor", offsetof(DDGIVolumeUBO, UpdateRateDivisor), 0 },
             { "u_DDGIRequestLifetime", offsetof(DDGIVolumeUBO, RequestLifetime), 0 },
             { "u_DDGISparsityEnabled", offsetof(DDGIVolumeUBO, SparsityEnabled), 0 },
-            { "_ddgiPad0", offsetof(DDGIVolumeUBO, _pad0), 0 },
+            { "_ddgiPad0", offsetof(DDGIVolumeUBO, Pad0), 0 },
             // The three cascade arrays. Stride is asserted as well as offset:
             // a std140 array of vec4/ivec4 packs at 16 bytes, and a stride
             // disagreement would misread every element after the first while

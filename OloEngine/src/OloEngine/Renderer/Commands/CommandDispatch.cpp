@@ -817,7 +817,7 @@ namespace OloEngine
                 materialData.UseTextureMaps = mat.useTextureMaps ? 1 : 0;
                 materialData.AlphaMode = 0;
                 materialData.DoubleSided = 0;
-                materialData._padding = 0;
+                materialData.Pad = 0;
 
                 if (s_Data.MaterialUBO)
                 {
@@ -1352,7 +1352,7 @@ namespace OloEngine
         cameraData.View = relView;
         cameraData.Projection = RHI::AdjustProjectionForBackend(projection);
         cameraData.Position = MakePositionRelative(s_Data.ViewPos, origin);
-        cameraData._padding0 = 0.0f;
+        cameraData.Pad0 = 0.0f;
         cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(
             MakeViewProjectionRelative(s_Data.PrevViewProjectionMatrix, origin));
         cameraData.RenderOrigin = origin; // for pattern shaders (triplanar/noise/etc.)

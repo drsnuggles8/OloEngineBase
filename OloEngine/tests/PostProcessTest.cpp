@@ -96,7 +96,7 @@ TEST(PostProcessUBOData, FieldOffsets_Std140Compatible)
     // Row 0: TonemapOperator(i32), Exposure(f32), Gamma(f32), BloomThreshold(f32)
     // Row 1: BloomIntensity, VignetteIntensity, VignetteSmoothness, ChromAbIntensity
     // Row 2: DOFFocusDist, DOFFocusRange, DOFBokehRadius, MotionBlurStrength
-    // Row 3: MotionBlurSamples(i32), InvScreenW, InvScreenH, _padding0
+    // Row 3: MotionBlurSamples(i32), InvScreenW, InvScreenH, DitherAmplitude
     // Row 4: TexelSizeX, TexelSizeY, CameraNear, CameraFar
 
     EXPECT_EQ(offsetof(PostProcessUBOData, TonemapOperator), 0u);

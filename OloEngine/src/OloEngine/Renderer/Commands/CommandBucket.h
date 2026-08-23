@@ -120,7 +120,7 @@ namespace OloEngine
         u32 remaining = 0;  // Remaining slots in current batch
         u32 batchStart = 0; // Start offset of current batch in global array
         // Padding to fill cache line
-        u8 _padding[OLO_PLATFORM_CACHE_LINE_SIZE - 3 * sizeof(u32)];
+        u8 Pad[OLO_PLATFORM_CACHE_LINE_SIZE - 3 * sizeof(u32)];
     };
     static_assert(sizeof(TLSBucketSlot) == OLO_PLATFORM_CACHE_LINE_SIZE,
                   "TLSBucketSlot must be exactly one cache line");

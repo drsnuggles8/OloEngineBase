@@ -5566,7 +5566,7 @@ namespace
         u32 FirstIndex = 0;
         i32 BaseVertex = 0;
         u32 BaseInstance = 0;
-        u32 _Pad[3] = { 0, 0, 0 };
+        u32 Pad[3] = { 0, 0, 0 };
     };
     static_assert(sizeof(VgMdiCommand) == 32, "the registry's MDI stride is 32 bytes");
 } // namespace
@@ -6437,9 +6437,9 @@ TEST_F(VulkanPassSuite, FoliageInstancePullDrawsThreeTintedCards)
     struct FoliageLightBlock
     {
         i32 NumLights = 0;
-        i32 _pad0 = 0;
-        i32 _pad1 = 0;
-        i32 _pad2 = 0;
+        i32 Pad0 = 0;
+        i32 Pad1 = 0;
+        i32 Pad2 = 0;
         glm::vec4 Position{ 0.0f };
         glm::vec4 Direction{ 0.0f, -1.0f, 0.0f, 0.0f };
         glm::vec4 ColorIntensity{ 1.0f, 1.0f, 1.0f, 0.0f }; // w = intensity 0
@@ -7058,7 +7058,7 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
         struct ParticleParamsBlock
         {
             glm::vec3 CameraRight{ 1.0f, 0.0f, 0.0f };
-            f32 _pad0 = 0.0f;
+            f32 Pad0 = 0.0f;
             glm::vec3 CameraUp{ 0.0f, 1.0f, 0.0f };
             i32 HasTexture = 0;
             i32 SoftParticlesEnabled = 0;
@@ -7066,7 +7066,7 @@ TEST_F(VulkanPassSuite, ParticleBillboardsTrailsOitAndGpuIndirectDraw)
             f32 NearClip = 0.1f;
             f32 FarClip = 1000.0f;
             glm::vec2 ViewportSize{ static_cast<f32>(kSize), static_cast<f32>(kSize) };
-            f32 _pad1[2]{};
+            f32 Pad1[2]{};
         } particleParams;
         auto paramsUbo = UniformBuffer::Create(sizeof(ParticleParamsBlock), 2);
         paramsUbo->SetData(&particleParams, sizeof(particleParams));

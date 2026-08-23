@@ -22,7 +22,7 @@ namespace OloEngine
     {
         u64 EntityUUID = 0;            // scene entity this region belongs to
         u32 Page = 0;                  // atlas page index (v1: always 0)
-        u32 _pad0 = 0;                 // explicit padding — keeps the wire layout deterministic
+        u32 Pad0 = 0;                  // explicit padding — keeps the wire layout deterministic
         glm::vec4 ScaleOffset{ 0.0f }; // uv2 * xy + zw addresses the entity's charts in the atlas
     };
 
@@ -31,7 +31,7 @@ namespace OloEngine
     static_assert(sizeof(LightmapEntityEntry) == 32);
     static_assert(offsetof(LightmapEntityEntry, EntityUUID) == 0);
     static_assert(offsetof(LightmapEntityEntry, Page) == 8);
-    static_assert(offsetof(LightmapEntityEntry, _pad0) == 12);
+    static_assert(offsetof(LightmapEntityEntry, Pad0) == 12);
     static_assert(offsetof(LightmapEntityEntry, ScaleOffset) == 16);
 
     // Baked GI lightmap atlas (issue #439).

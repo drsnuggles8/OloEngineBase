@@ -381,7 +381,7 @@ namespace OloEngine
         // path died with the shadow atlas, issue #435), so no light position /
         // far plane needs to ride the camera UBO.
         cameraUBOData.Position = glm::vec3(0.0f);
-        cameraUBOData._padding0 = 0.0f;
+        cameraUBOData.Pad0 = 0.0f;
         // Reconstruction flavour of the same matrix (#691) — no known
         // caster shader reads it under this camera, but the member must never
         // be a zero/identity mismatch with Projection on any writer.

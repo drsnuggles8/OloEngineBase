@@ -995,7 +995,7 @@ namespace OloEngine
         f32 fadeStart = 80.0f;
         f32 alphaCutoff = 0.5f;
         f32 prevTime = 0.0f; // Previous-frame time for wind velocity reprojection
-        f32 _pad1 = 0.0f;
+        f32 Pad1 = 0.0f;
         glm::vec4 baseColor = glm::vec4(1.0f); // xyz = color, w = unused
 
         // Albedo texture (0 = no texture). On the impostor path this is the

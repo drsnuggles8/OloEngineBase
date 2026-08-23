@@ -42,15 +42,15 @@ namespace OloEngine
             u32 FirstIndex;
             u32 BaseVertex;
             u32 BaseInstance;
-            // Was `_Pad0`. The cull shaders' monotonic slot cursor (issue #721) —
+            // Was a pad slot. The cull shaders' monotonic slot cursor (issue #721) —
             // see the `reserveCursor` comment in InstanceFrustumCull.comp. The
             // CPU only ever has to ZERO it, which the value-initialised `seed`
             // below already does; a cursor carried over from the last dispatch
             // would put every append past the capacity and truncate the whole
             // batch.
             u32 ReserveCursor;
-            u32 _Pad1;
-            u32 _Pad2;
+            u32 Pad1;
+            u32 Pad2;
         };
 
         // Twin of the two-word InstanceCullRejectedCount block (issue #721):

@@ -81,9 +81,6 @@ namespace OloEngine
         u32 ViewportHeight = 0;
         u32 ArgsSlot = 0;
         u32 MaxClusters = 0;
-        // Spelled without the leading underscore the neighbouring GPU mirrors
-        // use: `_Pad0` is a reserved identifier (underscore + uppercase is
-        // reserved in every scope), and new code should not add more of them.
         u32 Pad0 = 0;
         u32 Pad1 = 0;
     };
@@ -115,7 +112,7 @@ namespace OloEngine
     //     48     4  RefinedGroup (pooled; ~0u for LOD-0 clusters)
     //     52     4  Lod
     //     56     4  VertexCount  (cluster-owned vertex window; mesh path SetMeshOutputsEXT, #813)
-    //     60     4  _Pad2
+    //     60     4  Pad2
     struct VirtualClusterGpuRecord
     {
         glm::vec4 CullSphere{ 0.0f };
@@ -128,10 +125,10 @@ namespace OloEngine
         u32 Lod = 0; // DAG level of the member group (0 = finest); for debug LOD viz (#629)
         // Number of cluster-owned vertices (VertexBase..VertexBase+VertexCount).
         // Was padding until #813; only VirtualMeshletGBuffer.glsl reads it (for
-        // SetMeshOutputsEXT), so shaders that still declare it as _Pad1 are
+        // SetMeshOutputsEXT), so shaders that still declare it as `_Pad1` are
         // layout-identical and stay untouched.
         u32 VertexCount = 0;
-        u32 _Pad2 = 0;
+        u32 Pad2 = 0;
 
         static constexpr u32 kNoRefinedGroup = 0xFFFFFFFFu;
     };
@@ -142,14 +139,14 @@ namespace OloEngine
     // offset  size  field
     //      0    16  LODSphere (xyz = mesh-local center, w = radius)
     //     16     4  Error     (absolute object-space error; FLT_MAX marks terminal groups)
-    //     20    12  _Pad0..2
+    //     20    12  Pad0..2
     struct VirtualGroupGpuRecord
     {
         glm::vec4 LODSphere{ 0.0f };
         f32 Error = 0.0f;
-        f32 _Pad0 = 0.0f;
-        f32 _Pad1 = 0.0f;
-        f32 _Pad2 = 0.0f;
+        f32 Pad0 = 0.0f;
+        f32 Pad1 = 0.0f;
+        f32 Pad2 = 0.0f;
     };
     static_assert(sizeof(VirtualGroupGpuRecord) == 32, "std430 mirror in VirtualClusterCull.comp expects 32-byte group records");
 
@@ -232,8 +229,8 @@ namespace OloEngine
     {
         u32 InstanceIndex = 0;
         u32 ClusterIndex = 0; // pooled cluster index
-        u32 _Pad0 = 0;
-        u32 _Pad1 = 0;
+        u32 Pad0 = 0;
+        u32 Pad1 = 0;
     };
     static_assert(sizeof(VirtualVisibleCluster) == 16, "std430 mirror in VirtualMeshGBuffer.glsl expects 16-byte visible records");
 

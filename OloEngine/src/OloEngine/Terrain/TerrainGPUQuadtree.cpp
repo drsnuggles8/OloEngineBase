@@ -72,9 +72,9 @@ namespace OloEngine
             u32 FirstIndex = 0;
             u32 BaseVertex = 0;
             u32 BaseInstance = 0;
-            u32 _Pad0 = 0;
-            u32 _Pad1 = 0;
-            u32 _Pad2 = 0;
+            u32 Pad0 = 0;
+            u32 Pad1 = 0;
+            u32 Pad2 = 0;
         };
         static_assert(sizeof(TerrainDrawArgsPOD) == 32, "TerrainDrawArgsPOD must match the std430 TerrainDrawArgs block");
 

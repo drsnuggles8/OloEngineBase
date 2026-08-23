@@ -336,8 +336,8 @@ namespace OloEngine
             glm::mat4 Transform{ 1.0f };
             u32 ClipLevel = 0;
             u32 LocalLayer = 0;
-            u32 _pad1 = 0;
-            u32 _pad2 = 0;
+            u32 Pad1 = 0;
+            u32 Pad2 = 0;
         };
         static_assert(sizeof(DrawInstance) == 80, "VSM::DrawInstance std430 size drifted (80 B)");
 

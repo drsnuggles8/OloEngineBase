@@ -52,7 +52,7 @@ namespace
         glm::mat4 View;
         glm::mat4 Projection;
         glm::vec3 Position;
-        f32 _Pad0 = 0.0f;
+        f32 Pad0 = 0.0f;
     };
 
     struct GpuDrawCommand
