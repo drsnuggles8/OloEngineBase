@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Upscaling/TemporalUpscaler.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <array>
 #include <cmath>
@@ -43,6 +44,7 @@ namespace
         in.SceneSampleCount = 1u;
         return in;
     }
+
 } // namespace
 
 // -----------------------------------------------------------------------------
@@ -411,4 +413,86 @@ TEST(FSR2PolicyTest, EveryUpscalerStatusHasADistinctHumanReadableReason)
         for (sizet j = i + 1; j < statuses.size(); ++j)
             EXPECT_NE(text, ToString(statuses[j])) << "two statuses share a reason string";
     }
+}
+
+// The sign relationship between the projection jitter and the value FSR2 is
+// told. Pinned because it is invisible in any still frame: get it wrong and
+// FSR2 doubles the jitter instead of cancelling it, which shows up only as
+// the image swimming across CONSECUTIVE frames (see
+// FSR2VisualEvidenceTest.SettledTemporalFrameIsStableFrameToFrame for the
+// behavioural half of this guard).
+TEST(FSR2PolicyTest, UpscalerJitterIsTheNegationOfTheProjectionJitter)
+{
+    constexpr f32 kEps = 1e-6f;
+    const glm::vec2 flipped = TemporalUpscalePolicy::UpscalerJitterFromProjectionJitter({ 0.25f, -0.125f });
+    EXPECT_NEAR(flipped.x, -0.25f, kEps);
+    EXPECT_NEAR(flipped.y, 0.125f, kEps);
+
+    const glm::vec2 zero = TemporalUpscalePolicy::UpscalerJitterFromProjectionJitter({ 0.0f, 0.0f });
+    EXPECT_NEAR(zero.x, 0.0f, kEps);
+    EXPECT_NEAR(zero.y, 0.0f, kEps);
+
+    // BOTH axes, not one. Each single-axis flip recovers only about half the
+    // shake, so a partial fix reads as an improvement and still swims.
+    const glm::vec2 out = TemporalUpscalePolicy::UpscalerJitterFromProjectionJitter({ 0.3f, 0.4f });
+    EXPECT_LT(out.x, 0.0f);
+    EXPECT_LT(out.y, 0.0f);
+}
+
+// GROUND TRUTH for the jitter sign, derived rather than tuned.
+//
+// The fix for the swimming image was originally found by flipping signs until a
+// stability metric dropped, which is evidence that SOMETHING is inverted but not
+// proof of WHICH side is wrong. This computes what the projection actually does,
+// so the rule in UpscalerJitterFromProjectionJitter follows from it instead of
+// from a measurement that happened to come out lower.
+//
+// The chain, all three links pinned below:
+//
+//   1. the pipeline adds +ndc to the projection's z-column;
+//   2. for a point at eye depth -d that contributes ndc * (-d) to clip.x while
+//      clip.w = +d, so the projected point moves by -ndc. The IMAGE therefore
+//      carries -jitter;
+//   3. FSR2 computes `fSrcUnjitteredPos = (iSrcInputPos + 0.5) - Jitter()`, so
+//      its Jitter() is defined as the displacement the image content carries.
+//
+// Hence Jitter() = -jitterPixels. Break link 1 (apply the jitter to a different
+// element, or with the other sign) and this test fails rather than the frame
+// quietly starting to swim again.
+TEST(FSR2PolicyTest, ProjectionJitterDisplacesTheImageByTheNegatedJitter)
+{
+    constexpr u32 kRenderWidth = 1280u;
+    constexpr u32 kRenderHeight = 720u;
+    const glm::vec2 jitterPixels(4.0f, 3.0f); // large, so the direction is unmistakable
+    const glm::vec2 ndc = TemporalUpscalePolicy::JitterPixelsToNDC(jitterPixels, kRenderWidth, kRenderHeight);
+
+    const glm::mat4 projection = glm::perspective(glm::radians(60.0f),
+                                                  static_cast<f32>(kRenderWidth) / static_cast<f32>(kRenderHeight),
+                                                  0.1f, 100.0f);
+    // Exactly what RenderPipeline::PrepareFrame does for a perspective camera.
+    glm::mat4 jittered = projection;
+    jittered[2][0] += ndc.x;
+    jittered[2][1] += ndc.y;
+
+    const auto project = [](const glm::mat4& m, const glm::vec4& point)
+    {
+        const glm::vec4 clip = m * point;
+        return glm::vec2(clip.x / clip.w, clip.y / clip.w);
+    };
+
+    const glm::vec4 pointInFront(0.0f, 0.0f, -10.0f, 1.0f);
+    const glm::vec2 displacementNdc = project(jittered, pointInFront) - project(projection, pointInFront);
+
+    // Link 2: the image moves OPPOSITE the jitter that was added.
+    constexpr f32 kEps = 1e-5f;
+    EXPECT_NEAR(displacementNdc.x, -ndc.x, kEps);
+    EXPECT_NEAR(displacementNdc.y, -ndc.y, kEps);
+
+    // Link 3: converted back to render pixels, that displacement is what FSR2
+    // must be told — and it is exactly what the policy hands over.
+    const glm::vec2 displacementPixels(displacementNdc.x * 0.5f * static_cast<f32>(kRenderWidth),
+                                       displacementNdc.y * 0.5f * static_cast<f32>(kRenderHeight));
+    const glm::vec2 handedToFsr2 = TemporalUpscalePolicy::UpscalerJitterFromProjectionJitter(jitterPixels);
+    EXPECT_NEAR(handedToFsr2.x, displacementPixels.x, 1e-3f);
+    EXPECT_NEAR(handedToFsr2.y, displacementPixels.y, 1e-3f);
 }

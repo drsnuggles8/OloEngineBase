@@ -56,9 +56,11 @@
 #include <gtest/gtest.h>
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -528,4 +530,67 @@ namespace OloEngine::Tests
                "once rather than per frame, is now reading someone else's buffer. See FSR2BindingScope in "
                "OpenGLTemporalUpscaler.cpp, and FSR2_BindingsBefore.png vs FSR2_BindingsAfter.png";
     }
+
+    // A CONVERGED temporal upscaler on a static scene must be stable FRAME TO
+    // FRAME. Every other test in this file compares two SETTLED captures — same
+    // pose, many frames apart — which is blind to the frame-to-frame shake a
+    // user actually sees, because both samples are equally "settled" whatever
+    // the jitter is doing. Reported from the editor as the whole picture
+    // jittering constantly.
+    //
+    // The native path is measured in the same run as the control. FSR2 renders
+    // with a sub-pixel jitter baked into the projection and is supposed to
+    // RESOLVE it; if the resolve is wrong the jitter passes straight through and
+    // the image swims by up to a render pixel every frame. Comparing against
+    // native separates "the upscaler is shaking" from "something in the scene
+    // moves", which would shake both.
+    TEST_F(FSR2VisualEvidenceTest, SettledTemporalFrameIsStableFrameToFrame)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (!TemporalUpscalerUsable())
+            GTEST_SKIP() << "FSR2 is not available on this build/backend";
+
+        const ScopedMockTime scopedMockTime(kCaptureTime);
+        const EditorCamera camera = MakeCamera({ 0.0f, 7.0f, 16.0f }, 0.0f, 0.32f);
+        auto& pp = Renderer3D::GetPostProcessSettings();
+
+        const auto worstConsecutiveDiff = [&](u32 frames)
+        {
+            std::vector<u8> prev;
+            RunFramesAndCapture(camera, kSettleFrames, "", prev);
+            f64 worst = 0.0;
+            for (u32 i = 0; i < frames; ++i)
+            {
+                std::vector<u8> next;
+                RunFramesAndCapture(camera, 1, "", next);
+                worst = std::max(worst, MeanAbsDiff(prev, next));
+                prev.swap(next);
+            }
+            return worst;
+        };
+
+        pp.Upscale = UpscaleMode::Off;
+        pp.Technique = UpscalerTechnique::Spatial;
+        const f64 nativeWorst = worstConsecutiveDiff(6);
+
+        pp.Upscale = UpscaleMode::Quality;
+        pp.Technique = UpscalerTechnique::Temporal;
+        const f64 temporalWorst = worstConsecutiveDiff(6);
+
+        pp.Upscale = UpscaleMode::Off;
+        pp.Technique = UpscalerTechnique::Spatial;
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        std::cout << "[FSR2 frame-to-frame stability] native worst mean|d| = " << nativeWorst
+                  << "   temporal worst mean|d| = " << temporalWorst << std::endl;
+
+        EXPECT_LT(temporalWorst, 1.0)
+            << "a settled FSR2 frame changes by mean|d|=" << temporalWorst
+            << " between CONSECUTIVE frames on a static camera (native control=" << nativeWorst
+            << "). The upscaler is passing its own projection jitter through instead of resolving it, "
+               "which reads on screen as the whole image swimming. Check that the jitter handed to FSR2 "
+               "matches the SIGN and SCALE of the offset baked into the projection matrix.";
+    }
+
 } // namespace OloEngine::Tests

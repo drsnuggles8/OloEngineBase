@@ -131,6 +131,38 @@ namespace OloEngine::TemporalUpscalePolicy
                          jitterPixels.y * (2.0f / static_cast<f32>(renderHeight)));
     }
 
+    // The `jitterOffset` handed to FSR2's dispatch description, given the jitter
+    // the pipeline baked into the PROJECTION.
+    //
+    // THE TWO DIFFER BY A SIGN ON BOTH AXES, and getting it wrong does not break
+    // the frame in any way a still image shows. Adding +jitterNdc to the
+    // projection's z-column shifts the rendered IMAGE by -jitterNdc; FSR2's
+    // jitterOffset has to describe the offset the image actually carries, so it
+    // is the negation of what the projection was given. Hand FSR2 the
+    // un-negated value and it un-jitters the wrong way — DOUBLING the offset
+    // instead of cancelling it — and the accumulated image never converges. On
+    // screen that is the whole picture swimming every frame, which is how it was
+    // reported; every still capture of it looks perfectly fine, and so does a
+    // comparison of two SETTLED captures, which is why the original test set
+    // missed it entirely.
+    //
+    // Measured on the #684 evidence scene, worst frame-to-frame mean|luma diff|
+    // across consecutive frames on a static camera (native control: 0.000):
+    //
+    //     jitter handed to FSR2      worst mean|d|
+    //     -------------------------  -------------
+    //     as-is                          2.275
+    //     negate X only                  2.120
+    //     negate Y only                  1.636
+    //     negate BOTH                    0.296   <- this
+    //
+    // Each single-axis flip recovering about half is what identifies it as a
+    // sign error on both axes rather than a Y-convention quirk.
+    [[nodiscard]] inline glm::vec2 UpscalerJitterFromProjectionJitter(glm::vec2 projectionJitterPixels) noexcept
+    {
+        return -projectionJitterPixels;
+    }
+
     // The `motionVectorScale` handed to FSR2's dispatch description.
     //
     // Derived, not guessed. Two facts from FSR2's own sources pin it:

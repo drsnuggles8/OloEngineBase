@@ -395,7 +395,11 @@ namespace OloEngine
                 data.ViewProjectionMatrix = data.ProjectionMatrix * data.ViewMatrix;
 
                 data.CurrJitterUV = glm::vec2(jitterNdcX * 0.5f, jitterNdcY * 0.5f);
-                data.TemporalUpscaleJitterPixels = jitterPixels;
+                // NOT jitterPixels — see UpscalerJitterFromProjectionJitter. The
+                // projection was given +jitter, so the image carries -jitter, and
+                // that is what FSR2 has to be told or it never converges.
+                data.TemporalUpscaleJitterPixels =
+                    TemporalUpscalePolicy::UpscalerJitterFromProjectionJitter(jitterPixels);
                 data.TemporalUpscalePhaseIndex =
                     (data.TemporalUpscalePhaseIndex + 1u) % static_cast<u32>(std::max(1, phaseCount));
             }
