@@ -323,4 +323,122 @@ TEST(VulkanImageLayoutTracker, ForgetDropsStateAndReRegistrationResets)
     EXPECT_EQ(tracker.CurrentLayout(image, full), VK_IMAGE_LAYOUT_UNDEFINED);
 }
 
+// ---------------------------------------------------------------------------
+// Recorded vs executed layout (issue #800).
+//
+// A one-shot command buffer is submitted the moment it is recorded, so it runs
+// AHEAD of the frame command buffer that is still being recorded. Anything it
+// barriers must name the layout the QUEUE has reached, not the layout the
+// in-progress recording will eventually leave behind. The two agree on a steady
+// frame -- which is why the real bug only ever appeared on the single frame an
+// attachment is (re)created by a window resize.
+// ---------------------------------------------------------------------------
+
+TEST(VulkanImageLayoutTracker, ExecutedLayoutLagsRecordedUntilTheBracketCloses)
+{
+    VulkanImageLayoutTracker tracker;
+    const auto image = FakeImage(0x41);
+    const VkImageSubresourceRange full{ VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+                                        VK_REMAINING_ARRAY_LAYERS };
+    tracker.RegisterImage(image, 1, 1);
+
+    // This is the resize frame: the image is brand new, and the recording
+    // transitions it all the way to SHADER_READ_ONLY.
+    tracker.SetLayout(image, full, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    tracker.SetLayout(image, full, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentLayout(image, full), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    // None of that has executed yet. A one-shot barriering from
+    // SHADER_READ_ONLY here is naming a layout the image has never been in --
+    // the GPU still has it UNDEFINED, and validation says so once per resize.
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_UNDEFINED);
+
+    // Closing the recording bracket is what puts it on the queue.
+    tracker.CommitRecordedToExecuted();
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    // ...and the next recording's transitions lag again.
+    tracker.SetLayout(image, full, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentLayout(image, full), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+TEST(VulkanImageLayoutTracker, ImmediateExecutionScopeAdvancesBothLayouts)
+{
+    VulkanImageLayoutTracker tracker;
+    const auto image = FakeImage(0x42);
+    const VkImageSubresourceRange full{ VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+                                        VK_REMAINING_ARRAY_LAYERS };
+    tracker.RegisterImage(image, 1, 1);
+
+    EXPECT_FALSE(VulkanImageLayoutTracker::InImmediateExecutionScope());
+    {
+        // What VulkanOneShot::Submit opens around its record callback: the
+        // work is on the queue as soon as it is recorded, so it moves the
+        // executed layout too.
+        const VulkanImageLayoutTracker::ImmediateExecutionScope immediate;
+        EXPECT_TRUE(VulkanImageLayoutTracker::InImmediateExecutionScope());
+        tracker.SetLayout(image, full, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    }
+    EXPECT_FALSE(VulkanImageLayoutTracker::InImmediateExecutionScope());
+    EXPECT_EQ(tracker.CurrentLayout(image, full), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+}
+
+TEST(VulkanImageLayoutTracker, RegistrationResetsTheExecutedLayoutToo)
+{
+    VulkanImageLayoutTracker tracker;
+    const auto image = FakeImage(0x43);
+    const VkImageSubresourceRange full{ VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+                                        VK_REMAINING_ARRAY_LAYERS };
+    tracker.RegisterImage(image, 1, 1, 1u);
+    tracker.SetLayout(image, full, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    tracker.CommitRecordedToExecuted();
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    // The resize: the handle VALUE comes back for a new allocation, carrying a
+    // fresh registry stamp. Neither layout may survive that -- the new image is
+    // UNDEFINED on both timelines.
+    tracker.RegisterImage(image, 1, 1, 2u);
+    EXPECT_EQ(tracker.CurrentLayout(image, full), VK_IMAGE_LAYOUT_UNDEFINED);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_UNDEFINED);
+
+    // An image seeded by a load-time upload starts SHADER_READ_ONLY on both.
+    tracker.RegisterImage(image, 1, 1, 3u, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentLayout(image, full), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+TEST(VulkanImageLayoutTracker, ExecutedLayoutHasNoSingleAnswerForAMixedRange)
+{
+    VulkanImageLayoutTracker tracker;
+    const auto image = FakeImage(0x44);
+    tracker.RegisterImage(image, 4, 1);
+    const VkImageSubresourceRange full{ VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+                                        VK_REMAINING_ARRAY_LAYERS };
+    const VkImageSubresourceRange mip0{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    tracker.SetLayout(image, full, VK_IMAGE_LAYOUT_GENERAL);
+    tracker.SetLayout(image, mip0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    tracker.CommitRecordedToExecuted();
+
+    // Same rule as CurrentLayout: a borrow needs ONE layout to hand back, and a
+    // mixed range has none, so the caller must refuse rather than guess.
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_UNDEFINED);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, mip0), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+TEST(VulkanImageLayoutTracker, ForgottenImageHasNoExecutedLayout)
+{
+    VulkanImageLayoutTracker tracker;
+    const auto image = FakeImage(0x45);
+    const VkImageSubresourceRange full{ VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
+                                        VK_REMAINING_ARRAY_LAYERS };
+    tracker.RegisterImage(image, 1, 1);
+    tracker.SetLayout(image, full, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    tracker.CommitRecordedToExecuted();
+    tracker.ForgetImage(image);
+    EXPECT_EQ(tracker.CurrentExecutedLayout(image, full), VK_IMAGE_LAYOUT_UNDEFINED);
+}
+
 #endif // OLO_WITH_VULKAN

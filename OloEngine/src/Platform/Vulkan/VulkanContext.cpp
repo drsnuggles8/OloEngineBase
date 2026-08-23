@@ -591,6 +591,13 @@ namespace OloEngine
             ok = false;
         }
         api.ResumeRecordingAfterFlush(cmd);
+        // A successful flush put the whole recording so far on the queue, so
+        // the recorded and executed layouts have converged (issue #800). The
+        // ordinary end-of-frame convergence happens in EndRecording.
+        if (ok)
+        {
+            api.LayoutTracker().CommitRecordedToExecuted();
+        }
         return ok;
     }
 

@@ -29,6 +29,29 @@ namespace OloEngine
         std::erase(LiveTrackers(), this);
     }
 
+    namespace
+    {
+        // Depth, not a bool: ClearTextureFloat's load-time fallback records a
+        // one-shot from inside another one's record callback.
+        u32 s_ImmediateExecutionDepth = 0;
+    } // namespace
+
+    VulkanImageLayoutTracker::ImmediateExecutionScope::ImmediateExecutionScope()
+    {
+        ++s_ImmediateExecutionDepth;
+    }
+
+    VulkanImageLayoutTracker::ImmediateExecutionScope::~ImmediateExecutionScope()
+    {
+        if (s_ImmediateExecutionDepth > 0u)
+            --s_ImmediateExecutionDepth;
+    }
+
+    bool VulkanImageLayoutTracker::InImmediateExecutionScope()
+    {
+        return s_ImmediateExecutionDepth > 0u;
+    }
+
     void VulkanImageLayoutTracker::ForgetImageEverywhere(const VkImage image)
     {
         for (auto* tracker : LiveTrackers())
@@ -60,6 +83,9 @@ namespace OloEngine
         state.LayerCount = layers;
         state.RegistrationId = registrationId;
         state.Layouts.assign(static_cast<sizet>(mips) * layers, initialLayout);
+        // A freshly registered image has had no submitted work done to it, so
+        // recorded and executed start equal (issue #800).
+        state.Executed = state.Layouts;
         m_Images[image] = std::move(state);
     }
 
@@ -97,8 +123,46 @@ namespace OloEngine
         for (u32 layer = r.BaseLayer; layer < r.BaseLayer + r.LayerCount; ++layer)
         {
             for (u32 mip = r.BaseMip; mip < r.BaseMip + r.MipCount; ++mip)
-                state.Layouts[static_cast<sizet>(layer) * state.MipCount + mip] = layout;
+            {
+                const sizet index = static_cast<sizet>(layer) * state.MipCount + mip;
+                state.Layouts[index] = layout;
+                // Work recorded inside an immediate-execution scope reaches the
+                // queue as it is recorded, so it advances the executed layout
+                // too (issue #800).
+                if (s_ImmediateExecutionDepth > 0u && index < state.Executed.size())
+                    state.Executed[index] = layout;
+            }
         }
+    }
+
+    void VulkanImageLayoutTracker::CommitRecordedToExecuted()
+    {
+        for (auto& entry : m_Images)
+            entry.second.Executed = entry.second.Layouts;
+    }
+
+    VkImageLayout VulkanImageLayoutTracker::CurrentExecutedLayout(const VkImage image,
+                                                                  const VkImageSubresourceRange& range) const
+    {
+        const auto it = m_Images.find(image);
+        if (it == m_Images.end())
+            return VK_IMAGE_LAYOUT_UNDEFINED;
+
+        const auto& state = it->second;
+        const auto r = Resolve(state, range);
+        if (r.MipCount == 0 || r.LayerCount == 0 || state.Executed.empty())
+            return VK_IMAGE_LAYOUT_UNDEFINED;
+
+        const auto first = state.Executed[static_cast<sizet>(r.BaseLayer) * state.MipCount + r.BaseMip];
+        for (u32 layer = r.BaseLayer; layer < r.BaseLayer + r.LayerCount; ++layer)
+        {
+            for (u32 mip = r.BaseMip; mip < r.BaseMip + r.MipCount; ++mip)
+            {
+                if (state.Executed[static_cast<sizet>(layer) * state.MipCount + mip] != first)
+                    return VK_IMAGE_LAYOUT_UNDEFINED; // mixed — no single layout to borrow
+            }
+        }
+        return first;
     }
 
     void VulkanImageLayoutTracker::ForEachLayoutRun(const VkImage image,

@@ -3078,3 +3078,88 @@ an object exists and can never DENY it. The decision belongs to
 (`Debug::HasLiveTextureStorage`), not a null test: two of those 13 were true
 positives, and a fix built on "the identity is non-null" would have silenced
 them. ADR 0011 amendment (90) carries the full rule.
+
+
+## 16. A CPU-side layout tracker has TWO timelines (#800), and only one of them is the queue's
+
+The Vulkan backend keeps one CPU state machine that GL has no twin for:
+`VulkanImageLayoutTracker`, the authority for every barrier's `oldLayout`. It
+was written with a single layout per subresource, and that single value quietly
+answered two different questions:
+
+- **What will this image be in once the command buffer I am recording is
+  submitted?** — the right question for a barrier recorded *into that same
+  buffer*.
+- **What is this image in right now, on the queue?** — the right question for
+  anything that reaches the queue *ahead* of that buffer.
+
+`VulkanOneShot::Submit` is the second kind. It allocates its own command
+buffer, records, submits and waits — so it executes *before* the frame command
+buffer that is still being recorded (amendment (72) already established the
+ordering; what it did not establish is that the tracker cannot describe it).
+`ReadTextureSubImage`'s borrow mode is the one place that read a layout out of
+the tracker and handed it straight to a one-shot as `oldLayout`:
+
+```cpp
+borrowedLayout = m_LayoutTracker.CurrentLayout(image, range);   // WRONG timeline
+```
+
+**Why this survived a year of frames.** On a steady frame the two answers are
+identical, and not by luck: the render graph ends every frame in the same
+layouts it started in, so "what the recording will leave" and "what the queue
+has" converge to `SHADER_READ_ONLY` for exactly the attachments a mid-frame
+readback names. The two diverge on precisely one frame — the frame an
+attachment is **created**, i.e. a window resize. There the recording has
+already walked the brand-new image `UNDEFINED → COLOR_ATTACHMENT → …  →
+SHADER_READ_ONLY`, none of it submitted, while the image on the queue has never
+been touched and is still `UNDEFINED`. The borrow barriers from
+`SHADER_READ_ONLY`, and the layer says so once, then the frame's own barriers
+execute and everything realigns. One error per resize, self-healing next frame:
+issue #800, exactly as reported.
+
+**The fix is to stop overloading the value.** The tracker now carries a second
+layout per subresource — the layout after all *submitted* work:
+
+- `CommitRecordedToExecuted()` at the end of `EndRecording` (and after a
+  successful mid-frame flush) advances it: the bracket closing is what puts the
+  recording on the queue.
+- `VulkanImageLayoutTracker::ImmediateExecutionScope`, opened by
+  `VulkanOneShot::Submit` around its record callback, makes writes inside it
+  advance **both** — that work reaches the queue as it is recorded. This is what
+  keeps the non-borrow readback arm and the load-time clear fallback correct,
+  with no call-site edits.
+- Borrow mode reads `CurrentExecutedLayout`, and its existing
+  "`UNDEFINED` → refuse the read" arm then does the right thing on a resize
+  frame: a brand-new image has no content worth borrowing, and transitioning it
+  from `UNDEFINED` would discard the very pixels the read wants.
+
+**Three things this cost, that are worth not repeating.**
+
+*The repro recipe was not the one in the issue.* "Move the window" does not
+reproduce it: a dense drag storm of 80 `SetWindowPos` resizes gave **0 errors in
+6 rounds**. It needs a restore↔maximize cycle **and** the mouse parked over the
+viewport — the second ingredient is not cosmetic, it is what drives
+`VulkanFramebuffer::ReadPixel` into the borrow path that carries the bug.
+Measured on one binary: 0/10 without the mouse, **10 hits / 8 rounds** with it.
+
+*The bug hides from its own instrumentation.* Anything that adds work to the
+image-**creation** path closes the race. A per-frame `OLO_CORE_WARN` in the
+barrier loop: 8 rounds, 0 errors. `vkSetDebugUtilsObjectNameEXT` on every image
+registration: 14 rounds, 0 errors — which is why `VulkanDebugNames` is opt-in
+behind `OLO_VK_OBJECT_NAMES` rather than always on. What *does* work is a
+zero-I/O ring buffer written on every tracker mutation and dumped from the
+validation messenger when an error fires; that shape reproduced at the
+unmodified rate. `std::source_location` as a **default argument** on `SetLayout`
+/ `RegisterImage` attributes each write to its caller with zero call-site edits,
+and is what turned "some transfer path" into "`ClearTextureUInt`, line 777".
+
+*The decisive fact was in the message all along.* The error names the command
+buffer. Every one of the eight occurrences named a **one-shot** buffer, never a
+frame buffer — which alone rules out the entire ImGui/descriptor half of the
+issue's candidate list. Read the handle in the message before reasoning about
+who could have recorded the draw.
+
+**The general rule.** Any CPU mirror of GPU state has to answer *at which point
+in the queue*. If one field serves both "after what I am recording" and "right
+now", the two agree on every steady frame and disagree on the first frame a
+resource's lifetime changes — which is the frame nobody tests.

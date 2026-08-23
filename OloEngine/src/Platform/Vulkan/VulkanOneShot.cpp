@@ -4,6 +4,8 @@
 
 #include "Platform/Vulkan/VulkanOneShot.h"
 
+#include "Platform/Vulkan/VulkanImageLayoutTracker.h"
+
 #include <cstring>
 
 namespace OloEngine
@@ -50,7 +52,14 @@ namespace OloEngine
                 return false;
             }
 
-            record(cmd);
+            {
+                // Everything recorded here is submitted immediately, i.e. it
+                // executes BEFORE the frame command buffer that may still be
+                // recording. Layout writes made inside therefore advance the
+                // EXECUTED layout as well as the recorded one (issue #800).
+                const VulkanImageLayoutTracker::ImmediateExecutionScope immediate;
+                record(cmd);
+            }
 
             if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
             {
