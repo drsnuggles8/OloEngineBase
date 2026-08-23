@@ -36,19 +36,32 @@ namespace OloEngine
         // spatial frame equally dark (SceneColor mean 65.5 -> 32.3), which is what
         // separates this from an FSR2 rendering bug.
         //
-        // THE RANGE IS THE ENGINE'S BINDING SPACE, NOT FSR2'S. The first version
-        // sized these loops from the `FSR2_BIND_{SRV,UAV,CB}_*` macros, on the
-        // assumption those were the GL binding points. They are not — the backend
-        // assigns its own, and it was leaving its sampler on units 13, 14 and 15
-        // while the macros peak at 12. Unit 13 is `u_ShadowAtlas`, declared
-        // `sampler2DArrayShadow`, so a sampler with comparisons disabled sat on a
-        // depth texture read by a shadow sampler: undefined behaviour, ~100k
-        // driver warnings a minute, and shadow reads that resolve as unshadowed.
+        // THE RANGE IS DERIVED FROM OUR OWN BUILD FLAGS. The first version sized
+        // these loops straight from the `FSR2_BIND_{SRV,UAV,CB}_*` macros, on the
+        // assumption those were the GL binding points. They are not: the shader
+        // compile in `cmake/fsr2.cmake` passes `--stb comp 8 --ssb comp 8`, so
+        // every texture and sampler binding is its macro PLUS 8. FSR2 was leaving
+        // its sampler on units 13-15 while the macros peak at 12 — and unit 13 is
+        // `u_ShadowAtlas`, declared `sampler2DArrayShadow`, so a comparison-
+        // disabled sampler sat on a depth texture read by a shadow sampler:
+        // undefined behaviour, ~100k driver warnings a minute, and shadow reads
+        // that silently resolve as unshadowed.
         //
-        // Sizing from what the ENGINE reads inverts that dependency and cannot go
-        // stale when FSR2 changes: a unit past the engine's own slot space is one
-        // nothing here will ever sample, so FSR2 is welcome to leave anything it
-        // likes there.
+        // The second version fixed that by sweeping the ENGINE's whole slot space
+        // instead. Correct, but ~1000 GL calls per dispatch, and MEASURED at
+        // 0.55ms (1080p) / 1.67ms (1440p) of added cost once the units actually
+        // hold textures — more than FSR2's own dispatch. It looked free when it
+        // was written because an isolated test leaves most units empty, so the
+        // rebinds were no-ops.
+        //
+        // So: the shift is ours, it lives in a file in this repo, and it cannot
+        // drift without someone editing that file — which makes it a sound thing
+        // to size from, unlike upstream's macros. Textures and samplers can only
+        // land in [8, 8 + maxSrv], images only in [0, 8) (`--sib comp 0`, and
+        // NVIDIA exposes just 8 image units in GL), constant buffers only at their
+        // unshifted macro values. Each range carries slack over the macro maxima
+        // so a modest upstream addition stays covered, and all three are clamped
+        // to both the engine's slot space and the driver's limits.
         //
         // GLStateGuard is deliberately no help: it documents that per-slot texture
         // and UBO bindings are NOT restored, because for an ordinary render pass
@@ -61,7 +74,8 @@ namespace OloEngine
             FSR2BindingScope()
             {
                 m_UboSlots = ClampToDriverLimit(GL_MAX_UNIFORM_BUFFER_BINDINGS, kUboSlots);
-                m_TextureSlots = ClampToDriverLimit(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, kTextureSlots);
+                m_TextureSlots = ClampToDriverLimit(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS,
+                                                    kTextureFirstUnit + kTextureUnitCount);
                 m_ImageSlots = ClampToDriverLimit(GL_MAX_IMAGE_UNITS, kImageSlots);
 
                 for (u32 i = 0; i < m_UboSlots; ++i)
@@ -79,17 +93,17 @@ namespace OloEngine
                 glGetIntegerv(GL_ACTIVE_TEXTURE, &activeUnit);
                 m_ActiveTexture = static_cast<GLenum>(activeUnit);
 
-                for (u32 i = 0; i < m_TextureSlots; ++i)
+                for (u32 unit = kTextureFirstUnit; unit < m_TextureSlots; ++unit)
                 {
                     // There is no core indexed query for a texture binding, so the
                     // units have to be walked. Per TARGET, because a unit can hold
                     // one binding per target at once and the engine uses all three.
-                    glActiveTexture(GL_TEXTURE0 + i);
+                    glActiveTexture(GL_TEXTURE0 + unit);
                     for (u32 t = 0; t < kTargetCount; ++t)
                     {
                         GLint texture = 0;
                         glGetIntegerv(kTargetBindingQuery[t], &texture);
-                        m_Textures[t][i] = static_cast<GLuint>(texture);
+                        m_Textures[t][unit - kTextureFirstUnit] = static_cast<GLuint>(texture);
                     }
                 }
 
@@ -135,7 +149,7 @@ namespace OloEngine
                         glBindBufferBase(GL_UNIFORM_BUFFER, i, b.Name);
                 }
 
-                for (u32 i = 0; i < m_TextureSlots; ++i)
+                for (u32 unit = kTextureFirstUnit; unit < m_TextureSlots; ++unit)
                 {
                     // UNBIND rather than capture-and-replay. The engine binds no
                     // sampler objects at all — there is not one glBindSampler in it,
@@ -144,15 +158,15 @@ namespace OloEngine
                     // restoring whatever was there. Replaying a capture would
                     // faithfully put back a LEAK from an earlier dispatch; this
                     // cannot. It also drops a query per unit.
-                    glBindSampler(i, 0u);
+                    glBindSampler(unit, 0u);
 
                     // glBindTexture per target, NOT glBindTextureUnit: the latter
                     // takes no target and resets EVERY target on the unit when the
                     // name is 0, so replaying a 2D capture through it wipes the
                     // array and cube bindings a unit also holds.
-                    glActiveTexture(GL_TEXTURE0 + i);
+                    glActiveTexture(GL_TEXTURE0 + unit);
                     for (u32 t = 0; t < kTargetCount; ++t)
-                        glBindTexture(kTarget[t], m_Textures[t][i]);
+                        glBindTexture(kTarget[t], m_Textures[t][unit - kTextureFirstUnit]);
                 }
 
                 for (u32 i = 0; i < m_ImageSlots; ++i)
@@ -182,13 +196,14 @@ namespace OloEngine
                 return std::min(wanted, static_cast<u32>(limit));
             }
 
-            // The ENGINE's binding space — see the note above for why this is not
-            // sized from FSR2's macros.
-            static constexpr u32 kUboSlots = ShaderBindingLayout::UBO_BINDING_LIMIT;
-            static constexpr u32 kTextureSlots = ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS;
-            // Images have no engine-side constant to key off, so this is the
-            // driver's own ceiling; it is small (often 8).
-            static constexpr u32 kImageSlots = 32u;
+            // `--stb comp 8 --ssb comp 8` in cmake/fsr2.cmake. FSR2_BIND_SRV_*
+            // peaks at 12, so 8..20 is reachable; 8..27 leaves room to spare.
+            static constexpr u32 kTextureFirstUnit = 8u;
+            static constexpr u32 kTextureUnitCount = 20u;
+            // FSR2_BIND_CB_* peaks at 18 and is NOT shifted; 24 leaves room.
+            static constexpr u32 kUboSlots = 24u;
+            // `--sib comp 0`, and GL_MAX_IMAGE_UNITS is 8 on NVIDIA anyway.
+            static constexpr u32 kImageSlots = 8u;
 
             static constexpr u32 kTargetCount = 3u;
             static constexpr GLenum kTarget[kTargetCount] = { GL_TEXTURE_2D, GL_TEXTURE_2D_ARRAY,
@@ -215,7 +230,7 @@ namespace OloEngine
             };
 
             std::array<Buffer, kUboSlots> m_Ubo{};
-            std::array<std::array<GLuint, kTextureSlots>, kTargetCount> m_Textures{};
+            std::array<std::array<GLuint, kTextureUnitCount>, kTargetCount> m_Textures{};
             std::array<Image, kImageSlots> m_Image{};
             GLenum m_ActiveTexture = GL_TEXTURE0;
 

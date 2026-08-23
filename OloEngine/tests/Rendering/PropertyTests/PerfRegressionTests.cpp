@@ -70,6 +70,7 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -1585,12 +1586,93 @@ namespace OloEngine::Tests
             return best;
         }
 
+        // FSR2's OWN dispatch cost, isolated from the scene, straight off the
+        // engine's per-pass GL timestamp queries. This is the number the upstream
+        // author's "about 3x slower than expected" claim is about — whole-frame
+        // timings cannot answer it, because the scene cost moves with the render
+        // scale at the same time.
+        //
+        // Sampled across many frames taking the MINIMUM: the pool publishes results
+        // a couple of frames late and jitter only ever lengthens a sample.
+        [[nodiscard]] f64 MeasureFsr2PassMs(const EditorCamera& camera)
+        {
+            auto& pool = GPUPassTimerPool::GetInstance();
+            f64 best = std::numeric_limits<f64>::max();
+            for (u32 i = 0; i < 40u; ++i)
+            {
+                RunEditorFrames(camera, 1);
+                for (const auto& timing : pool.GetLastPassTimingsCopy())
+                {
+                    if (timing.Name == "FSR2Pass" && timing.GpuMs > 0.0)
+                        best = std::min(best, timing.GpuMs);
+                }
+            }
+            return (best == std::numeric_limits<f64>::max()) ? 0.0 : best;
+        }
+
+        [[nodiscard]] static EditorCamera MakeCameraFor(u32 width, u32 height)
+        {
+            EditorCamera camera(60.0f, static_cast<f32>(width) / static_cast<f32>(height), 0.1f, 500.0f);
+            camera.SetViewportSize(static_cast<f32>(width), static_cast<f32>(height));
+            camera.SetPose({ 0.0f, 6.0f, 14.0f }, 0.0f, 0.25f);
+            return camera;
+        }
+
         [[nodiscard]] static bool TemporalIsUsable()
         {
             const Ref<TemporalUpscaler> upscaler = TemporalUpscaler::Create();
             return upscaler && upscaler->IsAvailable();
         }
     };
+
+    // Is FSR2 on this backend actually slower than it should be, or does it just
+    // look that way on a cheap frame? Whole-frame numbers cannot separate the
+    // two. This reports FSR2's own dispatch cost at three output resolutions and
+    // normalises per megapixel, because a small dispatch is dominated by fixed
+    // setup and reads worse per-pixel than it really is.
+    //
+    // The reference to compare against: AMD quotes FSR2 at roughly 1.1-1.2 ms for
+    // 4K output on an RX 6800 XT, i.e. about 0.145 ms per megapixel on hardware
+    // slower than anything this runs on. A flat cost-per-megapixel well above
+    // that, holding as resolution rises, is the upstream VRAM-throughput problem
+    // (https://juandiegomontoya.github.io/porting_fsr2.html#performance). A
+    // per-megapixel cost that FALLS steeply with resolution is fixed overhead,
+    // which is a different and much less alarming story.
+    TEST_F(FSR2Perf, UpscaleCostPerMegapixelAcrossOutputResolutions)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (!TemporalIsUsable())
+            GTEST_SKIP() << "FSR2 is not available on this build/backend";
+
+        auto& pp = Renderer3D::GetPostProcessSettings();
+        pp.Upscale = UpscaleMode::Quality;
+        pp.Technique = UpscalerTechnique::Temporal;
+
+        struct Resolution
+        {
+            u32 Width;
+            u32 Height;
+        };
+        constexpr Resolution kResolutions[] = { { 1280u, 720u }, { 1920u, 1080u }, { 2560u, 1440u } };
+
+        std::cout << "[FSR2 dispatch cost, RTX 4090]" << std::endl;
+        for (const auto& res : kResolutions)
+        {
+            ResizeRenderTarget(res.Width, res.Height);
+            const EditorCamera camera = MakeCameraFor(res.Width, res.Height);
+            RunEditorFrames(camera, 12); // settle history AND first-use costs at this extent
+            const f64 ms = MeasureFsr2PassMs(camera);
+            const f64 megapixels = (static_cast<f64>(res.Width) * res.Height) / 1.0e6;
+            std::cout << "  " << res.Width << "x" << res.Height << "  FSR2Pass = " << ms << " ms"
+                      << "   (" << (ms / megapixels) << " ms/MPix)" << std::endl;
+            EXPECT_GT(ms, 0.0) << "no FSR2Pass GPU timing was published at " << res.Width << "x" << res.Height
+                               << " — the pass did not run, so the cost below means nothing";
+        }
+
+        ResizeRenderTarget(kFsrWidth, kFsrHeight);
+        pp.Upscale = UpscaleMode::Off;
+        pp.Technique = UpscalerTechnique::Spatial;
+    }
 
     TEST_F(FSR2Perf, TemporalUpscaleReducesGpuFrameTimeAtQualityAndBalanced)
     {

@@ -470,16 +470,62 @@ varying the input colour format. The cause is **unresolved** — the author's gu
 compiler generates different code per API. **AMD (RX 6800) behaves as expected.**
 <https://juandiegomontoya.github.io/porting_fsr2.html#performance>
 
-Our own measurement on an RTX 4090 is consistent with that and should be read alongside it: on a
-fill-bound 1920x1080 scene, the FSR1 spatial upscaler at the same 0.667 render scale saved **~25%** of GPU
-frame time while FSR2 saved **nothing** — its dispatch cost cancelled the resolution saving. Treat those
-numbers as indicative only: this host is shared (gh-runners for another repository, sibling worktrees) and
-repeated runs of the same benchmark swung 10x, which is why `FSR2Perf` reports rather than asserts.
+**Measured here on an RTX 4090, driver 610.88, four years and many drivers later — it is still true.**
+`FSR2Perf.UpscaleCostPerMegapixelAcrossOutputResolutions` reports FSR2's own dispatch cost, which is the
+only measurement that can answer this (a whole-frame number moves the scene cost at the same time):
+
+| output | FSR2Pass | ms/MPix |
+|---|---|---|
+| 1280x720 | 0.210 ms | 0.228 |
+| 1920x1080 | 0.427 ms | 0.206 |
+| 2560x1440 | 0.711 ms | 0.193 |
+
+Almost perfectly linear in output pixels — **0.178 ms/MPix marginal, ~0.05 ms fixed** — so it is
+throughput-bound rather than dominated by small-dispatch overhead, which is the reading that would have
+excused it. Extrapolated to 4K that is **~1.5 ms on a 4090**, against AMD's quoted ~1.1-1.2 ms at 4K on an
+RX 6800 XT. Roughly 3x slower than the hardware class implies, matching the author's figure.
+
+**Two levers were tested and neither helps.** Recorded so nobody re-runs them:
+
+* **FP16 for the accumulate pass.** The backend disables it on NVIDIA ("reduced occupancy and high VRAM
+  throughput") and that looked like stale Turing-era tuning worth revisiting on Ada. Re-enabling it made
+  FSR2 **3.4-8.9x SLOWER** at every resolution (1080p: 0.42 -> 1.55 ms). The workaround is correct and
+  load-bearing, and the result corroborates the author's VRAM-throughput diagnosis rather than
+  undermining it.
+* **The `rw_prepared_input_color` `rgba16`-over-`RGBA16F` mismatch.** Fixing it is **performance-neutral**
+  (within 0.5%). Still worth fixing as correctness — it is undefined behaviour — but it is not a speed
+  lever. (Measured properly here; an earlier "inert" verdict on this was taken against BRIGHTNESS during
+  the window when the stale-shader build trap could have voided it.)
+
+`useLut` is a third candidate and probably not worth the trip: it is gated on `waveLaneCountMax == 64`
+while the GL backend hardcodes that to 0, so the reproject pass always takes the reference Lanczos — but
+DX12/Vulkan on NVIDIA (wave32) picks the same path, so it is not a GL-specific regression.
 
 **The consequence for #684's acceptance criterion is real:** "a GPU frame-time reduction at 67%/59%" may
 not be achievable on NVIDIA with this backend at all, and that is an upstream problem rather than an
 integration one. Anyone picking this up should measure on AMD before concluding the integration is at
 fault, and should not promise the win on NVIDIA without re-measuring on an idle machine.
+
+### A state restore that is free in an isolated test can be the most expensive thing in the frame
+
+`FSR2BindingScope` originally swept the engine's whole binding space — 70 texture units x 3 targets plus
+83 UBO slots, ~1000 GL calls per dispatch. It looked free when it was written, because the isolated test
+that measured it leaves most units EMPTY and rebinding 0 over 0 is a no-op the driver discards.
+
+Measured once the other renderer tests had run first and the units actually held textures, it cost
+**0.55 ms at 1080p and 1.67 ms at 1440p** — more than FSR2's own dispatch, and at 1440p more than triple
+it. The signature was a per-pass cost that was reproducible at two DIFFERENT values depending only on what
+had run before it in the same process: 0.43 ms isolated, 0.97 ms after the visual tests, both stable
+across repeats. That is not noise, and it is worth recognising: **if a measurement is reproducible at two
+values, the variable is state, not jitter.** It had also been quietly wrecking the whole-frame benchmark,
+which was being blamed on GPU contention.
+
+The fix was to size the restore to the slots FSR2 can actually REACH rather than everything the engine
+owns. The reachable set is knowable because the shift is ours: `cmake/fsr2.cmake` passes
+`--stb comp 8 --ssb comp 8 --sib comp 0`, so textures and samplers land at macro+8 and images at 0-7.
+Sizing from a constant in this repo is sound in a way that sizing from upstream's macros was not — that
+was the original bug. Narrowed cost is within ~2.5% of not restoring at all, with the shadow-sampler UB
+still at zero.
 
 **A caveat the author documents and we inherit:** OpenGL's `[-1, 1]` NDC depth against FSR2's `[0, 1]`
 assumption leaves its depth constants "subtly wrong". The author judged the result "imperceptibly wrong",
