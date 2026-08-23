@@ -209,12 +209,13 @@ namespace OloEngine
         void DestroyModules();
         void ReflectStage(VkShaderStageFlagBits stage, const std::vector<u32>& spirv);
 
-        [[nodiscard]] std::filesystem::path CachePathForStage(VkShaderStageFlagBits stage) const;
-        [[nodiscard]] bool IsCacheStale(const std::filesystem::path& cachedPath) const;
+        // |contentHash| is the preprocessed stage source + the shaderc option
+        // set hashed together (issue #906) — content-addressed, so existence
+        // alone is validity and no separate staleness check is needed.
+        [[nodiscard("Store this!")]] std::filesystem::path CachePathForStage(VkShaderStageFlagBits stage, const std::string& contentHash) const;
 
         std::string m_Name;
         std::string m_FilePath;
-        std::vector<std::string> m_IncludedFilePaths;
         std::unordered_map<VkShaderStageFlagBits, std::vector<u32>> m_SPIRV;
         std::unordered_map<VkShaderStageFlagBits, VkShaderModule> m_Modules;
         bool m_HasMeshStage = false; // mirrors m_Modules at commit time (#813)

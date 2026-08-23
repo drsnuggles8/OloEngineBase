@@ -746,8 +746,38 @@ namespace OloEngine
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::ImportAsset");
 
-        // Normalize to absolute project path before checking existence
-        std::filesystem::path absolutePath = std::filesystem::absolute(filepath);
+        // Normalize to an absolute path. A relative input is ambiguous between two
+        // conventions that both exist in checked-in scene content today (issue #887):
+        //   - project-relative ("Assets/Textures/Foo.png") — the current, documented
+        //     contract (SceneSerializer::LoadSceneTexture resolves scene texture paths
+        //     against the project asset root), used by newly-authored references.
+        //   - working-directory-relative ("SandboxProject/Assets/Textures/Foo.png") — an
+        //     older spelling several existing scenes still carry (PinkCubeWithTextures,
+        //     the Sponza scenes, VehiclesTest, Drift), which happens to resolve correctly
+        //     because OloEditor's actual cwd is OloEditor/, one level above the project
+        //     directory (OloEditor/SandboxProject/).
+        // Try the documented project-relative form first; only a path that doesn't exist
+        // there falls back to plain std::filesystem::absolute() (cwd-relative), so those
+        // older scenes keep resolving exactly as before until they're resaved. Resolving
+        // unconditionally against cwd (the previous behaviour) silently walked a
+        // project-relative input into the engine's own OloEditor/assets/ tree instead
+        // whenever a same-named file happened to exist there too — found, but keyed under
+        // a bogus "../assets/..." relative path that never matched a subsequent
+        // correctly-spelled lookup, and whose own load then failed because *that* path
+        // isn't valid from cwd either.
+        std::filesystem::path absolutePath;
+        if (filepath.is_absolute())
+        {
+            absolutePath = filepath;
+        }
+        else
+        {
+            std::filesystem::path projectRelative = m_ProjectPath / filepath;
+            std::error_code existsEc;
+            absolutePath = (std::filesystem::exists(projectRelative, existsEc) && !existsEc)
+                               ? projectRelative
+                               : std::filesystem::absolute(filepath);
+        }
 
         // Use error_code overload to handle filesystem errors gracefully
         std::error_code ec;
@@ -772,7 +802,7 @@ namespace OloEngine
         }
 
         // Convert to project-relative path
-        std::filesystem::path relativePath = GetRelativePath(filepath);
+        std::filesystem::path relativePath = GetRelativePath(absolutePath);
 
         // Check if already imported
         if (AssetHandle existingHandle = m_AssetRegistry.GetHandleFromPath(relativePath); existingHandle != 0)

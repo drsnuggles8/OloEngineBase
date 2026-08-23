@@ -508,7 +508,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(loadedTerrain.m_CollisionEnabled, freshDefault.m_CollisionEnabled);
     }
     // -------------------------------------------------------------------------
-    // v20 — LODLevel::Error (issue #711)
+    // v21 — LODLevel::Error (issue #711)
     //
     // The gated field sits inside a VARIABLE-LENGTH per-level loop, so getting it
     // wrong desyncs the stream from level 1 onward and corrupts everything after
@@ -518,9 +518,9 @@ namespace OloEngine::Tests
 
     namespace
     {
-        // Writes exactly what a v19 build put on disk for a LODGroupComponent: three
+        // Writes exactly what a v20 build put on disk for a LODGroupComponent: three
         // fields per level, no Error, then Bias and Enabled.
-        std::vector<u8> BuildPreV20LODGroupPayload(const LODGroupComponent& c)
+        std::vector<u8> BuildPreV21LODGroupPayload(const LODGroupComponent& c)
         {
             std::vector<u8> buf;
             FMemoryWriter w(buf);
@@ -542,7 +542,7 @@ namespace OloEngine::Tests
         }
     } // namespace
 
-    TEST(SaveGameVersionMigration, PreV20LODGroupPayloadDefaultsPerLevelErrorNoDesync)
+    TEST(SaveGameVersionMigration, PreV21LODGroupPayloadDefaultsPerLevelErrorNoDesync)
     {
         LODGroupComponent seed;
         seed.m_Enabled = false;
@@ -551,17 +551,17 @@ namespace OloEngine::Tests
         seed.m_LODGroup.Levels.emplace_back(AssetHandle(0xBBBBull), 50.0f, 450u, 0.0f);
         seed.m_LODGroup.Levels.emplace_back(AssetHandle(0xCCCCull), 200.0f, 100u, 0.0f);
 
-        std::vector<u8> payload = BuildPreV20LODGroupPayload(seed);
+        std::vector<u8> payload = BuildPreV21LODGroupPayload(seed);
 
         LODGroupComponent loaded;
         FMemoryReader reader(payload);
         reader.ArIsSaveGame = true;
-        reader.SetArchiveVersion(19); // pre-v20
+        reader.SetArchiveVersion(20); // pre-v21
 
         SaveGameComponentSerializer::Serialize(reader, loaded);
 
         EXPECT_FALSE(reader.IsError());
-        EXPECT_TRUE(reader.AtEnd()) << "Reader did not consume exactly the pre-v20 payload -- desync";
+        EXPECT_TRUE(reader.AtEnd()) << "Reader did not consume exactly the pre-v21 payload -- desync";
 
         ASSERT_EQ(loaded.m_LODGroup.Levels.size(), 3u);
         EXPECT_EQ(static_cast<u64>(loaded.m_LODGroup.Levels[2].MeshHandle), 0xCCCCull);
@@ -570,7 +570,7 @@ namespace OloEngine::Tests
         EXPECT_FLOAT_EQ(loaded.m_LODGroup.Bias, 2.5f);
         EXPECT_FALSE(loaded.m_Enabled);
 
-        // The v20 field stays at its constructor default on every level, which is
+        // The v21 field stays at its constructor default on every level, which is
         // what keeps an old save on the authored-distance selection path.
         for (const auto& level : loaded.m_LODGroup.Levels)
         {
@@ -581,8 +581,8 @@ namespace OloEngine::Tests
 
     TEST(SaveGameVersionMigration, CurrentVersionLODGroupPayloadRoundTripsPerLevelError)
     {
-        // The other half of the v20 gate: at the current version every level's
-        // error must survive, so the pre-v20 test cannot pass merely because
+        // The other half of the v21 gate: at the current version every level's
+        // error must survive, so the pre-v21 test cannot pass merely because
         // nothing writes the field.
         LODGroupComponent seed;
         seed.m_LODGroup.Levels.emplace_back(AssetHandle(0xAAAAull), 10.0f, 900u, 0.0f);

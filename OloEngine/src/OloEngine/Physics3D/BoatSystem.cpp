@@ -113,8 +113,11 @@ namespace OloEngine
             if (!(forwardFlatLen > kMinHorizontalForward))
                 continue; // hull pointing straight up/down — no meaningful heading
             forwardFlat /= forwardFlatLen;
-            // Right-handed with +Y up: starboard is forward rotated -90° about Y.
-            const glm::vec3 rightFlat(forwardFlat.z, 0.0f, -forwardFlat.x);
+            // Right-handed with +Y up: starboard == forward x up, i.e. forward
+            // rotated -90° about Y. For a +Z-forward hull that is local -X —
+            // NOT +X, which is the port beam. See Scene/EntityFacing.h; getting
+            // this backwards was half of issue #897.
+            const glm::vec3 starboardFlat(-forwardFlat.z, 0.0f, forwardFlat.x);
 
             const glm::vec3 linVel = body->GetLinearVelocity();
             if (!IsFinite(linVel))
@@ -178,8 +181,11 @@ namespace OloEngine
 
             if (maxRudderTorque > 0.0f && std::abs(steer) > 1.0e-4f && propImmersion > 0.0f)
             {
-                // +Y torque yaws the nose to starboard (rotating +Z toward +X).
-                const f32 yawTorque = maxRudderTorque * steer * rudderAuthority * propImmersion;
+                // +Y torque takes the hull's +Z bow toward +X, which is the PORT
+                // beam — so a starboard helm order (steer > 0) is a NEGATIVE
+                // torque about world up. Issue #897: this was positive, and a
+                // player pressing "starboard" turned to port.
+                const f32 yawTorque = -maxRudderTorque * steer * rudderAuthority * propImmersion;
                 if (std::isfinite(yawTorque))
                     body->AddTorque(glm::vec3(0.0f, yawTorque, 0.0f));
             }
@@ -196,11 +202,11 @@ namespace OloEngine
             {
                 const glm::vec3 horizontalVel(linVel.x, 0.0f, linVel.z);
                 const f32 alongSpeed = glm::dot(horizontalVel, forwardFlat);
-                const f32 acrossSpeed = glm::dot(horizontalVel, rightFlat);
+                const f32 acrossSpeed = glm::dot(horizontalVel, starboardFlat);
 
                 const glm::vec3 dragForce =
                     forwardFlat * (-alongSpeed * forwardDrag * hullImmersion * dragMassScale) +
-                    rightFlat * (-acrossSpeed * lateralDrag * hullImmersion * dragMassScale);
+                    starboardFlat * (-acrossSpeed * lateralDrag * hullImmersion * dragMassScale);
                 if (IsFinite(dragForce) && glm::dot(dragForce, dragForce) > 0.0f)
                     body->AddForce(dragForce, EForceMode::Force);
             }

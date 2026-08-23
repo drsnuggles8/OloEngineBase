@@ -13,6 +13,7 @@
 #include <glm/vec3.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
 #include <unordered_map>
@@ -104,6 +105,11 @@ namespace OloEngine
         u32 BudgetSlots = 0;
         u64 PageUploads = 0;
         u64 PageEvictions = 0;
+        // How many of the residency-request readback ring's slots (issue #719)
+        // are still awaiting their fence. Saturated (== kResidencyReadbackSlots)
+        // means a request snapshot is being skipped rather than applied late —
+        // surfaced so that state is visible instead of just "requests are slow".
+        u32 RequestReadbackSlotsInFlight = 0;
     };
 
     // Aggregate per-frame cluster-cull statistics, summed over every instance's
@@ -558,6 +564,44 @@ namespace OloEngine
         void CopyThroughRing(RHI::ResourceHandle targetBuffer, u64 targetOffset,
                              const void* payload, u64 bytes);
 
+        // Non-stalling residency-request drain (issue #719). The pre-#719
+        // ProcessResidency did a direct GetData off SSBO_VIRTUAL_GROUP_STATES —
+        // a stall, waiting for whatever the GPU was still doing to it. This is
+        // the same fence-poll ring TerrainVirtualTexture's feedback readback
+        // uses (docs/agent-rules/terrain-virtual-texturing.md,
+        // docs/agent-rules/gpu-readback-stats-channel.md §3): capture a copy on
+        // frame N, poll (ask, never wait) from N+1 on, so a request is decided
+        // against a snapshot that is a small, bounded number of frames old
+        // rather than blocking the frame that wants it.
+        static constexpr u32 kResidencyReadbackSlots = 3;
+        struct ResidencyReadbackSlot
+        {
+            RHI::ResourceHandle m_Buffer{};
+            u64 m_Fence = 0;
+            bool m_Pending = false;
+        };
+        bool EnsureResidencyReadbackSlots();
+        void DestroyResidencyReadbackSlots();
+        // Copies the live group-states SSBO into the next ring slot and fences
+        // it. Never blocks: a full ring (every slot still in flight) skips the
+        // capture for this call and keeps the newest retired snapshot instead
+        // of stalling on the oldest, exactly like CaptureFeedback.
+        void CaptureResidencyStates();
+        // Polls every ring slot OLDEST FIRST (never ClientWaitFence) and, for
+        // each one whose fence has signaled, applies the snapshot it holds:
+        // LRU touches first, then up to m_MaxPageUploadsPerFrame
+        // requested-but-not-resident pages get LoadPage'd. A page load or
+        // eviction from that path records its group in m_DirtyResidencyGroups
+        // rather than republishing the whole buffer, so this cannot clobber
+        // request/touch bits the GPU wrote for LATER frames than the snapshot
+        // being applied.
+        void PollResidencyReadback();
+        // uploadBudget is SHARED across every snapshot one PollResidencyReadback
+        // call applies (several ring slots can signal in the same frame) and is
+        // decremented in place, so the per-frame page-load cap holds across the
+        // whole poll, not per snapshot.
+        void ApplyResidencySnapshot(const std::vector<u32>& gpuStates, u32& uploadBudget);
+
         std::unordered_map<AssetHandle, MeshParts> m_EntryLookup;
         std::vector<MeshEntry> m_Entries; // stable order => deterministic pool layout
         bool m_PoolsDirty = false;
@@ -601,6 +645,18 @@ namespace OloEngine
         u32 m_MaxPageUploadsPerFrame = 64;
         u64 m_FrameCounter = 0;
         VirtualResidencyStats m_ResidencyStats;
+
+        // Residency-request readback ring (issue #719) — see ProcessResidency.
+        std::array<ResidencyReadbackSlot, kResidencyReadbackSlots> m_ResidencyReadbackSlots{};
+        u32 m_NextResidencyReadbackSlot = 0;
+        u32 m_ResidencyReadbackBytes = 0; // byte size of the group-states copy this ring is sized for
+        u32 m_ResidencyReadbackSlotsInFlight = 0;
+        // Groups whose resident bit changed since the last full-buffer publish
+        // (RebuildPools). Drained to targeted per-group writes at the end of
+        // PollResidencyReadback instead of a whole-array SetData, which is what
+        // lets the snapshot apply without racing the GPU's own writes to OTHER
+        // groups for frames after the snapshot was captured.
+        std::vector<u32> m_DirtyResidencyGroups;
 
         // Persistent-mapped upload ring (CPU staging -> arena copies). The
         // substrate's fence-locked ring (#704): a wrap now waits only on the

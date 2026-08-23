@@ -118,6 +118,7 @@ if (entity.HasComponent<CameraRigComponent>())
     SceneBinIO::Write(out, comp.m_HeadBobAmplitude);
     SceneBinIO::Write(out, comp.m_HeadBobFrequency);
     SceneBinIO::Write(out, comp.m_FallbackPitchDeg);
+    SceneBinIO::Write(out, comp.m_TargetForward);
 }
 
 if (entity.HasComponent<CharacterController3DComponent>())

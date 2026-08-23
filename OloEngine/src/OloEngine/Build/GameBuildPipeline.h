@@ -31,17 +31,24 @@ namespace OloEngine
      * in the editor and producing a self-contained, distributable game folder.
      *
      * ## Build Steps
-     * 1. **Validate** — Check that the project has scenes and a valid configuration
+     * 1. **Validate** — Check the requested target platform is one this host can
+     *    produce (#891), then that the project has scenes and a valid configuration
      * 2. **Pack Assets** — Use AssetPackBuilder to create the .olopack file
-     * 3. **Copy Runtime** — Copy OloRuntime.exe to the output directory
-     * 4. **Copy Dependencies** — Copy required DLLs (Mono, zlib)
+     * 3. **Copy Runtime** — Copy the OloRuntime binary to the output directory
+     *    (`OloRuntime.exe` on Windows, `OloRuntime` on Linux — see
+     *    GetHostExecutableFileName), then embed a custom icon (Windows) or write
+     *    a .desktop launcher entry (Linux)
+     * 4. **Copy Dependencies** — Copy required DLLs (Mono, zlib) — Windows only
      * 5. **Copy Engine Resources** — Copy shaders and fonts
      * 6. **Copy Mono Runtime** — Copy mono/lib and mono/etc for C# scripting
-     * 7. **Copy ScriptCore** — Copy the C# ScriptCore assembly
+     *    (skipped when IsScriptingAvailableOnPlatform is false for the target)
+     * 7. **Copy ScriptCore** — Copy the C# ScriptCore assembly (same skip)
      * 8. **Copy Scenes** — Copy .olo scene files from the project
-     * 9. **Write Manifest** — Write game.manifest with game name, start scene, etc.
+     * 9. **Write Manifest** — Write game.manifest with game name, start scene,
+     *    target platform and C# scripting availability, etc.
      *
-     * ## Output Structure
+     * ## Output Structure (Windows target shown; Linux drops the .exe suffix,
+     * the mono/ and Resources/Scripts/ directories, and adds a .desktop entry)
      * ```
      * OutputDirectory/GameName/
      * ├── GameName.exe            (renamed OloRuntime.exe)
@@ -126,15 +133,25 @@ namespace OloEngine
 
         /**
          * @brief Copy the Mono runtime files needed for C# scripting
+         *
+         * A no-op (returns true without copying anything) when the target
+         * platform doesn't support C# scripting — see
+         * IsScriptingAvailableOnPlatform.
          */
         static bool CopyMonoRuntime(
+            const GameBuildSettings& settings,
             const std::filesystem::path& outputDir,
             std::string& errorMessage);
 
         /**
          * @brief Copy the C# ScriptCore assembly
+         *
+         * A no-op (returns true without copying anything) when the target
+         * platform doesn't support C# scripting — see
+         * IsScriptingAvailableOnPlatform.
          */
         static bool CopyScriptCoreAssembly(
+            const GameBuildSettings& settings,
             const std::filesystem::path& outputDir,
             std::string& errorMessage);
 
@@ -182,6 +199,18 @@ namespace OloEngine
         static bool EmbedCustomIcon(
             const std::filesystem::path& exePath,
             const std::filesystem::path& iconPath,
+            std::string& errorMessage);
+
+        /**
+         * @brief Write a Linux .desktop launcher entry next to the game executable
+         *
+         * The Linux arm of icon handling (#891) — replaces the Windows-only
+         * EmbedCustomIcon step. Non-fatal — returns false but lets the build continue.
+         */
+        static bool WriteLinuxDesktopEntry(
+            const std::filesystem::path& exePath,
+            const std::filesystem::path& iconPath,
+            const std::string& gameName,
             std::string& errorMessage);
 
         /**

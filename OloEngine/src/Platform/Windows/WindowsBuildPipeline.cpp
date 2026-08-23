@@ -135,6 +135,15 @@ namespace OloEngine::BuildPipelinePlatform
         return true;
     }
 
+    bool WriteDesktopEntry(const std::filesystem::path& /*exePath*/,
+                           const std::filesystem::path& /*iconPath*/,
+                           const std::string& /*gameName*/,
+                           std::string& outError)
+    {
+        outError = ".desktop entries are not applicable on Windows";
+        return false;
+    }
+
 } // namespace OloEngine::BuildPipelinePlatform
 
 #endif // OLO_PLATFORM_WINDOWS

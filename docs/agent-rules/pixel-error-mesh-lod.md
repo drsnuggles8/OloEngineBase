@@ -94,7 +94,7 @@ group to the distance path it was authored for. A sentinel like -1 would have be
 
 - `Scene/SceneSerializer.cpp` — both the emit and the read, with an `std::isfinite` check.
 - `SaveGame/SaveGameComponentSerializer.cpp::SerializeLODLevel` — gated behind
-  `HasFieldsSince(ar, 20)`. **The `AtEnd()` probe `DecalComponent` uses cannot work here**: the
+  `HasFieldsSince(ar, 21)`. **The `AtEnd()` probe `DecalComponent` uses cannot work here**: the
   field is inside a variable-length per-level loop, so only the last element of the last component
   would ever be at the end. A version gate is the only correct shape for a field appended inside
   an array element.

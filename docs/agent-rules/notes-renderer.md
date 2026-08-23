@@ -238,8 +238,11 @@ is a separate compute path, untouched.
 composite shows only a subtle delta once ToneMap compresses the HDR multiply.
 
 > Shaders load at runtime from `OloEditor/assets/shaders/` **and** are SPIR-V cached under
-> `assets/cache/shader/opengl/` — delete the cached binary after editing a `.glsl` or it is reused.
-> No C++ rebuild is needed for a shader-only change (UBO params living in the test do need one).
+> `ShaderCachePaths::Root()` (outside the source tree since issue #906, default
+> `%LOCALAPPDATA%\OloEngine\ShaderCache`, override via `OLO_SHADER_CACHE_DIR`). The cache key is
+> the preprocessed source content, not a filename, so editing a `.glsl` invalidates its own entry
+> automatically — no manual delete needed. No C++ rebuild is needed for a shader-only change (UBO
+> params living in the test do need one).
 
 ## 12. SSR owns its own min-depth HZB
 
@@ -426,10 +429,11 @@ first.
 
 ## 19. A/B a shader-side renderer change against the live editor without rebuilding
 
-Shaders load from `OloEditor/assets/shaders` at runtime and `OpenGLShader::IsCacheStale` checks
-every transitively included file's mtime, so a `.glsl` edit costs an editor restart, not a build.
-That turns "did this actually change the frame, and by how much?" from an hour of build-mutex queue
-into about two minutes:
+Shaders load from `OloEditor/assets/shaders` at runtime, and the cache key is a hash of the
+preprocessed source (issue #906 — `IsCacheStale`'s old mtime check is gone), so a `.glsl` edit
+invalidates its own cache entry automatically and costs an editor restart, not a build. That turns
+"did this actually change the frame, and by how much?" from an hour of build-mutex queue into about
+two minutes:
 
 1. Launch with the MCP diagnostics server and capture a **fixed pose set**
    (`olo_screenshot` takes the pose itself and restores it, so one call per pose).

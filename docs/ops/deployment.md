@@ -44,7 +44,10 @@ The server executable **does not** need renderer assets (textures, shaders, HDRI
 | `server.yaml` | Server configuration file |
 
 **Recommended**: Create a minimal server asset package that excludes:
-- `assets/cache/shader/` — SPIR-V shader cache (renderer only)
+- The shader cache — SPIR-V shader cache (renderer only). Since issue #906 it
+  no longer lives under `assets/` at all (relocated to
+  `%LOCALAPPDATA%\OloEngine\ShaderCache` / `OLO_SHADER_CACHE_DIR`), so a
+  package built from the asset tree naturally excludes it already.
 - `assets/textures/` — All textures
 - `assets/models/` — 3D model files (meshes, materials)
 - `assets/hdri/` — Environment maps

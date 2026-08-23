@@ -192,16 +192,13 @@ function BoatController.OnUpdate(id, dt)
 
     boat.throttleInput = clamp(throttle, -1.0, 1.0)
 
-    -- NEGATED, and this is not a typo. BoatComponent documents m_SteerInput as
-    -- "1 = full starboard" and BoatSystem applies +Y torque for it, but +Y takes
-    -- the hull's +Z forward toward +X — and for a +Z-forward object in this
-    -- right-handed Y-up frame, +X is to PORT as seen from a camera sitting
-    -- behind it (forward x up = (-1,0,0)). Measured, not reasoned about after
-    -- the fact: D held, heading went 0 -> +0.42 -> +1.12 rad and world x went
-    -- 1.4 -> 9.5 -> 22, i.e. the boat left frame to the LEFT. So the player's
-    -- "starboard" is a negative steerInput. Filed against the engine; flipped
-    -- here because #879 is content work.
-    boat.steerInput = clamp(-steer * falloff, -1.0, 1.0)
+    -- Straight through: BoatComponent's "1 = full starboard" now really is
+    -- starboard. This line used to be negated because BoatSystem applied a +Y
+    -- yaw torque for a positive steer, which takes a +Z-forward hull's bow
+    -- toward +X — the PORT beam. Fixed in the engine by #897, so the workaround
+    -- is gone and the sign the player's binding produces is the sign the boat
+    -- turns.
+    boat.steerInput = clamp(steer * falloff, -1.0, 1.0)
 
     -- ── Visual heel ─────────────────────────────────────────────────────────
     if not hullID then
@@ -215,10 +212,11 @@ function BoatController.OnUpdate(id, dt)
         end
         prevYaw = heading or prevYaw
 
-        -- Bank INTO the turn: yawing to starboard (negative yaw about +Y, since
-        -- +Y torque yaws the bow to starboard in a right-handed frame with Z
-        -- forward) should drop the starboard rail. A roll about the hull's +Z
-        -- lifts starboard toward up, so the sign is negated once here.
+        -- Bank INTO the turn. A starboard turn is a NEGATIVE yaw rate about +Y
+        -- (starboard is -X for a +Z-forward hull, so the bow swings toward -X),
+        -- and it should drop the starboard rail. A positive roll about the
+        -- hull's own +Z lifts +X — the port rail — toward up, i.e. it drops
+        -- starboard. Hence the one negation here.
         local speedScale = clamp(speed / kHeelSpeedRef, 0.0, 1.0)
         local maxHeel = math.rad(kHeelMaxDeg)
         local heelTarget = clamp(-yawRate * kHeelPerYawRate * speedScale, -maxHeel, maxHeel)

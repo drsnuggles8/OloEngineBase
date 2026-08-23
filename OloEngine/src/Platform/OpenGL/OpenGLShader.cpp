@@ -4,7 +4,9 @@
 #include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLProgramBinaryCache.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
+#include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Timer.h"
+#include "OloEngine/Renderer/ShaderCachePaths.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -23,6 +25,7 @@
 #include <spirv_cross/spirv_glsl.hpp>
 
 #include <fstream>
+#include <format>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -295,25 +298,202 @@ namespace OloEngine
             return "Unknown";
         }
 
-        [[nodiscard("Store this!")]] static const char* GetCacheDirectory()
+        // Relocated out of the source tree behind OLO_SHADER_CACHE_DIR (issue
+        // #906) — every worktree on this machine now shares one cache instead
+        // of each carrying its own "assets/cache/shader/opengl". No longer
+        // depends on "assets/" existing, which removes a nullptr-returning
+        // path that every caller below dereferenced unconditionally.
+        [[nodiscard("Store this!")]] static std::filesystem::path GetCacheDirectory()
         {
-            if (const std::filesystem::path assetsDirectory = "assets"; !std::filesystem::exists(assetsDirectory))
-            {
-                OLO_CORE_ERROR("The assets directory does not exist.");
-                return nullptr;
-            }
-
-            return "assets/cache/shader/opengl";
+            return ShaderCachePaths::Root() / "opengl";
         }
 
         static void CreateCacheDirectoryIfNeeded()
         {
+            // Non-throwing overloads (issue #906 review): the root can now be
+            // a user-supplied OLO_SHADER_CACHE_DIR or %LOCALAPPDATA%, either
+            // of which can be on an inaccessible/read-only volume — that must
+            // degrade to "no cache this session", not abort shader creation.
             const std::filesystem::path cacheDirectory = GetCacheDirectory();
-            if (!std::filesystem::exists(cacheDirectory))
+            std::error_code ec;
+            if (!std::filesystem::exists(cacheDirectory, ec))
             {
-                std::filesystem::create_directories(cacheDirectory);
+                std::filesystem::create_directories(cacheDirectory, ec);
+                if (ec)
+                {
+                    OLO_CORE_WARN("Could not create shader cache directory '{0}': {1} — shaders will "
+                                  "compile without a cache this session.",
+                                  cacheDirectory.string(), ec.message());
+                }
             }
         }
+
+        // ---------------------------------------------------------------
+        // Content-addressed cache keys (issue #906).
+        //
+        // `git worktree add` checks files out with the checkout's OWN mtime,
+        // so a byte-identical shader in a fresh worktree always looks newer
+        // than any pre-existing cache entry — an mtime-keyed cache can never
+        // hit across worktrees. Hashing the preprocessed source (includes
+        // already resolved) together with every compiler option that affects
+        // the output makes the cache key exact: two inputs that hash the same
+        // ARE the same, so a hit needs no staleness check at all, and a
+        // hand-changed option below is invisible to nobody — it changes the
+        // descriptor string, which changes the hash, which changes the
+        // filename.
+        // ---------------------------------------------------------------
+
+        [[nodiscard("Store this!")]] static std::string HashHex(std::initializer_list<std::string_view> parts)
+        {
+            u64 hash = Hash::FNV1a64OffsetBasis;
+            for (const std::string_view part : parts)
+            {
+                hash = Hash::FNV1a64(part.data(), part.size(), hash);
+            }
+            return std::format("{:016x}", hash);
+        }
+
+        // Same as HashHex, but the primary input is raw SPIR-V words rather
+        // than text — used by the cross-compile tier, whose input is the
+        // Vulkan tier's OUTPUT, not GLSL source.
+        [[nodiscard("Store this!")]] static std::string HashHexBytes(const std::vector<u32>& words, std::initializer_list<std::string_view> extraParts)
+        {
+            u64 hash = Hash::FNV1a64(words.data(), words.size() * sizeof(u32));
+            for (const std::string_view part : extraParts)
+            {
+                hash = Hash::FNV1a64(part.data(), part.size(), hash);
+            }
+            return std::format("{:016x}", hash);
+        }
+
+        // Content hash for the machine-local program-binary tier (issue #906).
+        // The GL program binary itself is driver-produced and not portable, but
+        // the KEY still needs to be content-addressed rather than mtime-based —
+        // otherwise a shared cache directory (ShaderCachePaths::Root()) would
+        // hit the exact same cross-worktree mtime problem one tier up. Stage
+        // order is sorted first: unordered_map iteration order is unspecified,
+        // and the hash must be reproducible run to run.
+        [[nodiscard("Store this!")]] static std::string HashHexSpirvMap(const std::unordered_map<GLenum, std::vector<u32>>& spirvMap)
+        {
+            std::vector<GLenum> stages;
+            stages.reserve(spirvMap.size());
+            for (const auto& [stage, data] : spirvMap)
+            {
+                stages.push_back(stage);
+            }
+            std::ranges::sort(stages);
+
+            u64 hash = Hash::FNV1a64OffsetBasis;
+            for (const GLenum stage : stages)
+            {
+                hash = Hash::FNV1a64(&stage, sizeof(stage), hash);
+                const auto& data = spirvMap.at(stage);
+                hash = Hash::FNV1a64(data.data(), data.size() * sizeof(u32), hash);
+            }
+            return std::format("{:016x}", hash);
+        }
+
+        // Same as HashHexSpirvMap, for the bindless raw-GLSL route (issue #906)
+        // — it has no SPIR-V at all (glslang rejects GL_ARB_bindless_texture
+        // when generating SPIR-V), so its program-binary cache key is hashed
+        // straight from the preprocessed GLSL text per stage instead.
+        [[nodiscard("Store this!")]] static std::string HashHexSourceMap(const std::unordered_map<GLenum, std::string>& sources)
+        {
+            std::vector<GLenum> stages;
+            stages.reserve(sources.size());
+            for (const auto& [stage, source] : sources)
+            {
+                stages.push_back(stage);
+            }
+            std::ranges::sort(stages);
+
+            u64 hash = Hash::FNV1a64OffsetBasis;
+            for (const GLenum stage : stages)
+            {
+                hash = Hash::FNV1a64(&stage, sizeof(stage), hash);
+                const auto& source = sources.at(stage);
+                hash = Hash::FNV1a64(source.data(), source.size(), hash);
+            }
+            return std::format("{:016x}", hash);
+        }
+
+        // A shared cache directory (issue #906) can hand a reader a truncated
+        // or non-word-aligned file — an interrupted write is now plausible in
+        // a way it wasn't for a per-worktree cache. Validate BEFORE resizing:
+        // `size / sizeof(u32)` truncates towards zero, so a non-aligned size
+        // previously under-allocated the vector while the matching
+        // `in.read(data(), size)` still wrote the full (larger) byte count —
+        // a heap buffer overflow, not just a bad read. Treat any rejected
+        // file as a cache miss, never a crash (caught in review).
+        [[nodiscard]] static bool TryReadSpirvCacheFile(std::ifstream& in, std::vector<u32>& out)
+        {
+            in.seekg(0, std::ios::end);
+            const std::streamoff size = in.tellg();
+            in.seekg(0, std::ios::beg);
+
+            if (size <= 0 || size % static_cast<std::streamoff>(sizeof(u32)) != 0)
+            {
+                return false;
+            }
+
+            out.resize(static_cast<sizet>(size) / sizeof(u32));
+            in.read(reinterpret_cast<char*>(out.data()), size);
+            return static_cast<bool>(in);
+        }
+
+        // Applies the SPIR-V tier's shaderc options AND describes them as text
+        // in one place — the description is hashed into the cache key, so
+        // there is no second place that can fall out of sync with the actual
+        // compile (the acceptance-criteria concern in issue #906: changing an
+        // option below must invalidate affected entries without a manual
+        // cache delete).
+        class VulkanTierOptions
+        {
+          public:
+            static void Apply(shaderc::CompileOptions& options)
+            {
+                options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+                options.SetPreserveBindings(true);
+                options.SetAutoBindUniforms(false);
+                options.SetGenerateDebugInfo();
+                options.SetOptimizationLevel(shaderc_optimization_level_performance);
+                // Suppress warnings: shaderc's message parser asserts on malformed
+                // glslang warning strings (message.cc line 240). Warnings are
+                // informational and must not crash the engine.
+                options.SetSuppressWarnings();
+            }
+
+            [[nodiscard("Store this!")]] static std::string_view Descriptor()
+            {
+                return "env=vulkan1.2;preserve_bindings=1;auto_bind_uniforms=0;"
+                       "debug_info=1;opt=performance;suppress_warnings=1";
+            }
+        };
+
+        // Bump whenever CreateProgramFromRawGLSL's patch logic changes (the
+        // `kPrologue` text or the `kVulkanBuiltinShims` substitution table) —
+        // that route's program-binary cache key hashes the RAW pre-patch
+        // source (issue #906), since there is no SPIR-V tier to key from
+        // instead, so a patch-logic-only change is otherwise invisible to the
+        // key and would silently keep serving binaries built from the old
+        // patch (caught in review).
+        constexpr std::string_view kBindlessPatchVersion = "bindless-patch-v1";
+
+        // Mirrors VulkanTierOptions above for the SPIRV-Cross → GLSL → OpenGL
+        // SPIR-V tier (CompileOrGetOpenGLBinaries): the cross-compiler options
+        // (glslOptions) AND the re-compile options both affect the cached
+        // bytes, so both are in the descriptor.
+        class OpenGLTierOptions
+        {
+          public:
+            [[nodiscard("Store this!")]] static std::string_view Descriptor()
+            {
+                return "cross:version=450;es=0;vulkan_semantics=0;separate_shader_objects=0;"
+                       "enable_420pack=1;emit_ubo_as_plain_uniforms=0;"
+                       "require_ext=GL_ARB_separate_shader_objects|"
+                       "recompile:env=opengl4.5;preserve_bindings=1;suppress_warnings=1";
+            }
+        };
 
         [[nodiscard("Store this!")]] static const char* GLShaderStageCachedOpenGLFileExtension(const u32 stage)
         {
@@ -704,14 +884,6 @@ namespace OloEngine
         return ProcessIncludesInternal(source, directory, includedFiles);
     }
 
-    std::string OpenGLShader::ProcessIncludes(const std::string& source, const std::string& directory, std::vector<std::string>& outIncludePaths)
-    {
-        std::unordered_set<std::string> includedFiles;
-        auto result = ProcessIncludesInternal(source, directory, includedFiles);
-        outIncludePaths.assign(includedFiles.begin(), includedFiles.end());
-        return result;
-    }
-
     std::string OpenGLShader::ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles)
     {
         OLO_PROFILE_FUNCTION();
@@ -792,30 +964,6 @@ namespace OloEngine
         }
 
         return result.str();
-    }
-
-    bool OpenGLShader::IsCacheStale(const std::filesystem::path& cachedPath) const
-    {
-        std::error_code ec;
-        auto const cacheTime = std::filesystem::last_write_time(cachedPath, ec);
-        if (ec)
-            return true; // Cannot stat cache file → treat as stale
-
-        // Check the main shader file
-        if (auto const shaderTime = std::filesystem::last_write_time(m_FilePath, ec); ec || shaderTime > cacheTime)
-            return true;
-
-        // Check every transitively included file
-        for (const auto& includePath : m_IncludedFilePaths)
-        {
-            auto const includeTime = std::filesystem::last_write_time(includePath, ec);
-            if (ec)
-                continue; // Include might have been removed — skip
-            if (includeTime > cacheTime)
-                return true;
-        }
-
-        return false;
     }
 
     // -------------------------------------------------------------------------
@@ -942,11 +1090,21 @@ namespace OloEngine
 
         const GLuint program = glCreateProgram();
 
+        // Hashed from the RAW pre-patch sources, not m_OpenGLSourceCode (the
+        // patched text) — this route has no SPIR-V tier to key from, and the
+        // patch (prologue + Vulkan-builtin shim) is a pure function of the raw
+        // source, so hashing it here and reusing the same value for the save
+        // below keeps Load and Save looking at the same key (issue #906).
+        // kBindlessPatchVersion covers the patch logic itself, which the raw
+        // source can't (see its declaration).
+        const std::string contentHash =
+            Utils::HashHex({ Utils::kBindlessPatchVersion }) + Utils::HashHexSourceMap(sources);
+
         // The variant-keyed cache. Same reasoning as the SPIR-V tiers: a linked
         // program binary is the expensive artefact, and it is reusable here even
         // though nothing else about this route is — glGetProgramBinary does not
         // care how the program was built.
-        if (LoadProgramBinaryCache(program))
+        if (LoadProgramBinaryCache(program, contentHash))
         {
             FinalizeProgram(program, {});
             m_CompilationStatus = ShaderCompilationStatus::Ready;
@@ -978,6 +1136,11 @@ namespace OloEngine
             // GL_ARB_shader_draw_parameters is DELIBERATELY NOT ENABLED here — see
             // the shim below. Enabling it changed what `gl_InstanceIndex` resolves
             // to and silently desynchronised every instanced draw.
+            //
+            // Editing this prologue OR kVulkanBuiltinShims below? Bump
+            // Utils::kBindlessPatchVersion — this route's program-binary
+            // cache key hashes the raw pre-patch source, which can't see a
+            // patch-logic-only change (issue #906).
             static constexpr std::string_view kPrologue =
                 "#extension GL_ARB_bindless_texture : require\n"
                 "#define OLO_BINDLESS 1\n";
@@ -1162,7 +1325,7 @@ namespace OloEngine
         }
 
         FinalizeProgram(freshProgram, {});
-        SaveProgramBinaryCache();
+        SaveProgramBinaryCache(contentHash);
         m_CompilationStatus = ShaderCompilationStatus::Ready;
 
         // NO SPIR-V MEANS NO Reflect(), so two pieces of state the ordinary route
@@ -1172,7 +1335,7 @@ namespace OloEngine
         return true;
     }
 
-    std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(std::string_view source)
+    std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(std::string_view source) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1231,17 +1394,16 @@ namespace OloEngine
         }
 
         // Process includes per stage independently — each stage gets a fresh includedFiles set.
-        // Also collect all included file paths for cache invalidation.
-        m_IncludedFilePaths.clear();
+        // Includes are spliced VERBATIM into the stage source (not left as a
+        // #include the GPU compiler resolves), so the resulting text already
+        // carries every transitively included file's content — the cache key
+        // hashed from this text (issue #906) is naturally sensitive to an
+        // included header changing, with no separate include-path tracking
+        // needed for invalidation.
         for (auto& [type, stageSource] : shaderSources)
         {
-            std::vector<std::string> stageIncludes;
-            stageSource = ProcessIncludes(stageSource, "", stageIncludes);
-            m_IncludedFilePaths.insert(m_IncludedFilePaths.end(), stageIncludes.begin(), stageIncludes.end());
+            stageSource = ProcessIncludes(stageSource, "");
         }
-        // Deduplicate (order doesn't matter for cache invalidation)
-        std::ranges::sort(m_IncludedFilePaths);
-        m_IncludedFilePaths.erase(std::unique(m_IncludedFilePaths.begin(), m_IncludedFilePaths.end()), m_IncludedFilePaths.end());
 
         return shaderSources;
     }
@@ -1308,25 +1470,30 @@ namespace OloEngine
                 if (hasError.load(std::memory_order_relaxed))
                     return; // Early exit if another stage failed
 
+                // Content-addressed key (issue #906): the preprocessed SOURCE
+                // (includes already resolved by PreProcess) plus every option
+                // that affects the compiled bytes, plus the stage — two inputs
+                // that hash the same ARE the same, so a hit needs no staleness
+                // check, and a fresh worktree with byte-identical shaders
+                // lands on the exact same filename a warm cache already has.
                 const std::filesystem::path shaderFilePath = m_FilePath;
-                const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedVulkanFileExtension(stage));
+                const std::string contentHash = Utils::HashHex({ source, Utils::VulkanTierOptions::Descriptor(),
+                                                                 Utils::GLShaderStageToString(stage) });
+                const std::filesystem::path cachedPath =
+                    cacheDirectory / (shaderFilePath.filename().string() + "." + contentHash +
+                                      Utils::GLShaderStageCachedVulkanFileExtension(stage));
                 result.CachePath = cachedPath;
 
-                // Try to load from cache first
-                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary); in.is_open() && !disableCache)
+                // Try to load from cache first — existence alone is validity,
+                // the hash already proves the content and options match. A
+                // malformed file (truncated by a concurrent/interrupted write
+                // to the shared cache) is a cache miss, not a crash.
+                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
+                    in.is_open() && !disableCache && Utils::TryReadSpirvCacheFile(in, result.SpirvData))
                 {
-                    in.seekg(0, std::ios::end);
-                    const auto size = in.tellg();
-                    in.seekg(0, std::ios::beg);
-
-                    if (!IsCacheStale(cachedPath))
-                    {
-                        result.SpirvData.resize(size / sizeof(u32));
-                        in.read(reinterpret_cast<char*>(result.SpirvData.data()), size);
-                        result.Success = true;
-                        result.NeedsCache = false;
-                        return;
-                    }
+                    result.Success = true;
+                    result.NeedsCache = false;
+                    return;
                 }
 
                 // Log before compilation so crashes leave a breadcrumb
@@ -1337,15 +1504,7 @@ namespace OloEngine
                 // (shaderc is thread-safe but options are not shared)
                 shaderc::Compiler compiler;
                 shaderc::CompileOptions options;
-                options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
-                options.SetPreserveBindings(true);
-                options.SetAutoBindUniforms(false);
-                options.SetGenerateDebugInfo();
-                options.SetOptimizationLevel(shaderc_optimization_level_performance);
-                // Suppress warnings: shaderc's message parser asserts on malformed
-                // glslang warning strings (message.cc line 240).  Warnings are
-                // informational and must not crash the engine.
-                options.SetSuppressWarnings();
+                Utils::VulkanTierOptions::Apply(options);
 
                 shaderc::SpvCompilationResult spirvModule = compiler.CompileGlslToSpv(
                     source, Utils::GLShaderStageToShaderC(stage), m_FilePath.c_str(), options);
@@ -1458,25 +1617,28 @@ namespace OloEngine
                 if (hasError.load(std::memory_order_relaxed))
                     return;
 
+                // Content-addressed key (issue #906): the input is the Vulkan
+                // tier's OUTPUT SPIR-V (itself already content-addressed), so
+                // hashing it here transitively covers the original source and
+                // its options — if tier 1 misses and recompiles, this tier's
+                // key changes too and correctly misses in lockstep.
                 const std::filesystem::path shaderFilePath = m_FilePath;
-                const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedOpenGLFileExtension(stage));
+                const std::string contentHash = Utils::HashHexBytes(
+                    vulkanSpirv, { Utils::OpenGLTierOptions::Descriptor(), Utils::GLShaderStageToString(stage) });
+                const std::filesystem::path cachedPath =
+                    cacheDirectory / (shaderFilePath.filename().string() + "." + contentHash +
+                                      Utils::GLShaderStageCachedOpenGLFileExtension(stage));
                 result.CachePath = cachedPath;
 
-                // Try to load from cache first
-                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary); in.is_open() && !disableCache)
+                // Try to load from cache first — existence alone is validity.
+                // A malformed file is a cache miss, not a crash — see
+                // TryReadSpirvCacheFile.
+                if (std::ifstream in(cachedPath, std::ios::in | std::ios::binary);
+                    in.is_open() && !disableCache && Utils::TryReadSpirvCacheFile(in, result.SpirvData))
                 {
-                    if (!IsCacheStale(cachedPath))
-                    {
-                        in.seekg(0, std::ios::end);
-                        const auto size = in.tellg();
-                        in.seekg(0, std::ios::beg);
-
-                        result.SpirvData.resize(size / sizeof(u32));
-                        in.read(reinterpret_cast<char*>(result.SpirvData.data()), size);
-                        result.Success = true;
-                        result.NeedsCache = false;
-                        return;
-                    }
+                    result.Success = true;
+                    result.NeedsCache = false;
+                    return;
                 }
 
                 // Cross-compile Vulkan SPIR-V to GLSL using spirv-cross
@@ -1680,10 +1842,17 @@ namespace OloEngine
     {
         GLuint program = glCreateProgram();
 
+        // Computed once and reused by every route below (the sync fallback's
+        // SaveProgramBinaryCache further down, and FinalizeAfterLink's on the
+        // async path) — m_OpenGLSPIRV doesn't change during this call, so
+        // hashing it again per use would just be wasted work over the full
+        // SPIR-V byte stream.
+        const std::string contentHash = Utils::HashHexSpirvMap(m_OpenGLSPIRV);
+
         // Try to load from the program-binary cache first. The shared helper parses
         // the on-disk framing, calls glProgramBinary, and soft-checks GL_LINK_STATUS;
         // on any miss/failure it returns false and we fall through to a full compile.
-        if (LoadProgramBinaryCache(program))
+        if (LoadProgramBinaryCache(program, contentHash))
         {
             FinalizeProgram(program, m_OpenGLSPIRV);
             m_CompilationStatus = ShaderCompilationStatus::Ready;
@@ -1758,7 +1927,7 @@ namespace OloEngine
         FinalizeProgram(program, m_OpenGLSPIRV);
 
         // Save program binary to cache (after FinalizeProgram so m_RendererID is set)
-        SaveProgramBinaryCache();
+        SaveProgramBinaryCache(contentHash);
 
         m_CompilationStatus = ShaderCompilationStatus::Ready;
     }
@@ -1798,7 +1967,7 @@ namespace OloEngine
             } });
     }
 
-    bool OpenGLShader::LoadProgramBinaryCache(GLenum program) const
+    bool OpenGLShader::LoadProgramBinaryCache(GLenum program, const std::string& contentHash) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1809,17 +1978,12 @@ namespace OloEngine
 
         const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
         const std::filesystem::path shaderFilePath = m_FilePath;
-        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ProgramBinaryCacheSuffix());
+        const std::filesystem::path cachedPath =
+            cacheDirectory / (shaderFilePath.filename().string() + "." + contentHash + ProgramBinaryCacheSuffix());
 
         std::ifstream in(cachedPath, std::ios::binary);
         if (!in.is_open())
             return false;
-
-        if (IsCacheStale(cachedPath))
-        {
-            OLO_CORE_TRACE("Shader source or include newer than cache, recompiling: {0}", shaderFilePath.string());
-            return false;
-        }
 
         const std::optional<ProgramBinary> binary = ReadProgramBinary(in);
         in.close();
@@ -1878,7 +2042,7 @@ namespace OloEngine
         return true;
     }
 
-    void OpenGLShader::SaveProgramBinaryCache() const
+    void OpenGLShader::SaveProgramBinaryCache(const std::string& contentHash) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1911,7 +2075,8 @@ namespace OloEngine
 
         const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
         const std::filesystem::path shaderFilePath = m_FilePath;
-        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ProgramBinaryCacheSuffix());
+        const std::filesystem::path cachedPath =
+            cacheDirectory / (shaderFilePath.filename().string() + "." + contentHash + ProgramBinaryCacheSuffix());
 
         std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
         if (out.is_open())
@@ -1963,7 +2128,10 @@ namespace OloEngine
         OLO_CORE_TRACE("FinalizeAfterLink: Calling FinalizeProgram for '{}'...", m_Name);
         FinalizeProgram(m_RendererID, m_OpenGLSPIRV);
         OLO_CORE_TRACE("FinalizeAfterLink: Saving cache for '{}'...", m_Name);
-        SaveProgramBinaryCache();
+        // This route always builds from m_OpenGLSPIRV (the ordinary,
+        // non-bindless, non-AMD-workaround path) — see SaveProgramBinaryCache's
+        // header comment for why the other two routes hash something else.
+        SaveProgramBinaryCache(Utils::HashHexSpirvMap(m_OpenGLSPIRV));
         m_CompilationStatus = ShaderCompilationStatus::Ready;
 
         // Now that the shader is registered via FinalizeProgram, report deferred compilation end
@@ -2037,14 +2205,20 @@ namespace OloEngine
 
         const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
         const std::filesystem::path shaderFilePath = m_FilePath;
-        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ProgramBinaryCacheSuffix());
+        // This route (old-driver AMD workaround) never calls
+        // CompileOrGetOpenGLBinaries, so m_OpenGLSPIRV is NOT populated here —
+        // only m_VulkanSPIRV is, from CompileOrGetVulkanBinaries above. Hash
+        // that instead (issue #906).
+        const std::string contentHash = Utils::HashHexSpirvMap(m_VulkanSPIRV);
+        const std::filesystem::path cachedPath =
+            cacheDirectory / (shaderFilePath.filename().string() + "." + contentHash + ProgramBinaryCacheSuffix());
         bool disableCache = Utils::IsShaderCacheDisabled();
 
         // Shared with the non-AMD path: parse the framing, call glProgramBinary, and
         // soft-check GL_LINK_STATUS. This previously had its own hand-copied loader that
         // read the wrong byte count (issue #267) and used the fatal VerifyProgramLink for
         // a recoverable cache miss; routing through the shared helper fixes both.
-        if (LoadProgramBinaryCache(program))
+        if (LoadProgramBinaryCache(program, contentHash))
         {
             FinalizeProgram(program, m_VulkanSPIRV);
             m_CompilationStatus = ShaderCompilationStatus::Ready;

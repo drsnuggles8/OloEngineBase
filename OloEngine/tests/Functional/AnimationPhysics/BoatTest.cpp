@@ -132,12 +132,26 @@ class BoatTest : public FunctionalTest
     }
 
     /// Heading in degrees about world up, derived from where the hull's local
-    /// +Z now points. Signed so that turning to starboard (+X) increases it —
-    /// matching the sign of BoatComponent::m_SteerInput.
+    /// +Z now points. Signed so that turning to STARBOARD increases it —
+    /// matching the sign of BoatComponent::m_SteerInput. Starboard is local -X
+    /// for a +Z-forward hull (forward x up), hence the negated x: reading it
+    /// the other way round is exactly the bug issue #897 fixed.
     static f32 HeadingDeg(Entity e)
     {
         const glm::vec3 fwd = e.GetComponent<TransformComponent>().GetRotation() * glm::vec3(0.0f, 0.0f, 1.0f);
-        return glm::degrees(std::atan2(fwd.x, fwd.z));
+        return glm::degrees(std::atan2(-fwd.x, fwd.z));
+    }
+
+    /// World-space starboard beam of the hull: forward x up, in the horizontal
+    /// plane. This is the axis a starboard turn must displace the boat along.
+    static glm::vec3 StarboardDir(Entity e)
+    {
+        const glm::vec3 fwd = e.GetComponent<TransformComponent>().GetRotation() * glm::vec3(0.0f, 0.0f, 1.0f);
+        const glm::vec3 flat(fwd.x, 0.0f, fwd.z);
+        const f32 len = glm::length(flat);
+        if (!(len > 1.0e-4f))
+            return { 0.0f, 0.0f, 0.0f };
+        return { -flat.z / len, 0.0f, flat.x / len };
     }
 
     /// Let buoyancy bring the hull to its floating equilibrium before the test
@@ -222,10 +236,12 @@ TEST_F(BoatTest, ReverseThrottleDrivesTheBoatAstern)
 }
 
 // -----------------------------------------------------------------------------
-// Thrust follows the HULL, not the world. Yawed 90° to starboard the boat's
+// Thrust follows the HULL, not the world. Yawed +90° about world up the boat's
 // local +Z points along world +X, so full throttle must move it in X and barely
 // in Z. A model that pushed along a hard-coded world axis passes every
-// unrotated test and fails this one.
+// unrotated test and fails this one. (That +90° is a turn to PORT — starboard
+// is -X for a +Z-forward hull — but which way it points is beside the point
+// here; only that thrust follows it.)
 // -----------------------------------------------------------------------------
 TEST_F(BoatTest, ThrustFollowsTheHullHeading)
 {
@@ -314,10 +330,73 @@ TEST_F(BoatTest, RudderReversesWhenMakingSternway)
 
     ASSERT_LT(glm::dot(body->GetLinearVelocity(), Rot(boat) * glm::vec3(0.0f, 0.0f, 1.0f)), -0.5f)
         << "the boat never actually gathered sternway, so the reversal is untested";
-    EXPECT_GT(yawRateAhead, 0.1f)
-        << "hard starboard did not swing the bow right when going ahead; yaw rate=" << yawRateAhead;
-    EXPECT_LT(yawRateAstern, -0.1f)
+    // Starboard is local -X for a +Z-forward hull, and a rotation about +Y takes
+    // +Z toward +X — so swinging the bow to starboard is a NEGATIVE yaw rate.
+    EXPECT_LT(yawRateAhead, -0.1f)
+        << "hard starboard did not swing the bow to starboard when going ahead; yaw rate=" << yawRateAhead;
+    EXPECT_GT(yawRateAstern, 0.1f)
         << "the rudder did not reverse when making sternway; yaw rate=" << yawRateAstern;
+}
+
+// -----------------------------------------------------------------------------
+// A starboard helm order moves the boat to STARBOARD. Issue #897: it moved it to
+// port, and no test noticed, because every rudder test above measures a rate or
+// an absolute turn magnitude — all of which a mirrored model reproduces exactly.
+//
+// The observable here is deliberately the sign of the WORLD-SPACE DISPLACEMENT
+// against the hull's starting beam, not the yaw rate: that is what a player
+// actually sees from a chase camera, and it is the thing the Drift scene had to
+// negate its steer input to get right. Measured over a window short enough that
+// the hull has not swung more than 90 degrees, so "starboard of where I started"
+// is still unambiguous.
+//
+// The magnitude bar is set against the same-window drift of a boat under
+// throttle with NO rudder, asserted first — otherwise the threshold is arbitrary.
+// -----------------------------------------------------------------------------
+TEST_F(BoatTest, StarboardHelmMovesTheBoatToStarboardNotToPort)
+{
+    SpawnFlatWater();
+    Entity boat = SpawnBoat({ 0.0f, 0.5f, 0.0f });
+    EnablePhysics3D();
+    Settle();
+
+    const glm::vec3 startingStarboard = StarboardDir(boat);
+    ASSERT_GT(glm::length(startingStarboard), 0.5f) << "the hull has no usable heading to measure against";
+
+    // Baseline: same throttle, rudder amidships. Whatever this drifts sideways is
+    // noise, and the steered run has to beat it by a wide margin.
+    auto& bc = boat.GetComponent<BoatComponent>();
+    bc.m_ThrottleInput = 1.0f;
+    bc.m_SteerInput = 0.0f;
+    glm::vec3 start = Pos(boat);
+    TickFor(3.0f);
+    const f32 straightBeamOffset = std::abs(glm::dot(Pos(boat) - start, startingStarboard));
+    EXPECT_LT(straightBeamOffset, 0.5f)
+        << "an unsteered boat wandered off its own beam by " << straightBeamOffset << " m";
+
+    // Now hard starboard, measured against the beam as it is at THIS moment.
+    // The window is short on purpose: once the hull has swung past 90 degrees,
+    // "starboard of where I started" stops being a well-defined direction.
+    const glm::vec3 beam = StarboardDir(boat);
+    const f32 headingBefore = HeadingDeg(boat);
+    start = Pos(boat);
+    bc.m_SteerInput = 1.0f;
+    TickFor(2.0f);
+
+    const f32 beamOffset = glm::dot(Pos(boat) - start, beam);
+    const f32 turned = HeadingDeg(boat) - headingBefore;
+
+    ASSERT_TRUE(std::isfinite(beamOffset) && std::isfinite(turned));
+    ASSERT_LT(std::abs(turned), 90.0f) << "the hull swung too far for the beam to stay meaningful — shorten the window";
+    EXPECT_GT(beamOffset, 0.75f)
+        << "steer +1 (documented as full starboard) displaced the boat " << beamOffset
+        << " m along its starboard beam — negative means it went to PORT, which is issue #897";
+    EXPECT_GT(beamOffset, straightBeamOffset * 4.0f)
+        << "the sideways displacement was within noise of an unsteered run ("
+        << straightBeamOffset << " m)";
+
+    // And the heading agrees with the displacement, so the two cannot drift apart.
+    EXPECT_GT(turned, 5.0f) << "the bow did not swing to starboard; turned " << turned << " deg";
 }
 
 // -----------------------------------------------------------------------------

@@ -469,4 +469,175 @@ namespace OloEngine::Tests
         }
     }
 
+    // -------------------------------------------------------------------------------
+    // Issue #887: DecalComponent texture references were lost on a scene round-trip
+    // (empty path via YAML, dropped via .scenebin) because EditorAssetManager::ImportAsset
+    // resolved a project-relative scene texture path ("Assets/Textures/Foo.png") against
+    // the process's current working directory instead of the project directory — silently
+    // wrong whenever OloEditor's actual cwd (OloEditor/) happens to contain a same-named
+    // file under its own generic assets/ tree too, which it does for every shipped
+    // texture. A texture whose resolution fails this way ends up as a non-null placeholder
+    // Ref<Texture2D> with an empty GetPath(), which SceneSerializer still happily writes —
+    // and a component that round-tripped that empty path once already writes nothing at
+    // all on the NEXT save, since the empty path fails to resolve back into a texture on
+    // reload.
+    //
+    // This pins the fix for both the decal texture arm (the reported symptom, freshly
+    // authored with the current "Assets/..." convention) and the pre-existing sprite
+    // texture control (PinkCubeWithTextures.olo, still spelled the older
+    // "SandboxProject/Assets/..." working-directory-relative way, which ImportAsset must
+    // keep resolving via its cwd-relative fallback) so a regression in either direction is
+    // caught. Two loads of the same scene path are checked because the reported failure is
+    // a "second load" class of bug: the binary sidecar written on the first load must carry
+    // the same correct path forward, not silently drop it.
+    TEST(AssetSceneLoad, DecalAndSpriteTexturePathsSurviveRoundTrip)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        if (!Renderer3D::IsInitialized())
+        {
+            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
+        }
+
+        GLStateGuard glGuard("AssetSceneLoad.TexturePathRoundTrip", GLStateGuard::Policy::Restore);
+
+        std::string stageError;
+        const fs::path tempRoot = StageSandboxProjectIntoTemp(stageError);
+        ASSERT_FALSE(tempRoot.empty())
+            << "Failed to stage SandboxProject into temp dir: " << stageError;
+
+        struct Cleanup
+        {
+            fs::path Dir;
+            ~Cleanup()
+            {
+                std::error_code ec;
+                for (int attempt = 0; attempt < 3; ++attempt)
+                {
+                    ec.clear();
+                    fs::remove_all(Dir, ec);
+                    std::error_code existsEc;
+                    if (!fs::exists(Dir, existsEc))
+                        return;
+                }
+                OLO_CORE_WARN("AssetSceneLoad: could not remove staging dir '{}': {}", Dir.string(), ec.message());
+            }
+        } cleanup{ tempRoot };
+
+        const fs::path projectFile = FindProjectFile(tempRoot);
+        ASSERT_FALSE(projectFile.empty())
+            << "No .oloproj found inside staged temp project at " << tempRoot.string();
+
+        ASSERT_TRUE(Project::Load(projectFile))
+            << "Project::Load failed on staged temp project.";
+
+        auto assetManager = Ref<EditorAssetManager>::Create();
+        assetManager->Initialize(/*startFileWatcher=*/false);
+        Project::SetAssetManager(assetManager);
+
+        struct AssetManagerShutdown
+        {
+            Ref<EditorAssetManager> Mgr;
+            ~AssetManagerShutdown()
+            {
+                if (Mgr)
+                    Mgr->Shutdown();
+            }
+        } assetManagerShutdown{ assetManager };
+
+        // Load a scene twice through the SAME path (exercising both the YAML load, which
+        // also writes the .scenebin sidecar, and the second call's binary-sidecar fast
+        // path) and return the requested texture's GetPath() both times.
+        auto loadTwiceAndGetPath = [](const fs::path& scenePath, auto&& findTexture) -> std::pair<std::string, std::string>
+        {
+            std::string first;
+            std::string second;
+            {
+                auto scene = Scene::Create();
+                SceneSerializer serializer(scene);
+                bool ok = serializer.Deserialize(scenePath);
+                EXPECT_TRUE(ok) << "First Deserialize() of " << scenePath.string() << " failed.";
+                if (ok)
+                {
+                    Ref<Texture2D> tex = findTexture(scene);
+                    first = tex ? tex->GetPath() : std::string{ "<null texture ref>" };
+                }
+            }
+            {
+                auto scene = Scene::Create();
+                SceneSerializer serializer(scene);
+                bool ok = serializer.Deserialize(scenePath);
+                EXPECT_TRUE(ok) << "Second Deserialize() of " << scenePath.string() << " failed.";
+                if (ok)
+                {
+                    Ref<Texture2D> tex = findTexture(scene);
+                    second = tex ? tex->GetPath() : std::string{ "<null texture ref>" };
+                }
+            }
+            return { first, second };
+        };
+
+        // -------------------- decal arm (issue #887's reported symptom) --------------------
+        {
+            const fs::path scenePath = tempRoot / "Assets" / "Scenes" / "DecalModeMatrixTest.olo";
+            ASSERT_TRUE(fs::exists(scenePath)) << scenePath.string();
+
+            auto findEmissiveDecalTexture = [](const Ref<Scene>& scene) -> Ref<Texture2D>
+            {
+                Ref<Texture2D> result;
+                auto view = scene->GetAllEntitiesWith<TagComponent, DecalComponent>();
+                for (auto entity : view)
+                {
+                    const auto& [tag, decal] = view.get<TagComponent, DecalComponent>(entity);
+                    if (tag.Tag == "Decal Emissive")
+                    {
+                        result = decal.m_EmissiveTexture;
+                        break;
+                    }
+                }
+                return result;
+            };
+
+            auto [firstPath, secondPath] = loadTwiceAndGetPath(scenePath, findEmissiveDecalTexture);
+            EXPECT_FALSE(firstPath.empty())
+                << "DecalComponent::m_EmissiveTexture had an empty GetPath() on the FIRST load "
+                   "(YAML) — the texture failed to resolve and a placeholder was silently substituted.";
+            EXPECT_FALSE(secondPath.empty())
+                << "DecalComponent::m_EmissiveTexture had an empty GetPath() on the SECOND load "
+                   "(binary sidecar) — the reference was dropped on the fast path.";
+            EXPECT_EQ(firstPath, secondPath)
+                << "The YAML and binary-sidecar loads disagree about the decal's texture path.";
+        }
+
+        // -------------------- sprite control (pre-existing, older path spelling) --------------------
+        {
+            const fs::path scenePath = tempRoot / "Assets" / "Scenes" / "PinkCubeWithTextures.olo";
+            ASSERT_TRUE(fs::exists(scenePath)) << scenePath.string();
+
+            auto findFirstSpriteTexture = [](const Ref<Scene>& scene) -> Ref<Texture2D>
+            {
+                Ref<Texture2D> result;
+                auto view = scene->GetAllEntitiesWith<SpriteRendererComponent>();
+                for (auto entity : view)
+                {
+                    const auto& src = view.get<SpriteRendererComponent>(entity);
+                    if (src.Texture)
+                    {
+                        result = src.Texture;
+                        break;
+                    }
+                }
+                return result;
+            };
+
+            auto [firstPath, secondPath] = loadTwiceAndGetPath(scenePath, findFirstSpriteTexture);
+            EXPECT_FALSE(firstPath.empty())
+                << "SpriteRendererComponent::Texture had an empty GetPath() on the FIRST load — "
+                   "the older 'SandboxProject/Assets/...' path spelling must still resolve.";
+            EXPECT_FALSE(secondPath.empty())
+                << "SpriteRendererComponent::Texture had an empty GetPath() on the SECOND load.";
+            EXPECT_EQ(firstPath, secondPath);
+        }
+    }
+
 } // namespace OloEngine::Tests

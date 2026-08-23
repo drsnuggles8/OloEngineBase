@@ -2386,7 +2386,19 @@ namespace OloEngine
         //        any second-stream VAO rides it: FoliageRenderer's 48-byte
         //        per-instance card records and ParticleBatchRenderer's 96-byte
         //        billboard instance records pull it by gl_InstanceIndex
-        //        (issue #691).
+        //        (issue #691); PBR_MultiLight.glsl's baked-lightmap UV2 stream
+        //        (MeshSource's parallel vec2-per-vertex m_LightmapUVs buffer)
+        //        rides it too (issue #866). The lightmap tenancy is safe
+        //        because it is per-mesh MUTUALLY EXCLUSIVE with bones —
+        //        MeshSource::Build only ever fills stream 1 with one of the
+        //        two (!HasSkeleton() gates the lightmap buffer, HasSkeleton()
+        //        gates the bone buffer) — and PBR_MultiLight.glsl (the only
+        //        lightmap-sampling shader in v1) is never the shader bound for
+        //        a skinned draw, so no single compiled shader ever declares
+        //        binding 63 with two conflicting meanings. If a future mesh
+        //        ever needs BOTH bone influences and a lightmap UV2 stream at
+        //        once, this reuse breaks and a genuine third reserved number
+        //        must be minted instead.
         // A VAO with fewer streams than a bound shader pulls resolves the
         // missing binding to the null (zero) address — deterministic zeros +
         // the draw path's warn-once, never a crash. Both numbers are RESERVED

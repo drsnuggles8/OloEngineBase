@@ -2661,10 +2661,15 @@ namespace OloEngine
             return wheel;
         };
 
-        settings.mWheels.push_back(makeWheel(-halfTrack, frontOffset, maxSteerRad)); // 0 FL
-        settings.mWheels.push_back(makeWheel(halfTrack, frontOffset, maxSteerRad));  // 1 FR
-        settings.mWheels.push_back(makeWheel(-halfTrack, -rearOffset, 0.0f));        // 2 RL
-        settings.mWheels.push_back(makeWheel(halfTrack, -rearOffset, 0.0f));         // 3 RR
+        // LEFT is local +X, not -X. For a +Z-forward, +Y-up right-handed body
+        // right == forward x up == -X, which Jolt agrees with (VehicleConstraint
+        // builds its wheel basis the same way). The layout is symmetric so this
+        // changes no geometry — but m_LeftRightSplit names these wheels, and
+        // before issue #897 "all torque to the right" sent it to the left ones.
+        settings.mWheels.push_back(makeWheel(halfTrack, frontOffset, maxSteerRad));  // 0 FL
+        settings.mWheels.push_back(makeWheel(-halfTrack, frontOffset, maxSteerRad)); // 1 FR
+        settings.mWheels.push_back(makeWheel(halfTrack, -rearOffset, 0.0f));         // 2 RL
+        settings.mWheels.push_back(makeWheel(-halfTrack, -rearOffset, 0.0f));        // 3 RR
 
         auto* controllerSettings = new JPH::WheeledVehicleControllerSettings();
         controllerSettings->mEngine.mMaxTorque = maxEngineTorque;
