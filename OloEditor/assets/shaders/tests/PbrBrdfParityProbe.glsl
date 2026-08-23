@@ -29,7 +29,17 @@
 // A non-grey albedo is deliberate: it makes a channel swap or a luminance
 // collapse in either implementation visible, which a white albedo would hide.
 //
-// Output: .rgb = cookTorranceBRDF(...), .a = 1.
+// Output: .rgb = cookTorranceBRDF(...)
+//         .a   = visibilitySmithGGXCorrelated(...)
+//
+// The alpha channel rides along for issue #904. The height-correlated
+// visibility term is not on the shipping lit path, but it IS a PBRCommon
+// function with a C++ mirror, and an unmirrored-or-unpinned function is one
+// nothing can detect drift in. Reusing this probe's grid rather than adding a
+// second one keeps both sides decoding identical parameters by construction.
+// Note N == V here, so NdotV is pinned at 1 and only the NdotL half of the
+// term's (NdotV, NdotL) symmetry is swept — which is enough to expose an
+// alpha-convention error, since V varies strongly with alpha at low NdotL.
 // =============================================================================
 
 #type vertex
@@ -82,5 +92,6 @@ void main()
 
     vec3 albedo = vec3(0.9, 0.6, 0.3);
 
-    o_Color = vec4(cookTorranceBRDF(N, V, L, albedo, metallic, roughness), 1.0);
+    o_Color = vec4(cookTorranceBRDF(N, V, L, albedo, metallic, roughness),
+                   visibilitySmithGGXCorrelated(N, V, L, roughness));
 }

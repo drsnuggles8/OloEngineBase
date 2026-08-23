@@ -300,11 +300,25 @@ unweighted form FAILS the same comparison**. Without that second half the test
 passes on the bug it was written for.
 
 **Alpha convention.** These functions use `alpha = roughness²`, matching
-`distributionGGX`. They deliberately do NOT match `geometrySmithHeightCorrelated`,
-which squares roughness only once — a pre-existing D/G inconsistency in this
-engine, left alone because moving it would shift every lit golden. Unbiasedness
-requires the Λ paired with the *D you sampled*, so the VNDF block carries its own
-`ggxSmithLambda`.
+`distributionGGX`. Unbiasedness requires the Λ paired with the *D you sampled*,
+so the VNDF block carries its own `ggxSmithLambda`.
+
+They used to disagree with `geometrySmithHeightCorrelated`, which squared
+roughness only once. That was recorded here as a pre-existing D/G inconsistency
+"left alone because moving it would shift every lit golden" — and the second
+half of that sentence was **wrong**, which is why it survived two more issues.
+#904 checked instead of assuming: the mismatched function's only caller chain
+(`cookTorranceBRDFEnhanced` → `calculateLightContributionEnhanced`) had **zero
+references repo-wide**, so nothing rendered used it and no golden moved. It is
+now `visibilitySmithGGXCorrelated`, on `alpha = roughness²` like everything
+else, and `ReferenceBRDFTest.HeightCorrelatedVisibilityMatchesTheVndfLambda`
+asserts the exact algebraic identity between it and the `ggxSmithLambda` above.
+
+The general lesson is worth more than the fix: **"changing this would move every
+golden" is a claim about the call graph, and it is one grep.** Costed at "a
+whole rebake plus a visual audit", it was never re-checked; the grep took a
+minute and the rebake turned out not to exist. Verify reach before you price a
+correctness fix out of scope.
 
 **Fresnel goes with the microfacet.** A VNDF-sampled ray must evaluate Schlick
 against `dot(V, H)`, not `dot(V, N)`. On a smooth surface H == N and it makes no

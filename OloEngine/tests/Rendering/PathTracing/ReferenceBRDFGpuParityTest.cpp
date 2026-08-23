@@ -263,4 +263,84 @@ namespace OloEngine::Tests
         EXPECT_GT(maximum, 0.5f) << "the probe target is uniformly near zero — the shader almost certainly "
                                     "failed to compile, which would make the parity test above pass vacuously";
     }
+    // The alpha channel of the same probe carries visibilitySmithGGXCorrelated
+    // (issue #904). It is a separate test rather than extra channels in the
+    // test above so that a failure names WHICH function drifted — the two have
+    // completely different causes and completely different fixes.
+    //
+    // This is the guard that makes the #904 fix un-regressable across the
+    // language boundary: restoring the old `a2 = roughness * roughness` on
+    // either side alone fails here at every roughness except the two fixed
+    // points (0 and 1, where roughness^2 == roughness).
+    TEST(ReferenceBRDFGpuParity, HeightCorrelatedVisibilityMatchesCppMirror)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        ParityProbeHarness harness;
+        harness.Draw();
+
+        std::vector<f32> pixels;
+        harness.ReadOutput(pixels);
+        ASSERT_EQ(pixels.size(), static_cast<sizet>(kWidth) * kHeight * 4);
+
+        const glm::vec3 n(0.0f, 0.0f, 1.0f);
+        const glm::vec3 v(0.0f, 0.0f, 1.0f);
+
+        // Same tolerance model as the BRDF comparison above, and for the same
+        // reason: V spans orders of magnitude between a near-mirror surface and
+        // a rough grazing one, so relative-with-an-absolute-floor is the only
+        // shape that is neither vacuous at the top nor impossible at the bottom.
+        constexpr f32 kRelativeTolerance = 0.01f;
+        constexpr f32 kAbsoluteFloor = 1e-4f;
+
+        u32 mismatches = 0;
+        f32 worstRelative = 0.0f;
+        u32 worstX = 0;
+        u32 worstY = 0;
+        f32 maximum = 0.0f;
+
+        for (u32 y = 0; y < kHeight; ++y)
+        {
+            for (u32 x = 0; x < kWidth; ++x)
+            {
+                const GridPoint point = DecodeGridPoint(x, y);
+                const f32 expected = VisibilitySmithGGXCorrelated(n, v, point.L, point.Roughness);
+                const f32 actual = pixels[(static_cast<sizet>(y) * kWidth + x) * 4 + 3];
+
+                ASSERT_TRUE(std::isfinite(actual))
+                    << "GPU produced a non-finite visibility term at (" << x << ", " << y << ")";
+                maximum = std::max(maximum, actual);
+
+                const f32 difference = std::abs(actual - expected);
+                const f32 scale = std::max({ std::abs(expected), std::abs(actual), kAbsoluteFloor });
+                const f32 relative = difference / scale;
+                if (relative > worstRelative)
+                {
+                    worstRelative = relative;
+                    worstX = x;
+                    worstY = y;
+                }
+                if (relative > kRelativeTolerance && difference > kAbsoluteFloor)
+                    ++mismatches;
+            }
+        }
+
+        // Guards against the whole comparison passing vacuously on a cleared
+        // target, exactly as ProbeGridCoversANonTrivialRange does for .rgb.
+        EXPECT_GT(maximum, 0.1f) << "the probe's alpha channel is uniformly near zero — the shader almost "
+                                    "certainly failed to compile";
+
+        const GridPoint worstPoint = DecodeGridPoint(worstX, worstY);
+        EXPECT_EQ(mismatches, 0u)
+            << mismatches << " of " << (kWidth * kHeight) << " samples disagree.\n"
+            << "Worst at roughness = " << worstPoint.Roughness << ", NdotL = " << worstPoint.L.z << " (relative "
+            << worstRelative << ")\n"
+            << "  GLSL visibilitySmithGGXCorrelated = " << pixels[(static_cast<sizet>(worstY) * kWidth + worstX) * 4 + 3]
+            << "\n"
+            << "  C++  VisibilitySmithGGXCorrelated = "
+            << VisibilitySmithGGXCorrelated(n, v, worstPoint.L, worstPoint.Roughness) << "\n"
+            << "The height-correlated Smith term has DRIFTED between PBRCommon.glsl and\n"
+            << "Renderer/PathTracing/ReferenceBRDF.h. Check the alpha convention first: it must be\n"
+            << "alpha = roughness^2 on BOTH sides (see THE ALPHA LEDGER in PBRCommon.glsl).";
+    }
 } // namespace OloEngine::Tests
