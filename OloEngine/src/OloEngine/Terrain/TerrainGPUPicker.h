@@ -83,6 +83,13 @@ namespace OloEngine
 
         static constexpr u32 kOverflowNodes = 1u;
         static constexpr u32 kOverflowCandidates = 2u;
+        // The resolve kernel could not step the marched segment at heightmap-
+        // texel spacing within its per-lane sample budget, so the answer may be
+        // coarser than the "within a texel" this feature is measured against —
+        // or a thin crossing may have been stepped over entirely. Reported
+        // rather than left silent, because otherwise it is indistinguishable
+        // from the ray genuinely missing.
+        static constexpr u32 kOverflowMarch = 4u;
 
         // A pick query. Terrain-LOCAL, matching the node bounds and the cull
         // inputs — see MakeTerrainLocalCullInputs in Scene.cpp.
@@ -124,6 +131,17 @@ namespace OloEngine
 
         TerrainGPUPicker();
         ~TerrainGPUPicker();
+
+        // Non-copyable, non-movable. m_Ring holds RAW GPU handles (a buffer and
+        // a fence per slot) that the destructor releases, so a copy would hand
+        // two objects the same handles and both would DestroyFence/DeleteBuffer
+        // them. Declaring the destructor already suppresses the implicit MOVE
+        // but NOT the implicit COPY, which is exactly the trap: without these
+        // the class reads as safe and silently is not.
+        TerrainGPUPicker(const TerrainGPUPicker&) = delete;
+        TerrainGPUPicker& operator=(const TerrainGPUPicker&) = delete;
+        TerrainGPUPicker(TerrainGPUPicker&&) = delete;
+        TerrainGPUPicker& operator=(TerrainGPUPicker&&) = delete;
 
         // Queue a ray for the next Dispatch(). Overwrites any ray queued and not
         // yet dispatched this frame — a picker answers the LATEST question, and

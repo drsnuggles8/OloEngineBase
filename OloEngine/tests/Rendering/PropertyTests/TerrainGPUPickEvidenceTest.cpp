@@ -280,7 +280,15 @@ namespace OloEngine::Tests
             ASSERT_TRUE(AwaitAnswer(picker, camera, request, result))
                 << "ray " << rayId << " never came back through the ring";
             ASSERT_TRUE(result.Hit) << "ray " << rayId << " reported a miss where the CPU march found ground";
-            EXPECT_EQ(result.OverflowFlags, 0u) << "the descent truncated, so this answer is not the one under test";
+            // Any of the three overflow causes (worklist, candidate list, or a
+            // march that could not reach texel spacing) means the pass answered
+            // under duress, so the accuracy assertions below would be measuring
+            // something other than the path this test is about. Validated by
+            // forcing the march flag on in TerrainPickResolve.comp: the value
+            // arrives here as 4 and this line goes red.
+            EXPECT_EQ(result.OverflowFlags, 0u)
+                << "ray " << rayId << " came back with overflow flags " << result.OverflowFlags
+                << " (1 = worklist, 2 = candidate list, 4 = march budget), so this answer is not the one under test";
 
             // ---- cross-check 1: the point is ON the surface ------------------
             // Independent of the CPU raycast entirely: only the heightmap is

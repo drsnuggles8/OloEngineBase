@@ -71,6 +71,13 @@ layout(std430, binding = 58) buffer TerrainPickState
 
 #define OLO_TERRAIN_PICK_OVERFLOW_NODES      1u
 #define OLO_TERRAIN_PICK_OVERFLOW_CANDIDATES 2u
+// The resolve kernel's per-lane sample budget was not enough to step the marched
+// segment at heightmap-texel spacing, so the march may have stepped OVER a thin
+// above->below crossing. Reported rather than left silent, because the symptom
+// otherwise is a no-hit that is indistinguishable from the ray genuinely missing
+// — and "within a texel" is this feature's acceptance criterion, so a march that
+// could not honour it has to say so.
+#define OLO_TERRAIN_PICK_OVERFLOW_MARCH      4u
 
 // The HitTBits reset value: the sentinel that means "nothing was hit". Twin of
 // TerrainGPUPicker::kNoHitBits.

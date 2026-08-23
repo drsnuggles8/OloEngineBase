@@ -237,10 +237,21 @@ namespace OloEngine
             m_Latest.Latency = static_cast<u32>(m_FrameIndex - slot.FrameIndex);
             m_Latest.RayId = block.RayId;
             m_Latest.OverflowFlags = block.ResultFlags;
-            m_Latest.Hit = block.HitTBits != kNoHitBits;
+            // DECODE, THEN VALIDATE. Every bit pattern except kNoHitBits reads
+            // as a hit, and memcpy reinterprets it with no range check — so a
+            // pattern anywhere in the NaN range would decode to a NaN, and one
+            // with the sign bit set to a negative distance, and either would go
+            // straight into the editor's cursor and gizmo math. Today's resolve
+            // kernel can only publish a finite t inside the clipped segment, so
+            // this is hardening rather than a live defect; it is here because
+            // the repo's rule is to validate every float crossing a boundary,
+            // and a GPU buffer is one.
+            f32 decoded = 0.0f;
+            std::memcpy(&decoded, &block.HitTBits, sizeof(f32));
+            m_Latest.Hit = block.HitTBits != kNoHitBits && std::isfinite(decoded) && decoded >= 0.0f;
             if (m_Latest.Hit)
             {
-                std::memcpy(&m_Latest.Distance, &block.HitTBits, sizeof(f32));
+                m_Latest.Distance = decoded;
                 // The position comes from the ray THIS slot was dispatched with,
                 // not from whatever ray is current now. That is what keeps the
                 // answer exact and what makes a late result still correct rather
@@ -271,6 +282,14 @@ namespace OloEngine
                     OLO_CORE_WARN("TerrainGPUPicker: the candidate list overflowed {} entries — some intersected patches were "
                                   "not marched. Raise kMaxCandidates.",
                                   kMaxCandidates);
+                }
+                if ((m_Latest.OverflowFlags & kOverflowMarch) != 0)
+                {
+                    OLO_CORE_WARN("TerrainGPUPicker: the fine march ran out of samples before reaching heightmap-texel "
+                                  "spacing, so a pick may be coarser than one texel or may have stepped over a thin "
+                                  "crossing. This needs a tall height scale against a small world size; raise "
+                                  "kMaxLaneSteps in TerrainPickResolve.comp if it is a real terrain rather than a "
+                                  "degenerate one.");
                 }
             }
         }

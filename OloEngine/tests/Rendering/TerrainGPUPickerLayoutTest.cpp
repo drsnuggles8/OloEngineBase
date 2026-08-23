@@ -39,6 +39,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -278,6 +279,20 @@ TEST(TerrainGPUPickerLayoutTest, GlslConstantsMatchTheirCppTwins)
     EXPECT_EQ(ParseGlslDefine(source, "OLO_TERRAIN_PICK_NO_HIT"), TerrainGPUPicker::kNoHitBits);
     EXPECT_EQ(ParseGlslDefine(source, "OLO_TERRAIN_PICK_OVERFLOW_NODES"), TerrainGPUPicker::kOverflowNodes);
     EXPECT_EQ(ParseGlslDefine(source, "OLO_TERRAIN_PICK_OVERFLOW_CANDIDATES"), TerrainGPUPicker::kOverflowCandidates);
+    EXPECT_EQ(ParseGlslDefine(source, "OLO_TERRAIN_PICK_OVERFLOW_MARCH"), TerrainGPUPicker::kOverflowMarch);
+
+    // Distinct single bits: they ride one word through the readback ring, and
+    // two flags sharing a bit would report each other's cause.
+    const std::array<u32, 3> flags{ TerrainGPUPicker::kOverflowNodes, TerrainGPUPicker::kOverflowCandidates,
+                                    TerrainGPUPicker::kOverflowMarch };
+    u32 seen = 0;
+    for (const u32 flag : flags)
+    {
+        EXPECT_NE(flag, 0u);
+        EXPECT_EQ(flag & (flag - 1u), 0u) << "overflow flag " << flag << " is not a single bit";
+        EXPECT_EQ(seen & flag, 0u) << "overflow flag " << flag << " collides with an earlier one";
+        seen |= flag;
+    }
 
     // The no-hit sentinel has to be unreachable as a real answer: it must be
     // strictly above every finite positive float's bit pattern, or a far enough

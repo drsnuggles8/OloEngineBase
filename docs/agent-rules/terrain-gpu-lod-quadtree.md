@@ -379,6 +379,26 @@ is half of one — and the brush cursor sits consistently half a texel off. That
 the reason the evidence test also asserts a SURFACE RESIDUAL at half a texel,
 against the CPU heightmap, independently of the CPU raycast.
 
+**A fixed sample budget cannot guarantee texel spacing, so the shortfall is
+reported.** The resolve kernel derives its per-lane step count from demand
+(`laneSpan / texel`) and clamps it. The clamp looks unreachable — a candidate's
+XZ extent is ~`kPatchGridResolution` texels by construction, because the tree's
+depth is derived from the chunk grid which is derived from the heightmap
+resolution, so the two scale together — but the segment also spans the node's
+HEIGHT band, and `heightScale` is a free authored float. A small world size, a
+high heightmap resolution and a tall height scale together demand more samples
+than any constant provides, and a near-vertical ray through such a column is the
+case that hits it. So the kernel sets `OLO_TERRAIN_PICK_OVERFLOW_MARCH`, because
+the alternative symptom is a no-hit indistinguishable from the ray genuinely
+missing — on a feature whose acceptance criterion is "within a texel". Raising
+the cap is free in the common case (the count is demand-driven) and moves the
+threshold; it never removes it. **That flag is `atomicOr`'d into `ResultFlags`,
+not `OverflowFlags`, and that is ordering rather than preference**:
+`TerrainPickArgs.comp` copies `OverflowFlags` into `ResultFlags` and its last run
+happens BEFORE the resolve dispatch, so a bit written to `OverflowFlags` there
+would never reach the 16 bytes the ring copies. Reorder the dispatches and that
+breaks silently.
+
 **Overflow rides the result block instead of costing a stall.** §9 above notes
 that reading the descent's overflow bit is a `GetData` — the exact stall the GPU
 path exists to remove — so `TerrainGPUQuadtree` only asks every 240 frames. The

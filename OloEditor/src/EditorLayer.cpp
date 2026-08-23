@@ -24,6 +24,7 @@
 #include <vector>
 #include "UndoRedo/EntityCommands.h"
 #include "UndoRedo/ComponentCommands.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainGPUPicker.h"
@@ -4546,15 +4547,17 @@ namespace OloEngine
 
     bool EditorLayer::IsGpuTerrainPickingEnabled()
     {
-        // Read once. A per-call getenv on a path the brush cursor hits every
-        // frame is not free, and a lever that changes mid-session would make
+        // Through the lever registry, not a raw getenv. The engine has exactly
+        // one getenv (Core/Environment.cpp) and everything on top of it is
+        // enumerable — see Core/DebugLevers.inl. The sibling site
+        // (TerrainChunkManager::IsGpuDrivenLODEnabled) records what happens
+        // otherwise: SonarCloud failed the quality gate on a raw getenv there.
+        //
+        // Read once. A per-call read on a path the brush cursor hits every
+        // frame is not free, and a lever that changed mid-session would make
         // "which path answered this" unanswerable after the fact — the exact
         // question the lever exists to settle.
-        static const bool s_Enabled = []
-        {
-            const char* value = std::getenv("OLO_TERRAIN_CPU_PICK");
-            return !(value != nullptr && value[0] == '1');
-        }();
+        static const bool s_Enabled = !Levers::TerrainCpuPick();
         return s_Enabled;
     }
 
@@ -4618,9 +4621,16 @@ namespace OloEngine
         TerrainGPUPicker::RayRequest request;
         request.OriginLocal = localOrigin;
         request.DirectionLocal = localDir;
-        // Same reach as the CPU march below, so the two paths agree about what
-        // is out of range as well as about where the ground is.
-        request.MaxDistance = 2000.0f;
+        // The CPU march's 2000-unit reach, converted to LOCAL units. SubmitRay
+        // normalizes the direction, so `t` — and therefore MaxDistance — is
+        // measured in terrain-local units, and `localDir` is exactly the local
+        // displacement one world unit along the ray produces. Passing 2000
+        // straight through would silently give the two paths different
+        // world-space reaches under any non-unit terrain scale, which is a
+        // disagreement about what counts as OUT OF RANGE rather than about
+        // where the ground is — the harder kind to notice.
+        const f32 localUnitsPerWorldUnit = glm::length(localDir);
+        request.MaxDistance = 2000.0f * (localUnitsPerWorldUnit > 0.0f ? localUnitsPerWorldUnit : 1.0f);
         request.RayId = ++m_TerrainPickRayId;
         if (!picker->SubmitRay(request))
         {

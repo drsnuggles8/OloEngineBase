@@ -77,6 +77,11 @@ OLO_LEVER_TEXT(UsdPluginPath, "OLO_USD_PLUGIN_PATH",
 // visible failure.
 OLO_LEVER_EXACT(TerrainCpuLod, "OLO_TERRAIN_CPU_LOD",
                 "Force the CPU terrain LOD selection path instead of the GPU quadtree descent.")
+OLO_LEVER_EXACT(TerrainCpuPick, "OLO_TERRAIN_CPU_PICK",
+                "Force the CPU terrain raycast (a 1-unit march over the CPU heightmap mirror) instead of the "
+                "GPU pick pass (issue #717). The twin of OLO_TERRAIN_CPU_LOD, and for the same reason: when "
+                "the brush cursor sits in the wrong place, the first question is which of the two paths put "
+                "it there, and that has to be answerable without a rebuild.")
 OLO_LEVER_EXACT(TerrainVtFullRebuild, "OLO_TERRAIN_VT_FULL_REBUILD",
                 "Publish the terrain virtual texture's indirection map by rebuilding the whole thing (issue "
                 "#715) instead of by incremental deltas (slice 2). The two are required to produce the "

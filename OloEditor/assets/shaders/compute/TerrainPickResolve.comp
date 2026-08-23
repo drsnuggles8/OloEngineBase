@@ -64,10 +64,15 @@ layout(std430, binding = 65) readonly buffer TerrainNodeBounds
 };
 
 // How many samples one lane may take inside its sub-segment before the step
-// stops tracking the heightmap's texel spacing. 64 lanes x 32 = 2048 samples
-// along a candidate's segment, which is finer than one texel for every leaf
-// size the tree produces.
-const int kMaxLaneSteps = 32;
+// stops tracking the heightmap's texel spacing. 64 lanes x 64 = 4096 samples
+// along a candidate's segment.
+//
+// Raising this costs nothing in the common case: the count below is derived
+// from DEMAND (laneSpan / texel) and only clamped here, so a short segment still
+// takes two or three samples whatever the cap is. It buys headroom for the tall-
+// height-band case described at the clamp, and the overflow bit there reports
+// the cases even this does not cover.
+const int kMaxLaneSteps = 64;
 
 // Bisection iterations once a lane has bracketed a crossing. 16 halvings take
 // the bracket to 1/65536 of a step, i.e. far under a texel — the acceptance
@@ -159,8 +164,33 @@ void main()
     float laneStart = tMin + laneSpan * float(gl_LocalInvocationID.x);
     float laneEnd = tMin + laneSpan * float(gl_LocalInvocationID.x + 1u);
 
+    // The budget is DEMAND-DRIVEN and then capped, so the common case costs a
+    // couple of samples and only a genuinely long segment approaches the cap.
+    //
+    // NO FIXED CAP CAN BE A GUARANTEE, which is why the truncation is reported.
+    // The segment through one candidate is bounded by its inflated box, whose XZ
+    // extent is ~kPatchGridResolution texels by construction (the tree's depth is
+    // derived from the chunk grid, which is derived from the heightmap
+    // resolution, so the two scale together) — but its Y extent is the node's
+    // height band, and `heightScale` is a free authored float. A terrain with a
+    // small world size, a high heightmap resolution and a tall height scale can
+    // therefore demand more samples than any constant here provides, and a
+    // near-vertical ray through such a column is exactly the case that hits it.
+    // When that happens the step is coarser than a texel and this lane may walk
+    // over a thin crossing, so it says so instead of returning a silent no-hit.
     float texel = max(b_Pick.TerrainSizeAndScale.w, 1e-4);
-    int steps = clamp(int(ceil(laneSpan / texel)), 1, kMaxLaneSteps);
+    int wantedSteps = int(ceil(laneSpan / texel));
+    int steps = clamp(wantedSteps, 1, kMaxLaneSteps);
+    if (wantedSteps > kMaxLaneSteps)
+    {
+        // Straight into ResultFlags, NOT into OverflowFlags — and that is
+        // ordering, not preference. TerrainPickArgs.comp copies OverflowFlags
+        // into ResultFlags, and its last run happens BEFORE this dispatch, so a
+        // bit written to OverflowFlags here would never reach the 16 bytes the
+        // readback ring copies. atomicOr because the args kernel's plain store
+        // has already happened: this only ever adds a bit.
+        atomicOr(b_Pick.ResultFlags, OLO_TERRAIN_PICK_OVERFLOW_MARCH);
+    }
     float dt = laneSpan / float(steps);
 
     float prevT = laneStart;
