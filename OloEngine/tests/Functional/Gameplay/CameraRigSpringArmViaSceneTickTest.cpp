@@ -276,3 +276,120 @@ TEST_F(CameraRigSpringArmViaSceneTickTest, AnUnresolvableTargetLeavesTheCameraAl
     EXPECT_NEAR(CameraPosition().y, placed.y, 1e-4f);
     EXPECT_NEAR(CameraPosition().z, placed.z, 1e-4f);
 }
+
+// =============================================================================
+// Following a VEHICLE (issue #897).
+//
+// The rig derives a non-player target's facing from its rotation, and which axis
+// counts as "forward" is not the same answer for every target: a player capsule
+// is -Z forward (PlayerRigSystem writes it that way), every force-model vehicle
+// is +Z forward to match Jolt. Reading the vehicle in the camera convention put
+// the camera AHEAD of the hull looking back at it — a steady, well-framed shot
+// of the boat sailing into the lens, which is why it read as a scene-authoring
+// mistake rather than an engine bug and got worked around in content instead.
+//
+// The observable is the SIGN of the camera's offset along the target's own
+// forward axis. A distance-only check ("the camera is one boom away") passes on
+// the bug, which is precisely how it shipped.
+// =============================================================================
+namespace
+{
+    // The hull points along world +Z (identity rotation), so "behind" is -Z.
+    constexpr f32 kVehicleZ = 10.0f;
+
+    void MakeRigidTargetRig(CameraRigComponent& rig, UUID target)
+    {
+        rig.m_Target = target;
+        rig.m_PivotOffset = { 0.0f, 0.0f, 0.0f };
+        rig.m_BoomLength = kBoomLength;
+        rig.m_CollisionEnabled = false; // this is about aim, not clearance
+        rig.m_PositionSmoothTime = 0.0f;
+        rig.m_FallbackPitchDeg = 0.0f; // level, so the boom lies in the XZ plane
+        rig.m_Initialized = false;     // re-adopt the pose outright after retargeting
+    }
+} // namespace
+
+TEST_F(CameraRigSpringArmViaSceneTickTest, RigAimedAtABoatParksBehindTheHullNotAheadOfIt)
+{
+    auto boat = GetScene().CreateEntity("Boat");
+    boat.GetComponent<TransformComponent>().Translation = { 0.0f, 1.0f, kVehicleZ };
+    boat.AddComponent<BoatComponent>();
+
+    MakeRigidTargetRig(Rig(), boat.GetUUID());
+    TickFor(0.3f, kFixedDt);
+
+    const glm::vec3 offset = CameraPosition() - boat.GetComponent<TransformComponent>().Translation;
+    EXPECT_NEAR(glm::length(offset), kBoomLength, 0.05f) << "the boom length itself changed";
+    EXPECT_LT(offset.z, -kBoomLength * 0.9f)
+        << "the camera parked at z=" << offset.z
+        << " relative to a +Z-forward hull; positive means it is AHEAD of the bow looking back (issue #897)";
+    EXPECT_NEAR(offset.x, 0.0f, 0.05f) << "the boom is not on the hull's centreline";
+}
+
+// The same for the other two vehicle components, so the roster in
+// EntityFacing::ConventionFor cannot lose one silently.
+TEST_F(CameraRigSpringArmViaSceneTickTest, TheSameHoldsForACarAndAnAircraft)
+{
+    auto car = GetScene().CreateEntity("Car");
+    car.GetComponent<TransformComponent>().Translation = { 0.0f, 1.0f, kVehicleZ };
+    car.AddComponent<VehicleComponent>();
+
+    auto plane = GetScene().CreateEntity("Plane");
+    plane.GetComponent<TransformComponent>().Translation = { 0.0f, 1.0f, -kVehicleZ };
+    plane.AddComponent<AircraftComponent>();
+
+    for (Entity target : { car, plane })
+    {
+        MakeRigidTargetRig(Rig(), target.GetUUID());
+        TickFor(0.3f, kFixedDt);
+
+        const glm::vec3 offset = CameraPosition() - target.GetComponent<TransformComponent>().Translation;
+        EXPECT_LT(offset.z, -kBoomLength * 0.9f)
+            << target.GetName() << ": camera parked ahead of a +Z-forward target; z=" << offset.z;
+    }
+}
+
+// Everything that is NOT a vehicle must be untouched by the convention work.
+// A bare transform is -Z forward, so with an identity rotation the camera
+// belongs at +Z. This is the half a blanket "vehicles are +Z, so flip
+// everything" fix would break — and the player path above still passes for the
+// same reason.
+TEST_F(CameraRigSpringArmViaSceneTickTest, ANonVehicleTargetKeepsTheCameraConvention)
+{
+    auto prop = GetScene().CreateEntity("BarePropFacingMinusZ");
+    prop.GetComponent<TransformComponent>().Translation = { 0.0f, 1.0f, kVehicleZ };
+
+    MakeRigidTargetRig(Rig(), prop.GetUUID());
+    TickFor(0.3f, kFixedDt);
+
+    const glm::vec3 offset = CameraPosition() - prop.GetComponent<TransformComponent>().Translation;
+    EXPECT_GT(offset.z, kBoomLength * 0.9f)
+        << "a plain transform target stopped being read in the camera convention; z=" << offset.z;
+}
+
+// The scene's override, for a target whose components cannot say which way it
+// points. Drift's camera proxy is exactly this: a bare root transform carrying
+// the boat's (smoothed) heading. Before #897 the scene had to turn that heading
+// through 180 degrees instead.
+TEST_F(CameraRigSpringArmViaSceneTickTest, TargetForwardOverridesTheDerivedConvention)
+{
+    auto proxy = GetScene().CreateEntity("CameraTargetProxy");
+    proxy.GetComponent<TransformComponent>().Translation = { 0.0f, 1.0f, kVehicleZ };
+
+    MakeRigidTargetRig(Rig(), proxy.GetUUID());
+    Rig().m_TargetForward = ForwardConvention::PlusZ;
+    TickFor(0.3f, kFixedDt);
+    EXPECT_LT((CameraPosition() - proxy.GetComponent<TransformComponent>().Translation).z, -kBoomLength * 0.9f)
+        << "PlusZ did not make the rig treat a bare transform as +Z-forward";
+
+    // And back the other way, on a target the derivation would have called +Z.
+    auto boat = GetScene().CreateEntity("BoatDrivenLikeACamera");
+    boat.GetComponent<TransformComponent>().Translation = { 0.0f, 1.0f, -kVehicleZ };
+    boat.AddComponent<BoatComponent>();
+
+    MakeRigidTargetRig(Rig(), boat.GetUUID());
+    Rig().m_TargetForward = ForwardConvention::MinusZ;
+    TickFor(0.3f, kFixedDt);
+    EXPECT_GT((CameraPosition() - boat.GetComponent<TransformComponent>().Translation).z, kBoomLength * 0.9f)
+        << "MinusZ did not override the vehicle component's convention";
+}

@@ -7,7 +7,13 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .scenebin — Binary Scene Sidecar Cache — Version 1  (issue #525)
+    // .scenebin — Binary Scene Sidecar Cache  (issue #525)
+    //
+    // The wire-format version is OSceneFormat::CurrentVersion below, which
+    // carries its own per-bump changelog. Deliberately NOT restated here: this
+    // banner said "Version 1" through the v2 bump (#723) and the v3 one (#897),
+    // because a number copied into prose has no reason to be updated with the
+    // constant it duplicates.
     //
     // A derived, disposable cache written next to a scene's `.olo`/`.yaml` source
     // (`<scene>.scenebin`). YAML stays the source of truth; the sidecar exists
@@ -73,8 +79,11 @@ namespace OloEngine
         // save game: a sidecar is a derived cache, so rejecting the old one
         // costs one YAML load and a rewrite, where migrating it would mean
         // keeping every past component layout compilable forever.
-        constexpr u32 CurrentVersion = 2;
-        constexpr u32 MinSupportedVersion = 2;
+        // v3 (issue #897): CameraRigComponent gained m_TargetForward, which the
+        // GENERATED binary block appends to its payload — same unlength-prefixed
+        // slide as v2, same remedy.
+        constexpr u32 CurrentVersion = 3;
+        constexpr u32 MinSupportedVersion = 3;
 
         // Per-entity storage kind (the u8 that prefixes each EntityRecord).
         enum EntityKind : u8

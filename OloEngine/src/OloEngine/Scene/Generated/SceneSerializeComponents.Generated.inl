@@ -146,6 +146,7 @@ if (entity.HasComponent<CameraRigComponent>())
     out << YAML::Key << "HeadBobAmplitude" << YAML::Value << comp.m_HeadBobAmplitude;
     out << YAML::Key << "HeadBobFrequency" << YAML::Value << comp.m_HeadBobFrequency;
     out << YAML::Key << "FallbackPitchDeg" << YAML::Value << comp.m_FallbackPitchDeg;
+    out << YAML::Key << "TargetForward" << YAML::Value << static_cast<int>(comp.m_TargetForward);
     out << YAML::EndMap; // CameraRigComponent
 }
 

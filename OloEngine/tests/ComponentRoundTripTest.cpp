@@ -4166,6 +4166,7 @@ Entities:
             rig.m_HeadBobAmplitude = 0.0625f;
             rig.m_HeadBobFrequency = 2.25f;
             rig.m_FallbackPitchDeg = -33.5f;
+            rig.m_TargetForward = ForwardConvention::PlusZ;
 
             rig.m_CurrentBoomLength = 2.0f;
             rig.m_SmoothedPosition = { 9.0f, 9.0f, 9.0f };
@@ -4210,6 +4211,9 @@ Entities:
         EXPECT_NEAR(rig.m_HeadBobAmplitude, 0.0625f, kFloatEpsilon);
         EXPECT_NEAR(rig.m_HeadBobFrequency, 2.25f, kFloatEpsilon);
         EXPECT_NEAR(rig.m_FallbackPitchDeg, -33.5f, kFloatEpsilon);
+        // Losing this silently reverts a rig aimed at a proxy transform to the
+        // camera convention, i.e. back to issue #897's reversed chase camera.
+        EXPECT_EQ(rig.m_TargetForward, ForwardConvention::PlusZ);
 
         EXPECT_NEAR(rig.m_CurrentBoomLength, 0.0f, kFloatEpsilon);
         EXPECT_NEAR(rig.m_BobPhase, 0.0f, kFloatEpsilon);
