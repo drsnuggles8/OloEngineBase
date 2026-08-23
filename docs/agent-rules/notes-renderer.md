@@ -366,37 +366,52 @@ changes.
 
 > ### OPEN: the vendored GL backend's temporal path loses ~36% of the frame's luminance
 >
-> **Status: unresolved, and the integration is NOT the cause.** Do not spend another session tuning
-> dispatch parameters — every one of them has been varied and measured inert. Written down because
-> the bisect took hours and the result is worth exactly one read.
+> **Status: unresolved, and the integration is NOT the cause.** Do not re-run the experiments listed
+> below — every one is recorded because it was measured inert, and re-deriving them costs hours.
 >
-> **The signature.** In a static-camera scene at 0.667 render scale, mean luma of the composited
-> frame is native 115.7, FSR1-at-the-same-scale 116.6, and FSR2 **74.1**. Per-frame it goes:
-> frame 0 = **116.5** (correct to 1 part in 130), frame 1 = **74.1**, and then flat forever. Frame 0
-> is the frame with `reset = true`, i.e. the only frame that does NOT read history. So the spatial
-> upsample is exact and the loss is entirely in the accumulate/reproject path. It does not compound,
-> which rules out "history decays toward black".
+> **The signature.** Static camera, 0.667 render scale, mean luma of the composited frame: native
+> **115.7**, FSR1 at the same scale **116.6**, FSR2 **74.1**. Per frame: frame 0 = **116.5**, frame 1
+> = **74.1**, flat thereafter. Frame 0 is the `reset` frame — the only one that does not read
+> history. So the spatial upsample is exact and the loss is entirely in the accumulate/reproject
+> path. It does not compound, which rules out "history decays to black".
 >
-> **What it is not.** Each of these was changed and re-measured; all landed within 1% of 74:
-> FSR2 auto-exposure on/off (and with an explicit neutral 1.0 exposure texture), RCAS sharpening
-> on/off, `FFX_FSR2_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION` on/off, the jitter Y sign,
-> `FFX_FSR2_ENABLE_DEPTH_INVERTED` on/off, `maxRenderSize` = display vs actual render size, and the
-> forward vs deferred path. The dispatch was logged and confirmed to carry a correctly varying
-> sub-pixel jitter, the right render/display extents, and a sane frame delta; the render-graph JSON
-> dump confirms FSR2Pass runs and `ToneMapPass` reads `FSR2ColorTexture@FSR2Pass`, so its output does
-> reach the screen.
+> **The control that proves the output path is sound.** Patching the GL callback's
+> `StoreUpscaledOutput` to write a constant turns the frame that colour (mean luma 51.4 ≈
+> 0.2126 × 255 for pure red, gradient energy collapsing 1.58M → 106k). FSR2's writes reach our
+> `FSR2Color` and survive the whole post chain.
 >
-> **The measurement that settles it.** Forced to **1:1** — render size == display size, no upsampling
-> whatsoever, static camera, where FSR2 should be near-identity — it still returns **71.6** against
-> native's 115.7. Nothing about resolution, reprojection inputs or our plumbing can explain that.
-> The defect is inside `fsr2gl-src`'s temporal path.
+> **Measured inert** — each changed and re-measured, all within 1% of 74: FSR2 auto-exposure on/off
+> (and with an explicit neutral 1.0 exposure texture), RCAS sharpening on/off,
+> `MOTION_VECTORS_JITTER_CANCELLATION` on/off, the jitter Y sign, `DEPTH_INVERTED` on/off,
+> `HIGH_DYNAMIC_RANGE` on/off, `maxRenderSize` display-vs-render, forward vs deferred, and forcing
+> **1:1** (render size == display size, no upsampling at all — still **71.6**). The dispatch was
+> logged and carries a correctly varying sub-pixel jitter, the right extents and a sane frame delta;
+> the render-graph JSON dump shows `ToneMapPass` reading `FSR2ColorTexture@FSR2Pass`.
 >
-> **Where to go next**, in order of cost: check whether the fork's `ExecuteGpuJobsGL` binds the
-> ping-pong internal resources (`INTERNAL_UPSCALED_COLOR`, `LOCK_STATUS`, `LUMA_HISTORY`) for the
-> *read* side as well as the write side — a history SRV that silently reads a wrong or stale slot
-> matches every observation; then try a different upstream commit; then raise it with the fork.
-> Note the fork ships DX12 and Vulkan samples but **no GL sample**, so its GL temporal path has no
-> upstream regression coverage.
+> **Two genuine upstream defects were found on the way. Neither fixes the darkening** (both were
+> tested), but both are real and belong in any fork:
+>
+> 1. **`pointSampler` is created, deleted, and never bound.** `executeGpuJobCompute` hard-codes
+>    `linearSampler` for every SRV. That is wrong for the point-sampled fetches, and it makes the
+>    integer-format SRVs *incomplete* in GL — `r_reconstructed_previous_nearest_depth` is
+>    `R32_UINT`, and an integer texture with a LINEAR filter is incomplete, so every fetch returns
+>    zero.
+> 2. **`rw_prepared_input_color` is declared `layout (rgba16)` — UNORM — over a resource created as
+>    `R16G16B16A16_FLOAT`.** A mismatched image format qualifier is undefined behaviour, and a UNORM
+>    view cannot represent the signed Co/Cg chroma that buffer carries.
+>
+> **A trap that voided the first round of shader experiments, now fixed.** `add_dependencies` orders
+> targets but does not make the object embedding the SPIR-V depend on the generated headers, so
+> editing a shader regenerated the permutations, relinked the archive, and kept the OLD blobs in
+> `ffx_fsr2_shaders_gl.cpp.obj`. Two different shader edits produced bit-identical frames
+> (74.576736802867472 to 15 digits) before this was spotted. `cmake/fsr2.cmake` now sets
+> `OBJECT_DEPENDS`; if you ever hand-edit the fetched shaders, verify the object actually recompiles.
+>
+> **Where to go next:** the fork ships DX12 and Vulkan samples but **no GL sample**, so its GL
+> temporal path has no upstream regression coverage, and our pin is already `master`'s tip (there is
+> no newer commit to move to). The remaining suspects are all inside the accumulate/rectify step —
+> `RectifyHistory`'s clipping box is the one that would produce a stable equilibrium below the
+> current frame, which is exactly the observed shape.
 >
 > Until it is closed, `UpscalerTechnique::Temporal` produces a systematically dark frame. It is not
 > the default and the spatial path is unaffected.

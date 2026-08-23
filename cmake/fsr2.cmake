@@ -175,6 +175,21 @@ add_library(ffx_fsr2_gl STATIC
 
 add_dependencies(ffx_fsr2_gl ffx_fsr2_gl_shaders)
 
+# add_dependencies ORDERS the targets; it does NOT make the object that embeds
+# the blobs depend on the header files. Without OBJECT_DEPENDS, regenerating the
+# permutations relinks the archive while ffx_fsr2_shaders_gl.cpp.obj keeps the
+# OLD SPIR-V — so the build reports success and the GPU runs the previous
+# shaders. Measured: two different shader-source edits produced bit-identical
+# frames (74.576736802867472 mean luma to 15 digits), and a deliberate
+# write-constant-red control did nothing at all, until this object was deleted
+# by hand. Nothing warns; you simply debug the wrong binary.
+#
+# This only bites when the SHADER SOURCES change under a fixed pin (a local
+# investigation, or a patch applied to the fetched tree), which is exactly when
+# you are least able to afford a stale build.
+set_source_files_properties("${OLO_FSR2_API_DIR}/gl/shaders/ffx_fsr2_shaders_gl.cpp"
+	PROPERTIES OBJECT_DEPENDS "${OLO_FSR2_PERMUTATION_HEADERS}")
+
 # The backend calls GL exclusively through its own function table, loaded from
 # the `getProcAddress` we hand it — it links no loader. Upstream's bundled
 # glad/gl.h is therefore used for nothing but the PFNGL* typedefs and enums, and
