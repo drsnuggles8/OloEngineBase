@@ -29,6 +29,21 @@ namespace OloEngine
         GameBuildResult result;
         progress = 0.0f;
 
+        // Fail loudly, before touching the filesystem, when asked for a target
+        // this host cannot produce (#891). OloEngine has no cross-compilation
+        // toolchain — every step below copies the HOST's own OloRuntime binary,
+        // Mono runtime and script assemblies, so packaging for another platform
+        // would produce a folder that looks complete but cannot run.
+        if (!IsBuildTargetSupportedOnThisHost(settings.TargetPlatform))
+        {
+            result.ErrorMessage = "Cannot build for target platform '" + std::string(ToString(settings.TargetPlatform)) +
+                                  "' on this host (host platform: " + ToString(GetHostBuildPlatform()) +
+                                  "). OloEngine has no cross-compilation toolchain — build on a " +
+                                  ToString(settings.TargetPlatform) + " host to produce a " +
+                                  ToString(settings.TargetPlatform) + " distribution.";
+            return result;
+        }
+
         // Validate and sanitize GameName before using it to build paths
         {
             const auto& gameName = settings.GameName;
@@ -78,9 +93,12 @@ namespace OloEngine
             return result;
         }
         std::filesystem::create_directories(outputDir / "Assets", ec);
-        std::filesystem::create_directories(outputDir / "mono" / "lib", ec);
-        std::filesystem::create_directories(outputDir / "mono" / "etc", ec);
-        std::filesystem::create_directories(outputDir / "Resources" / "Scripts", ec);
+        if (IsScriptingAvailableOnPlatform(settings.TargetPlatform))
+        {
+            std::filesystem::create_directories(outputDir / "mono" / "lib", ec);
+            std::filesystem::create_directories(outputDir / "mono" / "etc", ec);
+            std::filesystem::create_directories(outputDir / "Resources" / "Scripts", ec);
+        }
 
         result.OutputPath = outputDir;
 
@@ -133,15 +151,31 @@ namespace OloEngine
         }
         progress = 0.60f;
 
-        // Step 3b: Embed custom icon if specified (non-fatal)
-        if (!settings.IconPath.empty())
+        // Step 3b: Platform-specific executable finishing touches (#891) —
+        // icon embedding on Windows, a .desktop launcher entry on Linux.
+        // Non-fatal either way.
         {
-            OLO_CORE_INFO("[GameBuild] Embedding custom icon...");
-            std::string iconError;
-            const std::filesystem::path destExe = outputDir / (settings.GameName + ".exe");
-            if (!EmbedCustomIcon(destExe, settings.IconPath, iconError))
+            const std::filesystem::path destExe = outputDir / GetHostExecutableFileName(settings.GameName, settings.TargetPlatform);
+            if (settings.TargetPlatform == BuildTargetPlatform::Windows)
             {
-                OLO_CORE_WARN("[GameBuild] Custom icon embedding failed (non-fatal): {}", iconError);
+                if (!settings.IconPath.empty())
+                {
+                    OLO_CORE_INFO("[GameBuild] Embedding custom icon...");
+                    std::string iconError;
+                    if (!EmbedCustomIcon(destExe, settings.IconPath, iconError))
+                    {
+                        OLO_CORE_WARN("[GameBuild] Custom icon embedding failed (non-fatal): {}", iconError);
+                    }
+                }
+            }
+            else
+            {
+                OLO_CORE_INFO("[GameBuild] Writing Linux desktop entry...");
+                std::string desktopError;
+                if (!WriteLinuxDesktopEntry(destExe, settings.IconPath, settings.GameName, desktopError))
+                {
+                    OLO_CORE_WARN("[GameBuild] Desktop entry generation failed (non-fatal): {}", desktopError);
+                }
             }
         }
         progress = 0.62f;
@@ -170,7 +204,7 @@ namespace OloEngine
 
         // Step 6: Copy Mono runtime (80% -> 88%)
         OLO_CORE_INFO("[GameBuild] Step 6/9: Copying Mono runtime...");
-        if (!CopyMonoRuntime(outputDir, result.ErrorMessage))
+        if (!CopyMonoRuntime(settings, outputDir, result.ErrorMessage))
         {
             return result;
         }
@@ -178,7 +212,7 @@ namespace OloEngine
 
         // Step 7: Copy ScriptCore assembly (88% -> 90%)
         OLO_CORE_INFO("[GameBuild] Step 7/9: Copying ScriptCore assembly...");
-        if (!CopyScriptCoreAssembly(outputDir, result.ErrorMessage))
+        if (!CopyScriptCoreAssembly(settings, outputDir, result.ErrorMessage))
         {
             // Not fatal — game may not use C# scripts
             OLO_CORE_WARN("[GameBuild] ScriptCore copy failed (non-fatal): {}", result.ErrorMessage);
@@ -292,32 +326,37 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Locate the OloRuntime executable based on build configuration
-        // The binary is at: bin/{Config}/OloRuntime/OloRuntime.exe
+        // Locate the OloRuntime executable based on build configuration and
+        // target platform. The binary is at: bin/{Config}/OloRuntime/<name>
+        // — <name> carries the host's native extension (.exe on Windows,
+        // none on Linux); Build() already refused any target that isn't this
+        // host's own platform, so that's the only convention that applies.
         const auto& startupDir = Application::GetStartupWorkingDirectory();
         std::filesystem::path engineRoot = startupDir.parent_path();
 
-        std::filesystem::path runtimeExe = engineRoot / "bin" / settings.BuildConfiguration / "OloRuntime" / "OloRuntime.exe";
+        const std::string runtimeExeName = GetHostExecutableFileName("OloRuntime", settings.TargetPlatform);
+        std::filesystem::path runtimeExe = engineRoot / "bin" / settings.BuildConfiguration / "OloRuntime" / runtimeExeName;
 
         if (!std::filesystem::exists(runtimeExe))
         {
             // Try relative to the workspace root (common in development)
             // The editor typically runs from OloEditor/, so engine root is one level up
-            runtimeExe = engineRoot / ".." / "bin" / settings.BuildConfiguration / "OloRuntime" / "OloRuntime.exe";
+            runtimeExe = engineRoot / ".." / "bin" / settings.BuildConfiguration / "OloRuntime" / runtimeExeName;
 
             if (!std::filesystem::exists(runtimeExe))
             {
-                errorMessage = "OloRuntime.exe not found. Build OloRuntime in " + settings.BuildConfiguration +
+                errorMessage = runtimeExeName + " not found. Build OloRuntime in " + settings.BuildConfiguration +
                                " configuration first. Expected at: " + runtimeExe.string();
                 return false;
             }
         }
 
-        // Warn if OloRuntime.exe appears to be stale relative to OloEditor.exe.
-        // The CMake build ensures they stay in sync, but this catches manual or
-        // partial builds where only one target was rebuilt.
+        // Warn if the runtime binary appears to be stale relative to the
+        // editor binary. The CMake build ensures they stay in sync, but this
+        // catches manual or partial builds where only one target was rebuilt.
         {
-            std::filesystem::path editorExe = engineRoot / "bin" / settings.BuildConfiguration / "OloEditor" / "OloEditor.exe";
+            const std::string editorExeName = GetHostExecutableFileName("OloEditor", settings.TargetPlatform);
+            std::filesystem::path editorExe = engineRoot / "bin" / settings.BuildConfiguration / "OloEditor" / editorExeName;
             if (std::filesystem::exists(editorExe))
             {
                 std::error_code tsEc;
@@ -325,15 +364,16 @@ namespace OloEngine
                 auto editorTime = std::filesystem::last_write_time(editorExe, tsEc);
                 if (!tsEc && runtimeTime < editorTime)
                 {
-                    OLO_CORE_WARN("[GameBuild] OloRuntime.exe is older than OloEditor.exe — "
+                    OLO_CORE_WARN("[GameBuild] {} is older than {} — "
                                   "it may be missing recent engine changes. "
-                                  "Rebuild the OloRuntime target to ensure the game binary is up-to-date.");
+                                  "Rebuild the OloRuntime target to ensure the game binary is up-to-date.",
+                                  runtimeExeName, editorExeName);
                 }
             }
         }
 
         // Copy and rename to the game name
-        const std::filesystem::path destExe = outputDir / (settings.GameName + ".exe");
+        const std::filesystem::path destExe = outputDir / GetHostExecutableFileName(settings.GameName, settings.TargetPlatform);
         std::error_code ec;
         std::filesystem::copy_file(runtimeExe, destExe,
                                    std::filesystem::copy_options::overwrite_existing, ec);
@@ -341,6 +381,33 @@ namespace OloEngine
         {
             errorMessage = "Failed to copy runtime executable: " + ec.message();
             return false;
+        }
+
+        // Linux does not use a file extension to mark a file runnable —
+        // copy_file does not reliably preserve the executable bit across
+        // filesystems, so set it explicitly. Unlike the DLL/Mono/icon steps,
+        // this one is fatal: an unrunnable binary is exactly the "folder that
+        // looks fine and does not run" acceptance criterion #4 exists to catch.
+        if (settings.TargetPlatform == BuildTargetPlatform::Linux)
+        {
+            std::filesystem::permissions(destExe,
+                                         std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
+                                         std::filesystem::perm_options::add, ec);
+            if (ec)
+            {
+                errorMessage = "Failed to mark " + destExe.string() + " executable: " + ec.message();
+                return false;
+            }
+
+            constexpr std::filesystem::perms execBits =
+                std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec;
+            const auto status = std::filesystem::status(destExe, ec);
+            if (ec || (status.permissions() & execBits) == std::filesystem::perms::none)
+            {
+                errorMessage = "Copied runtime executable " + destExe.string() + " is not runnable — "
+                                                                                 "no execute permission bit is set after copy.";
+                return false;
+            }
         }
 
         OLO_CORE_INFO("[GameBuild] Runtime executable copied: {}", destExe.string());
@@ -353,6 +420,17 @@ namespace OloEngine
         [[maybe_unused]] std::string& errorMessage)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Every dependency the Linux runtime needs today is either statically
+        // linked or resolved via the system's shared-library search path —
+        // this step is Windows-shaped by name and function (#891). Kept as an
+        // explicit early-return rather than falling through an empty Windows
+        // DLL list so a future Linux runtime dependency has an obvious home.
+        if (settings.TargetPlatform != BuildTargetPlatform::Windows)
+        {
+            OLO_CORE_INFO("[GameBuild] No dependency libraries to stage for {}", ToString(settings.TargetPlatform));
+            return true;
+        }
 
         // Resolve the runtime binary directory using the same logic as CopyRuntimeExecutable
         const auto& startupDir = Application::GetStartupWorkingDirectory();
@@ -474,10 +552,22 @@ namespace OloEngine
     }
 
     bool GameBuildPipeline::CopyMonoRuntime(
+        const GameBuildSettings& settings,
         const std::filesystem::path& outputDir,
         std::string& errorMessage)
     {
         OLO_PROFILE_FUNCTION();
+
+        // C# scripting is Windows-only — OloEngine-ScriptCore only builds
+        // under the Visual Studio generator (#891) — so a non-Windows target
+        // has no Mono runtime to ship. This is the honest answer, not a
+        // silently incomplete build: Lua scripting is unaffected.
+        if (!IsScriptingAvailableOnPlatform(settings.TargetPlatform))
+        {
+            OLO_CORE_INFO("[GameBuild] Skipping Mono runtime copy — C# scripting is not available on {}",
+                          ToString(settings.TargetPlatform));
+            return true;
+        }
 
         // Mono runtime is expected relative to the working directory
         // In development: OloEditor/mono/
@@ -524,10 +614,20 @@ namespace OloEngine
     }
 
     bool GameBuildPipeline::CopyScriptCoreAssembly(
+        const GameBuildSettings& settings,
         const std::filesystem::path& outputDir,
         std::string& errorMessage)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Same reasoning as CopyMonoRuntime: no ScriptCore assembly exists to
+        // copy on a platform C# scripting doesn't run on (#891).
+        if (!IsScriptingAvailableOnPlatform(settings.TargetPlatform))
+        {
+            OLO_CORE_INFO("[GameBuild] Skipping ScriptCore assembly copy — C# scripting is not available on {}",
+                          ToString(settings.TargetPlatform));
+            return true;
+        }
 
         // The ScriptCore DLL is at Resources/Scripts/OloEngine-ScriptCore.dll
         const std::filesystem::path scriptCoreSrc = "Resources/Scripts/OloEngine-ScriptCore.dll";
@@ -748,6 +848,14 @@ namespace OloEngine
         out << YAML::Key << "Is3DMode" << YAML::Value << settings.Is3DMode;
         out << YAML::EndMap;
 
+        // Record the target explicitly, including whether C# scripting is
+        // available on it (#891) — the honest answer, rather than a runtime
+        // that silently discovers scripting is missing.
+        out << YAML::Key << "Platform" << YAML::Value << YAML::BeginMap;
+        out << YAML::Key << "Target" << YAML::Value << ToString(settings.TargetPlatform);
+        out << YAML::Key << "CSharpScriptingAvailable" << YAML::Value << IsScriptingAvailableOnPlatform(settings.TargetPlatform);
+        out << YAML::EndMap;
+
         // Write start scene from build settings (asset-relative path)
         if (!settings.StartScene.empty())
         {
@@ -814,6 +922,16 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         return BuildPipelinePlatform::EmbedCustomIcon(exePath, iconPath, errorMessage);
+    }
+
+    bool GameBuildPipeline::WriteLinuxDesktopEntry(
+        const std::filesystem::path& exePath,
+        const std::filesystem::path& iconPath,
+        const std::string& gameName,
+        std::string& errorMessage)
+    {
+        OLO_PROFILE_FUNCTION();
+        return BuildPipelinePlatform::WriteDesktopEntry(exePath, iconPath, gameName, errorMessage);
     }
 
 } // namespace OloEngine
