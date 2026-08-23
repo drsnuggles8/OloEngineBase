@@ -462,4 +462,70 @@ namespace OloEngine::Tests
                "neither upscaler declared its output while the post chain still expected one. "
                "See FSR2_MSAAFallback.png";
     }
+
+    // FSR2's runtime is a third-party GL client that binds its own UBOs,
+    // samplers and images to FIXED slot indices lifted from the DirectX
+    // register numbers, and never restores them. Those indices share a
+    // namespace with the engine's: the luminance-pyramid pass's constant
+    // buffer lands on UBO binding 5, which is `MultiLightBuffer`.
+    //
+    // The engine binds that UBO once rather than per frame, so the damage is
+    // not to FSR2's own frame at all — it is to EVERY LATER FRAME, whichever
+    // technique renders it. That is what makes it so easy to misread as a
+    // temporal-accumulation bug: the first frame is pixel-correct (nothing has
+    // dispatched yet) and every frame after is uniformly dark, exactly the
+    // shape of a bad history blend. Confirmed to fail with the restore scope
+    // removed: 115.7 before FSR2 ran, 69.9 after.
+    //
+    // So the assertion deliberately renders NO FSR2 frame at the point it
+    // measures: it compares native-before against native-after, which is the
+    // only framing that pins the blame on the dispatch rather than the
+    // upscale. Any future GL state FSR2 leaks — a sampler left on a unit, a
+    // stale image binding — lands here too.
+    TEST_F(FSR2VisualEvidenceTest, DispatchLeavesEngineBindingsIntactForLaterFrames)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (!TemporalUpscalerUsable())
+            GTEST_SKIP() << "FSR2 is not available on this build/backend — nothing dispatches, nothing to leak";
+
+        const ScopedMockTime scopedMockTime(kCaptureTime);
+        const EditorCamera camera = MakeCamera({ 0.0f, 7.0f, 16.0f }, 0.0f, 0.32f);
+        auto& pp = Renderer3D::GetPostProcessSettings();
+
+        pp.Upscale = UpscaleMode::Off;
+        pp.Technique = UpscalerTechnique::Spatial;
+        std::vector<u8> before;
+        RunFramesAndCapture(camera, 3, "BindingsBefore", before);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        // Let FSR2 own a few frames, then hand the frame back to the native path.
+        pp.Upscale = UpscaleMode::Quality;
+        pp.Technique = UpscalerTechnique::Temporal;
+        std::vector<u8> ignored;
+        RunFramesAndCapture(camera, kSettleFrames, "", ignored);
+
+        pp.Upscale = UpscaleMode::Off;
+        pp.Technique = UpscalerTechnique::Spatial;
+        std::vector<u8> after;
+        RunFramesAndCapture(camera, 3, "BindingsAfter", after);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        const f64 meanBefore = MeanLuma(before);
+        const f64 meanAfter = MeanLuma(after);
+        ASSERT_GT(meanBefore, 20.0) << "the native reference did not render";
+
+        // Same scene, same camera, same technique — the only thing between the
+        // two captures is that FSR2 dispatched. 2% is well inside the frame's
+        // own repeatability and an order of magnitude under the 36% the leak
+        // produced.
+        EXPECT_LT(std::abs(meanAfter - meanBefore), meanBefore * 0.02)
+            << "a native frame rendered AFTER an FSR2 dispatch differs from the identical frame rendered "
+               "before it (before="
+            << meanBefore << " after=" << meanAfter
+            << "). FSR2 left GL binding state behind and the engine, which binds its light and shadow UBOs "
+               "once rather than per frame, is now reading someone else's buffer. See FSR2BindingScope in "
+               "OpenGLTemporalUpscaler.cpp, and FSR2_BindingsBefore.png vs FSR2_BindingsAfter.png";
+    }
 } // namespace OloEngine::Tests

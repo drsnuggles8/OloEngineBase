@@ -364,75 +364,88 @@ again post-tonemap is a second pass over the same edges and rings on high-contra
 user's `TAAEnabled` / `CASEnabled` settings are left untouched so they return when the technique
 changes.
 
-> ### OPEN: the vendored GL backend's temporal path loses ~36% of the frame's luminance
->
-> **Status: unresolved, and the integration is NOT the cause.** Do not re-run the experiments listed
-> below — every one is recorded because it was measured inert, and re-deriving them costs hours.
->
-> **The signature.** Static camera, 0.667 render scale, mean luma of the composited frame: native
-> **115.7**, FSR1 at the same scale **116.6**, FSR2 **74.1**. Per frame: frame 0 = **116.5**, frame 1
-> = **74.1**, flat thereafter. Frame 0 is the `reset` frame — the only one that does not read
-> history. So the spatial upsample is exact and the loss is entirely in the accumulate/reproject
-> path. It does not compound, which rules out "history decays to black".
->
-> **The control that proves the output path is sound.** Patching the GL callback's
-> `StoreUpscaledOutput` to write a constant turns the frame that colour (mean luma 51.4 ≈
-> 0.2126 × 255 for pure red, gradient energy collapsing 1.58M → 106k). FSR2's writes reach our
-> `FSR2Color` and survive the whole post chain.
->
-> **Measured inert** — each changed and re-measured, all within 1% of 74: FSR2 auto-exposure on/off
-> (and with an explicit neutral 1.0 exposure texture), RCAS sharpening on/off,
-> `MOTION_VECTORS_JITTER_CANCELLATION` on/off, the jitter Y sign, `DEPTH_INVERTED` on/off,
-> `HIGH_DYNAMIC_RANGE` on/off, `maxRenderSize` display-vs-render, forward vs deferred, and forcing
-> **1:1** (render size == display size, no upsampling at all — still **71.6**). The dispatch was
-> logged and carries a correctly varying sub-pixel jitter, the right extents and a sane frame delta;
-> the render-graph JSON dump shows `ToneMapPass` reading `FSR2ColorTexture@FSR2Pass`.
->
-> **Two genuine upstream defects were found on the way. Neither fixes the darkening** (both were
-> tested), but both are real and belong in any fork:
->
-> 1. **`pointSampler` is created, deleted, and never bound.** `executeGpuJobCompute` hard-codes
->    `linearSampler` for every SRV. That is wrong for the point-sampled fetches, and it makes the
->    integer-format SRVs *incomplete* in GL — `r_reconstructed_previous_nearest_depth` is
->    `R32_UINT`, and an integer texture with a LINEAR filter is incomplete, so every fetch returns
->    zero.
-> 2. **`rw_prepared_input_color` is declared `layout (rgba16)` — UNORM — over a resource created as
->    `R16G16B16A16_FLOAT`.** A mismatched image format qualifier is undefined behaviour, and a UNORM
->    view cannot represent the signed Co/Cg chroma that buffer carries.
->
-> **A trap that voided the first round of shader experiments, now fixed.** `add_dependencies` orders
-> targets but does not make the object embedding the SPIR-V depend on the generated headers, so
-> editing a shader regenerated the permutations, relinked the archive, and kept the OLD blobs in
-> `ffx_fsr2_shaders_gl.cpp.obj`. Two different shader edits produced bit-identical frames
-> (74.576736802867472 to 15 digits) before this was spotted. `cmake/fsr2.cmake` now sets
-> `OBJECT_DEPENDS`; if you ever hand-edit the fetched shaders, verify the object actually recompiles.
->
-> **Localised to `ComputeUpsampledColorAndWeight` under `bIsNewSample == false`.** Two shader probes,
-> with the jitter phase PINNED so every frame has identical inputs:
->
-> * the **reprojected history at frame 1 is CORRECT** (~116, matching frame 0's output) — the
->   internal upscaled-colour buffer round-trips, so the history read/write path is sound;
-> * the **current-frame upsample at frame 1 is 73.9**, while the identical expression on frame 0
->   (the `bIsNewSample` branch) gives 116.5.
->
-> Same scene, same jitter, same history — the upsample function itself returns a different result
-> depending only on `bIsNewSample`. Note `.xyz` is normalised by `.w` ONLY when `.w > FSR2_EPSILON`;
-> below that it is returned as an un-normalised near-zero sum, which is a plausible darkening
-> mechanism worth confirming with a `.w` visualisation.
->
-> **Also eliminated in the second round** (each measured, all within 1% of 74): the jitter SIGN (the
-> engine adds +ndc to `P[2][0]`, which shifts the image by −ndc — a real asymmetry, but not this
-> bug), pinning the jitter phase, `RectifyHistory` skipped entirely, the reactive factor forced to
-> zero, `fKernelBias` forced to its frame-0 value, and `UPSAMPLE_USE_LANCZOS_TYPE` 2 → 0 (the
-> approximation vs the reference).
->
-> **A polarity correction worth not re-deriving:** `ComputeDepthClip` returns **0 when nothing is
-> disoccluded** (`fWeightSum == 0` falls through to `return 0.0f`). A depth-clip factor of ~0 across
-> a static frame is CORRECT, not evidence of a broken reconstructed-depth buffer.
->
-> **Where to go next:** the fork ships DX12 and Vulkan samples but **no GL sample**, so its GL
-> Until it is closed, `UpscalerTechnique::Temporal` produces a systematically dark frame. It is not
-> the default and the spatial path is unaffected.
+### A third-party GPU dispatch owns the binding namespace it writes to — FSR2's 36% darkening
+
+**Closed.** The symptom was a frame that lost ~36% of its luminance the moment `UpscalerTechnique::Temporal`
+was selected, and the cause was **not in FSR2 at all**. Recorded in full because the false trail cost
+two rounds of work and every wrong turn is reproducible.
+
+**The mechanism.** FSR2's GL backend binds its own UBOs, textures, samplers and images to *fixed* slot
+indices taken straight from the DirectX register numbers in the shader permutations, and never restores
+them. Those indices share a namespace with the engine's. `FSR2_BIND_CB_*` resolves to **3, 4, 5, 11, 12,
+14 and 18**; `PBR_MultiLight.glsl` has `MultiLightBuffer` at **5** and `ShadowData` at **6**. The
+compute-luminance-pyramid pass's `glBindBufferRange(GL_UNIFORM_BUFFER, 5, ...)` lands exactly on the light
+UBO. Because **the engine binds those UBOs once rather than per frame**, a single dispatch unlights every
+later frame: the forward shader reads FSR2's constants as its light array and every lit surface collapses
+to ambient. Fixed by `FSR2BindingScope` in `Platform/OpenGL/OpenGLTemporalUpscaler.cpp`, which captures and
+restores the slots FSR2 can touch around the dispatch.
+
+**Why it reads as a temporal-accumulation bug, and why that is the trap.** Frame 0 is *pixel-correct*
+(nothing has dispatched yet) and every frame after is *uniformly* darker by a constant factor, flat
+forever. That is precisely the signature of a bad history blend, so the whole first two rounds went into
+FSR2's accumulate path. **Every one of these was measured inert, and none of them was ever the problem**:
+auto-exposure on/off and with an explicit neutral 1.0 exposure texture, RCAS on/off,
+`MOTION_VECTORS_JITTER_CANCELLATION`, the jitter Y sign, the projection-jitter sign, a pinned jitter phase,
+`DEPTH_INVERTED`, `HIGH_DYNAMIC_RANGE`, `maxRenderSize` display-vs-render, forward vs deferred,
+`RectifyHistory` skipped entirely, the reactive factor zeroed, `fKernelBias` forced to its frame-0 value,
+`UPSAMPLE_USE_LANCZOS_TYPE` 2 → 0, and forcing **1:1** with no upsampling at all.
+
+**The four measurements that actually found it.** Each one is cheap; the ordering is the lesson.
+
+1. **Bypass the component under suspicion entirely.** A shader probe that dropped *all* of FSR2's temporal
+   work and emitted its own *input* by nearest-neighbour still read **73.3** against a native **115.7**.
+   That alone exonerates every line of FSR2 — but only because the probe read the input, not the output.
+2. **Build the control you have been assuming.** A spatial-upscaler capture at the *same* 0.667 render
+   scale read **116.7**. (The MSAA-fallback frame *looks* like a spatial control and is equally dark — it
+   is not one, because MSAA-on-deferred is independently broken here. A control has to be clean.)
+3. **Measure the engine's own buffer, with no upscaler in the measurement path.** Reading `SceneColor`
+   (683×512) directly gave spatial **65.5** vs temporal **31.9**, and the PNG showed the shape: unlit grid
+   lines and the clear colour untouched, every *lit* surface crushed. "Lighting is missing", not
+   "an upscaler is dark".
+4. **Swap the order.** With the temporal capture moved *before* the spatial one, the **spatial** frame came
+   out dark too (116.7 → 74.2). The corruption follows the **dispatch**, not the technique. That is the
+   measurement that names the bug class, and it is the one the regression test encodes.
+
+**The general rule.** A third-party GPU dispatch that binds by hard-coded slot index is not a pass — it is
+a second tenant in the binding namespace, and it will not clean up. Wrap any such dispatch in a
+capture/restore of the slots it can touch, sized from the ranges its shaders actually declare and **clamped
+to the driver's reported maxima** (`GL_MAX_IMAGE_UNITS` is 8 on plenty of drivers, well under FSR2's 18;
+querying past it is `GL_INVALID_VALUE`, and an empty image slot reports format 0, which
+`glBindImageTexture` also rejects). `GLStateGuard` is *not* this tool and says so: it documents that
+per-slot texture and UBO bindings are deliberately **not** restored, because for an ordinary engine pass
+that is ~185 GL calls of pure overhead. The trade-off inverts for a once-a-frame foreign dispatch.
+
+**Guarded by** `FSR2VisualEvidenceTest.DispatchLeavesEngineBindingsIntactForLaterFrames`, which renders
+**no FSR2 frame at the point it measures** — it compares a native frame captured before the dispatch with
+an identical one captured after. Any future state FSR2 leaks lands there too. Verified to fail (115.7 vs
+74.6) with the restore scope removed; a guard that has never been seen to fail is not a guard.
+
+**Two genuine upstream defects were found on the way.** Neither caused the darkening — both were measured
+— but both are real and belong in any fork:
+
+1. **`pointSampler` is created, deleted, and never bound.** `executeGpuJobCompute` hard-codes
+   `linearSampler` for every SRV. That makes the integer-format SRVs *incomplete* in GL —
+   `r_reconstructed_previous_nearest_depth` is `R32_UINT`, and an integer texture with a LINEAR filter is
+   incomplete, so every fetch returns zero.
+2. **`rw_prepared_input_color` is declared `layout (rgba16)` — UNORM — over a resource created as
+   `R16G16B16A16_FLOAT`.** A mismatched image format qualifier is undefined behaviour, and a UNORM view
+   cannot represent the signed Co/Cg chroma that buffer carries.
+
+**A build trap that voided a whole round of shader experiments, now fixed.** `add_dependencies` orders
+targets but does not make the object embedding the SPIR-V depend on the generated headers, and the
+permutation command depended only on the pass `.glsl2` and not on the shared `ffx_*.h`. So editing a shader
+could regenerate nothing, or regenerate the SPIR-V and relink while the object kept the OLD blobs. Two
+different shader edits produced bit-identical frames (74.576736802867472 to 15 digits) before this was
+spotted. `cmake/fsr2.cmake` now sets `OBJECT_DEPENDS` and globs the shared headers. **The tell is a result
+identical to the last digit** — that is what a no-op experiment looks like, and it is worth checking for
+before believing any negative result. The same tell later exposed that `OLO_RG_DISABLE_ALIASING` and
+`OLO_RG_POISON_TRANSIENTS` never reached the test process: both "experiments" returned the previous run's
+numbers exactly, so both were discarded rather than read as evidence.
+
+**A polarity correction worth not re-deriving:** `ComputeDepthClip` returns **0 when nothing is
+disoccluded** (`fWeightSum == 0` falls through to `return 0.0f`). A depth-clip factor of ~0 across a static
+frame is CORRECT, not evidence of a broken reconstructed-depth buffer.
+
 
 **`GL_KHR_shader_subgroup` is a hard requirement of the backend**, not a nice-to-have: its
 `GetDeviceCapabilitiesGL` returns `FFX_ERROR_BACKEND_API_ERROR` without it (it also accepts any AMD

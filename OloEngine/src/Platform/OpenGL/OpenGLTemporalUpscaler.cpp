@@ -15,6 +15,8 @@
 #include <ffx_fsr2.h>
 #include <ffx_fsr2_gl.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -23,6 +25,178 @@ namespace OloEngine
 {
     namespace
     {
+        // FSR2's GL backend binds its own UBOs, textures, samplers and images to
+        // FIXED slot indices taken straight from the DirectX register numbers in
+        // the shader permutations, and it never puts them back. Those indices are
+        // in the same namespace as the engine's: the constant buffer of the
+        // compute-luminance-pyramid pass lands on binding 5, which is
+        // `MultiLightBuffer` in PBR_MultiLight.glsl, and other passes hit 3, 4,
+        // 11, 12, 14 and 18 — `ShadowData` sits at 6 and the whole range is live.
+        //
+        // The engine binds those UBOs once rather than per frame, so a single
+        // dispatch silently unlights EVERY LATER FRAME: the forward shader reads
+        // FSR2's constants as its light array and every lit surface collapses to
+        // ambient. Measured on the #684 evidence scene, the corruption follows
+        // the DISPATCH, not the technique — running the spatial upscaler after
+        // FSR2 had run once made the spatial frame equally dark (SceneColor mean
+        // 65.5 -> 32.3), which is what separates this from an FSR2 bug.
+        //
+        // GLStateGuard is deliberately no help here: it documents that per-slot
+        // texture and UBO bindings are NOT restored, because for a render pass
+        // that is ~185 GL calls of pure overhead. This pass is different — it is
+        // a third-party dispatch that treats the binding namespace as its own,
+        // and it runs once a frame.
+        //
+        // The ranges are the maxima the shader permutations actually declare
+        // (FSR2_BIND_{SRV,UAV,CB}_*) rather than a guess, and are then clamped to
+        // what the driver reports — a slot past the limit is not "nothing bound",
+        // it is GL_INVALID_VALUE on both the query and the bind.
+        class FSR2BindingScope
+        {
+          public:
+            FSR2BindingScope()
+            {
+                m_UboSlots = ClampToDriverLimit(GL_MAX_UNIFORM_BUFFER_BINDINGS, kUboSlots);
+                m_TextureSlots = ClampToDriverLimit(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, kTextureSlots);
+                m_ImageSlots = ClampToDriverLimit(GL_MAX_IMAGE_UNITS, kImageSlots);
+
+                for (u32 i = 0; i < m_UboSlots; ++i)
+                {
+                    GLint buffer = 0;
+                    GLint64 start = 0;
+                    GLint64 size = 0;
+                    glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, i, &buffer);
+                    glGetInteger64i_v(GL_UNIFORM_BUFFER_START, i, &start);
+                    glGetInteger64i_v(GL_UNIFORM_BUFFER_SIZE, i, &size);
+                    m_Ubo[i] = { static_cast<GLuint>(buffer), start, size };
+                }
+
+                for (u32 i = 0; i < m_TextureSlots; ++i)
+                {
+                    GLint sampler = 0;
+                    glGetIntegeri_v(GL_SAMPLER_BINDING, i, &sampler);
+                    m_Sampler[i] = static_cast<GLuint>(sampler);
+
+                    // There is no core indexed query for a texture binding, so
+                    // walk the units. The active unit is restored below.
+                    glActiveTexture(GL_TEXTURE0 + i);
+                    GLint texture = 0;
+                    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
+                    m_Texture2D[i] = static_cast<GLuint>(texture);
+                }
+
+                for (u32 i = 0; i < m_ImageSlots; ++i)
+                {
+                    GLint name = 0;
+                    GLint level = 0;
+                    GLint layered = 0;
+                    GLint layer = 0;
+                    GLint access = GL_READ_WRITE;
+                    GLint format = GL_RGBA8;
+                    glGetIntegeri_v(GL_IMAGE_BINDING_NAME, i, &name);
+                    glGetIntegeri_v(GL_IMAGE_BINDING_LEVEL, i, &level);
+                    glGetIntegeri_v(GL_IMAGE_BINDING_LAYERED, i, &layered);
+                    glGetIntegeri_v(GL_IMAGE_BINDING_LAYER, i, &layer);
+                    glGetIntegeri_v(GL_IMAGE_BINDING_ACCESS, i, &access);
+                    glGetIntegeri_v(GL_IMAGE_BINDING_FORMAT, i, &format);
+                    // An EMPTY image slot reports format 0, and glBindImageTexture
+                    // rejects 0 as a format even when the texture is 0. Any sized
+                    // format is accepted for an unbind, so normalise it rather than
+                    // skipping the slot — skipping would leave FSR2's binding in
+                    // place, which is the whole bug.
+                    if (format == 0)
+                        format = GL_RGBA8;
+                    m_Image[i] = { static_cast<GLuint>(name), level,
+                                   layered != GL_FALSE, layer,
+                                   static_cast<GLenum>(access), static_cast<GLenum>(format) };
+                }
+
+                GLint activeUnit = GL_TEXTURE0;
+                glGetIntegerv(GL_ACTIVE_TEXTURE, &activeUnit);
+                m_ActiveTexture = static_cast<GLenum>(activeUnit);
+            }
+
+            ~FSR2BindingScope()
+            {
+                for (u32 i = 0; i < m_UboSlots; ++i)
+                {
+                    const Buffer& b = m_Ubo[i];
+                    // A slot bound with glBindBufferBase reports start = size = 0;
+                    // replaying that through glBindBufferRange would bind an empty
+                    // range instead of the whole buffer, so the two cases differ.
+                    if (b.Size > 0)
+                        glBindBufferRange(GL_UNIFORM_BUFFER, i, b.Name, static_cast<GLintptr>(b.Start),
+                                          static_cast<GLsizeiptr>(b.Size));
+                    else
+                        glBindBufferBase(GL_UNIFORM_BUFFER, i, b.Name);
+                }
+
+                for (u32 i = 0; i < m_TextureSlots; ++i)
+                {
+                    glBindSampler(i, m_Sampler[i]);
+                    glBindTextureUnit(i, m_Texture2D[i]);
+                }
+
+                for (u32 i = 0; i < m_ImageSlots; ++i)
+                {
+                    const Image& img = m_Image[i];
+                    glBindImageTexture(i, img.Name, img.Level, img.Layered ? GL_TRUE : GL_FALSE, img.Layer,
+                                       img.Access, img.Format);
+                }
+
+                glActiveTexture(m_ActiveTexture);
+            }
+
+            FSR2BindingScope(const FSR2BindingScope&) = delete;
+            FSR2BindingScope(FSR2BindingScope&&) = delete;
+            FSR2BindingScope& operator=(const FSR2BindingScope&) = delete;
+            FSR2BindingScope& operator=(FSR2BindingScope&&) = delete;
+
+          private:
+            // Slots past the driver's limit are not "nothing bound", they are an
+            // error on both the query and the bind, so clamp instead of assuming.
+            [[nodiscard]] static u32 ClampToDriverLimit(GLenum pname, u32 wanted)
+            {
+                GLint limit = 0;
+                glGetIntegerv(pname, &limit);
+                if (limit <= 0)
+                    return 0u;
+                return std::min(wanted, static_cast<u32>(limit));
+            }
+
+            // Highest slot each FSR2 permutation family declares, plus one.
+            static constexpr u32 kUboSlots = 19u;     // FSR2_BIND_CB_*  peaks at 18
+            static constexpr u32 kTextureSlots = 13u; // FSR2_BIND_SRV_* peaks at 12
+            static constexpr u32 kImageSlots = 18u;   // FSR2_BIND_UAV_* peaks at 17
+
+            struct Buffer
+            {
+                GLuint Name = 0u;
+                GLint64 Start = 0;
+                GLint64 Size = 0;
+            };
+
+            struct Image
+            {
+                GLuint Name = 0u;
+                GLint Level = 0;
+                bool Layered = false;
+                GLint Layer = 0;
+                GLenum Access = GL_READ_WRITE;
+                GLenum Format = GL_RGBA8;
+            };
+
+            std::array<Buffer, kUboSlots> m_Ubo{};
+            std::array<GLuint, kTextureSlots> m_Sampler{};
+            std::array<GLuint, kTextureSlots> m_Texture2D{};
+            std::array<Image, kImageSlots> m_Image{};
+            GLenum m_ActiveTexture = GL_TEXTURE0;
+
+            u32 m_UboSlots = 0u;
+            u32 m_TextureSlots = 0u;
+            u32 m_ImageSlots = 0u;
+        };
+
         // Resolve an engine handle to the GL name FSR2 wants. Returns 0 on any
         // failure, which is also GL's "no object" — legitimate here because
         // FSR2 is handed textures the engine just rendered into, so a 0 is
@@ -268,7 +442,13 @@ namespace OloEngine
                 // depth encoding we are not sending.
                 desc.deviceDepthNegativeOneToOne = false;
 
-                const FfxErrorCode err = ffxFsr2ContextDispatch(&m_Context, &desc);
+                // Scoped so the bindings are back before anything else runs —
+                // see FSR2BindingScope for what the runtime clobbers and why.
+                FfxErrorCode err = FFX_OK;
+                {
+                    const FSR2BindingScope bindingScope;
+                    err = ffxFsr2ContextDispatch(&m_Context, &desc);
+                }
                 m_ForceResetNextDispatch = false;
 
                 if (err != FFX_OK)
