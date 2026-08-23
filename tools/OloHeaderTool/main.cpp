@@ -1162,6 +1162,9 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
     // Issue #634: the live VM instance lives on the per-scene VisualScriptSystem,
     // keyed by entity UUID, so removing the component has to drop it explicitly.
     "VisualScriptComponent",
+    // Issue #711: a generated LOD chain owns memory-only Mesh assets that nothing
+    // else frees, so removal has to release them.
+    "LODGroupComponent",
 };
 
 // Components that ARE all-trivial-fields (every data member is a primitive /

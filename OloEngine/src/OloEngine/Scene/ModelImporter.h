@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
 
 #include <string>
 #include <vector>
@@ -28,13 +29,38 @@ namespace OloEngine
         bool AddedSkeletonComponent = false;
         bool AddedAnimationStateComponent = false;
         bool AddedMaterialComponent = false;
-        bool IsAnimated = false; ///< The source had a skeleton and/or animation clips.
+        bool AddedLODGroupComponent = false; ///< An automatic LOD chain was generated (issue #711).
+        bool IsAnimated = false;             ///< The source had a skeleton and/or animation clips.
 
         [[nodiscard]] bool AddedAnyComponent() const noexcept
         {
             return AddedMeshComponent || AddedSkeletonComponent ||
-                   AddedAnimationStateComponent || AddedMaterialComponent;
+                   AddedAnimationStateComponent || AddedMaterialComponent ||
+                   AddedLODGroupComponent;
         }
+    };
+
+    /**
+     * @brief Whether and how an import generates a mesh LOD chain (issue #711).
+     *
+     * An imported mesh with no authored LOD group gets one generated automatically,
+     * so a scene does not depend on somebody remembering to press "Generate LODs".
+     * An entity that ALREADY has a @c LODGroupComponent is never touched — an
+     * authored chain always wins.
+     */
+    struct AutoLODImportConfig
+    {
+        bool Enabled = true;
+        /**
+         * @brief Skip generation when the process has no graphics device.
+         *
+         * The generated levels are @c Mesh assets whose GPU buffers a headless
+         * process (OloServer, most of the test suite) can never create, so
+         * generating them there is pure cook cost for something nothing can draw.
+         * Tests that want the chain without a device clear this.
+         */
+        bool RequireGraphicsDevice = true;
+        MeshOptimization::AutoLODSettings Settings;
     };
 
     /**
@@ -66,7 +92,9 @@ namespace OloEngine
          * @param sourcePath          File path stored on @c AnimationStateComponent for reload/serialization.
          * @param resetPlaybackState  @c true (fresh import) resets playback to clip 0 / Idle / stopped;
          *                            @c false (deserialize) preserves the existing playback scalars and
-         *                            only clamps the current-clip index into range.
+         *                            only clamps the current-clip index into range. It also gates
+         *                            automatic LOD generation (@ref EnsureAutoLODGroup): a deserialize
+         *                            must not invent a component the scene file never had.
          */
         static ModelImportResult PopulateAnimatedEntity(Entity entity, const Ref<AnimatedModel>& model,
                                                         const std::string& sourcePath, bool resetPlaybackState = true);
@@ -91,5 +119,40 @@ namespace OloEngine
          * @return @c true if a mesh was assigned, @c false if the model was empty.
          */
         static bool PopulateStaticEntity(Entity entity, const Ref<Model>& model);
+
+        /// Process-wide automatic-LOD policy applied by every import path.
+        [[nodiscard]] static AutoLODImportConfig& GetAutoLODConfig();
+
+        /**
+         * @brief Generate and attach an automatic LOD chain for @p entity's mesh.
+         *
+         * No-op when auto-LOD is disabled, when the entity already has a
+         * @c LODGroupComponent (an authored chain wins), when the entity has no
+         * simplifiable @c MeshComponent, or when the generated chain would be LOD 0
+         * alone (a mesh the simplifier cannot reduce gains nothing from a group).
+         *
+         * @return @c true if a @c LODGroupComponent was added.
+         */
+        static bool EnsureAutoLODGroup(Entity entity);
+
+        /**
+         * @brief Release the memory-only LOD meshes a generated group owns.
+         *
+         * Bounds the lifetime of assets nothing else frees: a generated chain is
+         * rebuilt on every scene load, so without this each reopen would strand a
+         * whole set of CPU + GPU buffers in the process-global @c AssetManager.
+         * Only handles still registered as memory-only are removed.
+         */
+        static void ReleaseGeneratedLODAssets(struct LODGroupComponent& lodComp);
+
+        /**
+         * @brief Drop a GENERATED LOD group from @p entity, releasing its assets.
+         *
+         * No-op when the entity has no group or the group is authored — an authored
+         * chain is the user's data and survives a re-import. A generated one
+         * describes geometry that is about to be replaced, so keeping it would draw
+         * the previous model past LOD 0.
+         */
+        static void DiscardGeneratedLODGroup(Entity entity);
     };
 } // namespace OloEngine

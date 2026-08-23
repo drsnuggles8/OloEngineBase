@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <tuple>
 #include <vector>
 
@@ -909,4 +910,305 @@ TEST(MeshOptimization, OptimizeMeshKeepsUvDegenerateTriangles)
 
     EXPECT_EQ(mesh->GetIndices().Num(), 6); // no triangle removed
     EXPECT_EQ(MeshOptimization::AnalyzeDegenerateTriangles(*mesh).ZeroUvAreaCount, 1u);
+}
+
+// =============================================================================
+// BuildAutoLODChain Tests (issue #711)
+//
+// The CPU half of automatic LOD generation. These assert the properties the
+// pixel-error selector depends on and that nothing else would report: the chain
+// really halves, its errors really accumulate, and — the one most likely to be
+// silently wrong — the error is a RATIO, so it does not change when the same
+// model is authored at a different scale.
+// =============================================================================
+
+// Returns the same wavy grid scaled uniformly in model space. Normals stay unit
+// length and UVs are untouched, so the only difference is world size.
+static Ref<MeshSource> MakeScaledWavyGridMesh(u32 gridSize, f32 scale)
+{
+    auto source = MakeWavyGridMesh(gridSize);
+    auto& vertices = source->GetVertices();
+    for (i32 i = 0; i < vertices.Num(); ++i)
+    {
+        vertices[i].Position *= scale;
+    }
+    return source;
+}
+
+TEST(MeshOptimization, AutoLODChainProducesMultipleLevels)
+{
+    auto mesh = MakeWavyGridMesh(64); // 8192 triangles
+    const auto chain = MeshOptimization::BuildAutoLODChain(*mesh);
+
+    ASSERT_GE(chain.size(), 4u) << "a dense wavy grid must support several halvings";
+    EXPECT_FALSE(chain[0].Source) << "entry 0 is the source mesh itself";
+    EXPECT_EQ(chain[0].TriangleCount, static_cast<u32>(mesh->GetIndices().Num() / 3));
+    EXPECT_FLOAT_EQ(chain[0].Error, 0.0f);
+
+    for (sizet i = 1; i < chain.size(); ++i)
+    {
+        ASSERT_TRUE(chain[i].Source) << "level " << i;
+        EXPECT_GT(chain[i].TriangleCount, 0u) << "level " << i;
+        EXPECT_EQ(chain[i].Source->GetIndices().Num() / 3, static_cast<i32>(chain[i].TriangleCount))
+            << "level " << i << " triangle count must match the emitted geometry";
+    }
+}
+
+TEST(MeshOptimization, AutoLODChainRoughlyHalvesTrianglesPerLevel)
+{
+    auto mesh = MakeWavyGridMesh(64);
+    const auto chain = MeshOptimization::BuildAutoLODChain(*mesh);
+    ASSERT_GE(chain.size(), 3u);
+
+    for (sizet i = 1; i < chain.size(); ++i)
+    {
+        const u32 previous = chain[i - 1].TriangleCount;
+        const u32 current = chain[i].TriangleCount;
+        EXPECT_LT(current, previous) << "level " << i << " must be strictly coarser than its parent";
+        // The simplifier can stop short of the target on topology grounds; it can
+        // never overshoot it, so only the upper bound is a hard contract. The lower
+        // bound is generous for the same reason.
+        EXPECT_LE(current, previous / 2 + 1) << "level " << i << " must reach the halving target";
+    }
+}
+
+TEST(MeshOptimization, AutoLODChainErrorsStrictlyIncrease)
+{
+    auto mesh = MakeWavyGridMesh(64);
+    const auto chain = MeshOptimization::BuildAutoLODChain(*mesh);
+    ASSERT_GE(chain.size(), 3u);
+
+    for (sizet i = 1; i < chain.size(); ++i)
+    {
+        EXPECT_GT(chain[i].Error, chain[i - 1].Error)
+            << "level " << i << " error must exceed its parent, or the selector can never prefer the finer one";
+        EXPECT_TRUE(std::isfinite(chain[i].Error)) << "level " << i;
+    }
+
+    // Accumulated error is a fraction of the model extent; a chain that ends past
+    // 1.0 has levels that no longer resemble the source at all.
+    EXPECT_LT(chain.back().Error, 1.0f);
+}
+
+// The consistency property the design turns on. Error is relative to the model
+// extent AND the normal weight is scaled by the NORMALIZED average vertex
+// distance, so authoring the same model in centimetres rather than metres must
+// not change a single level. Using a raw (unnormalized) vertex distance for the
+// normal weight — the easy mistake — scales the weight with the model and
+// produces a visibly different chain here.
+TEST(MeshOptimization, AutoLODChainIsInvariantToModelScale)
+{
+    auto small = MakeScaledWavyGridMesh(48, 1.0f);
+    auto large = MakeScaledWavyGridMesh(48, 100.0f);
+
+    const auto smallChain = MeshOptimization::BuildAutoLODChain(*small);
+    const auto largeChain = MeshOptimization::BuildAutoLODChain(*large);
+
+    ASSERT_GE(smallChain.size(), 3u);
+    ASSERT_EQ(smallChain.size(), largeChain.size()) << "a 100x scale change must not change the chain length";
+
+    // Tolerances, and which half of this test actually discriminates.
+    //
+    // The ERROR assertion is the one with teeth. A normal weight built on a RAW
+    // model-space vertex distance instead of the normalized one scales by 100 here,
+    // and that moves the accumulated error by 41-72% at the deeper levels — far
+    // outside the band below. (See NormalWeightMustBeNormalizedByModelExtent, which
+    // measures that gap rather than assuming it.)
+    //
+    // The TRIANGLE-COUNT assertion is only a sanity check, and deliberately loose:
+    // with `target_error = FLT_MAX` the simplifier collapses until it hits the
+    // triangle target, so the counts are near-invariant under ANY weighting. It
+    // catches a chain that ended early or ran away, nothing subtler.
+    //
+    // Neither is asserted bit-exactly, because the two runs genuinely are not: f32
+    // positions 100x apart round differently, that flips the occasional quadric tie,
+    // and a one-triangle difference at level 1 propagates down a nine-level chain.
+    // Measured drift is ~0.1% on counts and a few percent on error.
+    constexpr f32 kTriangleTolerance = 0.02f; // 2%
+    constexpr f32 kErrorTolerance = 0.10f;    // 10%
+
+    for (sizet i = 0; i < smallChain.size(); ++i)
+    {
+        const auto smallTris = static_cast<f32>(smallChain[i].TriangleCount);
+        const auto largeTris = static_cast<f32>(largeChain[i].TriangleCount);
+        EXPECT_NEAR(largeTris, smallTris, std::max(smallTris * kTriangleTolerance, 1.0f)) << "level " << i;
+        EXPECT_NEAR(largeChain[i].Error, smallChain[i].Error,
+                    std::max(smallChain[i].Error * kErrorTolerance, 1e-6f))
+            << "level " << i << " error must be scale-invariant";
+    }
+}
+
+// Gives the tolerances above their teeth. The normal weight handed to meshopt is
+// `NormalImportance * (averageVertexDistance / modelExtent)`; dropping the division
+// is the natural mistake, and on a 100x model it multiplies the weight by 100. This
+// simulates that by scaling NormalImportance instead.
+//
+// Two assertions, because neither alone is enough:
+//
+//   * the CHOSEN GEOMETRY must differ. This is the one that proves the quadric
+//     weighting itself changed. It cannot be read off the triangle counts: with
+//     `target_error = FLT_MAX` the simplifier collapses until it hits the triangle
+//     target, so the counts come out the same (measured: within one triangle at
+//     every level) no matter what the weights are. Weights decide WHICH edges
+//     collapse, not how many.
+//   * the STORED ERROR must land outside the 10% band the scale-invariance test
+//     tolerates, since that is the number selection actually consumes. Measured gap
+//     on this mesh: 41-72% at the deeper levels. Part of that comes from the
+//     `stepError / (1 + normalWeight)` renormalisation rather than from the
+//     simplification, which is exactly why the geometry assertion above is here too.
+TEST(MeshOptimization, NormalWeightMustBeNormalizedByModelExtent)
+{
+    auto mesh = MakeScaledWavyGridMesh(48, 1.0f);
+
+    const auto baseline = MeshOptimization::BuildAutoLODChain(*mesh);
+    ASSERT_GE(baseline.size(), 3u);
+
+    MeshOptimization::AutoLODSettings unnormalized;
+    unnormalized.NormalImportance *= 100.0f; // what the missing division would produce
+    const auto skewed = MeshOptimization::BuildAutoLODChain(*mesh, unnormalized);
+    ASSERT_GE(skewed.size(), 3u);
+
+    const sizet common = std::min(baseline.size(), skewed.size());
+
+    bool geometryDiffers = false;
+    for (sizet i = 1; i < common && !geometryDiffers; ++i)
+    {
+        ASSERT_TRUE(baseline[i].Source);
+        ASSERT_TRUE(skewed[i].Source);
+        const auto& a = baseline[i].Source->GetIndices();
+        const auto& b = skewed[i].Source->GetIndices();
+        geometryDiffers = (a.Num() != b.Num()) || !std::equal(a.GetData(), a.GetData() + a.Num(), b.GetData());
+    }
+    EXPECT_TRUE(geometryDiffers)
+        << "a 100x normal weight produced byte-identical index buffers at every level — the weight "
+           "is not reaching the simplifier's quadric at all";
+
+    const sizet deepest = common - 1;
+    const f32 baseError = baseline[deepest].Error;
+    ASSERT_GT(baseError, 0.0f);
+    const f32 relativeGap = std::abs(skewed[deepest].Error - baseError) / baseError;
+    EXPECT_GT(relativeGap, 0.10f)
+        << "a 100x normal weight moved the accumulated error by only " << (relativeGap * 100.0f)
+        << "% at level " << deepest
+        << " — inside the band AutoLODChainIsInvariantToModelScale accepts, so that test could not "
+           "tell a normalized weight from an unnormalized one";
+}
+
+TEST(MeshOptimization, AutoLODChainHonoursMaxLevels)
+{
+    auto mesh = MakeWavyGridMesh(64);
+
+    MeshOptimization::AutoLODSettings settings;
+    settings.MaxLevels = 3;
+    const auto chain = MeshOptimization::BuildAutoLODChain(*mesh, settings);
+
+    // EXACTLY three, not "at most": AutoLODChainProducesMultipleLevels already pins
+    // that this same mesh reaches four or more levels uncapped, so anything shorter
+    // means generation stopped for an unrelated reason and the cap was never the
+    // binding limit this test claims to exercise.
+    EXPECT_EQ(chain.size(), 3u);
+}
+
+TEST(MeshOptimization, AutoLODChainStopsAtTheTriangleFloor)
+{
+    auto mesh = MakeWavyGridMesh(64);
+
+    MeshOptimization::AutoLODSettings settings;
+    settings.MinTriangleCount = 1024;
+    settings.MaxLevels = 32;
+    settings.MaxStepError = 1.0f; // take the floor out of the error condition's way
+    const auto chain = MeshOptimization::BuildAutoLODChain(*mesh, settings);
+
+    ASSERT_GE(chain.size(), 2u);
+    // The floor bounds where the chain STOPS, not each level: the last level is
+    // allowed to land below it, but no level may be generated from a parent that
+    // was already at or under the floor.
+    EXPECT_GT(chain[chain.size() - 2].TriangleCount, settings.MinTriangleCount)
+        << "the chain kept simplifying a level that was already at the floor";
+}
+
+TEST(MeshOptimization, AutoLODChainStopsWhenTheStepErrorGetsTooLarge)
+{
+    auto mesh = MakeWavyGridMesh(64);
+
+    MeshOptimization::AutoLODSettings tight;
+    tight.MaxStepError = 1e-5f;
+    const auto tightChain = MeshOptimization::BuildAutoLODChain(*mesh, tight);
+
+    MeshOptimization::AutoLODSettings loose;
+    loose.MaxStepError = 0.5f;
+    const auto looseChain = MeshOptimization::BuildAutoLODChain(*mesh, loose);
+
+    EXPECT_LT(tightChain.size(), looseChain.size())
+        << "a near-zero error budget must cut the chain shorter than the default one";
+}
+
+TEST(MeshOptimization, AutoLODChainRejectsUnsimplifiableInput)
+{
+    // A quad has 2 triangles — below any useful floor, so nothing is generated.
+    auto quad = MakeQuadMesh();
+    const auto quadChain = MeshOptimization::BuildAutoLODChain(*quad);
+    ASSERT_EQ(quadChain.size(), 1u);
+    EXPECT_EQ(quadChain[0].TriangleCount, 2u);
+
+    // An empty source yields no chain at all.
+    TArray<Vertex> noVertices;
+    TArray<u32> noIndices;
+    auto empty = Ref<MeshSource>::Create(MoveTemp(noVertices), MoveTemp(noIndices));
+    EXPECT_TRUE(MeshOptimization::BuildAutoLODChain(*empty).empty());
+}
+
+TEST(MeshOptimization, AutoLODChainSanitizesNonFiniteSettings)
+{
+    auto mesh = MakeWavyGridMesh(32);
+
+    MeshOptimization::AutoLODSettings broken;
+    broken.MaxStepError = std::numeric_limits<f32>::quiet_NaN();
+    broken.NormalImportance = -1.0f;
+    broken.TexCoordWeight = std::numeric_limits<f32>::infinity();
+
+    const auto chain = MeshOptimization::BuildAutoLODChain(*mesh, broken);
+    ASSERT_GE(chain.size(), 2u) << "bad settings must fall back to the defaults, not disable generation";
+    for (const auto& entry : chain)
+    {
+        EXPECT_TRUE(std::isfinite(entry.Error));
+        EXPECT_GE(entry.Error, 0.0f);
+    }
+}
+
+// Each generated level carries only the vertices its own indices reference. On a
+// deep chain the alternative — copying the full source vertex buffer into every
+// level — multiplies a mesh's vertex memory by the level count.
+TEST(MeshOptimization, AutoLODChainCompactsEachLevelsVertexBuffer)
+{
+    auto mesh = MakeWavyGridMesh(64);
+    const auto chain = MeshOptimization::BuildAutoLODChain(*mesh);
+    ASSERT_GE(chain.size(), 3u);
+
+    const i32 sourceVertexCount = mesh->GetVertices().Num();
+    for (sizet i = 1; i < chain.size(); ++i)
+    {
+        EXPECT_LT(chain[i].Source->GetVertices().Num(), sourceVertexCount)
+            << "level " << i << " still carries the full source vertex buffer";
+        // Every index must address the compacted array.
+        const auto& indices = chain[i].Source->GetIndices();
+        const i32 vertexCount = chain[i].Source->GetVertices().Num();
+        for (i32 k = 0; k < indices.Num(); ++k)
+        {
+            ASSERT_LT(static_cast<i32>(indices[k]), vertexCount) << "level " << i << " index " << k;
+        }
+    }
+}
+
+TEST(MeshOptimization, MeasureModelExtentMatchesTheBoundingBox)
+{
+    auto mesh = MakeScaledWavyGridMesh(16, 3.0f);
+    // The grid spans [0,1] in x and z before scaling, and less than that in y,
+    // so the largest side is the scaled 1.0.
+    EXPECT_NEAR(MeshOptimization::MeasureModelExtent(*mesh), 3.0f, 1e-3f);
+
+    TArray<Vertex> noVertices;
+    TArray<u32> noIndices;
+    auto empty = Ref<MeshSource>::Create(MoveTemp(noVertices), MoveTemp(noIndices));
+    EXPECT_FLOAT_EQ(MeshOptimization::MeasureModelExtent(*empty), 0.0f);
 }
