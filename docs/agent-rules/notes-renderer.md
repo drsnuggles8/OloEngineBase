@@ -420,16 +420,30 @@ that is ~185 GL calls of pure overhead. The trade-off inverts for a once-a-frame
 an identical one captured after. Any future state FSR2 leaks lands there too. Verified to fail (115.7 vs
 74.6) with the restore scope removed; a guard that has never been seen to fail is not a guard.
 
-**Two genuine upstream defects were found on the way.** Neither caused the darkening — both were measured
-— but both are real and belong in any fork:
+**FSR2's GL sampler/texture units are its macro binding PLUS 8, and that is the whole reason the first
+restore missed them.** `cmake/fsr2.cmake` passes `--stb comp 8 --ssb comp 8` (shift texture and sampler
+bindings) with `--sib comp 0 --suavb comp 0` (images at 0), because **NVIDIA exposes only 8 image units in
+GL** and the images have to fit under that. So `FSR2_BIND_SRV_*` 5, 6 and 7 land on units **13, 14 and
+15** — and the macro maximum of 12 lands on **20**. Reading the macros and believing them is what put the
+first version of `FSR2BindingScope` at 0..12; unit 13 is `u_ShadowAtlas`. Do not re-derive the range from
+FSR2's side at all: size it from the engine's own slot space, which cannot go stale when the shift
+changes. Source: the port's author, <https://juandiegomontoya.github.io/porting_fsr2.html>.
 
-1. **`pointSampler` is created, deleted, and never bound.** `executeGpuJobCompute` hard-codes
-   `linearSampler` for every SRV. That makes the integer-format SRVs *incomplete* in GL —
-   `r_reconstructed_previous_nearest_depth` is `R32_UINT`, and an integer texture with a LINEAR filter is
-   incomplete, so every fetch returns zero.
-2. **`rw_prepared_input_color` is declared `layout (rgba16)` — UNORM — over a resource created as
-   `R16G16B16A16_FLOAT`.** A mismatched image format qualifier is undefined behaviour, and a UNORM view
-   cannot represent the signed Co/Cg chroma that buffer carries.
+**One genuine upstream defect, and one claim of ours that was WRONG.**
+
+1. **REAL: `rw_prepared_input_color` is declared `layout (rgba16)` — UNORM — over a resource created as
+   `R16G16B16A16_FLOAT`.** `glBindImageTexture` is called with `GL_RGBA16F`, so the shader's format
+   qualifier does not match the bound image and the store is undefined; a UNORM view also cannot represent
+   the signed Co/Cg chroma that buffer carries. Worth a PR upstream — the author explicitly accepts them.
+2. **NOT A DEFECT, retracted: "`pointSampler` is created, deleted and never bound."** It is true that
+   `executeGpuJobCompute` hard-codes `linearSampler` for every SRV, and the earlier version of this note
+   concluded that integer SRVs were therefore incomplete and "every fetch returns zero". That does not
+   follow. **`texelFetch` ignores sampler state entirely**, and the only integer SRV,
+   `r_reconstructed_previous_nearest_depth`, is read exclusively through it
+   (`ffx_fsr2_callbacks_glsl2.h`). The author confirms the design: one linear/edge-clamp sampler for the
+   `texture*` paths, `texelFetch` for everything else. `pointSampler` is dead code, not a bug. The claim
+   was never measured — it was read off the source and asserted, which is exactly the move the rest of
+   this section exists to warn against.
 
 **A build trap that voided a whole round of shader experiments, now fixed.** `add_dependencies` orders
 targets but does not make the object embedding the SPIR-V depend on the generated headers, and the
@@ -446,6 +460,31 @@ numbers exactly, so both were discarded rather than read as evidence.
 disoccluded** (`fWeightSum == 0` falls through to `return 0.0f`). A depth-clip factor of ~0 across a static
 frame is CORRECT, not evidence of a broken reconstructed-depth buffer.
 
+
+### FSR2 on NVIDIA is a known upstream performance problem — budget for it before promising a win
+
+The port's author measured **FSR2 running "about 3x slower than expected" on an RTX 3070**, attributing it
+to high VRAM throughput in the **depth-clip** and **reproject & accumulate** passes. The Vulkan backend's
+workaround (disabling FP16 for NVIDIA's accumulate pass) was tried in GL and **did not help**; so did
+varying the input colour format. The cause is **unresolved** — the author's guess is that the shader
+compiler generates different code per API. **AMD (RX 6800) behaves as expected.**
+<https://juandiegomontoya.github.io/porting_fsr2.html#performance>
+
+Our own measurement on an RTX 4090 is consistent with that and should be read alongside it: on a
+fill-bound 1920x1080 scene, the FSR1 spatial upscaler at the same 0.667 render scale saved **~25%** of GPU
+frame time while FSR2 saved **nothing** — its dispatch cost cancelled the resolution saving. Treat those
+numbers as indicative only: this host is shared (gh-runners for another repository, sibling worktrees) and
+repeated runs of the same benchmark swung 10x, which is why `FSR2Perf` reports rather than asserts.
+
+**The consequence for #684's acceptance criterion is real:** "a GPU frame-time reduction at 67%/59%" may
+not be achievable on NVIDIA with this backend at all, and that is an upstream problem rather than an
+integration one. Anyone picking this up should measure on AMD before concluding the integration is at
+fault, and should not promise the win on NVIDIA without re-measuring on an idle machine.
+
+**A caveat the author documents and we inherit:** OpenGL's `[-1, 1]` NDC depth against FSR2's `[0, 1]`
+assumption leaves its depth constants "subtly wrong". The author judged the result "imperceptibly wrong",
+suggests `glClipControl` as the fix, and left it open. We pass `deviceDepthNegativeOneToOne = false`
+because the backend asserts on anything else — see the note in `FSR2RenderPass`.
 
 **`GL_KHR_shader_subgroup` is a hard requirement of the backend**, not a nice-to-have: its
 `GetDeviceCapabilitiesGL` returns `FFX_ERROR_BACKEND_API_ERROR` without it (it also accepts any AMD
