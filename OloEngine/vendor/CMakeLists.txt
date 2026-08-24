@@ -135,6 +135,41 @@ endif()
 # <winsock2.h> stays off the whole engine's include path.
 find_package(httplib CONFIG REQUIRED)
 
+# Drop CPPHTTPLIB_USE_NON_BLOCKING_GETADDRINFO from the port's interface
+# definitions (issue #787). It is upstream's CMake default, so the vcpkg port
+# propagates it — but before #773 we consumed cpp-httplib as a DOWNLOAD_ONLY
+# header drop with NO compile definitions at all, so the move to the port
+# switched this on silently. It is not a knob anyone here asked for: it makes
+# getaddrinfo_with_timeout() bound DNS resolution by the client's connection
+# timeout, and nothing in this repo sets a connection timeout (grep
+# set_connection_timeout — there are no call sites).
+#
+# On glibc it routes every resolve through getaddrinfo_a(), which runs the
+# lookup on a thread glibc creates INSIDE libc (resolv/gai_misc.c
+# handle_requests). That thread never goes through the PLT, so TSan's
+# pthread_create interceptor never sees it and it has no __tsan::ThreadState —
+# its first intercepted malloc() then faults inside TSan's own allocator
+# (__tsan::user_alloc_internal), killing the process with a bare SIGSEGV and no
+# report, because TSan cannot report from a thread it does not know about. That
+# is the McpProgressHttpTest crash, and it would equally kill ANY future TSan
+# run that resolves a hostname. ASan is unaffected, which is why the ASan job
+# stayed green and made this look like an httplib teardown bug.
+#
+# Upstream's own comment on this path (their #2431) notes the glibc cancel path
+# can hold the caller for the system resolver timeout anyway, so the option
+# largely does not deliver its advertised benefit here. Turning it off restores
+# the pre-#773 behaviour — a plain synchronous getaddrinfo() — on every
+# platform, which keeps DNS semantics uniform rather than per-OS.
+#
+# Filtered rather than overwritten so the port's other definitions (the
+# NO_EXCEPTIONS / *_SUPPORT / Darwin entries) survive a port update untouched.
+get_target_property(OLO_HTTPLIB_DEFS httplib::httplib INTERFACE_COMPILE_DEFINITIONS)
+if(OLO_HTTPLIB_DEFS)
+    list(FILTER OLO_HTTPLIB_DEFS EXCLUDE REGEX "CPPHTTPLIB_USE_NON_BLOCKING_GETADDRINFO")
+    set_target_properties(httplib::httplib PROPERTIES
+                          INTERFACE_COMPILE_DEFINITIONS "${OLO_HTTPLIB_DEFS}")
+endif()
+
 if(OLO_WITH_ALEMBIC)
     # Alembic::Alembic propagates Imath::Imath and its include dirs, so both the
     # IMATH_INSTALL export-validation hack and the $<BUILD_INTERFACE:> wrapper

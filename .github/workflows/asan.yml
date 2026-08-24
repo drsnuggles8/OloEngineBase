@@ -824,75 +824,22 @@ jobs:
       # graph over mutex ADDRESSES — it models neither the dominating global lock nor
       # object reachability, so it cannot see either guarantee. See #636.
       #
-      # McpProgressHttpTest — spins up a live cpp-httplib server (its own listener
-      # thread + per-connection worker pool) and drives real httplib::Client
-      # requests against it, then destroys the server in TearDown. Under TSan all
-      # three cases raw-SEGFAULT (no ThreadSanitizer race report is printed — the
-      # process dies in a signal, not a reported race). Investigated rather than
-      # blindly quarantined:
-      #   * It is NOT the SSE/progress path — PostWithoutTokenStaysPlainJson, which
-      #     returns plain JSON and never opens an event stream, crashes too. The
-      #     common factor is only the httplib server+client socket/thread lifecycle.
-      #   * ASan+LSan is GREEN on the same commit, which rules out a heap
-      #     use-after-free in the engine's own objects (ASan would catch it).
-      #   * McpServer::Stop() is carefully ordered — m_Http->stop() → join the
-      #     listen thread → m_Http.reset() (which joins the worker pool) → only then
-      #     clear m_Sessions/m_Token — so a worker outlives no McpServer member; and
-      #     the cancel path shares its flag as shared_ptr<atomic<bool>>, outliving
-      #     both threads. No engine-side teardown UAF is visible by inspection.
-      # So the crash lives in vendored cpp-httplib's socket/thread teardown under
-      # TSan's pthread interception — the same "live networking library misbehaves
-      # only under TSan" category as the GNS excludes above (green under the normal
-      # build and ASan+LSan). First seen once the setup-vcpkg retry let the TSan
-      # suite reach the test phase again post-#773. Tracked for a real fix (httplib
-      # bump / test-harness teardown barrier) rather than left silent.
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.|^McpProgressHttpTest\.'
+      # McpProgressHttpTest used to be excluded here and is not any more (#787).
+      # It was never an httplib teardown bug: the vcpkg port propagates
+      # CPPHTTPLIB_USE_NON_BLOCKING_GETADDRINFO (upstream's CMake default, and a
+      # silent behaviour change from #773 — the pre-vcpkg header drop set no
+      # definitions), which on glibc resolves through getaddrinfo_a() on a thread
+      # glibc creates inside libc. TSan never sees that thread, so it has no
+      # ThreadState and its first intercepted malloc faults inside TSan's own
+      # allocator — a bare SIGSEGV with no report. OloEngine/vendor/CMakeLists.txt
+      # now filters that definition off the imported target; see the comment there.
+      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
       env:
         # suppressions: vendored-code races we accept rather than patch — see
         # the rationale comments in tsan.txt (currently: Jolt's assert-build
         # lock-ownership bookkeeping in JPH::Mutex/SharedMutex).
         TSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=1:second_deadlock_stack=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
-
-    # TEMPORARY (issue #787) — capture a real stack for the McpProgressHttpTest
-    # SEGFAULTs that the run step above excludes. The exclusion means CI never
-    # sees more than "***Exception: SegFault" with no sanitizer report, and TSan
-    # only runs here (docs/agent-rules/tsan-only-runs-in-ci-not-windows.md), so
-    # this step is how the stack gets captured at all. Strictly non-gating:
-    # continue-on-error plus `|| true` on every command. Removed once the root
-    # cause is pinned.
-    - name: Diagnose McpProgressHttpTest SEGFAULT (#787)
-      if: always()
-      continue-on-error: true
-      working-directory: ${{github.workspace}}/OloEditor
-      env:
-        BIN: ${{github.workspace}}/build/OloEngine/tests/OloEngine-Tests
-        BASE_TSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=0:abort_on_error=0:second_deadlock_stack=1
-      run: |
-        sudo apt-get install -y -qq gdb || { sudo apt-get update && sudo apt-get install -y -qq gdb; }
-        echo "binary: $BIN"
-        ls -la "$BIN" || true
-        for CASE in \
-          McpProgressHttpTest.PostWithoutTokenStaysPlainJson \
-          McpProgressHttpTest.PostWithProgressTokenStreamsSseThenFinalResponse \
-          McpProgressHttpTest.CancelOverHttpSuppressesTheSseResponseFrame ; do
-          echo "::group::$CASE - bare run, TSan verbosity=1"
-          TSAN_OPTIONS="${BASE_TSAN_OPTIONS}:verbosity=1" "$BIN" --gtest_filter="$CASE" 2>&1 | tail -120 || true
-          echo "::endgroup::"
-          echo "::group::$CASE - gdb backtrace (TSan handle_segv=0)"
-          TSAN_OPTIONS="${BASE_TSAN_OPTIONS}:handle_segv=0:handle_abort=0" \
-            gdb -batch -nx \
-              -ex 'set confirm off' \
-              -ex 'set pagination off' \
-              -ex 'handle SIGSEGV stop print nopass' \
-              -ex run \
-              -ex 'info program' \
-              -ex 'info registers rip rsp' \
-              -ex 'bt' \
-              -ex 'thread apply all bt' \
-              --args "$BIN" --gtest_filter="$CASE" 2>&1 | tail -250 || true
-          echo "::endgroup::"
-        done
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded

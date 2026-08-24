@@ -268,6 +268,109 @@ happens to match the value CI varies, local green proves nothing.** When a fix t
 a version/path/platform difference, verify the *mechanism* (here: read the compile
 line), not the outcome.
 
+## Trap 9 — a port's usage requirements can switch on behaviour the old wiring never had
+
+Moving a dependency to vcpkg does not only change *where the headers come from*. A port
+installs a CMake package config, and that config carries the upstream project's
+`target_compile_definitions` — including options whose **upstream CMake default is ON**.
+If the pre-move wiring was a `DOWNLOAD_ONLY` header drop behind a bare `INTERFACE`
+target, it set **no definitions at all**, so the move silently enables every
+default-ON option at once. Nobody reviews a flag that appears in a generated
+`<port>Targets.cmake`.
+
+This is what issue #787 was. `cpp-httplib` moved to the port in #773; the port
+propagates `CPPHTTPLIB_USE_NON_BLOCKING_GETADDRINFO`, which the old CPM block never
+defined:
+
+```cmake
+# build/vcpkg_installed/x64-linux/share/httplib/httplibTargets.cmake
+INTERFACE_COMPILE_DEFINITIONS "...;$<$<BOOL:ON>:CPPHTTPLIB_USE_NON_BLOCKING_GETADDRINFO>"
+```
+
+On glibc that macro routes every name resolution through `getaddrinfo_a()`, which runs
+the lookup on a thread **glibc creates inside libc** (`resolv/gai_misc.c`,
+`handle_requests`). That call never goes through the PLT, so **ThreadSanitizer's
+`pthread_create` interceptor never sees the thread**: it has no `__tsan::ThreadState`,
+and its first intercepted `malloc()` faults inside TSan's own allocator
+(`__tsan::user_alloc_internal`). The process dies with a **bare SIGSEGV and no
+ThreadSanitizer report at all** — TSan cannot report from a thread it does not know
+about. ASan is unaffected, so the ASan job stays green, which is exactly what made this
+look like a library teardown bug for two weeks.
+
+**The tell in a backtrace:** every TSan-known thread has a `__tsan_thread_start_func`
+frame between `start_thread` and the thread body. The faulting thread did not:
+
+```
+#3  __interceptor_malloc ()
+#4  generate_addrinfo () at ./nss/getaddrinfo.c:1081
+#7  handle_requests () at ./resolv/gai_misc.c:329
+#8  start_thread ()          <-- no __tsan_thread_start_func: TSan does not know this thread
+```
+
+Two general rules fall out of it:
+
+- **After moving a dependency to a port, diff the definitions.** `grep
+  INTERFACE_COMPILE_DEFINITIONS <vcpkg_installed>/<triplet>/share/<pkg>/*.cmake` and
+  compare against what the old wiring set. Anything newly ON is an un-reviewed
+  behaviour change, not a build detail. This is the same "verify, don't assume" rule as
+  the option-names section above, applied to the *consuming* side.
+- **Filter, don't overwrite,** when you need to drop one. Rewriting the whole property
+  would silently discard the port's other definitions on the next port update:
+
+  ```cmake
+  get_target_property(OLO_HTTPLIB_DEFS httplib::httplib INTERFACE_COMPILE_DEFINITIONS)
+  list(FILTER OLO_HTTPLIB_DEFS EXCLUDE REGEX "CPPHTTPLIB_USE_NON_BLOCKING_GETADDRINFO")
+  set_target_properties(httplib::httplib PROPERTIES
+                        INTERFACE_COMPILE_DEFINITIONS "${OLO_HTTPLIB_DEFS}")
+  ```
+
+A bump is not always the answer, either: `getaddrinfo_a()` is still on cpp-httplib's
+master (0.53.1) with no opt-out macro, so upgrading the port would not have fixed this.
+Checking that before spending a round is cheap — `curl` the upstream header and grep it.
+
+### Reproducing a Linux-only sanitizer crash without CI
+
+TSan runs only in CI here, which frames a bug like this as "one hour per iteration".
+It does not have to be. Ubuntu 24.04 under WSL2 matches the runner image, and the whole
+`tsan-linux` job reproduces locally in one pass:
+
+```bash
+sudo apt-get install -y clang-19 lld-19 ninja-build autoconf-archive gdb   # + the job's dep list
+git clone https://github.com/microsoft/vcpkg ~/vcpkg        # NOT --depth 1: the manifest
+~/vcpkg/bootstrap-vcpkg.sh -disableMetrics                  # baseline commit must be present
+cmake -S . -B build -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
+  -DVCPKG_TARGET_TRIPLET=x64-linux \
+  -DCMAKE_CXX_COMPILER=clang++-19 -DCMAKE_C_COMPILER=clang-19 \
+  -DCMAKE_BUILD_TYPE=Debug -DOLO_ENABLE_TSAN=ON -DBUILD_TESTS=ON \
+  -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
+  "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -lstdc++exp"
+cmake --build build --target OloEngine-Tests --parallel 6
+```
+
+Two things that are not obvious:
+
+- **`-lstdc++exp` is required locally but not on the runner.** WSL had gcc-14 installed
+  alongside gcc-13, clang picks gcc-14's libstdc++ headers, and `<stacktrace>` there
+  needs the separate library. Without it the *final link* fails after a ~40-minute
+  build.
+- **Run it through `build-lock.ps1` like any other build.** A WSL build spends host RAM;
+  the cross-worktree mutex does not care which kernel is compiling.
+
+Then, to turn a bare SIGSEGV into a stack, take TSan's signal handler out of the way so
+the debugger gets the fault:
+
+```bash
+cd OloEditor   # gtest_discover_tests' WORKING_DIRECTORY
+TSAN_OPTIONS='halt_on_error=0:abort_on_error=0:handle_segv=0' \
+  gdb -batch -nx -ex 'handle SIGSEGV stop print nopass' -ex run \
+      -ex bt -ex 'thread apply all bt' \
+      --args ../build/OloEngine/tests/OloEngine-Tests --gtest_filter=Suite.Case
+```
+
+`handle_segv=0` is the load-bearing part: without it TSan swallows the signal and prints
+nothing, which is the state the CI log was stuck in.
+
 ## Per-port exceptions live in the triplet, not in a forked portfile
 
 A triplet is loaded once *per port*, with `PORT` set, so it can carry a targeted exception
