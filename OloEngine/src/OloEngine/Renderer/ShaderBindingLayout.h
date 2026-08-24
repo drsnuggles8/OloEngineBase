@@ -160,7 +160,7 @@ namespace OloEngine
             i32 EnableLightProbes;       // Enable light probe indirect diffuse
             f32 IBLIntensity = 1.0f;     // Runtime IBL strength multiplier
             i32 AlphaMode = 0;           // 0=Opaque, 1=Mask, 2=Blend (matches AlphaMode enum)
-            i32 _pbrPad2 = 0;
+            i32 Pad2 = 0;
 
             // PER-MATERIAL HEAP OFFSETS (issue #691, ADR 0011 amendment (32)).
             //
@@ -197,7 +197,7 @@ namespace OloEngine
             glm::mat4 Model;
             glm::mat4 Normal; // transpose(inverse(model))
             i32 EntityID;
-            i32 _paddingEntity[3];
+            i32 PadEntity[3];
             // Previous-frame world transform for per-object motion vectors in
             // the deferred G-Buffer path. Equals Model for static objects or
             // on the first frame so the resulting velocity is zero. Other
@@ -310,7 +310,7 @@ namespace OloEngine
             // from the GPU-built visible-node list at SSBO 59.
             i32 GpuDrivenMode = 0;
             i32 GpuPatchGridRes = 0; // vertices per patch edge (K) in GPU-driven mode
-            i32 _terrainPad2 = 0;
+            i32 Pad2 = 0;
             glm::vec4 TessFactors;          // x = inner, y = +X edge, z = -X edge, w = +Z edge
             glm::vec4 TessFactors2;         // x = -Z edge, y = morphFactor, z = LODLevel, w = tessEnabled flag
             glm::vec4 LayerTilingScales0;   // Tiling scales for layers 0-3
@@ -443,8 +443,8 @@ namespace OloEngine
             i32 AtlasResolution = 0;     // Atlas texture resolution
             i32 CascadeDebugEnabled = 0; // Visualize cascade boundaries
             i32 SoftShadowMode = 0;      // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
-            i32 _shadowPad1 = 0;
-            i32 _shadowPad2 = 0;
+            i32 Pad1 = 0;
+            i32 Pad2 = 0;
 
             static constexpr u32 GetSize()
             {

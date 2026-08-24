@@ -330,6 +330,16 @@ struct VirtualVisibleCluster
 half of the rule doesn't reach them), but they are renamed alongside `_Pad0` so there
 is one spelling to look for rather than four.
 
+**Watch for the prefixed spellings.** The sweep in #870 first missed `_pbrPad2`,
+`_terrainPad2`, `_shadowPad1`, `_paddingEntity` and `_StatePad0`, because a
+`_[Pp]ad(ding)?[0-9]` grep does not match them — the pad word is in the middle of the
+identifier, not at the front. `_StatePad0` is the *reserved* form. Search for
+`_[A-Za-z_]*[Pp]ad` instead. Those prefixes exist for the GLSL side's benefit (below);
+a C++ struct member is already scoped, so it just takes `Pad2`.
+
+A pad that is an **array** keeps a descriptive name rather than an index —
+`i32 PadEntity[3];`, not `Pad0[3]` — since the index would name the array, not the slot.
+
 ### The GLSL side keeps its leading underscore — do not "fix" it
 
 `OloEditor/assets/shaders/**` deliberately spells its padding `_padding0`,
@@ -345,6 +355,10 @@ defect:
   "real name" and break the test's central heuristic.
 - Named uniform-block members must match across the stages of one program, so a
   half-done GLSL rename is a link error rather than a cosmetic one.
+- A non-instanced uniform block puts its member names in **global** scope, so two
+  blocks cannot both declare `_pad0`. That is why the GLSL pads carry per-block
+  prefixes (`_shadowPad1`, `_pbrPad2`, `_camera_pad_view`) that their C++ twins do
+  not need.
 
 So the two sides intentionally disagree *on pads only*, and a pad mirrors nothing —
 there is no correspondence to preserve. Real fields still match one-for-one.

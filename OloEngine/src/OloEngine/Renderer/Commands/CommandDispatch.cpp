@@ -1763,9 +1763,9 @@ namespace OloEngine
                 modelData.Model = cmd->transform;
                 modelData.Normal = glm::mat4(1.0f); // Not used in depth-only pass
                 modelData.EntityID = cmd->entityID;
-                modelData._paddingEntity[0] = 0;
-                modelData._paddingEntity[1] = 0;
-                modelData._paddingEntity[2] = 0;
+                modelData.PadEntity[0] = 0;
+                modelData.PadEntity[1] = 0;
+                modelData.PadEntity[2] = 0;
                 modelData.PrevModel = cmd->prevTransform;
 
                 UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
@@ -1807,9 +1807,9 @@ namespace OloEngine
                 modelData.Model = cmd->transform;
                 modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
                 modelData.EntityID = cmd->entityID;
-                modelData._paddingEntity[0] = 0;
-                modelData._paddingEntity[1] = 0;
-                modelData._paddingEntity[2] = 0;
+                modelData.PadEntity[0] = 0;
+                modelData.PadEntity[1] = 0;
+                modelData.PadEntity[2] = 0;
                 modelData.PrevModel = cmd->prevTransform;
 
                 constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
@@ -2263,9 +2263,9 @@ namespace OloEngine
             modelData.Model = cmd->transform;
             modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
             modelData.EntityID = -1;
-            modelData._paddingEntity[0] = 0;
-            modelData._paddingEntity[1] = 0;
-            modelData._paddingEntity[2] = 0;
+            modelData.PadEntity[0] = 0;
+            modelData.PadEntity[1] = 0;
+            modelData.PadEntity[2] = 0;
             modelData.PrevModel = cmd->transform; // static quad: no motion contribution
 
             UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
@@ -2370,9 +2370,9 @@ namespace OloEngine
             modelData.Model = cmd->transform;
             modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
             modelData.EntityID = cmd->entityID;
-            modelData._paddingEntity[0] = 0;
-            modelData._paddingEntity[1] = 0;
-            modelData._paddingEntity[2] = 0;
+            modelData.PadEntity[0] = 0;
+            modelData.PadEntity[1] = 0;
+            modelData.PadEntity[2] = 0;
             modelData.PrevModel = cmd->transform; // terrain: routed through ForwardOverlayPass, no motion tracking
             UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
@@ -2496,9 +2496,9 @@ namespace OloEngine
             modelData.Model = cmd->transform;
             modelData.Normal = glm::transpose(glm::inverse(cmd->transform));
             modelData.EntityID = cmd->entityID;
-            modelData._paddingEntity[0] = 0;
-            modelData._paddingEntity[1] = 0;
-            modelData._paddingEntity[2] = 0;
+            modelData.PadEntity[0] = 0;
+            modelData.PadEntity[1] = 0;
+            modelData.PadEntity[2] = 0;
             modelData.PrevModel = cmd->transform; // voxel: routed through ForwardOverlayPass, no motion tracking
             UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
