@@ -6,8 +6,11 @@
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanShader.h"
 
+#include "OloEngine/Core/DebugLevers.h"
+
 #include <algorithm>
 #include <atomic>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -458,6 +461,23 @@ namespace OloEngine
         vulkan11Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
         vulkan11Features.pNext = &vulkan12Features;
 
+        // #809: the 1.4 aggregate. Its two consumed bits (hostImageCopy,
+        // maintenance5) are filled in from the support probe below. Both are
+        // the synchronization2 class: core at the ADR 0010 floor, MANDATORY
+        // for a 1.4 device, and still default OFF at device creation.
+        //
+        // Amendment (51) sweep, done at the moment this struct joined the
+        // chain: nothing else chained here is a feature that 1.4 promoted, so
+        // there is nothing to fold in. VK_EXT_descriptor_heap,
+        // VK_KHR_shader_untyped_pointers, VK_EXT_extended_dynamic_state3,
+        // VK_EXT_device_fault and VK_EXT_mesh_shader are all post-1.4 or
+        // never-promoted, so each stays a standalone struct. A future
+        // promoted-into-1.4 feature MUST move into this struct instead
+        // (VUID-VkDeviceCreateInfo-pNext-02830 rejects both spellings at once).
+        VkPhysicalDeviceVulkan14Features vulkan14Features{};
+        vulkan14Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+        vulkan14Features.pNext = &vulkan11Features;
+
         std::vector<const char*> deviceExtensions = VulkanCapabilities::RequiredDeviceExtensions();
 
         // VK_EXT_extended_dynamic_state3: OPTIONAL (ADR 0011 §5 — dynamic blend
@@ -525,7 +545,7 @@ namespace OloEngine
             eds3Features.extendedDynamicState3ColorBlendEnable = VK_TRUE;
             eds3Features.extendedDynamicState3ColorBlendEquation = VK_TRUE;
             eds3Features.extendedDynamicState3ColorWriteMask = VK_TRUE;
-            eds3Features.pNext = &vulkan11Features;
+            eds3Features.pNext = &vulkan14Features;
         }
         // m_DynamicBlendStateEnabled is committed AFTER vkCreateDevice
         // succeeds (below): the flag must describe the LOGICAL device's
@@ -591,9 +611,18 @@ namespace OloEngine
         VkPhysicalDeviceVulkan12Features supported12{};
         supported12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
         supported12.pNext = &supported11;
+        // #809: hostImageCopy + maintenance5 ride the same probe. Both are
+        // required-to-be-supported on a 1.4 device, but "required by the spec"
+        // is not "present in this driver" -- a device that reports 1.4 without
+        // them, or a layer that filters them out, must degrade to the staging
+        // path rather than call through a null volk pointer, so the probe
+        // result is what gates every use.
+        VkPhysicalDeviceVulkan14Features supported14{};
+        supported14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+        supported14.pNext = &supported12;
         VkPhysicalDeviceFeatures2 supportedFeatures2{};
         supportedFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-        supportedFeatures2.pNext = &supported12;
+        supportedFeatures2.pNext = &supported14;
         vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supportedFeatures2);
         vulkan12Features.shaderBufferInt64Atomics = supportedAtomics.shaderBufferInt64Atomics;
         // shaderInt64 is a DIFFERENT feature from shaderBufferInt64Atomics:
@@ -614,6 +643,18 @@ namespace OloEngine
         m_DrawIndirectCountEnabled = supported12.drawIndirectCount == VK_TRUE;
         vulkan11Features.shaderDrawParameters = supported11.shaderDrawParameters;
         m_ShaderDrawParametersEnabled = supported11.shaderDrawParameters == VK_TRUE;
+
+        // #809. The member flags are committed AFTER vkCreateDevice returns
+        // (the same commit-after-create rule the EDS3 / mesh-shader bits
+        // follow): until the create succeeds nothing is enabled anywhere, and
+        // a use site reading a flag set from a *request* would be reading a
+        // wish. maintenance6 is deliberately NOT requested -- nothing in the
+        // backend consumes any of its relaxations, and an unused feature bit
+        // is dead weight the validation layer still has to reason about.
+        const bool wantHostImageCopy = supported14.hostImageCopy == VK_TRUE;
+        const bool wantMaintenance5 = supported14.maintenance5 == VK_TRUE;
+        vulkan14Features.hostImageCopy = supported14.hostImageCopy;
+        vulkan14Features.maintenance5 = supported14.maintenance5;
 
         // Device-fault reporting costs nothing until a device loss, at which
         // point it is the difference between "VkResult -4" and a fault
@@ -653,7 +694,7 @@ namespace OloEngine
         }
 
         void* featureChainHead = wantDynamicBlend ? static_cast<void*>(&eds3Features)
-                                                  : static_cast<void*>(&vulkan11Features);
+                                                  : static_cast<void*>(&vulkan14Features);
         if (wantDeviceFault)
         {
             faultFeatures.pNext = featureChainHead;
@@ -685,6 +726,61 @@ namespace OloEngine
         m_MeshShaderEnabled = wantMeshShader;
         volkLoadDevice(m_Device);
         vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
+
+        // #809: same commit-after-create rule, and the entry points these
+        // flags gate only exist once volkLoadDevice has run -- a flag set
+        // before that would let a caller dereference a null
+        // vkCopyMemoryToImage. The null checks are not belt-and-braces: volk
+        // only populates a core-1.4 pointer when the loader/ICD actually
+        // exports it, so an enabled feature bit is not on its own proof the
+        // command is callable.
+        m_Maintenance5Enabled = wantMaintenance5 && vkCmdBindIndexBuffer2 != nullptr;
+        // OLO_VULKAN_NO_HOST_IMAGE_COPY=1 forces every upload back onto the
+        // staging + one-shot path. Same genre as
+        // OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL: a one-line A/B for the question
+        // "is this frame/validation difference the host route's fault?", which
+        // is otherwise only answerable by rebuilding the backend. Kept
+        // permanently because the host route changes WHEN an upload happens
+        // relative to the queue, and that class of difference is exactly what
+        // a bisect lever is for.
+        // Declared in DebugLevers.inl and read through Levers, not through a
+        // raw getenv or even a bare Env::IsTruthy: the registry is what makes
+        // a lever discoverable (it carries the help text and shows up in the
+        // snapshot), and DebugLeversTest fails the build for any engine code
+        // that reads an OLO_* variable around it.
+        const bool hostCopyForcedOff = Levers::VulkanNoHostImageCopy();
+        m_HostImageCopyEnabled = wantHostImageCopy && !hostCopyForcedOff && vkCopyMemoryToImage != nullptr &&
+                                 vkTransitionImageLayout != nullptr;
+        if (hostCopyForcedOff)
+        {
+            OLO_CORE_WARN("[Vulkan] host image copy disabled by OLO_VULKAN_NO_HOST_IMAGE_COPY=1 — "
+                          "every texture upload takes the staging + one-shot path");
+        }
+        if (m_HostImageCopyEnabled)
+        {
+            // The layout lists are a two-call query (count, then data). Only
+            // VK_IMAGE_LAYOUT_GENERAL is guaranteed to appear in both, so
+            // every host path that wants a nicer layout asks rather than
+            // assumes -- see IsHostCopySrcLayoutSupported.
+            VkPhysicalDeviceHostImageCopyProperties hostCopyProps{};
+            hostCopyProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_PROPERTIES;
+            VkPhysicalDeviceProperties2 hostCopyProps2{};
+            hostCopyProps2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            hostCopyProps2.pNext = &hostCopyProps;
+            vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &hostCopyProps2);
+            m_HostCopySrcLayouts.assign(hostCopyProps.copySrcLayoutCount, VK_IMAGE_LAYOUT_UNDEFINED);
+            m_HostCopyDstLayouts.assign(hostCopyProps.copyDstLayoutCount, VK_IMAGE_LAYOUT_UNDEFINED);
+            hostCopyProps.pCopySrcLayouts = m_HostCopySrcLayouts.empty() ? nullptr : m_HostCopySrcLayouts.data();
+            hostCopyProps.pCopyDstLayouts = m_HostCopyDstLayouts.empty() ? nullptr : m_HostCopyDstLayouts.data();
+            vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &hostCopyProps2);
+            m_HostCopyMemoryTypeNeutral = hostCopyProps.identicalMemoryTypeRequirements == VK_TRUE;
+        }
+        OLO_CORE_INFO("[Vulkan] 1.4 conveniences: host image copy {}{}, maintenance5 {}",
+                      m_HostImageCopyEnabled ? "enabled" : "unavailable (staging upload path)",
+                      m_HostImageCopyEnabled && !m_HostCopyMemoryTypeNeutral
+                          ? " (host-transfer usage changes memory type requirements — kept off render targets)"
+                          : "",
+                      m_Maintenance5Enabled ? "enabled" : "unavailable (implicit whole-buffer index binds)");
 
         // Mesh-shader limits + the loud capability verdict (issue #813). The
         // vkGetPhysicalDeviceProperties2 probe is this backend's first —
@@ -807,10 +903,68 @@ namespace OloEngine
         }
         m_PhysicalDevice = VK_NULL_HANDLE;
         m_QueueFamily = 0;
+        // #809: the host-image-copy verdict describes a physical device that
+        // is no longer reachable through this object. Clearing it means a
+        // Shutdown/Init cycle re-probes rather than reusing a verdict (and a
+        // per-format memo) minted against the previous device.
+        m_HostImageCopyEnabled = false;
+        m_Maintenance5Enabled = false;
+        m_HostCopySrcLayouts.clear();
+        m_HostCopyDstLayouts.clear();
+        m_HostCopyMemoryTypeNeutral = false;
+        {
+            std::lock_guard<std::mutex> lock(m_HostImageCopyFormatMutex);
+            m_HostImageCopyFormatCache.clear();
+        }
         if (s_ActiveDevice == this)
         {
             s_ActiveDevice = nullptr;
         }
+    }
+
+    bool VulkanDevice::SupportsHostImageCopyForFormat(VkFormat format) const
+    {
+        if (!m_HostImageCopyEnabled || m_PhysicalDevice == VK_NULL_HANDLE)
+        {
+            return false;
+        }
+
+        std::lock_guard<std::mutex> lock(m_HostImageCopyFormatMutex);
+        if (const auto it = m_HostImageCopyFormatCache.find(format); it != m_HostImageCopyFormatCache.end())
+        {
+            return it->second;
+        }
+
+        // VkFormatProperties3, not VkFormatProperties: the host-transfer bit
+        // lives above bit 31 and only the 64-bit flags word can carry it.
+        VkFormatProperties3 properties3{};
+        properties3.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+        VkFormatProperties2 properties2{};
+        properties2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+        properties2.pNext = &properties3;
+        vkGetPhysicalDeviceFormatProperties2(m_PhysicalDevice, format, &properties2);
+
+        const bool supported = (properties3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT) != 0;
+        m_HostImageCopyFormatCache.emplace(format, supported);
+        return supported;
+    }
+
+    bool VulkanDevice::IsHostCopySrcLayoutSupported(VkImageLayout layout) const
+    {
+        if (!m_HostImageCopyEnabled)
+        {
+            return false;
+        }
+        return std::ranges::find(m_HostCopySrcLayouts, layout) != m_HostCopySrcLayouts.end();
+    }
+
+    bool VulkanDevice::IsHostCopyDstLayoutSupported(VkImageLayout layout) const
+    {
+        if (!m_HostImageCopyEnabled)
+        {
+            return false;
+        }
+        return std::ranges::find(m_HostCopyDstLayouts, layout) != m_HostCopyDstLayouts.end();
     }
 
     void VulkanDevice::LogDeviceFaultInfo() const

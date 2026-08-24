@@ -3163,3 +3163,117 @@ who could have recorded the draw.
 in the queue*. If one field serves both "after what I am recording" and "right
 now", the two agree on every steady frame and disagree on the first frame a
 resource's lifetime changes — which is the frame nobody tests.
+
+---
+
+## 17. Vulkan 1.4 conveniences (#809): a core feature is not a free feature
+
+ADR 0011 amendment (91) carries the decisions. This is the part a future
+"adopt the next core-promoted thing" pass would otherwise rediscover.
+
+### The three questions a promoted feature still owes you
+
+The device has targeted Vulkan 1.4 since the port, so `hostImageCopy` and
+`maintenance5` look like they should just be *available*. Each is a separate
+question, and answering only the first is how you get a null function pointer:
+
+1. **Is the feature supported?** `vkGetPhysicalDeviceFeatures2` with
+   `VkPhysicalDeviceVulkan14Features` chained. "Mandatory at this API version"
+   is a statement about the spec; the probe is a statement about the machine.
+2. **Was it enabled?** Core-promoted features default **OFF** at device
+   creation. This has now bitten four times in this backend
+   (`synchronization2`, `dynamicRendering`, `maintenance4`, and these two), and
+   the symptom differs every time — a validation flood, a module-creation
+   refusal, or nothing at all until the one driver that does not tolerate it.
+3. **Is the entry point loaded?** volk populates a core-1.4 pointer only when
+   the loader/ICD exports it. The flags here are `wantX && vkX != nullptr` for
+   that reason, and the null check is load-bearing rather than defensive
+   decoration.
+
+And a fourth for anything image-shaped: **is it supported for THIS format?**
+`VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT` lives above bit 31, so the
+32-bit `VkFormatProperties` cannot report it — the query has to be
+`vkGetPhysicalDeviceFormatProperties2` with a chained `VkFormatProperties3`,
+and a device-level "yes" says nothing about a particular `VkFormat`.
+
+### A fast path may not change where the resource comes to rest
+
+Host image copy's win is real: a texture with no mip chain now uploads with no
+staging buffer, no command buffer and no submit, which takes an asset load out
+of amendment (72)'s ordering hazard entirely rather than managing it.
+
+The trap is the *end* of that path. Every other consumer in the backend
+assumes sampled content rests in `SHADER_READ_ONLY_OPTIMAL` — `GetData` and
+`SubImage` both name it as their barrier's `oldLayout`, and a barrier that
+names the wrong old layout is invalid usage whose visible symptom is
+*discarded pixels*, not an error. But the host transition's legal target
+layouts are a **driver property** (`pCopySrcLayouts` / `pCopyDstLayouts`,
+exact membership, no wildcard entry), and only `VK_IMAGE_LAYOUT_GENERAL` is
+guaranteed to be in either list. The two lists are also not interchangeable:
+a transition's `newLayout` must be in the **destination** list
+(VUID-VkHostImageLayoutTransitionInfo-newLayout-09057), even though every
+driver at hand reports identical lists and would hide the difference.
+
+So the host route asks first and **declines the whole route** when it cannot
+finish in the layout the rest of the backend expects. Leaving the image in
+`GENERAL` would have sampled correctly, passed the upload tests, and broken
+readback and partial updates on some other driver. The general rule:
+**when adding a second way to produce a resource, enumerate what the FIRST way
+guaranteed about the resource's resting state, and either reproduce it exactly
+or refuse.**
+
+### A route that skips the queue must re-qualify every caller
+
+The capability gate answers "is this route legal on this device?". It does not
+answer "is this *call* safe to take it?", and the two are different questions
+because `vkTransitionImageLayout` / `vkCopyMemoryToImage` execute on the CPU
+the instant they are called — no queue ordering, no fence.
+
+`Texture2D::SetData` has callers the words "load-time asset upload" do not
+describe: `VideoTexture::UpdateFrame` runs per video frame and
+`OceanFFTField::Upload` per tick, both re-uploading a texture the renderer is
+actively sampling. On the staging path that was fine — the one-shot submit is
+queue-ordered. On the host path it is an unsynchronised CPU write to an image
+the GPU is reading, and nothing about the *device capability* hints at it.
+
+Two checks confine the route, and the second is the non-obvious one:
+
+- **no frame is recording** — the guard `SubImage`'s mid-frame arm already
+  had, which the new route inherited nothing from; and
+- **this is the image's first upload** — because "no frame is recording" says
+  nothing about frames already *submitted*. `VulkanImageInfoRegistry`'s
+  `InitialLayout` is already exactly that record (`UNDEFINED` until an upload
+  publishes content), so no new state had to be invented to ask it.
+
+The rule: **when you add a faster path beside an existing one, enumerate the
+existing path's CALLERS, not just its preconditions.** The old path's queue
+ordering was doing work for callers nobody had written down.
+
+### Where the queue is still needed, and why the ladder got extracted
+
+Mip generation is `vkCmdBlitImage`, which has no host form. A mipped upload
+therefore still submits — a blit chain whose base level arrived from the host,
+starting from `GENERAL` instead of `TRANSFER_DST`. That is two paths through
+the same barrier ladder, which is the two-mirrors shape this repo has a doc
+genre about, so the ladder is one `RecordMipChain` with a stated precondition
+(mip 0 in `TRANSFER_SRC` holding the base image, the rest in `TRANSFER_DST`)
+and each caller establishes it its own way.
+
+Worth stating plainly because it bounds the win: with `GenerateMips` defaulting
+to true, **most** file-loaded textures still submit. What the host path removes
+for them is the staging buffer and its memcpy, not the submit. The
+no-submit-at-all case is the un-mipped texture.
+
+### Testing a capability gate that is always ON where you can run it
+
+Every machine that can run these tests has host image copy, so a test that
+only exercises the enabled arm cannot see a broken disabled arm. The fixture's
+gate test asserts **both** directions off one branch: enabled ⇒ the
+spec-guaranteed `GENERAL` entries are present in both layout lists and the
+per-format memo is stable; disabled ⇒ every per-format and per-layout answer
+is a hard no, so nothing can reach `vkCopyMemoryToImage` through a stale yes.
+The functional coverage is the ordinary upload round-trips — they take the
+host route silently on a machine that has it, and the fixture's
+zero-validation-errors assertion is what makes "it round-tripped" mean
+"it round-tripped legally".
+

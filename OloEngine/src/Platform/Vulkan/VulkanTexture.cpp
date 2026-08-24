@@ -16,6 +16,7 @@
 #include <stb_image/stb_image.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
@@ -26,6 +27,10 @@ namespace OloEngine
 {
     namespace
     {
+        // #809, see VulkanTexture2D::GetHostImageCopyUploadCount. Atomic
+        // because texture creation is not guaranteed to stay on one thread.
+        std::atomic<u64> s_HostImageCopyUploadCount{ 0 };
+
         [[nodiscard]] bool IsDepthImageFormat(ImageFormat format)
         {
             return format == ImageFormat::DEPTH24STENCIL8;
@@ -136,12 +141,13 @@ namespace OloEngine
         }
     } // namespace
 
-    VulkanTexture2D::VulkanTexture2D(const TextureSpecification& specification)
+    VulkanTexture2D::VulkanTexture2D(const TextureSpecification& specification, bool renderTargetOnly)
         // Vulkan refuses a zero extent outright (GL merely misbehaved), so
         // clamp defensively — pre-Resize 0-sized framebuffer specs reach here.
         : m_Specification(specification),
           m_Width(std::max(specification.Width, 1u)),
-          m_Height(std::max(specification.Height, 1u))
+          m_Height(std::max(specification.Height, 1u)),
+          m_RenderTargetOnly(renderTargetOnly)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(VulkanDevice::Get() != nullptr, "VulkanTexture2D requires a live VulkanDevice");
@@ -257,6 +263,34 @@ namespace OloEngine
             {
                 usage |= VK_IMAGE_USAGE_STORAGE_BIT;
             }
+        }
+
+        // #809: VK_IMAGE_USAGE_HOST_TRANSFER_BIT is what lets UploadPixels
+        // write this image straight from host memory (SubImage deliberately
+        // stays on the staging path — it is a partial update with a mid-frame
+        // arm of its own, and #809 scopes the host route to the load-time
+        // upload). Three
+        // independent gates, all required
+        // (VUID-VkImageCreateInfo-usage-10245): the device enabled
+        // hostImageCopy, THIS format advertises the host-transfer feature at
+        // optimal tiling, and the image is a single-sampled colour image
+        // (there is no client-data upload path for depth, and a multisampled
+        // image cannot be host-copied). The bit is harmless when the host
+        // path is never taken.
+        //
+        // A fourth gate is m_RenderTargetOnly, and it is not cosmetic: the
+        // driver may pick different memory type requirements for an image
+        // carrying this bit (NVIDIA reports identicalMemoryTypeRequirements =
+        // VK_FALSE, measured on an RTX 4090), so putting it on every
+        // framebuffer attachment would charge every render target — on every
+        // resize — for a route an attachment can never take. Gating on the
+        // driver property instead was tried and is wrong: it disables the
+        // whole feature on exactly the hardware it was built for.
+        m_HostTransferUsage = !isDepth && !m_RenderTargetOnly && m_Specification.Samples == 1u &&
+                              device->SupportsHostImageCopyForFormat(format);
+        if (m_HostTransferUsage)
+        {
+            usage |= VK_IMAGE_USAGE_HOST_TRANSFER_BIT;
         }
 
         VkImageCreateInfo imageInfo{};
@@ -388,6 +422,198 @@ namespace OloEngine
         RHI::DescriptorHeap::Get().InvalidateResource(m_RHIHandle.Get());
     }
 
+    u64 VulkanTexture2D::GetHostImageCopyUploadCount()
+    {
+        return s_HostImageCopyUploadCount.load(std::memory_order_relaxed);
+    }
+
+    void VulkanTexture2D::RecordMipChain(VkCommandBuffer cmd, VkFilter blitFilter) const
+    {
+        // Classic blit chain: mip N-1 (TRANSFER_SRC) → mip N (TRANSFER_DST),
+        // then N becomes the next source. Extracted from UploadPixels so the
+        // staging and host-image-copy routes share ONE barrier sequence —
+        // the two differ only in how mip 0 got its pixels, and a second copy
+        // of this ladder is the two-mirrors shape that drifts.
+        //
+        // Precondition (see the header): mip 0 is already TRANSFER_SRC.
+        i32 srcW = static_cast<i32>(m_Width);
+        i32 srcH = static_cast<i32>(m_Height);
+        for (u32 mip = 1; mip < m_MipLevels; ++mip)
+        {
+            const i32 dstW = std::max(srcW / 2, 1);
+            const i32 dstH = std::max(srcH / 2, 1);
+
+            VkImageBlit blit{};
+            blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip - 1u, 0u, 1u };
+            blit.srcOffsets[1] = { srcW, srcH, 1 };
+            blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, 0u, 1u };
+            blit.dstOffsets[1] = { dstW, dstH, 1 };
+            vkCmdBlitImage(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_Image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, blitFilter);
+
+            // This mip is the next iteration's source. The last mip is never
+            // read, so it stays in TRANSFER_DST for the final transition.
+            if (mip + 1u < m_MipLevels)
+            {
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_TRANSFER_READ_BIT, mip, 1u);
+            }
+
+            srcW = dstW;
+            srcH = dstH;
+        }
+
+        // Mips [0, N-1) sit in TRANSFER_SRC, the last in TRANSFER_DST — bring
+        // all to SHADER_READ_ONLY, the backend's steady state for sampled
+        // content (GetData and SubImage both name it as their oldLayout).
+        VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                         VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                         VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels - 1u);
+        VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                         VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                         VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u);
+    }
+
+    bool VulkanTexture2D::UploadPixelsFromHost(const void* data, u64 sizeBytes, VkFilter blitFilter)
+    {
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || !device->IsHostImageCopyEnabled() || m_Image == VK_NULL_HANDLE)
+        {
+            return false;
+        }
+
+        // vkCopyMemoryToImage reads width*height*texelBytes straight out of
+        // the CALLER's allocation, so a payload short of the full extent is a
+        // host heap over-read here — where the staging path would only have
+        // produced an over-read of a VMA buffer and a VUID. Decline rather
+        // than read. Zero means "no client-upload path for this format"
+        // (depth, compressed), which also declines.
+        const u32 texelBytes = VkFormatTexelBytes(m_Specification.Format);
+        if (texelBytes == 0u || sizeBytes < static_cast<u64>(m_Width) * m_Height * texelBytes)
+        {
+            return false;
+        }
+
+        // VK_IMAGE_LAYOUT_GENERAL is the ONE layout the spec guarantees in
+        // both host-copy layout lists, so it is what the copy targets. Every
+        // other layout is asked for, never assumed — the lists are a driver
+        // property, not a constant.
+        constexpr VkImageLayout kCopyLayout = VK_IMAGE_LAYOUT_GENERAL;
+        if (!device->IsHostCopyDstLayoutSupported(kCopyLayout))
+        {
+            return false;
+        }
+        // The upload MUST end in SHADER_READ_ONLY_OPTIMAL: that is the
+        // backend's steady state for sampled content, and both GetData and
+        // SubImage name it as their barrier's oldLayout. Leaving the image in
+        // GENERAL instead would still sample correctly and would silently
+        // break those two, so a driver that cannot make that host transition
+        // declines the whole route rather than weakening the invariant.
+        if (!device->IsHostTransitionTargetSupported(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL))
+        {
+            return false;
+        }
+
+        const VkDevice vkDevice = device->GetDevice();
+        const bool generateMips = m_MipLevels > 1u;
+
+        // Whole image → GENERAL. oldLayout UNDEFINED is a full discard, which
+        // is exactly right here: mip 0 is about to be completely overwritten
+        // and every other mip regenerated from it.
+        VkHostImageLayoutTransitionInfo toCopy{};
+        toCopy.sType = VK_STRUCTURE_TYPE_HOST_IMAGE_LAYOUT_TRANSITION_INFO;
+        toCopy.image = m_Image;
+        toCopy.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        toCopy.newLayout = kCopyLayout;
+        toCopy.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, m_MipLevels, 0u, 1u };
+        if (vkTransitionImageLayout(vkDevice, 1u, &toCopy) != VK_SUCCESS)
+        {
+            OLO_CORE_WARN("VulkanTexture2D::UploadPixels: host layout transition failed — falling back to staging");
+            return false;
+        }
+
+        // memoryRowLength / memoryImageHeight 0 = "tightly packed to
+        // imageExtent", the same contract the staging path's VkBufferImageCopy
+        // relies on. The caller has already widened 3-channel client data to
+        // the image's 4-channel form, so `data` matches the VkImage's format.
+        VkMemoryToImageCopy region{};
+        region.sType = VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY;
+        region.pHostPointer = data;
+        region.memoryRowLength = 0u;
+        region.memoryImageHeight = 0u;
+        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
+        region.imageExtent = { m_Width, m_Height, 1u };
+
+        VkCopyMemoryToImageInfo copyInfo{};
+        copyInfo.sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO;
+        copyInfo.dstImage = m_Image;
+        copyInfo.dstImageLayout = kCopyLayout;
+        copyInfo.regionCount = 1u;
+        copyInfo.pRegions = &region;
+        if (vkCopyMemoryToImage(vkDevice, &copyInfo) != VK_SUCCESS)
+        {
+            OLO_CORE_WARN("VulkanTexture2D::UploadPixels: host image copy failed — falling back to staging");
+            return false;
+        }
+
+        if (!generateMips)
+        {
+            // The whole upload happened on the host: no staging buffer, no
+            // command buffer, no submit, and therefore nothing to order
+            // against the frame that may be recording around this call.
+            VkHostImageLayoutTransitionInfo toSampled{};
+            toSampled.sType = VK_STRUCTURE_TYPE_HOST_IMAGE_LAYOUT_TRANSITION_INFO;
+            toSampled.image = m_Image;
+            toSampled.oldLayout = kCopyLayout;
+            toSampled.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            toSampled.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, m_MipLevels, 0u, 1u };
+            if (vkTransitionImageLayout(vkDevice, 1u, &toSampled) != VK_SUCCESS)
+            {
+                OLO_CORE_WARN("VulkanTexture2D::UploadPixels: host transition to SHADER_READ_ONLY failed — "
+                              "falling back to staging");
+                return false;
+            }
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            s_HostImageCopyUploadCount.fetch_add(1u, std::memory_order_relaxed);
+            return true;
+        }
+
+        // Mip generation is a BLIT, which has no host form — only the base
+        // level moved off the command stream. The one-shot submit stays, and
+        // with it amendment (72)'s ordering caveat, for mipped textures.
+        const bool ok = VulkanOneShot::Submit(
+            "VulkanTexture2D::UploadPixels(host)",
+            [&](VkCommandBuffer cmd)
+            {
+                // Mip 0 carries the host-written pixels and must be
+                // PRESERVED: src scope is the host write, which the queue
+                // submit's implicit host-write ordering already makes
+                // available — naming it explicitly is what keeps sync
+                // validation able to see the dependency.
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, kCopyLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                                 VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_WRITE_BIT,
+                                                 VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, 0u, 1u);
+                // Mips 1..N-1 hold nothing worth keeping — UNDEFINED discards
+                // whatever the GENERAL transition left there.
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_HOST_BIT,
+                                                 VK_ACCESS_2_HOST_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_TRANSFER_WRITE_BIT, 1u, m_MipLevels - 1u);
+                RecordMipChain(cmd, blitFilter);
+            });
+
+        if (ok)
+        {
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            s_HostImageCopyUploadCount.fetch_add(1u, std::memory_order_relaxed);
+        }
+        return ok;
+    }
+
     bool VulkanTexture2D::UploadPixels(const void* data, u64 sizeBytes)
     {
         OLO_PROFILE_FUNCTION();
@@ -415,6 +641,46 @@ namespace OloEngine
             uploadSize = expanded.size();
         }
 
+        const bool generateMips = m_MipLevels > 1u;
+        const VkFilter blitFilter = IsIntegerFormat(m_Specification.Format) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+
+        // #809: the host-image-copy route first. It writes mip 0 with no
+        // staging buffer at all, and for a texture with no mip chain it
+        // finishes the upload without ever touching the command stream —
+        // which is what takes an asset load out of the one-shot-submit
+        // ordering hazard (amendment (72): a one-shot submit is ordered
+        // BEFORE the frame still recording around it) rather than managing
+        // it. A false return means the route was unavailable or failed, and
+        // the staging path below then runs exactly as it did before —
+        // including its oldLayout UNDEFINED full discard, which is valid
+        // from whatever state a partial host attempt left behind.
+        //
+        // "Load-time" is enforced here, not assumed, and it takes TWO checks
+        // because vkTransitionImageLayout / vkCopyMemoryToImage run on the
+        // CPU the moment they are called — no queue ordering, no fence:
+        //
+        //  - No frame may be RECORDING. The staging path's one-shot submit is
+        //    at least ordered against the queue; a host write to an image the
+        //    frame being recorded will sample is not ordered against anything.
+        //    Same guard SubImage already applies to its mid-frame arm.
+        //  - This must be the image's FIRST upload. A re-upload targets an
+        //    image previously handed to the renderer, which an ALREADY
+        //    SUBMITTED frame may still be reading — and "no frame is
+        //    recording" says nothing about frames in flight. The registry's
+        //    InitialLayout is exactly that record: UNDEFINED until an upload
+        //    publishes content, so it is still UNDEFINED only for a freshly
+        //    created (or freshly Resize()d) image. This is what keeps the
+        //    per-frame re-uploaders — VideoTexture::UpdateFrame,
+        //    OceanFFTField::Upload — on the command path where they belong.
+        const auto* priorInfo = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+        const bool firstUpload = priorInfo == nullptr || priorInfo->InitialLayout == VK_IMAGE_LAYOUT_UNDEFINED;
+        const bool frameRecording = VulkanUpload::TryGetRecordingVulkanAPI() != nullptr;
+        if (m_HostTransferUsage && firstUpload && !frameRecording &&
+            UploadPixelsFromHost(uploadData, uploadSize, blitFilter))
+        {
+            return true;
+        }
+
         // Host staging buffer — destroyed right after the blocking one-shot.
         VkBufferCreateInfo stagingInfo{};
         stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -438,9 +704,6 @@ namespace OloEngine
         }
         std::memcpy(stagingOut.pMappedData, uploadData, uploadSize);
         vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize);
-
-        const bool generateMips = m_MipLevels > 1u;
-        const VkFilter blitFilter = IsIntegerFormat(m_Specification.Format) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
 
         const bool ok = VulkanOneShot::Submit(
             "VulkanTexture2D::UploadPixels",
@@ -470,46 +733,15 @@ namespace OloEngine
 
                 if (generateMips)
                 {
-                    // Classic blit chain: mip N-1 (TRANSFER_SRC) → mip N
-                    // (TRANSFER_DST), then N becomes the next source.
-                    i32 srcW = static_cast<i32>(m_Width);
-                    i32 srcH = static_cast<i32>(m_Height);
-                    for (u32 mip = 1; mip < m_MipLevels; ++mip)
-                    {
-                        // src scope: mip 0's last write was the COPY, later
-                        // mips' the previous BLIT — cover both rather than
-                        // special-casing the first iteration.
-                        VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                                         VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                                         VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                                         VK_ACCESS_2_TRANSFER_READ_BIT, mip - 1u, 1u);
-
-                        const i32 dstW = std::max(srcW / 2, 1);
-                        const i32 dstH = std::max(srcH / 2, 1);
-
-                        VkImageBlit blit{};
-                        blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip - 1u, 0u, 1u };
-                        blit.srcOffsets[1] = { srcW, srcH, 1 };
-                        blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, 0u, 1u };
-                        blit.dstOffsets[1] = { dstW, dstH, 1 };
-                        vkCmdBlitImage(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_Image,
-                                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, blitFilter);
-
-                        srcW = dstW;
-                        srcH = dstH;
-                    }
-
-                    // Mips [0, N-1) sit in TRANSFER_SRC, the last in
-                    // TRANSFER_DST — bring all to SHADER_READ_ONLY.
-                    VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                                     VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                                     VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels - 1u);
+                    // RecordMipChain's precondition: mip 0 in TRANSFER_SRC
+                    // holding the base image, every other mip in TRANSFER_DST.
+                    // Mip 0's last write was the COPY above; the rest are
+                    // already TRANSFER_DST from the whole-image transition.
                     VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
-                                                     VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                                                     VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u);
+                                                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                     VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                     VK_ACCESS_2_TRANSFER_READ_BIT, 0u, 1u);
+                    RecordMipChain(cmd, blitFilter);
                 }
                 else
                 {

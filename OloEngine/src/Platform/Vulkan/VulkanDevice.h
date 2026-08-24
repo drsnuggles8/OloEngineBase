@@ -28,6 +28,9 @@
 #include <vk_mem_alloc.h>
 
 #include <functional>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
 
 namespace OloEngine
 {
@@ -165,6 +168,68 @@ namespace OloEngine
             return m_MeshShaderProperties;
         }
 
+        // --- Vulkan 1.4 core conveniences (issue #809) -------------------
+        // These are FEATURES, not extensions, on the ADR 0010 floor: the
+        // device already targets 1.4, so no extension name is added and no
+        // capability-gate row widens. They are the synchronization2 class
+        // though — core-promoted but still DEFAULT OFF at device creation —
+        // so each is enabled from a vkGetPhysicalDeviceFeatures2 probe and
+        // every use site gates on the flag rather than on the API version.
+
+        // hostImageCopy: TRUE -> the load-time texture upload path writes
+        // host memory straight into an optimally-tiled VkImage
+        // (vkCopyMemoryToImage + vkTransitionImageLayout), with no staging
+        // buffer and no queue submit — which is what removes the
+        // one-shot-submit ordering hazard (amendment (72)) for asset loads.
+        // FALSE -> every upload keeps the staging + one-shot path.
+        [[nodiscard]] bool IsHostImageCopyEnabled() const
+        {
+            return m_HostImageCopyEnabled;
+        }
+        // maintenance5: TRUE -> index-buffer binds go through
+        // vkCmdBindIndexBuffer2 with the buffer's REAL byte size instead of
+        // the implicit whole-buffer bind, so an out-of-range index count is a
+        // validation error rather than an out-of-bounds read (amendment (9b)'s
+        // DrawIndexed(va, 0) "whole buffer" sentinel resolves to a number the
+        // bind can actually state).
+        //
+        // maintenance6 is deliberately NOT enabled: nothing in the backend
+        // uses any of its relaxations, and a feature bit nothing consumes is
+        // dead weight the validation layer still has to reason about (the
+        // same rule the EDS3 and mesh-shader bits above follow).
+        [[nodiscard]] bool IsMaintenance5Enabled() const
+        {
+            return m_Maintenance5Enabled;
+        }
+
+        // Per-format half of the host-image-copy gate: an image may only carry
+        // VK_IMAGE_USAGE_HOST_TRANSFER_BIT when its format+tiling advertises
+        // VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT
+        // (VUID-VkImageCreateInfo-usage-10245), and that is a per-format
+        // question no device-level flag answers. Optimal tiling only — the
+        // texture classes create nothing else. Memoized; false whenever host
+        // image copy is not enabled at all.
+        [[nodiscard]] bool SupportsHostImageCopyForFormat(VkFormat format) const;
+
+        // The layouts host image copy may READ FROM / WRITE TO on this driver.
+        // Only VK_IMAGE_LAYOUT_GENERAL is guaranteed to be in both lists, so a
+        // host path that wants to leave an image in SHADER_READ_ONLY_OPTIMAL
+        // (or start one from it) has to ask. Membership is exact: the lists
+        // enumerate supported layouts and carry no wildcard entry.
+        [[nodiscard]] bool IsHostCopySrcLayoutSupported(VkImageLayout layout) const;
+        [[nodiscard]] bool IsHostCopyDstLayoutSupported(VkImageLayout layout) const;
+        // vkTransitionImageLayout's newLayout must be in pCopyDstLayouts —
+        // VUID-VkHostImageLayoutTransitionInfo-newLayout-09057, checked
+        // against the registry's validusage.json rather than assumed. It is
+        // NOT "either list": a layout that only appears in pCopySrcLayouts is
+        // not a legal transition target, and treating it as one is invalid
+        // usage the validation layer would catch only on a driver whose two
+        // lists differ.
+        [[nodiscard]] bool IsHostTransitionTargetSupported(VkImageLayout layout) const
+        {
+            return IsHostCopyDstLayoutSupported(layout);
+        }
+
         // VK_EXT_device_fault (enabled when the driver has it): after a
         // VK_ERROR_DEVICE_LOST, logs the driver's fault report — fault type
         // (page fault vs. hang) and the faulting GPU address — so a device
@@ -204,6 +269,24 @@ namespace OloEngine
         bool m_ShaderDrawParametersEnabled = false;
         bool m_DeviceFaultEnabled = false;
         bool m_MeshShaderEnabled = false;
+        bool m_HostImageCopyEnabled = false;
+        bool m_Maintenance5Enabled = false;
+        // Host-image-copy layout lists, read once after device creation.
+        std::vector<VkImageLayout> m_HostCopySrcLayouts;
+        std::vector<VkImageLayout> m_HostCopyDstLayouts;
+        // Logged, not branched on: the driver's answer to "does
+        // VK_IMAGE_USAGE_HOST_TRANSFER_BIT change an image's memory type
+        // requirements?". It is VK_FALSE on NVIDIA, which is why the usage
+        // bit is kept off render-target-only textures at the texture class
+        // (VulkanTexture2D's renderTargetOnly) rather than gated here —
+        // gating the feature on this property disables it outright on the
+        // hardware it was built for.
+        bool m_HostCopyMemoryTypeNeutral = false;
+        // SupportsHostImageCopyForFormat's memo. Mutable + locked because the
+        // query is logically const and texture creation is not guaranteed to
+        // stay on one thread (the asset loader is a thread pool).
+        mutable std::mutex m_HostImageCopyFormatMutex;
+        mutable std::unordered_map<VkFormat, bool> m_HostImageCopyFormatCache;
         // Cached at Init when VK_EXT_mesh_shader is present; all-zero
         // otherwise (see GetMeshShaderProperties).
         VkPhysicalDeviceMeshShaderPropertiesEXT m_MeshShaderProperties{};
