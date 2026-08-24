@@ -141,7 +141,13 @@ namespace OloEngine
         // Restore mutable GL state for subsequent passes.
         RenderCommand::SetColorMaskForAttachment(1, true, true, true, true);
         RenderCommand::SetColorMaskForAttachment(2, true, true, true, true);
-        RenderCommand::SetBlendStateForAttachment(0, false);
+        // WITHDRAW all three opinions, not just attachment 0's. A per-attachment
+        // blend enable outranks the global flag until it is withdrawn, so
+        // passing `false` here would leave RT0/RT1/RT2 pinned OFF for every
+        // later pass in the process rather than restoring them (issue #896).
+        RenderCommand::ResetBlendStateForAttachment(0);
+        RenderCommand::ResetBlendStateForAttachment(1);
+        RenderCommand::ResetBlendStateForAttachment(2);
         context.SetBlendState(false);
         // Clearing the inputs needs the seam AND its own flush. Under the heap
         // there is no bind to undo — the shader reads an offset — so an offset

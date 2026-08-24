@@ -353,10 +353,18 @@ namespace OloEngine
             s_RendererAPI->IssueBarrierBatch(flags, barriers);
         }
 
-        // Per-attachment blend control
+        // Per-attachment blend control. Tri-state: see the declaration in
+        // RendererAPI.h -- an attachment a pass turned on or off keeps that
+        // opinion until ResetBlendStateForAttachment withdraws it, so every
+        // pass that states one has to withdraw it before returning.
         static void SetBlendStateForAttachment(u32 attachment, bool enabled)
         {
             s_RendererAPI->SetBlendStateForAttachment(attachment, enabled);
+        }
+
+        static void ResetBlendStateForAttachment(u32 attachment)
+        {
+            s_RendererAPI->ResetBlendStateForAttachment(attachment);
         }
 
         static void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst)

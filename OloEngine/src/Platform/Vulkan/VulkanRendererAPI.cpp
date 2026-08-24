@@ -950,16 +950,12 @@ namespace OloEngine
     }
     void VulkanRendererAPI::SetBlendState(const bool value)
     {
-        // Deliberately does NOT fill AttachmentBlend, unlike SetColorMask below.
-        // GL's glEnable(GL_BLEND) would clear the per-buffer enables, but the
-        // engine's passes are written against OR semantics instead: DecalRenderPass
-        // turns RT2 on with SetBlendStateForAttachment(2, true) for an Emissive
-        // decal whose PODRenderState carries blendEnabled=false, and relies on the
-        // per-attachment enable surviving the global disable that
-        // ApplyPODRenderState then issues. Matching GL here would delete that
-        // additive accumulation on Vulkan without fixing it on GL, so the
-        // divergence is recorded rather than "corrected" — see the note at the
-        // AttachmentBlend declaration.
+        // Deliberately does NOT touch AttachmentBlend, unlike SetColorMask
+        // below. A per-attachment blend opinion OUTRANKS this flag in both
+        // directions and is withdrawn only by ResetBlendStateForAttachment —
+        // see the rule at the AttachmentBlend declaration. The GL backend
+        // re-asserts its standing opinions after glEnable/glDisable(GL_BLEND)
+        // so that both backends implement that one rule.
         m_State.Blend = value;
     }
     void VulkanRendererAPI::SetBlendFunc(const RHI::BlendFactor sfactor, const RHI::BlendFactor dfactor)
@@ -970,8 +966,8 @@ namespace OloEngine
         m_State.BlendDstAlpha = dfactor;
         // glBlendFunc overwrites EVERY buffer's func in GL — the recorded
         // per-attachment funcs must stop diverting (see the struct comment).
-        for (bool& funcSet : m_State.AttachmentBlendFuncSet)
-            funcSet = false;
+        for (auto& funcOpinion : m_State.AttachmentBlendFunc)
+            funcOpinion = VulkanRecordedPipelineState::AttachmentBlendFuncOpinion::Inherit;
     }
     void VulkanRendererAPI::SetBlendFuncSeparate(const RHI::BlendFactor srcRGB, const RHI::BlendFactor dstRGB,
                                                  const RHI::BlendFactor srcAlpha, const RHI::BlendFactor dstAlpha)
@@ -981,8 +977,8 @@ namespace OloEngine
         m_State.BlendSrcAlpha = srcAlpha;
         m_State.BlendDstAlpha = dstAlpha;
         // Same glBlendFuncSeparate global-overwrite semantics as SetBlendFunc.
-        for (bool& funcSet : m_State.AttachmentBlendFuncSet)
-            funcSet = false;
+        for (auto& funcOpinion : m_State.AttachmentBlendFunc)
+            funcOpinion = VulkanRecordedPipelineState::AttachmentBlendFuncOpinion::Inherit;
     }
     void VulkanRendererAPI::SetBlendEquation(const RHI::BlendOp mode)
     {
@@ -1100,7 +1096,18 @@ namespace OloEngine
     {
         if (attachment >= VulkanRecordedPipelineState::kMaxAttachments)
             return;
-        m_State.AttachmentBlend[attachment] = enabled;
+        // States an opinion that outranks the global flag until it is
+        // withdrawn. `false` is ForceOff, NOT "back to normal" — a pass
+        // restoring its state wants ResetBlendStateForAttachment (issue #896).
+        m_State.AttachmentBlend[attachment] = enabled
+                                                  ? VulkanRecordedPipelineState::AttachmentBlendOpinion::ForceOn
+                                                  : VulkanRecordedPipelineState::AttachmentBlendOpinion::ForceOff;
+    }
+    void VulkanRendererAPI::ResetBlendStateForAttachment(const u32 attachment)
+    {
+        if (attachment >= VulkanRecordedPipelineState::kMaxAttachments)
+            return;
+        m_State.AttachmentBlend[attachment] = VulkanRecordedPipelineState::AttachmentBlendOpinion::Inherit;
     }
     void VulkanRendererAPI::SetBlendFuncForAttachment(const u32 attachment, const RHI::BlendFactor src, const RHI::BlendFactor dst)
     {
@@ -1108,7 +1115,8 @@ namespace OloEngine
             return;
         m_State.AttachmentBlendSrc[attachment] = src;
         m_State.AttachmentBlendDst[attachment] = dst;
-        m_State.AttachmentBlendFuncSet[attachment] = true; // glBlendFunci semantics
+        // glBlendFunci semantics — diverted until the global setter withdraws it.
+        m_State.AttachmentBlendFunc[attachment] = VulkanRecordedPipelineState::AttachmentBlendFuncOpinion::Diverted;
     }
     void VulkanRendererAPI::SetPatchVertexCount(const u32 patchVertices)
     {

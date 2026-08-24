@@ -126,11 +126,111 @@ licence.** Two adjacent pieces of state with the same GL rule can have different
 callers depending on different semantics, and the only thing that separates them
 is running the suite that covers the caller.
 
-`RendererAPI` has exactly three indexed entry points —
+`RendererAPI` has three indexed *setters* —
 `SetColorMaskForAttachment`, `SetBlendStateForAttachment`,
-`SetBlendFuncForAttachment`. Two of the three globals now overwrite their array
-(`SetColorMask`, and `SetBlendFunc` which already did); `SetBlendState`
-deliberately does not, for the reason above.
+`SetBlendFuncForAttachment`. Two of the three globals overwrite their array
+(`SetColorMask`, and `SetBlendFunc` which already did); `SetBlendState` does
+not, for the reason above. (#896 added a fourth per-attachment entry point,
+`ResetBlendStateForAttachment`, which is not a setter but a withdrawal — see
+the next section.)
+
+## What the blend twin turned out to need: a third state (#896)
+
+Recording the divergence bought time, and left a second defect underneath it.
+A bool that can only OR cannot say **"off"**: `SetBlendStateForAttachment(i,
+false)` was a no-op the instant anything enabled blending globally, so
+`OITResolveRenderPass`'s disables on RT1 (entity ID, an *integer* target) and
+RT2 (view normals) never reached the pipeline on Vulkan. Nothing showed,
+because that pass colour-masks both attachments to zero as well — a broken
+contract with no symptom, which is the hardest kind to keep fixed.
+
+Both callers are served once the per-attachment state stops being a bool:
+
+| state | means | who needs it |
+|---|---|---|
+| `Inherit` | no pass has an opinion; follow the global | everything else |
+| `ForceOn` | blend even if the global says no | `DecalRenderPass` Emissive |
+| `ForceOff` | do not blend even if the global says yes | `OITResolveRenderPass` |
+
+The global setter then has nothing to guess at, and the two arms stop being in
+tension — the thing that made the naive fix look mandatory was reading a
+two-state variable as if it could express three.
+
+**Both backends implement that rule, not two different ones.** Raw GL cannot
+hold "unset" for a draw buffer, so `OpenGLRendererAPI::SetBlendState` issues
+`glEnable`/`glDisable(GL_BLEND)` and then re-asserts every standing opinion on
+top (`ReassertAttachmentBlendOpinions`), the save/restore shape
+`m_AttachmentColorMasks` already used for clears. A side effect worth knowing:
+that is what finally gives the emissive decal its additive accumulation on GL,
+where it had never worked.
+
+### `glIsEnabled(GL_BLEND)` does not report index 0 — don't withdraw from it
+
+A withdrawal has to put the draw buffer back on the *global* enable, and the
+obvious way to avoid mirroring a flag is to ask GL for it. That does not work,
+and the failure is quiet.
+
+**The spec rule:** `glIsEnabled(GL_BLEND)` queries the index-0 value — it is
+equivalent to `glIsEnabledi(GL_BLEND, 0)`. So even a conforming implementation
+answers "is blending on for draw buffer 0", never "what did the last global
+call say" — and draw buffer 0 can hold an opinion of its own, which is exactly
+what `DecalRenderPass` and `ParticleRenderPass` install. On that basis alone it
+is the wrong input for a withdrawal.
+
+**And this driver does not even give the spec answer.** Measured on NVIDIA
+(RTX 4090, driver 98.352.0) — a driver-specific observation, not general GL
+behaviour — after `glDisable(GL_BLEND)` followed by `glEnablei(GL_BLEND, 1)`:
+
+| query | returns | spec-conforming answer |
+|---|---|---|
+| `glIsEnabled(GL_BLEND)` | **`GL_TRUE`** | `GL_FALSE` (index 0 is disabled) |
+| `glIsEnabledi(GL_BLEND, 0)` | `GL_FALSE` | `GL_FALSE` |
+
+Here it reports "some index is on". Either way — spec answer or this driver's —
+a withdrawal reading it restores the wrong state whenever another attachment
+holds an enable, precisely the situation a withdrawal happens in. The backend
+keeps a mirror instead, and every query in the GL test reads the **indexed**
+form.
+
+The mirror's one gap is stated at its declaration rather than papered over: a
+raw `GL_BLEND` flip that bypasses the class stales it. `Init()` is routed
+through `SetBlendState` for exactly this reason; `GLStateGuard`'s restore is
+not, and that guard already documents that it neither captures nor restores
+per-attachment blend state. The exposure is bounded because every withdrawal in
+the engine sits beside a global `SetBlendState` that refreshes the mirror.
+
+The general point: **a facade that mirrors driver state has to own every write
+to it, and "just ask the driver" is only an escape when the driver's query
+answers the question you are actually asking.** This one doesn't, and nothing
+but running it says so — the first version of this fix queried GL, and the GL
+test below is what caught it.
+
+**The price is the #823 archetype pointing the other way**, and it is the part
+to be careful with. An opinion now outlives the pass that stated it, so
+"restore" can no longer be spelled by passing `false` — that is a standing
+disable, and on attachment 0 it would kill blending for the rest of the
+process. `ResetBlendStateForAttachment` is the withdrawal, and every pass that
+states an opinion has to call it: `OITResolveRenderPass`,
+`DecalRenderPass` (both paths) and `ParticleRenderPass` (both paths) were all
+restoring only *some* of the attachments they had touched, because under the OR
+the rest were harmless.
+
+Pinned on both backends, and the two tests ask the question differently
+because the state under test is not the same object:
+
+- `VulkanDrawPath.PerAttachmentBlendOpinionOutranksTheGlobalEnable` drives all
+  three states through **one recording** — the same reason the colour-mask test
+  does: the state is process-scoped, so a fresh frame per case would reset the
+  thing under test. It reads the composed result out of rendered pixels
+  (clear red, draw green with a `One/One` func: blended reads yellow, unblended
+  reads green), because on Vulkan the recorded array has to survive a lowering.
+  Each phase is the next one's control, and the two attachments that never carry
+  an opinion are what prove blending was live at all.
+- `GLAttachmentBlendOpinion.OpinionOutranksTheGlobalEnableAndWithdrawalRestoresIt`
+  asks the GL state machine directly with `glIsEnabledi`, because on GL the
+  driver's per-buffer enable **is** the state under test — there is no recorded
+  array to lower, and a pixel probe would only re-test blending. It is also the
+  test that caught the `glIsEnabled` trap above.
 
 Pinned by `VulkanDrawPath.GlobalColorMaskResetsPerAttachmentDivergence`,
 which drives three render targets through **one recording** — because the leak

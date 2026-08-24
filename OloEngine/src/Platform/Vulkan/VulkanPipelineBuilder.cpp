@@ -52,6 +52,29 @@ namespace OloEngine
             }
         }
 
+        // Does attachment `i` blend? ONE function, called by both the baked
+        // (GetOrCreateGraphics) and the dynamic (FlushDynamicState) route, so
+        // the two lowerings cannot drift apart — they were previously two
+        // copies of the same expression, kept in step only by a comment.
+        //
+        // A per-attachment opinion outranks the global `Blend` in BOTH
+        // directions; only Inherit falls through to it. The rule, and why each
+        // arm is load-bearing, is at the AttachmentBlend declaration in
+        // VulkanRendererAPI.h (issues #823 and #896).
+        [[nodiscard]] bool ResolveBlendEnable(const VulkanRecordedPipelineState& state, const u32 attachment)
+        {
+            switch (state.AttachmentBlend[attachment])
+            {
+                case VulkanRecordedPipelineState::AttachmentBlendOpinion::ForceOn:
+                    return true;
+                case VulkanRecordedPipelineState::AttachmentBlendOpinion::ForceOff:
+                    return false;
+                case VulkanRecordedPipelineState::AttachmentBlendOpinion::Inherit:
+                    break;
+            }
+            return state.Blend;
+        }
+
         // --- RHI → Vk state-enum lowering ------------------------------------
         [[nodiscard]] VkCompareOp ToVk(RHI::CompareOp op)
         {
@@ -494,8 +517,8 @@ namespace OloEngine
             }
             for (u32 i = 0; i < safeTargets.ColorCount; ++i)
             {
-                blendHash = HashCombine(blendHash, state.AttachmentBlend[i] ? 1u : 0u);
-                blendHash = HashCombine(blendHash, state.AttachmentBlendFuncSet[i] ? 1u : 0u);
+                blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlend[i]));
+                blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendFunc[i]));
                 blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendSrc[i]));
                 blendHash = HashCombine(blendHash, static_cast<u64>(state.AttachmentBlendDst[i]));
                 blendHash = HashCombine(blendHash, state.AttachmentColorMask[i]);
@@ -627,19 +650,18 @@ namespace OloEngine
                 // must produce identical blend behaviour for one recorded
                 // state, and every field read here is in BakedBlendHash.
                 // ENABLE and FUNC divert independently (GL parity, see the
-                // AttachmentBlendFuncSet comment): glEnablei alone keeps the
+                // AttachmentBlendFunc comment): glEnablei alone keeps the
                 // GLOBAL blend func; only glBlendFunci diverts the factors.
-                const bool useAttachmentFunc = state.AttachmentBlendFuncSet[i];
+                const bool useAttachmentFunc =
+                    state.AttachmentBlendFunc[i] == VulkanRecordedPipelineState::AttachmentBlendFuncOpinion::Diverted;
                 // Integer attachments cannot blend — see the identical mask
                 // in FlushDynamicState (the two routes must agree).
-                // The OR is deliberate and is NOT the colour-mask rule below:
-                // a per-attachment enable is an opt-in LAYERED ON TOP of the
-                // global flag, which is what lets DecalRenderPass blend RT2
-                // additively for an Emissive decal whose PODRenderState carries
-                // blendEnabled=false. Pinned by the Emissive arm of
-                // VulkanPassSuite.DecalGBufferModeMatrixMasksItsTargetRenderTargets.
+                // A per-attachment OPINION outranks the global flag in both
+                // directions and only Inherit falls through to it — NOT an OR.
+                // See the rule at the AttachmentBlend declaration; both arms
+                // are load-bearing and each was a bug once (#823 / #896).
                 attachment.blendEnable = (!IsIntegerFormat(safeTargets.ColorFormats[i]) &&
-                                          (state.AttachmentBlend[i] || state.Blend))
+                                          ResolveBlendEnable(state, i))
                                              ? VK_TRUE
                                              : VK_FALSE;
                 attachment.srcColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB);
@@ -848,11 +870,12 @@ namespace OloEngine
             {
                 // Per-attachment state where the pass set it, the global
                 // recorded state otherwise. ENABLE and FUNC divert
-                // independently (GL parity, see the AttachmentBlendFuncSet
+                // independently (GL parity, see the AttachmentBlendFunc
                 // comment): glEnablei alone keeps the GLOBAL blend func; only
                 // glBlendFunci diverts the factors — AttachmentBlendSrc/Dst
-                // are meaningful only when AttachmentBlendFuncSet[i] is true.
-                const bool useAttachmentFunc = state.AttachmentBlendFuncSet[i];
+                // are meaningful only where AttachmentBlendFunc[i] is Diverted.
+                const bool useAttachmentFunc =
+                    state.AttachmentBlendFunc[i] == VulkanRecordedPipelineState::AttachmentBlendFuncOpinion::Diverted;
                 // An INTEGER attachment can never blend: R32_SINT (the
                 // engine's entity-ID render target) carries no
                 // COLOR_ATTACHMENT_BLEND format feature, and enabling blend
@@ -863,10 +886,11 @@ namespace OloEngine
                 // forward/G-buffer family — tripped this on the first live
                 // frame. Masking it here keeps GL's "just ignore it"
                 // behaviour and costs the caller nothing.
-                // Per-attachment enable ORs on top of the global flag — see the
-                // identical expression on the baked route in GetOrCreateGraphics.
+                // A per-attachment enable OPINION outranks the global flag —
+                // see the identical expression on the baked route in
+                // GetOrCreateGraphics, and the rule at the declaration.
                 const bool blendableFormat = !IsIntegerFormat(targets.ColorFormats[i]);
-                const bool enabled = blendableFormat && (state.AttachmentBlend[i] || state.Blend);
+                const bool enabled = blendableFormat && ResolveBlendEnable(state, i);
                 enables[i] = enabled ? VK_TRUE : VK_FALSE;
                 equations[i] = {
                     .srcColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB),

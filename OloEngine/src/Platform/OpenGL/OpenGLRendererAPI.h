@@ -116,6 +116,7 @@ namespace OloEngine
                               u32 layer, RHI::Access access, RHI::Format format) override;
 
         void SetBlendStateForAttachment(u32 attachment, bool enabled) override;
+        void ResetBlendStateForAttachment(u32 attachment) override;
         void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) override;
         void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
                               u32 width, u32 height);
@@ -325,6 +326,58 @@ namespace OloEngine
         // be called once the clear has been issued).
         bool LiftAttachmentColorMasksForClear();
         void RestoreAttachmentColorMasks();
+
+        // THE BLEND ENABLE IS A TRI-STATE PER DRAW BUFFER, and this pair is how
+        // GL holds it. Raw GL cannot: glEnablei/glDisablei is the only way to
+        // speak to a draw buffer, there is no "unset", and glEnable(GL_BLEND)
+        // is defined as glEnablei for every buffer -- so a per-attachment
+        // opinion would evaporate at the next global call, silently and at a
+        // distance.
+        //
+        // The engine's contract is that it does NOT: an attachment a pass
+        // turned on or off keeps that until ResetBlendStateForAttachment
+        // withdraws it (issue #896). So SetBlendState issues the global call
+        // and then re-asserts every standing opinion on top, the same
+        // save/restore shape m_AttachmentColorMasks already uses for clears.
+        // m_AnyAttachmentBlendOpinion keeps that loop off the common path,
+        // where no pass is mid-flight and nothing has an opinion at all.
+        //
+        // This is the opposite composition to m_AttachmentColorMasks, on
+        // purpose: a colour mask has no "unset" in the engine either, and its
+        // global setter genuinely overwrites (issue #823). Do not make them
+        // consistent -- SetColorMask's callers depend on the overwrite, and
+        // these ones depend on it not happening.
+        enum class AttachmentBlendOpinion : u8
+        {
+            None = 0,
+            Disabled,
+            Enabled,
+        };
+        std::array<AttachmentBlendOpinion, kMaxTrackedDrawBuffers> m_AttachmentBlend{};
+        bool m_AnyAttachmentBlendOpinion = false;
+
+        // The global GL_BLEND flag as this class last set it. A withdrawal has
+        // to put the draw buffer back on the global value, and there is no way
+        // to ASK GL for it: `glIsEnabled(GL_BLEND)` is documented as the index-0
+        // value but does not behave as one here — measured on NVIDIA
+        // (RTX 4090, driver 98.352.0), after glDisable(GL_BLEND) +
+        // glEnablei(GL_BLEND, 1) it returns TRUE while glIsEnabledi(GL_BLEND, 0)
+        // returns FALSE. So it reports "some index is on", not the global, and
+        // is useless as the withdrawal's input. Hence the mirror.
+        //
+        // Its one gap, stated rather than papered over: a raw GL_BLEND flip
+        // that bypasses this class stales it. Init() below is handled (it goes
+        // through SetBlendState); GLStateGuard's restore
+        // (OpenGLStateGuard.cpp) is not, and that guard already documents that
+        // it neither captures nor restores per-attachment blend state. The
+        // exposure is bounded because every withdrawal in the engine sits
+        // beside a global SetBlendState that refreshes this — see the pass
+        // restore blocks and RGCommandContext::ResetGraphicsStateToDefault.
+        bool m_BlendEnabled = false;
+
+        // Re-issue every standing per-attachment opinion. Called after the
+        // global glEnable/glDisable(GL_BLEND) has flattened them.
+        void ReassertAttachmentBlendOpinions();
 
         bool m_DepthTestEnabled = false;
         bool m_DepthMaskEnabled = true;

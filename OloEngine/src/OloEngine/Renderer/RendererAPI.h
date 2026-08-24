@@ -256,8 +256,21 @@ namespace OloEngine
         virtual void SetColorMask(bool red, bool green, bool blue, bool alpha) = 0;
         virtual void SetColorMaskForAttachment(u32 attachment, bool red, bool green, bool blue, bool alpha) = 0;
 
-        // Per-attachment blend control (needed for mixed integer/float framebuffer attachments)
+        // Per-attachment blend control (needed for mixed integer/float framebuffer attachments).
+        //
+        // This is a THREE-state knob, not a bool: an attachment either carries a
+        // pass's opinion (enabled / disabled) or carries none and follows the
+        // global SetBlendState. SetBlendStateForAttachment states an opinion;
+        // ResetBlendStateForAttachment withdraws it. A pass that turned an
+        // attachment on or off MUST reset it before returning, exactly as it
+        // restores a colour mask -- an opinion left behind outlives the pass
+        // (issue #896, and the #823 archetype it comes from).
         virtual void SetBlendStateForAttachment(u32 attachment, bool enabled) = 0;
+        // Withdraw the per-attachment opinion: attachment `attachment` goes back
+        // to following the global blend enable. On GL that is glEnablei /
+        // glDisablei re-issued from the tracked global flag (GL has no "unset"
+        // for a draw buffer); on Vulkan it clears the recorded override.
+        virtual void ResetBlendStateForAttachment(u32 attachment) = 0;
         // Per-attachment blend function (needed for weighted-blended OIT — accum/revealage differ)
         virtual void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) = 0;
 

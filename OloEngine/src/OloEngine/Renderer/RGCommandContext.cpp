@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 
+#include "OloEngine/Renderer/Commands/RenderCommand.h" // MAX_MASKED_COLOR_ATTACHMENTS
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
@@ -32,6 +33,15 @@ namespace OloEngine
     {
         // Keep in sync with the engine's default render-state contract.
         RenderCommand::SetBlendState(false);
+        // ...INCLUDING the per-attachment blend opinions, which SetBlendState
+        // above does NOT flatten (issue #896 — an opinion outranks the global
+        // flag until it is withdrawn). Before the tri-state this line was
+        // enough on GL, where glDisable(GL_BLEND) wiped every glEnablei, so a
+        // pass that forgot to restore one was silently healed here. It is not
+        // any more, which is precisely why this is the place to say "no pass
+        // has an opinion" out loud.
+        for (u32 attachment = 0; attachment < MAX_MASKED_COLOR_ATTACHMENTS; ++attachment)
+            RenderCommand::ResetBlendStateForAttachment(attachment);
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);
         RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
