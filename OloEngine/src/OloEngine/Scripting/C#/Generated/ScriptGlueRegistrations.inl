@@ -354,6 +354,18 @@ OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_SetIntensity);
 OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_GetCastShadows);
 OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_SetCastShadows);
 
+// DiscoverableComponent
+OLO_ADD_INTERNAL_CALL(DiscoverableComponent_GetDisplayName);
+OLO_ADD_INTERNAL_CALL(DiscoverableComponent_SetDisplayName);
+
+// DiscoveryObjectiveMarkerComponent
+OLO_ADD_INTERNAL_CALL(DiscoveryObjectiveMarkerComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(DiscoveryObjectiveMarkerComponent_SetEnabled);
+
+// DiscoveryReadoutComponent
+OLO_ADD_INTERNAL_CALL(DiscoveryReadoutComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(DiscoveryReadoutComponent_SetEnabled);
+
 // FluidComponent
 OLO_ADD_INTERNAL_CALL(FluidComponent_GetEnabled);
 OLO_ADD_INTERNAL_CALL(FluidComponent_SetEnabled);

@@ -121,6 +121,7 @@
 #include "OloEngine/AI/Flocking/FlockingSystem.h"
 #include "OloEngine/AI/Perception/PerceptionSystem.h"
 #include "OloEngine/Gameplay/Destruction/DestructibleSystem.h"
+#include "OloEngine/Gameplay/Discovery/DiscoverySystem.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
@@ -3394,6 +3395,15 @@ namespace OloEngine
                             { s.UpdateInventory(ts); })
                 .Reads(kLocalTransforms);
 
+            // Discovery loop (issue #881): reads fenced physics contact pairs
+            // (a post-fence query, same reasoning as Perception's spatial
+            // index) and post-physics landmark/discoverer transforms for the
+            // nearest-undiscovered marker. Writes only its own
+            // DiscoveredSetComponent / UI components, never LocalTransforms.
+            sched.AddSystem("Discovery", [](Scene& s, Timestep ts)
+                            { s.UpdateDiscovery(ts); })
+                .Reads(kLocalTransforms);
+
             // Destructibles (issue #459): shatter breakables into debris and age
             // out / budget-evict existing debris. Reads source transforms (hence
             // kLocalTransforms — the read-after-write edge from PhysicsFence pins it
@@ -3951,6 +3961,12 @@ namespace OloEngine
     {
         // Update inventory system (pickups, despawn)
         InventorySystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateDiscovery(Timestep ts)
+    {
+        // Landing-trigger discovery loop + objective UI (issue #881).
+        DiscoverySystem::OnUpdate(this, ts.GetSeconds());
     }
 
     void Scene::UpdateDestructibles(Timestep ts)

@@ -988,6 +988,19 @@ Entities:
           BaseColor: [0.52, 0.5, 0.44]
           Roughness: 0.8
           Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
+    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
+    # this entity's CORNER origin — see the Translation comment above) and
+    # tall enough to span from below the waterline to above the peak, so a
+    # boat registers a landing on approach rather than needing to beach exactly.
+    DiscoverableComponent:
+      DisplayName: Ridgeback
+    Rigidbody3DComponent:
+      BodyType: 0
+      IsTrigger: true
+    BoxCollider3DComponent:
+      HalfExtents: [150, 80, 150]
+      Offset: [210, 24, 210]
     FoliageComponent:
       Enabled: true
       Layers:
@@ -1199,6 +1212,19 @@ Entities:
           BaseColor: [0.72, 0.6, 0.46]
           Roughness: 0.82
           Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
+    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
+    # this entity's CORNER origin — see the Translation comment above) and
+    # tall enough to span from below the waterline to above the peak, so a
+    # boat registers a landing on approach rather than needing to beach exactly.
+    DiscoverableComponent:
+      DisplayName: Mesa
+    Rigidbody3DComponent:
+      BodyType: 0
+      IsTrigger: true
+    BoxCollider3DComponent:
+      HalfExtents: [130, 80, 130]
+      Offset: [180, 24, 180]
     FoliageComponent:
       Enabled: true
       Layers:
@@ -1410,6 +1436,19 @@ Entities:
           BaseColor: [0.3, 0.44, 0.24]
           Roughness: 0.84
           Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
+    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
+    # this entity's CORNER origin — see the Translation comment above) and
+    # tall enough to span from below the waterline to above the peak, so a
+    # boat registers a landing on approach rather than needing to beach exactly.
+    DiscoverableComponent:
+      DisplayName: Atoll
+    Rigidbody3DComponent:
+      BodyType: 0
+      IsTrigger: true
+    BoxCollider3DComponent:
+      HalfExtents: [140, 80, 140]
+      Offset: [200, 24, 200]
     FoliageComponent:
       Enabled: true
       Layers:
@@ -1621,6 +1660,19 @@ Entities:
           BaseColor: [0.68, 0.67, 0.62]
           Roughness: 0.78
           Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
+    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
+    # this entity's CORNER origin — see the Translation comment above) and
+    # tall enough to span from below the waterline to above the peak, so a
+    # boat registers a landing on approach rather than needing to beach exactly.
+    DiscoverableComponent:
+      DisplayName: Stacks
+    Rigidbody3DComponent:
+      BodyType: 0
+      IsTrigger: true
+    BoxCollider3DComponent:
+      HalfExtents: [110, 80, 110]
+      Offset: [150, 24, 150]
     FoliageComponent:
       Enabled: true
       Layers:
@@ -1782,6 +1834,19 @@ Entities:
           BaseColor: [0.3, 0.44, 0.24]
           Roughness: 0.84
           Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
+    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
+    # this entity's CORNER origin — see the Translation comment above) and
+    # tall enough to span from below the waterline to above the peak, so a
+    # boat registers a landing on approach rather than needing to beach exactly.
+    DiscoverableComponent:
+      DisplayName: Dunes
+    Rigidbody3DComponent:
+      BodyType: 0
+      IsTrigger: true
+    BoxCollider3DComponent:
+      HalfExtents: [135, 80, 135]
+      Offset: [190, 24, 190]
     FoliageComponent:
       Enabled: true
       Layers:
@@ -1993,6 +2058,19 @@ Entities:
           BaseColor: [0.52, 0.5, 0.44]
           Roughness: 0.8
           Metallic: 0
+    # Discovery loop (issue #881): landing trigger + landmark tag. The box is
+    # centred on the tile's geometric centre (WorldSizeX/2, WorldSizeZ/2 from
+    # this entity's CORNER origin — see the Translation comment above) and
+    # tall enough to span from below the waterline to above the peak, so a
+    # boat registers a landing on approach rather than needing to beach exactly.
+    DiscoverableComponent:
+      DisplayName: Sisters
+    Rigidbody3DComponent:
+      BodyType: 0
+      IsTrigger: true
+    BoxCollider3DComponent:
+      HalfExtents: [95, 80, 95]
+      Offset: [130, 24, 130]
     FoliageComponent:
       Enabled: true
       Layers:
@@ -2221,6 +2299,11 @@ Entities:
       SailSetInput: 1
     LuaScriptComponent:
       ScriptFile: Scripts/LuaScripts/DriftBoatController.lua
+    # Discovery loop (issue #881): the boat is the discoverer. DiscoverySystem
+    # appends an island's UUID here the first time an active contact pairs
+    # the boat with a DiscoverableComponent island's trigger volume.
+    DiscoveredSetComponent:
+      Discovered: []
     RelationshipComponent:
       ParentHandle: 0
       Children:
@@ -2286,3 +2369,68 @@ Entities:
     RelationshipComponent:
       ParentHandle: 879000000000021
       Children: []
+
+  # ── Discovery loop HUD (issue #881) ─────────────────────────────────────
+  # "Discovered N of M" readout, top-left, always on screen.
+  - Entity: 879000000000030
+    TagComponent:
+      Tag: Discovery Readout
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UICanvasComponent:
+      RenderMode: 0
+      ScaleMode: 0
+      SortOrder: 10
+      ReferenceResolution: [1920, 1080]
+    UIRectTransformComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [0, 1]
+      AnchoredPosition: [24, -24]
+      SizeDelta: [420, 40]
+      Pivot: [0, 1]
+      Rotation: 0
+      Scale: [1, 1]
+    UITextComponent:
+      Text: "Discovered 0 of 0"
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      FontSize: 26
+      Color: [1, 1, 1, 1]
+      Alignment: 0
+      Kerning: 0
+      LineSpacing: 0
+    DiscoveryReadoutComponent:
+      Enabled: true
+
+  # World-anchored objective marker: DiscoverySystem retargets its
+  # UIWorldAnchorComponent at the nearest undiscovered island every tick, so
+  # it is legible from open water without a compass or minimap. Initial
+  # TargetEntity is Ridgeback, overwritten before the first frame renders.
+  - Entity: 879000000000031
+    TagComponent:
+      Tag: Discovery Marker
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UICanvasComponent:
+      RenderMode: 0
+      ScaleMode: 0
+      SortOrder: 11
+      ReferenceResolution: [1920, 1080]
+    UIRectTransformComponent:
+      AnchorMin: [0.5, 0.5]
+      AnchorMax: [0.5, 0.5]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [18, 18]
+      Pivot: [0.5, 0.5]
+      Rotation: 0
+      Scale: [1, 1]
+    UIPanelComponent:
+      BackgroundColor: [1, 0.85, 0.2, 1]
+    UIWorldAnchorComponent:
+      TargetEntity: 879000000000005
+      WorldOffset: [0, 40, 0]
+    DiscoveryObjectiveMarkerComponent:
+      Enabled: true

@@ -1051,6 +1051,33 @@ namespace OloEngine
 		}
 	}
 
+	public partial class DiscoverableComponent : Component
+	{
+		public string DisplayName
+		{
+			get => InternalCalls.DiscoverableComponent_GetDisplayName(Entity.ID);
+			set => InternalCalls.DiscoverableComponent_SetDisplayName(Entity.ID, value);
+		}
+	}
+
+	public partial class DiscoveryObjectiveMarkerComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.DiscoveryObjectiveMarkerComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.DiscoveryObjectiveMarkerComponent_SetEnabled(Entity.ID, value);
+		}
+	}
+
+	public partial class DiscoveryReadoutComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.DiscoveryReadoutComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.DiscoveryReadoutComponent_SetEnabled(Entity.ID, value);
+		}
+	}
+
 	public partial class FluidComponent : Component
 	{
 		public bool Enabled

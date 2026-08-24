@@ -1165,6 +1165,18 @@ namespace OloEngine
             ranged(c.m_SailSetInput, 0.0f, 1.0f, 1.0f);
         }
     }
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, DiscoverableComponent& c)
+    {
+        ar << c.m_DisplayName;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, DiscoveredSetComponent& c)
+    {
+        // vector<UUID> round-trips directly through FArchive, same as
+        // RelationshipComponent::m_Children.
+        ar << c.m_Discovered;
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, AircraftComponent& c)
     {
         ar << c.m_Enabled;
@@ -1854,6 +1866,16 @@ namespace OloEngine
         ar << c.m_Text << c.m_FontSize << c.m_Color;
         ar << c.m_Alignment;
         ar << c.m_Kerning << c.m_LineSpacing;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, DiscoveryObjectiveMarkerComponent& c)
+    {
+        ar << c.m_Enabled;
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, DiscoveryReadoutComponent& c)
+    {
+        ar << c.m_Enabled;
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, UIButtonComponent& c)
@@ -4455,6 +4477,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(VehicleComponent);
         REGISTER_SAVE_COMPONENT(BoatComponent);
         REGISTER_SAVE_COMPONENT(SailComponent);
+        REGISTER_SAVE_COMPONENT(DiscoverableComponent);
+        REGISTER_SAVE_COMPONENT(DiscoveredSetComponent);
         REGISTER_SAVE_COMPONENT(AircraftComponent);
         REGISTER_SAVE_COMPONENT(RagdollComponent);
         REGISTER_SAVE_COMPONENT(ClothComponent);
@@ -4483,6 +4507,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(UIImageComponent);
         REGISTER_SAVE_COMPONENT(UIPanelComponent);
         REGISTER_SAVE_COMPONENT(UITextComponent);
+        REGISTER_SAVE_COMPONENT(DiscoveryObjectiveMarkerComponent);
+        REGISTER_SAVE_COMPONENT(DiscoveryReadoutComponent);
         REGISTER_SAVE_COMPONENT(UIButtonComponent);
         REGISTER_SAVE_COMPONENT(UISliderComponent);
         REGISTER_SAVE_COMPONENT(UICheckboxComponent);

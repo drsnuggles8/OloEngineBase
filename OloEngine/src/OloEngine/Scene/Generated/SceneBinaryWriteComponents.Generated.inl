@@ -236,6 +236,36 @@ if (entity.HasComponent<DirectionalLightComponent>())
     SceneBinIO::Write(out, comp.m_CascadeDebugVisualization);
 }
 
+if (entity.HasComponent<DiscoverableComponent>())
+{
+    SceneBinIO::WriteU32(out, 858810945u); // DiscoverableComponent
+    auto const& comp = entity.GetComponent<DiscoverableComponent>();
+    SceneBinIO::Write(out, comp.m_DisplayName);
+}
+
+if (entity.HasComponent<DiscoveredSetComponent>())
+{
+    SceneBinIO::WriteU32(out, 4028072432u); // DiscoveredSetComponent
+    auto const& comp = entity.GetComponent<DiscoveredSetComponent>();
+    SceneBinIO::WriteU32(out, static_cast<u32>(comp.m_Discovered.size()));
+    for (auto const& be0 : comp.m_Discovered)
+        SceneBinIO::Write(out, be0);
+}
+
+if (entity.HasComponent<DiscoveryObjectiveMarkerComponent>())
+{
+    SceneBinIO::WriteU32(out, 4068583233u); // DiscoveryObjectiveMarkerComponent
+    auto const& comp = entity.GetComponent<DiscoveryObjectiveMarkerComponent>();
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
+if (entity.HasComponent<DiscoveryReadoutComponent>())
+{
+    SceneBinIO::WriteU32(out, 2125911754u); // DiscoveryReadoutComponent
+    auto const& comp = entity.GetComponent<DiscoveryReadoutComponent>();
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
 if (entity.HasComponent<EnvironmentMapComponent>())
 {
     SceneBinIO::WriteU32(out, 2313188451u); // EnvironmentMapComponent

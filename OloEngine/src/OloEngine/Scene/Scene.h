@@ -1069,6 +1069,7 @@ namespace OloEngine
         void UpdateBoidSteering(Timestep ts);  // neighbour search + steering forces (worker-safe)
         void UpdateBoidMovement(Timestep ts);  // integrate velocity + move entities (game thread)
         void UpdateInventory(Timestep ts);     // pickups / despawn
+        void UpdateDiscovery(Timestep ts);     // landing-trigger discovery loop + objective UI (issue #881)
         void UpdateDestructibles(Timestep ts); // shatter breakables + age/cleanup debris (issue #459)
         void UpdateQuest(Timestep ts);         // quest timers / conditions
         void UpdateProgression(Timestep ts);   // XP/level resolution + point grants (issue #635)

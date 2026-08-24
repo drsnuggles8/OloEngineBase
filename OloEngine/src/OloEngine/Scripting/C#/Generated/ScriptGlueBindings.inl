@@ -3525,6 +3525,80 @@ static void DirectionalLightComponent_SetCastShadows(UUID entityID, bool value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// DiscoverableComponent                                                          //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static MonoString* DiscoverableComponent_GetDisplayName(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DiscoverableComponent>();
+    return ScriptEngine::CreateString(comp.m_DisplayName.c_str());
+}
+
+static void DiscoverableComponent_SetDisplayName(UUID entityID, MonoString* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!value)
+        return;
+    auto& comp = entity.GetComponent<DiscoverableComponent>();
+    comp.m_DisplayName = Utils::MonoStringToString(value);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// DiscoveryObjectiveMarkerComponent                                              //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool DiscoveryObjectiveMarkerComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DiscoveryObjectiveMarkerComponent>();
+    return comp.m_Enabled;
+}
+
+static void DiscoveryObjectiveMarkerComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DiscoveryObjectiveMarkerComponent>();
+    comp.m_Enabled = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// DiscoveryReadoutComponent                                                      //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool DiscoveryReadoutComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DiscoveryReadoutComponent>();
+    return comp.m_Enabled;
+}
+
+static void DiscoveryReadoutComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DiscoveryReadoutComponent>();
+    comp.m_Enabled = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // FluidComponent                                                                 //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

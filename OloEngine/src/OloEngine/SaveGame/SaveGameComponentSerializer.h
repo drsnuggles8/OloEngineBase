@@ -40,6 +40,8 @@ namespace OloEngine
     struct VehicleComponent;
     struct BoatComponent;
     struct SailComponent;
+    struct DiscoverableComponent;
+    struct DiscoveredSetComponent;
     struct AircraftComponent;
     struct RagdollComponent;
     struct ClothComponent;
@@ -68,6 +70,8 @@ namespace OloEngine
     struct UIImageComponent;
     struct UIPanelComponent;
     struct UITextComponent;
+    struct DiscoveryObjectiveMarkerComponent;
+    struct DiscoveryReadoutComponent;
     struct UIButtonComponent;
     struct UISliderComponent;
     struct UICheckboxComponent;
@@ -172,6 +176,8 @@ namespace OloEngine
         static void Serialize(FArchive& ar, VehicleComponent& c);
         static void Serialize(FArchive& ar, BoatComponent& c);
         static void Serialize(FArchive& ar, SailComponent& c);
+        static void Serialize(FArchive& ar, DiscoverableComponent& c);
+        static void Serialize(FArchive& ar, DiscoveredSetComponent& c);
         static void Serialize(FArchive& ar, AircraftComponent& c);
         static void Serialize(FArchive& ar, RagdollComponent& c);
         static void Serialize(FArchive& ar, ClothComponent& c);
@@ -200,6 +206,8 @@ namespace OloEngine
         static void Serialize(FArchive& ar, UIImageComponent& c);
         static void Serialize(FArchive& ar, UIPanelComponent& c);
         static void Serialize(FArchive& ar, UITextComponent& c);
+        static void Serialize(FArchive& ar, DiscoveryObjectiveMarkerComponent& c);
+        static void Serialize(FArchive& ar, DiscoveryReadoutComponent& c);
         static void Serialize(FArchive& ar, UIButtonComponent& c);
         static void Serialize(FArchive& ar, UISliderComponent& c);
         static void Serialize(FArchive& ar, UICheckboxComponent& c);

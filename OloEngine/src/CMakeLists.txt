@@ -1484,6 +1484,9 @@
 		"OloEngine/Gameplay/Inventory/InventorySystem.h"
 		"OloEngine/Gameplay/Inventory/InventorySystem.cpp"
 
+		"OloEngine/Gameplay/Discovery/DiscoverySystem.h"
+		"OloEngine/Gameplay/Discovery/DiscoverySystem.cpp"
+
 		"OloEngine/Gameplay/Destruction/DestructibleSystem.h"
 		"OloEngine/Gameplay/Destruction/DestructibleSystem.cpp"
 
