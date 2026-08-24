@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
+#include <vector>
 
 namespace OloEngine
 {
@@ -297,17 +299,23 @@ namespace OloEngine
         // so the generated terrain stays reproducible. Off by default.
         if (params.ErosionIterations > 0)
         {
-            ApplyErosion(outHeights, resolution, static_cast<u32>(params.ErosionIterations), params.Erosion, params.Seed);
-
-            // ...and erosion runs AFTER the mask, so a droplet that dies on the
-            // border deposits its sediment on exactly the texels the mask just
-            // drove to the floor — undoing the one thing the mask guarantees, on
-            // the one edge nothing else looks at. Re-apply the mask factor where
-            // it is zero, which is the border ring and the corners outside it.
+            // Erosion runs AFTER the mask, so a droplet that dies on the border
+            // deposits its sediment on exactly the texels the mask just drove to
+            // the floor — undoing the one thing the mask guarantees, on the one
+            // edge nothing else looks at. Snapshot those texels first, and cap
+            // them against the snapshot afterwards.
             //
-            // Only where it is ZERO. The ramp and the interior are deliberately
-            // left as erosion left them: reshaping a slope is what erosion is
-            // for, and re-multiplying the ramp would scale it twice.
+            // A CAP, not a second multiply. Re-applying the factor would scale an
+            // untouched border texel by (1 - strength) TWICE, which is invisible
+            // at strength 1 (zero either way — the only value any shipped scene
+            // uses) and a systematic error at every fractional strength in
+            // between. Capping also leaves erosion free to carve the border
+            // LOWER, which is a legitimate thing for it to do.
+            //
+            // Only where the mask is zero. The ramp and the interior are
+            // deliberately left as erosion left them: reshaping a slope is what
+            // erosion is for.
+            std::vector<std::pair<sizet, f32>> maskedFloor;
             if (applyIslandMask)
             {
                 for (u32 z = 0; z < resolution; ++z)
@@ -317,10 +325,15 @@ namespace OloEngine
                         if (islandMaskAt(x, z) > 0.0f)
                             continue;
                         const sizet idx = static_cast<sizet>(z) * resolution + x;
-                        outHeights[idx] *= 1.0f - falloffStrength;
+                        maskedFloor.emplace_back(idx, outHeights[idx]);
                     }
                 }
             }
+
+            ApplyErosion(outHeights, resolution, static_cast<u32>(params.ErosionIterations), params.Erosion, params.Seed);
+
+            for (const auto& [idx, floorHeight] : maskedFloor)
+                outHeights[idx] = std::min(outHeights[idx], floorHeight);
         }
     }
 

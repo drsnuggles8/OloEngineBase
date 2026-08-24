@@ -488,6 +488,14 @@ namespace OloEngine::Tests
         EditorCamera camera;
         ASSERT_NO_FATAL_FAILURE(Capture(topDown, pixels, camera));
 
+        // Sampled at the TILE BASE, not at y = 0: that is where the masked border
+        // surface actually is, and the TopDown camera is near-vertical rather than
+        // vertical. A 24 m height error at a ~207 m offset shifts the projected
+        // pixel radially by ~207 * 24 / 430 = 11 m, which is well past the 3 m
+        // inset below — the sample would land outside the tile, where the sea is
+        // open whether or not the falloff works, and the contract would pass
+        // vacuously.
+        const f32 sampleY = kBaseY;
         const f32 half = kTileSize * 0.5f;
         // Pulled a hair inside the tile so a sample can never land on the very
         // first texel column and be argued about; the mask is zero well before
@@ -499,14 +507,14 @@ namespace OloEngine::Tests
             glm::vec3 World;
         };
         const std::array<BorderPoint, 8> border = { {
-            { "+X edge", { kIslandCentreX + edge, 0.0f, kIslandCentreZ } },
-            { "-X edge", { kIslandCentreX - edge, 0.0f, kIslandCentreZ } },
-            { "+Z edge", { kIslandCentreX, 0.0f, kIslandCentreZ + edge } },
-            { "-Z edge", { kIslandCentreX, 0.0f, kIslandCentreZ - edge } },
-            { "+X+Z corner", { kIslandCentreX + edge, 0.0f, kIslandCentreZ + edge } },
-            { "+X-Z corner", { kIslandCentreX + edge, 0.0f, kIslandCentreZ - edge } },
-            { "-X+Z corner", { kIslandCentreX - edge, 0.0f, kIslandCentreZ + edge } },
-            { "-X-Z corner", { kIslandCentreX - edge, 0.0f, kIslandCentreZ - edge } },
+            { "+X edge", { kIslandCentreX + edge, sampleY, kIslandCentreZ } },
+            { "-X edge", { kIslandCentreX - edge, sampleY, kIslandCentreZ } },
+            { "+Z edge", { kIslandCentreX, sampleY, kIslandCentreZ + edge } },
+            { "-Z edge", { kIslandCentreX, sampleY, kIslandCentreZ - edge } },
+            { "+X+Z corner", { kIslandCentreX + edge, sampleY, kIslandCentreZ + edge } },
+            { "+X-Z corner", { kIslandCentreX + edge, sampleY, kIslandCentreZ - edge } },
+            { "-X+Z corner", { kIslandCentreX - edge, sampleY, kIslandCentreZ + edge } },
+            { "-X-Z corner", { kIslandCentreX - edge, sampleY, kIslandCentreZ - edge } },
         } };
 
         const glm::mat4 viewProjection = camera.GetViewProjection();

@@ -293,6 +293,46 @@ TEST(TerrainGeneratorTest, IslandFalloffSurvivesTheErosionPostPass)
     EXPECT_NE(heights, baseline) << "erosion made no difference, so this test proves nothing";
 }
 
+TEST(TerrainGeneratorTest, FractionalIslandFalloffIsNotAppliedTwiceByTheErosionPass)
+{
+    // At strength 1 the border ends at 0 whether the post-erosion step multiplies
+    // or caps, so the case above cannot tell the two apart. At any FRACTIONAL
+    // strength it can: a second multiply leaves an untouched border texel at
+    // raw * (1 - strength)^2 instead of raw * (1 - strength). Nothing in the
+    // shipped scenes uses a fractional strength, which is exactly why the mistake
+    // would have sat there — the field is editable from the editor, Lua and MCP.
+    constexpr f32 kStrength = 0.5f;
+    auto params = MakeParams(31415, 64);
+    params.Shaping.IslandFalloff = kStrength;
+    params.Shaping.IslandFalloffRadius = 0.28f;
+
+    std::vector<f32> withoutErosion;
+    TerrainGenerator::GenerateHeightField(withoutErosion, params);
+
+    params.ErosionIterations = 4;
+    std::vector<f32> withErosion;
+    TerrainGenerator::GenerateHeightField(withErosion, params);
+
+    // The border may only be carved DOWN by erosion, never scaled again.
+    const u32 resolution = params.Resolution;
+    const auto at = [&](const std::vector<f32>& h, u32 x, u32 z)
+    { return h[static_cast<sizet>(z) * resolution + x]; };
+    bool sawAnyBorderHeight = false;
+    for (u32 x = 0; x < resolution; ++x)
+    {
+        for (const u32 z : { 0u, resolution - 1u })
+        {
+            const f32 before = at(withoutErosion, x, z);
+            EXPECT_LE(at(withErosion, x, z), before + kEps)
+                << "border texel (" << x << ", " << z << ") rose above its masked height";
+            sawAnyBorderHeight = sawAnyBorderHeight || before > kEps;
+        }
+    }
+    // Anti-vacuity: at half strength the border is NOT zero, so "never rose" is a
+    // real constraint rather than a restatement of "it is pinned at the floor".
+    EXPECT_TRUE(sawAnyBorderHeight) << "the border is already at zero, so this asserts nothing";
+}
+
 TEST(TerrainGeneratorTest, IslandFalloffIsDeterministicAndComparesEqual)
 {
     auto params = MakeParams();

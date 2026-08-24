@@ -709,7 +709,14 @@ Entities:
       # Centred on the world origin, which since #880 is also the centre of the
       # island field: the six islands sit inside a ring of about 700 m and the
       # start line is at z = -250, so a 1.6 km tile covers every one of them with
-      # at least 100 m of open water outside the furthest coast.
+      # open water all round.
+      #
+      # The lane is NOT uniform. Sisters is the outlier: its tile reaches z = 790
+      # against the water bound at z = 800, and its north coast falls near z = 761,
+      # so there is about 40 m of sailable water behind it rather than the 150 m+
+      # every other island has. That is deliberate — Sisters is the long leg and
+      # you approach it from the south — but do not round it to the north, and do
+      # not move it any further out.
       #
       # 1.6 km is a deliberate ceiling, not a shrug — #878 names the floating-
       # origin risk on a "few km, not 50" sea, and every world-space GPU upload
