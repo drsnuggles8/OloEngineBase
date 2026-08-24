@@ -34,6 +34,7 @@
 #include <cmath>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -49,6 +50,46 @@ namespace OloEngine::Tests
         {
             return glm::vec2(static_cast<f32>(i) / static_cast<f32>(n),
                              SamplerDetail::ToUnitFloat(SamplerDetail::ReverseBits(i)));
+        }
+
+        // Strip `//` comments and collapse whitespace runs, so a source-text
+        // assertion is about the CODE rather than about one formatting of it.
+        // Both halves earn their place: without the comment strip, a comment
+        // that merely *describes* the old expression would trip the negative
+        // assertions below; without the whitespace collapse, a clang-format run
+        // could fail the test with a message claiming the math regressed.
+        [[nodiscard]] std::string NormalizeGlsl(std::string_view source)
+        {
+            std::string out;
+            out.reserve(source.size());
+
+            bool pendingSpace = false;
+            for (sizet i = 0; i < source.size(); ++i)
+            {
+                const char c = source[i];
+
+                if (c == '/' && i + 1 < source.size() && source[i + 1] == '/')
+                {
+                    while (i < source.size() && source[i] != '\n')
+                        ++i;
+                    pendingSpace = true;
+                    continue;
+                }
+
+                // Deliberately not std::isspace: the <cctype> overloads are
+                // locale-sensitive, and GLSL whitespace is exactly these four.
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
+                {
+                    pendingSpace = true;
+                    continue;
+                }
+
+                if (pendingSpace && !out.empty())
+                    out.push_back(' ');
+                pendingSpace = false;
+                out.push_back(c);
+            }
+            return out;
         }
 
         // Uniform-hemisphere Monte Carlo estimate of the directional albedo
@@ -215,8 +256,10 @@ namespace OloEngine::Tests
     // =========================================================================
     TEST(ReferenceBRDF, HeightCorrelatedVisibilityMatchesTheVndfLambda)
     {
-        const glm::vec3 n(0.0f, 0.0f, 1.0f);
-
+        // Both closed forms depend on the geometry only through the two
+        // cosines, so the sweep is over those directly rather than over
+        // vectors that would immediately be reduced to them.
+        //
         // NdotV and NdotL are floored at 0.02 rather than swept to 0: below
         // that the EPSILON clamp inside VisibilitySmithGGXCorrelated engages
         // and the closed forms legitimately part company. Reproducing that
@@ -233,14 +276,12 @@ namespace OloEngine::Tests
             for (u32 vi = 0; vi < 16; ++vi)
             {
                 const f32 nDotV = std::max((static_cast<f32>(vi) + 0.5f) / 16.0f, kCosineFloor);
-                const glm::vec3 v(std::sqrt(std::max(0.0f, 1.0f - nDotV * nDotV)), 0.0f, nDotV);
 
                 for (u32 li = 0; li < 16; ++li)
                 {
                     const f32 nDotL = std::max((static_cast<f32>(li) + 0.5f) / 16.0f, kCosineFloor);
-                    const glm::vec3 l(std::sqrt(std::max(0.0f, 1.0f - nDotL * nDotL)), 0.0f, nDotL);
 
-                    const f32 filament = VisibilitySmithGGXCorrelated(n, v, l, roughness);
+                    const f32 filament = VisibilitySmithGGXCorrelated(nDotV, nDotL, roughness);
 
                     const f32 lambdaV = GgxSmithLambda(nDotV, alpha);
                     const f32 lambdaL = GgxSmithLambda(nDotL, alpha);
@@ -320,7 +361,7 @@ namespace OloEngine::Tests
                 const glm::vec3 h = glm::normalize(v + l);
                 // F == 1: this is the white furnace, so every microfacet
                 // reflects everything and the integral is pure geometry.
-                const f64 value = static_cast<f64>(DistributionGGX(n, h, roughness)) * static_cast<f64>(VisibilitySmithGGXCorrelated(n, v, l, roughness));
+                const f64 value = static_cast<f64>(DistributionGGX(n, h, roughness)) * static_cast<f64>(VisibilitySmithGGXCorrelated(1.0f, cosTheta, roughness));
                 sum += value * static_cast<f64>(cosTheta) * static_cast<f64>(kTwoPi);
             }
             return sum / static_cast<f64>(kSamples);
@@ -389,27 +430,43 @@ namespace OloEngine::Tests
         ASSERT_NE(bodyEnd, std::string::npos);
         const std::string body = src.substr(visibilityDecl, bodyEnd - visibilityDecl);
 
-        EXPECT_NE(body.find("float alpha = roughness * roughness;"), std::string::npos)
-            << "visibilitySmithGGXCorrelated no longer derives alpha = roughness^2.";
-        EXPECT_NE(body.find("float a2 = alpha * alpha;"), std::string::npos)
+        const std::string bodyFlat = NormalizeGlsl(body);
+        EXPECT_NE(bodyFlat.find("float alpha = roughness * roughness;"), std::string::npos)
+            << "visibilitySmithGGXCorrelated no longer derives alpha = roughness^2. (If the local was "
+               "merely renamed, update this test — but check the math first.)";
+        EXPECT_NE(bodyFlat.find("float a2 = alpha * alpha;"), std::string::npos)
             << "visibilitySmithGGXCorrelated no longer squares ALPHA. If this reverted to\n"
                "`a2 = roughness * roughness` then D and G describe different surfaces again — see\n"
                "THE ALPHA LEDGER in PBRCommon.glsl. That is issue #904, and nothing else in this\n"
                "suite would notice, because the function is on a dead call chain.";
 
-        // The caller must multiply, not divide again.
+        // The caller must multiply by the visibility term, never divide again.
         const sizet enhancedDecl = src.find("vec3 cookTorranceBRDFEnhanced(");
         ASSERT_NE(enhancedDecl, std::string::npos) << "cookTorranceBRDFEnhanced is gone from PBRCommon.glsl";
         const sizet enhancedEnd = src.find("\n}", enhancedDecl);
         ASSERT_NE(enhancedEnd, std::string::npos);
-        const std::string enhanced = src.substr(enhancedDecl, enhancedEnd - enhancedDecl);
+        const std::string enhancedFlat = NormalizeGlsl(src.substr(enhancedDecl, enhancedEnd - enhancedDecl));
 
-        EXPECT_NE(enhanced.find("vec3 specular = NDF * Vis * F;"), std::string::npos)
-            << "cookTorranceBRDFEnhanced no longer forms its specular term as D * V * F.";
-        EXPECT_EQ(enhanced.find("4.0 * max(dot(N, V)"), std::string::npos)
-            << "cookTorranceBRDFEnhanced divides by 4*NdotV*NdotL again. visibilitySmithGGXCorrelated\n"
-               "already folds that denominator in — dividing a second time cost the specular lobe\n"
-               "~3.6x of its energy at roughness 0.3 (directional albedo 0.99 -> 0.27) before #904.";
+        EXPECT_NE(enhancedFlat.find("visibilitySmithGGXCorrelated("), std::string::npos)
+            << "cookTorranceBRDFEnhanced no longer calls visibilitySmithGGXCorrelated.";
+
+        // These two are the load-bearing assertions, and they are deliberately
+        // about CHARACTERS rather than about one spelling of the expression.
+        // With comments stripped, the correct body contains no division and no
+        // digit 4 at all — so every way of rewriting the Cook-Torrance
+        // denominator back in (`4.0 * max(dot(N, V), 0.0) * ...`, `4.0*NdotV*NdotL`,
+        // `/ (4.0 * ...)`, a hoisted `float denom = ...`) trips one of them.
+        // An earlier version of this test matched a single literal spelling,
+        // which the exact regression it names could have walked straight past.
+        EXPECT_EQ(enhancedFlat.find('/'), std::string::npos)
+            << "cookTorranceBRDFEnhanced contains a division. visibilitySmithGGXCorrelated returns V =\n"
+               "G2/(4 NdotV NdotL) — the denominator is already folded in, and dividing a second time\n"
+               "cost the specular lobe ~3.6x of its energy at roughness 0.3 (directional albedo\n"
+               "0.99 -> 0.27) before #904. If a division is legitimately needed here, this assertion\n"
+               "has to be replaced by one that still rules that regression out.";
+        EXPECT_EQ(enhancedFlat.find('4'), std::string::npos)
+            << "cookTorranceBRDFEnhanced mentions a 4 — almost certainly the 4*NdotV*NdotL factor "
+               "coming back. See the assertion above.";
     }
 
     // =========================================================================

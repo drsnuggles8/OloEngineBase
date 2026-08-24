@@ -227,7 +227,8 @@ namespace OloEngine::PathTracing
     // HeightCorrelatedVisibilityMatchesTheVndfLambda, that one by
     // VndfEstimatorMatchesBruteForce), so neither can drift silently. If you
     // add a THIRD, stop and reuse one of these instead.
-    [[nodiscard]] inline f32 GgxSmithLambda(f32 nDotX, f32 alpha) noexcept
+    [[nodiscard("The Lambda is the masking term; discarding it drops the shadowing.")]] inline f32
+    GgxSmithLambda(f32 nDotX, f32 alpha) noexcept
     {
         const f32 c = std::clamp(std::abs(nDotX), 1.0e-4f, 1.0f);
         const f32 c2 = c * c;
@@ -243,11 +244,20 @@ namespace OloEngine::PathTracing
     // on the GLSL side.
     //
     // alpha = roughness^2, so a2 = roughness^4, matching DistributionGGX.
-    [[nodiscard]] inline f32 VisibilitySmithGGXCorrelated(const glm::vec3& n, const glm::vec3& v, const glm::vec3& l,
-                                                          f32 roughness) noexcept
+    //
+    // Takes COSINES where the GLSL takes vectors, which is the one place this
+    // port deliberately does not mirror its counterpart's signature. Three
+    // adjacent `const glm::vec3&` parameters are silently swappable at a call
+    // site — and the GLSL's own body immediately reduces them to two cosines
+    // anyway, so nothing is lost. `DistributionGGXSamplingDensity` above sets
+    // the same precedent. The `max(dot(...), 0)` clamp the GLSL applies is kept
+    // INSIDE this function rather than pushed onto callers, so the quirk still
+    // lives in the mirror where it belongs.
+    [[nodiscard("This is the visibility term; discarding it silently drops masking-shadowing.")]] inline f32
+    VisibilitySmithGGXCorrelated(f32 nDotV, f32 nDotL, f32 roughness) noexcept
     {
-        const f32 nDotV = std::max(glm::dot(n, v), 0.0f);
-        const f32 nDotL = std::max(glm::dot(n, l), 0.0f);
+        nDotV = std::max(nDotV, 0.0f);
+        nDotL = std::max(nDotL, 0.0f);
 
         const f32 alpha = roughness * roughness;
         const f32 a2 = alpha * alpha;

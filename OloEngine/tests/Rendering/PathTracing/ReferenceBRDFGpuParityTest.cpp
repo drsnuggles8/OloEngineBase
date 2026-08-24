@@ -304,7 +304,8 @@ namespace OloEngine::Tests
             for (u32 x = 0; x < kWidth; ++x)
             {
                 const GridPoint point = DecodeGridPoint(x, y);
-                const f32 expected = VisibilitySmithGGXCorrelated(n, v, point.L, point.Roughness);
+                const f32 expected =
+                    VisibilitySmithGGXCorrelated(glm::dot(n, v), glm::dot(n, point.L), point.Roughness);
                 const f32 actual = pixels[(static_cast<sizet>(y) * kWidth + x) * 4 + 3];
 
                 ASSERT_TRUE(std::isfinite(actual))
@@ -338,7 +339,7 @@ namespace OloEngine::Tests
             << "  GLSL visibilitySmithGGXCorrelated = " << pixels[(static_cast<sizet>(worstY) * kWidth + worstX) * 4 + 3]
             << "\n"
             << "  C++  VisibilitySmithGGXCorrelated = "
-            << VisibilitySmithGGXCorrelated(n, v, worstPoint.L, worstPoint.Roughness) << "\n"
+            << VisibilitySmithGGXCorrelated(glm::dot(n, v), glm::dot(n, worstPoint.L), worstPoint.Roughness) << "\n"
             << "The height-correlated Smith term has DRIFTED between PBRCommon.glsl and\n"
             << "Renderer/PathTracing/ReferenceBRDF.h. Check the alpha convention first: it must be\n"
             << "alpha = roughness^2 on BOTH sides (see THE ALPHA LEDGER in PBRCommon.glsl).";
