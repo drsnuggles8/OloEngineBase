@@ -1,8 +1,10 @@
 #pragma once
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+#include <atomic>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "OloEngine/Core/Ref.h"
 #include <glm/glm.hpp>
@@ -174,5 +176,43 @@ namespace OloEngine
 
         static Ref<Shader> Create(const std::string& filepath);
         static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
+
+        // --- Batch loading with cross-shader CPU parallelism (issue #907) ---
+        //
+        // The engine's shader-compile pipeline splits into a CPU tier (disk
+        // read, GLSL preprocessing, shaderc, SPIRV-Cross, on-disk cache) and a
+        // GPU tier (glLinkProgram, which the driver itself already links in
+        // the background via GL_ARB/KHR_parallel_shader_compile — see
+        // ShaderLibrary::PollPendingShaders). The CPU tier has no GL
+        // dependency and is embarrassingly parallel ACROSS independent
+        // shaders, but GL calls are not thread-safe off the context thread —
+        // so PrepareBatch() may run on any thread (including a background
+        // task, while the caller pumps its own render loop), and
+        // FinalizeBatch() MUST run on the render thread.
+        //
+        // A backend without a CPU-only prepare step (Vulkan today) leaves
+        // every entry null in PrepareBatch() and defers the ENTIRE
+        // synchronous Create() call to FinalizeBatch() instead — Create()
+        // touches the device/driver (e.g. VulkanShader's vkCreateShaderModule),
+        // which is exactly the kind of call PrepareBatch()'s "safe on any
+        // thread" contract forbids (issue #907 review).
+        //
+        // `progressCounter`, if non-null, is atomically incremented once per
+        // shader as its CPU-side work completes — poll it from another
+        // thread for progress-bar feedback while PrepareBatch() runs. A
+        // backend with no CPU-only prepare step has nothing to report here;
+        // its progress only moves during FinalizeBatch(), which does not
+        // take a progressCounter because it must already be on the render
+        // thread when it runs.
+        static std::vector<Ref<Shader>> PrepareBatch(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter = nullptr);
+
+        // `alreadyFinal[i]` marks an entry that is already a fully created,
+        // linked shader (e.g. loaded from a shader pack upstream of
+        // PrepareBatch()) — FinalizeBatch() passes such entries through
+        // unchanged instead of trying to finalize them a second time.
+        // `filepaths` must be the same list (same order) passed to the
+        // PrepareBatch() call that produced `prepared` — needed by a backend
+        // that deferred its entire Create() here (see PrepareBatch() above).
+        static std::vector<Ref<Shader>> FinalizeBatch(const std::vector<std::string>& filepaths, std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal);
     };
 } // namespace OloEngine

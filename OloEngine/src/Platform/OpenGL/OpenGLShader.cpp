@@ -441,6 +441,48 @@ namespace OloEngine
             return static_cast<bool>(in);
         }
 
+        // Cross-shader parallel prepare (issue #907) means the content-
+        // addressed cache key (source/SPIR-V bytes + options + stage) can
+        // collide ACROSS shader files, not just across stages of one shader:
+        // two different .glsl files whose preprocessed stage text is byte-
+        // identical (e.g. a shared vertex stage across several *_GBuffer_*
+        // variants) hash to the SAME cache path, and PrepareBatch's outer
+        // ParallelFor can now have two different worker threads writing it
+        // at once — impossible before this PR, when ParallelFor only ever
+        // ran across one shader's own 1-2 stages (which differ in the
+        // hashed stage name, so never collided). A plain std::ofstream
+        // write is then observable half-written by a concurrent reader.
+        // Write to a writer-unique temp file and atomically rename it into
+        // place instead, so a reader only ever sees a complete file or none.
+        static void WriteSpirvCacheFileAtomic(const std::filesystem::path& target, const std::vector<u32>& words)
+        {
+            static std::atomic<u64> s_WriterCounter{ 0 };
+            const std::filesystem::path tmp = target.string() + ".tmp" + std::to_string(s_WriterCounter.fetch_add(1));
+
+            std::error_code ec;
+            {
+                std::ofstream out(tmp, std::ios::out | std::ios::binary);
+                if (!out.is_open())
+                {
+                    return;
+                }
+                out.write(reinterpret_cast<const char*>(words.data()), static_cast<std::streamsize>(words.size() * sizeof(u32)));
+                out.flush();
+                if (!out)
+                {
+                    out.close();
+                    std::filesystem::remove(tmp, ec);
+                    return;
+                }
+            }
+
+            std::filesystem::rename(tmp, target, ec);
+            if (ec)
+            {
+                std::filesystem::remove(tmp, ec);
+            }
+        }
+
         // Applies the SPIR-V tier's shaderc options AND describes them as text
         // in one place — the description is hashed into the cache key, so
         // there is no second place that can fall out of sync with the actual
@@ -568,33 +610,90 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        PrepareCPU();
+        FinalizeGL();
+    }
+
+    OpenGLShader::OpenGLShader(PrepareTag, const std::string& filepath)
+        : m_FilePath(filepath)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // See m_SkipNestedParallelism's declaration: this constructor only
+        // ever runs inside PrepareBatch()'s outer ParallelFor across
+        // shaders, where per-shader inner stage parallelism is redundant
+        // scheduling overhead rather than real speedup.
+        m_SkipNestedParallelism = true;
+        PrepareCPU();
+        // The outer ParallelFor's task ends when this constructor returns.
+        // Every later compile on this object — FinalizeGL()'s declined-
+        // bindless recompile, Reload() — runs with no outer parallelism to
+        // avoid oversubscribing, so it must be free to use the inner stage
+        // ParallelFor again. Without this the flag stayed true for the
+        // object's whole lifetime, silently forcing every future reload of
+        // a batch-loaded shader to compile its stages single-threaded.
+        m_SkipNestedParallelism = false;
+    }
+
+    // CPU-only compile (issue #907): everything the old single-phase
+    // constructor did up to its first GL call. No glXxx here — this is what
+    // makes it safe to run PrepareBatch() across many shaders in parallel on
+    // worker threads. See FinalizeGL() below for the GL half.
+    void OpenGLShader::PrepareCPU()
+    {
+        OLO_PROFILE_FUNCTION();
+
         m_CompilationStatus = ShaderCompilationStatus::Pending;
 
         Utils::CreateCacheDirectoryIfNeeded();
-        const std::string source = ReadFile(filepath);
+        const std::string source = ReadFile(m_FilePath);
 
         const auto shaderSources = PreProcess(source);
 
-        // Store original source code for debugging (after we have shader ID)
-        // This will be called later after CreateProgram when m_RendererID is available
-
         // Extract shader name from filepath first
-        auto lastSlash = filepath.find_last_of("/\\");
-        const auto lastDot = filepath.rfind('.');
+        auto lastSlash = m_FilePath.find_last_of("/\\");
+        const auto lastDot = m_FilePath.rfind('.');
         lastSlash = lastSlash == std::string::npos ? 0 : (lastSlash + 1);
-        const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
-        m_Name = filepath.substr(lastSlash, count);
+        const auto count = lastDot == std::string::npos ? (m_FilePath.size() - lastSlash) : (lastDot - lastSlash);
+        m_Name = m_FilePath.substr(lastSlash, count);
 
         // Make this shader reloadable BY NAME regardless of who owns it — a
         // ShaderLibrary or a render pass member (issue #607). Registered before
         // the compile so a shader whose GLSL is broken at boot can still be
         // fixed on disk and reloaded over MCP instead of needing a restart.
+        // ShaderRegistry is mutex-protected, so this is safe from a worker
+        // thread too (issue #907).
         ShaderRegistry::Get().RegisterShader(m_Name, this);
 
-        OLO_SHADER_COMPILATION_START(m_Name, filepath);
-        const Timer timer;
+        OLO_SHADER_COMPILATION_START(m_Name, m_FilePath);
+        m_CompileTimer.Reset();
 
-        OLO_CORE_INFO("Compiling shader '{}' from '{}'", m_Name, filepath);
+        OLO_CORE_INFO("Compiling shader '{}' from '{}'", m_Name, m_FilePath);
+
+        // The bindless DECISION is CPU-only (a text scan of the source plus a
+        // plain bool flag — RHI::DescriptorHeap::IsEnabled() — no GL call),
+        // so it can be made here; only the raw-GLSL glCreateShader/link that
+        // WantsBindlessVariant gates is a GL call, deferred to FinalizeGL().
+        // A shader that wants it skips the SPIR-V tiers entirely, same as the
+        // old single-phase constructor did.
+        m_WantsBindless = WantsBindlessVariant(shaderSources);
+        if (m_WantsBindless)
+        {
+            m_OriginalSourceCode = shaderSources;
+            return;
+        }
+
+        m_VulkanCompileOk = CompileOrGetVulkanBinaries(shaderSources);
+        m_OpenGLCompileOk = m_VulkanCompileOk && CompileOrGetOpenGLBinaries();
+    }
+
+    // GL half of construction (issue #907): must run on the render thread.
+    // Reproduces the exact branch structure the old single-phase constructor
+    // had after its CompileOrGet*Binaries() calls, using PrepareCPU()'s
+    // results instead of computing them inline.
+    void OpenGLShader::FinalizeGL()
+    {
+        OLO_PROFILE_FUNCTION();
 
         // The bindless variant is tried FIRST and is allowed to decline. It
         // cannot share the path below — glslang rejects GL_ARB_bindless_texture
@@ -602,15 +701,26 @@ namespace OloEngine
         // route exists for (issue #691, BindlessShaderPipelineTest).
         // On any failure it falls through to the ordinary path, so a broken
         // bindless branch costs the optimisation and not the shader.
-        if (WantsBindlessVariant(shaderSources) && CreateProgramFromRawGLSL(shaderSources))
+        if (m_WantsBindless && CreateProgramFromRawGLSL(m_OriginalSourceCode))
         {
-            const f64 bindlessTime = timer.ElapsedMillis();
+            const f64 bindlessTime = m_CompileTimer.ElapsedMillis();
             OLO_CORE_INFO("Shader creation took {0} ms (bindless route)", bindlessTime);
             OLO_SHADER_COMPILATION_END(m_RendererID, m_RendererID != 0, "", bindlessTime);
             return;
         }
 
-        if (!CompileOrGetVulkanBinaries(shaderSources))
+        if (m_WantsBindless)
+        {
+            // Bindless was requested but declined — PrepareCPU() skipped the
+            // SPIR-V tiers entirely for this (rare/opt-in) case, so compile
+            // them now. This is the one case FinalizeGL() still does real CPU
+            // work on the render thread; acceptable because it is the
+            // declined case, not the common load-time path this issue speeds up.
+            m_VulkanCompileOk = CompileOrGetVulkanBinaries(m_OriginalSourceCode);
+            m_OpenGLCompileOk = m_VulkanCompileOk && CompileOrGetOpenGLBinaries();
+        }
+
+        if (!m_VulkanCompileOk)
         {
             // A user-authored GLSL syntax/compile error is not an engineering
             // invariant violation — surface it as a Failed shader instead of
@@ -637,7 +747,7 @@ namespace OloEngine
                 {
                     CreateProgramForAmd();
                 }
-                else if (CompileOrGetOpenGLBinaries())
+                else if (m_OpenGLCompileOk)
                 {
                     CreateProgram();
                 }
@@ -652,7 +762,7 @@ namespace OloEngine
                 m_CompilationStatus = ShaderCompilationStatus::Failed;
             }
         }
-        else if (CompileOrGetOpenGLBinaries())
+        else if (m_OpenGLCompileOk)
         {
             CreateProgram();
         }
@@ -660,7 +770,7 @@ namespace OloEngine
         {
             m_CompilationStatus = ShaderCompilationStatus::Failed;
         }
-        const f64 compilationTime = timer.ElapsedMillis();
+        const f64 compilationTime = m_CompileTimer.ElapsedMillis();
 
         // If the shader is still Compiling (async path), report that; otherwise it's Ready/Failed
         if (m_CompilationStatus == ShaderCompilationStatus::Compiling)
@@ -683,6 +793,106 @@ namespace OloEngine
         {
             m_DeferredCompilationTime = compilationTime;
         }
+    }
+
+    std::vector<Ref<Shader>> OpenGLShader::PrepareBatch(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const sizet n = filepaths.size();
+        std::vector<Ref<Shader>> result(n);
+
+        // Called here too (not a substitute for it): PrepareCPU() below still
+        // calls this itself, once per shader, since it must also work for the
+        // ordinary single-shader constructor which never goes through this
+        // function. Calling it once up front just avoids paying for N
+        // existence checks before the first shader that actually needs to
+        // create the directory does — it does NOT eliminate the per-shader
+        // calls, which stay safe only because CreateCacheDirectoryIfNeeded()
+        // uses the non-throwing std::error_code filesystem overloads.
+        Utils::CreateCacheDirectoryIfNeeded();
+
+        // CPU tier only (disk read, preprocessing, shaderc, SPIRV-Cross, disk
+        // cache, reflection) — no GL call is made until FinalizeBatch() runs,
+        // so constructing and preparing each shader on its own worker task is
+        // safe. Independent shaders share no mutable state: content-hashed
+        // cache filenames, a per-object resource registry, and a mutex-
+        // guarded ShaderRegistry/ShaderDebugger for the bookkeeping that IS
+        // shared.
+        ParallelFor(
+            "ShaderPrepareCPU",
+            static_cast<i32>(n),
+            [&filepaths, &result, progressCounter](const i32 index)
+            {
+                const auto idx = static_cast<sizet>(index);
+                // ParallelFor's worker executor is noexcept (see ParallelFor.h)
+                // — an exception escaping here would call std::terminate()
+                // instead of the graceful "surface as Failed" behaviour issue
+                // #568 established for a broken shader (Reload() catches the
+                // equivalent calls for the same reason). shaderc/SPIRV-Cross
+                // and filesystem calls can throw, so this must not let one.
+                // A caught failure leaves result[idx] null; FinalizeBatch()
+                // and ShaderLibrary::FinalizeParallel() already tolerate a
+                // null entry (skipped, never added to the library) exactly
+                // like any other unrecoverable per-shader failure.
+                try
+                {
+                    auto* raw = new OpenGLShader(PrepareTag{}, filepaths[idx]);
+                    result[idx] = Ref<Shader>(raw);
+                }
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("[ShaderPrepareCPU] '{}' threw during CPU-side compile: {}", filepaths[idx], e.what());
+                }
+                catch (...)
+                {
+                    OLO_CORE_ERROR("[ShaderPrepareCPU] '{}' threw a non-std::exception during CPU-side compile", filepaths[idx]);
+                }
+
+                if (progressCounter != nullptr)
+                {
+                    progressCounter->fetch_add(1, std::memory_order_relaxed);
+                }
+            });
+
+        return result;
+    }
+
+    std::vector<Ref<Shader>> OpenGLShader::FinalizeBatch(std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // GL calls below — the caller contract (Shader::FinalizeBatch) requires
+        // this to run on the render thread. Sequential on purpose: each
+        // glLinkProgram is issued back-to-back without blocking on it (the
+        // driver itself links in the background via
+        // GL_ARB/KHR_parallel_shader_compile, polled later by
+        // ShaderLibrary::PollPendingShaders) — this loop is just the
+        // sequential ISSUING, matching the comment on the original per-shader
+        // load loop in Renderer3DLifecycle.cpp.
+        const sizet preparedCount = prepared.size();
+        for (sizet i = 0; i < preparedCount; ++i)
+        {
+            if (i < alreadyFinal.size() && alreadyFinal[i])
+            {
+                continue; // pack-loaded shader — already fully created upstream
+            }
+
+            Ref<Shader>& shaderRef = prepared[i];
+            if (!shaderRef)
+            {
+                continue;
+            }
+
+            auto* glShader = static_cast<OpenGLShader*>(shaderRef.get());
+            glShader->FinalizeGL();
+            if (glShader->IsReady())
+            {
+                glShader->InitializeResourceRegistry(shaderRef);
+            }
+        }
+
+        return prepared;
     }
 
     OpenGLShader::OpenGLShader(std::string name, std::string_view vertexSrc, std::string_view fragmentSrc)
@@ -1522,7 +1732,11 @@ namespace OloEngine
                 result.SpirvData = std::vector<u32>(spirvModule.cbegin(), spirvModule.cend());
                 result.Success = true;
                 result.NeedsCache = !disableCache;
-            });
+            },
+            // See m_SkipNestedParallelism: this shader's own stages don't need
+            // a second, nested layer of parallelism when PrepareBatch()'s
+            // outer ParallelFor across shaders already provides it.
+            m_SkipNestedParallelism ? EParallelForFlags::ForceSingleThread : EParallelForFlags::None);
 
         // Collect results and write cache (sequential to avoid map race conditions).
         // This loop itself is single-threaded (ParallelFor above already joined all
@@ -1544,17 +1758,14 @@ namespace OloEngine
 
             shaderData[result.Stage] = result.SpirvData;
 
-            // Write to cache if needed
+            // Write to cache if needed. Atomic (temp file + rename) — see
+            // Utils::WriteSpirvCacheFileAtomic: two shaders in this same
+            // cross-shader ParallelFor batch can hash to the same cache
+            // path, so a plain std::ofstream here is a torn-file race that
+            // did not exist before this PR.
             if (result.NeedsCache)
             {
-                std::ofstream out(result.CachePath, std::ios::out | std::ios::binary);
-                if (out.is_open())
-                {
-                    out.write(reinterpret_cast<const char*>(result.SpirvData.data()),
-                              result.SpirvData.size() * sizeof(u32));
-                    out.flush();
-                    out.close();
-                }
+                Utils::WriteSpirvCacheFileAtomic(result.CachePath, result.SpirvData);
             }
         }
 
@@ -1716,7 +1927,9 @@ namespace OloEngine
                 result.SpirvData = std::vector<u32>(spirvModule.cbegin(), spirvModule.cend());
                 result.Success = true;
                 result.NeedsCache = !disableCache;
-            });
+            },
+            // See m_SkipNestedParallelism (same rationale as CompileOrGetVulkanBinaries's ParallelFor call above).
+            m_SkipNestedParallelism ? EParallelForFlags::ForceSingleThread : EParallelForFlags::None);
 
         // Collect results and write cache (sequential). Single-threaded here too
         // (ParallelFor above already joined), so this bool accumulation is race-free.
@@ -1737,17 +1950,14 @@ namespace OloEngine
                 m_OpenGLSourceCode[result.Stage] = result.GlslSource;
             }
 
-            // Write to cache if needed
+            // Write to cache if needed. Atomic (temp file + rename) — see
+            // Utils::WriteSpirvCacheFileAtomic: two shaders in this same
+            // cross-shader ParallelFor batch can hash to the same cache
+            // path, so a plain std::ofstream here is a torn-file race that
+            // did not exist before this PR.
             if (result.NeedsCache)
             {
-                std::ofstream out(result.CachePath, std::ios::out | std::ios::binary);
-                if (out.is_open())
-                {
-                    out.write(reinterpret_cast<const char*>(result.SpirvData.data()),
-                              result.SpirvData.size() * sizeof(u32));
-                    out.flush();
-                    out.close();
-                }
+                Utils::WriteSpirvCacheFileAtomic(result.CachePath, result.SpirvData);
             }
         }
 

@@ -198,4 +198,65 @@ namespace OloEngine
         OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
         return nullptr;
     }
+
+    std::vector<Ref<Shader>> Shader::PrepareBatch(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter)
+    {
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::None:
+            {
+                OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+                return {};
+            }
+            case RendererAPI::API::Vulkan:
+                // No CPU-only prepare step on this backend, and Create()
+                // touches the device/driver (vkCreateShaderModule) — must
+                // not run on whatever background thread PrepareBatch() is
+                // called from (issue #907 review). Leave every entry null;
+                // FinalizeBatch() below does the real (sequential, render-
+                // thread) Create() call for each. progressCounter has
+                // nothing honest to report here — see the header comment.
+                return std::vector<Ref<Shader>>(filepaths.size());
+            case RendererAPI::API::OpenGL:
+                return OpenGLShader::PrepareBatch(filepaths, progressCounter);
+        }
+
+        OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return {};
+    }
+
+    std::vector<Ref<Shader>> Shader::FinalizeBatch(const std::vector<std::string>& filepaths, std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal)
+    {
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::None:
+            {
+                OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+                return prepared;
+            }
+            case RendererAPI::API::Vulkan:
+            {
+                // PrepareBatch() deliberately left every entry null (see
+                // above) — do the real Create() here instead, sequentially,
+                // now that this is contractually the render thread.
+                const sizet count = filepaths.size();
+                std::vector<Ref<Shader>> result(count);
+                for (sizet i = 0; i < count; ++i)
+                {
+                    if (i < alreadyFinal.size() && alreadyFinal[i])
+                    {
+                        result[i] = prepared[i]; // pack-loaded upstream — not exercised by Vulkan today, kept symmetric with OpenGL
+                        continue;
+                    }
+                    result[i] = Create(filepaths[i]);
+                }
+                return result;
+            }
+            case RendererAPI::API::OpenGL:
+                return OpenGLShader::FinalizeBatch(std::move(prepared), alreadyFinal);
+        }
+
+        OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return prepared;
+    }
 } // namespace OloEngine

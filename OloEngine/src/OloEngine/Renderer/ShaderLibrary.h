@@ -1,7 +1,9 @@
 #pragma once
 
+#include <atomic>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -29,6 +31,55 @@ namespace OloEngine
         void Add(const Ref<Shader>& shader);
         Ref<Shader> Load(const std::string& filepath);
         Ref<Shader> Load(const std::string& name, const std::string& filepath);
+
+        // --- Batch loading with cross-shader CPU parallelism (issue #907) ---
+        //
+        // Result returned in the same order as `filepaths`, one entry per
+        // path (regardless of whether it came from a shader pack or a fresh
+        // compile). Every entry is added to this library under the name
+        // derived from its filepath, same as Load(filepath).
+
+        // CPU-decoded shader-pack entry (issue #907): the pack-lookup half of
+        // the old TryLoadFromPack, with the GL-touching half
+        // (CreateShaderFromPackEntry, below) split out — see PreparedShaderBatch.
+        struct PackEntryCPUData
+        {
+            std::string m_Name;
+            std::string m_FilePath;
+            std::unordered_map<u32, std::vector<u32>> m_VulkanSPIRV;
+            std::unordered_map<u32, std::vector<u32>> m_OpenGLSPIRV;
+        };
+
+        // Two-phase form: PrepareParallel() may run on ANY thread — it makes
+        // NO GL call, including for a shader-pack hit: decoding a pack
+        // entry's SPIR-V (TryReadPackEntry, below) is a pure CPU read, and
+        // materializing the actual GL program from it is deferred to
+        // FinalizeParallel(). FinalizeParallel() MUST run on the render
+        // thread (it issues every GL program creation/link, pack-loaded or
+        // freshly compiled alike). Split them yourself when you want to pump
+        // a render loop (progress bar, window events) while PrepareParallel()
+        // runs on a background task — see ShaderWarmup::LoadShadersParallel
+        // for the pattern.
+        //
+        // THIS CLASS IS NOT INTERNALLY SYNCHRONIZED. While PrepareParallel()
+        // is in flight on another thread, no other method on the SAME
+        // ShaderLibrary may be called — Add()/Load()/Get()/LoadShaderPack()
+        // all touch m_Shaders/m_ShaderPack without a lock.
+        struct PreparedShaderBatch
+        {
+            std::vector<std::string> m_FilePaths;                       // same order/size as passed to PrepareParallel() — every array below is indexed against this
+            std::vector<Ref<Shader>> m_Prepared;                        // non-pack entries: CPU-prepared, GL not yet created (null if PrepareBatch() couldn't even prepare it — see FinalizeParallel()). Pack entries: null until FinalizeParallel() materializes them from m_PackEntries.
+            std::vector<bool> m_IsPackLoaded;                           // same size as m_Prepared — true where the entry came from a shader pack
+            std::vector<std::optional<PackEntryCPUData>> m_PackEntries; // same size — decoded pack data for m_IsPackLoaded[i]==true entries, nullopt otherwise
+        };
+        [[nodiscard]] PreparedShaderBatch PrepareParallel(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter = nullptr) const;
+        std::vector<Ref<Shader>> FinalizeParallel(PreparedShaderBatch batch);
+
+        // Convenience one-call form: PrepareParallel() + FinalizeParallel()
+        // with no progress polling, called synchronously on this thread
+        // (which must then be the render thread). Use the two-phase form
+        // above instead when a UI needs to stay responsive during the load.
+        std::vector<Ref<Shader>> LoadParallel(const std::vector<std::string>& filepaths);
 
         Ref<Shader> Get(const std::string& name);
 
@@ -83,6 +134,16 @@ namespace OloEngine
         // Try to create a shader from the loaded shader pack.
         // Returns nullptr if no pack or shader not in pack.
         Ref<Shader> TryLoadFromPack(const std::string& filepath);
+
+        // CPU-only half of TryLoadFromPack (issue #907): pack lookup + SPIR-V
+        // decode, no GL call — safe from any thread. Returns nullopt on the
+        // same conditions TryLoadFromPack would have returned nullptr for.
+        [[nodiscard]] std::optional<PackEntryCPUData> TryReadPackEntry(const std::string& filepath) const;
+
+        // GL-touching half of TryLoadFromPack: materializes the actual GL
+        // program from already-decoded pack data. MUST run on the render
+        // thread.
+        [[nodiscard]] static Ref<Shader> CreateShaderFromPackEntry(PackEntryCPUData entry);
 
         std::unordered_map<std::string, Ref<Shader>> m_Shaders;
         std::unique_ptr<ShaderPack> m_ShaderPack;

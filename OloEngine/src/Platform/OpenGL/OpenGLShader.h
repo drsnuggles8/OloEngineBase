@@ -1,10 +1,13 @@
 #pragma once
+#include "OloEngine/Core/Timer.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include <glm/glm.hpp>
+#include <atomic>
 #include <filesystem>
 #include <unordered_set>
+#include <vector>
 
 namespace OloEngine
 {
@@ -148,6 +151,20 @@ namespace OloEngine
             std::unordered_map<GLenum, std::vector<u32>> vulkanSPIRV,
             std::unordered_map<GLenum, std::vector<u32>> openGLSPIRV);
 
+        // --- Batch loading with cross-shader CPU parallelism (issue #907) ---
+        // See Shader::PrepareBatch/FinalizeBatch for the two-phase contract.
+        // PrepareBatch() constructs one OpenGLShader per filepath and runs
+        // its CPU-only compile (ReadFile/PreProcess/shaderc/SPIRV-Cross/disk
+        // cache) in parallel across shaders via ParallelFor — no GL call is
+        // made until FinalizeBatch() below, so this may run on any thread.
+        static std::vector<Ref<Shader>> PrepareBatch(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter);
+
+        // Issues the GL program creation/link for every CPU-prepared shader,
+        // sequentially, on the calling thread — MUST be the render thread.
+        // Entries where `alreadyFinal[i]` is true (pack-loaded, upstream of
+        // PrepareBatch) pass through untouched.
+        static std::vector<Ref<Shader>> FinalizeBatch(std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal);
+
       private:
         // Tag type for the pack-data constructor (internal only)
         struct PackDataTag
@@ -160,6 +177,26 @@ namespace OloEngine
                      const std::string& filepath,
                      std::unordered_map<GLenum, std::vector<u32>> vulkanSPIRV,
                      std::unordered_map<GLenum, std::vector<u32>> openGLSPIRV);
+
+        // Tag type for the CPU-prepare-only constructor used by PrepareBatch()
+        // (internal only — see the class-level comment above).
+        struct PrepareTag
+        {
+        };
+
+        // Runs ONLY the CPU-side compile (PrepareCPU() below) — no GL calls,
+        // m_CompilationStatus stays Pending until FinalizeGL() runs.
+        OpenGLShader(PrepareTag, const std::string& filepath);
+
+        // CPU-only compile: disk read, preprocessing, shaderc, SPIRV-Cross,
+        // disk cache, reflection. No GL call — safe from any thread. Shared
+        // by the ordinary synchronous constructor and PrepareBatch().
+        void PrepareCPU();
+
+        // GL program creation/link, using whatever PrepareCPU() computed.
+        // MUST run on the render thread. Shared by the ordinary synchronous
+        // constructor and FinalizeBatch().
+        void FinalizeGL();
 
         static std::string ReadFile(const std::string& filepath);
         static std::string ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles);
@@ -291,6 +328,31 @@ namespace OloEngine
 
         // Shader stage IDs kept alive until link completes (then detached/deleted)
         std::vector<u32> m_PendingShaderIDs;
+
+        // --- PrepareCPU() / FinalizeGL() split state (issue #907) ---
+        // Set by PrepareCPU(); read by FinalizeGL() to reproduce the exact
+        // branch the old single-phase constructor took, without redoing GL-
+        // free work FinalizeGL() has no business repeating.
+        bool m_WantsBindless = false;   // WantsBindlessVariant(m_OriginalSourceCode) — decided in PrepareCPU() (no GL call), acted on in FinalizeGL()
+        bool m_VulkanCompileOk = false; // CompileOrGetVulkanBinaries() result (skipped when m_WantsBindless — see PrepareCPU())
+        bool m_OpenGLCompileOk = false; // CompileOrGetOpenGLBinaries() result (same)
+
+        // True only for a PrepareTag-constructed shader (i.e. running inside
+        // PrepareBatch()'s outer ParallelFor across shaders). CompileOrGet*
+        // Binaries() each run their own inner ParallelFor over a shader's 1-2
+        // stages, which is the right call when it is the ONLY parallelism
+        // (the ordinary single-shader constructor) but becomes 52 outer tasks
+        // each launching more nested tasks for 1-2 items when it is NOT — pure
+        // scheduling overhead with no work left to parallelize into, measured
+        // to cost most of the batch's would-be speedup. Read by CompileOrGet*
+        // Binaries() to force their inner ParallelFor single-threaded in that
+        // case, so the only parallelism is the outer one (issue #907).
+        bool m_SkipNestedParallelism = false;
+        // Starts timing at the same point the old constructor's local `const
+        // Timer timer;` did (after registration/logging, before compile) —
+        // see PrepareCPU()/FinalizeGL(). Kept as a member so total elapsed
+        // time still covers both phases, wherever/whenever FinalizeGL() runs.
+        Timer m_CompileTimer;
     };
 
 } // namespace OloEngine
