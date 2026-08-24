@@ -32,7 +32,8 @@ namespace OloEngine
         SkillTree,
         CharacterClass,
         ExperienceCurve,
-        VisualScript
+        VisualScript,
+        Volume // OpenVDB source (.vdb) or cooked native (.olovol) — issue #724
     };
 
     // Bitflag actions returned by ContentBrowserItem::Render()
@@ -52,6 +53,11 @@ namespace OloEngine
         OpenExternal = 1 << 10,
         Refresh = 1 << 11,
         Reimport = 1 << 12,
+        // Cook a .vdb into a sibling .olovol via OloEngine-VolumeCook
+        // (issue #724) — separate from Reimport because OloEngine itself
+        // has no notion of the .vdb extension (see the OLO_WITH_OPENVDB
+        // option comment in the root CMakeLists.txt).
+        ImportVolume = 1 << 13,
     };
 
     using CBActionResult = u16;

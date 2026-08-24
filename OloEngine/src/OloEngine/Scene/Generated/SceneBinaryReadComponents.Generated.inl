@@ -382,8 +382,9 @@ case 1503688276u: // FogVolumeComponent
 {
     auto& comp = deserializedEntity.AddComponent<FogVolumeComponent>();
     if (!SceneBinIO::Read(reader, comp.m_Shape)) return false;
-    comp.m_Shape = static_cast<decltype(comp.m_Shape)>(std::clamp(static_cast<int>(comp.m_Shape), static_cast<int>(0), static_cast<int>(2)));
+    comp.m_Shape = static_cast<decltype(comp.m_Shape)>(std::clamp(static_cast<int>(comp.m_Shape), static_cast<int>(0), static_cast<int>(3)));
     if (!SceneBinIO::Read(reader, comp.m_Extents)) return false;
+    comp.m_Extents = glm::clamp(comp.m_Extents, glm::vec3(0.05f), glm::vec3(1000.0f));
     if (!SceneBinIO::Read(reader, comp.m_Color)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Density)) return false;
     comp.m_Density = std::clamp(comp.m_Density, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
@@ -393,6 +394,7 @@ case 1503688276u: // FogVolumeComponent
     comp.m_Priority = std::clamp(comp.m_Priority, static_cast<i32>(-100), static_cast<i32>(100));
     if (!SceneBinIO::Read(reader, comp.m_BlendWeight)) return false;
     comp.m_BlendWeight = std::clamp(comp.m_BlendWeight, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_DensityVolume)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_AffectTransparent)) return false;
     break;

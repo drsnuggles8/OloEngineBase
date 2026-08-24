@@ -346,7 +346,7 @@ TEST(McpFieldRegistry, AssetHandleFieldRoundTrips)
 }
 
 // An enum field travels as its integer value (FogVolumeComponent::m_Shape). Its
-// OLO_SERIALIZE(Clamp, Min=0, Max=2) range applies to the enum's underlying int,
+// OLO_SERIALIZE(Clamp, Min=0, Max=3) range applies to the enum's underlying int,
 // so an out-of-range enum is clamped to a valid enumerator rather than cast into a
 // value the enum doesn't have.
 TEST(McpFieldRegistry, EnumFieldRoundTripsAndClampsToValidEnumerators)
@@ -369,8 +369,8 @@ TEST(McpFieldRegistry, EnumFieldRoundTripsAndClampsToValidEnumerators)
     const auto tooBig = GFW::Apply(f.Scene_, f.History, f.Uuid, "FogVolumeComponent", "Shape", Json(99));
     ASSERT_TRUE(tooBig.Ok) << tooBig.Error;
     EXPECT_TRUE(tooBig.Data["clamped"].get<bool>());
-    EXPECT_EQ(tooBig.Data["value"].get<int>(), 2); // the highest valid enumerator
-    EXPECT_EQ(static_cast<int>(f.TheEntity.GetComponent<OloEngine::FogVolumeComponent>().m_Shape), 2);
+    EXPECT_EQ(tooBig.Data["value"].get<int>(), 3); // the highest valid enumerator
+    EXPECT_EQ(static_cast<int>(f.TheEntity.GetComponent<OloEngine::FogVolumeComponent>().m_Shape), 3);
 }
 
 // A string field on a newly-reachable component (TextComponent::TextString).

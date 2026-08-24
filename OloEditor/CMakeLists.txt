@@ -29,6 +29,15 @@ target_link_libraries(OloEditor
                     httplib::httplib
 )
 
+# OpenVDB (.vdb) volumetric import (#724) — editor/cook-only, same shape as
+# httplib above: the dependency and its consuming importer code are confined
+# to OloEditor (via OloEngine-VolumeCook), never linked into OloEngine,
+# OloRuntime or OloServer. See the OLO_WITH_OPENVDB option comment in the
+# root CMakeLists.txt.
+if(OLO_WITH_OPENVDB)
+    target_link_libraries(OloEditor OloEngine-VolumeCook)
+endif()
+
 # Suppress MSVC's "use the _s variant" CRT warnings (C4996 on strncpy/sscanf/etc.).
 # OloEngine already adopts the same stance for the engine library; matching here
 # keeps the editor consistent and avoids per-call-site noise across the panels.

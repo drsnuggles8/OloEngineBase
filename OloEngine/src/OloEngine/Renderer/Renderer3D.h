@@ -25,6 +25,7 @@
 #include "OloEngine/Renderer/ReflectionProbeArray.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/TerrainVTBindings.h"
+#include "OloEngine/Renderer/Texture3D.h"
 
 #include <algorithm>
 #include <array>
@@ -1272,6 +1273,20 @@ namespace OloEngine
 
         static void UploadFogVolumes(const FogVolumesUBOData& data);
 
+        // OpenVDB-imported density volume (#724) bound by VolumetricFogPass
+        // for FogVolumeShape::Texture3D. First-slice limitation: exactly one
+        // texture at a time, chosen by Scene.cpp as the highest-priority
+        // enabled Texture3D-shaped FogVolumeComponent with a resolved
+        // VolumeAsset; nullptr when none is active this frame.
+        static void UploadFogVolumeDensityTexture(const Ref<Texture3D>& texture)
+        {
+            s_Data.SceneEffectsGPU.FogVolumeDensityTexture = texture;
+        }
+        [[nodiscard]] static const Ref<Texture3D>& GetFogVolumeDensityTexture()
+        {
+            return s_Data.SceneEffectsGPU.FogVolumeDensityTexture;
+        }
+
         // Underwater fog — runtime state for the camera-below-water pass
         // (WATER_FUTURE_IMPROVEMENTS.md §7.2). Populated each frame by the
         // scene's water update loop; consumed by `UnderwaterFogRenderPass`.
@@ -1562,6 +1577,11 @@ namespace OloEngine
             FogVolumesUBOData FogVolumesData{};
             DRSUBOData DRSData{};
 
+            // OpenVDB-imported density volume (#724) — not a UBO, so it sits
+            // outside the Ref<UniformBuffer>/*UBOData pairing above. See
+            // UploadFogVolumeDensityTexture/GetFogVolumeDensityTexture.
+            Ref<Texture3D> FogVolumeDensityTexture;
+
             void Reset()
             {
                 Snow.Reset();
@@ -1569,6 +1589,7 @@ namespace OloEngine
                 Fog.Reset();
                 FogVolumes.Reset();
                 DRS.Reset();
+                FogVolumeDensityTexture.Reset();
             }
         };
 

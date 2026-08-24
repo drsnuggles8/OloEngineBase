@@ -295,6 +295,7 @@ if (entity.HasComponent<FogVolumeComponent>())
     SceneBinIO::Write(out, comp.m_FalloffDistance);
     SceneBinIO::Write(out, comp.m_Priority);
     SceneBinIO::Write(out, comp.m_BlendWeight);
+    SceneBinIO::Write(out, comp.m_DensityVolume);
     SceneBinIO::Write(out, comp.m_Enabled);
     SceneBinIO::Write(out, comp.m_AffectTransparent);
 }

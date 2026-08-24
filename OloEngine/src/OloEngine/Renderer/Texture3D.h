@@ -58,6 +58,15 @@ namespace OloEngine
         // Bind as a sampler3D for shader sampling (trilinear filtered)
         virtual void Bind(u32 slot) const = 0;
 
+        // Upload a full-volume client buffer (Width*Height*Depth texels,
+        // tightly packed, in the format's native layout — e.g. R32F is one
+        // f32 per texel). Whole-image overwrite only, matching the GL
+        // facade's SetData contract on Texture2D; there is no partial
+        // sub-region upload for volumes. `size` must exactly match the
+        // expected byte count or the upload is dropped (logged, not asserted
+        // in release — this is reachable from asset import of untrusted data).
+        virtual void SetData(const void* data, u32 size) = 0;
+
         static Ref<Texture3D> Create(const Texture3DSpecification& spec);
     };
 } // namespace OloEngine

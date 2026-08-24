@@ -4990,15 +4990,33 @@ namespace OloEngine
     {
         Box = 0,
         Sphere = 1,
-        Cylinder = 2
+        Cylinder = 2,
+        // OpenVDB-imported density grid (#724). Samples m_DensityVolume's
+        // Texture3D within the entity's [-Extents, Extents] local-space
+        // bounds instead of the SDF-based falloff the other shapes use — see
+        // VolumetricFogPass.cpp. Only one Texture3D volume renders at a time
+        // in this first slice (the highest-priority enabled entity with this
+        // shape and a non-zero m_DensityVolume); a documented limitation,
+        // not a silent drop — see docs/agent-rules/asset-import-usd-alembic.md's
+        // sibling volumetric doc.
+        Texture3D = 3,
     };
 
     struct FogVolumeComponent
     {
         // Shape & spatial parameters
-        OLO_SERIALIZE(Clamp, Min = 0, Max = 2)
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 3)
         FogVolumeShape m_Shape = FogVolumeShape::Box;
-        glm::vec3 m_Extents = { 5.0f, 5.0f, 5.0f }; // Half-extents for Box/Cylinder, radius for Sphere uses x
+        // Half-extents for Box/Cylinder, radius for Sphere uses x, half-extents
+        // of the sampled volume for Texture3D. Floored well above 0: Box/
+        // Sphere/Cylinder's SDFs tolerate a zero extent harmlessly, but the
+        // Texture3D branch (FogVolumeCommon.glsl) divides local position by
+        // this to build sampling UVW — a zero/near-zero axis there produces a
+        // NaN/Inf the shader's own bounds check cannot catch (see the comment
+        // at evaluateFogVolumesAtPointVDB's `max(extents, vec3(0.01))` floor,
+        // which is the second, always-on line of defence).
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 1000.0f)
+        glm::vec3 m_Extents = { 5.0f, 5.0f, 5.0f };
 
         // Fog parameters
         glm::vec3 m_Color = { 0.6f, 0.65f, 0.7f };
@@ -5010,6 +5028,11 @@ namespace OloEngine
         i32 m_Priority = 0; // Sorting priority for overlapping volumes
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_BlendWeight = 1.0f; // 0-1 blend strength
+
+        // OpenVDB-imported volume asset (#724, Volume asset type). Only used
+        // when m_Shape == FogVolumeShape::Texture3D; 0 = none (renders
+        // nothing for this volume even if the shape is set).
+        AssetHandle m_DensityVolume = 0;
 
         // Flags
         bool m_Enabled = true;

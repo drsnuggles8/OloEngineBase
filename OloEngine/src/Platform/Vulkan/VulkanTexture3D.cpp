@@ -8,8 +8,11 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
+#include "Platform/Vulkan/VulkanOneShot.h"
+#include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace OloEngine
 {
@@ -29,6 +32,26 @@ namespace OloEngine
                     return VK_FORMAT_R32_SFLOAT;
             }
             return VK_FORMAT_UNDEFINED;
+        }
+
+        // Bytes per texel of the CLIENT (SetData) buffer — same values as the
+        // OpenGL twin's Texture3DFormatBytesPerPixel (Platform/OpenGL/
+        // OpenGLTexture3D.cpp); the two backends must agree on this contract
+        // since asset loading is backend-agnostic (VolumeSerializer et al.).
+        sizet Texture3DFormatBytesPerTexel(const Texture3DFormat format)
+        {
+            switch (format)
+            {
+                case Texture3DFormat::RGBA8:
+                    return 4;
+                case Texture3DFormat::RGBA16F:
+                    return 8;
+                case Texture3DFormat::RGBA32F:
+                    return 16;
+                case Texture3DFormat::R32F:
+                    return 4;
+            }
+            return 0;
         }
     } // namespace
 
@@ -114,6 +137,95 @@ namespace OloEngine
     {
         // The facade's slot path — same acquire the handle form performs.
         RenderCommand::GetRendererAPI().BindTexture(slot, m_RHIHandle.Get());
+    }
+
+    void VulkanTexture3D::SetData(const void* data, u32 size)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || m_Image == VK_NULL_HANDLE)
+        {
+            OLO_CORE_ERROR("VulkanTexture3D::SetData: no live device/image, dropping upload");
+            return;
+        }
+
+        const sizet bytesPerTexel = Texture3DFormatBytesPerTexel(m_Specification.Format);
+        if (bytesPerTexel == 0)
+        {
+            OLO_CORE_ERROR("VulkanTexture3D::SetData: format {} has no client-upload path",
+                           static_cast<u32>(m_Specification.Format));
+            return;
+        }
+        const u64 expected = static_cast<u64>(m_Specification.Width) * m_Specification.Height *
+                             m_Specification.Depth * bytesPerTexel;
+        if (static_cast<u64>(size) != expected)
+        {
+            OLO_CORE_ERROR("VulkanTexture3D::SetData: got {} bytes, expected {} ({}x{}x{}) — dropping the upload",
+                           size, expected, m_Specification.Width, m_Specification.Height, m_Specification.Depth);
+            return;
+        }
+
+        // Host staging buffer — destroyed right after the blocking one-shot.
+        // Mirrors VulkanTexture2D::UploadPixels (VulkanTexture.cpp), minus
+        // mip generation: volumes never generate mips (single-level image).
+        VkBufferCreateInfo stagingInfo{};
+        stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        stagingInfo.size = size;
+        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        VmaAllocationCreateInfo stagingAlloc{};
+        stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        stagingAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                             VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+        VkBuffer staging = VK_NULL_HANDLE;
+        VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo stagingOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                            &stagingOut) != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("VulkanTexture3D::SetData: staging allocation failed ({} bytes)", size);
+            return;
+        }
+        std::memcpy(stagingOut.pMappedData, data, size);
+        vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, size);
+
+        const bool ok = VulkanOneShot::Submit(
+            "VulkanTexture3D::SetData",
+            [&](VkCommandBuffer cmd)
+            {
+                // Whole image -> TRANSFER_DST. oldLayout UNDEFINED is a full
+                // overwrite (discard is free); src scope is non-empty in case
+                // this is a re-upload of an already-sampled volume (hot
+                // reimport), matching the WRITE_AFTER_WRITE reasoning in
+                // VulkanTexture2D::UploadPixels.
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                                 VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, 1u);
+
+                VkBufferImageCopy region{};
+                region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
+                region.imageExtent = { m_Specification.Width, m_Specification.Height, m_Specification.Depth };
+                vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                 VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                 VK_ACCESS_2_MEMORY_READ_BIT, 0u, 1u);
+            });
+
+        vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+
+        if (ok)
+        {
+            // Seed the layout tracker's first sight of this image — without
+            // this the graph's first barrier would transition from UNDEFINED
+            // and could legally discard the texels just uploaded (same
+            // reasoning as VulkanTexture2D::UploadPixels).
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
     }
 } // namespace OloEngine
 

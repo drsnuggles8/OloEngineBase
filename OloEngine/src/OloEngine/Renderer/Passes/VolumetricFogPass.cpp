@@ -52,6 +52,21 @@ namespace OloEngine
         m_ScatterVolume[1] = Texture3D::Create(volumeSpec);
         m_IntegratedVolume = Texture3D::Create(volumeSpec);
 
+        // OpenVDB-imported density volume placeholder (#724) — 1x1x1 R32F,
+        // zero-initialized, bound whenever no FogVolumeShape::Texture3D
+        // entity has a resolved volume this frame.
+        Texture3DSpecification densityPlaceholderSpec;
+        densityPlaceholderSpec.Width = 1;
+        densityPlaceholderSpec.Height = 1;
+        densityPlaceholderSpec.Depth = 1;
+        densityPlaceholderSpec.Format = Texture3DFormat::R32F;
+        m_DensityVolumePlaceholder = Texture3D::Create(densityPlaceholderSpec);
+        if (m_DensityVolumePlaceholder)
+        {
+            const f32 zero = 0.0f;
+            m_DensityVolumePlaceholder->SetData(&zero, sizeof(zero));
+        }
+
         m_FroxelUBO = UniformBuffer::Create(
             UBOStructures::FroxelFogUBO::GetSize(),
             ShaderBindingLayout::UBO_FROXEL_FOG);
@@ -220,6 +235,15 @@ namespace OloEngine
                                          RHI::NullSamplerKind::Texture2DArrayShadow);
         HeapBinding::BindTextureOrOffset(2, m_ScatterVolume[historyIndex]->GetRHIHandle(),
                                          RHI::HeapSlotLifetime::Persistent);
+        // OpenVDB-imported density volume (#724), compute-local unit 3 —
+        // Renderer3D-owned (an asset's Texture3D) or the pass-owned
+        // placeholder, neither acquired from RenderGraph's per-frame
+        // transient pool, so Persistent — same reasoning as the shadow maps
+        // just above.
+        const Ref<Texture3D>& densityVolume = Renderer3D::GetFogVolumeDensityTexture();
+        const RHI::ResourceHandle densityVolumeID =
+            densityVolume ? densityVolume->GetRHIHandle() : m_DensityVolumePlaceholder->GetRHIHandle();
+        HeapBinding::BindTextureOrOffset(3, densityVolumeID, RHI::HeapSlotLifetime::Persistent);
         // Persistent: the froxel volumes are pass-owned and double-buffered across
         // frames for the temporal filter, not acquired from the transient pool.
         HeapBinding::BindImageOrOffset(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle(), 0, true, 0,

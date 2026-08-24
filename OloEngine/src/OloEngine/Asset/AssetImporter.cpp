@@ -40,7 +40,7 @@ namespace OloEngine
         if (!serializers.empty())
             return;
 
-        serializers.reserve(32); // Reserve ahead of the registered serializer count (29) to avoid rehashing
+        serializers.reserve(32); // Reserve ahead of the registered serializer count (30) to avoid rehashing
         serializers[AssetType::Prefab] = CreateScope<PrefabSerializer>();
         serializers[AssetType::Texture2D] = CreateScope<TextureSerializer>();
         serializers[AssetType::TextureCube] = CreateScope<TextureSerializer>();
@@ -72,6 +72,7 @@ namespace OloEngine
         serializers[AssetType::SkillTreeDatabase] = CreateScope<SkillTreeDatabaseSerializer>();
         serializers[AssetType::CharacterClassDatabase] = CreateScope<CharacterClassDatabaseSerializer>();
         serializers[AssetType::VisualScript] = CreateScope<VisualScriptAssetSerializer>();
+        serializers[AssetType::Volume] = CreateScope<VolumeSerializer>();
     }
 
     void AssetImporter::Shutdown()

@@ -102,6 +102,16 @@ namespace OloEngine
         s_ExtensionMap["olocharclass"] = AssetType::CharacterClassDatabase;
         s_ExtensionMap["olovs"] = AssetType::VisualScript;
         s_ExtensionMap["olmap"] = AssetType::Lightmap;
+        // Dense volumetric density grid (#724) — the cook-time OUTPUT of the
+        // OpenVDB importer (OloEngine-VolumeCook, editor-only). Registered
+        // unconditionally (not behind an OLO_WITH_* gate like the .abc/.usd*
+        // entries below): reading a .olovol needs no OpenVDB, only
+        // VolumeSerializer (pure binary decode + GPU upload). The SOURCE
+        // .vdb format is intentionally NOT registered here — OloEngine never
+        // links OpenVDB; the editor's content-browser import step recognizes
+        // ".vdb" itself and invokes OloEngine-VolumeCook to produce the
+        // .olovol this map resolves.
+        s_ExtensionMap["olovol"] = AssetType::Volume;
 
         // Script files
         s_ExtensionMap["cs"] = AssetType::ScriptFile;

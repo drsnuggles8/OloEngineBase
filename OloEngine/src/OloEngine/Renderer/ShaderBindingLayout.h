@@ -2699,7 +2699,10 @@ namespace OloEngine
                            // Compute dispatch pass-local reuse (issue #627).
                            name == "u_HZBDepth" ||
                            // DDGI fullscreen-pass pass-local reuse (issue #632).
-                           name == "u_ProbeData" || name == "u_CurrVisibility";
+                           name == "u_ProbeData" || name == "u_CurrVisibility" ||
+                           // OpenVDB-imported density volume, compute-local reuse
+                           // in FroxelFogScatter.comp (issue #724).
+                           name == "u_DensityVolume";
                 case TEX_AMBIENT:
                     return name.contains("AO") || name.contains("Ambient") ||
                            name.contains("ambient") || name.contains("Occlusion") ||

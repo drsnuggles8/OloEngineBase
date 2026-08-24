@@ -129,12 +129,17 @@ layout(std430, binding = 18) readonly buffer FogSphereAreaLightBuf { FogSphereAr
 #define u_ShadowMapCSM OLO_HEAP_TEX_2D_ARRAY_SHADOW(0)
 #define u_ShadowAtlas OLO_HEAP_TEX_2D_ARRAY_SHADOW(1)
 #define u_HistoryVolume OLO_HEAP_TEX_3D(2)
+#define u_DensityVolume OLO_HEAP_TEX_3D(3)
 #else
 // Shadow maps (compute-local sampler units)
 layout(binding = 0) uniform sampler2DArrayShadow u_ShadowMapCSM;
 layout(binding = 1) uniform sampler2DArrayShadow u_ShadowAtlas;
 // Previous frame's scatter volume for temporal accumulation
 layout(binding = 2) uniform sampler3D u_HistoryVolume;
+// OpenVDB-imported density volume (#724) — see VolumetricFogPass.cpp; a
+// 1x1x1 all-zero placeholder when no FogVolumeShape::Texture3D entity has a
+// resolved volume this frame.
+layout(binding = 3) uniform sampler3D u_DensityVolume;
 #endif
 
 // Output scatter volume: rgb = in-scattered radiance, a = extinction
@@ -436,7 +441,7 @@ void main()
         density *= mix(1.0, clamp(noiseFactor * 2.0, 0.0, 2.5), noiseIntensity);
     }
 
-    FogVolumeResult volResult = evaluateFogVolumesAtPoint(absPos);
+    FogVolumeResult volResult = evaluateFogVolumesAtPointVDB(absPos, u_DensityVolume);
     float combinedDensity = max(density, 0.0) + volResult.density;
 
     vec3 sampleFogColor = fogColor;

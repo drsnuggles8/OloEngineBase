@@ -36,6 +36,7 @@ add_executable(OloEngine-Tests
 		MathTest.cpp
 		ModelImporterTest.cpp
 		MeshInterchangeTest.cpp
+		VolumeImportTest.cpp
 		SceneMeshRaycastTest.cpp
 		SlugFontRenderingTest.cpp
 		AssetCreationTest.cpp
@@ -346,6 +347,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ClusteredLightingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowAtlasVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
+		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeParallaxVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
@@ -1066,6 +1068,13 @@ target_link_libraries(OloEngine-Tests
 	OloEngine
 	GTest::gtest
 	httplib::httplib)
+
+# OpenVDB import (#724) CPU contract-test coverage — same reasoning as the
+# editor link in OloEditor/CMakeLists.txt: OloEngine-VolumeCook is linked
+# here only, never into OloEngine/OloRuntime/OloServer.
+if(OLO_WITH_OPENVDB)
+	target_link_libraries(OloEngine-Tests OloEngine-VolumeCook)
+endif()
 
 # Headless GPU support (docs/ops/self-hosted-gpu-runner.md).
 #

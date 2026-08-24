@@ -45,6 +45,33 @@ namespace OloEngine
             OLO_CORE_ASSERT(false, "Unknown Texture3DFormat");
             return 0;
         }
+
+        // Client (glTextureSubImage3D) format/type pair matching the internal
+        // formats above — RGBA8 is normalized u8, everything else is f32
+        // client data (R32F/RGBA16F/RGBA32F all accept GL_FLOAT and let the
+        // driver convert/pack, same as the Texture2D facade's contract).
+        void Texture3DFormatToGLClient(Texture3DFormat format, GLenum& outFormat, GLenum& outType)
+        {
+            switch (format)
+            {
+                case Texture3DFormat::RGBA8:
+                    outFormat = GL_RGBA;
+                    outType = GL_UNSIGNED_BYTE;
+                    return;
+                case Texture3DFormat::RGBA16F:
+                case Texture3DFormat::RGBA32F:
+                    outFormat = GL_RGBA;
+                    outType = GL_FLOAT;
+                    return;
+                case Texture3DFormat::R32F:
+                    outFormat = GL_RED;
+                    outType = GL_FLOAT;
+                    return;
+            }
+            OLO_CORE_ASSERT(false, "Unknown Texture3DFormat");
+            outFormat = GL_RGBA;
+            outType = GL_FLOAT;
+        }
     } // namespace
 
     OpenGLTexture3D::OpenGLTexture3D(const Texture3DSpecification& spec)
@@ -115,6 +142,34 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         glBindTextureUnit(slot, m_RendererID);
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::TextureBinds, 1);
+    }
+
+    void OpenGLTexture3D::SetData(const void* data, u32 size)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_RendererID == 0)
+        {
+            OLO_CORE_ERROR("OpenGLTexture3D::SetData: texture failed to create, dropping upload");
+            return;
+        }
+
+        const sizet bytesPerTexel = Texture3DFormatBytesPerPixel(m_Specification.Format);
+        const u64 expected = static_cast<u64>(m_Width) * m_Height * m_Depth * bytesPerTexel;
+        if (static_cast<u64>(size) != expected)
+        {
+            OLO_CORE_ERROR("OpenGLTexture3D::SetData: got {} bytes, expected {} ({}x{}x{}) — dropping the upload",
+                           size, expected, m_Width, m_Height, m_Depth);
+            return;
+        }
+
+        GLenum clientFormat = GL_RGBA;
+        GLenum clientType = GL_FLOAT;
+        Texture3DFormatToGLClient(m_Specification.Format, clientFormat, clientType);
+
+        glTextureSubImage3D(m_RendererID, 0, 0, 0, 0,
+                            static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height), static_cast<GLsizei>(m_Depth),
+                            clientFormat, clientType, data);
     }
 
     // (The Texture3D::Create factory moved to Renderer/Texture3D.cpp — the

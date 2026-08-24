@@ -139,6 +139,14 @@ namespace OloEngine
         Ref<Texture3D> m_IntegratedVolume;
         u32 m_CurrentScatter = 0;
 
+        // OpenVDB-imported density volume (#724). A 1x1x1 all-zero fallback,
+        // bound whenever Renderer3D::GetFogVolumeDensityTexture() is null so
+        // FroxelFogScatter.comp's sampler3D declaration is always valid — a
+        // FogVolumeShape::Texture3D entry with no texture bound then
+        // contributes zero density, which is the correct "nothing authored
+        // yet" behaviour rather than a special-cased shader branch.
+        Ref<Texture3D> m_DensityVolumePlaceholder;
+
         Ref<UniformBuffer> m_FroxelUBO;
 
         // Previous frame's ABSOLUTE-world view-projection for 3D reprojection

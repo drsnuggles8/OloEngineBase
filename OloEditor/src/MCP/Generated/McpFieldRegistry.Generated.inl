@@ -323,13 +323,14 @@ registry.push_back(OLO_GFW_FIELD(FluidKillVolumeComponent, "Enabled", m_Enabled)
 registry.push_back(OLO_GFW_FIELD_RANGE(FluidKillVolumeComponent, "HalfExtents", m_HalfExtents, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(256.0f)));
 
 // FogVolumeComponent
-registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "Shape", m_Shape, OLO_GFW_BOUND(0), OLO_GFW_BOUND(2)));
-registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "Extents", m_Extents));
+registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "Shape", m_Shape, OLO_GFW_BOUND(0), OLO_GFW_BOUND(3)));
+registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "Extents", m_Extents, OLO_GFW_BOUND(0.05f), OLO_GFW_BOUND(1000.0f)));
 registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "Color", m_Color));
 registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "Density", m_Density, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "FalloffDistance", m_FalloffDistance, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "Priority", m_Priority, OLO_GFW_BOUND(-100), OLO_GFW_BOUND(100)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "BlendWeight", m_BlendWeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "DensityVolume", m_DensityVolume));
 registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "AffectTransparent", m_AffectTransparent));
 

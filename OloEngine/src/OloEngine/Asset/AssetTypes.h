@@ -50,13 +50,20 @@ namespace OloEngine
         CharacterClassDatabase = 38,
         VisualScript = 39,
         Lightmap = 40,
+        // Dense volumetric density grid (issue #724), cooked from an OpenVDB
+        // source at editor/cook time into the engine-native .olovol format —
+        // see OloEngine/src/OloEngine/Serialization/VolumeBinaryFormat.h. The
+        // reader (VolumeSerializer) is pure CPU/GPU-upload, no OpenVDB
+        // dependency; OpenVDB itself is confined to the editor-only
+        // OloEngine-VolumeCook target.
+        Volume = 41,
     };
 
-    // If AssetType grows past Lightmap, bump kMaxKnownValue in
+    // If AssetType grows past Volume, bump kMaxKnownValue in
     // OloEngine/tests/AssetExtensionsCoverageTest.cpp or that test will
     // silently skip the new entries.
-    static_assert(std::to_underlying(AssetType::Lightmap) == 40,
-                  "AssetType::Lightmap moved; update kMaxKnownValue in "
+    static_assert(std::to_underlying(AssetType::Volume) == 41,
+                  "AssetType::Volume moved; update kMaxKnownValue in "
                   "AssetExtensionsCoverageTest.cpp to match the new max value.");
 
     enum class AssetFlag : u16
@@ -204,6 +211,8 @@ namespace OloEngine
                     return "VisualScript";
                 case AssetType::Lightmap:
                     return "Lightmap";
+                case AssetType::Volume:
+                    return "Volume";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -301,6 +310,8 @@ namespace OloEngine
                 return AssetType::VisualScript;
             if (assetType == "Lightmap")
                 return AssetType::Lightmap;
+            if (assetType == "Volume")
+                return AssetType::Volume;
 
             return AssetType::None;
         }

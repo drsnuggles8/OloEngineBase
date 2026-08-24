@@ -67,6 +67,15 @@
         }
       ]
     },
+    "openvdb": {
+      "description": "OpenVDB (.vdb) volumetric import (#724) — mirrors the OLO_WITH_OPENVDB CMake option. Confined to the editor-only OloEngine-VolumeCook target, never linked into OloRuntime/OloServer. No features: core library only, no ax (LLVM)/nanovdb (CUDA)/tools.",
+      "dependencies": [
+        {
+          "name": "openvdb",
+          "default-features": false
+        }
+      ]
+    },
     "tests": {
       "description": "GoogleTest — mirrors the BUILD_TESTS CMake option",
       "dependencies": [

@@ -1387,6 +1387,9 @@ namespace OloEngine
     static constexpr i32 FOG_VOLUME_SHAPE_BOX = 0;
     static constexpr i32 FOG_VOLUME_SHAPE_SPHERE = 1;
     static constexpr i32 FOG_VOLUME_SHAPE_CYLINDER = 2;
+    // OpenVDB-imported density grid (#724) — samples a Texture3D bound
+    // separately (see VolumetricFogPass.cpp) rather than an SDF falloff.
+    static constexpr i32 FOG_VOLUME_SHAPE_TEXTURE3D = 3;
 
     // GPU-side per-volume data (std140 aligned)
     struct FogVolumeData

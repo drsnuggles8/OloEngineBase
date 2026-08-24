@@ -409,8 +409,9 @@ if (auto node = entity["FluidKillVolumeComponent"]; node)
 if (auto node = entity["FogVolumeComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<FogVolumeComponent>();
-    comp.m_Shape = static_cast<decltype(comp.m_Shape)>(std::clamp(node["Shape"].as<int>(static_cast<int>(comp.m_Shape)), static_cast<int>(0), static_cast<int>(2)));
+    comp.m_Shape = static_cast<decltype(comp.m_Shape)>(std::clamp(node["Shape"].as<int>(static_cast<int>(comp.m_Shape)), static_cast<int>(0), static_cast<int>(3)));
     comp.m_Extents = node["Extents"].as<glm::vec3>(comp.m_Extents);
+    comp.m_Extents = glm::clamp(comp.m_Extents, glm::vec3(0.05f), glm::vec3(1000.0f));
     comp.m_Color = node["Color"].as<glm::vec3>(comp.m_Color);
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Density"], v))
         comp.m_Density = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
@@ -419,6 +420,7 @@ if (auto node = entity["FogVolumeComponent"]; node)
     comp.m_Priority = std::clamp(node["Priority"].as<i32>(comp.m_Priority), static_cast<i32>(-100), static_cast<i32>(100));
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["BlendWeight"], v))
         comp.m_BlendWeight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    comp.m_DensityVolume = node["DensityVolume"].as<u64>(static_cast<u64>(comp.m_DensityVolume));
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
     comp.m_AffectTransparent = node["AffectTransparent"].as<bool>(comp.m_AffectTransparent);
 }

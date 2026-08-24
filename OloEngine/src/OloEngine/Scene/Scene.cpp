@@ -16,6 +16,7 @@
 #include "SystemScheduler.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/InstancePlacementAsset.h"
+#include "OloEngine/Asset/VolumeAsset.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
@@ -7784,6 +7785,27 @@ namespace OloEngine
             std::ranges::sort(entries, [](const VolumeEntry& a, const VolumeEntry& b)
                               { return a.priority < b.priority; });
 
+            // OpenVDB-imported density volume (#724): the single Texture3D
+            // VolumetricFogPass binds this frame for FogVolumeShape::
+            // Texture3D entries — the highest-priority enabled one with a
+            // resolved VolumeAsset (entries is already priority-sorted
+            // ascending, so the LAST matching entry wins). See the
+            // FogVolumeShape::Texture3D comment in Components.h for why this
+            // first slice supports only one at a time.
+            Ref<Texture3D> densityTexture;
+            for (const auto& entry : entries)
+            {
+                if (entry.fv->m_Shape != FogVolumeShape::Texture3D || entry.fv->m_DensityVolume == 0)
+                {
+                    continue;
+                }
+                if (auto volumeAsset = AssetManager::GetAsset<VolumeAsset>(entry.fv->m_DensityVolume); volumeAsset && volumeAsset->IsLoaded())
+                {
+                    densityTexture = volumeAsset->GetTexture();
+                }
+            }
+            Renderer3D::UploadFogVolumeDensityTexture(densityTexture);
+
             u32 volumeIdx = 0;
             for (const auto& entry : entries)
             {
@@ -10335,6 +10357,12 @@ namespace OloEngine
                     case FogVolumeShape::Cylinder:
                         // Approximate cylinder with capsule gizmo (radius + half-height)
                         Renderer3D::DrawCapsuleColliderGizmo(tc.Translation, fogVol.m_Extents.x, fogVol.m_Extents.y, rotation, gizmoColor);
+                        break;
+                    case FogVolumeShape::Texture3D:
+                        // OpenVDB-imported density grid (#724): the box gizmo
+                        // reads as the sampled [-Extents, Extents] bounds,
+                        // same as the runtime sampling in FogVolumeCommon.glsl.
+                        Renderer3D::DrawBoxColliderGizmo(tc.Translation, fogVol.m_Extents, rotation, gizmoColor);
                         break;
                     default:
                         OLO_CORE_ASSERT(false, "Unknown FogVolumeShape");

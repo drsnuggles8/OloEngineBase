@@ -24,6 +24,10 @@
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Video/VideoDecoder.h"
 
+#if defined(OLO_WITH_OPENVDB)
+#include "OpenVDBVolumeCook.h"
+#endif
+
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <yaml-cpp/yaml.h>
@@ -482,6 +486,32 @@ namespace OloEngine
                 OLO_CORE_INFO("ContentBrowser: Reimport queued for '{}' - cache invalidated, will re-import on next load",
                               item.GetPath().filename().string());
             }
+
+#if defined(OLO_WITH_OPENVDB)
+            if (HasAction(actions, ContentBrowserAction::ImportVolume))
+            {
+                const std::filesystem::path& vdbPath = item.GetPath();
+                std::filesystem::path olovolPath = vdbPath;
+                olovolPath.replace_extension(".olovol");
+
+                std::string error;
+                if (OloEngine::VolumeCook::CookOpenVDBToNativeFile(vdbPath, olovolPath, {}, &error))
+                {
+                    OLO_CORE_INFO("ContentBrowser: cooked '{}' -> '{}'", vdbPath.filename().string(),
+                                  olovolPath.filename().string());
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        assetManager->ImportAsset(olovolPath);
+                    }
+                    SafeRefreshSubtree(m_CurrentDirectory);
+                    RefreshVisibleItems();
+                }
+                else
+                {
+                    OLO_CORE_ERROR("ContentBrowser: failed to cook '{}': {}", vdbPath.filename().string(), error);
+                }
+            }
+#endif
 
             ImGui::NextColumn();
         }

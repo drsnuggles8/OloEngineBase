@@ -27,7 +27,7 @@ endif()
 # only thing available is whatever the user put in the cache / on the command
 # line. Keep the two in sync — a mismatch means either an unused port build
 # (harmless, slow) or a missing one (a find_package failure at configure).
-foreach(_olo_feat alembic materialx vulkan)
+foreach(_olo_feat alembic materialx openvdb vulkan)
     string(TOUPPER "${_olo_feat}" _olo_feat_uc)
     if(NOT DEFINED OLO_WITH_${_olo_feat_uc} OR OLO_WITH_${_olo_feat_uc})
         list(APPEND VCPKG_MANIFEST_FEATURES "${_olo_feat}")
@@ -76,6 +76,15 @@ option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilatio
 option(OLO_WITH_ALEMBIC "Import Alembic (.abc) geometry caches (vendors Imath + Alembic)" ON)
 option(OLO_WITH_MATERIALX "Import MaterialX (.mtlx) materials (vendors MaterialX)" ON)
 option(OLO_WITH_USD "Import OpenUSD stages (.usd/.usda/.usdc/.usdz); builds USD from source unless OLO_USD_INSTALL_DIR is set" ON)
+
+# OpenVDB (.vdb) volumetric import (#724). Unlike Alembic/USD/MaterialX above, this is
+# deliberately NOT linked onto the OloEngine target — the issue's second acceptance
+# criterion is no OpenVDB dependency in the shipped runtime. OpenVDB (and the blosc/
+# boost/imath/openexr/tbb it drags in) is confined to the OloEngine-VolumeCook static
+# lib, linked only by OloEditor (and OloEngine-Tests, for CPU contract-test coverage of
+# the grid->texture transform math) — never by OloRuntime or OloServer. See
+# docs/agent-rules/asset-import-usd-alembic.md and OloEngine-VolumeCook/CMakeLists.txt.
+option(OLO_WITH_OPENVDB "Import OpenVDB (.vdb) volumetric grids at cook/editor time (vendors OpenVDB via OloEngine-VolumeCook; never linked into shipped runtime)" ON)
 
 # Vulkan RHI backend (#691 Phase 4, ADR 0011 §2). This is the AVAILABILITY axis only —
 # "is the backend compiled in at all" — deliberately separate from the runtime SELECTION
@@ -415,6 +424,13 @@ add_subdirectory(tools/OloHeaderTool)
 # Main targets built by this project
 add_subdirectory(OloEngine)
 add_subdirectory(OloEngine-LuaScriptCore)
+
+# Editor/cook-only OpenVDB importer (#724) — see the OLO_WITH_OPENVDB option comment above.
+# Built whenever the option is on and there's at least one consumer (the editor); tests link
+# it too when BUILD_TESTS is on so the grid->texture transform math gets CPU coverage.
+if(OLO_WITH_OPENVDB)
+    add_subdirectory(OloEngine-VolumeCook)
+endif()
 
 if(CMAKE_GENERATOR MATCHES "Visual Studio")
     add_subdirectory(OloEngine-ScriptCore)
