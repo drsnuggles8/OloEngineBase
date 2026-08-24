@@ -102,7 +102,9 @@ position, gradually) · [runtime-scene-switching.md](runtime-scene-switching.md)
 shipped games only) · [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) (a
 component's teardown, when `m_Registry.destroy()` skips `OnComponentRemoved`) ·
 [vcpkg-dependency-management.md](vcpkg-dependency-management.md) (three of five traps silent —
-including a forced port option that never applied) ·
+including a forced port option that never applied; and trap 9, where moving a dependency to a port
+switched ON an upstream-default option the old header drop never set, which killed ThreadSanitizer
+outright on any hostname resolution) ·
 [asset-import-usd-alembic.md](asset-import-usd-alembic.md) (winding, up-axis, unit scale, UV origin) ·
 [mcp-protocol-eras.md](mcp-protocol-eras.md) (swapping the event stream's notification carrier drops
 pushes that nothing reports missing — which is why the new carrier runs *beside* the deprecated one,
