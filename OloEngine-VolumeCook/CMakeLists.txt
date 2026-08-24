@@ -24,6 +24,52 @@ find_package(OpenVDB CONFIG REQUIRED)
 # symbols against other archives). Link blosc explicitly.
 find_package(blosc CONFIG REQUIRED)
 
+# FindOpenVDB.cmake (shipped by the openvdb vcpkg port; `find_package(OpenVDB
+# CONFIG REQUIRED)` is silently redirected to it by the port's vcpkg-cmake-
+# wrapper.cmake — there is no OpenVDBConfig.cmake) is NOT multi-config aware:
+# it resolves OpenVDB::openvdb's IMPORTED_LOCATION with a single, non-suffixed
+# find_library() call rather than per-config IMPORTED_LOCATION_DEBUG/RELEASE
+# properties. Under the Ninja Multi-Config generator this silently binds ONE
+# config's .lib regardless of which config a given `--config` build actually
+# links — verified by reproducing locally: a Release OloEditor build picked up
+# `debug/lib/libopenvdb.lib` (a real link failure, `_ITERATOR_DEBUG_LEVEL`
+# mismatch: OloEngineRenderer.lib has 0, libopenvdb.lib has 2) even though the
+# SAME generator resolves every other vcpkg dependency (all proper CONFIG
+# packages with real per-config properties) correctly. This is the same class
+# of bug as vcpkg-dependency-management.md's Trap 4 (a mismatched CRT/debug
+# runtime that is a HEAP-CORRUPTION-shaped failure at runtime if it links at
+# all — here it doesn't even link, which is the safe direction to fail in),
+# via a different mechanism than that trap documents. TBB::tbb is pulled in
+# the same way (FindOpenVDB.cmake's `find_package(TBB CONFIG REQUIRED)` runs
+# inside the same non-config-aware resolution context) and needs the same fix.
+#
+# Fix: point both imported targets at BOTH configs explicitly, derived from
+# vcpkg's own install layout (`<triplet>/lib` vs `<triplet>/debug/lib`) rather
+# than trusting either Find-module's single guess. See
+# docs/agent-rules/asset-import-openvdb-volumetric.md for the full story.
+# release_lib_name / debug_lib_name are separate args: most vcpkg ports keep
+# the same filename in `lib/` vs `debug/lib/` (e.g. libopenvdb.lib), but some
+# (TBB: `tbb12.lib` vs `tbb12_debug.lib`) genuinely rename it per config.
+function(olo_fix_vcpkg_multiconfig_imported_location target_name release_lib_name debug_lib_name)
+    if(NOT TARGET ${target_name})
+        message(FATAL_ERROR "olo_fix_vcpkg_multiconfig_imported_location: no such target ${target_name}")
+    endif()
+    set(_release_lib "${_VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib/${release_lib_name}")
+    set(_debug_lib "${_VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/lib/${debug_lib_name}")
+    if(NOT EXISTS "${_release_lib}" OR NOT EXISTS "${_debug_lib}")
+        message(FATAL_ERROR "olo_fix_vcpkg_multiconfig_imported_location: expected both\n"
+            "  ${_release_lib}\n  ${_debug_lib}\nto exist for ${target_name} — vcpkg install layout changed?")
+    endif()
+    set_target_properties(${target_name} PROPERTIES
+        IMPORTED_CONFIGURATIONS "Debug;Release"
+        IMPORTED_LOCATION_DEBUG "${_debug_lib}"
+        IMPORTED_LOCATION_RELEASE "${_release_lib}"
+    )
+endfunction()
+
+olo_fix_vcpkg_multiconfig_imported_location(OpenVDB::openvdb libopenvdb.lib libopenvdb.lib)
+olo_fix_vcpkg_multiconfig_imported_location(TBB::tbb tbb12.lib tbb12_debug.lib)
+
 add_subdirectory(src)
 
 olo_set_compiler_options(OloEngine-VolumeCook)
