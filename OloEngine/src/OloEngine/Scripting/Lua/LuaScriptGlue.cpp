@@ -385,6 +385,7 @@ namespace OloEngine
             REGISTER_COMPONENT(PhysicsJoint3DComponent),
             REGISTER_COMPONENT(VehicleComponent),
             REGISTER_COMPONENT(BoatComponent),
+            REGISTER_COMPONENT(SailComponent),
             REGISTER_COMPONENT(AircraftComponent),
             REGISTER_COMPONENT(RagdollComponent),
             REGISTER_COMPONENT(ClothComponent),
@@ -1704,6 +1705,56 @@ namespace OloEngine
                                         "steerInput", sol::property([](const BoatComponent& b)
                                                                     { return b.m_SteerInput; }, [](BoatComponent& b, f32 x)
                                                                     { if (std::isfinite(x)) b.m_SteerInput = std::clamp(x, -1.0f, 1.0f); }));
+
+        // --- SailComponent (issue #899) ---
+        // The rig tuning validates finiteness + range; the driver inputs clamp.
+        // The RUNTIME READOUTS are exposed READ-ONLY on purpose: SailSystem is
+        // their only writer, and a script that could assign m_YardAngle would be
+        // able to desync the drawn sail from the force actually being applied —
+        // which is precisely the "sail is decoration" bug this component exists
+        // to end. Read yardAngle and copy it onto the sail mesh entity's Y
+        // rotation; do not invent one.
+        lua.new_usertype<SailComponent>("SailComponent",
+                                        "enabled", sol::property([](const SailComponent& s)
+                                                                 { return s.m_Enabled; }, [](SailComponent& s, bool x)
+                                                                 { s.m_Enabled = x; }),
+                                        "sailArea", sol::property([](const SailComponent& s)
+                                                                  { return s.m_SailArea; }, [](SailComponent& s, f32 x)
+                                                                  { if (std::isfinite(x) && x >= 0.0f) s.m_SailArea = x; }),
+                                        "airDensity", sol::property([](const SailComponent& s)
+                                                                    { return s.m_AirDensity; }, [](SailComponent& s, f32 x)
+                                                                    { if (std::isfinite(x) && x >= 0.0f) s.m_AirDensity = x; }),
+                                        "maxNormalCoefficient", sol::property([](const SailComponent& s)
+                                                                              { return s.m_MaxNormalCoefficient; }, [](SailComponent& s, f32 x)
+                                                                              { if (std::isfinite(x) && x >= 0.0f) s.m_MaxNormalCoefficient = x; }),
+                                        "maxYardAngleDeg", sol::property([](const SailComponent& s)
+                                                                         { return s.m_MaxYardAngleDeg; }, [](SailComponent& s, f32 x)
+                                                                         { if (std::isfinite(x)) s.m_MaxYardAngleDeg = std::clamp(x, 0.0f, 90.0f); }),
+                                        "trimRateDeg", sol::property([](const SailComponent& s)
+                                                                     { return s.m_TrimRateDeg; }, [](SailComponent& s, f32 x)
+                                                                     { if (std::isfinite(x) && x >= 0.0f) s.m_TrimRateDeg = x; }),
+                                        "centreOfEffortY", sol::property([](const SailComponent& s)
+                                                                         { return s.m_CentreOfEffortY; }, [](SailComponent& s, f32 x)
+                                                                         { if (std::isfinite(x)) s.m_CentreOfEffortY = std::clamp(x, -1000.0f, 1000.0f); }),
+                                        "centreOfEffortZ", sol::property([](const SailComponent& s)
+                                                                         { return s.m_CentreOfEffortZ; }, [](SailComponent& s, f32 x)
+                                                                         { if (std::isfinite(x)) s.m_CentreOfEffortZ = std::clamp(x, -1000.0f, 1000.0f); }),
+                                        "autoTrim", sol::property([](const SailComponent& s)
+                                                                  { return s.m_AutoTrim; }, [](SailComponent& s, bool x)
+                                                                  { s.m_AutoTrim = x; }),
+                                        "trimInput", sol::property([](const SailComponent& s)
+                                                                   { return s.m_TrimInput; }, [](SailComponent& s, f32 x)
+                                                                   { if (std::isfinite(x)) s.m_TrimInput = std::clamp(x, -1.0f, 1.0f); }),
+                                        "sailSetInput", sol::property([](const SailComponent& s)
+                                                                      { return s.m_SailSetInput; }, [](SailComponent& s, f32 x)
+                                                                      { if (std::isfinite(x)) s.m_SailSetInput = std::clamp(x, 0.0f, 1.0f); }),
+                                        // Read-only readouts, written by SailSystem each physics step.
+                                        "yardAngle", sol::readonly(&SailComponent::m_YardAngle),
+                                        "apparentWindSpeed", sol::readonly(&SailComponent::m_ApparentWindSpeed),
+                                        "apparentWindAngle", sol::readonly(&SailComponent::m_ApparentWindAngle),
+                                        "driveForce", sol::readonly(&SailComponent::m_DriveForce),
+                                        "heelForce", sol::readonly(&SailComponent::m_HeelForce),
+                                        "luffing", sol::readonly(&SailComponent::m_Luffing));
 
         // --- AircraftComponent (issue #438) ---
         // Same split as the boat: pilot inputs clamp, airframe tuning validates.

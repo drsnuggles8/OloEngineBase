@@ -751,6 +751,31 @@ case 2780759970u: // RetargetingComponent
     }
     break;
 }
+case 232052979u: // SailComponent
+{
+    auto& comp = deserializedEntity.AddComponent<SailComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_SailArea)) return false;
+    comp.m_SailArea = std::clamp(comp.m_SailArea, static_cast<f32>(0.0f), static_cast<f32>(100000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_AirDensity)) return false;
+    comp.m_AirDensity = std::clamp(comp.m_AirDensity, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxNormalCoefficient)) return false;
+    comp.m_MaxNormalCoefficient = std::clamp(comp.m_MaxNormalCoefficient, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxYardAngleDeg)) return false;
+    comp.m_MaxYardAngleDeg = std::clamp(comp.m_MaxYardAngleDeg, static_cast<f32>(0.0f), static_cast<f32>(90.0f));
+    if (!SceneBinIO::Read(reader, comp.m_TrimRateDeg)) return false;
+    comp.m_TrimRateDeg = std::clamp(comp.m_TrimRateDeg, static_cast<f32>(0.0f), static_cast<f32>(3600.0f));
+    if (!SceneBinIO::Read(reader, comp.m_CentreOfEffortY)) return false;
+    comp.m_CentreOfEffortY = std::clamp(comp.m_CentreOfEffortY, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_CentreOfEffortZ)) return false;
+    comp.m_CentreOfEffortZ = std::clamp(comp.m_CentreOfEffortZ, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_AutoTrim)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_TrimInput)) return false;
+    comp.m_TrimInput = std::clamp(comp.m_TrimInput, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SailSetInput)) return false;
+    comp.m_SailSetInput = std::clamp(comp.m_SailSetInput, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    break;
+}
 case 1922789083u: // SnowDeformerComponent
 {
     auto& comp = deserializedEntity.AddComponent<SnowDeformerComponent>();

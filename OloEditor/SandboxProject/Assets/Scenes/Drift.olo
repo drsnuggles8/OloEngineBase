@@ -55,8 +55,16 @@ FogSettings:
   SunIntensity: 5
 WindSettings:
   # Blowing along the authored swell (WaveDir0 below), so wind and sea agree.
-  # Per-leg wind DIRECTION belongs with the sailing model in #899: rotating it
-  # without also rotating the wave trains puts the whitecaps across the wind.
+  # Since #899 this block is ALSO the boat's engine: SailSystem reads Direction
+  # and Speed straight out of here, so what used to be a foliage/particle
+  # setting is now the thing that decides which way the player can go.
+  #
+  # Direction stays FIXED per leg on purpose. Rotating it without also rotating
+  # the wave trains would put the whitecaps across the wind, and the sea state
+  # is what a player reads the wind off before they look at the sail.
+  # Speed is overwritten every tick by the weather director (2 / 5 / 14 m/s for
+  # Clear / Overcast / Storm), which is why the sailing tuning below has to work
+  # across a 7x range of wind rather than at one design point.
   Enabled: true
   Direction: [0.989, 0, 0.148]
   Speed: 2
@@ -201,11 +209,16 @@ PrecipitationSettings:
 #   decision rather than a default. See the note on UseFFT below.
 #
 # TUNING NOTE — where the numbers live
-#   Hull behaviour is entirely in BoatComponent / BuoyancyComponent below, so a
-#   feel change is a scene edit and needs no rebuild. Input shaping (throttle
-#   spool, rudder slew, the speed-dependent rudder falloff) is in
-#   DriftBoatController.lua; camera feel is in DriftFollowCamera.lua. Those three
-#   places are the whole tuning surface.
+#   Hull and RIG behaviour are entirely in BoatComponent / SailComponent /
+#   BuoyancyComponent below, so a feel change is a scene edit and needs no
+#   rebuild. Input shaping (throttle spool, rudder slew, the speed-dependent
+#   rudder falloff, how fast sail is shortened) is in DriftBoatController.lua;
+#   camera feel is in DriftFollowCamera.lua. Those places are the whole tuning
+#   surface.
+#
+#   Since #899 the boat is WIND-DRIVEN, and the one thing not to re-derive:
+#   SailComponent::SailArea and BoatComponent::ForwardDrag are a single ratio.
+#   Changing either alone changes every speed in the game.
 #
 # WEATHER AND TIME OF DAY — issue #882
 #   The Atmosphere entity below carries the whole of it: ProceduralSky,
@@ -908,27 +921,36 @@ Entities:
           Metallic: 0
 
   # ── The boat ──────────────────────────────────────────────────────────────
+  # SINCE #899 THIS IS A SAILING BOAT. The wind drives it (SailComponent below);
+  # the propeller is an auxiliary for getting off a lee shore and out of a flat
+  # calm, and its MaxThrust was cut by an order of magnitude to say so. Read the
+  # sail block before re-tuning anything here — hull drag and sail area are one
+  # ratio, not two independent numbers.
+  #
   # THE HULL NUMBERS. Derived rather than guessed, so they can be re-derived
   # after a change instead of being poked at:
   #
-  #   * The probe box is the collider box (2 x 0.8 x 5 m = 8 m^3). At 1000 kg/m^3
-  #     that supports 8000 kg fully submerged, so a 4000 kg hull floats at
-  #     exactly half immersion — origin ON the waterline, which is a boat's
-  #     normal working state and the state every offset below assumes.
-  #   * With the origin at the waterline, the propeller (y = -0.3) and the keel
-  #     (y = -0.4, taken from ProbeExtents.y by BoatSystem) both sit clear of the
-  #     ImmersionDepth ramp, so the boat makes full thrust in flat water and
-  #     loses it only when a wave genuinely lifts the stern.
-  #   * Top speed is NOT thrust / (ForwardDrag * mass). BuoyancyComponent's own
+  #   * The probe box (2.7 x 0.9 x 5 m = 12.15 m^3) displaces 12150 kg fully
+  #     submerged, so the 2600 kg hull floats at about a fifth of that — the
+  #     origin sits a little ABOVE the waterline, which is the state every
+  #     offset below assumes. The propeller (y = -0.55) and the keel
+  #     (y = -0.45, taken from ProbeExtents.y by BoatSystem) are both under it.
+  #     #899 widened that box and flattened it by the same factor, so the
+  #     displacement — and the waterline — are unchanged; see the note on
+  #     ProbeExtents below for why the beam had to grow.
+  #   * Forward damping is NOT ForwardDrag alone. BuoyancyComponent's own
   #     LinearDrag damps the same velocity, scaled by the submerged fraction, so
-  #     the effective coefficient is ForwardDrag + LinearDrag * submergence ~=
-  #     0.7 + 0.8 * 0.5 = 1.1. Measured: 30000 N gave 6.7 m/s and 42000 N gives
-  #     ~9.5 m/s, i.e. 42000 / (1.1 * 4000) = 9.5 — the combined figure, not the
-  #     hull-drag-only one, which would have predicted 15 m/s.
+  #     the effective coefficient is roughly
+  #         ForwardDrag * hullImmersion + LinearDrag * submergedFraction.
+  #     Both halves were cut for #899 (0.7 -> 0.12 and 0.8 -> 0.35), because a
+  #     hull tuned to be held back by 22 kN of propeller cannot be moved by a
+  #     sail: the wind can only ever supply a few kN, and it supplies them as a
+  #     force that FALLS as the boat speeds up. The boat now carries its way
+  #     between puffs, which is also what a sailing boat does.
   #   * Steady turn rate at full rudder is MaxRudderTorque / (YawDrag * mass) =
-  #     6500 / (2.2 * 4000) = 0.74 rad/s. DriftBoatController then trims the
-  #     rudder command back at speed. Measured full-ahead-full-rudder turning
-  #     circle: about 40 m across, closing in ~14 s — a boat, not a jet ski.
+  #     5400 / (2.2 * 2600) = 0.94 rad/s, before DriftBoatController trims the
+  #     rudder command back at speed. The rudder is unchanged by #899: it is the
+  #     only control that still works with no wind at all.
   #
   # LinearDrag / AngularDrag on the rigidbody are ZERO on purpose. Buoyancy and
   # the hull model own all the damping; a second global damper on top of them
@@ -950,19 +972,38 @@ Entities:
       HalfExtents: [1, 0.4, 2.5]
     BuoyancyComponent:
       Enabled: true
-      ProbeExtents: [1, 0.6, 2.5]
+      # WIDER THAN THE COLLIDER, AND NARROWER IN HEIGHT, ON PURPOSE (#899).
+      # This box is the submerged-hull model, and its BEAM is what sets the
+      # righting moment that a loaded sail has to be fought back by. At a
+      # half-beam of 1.0 it was narrower than the drawn hull actually is
+      # (the model is 4.8 wide, x 0.57 = 2.74 m, so 1.37), and a rig big
+      # enough to move the boat rolled her clean over — measured, upside down
+      # and floating. 1.35 is the hull's real beam; the height came down from
+      # 0.6 to 0.45 to keep the displaced volume, and so the waterline, where
+      # it was. Stiffer, not more buoyant.
+      ProbeExtents: [1.35, 0.45, 2.5]
       FluidDensity: 1000
       BuoyancyScale: 1
-      # Vertical bobbing damper. Low enough that the hull still rides the swell.
-      LinearDrag: 0.8
+      # Vertical bobbing damper — but it damps SURGE too (BuoyancySystem applies
+      # it to the whole velocity vector, scaled by the submerged fraction), and
+      # at 0.8 it was the single biggest thing standing between the wind and the
+      # boat. Halved for #899. Still low enough that the hull rides the swell.
+      LinearDrag: 0.35
       # Rocking damper. This is the knob that decides whether the swell reads as
       # a boat working in a seaway or as a bath toy; 1.2 keeps the roll alive
       # without letting it build.
       AngularDrag: 2.2
       SubmergenceRamp: 0.8
+    # The AUXILIARY. Everything here still works exactly as it did; it is just
+    # no longer the way you get anywhere. 900 N against the reduced damping is
+    # about 2 m/s — enough to claw off a lee shore or ghost out of a flat calm
+    # (the Clear leg's 2 m/s wind only makes about 0.7 m/s under sail), and
+    # deliberately slower than the same boat under sail in any real breeze. That
+    # ordering is the whole point and is pinned by
+    # SailTest's DriftSailingTest.TheEngineIsSlowerThanTheSail.
     BoatComponent:
       Enabled: true
-      MaxThrust: 22000
+      MaxThrust: 900
       ThrustOffsetZ: -2.2
       ThrustOffsetY: -0.55
       MaxRudderTorque: 5400
@@ -974,11 +1015,63 @@ Entities:
       # turn instead of sliding broadside. Dropping this toward the forward value
       # is how you would author a hovercraft.
       LateralDrag: 3.5
-      ForwardDrag: 0.7
+      # Cut from 0.7 for #899 — see the effective-damping note above. LATERAL
+      # drag is deliberately untouched and now towers over it: that ratio IS the
+      # keel, and on a sailing boat the keel is what converts the sail's side
+      # force into forward travel instead of letting the boat slide off downwind.
+      ForwardDrag: 0.12
       YawDrag: 2.2
       ImmersionDepth: 0.3
       ThrottleInput: 0
       SteerInput: 0
+    # ── The rig ───────────────────────────────────────────────────────────
+    # THIS is the propulsion now. SailSystem reads the scene WindSettings at
+    # the centre of effort, subtracts the hull's own velocity to get apparent
+    # wind, braces the yard to the angle that makes the most forward drive, and
+    # applies a flat-plate force NORMAL to the sail at the point below.
+    #
+    # Three of these numbers decide how the game plays:
+    #
+    #   MaxYardAngle is the SPEED GOVERNOR and the no-go zone in one. On a reach
+    #     the drive goes to zero once the boat is fast enough that the apparent
+    #     wind draws forward of the braced yard, which caps beam-reach speed at
+    #     roughly the true wind speed — so Clear (2 m/s), Overcast (5) and Storm
+    #     (14) are three genuinely different boats. 45 deg is a square rigger's
+    #     brace and puts the no-go zone at about 55-60 deg either side of the
+    #     wind: there is no sailing upwind, only tacking. Raise it and the boat
+    #     points higher AND goes faster; both, together, always.
+    #   SailArea is a GAME number and so is the hull's ForwardDrag above — what
+    #     was tuned is the RATIO of the two. A 5 m hull massing 2600 kg is
+    #     already not naval architecture; asking for an honest 25 m^2 of canvas
+    #     on top of it would have given a boat that took four minutes to cross
+    #     the bay. Change one of the pair and re-measure, never just one.
+    #   CentreOfEffort is NOT cosmetic. Its HEIGHT (2.64 m, the middle of the
+    #     drawn sail once the hull mesh's 0.57 scale and -0.5 offset are
+    #     applied) is the whole heel: the side force acts there, above the centre
+    #     of mass, and buoyancy fights it back. That replaces the roll
+    #     DriftBoatController used to fake off yaw rate. Its Z (-0.36 m, the mast
+    #     line) is 0.36 m AFT of the centre of mass, which gives free weather
+    #     helm — a loaded sail nudges the bow up into the wind, which is why the
+    #     boat now feels like it wants something.
+    SailComponent:
+      Enabled: true
+      SailArea: 260
+      AirDensity: 1.225
+      MaxNormalCoefficient: 1.5
+      MaxYardAngleDeg: 45
+      # A yard takes a few seconds to come round. Fast enough that a tack is not
+      # a wait, slow enough that it reads as being hauled rather than snapped.
+      TrimRateDeg: 28
+      # 2.0, not the 2.64 that is the middle of the DRAWN sail. SailArea is the
+      # whole rig's area, so this has to be the whole rig's centre of effort —
+      # and the sails a low-poly mesh does not show (headsail, staysail) all sit
+      # lower than the one it does. Height is the heel, so this is also the
+      # cheapest lever if she ever lies over too far.
+      CentreOfEffortY: 2.0
+      CentreOfEffortZ: -0.36
+      AutoTrim: true
+      TrimInput: 0
+      SailSetInput: 1
     LuaScriptComponent:
       ScriptFile: Scripts/LuaScripts/DriftBoatController.lua
     RelationshipComponent:
@@ -987,11 +1080,16 @@ Entities:
         - 879000000000021
 
   # ── Hull mesh ─────────────────────────────────────────────────────────────
-  # A CHILD of the physics root, and that is load-bearing: DriftBoatController
-  # rolls this entity to heel the boat into its turns. BoatSystem applies hull
-  # drag at the centre of mass, so the physics body cannot roll into a turn on
-  # its own — and rolling the root instead would tilt the collider, the buoyancy
-  # probe box and the camera's yaw source along with the visual.
+  # A CHILD of the physics root, which used to be load-bearing for a reason that
+  # no longer applies: DriftBoatController rolled this entity to fake heel,
+  # because BoatSystem applies hull drag at the centre of mass and so the body
+  # could not heel at all. Since #899 the SAIL heels the body for real (its force
+  # is applied above the centre of mass), the script fake is gone, and this
+  # entity is once again just the hull mesh. It stays a child because the visual
+  # waterline offset below belongs to the mesh and not to the collider.
+  #
+  # The model is the SAIL-LESS half of the original ship-small.glb. See the sail
+  # entity below and KenneyVehicles/LICENSE.md for how the pair was made.
   - Entity: 879000000000021
     TagComponent:
       Tag: Boat Hull
@@ -1005,8 +1103,39 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.57, 0.57, 0.57]
     ModelComponent:
-      FilePath: SandboxProject/Assets/Models/KenneyVehicles/ship-small.glb
+      FilePath: SandboxProject/Assets/Models/KenneyVehicles/ship-small-hull.glb
       Visible: true
     RelationshipComponent:
       ParentHandle: 879000000000020
+      Children:
+        - 879000000000022
+
+  # ── The sail ──────────────────────────────────────────────────────────────
+  # The entity that exists so the sail can point somewhere (#899). It is a child
+  # of the HULL MESH, not of the physics root, and both halves of that matter:
+  #
+  #   * being under the hull mesh means it inherits the 0.57 model scale and the
+  #     -0.5 visual waterline, so the translation below is in the ship model's
+  #     OWN coordinates and is exactly where the sail node sat inside the
+  #     original single .glb. The split is invisible;
+  #   * ship-small-sail.glb was re-origined onto the mast when it was extracted,
+  #     so this entity's Y ROTATION IS THE YARD ANGLE. DriftBoatController copies
+  #     SailComponent::yardAngle onto it every tick and the sail braces round the
+  #     mast. Without the re-origin the same rotation would swing the sail around
+  #     the boat instead of around its own mast.
+  #
+  # Rotation is authored at zero — the yard squared, which is the trim for a dead
+  # run — so the first frame before any script tick looks correct.
+  - Entity: 879000000000022
+    TagComponent:
+      Tag: Boat Sail
+    TransformComponent:
+      Translation: [0, 3.13852, -0.6333724]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ModelComponent:
+      FilePath: SandboxProject/Assets/Models/KenneyVehicles/ship-small-sail.glb
+      Visible: true
+    RelationshipComponent:
+      ParentHandle: 879000000000021
       Children: []

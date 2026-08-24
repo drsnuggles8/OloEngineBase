@@ -41,6 +41,7 @@ ids.insert(entt::type_hash<ProgressionComponent>::value());
 ids.insert(entt::type_hash<QuestGiverComponent>::value());
 ids.insert(entt::type_hash<RelationshipComponent>::value());
 ids.insert(entt::type_hash<RetargetingComponent>::value());
+ids.insert(entt::type_hash<SailComponent>::value());
 ids.insert(entt::type_hash<SnowDeformerComponent>::value());
 ids.insert(entt::type_hash<SpotLightComponent>::value());
 ids.insert(entt::type_hash<SpringBoneComponent>::value());

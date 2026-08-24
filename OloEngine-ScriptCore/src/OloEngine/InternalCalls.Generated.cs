@@ -1536,6 +1536,53 @@ namespace OloEngine
 		internal static extern void Rigidbody3DComponent_SetIsTrigger(ulong entityID, bool value);
 		#endregion
 
+		#region SailComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool SailComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SailComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SailComponent_GetSailArea(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SailComponent_SetSailArea(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SailComponent_GetAirDensity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SailComponent_SetAirDensity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SailComponent_GetMaxNormalCoefficient(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SailComponent_SetMaxNormalCoefficient(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SailComponent_GetMaxYardAngleDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SailComponent_SetMaxYardAngleDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SailComponent_GetTrimRateDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SailComponent_SetTrimRateDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SailComponent_GetCentreOfEffortY(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SailComponent_SetCentreOfEffortY(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SailComponent_GetCentreOfEffortZ(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SailComponent_SetCentreOfEffortZ(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool SailComponent_GetAutoTrim(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SailComponent_SetAutoTrim(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SailComponent_GetTrimInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SailComponent_SetTrimInput(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float SailComponent_GetSailSetInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SailComponent_SetSailSetInput(ulong entityID, float value);
+		#endregion
+
 		#region SphereAreaLightComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void SphereAreaLightComponent_GetColor(ulong entityID, out Vector3 value);

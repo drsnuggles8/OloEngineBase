@@ -71,6 +71,22 @@ InputActionContexts:
               Axis: LeftX
               Threshold: 0.15
               Positive: true
+        # -- Sail (issue #899) -----------------------------------------------
+        # How much canvas is set, NOT the yard angle: the yard trims itself.
+        # Shortening sail is how you depower in a blow, so these are the
+        # storm controls as much as the speed controls.
+        - Name: Boat.SailMore
+          Bindings:
+            - Type: Keyboard
+              Code: 81        # Q
+            - Type: GamepadButton
+              Button: DPadUp
+        - Name: Boat.SailLess
+          Bindings:
+            - Type: Keyboard
+              Code: 69        # E
+            - Type: GamepadButton
+              Button: DPadDown
         # -- Camera ----------------------------------------------------------
         # Held, not toggled: a look-back you have to keep holding cannot leave
         # the camera stuck backwards when the player forgets about it.

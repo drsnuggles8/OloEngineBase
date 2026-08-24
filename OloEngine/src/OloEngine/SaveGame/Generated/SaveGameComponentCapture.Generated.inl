@@ -91,6 +91,7 @@ SAVE_COMPONENT(RelationshipComponent, entity, writer);
 SAVE_COMPONENT(RetargetingComponent, entity, writer);
 SAVE_COMPONENT(Rigidbody2DComponent, entity, writer);
 SAVE_COMPONENT(Rigidbody3DComponent, entity, writer);
+SAVE_COMPONENT(SailComponent, entity, writer);
 SAVE_COMPONENT(ScriptComponent, entity, writer);
 SAVE_COMPONENT(SkeletonComponent, entity, writer);
 SAVE_COMPONENT(SnowDeformerComponent, entity, writer);

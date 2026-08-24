@@ -1626,6 +1626,185 @@ namespace OloEngine
         }
     };
 
+    // ── Sail (issue #899) ────────────────────────────────────────────────
+    //
+    // A wind-driven aerofoil that sits ALONGSIDE BoatComponent rather than
+    // inside it, and the split is deliberate: BoatComponent owns the medium the
+    // hull is in (water — propeller, rudder, keel), SailComponent owns the
+    // medium the rig is in (air). A boat can carry either, or both — Drift
+    // carries both, with the engine demoted to an auxiliary.
+    //
+    // The model is a FLAT PLATE, which is what a square sail on a low-poly
+    // pirate rig actually is:
+    //
+    //   * apparent wind = true wind (Scene::GetWindSettings through
+    //     WindSystem::GetWindAtPoint, sampled at the centre of effort) minus the
+    //     hull's own horizontal velocity. Sailing downwind therefore reduces the
+    //     wind the sail sees, which is what stops a boat outrunning the breeze;
+    //   * the yard braces about the mast to m_YardAngle. Under m_AutoTrim the
+    //     system solves for the brace that maximises FORWARD drive in closed
+    //     form; otherwise m_TrimInput drives it. Either way it slews at
+    //     m_TrimRateDeg rather than snapping, so a tack reads as a manoeuvre.
+    //   * the force is normal to the sail, magnitude
+    //     q * area * m_MaxNormalCoefficient * (cosine of the angle between the
+    //     apparent wind and the sail normal), applied at the centre of effort.
+    //     Edge-on to the wind that is zero — the sail luffs; broadside it is the
+    //     maximum.
+    //
+    // Two behaviours fall out of that rather than being scripted, and they are
+    // the point of the whole component:
+    //
+    //   * THERE IS NO SAILING DEAD UPWIND. With the wind on the bow the drive
+    //     term goes to zero however the yard is braced, and m_MaxYardAngleDeg
+    //     decides how close the boat can point — 45 deg of brace on a square rig
+    //     puts the no-go zone at roughly 55-60 deg either side of the wind,
+    //     which is about what a square rigger managed. Getting anywhere upwind
+    //     means tacking.
+    //   * HEEL IS REAL. The force is applied m_CentreOfEffortY metres above the
+    //     hull origin, so its lateral part torques the body over exactly as wind
+    //     pressure does, against BuoyancyComponent's righting moment. That
+    //     replaces Drift's script-side roll fake, which existed because
+    //     BoatSystem applies hull drag at the centre of mass and so cannot heel
+    //     the body at all. m_CentreOfEffortZ likewise gives free weather helm
+    //     when the rig sits aft of the centre of mass.
+    //
+    // Axis convention is Jolt's, shared with BoatComponent / AircraftComponent:
+    // local +Z is the bow, +Y is up, and STARBOARD is local -X (forward x up).
+    // See Scene/EntityFacing.h; issue #897 is what that sentence cost.
+    struct SailComponent
+    {
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        // --- Rig ---
+        // The rig's TOTAL effective sail area (m^2), not the area of whichever
+        // single sail the model happens to draw. A boat carries headsails,
+        // staysails and topsails no low-poly mesh shows, and it is the total
+        // that decides how hard the wind pushes — so tune this against the
+        // hull's mass and drag, not against the mesh.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100000.0f)
+        f32 m_SailArea = 38.0f;
+        // Air density (kg/m^3). Sea-level ISA by default.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_AirDensity = 1.225f;
+        // Peak normal-force coefficient, reached with the sail broadside to the
+        // apparent wind. A fully separated flat plate is ~2.0; a real sail with
+        // some camber is quoted between 1.2 and 1.8. This is the single knob for
+        // "how powerful is the rig" once the area is set honestly.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_MaxNormalCoefficient = 1.5f;
+        // How far the yard can be braced round from square (degrees). This is
+        // the number that decides how close to the wind the boat can point: a
+        // square rig braces ~45 deg and cannot lay better than ~55-60 deg off
+        // the true wind; a fore-and-aft rig swings its boom much further and
+        // points higher. Author the RIG here, not the desired no-go angle.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 90.0f)
+        f32 m_MaxYardAngleDeg = 45.0f;
+        // Slew rate of the yard (degrees/second). The yard has mass and the crew
+        // have arms: snapping to the solved angle every tick reads as the sail
+        // being a UI readout rather than a thing being hauled round.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 3600.0f)
+        f32 m_TrimRateDeg = 35.0f;
+
+        // --- Centre of effort, in hull local space (metres) ---
+        // Where the sail force is applied. The HEIGHT is what produces heel, so
+        // it is not a cosmetic offset: put it at the geometric centre of the
+        // rig, roughly mid-sail. The Z offset relative to the centre of mass
+        // decides the helm balance — a rig aft of the CoM gives weather helm
+        // (the bow rounds up into the wind when the sail is loaded), which is
+        // both realistic and what makes a boat feel like it wants something.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1000.0f, Max = 1000.0f)
+        f32 m_CentreOfEffortY = 2.6f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1000.0f, Max = 1000.0f)
+        f32 m_CentreOfEffortZ = -0.36f;
+
+        // --- Live driver input (sanitized + read each physics step) ---
+        // Auto-trim solves the yard angle that maximises forward drive. Turn it
+        // off and m_TrimInput drives the yard directly, which is the skill
+        // mechanic: a badly trimmed sail is genuinely slower.
+        OLO_PROPERTY()
+        bool m_AutoTrim = true;
+        // Manual yard angle as a fraction of m_MaxYardAngleDeg, in [-1, 1],
+        // carrying the same sign as m_YardAngle below — so POSITIVE is the trim
+        // for wind on the STARBOARD side. Ignored while m_AutoTrim.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1.0f, Max = 1.0f)
+        f32 m_TrimInput = 0.0f;
+        // How much sail is set, in [0, 1]. 1 = everything drawing, 0 = bare
+        // poles. This is reefing: it scales the effective area, which is how a
+        // real boat depowers in a blow instead of lying on its ear.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_SailSetInput = 1.0f;
+
+        // --- Runtime outputs (written by SailSystem every physics step) ------
+        // NOT serialized and NOT part of operator==: they change every tick, so
+        // including them would both bloat a save and make SceneHierarchyPanel's
+        // equality tier record a phantom undo step per frame.
+
+        // The yard's brace, as a signed rotation about the hull's +Y in RADIANS.
+        // This is the value a script copies straight onto the sail mesh entity's
+        // Y rotation, and it is what makes the sail visibly trim.
+        //
+        // POSITIVE SWINGS THE STARBOARD YARDARM FORWARD (and the port yardarm
+        // aft), which is the trim for wind coming from the STARBOARD side —
+        // matching the sign of m_ApparentWindAngle below. Do not reach for a
+        // "braced to port/starboard" reading of the sign: a square yard has two
+        // ends and naming it by one of them is how a mirrored convention gets
+        // written down and believed (issue #897 is the same mistake on the
+        // rudder). The invariant that IS safe to reason from is that the sail's
+        // NORMAL always tilts to leeward: n = cos(yard)*forward + sin(yard)*port.
+        OLO_SERIALIZE(Skip)
+        f32 m_YardAngle = 0.0f;
+        // Apparent wind at the centre of effort: speed in m/s, and the bearing
+        // the wind is coming FROM relative to the bow in radians — 0 is dead
+        // ahead (in irons), +/-pi is a dead run, POSITIVE means the wind is on
+        // the starboard side.
+        OLO_SERIALIZE(Skip)
+        f32 m_ApparentWindSpeed = 0.0f;
+        OLO_SERIALIZE(Skip)
+        f32 m_ApparentWindAngle = 0.0f;
+        // This step's sail force resolved onto the hull's horizontal axes (N).
+        // Drive is along the bow; heel force is along the STARBOARD beam, so a
+        // positive value pushes the boat — and heels it — to starboard.
+        OLO_SERIALIZE(Skip)
+        f32 m_DriveForce = 0.0f;
+        OLO_SERIALIZE(Skip)
+        f32 m_HeelForce = 0.0f;
+        // The sail is not driving: too close to the wind, no wind, or no sail
+        // set. Scripts use it for the "you are in irons" cue.
+        OLO_SERIALIZE(Skip)
+        bool m_Luffing = true;
+
+        SailComponent() = default;
+        SailComponent(const SailComponent&) = default;
+
+        // Authored fields only — see the runtime-outputs note above. Compared
+        // field by field rather than with a whole-struct Math::BitwiseEqual, for
+        // the same padding reason BoatComponent documents.
+        auto operator==(const SailComponent& other) const -> bool
+        {
+            return m_Enabled == other.m_Enabled &&
+                   Math::BitwiseEqual(m_SailArea, other.m_SailArea) &&
+                   Math::BitwiseEqual(m_AirDensity, other.m_AirDensity) &&
+                   Math::BitwiseEqual(m_MaxNormalCoefficient, other.m_MaxNormalCoefficient) &&
+                   Math::BitwiseEqual(m_MaxYardAngleDeg, other.m_MaxYardAngleDeg) &&
+                   Math::BitwiseEqual(m_TrimRateDeg, other.m_TrimRateDeg) &&
+                   Math::BitwiseEqual(m_CentreOfEffortY, other.m_CentreOfEffortY) &&
+                   Math::BitwiseEqual(m_CentreOfEffortZ, other.m_CentreOfEffortZ) &&
+                   m_AutoTrim == other.m_AutoTrim &&
+                   Math::BitwiseEqual(m_TrimInput, other.m_TrimInput) &&
+                   Math::BitwiseEqual(m_SailSetInput, other.m_SailSetInput);
+        }
+    };
+
     // ── Aircraft (issue #438) ────────────────────────────────────────────
     //
     // A force-based fixed-wing flight model. Like BoatComponent this uses NO

@@ -1021,6 +1021,8 @@
 		"OloEngine/Physics3D/BuoyancySystem.cpp"
 		"OloEngine/Physics3D/BoatSystem.h"
 		"OloEngine/Physics3D/BoatSystem.cpp"
+		"OloEngine/Physics3D/SailSystem.h"
+		"OloEngine/Physics3D/SailSystem.cpp"
 		"OloEngine/Physics3D/AircraftSystem.h"
 		"OloEngine/Physics3D/AircraftSystem.cpp"
 		"OloEngine/Physics3D/ClothWindSystem.h"

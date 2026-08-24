@@ -1271,6 +1271,19 @@ namespace OloEngine
     {
     };
 
+    // SailComponent's Skip-tagged runtime readouts (the yard angle, the apparent-
+    // wind pair, the two force components, the luffing flag) are rewritten by
+    // SailSystem every physics step, and it carries padding around its two bools.
+    // Same two reasons as BoidComponent below: the memcmp path would see that
+    // churn across the snapshot-to-compare gap and record a phantom undo step for
+    // an edit the user made and then reverted, and it would compare indeterminate
+    // padding bytes (cpp:S5000). Its operator== compares authored fields only,
+    // which is exactly what this trait exists to select (issue #899).
+    template<>
+    struct PreferValueComparison<SailComponent> : std::true_type
+    {
+    };
+
     // CloudscapeComponent is trivially copyable but has padding (bool → f32
     // alignment gaps), so the memcmp path compares indeterminate padding bytes
     // (SonarCloud cpp:S5000 — same as PerceptibleComponent). It defines a
@@ -2100,6 +2113,7 @@ namespace OloEngine
             // Force-model vehicles (issue #438). Both need a dynamic Rigidbody 3D;
             // Boat additionally wants a Buoyancy component and a Water surface.
             DisplayAddComponentEntry<BoatComponent>("Boat");
+            DisplayAddComponentEntry<SailComponent>("Sail");
             DisplayAddComponentEntry<AircraftComponent>("Aircraft");
 
             ImGui::Separator();
@@ -6813,6 +6827,59 @@ namespace OloEngine
 
                 ImGui::TextDisabled("Needs a dynamic Rigidbody 3D over a Water surface.");
                 ImGui::TextDisabled("Pair with Buoyancy - that owns floating; this owns driving."); });
+
+        // Sail (issue #899) — wind propulsion. The air-side sibling of Boat.
+        DrawComponent<SailComponent>("Sail", entity, [](auto& component)
+                                     {
+                ImGui::Checkbox("Enabled", &component.m_Enabled);
+
+                ImGui::SeparatorText("Rig");
+                ImGui::DragFloat("Sail Area", &component.m_SailArea, 0.5f, 0.0f, 100000.0f, "%.1f m2");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("The RIG's total effective area, not the drawn sail's. Tune against hull mass and drag.");
+                ImGui::DragFloat("Air Density", &component.m_AirDensity, 0.01f, 0.0f, 100.0f, "%.3f kg/m3");
+                ImGui::DragFloat("Max Normal Coefficient", &component.m_MaxNormalCoefficient, 0.05f, 0.0f, 100.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Peak force coefficient, sail broadside to the wind. Flat plate ~2.0; a real sail 1.2-1.8.");
+                ImGui::DragFloat("Max Yard Angle", &component.m_MaxYardAngleDeg, 0.5f, 0.0f, 90.0f, "%.1f deg");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How far the yard braces from square. THIS is what sets how close to the wind the boat can point.");
+                ImGui::DragFloat("Trim Rate", &component.m_TrimRateDeg, 1.0f, 0.0f, 3600.0f, "%.0f deg/s");
+
+                ImGui::SeparatorText("Centre of Effort");
+                ImGui::DragFloat("Height", &component.m_CentreOfEffortY, 0.05f, -1000.0f, 1000.0f, "%.2f m");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Above the hull origin. This is what produces HEEL - it is not a cosmetic offset.");
+                ImGui::DragFloat("Offset Z", &component.m_CentreOfEffortZ, 0.05f, -1000.0f, 1000.0f, "%.2f m");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Along the hull's local Z. A rig AFT of the centre of mass gives weather helm.");
+
+                ImGui::SeparatorText("Driver Input");
+                ImGui::Checkbox("Auto Trim", &component.m_AutoTrim);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Solve the yard angle that maximises forward drive. Off = Trim below drives the yard directly.");
+                ImGui::BeginDisabled(component.m_AutoTrim);
+                ImGui::SliderFloat("Trim", &component.m_TrimInput, -1.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Manual yard angle as a fraction of Max Yard Angle. Positive is the trim for wind from STARBOARD.");
+                ImGui::EndDisabled();
+                ImGui::SliderFloat("Sail Set", &component.m_SailSetInput, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Reefing. 1 = full sail, 0 = bare poles. Scales the effective area, which is how you depower in a blow.");
+
+                // Live readouts. SailSystem owns these, so they are shown, never
+                // edited - an editable copy would just be overwritten next tick.
+                ImGui::SeparatorText("Readout (runtime)");
+                ImGui::Text("Apparent wind: %.1f m/s at %.0f deg%s", component.m_ApparentWindSpeed,
+                            glm::degrees(component.m_ApparentWindAngle),
+                            component.m_ApparentWindAngle >= 0.0f ? " (starboard)" : " (port)");
+                ImGui::Text("Yard: %.0f deg  |  Drive: %.0f N  |  Heel: %.0f N",
+                            glm::degrees(component.m_YardAngle), component.m_DriveForce, component.m_HeelForce);
+                if (component.m_Luffing)
+                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Luffing - the sail is not driving.");
+
+                ImGui::TextDisabled("Needs a dynamic Rigidbody 3D and scene Wind enabled.");
+                ImGui::TextDisabled("Pair with Boat - that owns the water, this owns the air."); });
 
         // Aircraft (issue #438) — a force-based fixed-wing flight model.
         DrawComponent<AircraftComponent>("Aircraft", entity, [](auto& component)

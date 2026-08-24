@@ -91,6 +91,7 @@ TRY_LOAD_COMPONENT(RelationshipComponent);
 TRY_LOAD_COMPONENT(RetargetingComponent);
 TRY_LOAD_COMPONENT(Rigidbody2DComponent);
 TRY_LOAD_COMPONENT(Rigidbody3DComponent);
+TRY_LOAD_COMPONENT(SailComponent);
 TRY_LOAD_COMPONENT(ScriptComponent);
 TRY_LOAD_COMPONENT(SkeletonComponent);
 TRY_LOAD_COMPONENT(SnowDeformerComponent);
