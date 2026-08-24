@@ -2141,6 +2141,15 @@ namespace OloEngine
             ar << c.m_VTTrilinearEnabled << c.m_VTCompressedCache;
         }
 
+        // ── Format v22: radial island falloff (issue #880) ──
+        // Appended at the end when kSaveGameFormatVersion was bumped 21->22. A
+        // save written before v22 omits the block and keeps IslandFalloff at 0,
+        // i.e. the mask off — which reproduces the pre-#880 height field exactly.
+        if (HasFieldsSince(ar, 22))
+        {
+            ar << c.m_HeightShaping.IslandFalloff << c.m_HeightShaping.IslandFalloffRadius;
+        }
+
         if (ar.IsLoading())
         {
             // Sanitize untrusted on-disk values so corrupt save data can't poison
@@ -2156,6 +2165,8 @@ namespace OloEngine
             sanitize(c.m_HeightShaping.WarpFrequency, 0.0f, 64.0f, 2.0f);
             sanitize(c.m_HeightShaping.TerraceSharpness, 0.0f, 0.999f, 0.6f);
             sanitize(c.m_HeightShaping.HeightExponent, 0.05f, 16.0f, 1.0f);
+            sanitize(c.m_HeightShaping.IslandFalloff, 0.0f, 1.0f, 0.0f);
+            sanitize(c.m_HeightShaping.IslandFalloffRadius, 0.0f, 0.5f, 0.3f);
             c.m_HeightShaping.TerraceSteps = std::min(c.m_HeightShaping.TerraceSteps, 256u);
             c.m_SplatmapGenResolution = std::clamp(c.m_SplatmapGenResolution, 16u, 4096u);
             c.m_ProceduralErosionIterations = std::clamp(c.m_ProceduralErosionIterations, 0, 64);

@@ -38,6 +38,31 @@ namespace OloEngine
         // <1 raises lowlands (plateau-heavy). 1 = identity.
         f32 HeightExponent = 1.0f;
 
+        // Radial island mask (issue #880). 0 = off — the field is a plain tile
+        // and whatever the noise happens to leave high at the tile border is a
+        // vertical cliff wall where the terrain ends. > 0 multiplies the
+        // normalized field by a radial mask that is 1 inside IslandFalloffRadius
+        // and smoothly reaches 0 on the tile's inscribed circle (normalized
+        // radius ~0.5), so every border texel — corners included, they sit at
+        // ~0.707 — is driven to the tile's base height. At strength 1 that is a
+        // guarantee, not a tendency: it is what lets a terrain tile meet an ocean
+        // without a seam, because the shoreline is then shaped by the mask
+        // instead of truncated by the tile boundary.
+        //
+        // Measured on the Drift island before this existed: 64.9% of the tile
+        // border was above sea level. No combination of the knobs above can fix
+        // that — they are all uniform over the tile, and this one is the only
+        // radial term.
+        //
+        // Applied straight after the [0,1] normalization and BEFORE the exponent
+        // and terrace passes, so those still shape the island's profile; both map
+        // 0 to 0, so the border guarantee survives them. The erosion post-pass
+        // does NOT preserve it on its own — a droplet dying on the border deposits
+        // sediment there — so GenerateHeightField re-applies the mask factor on
+        // the zeroed texels afterwards, and only on those.
+        f32 IslandFalloff = 0.0f;       // Mask strength [0,1]. 0 = off.
+        f32 IslandFalloffRadius = 0.3f; // Normalized radius the mask starts falling at, [0, 0.5).
+
         auto operator==(const TerrainHeightShaping& o) const -> bool;
     };
 

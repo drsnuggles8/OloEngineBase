@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
+#include <vector>
 
 namespace OloEngine
 {
@@ -116,7 +118,8 @@ namespace OloEngine
     {
         return Math::BitwiseEqual(RidgeBlend, o.RidgeBlend) && Math::BitwiseEqual(WarpStrength, o.WarpStrength) &&
                Math::BitwiseEqual(WarpFrequency, o.WarpFrequency) && TerraceSteps == o.TerraceSteps &&
-               Math::BitwiseEqual(TerraceSharpness, o.TerraceSharpness) && Math::BitwiseEqual(HeightExponent, o.HeightExponent);
+               Math::BitwiseEqual(TerraceSharpness, o.TerraceSharpness) && Math::BitwiseEqual(HeightExponent, o.HeightExponent) &&
+               Math::BitwiseEqual(IslandFalloff, o.IslandFalloff) && Math::BitwiseEqual(IslandFalloffRadius, o.IslandFalloffRadius);
     }
 
     auto TerrainLayerRule::operator==(const TerrainLayerRule& o) const -> bool
@@ -232,6 +235,51 @@ namespace OloEngine
             std::fill(outHeights.begin(), outHeights.end(), 0.0f);
         }
 
+        // Radial island mask (issue #880) — applied on the normalized field and
+        // BEFORE the exponent/terrace passes below. Both of those map 0 to 0
+        // (pow(0, e) == 0, Terrace(0) == 0), so running them afterwards still
+        // leaves the tile border at exactly 0; doing it in this order lets them
+        // shape the island's own profile rather than the mask's ramp.
+        //
+        // The mask reaches 0 on the tile's inscribed circle, which is the
+        // smallest radius that still covers every border texel — the corners sit
+        // further out again, at ~0.707 — so at strength 1 "the tile edge is at
+        // the base height" is a guarantee rather than a tendency.
+        const f32 falloffStrength = std::clamp(sh.IslandFalloff, 0.0f, 1.0f);
+        const bool applyIslandMask = falloffStrength > 1e-6f;
+
+        const f32 invResolution = 1.0f / static_cast<f32>(resolution);
+        // The outer radius is the distance from the tile centre to the CENTRE of a
+        // mid-edge texel, not to the tile's geometric edge — that is the outermost
+        // sample that actually exists, so putting the ramp's end exactly there
+        // makes the whole border land on mask == 0 exactly rather than on a small
+        // positive tail. Every other border texel (corners at ~0.707) is further
+        // out and clamps to 0 too.
+        const f32 maskOuterRadius = 0.5f - 0.5f * invResolution;
+        // Kept strictly below the outer radius so the ramp always has width:
+        // inner == outer would be a hard step, i.e. the very artefact this mask
+        // exists to remove.
+        const f32 maskInnerRadius = std::clamp(sh.IslandFalloffRadius, 0.0f, std::max(0.0f, maskOuterRadius * 0.995f));
+        const auto islandMaskAt = [&](u32 x, u32 z)
+        {
+            const f32 dx = (static_cast<f32>(x) + 0.5f) * invResolution - 0.5f;
+            const f32 dz = (static_cast<f32>(z) + 0.5f) * invResolution - 0.5f;
+            const f32 radius = std::sqrt(dx * dx + dz * dz);
+            return 1.0f - SmoothStep(maskInnerRadius, maskOuterRadius, radius);
+        };
+
+        if (applyIslandMask)
+        {
+            for (u32 z = 0; z < resolution; ++z)
+            {
+                for (u32 x = 0; x < resolution; ++x)
+                {
+                    const sizet idx = static_cast<sizet>(z) * resolution + x;
+                    outHeights[idx] *= std::lerp(1.0f, islandMaskAt(x, z), falloffStrength);
+                }
+            }
+        }
+
         // Post-normalization shaping (operates in [0, 1]).
         const bool applyExponent = !Math::BitwiseEqual(sh.HeightExponent, 1.0f) && sh.HeightExponent > 1e-4f;
         const bool applyTerrace = sh.TerraceSteps > 0;
@@ -250,7 +298,43 @@ namespace OloEngine
         // slopes into the shaped field. Deterministic in Seed (sequential droplets),
         // so the generated terrain stays reproducible. Off by default.
         if (params.ErosionIterations > 0)
+        {
+            // Erosion runs AFTER the mask, so a droplet that dies on the border
+            // deposits its sediment on exactly the texels the mask just drove to
+            // the floor — undoing the one thing the mask guarantees, on the one
+            // edge nothing else looks at. Snapshot those texels first, and cap
+            // them against the snapshot afterwards.
+            //
+            // A CAP, not a second multiply. Re-applying the factor would scale an
+            // untouched border texel by (1 - strength) TWICE, which is invisible
+            // at strength 1 (zero either way — the only value any shipped scene
+            // uses) and a systematic error at every fractional strength in
+            // between. Capping also leaves erosion free to carve the border
+            // LOWER, which is a legitimate thing for it to do.
+            //
+            // Only where the mask is zero. The ramp and the interior are
+            // deliberately left as erosion left them: reshaping a slope is what
+            // erosion is for.
+            std::vector<std::pair<sizet, f32>> maskedFloor;
+            if (applyIslandMask)
+            {
+                for (u32 z = 0; z < resolution; ++z)
+                {
+                    for (u32 x = 0; x < resolution; ++x)
+                    {
+                        if (islandMaskAt(x, z) > 0.0f)
+                            continue;
+                        const sizet idx = static_cast<sizet>(z) * resolution + x;
+                        maskedFloor.emplace_back(idx, outHeights[idx]);
+                    }
+                }
+            }
+
             ApplyErosion(outHeights, resolution, static_cast<u32>(params.ErosionIterations), params.Erosion, params.Seed);
+
+            for (const auto& [idx, floorHeight] : maskedFloor)
+                outHeights[idx] = std::min(outHeights[idx], floorHeight);
+        }
     }
 
     void TerrainGenerator::GenerateHeightmap(TerrainData& data, const HeightParams& params)
@@ -265,9 +349,10 @@ namespace OloEngine
         const f32 hMax = heights.empty() ? 0.0f : *maxIt;
         data.SetHeights(resolution, std::move(heights));
 
-        OLO_CORE_INFO("TerrainGenerator: Generated {}x{} terrain (seed={}, octaves={}, ridge={:.2f}, warp={:.2f}, terrace={}, erosion={}, height=[{:.2f},{:.2f}])",
+        OLO_CORE_INFO("TerrainGenerator: Generated {}x{} terrain (seed={}, octaves={}, ridge={:.2f}, warp={:.2f}, terrace={}, island={:.2f}@{:.2f}, erosion={}, height=[{:.2f},{:.2f}])",
                       resolution, resolution, params.Seed, params.Octaves, params.Shaping.RidgeBlend,
-                      params.Shaping.WarpStrength, params.Shaping.TerraceSteps, params.ErosionIterations, hMin, hMax);
+                      params.Shaping.WarpStrength, params.Shaping.TerraceSteps, params.Shaping.IslandFalloff,
+                      params.Shaping.IslandFalloffRadius, params.ErosionIterations, hMin, hMax);
     }
 
     void TerrainGenerator::ApplyErosion(std::vector<f32>& heights, u32 resolution, u32 iterations,

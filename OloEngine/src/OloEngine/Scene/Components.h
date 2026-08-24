@@ -4158,6 +4158,8 @@ namespace OloEngine
         OLO_PROPERTY(Name = "TerraceSteps", Type = "uint", Get = "comp.m_HeightShaping.TerraceSteps", Set = "comp.m_HeightShaping.TerraceSteps = {v}")
         OLO_PROPERTY(Name = "TerraceSharpness", Type = "float", Get = "comp.m_HeightShaping.TerraceSharpness", Set = "comp.m_HeightShaping.TerraceSharpness = {v}")
         OLO_PROPERTY(Name = "HeightExponent", Type = "float", Get = "comp.m_HeightShaping.HeightExponent", Set = "comp.m_HeightShaping.HeightExponent = {v}")
+        OLO_PROPERTY(Name = "IslandFalloff", Type = "float", Get = "comp.m_HeightShaping.IslandFalloff", Set = "comp.m_HeightShaping.IslandFalloff = {v}")
+        OLO_PROPERTY(Name = "IslandFalloffRadius", Type = "float", Get = "comp.m_HeightShaping.IslandFalloffRadius", Set = "comp.m_HeightShaping.IslandFalloffRadius = {v}")
         TerrainHeightShaping m_HeightShaping;
 
         // Automatic material assignment (serialized). When enabled (and a material

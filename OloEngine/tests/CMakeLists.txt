@@ -369,6 +369,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainCameraRelativeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainGPUQuadtreeVisualEvidenceTest.cpp
+		Rendering/PropertyTests/DriftIslandFieldEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainGPUPickEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainVTCompressBC7Test.cpp
 		Rendering/PropertyTests/TerrainVirtualTextureVisualEvidenceTest.cpp

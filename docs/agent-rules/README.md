@@ -49,6 +49,7 @@ run is **not** evidence.
 | [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) §2 | two blue-noise channels seeded `seed * <the PRNG's own increment>` are the same stream ONE DRAW apart. Both channels pass every per-channel metric — full range, mean 0.5, low/high power 0.0002, neighbour correlation −0.28 — while correlating with each other at +0.55, so the 2D samples they feed are not independent at all |
 | [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) §3a | a Cranley-Patterson rotation applied to a hemisphere RADIUS — textbook-correct on a torus, and it made the sampler measurably WORSE than the interleaved-gradient noise it replaced (error RMS 0.0349 vs 0.0218). Every CPU test passed, because they modelled one sample on the unit square where the rotation is right |
 | [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) | projecting a mesh's AABB through the real view-projection instead of onto a plane facing it passes EVERY value test — `SelectLODByPixelError` is a pure function of one float, so both implementations score identically on it. The separation only shows in an invariance test that holds camera-to-subject distance fixed while changing direction |
+| [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) | a terrain tile ended in a vertical wall of ground where the tile stopped, for two shipped issues, in a scene whose own notes named the waterline as the thing to watch. Nothing renders wrong, nothing asserts anything about a tile's OUTERMOST RING, and raising the height exponent removes the wall and the island at exactly the same rate — so tuning reads as progress right up to the point where the island is 1.4% of the tile |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -213,6 +214,11 @@ obvious grep suggests.
   projection box's back faces; `depthFunction = LessOrEqual` rejects them). **A feature with no scene
   has no coverage, whatever the suite says** — `TEST_SCENES.md` had no decal entry, and the tenant
   substituted a quad for the cube, so the cull/depth pairing was untested everywhere at once.
+- [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) §7 — the *game* scene still did not
+  set `TessellationEnabled`, so the island the player sails at was not on the GPU LOD quadtree at
+  all, two issues after the test scene that exists to set it. `UseImpostor` was worse: **no**
+  shipped scene had ever set it. **If a feature's flag appears only in the test written with it,
+  it has test coverage and no product coverage.**
 - [render-pass-published-state.md](render-pass-published-state.md) — `MeshComponent { Primitive: 0 }`
   is `None`: an entity that silently never renders.
 - [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) §5 — a render-graph pass's
@@ -284,6 +290,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) ·
 [terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md) ·
 [terrain-virtual-texturing.md](terrain-virtual-texturing.md) ·
+[terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) ·
 [camera-relative-rendering.md](camera-relative-rendering.md) ·
 [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md) ·
 [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) ·

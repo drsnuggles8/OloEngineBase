@@ -1282,6 +1282,12 @@ namespace OloEngine
                                            "heightExponent", sol::property([](const TerrainComponent& t)
                                                                            { return t.m_HeightShaping.HeightExponent; }, [](TerrainComponent& t, f32 v)
                                                                            { if (std::isfinite(v) && v > 0.0f) t.m_HeightShaping.HeightExponent = v; }),
+                                           "islandFalloff", sol::property([](const TerrainComponent& t)
+                                                                          { return t.m_HeightShaping.IslandFalloff; }, [](TerrainComponent& t, f32 v)
+                                                                          { if (std::isfinite(v)) t.m_HeightShaping.IslandFalloff = glm::clamp(v, 0.0f, 1.0f); }),
+                                           "islandFalloffRadius", sol::property([](const TerrainComponent& t)
+                                                                                { return t.m_HeightShaping.IslandFalloffRadius; }, [](TerrainComponent& t, f32 v)
+                                                                                { if (std::isfinite(v)) t.m_HeightShaping.IslandFalloffRadius = glm::clamp(v, 0.0f, 0.5f); }),
                                            "erosionIterations", sol::property([](const TerrainComponent& t)
                                                                               { return t.m_ProceduralErosionIterations; }, [](TerrainComponent& t, i32 v)
                                                                               { t.m_ProceduralErosionIterations = std::clamp(v, 0, 64); }),
