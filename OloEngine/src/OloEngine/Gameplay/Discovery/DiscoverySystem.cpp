@@ -14,6 +14,11 @@ namespace OloEngine
 {
     namespace
     {
+        // Vertical lift (metres) above a landmark's trigger centre for the
+        // objective marker — keeps it clear of the terrain silhouette without
+        // depending on any one island's height.
+        constexpr f32 kMarkerLiftAboveTriggerCentre = 30.0f;
+
         bool Contains(const std::vector<UUID>& set, UUID id)
         {
             // UUID's implicit operator u64() makes `a == b` ambiguous on
@@ -33,6 +38,21 @@ namespace OloEngine
         bool IsLandingTrigger(Entity landmark)
         {
             return landmark.HasComponent<Rigidbody3DComponent>() && landmark.GetComponent<Rigidbody3DComponent>().m_IsTrigger;
+        }
+
+        // The landmark's TRIGGER centre in world space, not its entity origin —
+        // Drift's islands are authored with the entity Translation at a tile
+        // CORNER (see Drift.olo's per-island comment), so the trigger volume
+        // is offset from it via BoxCollider3DComponent::m_Offset. Using the raw
+        // Translation here would measure "nearest" from the corner, silently
+        // biasing the objective marker toward whichever island's corner (not
+        // landmass) happens to be closest.
+        glm::vec3 LandmarkWorldCentre(Entity landmark)
+        {
+            glm::vec3 pos = landmark.GetComponent<TransformComponent>().Translation;
+            if (landmark.HasComponent<BoxCollider3DComponent>())
+                pos += landmark.GetComponent<BoxCollider3DComponent>().m_Offset;
+            return pos;
         }
 
         // If `discovererID` carries DiscoveredSetComponent and `landmarkID`
@@ -78,8 +98,7 @@ namespace OloEngine
             const glm::vec3 discovererPos = discoverer.HasComponent<TransformComponent>() ? discoverer.GetComponent<TransformComponent>().Translation : glm::vec3{ 0.0f };
 
             u32 total = 0;
-            UUID nearestUndiscovered{ 0 };
-            bool foundUndiscovered = false;
+            Entity nearestUndiscoveredLandmark;
             f32 nearestDistSq = std::numeric_limits<f32>::max();
 
             for (const auto e : scene.GetAllEntitiesWith<DiscoverableComponent, TransformComponent>())
@@ -89,28 +108,41 @@ namespace OloEngine
                     continue; // not actually reachable — don't inflate M or target it
 
                 ++total;
-                const UUID id = landmark.GetUUID();
-                if (Contains(discovered, id))
+                if (Contains(discovered, landmark.GetUUID()))
                     continue;
 
-                const glm::vec3 delta = landmark.GetComponent<TransformComponent>().Translation - discovererPos;
+                const glm::vec3 delta = LandmarkWorldCentre(landmark) - discovererPos;
                 const f32 distSq = glm::dot(delta, delta);
                 if (distSq < nearestDistSq)
                 {
                     nearestDistSq = distSq;
-                    nearestUndiscovered = id;
-                    foundUndiscovered = true;
+                    nearestUndiscoveredLandmark = landmark;
                 }
             }
 
-            // Marker: track the nearest undiscovered landmark. With nothing
-            // left to find, target UUID(0) — UILayoutSystem already hides a
-            // world anchor whose target entity doesn't resolve.
+            // Marker: track the nearest undiscovered landmark's TRIGGER CENTRE
+            // (the m_WorldOffset UILayoutSystem adds is relative to the target
+            // entity's raw Translation too — same corner-vs-centre pitfall as
+            // LandmarkWorldCentre above, so it's set here from the landmark's
+            // own collider offset rather than a fixed authored constant). With
+            // nothing left to find, target UUID(0) — UILayoutSystem already
+            // hides a world anchor whose target entity doesn't resolve.
             for (auto&& [e, marker, anchor] : scene.GetAllEntitiesWith<DiscoveryObjectiveMarkerComponent, UIWorldAnchorComponent>().each())
             {
                 if (!marker.m_Enabled)
                     continue;
-                anchor.m_TargetEntity = foundUndiscovered ? nearestUndiscovered : UUID{ 0 };
+                if (nearestUndiscoveredLandmark)
+                {
+                    anchor.m_TargetEntity = nearestUndiscoveredLandmark.GetUUID();
+                    glm::vec3 offset{ 0.0f, kMarkerLiftAboveTriggerCentre, 0.0f };
+                    if (nearestUndiscoveredLandmark.HasComponent<BoxCollider3DComponent>())
+                        offset += nearestUndiscoveredLandmark.GetComponent<BoxCollider3DComponent>().m_Offset;
+                    anchor.m_WorldOffset = offset;
+                }
+                else
+                {
+                    anchor.m_TargetEntity = UUID{ 0 };
+                }
             }
 
             // Readout: "Discovered N of M".
