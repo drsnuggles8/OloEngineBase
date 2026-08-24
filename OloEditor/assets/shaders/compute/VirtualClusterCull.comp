@@ -196,7 +196,7 @@ layout(std140, binding = 69) uniform VirtualClusterCullParams
     uint  u_ArgsSlotBase;            // 128 — added to the instance index when indexing args[]
     int   u_DebugDrawClusters;       // 132 — cluster-bounds debug bit field, 0 = off (issue #725)
     uint  u_DebugDrawClusterStride;  // 136 — emit only every Nth cluster
-    int   _vccPad0;                  // 140
+    uint  u_SwCapacity;              // 140 — SW-raster work-list record capacity (this frame's cluster count)
     // ---- Culling-camera override (issue #726) ---------------------------
     // A FLAGGED override, not an unconditional replacement like the one in
     // InstanceCullParams: this program is bound by two different views, and the
@@ -455,15 +455,26 @@ void EmitSurvivor(uint instanceIndex, uint clusterIndex, VirtualInstance inst, V
         bool nearSafe = nearDistance > worldRadius * 1.05;
         if (projRadiusPixels < u_SwRasterThresholdPixels && nearSafe)
         {
+            // Bounds-checked exactly like the reject list below (u_RejectCapacity):
+            // an unchecked atomicAdd here overruns swList.Records[] on GL only benignly
+            // (driver-clamped/undefined, never fatal) but device-faults on Vulkan with a
+            // READ of invalid address downstream in VirtualClusterRaster.comp, once the
+            // corrupted InstanceIndex/ClusterIndex indexes far out of range (issue #862).
             uint swSlot = atomicAdd(swList.Count, 1);
-            VisibleCluster swRecord;
-            swRecord.InstanceIndex = instanceIndex;
-            swRecord.ClusterIndex = clusterIndex;
-            swRecord._p0 = 0u;
-            swRecord._p1 = 0u;
-            swList.Records[swSlot] = swRecord;
-            atomicAdd(args[argsIndex].SwCount, 1);
-            return;
+            if (swSlot < u_SwCapacity)
+            {
+                VisibleCluster swRecord;
+                swRecord.InstanceIndex = instanceIndex;
+                swRecord.ClusterIndex = clusterIndex;
+                swRecord._p0 = 0u;
+                swRecord._p1 = 0u;
+                swList.Records[swSlot] = swRecord;
+                atomicAdd(args[argsIndex].SwCount, 1);
+                return;
+            }
+            // Over capacity (should not happen — swListBytes is sized to
+            // this frame's total cluster count): fall through to the
+            // hardware compaction path below so the cluster still draws.
         }
     }
 
