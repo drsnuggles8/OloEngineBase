@@ -9254,6 +9254,50 @@ static void TerrainComponent_SetHeightExponent(UUID entityID, float value)
     comp.m_HeightShaping.HeightExponent = value;
 }
 
+static float TerrainComponent_GetIslandFalloff(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_HeightShaping.IslandFalloff;
+}
+
+static void TerrainComponent_SetIslandFalloff(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_HeightShaping.IslandFalloff = value;
+}
+
+static float TerrainComponent_GetIslandFalloffRadius(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    return comp.m_HeightShaping.IslandFalloffRadius;
+}
+
+static void TerrainComponent_SetIslandFalloffRadius(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TerrainComponent>();
+    comp.m_HeightShaping.IslandFalloffRadius = value;
+}
+
 static bool TerrainComponent_GetAutoMaterial(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();

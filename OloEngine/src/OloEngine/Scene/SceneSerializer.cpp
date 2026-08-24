@@ -1234,6 +1234,8 @@ namespace OloEngine
         terrain.m_HeightShaping.TerraceSteps = terrainComponent["ShapingTerraceSteps"].as<u32>(terrain.m_HeightShaping.TerraceSteps);
         terrain.m_HeightShaping.TerraceSharpness = terrainComponent["ShapingTerraceSharpness"].as<f32>(terrain.m_HeightShaping.TerraceSharpness);
         terrain.m_HeightShaping.HeightExponent = terrainComponent["ShapingHeightExponent"].as<f32>(terrain.m_HeightShaping.HeightExponent);
+        terrain.m_HeightShaping.IslandFalloff = terrainComponent["ShapingIslandFalloff"].as<f32>(terrain.m_HeightShaping.IslandFalloff);
+        terrain.m_HeightShaping.IslandFalloffRadius = terrainComponent["ShapingIslandFalloffRadius"].as<f32>(terrain.m_HeightShaping.IslandFalloffRadius);
 
         // Automatic material assignment rules
         terrain.m_AutoMaterial = terrainComponent["AutoMaterial"].as<bool>(terrain.m_AutoMaterial);
@@ -1270,6 +1272,8 @@ namespace OloEngine
             sanitize(terrain.m_HeightShaping.WarpFrequency, 0.0f, 64.0f, 2.0f);
             sanitize(terrain.m_HeightShaping.TerraceSharpness, 0.0f, 0.999f, 0.6f);
             sanitize(terrain.m_HeightShaping.HeightExponent, 0.05f, 16.0f, 1.0f);
+            sanitize(terrain.m_HeightShaping.IslandFalloff, 0.0f, 1.0f, 0.0f);
+            sanitize(terrain.m_HeightShaping.IslandFalloffRadius, 0.0f, 0.5f, 0.3f);
             terrain.m_HeightShaping.TerraceSteps = std::min(terrain.m_HeightShaping.TerraceSteps, 256u);
             terrain.m_SplatmapGenResolution = std::clamp(terrain.m_SplatmapGenResolution, 16u, 4096u);
             terrain.m_ProceduralErosionIterations = std::clamp(terrain.m_ProceduralErosionIterations, 0, 64);
@@ -5027,6 +5031,8 @@ namespace OloEngine
             out << YAML::Key << "ShapingTerraceSteps" << YAML::Value << terrain.m_HeightShaping.TerraceSteps;
             out << YAML::Key << "ShapingTerraceSharpness" << YAML::Value << terrain.m_HeightShaping.TerraceSharpness;
             out << YAML::Key << "ShapingHeightExponent" << YAML::Value << terrain.m_HeightShaping.HeightExponent;
+            out << YAML::Key << "ShapingIslandFalloff" << YAML::Value << terrain.m_HeightShaping.IslandFalloff;
+            out << YAML::Key << "ShapingIslandFalloffRadius" << YAML::Value << terrain.m_HeightShaping.IslandFalloffRadius;
 
             // Automatic material assignment rules
             out << YAML::Key << "AutoMaterial" << YAML::Value << terrain.m_AutoMaterial;

@@ -143,10 +143,12 @@ PrecipitationSettings:
 # =============================================================================
 # Drift — issue #879, the first weekend of the first game (#878).
 #
-# One boat, one sea, one island to steer at. Everything here is CONTENT: no
-# engine change ships with this scene. The pieces it leans on already existed —
-# BoatSystem (#438), BuoyancySystem sampling the real displaced FFT surface,
-# CameraRigComponent (#645), InputActionManager.
+# One boat, one sea, and — since #880 — SIX islands to steer at. The pieces this
+# leans on already existed: BoatSystem (#438), BuoyancySystem sampling the real
+# displaced surface, CameraRigComponent (#645), InputActionManager, the GPU LOD
+# quadtree (#714) and the octahedral foliage impostor (#433). The one engine
+# addition #880 needed is the terrain generator's radial island falloff — see the
+# LAYOUT section.
 #
 # BEFORE YOU PLAY: turn GTAO OFF (Renderer Settings panel). The boat's sail
 # picks up flickering black speckle with it on, and the AO technique is not
@@ -162,15 +164,47 @@ PrecipitationSettings:
 # in the Vehicle context — nothing in the scripts touches a key code, which is
 # what leaves #883's rebinding UI with nothing to rewrite.
 #
-# LAYOUT
-#   The boat starts at (0, 0, -250) pointing at the island, which is centred on
-#   (0, ., 300) and about 20 seconds off at full ahead — far enough that the run
-#   out to it is the thing being judged rather than a formality.
+# LAYOUT — the island field (issue #880)
+#   The boat starts at (0, 0, -250) pointing at Ridgeback, the tallest thing on
+#   that bearing, whose coast is about 400 m off. Five more lie around it, at
+#   different bearings and different distances, so there is always somewhere else
+#   to go and turning round is worth doing:
 #
-#   The sea is 2 km square, deliberately. #878 records why: the floating-origin
-#   rebase touches four subsystems that each need a different fix, and a weekend
-#   dies there. At this size nothing near the boat is far enough from the origin
-#   for f32 cancellation to show, so camera-relative rendering stays uninvoked.
+#     Ridgeback   (   0,  280)  420 m tile, peak ~84 m   ahead        coast ~365 m
+#     Atoll       ( 330, -480)  400 m tile, peak ~36 m   stbd astern  coast ~235 m
+#     Stacks      (-330, -520)  300 m tile, peak ~98 m   port astern  coast ~315 m
+#     Mesa        ( 500,   40)  360 m tile, peak ~44 m   stbd abeam   coast ~435 m
+#     Dunes       (-540,   60)  380 m tile, peak ~65 m   port abeam   coast ~465 m
+#     Sisters     (-160,  660)  260 m tile, peak ~51 m   the long leg coast ~825 m
+#
+#   "coast" is the open-water distance from the start line, measured off the
+#   generated height fields, not derived from the falloff radius: the mask only
+#   STARTS falling there and land survives out to roughly the midpoint between
+#   it and the tile's half-width. Ridgeback's waterline is 165-180 m from its
+#   centre, not the 126 m the radius alone would suggest.
+#
+#   They are DIFFERENT PLACES, not one heightfield repeated: each has its own
+#   seed, frequency, octave count, ridge blend, warp, exponent and height scale,
+#   plus its own material palette and vegetation. Stacks is nearly pure ridged
+#   noise and bare rock; Dunes is nearly pure fBm and smooth; Mesa is terraced.
+#   The per-island notes on each entity say what knob made it what it is.
+#
+#   THE SHORELINE IS THE HARD PART, and it needed an engine field. Every knob the
+#   generator had was uniform over the tile, so whatever the noise left high at
+#   the tile BORDER became a vertical wall dropping into the sea: measured on the
+#   original single island, 64.9% of its border stood above sea level. #880 added
+#   TerrainHeightShaping::IslandFalloff, a radial mask that drives every border
+#   texel to the tile's base height. Each island here sets it to 1 and sits its
+#   base 24 m under water, so the tile edge is sea floor and the coastline is
+#   wherever the masked field crosses y = 0 — a beach, not a cut.
+#
+#   The sea is 1.6 km square, deliberately, and that is the boundary of the game:
+#   WaterProbe::CollectEnabledVolumes takes the playable area from the water
+#   tile's bounds, so outside them there is no buoyancy and no thrust at all.
+#   #878 records why it stays small — the floating-origin rebase touches four
+#   subsystems that each need a different fix, and a weekend dies there. At this
+#   size nothing near the boat is far enough from the origin for f32 cancellation
+#   to show, so camera-relative rendering stays uninvoked.
 #
 # SEA STATE — NOW DRIVEN BY THE WIND (issue #882)
 #   The WaterComponent below is still authored at the MODERATE state — the one
@@ -277,7 +311,7 @@ Entities:
       Target: 879000000000010
       PivotOffset: [0, 2.6, 0]
       BoomLength: 9
-      # The boom probe is a physics raycast, so it sees the island's heightfield
+      # The boom probe is a physics raycast, so it sees the islands' heightfield
       # body and nothing else — water is not a physics body. The camera stays
       # clear of the sea by sitting high with an upward-tilted boom instead.
       CollisionEnabled: true
@@ -396,7 +430,7 @@ Entities:
       # than the equivalent depth bias.
       #
       # 35 m costs nothing here — the only shadow a player can resolve is the
-      # boat's own, and the island is 300 m away.
+      # boat's own, and the nearest island is ~270 m away.
       #
       # Turning Virtual Shadow Maps on (Renderer Settings panel) also fixes it
       # completely and was how the diagnosis was confirmed, but VSM is a renderer
@@ -653,7 +687,7 @@ Entities:
       PowderStrength: 1
       CastCloudShadows: true
       ShadowStrength: 0.8
-      # 6 km covers the 2 km of playable sea with room for the shadow of a cell
+      # 6 km covers the 1.6 km of playable sea with room for the shadow of a cell
       # that has not arrived yet.
       ShadowMapWorldSize: 6000
       TemporalBlend: 0.9
@@ -672,17 +706,24 @@ Entities:
     TagComponent:
       Tag: Sea
     TransformComponent:
-      # Centred on the middle of the playable water, not on the world origin:
-      # the tile is 1 km square and has to cover the start line at z = -250 and
-      # the island out at z = 540. WaterProbe::CollectEnabledVolumes takes the
-      # tile's bounds from this transform, so a boat outside them gets no
-      # buoyancy and no thrust at all — it is a hard edge, not a fade.
-      Translation: [0, 0, 120]
+      # Centred on the world origin, which since #880 is also the centre of the
+      # island field: the six islands sit inside a ring of about 700 m and the
+      # start line is at z = -250, so a 1.6 km tile covers every one of them with
+      # at least 100 m of open water outside the furthest coast.
+      #
+      # 1.6 km is a deliberate ceiling, not a shrug — #878 names the floating-
+      # origin risk on a "few km, not 50" sea, and every world-space GPU upload
+      # is a site for f32 cancellation past that (camera-relative-rendering.md).
+      #
+      # WaterProbe::CollectEnabledVolumes takes the tile's bounds from this
+      # transform, so a boat outside them gets no buoyancy and no thrust at all —
+      # it is a hard edge, not a fade. The bounds are what bound the game.
+      Translation: [0, 0, 0]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     WaterComponent:
-      WorldSizeX: 1000
-      WorldSizeZ: 1000
+      WorldSizeX: 1600
+      WorldSizeZ: 1600
       # THE sea, not a fallback — see the UseFFT note below. Two crossed wave
       # trains at slightly different headings: a single train gives the boat a
       # metronomic pitch that reads as a treadmill, and the beat between two is
@@ -719,16 +760,20 @@ Entities:
       RefractionDistortion: 0.018
       RefractionHeightFactor: 0.25
       DepthSofteningDistance: 1
-      # 384 across 1 km is 2.6 m per quad against a 140 m FFT patch, i.e. ~54
-      # samples per dominant wavelength. At the first-authored 256 across 2 km
-      # (7.8 m per quad, 90 m patch) the surface aliased badly: the submerged
-      # half of the hull came through the refraction as a striped, stippled
-      # ghost lying alongside the boat, which reads as a broken reflection and
-      # is not one. Grid density against patch size is the knob, not any of the
-      # reflection settings — those were already off at runtime when the ghost
-      # was there.
-      GridResolutionX: 384
-      GridResolutionZ: 384
+      # QUAD SIZE IS THE KNOB, NOT THE GRID COUNT. 384 across 1 km was 2.6 m per
+      # quad; #880 widened the sea to 1.6 km, so the count had to go up with it
+      # or the same scene would have silently coarsened to 4.2 m. 640 across
+      # 1.6 km restores 2.5 m per quad.
+      #
+      # Why that number is load-bearing: at the first-authored 256 across 2 km
+      # (7.8 m per quad, 90 m patch) the surface aliased badly, and the submerged
+      # half of the hull came through the refraction as a striped, stippled ghost
+      # lying alongside the boat — which reads as a broken reflection and is not
+      # one. Grid density against wavelength is the knob, not any of the
+      # reflection settings; those were already off at runtime when the ghost was
+      # there.
+      GridResolutionX: 640
+      GridResolutionZ: 640
       Enabled: true
       # Off: the mirror replay reports itself disabled at runtime in this scene
       # anyway ("[PlanarReflection] mirror replay off" in the log), so leaving
@@ -773,13 +818,25 @@ Entities:
   # ── Seafloor ──────────────────────────────────────────────────────────────
   # Visual depth reference only (no collider): it is what stops the open sea
   # reading as an infinite void through the transparency.
+  #
+  # It sits 2 m BELOW the island tiles' base height (-24), not above it. That
+  # ordering is the whole point: the radial island falloff drives each tile's
+  # border down to exactly its base, so a seafloor plane any higher than that
+  # would slice through every island's underwater flank as a flat grey lid — the
+  # island would end at a hard horizontal line instead of shelving away. 2 m of
+  # clearance at ~24 m depth is invisible through the underwater fog and leaves
+  # no z-fighting.
+  #
+  # Widened with the sea, keeping the original 1.5x margin over the water tile: it
+  # has to out-reach the water or a grazing look through the transparency finds
+  # the plane's own edge and open sky beyond it.
   - Entity: 879000000000004
     TagComponent:
       Tag: Seafloor
     TransformComponent:
-      Translation: [0, -22, 0]
+      Translation: [0, -26, 0]
       Rotation: [0, 0, 0]
-      Scale: [2000, 1, 2000]
+      Scale: [2400, 1, 2400]
     MeshComponent:
       Primitive: 3
     MaterialComponent:
@@ -787,85 +844,90 @@ Entities:
       Metallic: 0
       Roughness: 0.95
 
-  # ── Island ────────────────────────────────────────────────────────────────
-  # The steering target. A single procedural heightfield tile whose origin is a
-  # CORNER (SceneCameraFraming.cpp treats the terrain centre as translation +
-  # half the world size), so a 480 m tile centred on (0, ., 300) starts at
-  # x = -240, z = 60.
+  # ── Island - Ridgeback ────────────────────────────────────────────────────
+  # The steering target, dead ahead of the start line and the tallest thing on that
+  # bearing. A ridged spine with lobed bays either side — the shape you learn to
+  # recognise first, which is why it keeps the original island's seed.
   #
-  # It is sunk so that only the upper third of the height range clears the
-  # water: TerrainGenerator has no radial falloff, so "island" here is a
-  # landmass whose waterline does the shaping. Heights run 0..HeightScale from
-  # the entity's y, i.e. -70..+50 — sea level cuts it at 0.583 of the range,
-  # which is what the layer rules below are banded around.
-  #
-  # CollisionEnabled builds a static Jolt heightfield at runtime start, so the
-  # boat can genuinely run aground and the camera boom has something to pull in
-  # against near the shore.
+  # Waterline at 0.218 of the height range (24 m of base below sea level over a
+  # 110 m HeightScale); peak about 84 m above the water. The layer bands below are
+  # anchored on that number, not on absolute heights, so every island bands the
+  # same way in relative terms however deep it is sunk.
   - Entity: 879000000000005
     TagComponent:
-      Tag: Island
+      Tag: Island - Ridgeback
     TransformComponent:
-      Translation: [-240, -70, 60]
+      # Origin is a CORNER, not the centre: a 420 m tile centred on (0, ., 280).
+      Translation: [-210, -24, 70]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     TerrainComponent:
       HeightmapPath: ""
-      WorldSizeX: 480
-      WorldSizeZ: 480
-      HeightScale: 120
+      WorldSizeX: 420
+      WorldSizeZ: 420
+      HeightScale: 110
       CollisionEnabled: true
       ProceduralEnabled: true
       ProceduralSeed: 879
       ProceduralResolution: 512
       ProceduralOctaves: 6
-      ProceduralFrequency: 2.2
+      ProceduralFrequency: 2.4
       ProceduralLacunarity: 2
       ProceduralPersistence: 0.46
-      ShapingRidgeBlend: 0.5
-      ShapingWarpStrength: 0.16
+      ShapingRidgeBlend: 0.72
+      ShapingWarpStrength: 0.18
       ShapingWarpFrequency: 2
       ShapingTerraceSteps: 0
       ShapingTerraceSharpness: 0.6
       ShapingHeightExponent: 1.15
+      # THE reason this scene has a shoreline instead of a seam (issue #880). At
+      # strength 1 the radial mask drives every border texel of the tile to the base
+      # height, 24 m under water, so the tile edge is sea floor and the coastline is
+      # wherever the masked field crosses y = 0. Measured before the mask existed:
+      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
+      ShapingIslandFalloff: 1
+      ShapingIslandFalloffRadius: 0.3
       AutoMaterial: true
       SplatmapGenResolution: 512
       LayerRules:
-        # Sand: the band either side of the waterline (0.583 of the range).
         - LayerIndex: 0
           MinHeight: 0
-          MaxHeight: 0.63
+          MaxHeight: 0.296
           HeightBlend: 0.05
           MinSlopeDeg: 0
-          MaxSlopeDeg: 40
-          SlopeBlend: 8
+          MaxSlopeDeg: 34
+          SlopeBlend: 10
           Strength: 1
         - LayerIndex: 1
-          MinHeight: 0.64
-          MaxHeight: 0.88
+          MinHeight: 0.312
+          MaxHeight: 0.734
           HeightBlend: 0.06
           MinSlopeDeg: 0
-          MaxSlopeDeg: 30
-          SlopeBlend: 8
+          MaxSlopeDeg: 42
+          SlopeBlend: 12
           Strength: 1
         - LayerIndex: 2
           MinHeight: 0
           MaxHeight: 1
           HeightBlend: 0
-          MinSlopeDeg: 34
+          MinSlopeDeg: 48
           MaxSlopeDeg: 90
-          SlopeBlend: 10
+          SlopeBlend: 12
           Strength: 1
         - LayerIndex: 3
-          MinHeight: 0.93
+          MinHeight: 0.844
           MaxHeight: 1
           HeightBlend: 0.05
           MinSlopeDeg: 0
           MaxSlopeDeg: 45
           SlopeBlend: 10
           Strength: 1
-      TessellationEnabled: false
-      TargetTriangleSize: 8
+      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
+      # island resolve as you sail toward it instead of popping: nodes are selected by
+      # screen-space error and adjacent patches are edge-snapped, so a level change
+      # cannot open a crack. No Drift terrain set this flag before #880.
+      TessellationEnabled: true
+      TargetTriangleSize: 10
       MorphRegion: 0.3
       StreamingEnabled: false
       TileDirectory: ""
@@ -896,7 +958,7 @@ Entities:
           TilingScale: 24
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.3, 0.42, 0.22]
+          BaseColor: [0.28, 0.4, 0.21]
           Roughness: 0.92
           Metallic: 0
         - Name: Rock
@@ -909,16 +971,1094 @@ Entities:
           BaseColor: [0.44, 0.41, 0.38]
           Roughness: 0.85
           Metallic: 0
-        - Name: Cliff top
+        - Name: Heath
           AlbedoPath: ""
           NormalPath: ""
           ARMPath: ""
           TilingScale: 18
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.55, 0.53, 0.48]
+          BaseColor: [0.52, 0.5, 0.44]
           Roughness: 0.8
           Metallic: 0
+    FoliageComponent:
+      Enabled: true
+      Layers:
+        - Name: Scrub
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.45
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 40
+          MinScale: 0.8
+          MaxScale: 1.6
+          MinHeight: 1.4
+          MaxHeight: 3
+          RandomRotation: true
+          ViewDistance: 260
+          FadeStartDistance: 200
+          WindStrength: 0.4
+          WindSpeed: 1.6
+          BaseColor: [0.28, 0.44, 0.18]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Dune grass
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.16
+          SplatmapChannel: 0
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 20
+          MinScale: 0.7
+          MaxScale: 1.3
+          MinHeight: 1
+          MaxHeight: 2.2
+          RandomRotation: true
+          ViewDistance: 200
+          FadeStartDistance: 150
+          WindStrength: 0.5
+          WindSpeed: 1.3
+          BaseColor: [0.62, 0.6, 0.34]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Pines
+          MeshPath: SandboxProject/Assets/Models/Vegetation/pine.obj
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.016
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.9
+          MaxScale: 1.4
+          MinHeight: 9
+          MaxHeight: 16
+          RandomRotation: true
+          ViewDistance: 1100
+          FadeStartDistance: 950
+          WindStrength: 0.16
+          WindSpeed: 0.8
+          BaseColor: [0.19, 0.33, 0.2]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          # Octahedral impostor card (issue #433). The near billboard is a tufted
+          # quad; past 30 m it cross-fades into the baked atlas, which is what gives
+          # the tree line a 3D silhouette from any azimuth at range. NO scene set
+          # UseImpostor before this one, so the path had zero runtime coverage.
+          UseImpostor: true
+          ImpostorStartDistance: 30
+          ImpostorTransitionBand: 18
+          ImpostorFramesPerAxis: 8
+          ImpostorAtlasResolution: 1024
+          ImpostorHemiOctahedral: true
+          Enabled: true
+
+  # ── Island - Mesa ─────────────────────────────────────────────────────────
+  # Terraced. Five flat steps make a stack of pale ledges that is unmistakable in
+  # profile even when it is only a smudge on the horizon — the one island that
+  # reads by its SHAPE rather than by its height.
+  #
+  # Waterline at 0.282 of the height range (24 m of base below sea level over a
+  # 85 m HeightScale); peak about 44 m above the water. The layer bands below are
+  # anchored on that number, not on absolute heights, so every island bands the
+  # same way in relative terms however deep it is sunk.
+  - Entity: 879000000000006
+    TagComponent:
+      Tag: Island - Mesa
+    TransformComponent:
+      # Origin is a CORNER, not the centre: a 360 m tile centred on (500, ., 40).
+      Translation: [320, -24, -140]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 360
+      WorldSizeZ: 360
+      HeightScale: 85
+      CollisionEnabled: true
+      ProceduralEnabled: true
+      ProceduralSeed: 2207
+      ProceduralResolution: 384
+      ProceduralOctaves: 5
+      ProceduralFrequency: 2
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.44
+      ShapingRidgeBlend: 0.28
+      ShapingWarpStrength: 0.22
+      ShapingWarpFrequency: 2.4
+      ShapingTerraceSteps: 5
+      ShapingTerraceSharpness: 0.78
+      ShapingHeightExponent: 1
+      # THE reason this scene has a shoreline instead of a seam (issue #880). At
+      # strength 1 the radial mask drives every border texel of the tile to the base
+      # height, 24 m under water, so the tile edge is sea floor and the coastline is
+      # wherever the masked field crosses y = 0. Measured before the mask existed:
+      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
+      ShapingIslandFalloff: 1
+      ShapingIslandFalloffRadius: 0.29
+      AutoMaterial: true
+      SplatmapGenResolution: 512
+      LayerRules:
+        - LayerIndex: 0
+          MinHeight: 0
+          MaxHeight: 0.354
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 34
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 1
+          MinHeight: 0.369
+          MaxHeight: 0.756
+          HeightBlend: 0.06
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 42
+          SlopeBlend: 12
+          Strength: 1
+        - LayerIndex: 2
+          MinHeight: 0
+          MaxHeight: 1
+          HeightBlend: 0
+          MinSlopeDeg: 48
+          MaxSlopeDeg: 90
+          SlopeBlend: 12
+          Strength: 1
+        - LayerIndex: 3
+          MinHeight: 0.856
+          MaxHeight: 1
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 45
+          SlopeBlend: 10
+          Strength: 1
+      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
+      # island resolve as you sail toward it instead of popping: nodes are selected by
+      # screen-space error and adjacent patches are edge-snapped, so a level change
+      # cannot open a crack. No Drift terrain set this flag before #880.
+      TessellationEnabled: true
+      TargetTriangleSize: 10
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+      SplatmapPath0: ""
+      SplatmapPath1: ""
+      Layers:
+        - Name: Sand
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 20
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.84, 0.76, 0.58]
+          Roughness: 0.96
+          Metallic: 0
+        - Name: Dry scrub
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 22
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.52, 0.5, 0.28]
+          Roughness: 0.93
+          Metallic: 0
+        - Name: Sandstone
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 12
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.66, 0.48, 0.34]
+          Roughness: 0.88
+          Metallic: 0
+        - Name: Caprock
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 16
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.72, 0.6, 0.46]
+          Roughness: 0.82
+          Metallic: 0
+    FoliageComponent:
+      Enabled: true
+      Layers:
+        - Name: Scrub
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.45
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 40
+          MinScale: 0.8
+          MaxScale: 1.6
+          MinHeight: 1.4
+          MaxHeight: 3
+          RandomRotation: true
+          ViewDistance: 260
+          FadeStartDistance: 200
+          WindStrength: 0.4
+          WindSpeed: 1.6
+          BaseColor: [0.28, 0.44, 0.18]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Dune grass
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.16
+          SplatmapChannel: 0
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 20
+          MinScale: 0.7
+          MaxScale: 1.3
+          MinHeight: 1
+          MaxHeight: 2.2
+          RandomRotation: true
+          ViewDistance: 200
+          FadeStartDistance: 150
+          WindStrength: 0.5
+          WindSpeed: 1.3
+          BaseColor: [0.62, 0.6, 0.34]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Palms
+          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.014
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 30
+          MinScale: 0.9
+          MaxScale: 1.4
+          MinHeight: 7
+          MaxHeight: 13
+          RandomRotation: true
+          ViewDistance: 1100
+          FadeStartDistance: 950
+          WindStrength: 0.16
+          WindSpeed: 0.8
+          BaseColor: [0.28, 0.42, 0.22]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          # Octahedral impostor card (issue #433). The near billboard is a tufted
+          # quad; past 30 m it cross-fades into the baked atlas, which is what gives
+          # the tree line a 3D silhouette from any azimuth at range. NO scene set
+          # UseImpostor before this one, so the path had zero runtime coverage.
+          UseImpostor: true
+          ImpostorStartDistance: 30
+          ImpostorTransitionBand: 18
+          ImpostorFramesPerAxis: 8
+          ImpostorAtlasResolution: 1024
+          ImpostorHemiOctahedral: true
+          Enabled: true
+
+  # ── Island - Atoll ────────────────────────────────────────────────────────
+  # Low and broad, with the widest beach of the six: an exponent below 1 raises the
+  # lowlands, so most of its area sits just above the waterline instead of climbing
+  # away from it. Astern of the start — the island you find by turning round.
+  #
+  # Waterline at 0.400 of the height range (24 m of base below sea level over a
+  # 60 m HeightScale); peak about 36 m above the water. The layer bands below are
+  # anchored on that number, not on absolute heights, so every island bands the
+  # same way in relative terms however deep it is sunk.
+  - Entity: 879000000000007
+    TagComponent:
+      Tag: Island - Atoll
+    TransformComponent:
+      # Origin is a CORNER, not the centre: a 400 m tile centred on (330, ., -480).
+      Translation: [130, -24, -680]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 400
+      WorldSizeZ: 400
+      HeightScale: 60
+      CollisionEnabled: true
+      ProceduralEnabled: true
+      ProceduralSeed: 4409
+      ProceduralResolution: 384
+      ProceduralOctaves: 4
+      ProceduralFrequency: 2.8
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.4
+      ShapingRidgeBlend: 0.12
+      ShapingWarpStrength: 0.3
+      ShapingWarpFrequency: 2
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 0.8
+      # THE reason this scene has a shoreline instead of a seam (issue #880). At
+      # strength 1 the radial mask drives every border texel of the tile to the base
+      # height, 24 m under water, so the tile edge is sea floor and the coastline is
+      # wherever the masked field crosses y = 0. Measured before the mask existed:
+      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
+      ShapingIslandFalloff: 1
+      ShapingIslandFalloffRadius: 0.33
+      AutoMaterial: true
+      SplatmapGenResolution: 512
+      LayerRules:
+        - LayerIndex: 0
+          MinHeight: 0
+          MaxHeight: 0.46
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 34
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 1
+          MinHeight: 0.472
+          MaxHeight: 0.796
+          HeightBlend: 0.06
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 42
+          SlopeBlend: 12
+          Strength: 1
+        - LayerIndex: 2
+          MinHeight: 0
+          MaxHeight: 1
+          HeightBlend: 0
+          MinSlopeDeg: 48
+          MaxSlopeDeg: 90
+          SlopeBlend: 12
+          Strength: 1
+        - LayerIndex: 3
+          MinHeight: 0.88
+          MaxHeight: 1
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 45
+          SlopeBlend: 10
+          Strength: 1
+      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
+      # island resolve as you sail toward it instead of popping: nodes are selected by
+      # screen-space error and adjacent patches are edge-snapped, so a level change
+      # cannot open a crack. No Drift terrain set this flag before #880.
+      TessellationEnabled: true
+      TargetTriangleSize: 10
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+      SplatmapPath0: ""
+      SplatmapPath1: ""
+      Layers:
+        - Name: White sand
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 24
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.9, 0.86, 0.74]
+          Roughness: 0.94
+          Metallic: 0
+        - Name: Palm scrub
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 26
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.24, 0.46, 0.2]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Coral rock
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 14
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.62, 0.58, 0.52]
+          Roughness: 0.86
+          Metallic: 0
+        - Name: Green cap
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 18
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.3, 0.44, 0.24]
+          Roughness: 0.84
+          Metallic: 0
+    FoliageComponent:
+      Enabled: true
+      Layers:
+        - Name: Scrub
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.45
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 40
+          MinScale: 0.8
+          MaxScale: 1.6
+          MinHeight: 1.4
+          MaxHeight: 3
+          RandomRotation: true
+          ViewDistance: 260
+          FadeStartDistance: 200
+          WindStrength: 0.4
+          WindSpeed: 1.6
+          BaseColor: [0.28, 0.44, 0.18]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Dune grass
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.16
+          SplatmapChannel: 0
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 20
+          MinScale: 0.7
+          MaxScale: 1.3
+          MinHeight: 1
+          MaxHeight: 2.2
+          RandomRotation: true
+          ViewDistance: 200
+          FadeStartDistance: 150
+          WindStrength: 0.5
+          WindSpeed: 1.3
+          BaseColor: [0.62, 0.6, 0.34]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Palms
+          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.014
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 30
+          MinScale: 0.9
+          MaxScale: 1.4
+          MinHeight: 7
+          MaxHeight: 13
+          RandomRotation: true
+          ViewDistance: 1100
+          FadeStartDistance: 950
+          WindStrength: 0.16
+          WindSpeed: 0.8
+          BaseColor: [0.28, 0.42, 0.22]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          # Octahedral impostor card (issue #433). The near billboard is a tufted
+          # quad; past 30 m it cross-fades into the baked atlas, which is what gives
+          # the tree line a 3D silhouette from any azimuth at range. NO scene set
+          # UseImpostor before this one, so the path had zero runtime coverage.
+          UseImpostor: true
+          ImpostorStartDistance: 30
+          ImpostorTransitionBand: 18
+          ImpostorFramesPerAxis: 8
+          ImpostorAtlasResolution: 1024
+          ImpostorHemiOctahedral: true
+          Enabled: true
+
+  # ── Island - Stacks ───────────────────────────────────────────────────────
+  # Nearly pure ridged noise on a small tile: a cluster of sheer dark stacks, the
+  # tallest of the six at ~98 m out of the smallest footprint. Bare rock — nothing
+  # grows on it, which is itself the distinguishing feature at range.
+  #
+  # Waterline at 0.185 of the height range (24 m of base below sea level over a
+  # 130 m HeightScale); peak about 98 m above the water. The layer bands below are
+  # anchored on that number, not on absolute heights, so every island bands the
+  # same way in relative terms however deep it is sunk.
+  - Entity: 879000000000008
+    TagComponent:
+      Tag: Island - Stacks
+    TransformComponent:
+      # Origin is a CORNER, not the centre: a 300 m tile centred on (-330, ., -520).
+      Translation: [-480, -24, -670]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 300
+      WorldSizeZ: 300
+      HeightScale: 130
+      CollisionEnabled: true
+      ProceduralEnabled: true
+      ProceduralSeed: 5501
+      ProceduralResolution: 256
+      ProceduralOctaves: 6
+      ProceduralFrequency: 3.2
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.52
+      ShapingRidgeBlend: 0.92
+      ShapingWarpStrength: 0.14
+      ShapingWarpFrequency: 2.8
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 1.45
+      # THE reason this scene has a shoreline instead of a seam (issue #880). At
+      # strength 1 the radial mask drives every border texel of the tile to the base
+      # height, 24 m under water, so the tile edge is sea floor and the coastline is
+      # wherever the masked field crosses y = 0. Measured before the mask existed:
+      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
+      ShapingIslandFalloff: 1
+      ShapingIslandFalloffRadius: 0.26
+      AutoMaterial: true
+      SplatmapGenResolution: 512
+      LayerRules:
+        - LayerIndex: 0
+          MinHeight: 0
+          MaxHeight: 0.266
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 34
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 1
+          MinHeight: 0.282
+          MaxHeight: 0.723
+          HeightBlend: 0.06
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 42
+          SlopeBlend: 12
+          Strength: 1
+        - LayerIndex: 2
+          MinHeight: 0
+          MaxHeight: 1
+          HeightBlend: 0
+          MinSlopeDeg: 48
+          MaxSlopeDeg: 90
+          SlopeBlend: 12
+          Strength: 1
+        - LayerIndex: 3
+          MinHeight: 0.837
+          MaxHeight: 1
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 45
+          SlopeBlend: 10
+          Strength: 1
+      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
+      # island resolve as you sail toward it instead of popping: nodes are selected by
+      # screen-space error and adjacent patches are edge-snapped, so a level change
+      # cannot open a crack. No Drift terrain set this flag before #880.
+      TessellationEnabled: true
+      TargetTriangleSize: 10
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+      SplatmapPath0: ""
+      SplatmapPath1: ""
+      Layers:
+        - Name: Shingle
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 18
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.42, 0.4, 0.38]
+          Roughness: 0.94
+          Metallic: 0
+        - Name: Lichen
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 22
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.34, 0.36, 0.28]
+          Roughness: 0.92
+          Metallic: 0
+        - Name: Basalt
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 10
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.2, 0.2, 0.22]
+          Roughness: 0.72
+          Metallic: 0
+        - Name: Guano
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 16
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.68, 0.67, 0.62]
+          Roughness: 0.78
+          Metallic: 0
+    FoliageComponent:
+      Enabled: true
+      Layers:
+        - Name: Lichen
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.3
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 44
+          MinScale: 0.6
+          MaxScale: 1.1
+          MinHeight: 0.3
+          MaxHeight: 0.7
+          RandomRotation: true
+          ViewDistance: 170
+          FadeStartDistance: 130
+          WindStrength: 0.2
+          WindSpeed: 1.4
+          BaseColor: [0.3, 0.34, 0.26]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+
+  # ── Island - Dunes ────────────────────────────────────────────────────────
+  # Almost pure fBm at a low frequency: one smooth rolling mass with no ridge line
+  # at all. It is the anti-Stacks, and having the pair of them abeam to port is the
+  # clearest read on how far the shaping knobs actually move the place.
+  #
+  # Waterline at 0.253 of the height range (24 m of base below sea level over a
+  # 95 m HeightScale); peak about 65 m above the water. The layer bands below are
+  # anchored on that number, not on absolute heights, so every island bands the
+  # same way in relative terms however deep it is sunk.
+  - Entity: 879000000000009
+    TagComponent:
+      Tag: Island - Dunes
+    TransformComponent:
+      # Origin is a CORNER, not the centre: a 380 m tile centred on (-540, ., 60).
+      Translation: [-730, -24, -130]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 380
+      WorldSizeZ: 380
+      HeightScale: 95
+      CollisionEnabled: true
+      ProceduralEnabled: true
+      ProceduralSeed: 1301
+      ProceduralResolution: 384
+      ProceduralOctaves: 5
+      ProceduralFrequency: 1.7
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.5
+      ShapingRidgeBlend: 0.06
+      ShapingWarpStrength: 0.1
+      ShapingWarpFrequency: 1.5
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 0.9
+      # THE reason this scene has a shoreline instead of a seam (issue #880). At
+      # strength 1 the radial mask drives every border texel of the tile to the base
+      # height, 24 m under water, so the tile edge is sea floor and the coastline is
+      # wherever the masked field crosses y = 0. Measured before the mask existed:
+      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
+      ShapingIslandFalloff: 1
+      ShapingIslandFalloffRadius: 0.32
+      AutoMaterial: true
+      SplatmapGenResolution: 512
+      LayerRules:
+        - LayerIndex: 0
+          MinHeight: 0
+          MaxHeight: 0.327
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 34
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 1
+          MinHeight: 0.342
+          MaxHeight: 0.746
+          HeightBlend: 0.06
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 42
+          SlopeBlend: 12
+          Strength: 1
+        - LayerIndex: 2
+          MinHeight: 0
+          MaxHeight: 1
+          HeightBlend: 0
+          MinSlopeDeg: 48
+          MaxSlopeDeg: 90
+          SlopeBlend: 12
+          Strength: 1
+        - LayerIndex: 3
+          MinHeight: 0.851
+          MaxHeight: 1
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 45
+          SlopeBlend: 10
+          Strength: 1
+      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
+      # island resolve as you sail toward it instead of popping: nodes are selected by
+      # screen-space error and adjacent patches are edge-snapped, so a level change
+      # cannot open a crack. No Drift terrain set this flag before #880.
+      TessellationEnabled: true
+      TargetTriangleSize: 10
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+      SplatmapPath0: ""
+      SplatmapPath1: ""
+      Layers:
+        - Name: White sand
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 24
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.9, 0.86, 0.74]
+          Roughness: 0.94
+          Metallic: 0
+        - Name: Palm scrub
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 26
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.24, 0.46, 0.2]
+          Roughness: 0.9
+          Metallic: 0
+        - Name: Coral rock
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 14
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.62, 0.58, 0.52]
+          Roughness: 0.86
+          Metallic: 0
+        - Name: Green cap
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 18
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.3, 0.44, 0.24]
+          Roughness: 0.84
+          Metallic: 0
+    FoliageComponent:
+      Enabled: true
+      Layers:
+        - Name: Scrub
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.45
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 40
+          MinScale: 0.8
+          MaxScale: 1.6
+          MinHeight: 1.4
+          MaxHeight: 3
+          RandomRotation: true
+          ViewDistance: 260
+          FadeStartDistance: 200
+          WindStrength: 0.4
+          WindSpeed: 1.6
+          BaseColor: [0.28, 0.44, 0.18]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Dune grass
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.16
+          SplatmapChannel: 0
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 20
+          MinScale: 0.7
+          MaxScale: 1.3
+          MinHeight: 1
+          MaxHeight: 2.2
+          RandomRotation: true
+          ViewDistance: 200
+          FadeStartDistance: 150
+          WindStrength: 0.5
+          WindSpeed: 1.3
+          BaseColor: [0.62, 0.6, 0.34]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Palms
+          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.014
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 30
+          MinScale: 0.9
+          MaxScale: 1.4
+          MinHeight: 7
+          MaxHeight: 13
+          RandomRotation: true
+          ViewDistance: 1100
+          FadeStartDistance: 950
+          WindStrength: 0.16
+          WindSpeed: 0.8
+          BaseColor: [0.28, 0.42, 0.22]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          # Octahedral impostor card (issue #433). The near billboard is a tufted
+          # quad; past 30 m it cross-fades into the baked atlas, which is what gives
+          # the tree line a 3D silhouette from any azimuth at range. NO scene set
+          # UseImpostor before this one, so the path had zero runtime coverage.
+          UseImpostor: true
+          ImpostorStartDistance: 30
+          ImpostorTransitionBand: 18
+          ImpostorFramesPerAxis: 8
+          ImpostorAtlasResolution: 1024
+          ImpostorHemiOctahedral: true
+          Enabled: true
+
+  # ── Island - Sisters ──────────────────────────────────────────────────────
+  # Seven octaves on a small tile: a dense knot of small peaks and channels that
+  # reads as several islands until you are close enough to see they are joined.
+  # The furthest from the start line — about 950 m, the long leg.
+  #
+  # Waterline at 0.320 of the height range (24 m of base below sea level over a
+  # 75 m HeightScale); peak about 51 m above the water. The layer bands below are
+  # anchored on that number, not on absolute heights, so every island bands the
+  # same way in relative terms however deep it is sunk.
+  - Entity: 879000000000011
+    TagComponent:
+      Tag: Island - Sisters
+    TransformComponent:
+      # Origin is a CORNER, not the centre: a 260 m tile centred on (-160, ., 660).
+      Translation: [-290, -24, 530]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 260
+      WorldSizeZ: 260
+      HeightScale: 75
+      CollisionEnabled: true
+      ProceduralEnabled: true
+      ProceduralSeed: 3313
+      ProceduralResolution: 256
+      ProceduralOctaves: 7
+      ProceduralFrequency: 2.6
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.48
+      ShapingRidgeBlend: 0.55
+      ShapingWarpStrength: 0.26
+      ShapingWarpFrequency: 3
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 1.25
+      # THE reason this scene has a shoreline instead of a seam (issue #880). At
+      # strength 1 the radial mask drives every border texel of the tile to the base
+      # height, 24 m under water, so the tile edge is sea floor and the coastline is
+      # wherever the masked field crosses y = 0. Measured before the mask existed:
+      # 64.9% of this tile's border stood ABOVE sea level, as a vertical wall.
+      ShapingIslandFalloff: 1
+      ShapingIslandFalloffRadius: 0.28
+      AutoMaterial: true
+      SplatmapGenResolution: 512
+      LayerRules:
+        - LayerIndex: 0
+          MinHeight: 0
+          MaxHeight: 0.388
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 34
+          SlopeBlend: 10
+          Strength: 1
+        - LayerIndex: 1
+          MinHeight: 0.402
+          MaxHeight: 0.769
+          HeightBlend: 0.06
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 42
+          SlopeBlend: 12
+          Strength: 1
+        - LayerIndex: 2
+          MinHeight: 0
+          MaxHeight: 1
+          HeightBlend: 0
+          MinSlopeDeg: 48
+          MaxSlopeDeg: 90
+          SlopeBlend: 12
+          Strength: 1
+        - LayerIndex: 3
+          MinHeight: 0.864
+          MaxHeight: 1
+          HeightBlend: 0.05
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 45
+          SlopeBlend: 10
+          Strength: 1
+      # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
+      # island resolve as you sail toward it instead of popping: nodes are selected by
+      # screen-space error and adjacent patches are edge-snapped, so a level change
+      # cannot open a crack. No Drift terrain set this flag before #880.
+      TessellationEnabled: true
+      TargetTriangleSize: 10
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+      SplatmapPath0: ""
+      SplatmapPath1: ""
+      Layers:
+        - Name: Sand
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 22
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.78, 0.72, 0.55]
+          Roughness: 0.95
+          Metallic: 0
+        - Name: Scrub
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 24
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.28, 0.4, 0.21]
+          Roughness: 0.92
+          Metallic: 0
+        - Name: Rock
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 14
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.44, 0.41, 0.38]
+          Roughness: 0.85
+          Metallic: 0
+        - Name: Heath
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 18
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.52, 0.5, 0.44]
+          Roughness: 0.8
+          Metallic: 0
+    FoliageComponent:
+      Enabled: true
+      Layers:
+        - Name: Scrub
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.45
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 40
+          MinScale: 0.8
+          MaxScale: 1.6
+          MinHeight: 1.4
+          MaxHeight: 3
+          RandomRotation: true
+          ViewDistance: 260
+          FadeStartDistance: 200
+          WindStrength: 0.4
+          WindSpeed: 1.6
+          BaseColor: [0.28, 0.44, 0.18]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Dune grass
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.16
+          SplatmapChannel: 0
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 20
+          MinScale: 0.7
+          MaxScale: 1.3
+          MinHeight: 1
+          MaxHeight: 2.2
+          RandomRotation: true
+          ViewDistance: 200
+          FadeStartDistance: 150
+          WindStrength: 0.5
+          WindSpeed: 1.3
+          BaseColor: [0.62, 0.6, 0.34]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+        - Name: Pines
+          MeshPath: SandboxProject/Assets/Models/Vegetation/pine.obj
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.016
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 38
+          MinScale: 0.9
+          MaxScale: 1.4
+          MinHeight: 9
+          MaxHeight: 16
+          RandomRotation: true
+          ViewDistance: 1100
+          FadeStartDistance: 950
+          WindStrength: 0.16
+          WindSpeed: 0.8
+          BaseColor: [0.19, 0.33, 0.2]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          # Octahedral impostor card (issue #433). The near billboard is a tufted
+          # quad; past 30 m it cross-fades into the baked atlas, which is what gives
+          # the tree line a 3D silhouette from any azimuth at range. NO scene set
+          # UseImpostor before this one, so the path had zero runtime coverage.
+          UseImpostor: true
+          ImpostorStartDistance: 30
+          ImpostorTransitionBand: 18
+          ImpostorFramesPerAxis: 8
+          ImpostorAtlasResolution: 1024
+          ImpostorHemiOctahedral: true
+          Enabled: true
 
   # ── The boat ──────────────────────────────────────────────────────────────
   # SINCE #899 THIS IS A SAILING BOAT. The wind drives it (SailComponent below);

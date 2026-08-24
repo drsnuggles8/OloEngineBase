@@ -138,6 +138,184 @@ TEST(TerrainGeneratorTest, TerraceShapingStaysValidAndDeterministic)
     EXPECT_EQ(a, b);
 }
 
+// ── Radial island falloff (issue #880) ──────────────────────────────────────
+//
+// The contract this mask exists for: at full strength EVERY border texel of the
+// tile is driven to 0, so a terrain tile meeting an ocean has a shoreline rather
+// than a cliff wall where the tile stops. Measured on the Drift island before
+// the mask existed, 64.9% of its border was above sea level — none of the other
+// shaping knobs can fix that, because they are all uniform over the tile.
+
+namespace
+{
+    // Largest height found on the tile's outermost ring of texels.
+    [[nodiscard]] f32 MaxBorderHeight(const std::vector<f32>& heights, u32 resolution)
+    {
+        f32 maxBorder = 0.0f;
+        const auto at = [&](u32 x, u32 z)
+        { return heights[static_cast<sizet>(z) * resolution + x]; };
+        for (u32 x = 0; x < resolution; ++x)
+        {
+            maxBorder = std::max({ maxBorder, at(x, 0), at(x, resolution - 1) });
+        }
+        for (u32 z = 0; z < resolution; ++z)
+        {
+            maxBorder = std::max({ maxBorder, at(0, z), at(resolution - 1, z) });
+        }
+        return maxBorder;
+    }
+} // namespace
+
+TEST(TerrainGeneratorTest, IslandFalloffIsOffByDefaultAndLeavesTheFieldUntouched)
+{
+    // The identity guarantee: a default-constructed TerrainHeightShaping must
+    // produce the same field it did before the mask existed, bit for bit.
+    auto params = MakeParams();
+    params.Shaping.RidgeBlend = 0.5f;
+    params.Shaping.HeightExponent = 1.15f;
+    std::vector<f32> off;
+    TerrainGenerator::GenerateHeightField(off, params);
+
+    params.Shaping.IslandFalloff = 0.0f;
+    params.Shaping.IslandFalloffRadius = 0.25f; // ignored while the strength is 0
+    std::vector<f32> explicitlyOff;
+    TerrainGenerator::GenerateHeightField(explicitlyOff, params);
+    EXPECT_EQ(off, explicitlyOff);
+
+    // ...and the un-masked field really does keep a high border, which is the
+    // defect the mask is here to remove. Without this the test above would pass
+    // just as happily on a field that was flat at the edges anyway.
+    EXPECT_GT(MaxBorderHeight(off, params.Resolution), 0.25f);
+}
+
+TEST(TerrainGeneratorTest, IslandFalloffDrivesEveryBorderTexelToZero)
+{
+    // Swept over resolutions because the ramp's outer radius is derived from the
+    // resolution (it ends on the mid-edge texel CENTRE, the outermost sample that
+    // exists); an off-by-half-a-texel there leaves a small positive tail on the
+    // border instead of an exact zero.
+    for (const u32 resolution : { 32u, 64u, 127u, 128u })
+    {
+        auto params = MakeParams(4242, resolution);
+        params.Shaping.RidgeBlend = 0.5f;
+        params.Shaping.WarpStrength = 0.2f;
+        params.Shaping.HeightExponent = 1.4f;
+        params.Shaping.TerraceSteps = 4; // exercised AFTER the mask: Terrace(0) must be 0
+        params.Shaping.IslandFalloff = 1.0f;
+        params.Shaping.IslandFalloffRadius = 0.3f;
+
+        std::vector<f32> heights;
+        TerrainGenerator::GenerateHeightField(heights, params);
+        ExpectNormalizedField(heights, resolution);
+        EXPECT_FLOAT_EQ(MaxBorderHeight(heights, resolution), 0.0f)
+            << "resolution " << resolution << ": the tile border is not at the base height";
+
+        // Anti-vacuity: the island itself must still be there. A mask that zeroed
+        // the whole tile would satisfy the assertion above perfectly.
+        const f32 peak = *std::max_element(heights.begin(), heights.end());
+        EXPECT_GT(peak, 0.5f) << "resolution " << resolution << ": the mask flattened the whole tile";
+    }
+}
+
+TEST(TerrainGeneratorTest, IslandFalloffRadiusControlsHowMuchOfTheTileIsLand)
+{
+    // The radius is the island-size knob: a smaller one leaves less of the tile
+    // above any given cut. Compared at a fixed cut so this is a statement about
+    // the mask, not about the noise.
+    constexpr f32 kSeaLevel = 0.2f;
+    const auto landFraction = [](f32 radius)
+    {
+        auto params = MakeParams(99, 96);
+        params.Shaping.IslandFalloff = 1.0f;
+        params.Shaping.IslandFalloffRadius = radius;
+        std::vector<f32> heights;
+        TerrainGenerator::GenerateHeightField(heights, params);
+        const auto above = std::count_if(heights.begin(), heights.end(), [](f32 h)
+                                         { return h > kSeaLevel; });
+        return static_cast<f32>(above) / static_cast<f32>(heights.size());
+    };
+
+    const f32 small = landFraction(0.15f);
+    const f32 large = landFraction(0.40f);
+    EXPECT_GT(large, small);
+    EXPECT_GT(small, 0.0f) << "a small island is still an island";
+}
+
+TEST(TerrainGeneratorTest, IslandFalloffStrengthInterpolatesTowardsTheMask)
+{
+    // Partial strength is a lerp between the raw field and the fully masked one,
+    // so a border texel at half strength sits at half its unmasked height.
+    auto params = MakeParams(7, 64);
+    std::vector<f32> raw;
+    TerrainGenerator::GenerateHeightField(raw, params);
+
+    params.Shaping.IslandFalloff = 0.5f;
+    params.Shaping.IslandFalloffRadius = 0.3f;
+    std::vector<f32> half;
+    TerrainGenerator::GenerateHeightField(half, params);
+    ExpectNormalizedField(half, params.Resolution);
+
+    // Corner texel: the mask is exactly 0 there, so half strength halves it.
+    const sizet corner = 0;
+    EXPECT_NEAR(half[corner], raw[corner] * 0.5f, kEps);
+    // ...and the border is emphatically NOT zero at half strength, which is what
+    // separates "the strength is honoured" from "the mask is always full".
+    EXPECT_GT(MaxBorderHeight(half, params.Resolution), 0.0f);
+}
+
+TEST(TerrainGeneratorTest, IslandFalloffSurvivesTheErosionPostPass)
+{
+    // Erosion runs AFTER the mask, and a droplet that dies on the border deposits
+    // its sediment on the very texels the mask drove to the floor. Nothing else in
+    // the pipeline looks at that edge, so the guarantee could be silently undone
+    // by turning on an unrelated knob — which is the whole reason this case is
+    // separate from the sweep above rather than another entry in it.
+    auto params = MakeParams(20250880, 64);
+    params.Shaping.RidgeBlend = 0.4f;
+    params.Shaping.IslandFalloff = 1.0f;
+    params.Shaping.IslandFalloffRadius = 0.28f;
+    params.ErosionIterations = 4;
+
+    std::vector<f32> heights;
+    TerrainGenerator::GenerateHeightField(heights, params);
+    ExpectNormalizedField(heights, params.Resolution);
+    EXPECT_FLOAT_EQ(MaxBorderHeight(heights, params.Resolution), 0.0f)
+        << "the erosion post-pass deposited sediment on the masked tile border";
+
+    // Anti-vacuity twice over: the island is still there, and the erosion pass
+    // actually ran (otherwise this asserts the same thing the sweep already does).
+    EXPECT_GT(*std::max_element(heights.begin(), heights.end()), 0.5f);
+
+    auto unEroded = params;
+    unEroded.ErosionIterations = 0;
+    std::vector<f32> baseline;
+    TerrainGenerator::GenerateHeightField(baseline, unEroded);
+    EXPECT_NE(heights, baseline) << "erosion made no difference, so this test proves nothing";
+}
+
+TEST(TerrainGeneratorTest, IslandFalloffIsDeterministicAndComparesEqual)
+{
+    auto params = MakeParams();
+    params.Shaping.IslandFalloff = 0.8f;
+    params.Shaping.IslandFalloffRadius = 0.28f;
+    std::vector<f32> a;
+    std::vector<f32> b;
+    TerrainGenerator::GenerateHeightField(a, params);
+    TerrainGenerator::GenerateHeightField(b, params);
+    EXPECT_EQ(a, b);
+
+    // operator== must see both new fields, or an inspector edit to either records
+    // no undo step and a Scene::Copy comparison silently reports "unchanged".
+    TerrainHeightShaping lhs;
+    TerrainHeightShaping rhs;
+    EXPECT_TRUE(lhs == rhs);
+    rhs.IslandFalloff = 0.5f;
+    EXPECT_FALSE(lhs == rhs);
+    rhs = lhs;
+    rhs.IslandFalloffRadius = 0.11f;
+    EXPECT_FALSE(lhs == rhs);
+}
+
 // ── Erosion post-pass ───────────────────────────────────────────────────────
 
 TEST(TerrainGeneratorTest, ErosionPostPassIsDeterministic)

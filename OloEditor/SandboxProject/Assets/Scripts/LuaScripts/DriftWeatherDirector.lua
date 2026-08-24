@@ -12,10 +12,25 @@
 --   The passage from where the boat is now to the island it is steering at.
 --   #881 owns the real discovery loop (landing triggers, markers, saved
 --   progress); this script deliberately does not pre-empt it, so a leg ends on
---   the cheapest honest signal available in this scene — the boat coming
---   within kLandfallRadius of the island — and re-arms once it is back outside
---   kDepartureRadius. Sail out to the island and back and you get a different
---   sky each time, which is the whole point of the issue.
+--   the cheapest honest signal available in this scene — the boat closing an
+--   island — and each island re-arms once the boat is back outside its own
+--   departure radius. Sail out to an island and away again and you get a
+--   different sky each time, which is the whole point of the issue.
+--
+--   SINCE #880 THERE ARE SIX ISLANDS, and each one carries its own arm/disarm
+--   state. That is not tidiness: their departure circles overlap on several of
+--   the passages between them, so a single global flag driven by "the nearest
+--   island" would never re-arm on those routes and every leg there would
+--   advance on the 300 s failsafe instead of on arrival. See the loop in
+--   OnUpdate.
+--
+--   The thresholds are DERIVED per island from its own TerrainComponent — the
+--   radial island falloff radius times the tile size is roughly where that
+--   island's coast falls, and the two thresholds are margins outside it — so a
+--   retuned island needs no edit here, and a seventh one needs only its name in
+--   kIslandNames. This script used to hard-code one centre and one 240 m
+--   half-size, which is exactly the kind of mirror that goes stale on the first
+--   move.
 --
 --   kLegMaxSeconds is a failsafe, not a design: a player who never closes the
 --   island still sees the weather move rather than sitting under one sky
@@ -71,16 +86,25 @@ local kTransitionSeconds = 14.0
 -- two do not finish together and read as one scripted event.
 local kTimeWarpSeconds   = 18.0
 
-local kIslandName    = "Island"
+-- The six islands #880 scattered across the sea. The only thing mirrored from
+-- the scene is the NAME; everything else about each one — where it is, how big
+-- it is, where its coast falls — is read off its own entity.
+local kIslandNames = {
+    "Island - Ridgeback",
+    "Island - Mesa",
+    "Island - Atoll",
+    "Island - Stacks",
+    "Island - Dunes",
+    "Island - Sisters",
+}
 local kBoatName      = "Boat"
 local kSeaName       = "Sea"
 
--- The island tile's origin is a CORNER (see Drift.olo); its centre is at
--- translation + half the world size. Hard-coding the centre here would go stale
--- the moment the tile is moved, so it is derived from the entity instead.
-local kIslandHalfSize   = 240.0  -- TerrainComponent.WorldSizeX * 0.5
-local kLandfallRadius   = 210.0  -- m from the island centre: close inshore
-local kDepartureRadius  = 300.0  -- must clear this again before a leg can end
+-- Margins outside an island's own coast, not absolute distances: the six run
+-- from a 260 m tile to a 420 m one, so one fixed radius would be inshore of the
+-- big islands and half a kilometre off the small ones.
+local kLandfallMargin   = 45.0   -- m outside the coast: close enough to count as arriving
+local kDepartureMargin  = 135.0  -- must clear this again before a leg can end
 local kLegMaxSeconds    = 300.0  -- failsafe only
 
 -- ── Sea state ───────────────────────────────────────────────────────────────
@@ -128,11 +152,14 @@ local kSea = {
 -- ── State ───────────────────────────────────────────────────────────────────
 local legIndex   = 0
 local legElapsed = 0.0
-local armed      = false   -- true once the boat is offshore and a leg can end
+-- Arming is PER ISLAND (see resolveIslands): one global flag cannot work with
+-- six of them, because their departure circles overlap on several passages.
 local warp       = nil     -- { from, to, t } while the clock is being driven
 local seaT       = nil     -- eased sea-state parameter in [0,1]
-local islandID, boatID, seaID = nil, nil, nil
-local islandCentre = nil
+local boatID, seaID = nil, nil
+-- One entry per island once resolved:
+--   { centre = { x, z }, landfall, departure, armed }
+local islands = nil
 local warnedIsland, warnedSea = false, false
 
 local function clamp(v, lo, hi)
@@ -239,10 +266,9 @@ end
 
 function WeatherDirector.OnCreate(id)
     legIndex, legElapsed = 0, 0.0
-    armed = false
     warp, seaT = nil, nil
-    islandID, boatID, seaID = nil, nil, nil
-    islandCentre = nil
+    boatID, seaID = nil, nil
+    islands = nil
     warnedIsland, warnedSea = false, false
 
     -- The wind blows along the authored swell (WaveDir0 in Drift.olo), so wind
@@ -253,6 +279,47 @@ function WeatherDirector.OnCreate(id)
     Scene.SetWindDirection(vec3.new(0.989, 0.0, 0.148))
 
     beginLeg(id, 1)
+end
+
+-- Resolve every island once: centre from the tile's CORNER origin plus half its
+-- world size, and the two thresholds from that island's own coast.
+--
+-- ESTIMATING THE COAST. The radial island falloff (#880) does not put the
+-- coastline at IslandFalloffRadius — that is where the mask STARTS falling. It
+-- reaches zero at the tile's inscribed circle (half the world size), and land
+-- survives anywhere between the two that the noise left high enough. Measured
+-- across all six islands, the waterline lands close to the midpoint of that
+-- band, and the midpoint estimator is within ~10% on every one of them
+-- (Ridgeback 168 predicted / 165-173 measured, Sisters 101 / 97-102, Stacks
+-- 114 / 106-113). Both terms are read off the component, so retuning an island
+-- in the editor moves the leg thresholds with it.
+--
+-- Returns nil until EVERY named island has resolved, so a partially-loaded
+-- scene retries next tick instead of caching a short list and quietly ending
+-- legs on the wrong subset.
+local function resolveIslands()
+    local resolved = {}
+    for _, name in ipairs(kIslandNames) do
+        local id = entity_utils.find_by_name(name)
+        if not id then
+            return nil
+        end
+        local terrain = entity_utils.get_component(id, "TerrainComponent")
+        if not terrain then
+            return nil
+        end
+        local t = entity_utils.get_translation(id)
+        local coast = (terrain.islandFalloffRadius + 0.5) * 0.5 * terrain.worldSizeX
+        resolved[#resolved + 1] = {
+            centre    = { x = t.x + terrain.worldSizeX * 0.5, z = t.z + terrain.worldSizeZ * 0.5 },
+            landfall  = coast + kLandfallMargin,
+            departure = coast + kDepartureMargin,
+            -- Armed on resolve: the boat starts on open water, not on a beach,
+            -- so the first approach to any island is a genuine landfall.
+            armed     = true,
+        }
+    end
+    return resolved
 end
 
 function WeatherDirector.OnUpdate(id, dt)
@@ -325,29 +392,36 @@ function WeatherDirector.OnUpdate(id, dt)
     end
 
     -- ── Leg advance ─────────────────────────────────────────────────────────
-    if not islandID then islandID = entity_utils.find_by_name(kIslandName) end
     if not boatID then boatID = entity_utils.find_by_name(kBoatName) end
-
-    if islandID and not islandCentre then
-        local t = entity_utils.get_translation(islandID)
-        islandCentre = { x = t.x + kIslandHalfSize, z = t.z + kIslandHalfSize }
-    end
+    if not islands then islands = resolveIslands() end
 
     local landfall = false
-    if islandCentre and boatID then
+    if islands and boatID then
         local b = entity_utils.get_translation(boatID)
-        local dx, dz = b.x - islandCentre.x, b.z - islandCentre.z
-        local dist = math.sqrt(dx * dx + dz * dz)
-        if dist > kDepartureRadius then
-            armed = true
-        elseif armed and dist < kLandfallRadius then
-            landfall = true
-            armed = false
+        -- ARMING IS PER ISLAND, and that is the whole reason this loop is not a
+        -- nearest-island test. With one island a single flag was enough. With
+        -- six, the departure circles OVERLAP on several of the passages between
+        -- them — Ridgeback's reaches 303 m and Sisters' landfall ring is 266 m
+        -- from Ridgeback's centre — so a boat crossing from one to the other is
+        -- never outside "the nearest island's" departure radius, never arms, and
+        -- every leg on that route advances on the 300 s failsafe instead. Per
+        -- island there is no coupling at all: each one only ever compares the
+        -- boat against its own two radii, exactly as the single-island version
+        -- did.
+        for _, isle in ipairs(islands) do
+            local dx, dz = b.x - isle.centre.x, b.z - isle.centre.z
+            local dist = math.sqrt(dx * dx + dz * dz)
+            if dist > isle.departure then
+                isle.armed = true
+            elseif isle.armed and dist < isle.landfall then
+                isle.armed = false
+                landfall = true
+            end
         end
     elseif not warnedIsland then
         warnedIsland = true
-        Log.Warn("[Drift] DriftWeatherDirector cannot find '" .. kIslandName .. "' and '" ..
-                 kBoatName .. "' — legs will only advance on the timeout.")
+        Log.Warn("[Drift] DriftWeatherDirector could not resolve the islands (or '" .. kBoatName ..
+                 "') — legs will only advance on the timeout.")
     end
 
     if landfall or legElapsed >= kLegMaxSeconds then

@@ -1834,6 +1834,14 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TerrainComponent_SetHeightExponent(ulong entityID, float value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetIslandFalloff(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetIslandFalloff(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TerrainComponent_GetIslandFalloffRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TerrainComponent_SetIslandFalloffRadius(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool TerrainComponent_GetAutoMaterial(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TerrainComponent_SetAutoMaterial(ulong entityID, bool value);

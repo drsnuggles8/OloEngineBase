@@ -1,6 +1,8 @@
 // OLO_TEST_LAYER: Functional
 #include "OloEnginePCH.h"
 
+#include <array>
+
 // =============================================================================
 // DriftLegWeatherAndSeaStateTest — Functional Test.
 //
@@ -58,17 +60,50 @@ namespace
 {
     namespace fs = std::filesystem;
 
-    // Mirrors Drift.olo: the terrain tile's origin is a CORNER, so its centre
-    // is translation + half the world size (480 / 2).
-    constexpr f32 kIslandHalfSize = 240.0f;
-    constexpr glm::vec3 kIslandOrigin{ -240.0f, -70.0f, 60.0f };
-    const glm::vec3 kIslandCentre{ kIslandOrigin.x + kIslandHalfSize, 0.0f,
-                                   kIslandOrigin.z + kIslandHalfSize };
+    // Mirrors Drift.olo's Ridgeback: the terrain tile's origin is a CORNER, so
+    // its centre is translation + half the world size (420 / 2).
+    //
+    // SINCE #880 THE SCRIPT NEEDS A TerrainComponent ON THE ISLAND, not just a
+    // transform: it derives each island's coast from IslandFalloffRadius x
+    // WorldSizeX rather than hard-coding a radius. It also needs EVERY island in
+    // its kIslandNames list to exist — resolveIslands() returns nil until they
+    // all resolve, so a scene with one island leaves the leg machine permanently
+    // un-resolved and every leg advances on the failsafe. That is the shape of
+    // the failure this fixture hit when the scene grew from one island to six,
+    // and it is why the fixture now builds all six rather than the one it cares
+    // about.
+    constexpr f32 kIslandSize = 420.0f;
+    constexpr f32 kIslandFalloffRadius = 0.30f;
+    constexpr glm::vec3 kIslandOrigin{ -210.0f, -24.0f, 70.0f };
+    const glm::vec3 kIslandCentre{ kIslandOrigin.x + kIslandSize * 0.5f, 0.0f,
+                                   kIslandOrigin.z + kIslandSize * 0.5f };
 
-    // The script's own radii. Offshore is beyond kDepartureRadius (300);
-    // landfall is inside kLandfallRadius (210).
-    const glm::vec3 kOffshore{ kIslandCentre.x, 0.0f, kIslandCentre.z - 550.0f };
-    const glm::vec3 kAtIsland{ kIslandCentre.x, 0.0f, kIslandCentre.z - 40.0f };
+    // The script's own radii, derived the way it derives them: the coast is the
+    // midpoint between the falloff radius and the tile's half-width, landfall is
+    // 45 m outside that and departure 135 m outside it. For Ridgeback that is a
+    // ~168 m coast, a ~213 m landfall ring and a ~303 m departure ring.
+    constexpr f32 kCoast = (kIslandFalloffRadius + 0.5f) * 0.5f * kIslandSize;
+    const glm::vec3 kOffshore{ kIslandCentre.x, 0.0f, kIslandCentre.z - (kCoast + 400.0f) };
+    const glm::vec3 kAtIsland{ kIslandCentre.x, 0.0f, kIslandCentre.z - (kCoast + 10.0f) };
+
+    // The other five, far enough away that the boat is outside every one of
+    // their departure radii at both poses above — otherwise arming one of THEM
+    // would be enough to end a leg the test believes it controls. They only need
+    // to exist and carry a terrain; their geometry is Drift.olo's.
+    struct OtherIsland
+    {
+        const char* Name;
+        glm::vec3 Origin;
+        f32 Size;
+        f32 FalloffRadius;
+    };
+    constexpr std::array<OtherIsland, 5> kOtherIslands = { {
+        { "Island - Mesa", { 320.0f, -24.0f, -140.0f }, 360.0f, 0.29f },
+        { "Island - Atoll", { 130.0f, -24.0f, -680.0f }, 400.0f, 0.33f },
+        { "Island - Stacks", { -480.0f, -24.0f, -670.0f }, 300.0f, 0.26f },
+        { "Island - Dunes", { -730.0f, -24.0f, -130.0f }, 380.0f, 0.32f },
+        { "Island - Sisters", { -290.0f, -24.0f, 530.0f }, 260.0f, 0.28f },
+    } };
 
     // Coarse steps: nothing here is physics, and the script's slowest constant
     // is the 25 s sea-state ease, so a 20 Hz tick resolves every transition it
@@ -97,8 +132,31 @@ class DriftLegWeatherAndSeaStateTest : public FunctionalTest
         water.m_FoamBrightness = 1.1f;
 
         // ── The island and the boat: the leg machine's only two inputs ──
-        m_Island = scene.CreateEntity("Island");
+        m_Island = scene.CreateEntity("Island - Ridgeback");
         m_Island.GetComponent<TransformComponent>().Translation = kIslandOrigin;
+        {
+            auto& terrain = m_Island.AddComponent<TerrainComponent>();
+            terrain.m_WorldSizeX = kIslandSize;
+            terrain.m_WorldSizeZ = kIslandSize;
+            terrain.m_HeightShaping.IslandFalloffRadius = kIslandFalloffRadius;
+            // No procedural generation and no collision: the script reads three
+            // authored floats off this component and nothing else, and building a
+            // height field would cost a GL upload in a headless functional test.
+            terrain.m_ProceduralEnabled = false;
+            terrain.m_CollisionEnabled = false;
+        }
+
+        for (const OtherIsland& other : kOtherIslands)
+        {
+            Entity island = scene.CreateEntity(other.Name);
+            island.GetComponent<TransformComponent>().Translation = other.Origin;
+            auto& terrain = island.AddComponent<TerrainComponent>();
+            terrain.m_WorldSizeX = other.Size;
+            terrain.m_WorldSizeZ = other.Size;
+            terrain.m_HeightShaping.IslandFalloffRadius = other.FalloffRadius;
+            terrain.m_ProceduralEnabled = false;
+            terrain.m_CollisionEnabled = false;
+        }
 
         m_Boat = scene.CreateEntity("Boat");
         m_Boat.GetComponent<TransformComponent>().Translation = kOffshore;
@@ -142,7 +200,10 @@ class DriftLegWeatherAndSeaStateTest : public FunctionalTest
         return m_Atmosphere.GetComponent<TimeOfDayComponent>();
     }
 
-    // Sail out to the island: arm the leg machine offshore, then close it.
+    // Sail out to Ridgeback: arm ITS leg machine offshore, then close it. Arming
+    // is per island since #880, so this only ever moves Ridgeback's flag — the
+    // other five stay armed and untouched, which is exactly what makes this a
+    // controlled single-island landfall in a six-island world.
     void MakeLandfall()
     {
         m_Boat.GetComponent<TransformComponent>().Translation = kOffshore;

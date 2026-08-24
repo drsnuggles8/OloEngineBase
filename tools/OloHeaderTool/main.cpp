@@ -3776,6 +3776,11 @@ static const std::map<std::string, McpRange> kMcpFieldClamps = {
     { "LightProbeVolumeComponent.Intensity", { std::string("0.0f"), std::nullopt } },
     // StreamingVolumeComponent — `std::max(LoadRadius, 1.0f)`.
     { "StreamingVolumeComponent.LoadRadius", { std::string("1.0f"), std::nullopt } },
+    // TerrainComponent — the radial island mask (issue #880). Both are sanitized
+    // on scene load and in the save-game reader; mirroring the ranges here keeps
+    // an MCP write behaving exactly like a reload of the same value.
+    { "TerrainComponent.HeightShaping.IslandFalloff", { std::string("0.0f"), std::string("1.0f") } },
+    { "TerrainComponent.HeightShaping.IslandFalloffRadius", { std::string("0.0f"), std::string("0.5f") } },
 };
 
 // The field types the MCP write tool can coerce from JSON and echo back

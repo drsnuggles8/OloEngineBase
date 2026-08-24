@@ -940,6 +940,8 @@ registry.push_back(OLO_GFW_FIELD(TerrainComponent, "HeightShaping.WarpFrequency"
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "HeightShaping.TerraceSteps", m_HeightShaping.TerraceSteps));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "HeightShaping.TerraceSharpness", m_HeightShaping.TerraceSharpness));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "HeightShaping.HeightExponent", m_HeightShaping.HeightExponent));
+registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "HeightShaping.IslandFalloff", m_HeightShaping.IslandFalloff, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "HeightShaping.IslandFalloffRadius", m_HeightShaping.IslandFalloffRadius, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(0.5f)));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "AutoMaterial", m_AutoMaterial));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "SplatmapGenResolution", m_SplatmapGenResolution));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "TessellationEnabled", m_TessellationEnabled));

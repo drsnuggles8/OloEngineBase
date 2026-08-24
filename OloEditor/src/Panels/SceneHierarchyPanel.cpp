@@ -5722,6 +5722,12 @@ namespace OloEngine
                 if (ImGui::DragFloat("Height Exponent", &component.m_HeightShaping.HeightExponent, 0.02f, 0.1f, 6.0f))
                     component.m_NeedsRebuild = true;
                 ImGui::SetItemTooltip(">1 flattens lowlands and sharpens peaks (islands / deep valleys)");
+                if (ImGui::DragFloat("Island Falloff", &component.m_HeightShaping.IslandFalloff, 0.01f, 0.0f, 1.0f))
+                    component.m_NeedsRebuild = true;
+                ImGui::SetItemTooltip("0 = off. Radial mask driving the tile border down to the base height, so the tile edge is a shoreline instead of a cliff.");
+                if (ImGui::DragFloat("Island Falloff Radius", &component.m_HeightShaping.IslandFalloffRadius, 0.005f, 0.0f, 0.5f))
+                    component.m_NeedsRebuild = true;
+                ImGui::SetItemTooltip("Normalized radius the mask starts falling at. Smaller = a smaller island in the same tile.");
 
                 // Hydraulic-erosion generation post-pass. 0 = off; each iteration
                 // is one full droplet pass over the field. Deterministic in Seed.

@@ -2856,6 +2856,18 @@ namespace OloEngine
 			set => InternalCalls.TerrainComponent_SetHeightExponent(Entity.ID, value);
 		}
 
+		public float IslandFalloff
+		{
+			get => InternalCalls.TerrainComponent_GetIslandFalloff(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetIslandFalloff(Entity.ID, value);
+		}
+
+		public float IslandFalloffRadius
+		{
+			get => InternalCalls.TerrainComponent_GetIslandFalloffRadius(Entity.ID);
+			set => InternalCalls.TerrainComponent_SetIslandFalloffRadius(Entity.ID, value);
+		}
+
 		public bool AutoMaterial
 		{
 			get => InternalCalls.TerrainComponent_GetAutoMaterial(Entity.ID);

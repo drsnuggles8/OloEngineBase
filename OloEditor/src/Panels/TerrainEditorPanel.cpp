@@ -159,13 +159,18 @@ namespace OloEngine
             f32 TerraceSharp;
             f32 Exponent;
             f32 Frequency;
+            f32 Falloff;
+            f32 FalloffRadius;
         };
+        // "Islands" is the only preset that turns the radial mask on: without it
+        // the tile border keeps whatever height the noise left there, which is a
+        // cliff wall rather than a shoreline (issue #880).
         static const ShapePreset kPresets[] = {
-            { "Rolling Hills", 0.0f, 0.06f, 2.0f, 0, 0.6f, 1.0f, 2.5f },
-            { "Mountains", 0.6f, 0.15f, 2.0f, 0, 0.6f, 1.2f, 3.0f },
-            { "Mesas", 0.2f, 0.10f, 2.0f, 6, 0.85f, 1.0f, 2.5f },
-            { "Islands", 0.3f, 0.10f, 2.0f, 0, 0.6f, 2.5f, 3.0f },
-            { "Canyons", 0.7f, 0.25f, 3.0f, 0, 0.6f, 1.5f, 3.5f },
+            { "Rolling Hills", 0.0f, 0.06f, 2.0f, 0, 0.6f, 1.0f, 2.5f, 0.0f, 0.3f },
+            { "Mountains", 0.6f, 0.15f, 2.0f, 0, 0.6f, 1.2f, 3.0f, 0.0f, 0.3f },
+            { "Mesas", 0.2f, 0.10f, 2.0f, 6, 0.85f, 1.0f, 2.5f, 0.0f, 0.3f },
+            { "Islands", 0.3f, 0.10f, 2.0f, 0, 0.6f, 1.3f, 2.4f, 1.0f, 0.30f },
+            { "Canyons", 0.7f, 0.25f, 3.0f, 0, 0.6f, 1.5f, 3.5f, 0.0f, 0.3f },
         };
         ImGui::Text("Shape Presets");
         for (int i = 0; i < IM_ARRAYSIZE(kPresets); ++i)
@@ -181,6 +186,8 @@ namespace OloEngine
                 tc.m_HeightShaping.TerraceSteps = p.Terrace;
                 tc.m_HeightShaping.TerraceSharpness = p.TerraceSharp;
                 tc.m_HeightShaping.HeightExponent = p.Exponent;
+                tc.m_HeightShaping.IslandFalloff = p.Falloff;
+                tc.m_HeightShaping.IslandFalloffRadius = p.FalloffRadius;
                 tc.m_ProceduralFrequency = p.Frequency;
                 regenerate();
             }
@@ -221,6 +228,10 @@ namespace OloEngine
         ImGui::DragFloat("Terrace Sharpness", &tc.m_HeightShaping.TerraceSharpness, 0.01f, 0.0f, 0.99f, "%.2f");
         ImGui::DragFloat("Height Exponent", &tc.m_HeightShaping.HeightExponent, 0.02f, 0.1f, 6.0f, "%.2f");
         ImGui::SetItemTooltip(">1 flattens lowlands and sharpens peaks (islands / deep valleys)");
+        ImGui::DragFloat("Island Falloff", &tc.m_HeightShaping.IslandFalloff, 0.01f, 0.0f, 1.0f, "%.2f");
+        ImGui::SetItemTooltip("0 = off. Radial mask driving the tile border down to the base height, so the tile edge is a shoreline instead of a cliff.");
+        ImGui::DragFloat("Island Falloff Radius", &tc.m_HeightShaping.IslandFalloffRadius, 0.005f, 0.0f, 0.5f, "%.3f");
+        ImGui::SetItemTooltip("Normalized radius the mask starts falling at. Smaller = a smaller island in the same tile.");
 
         // ── World ────────────────────────────────────────────────────────────
         ImGui::Separator();

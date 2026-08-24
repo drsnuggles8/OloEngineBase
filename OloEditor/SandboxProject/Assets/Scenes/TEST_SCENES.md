@@ -273,6 +273,49 @@ before/after, and what `AircraftGearTest` pins as a pair.
 
 ---
 
+## Terrain / Water
+
+### [Drift.olo](Drift.olo)
+
+**Purpose**: The *Drift* game scene, and — since issue #880 — the only scene in
+the project that puts a procedural terrain tile in an ocean. It is also the only
+gameplay scene that turns the **GPU LOD quadtree** on (`TessellationEnabled`) and
+the only scene of any kind that turns **foliage impostor cards** on
+(`UseImpostor`); before #880 both flags appeared solely in the tests written with
+them, which is test coverage and not product coverage.
+**Contents**: six procedurally generated islands scattered across a 1.6 km sea,
+each with its own seed / shaping / height scale / material palette / vegetation,
+plus the sailing boat, the weather director and the time-of-day clock. Press
+**Play** and sail (W/S throttle, A/D rudder; the wind does the work). The scene's
+own header comment carries the island table and the coordinates.
+**Pass**:
+- **The shoreline is a beach, not a cut.** Sail up to any island and look at where
+  the land meets the water from three heights: from above, from deck level, and
+  with the camera below the surface. The ground must shelve away under the water
+  — there must be no vertical face of terrain standing in the sea, and none at the
+  square edge of a tile in particular. That edge is where the defect #880 fixed
+  used to live (measured: 64.9% of the original island's tile border stood above
+  sea level).
+- **No LOD pop or crack on the approach.** Sail at an island from ~600 m in. The
+  relief resolves progressively; no triangle-sized seam ever opens between two
+  patches, and no visible step where a level changes.
+- **The six read as six.** From the start line the islands at different bearings
+  must be tellable apart by silhouette alone: Stacks is tall/sheer/bare, Dunes is
+  smooth and rounded, Mesa is a stack of flat pale ledges, Atoll is low and wide.
+- Tree lines stay legible at range (the impostor cards), and do not pop as a block
+  at the 30 m cross-fade distance.
+**Fail**: a vertical wall of ground at the waterline, or a hard horizontal line
+where the seafloor plane cuts an island's underwater flank; cracks between terrain
+patches while approaching; islands that read as one heightfield at different
+positions; trees that vanish or flatten into cards facing the wrong way.
+
+**Related**: `DriftIslandFieldEvidenceTest` captures the same poses headlessly
+(`assets/tests/visual/DriftIsland_*.png`) and asserts the tile-border contract on
+a rendered frame. The CPU side is in `TerrainGeneratorTest`. Background:
+[terrain-tile-meets-ocean.md](../../../../docs/agent-rules/terrain-tile-meets-ocean.md).
+
+---
+
 ## Suggested test order
 
 1. **PBRReference** — lightest scene, validates basic PBR + IBL. Broken here → everything else broken.
