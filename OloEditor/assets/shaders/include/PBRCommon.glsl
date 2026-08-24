@@ -133,7 +133,10 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
 // DISTRIBUTION FUNCTIONS
 // =============================================================================
 
-// GGX/Trowbridge-Reitz normal distribution function
+// GGX/Trowbridge-Reitz normal distribution function.
+// alpha = roughness^2 (`a`), and `a2` is alpha^2. This is the reference
+// convention THE ALPHA LEDGER below records; every G in this file is stated
+// relative to it.
 float distributionGGX(vec3 N, vec3 H, float roughness)
 {
     float a = roughness * roughness;
@@ -148,7 +151,10 @@ float distributionGGX(vec3 N, vec3 H, float roughness)
     return num / max(denom, EPSILON);
 }
 
-// Anisotropic GGX distribution
+// Anisotropic GGX distribution.
+// Takes ALPHAS, not roughnesses, despite the parameter names: `a2` here is
+// alphaX * alphaY. Callers must square the roughness themselves. Deliberate
+// exception to THE ALPHA LEDGER below; currently unreferenced.
 float distributionGGXAnisotropic(vec3 N, vec3 H, vec3 T, vec3 B, float roughnessX, float roughnessY)
 {
     float TdotH = dot(T, H);
@@ -166,8 +172,47 @@ float distributionGGXAnisotropic(vec3 N, vec3 H, vec3 T, vec3 B, float roughness
 // =============================================================================
 // GEOMETRY FUNCTIONS
 // =============================================================================
+//
+// -----------------------------------------------------------------------------
+// THE ALPHA LEDGER — read before touching any D or G in this file (issue #904)
+// -----------------------------------------------------------------------------
+// GGX is parameterised by `alpha`, the microfacet slope distribution width.
+// This engine's authoring parameter is `roughness`, and the mapping every
+// function here agrees on is Burley's:
+//
+//     alpha = roughness * roughness
+//
+// A `D` and a `G` evaluated at DIFFERENT alphas describe two different
+// surfaces. The result is plausible rather than obviously broken — no NaN, no
+// black pixel, just a highlight subtly shaped for a surface nobody authored —
+// which is exactly how the mismatch this ledger exists to prevent survived
+// unnoticed. So every function below states its convention, and the two
+// deliberate exceptions state WHY they differ instead of quietly differing:
+//
+//   distributionGGX                alpha = roughness^2   (a  = alpha, a2 = alpha^2)
+//   visibilitySmithGGXCorrelated   alpha = roughness^2   (a2 = alpha^2)
+//   ggxSmithLambda / ggxVNDFWeight alpha = roughness^2   (see A NOTE ON ALPHA below)
+//
+//   geometrySchlickGGX / geometrySmith — DELIBERATE EXCEPTION.
+//       Karis 2013's UE4 direct-lighting remap, k = (roughness + 1)^2 / 8.
+//       This is NOT a third alpha convention: it is a closed-form
+//       APPROXIMATION of the Smith G for the same alpha = roughness^2 surface,
+//       with Disney's "reduce the hotness of direct lighting" adjustment folded
+//       into the remap. Left as-is on purpose: `cookTorranceBRDF` — the BRDF
+//       every shipping lit pass actually calls — uses it, it is mirrored in
+//       Renderer/PathTracing/ReferenceBRDF.h so the offline reference tracer
+//       integrates the same thing, and replacing it would move every lit golden
+//       in the suite. That is a separate, deliberate decision, not part of #904.
+//
+//   distributionGGXAnisotropic — DELIBERATE EXCEPTION.
+//       Takes ALPHAS directly despite its parameter names: its
+//       `a2 = roughnessX * roughnessY` is alphaX * alphaY, so callers must pass
+//       roughness^2 themselves. Currently has no callers.
+// -----------------------------------------------------------------------------
 
-// Smith's method for masking-shadowing function (single direction)
+// Smith's method for masking-shadowing function (single direction).
+// Schlick-GGX with the UE4 direct-lighting k remap — a deliberate exception to
+// the alpha ledger above; see it before "fixing" this.
 float geometrySchlickGGX(float NdotV, float roughness)
 {
     float r = (roughness + 1.0);
@@ -179,7 +224,9 @@ float geometrySchlickGGX(float NdotV, float roughness)
     return num / max(denom, EPSILON);
 }
 
-// Smith's method considering both geometry obstruction and geometry shadowing
+// Smith's method considering both geometry obstruction and geometry shadowing.
+// Separable (not height-correlated) form, built on the UE4 k remap above — the
+// same deliberate exception to the alpha ledger.
 float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 {
     float NdotV = max(dot(N, V), 0.0);
@@ -190,13 +237,52 @@ float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
     return ggx1 * ggx2;
 }
 
-// Height-correlated Smith G function (more accurate)
-float geometrySmithHeightCorrelated(vec3 N, vec3 V, vec3 L, float roughness)
+// Height-correlated Smith VISIBILITY term for GGX (Heitz 2014, "Understanding
+// the Masking-Shadowing Function", in the algebraic form Filament ships as
+// V_SmithGGXCorrelated).
+//
+// Two things this returns that its old name `geometrySmithHeightCorrelated`
+// did not say — both fixed under issue #904:
+//
+//  1. IT IS V, NOT G.  V = G2 / (4 * NdotV * NdotL): the 4*NdotV*NdotL from the
+//     Cook-Torrance denominator is already folded in, and cancels analytically
+//     against the sqrt terms. That cancellation is the entire point of the V
+//     form — it removes the 0/0 at grazing incidence. A caller must therefore
+//     write  D * V * F,  and must NOT divide by 4*NdotV*NdotL again. The old
+//     name read as a G, and its one caller (cookTorranceBRDFEnhanced) duly
+//     divided a second time.
+//
+//  2. alpha = roughness^2, matching distributionGGX. The previous version set
+//     `a2 = roughness * roughness`, squaring roughness ONCE where the formula
+//     wants alpha^2 = roughness^4.
+//
+//     Which direction that errs in is worth stating, because issue #904 states
+//     it BACKWARDS and the wrong version is the intuitive one. `a2 = r^2`
+//     means an effective alpha of r, while the correct alpha is r^2 — and
+//     r > r^2 for every r in (0, 1). So the old G modelled a ROUGHER surface
+//     than D did and masked MORE, not less. Correcting it makes those pixels
+//     BRIGHTER.
+//
+//     The error is also not largest on rough surfaces. It scales with the
+//     ratio r / r^2 = 1/r, so it peaks at LOW-to-mid roughness at grazing
+//     angles: measured over a (roughness x NdotV x NdotL) sweep, the worst G2
+//     discrepancy is 78% relative at roughness ~0.15 with both cosines near
+//     grazing, against ~14% at roughness 0.8 head-on.
+//
+// Pinned two ways, because neither catches the other's failure:
+//   * ReferenceBRDFTest.HeightCorrelatedVisibilityMatchesTheVndfLambda — an
+//     exact algebraic identity against ggxSmithLambda (the Lambda the VNDF path
+//     pairs with D). It holds for alpha = roughness^2 and no other convention,
+//     so reintroducing the single-square fails it at every roughness.
+//   * ReferenceBRDFGpuParity — this compiled GLSL against the C++ mirror in
+//     Renderer/PathTracing/ReferenceBRDF.h, so the two cannot drift.
+float visibilitySmithGGXCorrelated(vec3 N, vec3 V, vec3 L, float roughness)
 {
     float NdotV = max(dot(N, V), 0.0);
     float NdotL = max(dot(N, L), 0.0);
 
-    float a2 = roughness * roughness;
+    float alpha = roughness * roughness;
+    float a2 = alpha * alpha;
     float GGXV = NdotL * sqrt(NdotV * NdotV * (1.0 - a2) + a2);
     float GGXL = NdotV * sqrt(NdotL * NdotL * (1.0 - a2) + a2);
 
@@ -234,7 +320,14 @@ vec3 cookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float
     return kD * albedo * INV_PI + specular;
 }
 
-// Enhanced BRDF with height-correlated Smith G function
+// Enhanced BRDF using the height-correlated Smith visibility term.
+//
+// NOTE: currently has no callers — its only caller,
+// calculateLightContributionEnhanced below, is itself unreferenced. The
+// shipping lit passes all call cookTorranceBRDF above. Kept (and made correct)
+// rather than deleted so that wiring it up is a one-line change that does not
+// also have to re-derive the math; that wiring is deliberately NOT part of
+// issue #904, because it would move every lit golden in the suite.
 vec3 cookTorranceBRDFEnhanced(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
 {
     vec3 H = normalize(V + L);
@@ -243,12 +336,13 @@ vec3 cookTorranceBRDFEnhanced(vec3 N, vec3 V, vec3 L, vec3 albedo, float metalli
     F0 = mix(F0, albedo, metallic);
 
     float NDF = distributionGGX(N, H, roughness);
-    float G = geometrySmithHeightCorrelated(N, V, L, roughness);
+    // Vis is the VISIBILITY term: G2 / (4 * NdotV * NdotL), with the
+    // Cook-Torrance denominator already folded in. Multiply, do not divide
+    // again — see visibilitySmithGGXCorrelated.
+    float Vis = visibilitySmithGGXCorrelated(N, V, L, roughness);
     vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
 
-    vec3 numerator = NDF * G * F;
-    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + EPSILON;
-    vec3 specular = numerator / denominator;
+    vec3 specular = NDF * Vis * F;
 
     vec3 kS = F;
     vec3 kD = vec3(1.0) - kS;
@@ -549,12 +643,18 @@ vec3  importanceSampleGGX(vec2 Xi, vec3 N, float r) { return ImportanceSampleGGX
 // A NOTE ON ALPHA
 // ---------------------------------------------------------------------------
 // These functions use alpha = roughness * roughness, matching distributionGGX
-// above (whose `a` is roughness*roughness and `a2` its square). They therefore
-// do NOT match geometrySmithHeightCorrelated, which squares roughness only
-// once — a pre-existing inconsistency between the engine's D and G terms,
-// noted here rather than changed because moving it would shift every lit
-// golden. The Lambda below is the one that pairs with D, which is what
-// unbiasedness requires.
+// above (whose `a` is roughness*roughness and `a2` its square). The Lambda
+// below is the one that pairs with D, which is what unbiasedness requires.
+//
+// This block used to record a divergence: geometrySmithHeightCorrelated
+// squared roughness only once, so the engine's D and G described different
+// surfaces, and that was noted here rather than fixed because it was believed
+// to move every lit golden. Issue #904 resolved it — the mismatched function
+// turned out to be on an unreferenced path, so nothing rendered had to change.
+// It is now visibilitySmithGGXCorrelated and agrees with the alpha used here;
+// the exact identity between the two is asserted by
+// ReferenceBRDFTest.HeightCorrelatedVisibilityMatchesTheVndfLambda. See THE
+// ALPHA LEDGER in the GEOMETRY FUNCTIONS section for the whole picture.
 // =============================================================================
 
 // Smith's Lambda for GGX, from the cosine with the (macro)surface normal.

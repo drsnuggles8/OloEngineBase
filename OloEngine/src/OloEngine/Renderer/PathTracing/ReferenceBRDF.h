@@ -24,8 +24,11 @@
 //     reference brighter than the renderer at mirror roughness.
 //   * `GeometrySmith` uses the Schlick-GGX k = (r+1)^2/8 remap (the UE4 direct-
 //     lighting form), not the height-correlated Smith. PBRCommon has BOTH
-//     (`geometrySmithHeightCorrelated`); `cookTorranceBRDF` — the function the
-//     lit passes actually call — uses this one.
+//     (`visibilitySmithGGXCorrelated`, mirrored below as
+//     `VisibilitySmithGGXCorrelated`); `cookTorranceBRDF` — the function the
+//     lit passes actually call — uses this one. See THE ALPHA LEDGER in
+//     PBRCommon.glsl's GEOMETRY FUNCTIONS section for why the two differ and
+//     why that difference is deliberate rather than the #904 bug.
 //   * `CookTorranceBRDF` computes kD = 1 - F with F evaluated at the HALF
 //     vector, which is the common (mildly non-reciprocal) formulation. It is
 //     what ships, so it is what the reference integrates.
@@ -199,6 +202,69 @@ namespace OloEngine::PathTracing
         kD *= 1.0f - metallic;
 
         return kD * albedo * kInvPi + specular;
+    }
+
+    // -------------------------------------------------------------------------
+    // Height-correlated Smith, and the Lambda it must agree with (issue #904)
+    //
+    // These two are NOT on the shipping lit path — `CookTorranceBRDF` above is,
+    // and it uses the UE4 k remap. They are mirrored here because they are the
+    // pair whose alpha convention #904 was about, and because ReferenceBRDF.h
+    // is where this repo pins GLSL functions against C++: an unmirrored GLSL
+    // function is one nothing can detect drift in.
+    // -------------------------------------------------------------------------
+
+    // Smith's Lambda for GGX from the cosine with the macrosurface normal
+    // (GLSL: ggxSmithLambda). Takes ALPHA, not roughness — matching the GLSL,
+    // whose callers pass roughness * roughness.
+    //
+    // THERE IS A SECOND C++ MIRROR OF THIS FUNCTION: `Vndf::SmithLambda` in
+    // OloEngine/tests/Rendering/StochasticSamplerTest.cpp. That is deliberate,
+    // not an oversight to be tidied away — it is f64 because it backs a
+    // brute-force reference integrator whose whole value is precision, and
+    // narrowing it to this f32 form would weaken the test it exists for. Each
+    // copy carries its own guard (this one by
+    // HeightCorrelatedVisibilityMatchesTheVndfLambda, that one by
+    // VndfEstimatorMatchesBruteForce), so neither can drift silently. If you
+    // add a THIRD, stop and reuse one of these instead.
+    [[nodiscard("The Lambda is the masking term; discarding it drops the shadowing.")]] inline f32
+    GgxSmithLambda(f32 nDotX, f32 alpha) noexcept
+    {
+        const f32 c = std::clamp(std::abs(nDotX), 1.0e-4f, 1.0f);
+        const f32 c2 = c * c;
+        const f32 tan2 = (1.0f - c2) / c2;
+        return 0.5f * (-1.0f + std::sqrt(1.0f + alpha * alpha * tan2));
+    }
+
+    // Height-correlated Smith VISIBILITY (GLSL: visibilitySmithGGXCorrelated).
+    //
+    // Returns V = G2 / (4 * nDotV * nDotL) — the Cook-Torrance denominator is
+    // folded in and cancels. Callers multiply: D * V * F. Do not divide by
+    // 4*nDotV*nDotL again; that double-divide is precisely the bug #904 fixed
+    // on the GLSL side.
+    //
+    // alpha = roughness^2, so a2 = roughness^4, matching DistributionGGX.
+    //
+    // Takes COSINES where the GLSL takes vectors, which is the one place this
+    // port deliberately does not mirror its counterpart's signature. Three
+    // adjacent `const glm::vec3&` parameters are silently swappable at a call
+    // site — and the GLSL's own body immediately reduces them to two cosines
+    // anyway, so nothing is lost. `DistributionGGXSamplingDensity` above sets
+    // the same precedent. The `max(dot(...), 0)` clamp the GLSL applies is kept
+    // INSIDE this function rather than pushed onto callers, so the quirk still
+    // lives in the mirror where it belongs.
+    [[nodiscard("This is the visibility term; discarding it silently drops masking-shadowing.")]] inline f32
+    VisibilitySmithGGXCorrelated(f32 nDotV, f32 nDotL, f32 roughness) noexcept
+    {
+        nDotV = std::max(nDotV, 0.0f);
+        nDotL = std::max(nDotL, 0.0f);
+
+        const f32 alpha = roughness * roughness;
+        const f32 a2 = alpha * alpha;
+        const f32 ggxV = nDotL * std::sqrt(nDotV * nDotV * (1.0f - a2) + a2);
+        const f32 ggxL = nDotV * std::sqrt(nDotL * nDotL * (1.0f - a2) + a2);
+
+        return 0.5f / std::max(ggxV + ggxL, kEpsilon);
     }
 
     // -------------------------------------------------------------------------

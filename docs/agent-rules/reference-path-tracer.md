@@ -65,8 +65,11 @@ as a silent brightness change:
   therefore *collapses* as roughness → 0 instead of becoming a mirror. Pinned by
   `ReferenceBRDF.GgxNdfPeakIsEpsilonClampedAtLowRoughness`.
 - `cookTorranceBRDF` uses the Schlick-GGX `k = (r+1)²/8` remap, not the height-correlated Smith —
-  even though `PBRCommon.glsl` also *has* `geometrySmithHeightCorrelated`. The lit passes call the
-  former.
+  even though `PBRCommon.glsl` also *has* `visibilitySmithGGXCorrelated`. The lit passes call the
+  former. (That second function is mirrored here too, as `VisibilitySmithGGXCorrelated`, even
+  though nothing shades with it: a GLSL function with no C++ mirror is one `ReferenceBRDFGpuParity`
+  cannot detect drift in, and #904 was exactly such a drift sitting undisturbed. See THE ALPHA
+  LEDGER in `PBRCommon.glsl` for why the two G terms legitimately differ.)
 - `kD = 1 - F` with `F` evaluated at the **half vector**: the common, mildly non-reciprocal
   formulation. It ships, so it is what the reference integrates.
 
