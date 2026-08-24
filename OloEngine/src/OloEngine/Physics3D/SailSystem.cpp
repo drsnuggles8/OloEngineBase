@@ -214,18 +214,23 @@ namespace OloEngine
 
             // Forward-drive coefficient at yard angle phi, i.e. D(phi) without
             // the q*A*Cn scale. Sign is what matters at the call site.
-            const auto driveCoefficient = [&](f32 phi)
+            const auto driveCoefficient = [alongBow, alongPort](f32 phi)
             {
                 const f32 c = std::cos(phi);
                 return (alongBow * c + alongPort * std::sin(phi)) * c;
             };
 
-            f32 yardTarget = sail.m_YardAngle;
+            // Auto-trim solves for the brace that makes the most forward drive;
+            // manual trim takes the driver's command straight. Either way this is
+            // only a TARGET — the slew below is what the yard actually reaches.
+            const f32 yardTarget =
+                sail.m_AutoTrim
+                    ? std::clamp(0.5f * std::atan2(alongPort, alongBow), -maxYard, maxYard)
+                    : trimInput * maxYard;
+
             bool chaseTarget = true;
             if (sail.m_AutoTrim)
             {
-                yardTarget = std::clamp(0.5f * std::atan2(alongPort, alongBow), -maxYard, maxYard);
-
                 // HEAD TO WIND, HOLD WHAT YOU HAVE. With the wind on the bow the
                 // solved optimum is the LEAST-BAD angle, not a good one, and its
                 // sign is decided by which side of dead-ahead the apparent wind
@@ -254,10 +259,6 @@ namespace OloEngine
                 // than a reefed one.
                 if (!(driveCoefficient(yardTarget) > 0.0f))
                     chaseTarget = false;
-            }
-            else
-            {
-                yardTarget = trimInput * maxYard;
             }
 
             if (chaseTarget && std::isfinite(yardTarget))
