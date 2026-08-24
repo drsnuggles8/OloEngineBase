@@ -88,10 +88,18 @@ vec3 ApplyCascadeDebug(vec3 color, vec3 worldPos)
 // variants (Skybox_GBuffer, InfiniteGrid_GBuffer, LightCube_GBuffer) use
 // to opt out of PBR shading while still participating in motion-vector
 // + depth writes alongside the rest of the G-Buffer pipeline.
+//
+// `bakedGI` is G-Buffer RT5 (issue #865): baked lightmap irradiance E in .rgb
+// and COVERAGE in .a, already un-premultiplied and intensity-scaled by
+// sampleLightmapIrradiance() back in the G-Buffer pass — the last stage that
+// still had UV2 and the per-draw atlas region. It is the same vec4 the forward
+// path hands evaluateAmbientLadder(), and it enters the ladder at the same
+// (top) rung, so the two paths pick the same ambient source for the same pixel.
+// vec4(0.0) means "no baked GI here" and drops straight through to probes/IBL.
 vec3 ComputeDeferredLit(
     vec3 albedo, float metallic,
     vec3 N, float roughness, float ao,
-    vec4 emissiveFlags, vec3 worldPos)
+    vec4 emissiveFlags, vec3 worldPos, vec4 bakedGI)
 {
     vec3 emissive = emissiveFlags.rgb;
     if (emissiveFlags.a > 0.5)
@@ -248,7 +256,28 @@ vec3 ComputeDeferredLit(
 #endif
 
     vec3 ambient = vec3(0.0);
-    if (enableProbes && enableIBL)
+    if (bakedGI.a > 0.5)
+    {
+        // Rung 1 — baked lightmap, mirroring include/AmbientLadder.glsl's first
+        // branch (the forward path's definition of this rung). The gate is
+        // COVERAGE, never the colour: a validly baked pure-black texel is an
+        // enclosed surface no indirect light reaches and must keep its darkness
+        // instead of falling through and glowing with sky IBL — the exact leak
+        // the bake exists to kill. Deliberately not gated on enableProbes: baked
+        // GI is its own source, and its scene kill switch is u_LightmapEnabled,
+        // which the G-Buffer pass already applied before writing RT5.
+        if (enableIBL)
+        {
+            ambient = calculateCombinedAmbientPrefiltered(bakedGI.rgb, N, V, albedo, metallic, roughness,
+                                                          u_BRDFLutMap, prefilteredColor);
+            ambient *= iblIntensity;
+        }
+        else
+        {
+            ambient = calculateLightProbeAmbient(bakedGI.rgb, albedo, metallic, roughness, N, V);
+        }
+    }
+    else if (enableProbes && enableIBL)
     {
         // Issue #632: unified probe sampling — realtime DDGI atlases when a
         // Realtime/Hybrid volume is bound, baked SH otherwise.

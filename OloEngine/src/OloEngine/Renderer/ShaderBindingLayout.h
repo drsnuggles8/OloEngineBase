@@ -1928,6 +1928,7 @@ namespace OloEngine
         // RT1: Octahedral Normal (RG) + Roughness + AO — RGBA16F (packed)
         // RT2: Emissive (RGB) + Material flags (A) — RGBA16F
         // RT3: Velocity (RG) — RG16F
+        // RT5: Baked lightmap irradiance (RGB) + coverage (A) — RGBA16F (issue #865)
         static constexpr u32 TEX_GBUFFER_ALBEDO = 43;   // G-Buffer RT0 (albedo + metallic)
         static constexpr u32 TEX_GBUFFER_NORMAL = 44;   // G-Buffer RT1 (normal + roughness + AO)
         static constexpr u32 TEX_GBUFFER_EMISSIVE = 45; // G-Buffer RT2 (emissive + flags)
@@ -2025,7 +2026,18 @@ namespace OloEngine
         static constexpr u32 TEX_TERRAIN_VT_INDIRECTION = 67; // RGBA8 + mip chain: virtual page -> physical tile
         static constexpr u32 TEX_TERRAIN_VT_CACHE = 68;       // RGBA8 2-layer physical cache atlas
 
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 69; // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Deferred baked-GI G-Buffer target (issue #865): the sixth G-Buffer
+        // attachment, holding the baked lightmap irradiance E sampled during the
+        // G-Buffer pass plus its coverage in .a. Numbered here rather than next to
+        // TEX_GBUFFER_DEPTH because 48..68 are all taken; the G-Buffer slots are a
+        // semantic group, not a contiguous range. The shader-graph user base below
+        // shifts up by one, per the established procedure for new engine slots —
+        // which also moves HEAP_IMAGE_SLOT_BASE, so
+        // include/BindlessHeap.glsl's OLO_HEAP_IMAGE_BASE literal (and
+        // BindlessHeapGpuTest.cpp's inline copy) move with it.
+        static constexpr u32 TEX_GBUFFER_BAKEDGI = 69; // G-Buffer RT5 (baked lightmap irradiance + coverage)
+
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 70; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -2770,6 +2782,7 @@ namespace OloEngine
                 case TEX_GBUFFER_EMISSIVE:
                 case TEX_GBUFFER_VELOCITY:
                 case TEX_GBUFFER_DEPTH:
+                case TEX_GBUFFER_BAKEDGI:
                     // Engine convention is `u_G<Attr>` (u_GAlbedo, u_GNormal,
                     // u_GEmissive, u_GVelocity, u_GDepth); some debug shaders also
                     // spell it `GBuffer*`.

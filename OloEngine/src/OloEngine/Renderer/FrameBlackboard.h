@@ -84,6 +84,7 @@ namespace OloEngine
         //   RT1 Normal   (RGBA16F)— octahedral normal + roughness + AO
         //   RT2 Emissive (RGBA16F)— emissive HDR (+ unlit flag in .a)
         //   RT3 Velocity (RG16F)  — exposed via `Velocity`.
+        //   RT5 BakedGI  (RGBA16F)— baked lightmap irradiance E + coverage (#865)
         //
         // Multisample companions are populated only when
         // `GBuffer::GetSampleCount() > 1`. These are graph-owned multisample
@@ -100,11 +101,13 @@ namespace OloEngine
             RGTextureHandle GBufferNormal;   // RT1 — canonical single-sample normal + roughness + AO view (direct attachment or MSAA resolve view)
             RGTextureHandle GBufferEmissive; // RT2 — canonical single-sample emissive HDR view (direct attachment or MSAA resolve view)
             RGTextureHandle Velocity;        // RT3 — screen-space motion vectors (forward snapshot, deferred attachment view, or deferred MSAA resolve view)
+            RGTextureHandle GBufferBakedGI;  // RT5 — canonical single-sample baked lightmap irradiance + coverage view (issue #865)
 
             RGTextureHandle GBufferAlbedoMS;   // RT0 multisample attachment view
             RGTextureHandle GBufferNormalMS;   // RT1 multisample attachment view
             RGTextureHandle GBufferEmissiveMS; // RT2 multisample attachment view
             RGTextureHandle VelocityMS;        // RT3 multisample attachment view
+            RGTextureHandle GBufferBakedGIMS;  // RT5 multisample attachment view
             RGTextureHandle SceneDepthMS;      // multisample depth/stencil attachment view
         };
 

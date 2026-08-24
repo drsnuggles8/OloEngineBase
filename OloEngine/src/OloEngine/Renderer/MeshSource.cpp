@@ -157,7 +157,8 @@ namespace OloEngine
         {
             // Static mesh with no UV2 stream: back location 3 with an 8-byte
             // stride-0 constant buffer instead of leaving the attribute
-            // disabled. The forward PBR program reads a_TexCoord2
+            // disabled. Both the forward PBR program and the
+            // deferred G-Buffer program (issue #865) read a_TexCoord2
             // unconditionally, and drawing it with the attribute enabled on
             // one mesh and disabled on the next makes NVIDIA specialize a
             // vertex-shader variant per attribute-layout permutation (GL

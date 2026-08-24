@@ -7558,15 +7558,12 @@ namespace OloEngine
                 ShaderBindingLayout::LightmapUBO lightmapUBO{};
                 const bool lightmapActive = m_LightmapSettings.Enabled && lightmapRuntime->IsValid();
 
-                // Deferred draws shade from the G-Buffer, which carries no UV2
-                // (PBR_GBuffer.glsl has no lightmap branch), so a resolved bake
-                // is silently ignored for the whole scene rather than for one
-                // draw. Say so once instead of letting it look like the bake
-                // failed (issue #865).
-                if (lightmapActive && Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred)
-                {
-                    lightmapRuntime->WarnIfActivePathCannotSample("Deferred");
-                }
+                // Every render path samples the atlas since issue #865: Forward /
+                // Forward+ read it in PBR_MultiLight.glsl's ambient ladder, and the
+                // deferred path fetches it in the G-Buffer pass (the last stage that
+                // still has UV2 and the per-draw region) into G-Buffer RT5, which
+                // DeferredLightingShared.glsl consumes at the same ladder rung. So
+                // there is no path-dependent no-op left to warn about here.
                 lightmapUBO.Enabled = lightmapActive ? 1 : 0;
                 lightmapUBO.Intensity = m_LightmapSettings.Intensity;
                 lightmapUBO.TexelSize = lightmapRuntime->GetAtlasSize() > 0

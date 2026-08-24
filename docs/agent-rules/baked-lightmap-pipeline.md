@@ -165,13 +165,10 @@ reference-path-tracer.md §2, now load-bearing in an asset pipeline.
 Every item here is a **filed issue**, not a note — the mechanism, the decision each one needs and
 its acceptance criteria live there. Read the issue before re-deriving the design.
 
-- **Deferred-path lightmap sampling (#865)**: `DeferredLightingShared.glsl` shades from the
-  G-Buffer, which carries no UV2, and all five render targets are packed. Forward/Forward+ carry
-  the feature. **This is the one deferral that fails scene-wide rather than per-draw**, so it is
-  the one that gets a warning: `SceneLightmapRuntime::WarnIfActivePathCannotSample` fires once per
-  resolved bake when `RenderingPath::Deferred` is active. Every *other* unreached receiver falls
-  back visibly to probes/IBL for one draw; this one silently disables the feature for the whole
-  scene, which is why it earns log noise and the others do not.
+- **Deferred-path lightmap sampling (#865) — DONE.** Was the one deferral that failed scene-wide
+  rather than per-draw (and therefore the one that earned a warning,
+  `SceneLightmapRuntime::WarnIfActivePathCannotSample`, now removed). See §7 for the shipped
+  design and the contract it added.
 - **Vulkan lightmap sampling (#866) — DONE.** Turned out not to need a third reserved vertex-pull
   binding: bones and the lightmap UV2 stream are mutually exclusive per mesh
   (`MeshSource::Build` only ever fills VAO stream 1 with one of the two), and
@@ -209,3 +206,69 @@ its acceptance criteria live there. Read the issue before re-deriving the design
   it is not merely unimplemented, it is unverifiable. Consequences meanwhile: bounce colour comes
   from base-colour factors, and an exterior bakes with no sky contribution (that ambient stays
   realtime IBL). Both failure modes are "less bounce than reality", never "wrong bounce".
+
+---
+
+## 7. The deferred path carries IRRADIANCE, not the atlas UV (#865)
+
+The deferred lighting pass shades from the G-Buffer, and by the time it runs the fragment has
+neither UV2 nor instance identity. The issue laid out three options; the shipped one is **a sixth
+G-Buffer target (RGBA16F) holding the baked irradiance E in `.rgb` and coverage in `.a`, fetched
+in the G-Buffer pass** — the last stage that still holds both the UV2 stream and the per-draw
+`InstanceData::LightmapScaleOffset`. `DeferredLightingShared.glsl` then consumes that vec4 at the
+same ambient-ladder rung, with the same gate and the same helpers, that
+`include/AmbientLadder.glsl` uses on the forward path.
+
+**Why not the atlas UV in RT5 (the issue's option 1, and the cheaper-looking one at RG16F).**
+Three reasons, in decreasing order of how badly they fail:
+
+- **An MSAA resolve averages colour attachments.** Averaging two charts' UVs across a silhouette
+  or a seam addresses an unrelated atlas texel — a wrong-address bug that renders as a plausible
+  patch of light rather than as anything obviously broken (the failure family
+  `terrain-virtual-texturing.md` is entirely about). Averaging irradiance and coverage *together*
+  is exactly the alpha-weighted blend `sampleLightmapIrradiance` already documents for a bilinear
+  tap straddling a coverage edge.
+- **16F UV precision near 1.0 is ~1/1024**, i.e. several texels of error on a 2048/4096 atlas —
+  so option 1 is really RG32F, and the bandwidth argument for it mostly evaporates.
+- The lighting pass would need the atlas and the lightmap UBO bound, plus a dependent texture
+  fetch per pixel, to re-derive what the geometry pass already knew.
+
+**Why not fold the shaded ambient into the G-Buffer** (option 2 as the issue phrased it, storing
+the ladder's *output*): decals run **after** the G-Buffer pass and rewrite albedo, normal and RMA.
+An ambient term pre-shaded against the pre-decal albedo would be silently stale under every decal.
+Storing raw E keeps the geometry pass to one texture fetch and leaves the ladder — and the
+albedo it multiplies — in the lighting pass where the decals have already landed.
+
+**Why not a conditional target** (option 3): the render graph declares the G-Buffer's attachment
+list as the transient-pool aliasing key (`RenderPipeline.cpp`'s `buildGBufferFramebufferDesc`),
+and a runtime-conditional layout is the frozen-`Setup()` trap in
+`virtual-shadow-map-page-cache.md` §5. The target is unconditional, and the always-on cost was
+measured rather than assumed: on `VirtualGeometryPerf.VirtualVsClassicFrameBudget` (15.7M
+triangles at 1280x720, deferred, **no lightmap in the scene**, min of 20 `GL_TIME_ELAPSED`
+samples, three runs each), the classic-geometry frame is 6.487 / 6.488 / 6.493 ms **with** the
+target and 6.491 / 6.491 / 6.493 ms **without** it — the difference is smaller than the
+benchmark's own run-to-run spread, on a scene heavy enough to cover the frame many times over.
+The cost that IS certain is memory: 8 bytes/pixel, ~16.6 MB at 1920x1080, and again on the
+single-sample resolve target when MSAA is on (it mirrors the layout).
+
+### The contract this added, and the three ways it fails silently
+
+- **Every G-Buffer writer must write RT5.** An MRT output a fragment shader never assigns is
+  UNDEFINED in that attachment — not zero — and RT5's `.a` is a coverage flag, so undefined there
+  reads as "this pixel has baked GI". A new G-Buffer shader that forgets
+  `o_GBufferBakedGI = vec4(0.0);` renders correctly on every scene with no bake and wrong on the
+  ones with one. `GBufferBakedGIContractTest` scans the shader sources for exactly this.
+- **The draw-buffer arrays in `DecalRenderPass` are sized to `GBuffer::Count`.** A short
+  initializer list value-initializes the tail to `0`, which is not "writes nowhere" — it is
+  "writes attachment 0". Every entry is spelled out on purpose, and `fullDrawBufs` (the RESTORE
+  set handed to later passes) is the one that must name RT5 rather than mask it.
+- **The clear colour is not one colour.** `ClearAllAttachments` fills every float RT with the same
+  value; for RT5 that would clear coverage to 1.0 everywhere the G-Buffer pass never ran.
+  `SceneRenderPass` clears it to `vec4(0)` explicitly, the same reason the velocity RT gets its
+  own clear.
+
+The GPU proof is `LightmapVisualEvidenceTest.BakedBleedSurvivesTheDeferredPath`: the same baked
+room captured on Forward and on Deferred, compared as **region means** (never per-pixel — the two
+paths are different shaders over different intermediates). It asserts both halves, because they
+fail differently: the deferred-ON-vs-OFF gap catches "the chain is broken anywhere", and the
+forward-vs-deferred hue ratio catches "the chain works but addresses the wrong chart".

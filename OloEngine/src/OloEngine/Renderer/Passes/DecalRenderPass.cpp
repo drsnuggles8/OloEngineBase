@@ -388,19 +388,27 @@ namespace OloEngine
         // Manual per-packet dispatch — each DrawDecalCommand::mode selects a
         // different drawbuffer + colorMask configuration so the decal only
         // writes into the intended G-Buffer channels. Arrays are sized to
-        // `GBuffer::Count` so RT4 (entity ID) stays unwritten during decal
-        // rendering — decals must not stamp their own pickability over the
-        // underlying mesh's entity ID.
+        // `GBuffer::Count` so RT4 (entity ID) and RT5 (baked GI) stay unwritten
+        // during decal rendering — decals must not stamp their own pickability
+        // over the underlying mesh's entity ID, nor disturb its baked irradiance.
         // RHI::NoAttachment is the neutral spelling of "this draw slot writes
         // nowhere". It exists precisely for these lists: it is not an attachment
         // index, and both backends need it (GL_NONE / VK_ATTACHMENT_UNUSED).
         constexpr sizet kGBufferCount = static_cast<sizet>(std::to_underlying(GBuffer::Count));
         constexpr u32 kNone = RHI::NoAttachment;
-        const std::array<u32, kGBufferCount> drawAlbedoOnly = { 0, kNone, kNone, kNone, kNone };
-        const std::array<u32, kGBufferCount> drawNormalOnly = { kNone, 1, kNone, kNone, kNone };
-        const std::array<u32, kGBufferCount> drawAlbedoAndNormal = { 0, 1, kNone, kNone, kNone };
-        const std::array<u32, kGBufferCount> drawEmissiveOnly = { kNone, kNone, 2, kNone, kNone };
-        const std::array<u32, kGBufferCount> fullDrawBufs = { 0, 1, 2, 3, 4 };
+        //
+        // RT5 (baked lightmap irradiance, issue #865) is kNone in every decal
+        // MODE — a decal changes surface albedo, normal and RMA, none of which
+        // alter the baked indirect irradiance already stored for the geometry
+        // underneath — but it IS present in `fullDrawBufs`, which is the RESTORE
+        // set handed back to later passes, not a decal configuration. Every entry
+        // must be spelled out: a short initializer list value-initializes the tail
+        // to 0, which is not "writes nowhere", it is "writes attachment 0".
+        const std::array<u32, kGBufferCount> drawAlbedoOnly = { 0, kNone, kNone, kNone, kNone, kNone };
+        const std::array<u32, kGBufferCount> drawNormalOnly = { kNone, 1, kNone, kNone, kNone, kNone };
+        const std::array<u32, kGBufferCount> drawAlbedoAndNormal = { 0, 1, kNone, kNone, kNone, kNone };
+        const std::array<u32, kGBufferCount> drawEmissiveOnly = { kNone, kNone, 2, kNone, kNone, kNone };
+        const std::array<u32, kGBufferCount> fullDrawBufs = { 0, 1, 2, 3, 4, 5 };
 
         using DecalMode = DrawDecalCommand::DecalMode;
         // Sentinel outside the valid enumerator range — forces the first
@@ -498,12 +506,19 @@ namespace OloEngine
         RenderCommand::BackCull();
 
         // Restore full colour masks + draw buffers for subsequent passes.
-        // Only the RGBA-colour attachments (RT0-RT3) need a colour-mask
-        // restore — RT4 is integer (R32I, entity ID) and a per-attachment
-        // colour mask is a no-op there (the mask only applies to
-        // floating-point / normalised outputs).
-        for (u32 rt = 0; rt < 4; ++rt)
+        // Only the RGBA-colour attachments need a colour-mask restore — RT4 is
+        // integer (R32I, entity ID) and a per-attachment colour mask is a no-op
+        // there (the mask only applies to floating-point / normalised outputs).
+        // RT5 (baked GI, RGBA16F) is a colour attachment and IS restored, even
+        // though no decal mode masks it: the restore's job is to leave the
+        // G-Buffer in the state the next pass expects, not to undo only what this
+        // pass touched.
+        for (u32 rt = 0; rt < std::to_underlying(GBuffer::Count); ++rt)
+        {
+            if (rt == std::to_underlying(GBuffer::EntityID))
+                continue;
             RenderCommand::SetColorMaskForAttachment(rt, true, true, true, true);
+        }
         RenderCommand::SetFramebufferDrawAttachments(gbufferID, fullDrawBufs);
 
         // Restore RT2 blend state — emissive additive blending leaks into

@@ -128,6 +128,11 @@ namespace OloEngine::Tests
         EXPECT_EQ(static_cast<u32>(GBuffer::Emissive), 2u);
         EXPECT_EQ(static_cast<u32>(GBuffer::Velocity), 3u);
         EXPECT_EQ(static_cast<u32>(GBuffer::EntityID), 4u);
-        EXPECT_EQ(static_cast<u32>(GBuffer::Count), 5u);
+        // RT5 — baked lightmap irradiance + coverage (issue #865). Same contract
+        // as the four above: PBR_GBuffer.glsl writes location = 5 and
+        // DeferredLighting{,_MSAA}.glsl reads attachment 5, so the enum value is
+        // the shader's assumption made checkable.
+        EXPECT_EQ(static_cast<u32>(GBuffer::BakedGI), 5u);
+        EXPECT_EQ(static_cast<u32>(GBuffer::Count), 6u);
     }
 } // namespace OloEngine::Tests

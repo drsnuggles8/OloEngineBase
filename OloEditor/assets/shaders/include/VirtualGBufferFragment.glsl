@@ -93,6 +93,14 @@ layout(location = 1) out vec4 o_GBufferNormal;    // RGBA16F     octNormal + rou
 layout(location = 2) out vec4 o_GBufferEmissive;  // RGBA16F     emissive + flags
 layout(location = 3) out vec2 o_GBufferVelocity;  // RG16F       screen-space velocity
 layout(location = 4) out int  o_GBufferEntityID;  // RED_INTEGER picking entity ID
+// Baked lightmap irradiance target (G-Buffer RT5, issue #865). This shader
+// draws no lightmapped receiver, but an MRT output it never writes is
+// UNDEFINED in that attachment, and RT5's .a is a coverage flag — undefined
+// there reads as "this pixel has baked GI" and the deferred ambient ladder
+// shades it from whatever the target happened to hold. Writing vec4(0) is the
+// explicit "no baked GI here" every non-lightmapped G-Buffer writer owes the
+// lighting pass.
+layout(location = 5) out vec4 o_GBufferBakedGI;
 
 // Octahedral encode: unit normal -> [-1,1]^2 (same as PBR_GBuffer.glsl).
 vec2 octEncodeGB(vec3 n)
@@ -143,6 +151,7 @@ void main()
     o_GBufferEmissive = vec4(emissive, 0.0);
     o_GBufferVelocity = velocity;
     o_GBufferEntityID = v_EntityID;
+    o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
 
     // Debug visualization (no-op unless a debug mode is active). Resolve this
     // fragment's cluster + LOD from the draw's VisibleCluster record.

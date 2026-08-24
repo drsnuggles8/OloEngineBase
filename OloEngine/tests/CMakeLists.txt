@@ -377,6 +377,12 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VoxelMarchingCubesVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredPropertyTests.cpp
 		Rendering/PropertyTests/DeferredOverlayPassTests.cpp
+		# Issue #865: the G-Buffer's sixth target (baked lightmap irradiance +
+		# coverage) has three contracts a compiler cannot check — every G-Buffer
+		# writer must write it, its sampler slot mirrors ShaderBindingLayout, and
+		# the two paths' top ambient rung must stay the same rung. Headless text
+		# scans in front of the GPU parity test.
+		Rendering/PropertyTests/GBufferBakedGIContractTest.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
 		# Issue #691 Phase 3. BindlessShaderPipelineTest pins the toolchain

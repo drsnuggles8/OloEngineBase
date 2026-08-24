@@ -58,6 +58,7 @@ namespace OloEngine
             m_SelectedInputs.GBufferEmissive = blackboard.GBuffer.GBufferEmissiveMS;
             m_SelectedInputs.SceneDepth = blackboard.GBuffer.SceneDepthMS;
             m_SelectedInputs.Velocity = blackboard.GBuffer.VelocityMS;
+            m_SelectedInputs.GBufferBakedGI = blackboard.GBuffer.GBufferBakedGIMS;
         }
         else
         {
@@ -66,6 +67,7 @@ namespace OloEngine
             m_SelectedInputs.GBufferEmissive = blackboard.GBuffer.GBufferEmissive;
             m_SelectedInputs.SceneDepth = blackboard.Scene.SceneDepth;
             m_SelectedInputs.Velocity = blackboard.GBuffer.Velocity;
+            m_SelectedInputs.GBufferBakedGI = blackboard.GBuffer.GBufferBakedGI;
         }
 
         if (m_SelectedInputs.GBufferAlbedo.IsValid())
@@ -87,6 +89,10 @@ namespace OloEngine
         if (m_SelectedInputs.Velocity.IsValid())
         {
             [[maybe_unused]] const auto velocityRead = builder.Read(m_SelectedInputs.Velocity, RGReadUsage::ShaderSample);
+        }
+        if (m_SelectedInputs.GBufferBakedGI.IsValid())
+        {
+            [[maybe_unused]] const auto bakedGIRead = builder.Read(m_SelectedInputs.GBufferBakedGI, RGReadUsage::ShaderSample);
         }
 
         // Raw-depth views alias the array storage tracked via the handles below,
@@ -258,7 +264,7 @@ namespace OloEngine
         m_ControlsUBO->SetData(&controls, sizeof(controls));
         m_ControlsUBO->Bind();
 
-        // G-Buffer samplers (slots 43-47). Setup already chose the canonical
+        // G-Buffer samplers (slots 43-47 + 69). Setup already chose the canonical
         // handle family (MSAA vs resolved); Execute only resolves those chosen
         // handles. When a chosen handle resolves to 0 (headless / unit-test /
         // when not in deferred path), fall back to raw `m_GBuffer` accessors
@@ -297,6 +303,10 @@ namespace OloEngine
             m_SelectedInputs.Velocity,
             useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Velocity)
                            : m_GBuffer->GetColorAttachmentHandle(GBuffer::Velocity));
+        const RHI::ResourceHandle bakedGIID = resolveSelectedTexture(
+            m_SelectedInputs.GBufferBakedGI,
+            useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::BakedGI)
+                           : m_GBuffer->GetColorAttachmentHandle(GBuffer::BakedGI));
         const RHI::ResourceHandle depthID = resolveSelectedTexture(
             m_SelectedInputs.SceneDepth,
             useMSAAShading ? m_GBuffer->GetMSDepthAttachmentHandle()
@@ -314,6 +324,11 @@ namespace OloEngine
         // the fragment shader already handles a zero bind as "no motion".
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_VELOCITY, velocityID, RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_DEPTH, depthID, RHI::HeapSlotLifetime::FrameTransient);
+        // Baked-GI RT (issue #865). Like velocity this is bound unconditionally:
+        // a zero bind reads as coverage 0, which is exactly "no baked GI here" and
+        // drops the lighting pass onto the probe/IBL rungs it used before the bake
+        // existed.
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_BAKEDGI, bakedGIID, RHI::HeapSlotLifetime::FrameTransient);
 
         // IBL — resolve through the graph from the setup-stored handles.
         // The graph imports these textures (see RenderPipeline::PopulateBlackboard),

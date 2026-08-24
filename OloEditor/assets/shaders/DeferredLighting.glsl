@@ -2,7 +2,7 @@
 // DeferredLighting.glsl - Deferred lighting composition pass (full)
 // Part of OloEngine Deferred Renderer
 //
-// Reads the 4-RT G-Buffer produced by PBR_GBuffer{,_Skinned}.glsl and
+// Reads the G-Buffer produced by PBR_GBuffer{,_Skinned}.glsl and
 // evaluates opaque PBR lighting for every visible fragment. Output is
 // linear HDR RGBA16F ready for post-processing.
 //
@@ -12,6 +12,7 @@
 //   slot 45 — RT2  RGBA16F emissive.rgb + material flags
 //   slot 46 — RT3  RG16F   screen-space velocity (unused in lighting)
 //   slot 47 — depth (D32F)
+//   slot 69 — RT5  RGBA16F baked lightmap irradiance + coverage (issue #865)
 //
 // The per-pixel shading body lives in include/DeferredLightingShared.glsl
 // so the MSAA variant (DeferredLighting_MSAA.glsl) can re-use the exact same
@@ -171,12 +172,14 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 #define u_GBufferEmissive OLO_HEAP_TEX_2D(45)  // TEX_GBUFFER_EMISSIVE
 #define u_GBufferVelocity OLO_HEAP_TEX_2D(46)  // TEX_GBUFFER_VELOCITY
 #define u_GBufferDepth    OLO_HEAP_TEX_2D(47)  // TEX_GBUFFER_DEPTH
+#define u_GBufferBakedGI  OLO_HEAP_TEX_2D(69)  // TEX_GBUFFER_BAKEDGI
 #else
 layout(binding = 43) uniform sampler2D u_GBufferAlbedo;
 layout(binding = 44) uniform sampler2D u_GBufferNormal;
 layout(binding = 45) uniform sampler2D u_GBufferEmissive;
 layout(binding = 46) uniform sampler2D u_GBufferVelocity;
 layout(binding = 47) uniform sampler2D u_GBufferDepth;
+layout(binding = 69) uniform sampler2D u_GBufferBakedGI;
 #endif
 
 layout(location = 0) in vec2 v_TexCoord;
@@ -212,7 +215,12 @@ void main()
     // by the render origin), so bring the reconstructed position into the same
     // relative space before lighting. No-op near origin (u_RenderOrigin == 0).
     vec3 worldPos = ReconstructWorldPosGB(v_TexCoord, depth) - u_RenderOrigin;
-    vec3 color = ComputeDeferredLit(albedo, metallic, N, roughness, ao, emissive, worldPos);
+    // RT5: baked lightmap irradiance + coverage (issue #865). A zero bind, an
+    // unbaked scene, or a draw with no atlas region all arrive here as vec4(0),
+    // which the ladder reads as "no baked GI" and falls through to probes/IBL.
+    vec4 bakedGI = texture(u_GBufferBakedGI, v_TexCoord);
+
+    vec3 color = ComputeDeferredLit(albedo, metallic, N, roughness, ao, emissive, worldPos, bakedGI);
 
     o_Color = vec4(color, 1.0);
 }

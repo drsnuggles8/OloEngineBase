@@ -51,6 +51,7 @@ namespace OloEngine
             GBufferAlbedo,         // Deferred G-Buffer RT0 (albedo + metallic)
             GBufferNormal,         // Deferred G-Buffer RT1 (normal + roughness + material AO)
             GBufferEmissive,       // Deferred G-Buffer RT2 (emissive + flags)
+            GBufferBakedGI,        // Deferred G-Buffer RT5 (baked lightmap irradiance + coverage, issue #865)
             Velocity,              // Motion-vector buffer
             SceneNormals,          // Scene FB color attachment 2 (view-space normals, RG16F octahedral)
             HZBDepth,              // GTAO HZB texture (mip 0)

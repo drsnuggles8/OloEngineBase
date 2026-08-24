@@ -86,16 +86,6 @@ namespace OloEngine
         // sentinel) when the entity has none or the bake is invalid.
         [[nodiscard]] glm::vec4 GetScaleOffset(UUID entityUUID) const;
 
-        // Warns ONCE per resolved bake that the active render path cannot
-        // sample it, naming the path. Without this the deferred path is a
-        // silent no-op: the bake resolves, logs "resolved lightmap ...", and
-        // then nothing samples it, because the G-Buffer carries no UV2 and
-        // PBR_GBuffer.glsl has no lightmap branch (issue #865). Every other
-        // unreached receiver falls back visibly to probes/IBL for ONE draw;
-        // this one silently disables the whole feature for the scene.
-        // The latch clears on Invalidate(), so a re-bake re-warns.
-        void WarnIfActivePathCannotSample(const char* pathName);
-
         [[nodiscard]] const Ref<Texture2D>& GetAtlasTexture() const
         {
             return m_AtlasTexture;
@@ -135,7 +125,6 @@ namespace OloEngine
         // Resolve()/Invalidate() docs above).
         u32 m_FramesUntilRecheck = 0;
         bool m_WarnedResolveFailure = false;
-        bool m_WarnedUnsampledPath = false;
         std::unordered_set<UUID> m_FailedUnwraps;
     };
 } // namespace OloEngine

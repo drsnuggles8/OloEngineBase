@@ -84,6 +84,8 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
@@ -376,6 +378,126 @@ namespace OloEngine::Tests
             return entity;
         }
 
+        // Bake the room, register the asset, point the scene at it and resolve
+        // the runtime — EditorLayer::BakeLightmaps step for step. Shared by both
+        // tests in this file so the deferred-path case cannot drift into baking
+        // something subtly different from the forward case it is compared against.
+        // ASSERT_* inside a void helper only returns from the HELPER, so callers
+        // must wrap it in ASSERT_NO_FATAL_FAILURE.
+        void BakeAndResolve()
+        {
+            Scene& scene = GetScene();
+
+            // ── Gather every lightmap-static entity — EditorLayer::BakeLightmaps'
+            // exact loop ──
+            std::vector<LightmapBakeInput> inputs;
+            {
+                auto view = scene.GetAllEntitiesWith<IDComponent, MeshComponent>();
+                for (auto entity : view)
+                {
+                    const auto& mesh = view.get<MeshComponent>(entity);
+                    if (!mesh.m_LightmapStatic || !mesh.m_MeshSource || mesh.m_MeshSource->GetVertices().IsEmpty())
+                    {
+                        continue;
+                    }
+                    LightmapBakeInput input;
+                    input.EntityUUID = static_cast<u64>(view.get<IDComponent>(entity).ID);
+                    input.Mesh = mesh.m_MeshSource;
+                    input.WorldTransform = scene.GetWorldTransform(entity);
+                    inputs.push_back(std::move(input));
+                }
+            }
+            ASSERT_EQ(inputs.size(), 4u) << "expected exactly the 4 lightmap-static room pieces";
+
+            // ── Bake settings. The scene-level SceneLightmapSettings fields are
+            // set FIRST because ComputeBakeKey hashes them — the key must be
+            // computed from the same settings Resolve() will see at render time.
+            // Small on purpose: ~600-800 texels x 40 spp x <=3 bounces. ──
+            SceneLightmapSettings& lmSettings = scene.GetLightmapSettings();
+            lmSettings.AtlasSize = 128;
+            lmSettings.SamplesPerTexel = 40;
+            lmSettings.MaxBounces = 3;
+            lmSettings.TexelsPerMeter = 2.0f;
+
+            LightmapBakeSettings bakeSettings;
+            bakeSettings.AtlasSize = lmSettings.AtlasSize;
+            bakeSettings.SamplesPerTexel = lmSettings.SamplesPerTexel;
+            bakeSettings.MaxBounces = lmSettings.MaxBounces;
+            bakeSettings.TexelsPerMeter = lmSettings.TexelsPerMeter;
+            bakeSettings.MinRegionSize = 8;
+            bakeSettings.DilationPasses = 2;
+            // Unwrap parameters are no longer settings: Prepare() hard-codes the
+            // shared kLightmapUnwrap* constants so the runtime's self-healing
+            // re-unwrap can always reproduce the baked layout.
+
+            // ── Stage 1: unwrap (mutates the MeshSources in place) + rasterize ──
+            LightmapBakePrepared prepared;
+            std::string prepareError;
+            ASSERT_TRUE(LightmapBaker::Prepare(inputs, bakeSettings, prepared, prepareError)) << prepareError;
+            EXPECT_EQ(prepared.BakedEntityCount, 4u);
+            EXPECT_EQ(prepared.SkippedEntityCount, 0u);
+            EXPECT_GT(prepared.Jobs.size(), 200u) << "the room's charts cover too little of the atlas";
+
+            // Re-Build every unwrapped mesh (a GL context exists here) so the VAOs
+            // carry the seam-split vertices and the UV2 stream the shader reads.
+            // Non-const iteration on purpose: Ref<T> propagates const through
+            // operator-> and MeshSource::Build() is a mutator.
+            for (auto& input : inputs)
+            {
+                ASSERT_TRUE(input.Mesh->HasLightmapUVs()) << "Prepare left a mesh without a complete UV2 stream";
+                input.Mesh->Build();
+            }
+
+            // The bake key is computed AFTER the unwrap, on purpose (the exact
+            // ordering EditorLayer::BakeLightmaps uses): ComputeBakeKey hashes
+            // vertex counts, the unwrap seam-splits vertices, and Resolve()
+            // recomputes the key against the POST-unwrap meshes at sample time. A
+            // key computed before Prepare can never match — the runtime would
+            // (correctly) refuse the bake as stale.
+            bakeSettings.BakeKey = SceneLightmapRuntime::ComputeBakeKey(scene, lmSettings);
+
+            // ── The reference world, from the SAME scene via the SAME predicate
+            // production uses. Lights are gathered unconditionally (the predicate
+            // gates geometry only); default build options = the production bake's
+            // (no environment, full material model). ──
+            PathTracing::ReferenceSceneBuilder builder;
+            builder.AddScene(scene, [](Entity entity)
+                             { return entity.HasComponent<MeshComponent>() &&
+                                      entity.GetComponent<MeshComponent>().m_LightmapStatic; });
+            EXPECT_EQ(builder.GetPendingLightCount(), 1u);
+            const PathTracing::ReferenceScene world = builder.Build(PathTracing::ReferenceSceneBuildOptions{});
+
+            // ── Stage 2: the texel bake ──
+            const LightmapBakeResult result = LightmapBaker::BakeTexels(prepared, world, bakeSettings);
+            ASSERT_TRUE(result.Success) << result.Error;
+            ASSERT_TRUE(result.Asset);
+            EXPECT_TRUE(result.Asset->Validate());
+            EXPECT_EQ(result.Asset->GetBakeKey(), bakeSettings.BakeKey);
+
+            // ── Register the baked asset and resolve the runtime. IsValid() here
+            // IS the staleness-gate contract: the stored key must equal what
+            // Resolve() just recomputed from the live scene. ──
+            const AssetHandle lightmapHandle = AssetManager::AddMemoryOnlyAsset(result.Asset);
+            ASSERT_NE(static_cast<u64>(lightmapHandle), 0u) << "AddMemoryOnlyAsset returned a null handle";
+
+            lmSettings.LightmapAsset = lightmapHandle;
+            lmSettings.Enabled = true;
+            lmSettings.Intensity = 1.0f;
+
+            auto& runtime = scene.GetLightmapRuntime();
+            runtime->Resolve(scene);
+            ASSERT_FALSE(runtime->IsStale())
+                << "STALENESS GATE MISWIRED: the just-baked asset's key ("
+                << result.Asset->GetBakeKey() << ") does not match what Resolve() recomputed from the "
+                << "unchanged scene. ComputeBakeKey at bake time and at resolve time disagree — check "
+                << "the post-unwrap key ordering and the SceneLightmapSettings fields the key hashes.";
+            ASSERT_TRUE(runtime->IsValid())
+                << "SceneLightmapRuntime::Resolve rejected a freshly baked, key-matching asset — "
+                << "asset lookup (AddMemoryOnlyAsset/GetAsset), Validate(), or atlas creation failed.";
+            EXPECT_GT(runtime->GetScaleOffset(m_Floor.GetUUID()).x, 0.0f)
+                << "the floor entity has no atlas region — the entry table is mis-keyed";
+        }
+
         // Read back the composite and flip to top-down. Returns false when the
         // composite framebuffer is unavailable.
         [[nodiscard]] bool CaptureTopDown(std::vector<u8>& outPx, u32& outW, u32& outH)
@@ -398,116 +520,10 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
+        ASSERT_NO_FATAL_FAILURE(BakeAndResolve());
+
         Scene& scene = GetScene();
-
-        // ── Gather every lightmap-static entity — EditorLayer::BakeLightmaps'
-        // exact loop ──
-        std::vector<LightmapBakeInput> inputs;
-        {
-            auto view = scene.GetAllEntitiesWith<IDComponent, MeshComponent>();
-            for (auto entity : view)
-            {
-                const auto& mesh = view.get<MeshComponent>(entity);
-                if (!mesh.m_LightmapStatic || !mesh.m_MeshSource || mesh.m_MeshSource->GetVertices().IsEmpty())
-                {
-                    continue;
-                }
-                LightmapBakeInput input;
-                input.EntityUUID = static_cast<u64>(view.get<IDComponent>(entity).ID);
-                input.Mesh = mesh.m_MeshSource;
-                input.WorldTransform = scene.GetWorldTransform(entity);
-                inputs.push_back(std::move(input));
-            }
-        }
-        ASSERT_EQ(inputs.size(), 4u) << "expected exactly the 4 lightmap-static room pieces";
-
-        // ── Bake settings. The scene-level SceneLightmapSettings fields are
-        // set FIRST because ComputeBakeKey hashes them — the key must be
-        // computed from the same settings Resolve() will see at render time.
-        // Small on purpose: ~600-800 texels x 40 spp x <=3 bounces. ──
         SceneLightmapSettings& lmSettings = scene.GetLightmapSettings();
-        lmSettings.AtlasSize = 128;
-        lmSettings.SamplesPerTexel = 40;
-        lmSettings.MaxBounces = 3;
-        lmSettings.TexelsPerMeter = 2.0f;
-
-        LightmapBakeSettings bakeSettings;
-        bakeSettings.AtlasSize = lmSettings.AtlasSize;
-        bakeSettings.SamplesPerTexel = lmSettings.SamplesPerTexel;
-        bakeSettings.MaxBounces = lmSettings.MaxBounces;
-        bakeSettings.TexelsPerMeter = lmSettings.TexelsPerMeter;
-        bakeSettings.MinRegionSize = 8;
-        bakeSettings.DilationPasses = 2;
-        // Unwrap parameters are no longer settings: Prepare() hard-codes the
-        // shared kLightmapUnwrap* constants so the runtime's self-healing
-        // re-unwrap can always reproduce the baked layout.
-
-        // ── Stage 1: unwrap (mutates the MeshSources in place) + rasterize ──
-        LightmapBakePrepared prepared;
-        std::string prepareError;
-        ASSERT_TRUE(LightmapBaker::Prepare(inputs, bakeSettings, prepared, prepareError)) << prepareError;
-        EXPECT_EQ(prepared.BakedEntityCount, 4u);
-        EXPECT_EQ(prepared.SkippedEntityCount, 0u);
-        EXPECT_GT(prepared.Jobs.size(), 200u) << "the room's charts cover too little of the atlas";
-
-        // Re-Build every unwrapped mesh (a GL context exists here) so the VAOs
-        // carry the seam-split vertices and the UV2 stream the shader reads.
-        // Non-const iteration on purpose: Ref<T> propagates const through
-        // operator-> and MeshSource::Build() is a mutator.
-        for (auto& input : inputs)
-        {
-            ASSERT_TRUE(input.Mesh->HasLightmapUVs()) << "Prepare left a mesh without a complete UV2 stream";
-            input.Mesh->Build();
-        }
-
-        // The bake key is computed AFTER the unwrap, on purpose (the exact
-        // ordering EditorLayer::BakeLightmaps uses): ComputeBakeKey hashes
-        // vertex counts, the unwrap seam-splits vertices, and Resolve()
-        // recomputes the key against the POST-unwrap meshes at sample time. A
-        // key computed before Prepare can never match — the runtime would
-        // (correctly) refuse the bake as stale.
-        bakeSettings.BakeKey = SceneLightmapRuntime::ComputeBakeKey(scene, lmSettings);
-
-        // ── The reference world, from the SAME scene via the SAME predicate
-        // production uses. Lights are gathered unconditionally (the predicate
-        // gates geometry only); default build options = the production bake's
-        // (no environment, full material model). ──
-        PathTracing::ReferenceSceneBuilder builder;
-        builder.AddScene(scene, [](Entity entity)
-                         { return entity.HasComponent<MeshComponent>() &&
-                                  entity.GetComponent<MeshComponent>().m_LightmapStatic; });
-        EXPECT_EQ(builder.GetPendingLightCount(), 1u);
-        const PathTracing::ReferenceScene world = builder.Build(PathTracing::ReferenceSceneBuildOptions{});
-
-        // ── Stage 2: the texel bake ──
-        const LightmapBakeResult result = LightmapBaker::BakeTexels(prepared, world, bakeSettings);
-        ASSERT_TRUE(result.Success) << result.Error;
-        ASSERT_TRUE(result.Asset);
-        EXPECT_TRUE(result.Asset->Validate());
-        EXPECT_EQ(result.Asset->GetBakeKey(), bakeSettings.BakeKey);
-
-        // ── Register the baked asset and resolve the runtime. IsValid() here
-        // IS the staleness-gate contract: the stored key must equal what
-        // Resolve() just recomputed from the live scene. ──
-        const AssetHandle lightmapHandle = AssetManager::AddMemoryOnlyAsset(result.Asset);
-        ASSERT_NE(static_cast<u64>(lightmapHandle), 0u) << "AddMemoryOnlyAsset returned a null handle";
-
-        lmSettings.LightmapAsset = lightmapHandle;
-        lmSettings.Enabled = true;
-        lmSettings.Intensity = 1.0f;
-
-        auto& runtime = scene.GetLightmapRuntime();
-        runtime->Resolve(scene);
-        ASSERT_FALSE(runtime->IsStale())
-            << "STALENESS GATE MISWIRED: the just-baked asset's key ("
-            << result.Asset->GetBakeKey() << ") does not match what Resolve() recomputed from the "
-            << "unchanged scene. ComputeBakeKey at bake time and at resolve time disagree — check "
-            << "the post-unwrap key ordering and the SceneLightmapSettings fields the key hashes.";
-        ASSERT_TRUE(runtime->IsValid())
-            << "SceneLightmapRuntime::Resolve rejected a freshly baked, key-matching asset — "
-            << "asset lookup (AddMemoryOnlyAsset/GetAsset), Validate(), or atlas creation failed.";
-        EXPECT_GT(runtime->GetScaleOffset(m_Floor.GetUUID()).x, 0.0f)
-            << "the floor entity has no atlas region — the entry table is mis-keyed";
 
         // ── ON capture: 2 frames (frame 1 seeds prev-frame history, frame 2
         // is the stable image — the SceneRenderEvidenceTest cadence). ──
@@ -652,5 +668,170 @@ namespace OloEngine::Tests
         EXPECT_GT((onGreen.G - offGreen.G), (onGreen.R - offGreen.R) + 0.5f)
             << "the light ADDED beside the GREEN wall is not green-shifted: dG=" << (onGreen.G - offGreen.G)
             << " dR=" << (onGreen.R - offGreen.R);
+    }
+    // =========================================================================
+    // Issue #865 — the deferred path samples the same bake as forward.
+    //
+    // Before #865 a scene on RenderingPath::Deferred resolved its bake and then
+    // never sampled it: the deferred lighting pass shades from the G-Buffer, and
+    // by then the fragment had neither UV2 nor instance identity, so the whole
+    // feature was a scene-wide no-op (not a per-draw fallback). The fix moves the
+    // atlas fetch into the G-Buffer pass — the last stage that still holds both —
+    // and carries the resulting irradiance + coverage in G-Buffer RT5, which
+    // DeferredLightingShared.glsl consumes at the same ambient-ladder rung
+    // AmbientLadder.glsl uses on the forward path.
+    //
+    // So this test asks the two questions that fix has to answer, in the frame:
+    //   A. Is the bake VISIBLE on deferred at all? (deferred ON vs deferred OFF)
+    //   B. Does it deliver the SAME irradiance as forward? (region means, not
+    //      per-pixel — the two paths run different shaders, shade at different
+    //      points in the frame, and are not expected to be bit-identical.)
+    //
+    // Question A is the regression guard: it fails loudly if the RT5 chain breaks
+    // anywhere (UV2 attribute, atlas fetch, target write, sampler bind, rung).
+    // Question B is the correctness one — a deferred path that samples SOMETHING
+    // passes A while shading from the wrong atlas address.
+    // =========================================================================
+    TEST_F(LightmapBleedRoom, BakedBleedSurvivesTheDeferredPath)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        ASSERT_NO_FATAL_FAILURE(BakeAndResolve());
+
+        Scene& scene = GetScene();
+        SceneLightmapSettings& lmSettings = scene.GetLightmapSettings();
+
+        // The render path is process-global state on Renderer3D, so restore
+        // whatever this process had before — a leaked Deferred would silently
+        // re-target every later test in the binary.
+        const RenderingPath originalPath = Renderer3D::GetRendererSettings().Path;
+        struct PathRestore
+        {
+            RenderingPath Value;
+            ~PathRestore()
+            {
+                Renderer3D::GetRendererSettings().Path = Value;
+                Renderer3D::ApplyRendererSettings();
+            }
+        } const pathRestore{ originalPath };
+
+        u32 width = 0;
+        u32 height = 0;
+        const auto capture = [&](RenderingPath path, bool bakeEnabled, const char* fileName,
+                                 std::vector<u8>& out)
+        {
+            Renderer3D::GetRendererSettings().Path = path;
+            Renderer3D::ApplyRendererSettings();
+            lmSettings.Enabled = bakeEnabled;
+            // 3 frames: the first seeds prev-frame history, and a path switch
+            // rebuilds the frame graph, so give the temporal state a frame to
+            // settle before the captured one (the same cadence the ON/OFF toggle
+            // in the sibling test uses).
+            RunFrames(3);
+            u32 w = 0;
+            u32 h = 0;
+            ASSERT_TRUE(CaptureTopDown(out, w, h)) << "ReadbackComposite failed for " << fileName;
+            if (width == 0)
+            {
+                width = w;
+                height = h;
+            }
+            ASSERT_EQ(w, width);
+            ASSERT_EQ(h, height);
+            WriteEvidencePng(fileName, out, w, h);
+        };
+
+        std::vector<u8> forwardOn;
+        std::vector<u8> deferredOn;
+        std::vector<u8> deferredOff;
+        capture(RenderingPath::Forward, true, "Lightmap_PathParity_ForwardOn.png", forwardOn);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        capture(RenderingPath::Deferred, true, "Lightmap_PathParity_DeferredOn.png", deferredOn);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        capture(RenderingPath::Deferred, false, "Lightmap_PathParity_DeferredOff.png", deferredOff);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        lmSettings.Enabled = true;
+
+        const PixelRect redRect = MakeRect(kRedRegionX0, kRedRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
+        const PixelRect greenRect =
+            MakeRect(kGreenRegionX0, kGreenRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
+        ASSERT_GT(redRect.PixelCount(), 1000u) << "analysis region too small for a stable mean";
+
+        const RegionMeans fwdRed = MeanChannelsInRect(forwardOn, width, redRect);
+        const RegionMeans fwdGreen = MeanChannelsInRect(forwardOn, width, greenRect);
+        const RegionMeans defRed = MeanChannelsInRect(deferredOn, width, redRect);
+        const RegionMeans defGreen = MeanChannelsInRect(deferredOn, width, greenRect);
+        const RegionMeans defOffRed = MeanChannelsInRect(deferredOff, width, redRect);
+        const RegionMeans defOffGreen = MeanChannelsInRect(deferredOff, width, greenRect);
+
+        // ── A. The bake is visible on deferred. Same three signatures the
+        // forward test asserts, re-derived on the deferred frames: the direct
+        // light is white and the floor albedo grey, so any red/green asymmetry
+        // on the floor — and any ON-vs-OFF difference at all — can only be the
+        // baked indirect term. Before #865 every one of these was flat. ──
+        EXPECT_GT(defRed.R, defRed.G * 1.05f)
+            << "DEFERRED floor beside the RED wall is not red-shifted: r=" << defRed.R << " g=" << defRed.G
+            << " — the deferred path is not sampling the bake (see Lightmap_PathParity_DeferredOn.png)";
+        EXPECT_GT(defGreen.G, defGreen.R * 1.05f)
+            << "DEFERRED floor beside the GREEN wall is not green-shifted: g=" << defGreen.G
+            << " r=" << defGreen.R;
+
+        const f32 deferredToggleDiff =
+            0.5f * (MeanAbsDiffInRect(deferredOn, deferredOff, width, redRect) +
+                    MeanAbsDiffInRect(deferredOn, deferredOff, width, greenRect));
+        EXPECT_GT(deferredToggleDiff, 3.0f)
+            << "the lightmap toggle changes nothing on the DEFERRED path (" << deferredToggleDiff
+            << " grey levels) — this is exactly the issue #865 no-op the RT5 chain exists to fix";
+
+        EXPECT_GT((defRed.R - defOffRed.R), (defRed.G - defOffRed.G) + 0.5f)
+            << "the light the bake ADDS beside the RED wall on deferred is not red-shifted: dR="
+            << (defRed.R - defOffRed.R) << " dG=" << (defRed.G - defOffRed.G);
+        EXPECT_GT((defGreen.G - defOffGreen.G), (defGreen.R - defOffGreen.R) + 0.5f)
+            << "the light the bake ADDS beside the GREEN wall on deferred is not green-shifted: dG="
+            << (defGreen.G - defOffGreen.G) << " dR=" << (defGreen.R - defOffGreen.R);
+
+        // ── B. Forward and deferred agree. REGION MEANS, per the issue's
+        // acceptance criterion — the two paths are different shaders over
+        // different intermediates and will never be per-pixel equal. The bar is
+        // on the floor strips where the baked term is the thing under test.
+        //
+        // 12 grey levels is deliberately loose: the paths differ in ways that
+        // have nothing to do with the bake (deferred normals are octahedrally
+        // encoded and round-trip through RGBA16F, AO and specular composite at
+        // different points, and the same frame on the two paths already differs
+        // for un-lightmapped scenes). What it is tight enough to catch is the
+        // failure that matters — a deferred path sampling the WRONG atlas
+        // address, or not sampling at all: the ON/OFF gap measured above is the
+        // size of the signal, and a dropped or mis-addressed lightmap moves these
+        // means by that much or more.
+        constexpr f32 kMaxPathMeanDelta = 12.0f;
+        const f32 redLumDelta = std::abs(fwdRed.Luminance() - defRed.Luminance());
+        const f32 greenLumDelta = std::abs(fwdGreen.Luminance() - defGreen.Luminance());
+        EXPECT_LT(redLumDelta, kMaxPathMeanDelta)
+            << "forward and deferred disagree on the red-side floor luminance (forward="
+            << fwdRed.Luminance() << ", deferred=" << defRed.Luminance()
+            << ") — compare Lightmap_PathParity_ForwardOn.png / _DeferredOn.png";
+        EXPECT_LT(greenLumDelta, kMaxPathMeanDelta)
+            << "forward and deferred disagree on the green-side floor luminance (forward="
+            << fwdGreen.Luminance() << ", deferred=" << defGreen.Luminance() << ")";
+
+        // The COLOUR of the baked bleed must match too, not just its magnitude:
+        // a wrong atlas address can land on a neighbouring chart and still carry
+        // a plausible amount of light, but it will not carry the same hue as the
+        // wall it sits next to. Compare the r/g ratio, which cancels exposure.
+        const f32 fwdRedRatio = fwdRed.R / std::max(fwdRed.G, 1.0f);
+        const f32 defRedRatio = defRed.R / std::max(defRed.G, 1.0f);
+        const f32 fwdGreenRatio = fwdGreen.G / std::max(fwdGreen.R, 1.0f);
+        const f32 defGreenRatio = defGreen.G / std::max(defGreen.R, 1.0f);
+        EXPECT_NEAR(defRedRatio, fwdRedRatio, 0.10f)
+            << "the deferred red-side bleed has a different hue than forward's (forward r/g=" << fwdRedRatio
+            << ", deferred r/g=" << defRedRatio
+            << ") — suspect the atlas address (scale/offset or UV2), not the ladder";
+        EXPECT_NEAR(defGreenRatio, fwdGreenRatio, 0.10f)
+            << "the deferred green-side bleed has a different hue than forward's (forward g/r=" << fwdGreenRatio
+            << ", deferred g/r=" << defGreenRatio << ")";
     }
 } // namespace OloEngine::Tests
