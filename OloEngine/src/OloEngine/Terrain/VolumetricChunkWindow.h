@@ -5,6 +5,7 @@
 
 #include <glm/glm.hpp>
 
+#include <cmath>
 #include <functional>
 #include <utility>
 
@@ -49,9 +50,16 @@ namespace OloEngine
             u32 RenderRadius = 3;
         };
 
+        // (INT32_MAX - 1) / 2: the largest LoadRadius for which 2*LoadRadius+1
+        // (the ring buffer's side length) still fits in an i32 — Update()'s
+        // teleport check casts the side length to i32. A LoadRadius above this
+        // would also ask ChunkRingBuffer3D to allocate side^3 elements, which
+        // fails long before the cast does.
+        static constexpr u32 kMaxLoadRadius = 1073741823u;
+
         VolumetricChunkWindow(const Config& config, LoadFn loadFn, UnloadFn unloadFn = nullptr)
             : m_Config(config), m_Load(std::move(loadFn)), m_Unload(std::move(unloadFn)),
-              m_Buffer(2 * config.LoadRadius + 1)
+              m_Buffer(ValidatedSideLength(config.LoadRadius))
         {
             OLO_CORE_ASSERT(m_Load, "VolumetricChunkWindow requires a load callback");
             OLO_CORE_ASSERT(config.RenderRadius <= config.LoadRadius,
@@ -63,6 +71,11 @@ namespace OloEngine
         // chunk on the correct side of the origin.
         [[nodiscard]] static glm::ivec3 WorldToChunk(const glm::vec3& worldPos, f32 chunkWorldSize)
         {
+            OLO_CORE_ASSERT(chunkWorldSize > 0.0f && std::isfinite(chunkWorldSize),
+                            "WorldToChunk requires a positive, finite chunkWorldSize");
+            OLO_CORE_ASSERT(std::isfinite(worldPos.x) && std::isfinite(worldPos.y) && std::isfinite(worldPos.z),
+                            "WorldToChunk requires a finite worldPos");
+
             return glm::ivec3(static_cast<i32>(glm::floor(worldPos.x / chunkWorldSize)),
                               static_cast<i32>(glm::floor(worldPos.y / chunkWorldSize)),
                               static_cast<i32>(glm::floor(worldPos.z / chunkWorldSize)));
@@ -197,6 +210,17 @@ namespace OloEngine
             glm::ivec3 Coord{ 0 };
             T Data{};
         };
+
+        // Validates LoadRadius BEFORE the ring buffer's side length is computed
+        // or handed to ChunkRingBuffer3D — that constructor allocates side^3
+        // elements, so an unvalidated overflow here would either wrap into a
+        // tiny, wrong-sized buffer or attempt a catastrophic allocation.
+        [[nodiscard]] static u32 ValidatedSideLength(u32 loadRadius)
+        {
+            OLO_CORE_ASSERT(loadRadius <= kMaxLoadRadius,
+                            "LoadRadius exceeds the maximum safe value (2*LoadRadius+1 must fit in i32)");
+            return 2 * loadRadius + 1;
+        }
 
         void LoadSlot(const glm::ivec3& coord)
         {
