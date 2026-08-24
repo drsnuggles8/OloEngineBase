@@ -214,16 +214,20 @@ namespace OloEngine
         // The layouts host image copy may READ FROM / WRITE TO on this driver.
         // Only VK_IMAGE_LAYOUT_GENERAL is guaranteed to be in both lists, so a
         // host path that wants to leave an image in SHADER_READ_ONLY_OPTIMAL
-        // (or start one from it) has to ask. An implementation may report
-        // VK_IMAGE_LAYOUT_MAX_ENUM to mean "every layout", which both queries
-        // honour.
+        // (or start one from it) has to ask. Membership is exact: the lists
+        // enumerate supported layouts and carry no wildcard entry.
         [[nodiscard]] bool IsHostCopySrcLayoutSupported(VkImageLayout layout) const;
         [[nodiscard]] bool IsHostCopyDstLayoutSupported(VkImageLayout layout) const;
-        // vkTransitionImageLayout's newLayout must be in EITHER list
-        // (VUID-VkHostImageLayoutTransitionInfo-newLayout-09057).
+        // vkTransitionImageLayout's newLayout must be in pCopyDstLayouts —
+        // VUID-VkHostImageLayoutTransitionInfo-newLayout-09057, checked
+        // against the registry's validusage.json rather than assumed. It is
+        // NOT "either list": a layout that only appears in pCopySrcLayouts is
+        // not a legal transition target, and treating it as one is invalid
+        // usage the validation layer would catch only on a driver whose two
+        // lists differ.
         [[nodiscard]] bool IsHostTransitionTargetSupported(VkImageLayout layout) const
         {
-            return IsHostCopySrcLayoutSupported(layout) || IsHostCopyDstLayoutSupported(layout);
+            return IsHostCopyDstLayoutSupported(layout);
         }
 
         // VK_EXT_device_fault (enabled when the driver has it): after a
@@ -267,13 +271,9 @@ namespace OloEngine
         bool m_MeshShaderEnabled = false;
         bool m_HostImageCopyEnabled = false;
         bool m_Maintenance5Enabled = false;
-        // Host-image-copy layout lists, read once after device creation. The
-        // "all" flags carry the VK_IMAGE_LAYOUT_MAX_ENUM wildcard the spec
-        // allows in place of an exhaustive list.
+        // Host-image-copy layout lists, read once after device creation.
         std::vector<VkImageLayout> m_HostCopySrcLayouts;
         std::vector<VkImageLayout> m_HostCopyDstLayouts;
-        bool m_HostCopyAllSrcLayouts = false;
-        bool m_HostCopyAllDstLayouts = false;
         // Logged, not branched on: the driver's answer to "does
         // VK_IMAGE_USAGE_HOST_TRANSFER_BIT change an image's memory type
         // requirements?". It is VK_FALSE on NVIDIA, which is why the usage

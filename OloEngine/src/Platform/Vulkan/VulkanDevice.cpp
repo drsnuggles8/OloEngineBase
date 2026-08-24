@@ -773,10 +773,6 @@ namespace OloEngine
             hostCopyProps.pCopySrcLayouts = m_HostCopySrcLayouts.empty() ? nullptr : m_HostCopySrcLayouts.data();
             hostCopyProps.pCopyDstLayouts = m_HostCopyDstLayouts.empty() ? nullptr : m_HostCopyDstLayouts.data();
             vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &hostCopyProps2);
-            const auto isWildcard = [](VkImageLayout layout)
-            { return layout == VK_IMAGE_LAYOUT_MAX_ENUM; };
-            m_HostCopyAllSrcLayouts = std::ranges::any_of(m_HostCopySrcLayouts, isWildcard);
-            m_HostCopyAllDstLayouts = std::ranges::any_of(m_HostCopyDstLayouts, isWildcard);
             m_HostCopyMemoryTypeNeutral = hostCopyProps.identicalMemoryTypeRequirements == VK_TRUE;
         }
         OLO_CORE_INFO("[Vulkan] 1.4 conveniences: host image copy {}{}, maintenance5 {}",
@@ -915,8 +911,6 @@ namespace OloEngine
         m_Maintenance5Enabled = false;
         m_HostCopySrcLayouts.clear();
         m_HostCopyDstLayouts.clear();
-        m_HostCopyAllSrcLayouts = false;
-        m_HostCopyAllDstLayouts = false;
         m_HostCopyMemoryTypeNeutral = false;
         {
             std::lock_guard<std::mutex> lock(m_HostImageCopyFormatMutex);
@@ -961,7 +955,7 @@ namespace OloEngine
         {
             return false;
         }
-        return m_HostCopyAllSrcLayouts || std::ranges::find(m_HostCopySrcLayouts, layout) != m_HostCopySrcLayouts.end();
+        return std::ranges::find(m_HostCopySrcLayouts, layout) != m_HostCopySrcLayouts.end();
     }
 
     bool VulkanDevice::IsHostCopyDstLayoutSupported(VkImageLayout layout) const
@@ -970,7 +964,7 @@ namespace OloEngine
         {
             return false;
         }
-        return m_HostCopyAllDstLayouts || std::ranges::find(m_HostCopyDstLayouts, layout) != m_HostCopyDstLayouts.end();
+        return std::ranges::find(m_HostCopyDstLayouts, layout) != m_HostCopyDstLayouts.end();
     }
 
     void VulkanDevice::LogDeviceFaultInfo() const

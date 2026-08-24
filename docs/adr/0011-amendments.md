@@ -2143,10 +2143,19 @@ only go on an image whose format advertises
 `VkFormatProperties` word cannot carry it. And the copy's layouts are a
 **driver property**: `VkPhysicalDeviceHostImageCopyProperties` publishes
 `pCopySrcLayouts` / `pCopyDstLayouts`, of which only
-`VK_IMAGE_LAYOUT_GENERAL` is spec-guaranteed to be in both, and an
-implementation may report `VK_IMAGE_LAYOUT_MAX_ENUM` to mean "all of them".
-So the upload copies into `GENERAL` unconditionally and *asks* before doing
+`VK_IMAGE_LAYOUT_GENERAL` is spec-guaranteed to be in both. Membership is
+exact — the lists enumerate supported layouts and carry no wildcard entry. So
+the upload copies into `GENERAL` unconditionally and *asks* before doing
 anything else.
+
+**And the two lists are not interchangeable.**
+`vkTransitionImageLayout`'s `newLayout` must be in **`pCopyDstLayouts`**
+(VUID-VkHostImageLayoutTransitionInfo-newLayout-09057), not in either list.
+A layout that appears only in `pCopySrcLayouts` is a legal copy *source* and
+an illegal transition *target*, and on a driver whose two lists happen to
+match — which is every driver this was developed against — treating them as
+one would work perfectly and be wrong. Both facts here were checked against
+the SDK's `validusage.json` rather than recalled.
 
 **The steady-state layout is what decides whether the route may be taken at
 all.** The backend's invariant is that sampled asset content sits in
@@ -2230,4 +2239,4 @@ stays keyed on the `VkBuffer` alone — `VulkanIndexBuffer`'s count is fixed at
 construction, so a different element count is necessarily a different buffer.
 
 Narrative, and the gate's test shape:
-[rhi-abstraction-boundary.md](../agent-rules/rhi-abstraction-boundary.md) §16.
+[rhi-abstraction-boundary.md](../agent-rules/rhi-abstraction-boundary.md) §17.

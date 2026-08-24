@@ -3166,7 +3166,7 @@ resource's lifetime changes — which is the frame nobody tests.
 
 ---
 
-## 16. Vulkan 1.4 conveniences (#809): a core feature is not a free feature
+## 17. Vulkan 1.4 conveniences (#809): a core feature is not a free feature
 
 ADR 0011 amendment (91) carries the decisions. This is the part a future
 "adopt the next core-promoted thing" pass would otherwise rediscover.
@@ -3208,8 +3208,11 @@ assumes sampled content rests in `SHADER_READ_ONLY_OPTIMAL` — `GetData` and
 names the wrong old layout is invalid usage whose visible symptom is
 *discarded pixels*, not an error. But the host transition's legal target
 layouts are a **driver property** (`pCopySrcLayouts` / `pCopyDstLayouts`,
-possibly spelled `VK_IMAGE_LAYOUT_MAX_ENUM` for "all"), and only
-`VK_IMAGE_LAYOUT_GENERAL` is guaranteed to be in either list.
+exact membership, no wildcard entry), and only `VK_IMAGE_LAYOUT_GENERAL` is
+guaranteed to be in either list. The two lists are also not interchangeable:
+a transition's `newLayout` must be in the **destination** list
+(VUID-VkHostImageLayoutTransitionInfo-newLayout-09057), even though every
+driver at hand reports identical lists and would hide the difference.
 
 So the host route asks first and **declines the whole route** when it cannot
 finish in the layout the rest of the backend expects. Leaving the image in
