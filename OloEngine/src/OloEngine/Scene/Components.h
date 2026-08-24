@@ -1836,26 +1836,19 @@ namespace OloEngine
         auto operator==(const DiscoverableComponent&) const -> bool = default;
     };
 
+    // Deliberately NO operator== — every field is runtime-populated by
+    // DiscoverySystem (never hand-authored), so there is no "authored state"
+    // for the editor's undo system to protect. Per SceneHierarchyPanel's
+    // three-tier DrawComponent scheme, a non-trivially-copyable component
+    // with no operator== falls to the "no undo tracking" tier, which is
+    // exactly right here: without it, a landing during Play would silently
+    // push a phantom "Property Change" undo entry.
     struct DiscoveredSetComponent
     {
         std::vector<UUID> m_Discovered;
 
         DiscoveredSetComponent() = default;
         DiscoveredSetComponent(const DiscoveredSetComponent&) = default;
-
-        // Manual operator== — UUID's implicit u64 conversion (C2666), same
-        // reason RelationshipComponent::m_Children compares element-by-element.
-        auto operator==(const DiscoveredSetComponent& other) const -> bool
-        {
-            if (m_Discovered.size() != other.m_Discovered.size())
-                return false;
-            for (sizet i = 0; i < m_Discovered.size(); ++i)
-            {
-                if (static_cast<u64>(m_Discovered[i]) != static_cast<u64>(other.m_Discovered[i]))
-                    return false;
-            }
-            return true;
-        }
     };
 
     struct DiscoveryObjectiveMarkerComponent
