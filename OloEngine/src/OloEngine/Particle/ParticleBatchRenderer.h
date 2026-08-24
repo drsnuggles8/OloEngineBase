@@ -25,7 +25,7 @@ namespace OloEngine
         int EntityID;               // editor picking
         glm::vec4 PrevPosition;     // xyz = previous-frame world position, w = previous-frame size (for RT3 velocity)
         f32 PrevRotation;           // previous-frame rotation in radians (for RT3 velocity quad basis)
-        f32 _Pad0;                  // pad to 16-byte alignment for next instance
+        f32 Pad0;                   // pad to 16-byte alignment for next instance
     };
 
     // Per-instance data for mesh particle rendering (std140 UBO layout).

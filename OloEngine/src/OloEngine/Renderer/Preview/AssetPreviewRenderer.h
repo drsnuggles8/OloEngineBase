@@ -89,7 +89,7 @@ namespace OloEngine
             glm::mat4 View{ 1.0f };
             glm::mat4 Projection{ 1.0f };
             glm::vec3 CameraPosition{ 0.0f };
-            f32 _pad0{ 0.0f };
+            f32 Pad0{ 0.0f };
             glm::vec3 AlbedoFactor{ 0.7f };
             f32 MetallicFactor{ 0.0f };
             f32 RoughnessFactor{ 0.45f };
@@ -97,9 +97,9 @@ namespace OloEngine
             i32 UseAlbedoMap{ 0 };
             i32 UseMetalnessMap{ 0 };
             i32 UseRoughnessMap{ 0 };
-            i32 _pad1{ 0 };
-            i32 _pad2{ 0 };
-            i32 _pad3{ 0 };
+            i32 Pad1{ 0 };
+            i32 Pad2{ 0 };
+            i32 Pad3{ 0 };
         };
         static_assert(sizeof(PreviewBlock) % 16 == 0, "PreviewBlock must be 16-byte aligned for std140");
 

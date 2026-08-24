@@ -48,7 +48,7 @@ namespace OloEngine
         struct ParticleParamsData
         {
             glm::vec3 CameraRight{};         // offset 0  (align 16)
-            f32 _pad0{};                     // offset 12
+            f32 Pad0{};                      // offset 12
             glm::vec3 CameraUp{};            // offset 16 (align 16)
             i32 HasTexture = 0;              // offset 28
             i32 SoftParticlesEnabled = 0;    // offset 32
@@ -56,7 +56,7 @@ namespace OloEngine
             f32 NearClip = 0.1f;             // offset 40
             f32 FarClip = 1000.0f;           // offset 44
             glm::vec2 ViewportSize{};        // offset 48 (align 8)
-            f32 _pad1[2]{};                  // offset 56 (pad to 64)
+            f32 Pad1[2]{};                   // offset 56 (pad to 64)
         };
         static_assert(sizeof(ParticleParamsData) == 64, "ParticleParamsData must be 64 bytes for std140");
 
@@ -295,7 +295,7 @@ namespace OloEngine
         inst.EntityID = entityID;
         inst.PrevPosition = { prevPosition.x, prevPosition.y, prevPosition.z, prevSize };
         inst.PrevRotation = prevRotation;
-        inst._Pad0 = 0.0f;
+        inst.Pad0 = 0.0f;
 
         ++s_Data.InstancePtr;
         ++s_Data.InstanceCount;
@@ -322,7 +322,7 @@ namespace OloEngine
         inst.EntityID = entityID;
         inst.PrevPosition = { prevPosition.x, prevPosition.y, prevPosition.z, prevSize };
         inst.PrevRotation = prevRotation;
-        inst._Pad0 = 0.0f;
+        inst.Pad0 = 0.0f;
 
         ++s_Data.InstancePtr;
         ++s_Data.InstanceCount;

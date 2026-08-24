@@ -206,13 +206,13 @@ namespace OloEngine
             u32 CandidateCount = 0;
             u32 OverflowFlags = 0;
             glm::uvec3 DescentDispatch{ 0u };
-            u32 _Pad0 = 0;
+            u32 Pad0 = 0;
             glm::uvec3 ResolveDispatch{ 0u };
-            u32 _Pad1 = 0;
+            u32 Pad1 = 0;
             u32 HitTBits = kNoHitBits;
             u32 ResultFlags = 0;
             u32 RayId = 0;
-            u32 _Pad2 = 0;
+            u32 Pad2 = 0;
             glm::vec4 RayOriginAndMaxDist{ 0.0f };
             glm::vec4 RayDirAndInflate{ 0.0f };
             glm::vec4 TerrainSizeAndScale{ 0.0f };
@@ -225,7 +225,7 @@ namespace OloEngine
             u32 HitTBits = kNoHitBits;
             u32 ResultFlags = 0;
             u32 RayId = 0;
-            u32 _Pad = 0;
+            u32 Pad = 0;
         };
 
       private:

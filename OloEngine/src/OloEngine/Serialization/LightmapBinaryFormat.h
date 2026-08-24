@@ -93,8 +93,8 @@ namespace OloEngine
         struct SectionFrame
         {
             u16 SectionId = 0; // SectionType
-            u16 _pad0 = 0;
-            u32 _pad1 = 0;     // explicit — the u64 below would otherwise leave 4 bytes of
+            u16 Pad0 = 0;
+            u32 Pad1 = 0;      // explicit — the u64 below would otherwise leave 4 bytes of
                                // uninitialised implicit padding in the written stream
             u64 ByteCount = 0; // payload bytes following this frame
         };
@@ -105,7 +105,7 @@ namespace OloEngine
             u32 Width = 0;
             u32 Height = 0;
             u32 PageCount = 0;
-            u32 _pad0 = 0;
+            u32 Pad0 = 0;
             u64 BakeKey = 0; // FNV-1a hash of the baked scene state; 0 = unset
         };
 
@@ -113,7 +113,7 @@ namespace OloEngine
         struct EntityTableHeader
         {
             u32 EntryCount = 0;
-            u32 _pad0 = 0;
+            u32 Pad0 = 0;
         };
     } // namespace OLmapFormat
 

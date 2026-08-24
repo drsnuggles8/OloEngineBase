@@ -597,7 +597,7 @@ namespace OloEngine
     struct DRSUBOData
     {
         glm::vec2 RenderScaleBounds = glm::vec2(1.0f);
-        glm::vec2 _pad = glm::vec2(0.0f); // pad to 16 bytes (std140 vec2 alignment)
+        glm::vec2 Pad = glm::vec2(0.0f); // pad to 16 bytes (std140 vec2 alignment)
 
         static constexpr u32 GetSize()
         {
@@ -616,7 +616,7 @@ namespace OloEngine
         i32 ScreenWidth = 0;
         i32 ScreenHeight = 0;
         i32 DebugView = 0;
-        f32 _pad1 = 0.0f;
+        f32 Pad1 = 0.0f;
 
         glm::mat4 Projection = glm::mat4(1.0f);
         glm::mat4 InverseProjection = glm::mat4(1.0f);

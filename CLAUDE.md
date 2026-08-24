@@ -387,6 +387,7 @@ To opt a non-trivially-copyable component into undo, give it `auto operator==(co
 
 - C++23 (`CMAKE_CXX_STANDARD = 23`), 4-space indent, braces on new lines except trivial cases.
 - Naming: classes `PascalCase`, members `m_PascalCase`, statics `s_PascalCase`.
+- **GPU-mirror structs are the one exception**: a struct that mirrors a GLSL `uniform`/`buffer` block byte-for-byte (`UBOStructures::*UBO`, `InstanceData`, `VirtualClusterGpuRecord`, …) uses **bare `PascalCase`** fields so each one reads one-for-one against the GLSL block member it maps to, and names its explicit padding **`Pad0`, `Pad1`, …** — never `_Pad0`/`_pad0`/`_padding0`, since an identifier starting with underscore + uppercase is reserved to the implementation in every scope. The **GLSL** side deliberately keeps its `_padding0` spelling (legal there, and `ShaderUBOSizeConsistencyTest` uses the leading underscore to mean "padding, never read") — so GLSL text embedded in C++ keeps it too. See [docs/agent-rules/cpp-coding-quality.md](docs/agent-rules/cpp-coding-quality.md) §13.
 - Project headers `#include "..."`, third-party / system `#include <...>`. PCH is `OloEnginePCH.h`; public headers must be self-contained (Include What You Use).
 - `#pragma once` for header guards.
 - Floating-point: never `==` / `!=` on `float`/`double`/`glm::vec*`/`glm::mat*` — see [docs/agent-rules/cpp-coding-quality.md](docs/agent-rules/cpp-coding-quality.md) §2. Validate any float read from YAML/JSON/network with `std::isfinite`.

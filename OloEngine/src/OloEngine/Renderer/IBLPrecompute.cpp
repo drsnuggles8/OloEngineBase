@@ -58,7 +58,7 @@ namespace OloEngine
         cameraData.View = view;
         cameraData.Projection = RHI::AdjustCaptureProjectionForBackend(projection);
         cameraData.Position = glm::vec3(0.0f); // IBL rendering is done from origin
-        cameraData._padding0 = 0.0f;
+        cameraData.Pad0 = 0.0f;
         // Capture flavour's reconstruction sibling = the raw matrix (#691).
         cameraData.ProjectionForReconstruction = projection;
 

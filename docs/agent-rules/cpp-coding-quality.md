@@ -283,3 +283,87 @@ A `ParallelFor` "collect results" pattern — a per-task lambda that writes into
 ```
 
 Why this matters: once one task fails and sets `hasError`, every other in-flight/not-yet-started task takes the early-exit path and its `results[index]` stays default-constructed. If the sequential collect loop then logs *every* failed result (not just the first) — including a task that never ran — it uses that default field value, e.g. `GLShaderStageToString(0)`. A "stage" switch/lookup helper with an `OLO_CORE_ASSERT(false)`/no default case in its fallback branch then crashes on a value that was never a real shader stage, not because the original failure was mishandled, but because a *second*, unrelated result's bookkeeping field was never populated. This exact bug shipped alongside the fix for issue #568: replacing a fail-fast `OLO_CORE_VERIFY(false, ...)` with a "log every failure, don't stop at the first" collect loop made the sequential loop actually reach the second (never-run) result for the first time — previously the immediate crash on the first failure masked it. Any refactor from "crash/return on the first failure" to "collect and report every failure" in a `ParallelFor`-based aggregation needs the same audit: check every field the collect loop reads is populated on **every** path through the per-task lambda, including the early-exit one.
+
+
+---
+
+## 13. GPU-mirror struct naming: bare `PascalCase` fields, `PadN` pads, never a leading underscore
+
+A **GPU-mirror struct** is a C++ struct whose byte layout mirrors a GLSL `uniform` /
+`buffer` block (`UBOStructures::*UBO`, `VirtualClusterGpuRecord`, `InstanceData`,
+`ShaderDebugDrawLine`, …). Two rules, and they are deliberately different from the
+rest of the codebase:
+
+**Fields use bare `PascalCase`, not `m_PascalCase`.** The whole point of the mirror is
+that a C++ field reads one-for-one against the GLSL block member it maps to
+(`VertexBase`, `IndexCount`, `CullSphere`). An `m_` prefix would break that
+correspondence for zero benefit, so `CLAUDE.md`'s `m_PascalCase` member rule does not
+apply here. This is an exception, not an oversight — it had been unwritten until
+issue #870, which is why reviewers kept flagging it.
+
+**Explicit padding is `Pad0`, `Pad1`, … — never `_Pad0`, `_pad0` or `_padding0`.**
+
+```cpp
+// BAD — `_Pad0` is reserved to the implementation in EVERY scope
+// ([lex.name]/3.1: underscore followed by an uppercase letter). Nothing stops a
+// standard library or compiler internal from defining it as a macro, at which
+// point this struct stops compiling for reasons that read as nonsense.
+struct VirtualVisibleCluster
+{
+    u32 InstanceIndex = 0;
+    u32 ClusterIndex = 0;
+    u32 _Pad0 = 0;
+    u32 _Pad1 = 0;
+};
+
+// GOOD
+struct VirtualVisibleCluster
+{
+    u32 InstanceIndex = 0;
+    u32 ClusterIndex = 0;
+    u32 Pad0 = 0;
+    u32 Pad1 = 0;
+};
+```
+
+`_pad0` / `_padding0` are legal as *class members* (the "reserved at namespace scope"
+half of the rule doesn't reach them), but they are renamed alongside `_Pad0` so there
+is one spelling to look for rather than four.
+
+**Watch for the prefixed spellings.** The sweep in #870 first missed `_pbrPad2`,
+`_terrainPad2`, `_shadowPad1`, `_paddingEntity` and `_StatePad0`, because a
+`_[Pp]ad(ding)?[0-9]` grep does not match them — the pad word is in the middle of the
+identifier, not at the front. `_StatePad0` is the *reserved* form. Search for
+`_[A-Za-z_]*[Pp]ad` instead. Those prefixes exist for the GLSL side's benefit (below);
+a C++ struct member is already scoped, so it just takes `Pad2`.
+
+A pad that is an **array** keeps a descriptive name rather than an index —
+`i32 PadEntity[3];`, not `Pad0[3]` — since the index would name the array, not the slot.
+
+### The GLSL side keeps its leading underscore — do not "fix" it
+
+`OloEditor/assets/shaders/**` deliberately spells its padding `_padding0`,
+`_foliagePad1`, `_camera_pad_view`, `_vdPad0` and so on. That is **not** the same
+defect:
+
+- GLSL reserves `gl_`-prefixed names and names containing `__`, not a single leading
+  underscore, so there is nothing to collide with.
+- The underscore is **load-bearing**. `ShaderUBOSizeConsistencyTest` treats
+  `name.starts_with('_')` as "declared for std140 layout parity, deliberately never
+  read", and that is what stops it false-positiving when two shaders name the same
+  byte offset differently. Renaming GLSL pads to `PadN` would turn every pad into a
+  "real name" and break the test's central heuristic.
+- Named uniform-block members must match across the stages of one program, so a
+  half-done GLSL rename is a link error rather than a cosmetic one.
+- A non-instanced uniform block puts its member names in **global** scope, so two
+  blocks cannot both declare `_pad0`. That is why the GLSL pads carry per-block
+  prefixes (`_shadowPad1`, `_pbrPad2`, `_camera_pad_view`) that their C++ twins do
+  not need.
+
+So the two sides intentionally disagree *on pads only*, and a pad mirrors nothing —
+there is no correspondence to preserve. Real fields still match one-for-one.
+
+Consequence for the C++ side: GLSL text embedded in C++ (the
+`ShaderBindingLayout::Get*Layout()` documentation strings,
+`ShaderGraphCompiler`'s emitted shader source) keeps the GLSL spelling, because it
+*is* GLSL. Those are the only `_pad` matches left under `OloEngine/src`.

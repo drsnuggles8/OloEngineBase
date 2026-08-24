@@ -605,7 +605,7 @@ namespace OloEngine
             cameraData.View = relativeView;
             cameraData.Projection = RHI::AdjustProjectionForBackend(data.ProjectionMatrix);
             cameraData.Position = MakePositionRelative(data.ViewPos, renderOrigin);
-            cameraData._padding0 = 0.0f;
+            cameraData.Pad0 = 0.0f;
             // Previous-frame view-projection is maintained in
             // `data.PrevViewProjectionMatrix`. Forward PBR shaders consume
             // this through the CameraMatrices UBO (binding 0) to emit screen-

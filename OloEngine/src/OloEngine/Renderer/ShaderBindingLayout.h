@@ -23,13 +23,14 @@ namespace OloEngine
             glm::mat4 View;
             glm::mat4 Projection;
             glm::vec3 Position;
-            f32 _padding0;
+            f32 Pad0;
             // Previous-frame view-projection for forward-path velocity
             // reconstruction in PBR_MultiLight / PBR_MultiLight_Skinned.
             // Equals ViewProjection on the first frame so velocity is zero
             // on static pixels. Shaders that do not need it declare a
-            // CameraMatrices block that stops at _padding0; std140 allows
-            // the C++-side buffer to carry extra trailing bytes.
+            // CameraMatrices block that stops at `_padding0` (the GLSL
+            // spelling of the `Pad0` above); std140 allows the C++-side
+            // buffer to carry extra trailing bytes.
             glm::mat4 PrevViewProjection;
             // Camera-relative render origin (issue #429). Geometry is uploaded
             // with world positions shifted by this, so the worldPos a shader
@@ -41,7 +42,7 @@ namespace OloEngine
             // unaffected (std140 trailing-byte tolerance). Zero within the first
             // grid cell, so the add-back is a no-op near origin.
             glm::vec3 RenderOrigin = glm::vec3(0.0f);
-            f32 _padding1 = 0.0f;
+            f32 Pad1 = 0.0f;
             // The SHADER-RECONSTRUCTION flavour of Projection (#691).
             // `Projection` above carries the rasterizer flavour (full F: y flip
             // + z remap on Vulkan), which every `gl_Position` consumer needs —
@@ -132,7 +133,7 @@ namespace OloEngine
             i32 UseTextureMaps;
             i32 AlphaMode;   // Alpha blending mode (repurposed from padding)
             i32 DoubleSided; // Double-sided rendering flag (repurposed from padding)
-            i32 _padding;    // Only 4 bytes padding needed for 16-byte alignment
+            i32 Pad;         // Only 4 bytes padding needed for 16-byte alignment
 
             static constexpr u32 GetSize()
             {
@@ -159,7 +160,7 @@ namespace OloEngine
             i32 EnableLightProbes;       // Enable light probe indirect diffuse
             f32 IBLIntensity = 1.0f;     // Runtime IBL strength multiplier
             i32 AlphaMode = 0;           // 0=Opaque, 1=Mask, 2=Blend (matches AlphaMode enum)
-            i32 _pbrPad2 = 0;
+            i32 Pad2 = 0;
 
             // PER-MATERIAL HEAP OFFSETS (issue #691, ADR 0011 amendment (32)).
             //
@@ -196,7 +197,7 @@ namespace OloEngine
             glm::mat4 Model;
             glm::mat4 Normal; // transpose(inverse(model))
             i32 EntityID;
-            i32 _paddingEntity[3];
+            i32 PadEntity[3];
             // Previous-frame world transform for per-object motion vectors in
             // the deferred G-Buffer path. Equals Model for static objects or
             // on the first frame so the resulting velocity is zero. Other
@@ -256,8 +257,8 @@ namespace OloEngine
         struct IBLParametersUBO
         {
             f32 Roughness;
-            f32 ExposureAdjustment; // Renamed from _padding0 to serve actual purpose
-            f32 IBLIntensity;       // Renamed from _padding1 to serve actual purpose
+            f32 ExposureAdjustment; // Was padding; repurposed to serve an actual purpose
+            f32 IBLIntensity;       // Was padding; repurposed to serve an actual purpose
             f32 IBLRotation;        // Environment rotation angle (repurposed from padding)
 
             static constexpr u32 GetSize()
@@ -282,9 +283,9 @@ namespace OloEngine
             i32 SampleCount;           // Monte-Carlo sample count (already quality-scaled by C++)
             i32 UseImportanceSampling; // 0/1 — fall back to a flat hemisphere sweep when 0
             i32 SourceResolution;      // source cubemap face resolution, for mip-bias firefly suppression
-            i32 _pad0 = 0;
-            i32 _pad1 = 0;
-            i32 _pad2 = 0;
+            i32 Pad0 = 0;
+            i32 Pad1 = 0;
+            i32 Pad2 = 0;
 
             static constexpr u32 GetSize()
             {
@@ -309,7 +310,7 @@ namespace OloEngine
             // from the GPU-built visible-node list at SSBO 59.
             i32 GpuDrivenMode = 0;
             i32 GpuPatchGridRes = 0; // vertices per patch edge (K) in GPU-driven mode
-            i32 _terrainPad2 = 0;
+            i32 Pad2 = 0;
             glm::vec4 TessFactors;          // x = inner, y = +X edge, z = -X edge, w = +Z edge
             glm::vec4 TessFactors2;         // x = -Z edge, y = morphFactor, z = LODLevel, w = tessEnabled flag
             glm::vec4 LayerTilingScales0;   // Tiling scales for layers 0-3
@@ -396,7 +397,7 @@ namespace OloEngine
             f32 FadeStart;
             f32 AlphaCutoff;
             f32 PrevTime = 0.0f; // Previous-frame time for per-fragment wind reprojection
-            f32 _pad1 = 0.0f;
+            f32 Pad1 = 0.0f;
             glm::vec4 BaseColor; // xyz = color, w = unused
 
             // Octahedral impostor params (issue #433). Consumed only by the
@@ -442,8 +443,8 @@ namespace OloEngine
             i32 AtlasResolution = 0;     // Atlas texture resolution
             i32 CascadeDebugEnabled = 0; // Visualize cascade boundaries
             i32 SoftShadowMode = 0;      // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
-            i32 _shadowPad1 = 0;
-            i32 _shadowPad2 = 0;
+            i32 Pad1 = 0;
+            i32 Pad2 = 0;
 
             static constexpr u32 GetSize()
             {
@@ -481,8 +482,8 @@ namespace OloEngine
             glm::vec4 ProbeSpacing;    // xyz = spacing per axis, w = unused
             i32 Enabled;               // 1 = probes active, 0 = disabled
             f32 Intensity;             // Global intensity multiplier
-            i32 _pad0 = 0;
-            i32 _pad1 = 0;
+            i32 Pad0 = 0;
+            i32 Pad1 = 0;
 
             static constexpr u32 GetSize()
             {
@@ -503,7 +504,7 @@ namespace OloEngine
             i32 Enabled;   // 1 = atlas bound and bake key matches the live scene
             f32 Intensity; // global baked-GI intensity multiplier
             f32 TexelSize; // 1.0 / atlas dimension (square atlas), for dilation-aware sampling
-            i32 _pad0 = 0;
+            i32 Pad0 = 0;
 
             static constexpr u32 GetSize()
             {
@@ -541,7 +542,7 @@ namespace OloEngine
             i32 UpdateRateDivisor = 1;  // relight 1-in-N probes per frame
             i32 RequestLifetime = 0;    // frames a sparsity request keeps a probe live
             i32 SparsityEnabled = 0;    // 0 = every probe is live (authored path)
-            i32 _pad0 = 0;
+            i32 Pad0 = 0;
 
             // Per-cascade lattice description; index 0 is the FINEST cascade.
             // Fixed-size because the block is a UBO — mirrors
@@ -672,8 +673,8 @@ namespace OloEngine
             f32 MaxExposure;
             f32 LowPercentile;  // metered-population band, low bound
             f32 HighPercentile; // metered-population band, high bound
-            f32 _pad0;
-            glm::vec2 _pad1;
+            f32 Pad0;
+            glm::vec2 Pad1;
 
             static constexpr u32 GetSize()
             {
@@ -698,8 +699,8 @@ namespace OloEngine
             i32 FirstLod;                         // starting destination mip level
             i32 IsFirstPass;                      // 1 = read scene depth, 0 = read HZB
             i32 ReduceOp;                         // 0 = max (farthest), 1 = min (nearest)
-            i32 _pad0;
-            glm::vec2 _pad1;
+            i32 Pad0;
+            glm::vec2 Pad1;
 
             static constexpr u32 GetSize()
             {
@@ -716,8 +717,8 @@ namespace OloEngine
         struct GTAODenoiseUBO
         {
             i32 BlurHorizontal; // 1 = horizontal, 0 = vertical
-            i32 _pad0;
-            glm::vec2 _pad1;
+            i32 Pad0;
+            glm::vec2 Pad1;
 
             static constexpr u32 GetSize()
             {
@@ -775,7 +776,7 @@ namespace OloEngine
             f32 GroundY;               // 60
             f32 CollisionBounce;       // 64
             f32 CollisionFriction;     // 68
-            glm::vec2 _pad0;           // 72
+            glm::vec2 Pad0;            // 72
 
             static constexpr u32 GetSize()
             {
@@ -805,7 +806,7 @@ namespace OloEngine
             f32 TurbulenceIntensity; // 44
             f32 TurbulenceScale;     // 48
             f32 Time;                // 52 — accumulated seconds
-            glm::vec2 _pad0;         // 56
+            glm::vec2 Pad0;          // 56
 
             static constexpr u32 GetSize()
             {
@@ -834,7 +835,7 @@ namespace OloEngine
             f32 RestorationRate;     // 32 — deformation fill-back speed (m/s)
             f32 SnowDensity;         // 36 — 0 = powder, 1 = packed
             i32 StampCount;          // 40 — Snow_Deform only
-            i32 _pad0;               // 44
+            i32 Pad0;                // 44
 
             static constexpr u32 GetSize()
             {
@@ -865,7 +866,7 @@ namespace OloEngine
             f32 InitialWater;        // 44
             f32 InitialSpeed;        // 48
             i32 ErosionRadius;       // 52 — brush radius in texels
-            glm::vec2 _pad0;         // 56
+            glm::vec2 Pad0;          // 56
 
             static constexpr u32 GetSize()
             {
@@ -892,7 +893,7 @@ namespace OloEngine
             u32 MaxLightsPerCluster;           // 140
             f32 NearPlane;                     // 144 — positive distance
             f32 FarPlane;                      // 148 — positive distance
-            glm::vec2 _pad0;                   // 152
+            glm::vec2 Pad0;                    // 152
 
             static constexpr u32 GetSize()
             {
@@ -931,7 +932,7 @@ namespace OloEngine
             u32 ArgsSlotBase;                  // 128
             i32 DebugDrawClusters;             // 132 — bit field, 0 = off (issue #725)
             u32 DebugDrawClusterStride;        // 136
-            i32 _pad0;                         // 140
+            i32 Pad0;                          // 140
             // ---- Culling-camera override (issue #726) ---------------------
             // Unlike InstanceCullUBO's unconditional field, this one is a
             // flagged override because THIS shader is bound by two views: the
@@ -1009,7 +1010,7 @@ namespace OloEngine
             i32 WriteRejected;             // 116 — phase 1 appends to the reject list
             i32 Phase2;                    // 120
             // 124 — entries the cull's compacted output (and, in phase 1, the
-            // reject list) may hold. Was `_pad0`, which is why this and #726's
+            // reject list) may hold. Was a pad slot, which is why this and #726's
             // CullViewProjection below are complementary rather than competing:
             // #726 added a mat4 at 128 and left the pad alone, #721 spent the
             // pad. The shader BOUND-CHECKS its atomic append against this and
@@ -1057,7 +1058,7 @@ namespace OloEngine
             i32 Stage;      // 16 — 0 .. log2(N)-1 — FFTButterfly only
             i32 Vertical;   // 20 — 0 = rows, 1 = columns — FFTButterfly only
             f32 Choppiness; // 24 — λ, horizontal-displacement scale — Assemble only
-            f32 _pad0;      // 28
+            f32 Pad0;       // 28
 
             static constexpr u32 GetSize()
             {
@@ -1077,7 +1078,7 @@ namespace OloEngine
             i32 Mode;    // 0  — 0 = base, 1 = detail
             i32 Size;    // 4  — texels per axis (128 base, 32 detail)
             f32 InvSize; // 8  — 1.0 / Size (computed on the CPU)
-            f32 _pad0;   // 12
+            f32 Pad0;    // 12
 
             static constexpr u32 GetSize()
             {
@@ -1123,7 +1124,7 @@ namespace OloEngine
             f32 AccumulationFeedRate; // 16 — depth each landed particle contributes
             f32 GroundY;              // 20 — ground plane Y
             f32 GroundThreshold;      // 24 — ground-contact tolerance
-            f32 _pad0;                // 28
+            f32 Pad0;                 // 28
 
             static constexpr u32 GetSize()
             {
@@ -1148,7 +1149,7 @@ namespace OloEngine
             glm::mat4 InverseProjectionMatrix; // 64
             f32 NearPlane;                     // 128
             f32 FarPlane;                      // 132
-            glm::vec2 _pad0;                   // 136
+            glm::vec2 Pad0;                    // 136
 
             static constexpr u32 GetSize()
             {
@@ -1177,7 +1178,7 @@ namespace OloEngine
             u32 WriteTotal = 0;     // 8  — scan pass: emit the grand total (set only at
                                     //      the single-work-group bottom of the recursion,
                                     //      where the group total IS the grand total)
-            u32 _pad0 = 0;          // 12
+            u32 Pad0 = 0;           // 12
 
             static constexpr u32 GetSize()
             {
@@ -1386,8 +1387,8 @@ namespace OloEngine
             glm::vec4 TexelSize{ 0.0f };                      // xy = 1/width, 1/height, zw = unused
             i32 SelectedCount = 0;                            // Number of selected entities
             i32 OutlineWidth = 1;                             // Outline width in texels
-            i32 _pad0 = 0;
-            i32 _pad1 = 0;
+            i32 Pad0 = 0;
+            i32 Pad1 = 0;
             glm::ivec4 SelectedIDs[16] = {
                 glm::ivec4{ -1 },
                 glm::ivec4{ -1 },
@@ -1460,7 +1461,7 @@ namespace OloEngine
             f32 OutlineThicknessInner = 0.002f;               // smoothstep inner edge
             f32 OutlineThicknessOuter = 0.004f;               // smoothstep outer edge
             i32 Step = 1;                                     // current JFA step size
-            i32 _pad0 = 0;
+            i32 Pad0 = 0;
 
             static constexpr u32 GetSize()
             {

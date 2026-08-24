@@ -47,11 +47,11 @@ namespace OloEngine
             u32 SelectDispatchX = 0;
             u32 SelectDispatchY = 0;
             u32 SelectDispatchZ = 0;
-            u32 _StatePad0 = 0;
+            u32 Pad0 = 0;
             u32 SeamDispatchX = 0;
             u32 SeamDispatchY = 0;
             u32 SeamDispatchZ = 0;
-            u32 _StatePad1 = 0;
+            u32 Pad1 = 0;
         };
         static_assert(sizeof(TerrainGpuCullState) == 48, "TerrainGpuCullState must match the std430 TerrainCullState block");
         static_assert(offsetof(TerrainGpuCullState, SelectDispatchX) == 16, "SelectDispatch offset is part of the DispatchComputeIndirect contract");
@@ -72,9 +72,9 @@ namespace OloEngine
             u32 FirstIndex = 0;
             u32 BaseVertex = 0;
             u32 BaseInstance = 0;
-            u32 _Pad0 = 0;
-            u32 _Pad1 = 0;
-            u32 _Pad2 = 0;
+            u32 Pad0 = 0;
+            u32 Pad1 = 0;
+            u32 Pad2 = 0;
         };
         static_assert(sizeof(TerrainDrawArgsPOD) == 32, "TerrainDrawArgsPOD must match the std430 TerrainDrawArgs block");
 

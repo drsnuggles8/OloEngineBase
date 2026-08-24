@@ -271,7 +271,7 @@ namespace OloEngine
         struct LightmapUVsHeader
         {
             u32 UVCount = 0; // must equal GeometryHeader::VertexCount, or the section is rejected
-            u32 _pad0 = 0;
+            u32 Pad0 = 0;
             // Followed by UVCount * 8 bytes of tightly-packed f32 (u, v) pairs
         };
 

@@ -158,8 +158,8 @@ namespace OloEngine
 
         u32 Capacity = 0;     // entries the array behind this header can hold
         u32 RequestCount = 0; // UNCLAMPED; overflow iff RequestCount > Capacity
-        u32 _pad0 = 0;
-        u32 _pad1 = 0;
+        u32 Pad0 = 0;
+        u32 Pad1 = 0;
     };
     static_assert(sizeof(ShaderDebugDrawChannelHeader) == 32,
                   "The channel header is the first 32 bytes of every debug-draw SSBO and is mirrored "
@@ -177,9 +177,9 @@ namespace OloEngine
         glm::vec3 Start{ 0.0f };
         u32 Space = 0;
         glm::vec3 End{ 0.0f };
-        f32 _pad0 = 0.0f;
+        f32 Pad0 = 0.0f;
         glm::vec3 Color{ 1.0f };
-        f32 _pad1 = 0.0f;
+        f32 Pad1 = 0.0f;
     };
     static_assert(sizeof(ShaderDebugDrawLine) == 48);
 
@@ -192,7 +192,7 @@ namespace OloEngine
         glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };
         f32 Radius = 1.0f;
         glm::vec3 Color{ 1.0f };
-        f32 _pad0 = 0.0f;
+        f32 Pad0 = 0.0f;
     };
     static_assert(sizeof(ShaderDebugDrawCircle) == 48);
 
@@ -205,11 +205,11 @@ namespace OloEngine
         glm::vec3 Center{ 0.0f };
         u32 Space = 0;
         glm::vec3 AxisU{ 1.0f, 0.0f, 0.0f };
-        f32 _pad0 = 0.0f;
+        f32 Pad0 = 0.0f;
         glm::vec3 AxisV{ 0.0f, 1.0f, 0.0f };
-        f32 _pad1 = 0.0f;
+        f32 Pad1 = 0.0f;
         glm::vec3 Color{ 1.0f };
-        f32 _pad2 = 0.0f;
+        f32 Pad2 = 0.0f;
     };
     static_assert(sizeof(ShaderDebugDrawRectangle) == 64);
 
@@ -221,9 +221,9 @@ namespace OloEngine
         glm::vec3 Min{ 0.0f };
         u32 Space = 0;
         glm::vec3 Max{ 0.0f };
-        f32 _pad0 = 0.0f;
+        f32 Pad0 = 0.0f;
         glm::vec3 Color{ 1.0f };
-        f32 _pad1 = 0.0f;
+        f32 Pad1 = 0.0f;
     };
     static_assert(sizeof(ShaderDebugDrawAABB) == 48);
 
@@ -252,7 +252,7 @@ namespace OloEngine
         glm::vec3 Axis{ 0.0f, -1.0f, 0.0f };
         f32 Radius = 1.0f;
         glm::vec3 Color{ 1.0f };
-        f32 _pad0 = 0.0f;
+        f32 Pad0 = 0.0f;
     };
     static_assert(sizeof(ShaderDebugDrawCone) == 48);
 

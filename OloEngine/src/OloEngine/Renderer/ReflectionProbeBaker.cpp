@@ -342,7 +342,7 @@ namespace OloEngine
             camera.View = view;
             camera.Projection = RHI::AdjustCaptureProjectionForBackend(proj);
             camera.Position = position;
-            camera._padding0 = 0.0f;
+            camera.Pad0 = 0.0f;
             camera.PrevViewProjection = camera.ViewProjection;
             camera.RenderOrigin = glm::vec3(0.0f);
             // Capture flavour's reconstruction sibling = the raw matrix.
