@@ -59,12 +59,13 @@ namespace OloEngine
         return shader;
     }
 
-    ShaderLibrary::PreparedShaderBatch ShaderLibrary::PrepareParallel(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter)
+    ShaderLibrary::PreparedShaderBatch ShaderLibrary::PrepareParallel(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter) const
     {
         OLO_PROFILE_FUNCTION();
 
         const sizet count = filepaths.size();
         PreparedShaderBatch batch;
+        batch.m_FilePaths = filepaths;
         batch.m_Prepared.resize(count);
         batch.m_IsPackLoaded.assign(count, false);
         batch.m_PackEntries.resize(count);
@@ -131,12 +132,32 @@ namespace OloEngine
             }
         }
 
-        std::vector<Ref<Shader>> finalized = Shader::FinalizeBatch(std::move(batch.m_Prepared), batch.m_IsPackLoaded);
-        for (const auto& shader : finalized)
+        std::vector<Ref<Shader>> finalized = Shader::FinalizeBatch(batch.m_FilePaths, std::move(batch.m_Prepared), batch.m_IsPackLoaded);
+
+        // A null entry means PrepareBatch() caught an exception for that
+        // shader (OpenGLShader::PrepareBatch) — dropping it silently is not
+        // enough: Renderer3D::Init resolves every shader by name through an
+        // unchecked Get(), which asserts on a missing entry (or, with asserts
+        // compiled out, hands the caller a null Ref that crashes at draw
+        // time). Register the fallback shader under the expected name so one
+        // broken shader stays a visible magenta mesh instead of a startup
+        // assert or a null dereference (issue #568's contract, extended to
+        // this batch path).
+        const sizet finalizedCount = finalized.size();
+        for (sizet i = 0; i < finalizedCount; ++i)
         {
-            if (shader)
+            if (finalized[i])
             {
-                Add(shader);
+                Add(finalized[i]);
+                continue;
+            }
+
+            const std::string name = std::filesystem::path(batch.m_FilePaths[i]).stem().string();
+            OLO_CORE_ERROR("[ShaderLibrary] '{}' failed CPU preparation — registering the fallback shader", name);
+            if (auto fallback = GetFallbackShader(); fallback && !Exists(name))
+            {
+                Add(name, fallback);
+                finalized[i] = fallback;
             }
         }
         return finalized;

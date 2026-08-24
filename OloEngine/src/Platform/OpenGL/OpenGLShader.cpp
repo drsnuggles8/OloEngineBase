@@ -441,6 +441,48 @@ namespace OloEngine
             return static_cast<bool>(in);
         }
 
+        // Cross-shader parallel prepare (issue #907) means the content-
+        // addressed cache key (source/SPIR-V bytes + options + stage) can
+        // collide ACROSS shader files, not just across stages of one shader:
+        // two different .glsl files whose preprocessed stage text is byte-
+        // identical (e.g. a shared vertex stage across several *_GBuffer_*
+        // variants) hash to the SAME cache path, and PrepareBatch's outer
+        // ParallelFor can now have two different worker threads writing it
+        // at once — impossible before this PR, when ParallelFor only ever
+        // ran across one shader's own 1-2 stages (which differ in the
+        // hashed stage name, so never collided). A plain std::ofstream
+        // write is then observable half-written by a concurrent reader.
+        // Write to a writer-unique temp file and atomically rename it into
+        // place instead, so a reader only ever sees a complete file or none.
+        static void WriteSpirvCacheFileAtomic(const std::filesystem::path& target, const std::vector<u32>& words)
+        {
+            static std::atomic<u64> s_WriterCounter{ 0 };
+            const std::filesystem::path tmp = target.string() + ".tmp" + std::to_string(s_WriterCounter.fetch_add(1));
+
+            std::error_code ec;
+            {
+                std::ofstream out(tmp, std::ios::out | std::ios::binary);
+                if (!out.is_open())
+                {
+                    return;
+                }
+                out.write(reinterpret_cast<const char*>(words.data()), static_cast<std::streamsize>(words.size() * sizeof(u32)));
+                out.flush();
+                if (!out)
+                {
+                    out.close();
+                    std::filesystem::remove(tmp, ec);
+                    return;
+                }
+            }
+
+            std::filesystem::rename(tmp, target, ec);
+            if (ec)
+            {
+                std::filesystem::remove(tmp, ec);
+            }
+        }
+
         // Applies the SPIR-V tier's shaderc options AND describes them as text
         // in one place — the description is hashed into the cache key, so
         // there is no second place that can fall out of sync with the actual
@@ -583,6 +625,14 @@ namespace OloEngine
         // scheduling overhead rather than real speedup.
         m_SkipNestedParallelism = true;
         PrepareCPU();
+        // The outer ParallelFor's task ends when this constructor returns.
+        // Every later compile on this object — FinalizeGL()'s declined-
+        // bindless recompile, Reload() — runs with no outer parallelism to
+        // avoid oversubscribing, so it must be free to use the inner stage
+        // ParallelFor again. Without this the flag stayed true for the
+        // object's whole lifetime, silently forcing every future reload of
+        // a batch-loaded shader to compile its stages single-threaded.
+        m_SkipNestedParallelism = false;
     }
 
     // CPU-only compile (issue #907): everything the old single-phase
@@ -1708,17 +1758,14 @@ namespace OloEngine
 
             shaderData[result.Stage] = result.SpirvData;
 
-            // Write to cache if needed
+            // Write to cache if needed. Atomic (temp file + rename) — see
+            // Utils::WriteSpirvCacheFileAtomic: two shaders in this same
+            // cross-shader ParallelFor batch can hash to the same cache
+            // path, so a plain std::ofstream here is a torn-file race that
+            // did not exist before this PR.
             if (result.NeedsCache)
             {
-                std::ofstream out(result.CachePath, std::ios::out | std::ios::binary);
-                if (out.is_open())
-                {
-                    out.write(reinterpret_cast<const char*>(result.SpirvData.data()),
-                              result.SpirvData.size() * sizeof(u32));
-                    out.flush();
-                    out.close();
-                }
+                Utils::WriteSpirvCacheFileAtomic(result.CachePath, result.SpirvData);
             }
         }
 
@@ -1903,17 +1950,14 @@ namespace OloEngine
                 m_OpenGLSourceCode[result.Stage] = result.GlslSource;
             }
 
-            // Write to cache if needed
+            // Write to cache if needed. Atomic (temp file + rename) — see
+            // Utils::WriteSpirvCacheFileAtomic: two shaders in this same
+            // cross-shader ParallelFor batch can hash to the same cache
+            // path, so a plain std::ofstream here is a torn-file race that
+            // did not exist before this PR.
             if (result.NeedsCache)
             {
-                std::ofstream out(result.CachePath, std::ios::out | std::ios::binary);
-                if (out.is_open())
-                {
-                    out.write(reinterpret_cast<const char*>(result.SpirvData.data()),
-                              result.SpirvData.size() * sizeof(u32));
-                    out.flush();
-                    out.close();
-                }
+                Utils::WriteSpirvCacheFileAtomic(result.CachePath, result.SpirvData);
             }
         }
 

@@ -60,13 +60,19 @@ namespace OloEngine
         // a render loop (progress bar, window events) while PrepareParallel()
         // runs on a background task — see ShaderWarmup::LoadShadersParallel
         // for the pattern.
+        //
+        // THIS CLASS IS NOT INTERNALLY SYNCHRONIZED. While PrepareParallel()
+        // is in flight on another thread, no other method on the SAME
+        // ShaderLibrary may be called — Add()/Load()/Get()/LoadShaderPack()
+        // all touch m_Shaders/m_ShaderPack without a lock.
         struct PreparedShaderBatch
         {
-            std::vector<Ref<Shader>> m_Prepared;                        // non-pack entries: CPU-prepared, GL not yet created. Pack entries: null until FinalizeParallel() materializes them from m_PackEntries.
+            std::vector<std::string> m_FilePaths;                       // same order/size as passed to PrepareParallel() — every array below is indexed against this
+            std::vector<Ref<Shader>> m_Prepared;                        // non-pack entries: CPU-prepared, GL not yet created (null if PrepareBatch() couldn't even prepare it — see FinalizeParallel()). Pack entries: null until FinalizeParallel() materializes them from m_PackEntries.
             std::vector<bool> m_IsPackLoaded;                           // same size as m_Prepared — true where the entry came from a shader pack
             std::vector<std::optional<PackEntryCPUData>> m_PackEntries; // same size — decoded pack data for m_IsPackLoaded[i]==true entries, nullopt otherwise
         };
-        PreparedShaderBatch PrepareParallel(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter = nullptr);
+        [[nodiscard]] PreparedShaderBatch PrepareParallel(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter = nullptr) const;
         std::vector<Ref<Shader>> FinalizeParallel(PreparedShaderBatch batch);
 
         // Convenience one-call form: PrepareParallel() + FinalizeParallel()

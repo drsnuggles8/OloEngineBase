@@ -199,28 +199,6 @@ namespace OloEngine
         return nullptr;
     }
 
-    namespace
-    {
-        // Shared fallback for a backend with no CPU-only prepare step (issue
-        // #907 covers OpenGL only) — synchronous Create() per shader.
-        // FinalizeBatch()'s matching branch then passes these straight
-        // through, since Create() already fully creates them.
-        std::vector<Ref<Shader>> PrepareBatchSequentialFallback(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter)
-        {
-            std::vector<Ref<Shader>> result;
-            result.reserve(filepaths.size());
-            for (const auto& path : filepaths)
-            {
-                result.push_back(Shader::Create(path));
-                if (progressCounter != nullptr)
-                {
-                    progressCounter->fetch_add(1, std::memory_order_relaxed);
-                }
-            }
-            return result;
-        }
-    } // namespace
-
     std::vector<Ref<Shader>> Shader::PrepareBatch(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter)
     {
         switch (Renderer::GetAPI())
@@ -231,10 +209,14 @@ namespace OloEngine
                 return {};
             }
             case RendererAPI::API::Vulkan:
-                // No CPU-only prepare step on this backend yet — a future
-                // Vulkan-side parallel prepare can slot in here without
-                // touching callers.
-                return PrepareBatchSequentialFallback(filepaths, progressCounter);
+                // No CPU-only prepare step on this backend, and Create()
+                // touches the device/driver (vkCreateShaderModule) — must
+                // not run on whatever background thread PrepareBatch() is
+                // called from (issue #907 review). Leave every entry null;
+                // FinalizeBatch() below does the real (sequential, render-
+                // thread) Create() call for each. progressCounter has
+                // nothing honest to report here — see the header comment.
+                return std::vector<Ref<Shader>>(filepaths.size());
             case RendererAPI::API::OpenGL:
                 return OpenGLShader::PrepareBatch(filepaths, progressCounter);
         }
@@ -243,7 +225,7 @@ namespace OloEngine
         return {};
     }
 
-    std::vector<Ref<Shader>> Shader::FinalizeBatch(std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal)
+    std::vector<Ref<Shader>> Shader::FinalizeBatch(const std::vector<std::string>& filepaths, std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal)
     {
         switch (Renderer::GetAPI())
         {
@@ -253,9 +235,23 @@ namespace OloEngine
                 return prepared;
             }
             case RendererAPI::API::Vulkan:
-                // PrepareBatch() already fully created these via the
-                // sequential fallback above — nothing left to do.
-                return prepared;
+            {
+                // PrepareBatch() deliberately left every entry null (see
+                // above) — do the real Create() here instead, sequentially,
+                // now that this is contractually the render thread.
+                const sizet count = filepaths.size();
+                std::vector<Ref<Shader>> result(count);
+                for (sizet i = 0; i < count; ++i)
+                {
+                    if (i < alreadyFinal.size() && alreadyFinal[i])
+                    {
+                        result[i] = prepared[i]; // pack-loaded upstream — not exercised by Vulkan today, kept symmetric with OpenGL
+                        continue;
+                    }
+                    result[i] = Create(filepaths[i]);
+                }
+                return result;
+            }
             case RendererAPI::API::OpenGL:
                 return OpenGLShader::FinalizeBatch(std::move(prepared), alreadyFinal);
         }

@@ -12,6 +12,8 @@
 #include "OloEngine/Async/Async.h"
 
 #include <atomic>
+#include <chrono>
+#include <thread>
 
 namespace OloEngine
 {
@@ -354,16 +356,45 @@ void main()
         // half of the pipeline instead of the GPU-link half.
         TFuture<ShaderLibrary::PreparedShaderBatch> future = Async(
             EAsyncExecution::TaskGraph,
-            [&library, &filepaths, &prepared]() -> ShaderLibrary::PreparedShaderBatch
+            [&library, &filepaths, &prepared]()
             {
                 return library.PrepareParallel(filepaths, &prepared);
             });
 
+        // TFuture has no waiting destructor. The lambda above captures
+        // `library`/`filepaths`/`prepared` by reference from THIS stack
+        // frame — if RenderProgressFrame ever throws before future.Get()
+        // runs below, the background task must still be joined before this
+        // function's locals are destroyed, or the task can go on touching
+        // freed stack memory. This guard's destructor runs on every exit
+        // path (normal or exceptional); Wait() on an already-completed
+        // future (the normal path, after future.Get()) is a no-op.
+        struct FutureJoinGuard
+        {
+            TFuture<ShaderLibrary::PreparedShaderBatch>* m_Future;
+            ~FutureJoinGuard()
+            {
+                if (m_Future->IsValid())
+                {
+                    m_Future->Wait();
+                }
+            }
+        } futureJoinGuard{ &future };
+
+        // Poll at roughly one display frame. Without a throttle here the
+        // loop is bounded only by SwapBuffers, so with vsync OFF it spins at
+        // thousands of iterations per second — burning a CPU core the
+        // TaskGraph compile workers need (eating into the very speedup this
+        // function exists to deliver) and issuing one SetTitle (a
+        // synchronous window-message call on Windows) per iteration for a
+        // bar that changes at most `total` times.
+        constexpr auto kPollInterval = std::chrono::milliseconds(16);
         while (!future.IsReady())
         {
-            const auto current = static_cast<i32>(prepared.load(std::memory_order_relaxed));
+            const auto current = static_cast<i32>(prepared.load());
             const f32 progress = total > 0 ? static_cast<f32>(current) / static_cast<f32>(total) : 1.0f;
             RenderProgressFrame(progress, window, label, current, total, phase);
+            std::this_thread::sleep_for(kPollInterval);
         }
 
         RenderProgressFrame(1.0f, window, label, total, total, phase);

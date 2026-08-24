@@ -190,20 +190,29 @@ namespace OloEngine
         // task, while the caller pumps its own render loop), and
         // FinalizeBatch() MUST run on the render thread.
         //
-        // A backend without a CPU-only prepare step (Vulkan today) falls
-        // back to synchronous Create() per shader inside PrepareBatch(), so
-        // FinalizeBatch() is always safe to call — it is simply a no-op pass-
-        // through on such a backend.
+        // A backend without a CPU-only prepare step (Vulkan today) leaves
+        // every entry null in PrepareBatch() and defers the ENTIRE
+        // synchronous Create() call to FinalizeBatch() instead — Create()
+        // touches the device/driver (e.g. VulkanShader's vkCreateShaderModule),
+        // which is exactly the kind of call PrepareBatch()'s "safe on any
+        // thread" contract forbids (issue #907 review).
         //
         // `progressCounter`, if non-null, is atomically incremented once per
         // shader as its CPU-side work completes — poll it from another
-        // thread for progress-bar feedback while PrepareBatch() runs.
+        // thread for progress-bar feedback while PrepareBatch() runs. A
+        // backend with no CPU-only prepare step has nothing to report here;
+        // its progress only moves during FinalizeBatch(), which does not
+        // take a progressCounter because it must already be on the render
+        // thread when it runs.
         static std::vector<Ref<Shader>> PrepareBatch(const std::vector<std::string>& filepaths, std::atomic<u32>* progressCounter = nullptr);
 
         // `alreadyFinal[i]` marks an entry that is already a fully created,
         // linked shader (e.g. loaded from a shader pack upstream of
         // PrepareBatch()) — FinalizeBatch() passes such entries through
         // unchanged instead of trying to finalize them a second time.
-        static std::vector<Ref<Shader>> FinalizeBatch(std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal);
+        // `filepaths` must be the same list (same order) passed to the
+        // PrepareBatch() call that produced `prepared` — needed by a backend
+        // that deferred its entire Create() here (see PrepareBatch() above).
+        static std::vector<Ref<Shader>> FinalizeBatch(const std::vector<std::string>& filepaths, std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal);
     };
 } // namespace OloEngine
