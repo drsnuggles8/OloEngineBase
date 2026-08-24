@@ -70,6 +70,15 @@ namespace OloEngine::Tests
 
         RendererAPI& api = RenderCommand::GetRendererAPI();
 
+        // Opinions outlive the pass that stated them and this backend is
+        // process-global, so the baseline below cannot assume it starts clean —
+        // an earlier test in this binary leaving a ForceOff on 0 or 1 would
+        // fail the control before the real scenario was ever reached. Clear
+        // first, then establish the baseline. (The cleanup at the end of this
+        // test protects the NEXT test; this protects THIS one.)
+        for (u32 attachment = 0; attachment < MAX_MASKED_COLOR_ATTACHMENTS; ++attachment)
+            api.ResetBlendStateForAttachment(attachment);
+
         // Baseline: nothing has an opinion, so every draw buffer follows the
         // global call. This is the control for everything below — if it fails,
         // no later assertion means anything.

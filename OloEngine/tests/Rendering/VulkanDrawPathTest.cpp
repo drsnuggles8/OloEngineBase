@@ -918,13 +918,18 @@ void main()
                     tintUbo->Bind();
                     api.SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
 
-                    // Phase 1 — the OITResolveRenderPass shape. Blending on
-                    // globally, one attachment disabled per-attachment.
+                    // Phase 1 — the OITResolveRenderPass shape. One attachment
+                    // disabled per-attachment, and the global enable AFTER it:
+                    // the opposite order would still pass on a build where
+                    // SetBlendState flattens the array, because the ForceOff
+                    // would be installed after the flatten. Stating the opinion
+                    // first is what makes this an assertion about SURVIVING a
+                    // global enable rather than merely outranking one.
                     drawGreenOver(forcedOff,
                                   [&]()
                                   {
-                                      api.SetBlendState(true);
                                       api.SetBlendStateForAttachment(1, false);
+                                      api.SetBlendState(true);
                                   });
 
                     // Phase 2 — the DecalRenderPass Emissive shape, with the

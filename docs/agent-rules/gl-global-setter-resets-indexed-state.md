@@ -126,11 +126,13 @@ licence.** Two adjacent pieces of state with the same GL rule can have different
 callers depending on different semantics, and the only thing that separates them
 is running the suite that covers the caller.
 
-`RendererAPI` has exactly three indexed entry points —
+`RendererAPI` has three indexed *setters* —
 `SetColorMaskForAttachment`, `SetBlendStateForAttachment`,
 `SetBlendFuncForAttachment`. Two of the three globals overwrite their array
 (`SetColorMask`, and `SetBlendFunc` which already did); `SetBlendState` does
-not, for the reason above.
+not, for the reason above. (#896 added a fourth per-attachment entry point,
+`ResetBlendStateForAttachment`, which is not a setter but a withdrawal — see
+the next section.)
 
 ## What the blend twin turned out to need: a third state (#896)
 
@@ -168,20 +170,27 @@ A withdrawal has to put the draw buffer back on the *global* enable, and the
 obvious way to avoid mirroring a flag is to ask GL for it. That does not work,
 and the failure is quiet.
 
-`glIsEnabled(GL_BLEND)` is specified as the index-0 value of an indexed
-capability. Measured on NVIDIA (RTX 4090, driver 98.352.0), after
-`glDisable(GL_BLEND)` followed by `glEnablei(GL_BLEND, 1)`:
+**The spec rule:** `glIsEnabled(GL_BLEND)` queries the index-0 value — it is
+equivalent to `glIsEnabledi(GL_BLEND, 0)`. So even a conforming implementation
+answers "is blending on for draw buffer 0", never "what did the last global
+call say" — and draw buffer 0 can hold an opinion of its own, which is exactly
+what `DecalRenderPass` and `ParticleRenderPass` install. On that basis alone it
+is the wrong input for a withdrawal.
 
-| query | returns |
-|---|---|
-| `glIsEnabled(GL_BLEND)` | **`GL_TRUE`** |
-| `glIsEnabledi(GL_BLEND, 0)` | `GL_FALSE` |
+**And this driver does not even give the spec answer.** Measured on NVIDIA
+(RTX 4090, driver 98.352.0) — a driver-specific observation, not general GL
+behaviour — after `glDisable(GL_BLEND)` followed by `glEnablei(GL_BLEND, 1)`:
 
-So it answers "some index is on", not "the global is on", and a withdrawal
-reading it restores the wrong state for every draw buffer whenever any *other*
-attachment holds an enable — precisely the situation a withdrawal happens in.
-The backend keeps a mirror instead, and every query in the GL test reads the
-**indexed** form.
+| query | returns | spec-conforming answer |
+|---|---|---|
+| `glIsEnabled(GL_BLEND)` | **`GL_TRUE`** | `GL_FALSE` (index 0 is disabled) |
+| `glIsEnabledi(GL_BLEND, 0)` | `GL_FALSE` | `GL_FALSE` |
+
+Here it reports "some index is on". Either way — spec answer or this driver's —
+a withdrawal reading it restores the wrong state whenever another attachment
+holds an enable, precisely the situation a withdrawal happens in. The backend
+keeps a mirror instead, and every query in the GL test reads the **indexed**
+form.
 
 The mirror's one gap is stated at its declaration rather than papered over: a
 raw `GL_BLEND` flip that bypasses the class stales it. `Init()` is routed
