@@ -854,6 +854,46 @@ jobs:
         TSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=1:second_deadlock_stack=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
+    # TEMPORARY (issue #787) — capture a real stack for the McpProgressHttpTest
+    # SEGFAULTs that the run step above excludes. The exclusion means CI never
+    # sees more than "***Exception: SegFault" with no sanitizer report, and TSan
+    # only runs here (docs/agent-rules/tsan-only-runs-in-ci-not-windows.md), so
+    # this step is how the stack gets captured at all. Strictly non-gating:
+    # continue-on-error plus `|| true` on every command. Removed once the root
+    # cause is pinned.
+    - name: Diagnose McpProgressHttpTest SEGFAULT (#787)
+      if: always()
+      continue-on-error: true
+      working-directory: ${{github.workspace}}/OloEditor
+      env:
+        BIN: ${{github.workspace}}/build/OloEngine/tests/OloEngine-Tests
+        BASE_TSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=0:abort_on_error=0:second_deadlock_stack=1
+      run: |
+        sudo apt-get install -y -qq gdb || { sudo apt-get update && sudo apt-get install -y -qq gdb; }
+        echo "binary: $BIN"
+        ls -la "$BIN" || true
+        for CASE in \
+          McpProgressHttpTest.PostWithoutTokenStaysPlainJson \
+          McpProgressHttpTest.PostWithProgressTokenStreamsSseThenFinalResponse \
+          McpProgressHttpTest.CancelOverHttpSuppressesTheSseResponseFrame ; do
+          echo "::group::$CASE - bare run, TSan verbosity=1"
+          TSAN_OPTIONS="${BASE_TSAN_OPTIONS}:verbosity=1" "$BIN" --gtest_filter="$CASE" 2>&1 | tail -120 || true
+          echo "::endgroup::"
+          echo "::group::$CASE - gdb backtrace (TSan handle_segv=0)"
+          TSAN_OPTIONS="${BASE_TSAN_OPTIONS}:handle_segv=0:handle_abort=0" \
+            gdb -batch -nx \
+              -ex 'set confirm off' \
+              -ex 'set pagination off' \
+              -ex 'handle SIGSEGV stop print nopass' \
+              -ex run \
+              -ex 'info program' \
+              -ex 'info registers rip rsp' \
+              -ex 'bt' \
+              -ex 'thread apply all bt' \
+              --args "$BIN" --gtest_filter="$CASE" 2>&1 | tail -250 || true
+          echo "::endgroup::"
+        done
+
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded
       # to read for forks). Skip the reporter there; same-repo PRs and
