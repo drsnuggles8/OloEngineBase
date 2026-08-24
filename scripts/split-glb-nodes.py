@@ -46,6 +46,10 @@ LIMITS
     not carry skins or animations. Those have never been needed here; extend it
     deliberately if they are.
 
+    Both paths are confined to `--root` (default: the current directory) and the
+    output must be a `.glb` in a directory that already exists. Run it from the
+    repository root, as the commands above do, or pass `--root` deliberately.
+
 AFTERWARDS
     `.glb` is a supported asset extension, so a new one under a project's
     `Assets/` must reach `AssetRegistry.oar` or
@@ -57,10 +61,41 @@ import argparse
 import json
 import struct
 import sys
+from pathlib import Path
+
+
+def _checked_path(raw, root, *, must_exist):
+    """Resolve `raw` and refuse anything outside `root`.
+
+    Both paths this tool touches come straight off the command line, and it is
+    exactly the shape of thing an agent gets pointed at with arguments it did not
+    choose. Without this, `--out ../../../etc/whatever` is a write primitive, and
+    a source path is an arbitrary-file read. Resolving first and then testing
+    containment is what makes `..` harmless: the traversal is collapsed before
+    the check rather than pattern-matched out of the string.
+    """
+    resolved = Path(raw).expanduser().resolve()
+    root = Path(root).expanduser().resolve()
+    if not resolved.is_relative_to(root):
+        raise SystemExit(
+            f"refusing to touch {resolved} - outside the allowed root {root}. "
+            "Pass --root to widen it deliberately.")
+    if must_exist:
+        if not resolved.is_file():
+            raise SystemExit(f"{resolved}: not a file")
+    else:
+        if resolved.suffix.lower() != ".glb":
+            raise SystemExit(f"refusing to write {resolved} - output must end in .glb")
+        if not resolved.parent.is_dir():
+            raise SystemExit(f"refusing to write {resolved} - {resolved.parent} does not exist")
+        if resolved.exists() and not resolved.is_file():
+            raise SystemExit(f"refusing to write {resolved} - not a regular file")
+    return resolved
 
 
 def read_glb(path):
-    data = open(path, "rb").read()
+    with open(path, "rb") as f:
+        data = f.read()
     if data[:4] != b"glTF":
         raise SystemExit(f"{path}: not a binary glTF")
     off = 12
@@ -227,16 +262,21 @@ def main(argv=None):
                          "lands on the file origin (see the module docstring)")
     ap.add_argument("--out", required=True, help="the .glb to write")
     ap.add_argument("--scene-name", default=None, help="name for the output scene")
+    ap.add_argument("--root", default=".",
+                    help="directory both paths must stay inside (default: cwd)")
     args = ap.parse_args(argv)
 
-    js, bin_chunk = read_glb(args.source)
+    source = _checked_path(args.source, args.root, must_exist=True)
+    out_path = _checked_path(args.out, args.root, must_exist=False)
+
+    js, bin_chunk = read_glb(source)
     out_js, out_bin, dropped = subset(js, bin_chunk, args.keep, set(args.drop),
                                       args.re_origin)
     if args.scene_name:
         out_js["scenes"][0]["name"] = args.scene_name
 
-    size = write_glb(args.out, out_js, out_bin)
-    print(f"{args.out}: {size} bytes, "
+    size = write_glb(out_path, out_js, out_bin)
+    print(f"{out_path}: {size} bytes, "
           f"{len(out_js['nodes'])} node(s), {len(out_js['meshes'])} mesh(es)")
     for name, t in dropped.items():
         print(f"  re-origined {name}: dropped translation {t}")
