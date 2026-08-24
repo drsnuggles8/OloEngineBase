@@ -16,6 +16,26 @@ namespace OloEngine
     // bloom:
     //   AOApplyColor/SSSColor/SceneColor → SSR → SSRColor → Bloom → ...
     //
+    // THREE DRAWS IN ONE NODE (issue #902), the CloudscapeRenderPass shape:
+    //   A. PostProcess_SSR.glsl          → SSRSignal   (the stochastic term
+    //                                      ONLY: rgb = the reflection DELTA,
+    //                                      (reflection - base) * blend, and
+    //                                      a = positive view depth)
+    //   B. PostProcess_SSRResolve.glsl   → SSRResolved (temporal accumulation
+    //                                      against SSRHistory; the graph copies
+    //                                      this into the history sink)
+    //   C. PostProcess_SSRComposite.glsl → SSRColor    (upstream colour + the
+    //                                      resolved delta, which reproduces the
+    //                                      old mix(base, reflection, blend))
+    //
+    // The split is the whole point: compositing into the scene colour made the
+    // output un-accumulable, because temporally blending it would smear the
+    // base colour along with the noise. Draw B needs the current frame's signal
+    // in a real texture (its 3x3 neighbourhood clip gathers neighbours that do
+    // not exist yet inside draw A), which is why this is three draws and not
+    // one shader with a history sample bolted on. It is also what pays for the
+    // raised SSRMaxRoughness default.
+    //
     // The pass reads the lit scene color plus the deferred G-Buffer (world
     // normal + roughness in RT1, metallic in RT0.a) and scene depth, then
     // ray-marches each opaque pixel's view-space reflection vector against the
@@ -35,6 +55,7 @@ namespace OloEngine
     //
     // Output:
     //   * SSRColor (RGBA16F) — reflection-composited scene color.
+    //   * SSRResolved (RGBA16F, graph scratch) — extracted into SSRHistory.
     //
     // Disabled / forward-path semantics: when the pass is disabled or the
     // G-Buffer is unavailable (forward / forward+), the graph omits SSRColor so
@@ -67,12 +88,27 @@ namespace OloEngine
         {
             // The UBO carries the camera matrices + ray params the shader needs;
             // executing without it would ray-march against stale/garbage state.
-            return m_SSRShader && m_SSRShader->IsReady() && m_SSRUBO;
+            return m_SSRShader && m_SSRShader->IsReady() &&
+                   m_SSRResolveShader && m_SSRResolveShader->IsReady() &&
+                   m_SSRCompositeShader && m_SSRCompositeShader->IsReady() && m_SSRUBO;
         }
 
         void SetSSRUBO(const Ref<UniformBuffer>& ubo) noexcept
         {
             m_SSRUBO = ubo;
+        }
+
+        // Temporal-resolve knobs (issue #902). The *runtime* lanes — is there a
+        // usable history this frame, is there a velocity buffer — are NOT set
+        // here: only Execute knows whether those resources actually resolved,
+        // and answering that from a snapshot taken before PopulateBlackboard ran
+        // is how a first frame ends up blending against an uninitialised buffer.
+        // Execute patches the TemporalParams vec4 in place before its draws.
+        void SetTemporalSettings(bool enabled, f32 feedback, f32 clipGamma) noexcept
+        {
+            m_TemporalResolveEnabled = enabled;
+            m_TemporalFeedback = feedback;
+            m_TemporalClipGamma = clipGamma;
         }
 
         // Min-depth HZB pyramid parameters for the current viewport, used to
@@ -86,7 +122,13 @@ namespace OloEngine
         bool m_Enabled = false;
 
         Ref<Shader> m_SSRShader;
+        Ref<Shader> m_SSRResolveShader;
+        Ref<Shader> m_SSRCompositeShader;
         Ref<UniformBuffer> m_SSRUBO;
+
+        bool m_TemporalResolveEnabled = true;
+        f32 m_TemporalFeedback = 0.92f;
+        f32 m_TemporalClipGamma = 1.25f;
 
         // SSR owns a dedicated MIN-depth HZB (#284). It cannot share GTAO's HZB:
         // that one stores MAX depth and is only generated when GTAO is the
@@ -96,6 +138,10 @@ namespace OloEngine
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedGBufferNormalTexture{};
         RGTextureHandle m_SelectedGBufferAlbedoTexture{};
+        RGTextureHandle m_SelectedVelocityTexture{};
+        RGTextureHandle m_SelectedHistoryTexture{};
+        RGFramebufferHandle m_SelectedSignalFramebuffer{};
+        RGFramebufferHandle m_SelectedResolvedFramebuffer{};
 
         // The shared blue-noise tile (issue #706), created once in Init(). Not a
         // graph resource: it is pass-owned, immutable and bound with a Persistent

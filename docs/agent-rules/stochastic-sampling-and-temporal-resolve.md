@@ -156,12 +156,17 @@ UBOs carry it in.
 **But a pass with no accumulator behind it should sample with a FROZEN index**,
 and this is easy to get backwards. Advancing the sampler is what lets a temporal
 resolve converge; with nothing averaging the result it only replaces static grain
-with grain redrawn every frame, which is strictly worse to look at. SSR and SSGI
-have no history of their own, so the only thing accumulating them is TAA —
-`RenderPipeline` therefore passes them `TAAEnabled ? StochasticFrameIndex : 0`.
-That gate becomes **wrong** the moment either pass gains a history buffer, which
-is why it sits at the UBO fill with the reasoning next to it rather than being
-folded into the counter.
+with grain redrawn every frame, which is strictly worse to look at.
+
+For a while SSR and SSGI had no history of their own, so the only thing
+accumulating them was TAA and `RenderPipeline` passed them
+`TAAEnabled ? StochasticFrameIndex : 0`. That gate was documented here as
+becoming **wrong** the moment either pass gained a history buffer, and it did:
+**#902 gave both passes their own accumulator and the gate is gone** — the index
+now advances unconditionally at the UBO fill, which is what makes them converge.
+The rule the gate expressed still stands for the next pass that adopts the
+sampler without adopting the resolve: *advance the counter, but freeze what a
+pass SAMPLES with until something is averaging it.*
 
 ---
 
@@ -384,17 +389,78 @@ Three things to know:
   [lazy-static-release-ownership.md](lazy-static-release-ownership.md) is about.
 
 **Temporal resolve has a prerequisite the sampler does not: a history buffer for
-the pass's own signal.** SSR and SSGI both composite into the scene colour, so
-their output target is *not* accumulable — temporally blending it would smear the
-base colour too. Giving them a resolve means a dedicated signal attachment
-extracted with `RGBuilder::ExtractHistoryTexture`, which is a render-graph change
-with its own aliasing considerations
-([render-graph-transient-aliasing.md](render-graph-transient-aliasing.md)). #706
-deliberately stopped short of that and shipped the sampler for those two passes
-instead; `PostProcess_CloudscapeResolve.glsl` is the obvious next adopter of the
-resolve itself (it was left alone in #706 because its signal is RGBA — alpha
-carries transmittance — and the cloud goldens are unusually sensitive, see
+the pass's own signal.** SSR and SSGI both composited into the scene colour, so
+their output target was *not* accumulable — temporally blending it would smear the
+base colour too. #706 deliberately stopped short of fixing that and shipped the
+sampler for those two passes alone; **#902 did the structural work**, and §6a
+below is what it cost. `PostProcess_CloudscapeResolve.glsl` remains the obvious
+next adopter of the resolve itself (it was left alone in #706 because its signal
+is RGBA — alpha carries transmittance — and the cloud goldens are unusually
+sensitive, see
 [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md)).
+
+---
+
+## 6a. Retrofitting a resolve onto a compositing pass: four things that are not obvious
+
+From #902, which gave SSR and SSGI each a signal target, a resolve and a history.
+None of these is exotic; all four are the kind of thing you only discover by
+starting.
+
+**1. A resolve needs the current frame's signal in a TEXTURE, so the pass becomes
+three draws, not one.** The tempting shape is one shader that computes the signal
+and blends the history in the same pass. It cannot work: the neighbourhood clip
+gathers a 3×3 of the *current* signal, and eight of those nine neighbours have not
+been computed yet inside that draw. So the shape is A (signal) → B (resolve) → C
+(composite), three fullscreen draws inside ONE render-graph node, with the two
+intermediates as graph scratch declared under the pass's own gate and marked
+`AllowSamePassReadWrite`. `CloudscapeRenderPass` already had exactly this
+structure and is the template — copy it rather than re-deriving it.
+
+**2. What accumulates must be a SIGNAL whose miss value is zero, not the
+composited colour.** For SSGI that is the raw indirect diffuse (no base, no
+intensity). For SSR the composite is `mix(base, reflection, blend)`, which is not
+a sum — so the accumulable quantity is the **delta** `(reflection - base) * blend`,
+and the composite becomes the plain add `base + delta`. That identity is what lets
+draw C reproduce the old replace/mix resolve exactly. The test worth writing is
+the negative half: **a miss must contribute exactly 0**, where the pre-split output
+of a miss was `base` — and accumulating *that* is the smear the whole exercise
+exists to remove.
+
+**3. The disocclusion test needs a depth history, and the signal's ALPHA is where
+it goes.** `OloTemporalDepthConfidence` compares this frame's view depth against
+*the previous frame's stored depth at the reprojected UV*, which nothing in the
+frame hands you — the depth buffer only has this frame. Rather than a second
+history texture, pack the positive view depth into the signal's alpha: the history
+copy carries all four channels (`CopyImageSubData`), so last frame's depth arrives
+for free. The trap that follows: **every early-out in the signal shader must still
+write alpha.** A sky pixel or a roughness-rejected pixel that returns before
+filling it stores depth 0, compares as a 100% relative error next frame, and reads
+as a permanent disocclusion — the resolve then quietly never accumulates there.
+
+**4. Only `Execute` knows whether the history exists, so only `Execute` can fill
+that UBO lane.** Whether a history was imported this frame is decided in
+`PopulateBlackboard`, which runs *after* the per-frame pass configuration that
+fills the UBO. Snapshotting "is there history" at configure time is a frame late,
+and on the very first frame it is wrong in the dangerous direction — the resolve
+blends against an uninitialised buffer. Fill the static lanes (feedback, gamma,
+the user toggle) at the UBO upload and have the pass patch the runtime lanes with
+a partial `SetData(&vec4, sizeof(vec4), offsetof(...))` once it has actually
+resolved the handles. `CloudscapeRenderPass` solves the same problem the other
+way — a `SetHistory()` call issued after `PopulateBlackboard` — which works too;
+what does not work is deciding it before.
+
+**And the ordinary graph obligations still apply.** A new history flag gates an
+import, so it must be hashed into the blackboard fingerprint or the
+false→true transition on the first successful frame never re-runs
+`PopulateBlackboard` and the import never lands
+([render-pipeline-caches.md](render-pipeline-caches.md), and the third and fourth
+entries in the `HashBool` block in `RenderPipeline.cpp` are the previous two
+victims of exactly this). And the new scratch targets are transients, so
+`OLO_RG_POISON_TRANSIENTS` / `OLO_RG_DISABLE_ALIASING`
+([render-graph-transient-aliasing.md](render-graph-transient-aliasing.md)) are the
+first two levers to reach for if the accumulation ever looks like it is reading
+someone else's buffer.
 
 ---
 

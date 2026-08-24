@@ -60,6 +60,17 @@ namespace OloEngine::RenderGraphTransientPlanner
         const std::unordered_map<std::string, std::string>& VersionAliasTargets;
         std::function<bool(const std::string&)> IsPassReachable;
         std::function<bool(std::string_view)> IsExternallyBackedTransientResource;
+        // Resources copied out AFTER the last pass has executed — today that is
+        // the temporal-history sinks (RenderGraph::FlushExtractions). Their
+        // lifetime does NOT end at their last pass access: the copy still has to
+        // read them, so the alias-slot assigner must not hand their backing to a
+        // later same-descriptor transient. Without this a pass that both writes
+        // and last-reads its own history source inside one Execute — which is
+        // every three-draw resolve — ends the frame copying whatever transient
+        // happened to reuse the slot, and the temporal accumulation silently
+        // becomes a no-op. Issue #902; see
+        // docs/agent-rules/render-graph-transient-aliasing.md.
+        std::function<bool(std::string_view)> IsExtractedAfterExecution;
     };
 
     [[nodiscard]] auto ComputePlan(const PlanInput& input) -> std::vector<RenderGraph::TransientPlanEntry>;

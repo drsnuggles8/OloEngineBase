@@ -2651,7 +2651,12 @@ namespace OloEngine
                            // over the lit frame at the end of DeferredLightingPass. Same
                            // pass-local slot-0 reuse as the entries above — no material is
                            // bound during a fullscreen draw.
-                           name == "u_VirtualDebugColor";
+                           name == "u_VirtualDebugColor" ||
+                           // SSR / SSGI temporal resolve (issue #902): the
+                           // resolve draw's input is this frame's raw stochastic
+                           // signal. Same pass-local slot-0 reuse as the
+                           // fullscreen entries above — no material is bound.
+                           name == "u_StochasticSignal";
                 case TEX_SPECULAR:
                     // Slot 1 is reused across shader contexts: Metallic/Roughness in PBR,
                     // Depth textures in particle effects, Bloom textures in post-processing,
@@ -2682,7 +2687,13 @@ namespace OloEngine
                            // resolve samples last frame's history, the
                            // composite samples the resolved half-res clouds —
                            // both pass-local slot-1 reuse in fullscreen draws.
-                           name == "u_CloudHistory" || name == "u_CloudResolved";
+                           name == "u_CloudHistory" || name == "u_CloudResolved" ||
+                           // SSR / SSGI temporal resolve (issue #902): the
+                           // composite draw samples the resolved signal, the
+                           // resolve draw samples last frame's history
+                           // (u_History, already listed above). Both are
+                           // pass-local slot-1 reuse in fullscreen draws.
+                           name == "u_ResolvedSignal";
                 case TEX_NORMAL:
                     return name.contains("Normal") || name.contains("normal") ||
                            // Slot 2 is reused as the velocity input slot for TAA / motion-blur passes.

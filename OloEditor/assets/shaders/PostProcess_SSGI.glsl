@@ -50,6 +50,15 @@ void main()
 // reflection), indirect diffuse is *extra* bounced light, so it is ADDED to the
 // lit colour, weighted by the SSGI intensity.
 //
+// OUTPUT (issue #902): this pass writes ONLY the stochastic term into the
+// dedicated SSGISignal target — rgb = the indirect diffuse estimate, a = the
+// positive view-space depth of the shading point (the temporal resolve's
+// disocclusion test needs it and there is no depth history buffer). It no
+// longer composites: PostProcess_SSGIResolve.glsl accumulates the signal and
+// PostProcess_SSGIComposite.glsl adds it to the upstream colour afterwards.
+// Compositing here would make the output un-accumulable, which is exactly the
+// structural blocker #902 removed.
+//
 // Cosine-weighted importance sampling (Malley's method) means the Monte-Carlo
 // estimator of the diffuse irradiance integral is simply the mean of the
 // per-ray radiance: Lo = albedo * (1/N) * sum(Li). Rays that leave the screen or
@@ -98,13 +107,18 @@ layout(std140, binding = 40) uniform SSGIParams
     mat4 u_Projection;
     mat4 u_InvProjection;
     mat4 u_View;
-    vec4 u_RayParams;    // x = MaxSteps, y = MaxDistance (view units), z = Thickness, w = Stride (view units)
-    vec4 u_ShadeParams;  // x = Intensity, y = RayCount, z = EdgeFade (UV), w = unused
-    vec4 u_ScreenParams; // x = width, y = height, z = 1/width, w = 1/height
-    vec4 u_Flags;        // x = DebugView (0/1), y = FrameIndex, zw = pad
+    vec4 u_RayParams;      // x = MaxSteps, y = MaxDistance (view units), z = Thickness, w = Stride (view units)
+    vec4 u_ShadeParams;    // x = Intensity, y = RayCount, z = EdgeFade (UV), w = unused
+    vec4 u_ScreenParams;   // x = width, y = height, z = 1/width, w = 1/height
+    vec4 u_Flags;          // x = DebugView (0/1), y = FrameIndex, zw = pad
+    vec4 u_TemporalParams; // #902; read by the resolve/composite draws, not here
 };
 
 const float SKY_DEPTH = 0.999999;
+// Ceiling for the view depth this pass hands the temporal resolve in alpha.
+// Must stay under the RGBA16F (half-float) maximum of 65504 — see the clamp in
+// main() for why exceeding it defeats the guard entirely.
+const float OLO_MAX_VIEW_DEPTH = 60000.0;
 const int HARD_MAX_STEPS = 64;  // loop-safety cap; must match kSSGIMaxSteps
 const int HARD_MAX_RAYS = 32;   // loop-safety cap; must match kSSGIMaxRays
 
@@ -142,12 +156,33 @@ vec2 ProjectToUV(vec3 viewPos)
 
 void main()
 {
-    vec3 baseColor = texture(u_SceneColor, v_TexCoord).rgb;
-
     float depth = texture(u_DepthTexture, v_TexCoord).r;
+
+    // View-space position first, so the depth this pass hands the temporal
+    // resolve in alpha is written on EVERY path — including the sky early-out.
+    // A pixel that returned before filling alpha would compare against zero
+    // next frame and read as a permanent disocclusion.
+    vec3 P = ViewPosFromDepth(v_TexCoord, depth); // view-space position (z < 0)
+    // Saturate rather than max(): at the far plane the inverse-projection
+    // divide can hand back a non-finite w, and a single Inf or NaN in alpha
+    // would come back next frame as a NaN confidence, a NaN resolve, and — once
+    // bloom has spread it — a black block (the amplification chain in
+    // docs/agent-rules/render-graph-transient-aliasing.md). The predicate is
+    // FALSE for NaN and Inf alike, which is the point.
+    //
+    // The ceiling is 60000, not some round 1e6: alpha travels through an
+    // RGBA16F signal target and an RGBA16F history copy, and half-float tops
+    // out at 65504. A larger sentinel would be stored as +Inf — reintroducing
+    // exactly the value this guard exists to keep out — so the clamp has to
+    // land inside the format that carries it. 60000 is exactly representable
+    // in half (1875 x 32) and is far beyond any real view distance.
+    float rawViewDepth = -P.z;
+    float viewDepth = (rawViewDepth > 0.0 && rawViewDepth < OLO_MAX_VIEW_DEPTH) ? rawViewDepth
+                                                                                : OLO_MAX_VIEW_DEPTH;
+
     if (depth >= SKY_DEPTH) // sky / background — receives no GI
     {
-        o_Color = vec4(baseColor, 1.0);
+        o_Color = vec4(0.0, 0.0, 0.0, viewDepth);
         return;
     }
 
@@ -158,13 +193,10 @@ void main()
     vec3 Nworld = OctDecode(gN.xy);
     vec3 Nview = normalize(mat3(u_View) * Nworld);
 
-    vec3 P = ViewPosFromDepth(v_TexCoord, depth); // view-space position (z < 0)
-
     float maxSteps = u_RayParams.x;
     float maxDist = u_RayParams.y;
     float thickness = u_RayParams.z;
     float stride = u_RayParams.w;
-    float intensity = u_ShadeParams.x;
     int rayCount = clamp(int(u_ShadeParams.y), 1, HARD_MAX_RAYS);
     float edge = u_ShadeParams.z;
 
@@ -244,11 +276,10 @@ void main()
     // 1/pi normalisation, so Lo = albedo * mean(Li).
     vec3 indirectDiffuse = albedo * (indirect / float(rayCount));
 
-    if (u_Flags.x > 0.5) // debug: show the indirect-diffuse contribution in isolation
-    {
-        o_Color = vec4(indirectDiffuse * intensity, 1.0);
-        return;
-    }
-
-    o_Color = vec4(baseColor + indirectDiffuse * intensity, 1.0);
+    // Signal only — no base colour, no intensity, no debug branch. All three
+    // belong to the composite draw (PostProcess_SSGIComposite.glsl); mixing any
+    // of them in here would put non-stochastic energy into the buffer the
+    // temporal resolve accumulates. Alpha is the view depth the resolve's
+    // disocclusion test compares against next frame.
+    o_Color = vec4(indirectDiffuse, viewDepth);
 }

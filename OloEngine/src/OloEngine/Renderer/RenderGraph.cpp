@@ -4895,6 +4895,19 @@ namespace OloEngine
         return m_HistoryTextureSinks.contains(std::string(historyResource));
     }
 
+    bool RenderGraph::IsExtractedAfterExecution(std::string_view resourceName) const
+    {
+        // A temporal-history contract's SOURCE is read by FlushExtractions once
+        // every pass has executed, so the transient planner must keep its
+        // backing alive to the end of the frame rather than to its last pass
+        // access. The contracts outlive a single frame (they are declared in
+        // Setup and cleared only on a topology reset), which is exactly the
+        // lifetime the plan is computed over.
+        return std::ranges::any_of(m_TemporalHistoryContracts,
+                                   [resourceName](const TemporalHistoryContract& contract)
+                                   { return contract.SourceResource == resourceName; });
+    }
+
     bool RenderGraph::IsResourceReachableForExtraction(std::string_view resourceName) const
     {
         if (resourceName.empty())
@@ -5147,6 +5160,8 @@ namespace OloEngine
             { return IsPassReachable(passName); },
             .IsExternallyBackedTransientResource = [this](std::string_view name)
             { return IsExternallyBackedTransientResource(name); },
+            .IsExtractedAfterExecution = [this](std::string_view name)
+            { return IsExtractedAfterExecution(name); },
         });
     }
 

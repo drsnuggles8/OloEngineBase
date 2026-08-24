@@ -652,17 +652,24 @@ class VulkanPassSuite : public ::testing::Test
 
     // The tenant harness: producer(input) -> passNode -> caller-backed
     // output, through the real graph on the process-global Vulkan backend.
-    // Asserts the shared execute contracts (both draws prepared, none
+    // Asserts the shared execute contracts (every draw prepared, none
     // dropped, zero resolve failures, the pass's GetTarget() non-null) and
     // returns the output readback for the tenant's own pixel assertions.
     // The FXAA test predates this helper and keeps its deeper diagnostics
     // (plan dump, intermediate bisect, golden compare) inline.
+    //
+    // `expectedDraws` counts the producer's one draw plus the tenant's own. It
+    // is 2 for the single-draw majority; a pass that renders a signal, resolves
+    // it temporally and composites it inside one Execute (SSR and SSGI since
+    // issue #902) is 4. The number is asserted rather than ignored on purpose —
+    // a silently dropped draw is exactly what this harness exists to catch.
     std::vector<u8> RunSinglePassChain(u32 size,
                                        const Ref<PatternProducerPass>& producer,
                                        const Ref<RenderGraphNode>& passNode,
                                        const char* finalPassName,
                                        std::string_view outputResourceName,
-                                       const std::function<void(FrameBlackboard&, RGFramebufferHandle)>& assignOutput)
+                                       const std::function<void(FrameBlackboard&, RGFramebufferHandle)>& assignOutput,
+                                       u32 expectedDraws = 2u)
     {
         std::vector<u8> rendered;
 
@@ -737,7 +744,8 @@ class VulkanPassSuite : public ::testing::Test
         }
         {
             auto& vkApi = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-            EXPECT_EQ(vkApi.GetPreparedDrawsThisRecording(), 2u) << finalPassName << ": expected exactly two draws";
+            EXPECT_EQ(vkApi.GetPreparedDrawsThisRecording(), expectedDraws)
+                << finalPassName << ": expected exactly " << expectedDraws << " draws";
             EXPECT_EQ(vkApi.GetDroppedDrawsThisRecording(), 0u) << finalPassName << ": a draw dropped silently";
             EXPECT_EQ(vkApi.GetUnimplementedStubHitCount(), stubsBefore)
                 << finalPassName << ": the chain fell through to an unimplemented stub";
@@ -1692,6 +1700,24 @@ TEST_F(VulkanPassSuite, SsgiAddsGatheredBounceLightOnlyWithIntensity)
             graph.ImportTextureHandle(ResourceNames::GBufferNormal, normalTexture->GetRHIHandle(), auxDesc);
         blackboard.GBuffer.GBufferAlbedo =
             graph.ImportTextureHandle(ResourceNames::GBufferAlbedo, albedoTexture->GetRHIHandle(), auxDesc);
+
+        // The stochastic-signal scratch pair the pass has needed since #902:
+        // draw A writes SSGISignal, draw B resolves it into SSGIResolved, draw C
+        // composites. The pass bails (loudly) without them, so declaring them is
+        // not optional scaffolding — it is the pass's contract. RGBA16F, not the
+        // RGBA8UNorm the stand-in inputs use: alpha carries the view depth the
+        // resolve's disocclusion test reads.
+        RGResourceDesc signalDesc;
+        signalDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        signalDesc.Format = RGResourceFormat::RGBA16Float;
+        signalDesc.Width = kSize;
+        signalDesc.Height = kSize;
+        signalDesc.DebugName = std::string(ResourceNames::SSGISignal);
+        blackboard.Scratch.SSGISignal =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSGISignal, signalDesc);
+        signalDesc.DebugName = std::string(ResourceNames::SSGIResolved);
+        blackboard.Scratch.SSGIResolved =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSGIResolved, signalDesc);
     };
 
     const auto runChain = [&](f32 intensity) -> std::vector<u8>
@@ -1721,9 +1747,9 @@ TEST_F(VulkanPassSuite, SsgiAddsGatheredBounceLightOnlyWithIntensity)
             std::string(ResourceNames::SceneColorTexture),
             [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
             { return blackboard.Scene.SceneColor; });
-        return RunSinglePassChain(kSize, producer, ssgi, "SSGIPass", ResourceNames::SSGIColor,
-                                  [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
-                                  { blackboard.Post.SSGIColor = handle; });
+        // 4 = the producer's draw plus SSGI's three (signal, resolve, composite).
+        return RunSinglePassChain(kSize, producer, ssgi, "SSGIPass", ResourceNames::SSGIColor, [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                  { blackboard.Post.SSGIColor = handle; }, 4u);
     };
 
     const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
@@ -4361,6 +4387,23 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
             graph.ImportTextureHandle(ResourceNames::GBufferNormal, normalTexture->GetRHIHandle(), auxDesc);
         blackboard.GBuffer.GBufferAlbedo =
             graph.ImportTextureHandle(ResourceNames::GBufferAlbedo, albedoTexture->GetRHIHandle(), auxDesc);
+
+        // The stochastic-signal scratch pair the pass has needed since #902 —
+        // see the SSGI case above for why this is contract rather than
+        // scaffolding. With no history imported the resolve passes the current
+        // signal straight through, so the intensity-0 passthrough floor this
+        // test pins is unchanged: a zero delta composites to the input exactly.
+        RGResourceDesc signalDesc;
+        signalDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        signalDesc.Format = RGResourceFormat::RGBA16Float;
+        signalDesc.Width = kSize;
+        signalDesc.Height = kSize;
+        signalDesc.DebugName = std::string(ResourceNames::SSRSignal);
+        blackboard.Scratch.SSRSignal =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSRSignal, signalDesc);
+        signalDesc.DebugName = std::string(ResourceNames::SSRResolved);
+        blackboard.Scratch.SSRResolved =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSRResolved, signalDesc);
     };
 
     auto ssr = Ref<SSRRenderPass>::Create();
@@ -4391,9 +4434,9 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
         std::string(ResourceNames::SceneColorTexture),
         [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
         { return blackboard.Scene.SceneColor; });
-    const auto rendered = RunSinglePassChain(kSize, producer, ssr, "SSRPass", ResourceNames::SSRColor,
-                                             [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
-                                             { blackboard.Post.SSRColor = handle; });
+    // 4 = the producer's draw plus SSR's three (signal, resolve, composite).
+    const auto rendered = RunSinglePassChain(kSize, producer, ssr, "SSRPass", ResourceNames::SSRColor, [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                             { blackboard.Post.SSRColor = handle; }, 4u);
     ASSERT_EQ(rendered.size(), patternRgba8.size());
 
     u32 maxDiff = 0;

@@ -69,6 +69,14 @@ namespace OloEngine
             return r;
         }
 
+        // Neighbourhood variance-clip width for the screen-space temporal
+        // resolves (issue #902). 1.25 is the common default and the value TAA
+        // uses; it is the ONE knob that trades ghosting against noise, so SSR
+        // and SSGI share it deliberately rather than drifting apart. Not a
+        // user setting: a per-pass gamma would be a fourth thing to tune with
+        // no evidence that the two passes want different values.
+        constexpr f32 kScreenSpaceTemporalClipGamma = 1.25f;
+
         void ResetHistoryStorage(Ref<Texture2D>& historyTexture, bool& historyValid)
         {
             historyTexture.Reset();
@@ -795,22 +803,13 @@ namespace OloEngine
             PostProcessPasses.AOApply->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
             PostProcessPasses.AOApply->SetSSAOUBO(data.PostProcessGPU.SSAO);
         }
-        // The frame index the stochastic passes actually sample with.
-        //
-        // StochasticFrameIndex itself advances unconditionally (see its
-        // increment above) because it is the engine's clock, not any one pass's.
-        // But SSR and SSGI have no history buffer of their own yet, so the ONLY
-        // thing that accumulates their samples over time is TAA. With TAA off,
-        // advancing the sampler would replace today's static grain with grain
-        // that is redrawn every frame — strictly worse to look at, because
-        // nothing is averaging it. Freezing it there gives a stable blue-noise
-        // dither instead, which is the correct answer when there is no
-        // accumulator.
-        //
-        // Revisit this when either pass gains its own history: at that point the
-        // advance is what makes it converge, and the gate becomes wrong.
-        const auto stochasticFrameIndex =
-            static_cast<f32>(data.PostProcess.TAAEnabled ? data.StochasticFrameIndex : 0u);
+        // The frame index the stochastic passes sample with. Unconditional
+        // since issue #902: SSR and SSGI each accumulate their own signal
+        // through include/TemporalResolve.glsl now, so advancing the sampler is
+        // what makes them CONVERGE. (It used to be frozen unless TAA was on,
+        // because TAA was the only thing averaging them and advancing a sampler
+        // with no accumulator behind it just redraws the grain every frame.)
+        const auto stochasticFrameIndex = static_cast<f32>(data.StochasticFrameIndex);
 
         // Wire SSGIPass (screen-space global illumination) before SSR in the
         // dynamic post chain. Deferred-only: when the path is forward / forward+
@@ -853,6 +852,17 @@ namespace OloEngine
                 ssgi.ScreenParams = glm::vec4(ssgiWidth, ssgiHeight, 1.0f / ssgiWidth, 1.0f / ssgiHeight);
                 ssgi.Flags =
                     glm::vec4(data.PostProcess.SSGIDebugView ? 1.0f : 0.0f, stochasticFrameIndex, 0.0f, 0.0f);
+                // Temporal resolve (#902). The HasVelocity / HistoryUsable
+                // lanes are placeholders here — SSGIRenderPass::Execute patches
+                // them once it knows whether those resources actually resolved,
+                // which is the only place that answer exists.
+                ssgi.TemporalParams = glm::vec4(data.PostProcess.SSGITemporalFeedback,
+                                                0.0f,
+                                                data.PostProcess.SSGITemporalResolve ? 1.0f : 0.0f,
+                                                kScreenSpaceTemporalClipGamma);
+                PostProcessPasses.SSGI->SetTemporalSettings(data.PostProcess.SSGITemporalResolve,
+                                                            data.PostProcess.SSGITemporalFeedback,
+                                                            kScreenSpaceTemporalClipGamma);
 
                 data.PostProcessGPU.SSGI->SetData(&ssgi, SSGIUBOData::GetSize());
                 data.PostProcessGPU.SSGI->Bind();
@@ -909,6 +919,15 @@ namespace OloEngine
                 const u32 hzbMips = PostProcessPasses.SSR->GetHZBMipCount();
                 ssr.HZBParams = glm::vec4(hzbUV.x, hzbUV.y, static_cast<f32>(hzbMips),
                                           (hzbMips >= 2u) ? 1.0f : 0.0f);
+                // Temporal resolve (#902) — see the SSGI block above for why
+                // the HasVelocity / HistoryUsable lanes are filled in the pass.
+                ssr.TemporalParams = glm::vec4(data.PostProcess.SSRTemporalFeedback,
+                                               0.0f,
+                                               data.PostProcess.SSRTemporalResolve ? 1.0f : 0.0f,
+                                               kScreenSpaceTemporalClipGamma);
+                PostProcessPasses.SSR->SetTemporalSettings(data.PostProcess.SSRTemporalResolve,
+                                                           data.PostProcess.SSRTemporalFeedback,
+                                                           kScreenSpaceTemporalClipGamma);
 
                 data.PostProcessGPU.SSR->SetData(&ssr, SSRUBOData::GetSize());
                 data.PostProcessGPU.SSR->Bind();
@@ -2087,6 +2106,10 @@ namespace OloEngine
         // the CloudsHistory import below, so the flip MUST invalidate the
         // cache or the resolve never sees its history.
         HashBool(h, CloudsHistoryValid);
+        // ...and once more for SSGI's and SSR's own signal histories (issue
+        // #902), which gate the SSGIHistory / SSRHistory imports the same way.
+        HashBool(h, SSGIHistoryValid);
+        HashBool(h, SSRHistoryValid);
         // ...and the volumetric shadow volume (issue #723), for the third time
         // in a row, because the trap does not care that the PRODUCER dodged it.
         //
@@ -3018,6 +3041,21 @@ namespace OloEngine
                     RGResourceFormat::RGBA16Float);
                 board.Post.SSGIColor = ssgiOutput.Framebuffer;
                 board.Post.SSGIColorTexture = ssgiOutput.Texture;
+
+                // The stochastic-signal pair the temporal resolve needs (#902).
+                // Same scene-band size as SSGIColor and same gate, so they can
+                // never exist without each other; SSGIRenderPass bails if either
+                // is missing rather than silently skipping the resolve.
+                RGResourceDesc ssgiSignalDesc;
+                ssgiSignalDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+                ssgiSignalDesc.Format = RGResourceFormat::RGBA16Float;
+                ssgiSignalDesc.Width = sceneBandWidth;
+                ssgiSignalDesc.Height = sceneBandHeight;
+                ssgiSignalDesc.DebugName = std::string(ResourceNames::SSGISignal);
+                board.Scratch.SSGISignal = declareGraphOnlyFramebuffer(ResourceNames::SSGISignal, ssgiSignalDesc);
+
+                ssgiSignalDesc.DebugName = std::string(ResourceNames::SSGIResolved);
+                board.Scratch.SSGIResolved = declareGraphOnlyFramebuffer(ResourceNames::SSGIResolved, ssgiSignalDesc);
             }
         }
 
@@ -3039,6 +3077,19 @@ namespace OloEngine
                     RGResourceFormat::RGBA16Float);
                 board.Post.SSRColor = ssrOutput.Framebuffer;
                 board.Post.SSRColorTexture = ssrOutput.Texture;
+
+                // The stochastic-signal pair the temporal resolve needs (#902);
+                // see the SSGI block above.
+                RGResourceDesc ssrSignalDesc;
+                ssrSignalDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+                ssrSignalDesc.Format = RGResourceFormat::RGBA16Float;
+                ssrSignalDesc.Width = sceneBandWidth;
+                ssrSignalDesc.Height = sceneBandHeight;
+                ssrSignalDesc.DebugName = std::string(ResourceNames::SSRSignal);
+                board.Scratch.SSRSignal = declareGraphOnlyFramebuffer(ResourceNames::SSRSignal, ssrSignalDesc);
+
+                ssrSignalDesc.DebugName = std::string(ResourceNames::SSRResolved);
+                board.Scratch.SSRResolved = declareGraphOnlyFramebuffer(ResourceNames::SSRResolved, ssrSignalDesc);
             }
         }
 
@@ -3633,6 +3684,82 @@ namespace OloEngine
         {
             board.Temporal.CloudsHistory = graph.ImportHistoryHandle(
                 ResourceNames::CloudsHistory, pipeline.CloudsHistoryTexture->GetRHIHandle());
+        }
+
+        // SSGIHistory / SSRHistory (issue #902): the per-pass stochastic-signal
+        // accumulators. Unlike TAA and the cloudscape above, these are gated on
+        // the pass having actually declared its scratch this frame — SSR and
+        // SSGI are both off by default and deferred-only, so an unconditional
+        // EnsureHistoryStorage would hold two scene-band RGBA16F textures for
+        // every scene that never enables them. The else branch releases the
+        // storage AND clears the valid flag, which the fingerprint hashes, so
+        // re-enabling the pass re-runs this block.
+        if (board.Scratch.SSGIResolved.IsValid())
+        {
+            EnsureHistoryStorage(pipeline.SSGIHistoryTexture, pipeline.SSGIHistoryValid, sceneBandWidth, sceneBandHeight);
+            graph.RegisterHistoryTextureSink(
+                ResourceNames::SSGIHistory,
+                pipeline.SSGIHistoryTexture ? pipeline.SSGIHistoryTexture->GetRHIHandle() : RHI::NullResource,
+                pipeline.SSGIHistoryTexture ? pipeline.SSGIHistoryTexture->GetWidth() : 0u,
+                pipeline.SSGIHistoryTexture ? pipeline.SSGIHistoryTexture->GetHeight() : 0u,
+                &pipeline.SSGIHistoryValid);
+        }
+        else
+        {
+            ResetHistoryStorage(pipeline.SSGIHistoryTexture, pipeline.SSGIHistoryValid);
+        }
+        if (pipeline.SSGIHistoryValid && pipeline.SSGIHistoryTexture)
+        {
+            board.Temporal.SSGIHistory = graph.ImportHistoryHandle(
+                ResourceNames::SSGIHistory, pipeline.SSGIHistoryTexture->GetRHIHandle());
+        }
+
+        if (board.Scratch.SSRResolved.IsValid())
+        {
+            EnsureHistoryStorage(pipeline.SSRHistoryTexture, pipeline.SSRHistoryValid, sceneBandWidth, sceneBandHeight);
+            graph.RegisterHistoryTextureSink(
+                ResourceNames::SSRHistory,
+                pipeline.SSRHistoryTexture ? pipeline.SSRHistoryTexture->GetRHIHandle() : RHI::NullResource,
+                pipeline.SSRHistoryTexture ? pipeline.SSRHistoryTexture->GetWidth() : 0u,
+                pipeline.SSRHistoryTexture ? pipeline.SSRHistoryTexture->GetHeight() : 0u,
+                &pipeline.SSRHistoryValid);
+        }
+        else
+        {
+            ResetHistoryStorage(pipeline.SSRHistoryTexture, pipeline.SSRHistoryValid);
+        }
+        if (pipeline.SSRHistoryValid && pipeline.SSRHistoryTexture)
+        {
+            board.Temporal.SSRHistory = graph.ImportHistoryHandle(
+                ResourceNames::SSRHistory, pipeline.SSRHistoryTexture->GetRHIHandle());
+        }
+
+        // Force a re-populate next frame whenever a declared history did NOT
+        // get imported this frame.
+        //
+        // Hashing the valid flag is not enough on its own, and the hole is a
+        // viewport resize. The fingerprint is computed at the TOP of this
+        // function, so it sees the flag as it was BEFORE EnsureHistoryStorage
+        // ran; the resize then clears the flag (the texture was recreated) and
+        // the import is skipped, but FlushExtractions sets it back to true at
+        // the end of the same frame. Next frame's fingerprint therefore matches
+        // the one cached this frame, the whole function short-circuits, and the
+        // import never happens — the resolve degrades to a pass-through and
+        // stays there until some unrelated input moves. Invalidating here is
+        // one extra populate on exactly the frames where the history is not
+        // usable anyway.
+        //
+        // (TAAHistory and CloudsHistory have the same shape. CloudscapeRenderPass
+        // is immune because it also carries a non-graph SetHistory fallback;
+        // TAA is not, which is a pre-existing gap this change deliberately does
+        // not widen its scope to fix.)
+        const bool ssgiHistoryDeclaredButNotImported =
+            board.Scratch.SSGIResolved.IsValid() && !board.Temporal.SSGIHistory.IsValid();
+        const bool ssrHistoryDeclaredButNotImported =
+            board.Scratch.SSRResolved.IsValid() && !board.Temporal.SSRHistory.IsValid();
+        if (ssgiHistoryDeclaredButNotImported || ssrHistoryDeclaredButNotImported)
+        {
+            pipeline.InvalidateBlackboardCache();
         }
 
         // (The 2D FogHistory sink/import died with the screen-space fog

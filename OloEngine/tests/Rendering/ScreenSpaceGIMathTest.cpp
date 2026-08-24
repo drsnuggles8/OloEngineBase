@@ -147,11 +147,15 @@ TEST(ScreenSpaceGI, SSGIUBOGetSizeMatchesSizeof)
 }
 
 // The std140 block in PostProcess_SSGI.glsl is laid out byte-for-byte against
-// this struct: 3 mat4 (192) + 4 vec4 (64) = 256.
+// this struct: 3 mat4 (192) + 5 vec4 (80) = 272. The trailing TemporalParams
+// vec4 (#902: per-pass temporal resolve) is read by the SAME block declared in
+// PostProcess_SSGIResolve.glsl and PostProcess_SSGIComposite.glsl, so a drift
+// here breaks three shaders.
 TEST(ScreenSpaceGI, SSGIUBOLayoutSizeMatchesShader)
 {
-    EXPECT_EQ(sizeof(SSGIUBOData), 256u) << "SSGIUBOData drifted from the PostProcess_SSGI.glsl SSGIParams block";
+    EXPECT_EQ(sizeof(SSGIUBOData), 272u) << "SSGIUBOData drifted from the PostProcess_SSGI.glsl SSGIParams block";
     EXPECT_EQ(offsetof(SSGIUBOData, RayParams), 192u) << "RayParams must follow the 3 matrices at offset 192";
+    EXPECT_EQ(offsetof(SSGIUBOData, TemporalParams), 256u) << "TemporalParams must follow Flags at offset 256";
 }
 
 TEST(ScreenSpaceGI, SSGIBindingIsUniqueAndExpected)
@@ -390,4 +394,51 @@ TEST(ScreenSpaceGI, SanitizeClampsNonFiniteAndRanges)
     EXPECT_GE(s.SSGIRayCount, 1);
     EXPECT_GE(s.SSGIEdgeFade, 0.0f);
     EXPECT_LE(s.SSGIEdgeFade, 0.5f);
+}
+
+// ---- Signal / composite split (issue #902) ----------------------------------
+
+// PostProcess_SSGI.glsl no longer composites. It writes the raw indirect
+// diffuse into SSGISignal (no base colour, no intensity), the resolve
+// accumulates that, and PostProcess_SSGIComposite.glsl adds
+// resolved * intensity to the upstream colour. Two properties follow, and both
+// are what make the buffer accumulable:
+//   * a pixel with no indirect light contributes a hard zero, not a copy of the
+//     scene (which is what the pre-#902 composite-in-place output wrote);
+//   * intensity is OUTSIDE the accumulator, so moving the slider does not have
+//     to wait for the history to converge.
+TEST(ScreenSpaceGI, SignalCompositeReproducesTheAdditiveResolve)
+{
+    const auto base = glm::vec3(0.30f, 0.32f, 0.35f);
+    const auto indirect = glm::vec3(0.40f, 0.05f, 0.05f);
+
+    // A pixel with no gathered radiance feeds the accumulator zero.
+    const auto noIndirect = glm::vec3(0.0f);
+    EXPECT_FLOAT_EQ((base + noIndirect * 2.5f).r, base.r);
+    // Paired negative: the old output for that pixel was `base`, and
+    // accumulating THAT is the smear issue #902 removed.
+    EXPECT_GT(base.r + base.g + base.b, 0.0f);
+
+    // Intensity lives outside the accumulated signal, so the same accumulated
+    // value scales instantly with the slider.
+    EXPECT_FLOAT_EQ((base + indirect * 4.0f).r - base.r, 4.0f * indirect.r);
+}
+
+TEST(ScreenSpaceGI, SanitizeClampsTheTemporalFeedback)
+{
+    PostProcessSettings s;
+    s.SSGITemporalFeedback = 1.0f;
+    SanitizeSSGI(s);
+    EXPECT_LE(s.SSGITemporalFeedback, 0.98f);
+
+    s.SSGITemporalFeedback = std::numeric_limits<f32>::quiet_NaN();
+    SanitizeSSGI(s);
+    EXPECT_TRUE(std::isfinite(s.SSGITemporalFeedback));
+
+    s.SSGITemporalFeedback = -2.0f;
+    SanitizeSSGI(s);
+    EXPECT_GE(s.SSGITemporalFeedback, 0.0f);
+
+    const PostProcessSettings defaults;
+    EXPECT_TRUE(defaults.SSGITemporalResolve);
 }

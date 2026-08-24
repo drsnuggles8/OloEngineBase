@@ -1378,6 +1378,11 @@ namespace OloEngine
         [[nodiscard]] bool IsTransientResource(std::string_view resourceName) const;
         [[nodiscard]] bool IsExternallyBackedTransientResource(std::string_view resourceName) const;
         [[nodiscard]] bool IsResourceReachableForExtraction(std::string_view resourceName) const;
+        // True when `resourceName` is the source of a temporal-history
+        // extraction, i.e. it is read AFTER the last pass has executed and its
+        // pooled backing must not be aliased away at its last pass access
+        // (issue #902).
+        [[nodiscard]] bool IsExtractedAfterExecution(std::string_view resourceName) const;
         [[nodiscard]] bool ContainsGraphEntry(std::string_view name) const;
         [[nodiscard]] bool IsGraphEntryAsyncComputeCandidate(std::string_view name) const;
         [[nodiscard]] bool IsGraphEntrySideEffecting(std::string_view name) const;

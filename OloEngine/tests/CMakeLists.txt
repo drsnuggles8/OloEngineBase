@@ -349,6 +349,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeParallaxVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ScreenSpaceTemporalResolveEvidenceTest.cpp
 		Rendering/DDGI/DDGIVisualEvidenceTest.cpp
 		Rendering/PathTracing/DDGIReferenceParityTest.cpp
 		Rendering/PropertyTests/OverdrawVisualEvidenceTest.cpp
