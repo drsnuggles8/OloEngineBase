@@ -26,8 +26,13 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "TestTempDir.h"
+
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -70,7 +75,34 @@ namespace
         bool TimedOut = false;
         int ExitCode = 0;
         std::string Error;
+        std::string Output; // child's stdout+stderr, for the failure message
     };
+
+    // Tail of the child's captured output, for a failure message. A hung
+    // startup is only diagnosable if the last thing the app managed to say
+    // survives — before this, a timeout reported "the app likely hung" and
+    // threw the log away, which is how a 30 s hang on CI reached a human with
+    // no evidence at all attached to it.
+    [[nodiscard]] std::string ReadCapturedOutput(const std::filesystem::path& path)
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (!in)
+        {
+            return "<no output captured>";
+        }
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (text.empty())
+        {
+            return "<child produced no output>";
+        }
+
+        constexpr std::size_t kMaxTail = 4000;
+        if (text.size() > kMaxTail)
+        {
+            text = "...\n" + text.substr(text.size() - kMaxTail);
+        }
+        return text;
+    }
 
 #if defined(_WIN32)
     LaunchResult RunProcessWithTimeout(const std::string& exePath,
@@ -92,22 +124,71 @@ namespace
         std::vector<char> mutableCmd(cmdLine.begin(), cmdLine.end());
         mutableCmd.push_back('\0');
 
+        // Give the child EXPLICIT standard handles rather than whatever it would
+        // otherwise inherit. Two reasons, both learned from a CI hang:
+        //
+        //  * stdin is bound to NUL, so anything in the app that reads a line
+        //    (OloServer runs a console-command thread) gets an immediate EOF
+        //    instead of parking on a handle nothing will ever write to. Without
+        //    this the child's stdin depends on how the TEST process was itself
+        //    launched, which is why this passed on a developer box and hung on a
+        //    runner.
+        //  * stdout/stderr go to a file we read back on failure, so a hang has
+        //    evidence attached to it.
+        //
+        // A file, not a pipe: nobody drains the pipe while we are blocked in
+        // WaitForSingleObject, so a chatty child would fill the buffer and
+        // deadlock — swapping one hang for another.
+        const std::filesystem::path outPath =
+            OloEngine::Tests::TempFile("applaunchsmoke.out");
+        std::error_code outEc;
+        std::filesystem::create_directories(outPath.parent_path(), outEc);
+
+        SECURITY_ATTRIBUTES sa{};
+        sa.nLength = sizeof(sa);
+        sa.bInheritHandle = TRUE;
+
+        const HANDLE hNul = ::CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                          &sa, OPEN_EXISTING, 0, nullptr);
+        const HANDLE hOut = ::CreateFileA(outPath.string().c_str(), GENERIC_WRITE,
+                                          FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                                          CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+
         STARTUPINFOA si{};
         si.cb = sizeof(si);
+        const bool haveHandles = hNul != INVALID_HANDLE_VALUE && hOut != INVALID_HANDLE_VALUE;
+        if (haveHandles)
+        {
+            si.dwFlags = STARTF_USESTDHANDLES;
+            si.hStdInput = hNul;
+            si.hStdOutput = hOut;
+            si.hStdError = hOut;
+        }
         PROCESS_INFORMATION pi{};
 
         const BOOL ok = ::CreateProcessA(
             nullptr, // module taken from the (quoted) command line
             mutableCmd.data(),
-            nullptr, nullptr, FALSE,
+            nullptr, nullptr,
+            haveHandles ? TRUE : FALSE,
             CREATE_NO_WINDOW,
             nullptr,
             workingDir.empty() ? nullptr : workingDir.c_str(),
             &si, &pi);
 
+        const auto closeIfValid = [](HANDLE h)
+        {
+            if (h != INVALID_HANDLE_VALUE && h != nullptr)
+            {
+                ::CloseHandle(h);
+            }
+        };
+
         if (!ok)
         {
             result.Error = "CreateProcessA failed (GetLastError=" + std::to_string(::GetLastError()) + ")";
+            closeIfValid(hNul);
+            closeIfValid(hOut);
             return result;
         }
         result.Launched = true;
@@ -128,6 +209,15 @@ namespace
 
         ::CloseHandle(pi.hProcess);
         ::CloseHandle(pi.hThread);
+
+        // Close our ends before reading, so the child's last writes are flushed
+        // to the file.
+        closeIfValid(hNul);
+        closeIfValid(hOut);
+        if (haveHandles)
+        {
+            result.Output = ReadCapturedOutput(outPath);
+        }
         return result;
     }
 #else
@@ -227,11 +317,18 @@ namespace
 
         ASSERT_TRUE(r.Launched) << "Failed to launch " << exePath << ": " << r.Error;
         ASSERT_FALSE(r.TimedOut) << exePath << " did not exit within " << kSmokeTimeoutMs
-                                 << " ms — the app likely hung during startup.";
+                                 << " ms — the app likely hung during startup or shutdown.\n"
+                                    "The last output the child produced tells you WHICH; a log that "
+                                    "stops after the subsystems come up but before the shutdown "
+                                    "lines is a teardown hang, not a startup one.\n"
+                                    "--- captured child output ---\n"
+                                 << r.Output << "\n--- end ---";
         EXPECT_EQ(r.ExitCode, 0) << exePath << " exited with code " << r.ExitCode
                                  << ". A non-zero exit means startup failed — most likely a missing "
                                     "runtime DLL (the regression class issue #303 targets) or a "
-                                    "subsystem init crash.";
+                                    "subsystem init crash.\n"
+                                    "--- captured child output ---\n"
+                                 << r.Output << "\n--- end ---";
     }
 } // namespace
 
