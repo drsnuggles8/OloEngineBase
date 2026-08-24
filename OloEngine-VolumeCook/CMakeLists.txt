@@ -47,28 +47,41 @@ find_package(blosc CONFIG REQUIRED)
 # vcpkg's own install layout (`<triplet>/lib` vs `<triplet>/debug/lib`) rather
 # than trusting either Find-module's single guess. See
 # docs/agent-rules/asset-import-openvdb-volumetric.md for the full story.
-# release_lib_name / debug_lib_name are separate args: most vcpkg ports keep
-# the same filename in `lib/` vs `debug/lib/` (e.g. libopenvdb.lib), but some
-# (TBB: `tbb12.lib` vs `tbb12_debug.lib`) genuinely rename it per config.
-function(olo_fix_vcpkg_multiconfig_imported_location target_name release_lib_name debug_lib_name)
-    if(NOT TARGET ${target_name})
-        message(FATAL_ERROR "olo_fix_vcpkg_multiconfig_imported_location: no such target ${target_name}")
-    endif()
-    set(_release_lib "${_VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib/${release_lib_name}")
-    set(_debug_lib "${_VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/lib/${debug_lib_name}")
-    if(NOT EXISTS "${_release_lib}" OR NOT EXISTS "${_debug_lib}")
-        message(FATAL_ERROR "olo_fix_vcpkg_multiconfig_imported_location: expected both\n"
-            "  ${_release_lib}\n  ${_debug_lib}\nto exist for ${target_name} — vcpkg install layout changed?")
-    endif()
-    set_target_properties(${target_name} PROPERTIES
-        IMPORTED_CONFIGURATIONS "Debug;Release"
-        IMPORTED_LOCATION_DEBUG "${_debug_lib}"
-        IMPORTED_LOCATION_RELEASE "${_release_lib}"
-    )
-endfunction()
+#
+# WIN32 AND CMAKE_CONFIGURATION_TYPES-gated: this is specifically a Windows
+# multi-config-generator bug (Ninja Multi-Config / Visual Studio, where
+# CMAKE_BUILD_TYPE stays empty and the toolchain's own debug/release
+# disambiguation — which the fix below exists to route around — never
+# engages). A single-config generator (every Linux CI job: plain Ninja/Make,
+# CMAKE_BUILD_TYPE actually set) resolves correctly without this, AND has a
+# different vcpkg triplet layout the Windows-specific filenames below don't
+# match (.a not .lib, no lib/ vs debug/lib/ split) — applying it unguarded
+# broke every Linux job at configure time with a FATAL_ERROR from the
+# existence check, discovered the hard way on this PR's first CI round.
+if(WIN32 AND CMAKE_CONFIGURATION_TYPES)
+    # release_lib_name / debug_lib_name are separate args: most vcpkg ports
+    # keep the same filename in `lib/` vs `debug/lib/` (e.g. libopenvdb.lib),
+    # but some (TBB: `tbb12.lib` vs `tbb12_debug.lib`) rename it per config.
+    function(olo_fix_vcpkg_multiconfig_imported_location target_name release_lib_name debug_lib_name)
+        if(NOT TARGET ${target_name})
+            message(FATAL_ERROR "olo_fix_vcpkg_multiconfig_imported_location: no such target ${target_name}")
+        endif()
+        set(_release_lib "${_VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib/${release_lib_name}")
+        set(_debug_lib "${_VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/debug/lib/${debug_lib_name}")
+        if(NOT EXISTS "${_release_lib}" OR NOT EXISTS "${_debug_lib}")
+            message(FATAL_ERROR "olo_fix_vcpkg_multiconfig_imported_location: expected both\n"
+                "  ${_release_lib}\n  ${_debug_lib}\nto exist for ${target_name} — vcpkg install layout changed?")
+        endif()
+        set_target_properties(${target_name} PROPERTIES
+            IMPORTED_CONFIGURATIONS "Debug;Release"
+            IMPORTED_LOCATION_DEBUG "${_debug_lib}"
+            IMPORTED_LOCATION_RELEASE "${_release_lib}"
+        )
+    endfunction()
 
-olo_fix_vcpkg_multiconfig_imported_location(OpenVDB::openvdb libopenvdb.lib libopenvdb.lib)
-olo_fix_vcpkg_multiconfig_imported_location(TBB::tbb tbb12.lib tbb12_debug.lib)
+    olo_fix_vcpkg_multiconfig_imported_location(OpenVDB::openvdb libopenvdb.lib libopenvdb.lib)
+    olo_fix_vcpkg_multiconfig_imported_location(TBB::tbb tbb12.lib tbb12_debug.lib)
+endif()
 
 add_subdirectory(src)
 
