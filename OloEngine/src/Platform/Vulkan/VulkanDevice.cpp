@@ -6,9 +6,10 @@
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanShader.h"
 
+#include "OloEngine/Core/DebugLevers.h"
+
 #include <algorithm>
 #include <atomic>
-#include <cstdlib>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -742,8 +743,12 @@ namespace OloEngine
         // permanently because the host route changes WHEN an upload happens
         // relative to the queue, and that class of difference is exactly what
         // a bisect lever is for.
-        const char* const hostCopyOverride = std::getenv("OLO_VULKAN_NO_HOST_IMAGE_COPY");
-        const bool hostCopyForcedOff = hostCopyOverride != nullptr && hostCopyOverride[0] == '1';
+        // Declared in DebugLevers.inl and read through Levers, not through a
+        // raw getenv or even a bare Env::IsTruthy: the registry is what makes
+        // a lever discoverable (it carries the help text and shows up in the
+        // snapshot), and DebugLeversTest fails the build for any engine code
+        // that reads an OLO_* variable around it.
+        const bool hostCopyForcedOff = Levers::VulkanNoHostImageCopy();
         m_HostImageCopyEnabled = wantHostImageCopy && !hostCopyForcedOff && vkCopyMemoryToImage != nullptr &&
                                  vkTransitionImageLayout != nullptr;
         if (hostCopyForcedOff)
