@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Math/Math.h"
 
 #include <glm/glm.hpp>
 #include <vector>
@@ -45,24 +46,17 @@ namespace OloEngine
         }
 
       private:
-        // Euclidean modulo (never negative), so a negative chunk coordinate
-        // wraps into the same slot cycle as its positive congruents instead of
-        // producing a negative array index. `%` in C++ truncates toward zero,
-        // which is the classic footgun here — see docs/agent-rules/
-        // ddgi-probe-cascades-and-sparsity.md §2 for the same trap in a
-        // different subsystem.
-        [[nodiscard]] static i32 WrapAxis(i32 value, i32 length)
-        {
-            const i32 wrapped = value % length;
-            return wrapped < 0 ? wrapped + length : wrapped;
-        }
-
         [[nodiscard]] sizet Index(const glm::ivec3& chunkCoord) const
         {
+            // Euclidean modulo (never negative), so a negative chunk
+            // coordinate wraps into the same slot cycle as its positive
+            // congruents instead of producing a negative array index — the
+            // same footgun and the same fix as DDGI's cascade addressing
+            // (see Math::WrapIndex's doc comment).
             const i32 length = static_cast<i32>(m_SideLength);
-            const i32 x = WrapAxis(chunkCoord.x, length);
-            const i32 y = WrapAxis(chunkCoord.y, length);
-            const i32 z = WrapAxis(chunkCoord.z, length);
+            const i32 x = Math::WrapIndex(chunkCoord.x, length);
+            const i32 y = Math::WrapIndex(chunkCoord.y, length);
+            const i32 z = Math::WrapIndex(chunkCoord.z, length);
             return static_cast<sizet>(x) + static_cast<sizet>(z) * length +
                    static_cast<sizet>(y) * length * length;
         }

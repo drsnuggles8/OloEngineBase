@@ -1,11 +1,11 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Terrain/ChunkRingBuffer3D.h"
 
 #include <glm/glm.hpp>
 
-#include <cmath>
 #include <functional>
 #include <utility>
 
@@ -71,10 +71,9 @@ namespace OloEngine
         // chunk on the correct side of the origin.
         [[nodiscard]] static glm::ivec3 WorldToChunk(const glm::vec3& worldPos, f32 chunkWorldSize)
         {
-            OLO_CORE_ASSERT(chunkWorldSize > 0.0f && std::isfinite(chunkWorldSize),
+            OLO_CORE_ASSERT(chunkWorldSize > 0.0f && Math::IsFinite(chunkWorldSize),
                             "WorldToChunk requires a positive, finite chunkWorldSize");
-            OLO_CORE_ASSERT(std::isfinite(worldPos.x) && std::isfinite(worldPos.y) && std::isfinite(worldPos.z),
-                            "WorldToChunk requires a finite worldPos");
+            OLO_CORE_ASSERT(Math::IsFinite(worldPos), "WorldToChunk requires a finite worldPos");
 
             return glm::ivec3(static_cast<i32>(glm::floor(worldPos.x / chunkWorldSize)),
                               static_cast<i32>(glm::floor(worldPos.y / chunkWorldSize)),

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h"
+
 #include <glm/glm.hpp>
 
 #include <cmath>
@@ -69,5 +71,21 @@ namespace OloEngine::Math
                 if (!std::isfinite(m[c][r]))
                     return false;
         return true;
+    }
+
+    // Euclidean modulo — `%` in C++ (and GLSL) truncates toward zero, which
+    // maps a negative value to a NEGATIVE result. Toroidal/wraparound
+    // indexing (a fixed-size ring window, a cascade lattice) needs the
+    // mathematical convention instead: the result is always in [0, modulus)
+    // for any signed input. Shared by DDGI's cascade addressing
+    // (Renderer/DDGI/DDGICommon.h — see DDGI::WrapIndex) and the terrain 3D
+    // ring-buffer chunk window (Terrain/ChunkRingBuffer3D.h): both are the
+    // same footgun (a negative storage index) on the same underlying scheme
+    // — see docs/agent-rules/ddgi-probe-cascades-and-sparsity.md §2.
+    [[nodiscard("the wrapped index is the only effect")]] inline i32 WrapIndex(i32 value, i32 modulus) noexcept
+    {
+        const i32 m = glm::max(modulus, 1);
+        const i32 r = value % m;
+        return (r < 0) ? (r + m) : r;
     }
 } // namespace OloEngine::Math
