@@ -329,7 +329,10 @@ namespace OloEngine
                 ImGui::SliderFloat("Edge Fade##SSR", &settings.SSREdgeFade, 0.0f, 0.5f, "%.2f");
                 ImGui::Checkbox("Debug View (reflection only)##SSR", &settings.SSRDebugView);
                 ImGui::Checkbox("Temporal Resolve##SSR", &settings.SSRTemporalResolve);
-                ImGui::SliderFloat("Temporal Feedback##SSR", &settings.SSRTemporalFeedback, 0.0f, 0.98f, "%.2f");
+                // AlwaysClamp so Ctrl+Click text entry cannot push feedback past the
+                // 0.98 ceiling OloTemporalBlend enforces anyway.
+                ImGui::SliderFloat("Temporal Feedback##SSR", &settings.SSRTemporalFeedback, 0.0f, 0.98f,
+                                   "%.2f", ImGuiSliderFlags_AlwaysClamp);
             }
 
             ImGui::Unindent();
@@ -358,7 +361,10 @@ namespace OloEngine
                 ImGui::SliderFloat("Edge Fade##SSGI", &settings.SSGIEdgeFade, 0.0f, 0.5f, "%.2f");
                 ImGui::Checkbox("Debug View (indirect only)##SSGI", &settings.SSGIDebugView);
                 ImGui::Checkbox("Temporal Resolve##SSGI", &settings.SSGITemporalResolve);
-                ImGui::SliderFloat("Temporal Feedback##SSGI", &settings.SSGITemporalFeedback, 0.0f, 0.98f, "%.2f");
+                // AlwaysClamp so Ctrl+Click text entry cannot push feedback past the
+                // 0.98 ceiling OloTemporalBlend enforces anyway.
+                ImGui::SliderFloat("Temporal Feedback##SSGI", &settings.SSGITemporalFeedback, 0.0f, 0.98f,
+                                   "%.2f", ImGuiSliderFlags_AlwaysClamp);
             }
 
             ImGui::Unindent();

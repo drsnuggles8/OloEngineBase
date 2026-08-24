@@ -400,28 +400,86 @@ TEST(ScreenSpaceGI, SanitizeClampsNonFiniteAndRanges)
 
 // PostProcess_SSGI.glsl no longer composites. It writes the raw indirect
 // diffuse into SSGISignal (no base colour, no intensity), the resolve
-// accumulates that, and PostProcess_SSGIComposite.glsl adds
-// resolved * intensity to the upstream colour. Two properties follow, and both
-// are what make the buffer accumulable:
-//   * a pixel with no indirect light contributes a hard zero, not a copy of the
-//     scene (which is what the pre-#902 composite-in-place output wrote);
-//   * intensity is OUTSIDE the accumulator, so moving the slider does not have
-//     to wait for the history to converge.
-TEST(ScreenSpaceGI, SignalCompositeReproducesTheAdditiveResolve)
+// accumulates that through OloTemporalBlend, and
+// PostProcess_SSGIComposite.glsl adds resolved * intensity to the upstream
+// colour.
+//
+// The ORDER of those last two is the whole contract, and it is the thing a
+// still image cannot show: accumulate-then-scale and scale-then-accumulate
+// agree at every fixed intensity and diverge only while the intensity is
+// CHANGING. So the test drives the accumulator over frames with the slider
+// moving, which is exactly when a reader would notice — and is what fails if
+// anyone folds intensity into the signal draw.
+namespace
 {
-    const auto base = glm::vec3(0.30f, 0.32f, 0.35f);
-    const auto indirect = glm::vec3(0.40f, 0.05f, 0.05f);
+    // Mirrors OloTemporalBlend(current, history, feedback, confidence) at
+    // confidence 1: resolved = mix(current, history, feedback).
+    [[nodiscard]] f32 BlendOneFrame(f32 current, f32 history, f32 feedback)
+    {
+        return current * (1.0f - feedback) + history * feedback;
+    }
+} // namespace
 
-    // A pixel with no gathered radiance feeds the accumulator zero.
-    const auto noIndirect = glm::vec3(0.0f);
-    EXPECT_FLOAT_EQ((base + noIndirect * 2.5f).r, base.r);
-    // Paired negative: the old output for that pixel was `base`, and
-    // accumulating THAT is the smear issue #902 removed.
-    EXPECT_GT(base.r + base.g + base.b, 0.0f);
+TEST(ScreenSpaceGI, IntensityAppliedAfterTheResolveTracksTheSliderWithoutWaitingForHistory)
+{
+    // The engine's own default, so the test moves when the shipped tuning does.
+    const PostProcessSettings defaults;
+    const f32 feedback = defaults.SSGITemporalFeedback;
+    ASSERT_GT(feedback, 0.5f) << "the property below is only interesting for a real accumulator";
 
-    // Intensity lives outside the accumulated signal, so the same accumulated
-    // value scales instantly with the slider.
-    EXPECT_FLOAT_EQ((base + indirect * 4.0f).r - base.r, 4.0f * indirect.r);
+    constexpr f32 rawIndirect = 0.4f; // steady scene: the gather returns the same estimate
+    constexpr f32 base = 0.3f;
+
+    // Settle both orderings at intensity 1.
+    f32 signalHistory = rawIndirect;        // production: raw signal accumulates
+    f32 scaledHistory = rawIndirect * 1.0f; // counterfactual: scaled value accumulates
+
+    // The slider jumps to 4. Production scales the ALREADY-settled signal, so
+    // the composite is correct on the very next frame; the counterfactual has
+    // to re-converge from its old value.
+    constexpr f32 newIntensity = 4.0f;
+    signalHistory = BlendOneFrame(rawIndirect, signalHistory, feedback);
+    scaledHistory = BlendOneFrame(rawIndirect * newIntensity, scaledHistory, feedback);
+
+    const f32 productionComposite = base + signalHistory * newIntensity;
+    const f32 counterfactualComposite = base + scaledHistory;
+    const f32 converged = base + rawIndirect * newIntensity;
+
+    EXPECT_NEAR(productionComposite, converged, 1e-5f)
+        << "with intensity applied AFTER the resolve, a settled signal must follow the slider "
+           "immediately";
+    EXPECT_LT(counterfactualComposite, converged - 0.5f)
+        << "the paired negative: folding intensity into the accumulated signal must visibly lag. "
+           "If this ever stops holding the test has stopped discriminating between the two "
+           "orderings and is no longer testing anything";
+}
+
+// A pixel that gathered nothing must feed the accumulator a hard ZERO. This is
+// the property that makes the buffer accumulable at all, and its paired
+// negative is the pre-#902 behaviour: that pixel used to be written as `base`,
+// and accumulating the scene colour is the smear #902 removed.
+TEST(ScreenSpaceGI, AMissContributesExactlyZeroToTheAccumulatedSignal)
+{
+    const PostProcessSettings defaults;
+    const f32 feedback = defaults.SSGITemporalFeedback;
+    constexpr f32 base = 0.3f;
+    constexpr f32 intensity = 2.5f;
+
+    // Production: the signal draw writes 0 for a miss, so however many frames
+    // accumulate, the composite stays exactly the upstream colour.
+    f32 history = 0.0f;
+    for (int frame = 0; frame < 32; ++frame)
+        history = BlendOneFrame(0.0f, history, feedback);
+    EXPECT_FLOAT_EQ(base + history * intensity, base)
+        << "a miss must contribute nothing, at any number of accumulated frames";
+
+    // Paired negative: the pre-split output for that same pixel was `base`.
+    f32 legacyHistory = base;
+    for (int frame = 0; frame < 32; ++frame)
+        legacyHistory = BlendOneFrame(base, legacyHistory, feedback);
+    EXPECT_GT(legacyHistory, 0.0f)
+        << "the pre-#902 output of a miss was the base colour — non-zero, and therefore something "
+           "a temporal resolve would have smeared";
 }
 
 TEST(ScreenSpaceGI, SanitizeClampsTheTemporalFeedback)

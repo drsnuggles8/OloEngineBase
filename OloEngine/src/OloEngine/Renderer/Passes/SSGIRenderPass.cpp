@@ -10,6 +10,8 @@
 #include "OloEngine/Renderer/BlueNoiseTexture.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <span>
 
@@ -232,8 +234,17 @@ namespace OloEngine
             // a previous frame produced one, so on the first frame (and after any
             // resize or re-enable) this is 0 and the resolve outputs the current
             // frame rather than blending against an uninitialised buffer.
+            // Sanitize here, not just in SanitizeSSGI(): that runs on
+            // settings loaded from disk, but this value can also arrive from a
+            // live edit, a script or an MCP write. The shader cannot be the
+            // backstop — OloTemporalBlend's clamp(feedback, 0, 0.98) is
+            // UNDEFINED for a NaN input, so a NaN would reach the blend and
+            // spread through the history.
+            const f32 feedback = std::isfinite(m_TemporalFeedback)
+                                     ? std::clamp(m_TemporalFeedback, 0.0f, 0.98f)
+                                     : 0.0f;
             const glm::vec4 temporalParams(
-                m_TemporalFeedback,
+                feedback,
                 velocityID.IsValid() ? 1.0f : 0.0f,
                 (m_TemporalResolveEnabled && historyID.IsValid()) ? 1.0f : 0.0f,
                 m_TemporalClipGamma);

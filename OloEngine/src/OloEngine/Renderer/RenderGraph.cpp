@@ -4897,15 +4897,24 @@ namespace OloEngine
 
     bool RenderGraph::IsExtractedAfterExecution(std::string_view resourceName) const
     {
-        // A temporal-history contract's SOURCE is read by FlushExtractions once
-        // every pass has executed, so the transient planner must keep its
-        // backing alive to the end of the frame rather than to its last pass
-        // access. The contracts outlive a single frame (they are declared in
-        // Setup and cleared only on a topology reset), which is exactly the
-        // lifetime the plan is computed over.
-        return std::ranges::any_of(m_TemporalHistoryContracts,
-                                   [resourceName](const TemporalHistoryContract& contract)
-                                   { return contract.SourceResource == resourceName; });
+        // A sink contract's SOURCE is read by FlushExtractions once every pass
+        // has executed, so the transient planner must keep its backing alive to
+        // the end of the frame rather than to its last pass access. Both
+        // contract lists qualify for the same reason: they are DECLARED (Setup,
+        // or a registration that outlives the frame) and cleared only on a
+        // topology reset, so they are visible when the plan is computed.
+        //
+        // The per-frame `m_TextureExtracts` / `m_FramebufferExtracts` callback
+        // lists are deliberately NOT consulted. They are filled during Execute,
+        // which is after RebuildTransientPlan has already run for the frame, so
+        // reading them here could only ever describe the PREVIOUS frame's
+        // extractions — an answer that is wrong in both directions. A resource
+        // extracted that way needs a declared contract (or a pass access that
+        // spans the read), not a lookup the planner cannot see in time.
+        const auto matches = [resourceName](const auto& contract)
+        { return contract.SourceResource == resourceName; };
+        return std::ranges::any_of(m_TemporalHistoryContracts, matches) ||
+               std::ranges::any_of(m_ExternalTextureSinkContracts, matches);
     }
 
     bool RenderGraph::IsResourceReachableForExtraction(std::string_view resourceName) const
