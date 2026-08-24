@@ -47,12 +47,21 @@ namespace OloEngine
         // Translation here would measure "nearest" from the corner, silently
         // biasing the objective marker toward whichever island's corner (not
         // landmass) happens to be closest.
+        //
+        // Transforms the LOCAL offset through the entity's full WORLD matrix
+        // (GetWorldTransform(), not the local TransformComponent) in one step,
+        // so rotation, scale AND parenting all compose correctly — the offset
+        // is local to the collider/body exactly like Jolt's own shape-transform
+        // pipeline treats it (JoltShapes.cpp pairs the offset with the shape
+        // before the body's full world transform applies). Every Drift island
+        // is unrotated and unparented today, which is exactly the kind of case
+        // that would hide a plain Translation-only add as "working".
         glm::vec3 LandmarkWorldCentre(Entity landmark)
         {
-            glm::vec3 pos = landmark.GetComponent<TransformComponent>().Translation;
-            if (landmark.HasComponent<BoxCollider3DComponent>())
-                pos += landmark.GetComponent<BoxCollider3DComponent>().m_Offset;
-            return pos;
+            const glm::vec3 localOffset = landmark.HasComponent<BoxCollider3DComponent>()
+                                              ? landmark.GetComponent<BoxCollider3DComponent>().m_Offset
+                                              : glm::vec3{ 0.0f };
+            return glm::vec3(landmark.GetWorldTransform() * glm::vec4(localOffset, 1.0f));
         }
 
         // If `discovererID` carries DiscoveredSetComponent and `landmarkID`
@@ -95,9 +104,14 @@ namespace OloEngine
                 return;
 
             const auto& discovered = discoverer.GetComponent<DiscoveredSetComponent>().m_Discovered;
-            const glm::vec3 discovererPos = discoverer.HasComponent<TransformComponent>() ? discoverer.GetComponent<TransformComponent>().Translation : glm::vec3{ 0.0f };
+            // World-space, not local Translation — a discoverer parented under
+            // a moving platform/vehicle-carrier entity (not the case in Drift
+            // today, but nothing here should assume otherwise) would otherwise
+            // measure distance from the wrong origin.
+            const glm::vec3 discovererPos = glm::vec3(discoverer.GetWorldTransform()[3]);
 
             u32 total = 0;
+            u32 validDiscoveredCount = 0;
             Entity nearestUndiscoveredLandmark;
             f32 nearestDistSq = std::numeric_limits<f32>::max();
 
@@ -109,7 +123,16 @@ namespace OloEngine
 
                 ++total;
                 if (Contains(discovered, landmark.GetUUID()))
+                {
+                    // Counted against M above (the total scan), and separately
+                    // here against N: m_Discovered keeps a UUID forever once
+                    // landed (that's the save-game history), but a landmark
+                    // could in principle be destroyed or lose its trigger later
+                    // — recomputing N from currently-valid landmarks each tick
+                    // keeps the readout from ever showing N > M.
+                    ++validDiscoveredCount;
                     continue;
+                }
 
                 const glm::vec3 delta = LandmarkWorldCentre(landmark) - discovererPos;
                 const f32 distSq = glm::dot(delta, delta);
@@ -134,10 +157,14 @@ namespace OloEngine
                 if (nearestUndiscoveredLandmark)
                 {
                     anchor.m_TargetEntity = nearestUndiscoveredLandmark.GetUUID();
-                    glm::vec3 offset{ 0.0f, kMarkerLiftAboveTriggerCentre, 0.0f };
-                    if (nearestUndiscoveredLandmark.HasComponent<BoxCollider3DComponent>())
-                        offset += nearestUndiscoveredLandmark.GetComponent<BoxCollider3DComponent>().m_Offset;
-                    anchor.m_WorldOffset = offset;
+                    // UILayoutSystem adds m_WorldOffset to the target's raw
+                    // Translation (no rotation applied there either), so derive
+                    // it from the same rotation-aware centre LandmarkWorldCentre
+                    // computes rather than re-deriving the offset by hand — the
+                    // lift stays pure world-space "up", not rotated with the
+                    // landmark, so the marker doesn't tilt with a sloped island.
+                    const glm::vec3 landmarkPos = nearestUndiscoveredLandmark.GetComponent<TransformComponent>().Translation;
+                    anchor.m_WorldOffset = (LandmarkWorldCentre(nearestUndiscoveredLandmark) - landmarkPos) + glm::vec3{ 0.0f, kMarkerLiftAboveTriggerCentre, 0.0f };
                 }
                 else
                 {
@@ -145,8 +172,9 @@ namespace OloEngine
                 }
             }
 
-            // Readout: "Discovered N of M".
-            const std::string readout = "Discovered " + std::to_string(discovered.size()) + " of " + std::to_string(total);
+            // Readout: "Discovered N of M" — N is validDiscoveredCount, not
+            // discovered.size() (see the comment above).
+            const std::string readout = "Discovered " + std::to_string(validDiscoveredCount) + " of " + std::to_string(total);
             for (auto&& [e, tag, text] : scene.GetAllEntitiesWith<DiscoveryReadoutComponent, UITextComponent>().each())
             {
                 if (!tag.m_Enabled)
