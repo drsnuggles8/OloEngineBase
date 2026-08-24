@@ -2053,7 +2053,29 @@ namespace OloEngine
         }
         if (indexBuffer->GetVkBuffer() != m_BoundIndexBuffer)
         {
-            vkCmdBindIndexBuffer(m_Cmd, indexBuffer->GetVkBuffer(), 0, VK_INDEX_TYPE_UINT32);
+            // #809 (maintenance5, core in 1.4): bind the buffer's REAL byte
+            // size instead of the implicit whole-buffer bind. The facade's
+            // DrawIndexed(va, 0) "whole buffer" sentinel (amendment (9b)) is
+            // resolved to indexBuffer->GetCount() at the draw sites; stating
+            // the same extent on the BIND turns a draw whose count overruns
+            // the buffer into a validation error naming the bind, instead of
+            // an out-of-bounds index fetch that renders garbage. The engine's
+            // index format is fixed 32-bit (IndexBuffer.h), so the byte size
+            // is the count times four.
+            //
+            // The cache key stays the VkBuffer alone: VulkanIndexBuffer's
+            // count is fixed at construction, so a changed element count is
+            // necessarily a different VkBuffer.
+            const auto* device = VulkanDevice::Get();
+            if (device != nullptr && device->IsMaintenance5Enabled())
+            {
+                const VkDeviceSize sizeBytes = static_cast<VkDeviceSize>(indexBuffer->GetCount()) * sizeof(u32);
+                vkCmdBindIndexBuffer2(m_Cmd, indexBuffer->GetVkBuffer(), 0, sizeBytes, VK_INDEX_TYPE_UINT32);
+            }
+            else
+            {
+                vkCmdBindIndexBuffer(m_Cmd, indexBuffer->GetVkBuffer(), 0, VK_INDEX_TYPE_UINT32);
+            }
             m_BoundIndexBuffer = indexBuffer->GetVkBuffer();
         }
         return true;

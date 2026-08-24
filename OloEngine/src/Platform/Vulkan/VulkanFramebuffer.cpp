@@ -225,13 +225,19 @@ namespace OloEngine
         m_ColorAttachments.reserve(m_ColorAttachmentSpecifications.size());
         for (const auto& attachmentSpec : m_ColorAttachmentSpecifications)
         {
-            m_ColorAttachments.push_back(Ref<VulkanTexture2D>::Create(makeAttachmentSpec(attachmentSpec.TextureFormat)));
+            // renderTargetOnly (#809): content arrives from the GPU, SetData
+            // is never called — so this image must not carry
+            // VK_IMAGE_USAGE_HOST_TRANSFER_BIT for an upload route it can
+            // never take.
+            m_ColorAttachments.push_back(
+                Ref<VulkanTexture2D>::Create(makeAttachmentSpec(attachmentSpec.TextureFormat), true));
             stampAttachmentSamplerState(m_ColorAttachments.back());
         }
 
         if (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None)
         {
-            m_DepthAttachment = Ref<VulkanTexture2D>::Create(makeAttachmentSpec(m_DepthAttachmentSpecification.TextureFormat));
+            m_DepthAttachment =
+                Ref<VulkanTexture2D>::Create(makeAttachmentSpec(m_DepthAttachmentSpecification.TextureFormat), true);
             stampAttachmentSamplerState(m_DepthAttachment);
         }
     }

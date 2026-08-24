@@ -2097,3 +2097,137 @@ that is obviously backend-specific; it is the one whose sentinel value is
   *renderer* backend is skipped (amendment (88), consequence 3). That is a
   shield, not a fix, and it becomes real the day that backend is enabled.
 
+## Amendments from issue #809 (2026-08-24) — the Vulkan 1.4 conveniences
+
+### (91) A core-promoted feature is still OFF, still optional in practice, and its layout lists are a driver property
+
+`VkPhysicalDeviceVulkan14Features` is now in the device chain, carrying
+`hostImageCopy` and `maintenance5`. Three things that adopting it settled, in
+the order they bite.
+
+**The (51) sweep is a step, not a guess.** The moment a `VulkanXYFeatures`
+aggregate joins the chain, every standalone struct already in it has to be
+checked against what that version promoted
+(VUID-VkDeviceCreateInfo-pNext-02830 rejects both spellings at once). Done
+here and recorded: `VK_EXT_descriptor_heap`,
+`VK_KHR_shader_untyped_pointers`, `VK_EXT_extended_dynamic_state3`,
+`VK_EXT_device_fault` and `VK_EXT_mesh_shader` are all post-1.4 or
+never-promoted, so nothing folded in and all five stay standalone. The
+maintenance burden is the *next* one: a feature 1.4 promoted that arrives as a
+standalone struct must move into `vulkan14Features`, and the failure is a
+rejected device creation, not a warning.
+
+**"Required by Vulkan 1.4" is a claim about the spec, not about this driver.**
+`hostImageCopy` and `maintenance5` are both mandatory at the ADR 0010 floor, so
+the temptation is to treat `apiVersion >= 1.4` as the gate. Every use site
+gates on a `vkGetPhysicalDeviceFeatures2` probe instead, **and** on the volk
+pointer being non-null — a device that reports 1.4 without the feature, or a
+loader/layer that does not export the entry point, would otherwise reach a
+null function pointer rather than a slow path. This is the same shape as
+`synchronization2`/`dynamicRendering` in amendment (51): core-promoted and
+mandatory still means **default OFF at device creation**, so the bit has to be
+asked for explicitly.
+
+**`maintenance6` is deliberately NOT enabled.** Nothing in the backend consumes
+any of its relaxations, and an unused feature bit is dead weight the validation
+layer still has to reason about — the same rule the EDS3 and mesh-shader bits
+already follow. The issue named maintenance5/6 as a pair; only the half with a
+consumer shipped.
+
+**Host image copy has THREE gates, and only one of them is device-wide.** The
+feature bit says the device can do it. `VK_IMAGE_USAGE_HOST_TRANSFER_BIT` may
+only go on an image whose format advertises
+`VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT` at that tiling
+(VUID-VkImageCreateInfo-usage-10245) — a per-format question, answered through
+`VkFormatProperties3` because the bit lives above bit 31 and the 32-bit
+`VkFormatProperties` word cannot carry it. And the copy's layouts are a
+**driver property**: `VkPhysicalDeviceHostImageCopyProperties` publishes
+`pCopySrcLayouts` / `pCopyDstLayouts`, of which only
+`VK_IMAGE_LAYOUT_GENERAL` is spec-guaranteed to be in both, and an
+implementation may report `VK_IMAGE_LAYOUT_MAX_ENUM` to mean "all of them".
+So the upload copies into `GENERAL` unconditionally and *asks* before doing
+anything else.
+
+**The steady-state layout is what decides whether the route may be taken at
+all.** The backend's invariant is that sampled asset content sits in
+`SHADER_READ_ONLY_OPTIMAL` between graph executions — `GetData` and
+`SubImage` both name it as their barrier's `oldLayout` and would be invalid
+usage against anything else. A host upload that finished in `GENERAL` would
+sample correctly and silently break those two, which is why a driver that
+cannot host-transition to `SHADER_READ_ONLY_OPTIMAL` declines the entire host
+route instead of weakening the invariant. **A fast path that quietly changes a
+resource's resting state is not a fast path; it is a second contract.**
+
+**What actually left the command stream, and what did not.** For a texture with
+no mip chain the upload is now host-only: no staging buffer, no command
+buffer, no submit — and therefore nothing for amendment (72)'s
+"one-shot submits are ordered BEFORE the still-recording frame" to order.
+Mip generation is a **blit**, which has no host form, so a mipped upload still
+submits — it just submits a blit chain whose base level arrived from the host.
+The two paths share one `RecordMipChain` so their barrier ladders cannot
+drift; they differ only in how mip 0 got its pixels and which layout it starts
+from. `SubImage` deliberately stayed on the staging path: it is a partial
+update with a mid-frame arm of its own, and #809 scopes the host route to the
+load-time upload.
+
+**"Load-time" has to be ENFORCED, and one check is not enough.** The host
+commands execute on the CPU the instant they are called — no queue ordering,
+no fence — so "which uploads may take this route" is a correctness question,
+not a policy one. It takes two checks, and the second is the one a review
+caught missing:
+
+- **No frame may be recording.** The staging path's one-shot submit is at
+  least ordered against the queue; a host write to an image the recording
+  frame will sample is ordered against nothing. `SubImage` already applied
+  this guard to its mid-frame arm — the new route did not, and inherited
+  nothing from it.
+- **It must be the image's FIRST upload.** "No frame is recording" says
+  nothing about frames already *submitted*, and a re-upload targets an image
+  the renderer has been using. The registry's `InitialLayout` is exactly that
+  record — `VK_IMAGE_LAYOUT_UNDEFINED` until an upload publishes content — so
+  a freshly created or freshly `Resize()`d image is distinguishable from a
+  live one without inventing new state. This is what keeps the per-frame
+  re-uploaders (`VideoTexture::UpdateFrame`, `OceanFFTField::Upload`) on the
+  command path; without it, `SetData` on a live video texture would have been
+  an unsynchronised CPU write to an image the GPU was reading.
+
+The generalisable form: **a fast path that skips the queue inherits none of
+the queue's ordering guarantees, so every caller the old path tolerated has to
+be re-qualified individually.** The capability gate says the route is legal;
+it says nothing about whether this particular call is safe to take it.
+
+**The usage bit would land on images that can never use it, and the driver
+property is the wrong lever to fix that with.** Nothing in
+`TextureSpecification` distinguishes an asset texture from a framebuffer
+attachment — `VulkanFramebuffer` builds its attachments from a plain spec — so
+`VK_IMAGE_USAGE_HOST_TRANSFER_BIT` would go on every render target, on every
+resize, for a route they can never take. That is not free:
+`VkPhysicalDeviceHostImageCopyProperties::identicalMemoryTypeRequirements` is
+**`VK_FALSE` on NVIDIA** (measured on the RTX 4090 this backend is developed
+against), so the bit may change those images' memory type requirements.
+
+Gating the feature on that property was tried and is **wrong**: it declines
+host image copy outright on exactly the hardware it was built for — a
+"safe default" that silently deletes the feature. The lever that works is the
+one that knows what the texture is *for*: `VulkanTexture2D` takes a
+backend-internal `renderTargetOnly` constructor flag, `VulkanFramebuffer`
+passes it for every attachment, and the usage bit follows. It stays a
+constructor argument rather than a `TextureSpecification` field because the
+neutral spec is shared with the GL arm, which has no use for the distinction.
+
+The general shape: **when a capability costs something on resources that
+cannot use it, narrow by what the resource is FOR, not by the device property
+that measures the cost.** The property tells you the cost is real; it cannot
+tell you which resources are paying it for nothing.
+
+**maintenance5's index bind states a size the facade already knew.** Amendment
+(9b)'s `DrawIndexed(va, 0)` "whole buffer" sentinel was resolved at the draw
+sites to `indexBuffer->GetCount()`; the *bind* still said "whole buffer"
+implicitly. `vkCmdBindIndexBuffer2` states the real byte extent, so a draw
+whose count overruns the buffer is now a validation error naming the bind
+rather than an out-of-bounds index fetch that renders garbage. The bind cache
+stays keyed on the `VkBuffer` alone — `VulkanIndexBuffer`'s count is fixed at
+construction, so a different element count is necessarily a different buffer.
+
+Narrative, and the gate's test shape:
+[rhi-abstraction-boundary.md](../agent-rules/rhi-abstraction-boundary.md) §16.
