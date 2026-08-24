@@ -287,7 +287,7 @@ set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG 83f668625ad45364de71d385aeb6a5dd04bee02e  # docking @ 2026-06-05
+	GIT_TAG fd13a1e8923a0a7077b404fc36fd063b25a0c0b5  # docking @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)
