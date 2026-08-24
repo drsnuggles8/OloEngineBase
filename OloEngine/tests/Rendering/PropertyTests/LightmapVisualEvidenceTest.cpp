@@ -738,6 +738,17 @@ namespace OloEngine::Tests
             }
             ASSERT_EQ(w, width);
             ASSERT_EQ(h, height);
+            // Same three guards the forward test applies to its captures. The
+            // buffer-size one is not belt-and-braces: MeanChannelsInRect and
+            // MeanAbsDiffInRect index the vector raw, so a short readback is a
+            // heap over-read rather than a failed assertion. The kSize pair
+            // matters because the analysis rectangles at the top of this file are
+            // derived from one specific camera pose AT ASPECT 1 — a differently
+            // shaped capture would still produce in-range rects, and would
+            // silently measure the wrong patch of floor.
+            ASSERT_EQ(w, kSize);
+            ASSERT_EQ(h, kSize);
+            ASSERT_EQ(out.size(), static_cast<std::size_t>(w) * h * 4u);
             WriteEvidencePng(fileName, out, w, h);
         };
 
@@ -758,6 +769,11 @@ namespace OloEngine::Tests
         const PixelRect redRect = MakeRect(kRedRegionX0, kRedRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
         const PixelRect greenRect =
             MakeRect(kGreenRegionX0, kGreenRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
+        ASSERT_LT(redRect.X0, redRect.X1);
+        ASSERT_LT(redRect.Y0, redRect.Y1);
+        ASSERT_LE(redRect.X1, width);
+        ASSERT_LE(greenRect.X1, width);
+        ASSERT_LE(redRect.Y1, height);
         ASSERT_GT(redRect.PixelCount(), 1000u) << "analysis region too small for a stable mean";
 
         const RegionMeans fwdRed = MeanChannelsInRect(forwardOn, width, redRect);
