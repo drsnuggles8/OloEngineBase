@@ -17,11 +17,14 @@
 // in the same process, on the same GPU, at the same pose:
 //
 //   * ...ResolveStabilisesConsecutiveFrames (x2, SSR and SSGI) — the SWIM test.
-//     Since #902 the stochastic frame index advances unconditionally, so with
-//     the resolve OFF the grain is redrawn every frame and consecutive frames
-//     differ visibly. With it ON they must not. The resolve-off arm is the
-//     control: if it does not move either, the pass is not running and the
-//     ON arm proves nothing.
+//     The control arm is feedback 0, NOT the resolve toggle: turning the
+//     resolve off also freezes that pass's frame index (a pass with no
+//     accumulator must sample a stable dither — see RenderPipeline.cpp), so a
+//     toggle-off arm would be stable for the WRONG reason and would prove
+//     nothing about accumulation. Feedback 0 keeps the sampler advancing and
+//     keeps none of the history, isolating exactly the variable under test. If
+//     that arm does not move, the pass is not running and the ON arm is
+//     meaningless — so it is asserted, not assumed.
 //   * SSRConvergesAfterCameraMotion — the GHOSTING test. Settle, pan away, come
 //     back, settle. The returned frame must match the original within the
 //     margin the resolve-OFF arm shows over the identical round trip. A history
@@ -440,11 +443,14 @@ namespace OloEngine::Tests
         const f64 floorWorst = WorstConsecutiveDiff(camera, 6);
 
         ApplySSRParams();
-        pp.SSRTemporalResolve = false;
+        // Control: the resolve runs (so the sampler advances and the pass still
+        // costs its three draws) but keeps NONE of the history.
+        pp.SSRTemporalResolve = true;
+        pp.SSRTemporalFeedback = 0.0f;
         DropHistories(camera);
         const f64 offWorst = WorstConsecutiveDiff(camera, 6);
 
-        pp.SSRTemporalResolve = true;
+        pp.SSRTemporalFeedback = 0.92f;
         DropHistories(camera);
         const f64 onWorst = WorstConsecutiveDiff(camera, 6);
 
@@ -455,26 +461,82 @@ namespace OloEngine::Tests
         const f64 onExcess = onWorst - floorWorst;
 
         std::cout << "[SSR frame-to-frame stability] SSR-off floor = " << floorWorst
-                  << "   resolve OFF worst = " << offWorst << " (excess " << offExcess
-                  << ")   resolve ON worst = " << onWorst << " (excess " << onExcess << ")"
+                  << "   feedback 0 worst = " << offWorst << " (excess " << offExcess
+                  << ")   feedback 0.92 worst = " << onWorst << " (excess " << onExcess << ")"
                   << std::endl;
 
         ASSERT_GT(offExcess, 0.02)
-            << "with the resolve off, SSR adds no measurable frame-to-frame movement over the "
+            << "at feedback 0, SSR adds no measurable frame-to-frame movement over the "
                "SSR-disabled floor ("
             << floorWorst << " -> " << offWorst
             << "), so this test is measuring nothing: SSR is either contributing nothing to this "
                "scene, missing its G-Buffer, or sampling with a frozen frame index. Check that "
-               "StochasticFrameIndex still advances unconditionally in RenderPipeline.cpp.";
+               "StochasticFrameIndex advances whenever the pass's OWN resolve is enabled "
+               "(RenderPipeline.cpp, stochasticFrameIndexFor).";
 
         EXPECT_LT(onExcess, offExcess * 0.6)
             << "SSR's temporal resolve did not settle its own contribution: it still adds "
             << onExcess << " of frame-to-frame movement over the SSR-disabled floor, against "
             << offExcess
-            << " with the resolve off. Either the history is never valid (check the SSRHistory "
+            << " at feedback 0. Either the history is never valid (check the SSRHistory "
                "sink/import and the SSRHistoryValid fingerprint hash), or the feedback collapses "
                "every frame (check OloTemporalMotionFeedback's sub-pixel dead zone against a "
                "stationary camera).";
+    }
+
+    // Turning a pass's resolve OFF must freeze that pass's frame index, not just
+    // stop the accumulation. #902 removed the old `TAAEnabled ? index : 0` gate,
+    // and the temptation is to make the index unconditional — but the rule the
+    // gate expressed is per-pass and still holds: a pass with nothing averaging
+    // it must sample a STABLE dither, because advancing the sampler into a void
+    // replaces static grain with grain redrawn every frame, which is strictly
+    // worse to look at (docs/agent-rules/stochastic-sampling-and-temporal-resolve
+    // .md §3). These toggles are user-reachable from the panel, MCP and scene
+    // YAML, so this is a shipped configuration and not just a bisect lever.
+    //
+    // The paired positive is the feedback-0 arm of the test above: same "no
+    // accumulation" outcome, index still advancing, and it moves by 0.67. If
+    // this test and that one ever agree, the frame index has stopped following
+    // the toggle.
+    TEST_F(ScreenSpaceTemporalResolveEvidenceTest, DisablingTheResolveFreezesTheSamplerInsteadOfRedrawingGrain)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const ScopedMockTime scopedMockTime(kCaptureTime);
+        const EditorCamera camera = PoseA();
+        auto& pp = Renderer3D::GetPostProcessSettings();
+
+        ApplySSRParams();
+
+        // Resolve OFF: no accumulator, so the index must be frozen.
+        pp.SSRTemporalResolve = false;
+        DropHistories(camera);
+        const f64 frozenWorst = WorstConsecutiveDiff(camera, 6);
+
+        // Resolve ON at feedback 0: no accumulation either, but the index
+        // advances — this is what "sampling into a void" looks like.
+        pp.SSRTemporalResolve = true;
+        pp.SSRTemporalFeedback = 0.0f;
+        DropHistories(camera);
+        const f64 advancingWorst = WorstConsecutiveDiff(camera, 6);
+
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        std::cout << "[SSR frozen sampler] resolve OFF worst = " << frozenWorst
+                  << "   resolve ON, feedback 0 worst = " << advancingWorst << std::endl;
+
+        ASSERT_GT(advancingWorst, 0.05)
+            << "the advancing-index arm does not move (" << advancingWorst
+            << "), so this test cannot tell a frozen sampler from an advancing one and would pass "
+               "on the regression it exists to catch.";
+
+        EXPECT_LT(frozenWorst, advancingWorst * 0.25)
+            << "with SSR's temporal resolve OFF the frame still changes by " << frozenWorst
+            << " between consecutive frames on a static camera, against " << advancingWorst
+            << " when the sampler is deliberately advancing. The frame index is not following the "
+               "per-pass resolve toggle — check stochasticFrameIndexFor in RenderPipeline.cpp. A "
+               "pass with no accumulator behind it must sample a stable dither.";
     }
 
     // SWIM, SSGI. Same shape, same control, different pass.
@@ -494,11 +556,13 @@ namespace OloEngine::Tests
         const f64 floorWorst = WorstConsecutiveDiff(camera, 6);
 
         ApplySSGIParams();
-        pp.SSGITemporalResolve = false;
+        // Control: resolve on, feedback 0 — see the SSR variant.
+        pp.SSGITemporalResolve = true;
+        pp.SSGITemporalFeedback = 0.0f;
         DropHistories(camera);
         const f64 offWorst = WorstConsecutiveDiff(camera, 6);
 
-        pp.SSGITemporalResolve = true;
+        pp.SSGITemporalFeedback = 0.92f;
         DropHistories(camera);
         const f64 onWorst = WorstConsecutiveDiff(camera, 6);
 
@@ -509,12 +573,12 @@ namespace OloEngine::Tests
         const f64 onExcess = onWorst - floorWorst;
 
         std::cout << "[SSGI frame-to-frame stability] SSGI-off floor = " << floorWorst
-                  << "   resolve OFF worst = " << offWorst << " (excess " << offExcess
-                  << ")   resolve ON worst = " << onWorst << " (excess " << onExcess << ")"
+                  << "   feedback 0 worst = " << offWorst << " (excess " << offExcess
+                  << ")   feedback 0.92 worst = " << onWorst << " (excess " << onExcess << ")"
                   << std::endl;
 
         ASSERT_GT(offExcess, 0.02)
-            << "with the resolve off, SSGI adds no measurable frame-to-frame movement over the "
+            << "at feedback 0, SSGI adds no measurable frame-to-frame movement over the "
                "SSGI-disabled floor ("
             << floorWorst << " -> " << offWorst
             << "), so this test is measuring nothing — see the SSR variant.";
@@ -522,7 +586,7 @@ namespace OloEngine::Tests
         EXPECT_LT(onExcess, offExcess * 0.6)
             << "SSGI's temporal resolve did not settle its own contribution: it still adds "
             << onExcess << " of frame-to-frame movement over the SSGI-disabled floor, against "
-            << offExcess << " with the resolve off.";
+            << offExcess << " at feedback 0.";
     }
 
     // GHOSTING. Settle at A, pan to B, come back to A, settle again. The returned
@@ -540,9 +604,12 @@ namespace OloEngine::Tests
 
         ApplySSRParams();
 
-        const auto roundTripDistance = [&](bool resolveEnabled, const std::string& tag)
+        // Same control as the swim tests: vary the feedback, not the toggle, so
+        // both arms sample with an advancing index and only accumulation differs.
+        const auto roundTripDistance = [&](f32 feedback, const std::string& tag)
         {
-            pp.SSRTemporalResolve = resolveEnabled;
+            pp.SSRTemporalResolve = true;
+            pp.SSRTemporalFeedback = feedback;
             DropHistories(a);
 
             std::vector<u8> reference;
@@ -559,21 +626,21 @@ namespace OloEngine::Tests
             return MeanAbsDiff(reference, returned);
         };
 
-        const f64 offReturn = roundTripDistance(false, "");
-        const f64 onReturn = roundTripDistance(true, "SSR_Ghost");
+        const f64 offReturn = roundTripDistance(0.0f, "");
+        const f64 onReturn = roundTripDistance(0.92f, "SSR_Ghost");
 
         if (::testing::Test::HasFatalFailure())
             return;
 
-        std::cout << "[SSR ghosting] resolve OFF return mean|d| = " << offReturn
-                  << "   resolve ON return mean|d| = " << onReturn << std::endl;
+        std::cout << "[SSR ghosting] feedback 0 return mean|d| = " << offReturn
+                  << "   feedback 0.92 return mean|d| = " << onReturn << std::endl;
 
         // The OFF arm's distance is pure per-frame stochastic noise, so it is the
         // floor any correct resolve should beat or match. Allow a small absolute
         // slack for the ramp not being fully complete at kSettleFrames.
         EXPECT_LT(onReturn, offReturn + 2.0)
             << "returning to a settled pose after a pan left the frame " << onReturn
-            << " mean|d| from where it started (resolve-off control: " << offReturn
+            << " mean|d| from where it started (feedback-0 control: " << offReturn
             << ") — the resolve is dragging a trail from the other view. Check the reprojection "
                "SIGN in PostProcess_SSRResolve.glsl (prevUV = uv - velocity, matching the RT3 "
                "current-minus-previous convention) and the disocclusion confidence. See "

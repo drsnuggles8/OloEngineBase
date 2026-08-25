@@ -4911,8 +4911,30 @@ namespace OloEngine
         // extractions — an answer that is wrong in both directions. A resource
         // extracted that way needs a declared contract (or a pass access that
         // spans the read), not a lookup the planner cannot see in time.
-        const auto matches = [resourceName](const auto& contract)
-        { return contract.SourceResource == resourceName; };
+        // Compare against the CANONICAL name, because that is the key the
+        // transient planner buckets lifetimes under. A contract records the
+        // name of the handle it was given, and that is routinely a
+        // WriteNewVersion rename — TAA extracts from `TAAColor@TAAPass` while
+        // the planner tracks the lifetime of `TAAColor`. Matching raw strings
+        // silently misses every versioned source, which is the majority of the
+        // interesting ones.
+        const auto canonical = [this](const std::string& name) -> const std::string&
+        {
+            const std::string* current = &name;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+            {
+                const auto aliasIt = m_VersionAliasTargets.find(*current);
+                if (aliasIt == m_VersionAliasTargets.end())
+                {
+                    return *current;
+                }
+                current = &aliasIt->second;
+            }
+            return *current;
+        };
+
+        const auto matches = [resourceName, &canonical](const auto& contract)
+        { return canonical(contract.SourceResource) == resourceName; };
         return std::ranges::any_of(m_TemporalHistoryContracts, matches) ||
                std::ranges::any_of(m_ExternalTextureSinkContracts, matches);
     }

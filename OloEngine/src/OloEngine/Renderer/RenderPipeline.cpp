@@ -803,13 +803,22 @@ namespace OloEngine
             PostProcessPasses.AOApply->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
             PostProcessPasses.AOApply->SetSSAOUBO(data.PostProcessGPU.SSAO);
         }
-        // The frame index the stochastic passes sample with. Unconditional
-        // since issue #902: SSR and SSGI each accumulate their own signal
-        // through include/TemporalResolve.glsl now, so advancing the sampler is
-        // what makes them CONVERGE. (It used to be frozen unless TAA was on,
-        // because TAA was the only thing averaging them and advancing a sampler
-        // with no accumulator behind it just redraws the grain every frame.)
-        const auto stochasticFrameIndex = static_cast<f32>(data.StochasticFrameIndex);
+        // The frame index each stochastic pass samples with.
+        //
+        // No longer keyed on TAA (issue #902): SSR and SSGI each accumulate
+        // their own signal through include/TemporalResolve.glsl, so advancing
+        // the sampler is what makes them CONVERGE, whatever TAA is doing.
+        //
+        // But the RULE the old gate expressed still holds, and it is per-pass:
+        // a pass with no accumulator behind it must sample with a FROZEN index,
+        // because advancing one with nothing averaging it only replaces a
+        // stable dither with grain redrawn every frame — strictly worse to look
+        // at. The resolve toggles are user-reachable (panel, MCP, scene YAML),
+        // not just a bisect lever, so turning one off has to restore the frozen
+        // index rather than leave the pass sampling into a void. See
+        // docs/agent-rules/stochastic-sampling-and-temporal-resolve.md §3.
+        const auto stochasticFrameIndexFor = [&data](const bool passHasAccumulator)
+        { return static_cast<f32>(passHasAccumulator ? data.StochasticFrameIndex : 0u); };
 
         // Wire SSGIPass (screen-space global illumination) before SSR in the
         // dynamic post chain. Deferred-only: when the path is forward / forward+
@@ -850,8 +859,9 @@ namespace OloEngine
                     ssgiHeight = spec.Height > 0 ? static_cast<f32>(spec.Height) : 1.0f;
                 }
                 ssgi.ScreenParams = glm::vec4(ssgiWidth, ssgiHeight, 1.0f / ssgiWidth, 1.0f / ssgiHeight);
-                ssgi.Flags =
-                    glm::vec4(data.PostProcess.SSGIDebugView ? 1.0f : 0.0f, stochasticFrameIndex, 0.0f, 0.0f);
+                ssgi.Flags = glm::vec4(data.PostProcess.SSGIDebugView ? 1.0f : 0.0f,
+                                       stochasticFrameIndexFor(data.PostProcess.SSGITemporalResolve),
+                                       0.0f, 0.0f);
                 // Temporal resolve (#902). The HasVelocity / HistoryUsable
                 // lanes are placeholders here — SSGIRenderPass::Execute patches
                 // them once it knows whether those resources actually resolved,
@@ -907,8 +917,9 @@ namespace OloEngine
                     ssrHeight = spec.Height > 0 ? static_cast<f32>(spec.Height) : 1.0f;
                 }
                 ssr.ScreenParams = glm::vec4(ssrWidth, ssrHeight, 1.0f / ssrWidth, 1.0f / ssrHeight);
-                ssr.Flags =
-                    glm::vec4(data.PostProcess.SSRDebugView ? 1.0f : 0.0f, stochasticFrameIndex, 0.0f, 0.0f);
+                ssr.Flags = glm::vec4(data.PostProcess.SSRDebugView ? 1.0f : 0.0f,
+                                      stochasticFrameIndexFor(data.PostProcess.SSRTemporalResolve),
+                                      0.0f, 0.0f);
 
                 // Min-depth HZB acceleration (#284). UVFactor + mip count come
                 // straight from the SSR pass so they always describe the very
@@ -3760,6 +3771,15 @@ namespace OloEngine
         if (ssgiHistoryDeclaredButNotImported || ssrHistoryDeclaredButNotImported)
         {
             pipeline.InvalidateBlackboardCache();
+            // BOTH caches, and the second one is the load-bearing half. The
+            // blackboard cache only decides whether this function re-runs;
+            // BuildFrameGraph keeps its OWN cache keyed on the same fingerprint
+            // value, and the fingerprint is identical next frame (it was hashed
+            // from the pre-EnsureHistoryStorage flag). So re-running the import
+            // without this would put the handle in the blackboard while every
+            // pass's Setup() stayed cached and never re-read it — the resolve
+            // would keep sampling a history it was never handed.
+            graph.InvalidateBuildFrameGraphCache();
         }
 
         // (The 2D FogHistory sink/import died with the screen-space fog
