@@ -50,6 +50,7 @@ run is **not** evidence.
 | [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) §3a | a Cranley-Patterson rotation applied to a hemisphere RADIUS — textbook-correct on a torus, and it made the sampler measurably WORSE than the interleaved-gradient noise it replaced (error RMS 0.0349 vs 0.0218). Every CPU test passed, because they modelled one sample on the unit square where the rotation is right |
 | [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) | projecting a mesh's AABB through the real view-projection instead of onto a plane facing it passes EVERY value test — `SelectLODByPixelError` is a pure function of one float, so both implementations score identically on it. The separation only shows in an invariance test that holds camera-to-subject distance fixed while changing direction |
 | [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) | a terrain tile ended in a vertical wall of ground where the tile stopped, for two shipped issues, in a scene whose own notes named the waterline as the thing to watch. Nothing renders wrong, nothing asserts anything about a tile's OUTERMOST RING, and raising the height exponent removes the wall and the island at exactly the same rate — so tuning reads as progress right up to the point where the island is 1.4% of the tile |
+| [water-shading-nyquist.md](water-shading-nyquist.md) | eight Gerstner octaves derived their normals WITHOUT the amplitude their displacement carried, so the shading described waves the geometry did not have — for months. No C++ test could catch it: the CPU mirror `BuoyancySystem` samples computes displacement only and has no normal at all, so the pin has to be a text test against the GLSL |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -299,6 +300,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) ·
 [light-path-photometric-parity.md](light-path-photometric-parity.md) ·
 [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) ·
+[water-shading-nyquist.md](water-shading-nyquist.md) ·
 [pbf-solver-stability.md](pbf-solver-stability.md)
 
 **Scene, ECS & serialization** — [component-serializer-codegen.md](component-serializer-codegen.md) ·

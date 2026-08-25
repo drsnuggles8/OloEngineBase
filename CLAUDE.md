@@ -115,6 +115,7 @@ you are in.
 - [foliage-impostor-card-rendering.md](docs/agent-rules/foliage-impostor-card-rendering.md) — three ways impostor cards go missing, separable only by reading the PNG from several azimuths.
 - [light-path-photometric-parity.md](docs/agent-rules/light-path-photometric-parity.md) — the three light evaluators must agree; a dropped field in a GPU light struct is a silently dead knob.
 - [volumetric-cloud-debugging.md](docs/agent-rules/volumetric-cloud-debugging.md) — eight look-alike causes of a "uniform veil", the two suite-level golden killers, how to tell "darker" from "directionally darker", and why a correct change can move the frame by 0.3%.
+- [water-shading-nyquist.md](docs/agent-rules/water-shading-nyquist.md) — a derived normal must carry every factor its displacement carries, sub-pixel detail must be dropped rather than filtered, `fwidth` is undefined in a non-quad-uniform branch, and the mesh — not the shading — is the sea-state ceiling.
 - [pbf-solver-stability.md](docs/agent-rules/pbf-solver-stability.md) — PBF/SPH formulas assume unit-mass particles; with physical masses the reference constants diverge.
 
 **Scene, ECS & serialization**
