@@ -581,6 +581,19 @@ namespace OloEngine::MCP
         f32 CursorAskedY = 0.0f;
         f32 CursorLandedX = 0.0f;
         f32 CursorLandedY = 0.0f;
+
+        // What ImGui itself thinks is under the cursor / holding input RIGHT NOW
+        // (issue #921). `landed` above only proves the cursor POSITION took; it says
+        // nothing about whether ImGui's hit-test then routed that position to a
+        // widget. Without this, "the click landed and the widget ignored it" and
+        // "ImGui never resolved a hover at that point at all" were indistinguishable
+        // from the tool's reply alone — exactly the silent-failure shape this issue
+        // is about. Read directly off ImGui's internal state (g.HoveredWindow /
+        // g.HoveredId / g.ActiveId), which is why this needs no plumbing of its own:
+        // it is always live, not something only a mouse action populates.
+        std::string HoveredWindowName; // empty = ImGui has no hovered window this frame
+        u32 HoveredId = 0;             // ImGui item id under the cursor, 0 = none
+        u32 ActiveId = 0;              // ImGui item id currently holding the mouse, 0 = none
     };
 
     // Editor liveness + window state (issue #607) — the answer to "is the editor

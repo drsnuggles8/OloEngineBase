@@ -1447,11 +1447,59 @@ namespace OloEngine
 
             glm::mat4 ViewMatrix{ 1.0f }; // Camera view matrix — transforms world-space normals to view-space
 
+            // Variable Rate Compute Shading (issue #683).
+            // x = consume the per-tile rate image, y = paint the rate heatmap
+            // into the AO term instead of the AO, zw reserved.
+            //
+            // APPENDED, never inserted. GTAO_Denoise.comp declares a SHORTER
+            // PREFIX of this same `GTAOParams` block — std140 allows that, and
+            // it is why UBO_GTAO_DENOISE (60) exists as a separate block rather
+            // than as extra members here. Inserting a member above would
+            // relayout every field the denoise shader reads, silently, with no
+            // build error (glsl-shaders.md §8.2).
+            glm::ivec4 VRCSParams{ 0 };
+
             static constexpr u32 GetSize()
             {
                 return sizeof(GTAOUBO);
             }
         };
+        static_assert(sizeof(GTAOUBO) % 16 == 0, "GTAOUBO must be 16-byte aligned for std140");
+
+        // @brief Variable Rate Compute Shading classification params (issue #683).
+        // GLSL twin: the `ShadingRateParams` block in
+        // OloEditor/assets/shaders/compute/VRCSClassify.comp.
+        //
+        // Bound at UBO_USER_0 (binding 7), the shared PASS-LOCAL slot, exactly
+        // like DDGIPassDataUBO — and for the same reason. The engine has ONE
+        // uniform-buffer binding left below the GL 4.6 minimum of 84
+        // (UBO_BINDING_LIMIT is 83); #707 and #715 both recorded the decision
+        // not to spend it, and a per-dispatch parameter block for a classifier
+        // that uploads immediately before its own dispatch has no claim on it
+        // either. Nothing else in that dispatch reads binding 7.
+        //
+        // It lives in this header rather than beside the classifier so
+        // ShaderUBOSizeConsistencyTest can name its C++ twin — an unlisted
+        // block is SKIPPED by that test rather than failed.
+        struct ShadingRateUBO
+        {
+            glm::ivec4 ScreenAndTiles{ 0 }; //  0 — xy = viewport pixels, zw = tile grid
+            // x = relative depth range a tile may span and still coarsen,
+            // y = normal spread (1 - |mean normal|), z = relative luminance
+            // range, w = the tolerance multiplier the tighter 4x4 test applies
+            // to all three.
+            glm::vec4 Thresholds{ 0.0f }; // 16
+            // x = DepthLinearizeA (proj[2][2]), y = DepthLinearizeB (proj[3][2]),
+            // z = a previous-frame colour texture is bound, w = 4x4 is allowed.
+            glm::vec4 ClassifyControl{ 0.0f }; // 32
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(ShadingRateUBO);
+            }
+        };
+        static_assert(sizeof(ShadingRateUBO) % 16 == 0, "ShadingRateUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(ShadingRateUBO) == 48, "ShadingRateUBO std140 size drifted from GLSL expectation (48 B)");
         // @brief Jump Flood Algorithm parameters for selection outline rendering
         // Used by JFA init, propagation, and composite passes
         struct JumpFloodUBO
@@ -1593,7 +1641,11 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) % 16 == 0, "SelectionOutlineUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) == 304, "SelectionOutlineUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::GTAOUBO) % 16 == 0, "GTAOUBO size must be 16-byte aligned for std140");
-    static_assert(sizeof(UBOStructures::GTAOUBO) == 160, "GTAOUBO unexpected size — update GLSL layout");
+    // 176 since issue #683 appended the VRCSParams ivec4 (was 160). Appended,
+    // never inserted — GTAO_Denoise.comp declares a shorter PREFIX of the same
+    // GTAOParams block, so an insertion would relayout every field it reads
+    // with no build error.
+    static_assert(sizeof(UBOStructures::GTAOUBO) == 176, "GTAOUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::JumpFloodUBO) % 16 == 0, "JumpFloodUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::JumpFloodUBO) == 48, "JumpFloodUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::SHCoefficientsUBO) % 16 == 0, "SHCoefficientsUBO size must be 16-byte aligned for std140");
@@ -2725,7 +2777,12 @@ namespace OloEngine
                            name == "u_ProbeData" || name == "u_CurrVisibility" ||
                            // OpenVDB-imported density volume, compute-local reuse
                            // in FroxelFogScatter.comp (issue #724).
-                           name == "u_DensityVolume";
+                           name == "u_DensityVolume" ||
+                           // VRCS classification (issue #683): VRCSClassify.comp
+                           // reads scene depth here, mirroring GTAO.comp's
+                           // pass-local 3/4/5 so the two compute dispatches keep
+                           // the same slot meanings.
+                           name == "u_SceneDepth";
                 case TEX_AMBIENT:
                     return name.contains("AO") || name.contains("Ambient") ||
                            name.contains("ambient") || name.contains("Occlusion") ||
@@ -2738,9 +2795,19 @@ namespace OloEngine
                     return name.contains("Emissive") || name.contains("emissive") ||
                            name.contains("Emission") || name.contains("emission") ||
                            // Compute dispatch pass-local reuse (issue #627).
-                           name == "u_HilbertLUT";
+                           name == "u_HilbertLUT" ||
+                           // VRCS classification (issue #683): the previous
+                           // frame's resolved colour, for the luminance-variance
+                           // term. Pass-local, same as u_HilbertLUT above.
+                           name == "u_PrevSceneColor";
                 case TEX_ROUGHNESS:
-                    return name.contains("Roughness") || name.contains("roughness");
+                    return name.contains("Roughness") || name.contains("roughness") ||
+                           // VRCS (issue #683): GTAO.comp reads the per-tile
+                           // shading-rate image here, one slot past its existing
+                           // pass-local 3/4/5. A compute dispatch never coexists
+                           // with a bound material, which is what makes the
+                           // low-slot reuse above safe and makes this safe too.
+                           name == "u_ShadingRate";
                 case TEX_METALLIC:
                     return name.contains("Metallic") || name.contains("metallic");
                 case TEX_SHADOW:

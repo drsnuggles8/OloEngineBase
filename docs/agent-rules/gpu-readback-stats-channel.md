@@ -96,6 +96,14 @@ Consequences you must not undo:
   memory. A CPU read off it makes NVIDIA log 131188 and then migrate the buffer VIDEO → HOST
   (131186), permanently slowing every atomic that touches it. Same trap, same fix, as
   `ShaderDebugDraw::StageStatsForReadback` and `VirtualMeshRegistry::ReadFrameCullStats`.
+  **`TerrainGPUQuadtree::PollOverflow` was the one that got away** — it read 4 bytes of
+  overflow flags straight off the cull-state SSBO, which is *also* the buffer
+  `DispatchComputeIndirect` reads twice a frame. Measured on Drift: **708** × 131188 and
+  **25** × 131186 in one session, across six buffers (one per island). Throttling the read
+  to once every 240 frames, which is what the code did instead, does not help: the
+  migration is permanent, so one read poisons every subsequent frame. Staging it fixed it
+  (0 × 131188, verified with the copy and the staged read traced to prove the path still
+  ran — a silenced warning and a disabled poll look identical, see §0).
 - **The poll needs a flush to make progress.** In the engine, SwapBuffers flushes every frame, so
   this is free. A *test* presents nothing, so it must flush itself — see
   `GPUReadbackStatsEvidenceTest::FlushAndWaitForGPU`. Without it the fences never submit and the

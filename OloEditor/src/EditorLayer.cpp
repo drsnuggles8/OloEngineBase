@@ -13,6 +13,7 @@
 #include "OloEngine/Core/SyntheticInput.h"
 
 #include <backends/imgui_impl_glfw.h>
+#include <imgui_internal.h> // GImGui->HoveredWindow/HoveredId/ActiveId for GetMcpInputState (issue #921)
 #include <GLFW/glfw3.h>
 #include <stb_image/stb_image_write.h>
 
@@ -1214,6 +1215,15 @@ namespace OloEngine
         state.CursorAskedY = m_McpCursorAskedY;
         state.CursorLandedX = m_McpCursorLandedX;
         state.CursorLandedY = m_McpCursorLandedY;
+
+        // What ImGui's hit-test resolved on the last frame the plan actually ran
+        // (issue #921) — latched by DrainMcpInputQueue every tick, not read live
+        // here. A live read at THIS point (after the plan drained, and possibly
+        // after the cursor has already been handed back to "nowhere") answers a
+        // different question than the one this field exists to answer.
+        state.HoveredWindowName = m_McpHoveredWindowName;
+        state.HoveredId = m_McpHoveredId;
+        state.ActiveId = m_McpActiveId;
         return state;
     }
 
@@ -2802,6 +2812,25 @@ namespace OloEngine
         if (m_EditorPreferencesPanel.OnImGuiRender(m_Prefs))
         {
             ApplyPreferences();
+        }
+
+        // Latch what ImGui's hit-test resolved THIS frame (issue #921), while an
+        // injected plan is in flight (or just drained — one extra frame past empty
+        // so the plan's LAST tick, where a press/release actually lands, is never
+        // missed). g.HoveredWindow/HoveredId/ActiveId are computed once per frame in
+        // NewFrame and then USED by every widget's ButtonBehavior during THIS same
+        // frame's Begin/End calls above — so reading them here, after every panel
+        // has run, is what makes the value match what ImGui itself actually decided.
+        // Reading them from DrainMcpInputQueue (tried first) reads the PREVIOUS
+        // frame's resolution, since that runs before NewFrame; reading them from the
+        // tool's post-hoc GetInputState() call reads whatever is hovered at report
+        // time, which can be long after the plan (and its cursor) are gone. Neither
+        // answers "what did ImGui do with the click" — this does.
+        if (::GImGui != nullptr && (!m_McpInputQueue.empty() || m_McpCursorRestoreCountdown > 0))
+        {
+            m_McpHoveredWindowName = ::GImGui->HoveredWindow != nullptr ? ::GImGui->HoveredWindow->Name : std::string{};
+            m_McpHoveredId = ::GImGui->HoveredId;
+            m_McpActiveId = ::GImGui->ActiveId;
         }
     }
 

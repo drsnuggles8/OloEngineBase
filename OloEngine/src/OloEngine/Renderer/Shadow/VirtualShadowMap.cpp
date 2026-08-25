@@ -300,6 +300,15 @@ namespace OloEngine
 
     void VirtualShadowMap::DestroyResources()
     {
+        // Free the staging buffer HERE, while the context is alive, not from
+        // ~StagedBufferReadback. This VirtualShadowMap lives inside
+        // Renderer3D::s_Data, a process static destroyed at atexit — by which
+        // time RenderCommand::s_RendererAPI is already gone, so deleting a raw
+        // handle from the destructor dereferences a dead API. That is an access
+        // violation AFTER every test has passed, which is how it first showed
+        // up. See docs/agent-rules/lazy-static-release-ownership.md.
+        m_StatsReadback.Release();
+
         if (m_RasterFramebuffer.IsValid())
         {
             RenderCommand::DeleteFramebuffer(m_RasterFramebuffer);
@@ -1897,6 +1906,17 @@ namespace OloEngine
         BindWorkingSet();
         DispatchKernel(m_EndFrameShader, VSM::kTotalPageTableEntries, 64);
 
+        // Stage this frame's counters HERE, not at the next UpdatePages(). Both
+        // give the CPU a read that never touches the SSBO, but staging at the
+        // end of the frame that wrote them keeps the value ONE frame old the way
+        // it always was — staging at the start of the next frame would have made
+        // it two, which is a behaviour change a fixed-frame-count test can see
+        // (VulkanPassSuite.VirtualShadowMapRunsAFullFrameOnVulkan does).
+        if (const auto& stats = m_StatsBuffers[m_StatsWriteIndex])
+        {
+            m_StatsReadback.Stage(stats->GetRHIHandle(), 0, sizeof(VSM::Statistics));
+        }
+
         m_PrevOrigins = m_CurrOrigins;
         m_FullInvalidate = false;
     }
@@ -2004,23 +2024,21 @@ namespace OloEngine
 
     void VirtualShadowMap::ReadbackStatistics()
     {
-        // Called BEFORE the write index flips, so m_StatsWriteIndex still names
-        // the buffer the PREVIOUS frame wrote — which the GPU finished with a
-        // whole frame ago. The counters therefore cost one stale frame rather
-        // than a pipeline stall, and acceptance criterion #2 needs PagesDrawn
-        // observable every frame, so this is not gated behind a debug flag.
-        const auto& source = m_StatsBuffers[m_StatsWriteIndex];
-        if (!source)
-            return;
-        // The kernels that wrote this buffer were fenced with ShaderStorage
-        // barriers, which order SHADER reads — a CPU GetData is a buffer-update
-        // client and needs its own barrier class. The frame-late read makes the
-        // race close to unhittable in practice, which is exactly why it would
-        // ship: it costs one barrier to make the ordering guaranteed instead of
-        // probable.
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::BufferUpdate);
+        // One frame stale, never a pipeline stall: EndFrame() staged a copy of
+        // the counters after the previous frame's kernels, and this reads that
+        // copy. Acceptance criterion #2 needs PagesDrawn observable every frame,
+        // so this is not gated behind a debug flag.
+        //
+        // Reading the SSBO directly would be correct and would also migrate it
+        // VIDEO -> HOST — and these buffers are atomicAdd targets in every
+        // shadow kernel, so that migration is charged to every frame afterwards,
+        // not just to this read. Stage() supplies the barriers: the kernels were
+        // fenced with ShaderStorage, which orders SHADER reads, and a buffer
+        // copy is a buffer-update client that needs its own class.
         VSM::Statistics readback{};
-        source->GetData(&readback, sizeof(VSM::Statistics));
-        m_Statistics = readback;
+        if (m_StatsReadback.Read(&readback, sizeof(VSM::Statistics)))
+        {
+            m_Statistics = readback;
+        }
     }
 } // namespace OloEngine

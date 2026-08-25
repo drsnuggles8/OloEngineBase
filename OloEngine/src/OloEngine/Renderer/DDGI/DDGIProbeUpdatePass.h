@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -356,6 +357,11 @@ namespace OloEngine
         // SSBOs (issue #707)
         Ref<StorageBuffer> m_ProbeAuxSSBO; // binding 79 — one record per probe
         Ref<StorageBuffer> m_StatsSSBO;    // binding 80 — per-frame counters
+        // Staging for the two readbacks above. ReadbackProbeDiagnostics is
+        // mutable/const, and these are only touched there. Mutable so the const
+        // diagnostic can stage without pretending the pass is logically const.
+        mutable StagedBufferReadback m_StatsReadback;
+        mutable StagedBufferReadback m_AuxReadback;
 
         // Pass-owned GPU targets (created lazily on first submitted volume,
         // recreated when the Resolution / HitCacheTexels / CascadeCount

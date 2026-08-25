@@ -137,6 +137,16 @@ OloEditor/cmake_test_discovery_*.json
 !.claude/hooks/
 !.claude/.markdownlint-cli2.jsonc
 .claude/skills/**/shots/
+
+# Per-user Codex state. Keep project skill entrypoints versioned, but ignore the
+# local config, task state, caches, logs, and any future machine-specific files.
+# Supporting skill resources are deliberately ignored unless explicitly added to
+# this rule: a skill needs to opt in its repository-owned inputs rather than
+# accidentally publishing local outputs.
+.codex/*
+!.codex/skills/
+!.codex/skills/**/
+!.codex/skills/**/SKILL.md
 skills-lock.json
 docs/agents/
 

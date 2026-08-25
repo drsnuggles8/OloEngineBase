@@ -154,45 +154,49 @@ namespace OloEngine
         UploadToGPU();
     }
 
-    f32 TerrainData::GetHeightAt(f32 normalizedX, f32 normalizedZ) const
+    f32 TerrainData::SampleHeight(const std::vector<f32>& heights, u32 resolution,
+                                  f32 normalizedX, f32 normalizedZ)
     {
-        if (m_Heights.empty() || m_Resolution == 0)
+        if (heights.empty() || resolution == 0 ||
+            heights.size() != static_cast<sizet>(resolution) * resolution)
         {
             return 0.0f;
         }
 
-        f32 fx = std::clamp(normalizedX, 0.0f, 1.0f) * static_cast<f32>(m_Resolution - 1);
-        f32 fz = std::clamp(normalizedZ, 0.0f, 1.0f) * static_cast<f32>(m_Resolution - 1);
+        f32 fx = std::clamp(normalizedX, 0.0f, 1.0f) * static_cast<f32>(resolution - 1);
+        f32 fz = std::clamp(normalizedZ, 0.0f, 1.0f) * static_cast<f32>(resolution - 1);
 
         u32 x0 = static_cast<u32>(fx);
         u32 z0 = static_cast<u32>(fz);
-        u32 x1 = std::min(x0 + 1, m_Resolution - 1);
-        u32 z1 = std::min(z0 + 1, m_Resolution - 1);
+        u32 x1 = std::min(x0 + 1, resolution - 1);
+        u32 z1 = std::min(z0 + 1, resolution - 1);
 
         f32 fracX = fx - static_cast<f32>(x0);
         f32 fracZ = fz - static_cast<f32>(z0);
 
-        f32 h00 = m_Heights[static_cast<sizet>(z0) * m_Resolution + x0];
-        f32 h10 = m_Heights[static_cast<sizet>(z0) * m_Resolution + x1];
-        f32 h01 = m_Heights[static_cast<sizet>(z1) * m_Resolution + x0];
-        f32 h11 = m_Heights[static_cast<sizet>(z1) * m_Resolution + x1];
+        f32 h00 = heights[static_cast<sizet>(z0) * resolution + x0];
+        f32 h10 = heights[static_cast<sizet>(z0) * resolution + x1];
+        f32 h01 = heights[static_cast<sizet>(z1) * resolution + x0];
+        f32 h11 = heights[static_cast<sizet>(z1) * resolution + x1];
 
         f32 h0 = h00 + fracX * (h10 - h00);
         f32 h1 = h01 + fracX * (h11 - h01);
         return h0 + fracZ * (h1 - h0);
     }
 
-    glm::vec3 TerrainData::GetNormalAt(f32 normalizedX, f32 normalizedZ, f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const
+    glm::vec3 TerrainData::SampleNormal(const std::vector<f32>& heights, u32 resolution,
+                                        f32 normalizedX, f32 normalizedZ, f32 worldSizeX,
+                                        f32 worldSizeZ, f32 heightScale)
     {
-        if (m_Resolution == 0)
+        if (resolution == 0)
             return { 0.0f, 1.0f, 0.0f };
 
-        f32 texelSize = 1.0f / static_cast<f32>(m_Resolution);
+        f32 texelSize = 1.0f / static_cast<f32>(resolution);
 
-        f32 hL = GetHeightAt(normalizedX - texelSize, normalizedZ) * heightScale;
-        f32 hR = GetHeightAt(normalizedX + texelSize, normalizedZ) * heightScale;
-        f32 hD = GetHeightAt(normalizedX, normalizedZ - texelSize) * heightScale;
-        f32 hU = GetHeightAt(normalizedX, normalizedZ + texelSize) * heightScale;
+        f32 hL = SampleHeight(heights, resolution, normalizedX - texelSize, normalizedZ) * heightScale;
+        f32 hR = SampleHeight(heights, resolution, normalizedX + texelSize, normalizedZ) * heightScale;
+        f32 hD = SampleHeight(heights, resolution, normalizedX, normalizedZ - texelSize) * heightScale;
+        f32 hU = SampleHeight(heights, resolution, normalizedX, normalizedZ + texelSize) * heightScale;
 
         f32 dx = 2.0f * worldSizeX * texelSize;
         f32 dz = 2.0f * worldSizeZ * texelSize;
@@ -206,6 +210,25 @@ namespace OloEngine
             (hD - hU) / dz);
 
         return glm::normalize(normal);
+    }
+
+    f32 TerrainData::SampleSlopeDegrees(const std::vector<f32>& heights, u32 resolution,
+                                        f32 normalizedX, f32 normalizedZ, f32 worldSizeX,
+                                        f32 worldSizeZ, f32 heightScale)
+    {
+        const glm::vec3 normal =
+            SampleNormal(heights, resolution, normalizedX, normalizedZ, worldSizeX, worldSizeZ, heightScale);
+        return glm::degrees(std::acos(std::clamp(normal.y, -1.0f, 1.0f)));
+    }
+
+    f32 TerrainData::GetHeightAt(f32 normalizedX, f32 normalizedZ) const
+    {
+        return SampleHeight(m_Heights, m_Resolution, normalizedX, normalizedZ);
+    }
+
+    glm::vec3 TerrainData::GetNormalAt(f32 normalizedX, f32 normalizedZ, f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const
+    {
+        return SampleNormal(m_Heights, m_Resolution, normalizedX, normalizedZ, worldSizeX, worldSizeZ, heightScale);
     }
 
     void TerrainData::UploadToGPU()

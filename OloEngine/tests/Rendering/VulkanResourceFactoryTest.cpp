@@ -40,6 +40,8 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/Texture2DArray.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
@@ -48,8 +50,12 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
+#include "Platform/Vulkan/VulkanImageInfoRegistry.h"
+#include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanTexture.h" // GetHostImageCopyUploadCount (#809)
+#include "Platform/Vulkan/VulkanTexture2DArray.h"
+#include "Platform/Vulkan/VulkanTextureCubemap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <volk.h>
@@ -148,6 +154,14 @@ class VulkanResourceFactory : public ::testing::Test
 
     void TearDown() override
     {
+        // Disarm unconditionally, before the early return. The injection
+        // counter is a process-global static and every path that consumes it
+        // is conditional (GenerateMipmaps early-returns on a depth/BC format,
+        // and takes the in-frame branch when a recording API exists), so a
+        // test that armed it and did not reach a one-shot would otherwise
+        // leave the NEXT test's first submit silently failing.
+        VulkanOneShot::SetFailNextSubmitsForTesting(0u);
+        VulkanOneShot::SetFailNextFenceWaitsForTesting(0u);
         if (!m_Device)
             return;
         vkDeviceWaitIdle(m_Device->GetDevice());
@@ -483,10 +497,11 @@ TEST_F(VulkanResourceFactory, HostUploadOfAMippedWidenedTextureRoundTrips)
         EXPECT_EQ(mip0[pixel * 4 + 3], 0xFFu);
     }
 
-    // GetData names SHADER_READ_ONLY_OPTIMAL as its oldLayout, so a mip that
-    // reads back at all is also proof the upload left the image in the
-    // backend's steady-state layout — the invariant the host path declines
-    // the whole route rather than weaken.
+    // GetData barriers from the tracker's EXECUTED layout, falling back to
+    // VulkanImageInfo::InitialLayout when the tracker has never seen the image
+    // (#803). So a mip that reads back at all is also proof the upload left the
+    // image in the backend's steady-state layout AND recorded it — the
+    // invariant the host path declines the whole route rather than weaken.
     std::vector<u8> mip2;
     ASSERT_TRUE(texture->GetData(mip2, 2));
     ASSERT_EQ(mip2.size(), sizet{ 2 * 2 * 4 });
@@ -532,6 +547,172 @@ TEST_F(VulkanResourceFactory, HostUploadedTextureStillAcceptsASubImageUpdate)
     EXPECT_EQ(readback[patchedTexel + 0], 0xAAu);
     EXPECT_EQ(readback[patchedTexel + 3], 0xDDu);
     EXPECT_EQ(readback[0], 0x11u);
+}
+
+// ---------------------------------------------------------------------------
+// Layout tracking must not advance on a FAILED one-shot submit (#803).
+//
+// The desync these pin: a failed submit leaves the image in its OLD layout
+// while the registry claims the new one, so the NEXT barrier names an
+// oldLayout the image never reached. That is invalid usage
+// (VUID-VkImageMemoryBarrier2-oldLayout-01197) and the shape behind the
+// VUID-09600 family (#800). VulkanOneShot's fault injection is what makes it
+// reachable without a broken driver.
+// ---------------------------------------------------------------------------
+
+TEST_F(VulkanResourceFactory, ArrayMipGenerationLeavesTheTrackedLayoutAloneWhenTheSubmitFails)
+{
+    ScopedVulkanApiSelection vulkanApi;
+
+    Texture2DArraySpecification spec;
+    spec.Width = 8;
+    spec.Height = 8;
+    spec.Layers = 2;
+    spec.Format = Texture2DArrayFormat::RGBA8;
+    spec.GenerateMipmaps = true;
+
+    auto array = Texture2DArray::Create(spec);
+    ASSERT_NE(array, nullptr);
+
+    const VkImage image = static_cast<VulkanTexture2DArray*>(array.get())->GetVkImage();
+    ASSERT_NE(image, VK_NULL_HANDLE);
+
+    // Freshly created and never uploaded: UNDEFINED is the truth.
+    const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+    ASSERT_NE(info, nullptr);
+    ASSERT_EQ(info->InitialLayout, VK_IMAGE_LAYOUT_UNDEFINED);
+
+    VulkanOneShot::SetFailNextSubmitsForTesting(1u);
+    array->GenerateMipmaps();
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextSubmitsForTesting(), 0u)
+        << "the injected failure must have been consumed by the mip chain's one-shot";
+
+    // THE assertion: nothing executed, so the tracked layout must be unmoved.
+    EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout, VK_IMAGE_LAYOUT_UNDEFINED)
+        << "a failed submit must not advance the tracked layout";
+
+    // The A/B: the SAME call, same starting layout, no injection. It must
+    // advance the tracked layout — otherwise the assertion above would also
+    // pass on a version that simply never records anything.
+    array->GenerateMipmaps();
+    EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
+              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        << "a successful mip chain does advance it";
+}
+
+TEST_F(VulkanResourceFactory, CubemapMipGenerationLeavesTheTrackedLayoutAloneWhenTheSubmitFails)
+{
+    ScopedVulkanApiSelection vulkanApi;
+
+    CubemapSpecification spec;
+    spec.Width = 8;
+    spec.Height = 8;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = true;
+
+    auto cubemap = TextureCubemap::Create(spec);
+    ASSERT_NE(cubemap, nullptr);
+
+    const VkImage image = static_cast<VulkanTextureCubemap*>(cubemap.get())->GetVkImage();
+    ASSERT_NE(image, VK_NULL_HANDLE);
+
+    const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+    ASSERT_NE(info, nullptr);
+    ASSERT_EQ(info->InitialLayout, VK_IMAGE_LAYOUT_UNDEFINED);
+
+    VulkanOneShot::SetFailNextSubmitsForTesting(1u);
+    cubemap->GenerateMipmaps();
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextSubmitsForTesting(), 0u);
+    EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout, VK_IMAGE_LAYOUT_UNDEFINED)
+        << "a failed submit must not advance the tracked layout";
+
+    // The other half of the A/B — without it this test stays green on an
+    // implementation that simply never records the layout at all.
+    cubemap->GenerateMipmaps();
+    EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
+              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        << "a successful mip chain does advance it";
+}
+
+TEST_F(VulkanResourceFactory, ArrayMipGenerationStillRecordsTheLayoutWhenOnlyTheFenceWaitFails)
+{
+    ScopedVulkanApiSelection vulkanApi;
+
+    // The other side of the same coin. A fence-wait timeout means the queue
+    // ACCEPTED the chain, so it will execute and the image WILL reach
+    // SHADER_READ_ONLY — keeping the old layout there is the same stale-record
+    // desync, just reached from the opposite direction. Gating on the bool
+    // instead of VulkanOneShot::Outcome is what gets this wrong.
+    Texture2DArraySpecification spec;
+    spec.Width = 8;
+    spec.Height = 8;
+    spec.Layers = 2;
+    spec.Format = Texture2DArrayFormat::RGBA8;
+    spec.GenerateMipmaps = true;
+
+    auto array = Texture2DArray::Create(spec);
+    ASSERT_NE(array, nullptr);
+
+    const VkImage image = static_cast<VulkanTexture2DArray*>(array.get())->GetVkImage();
+    ASSERT_NE(image, VK_NULL_HANDLE);
+    ASSERT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout, VK_IMAGE_LAYOUT_UNDEFINED);
+
+    VulkanOneShot::SetFailNextFenceWaitsForTesting(1u);
+    array->GenerateMipmaps();
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextFenceWaitsForTesting(), 0u)
+        << "the injected timeout must have been consumed by the mip chain's one-shot";
+
+    EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
+              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        << "queued-but-unwaited work still executes, so the layout must be recorded";
+}
+
+TEST_F(VulkanResourceFactory, CubemapMipGenerationStillRecordsTheLayoutWhenOnlyTheFenceWaitFails)
+{
+    ScopedVulkanApiSelection vulkanApi;
+
+    CubemapSpecification spec;
+    spec.Width = 8;
+    spec.Height = 8;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = true;
+
+    auto cubemap = TextureCubemap::Create(spec);
+    ASSERT_NE(cubemap, nullptr);
+
+    const VkImage image = static_cast<VulkanTextureCubemap*>(cubemap.get())->GetVkImage();
+    ASSERT_NE(image, VK_NULL_HANDLE);
+    ASSERT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout, VK_IMAGE_LAYOUT_UNDEFINED);
+
+    VulkanOneShot::SetFailNextFenceWaitsForTesting(1u);
+    cubemap->GenerateMipmaps();
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextFenceWaitsForTesting(), 0u);
+
+    EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
+              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        << "queued-but-unwaited work still executes, so the layout must be recorded";
+}
+
+TEST_F(VulkanResourceFactory, ReadbackBarriersFromTheRecordedLayoutNotAnAssumedOne)
+{
+    ScopedVulkanApiSelection vulkanApi;
+
+    // A texture created but NEVER uploaded is still UNDEFINED. GetData used to
+    // hardcode SHADER_READ_ONLY_OPTIMAL as its barrier's oldLayout, which is
+    // invalid usage here — and the fixture's TearDown asserts zero validation
+    // errors, so this test is what would catch it.
+    TextureSpecification spec;
+    spec.Width = 4;
+    spec.Height = 4;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = false;
+
+    auto texture = Texture2D::Create(spec);
+    ASSERT_NE(texture, nullptr);
+
+    std::vector<u8> readback;
+    EXPECT_TRUE(texture->GetData(readback, 0));
+    EXPECT_EQ(readback.size(), sizet{ 4 * 4 * 4 });
 }
 
 TEST_F(VulkanResourceFactory, Maintenance5IsEnabledOnAContractSatisfyingDevice)

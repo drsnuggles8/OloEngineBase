@@ -637,8 +637,12 @@ namespace OloEngine
                 const f32 nz = static_cast<f32>(z) * invRes;
 
                 const f32 h01 = data.GetHeightAt(nx, nz);
-                const glm::vec3 normal = data.GetNormalAt(nx, nz, worldSizeX, worldSizeZ, heightScale);
-                const f32 slopeDeg = glm::degrees(std::acos(std::clamp(normal.y, -1.0f, 1.0f)));
+                // One implementation of the slope metric, shared with the
+                // headless coverage tests — a rule band is expressed in these
+                // degrees, so a second spelling of the conversion here would be
+                // a mirror that can drift.
+                const f32 slopeDeg = TerrainData::SampleSlopeDegrees(
+                    data.GetHeightData(), data.GetResolution(), nx, nz, worldSizeX, worldSizeZ, heightScale);
 
                 EvaluateLayerWeights(h01, slopeDeg, rules, weights);
 

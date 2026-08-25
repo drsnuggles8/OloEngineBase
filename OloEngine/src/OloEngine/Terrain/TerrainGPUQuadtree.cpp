@@ -63,6 +63,10 @@ namespace OloEngine
         constexpr u32 kOverflowNodes = 1u;
         constexpr u32 kOverflowVisible = 2u;
 
+        // Just the OverflowFlags word — the only thing the CPU ever wants back
+        // out of the cull state.
+        constexpr u64 kOverflowStagingBytes = sizeof(u32);
+
         // DrawElementsIndirectCommand padded to the std430 block in
         // TerrainCullArgs.comp (5 live fields + 3 pad uints).
         struct TerrainDrawArgsPOD
@@ -142,7 +146,19 @@ namespace OloEngine
     } // namespace
 
     TerrainGPUQuadtree::TerrainGPUQuadtree() = default;
-    TerrainGPUQuadtree::~TerrainGPUQuadtree() = default;
+
+    TerrainGPUQuadtree::~TerrainGPUQuadtree()
+    {
+        // The overflow staging buffer is a raw handle, so unlike the
+        // Ref<StorageBuffer> members beside it nothing frees it on its own.
+        // Same reasoning — and the same deferred-deletion path — as
+        // TerrainGPUPicker::~TerrainGPUPicker releasing its readback ring.
+        if (m_OverflowStaging.IsValid())
+        {
+            RenderCommand::DeleteBuffer(m_OverflowStaging);
+            m_OverflowStaging = RHI::NullResource;
+        }
+    }
 
     u32 TerrainGPUQuadtree::TotalNodeCount(u32 maxDepth)
     {
@@ -293,6 +309,11 @@ namespace OloEngine
 
         m_HasDispatched = false;
         m_OverflowWarned = false;
+        // A copy outstanding across a rebuild would report the OLD tree's
+        // overflow against the new one's capacities — a warning that is stale
+        // rather than wrong, which is the harder kind to disbelieve.
+        m_OverflowCopyPending = false;
+        m_FramesSinceOverflowPoll = 0;
 
         if (maxDepth == 0 || maxDepth > kMaxDepth)
         {
@@ -457,21 +478,68 @@ namespace OloEngine
 
     void TerrainGPUQuadtree::PollOverflow()
     {
+        // Staged, never read in place. m_CullStateBuffer is GL_DYNAMIC_COPY and
+        // has to stay that way: the compute passes atomically write it AND
+        // DispatchComputeIndirect reads it twice per frame as the
+        // GL_DISPATCH_INDIRECT_BUFFER, so it must live in video memory. A CPU
+        // glGetNamedBufferSubData straight off it makes NVIDIA log "CPU is
+        // consuming buffer object data ... inconsistent with this usage pattern"
+        // (131188) and then migrate the buffer VIDEO -> HOST (131186) — which
+        // does not just cost this one 4-byte read, it permanently slows every
+        // atomic the select/args/seam passes do against it, every frame, for the
+        // life of the buffer. Same trap, same fix, as
+        // ShaderDebugDraw::StageStatsForReadback, VirtualMeshRegistry::
+        // ReadFrameCullStats, and TerrainGPUPicker's own result ring.
+        //
+        // So: one call issues a GPU-side copy into a DeviceToHost staging
+        // buffer, a LATER call reads that. The flags are then a frame or more
+        // stale and the read never blocks on this frame's GPU work, which for a
+        // warn-once diagnostic costs nothing. See
+        // docs/agent-rules/gpu-readback-stats-channel.md.
         if (m_OverflowWarned || !m_CullStateBuffer)
         {
             return;
         }
-        if (++m_FramesSinceOverflowPoll < kOverflowPollInterval)
-        {
-            return;
-        }
-        m_FramesSinceOverflowPoll = 0;
 
         u32 flags = 0;
-        m_CullStateBuffer->GetData(&flags, static_cast<u32>(sizeof(flags)),
-                                   static_cast<u32>(offsetof(TerrainGpuCullState, OverflowFlags)));
+        if (m_OverflowCopyPending)
+        {
+            // The copy was issued on an earlier frame, so by now a SwapBuffers
+            // flush has retired it and this read finds the bytes already there.
+            m_OverflowCopyPending = false;
+            RenderCommand::ReadBufferSubData(m_OverflowStaging, 0, kOverflowStagingBytes, &flags);
+        }
+
         if (flags == 0)
         {
+            if (++m_FramesSinceOverflowPoll < kOverflowPollInterval)
+            {
+                return;
+            }
+            m_FramesSinceOverflowPoll = 0;
+
+            if (!m_OverflowStaging.IsValid())
+            {
+                m_OverflowStaging = RenderCommand::CreateBufferHandle();
+                RenderCommand::AllocateBufferStorage(m_OverflowStaging, kOverflowStagingBytes,
+                                                     RHI::MemoryResidency::DeviceToHost);
+            }
+            if (m_OverflowStaging.IsValid())
+            {
+                // The select pass set these bits with a SHADER atomic; the copy
+                // below is a buffer-update client and needs its own barrier
+                // class. Dispatch() already issued ShaderStorage | Command for
+                // the vertex stage and the indirect draw, and neither of those
+                // orders a glCopyNamedBufferSubData against the atomics — so
+                // BufferUpdate has to be added here or the copy reads a value
+                // that is right most of the time. Same pairing as
+                // TerrainGPUPicker::CaptureResult.
+                RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
+                RenderCommand::CopyBufferSubData(m_CullStateBuffer->GetRHIHandle(), m_OverflowStaging,
+                                                 static_cast<u64>(offsetof(TerrainGpuCullState, OverflowFlags)), 0,
+                                                 kOverflowStagingBytes);
+                m_OverflowCopyPending = true;
+            }
             return;
         }
 

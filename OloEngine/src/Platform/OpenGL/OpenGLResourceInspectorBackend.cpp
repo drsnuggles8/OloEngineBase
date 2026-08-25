@@ -36,6 +36,160 @@ namespace OloEngine
                     return 0;
             }
         }
+
+        // One table for the 2D and cubemap arms of QueryTexture (#803).
+        // They were two verbatim copies apart from the depth and
+        // depth-stencil cases, which the cubemap arm simply lacked — cube
+        // maps carry no depth format in this engine, so `allowDepth` keeps
+        // that exact behaviour (a depth token on a cubemap still falls to the
+        // RGBA8 default) instead of silently widening it.
+        //
+        // NOT shared with QueryCaptureSource: that one maps 16F to GL_FLOAT
+        // rather than GL_HALF_FLOAT, reads packed depth-stencil as depth-only
+        // float, adds R11F_G11F_B10F, and REFUSES an unrecognised format
+        // instead of defaulting. It is a different mapping on purpose.
+        void PixelTransferForInternalFormat(GLint internalFormat, bool allowDepth, GLenum& outPixelFormat,
+                                            GLenum& outDataType)
+        {
+            outPixelFormat = GL_RGBA;
+            outDataType = GL_UNSIGNED_BYTE;
+            switch (internalFormat)
+            {
+                case GL_RGBA8:
+                case GL_SRGB8_ALPHA8:
+                    outPixelFormat = GL_RGBA;
+                    outDataType = GL_UNSIGNED_BYTE;
+                    return;
+                case GL_RGB8:
+                case GL_SRGB8:
+                    outPixelFormat = GL_RGB;
+                    outDataType = GL_UNSIGNED_BYTE;
+                    return;
+                case GL_RG8:
+                    outPixelFormat = GL_RG;
+                    outDataType = GL_UNSIGNED_BYTE;
+                    return;
+                case GL_R8:
+                    outPixelFormat = GL_RED;
+                    outDataType = GL_UNSIGNED_BYTE;
+                    return;
+                case GL_RGBA16F:
+                    outPixelFormat = GL_RGBA;
+                    outDataType = GL_HALF_FLOAT;
+                    return;
+                case GL_RGB16F:
+                    outPixelFormat = GL_RGB;
+                    outDataType = GL_HALF_FLOAT;
+                    return;
+                case GL_RG16F:
+                    outPixelFormat = GL_RG;
+                    outDataType = GL_HALF_FLOAT;
+                    return;
+                case GL_R16F:
+                    outPixelFormat = GL_RED;
+                    outDataType = GL_HALF_FLOAT;
+                    return;
+                case GL_RGBA32F:
+                    outPixelFormat = GL_RGBA;
+                    outDataType = GL_FLOAT;
+                    return;
+                case GL_RGB32F:
+                    outPixelFormat = GL_RGB;
+                    outDataType = GL_FLOAT;
+                    return;
+                case GL_RG32F:
+                    outPixelFormat = GL_RG;
+                    outDataType = GL_FLOAT;
+                    return;
+                case GL_R32F:
+                    outPixelFormat = GL_RED;
+                    outDataType = GL_FLOAT;
+                    return;
+                default:
+                    break;
+            }
+
+            if (!allowDepth)
+            {
+                return; // RGBA8/UNSIGNED_BYTE, the pre-existing cubemap default
+            }
+
+            switch (internalFormat)
+            {
+                case GL_DEPTH_COMPONENT16:
+                case GL_DEPTH_COMPONENT24:
+                case GL_DEPTH_COMPONENT32:
+                    outPixelFormat = GL_DEPTH_COMPONENT;
+                    outDataType = GL_UNSIGNED_INT;
+                    return;
+                case GL_DEPTH_COMPONENT32F:
+                    outPixelFormat = GL_DEPTH_COMPONENT;
+                    outDataType = GL_FLOAT;
+                    return;
+                case GL_DEPTH24_STENCIL8:
+                    outPixelFormat = GL_DEPTH_STENCIL;
+                    outDataType = GL_UNSIGNED_INT_24_8;
+                    return;
+                case GL_DEPTH32F_STENCIL8:
+                    outPixelFormat = GL_DEPTH_STENCIL;
+                    outDataType = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
+                    return;
+                default:
+                    return;
+            }
+        }
+
+        // The SIZED INTERNAL FORMAT of a framebuffer attachment (#803).
+        //
+        // Every one of these queries used to ask for
+        // GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, which answers
+        // GL_FLOAT / GL_UNSIGNED_NORMALIZED / GL_INT — not a format at all,
+        // while FramebufferQuery documents these fields as native format
+        // enums. The attachment's own object knows the real answer, so ask it:
+        // a texture through glGetTextureLevelParameteriv at the attached
+        // level, a renderbuffer through glGetNamedRenderbufferParameteriv.
+        //
+        // 0 for anything else — the default framebuffer's attachments
+        // (GL_FRAMEBUFFER_DEFAULT) name no object to query, and 0 is
+        // GL_NONE, which is already this field's "no attachment" value.
+        GLint QueryAttachmentInternalFormat(GLenum attachment)
+        {
+            GLint objectType = GL_NONE;
+            glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, attachment,
+                                                  GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &objectType);
+            // OBJECT_NAME is only a legal query once the type says there IS an
+            // object — asking it for GL_NONE or GL_FRAMEBUFFER_DEFAULT is
+            // GL_INVALID_ENUM, and this inspector must not manufacture GL
+            // errors for the code it is inspecting.
+            if (objectType != GL_TEXTURE && objectType != GL_RENDERBUFFER)
+            {
+                return 0;
+            }
+
+            GLint objectName = 0;
+            glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, attachment,
+                                                  GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &objectName);
+            if (objectName == 0)
+            {
+                return 0;
+            }
+
+            GLint internalFormat = 0;
+            if (objectType == GL_TEXTURE)
+            {
+                GLint level = 0;
+                glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, attachment,
+                                                      GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL, &level);
+                glGetTextureLevelParameteriv(static_cast<GLuint>(objectName), level, GL_TEXTURE_INTERNAL_FORMAT,
+                                             &internalFormat);
+            }
+            else
+            {
+                glGetNamedRenderbufferParameteriv(static_cast<GLuint>(objectName), GL_RENDERBUFFER_INTERNAL_FORMAT,
+                                                  &internalFormat);
+            }
+            return internalFormat;
+        }
     } // namespace
 
     // ---- Introspection -----------------------------------------------------
@@ -62,148 +216,12 @@ namespace OloEngine
         outInfo.Height = static_cast<u32>(height);
         outInfo.InternalFormat = static_cast<u32>(internalFormat);
 
+        // Cube maps take the same table minus the depth cases (see the
+        // helper): they cannot carry a depth format here, so an unexpected
+        // depth token keeps falling to the RGBA8 default it always did.
         GLenum pixelFormat = GL_RGBA;
         GLenum dataType = GL_UNSIGNED_BYTE;
-        if (!isCubemap)
-        {
-            // Determine format and type based on internal format
-            switch (internalFormat)
-            {
-                case GL_RGBA8:
-                case GL_SRGB8_ALPHA8:
-                    pixelFormat = GL_RGBA;
-                    dataType = GL_UNSIGNED_BYTE;
-                    break;
-                case GL_RGB8:
-                case GL_SRGB8:
-                    pixelFormat = GL_RGB;
-                    dataType = GL_UNSIGNED_BYTE;
-                    break;
-                case GL_RG8:
-                    pixelFormat = GL_RG;
-                    dataType = GL_UNSIGNED_BYTE;
-                    break;
-                case GL_R8:
-                    pixelFormat = GL_RED;
-                    dataType = GL_UNSIGNED_BYTE;
-                    break;
-                case GL_RGBA16F:
-                    pixelFormat = GL_RGBA;
-                    dataType = GL_HALF_FLOAT;
-                    break;
-                case GL_RGB16F:
-                    pixelFormat = GL_RGB;
-                    dataType = GL_HALF_FLOAT;
-                    break;
-                case GL_RG16F:
-                    pixelFormat = GL_RG;
-                    dataType = GL_HALF_FLOAT;
-                    break;
-                case GL_R16F:
-                    pixelFormat = GL_RED;
-                    dataType = GL_HALF_FLOAT;
-                    break;
-                case GL_RGBA32F:
-                    pixelFormat = GL_RGBA;
-                    dataType = GL_FLOAT;
-                    break;
-                case GL_RGB32F:
-                    pixelFormat = GL_RGB;
-                    dataType = GL_FLOAT;
-                    break;
-                case GL_RG32F:
-                    pixelFormat = GL_RG;
-                    dataType = GL_FLOAT;
-                    break;
-                case GL_R32F:
-                    pixelFormat = GL_RED;
-                    dataType = GL_FLOAT;
-                    break;
-                case GL_DEPTH_COMPONENT16:
-                case GL_DEPTH_COMPONENT24:
-                case GL_DEPTH_COMPONENT32:
-                    pixelFormat = GL_DEPTH_COMPONENT;
-                    dataType = GL_UNSIGNED_INT;
-                    break;
-                case GL_DEPTH_COMPONENT32F:
-                    pixelFormat = GL_DEPTH_COMPONENT;
-                    dataType = GL_FLOAT;
-                    break;
-                case GL_DEPTH24_STENCIL8:
-                    pixelFormat = GL_DEPTH_STENCIL;
-                    dataType = GL_UNSIGNED_INT_24_8;
-                    break;
-                case GL_DEPTH32F_STENCIL8:
-                    pixelFormat = GL_DEPTH_STENCIL;
-                    dataType = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
-                    break;
-                default:
-                    pixelFormat = GL_RGBA;
-                    dataType = GL_UNSIGNED_BYTE;
-                    break;
-            }
-        }
-        else
-        {
-            // Determine format and type based on internal format (same as texture 2D)
-            switch (internalFormat)
-            {
-                case GL_RGBA8:
-                case GL_SRGB8_ALPHA8:
-                    pixelFormat = GL_RGBA;
-                    dataType = GL_UNSIGNED_BYTE;
-                    break;
-                case GL_RGB8:
-                case GL_SRGB8:
-                    pixelFormat = GL_RGB;
-                    dataType = GL_UNSIGNED_BYTE;
-                    break;
-                case GL_RG8:
-                    pixelFormat = GL_RG;
-                    dataType = GL_UNSIGNED_BYTE;
-                    break;
-                case GL_R8:
-                    pixelFormat = GL_RED;
-                    dataType = GL_UNSIGNED_BYTE;
-                    break;
-                case GL_RGBA16F:
-                    pixelFormat = GL_RGBA;
-                    dataType = GL_HALF_FLOAT;
-                    break;
-                case GL_RGB16F:
-                    pixelFormat = GL_RGB;
-                    dataType = GL_HALF_FLOAT;
-                    break;
-                case GL_RG16F:
-                    pixelFormat = GL_RG;
-                    dataType = GL_HALF_FLOAT;
-                    break;
-                case GL_R16F:
-                    pixelFormat = GL_RED;
-                    dataType = GL_HALF_FLOAT;
-                    break;
-                case GL_RGBA32F:
-                    pixelFormat = GL_RGBA;
-                    dataType = GL_FLOAT;
-                    break;
-                case GL_RGB32F:
-                    pixelFormat = GL_RGB;
-                    dataType = GL_FLOAT;
-                    break;
-                case GL_RG32F:
-                    pixelFormat = GL_RG;
-                    dataType = GL_FLOAT;
-                    break;
-                case GL_R32F:
-                    pixelFormat = GL_RED;
-                    dataType = GL_FLOAT;
-                    break;
-                default:
-                    pixelFormat = GL_RGBA;
-                    dataType = GL_UNSIGNED_BYTE;
-                    break;
-            }
-        }
+        PixelTransferForInternalFormat(internalFormat, !isCubemap, pixelFormat, dataType);
         outInfo.PixelFormat = static_cast<u32>(pixelFormat);
         outInfo.DataType = static_cast<u32>(dataType);
 
@@ -317,10 +335,8 @@ namespace OloEngine
             {
                 ++outInfo.ColorAttachmentCount;
 
-                GLint internalFormat;
-                glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i,
-                                                      GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &internalFormat);
-                outInfo.ColorAttachmentFormats.push_back(static_cast<u32>(internalFormat));
+                outInfo.ColorAttachmentFormats.push_back(
+                    static_cast<u32>(QueryAttachmentInternalFormat(GL_COLOR_ATTACHMENT0 + i)));
             }
         }
 
@@ -332,10 +348,7 @@ namespace OloEngine
 
         if (outInfo.HasDepthAttachment)
         {
-            GLint depthFormat;
-            glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                                                  GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &depthFormat);
-            outInfo.DepthAttachmentFormat = static_cast<u32>(depthFormat);
+            outInfo.DepthAttachmentFormat = static_cast<u32>(QueryAttachmentInternalFormat(GL_DEPTH_ATTACHMENT));
         }
 
         // Check stencil attachment
@@ -346,10 +359,7 @@ namespace OloEngine
 
         if (outInfo.HasStencilAttachment)
         {
-            GLint stencilFormat;
-            glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
-                                                  GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE, &stencilFormat);
-            outInfo.StencilAttachmentFormat = static_cast<u32>(stencilFormat);
+            outInfo.StencilAttachmentFormat = static_cast<u32>(QueryAttachmentInternalFormat(GL_STENCIL_ATTACHMENT));
         }
 
         // Estimate memory usage (simplified)
@@ -998,8 +1008,26 @@ namespace OloEngine
         // Modern OpenGL 4.5+ approach: Use immutable buffer storage + DSA
         glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
 
+        // Drain any error the CALLER left pending first, or the check below
+        // would attribute somebody else's failure to this allocation.
+        while (glGetError() != GL_NO_ERROR)
+        {
+        }
+
         // Use modern immutable buffer storage (OpenGL 4.4+)
         glBufferStorage(GL_PIXEL_PACK_BUFFER, static_cast<GLsizeiptr>(dataSize), nullptr, GL_MAP_READ_BIT | GL_DYNAMIC_STORAGE_BIT);
+
+        // A large `dataSize` can fail here with GL_OUT_OF_MEMORY. Unchecked,
+        // the code went on to issue the read into a PBO with no storage, fence
+        // it, and report success — the caller then mapped nothing.
+        if (const GLenum storageError = glGetError(); storageError != GL_NO_ERROR)
+        {
+            OLO_CORE_WARN("[GPUResourceInspector] PBO storage allocation of {} bytes failed (GL error 0x{:X})",
+                          dataSize, static_cast<u32>(storageError));
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            glDeleteBuffers(1, &pbo);
+            return false;
+        }
 
         // Modern OpenGL 4.5+ DSA: Direct texture access without state changes.
         // For cubemaps the z-offset selects the face (0..5 = +X,-X,+Y,-Y,+Z,-Z);
@@ -1009,7 +1037,12 @@ namespace OloEngine
                              static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1,
                              GL_RGBA, GL_UNSIGNED_BYTE, static_cast<GLsizei>(dataSize), nullptr);
 
-        // Unbind PBO
+        // The ONE unbind, and it must stay here: the read above needs the PBO
+        // bound to route into it, and the binding must be clear before the
+        // fence so the caller's next pack read does not land in this buffer.
+        // Two further unbinds used to follow (one on the fence-failure path,
+        // one labelled "restore"); both were dead, since this call already
+        // left the binding at 0 (#803).
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
         // Create modern sync object for better async completion detection (OpenGL 3.2+)
@@ -1018,12 +1051,8 @@ namespace OloEngine
         {
             OLO_CORE_WARN("Failed to create sync fence for texture download");
             glDeleteBuffers(1, &pbo);
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
             return false;
         }
-
-        // Restore PBO binding
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
         outTicket.NativeBuffer = static_cast<u32>(pbo);
         outTicket.Fence = fence;

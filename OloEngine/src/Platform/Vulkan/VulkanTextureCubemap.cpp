@@ -344,9 +344,18 @@ namespace OloEngine
         {
             const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
             const VkImageLayout prior = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
-            (void)VulkanOneShot::Submit("VulkanTextureCubemap::GenerateMipmaps",
-                                        [&](VkCommandBuffer cmd)
-                                        { recordChain(cmd, prior); });
+            // Gated on queue acceptance — see VulkanTexture2DArray::
+            // GenerateMipmaps for the contract, and VulkanOneShot::Outcome for
+            // why the bool alone is the wrong question here.
+            VulkanOneShot::Outcome outcome = VulkanOneShot::Outcome::NotSubmitted;
+            VulkanOneShot::Submit("VulkanTextureCubemap::GenerateMipmaps", [&](VkCommandBuffer cmd)
+                                  { recordChain(cmd, prior); }, &outcome);
+            if (outcome == VulkanOneShot::Outcome::NotSubmitted)
+            {
+                OLO_CORE_ERROR("VulkanTextureCubemap::GenerateMipmaps: the mip chain never reached the queue — "
+                               "tracked layout left unchanged");
+                return;
+            }
         }
         VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }

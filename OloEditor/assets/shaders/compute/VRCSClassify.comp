@@ -1,0 +1,371 @@
+#version 460 core
+
+// =============================================================================
+// VRCSClassify.comp — Variable Rate Compute Shading classification (issue #683)
+//
+// One workgroup per 8x8 screen tile, one invocation per pixel of that tile.
+// Each invocation samples its own pixel's depth, G-Buffer normal and previous-
+// frame luminance; the workgroup reduces those into per-tile statistics and
+// invocation 0 writes ONE shading footprint into the R8UI rate image:
+//
+//     1  full rate        2  a 2x2 quad computes once        4  a 4x4 quad
+//
+// Consumers read that image through include/VRCS.glsl; see the header block
+// there for the leader/broadcast contract.
+//
+// -----------------------------------------------------------------------------
+// EDGE PRESERVATION IS THE POINT, NOT THE SAVING.
+//
+// Every threshold below is a test for "is this tile flat enough that one sample
+// can stand in for four", and every one of them FAILS SAFE toward full rate:
+// an unclassifiable tile, a tile straddling a silhouette, a tile whose normals
+// disagree, a tile with any sky/geometry mix, or a tile the shader could not
+// read all of, is rated 1x1. Coarsening is only ever granted, never assumed.
+//
+// The three signals are deliberately different in kind, because each is blind
+// where another sees:
+//   * DEPTH PLANARITY catches silhouettes and depth discontinuities — the case
+//     where broadcasting one pixel's result across a quad smears a foreground
+//     surface onto a background one.
+//
+//     Measured as the residual from a least-squares PLANE FIT over inverse
+//     depth, NOT as the tile's depth range. The distinction is the whole
+//     usefulness of the feature and it was found by looking at the heatmap:
+//     range-vs-nearest rejects a large flat floor seen at a grazing angle,
+//     because a receding plane genuinely spans a lot of depth across 8 pixels
+//     — so the first implementation coarsened the sky and every camera-facing
+//     surface and left every ground plane at full rate, which is most of an
+//     outdoor frame. What actually breaks a broadcast is a DISCONTINUITY, and
+//     a plane is not one however steeply it recedes.
+//
+//     Inverse depth is the right space to fit in: 1/z is exactly affine in
+//     screen coordinates for a planar surface (it is what perspective-correct
+//     interpolation interpolates), so a perfect plane at any angle has a
+//     residual of zero while a depth step has a large one. A gently curved
+//     surface has a small residual and is allowed to coarsen, which is correct
+//     — its shading varies smoothly — and strong curvature is caught by the
+//     normal term below rather than by this one.
+//   * NORMAL AGREEMENT catches creases and curvature that depth alone cannot:
+//     two faces of a box meeting inside a tile are continuous in depth and
+//     completely different in shading. Measured as 1 - |mean(n)|, which is 0
+//     when every normal in the tile is identical and rises as they fan out.
+//   * PREVIOUS-FRAME LUMINANCE catches what the geometry buffers cannot see at
+//     all — a shadow edge, a specular highlight, a light's falloff crossing a
+//     perfectly flat wall. It is optional (there is no history on frame 0, or
+//     with TAA off) and its absence only makes classification MORE
+//     conservative, never less.
+//
+// A tile must pass ALL of the enabled tests to coarsen. 4x4 additionally
+// requires passing the same tests at a tighter tolerance (u_Thresholds.w), so
+// the 4x4 set is a strict subset of the 2x2 set by construction.
+// =============================================================================
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "../include/VRCS.glsl"
+
+// ---------------------------------------------------------------------------
+// Params (binding 7 = UBO_USER_0, the shared PASS-LOCAL slot). C++ twin:
+// UBOStructures::ShadingRateUBO in ShaderBindingLayout.h.
+//
+// UBO_USER_0 rather than a new binding on purpose: the engine has exactly ONE
+// uniform-buffer slot left below the GL 4.6 minimum of 84, and both #707 and
+// #715 recorded the decision not to spend it. This block is uploaded
+// immediately before its own dispatch and read by nothing else in it, which is
+// the same contract DDGIPassData has for the same slot.
+// ---------------------------------------------------------------------------
+layout(std140, binding = 7) uniform ShadingRateParams
+{
+    ivec4 u_ScreenAndTiles;  // xy = viewport pixels, zw = tile grid
+    vec4  u_Thresholds;      // x = depth range (relative), y = normal spread, z = luma range (relative), w = 4x4 tolerance scale
+    vec4  u_ClassifyControl; // x = DepthLinearizeA, y = DepthLinearizeB, z = has previous colour, w = allow 4x4
+};
+
+#include "../include/BindlessHeap.glsl"
+
+// Pass-local slot numbers, exactly like GTAO.comp's 3/4/5: these are indices
+// into the shared heap-offset table that this dispatch refills and flushes
+// immediately before running, not engine-wide TEX_* reservations.
+#ifdef OLO_BINDLESS
+#define u_SceneDepth OLO_HEAP_TEX_2D(3)
+#define u_ViewNormals OLO_HEAP_TEX_2D(4)
+#define u_PrevSceneColor OLO_HEAP_TEX_2D(5)
+#else
+layout(binding = 3) uniform sampler2D u_SceneDepth;     // device Z
+layout(binding = 4) uniform sampler2D u_ViewNormals;    // octahedral normals (RG16F)
+layout(binding = 5) uniform sampler2D u_PrevSceneColor; // previous frame's resolved colour
+#endif
+
+#ifndef OLO_BINDLESS
+layout(binding = 0, r8ui) writeonly uniform uimage2D o_ShadingRate;
+#endif
+
+// Same far-plane slack GTAO.comp uses: a filtered read of a D24 source can come
+// back a few ULPs below 1.0, and an exact test then calls the whole sky
+// geometry sitting at the far plane.
+#define VRCS_FAR_DEPTH_THRESHOLD (1.0 - 1e-6)
+
+// Matches every other consumer of the engine's normal RT: (-2,-2) is the
+// "no meaningful surface normal here" sentinel written by the grid, particle
+// and Renderer2D shaders. Decoding it yields a garbage direction, so a tile
+// containing one must not be allowed to reason about normal agreement.
+#define VRCS_NORMAL_SENTINEL (-1.5)
+
+// A float large enough to lose every min()/max() against real data, without
+// naming an infinity the shader would then have to keep out of the arithmetic.
+#define VRCS_FLOAT_MAX 3.402823466e+38
+
+// Least-squares plane fit over inverse depth, in tile-local coordinates
+// centred on the tile (dx, dy in [-3.5, +3.5]). Because the tile is a FIXED
+// 8x8 grid, the normal equations collapse to three sums: the design matrix's
+// other moments are compile-time constants (sum dx = sum dy = sum dx*dy = 0,
+// sum dx^2 = sum dy^2 = 336). Those constants are only valid for a FULL tile,
+// which is why a partial tile at the screen edge never coarsens.
+#define VRCS_TILE_PIXELS 64.0
+#define VRCS_TILE_SECOND_MOMENT 336.0
+
+shared float s_SumW[64];    // sum of inverse depth
+shared float s_SumWdx[64];  // sum of dx * inverse depth
+shared float s_SumWdy[64];  // sum of dy * inverse depth
+shared float s_MaxResidual[64];
+shared vec3 s_NormalSum[64];
+shared float s_NormalCount[64];
+shared float s_MinLuma[64];
+shared float s_MaxLuma[64];
+shared uint s_GeometryCount[64];
+shared uint s_InsideCount[64];
+// Plane coefficients, published by lane 0 between the two reduction rounds and
+// read by every lane: a = value at the tile centre, b/c = per-pixel gradient.
+shared vec3 s_Plane;
+
+// The repo's shared-memory barrier idiom (include/PrefixSum.glsl): `barrier()`
+// alone is an execution barrier, and the spec's shared-memory guarantee is
+// weaker than most drivers' actual behaviour, so pair the two.
+#define VRCS_BARRIER() { memoryBarrierShared(); barrier(); }
+
+vec3 OctDecode(vec2 f)
+{
+    vec3 n = vec3(f.xy, 1.0 - abs(f.x) - abs(f.y));
+    float t = max(-n.z, 0.0);
+    n.x += (n.x >= 0.0) ? -t : t;
+    n.y += (n.y >= 0.0) ? -t : t;
+    return normalize(n);
+}
+
+float LinearizeDepth(float deviceZ)
+{
+    float ndc = deviceZ * 2.0 - 1.0;
+    return u_ClassifyControl.y / (ndc + u_ClassifyControl.x);
+}
+
+void main()
+{
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r8ui, writeonly, uimage2D, o_ShadingRate, 0);
+#endif
+
+    // NO EARLY RETURN ABOVE THE REDUCTION. Every invocation of this workgroup
+    // must reach every VRCS_BARRIER() the same number of times; an out-of-
+    // viewport invocation therefore contributes reduction IDENTITIES and stays
+    // alive, exactly as docs/agent-rules/gpu-scan-compaction.md section 1
+    // requires.
+    uint lane = gl_LocalInvocationIndex;
+    ivec2 pixCoord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 screenSize = u_ScreenAndTiles.xy;
+    bool inside = (pixCoord.x < screenSize.x) && (pixCoord.y < screenSize.y);
+
+    // Tile-local coordinates, centred, so the plane fit's normal equations
+    // decouple into three independent sums.
+    float dx = float(gl_LocalInvocationID.x) - 3.5;
+    float dy = float(gl_LocalInvocationID.y) - 3.5;
+
+    float invDepth = 0.0;
+    vec3 normalSum = vec3(0.0);
+    float normalCount = 0.0;
+    float minLuma = VRCS_FLOAT_MAX;
+    float maxLuma = -VRCS_FLOAT_MAX;
+    uint geometryCount = 0u;
+
+    if (inside)
+    {
+        float deviceZ = texelFetch(u_SceneDepth, pixCoord, 0).r;
+        bool isGeometry = (deviceZ > 0.0) && (deviceZ < VRCS_FAR_DEPTH_THRESHOLD);
+
+        if (isGeometry)
+        {
+            geometryCount = 1u;
+            // Inverse depth: affine in screen space across a planar surface,
+            // which is the property the residual test below relies on.
+            invDepth = 1.0 / max(LinearizeDepth(deviceZ), 1e-4);
+
+            vec2 encodedNormal = texelFetch(u_ViewNormals, pixCoord, 0).rg;
+            if (encodedNormal.x >= VRCS_NORMAL_SENTINEL)
+            {
+                normalSum = OctDecode(encodedNormal);
+                normalCount = 1.0;
+            }
+        }
+
+        if (u_ClassifyControl.z > 0.5)
+        {
+            // Normalised UV, not texelFetch: the history is at the POST-PROCESS
+            // resolution while this pass runs at the scene band, and under FSR1
+            // those differ. A texelFetch would read the wrong pixel by a fixed
+            // scale factor and quietly turn the luminance term into noise.
+            vec2 uv = (vec2(pixCoord) + 0.5) / vec2(screenSize);
+            vec3 prevColor = texture(u_PrevSceneColor, uv).rgb;
+            float luma = dot(prevColor, vec3(0.2126, 0.7152, 0.0722));
+            minLuma = luma;
+            maxLuma = luma;
+        }
+    }
+
+    s_SumW[lane] = invDepth;
+    s_SumWdx[lane] = dx * invDepth;
+    s_SumWdy[lane] = dy * invDepth;
+    s_NormalSum[lane] = normalSum;
+    s_NormalCount[lane] = normalCount;
+    s_MinLuma[lane] = minLuma;
+    s_MaxLuma[lane] = maxLuma;
+    s_GeometryCount[lane] = geometryCount;
+    s_InsideCount[lane] = inside ? 1u : 0u;
+
+    // ROUND 1 — tree reduction of the sums. Both the loop bound and every
+    // barrier are work-group uniform; only the combine is masked, and the mask
+    // sits INSIDE the barrier pair, never around it. NO INVOCATION RETURNS
+    // between here and the end of round 2.
+    for (uint stride = 32u; stride > 0u; stride >>= 1u)
+    {
+        VRCS_BARRIER();
+        if (lane < stride)
+        {
+            uint other = lane + stride;
+            s_SumW[lane] += s_SumW[other];
+            s_SumWdx[lane] += s_SumWdx[other];
+            s_SumWdy[lane] += s_SumWdy[other];
+            s_NormalSum[lane] += s_NormalSum[other];
+            s_NormalCount[lane] += s_NormalCount[other];
+            s_MinLuma[lane] = min(s_MinLuma[lane], s_MinLuma[other]);
+            s_MaxLuma[lane] = max(s_MaxLuma[lane], s_MaxLuma[other]);
+            s_GeometryCount[lane] += s_GeometryCount[other];
+            s_InsideCount[lane] += s_InsideCount[other];
+        }
+    }
+    VRCS_BARRIER();
+
+    // Publish the fitted plane for round 2. Only meaningful when every pixel of
+    // the tile contributed an inverse depth — which is exactly the case the
+    // residual is consulted in (a full, all-geometry tile), and why the
+    // constant moments above are valid.
+    if (lane == 0u)
+    {
+        s_Plane = vec3(s_SumW[0] / VRCS_TILE_PIXELS,
+                       s_SumWdx[0] / VRCS_TILE_SECOND_MOMENT,
+                       s_SumWdy[0] / VRCS_TILE_SECOND_MOMENT);
+    }
+    VRCS_BARRIER();
+
+    // ROUND 2 — how far is this pixel from the plane the tile as a whole fits?
+    // Each invocation still holds its own inverse depth in a register, so this
+    // costs no extra sampling: one multiply-add and a max-reduction.
+    float fitted = s_Plane.x + s_Plane.y * dx + s_Plane.z * dy;
+    s_MaxResidual[lane] = abs(invDepth - fitted);
+
+    for (uint stride = 32u; stride > 0u; stride >>= 1u)
+    {
+        VRCS_BARRIER();
+        if (lane < stride)
+        {
+            s_MaxResidual[lane] = max(s_MaxResidual[lane], s_MaxResidual[lane + stride]);
+        }
+    }
+    VRCS_BARRIER();
+
+    if (lane != 0u)
+    {
+        return;
+    }
+
+    ivec2 tileCoord = ivec2(gl_WorkGroupID.xy);
+    if (tileCoord.x >= u_ScreenAndTiles.z || tileCoord.y >= u_ScreenAndTiles.w)
+    {
+        return;
+    }
+
+    uint insideCount = s_InsideCount[0];
+    uint geometryPixels = s_GeometryCount[0];
+
+    // Rate 1x1 is the answer for every case we cannot positively clear.
+    uint footprint = OLO_VRCS_RATE_1X1;
+
+    // A tile is only a candidate when it is FULL (every one of its 64 pixels is
+    // inside the viewport) and ENTIRELY geometry or ENTIRELY sky.
+    //
+    // Full, because the plane fit's moment constants above assume a complete
+    // 8x8 grid — a partial tile at the right or bottom edge would fit a plane
+    // through a lopsided sample set and get a meaningless residual. Refusing to
+    // coarsen the last row and column of tiles costs a sliver of the saving and
+    // removes the whole question.
+    //
+    // Entirely one or the other, because a mixed tile IS a silhouette — the
+    // case coarsening must never touch — and because the sky's linearised depth
+    // is finite, merely far, so its inverse depth would fit a plane happily
+    // alongside geometry rather than standing out as a discontinuity.
+    bool fullTile = (insideCount == 64u);
+    bool allSky = fullTile && (geometryPixels == 0u);
+    bool allGeometry = fullTile && (geometryPixels == 64u);
+
+    if (allSky)
+    {
+        // Nothing varies across a sky tile. Consumers early-out on the far
+        // plane anyway, so this mostly buys the coarse path a uniform block
+        // rather than a saving.
+        footprint = (u_ClassifyControl.w > 0.5) ? OLO_VRCS_RATE_4X4 : OLO_VRCS_RATE_2X2;
+    }
+    else if (allGeometry)
+    {
+        // The plane-fit residual, relative to the tile's mean inverse depth so
+        // the metric is scale-free: a 1% departure from planarity means the
+        // same thing at 0.5 m and at 200 m. Zero for a plane at ANY angle;
+        // large for a step, however small the step is in world units, because
+        // a step is a discontinuity and a receding plane is not.
+        float depthMetric = s_MaxResidual[0] / max(s_Plane.x, 1e-6);
+
+        // 1 - |mean(n)|: exactly 0 when every normal agrees, approaching 1 as
+        // they cancel. Requires EVERY pixel of the tile to have contributed a
+        // real normal — a single sentinel pixel (grid, particle, 2D overlay)
+        // makes the mean meaningless, so that tile stays full rate.
+        bool normalsUsable = (s_NormalCount[0] >= float(insideCount) - 0.5);
+        float normalMetric = normalsUsable
+            ? (1.0 - clamp(length(s_NormalSum[0]) / max(s_NormalCount[0], 1.0), 0.0, 1.0))
+            : VRCS_FLOAT_MAX;
+
+        // Relative luminance range, so a bright tile is not penalised for
+        // carrying the same PROPORTIONAL variation as a dark one. Contributes
+        // nothing (metric 0) when no history exists.
+        bool hasLuma = (u_ClassifyControl.z > 0.5) && (insideCount > 0u);
+        float lumaMetric = hasLuma
+            ? ((s_MaxLuma[0] - s_MinLuma[0]) / max(s_MinLuma[0], 1e-3))
+            : 0.0;
+
+        bool pass2x2 = (depthMetric <= u_Thresholds.x) &&
+                       (normalMetric <= u_Thresholds.y) &&
+                       (lumaMetric <= u_Thresholds.z);
+        if (pass2x2)
+        {
+            footprint = OLO_VRCS_RATE_2X2;
+
+            float scale = u_Thresholds.w;
+            bool pass4x4 = (u_ClassifyControl.w > 0.5) &&
+                           (depthMetric <= u_Thresholds.x * scale) &&
+                           (normalMetric <= u_Thresholds.y * scale) &&
+                           (lumaMetric <= u_Thresholds.z * scale);
+            if (pass4x4)
+            {
+                footprint = OLO_VRCS_RATE_4X4;
+            }
+        }
+    }
+
+    imageStore(o_ShadingRate, tileCoord, uvec4(footprint, 0u, 0u, 0u));
+}

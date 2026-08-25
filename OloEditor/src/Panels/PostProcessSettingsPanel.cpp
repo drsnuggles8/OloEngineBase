@@ -138,6 +138,16 @@ namespace OloEngine
             AppendChange(changes, "GTAODenoisePasses", before.GTAODenoisePasses, after.GTAODenoisePasses);
             AppendChange(changes, "GTAODebugView", before.GTAODebugView, after.GTAODebugView);
 
+            AppendChange(changes, "VRCSEnabled", before.VRCSEnabled, after.VRCSEnabled);
+            AppendChange(changes, "VRCSGTAO", before.VRCSGTAO, after.VRCSGTAO);
+            AppendChange(changes, "VRCSAllow4x4", before.VRCSAllow4x4, after.VRCSAllow4x4);
+            AppendChange(changes, "VRCSDepthThreshold", before.VRCSDepthThreshold, after.VRCSDepthThreshold);
+            AppendChange(changes, "VRCSNormalThreshold", before.VRCSNormalThreshold, after.VRCSNormalThreshold);
+            AppendChange(changes, "VRCSLumaThreshold", before.VRCSLumaThreshold, after.VRCSLumaThreshold);
+            AppendChange(changes, "VRCS4x4ToleranceScale", before.VRCS4x4ToleranceScale,
+                         after.VRCS4x4ToleranceScale);
+            AppendChange(changes, "VRCSDebugOverlay", before.VRCSDebugOverlay, after.VRCSDebugOverlay);
+
             AppendChange(changes, "SSREnabled", before.SSREnabled, after.SSREnabled);
             AppendChange(changes, "SSRIntensity", before.SSRIntensity, after.SSRIntensity);
             AppendChange(changes, "SSRMaxDistance", before.SSRMaxDistance, after.SSRMaxDistance);
@@ -791,6 +801,39 @@ namespace OloEngine
                     }
 
                     ImGui::Checkbox("Show AO Only##GTAO", &settings.GTAODebugView);
+
+                    // Variable Rate Compute Shading (issue #683). Lives under
+                    // GTAO because GTAO is currently its only consumer; the
+                    // global kill switch is separate from the per-pass opt-in
+                    // so a second consumer can be added without moving these.
+                    ImGui::Separator();
+                    if (ImGui::Checkbox("Variable Rate (VRCS)##GTAO", &settings.VRCSEnabled))
+                    {
+                        // Both VRCS gates are hashed into the blackboard
+                        // fingerprint, and GTAORenderPass::Setup declares a
+                        // different set of Read edges depending on them — so a
+                        // flip has to rebuild the render graph the same way an
+                        // AO-technique change does.
+                        Renderer3D::ApplyRendererSettings();
+                    }
+                    if (settings.VRCSEnabled)
+                    {
+                        if (ImGui::Checkbox("  Apply to GTAO##VRCS", &settings.VRCSGTAO))
+                        {
+                            Renderer3D::ApplyRendererSettings();
+                        }
+                        ImGui::Checkbox("  Allow 4x4 tiles##VRCS", &settings.VRCSAllow4x4);
+                        ImGui::DragFloat("  Depth Threshold##VRCS", &settings.VRCSDepthThreshold, 0.001f, 0.0f,
+                                         0.25f, "%.4f");
+                        ImGui::DragFloat("  Normal Threshold##VRCS", &settings.VRCSNormalThreshold, 0.001f, 0.0f,
+                                         0.5f, "%.4f");
+                        ImGui::DragFloat("  Luma Threshold##VRCS", &settings.VRCSLumaThreshold, 0.01f, 0.0f, 4.0f,
+                                         "%.2f");
+                        ImGui::DragFloat("  4x4 Tolerance Scale##VRCS", &settings.VRCS4x4ToleranceScale, 0.01f,
+                                         0.01f, 1.0f, "%.2f");
+                        ImGui::Checkbox("  Rate Heatmap##VRCS", &settings.VRCSDebugOverlay);
+                        ImGui::TextDisabled("Heatmap needs 'Show AO Only' to be visible.");
+                    }
                 }
             }
 

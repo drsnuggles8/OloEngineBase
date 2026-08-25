@@ -16,6 +16,11 @@ namespace OloEngine
     static constexpr u32 GTAO_HZB_TEXTURE_SLOT = 3;
     static constexpr u32 GTAO_NORMALS_TEXTURE_SLOT = 4;
     static constexpr u32 GTAO_HILBERT_TEXTURE_SLOT = 5;
+    // VRCS per-tile shading rate (issue #683). Pass-local, like the three
+    // above: an index into the shared heap-offset table this dispatch refills,
+    // not an engine-wide TEX_* reservation — which is what keeps the feature
+    // from consuming a real texture slot and moving HEAP_IMAGE_SLOT_BASE.
+    static constexpr u32 GTAO_SHADING_RATE_TEXTURE_SLOT = 6;
 
     // Generate Hilbert curve index for a given (x, y) coordinate
     static u16 HilbertIndex(u32 x, u32 y)
@@ -60,9 +65,29 @@ namespace OloEngine
         m_SelectedHZBDepthTexture = {};
         m_SelectedDenoisePingTexture = {};
         m_SelectedDenoisePongTexture = {};
+        m_SelectedPreviousColorTexture = {};
 
         if (!m_Settings.GTAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::GTAO)
             return;
+
+        // VRCS luminance term (issue #683). Declared here so the graph knows
+        // this pass samples the TAA history — without the Read edge the planner
+        // is free to schedule the history's producer after us or alias its
+        // storage, and the classifier would read a resource nobody promised it.
+        //
+        // Gated on the SETTINGS, not on whether classification will actually
+        // run: a Setup() that branches on runtime state the fingerprint does
+        // not hash is frozen at whatever the first frame decided
+        // (virtual-shadow-map-page-cache.md §5). Both VRCS gates are hashed
+        // into the blackboard fingerprint in RenderPipeline, so flipping either
+        // rebuilds the graph and re-runs this.
+        const bool vrcsRequested = m_Settings.VRCSEnabled && m_Settings.VRCSGTAO;
+        if (vrcsRequested && blackboard.Temporal.TAAHistory.IsValid())
+        {
+            m_SelectedPreviousColorTexture = blackboard.Temporal.TAAHistory;
+            [[maybe_unused]] const auto prevColorRead =
+                builder.Read(blackboard.Temporal.TAAHistory, RGReadUsage::ShaderSample);
+        }
 
         const bool willDispatchDenoise = m_Settings.GTAODenoiseEnabled && m_Settings.GTAODenoisePasses > 0;
 
@@ -216,6 +241,14 @@ namespace OloEngine
         // Initialize HZB for current viewport
         m_HZBGenerator.Resize(m_Width, m_Height);
 
+        // VRCS classification (issue #683). Initialized unconditionally, like
+        // the HZB generator: the cost is one compute program plus a
+        // (width/8 x height/8) R8UI image, and gating construction on a runtime
+        // toggle would mean the first frame after the toggle flips has no
+        // classifier and silently runs full rate.
+        m_ShadingRateClassifier.Initialize();
+        m_ShadingRateClassifier.Resize(m_Width, m_Height);
+
         OLO_CORE_INFO("GTAORenderPass: Initialized at {}x{}", m_Width, m_Height);
     }
 
@@ -272,6 +305,12 @@ namespace OloEngine
         if (m_SelectedDenoisePingTexture.IsValid())
             denoisePingTexID = context.ResolveTextureHandle(m_SelectedDenoisePingTexture);
 
+        // Whether the denoise chain needs its RESOURCES. Settings only, and
+        // deliberately not the same question as whether it will actually
+        // dispatch: the rate-heatmap suppression below depends on what
+        // classification produced, which is not known until after the HZB.
+        // Keeping the resource decision on the settings means Setup's
+        // declarations and Execute's resolves cannot disagree.
         const bool willDispatchDenoise = m_Settings.GTAODenoiseEnabled && m_Settings.GTAODenoisePasses > 0;
         if (willDispatchDenoise && m_SelectedDenoisePongTexture.IsValid())
             denoisePongTexID = context.ResolveTextureHandle(m_SelectedDenoisePongTexture);
@@ -363,8 +402,86 @@ namespace OloEngine
         m_HZBGenerator.Generate(depthID);
         gpuSubTimers.EndSubPass();
 
+        // Step 1b: Variable Rate Compute Shading classification (issue #683).
+        //
+        // Its own sub-pass bracket, like HZB and the denoise, so its GPU-ms is
+        // separable from the saving it is supposed to buy: a classification
+        // that costs more than it saves is the failure mode this feature has,
+        // and folding it into the GTAO number would hide exactly that.
+        //
+        // Ordered AFTER the HZB and BEFORE the GTAO dispatch because it reads
+        // scene depth (not the pyramid) and GTAO reads its output. It runs on
+        // its own program, so the seam's per-program bindless fork is
+        // re-evaluated for the GTAO dispatch below.
+        ++m_FrameCounter;
+        m_VRCSActiveLastExecute = false;
+        if (m_Settings.VRCSEnabled && m_Settings.VRCSGTAO)
+        {
+            // Defensive re-size against THIS Execute's band, not against
+            // whatever the last Resize hook saw. The rate grid is indexed by
+            // `pixel / 8` in the consuming shader, so a classifier sized to a
+            // different viewport than GTAO is dispatching at does not fail —
+            // it silently reads the wrong tile for every pixel, which is a
+            // plausible-looking frame with the coarse blocks in the wrong
+            // places. The call early-returns when the tile grid is unchanged,
+            // which is every frame but a resize.
+            m_ShadingRateClassifier.Resize(m_Width, m_Height);
+
+            RHI::ResourceHandle previousColorID{};
+            if (m_SelectedPreviousColorTexture.IsValid())
+                previousColorID = context.ResolveTextureHandle(m_SelectedPreviousColorTexture);
+
+            ShadingRateClassifier::Inputs inputs;
+            inputs.SceneDepth = depthID;
+            inputs.ViewNormals = normalsID;
+            inputs.PreviousColor = previousColorID;
+            // Both come from the render graph's transient pool, so a Persistent
+            // view would memoise an offset onto an object the planner may
+            // reassign next frame (issue #691). The lifetime follows the
+            // RESOURCE, not the slot.
+            inputs.SceneDepthLifetime = RHI::HeapSlotLifetime::FrameTransient;
+            inputs.ViewNormalsLifetime = RHI::HeapSlotLifetime::FrameTransient;
+            inputs.PreviousColorLifetime = RHI::HeapSlotLifetime::FrameTransient;
+            // The same two projection coefficients GTAO uploads; computed once
+            // in UploadGTAOUniforms, but that runs after this, so derive them
+            // here from the same matrix rather than reading stale UBO state.
+            inputs.DepthLinearizeA = m_Projection[2][2];
+            inputs.DepthLinearizeB = m_Projection[3][2];
+
+            ShadingRateClassifier::Thresholds thresholds;
+            thresholds.Depth = m_Settings.VRCSDepthThreshold;
+            thresholds.Normal = m_Settings.VRCSNormalThreshold;
+            thresholds.Luma = m_Settings.VRCSLumaThreshold;
+            thresholds.Coarse4x4Scale = m_Settings.VRCS4x4ToleranceScale;
+            thresholds.Allow4x4 = m_Settings.VRCSAllow4x4;
+
+            gpuSubTimers.BeginSubPass("VRCSClassify");
+            m_VRCSActiveLastExecute = m_ShadingRateClassifier.Classify(m_FrameCounter, inputs, thresholds);
+            gpuSubTimers.EndSubPass();
+        }
+
         // Step 2: Upload GTAO uniforms
         UploadGTAOUniforms();
+
+        // The rate heatmap suppresses the denoise (issue #683): GTAO.comp
+        // writes a per-tile block pattern into the AO term instead of AO, and
+        // four bilateral blur passes over that is a blur of the very thing the
+        // overlay exists to show.
+        //
+        // Keyed on the SAME condition the shader's heatmap branch is
+        // (m_VRCSActiveLastExecute && VRCSDebugOverlay, set by
+        // UploadGTAOUniforms just above), never on the settings alone. Those
+        // two disagree whenever classification declines — a VRCSClassify.comp
+        // that failed to compile, a missing input — and settings-keyed
+        // suppression then left the shader writing REAL AO with the denoise
+        // switched off, compositing a raw noisy AO buffer with no heatmap to
+        // explain it and no diagnostic anywhere.
+        // m_GPUData is null-checked because UploadGTAOUniforms bails on it, in
+        // which case the shader reads whatever the UBO last held — and "no
+        // heatmap" is the right assumption for an unknown state, since it keeps
+        // the denoise running.
+        const bool vrcsHeatmapActive = m_GPUData && m_GPUData->VRCSParams.y != 0;
+        const bool dispatchDenoise = willDispatchDenoise && !vrcsHeatmapActive;
 
         // Step 3: Dispatch GTAO main pass
         gpuSubTimers.BeginSubPass("GTAO");
@@ -372,14 +489,14 @@ namespace OloEngine
         gpuSubTimers.EndSubPass();
 
         // Step 4: Denoise (if enabled)
-        if (willDispatchDenoise)
+        if (dispatchDenoise)
         {
             gpuSubTimers.BeginSubPass("GTAO_Denoise");
             DispatchDenoise(edgeTexID, denoisePingTexID, denoisePongTexID);
             gpuSubTimers.EndSubPass();
         }
 
-        const RHI::ResourceHandle finalAOTextureID = (willDispatchDenoise && (m_Settings.GTAODenoisePasses % 2 != 0))
+        const RHI::ResourceHandle finalAOTextureID = (dispatchDenoise && (m_Settings.GTAODenoisePasses % 2 != 0))
                                                          ? denoisePongTexID
                                                          : denoisePingTexID;
         if (finalAOTextureID.IsValid() && finalAOTextureID != aoOutputTexID)
@@ -482,6 +599,16 @@ namespace OloEngine
         // everywhere, swimming as the camera turns.
         m_GPUData->ViewMatrix = m_SceneNormalsAreViewSpace ? glm::mat4(1.0f) : m_ViewMatrix;
 
+        // VRCS (issue #683). Keyed on what classification ACTUALLY produced
+        // this frame, never on the settings alone: if Classify() declined —
+        // shader failed to compile, inputs missing, viewport not sized yet —
+        // the rate image holds no rates for this frame, and telling GTAO.comp
+        // to consume it anyway would coarsen off whatever it happened to
+        // contain. The heatmap follows the same gate, so a debug view that
+        // shows nothing means "no rates", not "all tiles full rate".
+        m_GPUData->VRCSParams = glm::ivec4(m_VRCSActiveLastExecute ? 1 : 0,
+                                           (m_VRCSActiveLastExecute && m_Settings.VRCSDebugOverlay) ? 1 : 0, 0, 0);
+
         m_GTAOUBO->SetData(m_GPUData, UBOStructures::GTAOUBO::GetSize());
         m_GTAOUBO->Bind();
     }
@@ -529,6 +656,26 @@ namespace OloEngine
 
         HeapBinding::BindTextureOrOffset(GTAO_HILBERT_TEXTURE_SLOT, m_HilbertLUT->GetRHIHandle(),
                                          RHI::HeapSlotLifetime::Persistent);
+
+        // VRCS per-tile shading rate (issue #683). Bound UNCONDITIONALLY, with
+        // the Hilbert LUT standing in when no rate image exists — same reason
+        // the classifier always binds its previous-colour slot. The heap-offset
+        // table is shared and persistent across dispatches, so a slot this
+        // dispatch never writes keeps whatever the previous flush left there.
+        // The substitute is the only other UNSIGNED sampler this shader binds,
+        // which matters: a heap handle carries no type, so standing in a float
+        // texture would have GTAO.comp reinterpret it through usampler2D and
+        // read garbage (glsl-shaders.md §5d). u_VRCSParams.x is 0 in that case
+        // so the shader never fetches it.
+        //
+        // Persistent, not FrameTransient: the rate image is the classifier's
+        // OWN texture, never a graph-pooled target, so its view is memoisable.
+        const RHI::ResourceHandle rateTexID = m_ShadingRateClassifier.GetRateTexture();
+        const bool rateReady = m_VRCSActiveLastExecute && rateTexID.IsValid();
+        HeapBinding::BindTextureOrOffset(GTAO_SHADING_RATE_TEXTURE_SLOT,
+                                         rateReady ? rateTexID : m_HilbertLUT->GetRHIHandle(),
+                                         rateReady ? ShadingRateClassifier::GetRateLifetime()
+                                                   : RHI::HeapSlotLifetime::Persistent);
 
         // Dispatch 16×16 workgroups
         u32 groupsX = (m_Width + 15) / 16;
@@ -623,6 +770,7 @@ namespace OloEngine
         m_Height = height;
 
         m_HZBGenerator.Resize(width, height);
+        m_ShadingRateClassifier.Resize(width, height);
     }
 
     void GTAORenderPass::ResizeFramebuffer(u32 width, u32 height)
@@ -640,6 +788,7 @@ namespace OloEngine
         m_Height = height;
 
         m_HZBGenerator.Resize(width, height);
+        m_ShadingRateClassifier.Resize(width, height);
 
         OLO_CORE_INFO("GTAORenderPass: Resized to {}x{}", width, height);
     }
@@ -665,5 +814,6 @@ namespace OloEngine
         m_SelectedHZBDepthTexture = {};
         m_SelectedDenoisePingTexture = {};
         m_SelectedDenoisePongTexture = {};
+        m_SelectedPreviousColorTexture = {};
     }
 } // namespace OloEngine

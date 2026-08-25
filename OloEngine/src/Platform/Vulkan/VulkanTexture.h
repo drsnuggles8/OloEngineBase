@@ -34,8 +34,9 @@ namespace OloEngine
     // -------------------------------------------------------------------------
     // VulkanTexture2D — attribute-only VMA image for the TransientPool.
     //
-    // Fully implemented: allocation, identity, metadata, Resize. Upload /
-    // bind / readback virtuals are warn-once no-ops for now.
+    // Fully implemented: allocation, identity, metadata, Resize, staged and
+    // host-copy uploads, blit-chain mip generation, readback and bind. No
+    // no-op virtuals remain on this class.
     // -------------------------------------------------------------------------
     class VulkanTexture2D : public Texture2D
     {
@@ -88,7 +89,9 @@ namespace OloEngine
         void SetData(void* data, u32 size) override;
         void SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize) override;
         void Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels) override;
-        // Bind is meaningless on this backend (heap-bindless): warn-once no-op.
+        // Forwards to the facade's BindTexture, so ShaderResourceRegistry-
+        // routed binds resolve on this backend too (they were silently dropped
+        // while this was a stub).
         void Bind(u32 slot) const override;
         bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const override;
 
