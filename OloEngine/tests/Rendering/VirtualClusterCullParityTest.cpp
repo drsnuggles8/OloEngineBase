@@ -314,3 +314,184 @@ TEST(VirtualClusterCullParity, GpuSelectionMatchesCpuReferenceAtEveryThreshold)
     glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, 0);
     glUseProgram(0);
 }
+
+// -----------------------------------------------------------------------------
+// Issue #862: the software-raster work-list append (`atomicAdd(swList.Count, 1);
+// swList.Records[swSlot] = ...`) used to have NO bounds check at all, unlike the
+// reject-list append a few lines below it in the same shader
+// (`if (slot < u_RejectCapacity)`). VirtualGeometryPass now sizes the SW-list
+// buffer's Records array to exactly `u_SwCapacity` (the frame's cluster count)
+// and the shader only writes when `swSlot < u_SwCapacity` — but that guard is
+// only proven by dispatching against a REAL, deliberately undersized buffer:
+// the math-only VirtualClusterTwoPhaseOcclusion.SwListAllocationHolds... test
+// proves the allocation matches the bound, not that the shader honours it.
+//
+// This forces every eligible cluster to route to the SW path (a huge
+// threshold) against a Records[] array sized to HALF the cluster count, so the
+// append genuinely overflows capacity. A live GPU run that corrupted memory
+// here would show up as garbage InstanceIndex/ClusterIndex values in the
+// records that DID get written, or as a GL error/crash — this is the actual
+// defect class #862's Vulkan device fault came from, exercised for real.
+// -----------------------------------------------------------------------------
+TEST(VirtualClusterCullParity, SwListAppendNeverWritesPastAnUndersizedCapacity)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    auto meshSource = MakeIcosphereMesh(4); // 5120 triangles, multi-level DAG
+    auto vm = VirtualMeshBuilder::Build(*meshSource);
+    ASSERT_TRUE(vm.IsValid());
+    auto packed = PackVirtualMeshForGpu(vm);
+    ASSERT_TRUE(packed.IsValid());
+
+    auto const clusterCount = static_cast<u32>(packed.Clusters.size());
+    ASSERT_GT(clusterCount, 1u);
+
+    constexpr f32 kZNear = 0.1f;
+    constexpr f32 kViewportHeight = 1080.0f;
+    glm::vec3 const cameraPosition{ 0.0f, 0.5f, 4.0f };
+    CameraBlock camera;
+    camera.Projection = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, kZNear, 100.0f);
+    camera.View = glm::lookAt(cameraPosition, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    camera.ViewProjection = camera.Projection * camera.View;
+    camera.Position = cameraPosition;
+
+    auto cameraUBO = UniformBuffer::Create(sizeof(CameraBlock), ShaderBindingLayout::UBO_CAMERA);
+    cameraUBO->SetData(&camera, sizeof(CameraBlock));
+
+    auto cullParamsUBO = UniformBuffer::Create(UBOStructures::VirtualClusterCullUBO::GetSize(),
+                                               ShaderBindingLayout::UBO_VIRTUAL_CLUSTER_CULL);
+
+    auto clusterBuffer = StorageBuffer::Create(static_cast<u32>(packed.Clusters.size() * sizeof(VirtualClusterGpuRecord)),
+                                               ShaderBindingLayout::SSBO_VIRTUAL_CLUSTERS, StorageBufferUsage::DynamicDraw);
+    clusterBuffer->SetData(packed.Clusters.data(), static_cast<u32>(packed.Clusters.size() * sizeof(VirtualClusterGpuRecord)), 0);
+    auto groupBuffer = StorageBuffer::Create(static_cast<u32>(packed.Groups.size() * sizeof(VirtualGroupGpuRecord)),
+                                             ShaderBindingLayout::SSBO_VIRTUAL_GROUPS, StorageBufferUsage::DynamicDraw);
+    groupBuffer->SetData(packed.Groups.data(), static_cast<u32>(packed.Groups.size() * sizeof(VirtualGroupGpuRecord)), 0);
+
+    std::vector<u32> const allResident(packed.Groups.size(), 1u);
+    auto groupStatesBuffer = StorageBuffer::Create(static_cast<u32>(allResident.size() * sizeof(u32)),
+                                                   ShaderBindingLayout::SSBO_VIRTUAL_GROUP_STATES,
+                                                   StorageBufferUsage::DynamicCopy);
+    groupStatesBuffer->SetData(allResident.data(), static_cast<u32>(allResident.size() * sizeof(u32)), 0);
+
+    auto commandBuffer = StorageBuffer::Create(clusterCount * 32u,
+                                               ShaderBindingLayout::SSBO_VIRTUAL_DRAW_COMMANDS, StorageBufferUsage::DynamicCopy);
+    auto argsBuffer = StorageBuffer::Create(sizeof(VirtualDrawArgs),
+                                            ShaderBindingLayout::SSBO_VIRTUAL_DRAW_ARGS, StorageBufferUsage::DynamicCopy);
+    auto visibleBuffer = StorageBuffer::Create(clusterCount * static_cast<u32>(sizeof(VirtualVisibleCluster)),
+                                               ShaderBindingLayout::SSBO_VIRTUAL_VISIBLE, StorageBufferUsage::DynamicCopy);
+    auto instanceBuffer = StorageBuffer::Create(sizeof(VirtualInstanceGpuRecord),
+                                                ShaderBindingLayout::SSBO_VIRTUAL_INSTANCES, StorageBufferUsage::DynamicDraw);
+
+    VirtualInstanceGpuRecord instance;
+    instance.ClusterBase = 0;
+    instance.ClusterCount = clusterCount;
+    instance.GroupBase = 0;
+    instance.EntityID = 42;
+    instance.MaxScale = 1.0f;
+    instance.ErrorThresholdPixels = 0.5f; // fine cut: select (almost) every leaf cluster
+    instance.CommandBase = 0;
+    instance.Flags = VirtualInstanceGpuRecord::kFlagUniformScale;
+    instanceBuffer->SetData(&instance, sizeof(instance), 0);
+
+    auto cullShader = ComputeShader::Create("assets/shaders/compute/VirtualClusterCull.comp");
+    ASSERT_TRUE(cullShader);
+
+    clusterBuffer->Bind();
+    groupBuffer->Bind();
+    instanceBuffer->Bind();
+    commandBuffer->Bind();
+    argsBuffer->Bind();
+    visibleBuffer->Bind();
+    groupStatesBuffer->Bind();
+    cameraUBO->Bind();
+    cullShader->Bind();
+
+    UBOStructures::VirtualClusterCullUBO cullParams{};
+    cullParams.InstanceIndex = 0;
+    cullParams.ViewportHeight = kViewportHeight;
+    // Huge threshold: every surviving cluster's projected radius is under it,
+    // so every one of them attempts to route to the SW list.
+    cullParams.SwRasterThresholdPixels = 1.0e6f;
+
+    // Pass 1 — CALIBRATION: dispatch against a generously-sized SW list (capacity ==
+    // clusterCount, guaranteed never to overflow) purely to measure how many clusters
+    // this camera/threshold combination actually routes to the SW path. Hardcoding an
+    // expected count would silently stop testing the overflow path if the icosphere
+    // fixture or cull math ever changes.
+    {
+        auto calibrationSwList = StorageBuffer::Create(16u + clusterCount * static_cast<u32>(sizeof(VirtualVisibleCluster)),
+                                                       ShaderBindingLayout::SSBO_VIRTUAL_SW_LIST,
+                                                       StorageBufferUsage::DynamicCopy);
+        calibrationSwList->Bind();
+        VirtualDrawArgs const zeroArgs{};
+        argsBuffer->SetData(&zeroArgs, sizeof(zeroArgs), 0);
+        cullParams.SwCapacity = clusterCount;
+        cullParamsUBO->SetData(&cullParams, sizeof(cullParams));
+        cullParamsUBO->Bind();
+        RenderCommand::DispatchCompute((clusterCount + 63u) / 64u, 1, 1);
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+    }
+
+    VirtualDrawArgs calibrationArgs{};
+    argsBuffer->GetData(&calibrationArgs, sizeof(calibrationArgs), 0);
+    ASSERT_EQ(calibrationArgs.TestedCount, clusterCount);
+    u32 const eligible = calibrationArgs.SwCount + calibrationArgs.DrawCount;
+    ASSERT_GT(eligible, 1u) << "test setup must route at least 2 clusters to exercise the overflow path — widen "
+                               "ErrorThresholdPixels";
+
+    // Deliberately smaller than what pass 1 measured: with every eligible cluster
+    // still routed to SW below, appends WILL exceed this.
+    u32 const swCapacity = eligible / 2u;
+    ASSERT_GT(swCapacity, 0u);
+    ASSERT_LT(swCapacity, eligible);
+
+    // Pass 2 — the buffer under test: sized to EXACTLY swCapacity records, not
+    // clusterCount — an unguarded append would write past this allocation.
+    auto swListBuffer = StorageBuffer::Create(16u + swCapacity * static_cast<u32>(sizeof(VirtualVisibleCluster)),
+                                              ShaderBindingLayout::SSBO_VIRTUAL_SW_LIST, StorageBufferUsage::DynamicCopy);
+    swListBuffer->Bind();
+    VirtualDrawArgs const zeroArgs{};
+    argsBuffer->SetData(&zeroArgs, sizeof(zeroArgs), 0);
+    cullParams.SwCapacity = swCapacity;
+    cullParamsUBO->SetData(&cullParams, sizeof(cullParams));
+    cullParamsUBO->Bind();
+    RenderCommand::DispatchCompute((clusterCount + 63u) / 64u, 1, 1);
+    RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+
+    ASSERT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR)) << "cull dispatch against an undersized SW-list buffer "
+                                                                 "raised a GL error — the append overran it";
+
+    VirtualDrawArgs args{};
+    argsBuffer->GetData(&args, sizeof(args), 0);
+    ASSERT_EQ(args.TestedCount, clusterCount);
+    ASSERT_EQ(args.SwCount + args.DrawCount, eligible)
+        << "the same camera/threshold must select the same eligible-cluster count as pass 1's calibration run";
+
+    // The guard must have accepted EXACTLY swCapacity records: every append
+    // past that must have fallen through to the hardware path instead
+    // (args.DrawCount), never dropped and never written out of bounds.
+    EXPECT_EQ(args.SwCount, swCapacity) << "the SW list accepted a different count than its capacity — either the "
+                                           "guard let an overflow through, or it rejected a record that should "
+                                           "have fit";
+    EXPECT_EQ(args.DrawCount, eligible - swCapacity)
+        << "clusters rejected by the full SW list must fall through to the hardware compaction path, not vanish";
+
+    // Every record the shader actually wrote must be sane — an OOB write from
+    // a broken guard would show up here as a corrupted ClusterIndex/InstanceIndex
+    // (or would already have faulted the GL error check above).
+    std::vector<VirtualVisibleCluster> swRecords(swCapacity);
+    swListBuffer->GetData(swRecords.data(), swCapacity * static_cast<u32>(sizeof(VirtualVisibleCluster)), 16u);
+    for (const VirtualVisibleCluster& record : swRecords)
+    {
+        EXPECT_EQ(record.InstanceIndex, 0u);
+        EXPECT_LT(record.ClusterIndex, clusterCount);
+    }
+
+    for (u32 slot = ShaderBindingLayout::SSBO_VIRTUAL_CLUSTERS; slot <= ShaderBindingLayout::SSBO_VIRTUAL_VERTICES; ++slot)
+    {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, slot, 0);
+    }
+    glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, 0);
+    glUseProgram(0);
+}
