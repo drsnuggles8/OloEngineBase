@@ -12,6 +12,7 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 
 #include <glm/glm.hpp>
@@ -151,7 +152,7 @@ TEST(CameraRelative, MainCameraPackingDoesNotReconstructProjectionFromViewProjec
         for (int row = 0; row < 4; ++row)
         {
             EXPECT_FLOAT_EQ(packed[column][row], viewProjection[column][row]);
-            differentComponents += packed[column][row] != reconstructed[column][row] ? 1u : 0u;
+            differentComponents += !Math::BitwiseEqual(packed[column][row], reconstructed[column][row]) ? 1u : 0u;
         }
     }
     EXPECT_GT(differentComponents, 0u)
