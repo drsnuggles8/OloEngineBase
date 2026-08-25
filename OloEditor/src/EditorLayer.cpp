@@ -5408,8 +5408,9 @@ namespace OloEngine
         m_LightmapBakeScene = scene;
         m_LightmapBakeScenePath = m_EditorScenePath;
 
-        OLO_CORE_INFO("Lightmap bake started: {} entities, {} texels, {} spp",
-                      inputs.size(), prepared->Jobs.size(), bakeSettings.SamplesPerTexel);
+        OLO_CORE_INFO("Lightmap bake started: {} entities, {} texels, {} spp, {} atlas page(s) of {}px",
+                      inputs.size(), prepared->Jobs.size(), bakeSettings.SamplesPerTexel,
+                      prepared->PageCount, bakeSettings.AtlasSize);
 
         Tasks::Launch("BakeLightmaps", [this, prepared, world, bakeSettings, bakeDone]()
                       {

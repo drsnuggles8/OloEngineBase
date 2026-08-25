@@ -212,7 +212,7 @@ namespace OloEngine
     }
 
     void Renderer3D::UploadLightmapData(const ShaderBindingLayout::LightmapUBO& uboData,
-                                        const Ref<Texture2D>& atlas)
+                                        const Ref<Texture2DArray>& atlas)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -235,11 +235,19 @@ namespace OloEngine
         // actual sampling then. Deliberately NOT dirty-guarded: the publish is
         // a CPU table update + bind, and re-publishing every frame self-heals
         // across heap/topology resets (see render-pipeline-caches).
-        const Ref<Texture2D>& bound = atlas ? atlas : s_Data.WhiteTexture;
+        // The placeholder is an ARRAY, not s_Data.WhiteTexture: TEX_LIGHTMAP's
+        // sampler is a sampler2DArray since issue #868, and binding a
+        // GL_TEXTURE_2D there is undefined rather than merely wrong-looking.
+        const Ref<Texture2DArray>& bound = atlas ? atlas : s_Data.LightmapPlaceholderAtlas;
         if (bound)
         {
+            // NullSamplerKind::Texture2DArray, not the Texture2D default: the
+            // fallback descriptor minted for an invalid handle has to match the
+            // shader's sampler2DArray, or a Vulkan bindless read of an
+            // unpublished slot samples a 2D null view (issue #868).
             HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_LIGHTMAP, bound->GetRHIHandle(),
-                                                     RHI::HeapSlotLifetime::Persistent);
+                                                     RHI::HeapSlotLifetime::Persistent, {},
+                                                     RHI::NullSamplerKind::Texture2DArray);
         }
     }
 

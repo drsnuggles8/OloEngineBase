@@ -1868,7 +1868,7 @@ namespace OloEngine
         // InstanceData::LightmapScaleOffset; the parameters block is UBO_LIGHTMAP.
         // Bound through the heap-bindless seam (PBR_MultiLight is a converted
         // program), consumed via include/LightmapSampling.glsl.
-        static constexpr u32 TEX_LIGHTMAP = 16; // Scene lightmap atlas (sampler2D, RGBA16F)
+        static constexpr u32 TEX_LIGHTMAP = 16; // Scene lightmap atlas (sampler2DArray, RGBA16F, one layer per page — issue #868)
         // The shared screen-space blue-noise tile (issue #706): 64x64 RG8, two
         // channels of independent void-and-cluster noise generated on the CPU by
         // Renderer/BlueNoise.h and sampled through

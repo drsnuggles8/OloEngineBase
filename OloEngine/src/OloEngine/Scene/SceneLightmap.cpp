@@ -6,12 +6,15 @@
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/Baking/LightmapUnwrap.h"
 #include "OloEngine/Renderer/LightmapAsset.h"
+#include "OloEngine/Renderer/LightmapPageEncoding.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
+
+#include <glm/gtc/packing.hpp>
 
 #include <algorithm>
 #include <vector>
@@ -70,6 +73,7 @@ namespace OloEngine
         m_ResolvedAsset = 0;
         m_ResolvedBakeKey = 0;
         m_AtlasSize = 0;
+        m_PageCount = 0;
         m_AtlasTexture = nullptr;
         m_Regions.clear();
     }
@@ -188,53 +192,92 @@ namespace OloEngine
             return;
         }
 
-        // v1 bakes always produce one page and the runtime uploads exactly one:
-        // an entry addressing a higher page has no texture to sample and must
-        // not be served (it would read page 0's texels — another entity's
-        // charts — through a valid-looking region).
+        // Every page is uploaded as its own texture-array layer (issue #868),
+        // so the pre-#868 `Page != 0` rejection is gone. What replaces it is a
+        // BOUNDS check with the same job: an entry naming a page outside the
+        // asset's own PageCount has no layer to sample and must never be
+        // served — serving it would read another entity's charts through a
+        // valid-looking region, which is exactly the failure the old guard
+        // existed to prevent. LightmapAsset::Validate() already rejects such an
+        // asset outright, so this is the second line of defence, not the first.
         u32 rejectedPages = 0;
+        const u32 pageCount = asset->GetPageCount();
         m_Regions.reserve(asset->GetEntries().size());
         for (const auto& entry : asset->GetEntries())
         {
-            if (entry.Page != 0)
+            // Both halves of the address are bounded, not just the page: the
+            // encoding folds the page into the INTEGER PART of the offset's x
+            // lane, so an out-of-range offset is as much a wrong-layer read as
+            // an out-of-range page. LightmapAsset::Validate() rejects either
+            // outright above; this is the second line.
+            const glm::vec4& region = entry.ScaleOffset;
+            const bool pageInRange = entry.Page < pageCount && entry.Page < kMaxLightmapPages;
+            const bool regionInPage = region.x > 0.0f && region.y > 0.0f && region.z >= 0.0f && region.w >= 0.0f &&
+                                      region.z + region.x <= 1.0f && region.w + region.y <= 1.0f;
+            if (!pageInRange || !regionInPage)
             {
                 ++rejectedPages;
                 continue;
             }
-            m_Regions.emplace(UUID(entry.EntityUUID), entry.ScaleOffset);
+            // Fold the page into the region here — this is the ONE place the
+            // encoding is composed; everything downstream (DrawMeshCommand,
+            // the FrameDataBuffer stream, InstanceData) just carries the vec4.
+            m_Regions.emplace(UUID(entry.EntityUUID), EncodeLightmapRegion(entry.ScaleOffset, entry.Page));
         }
         if (rejectedPages > 0)
         {
-            OLO_CORE_WARN("SceneLightmapRuntime: {} entity regions address atlas pages > 0; only page 0 is "
-                          "uploaded — those entities fall back to probes/IBL",
-                          rejectedPages);
+            OLO_CORE_WARN("SceneLightmapRuntime: {} entity regions address texels outside the asset's {} "
+                          "page(s) — those entities fall back to probes/IBL",
+                          rejectedPages, pageCount);
         }
         m_AtlasSize = asset->GetWidth();
+        m_PageCount = pageCount;
 
-        // GPU atlas — RGBA16F, uploaded from the asset's f32 texels (the GL
-        // upload path takes GL_FLOAT client data for RGBA16F and converts).
-        // Upload is bounded to page 0's slice — the texture is Width×Height,
-        // and a (future) multi-page asset's full buffer would overflow it.
-        // Headless processes keep the CPU-side region table; there is nothing
-        // to sample without a device anyway.
+        // GPU atlas — an RGBA16F Texture2DArray with one layer per page. Unlike
+        // Texture2D::SetData (which accepts GL_FLOAT client data for an RGBA16F
+        // target), Texture2DArray::SetLayerData's contract is NATIVE data per
+        // format, so the asset's f32 texels are packed to halves here. Headless
+        // processes keep the CPU-side region table; there is nothing to sample
+        // without a device anyway.
         if (RenderCommand::IsDeviceAvailable())
         {
-            TextureSpecification spec;
+            Texture2DArraySpecification spec;
             spec.Width = asset->GetWidth();
             spec.Height = asset->GetHeight();
-            spec.Format = ImageFormat::RGBA16F;
-            spec.GenerateMips = false;
-            m_AtlasTexture = Texture2D::Create(spec);
-            const auto& texels = asset->GetTexelData();
-            const sizet pageFloats = static_cast<sizet>(asset->GetWidth()) * asset->GetHeight() * 4u;
-            m_AtlasTexture->SetData(const_cast<f32*>(texels.data()),
-                                    static_cast<u32>(std::min(texels.size(), pageFloats) * sizeof(f32)));
+            spec.Layers = pageCount;
+            spec.Format = Texture2DArrayFormat::RGBA16F;
+            spec.GenerateMipmaps = false;
+            m_AtlasTexture = Texture2DArray::Create(spec);
+            if (m_AtlasTexture)
+            {
+                const auto& texels = asset->GetTexelData();
+                const sizet pageFloats = static_cast<sizet>(asset->GetWidth()) * asset->GetHeight() * 4u;
+                std::vector<u16> halves(pageFloats);
+                for (u32 page = 0; page < pageCount; ++page)
+                {
+                    const sizet base = static_cast<sizet>(page) * pageFloats;
+                    if (base + pageFloats > texels.size())
+                    {
+                        // Validate() guarantees this cannot happen; refusing to
+                        // upload beats reading past the buffer if it ever does.
+                        OLO_CORE_ERROR("SceneLightmapRuntime: texel buffer is short of page {} — atlas upload aborted",
+                                       page);
+                        m_AtlasTexture = nullptr;
+                        break;
+                    }
+                    for (sizet i = 0; i < pageFloats; ++i)
+                    {
+                        halves[i] = static_cast<u16>(glm::packHalf1x16(texels[base + i]));
+                    }
+                    m_AtlasTexture->SetLayerData(page, halves.data(), asset->GetWidth(), asset->GetHeight());
+                }
+            }
         }
 
         m_Resolved = true;
         m_WarnedResolveFailure = false;
-        OLO_CORE_INFO("SceneLightmapRuntime: resolved lightmap {}x{} with {} entity regions",
-                      asset->GetWidth(), asset->GetHeight(), m_Regions.size());
+        OLO_CORE_INFO("SceneLightmapRuntime: resolved lightmap {}x{}x{} page(s) with {} entity regions",
+                      asset->GetWidth(), asset->GetHeight(), pageCount, m_Regions.size());
     }
 
     u64 SceneLightmapRuntime::ComputeBakeKey(Scene& scene, const SceneLightmapSettings& settings)

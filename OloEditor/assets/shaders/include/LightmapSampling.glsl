@@ -14,6 +14,16 @@
 // switch: the runtime uploads 0 whenever the bake is stale or unresolved, so a
 // stale bake is never sampled.
 //
+// PAGING (issue #868): the atlas is a sampler2DArray with one layer per page,
+// and the page index rides in the INTEGER PART of the region's `.z` lane —
+// `encoded = vec4(scaleX, scaleY, offsetX + page, offsetY)`. Both operands are
+// exact binary fractions (offsetX = regionX / atlasSize, atlasSize a power of
+// two; page < 8), so floor()/subtract recover them bit-exactly. The all-zero
+// "no lightmap" sentinel is untouched by the encoding because it only ever
+// biases `.z`, while every gate in the engine reads the `.x` SCALE lane.
+// The C++ twin is OloEngine/Renderer/LightmapPageEncoding.h — change one,
+// change both.
+//
 // The sampler is deliberately SLOT-BASED with no OLO_BINDLESS branch: this is a
 // shared include, and an OLO_BINDLESS token here would drag every includer onto
 // the raw-GLSL route (glsl-shaders.md §5e, first exclusion row). The C++ side
@@ -33,7 +43,19 @@ layout(std140, binding = 1) uniform LightmapData {
     int   _lightmapPad0;
 };
 
-layout(binding = 16) uniform sampler2D u_LightmapAtlas; // TEX_LIGHTMAP
+layout(binding = 16) uniform sampler2DArray u_LightmapAtlas; // TEX_LIGHTMAP, one layer per atlas page
+
+// The decode half of the region encoding (issue #868). Kept as named helpers
+// so the two call sites cannot drift from each other or from the C++ twin.
+float decodeLightmapPage(vec4 scaleOffset)
+{
+    return floor(scaleOffset.z);
+}
+
+vec2 decodeLightmapOffset(vec4 scaleOffset)
+{
+    return vec2(scaleOffset.z - floor(scaleOffset.z), scaleOffset.w);
+}
 
 // Returns baked indirect irradiance E in .rgb and COVERAGE in .a: a > 0.5
 // means this fragment has a valid baked texel — possibly legitimately pure
@@ -49,8 +71,8 @@ vec4 sampleLightmapIrradiance(vec2 lightmapUV, vec4 scaleOffset)
     if (u_LightmapEnabled == 0 || scaleOffset.x <= 0.0)
         return vec4(0.0);
 
-    vec2 atlasUV = lightmapUV * scaleOffset.xy + scaleOffset.zw;
-    vec4 texel = texture(u_LightmapAtlas, atlasUV);
+    vec2 atlasUV = lightmapUV * scaleOffset.xy + decodeLightmapOffset(scaleOffset);
+    vec4 texel = texture(u_LightmapAtlas, vec3(atlasUV, decodeLightmapPage(scaleOffset)));
     // Alpha marks baked/dilated texels (1.0) vs never-written ones (0.0). A
     // bilinear tap straddling the coverage edge blends both; below one-half
     // the tap is dominated by unwritten texels — fall through. Above it,

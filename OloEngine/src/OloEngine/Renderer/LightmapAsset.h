@@ -158,7 +158,7 @@ namespace OloEngine
         //  - the texel buffer holds exactly PageCount*Width*Height*4 floats,
         //  - every texel is finite (no NaN/Inf may reach the renderer),
         //  - every entity entry addresses an existing page with a finite
-        //    scale/offset.
+        //    scale/offset that stays INSIDE that page's [0,1] UV square.
         // Deliberately does NOT enforce the on-disk format's size caps —
         // those live in Serialization/LightmapBinaryFormat.h and belong to
         // the serializer.
@@ -191,6 +191,22 @@ namespace OloEngine
                     {
                         return false;
                     }
+                }
+                // The region must be PAGE-LOCAL: `uv2 * xy + zw` has to land
+                // inside this page's [0,1] square. Finiteness alone stopped
+                // being enough at issue #868 — the runtime folds the page index
+                // into the INTEGER PART of the offset's x lane, so an entry with
+                // a legal `Page` but an offset of, say, 1.5 decodes as a
+                // different layer and shades from another entity's charts. That
+                // is precisely the wrong-address failure the removed
+                // `Page != 0` rejection existed to prevent, so the bound moved
+                // here rather than disappearing.
+                const glm::vec4& region = entry.ScaleOffset;
+                if (!(region.x > 0.0f) || !(region.y > 0.0f) ||
+                    region.z < 0.0f || region.w < 0.0f ||
+                    region.z + region.x > 1.0f || region.w + region.y > 1.0f)
+                {
+                    return false;
                 }
             }
             return true;

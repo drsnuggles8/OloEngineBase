@@ -25,6 +25,7 @@
 #include "OloEngine/Renderer/ReflectionProbeArray.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/TerrainVTBindings.h"
+#include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/Texture3D.h"
 
 #include <algorithm>
@@ -641,11 +642,12 @@ namespace OloEngine
                                          const void* shData, u32 shDataSize);
 
         // Upload the scene lightmap parameters (UBO_LIGHTMAP) and publish the
-        // atlas at TEX_LIGHTMAP (issue #439). A null atlas publishes the white
-        // placeholder — the sampler stays valid but uboData.Enabled must be 0
-        // then, which is the caller's staleness/absence kill switch.
+        // atlas at TEX_LIGHTMAP (issue #439). The atlas is a Texture2DArray with
+        // one layer per page since issue #868. A null atlas publishes the 1x1x1
+        // white placeholder array — the sampler stays valid but uboData.Enabled
+        // must be 0 then, which is the caller's staleness/absence kill switch.
         static void UploadLightmapData(const ShaderBindingLayout::LightmapUBO& uboData,
-                                       const Ref<Texture2D>& atlas);
+                                       const Ref<Texture2DArray>& atlas);
 
         // Set global IBL textures from the scene's EnvironmentMap.
         // These are used as fallbacks when individual materials don't have IBL configured.
@@ -1806,6 +1808,14 @@ namespace OloEngine
             // redundant GL buffer write when the bytes match.
             ShaderBindingLayout::LightmapUBO LastLightmapUBO{};
             bool LightmapUBOUploaded = false;
+            // 1x1x1 white RGBA16F placeholder published at TEX_LIGHTMAP when no
+            // bake is resolved (issue #868). It must be a Texture2DArray, not
+            // the plain WhiteTexture: TEX_LIGHTMAP's sampler became a
+            // sampler2DArray when the atlas gained pages, and binding a
+            // GL_TEXTURE_2D to a sampler2DArray unit is undefined. Owned here
+            // (created in Init, released in Shutdown) rather than as a lazy
+            // static — see docs/agent-rules/lazy-static-release-ownership.md.
+            Ref<Texture2DArray> LightmapPlaceholderAtlas;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
             // Inverse of the *world* view-projection (issue #429). The depth was

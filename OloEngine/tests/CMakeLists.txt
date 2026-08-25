@@ -142,6 +142,7 @@ add_executable(OloEngine-Tests
 		Rendering/PathTracing/ReferenceSceneBuilderTest.cpp
 		Rendering/Baking/LightmapUnwrapTest.cpp
 		Rendering/Baking/LightmapBakeParityTest.cpp
+		Rendering/Baking/LightmapAtlasPagingTest.cpp
 		Rendering/Baking/LightProbePathTracedBakeTest.cpp
 		Asset/LightmapAssetSerializationTest.cpp
 		Rendering/PODCommandTest.cpp
@@ -157,6 +158,7 @@ add_executable(OloEngine-Tests
 		Rendering/GLDebugMessageParseTest.cpp
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
+		Rendering/LightmapPageEncodingTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp
 		Rendering/GPUReadbackStatsLayoutTest.cpp
 		Rendering/GPUPrefixSumTest.cpp

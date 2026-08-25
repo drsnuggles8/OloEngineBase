@@ -5,6 +5,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/Texture2DArray.h"
 
 #include <glm/glm.hpp>
 
@@ -82,11 +83,19 @@ namespace OloEngine
             return m_Stale;
         }
 
-        // The entity's atlas region, or vec4(0) (the shader's "no lightmap"
-        // sentinel) when the entity has none or the bake is invalid.
+        // The entity's ENCODED atlas region (issue #868) — page-local scale/
+        // offset with the atlas page folded into the integer part of `.z`, the
+        // form InstanceData::LightmapScaleOffset carries and
+        // sampleLightmapIrradiance decodes (see LightmapPageEncoding.h).
+        // vec4(0) (the shader's "no lightmap" sentinel) when the entity has no
+        // region or the bake is invalid; the sentinel survives the encoding
+        // because every consumer gates on the untouched `.x` scale lane.
         [[nodiscard]] glm::vec4 GetScaleOffset(UUID entityUUID) const;
 
-        [[nodiscard]] const Ref<Texture2D>& GetAtlasTexture() const
+        // The atlas as a Texture2DArray with one layer per page (issue #868).
+        // Single-page bakes are a 1-layer array — there is no separate
+        // single-page path, so the multi-page code runs on every scene.
+        [[nodiscard]] const Ref<Texture2DArray>& GetAtlasTexture() const
         {
             return m_AtlasTexture;
         }
@@ -94,6 +103,11 @@ namespace OloEngine
         [[nodiscard]] u32 GetAtlasSize() const
         {
             return m_AtlasSize;
+        }
+
+        [[nodiscard]] u32 GetPageCount() const
+        {
+            return m_PageCount;
         }
 
         // The staleness key: FNV-1a-64 over everything the bake captured —
@@ -118,7 +132,8 @@ namespace OloEngine
         AssetHandle m_ResolvedAsset = 0;
         u64 m_ResolvedBakeKey = 0;
         u32 m_AtlasSize = 0;
-        Ref<Texture2D> m_AtlasTexture;
+        u32 m_PageCount = 0;
+        Ref<Texture2DArray> m_AtlasTexture;
         std::unordered_map<UUID, glm::vec4> m_Regions;
 
         // Resolve() throttle + warn-once latch + failed-unwrap memo (see

@@ -119,6 +119,9 @@ reference-path-tracer.md §2, now load-bearing in an asset pipeline.
 
 ## 5. Reused patterns that are contracts, not conveniences
 
+- **The atlas is a `sampler2DArray` at TEX 16, one layer per page** (#868, §8) — a slot publish of a
+  plain `Texture2D` there is undefined, not merely wrong-looking, which is why `Renderer3D` owns a
+  1x1x1 RGBA16F placeholder ARRAY rather than reusing `s_Data.WhiteTexture`.
 - **`LightmapSampling.glsl` is slot-based with NO `OLO_BINDLESS` token** — a shared include's
   `#ifdef OLO_BINDLESS` is the bindless route's opt-in marker and would drag every includer onto
   the raw-GLSL route (glsl-shaders.md §5e, first exclusion row). The atlas is published through
@@ -191,10 +194,9 @@ its acceptance criteria live there. Read the issue before re-deriving the design
   (`virtualGeometryEnabled == false`, which re-routes through `SubmitMeshSourceClassic`) would
   make baked GI appear and disappear with the VG master switch, destroying that toggle's value as
   an A/B. Both sides sample it or neither does.
-- **Multi-page atlas (#868)**: the `.olmap` format is paging-ready (`PageCount`, per-entry `Page`)
-  but bake and runtime are single-page, so an oversized scene degrades region sizes instead of
-  paging. `Resolve()` rejects `Page != 0` entries precisely so a future multi-page asset degrades
-  visibly rather than sampling page 0 — another entity's charts — through a valid-looking region.
+- **Multi-page atlas (#868) — DONE.** The bake packs across pages before it degrades anything, the
+  runtime uploads a `Texture2DArray` layer per page, and the `Page != 0` rejection is gone. See §8
+  for the encoding, the budget policy and what replaced that guard.
 - **Albedo textures in the bounce, and sky/HDRI environments (#869)** — filed as ONE issue,
   because they are one architectural decision rather than two tasks. `ReferenceScene` materials
   are factor-only and its environment is uniform radiance, both by explicit design
@@ -272,3 +274,140 @@ room captured on Forward and on Deferred, compared as **region means** (never pe
 paths are different shaders over different intermediates). It asserts both halves, because they
 fail differently: the deferred-ON-vs-OFF gap catches "the chain is broken anywhere", and the
 forward-vs-deferred hue ratio catches "the chain works but addresses the wrong chart".
+
+---
+
+## 8. Paging (#868): the page rides in a lane that was already full, and the budget is a constant
+
+`LightmapBakeSettings::AtlasSize` used to be the whole ceiling. When a scene's desired texel area
+exceeded one page, `Prepare()` halved region sizes — and then dropped entities — rather than
+allocating a second page, even though the `.olmap` format had carried `PageCount` and a per-entry
+`Page` since #439.
+
+### The measurement came back different from the issue's premise — read this before trusting the old description
+
+#868 was written on the premise that an over-budget scene "degrades region sizes — halving them
+until everything fits, and dropping entities only as a last resort", and it offered a descope if
+that degradation turned out graceful enough. It measured otherwise. At the default 1024 atlas, 8
+texels/metre, uniform 4 m cubes each wanting a 128px region:
+
+| load | pages | baked | skipped | region sizes |
+|---|---|---|---|---|
+| 1x (64 entities) | 1 | 64 | 0 | all 128px |
+| 2x (128 entities) | 1 | 64 | **64** | all 128px |
+| 4x (256 entities) | 1 | 64 | **192** | all 128px |
+| 4x, 4-page budget | 4 | 256 | 0 | all 128px |
+| 4x, 2-page cap | 2 | 128 | 128 | all 128px |
+
+**Nothing degrades. The overflow entities are dropped outright** — they get no baked GI at all. And
+the reason is structural rather than a bug worth fixing here: regions are packed largest-first into
+a buddy quadtree, so at the moment a request of size S fails, every allocation already placed is
+`>= S` and aligned — which means there is no free block *smaller* than S to fall back to either.
+The atlas is simply full, at every size. The halving loop is therefore **unreachable under the
+current ordering**; it is kept as a safety net for any future ordering that could leave sub-S holes,
+not deleted, but nobody should reason about the old behaviour as "graceful degradation".
+
+That closes the descope option harder than the issue expected: the pre-#868 failure mode on a 2x
+scene is not coarser GI, it is *half the scene unlit by the bake*. It also means the honest
+remedy really is more pages — a globally-degrade-then-repack pass (halve every region and start
+over) would be the only way to make the fallback do something useful, and that is a different
+design, deliberately not attempted here.
+
+`LightmapAtlasPagingTest.MeasureSinglePageOverloadDropsEntitiesRatherThanDegrading` pins that table
+so the baseline cannot silently change and make the paging tests vacuous. It pins the page budget
+to **1**, which *is* the pre-#868 allocator — the degrade-then-drop loop was kept, not replaced —
+so the measurement and the regression coverage are the same test.
+
+### Ordering: page first, degrade second
+
+The loop is unchanged in shape and inverted in priority. For each entity, in the same deterministic
+(size desc, UUID asc) order: try the desired size on every open page; open a new page if the budget
+allows; only when the budget is spent does the size halve and the whole scan repeat. Pages are
+opened **lazily**, so `PageCount` reports what the scene needed, not what it was allowed.
+
+Determinism survives because nothing in that is scheduling-dependent: the plan order is a total
+order, pages are scanned low-to-high, and `AtlasAllocator` is deterministic. The texel seed stays a
+pure function of the texel's atlas ADDRESS — now `(page, x, y)`, folded in as
+`MakePixelSeed(x, y + page * atlasSize, seed)`. Folding it as a row offset is deliberate: page 0's
+seeds are **unchanged**, so every existing single-page bake is still bit-identical and
+`LightmapBakeParityTest`'s bit-exact oracle re-derivation keeps passing.
+
+### The page index rides in the integer part of `.z`
+
+The per-draw region is one `glm::vec4` (`InstanceData::LightmapScaleOffset`) that travels from
+`DrawMeshCommand` through `CommandBucket`'s FrameDataBuffer stream into the instance SSBO, and all
+four lanes were spoken for by `uv2 * xy + zw`. Rather than mint a fifth lane — a second
+FrameDataBuffer stream, a second `anyNonDefault` batching probe, a second `DrawMeshCommand` field,
+all on the exact path §5 warns collapses per-draw values during auto-batching — the page is added
+to the offset:
+
+```
+encoded = vec4(scaleX, scaleY, offsetX + page, offsetY)
+page    = floor(encoded.z)
+offsetX = encoded.z - page
+```
+
+It is **exact, not approximate**: `offsetX` is `regionX / atlasSize` with `atlasSize` a power of
+two, so at most 14 fractional bits, and the page needs at most 3 — 17 bits inside f32's 24. The
+encoding is composed in exactly one place (`SceneLightmapRuntime::Resolve`) and decoded in exactly
+one place (`sampleLightmapIrradiance`); everything in between is untouched.
+
+**The all-zero "no lightmap" sentinel survives because the encoding never touches the SCALE lane,
+and every gate reads the scale lane** — `scaleOffset.x <= 0.0` in the fragment helper,
+`LightmapScaleOffset.x > 0.0` in both vertex-stage UV2-pull guards, `lightmapScaleOffset.x > 0.0f`
+in `Scene.cpp`'s submit. `LightmapPageEncodingTest` asserts that explicitly, with `EXPECT_EQ` on
+floats because bit-exactness is the contract. If the encoding is ever changed to something lossy,
+that test must fail rather than be widened.
+
+The C++ twin (`Renderer/LightmapPageEncoding.h`) and the GLSL twin (`decodeLightmapPage` /
+`decodeLightmapOffset` in `LightmapSampling.glsl`) are a two-mirrors pair. Change one, change both —
+the failure mode is not an error, it is sampling another entity's charts.
+
+### The budget policy: a VRAM constant, deliberately not a setting
+
+"As many pages as needed" is not a policy, and the impostor retrofit
+([shared-atlas-allocator.md](shared-atlas-allocator.md)) already settled the analogous trade-off in
+favour of a budget gate. Total atlas VRAM is bounded by `kLightmapAtlasMemoryBudgetBytes` (64 MiB),
+and the page count is **derived**: `LightmapPageBudget(atlasSize)` divides the ceiling by one page's
+RGBA16F cost and clamps to `[1, kMaxLightmapPages]`. At the default 1024² that is the format's full
+8 pages; at 4096² it is 1, which is exactly the pre-#868 behaviour rather than a failed bake.
+
+It is a **constant, not a scene-authored setting**, and that is load-bearing: the page budget
+changes the atlas LAYOUT, so an authorable budget would have to join
+`SceneLightmapRuntime::ComputeBakeKey` or a budget change would leave every existing bake validating
+against a layout it can no longer reproduce — the same class of trap as §2's unwrap parameters. If
+it ever becomes authorable, it MUST join the key. `LightmapBakeSettings::MaxAtlasPages` exists so a
+caller (or a test) can ask for FEWER pages; `Prepare()` clamps it to the policy, so it can never ask
+for more.
+
+### What replaced the `Page != 0` rejection
+
+The old guard refused any entry above page 0 because only page 0 was uploaded. Paging removes the
+reason, not the hazard — an entry naming a page the asset does not have would still sample another
+page's charts through a valid-looking region. Two things replace it:
+
+- `LightmapAsset::Validate()` already rejected `entry.Page >= m_PageCount`, and `Resolve()` refuses
+  an asset that fails validation. That is the primary guard, and it now has direct coverage
+  (`LightmapAtlasPagingTest.AssetWithOutOfRangePageFailsValidation`, both directions — page 3 of 4
+  must now be *accepted*).
+- `Resolve()` keeps a bounds check of its own over `asset->GetPageCount()` and `kMaxLightmapPages`,
+  skipping the entry and warning rather than serving it.
+
+### The GPU side
+
+The atlas is a `Texture2DArray` (RGBA16F, one layer per page), so there is no separate single-page
+path — a one-page bake is a one-layer array and the multi-page code runs on every scene. One trap
+worth not re-deriving: unlike `Texture2D::SetData`, which accepts `GL_FLOAT` client data for an
+RGBA16F target, `Texture2DArray::SetLayerData`'s contract is **native data per format**, so the
+asset's f32 texels are packed to halves (`glm::packHalf1x16`) before upload. And the "no bake"
+placeholder published at TEX 16 had to become a 1x1x1 array: binding a `GL_TEXTURE_2D` to a
+`sampler2DArray` unit is undefined, not merely wrong-looking. It is owned by `Renderer3D`'s
+Init/Shutdown pair rather than a lazy static
+([lazy-static-release-ownership.md](lazy-static-release-ownership.md)).
+
+The GPU proof is `LightmapVisualEvidenceTest.BakedBleedSurvivesAMultiPageAtlas`: the colour-bleed
+room baked with `AtlasSize == MinRegionSize == 16`, so a page holds exactly one entity and each of
+the four room pieces lands on its own page, at the same texel density the single-page tests use. The
+same bleed contracts then apply verbatim — paging must be invisible in the frame. A dropped page
+index reads page 0 (the floor's charts) for every entity, which that test catches from both sides:
+the per-entity hue and the ON/OFF differential.
