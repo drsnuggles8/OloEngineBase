@@ -80,6 +80,7 @@
 #include "OloEngine/Renderer/Baking/LightmapBaker.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/LightmapAsset.h"
+#include "OloEngine/Renderer/LightmapPageEncoding.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -271,6 +272,21 @@ namespace OloEngine::Tests
             const glm::vec3 d = glm::normalize(target - eye);
             return { std::atan2(d.x, -d.z), std::asin(glm::clamp(-d.y, -1.0f, 1.0f)) };
         }
+
+        // Bake-layout knobs the multi-page case (issue #868) needs to vary.
+        // Defaults reproduce the original single-page bake exactly, so the two
+        // pre-existing tests are unaffected.
+        //
+        // Declared HERE rather than nested in the fixture: a defaulted
+        // `const BakeLayout&` parameter inside the class body would need the
+        // nested type's member initializers before the enclosing class is
+        // complete, which clang rejects.
+        struct BakeLayout
+        {
+            u32 AtlasSize = 128;
+            u32 MinRegionSize = 8;
+            u32 MaxAtlasPages = kMaxLightmapPages;
+        };
     } // namespace
 
     // -------------------------------------------------------------------------
@@ -384,7 +400,7 @@ namespace OloEngine::Tests
         // something subtly different from the forward case it is compared against.
         // ASSERT_* inside a void helper only returns from the HELPER, so callers
         // must wrap it in ASSERT_NO_FATAL_FAILURE.
-        void BakeAndResolve()
+        void BakeAndResolve(const BakeLayout& layout = {})
         {
             Scene& scene = GetScene();
 
@@ -414,7 +430,7 @@ namespace OloEngine::Tests
             // computed from the same settings Resolve() will see at render time.
             // Small on purpose: ~600-800 texels x 40 spp x <=3 bounces. ──
             SceneLightmapSettings& lmSettings = scene.GetLightmapSettings();
-            lmSettings.AtlasSize = 128;
+            lmSettings.AtlasSize = layout.AtlasSize;
             lmSettings.SamplesPerTexel = 40;
             lmSettings.MaxBounces = 3;
             lmSettings.TexelsPerMeter = 2.0f;
@@ -424,7 +440,8 @@ namespace OloEngine::Tests
             bakeSettings.SamplesPerTexel = lmSettings.SamplesPerTexel;
             bakeSettings.MaxBounces = lmSettings.MaxBounces;
             bakeSettings.TexelsPerMeter = lmSettings.TexelsPerMeter;
-            bakeSettings.MinRegionSize = 8;
+            bakeSettings.MinRegionSize = layout.MinRegionSize;
+            bakeSettings.MaxAtlasPages = layout.MaxAtlasPages;
             bakeSettings.DilationPasses = 2;
             // Unwrap parameters are no longer settings: Prepare() hard-codes the
             // shared kLightmapUnwrap* constants so the runtime's self-healing
@@ -437,6 +454,8 @@ namespace OloEngine::Tests
             EXPECT_EQ(prepared.BakedEntityCount, 4u);
             EXPECT_EQ(prepared.SkippedEntityCount, 0u);
             EXPECT_GT(prepared.Jobs.size(), 200u) << "the room's charts cover too little of the atlas";
+            m_BakedPageCount = prepared.PageCount;
+            m_BakedEntries = prepared.Entries;
 
             // Re-Build every unwrapped mesh (a GL context exists here) so the VAOs
             // carry the seam-split vertices and the UV2 stream the shader reads.
@@ -514,6 +533,10 @@ namespace OloEngine::Tests
         Entity m_RedWall;
         Entity m_GreenWall;
         Entity m_Ceiling;
+
+        // What the last BakeAndResolve() actually packed (issue #868).
+        u32 m_BakedPageCount = 0;
+        std::vector<LightmapEntityEntry> m_BakedEntries;
     };
 
     TEST_F(LightmapBleedRoom, BakedBleedTintsTheFloorAndTogglesWithEnabled)
@@ -849,5 +872,136 @@ namespace OloEngine::Tests
         EXPECT_NEAR(defGreenRatio, fwdGreenRatio, 0.10f)
             << "the deferred green-side bleed has a different hue than forward's (forward g/r=" << fwdGreenRatio
             << ", deferred g/r=" << defGreenRatio << ")";
+    }
+
+    // =========================================================================
+    // Issue #868 — per-entity GI stays correct when the atlas SPANS PAGES.
+    //
+    // The acceptance criterion is "a static scene too large for one page bakes
+    // across pages ... and renders correct per-entity GI (region means)". The
+    // room is forced onto four pages by shrinking the atlas to exactly one
+    // region: AtlasSize == MinRegionSize == 16 means a page holds precisely one
+    // entity, so each of the four room pieces lands on its OWN page. The baked
+    // texel density is unchanged from the sibling tests (they use a 16px region
+    // inside a 128px atlas), so the same colour-bleed contracts apply verbatim
+    // — which is the point: paging must be invisible in the frame.
+    //
+    // This is the test that would fail if the page index were dropped anywhere
+    // between the entry table and the sampler. A lost page does not error; it
+    // reads page 0 — the FLOOR's charts — for the walls and the ceiling too, so
+    // the floor's own strips would keep some bleed while the differential ON/OFF
+    // signature collapses. Both are asserted.
+    // =========================================================================
+    TEST_F(LightmapBleedRoom, BakedBleedSurvivesAMultiPageAtlas)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // AtlasSize == MinRegionSize: one region per page, four entities, so the
+        // packer must open four pages. MaxAtlasPages is left at the default so
+        // the page count proves LAZY creation (only what the scene needed), not
+        // just "the budget was honoured".
+        BakeLayout layout;
+        layout.AtlasSize = 16;
+        layout.MinRegionSize = 16;
+        ASSERT_NO_FATAL_FAILURE(BakeAndResolve(layout));
+
+        Scene& scene = GetScene();
+        SceneLightmapSettings& lmSettings = scene.GetLightmapSettings();
+
+        // ── The layout itself: four pages, one entity each, every entry inside
+        // the reported page count. ──
+        ASSERT_EQ(m_BakedPageCount, 4u)
+            << "a 16px atlas with a 16px minimum region holds exactly one entity per page — "
+               "the packer did not open one page per room piece";
+        ASSERT_EQ(m_BakedEntries.size(), 4u);
+        std::vector<u32> pages;
+        for (const LightmapEntityEntry& entry : m_BakedEntries)
+        {
+            EXPECT_LT(entry.Page, m_BakedPageCount);
+            pages.push_back(entry.Page);
+        }
+        std::sort(pages.begin(), pages.end());
+        EXPECT_EQ(std::adjacent_find(pages.begin(), pages.end()), pages.end())
+            << "two entities share a page although each page holds exactly one region";
+
+        auto& runtime = scene.GetLightmapRuntime();
+        EXPECT_EQ(runtime->GetPageCount(), 4u);
+
+        // The runtime must hand every entity its own page back through the
+        // ENCODED region — this is the CPU-side half of what the shader decodes.
+        const Entity roomPieces[] = { m_Floor, m_RedWall, m_GreenWall, m_Ceiling };
+        std::vector<u32> encodedPages;
+        for (const Entity& piece : roomPieces)
+        {
+            const glm::vec4 region = runtime->GetScaleOffset(piece.GetUUID());
+            ASSERT_GT(region.x, 0.0f) << "a room piece lost its atlas region";
+            encodedPages.push_back(DecodeLightmapPage(region));
+        }
+        std::sort(encodedPages.begin(), encodedPages.end());
+        EXPECT_EQ(std::adjacent_find(encodedPages.begin(), encodedPages.end()), encodedPages.end())
+            << "the encoded per-draw regions collapsed two entities onto one page — the page index "
+               "was lost between the entry table and InstanceData::LightmapScaleOffset";
+
+        // ── The frame. Same cadence and same contracts as the forward test. ──
+        RunFrames(2);
+        std::vector<u8> onPx;
+        u32 width = 0;
+        u32 height = 0;
+        ASSERT_TRUE(CaptureTopDown(onPx, width, height))
+            << "ReadbackComposite failed — UIComposite framebuffer unavailable";
+        ASSERT_EQ(width, kSize);
+        ASSERT_EQ(height, kSize);
+        ASSERT_EQ(onPx.size(), static_cast<std::size_t>(width) * height * 4u);
+
+        lmSettings.Enabled = false;
+        RunFrames(3);
+        std::vector<u8> offPx;
+        u32 offWidth = 0;
+        u32 offHeight = 0;
+        ASSERT_TRUE(CaptureTopDown(offPx, offWidth, offHeight));
+        ASSERT_EQ(offWidth, width);
+        ASSERT_EQ(offHeight, height);
+        lmSettings.Enabled = true;
+
+        WriteEvidencePng("Lightmap_MultiPage_On.png", onPx, width, height);
+        WriteEvidencePng("Lightmap_MultiPage_Off.png", offPx, width, height);
+
+        const PixelRect redRect = MakeRect(kRedRegionX0, kRedRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
+        const PixelRect greenRect =
+            MakeRect(kGreenRegionX0, kGreenRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
+        ASSERT_LT(redRect.X0, redRect.X1);
+        ASSERT_LT(redRect.Y0, redRect.Y1);
+        ASSERT_LE(redRect.X1, width);
+        ASSERT_LE(greenRect.X1, width);
+        ASSERT_LE(redRect.Y1, height);
+
+        const RegionMeans onRed = MeanChannelsInRect(onPx, width, redRect);
+        const RegionMeans onGreen = MeanChannelsInRect(onPx, width, greenRect);
+        const RegionMeans offRed = MeanChannelsInRect(offPx, width, redRect);
+        const RegionMeans offGreen = MeanChannelsInRect(offPx, width, greenRect);
+
+        // Per-entity correctness: the floor still picks up the wall NEXT TO IT.
+        // The walls are on different pages from the floor now, so a bleed that
+        // still carries the right hue is evidence the bounce came from the right
+        // geometry AND that the floor's own page was addressed correctly.
+        EXPECT_GT(onRed.R, onRed.G * 1.05f)
+            << "multi-page: floor beside the RED wall is not red-shifted: r=" << onRed.R << " g=" << onRed.G
+            << " — see Lightmap_MultiPage_On.png";
+        EXPECT_GT(onGreen.G, onGreen.R * 1.05f)
+            << "multi-page: floor beside the GREEN wall is not green-shifted: g=" << onGreen.G
+            << " r=" << onGreen.R;
+
+        const f32 meanAbsDiff =
+            0.5f * (MeanAbsDiffInRect(onPx, offPx, width, redRect) + MeanAbsDiffInRect(onPx, offPx, width, greenRect));
+        EXPECT_GT(meanAbsDiff, 3.0f)
+            << "multi-page: ON and OFF frames barely differ over the floor (" << meanAbsDiff
+            << " grey levels) — the paged atlas contributes nothing";
+
+        EXPECT_GT((onRed.R - offRed.R), (onRed.G - offRed.G) + 0.5f)
+            << "multi-page: the light ADDED beside the RED wall is not red-shifted: dR=" << (onRed.R - offRed.R)
+            << " dG=" << (onRed.G - offRed.G);
+        EXPECT_GT((onGreen.G - offGreen.G), (onGreen.R - offGreen.R) + 0.5f)
+            << "multi-page: the light ADDED beside the GREEN wall is not green-shifted: dG="
+            << (onGreen.G - offGreen.G) << " dR=" << (onGreen.R - offGreen.R);
     }
 } // namespace OloEngine::Tests

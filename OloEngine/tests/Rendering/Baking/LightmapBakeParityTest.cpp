@@ -163,6 +163,16 @@ namespace OloEngine::Tests
             if (!preparedOk)
                 return baked;
 
+            // Every texel index and seed below is written for a SINGLE page:
+            // `MakePixelSeed(AtlasX, AtlasY, …)` with no page fold, and
+            // `(y * atlasSize + x) * 4` with no page stride. That is exact for
+            // one page and silently wrong for two (issue #868 folds the page in
+            // as a row offset). This room has always fitted one page — assert it
+            // rather than let a future settings tweak spill onto a second page
+            // and turn the bit-exact comparisons into a wrong-address read.
+            EXPECT_EQ(baked.Prepared.PageCount, 1u)
+                << "this fixture's texel indexing and seeding assume a single atlas page";
+
             baked.Result = LightmapBaker::BakeTexels(baked.Prepared, baked.World, baked.Settings);
             return baked;
         }
@@ -428,6 +438,13 @@ namespace OloEngine::Tests
         ASSERT_TRUE(LightmapBaker::Prepare(inputs, settings, prepared, error)) << error;
         ASSERT_EQ(prepared.Entries.size(), 2u);
         ASSERT_EQ(prepared.Regions.size(), 2u);
+        // `insideRegion` below compares X/Y/Size only and the texel scan is
+        // `(y * atlasSize + x) * 4` — both ignore LightmapAtlasRegion::Page, so
+        // two regions at the same coordinates on different pages would read as
+        // one overlapping region. Correct while this stays single-page; assert
+        // it (issue #868).
+        ASSERT_EQ(prepared.PageCount, 1u)
+            << "the region-ownership scan below ignores Page and needs a single-page atlas";
 
         const LightmapBakeResult result = LightmapBaker::BakeTexels(prepared, world, settings);
         ASSERT_TRUE(result.Success) << result.Error;

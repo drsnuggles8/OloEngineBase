@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/LightmapAsset.h"
+#include "OloEngine/Renderer/LightmapPageEncoding.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceScene.h"
 
@@ -21,8 +22,23 @@ namespace OloEngine
     // for a small sandbox scene; tests use much smaller atlases and sample counts.
     struct LightmapBakeSettings
     {
-        u32 AtlasSize = 1024;      // scene atlas dimension (square, power of two)
-        u32 MinRegionSize = 8;     // per-entity region floor (power of two)
+        u32 AtlasSize = 1024;  // scene atlas dimension (square, power of two)
+        u32 MinRegionSize = 8; // per-entity region floor (power of two)
+        // Atlas PAGE budget (issue #868). Regions are packed across up to this
+        // many pages at their DESIRED size before the pre-#868 fallback applies
+        // — so a scene that merely overflows one page keeps its authored texel
+        // density instead of losing entities. (That fallback reads as "degrade
+        // then drop", but measured it only ever DROPS: with largest-first buddy
+        // packing there is never a sub-request-size hole to degrade into. Table
+        // and reasoning in docs/agent-rules/baked-lightmap-pipeline.md §8.)
+        //
+        // The default is derived from the documented VRAM ceiling
+        // (kLightmapAtlasMemoryBudgetBytes in LightmapPageEncoding.h), NOT "as
+        // many as needed"; Prepare() clamps whatever a caller passes to
+        // [1, LightmapPageBudget(AtlasSize)], so a caller can only ever ask for
+        // LESS memory than the policy allows. MaxAtlasPages = 1 reproduces the
+        // pre-#868 single-page behaviour exactly, which is how it stays covered.
+        u32 MaxAtlasPages = kMaxLightmapPages;
         u32 SamplesPerTexel = 128; // Monte Carlo samples per lightmap texel
         u32 MaxBounces = 4;        // surface interactions per path (1 = single bounce)
         f32 TexelsPerMeter = 8.0f; // world-space texel density target
@@ -69,6 +85,7 @@ namespace OloEngine
     {
         u32 AtlasX = 0;
         u32 AtlasY = 0;
+        u32 AtlasPage = 0; // atlas page this texel lives on (issue #868)
         glm::vec3 WorldPos{ 0.0f };
         glm::vec3 WorldNormal{ 0.0f };
     };
@@ -81,6 +98,7 @@ namespace OloEngine
         u32 X = 0;
         u32 Y = 0;
         u32 Size = 0;
+        u32 Page = 0; // atlas page this region lives on (issue #868)
     };
 
     // The game-thread product of Prepare(): everything the background texel
@@ -94,6 +112,7 @@ namespace OloEngine
         std::vector<LightmapEntityEntry> Entries;
         std::vector<LightmapAtlasRegion> Regions; // parallel to Entries (same order)
         u32 AtlasSize = 0;
+        u32 PageCount = 0; // atlas pages actually used (>= 1 on success, issue #868)
         u32 BakedEntityCount = 0;
         u32 SkippedEntityCount = 0;
     };

@@ -348,6 +348,27 @@ namespace OloEngine
         u32 whiteTextureData = 0xffffffffU;
         s_Data.WhiteTexture->SetData(&whiteTextureData, sizeof(u32));
 
+        // 1x1x1 white RGBA16F placeholder for TEX_LIGHTMAP (issue #868). The
+        // lightmap sampler is a sampler2DArray, so the plain WhiteTexture can
+        // no longer stand in for it. Owned by the renderer's Init/Shutdown pair
+        // rather than a lazy static (lazy-static-release-ownership.md).
+        // SetLayerData's client data is NATIVE per format, so RGBA16F wants
+        // halves — 0x3C00 is 1.0h.
+        {
+            Texture2DArraySpecification placeholderSpec;
+            placeholderSpec.Width = 1;
+            placeholderSpec.Height = 1;
+            placeholderSpec.Layers = 1;
+            placeholderSpec.Format = Texture2DArrayFormat::RGBA16F;
+            placeholderSpec.GenerateMipmaps = false;
+            s_Data.LightmapPlaceholderAtlas = Texture2DArray::Create(placeholderSpec);
+            if (s_Data.LightmapPlaceholderAtlas)
+            {
+                const std::array<u16, 4> whiteHalf{ 0x3C00u, 0x3C00u, 0x3C00u, 0x3C00u };
+                s_Data.LightmapPlaceholderAtlas->SetLayerData(0, whiteHalf.data(), 1, 1);
+            }
+        }
+
         s_Data.SharedSceneUBOs.Camera = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
         // Allocate enough for the larger PBR layout (PBRMaterialUBO > MaterialUBO)
         constexpr u32 materialBufferSize = std::max(ShaderBindingLayout::MaterialUBO::GetSize(), ShaderBindingLayout::PBRMaterialUBO::GetSize());
@@ -685,6 +706,7 @@ namespace OloEngine
         s_Data.LineQuadMesh.Reset();
         s_Data.FullscreenQuadVAO.Reset();
         s_Data.WhiteTexture.Reset();
+        s_Data.LightmapPlaceholderAtlas.Reset();
 
         // CommandDispatch's static mirror of the shared UBO / instance-buffer
         // Refs (SetUBOReferences) is a CO-OWNER: without this, the
