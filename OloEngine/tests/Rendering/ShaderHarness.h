@@ -279,4 +279,36 @@ namespace OloEngine::Tests::ShaderHarness
         const std::string name = shaderPath.generic_string();
         return compiler.CompileGlslToSpv(stageSource, kind, name.c_str(), options);
     }
+
+    /// Compile one raster stage through the exact production VulkanShader tier:
+    /// Vulkan 1.4, SPIR-V 1.6, OLO_VULKAN=1, debug names and performance
+    /// optimisation. Contract tests use this route when the authoring-side
+    /// backend fork itself is what must be reflected (not the OpenGL-via-SPIR-V
+    /// tier used by CompileStageToSpv above).
+    inline shaderc::SpvCompilationResult CompileVulkanBackendStageToSpv(
+        const fs::path& shaderPath,
+        const std::string& stageSource,
+        shaderc_shader_kind kind,
+        const fs::path& root,
+        shaderc::Compiler& compiler)
+    {
+        shaderc::CompileOptions options;
+        constexpr auto kShadercEnvVulkan14 = static_cast<shaderc_env_version>((1u << 22) | (4u << 12));
+        constexpr auto kShadercSpirv16 = static_cast<shaderc_spirv_version>((1u << 16) | (6u << 8));
+        static_assert(static_cast<u32>(kShadercEnvVulkan14) == 0x00404000u);
+        static_assert(static_cast<u32>(kShadercSpirv16) == 0x00010600u);
+
+        options.SetTargetEnvironment(shaderc_target_env_vulkan, kShadercEnvVulkan14);
+        options.SetTargetSpirv(kShadercSpirv16);
+        options.SetPreserveBindings(true);
+        options.SetAutoBindUniforms(false);
+        options.SetGenerateDebugInfo();
+        options.SetOptimizationLevel(shaderc_optimization_level_performance);
+        options.SetSuppressWarnings();
+        options.AddMacroDefinition("OLO_VULKAN", "1");
+        options.SetIncluder(std::make_unique<Includer>(root));
+
+        const std::string name = shaderPath.generic_string();
+        return compiler.CompileGlslToSpv(stageSource, kind, name.c_str(), options);
+    }
 } // namespace OloEngine::Tests::ShaderHarness

@@ -5,6 +5,8 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 
+#include <array>
+
 namespace OloEngine
 {
     // @brief 6-RT G-Buffer for the deferred renderer.
@@ -55,6 +57,20 @@ namespace OloEngine
             EntityID = 4, // RED_INTEGER — per-pixel picking entity ID (cleared to -1)
             BakedGI = 5,  // RGBA16F     — baked lightmap irradiance + coverage (issue #865)
             Count = 6
+        };
+
+        // The production-owned colour-attachment contract in AttachmentIndex
+        // order. GBuffer.cpp builds both the draw and resolve framebuffers from
+        // this table, and reflection tests compare every full G-Buffer writer
+        // against it, so shader numeric types and attachment formats cannot
+        // drift as independent mirrors.
+        inline static constexpr std::array<FramebufferTextureFormat, Count> s_ColorAttachmentFormats = {
+            FramebufferTextureFormat::RGBA8,
+            FramebufferTextureFormat::RGBA16F,
+            FramebufferTextureFormat::RGBA16F,
+            FramebufferTextureFormat::RG16F,
+            FramebufferTextureFormat::RED_INTEGER,
+            FramebufferTextureFormat::RGBA16F,
         };
 
         // Create a G-Buffer sized to (width, height). sampleCount = 1 means

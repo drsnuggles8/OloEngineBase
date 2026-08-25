@@ -1350,8 +1350,9 @@ namespace OloEngine
             f32 ParallaxScale = 0.5f;
         };
 
-        // Foliage rendering (submits DrawFoliageLayerCommand to FoliageRenderPass bucket)
-        static CommandPacket* DrawFoliageLayer(
+        // Foliage rendering. This function owns submission as well as packet
+        // allocation so the two operations cannot select different streams.
+        static void DrawFoliageLayer(
             RHI::ResourceHandle vertexArrayID, u32 indexCount, u32 instanceCount,
             RHI::ResourceHandle albedoTextureID,
             const glm::mat4& modelTransform,
