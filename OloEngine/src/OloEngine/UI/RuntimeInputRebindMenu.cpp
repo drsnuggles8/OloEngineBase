@@ -214,8 +214,10 @@ namespace OloEngine
 
         const f32 panelHeight = kHeaderHeight + static_cast<f32>(actionNames.size()) * kRowHeight + kFooterHeight;
 
-        // Dimmed full-screen backdrop, then the centred panel.
-        MakePanel(m_Canvas, { 0.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f, 0.55f });
+        // The centred panel is deliberately opaque enough to stand on its own.
+        // Do not add a transient full-screen dim quad here: the UI composite target
+        // retains that quad after this runtime-created canvas is destroyed, leaving
+        // the game permanently dark after the player closes Controls.
         Entity panel = MakePanel(m_Canvas, { 0.5f, 0.5f }, { 0.5f, 0.5f }, { 0.0f, 0.0f }, { kPanelWidth, panelHeight }, kPanelColor);
 
         MakeText(panel, "Rebind Controls", { kPad, 14.0f }, { kPanelWidth - 2.0f * kPad, 30.0f }, 26.0f, kTitleColor);

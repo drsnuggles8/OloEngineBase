@@ -272,5 +272,7 @@ namespace OloEngine::Tests
             << "Project StartScene = '" << cfg.StartScene.generic_string()
             << "' but no file exists at that path. OloEditor will fail to "
                "auto-load the start scene on project open.";
+        EXPECT_EQ(cfg.StartScene.filename().generic_string(), "DriftMenu.olo")
+            << "Sandbox must cold-boot into the authored Drift product menu, not directly into a gameplay/test scene.";
     }
 } // namespace OloEngine::Tests

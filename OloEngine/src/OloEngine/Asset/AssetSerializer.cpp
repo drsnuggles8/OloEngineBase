@@ -947,8 +947,14 @@ namespace OloEngine
         }
 
         // Load shader
-        std::string shaderName = materialNode["Shader"].as<std::string>("DefaultPBR");
-        auto shader = Renderer3D::GetShaderLibrary().Get(shaderName);
+        const std::string authoredShaderName = materialNode["Shader"].as<std::string>("PBR_MultiLight");
+        const std::string shaderName = ResolveRuntimeShaderName(authoredShaderName);
+        auto& shaderLibrary = Renderer3D::GetShaderLibrary();
+        Ref<Shader> shader;
+        if (shaderLibrary.Exists(shaderName))
+        {
+            shader = shaderLibrary.Get(shaderName);
+        }
         if (!shader)
         {
             // Fallback to loading from file if not in library
@@ -956,7 +962,7 @@ namespace OloEngine
             if (shader)
             {
                 // Add to library for future use
-                Renderer3D::GetShaderLibrary().Add(shaderName, shader);
+                shaderLibrary.Add(shaderName, shader);
             }
         }
         if (!shader)
@@ -1064,6 +1070,19 @@ namespace OloEngine
         }
 
         return true;
+    }
+
+    std::string MaterialAssetSerializer::ResolveRuntimeShaderName(std::string_view authoredName)
+    {
+        // DefaultPBR was retired when the forward material path moved to the
+        // multi-light shader. Older projects still carry the authored name in
+        // .olomaterial files, so translate it at the serialization boundary.
+        if (authoredName == "DefaultPBR")
+        {
+            return "PBR_MultiLight";
+        }
+
+        return std::string(authoredName);
     }
 
     //////////////////////////////////////////////////////////////////////////////////

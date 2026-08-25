@@ -137,7 +137,7 @@ namespace OloEngine
         // any unsaved edits in it — untouched, so Stop still returns the user to
         // what they were working on. Returns false and keeps the current scene
         // running if the target can't be resolved or loaded.
-        bool SwitchPlayScene(const std::string& request);
+        bool SwitchPlayScene(const std::string& request, const std::string& saveSlot = {});
 
         void OnDuplicateEntity();
         void OnCopyEntity();

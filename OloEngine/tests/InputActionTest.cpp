@@ -208,6 +208,22 @@ TEST(InputActionManagerTest, GetActionMapReturnsReference)
     InputActionManager::Shutdown();
 }
 
+TEST(InputActionManagerTest, RebindMenuRequestIsOneShotAndCarriesTargetContext)
+{
+    InputActionManager::Init();
+
+    EXPECT_FALSE(InputActionManager::ConsumeRebindMenuRequest().has_value());
+    InputActionManager::RequestRebindMenu(InputContextType::Vehicle);
+
+    const auto request = InputActionManager::ConsumeRebindMenuRequest();
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(*request, InputContextType::Vehicle);
+    EXPECT_FALSE(InputActionManager::ConsumeRebindMenuRequest().has_value())
+        << "a consumed request would reopen the settings panel every frame.";
+
+    InputActionManager::Shutdown();
+}
+
 // ============================================================================
 // CreateDefaultGameActions tests
 // ============================================================================

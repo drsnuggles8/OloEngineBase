@@ -3335,6 +3335,16 @@ namespace OloEngine
         {
             return static_cast<i32>(InputActionManager::GetContextDepth());
         };
+        inputTable["RequestRebindMenu"] = [](i32 context) -> bool
+        {
+            if (context < 0 || context >= static_cast<i32>(AllInputContextTypes.size()))
+            {
+                OLO_CORE_WARN("[Lua] Input.RequestRebindMenu received invalid context {} — ignoring.", context);
+                return false;
+            }
+            InputActionManager::RequestRebindMenu(static_cast<InputContextType>(context));
+            return true;
+        };
         inputTable["GetMousePosition"] = []() -> std::tuple<f32, f32>
         {
             auto pos = Input::GetMousePosition();
@@ -5275,6 +5285,21 @@ namespace OloEngine
                 return;
             }
             scene->SetPendingSceneLoad(path);
+        };
+        sceneTable["LoadSceneFromSave"] = [](const std::string& path, const std::string& saveSlot)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+            {
+                OLO_CORE_WARN("[Lua] Scene.LoadSceneFromSave called with no active scene context.");
+                return;
+            }
+            if (path.empty() || saveSlot.empty())
+            {
+                OLO_CORE_WARN("[Lua] Scene.LoadSceneFromSave needs a scene path and save slot — ignoring.");
+                return;
+            }
+            scene->SetPendingSceneLoadFromSave(path, saveSlot);
         };
 
         // --- Runtime spawning (issue #643; mirrors the C# Scene.* surface) ---

@@ -51,5 +51,16 @@ namespace OloEngine
 
 			InternalCalls.Scene_LoadScene(path);
 		}
+
+		/// <summary>
+		/// Switch to an authored scene and restore a save into it before runtime startup.
+		/// </summary>
+		public static void LoadSceneFromSave(string path, string saveSlot)
+		{
+			if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(saveSlot))
+				return;
+
+			InternalCalls.Scene_LoadSceneFromSave(path, saveSlot);
+		}
 	}
 }

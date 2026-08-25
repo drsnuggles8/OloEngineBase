@@ -232,6 +232,10 @@ namespace OloEngine
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
         Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
 
+        // Keeps materials authored before the default PBR shader rename loadable.
+        // Public so the compatibility mapping can be pinned by a headless test.
+        [[nodiscard]] static std::string ResolveRuntimeShaderName(std::string_view authoredName);
+
       private:
         std::string SerializeToYAML(Ref<MaterialAsset> materialAsset) const;
         std::string GetYAML(const AssetMetadata& metadata) const;

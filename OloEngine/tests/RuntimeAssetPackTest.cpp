@@ -293,6 +293,12 @@ TEST(RuntimeAssetPackTest, OffThreadCapabilityContract)
     EXPECT_FALSE(MaterialAssetSerializer().CanDeserializeFromAssetPackOffThread());
 }
 
+TEST(RuntimeAssetPackTest, LegacyDefaultPBRMaterialsResolveToCurrentForwardShader)
+{
+    EXPECT_EQ(MaterialAssetSerializer::ResolveRuntimeShaderName("DefaultPBR"), "PBR_MultiLight");
+    EXPECT_EQ(MaterialAssetSerializer::ResolveRuntimeShaderName("PBR_GBuffer"), "PBR_GBuffer");
+}
+
 // -----------------------------------------------------------------------------
 // 4. Full async path through RuntimeAssetManager for a CPU-only type (Audio).
 // -----------------------------------------------------------------------------

@@ -3804,6 +3804,26 @@ namespace OloEngine
         scene->SetPendingSceneLoad(pathStr);
     }
 
+    static void Scene_LoadSceneFromSave(MonoString* path, MonoString* saveSlot)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        if (!scene)
+        {
+            OLO_CORE_WARN("[ScriptGlue] SceneManager.LoadSceneFromSave called with no active scene context.");
+            return;
+        }
+
+        const std::string pathStr = path ? Utils::MonoStringToString(path) : std::string{};
+        const std::string slotStr = saveSlot ? Utils::MonoStringToString(saveSlot) : std::string{};
+        if (pathStr.empty() || slotStr.empty())
+        {
+            OLO_CORE_WARN("[ScriptGlue] SceneManager.LoadSceneFromSave needs a scene path and save slot — ignoring.");
+            return;
+        }
+
+        scene->SetPendingSceneLoadFromSave(pathStr, slotStr);
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     // Localization ///////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -4425,6 +4445,7 @@ namespace OloEngine
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(Scene_ReloadCurrentScene);
         OLO_ADD_INTERNAL_CALL(Scene_LoadScene);
+        OLO_ADD_INTERNAL_CALL(Scene_LoadSceneFromSave);
 
         ///////////////////////////////////////////////////////////////
         // Localization ///////////////////////////////////////////////

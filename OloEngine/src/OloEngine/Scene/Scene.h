@@ -362,6 +362,7 @@ namespace OloEngine
             if (pending)
             {
                 m_PendingSceneLoad.clear();
+                m_PendingSceneLoadSaveSlot.clear();
             }
         }
 
@@ -389,17 +390,38 @@ namespace OloEngine
         {
             return m_PendingSceneLoad;
         }
+        [[nodiscard("Store this!")]] const std::string& GetPendingSceneLoadSaveSlot() const
+        {
+            return m_PendingSceneLoadSaveSlot;
+        }
         void SetPendingSceneLoad(std::string_view path)
         {
             m_PendingSceneLoad.assign(path);
+            m_PendingSceneLoadSaveSlot.clear();
             if (!m_PendingSceneLoad.empty())
             {
                 m_PendingReload = false;
             }
         }
+        // Continue-game transition: the host loads the target scene, restores
+        // `saveSlot` into that not-yet-running scene, and only then performs the
+        // normal stop -> swap -> start sequence. Pairing the slot with the scene
+        // request prevents a process-global request from leaking into a later
+        // unrelated transition.
+        void SetPendingSceneLoadFromSave(std::string_view path, std::string_view saveSlot)
+        {
+            if (path.empty() || saveSlot.empty())
+            {
+                return;
+            }
+            m_PendingSceneLoad.assign(path);
+            m_PendingSceneLoadSaveSlot.assign(saveSlot);
+            m_PendingReload = false;
+        }
         void ClearPendingSceneLoad()
         {
             m_PendingSceneLoad.clear();
+            m_PendingSceneLoadSaveSlot.clear();
         }
 
         void Step(int frames = 1);
@@ -1110,6 +1132,9 @@ namespace OloEngine
         bool m_PendingReload = false;
         // Script-requested scene to switch to, unresolved. Empty = no request.
         std::string m_PendingSceneLoad;
+        // Optional save slot restored into the loaded scene before runtime
+        // startup. Empty means an ordinary authored-scene transition.
+        std::string m_PendingSceneLoadSaveSlot;
         int m_StepFrames = 0;
         u64 m_TerrainFrameCounter = 0;
         u64 m_StreamingFrameCounter = 0;

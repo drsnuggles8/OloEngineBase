@@ -193,6 +193,7 @@ namespace OloEngine
         s_PreviousState.clear();
         s_AxisValues.clear();
         s_SuppressTransientOnNextUpdate = false;
+        s_PendingRebindMenuContext.reset();
     }
 
     void InputActionManager::Shutdown()
@@ -205,6 +206,7 @@ namespace OloEngine
         s_PreviousState.clear();
         s_AxisValues.clear();
         s_SuppressTransientOnNextUpdate = false;
+        s_PendingRebindMenuContext.reset();
     }
 
     void InputActionManager::Update()

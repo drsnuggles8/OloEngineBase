@@ -6,6 +6,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Core/KeyCodes.h"
+#include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
@@ -66,6 +67,19 @@ class LuaBindingTest : public ::testing::Test
         LuaScriptGlue::RegisterAllTypes(lua);
     }
 };
+
+TEST_F(LuaBindingTest, InputRequestRebindMenuCarriesAuthoredContextToHost)
+{
+    InputActionManager::Init();
+
+    auto result = lua.script("return Input.RequestRebindMenu(InputContext.Vehicle)");
+    EXPECT_TRUE(result.get<bool>());
+    const auto request = InputActionManager::ConsumeRebindMenuRequest();
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(*request, InputContextType::Vehicle);
+
+    InputActionManager::Shutdown();
+}
 
 // =============================================================================
 // GLM vector constructors and access

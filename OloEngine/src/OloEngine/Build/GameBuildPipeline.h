@@ -25,6 +25,33 @@ namespace OloEngine
     };
 
     /**
+     * @brief Stage the dynamic libraries placed beside a built runtime.
+     *
+     * Kept as a small filesystem seam so packaging tests can exercise the same
+     * dependency-discovery rule as the full editor build without constructing
+     * an active project or asset pack.
+     */
+    bool StageRuntimeDependencyLibraries(
+        BuildTargetPlatform targetPlatform,
+        const std::filesystem::path& runtimeBinDir,
+        const std::filesystem::path& outputDir,
+        sizet& copiedCount,
+        std::string& errorMessage);
+
+    /**
+     * @brief Stage project textures needed by legacy path-based scene components.
+     *
+     * Runtime scene deserialization still resolves UIImage/Sprite texture paths
+     * through Texture2D::Create, so those files must remain available beside the
+     * asset pack until scene serialization stores pack handles instead.
+     */
+    bool StageLooseRuntimeTextures(
+        const std::filesystem::path& projectAssetsDir,
+        const std::filesystem::path& outputAssetsDir,
+        sizet& copiedCount,
+        std::string& errorMessage);
+
+    /**
      * @brief Orchestrates the full game build pipeline
      *
      * The GameBuildPipeline is responsible for taking the active project
@@ -38,12 +65,13 @@ namespace OloEngine
      *    (`OloRuntime.exe` on Windows, `OloRuntime` on Linux — see
      *    GetHostExecutableFileName), then embed a custom icon (Windows) or write
      *    a .desktop launcher entry (Linux)
-     * 4. **Copy Dependencies** — Copy required DLLs (Mono, zlib) — Windows only
+     * 4. **Copy Dependencies** — Copy runtime-adjacent DLLs — Windows only
      * 5. **Copy Engine Resources** — Copy shaders and fonts
      * 6. **Copy Mono Runtime** — Copy mono/lib and mono/etc for C# scripting
      *    (skipped when IsScriptingAvailableOnPlatform is false for the target)
      * 7. **Copy ScriptCore** — Copy the C# ScriptCore assembly (same skip)
      * 8. **Copy Scenes** — Copy .olo scene files from the project
+     *    plus loose Lua scripts and writable project runtime configuration
      * 9. **Write Manifest** — Write game.manifest with game name, start scene,
      *    target platform and C# scripting availability, etc.
      *
@@ -52,9 +80,12 @@ namespace OloEngine
      * ```
      * OutputDirectory/GameName/
      * ├── GameName.exe            (renamed OloRuntime.exe)
+     * ├── *.dll                   (runtime-adjacent dynamic libraries)
      * ├── game.manifest           (YAML config: game name, start scene)
      * ├── Assets/
      * │   └── AssetPack.olopack   (textures, meshes, etc.)
+     * ├── Config/
+     * │   └── InputActions.yaml   (writable persisted control bindings)
      * ├── Scenes/
      * │   └── *.olo               (scene files from project)
      * ├── assets/
@@ -179,6 +210,17 @@ namespace OloEngine
          * Non-fatal when the project has no scripts — plenty of games don't use Lua.
          */
         static bool CopyScriptFiles(
+            const std::filesystem::path& outputDir,
+            std::string& errorMessage);
+
+        /**
+         * @brief Copy writable project runtime configuration
+         *
+         * InputActions.yaml must remain loose: OloRuntime loads it before the
+         * start scene and RuntimeInputRebindMenu writes the player's changes
+         * back to the same file so bindings survive a process restart.
+         */
+        static bool CopyProjectRuntimeConfig(
             const std::filesystem::path& outputDir,
             std::string& errorMessage);
 

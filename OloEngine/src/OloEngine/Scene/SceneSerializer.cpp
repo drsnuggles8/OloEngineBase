@@ -167,6 +167,36 @@ namespace OloEngine
         return Texture2D::Create(texPath);
     }
 
+    // Runtime-facing resource paths must survive moving a project or launching a
+    // packaged game on another machine. Font::Create stores the resolved absolute
+    // path, so serializing GetPath() directly would rewrite a portable authored
+    // path into the editor host's C:\... path whenever Build Game saves the scene.
+    static std::string MakePortableSceneResourcePath(const std::filesystem::path& path)
+    {
+        if (path.empty() || !path.is_absolute())
+        {
+            return path.generic_string();
+        }
+
+        std::vector<std::filesystem::path> roots;
+        if (Project::GetActive())
+        {
+            roots.push_back(Project::GetProjectDirectory());
+        }
+        roots.push_back(Application::GetStartupWorkingDirectory());
+
+        for (const auto& root : roots)
+        {
+            std::error_code ec;
+            const auto relative = std::filesystem::relative(path, root, ec);
+            if (!ec && !relative.empty() && !relative.generic_string().starts_with(".."))
+            {
+                return relative.generic_string();
+            }
+        }
+        return path.generic_string();
+    }
+
     // ---------- Sanitization helpers (shared across all Deserialize* functions) ----------
 
     /// Replace non-finite values with \p fallback, then clamp to [lo, hi].
@@ -4174,7 +4204,7 @@ namespace OloEngine
             out << YAML::Key << "TextString" << YAML::Value << textComponent.TextString;
             if (textComponent.FontAsset)
             {
-                out << YAML::Key << "FontPath" << YAML::Value << textComponent.FontAsset->GetPath();
+                out << YAML::Key << "FontPath" << YAML::Value << MakePortableSceneResourcePath(textComponent.FontAsset->GetPath());
             }
             out << YAML::Key << "Color" << YAML::Value << textComponent.Color;
             out << YAML::Key << "Kerning" << YAML::Value << textComponent.Kerning;
@@ -4766,7 +4796,7 @@ namespace OloEngine
             out << YAML::Key << "Text" << YAML::Value << text.m_Text;
             if (text.m_FontAsset)
             {
-                out << YAML::Key << "FontPath" << YAML::Value << text.m_FontAsset->GetPath();
+                out << YAML::Key << "FontPath" << YAML::Value << MakePortableSceneResourcePath(text.m_FontAsset->GetPath());
             }
             out << YAML::Key << "FontSize" << YAML::Value << text.m_FontSize;
             out << YAML::Key << "Color" << YAML::Value << text.m_Color;
@@ -4798,7 +4828,7 @@ namespace OloEngine
             out << YAML::Key << "Placeholder" << YAML::Value << input.m_Placeholder;
             if (input.m_FontAsset)
             {
-                out << YAML::Key << "FontPath" << YAML::Value << input.m_FontAsset->GetPath();
+                out << YAML::Key << "FontPath" << YAML::Value << MakePortableSceneResourcePath(input.m_FontAsset->GetPath());
             }
             out << YAML::Key << "FontSize" << YAML::Value << input.m_FontSize;
             out << YAML::Key << "TextColor" << YAML::Value << input.m_TextColor;
@@ -4831,7 +4861,7 @@ namespace OloEngine
             out << YAML::Key << "TextColor" << YAML::Value << dropdown.m_TextColor;
             if (dropdown.m_FontAsset)
             {
-                out << YAML::Key << "FontPath" << YAML::Value << dropdown.m_FontAsset->GetPath();
+                out << YAML::Key << "FontPath" << YAML::Value << MakePortableSceneResourcePath(dropdown.m_FontAsset->GetPath());
             }
             out << YAML::Key << "FontSize" << YAML::Value << dropdown.m_FontSize;
             out << YAML::Key << "ItemHeight" << YAML::Value << dropdown.m_ItemHeight;

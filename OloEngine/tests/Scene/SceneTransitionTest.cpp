@@ -318,3 +318,27 @@ TEST_F(SceneTransitionTest, ClearingAPendingLoadLeavesNoRequestBehind)
     EXPECT_FALSE(scene->HasPendingSceneLoad());
     EXPECT_TRUE(scene->GetPendingSceneLoad().empty());
 }
+
+TEST_F(SceneTransitionTest, ContinueRequestKeepsSaveSlotPairedWithItsScene)
+{
+    Ref<Scene> scene = Scene::Create();
+    scene->SetPendingSceneLoadFromSave("Drift", "drift_voyage");
+
+    ASSERT_TRUE(scene->HasPendingSceneLoad());
+    EXPECT_EQ(scene->GetPendingSceneLoad(), "Drift");
+    EXPECT_EQ(scene->GetPendingSceneLoadSaveSlot(), "drift_voyage");
+
+    // A later ordinary load must not accidentally restore the earlier save,
+    // and clearing the request must clear both halves atomically.
+    scene->SetPendingSceneLoad("Credits");
+    EXPECT_TRUE(scene->GetPendingSceneLoadSaveSlot().empty());
+    scene->SetPendingSceneLoadFromSave("Drift", "drift_voyage");
+    scene->ClearPendingSceneLoad();
+    EXPECT_FALSE(scene->HasPendingSceneLoad());
+    EXPECT_TRUE(scene->GetPendingSceneLoadSaveSlot().empty());
+
+    scene->SetPendingSceneLoadFromSave("Drift", "drift_voyage");
+    scene->SetPendingReload(true);
+    EXPECT_FALSE(scene->HasPendingSceneLoad());
+    EXPECT_TRUE(scene->GetPendingSceneLoadSaveSlot().empty());
+}

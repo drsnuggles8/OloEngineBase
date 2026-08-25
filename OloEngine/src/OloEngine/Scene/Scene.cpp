@@ -1455,6 +1455,7 @@ namespace OloEngine
         // scene we just started.
         m_PendingReload = false;
         m_PendingSceneLoad.clear();
+        m_PendingSceneLoadSaveSlot.clear();
         // Floating-origin (issue #429): every play-through starts at the authored
         // coordinates, so the rebased origin coincides with absolute origin.
         m_WorldOrigin = glm::vec3(0.0f);
