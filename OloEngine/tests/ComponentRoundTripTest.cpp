@@ -1507,7 +1507,7 @@ namespace OloEngine::Tests
     TEST(ComponentRoundTrip, UITextFontPathStaysPortableWhenTheLoadedFontPathIsAbsolute)
     {
         ActiveProjectRestorer restoreProject;
-        const auto repoRoot = std::filesystem::current_path();
+        const auto repoRoot = std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
         const auto fontPath = std::filesystem::weakly_canonical(
             repoRoot / "OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf");
         ASSERT_TRUE(std::filesystem::is_regular_file(fontPath));
