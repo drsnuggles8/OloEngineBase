@@ -88,7 +88,10 @@ void main()
             // Tangent space to world
             vec3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * N;
 
-            irradiance += texture(u_EnvironmentMap, sampleVec).rgb * cos(theta) * sin(theta);
+            // textureLod(..., 0.0) for the same reason as IBLPrefilter.glsl: the
+            // sky cubemap is mipmapped now (#943) and this convolution must keep
+            // reading the base level, not whatever an implicit LOD would pick.
+            irradiance += textureLod(u_EnvironmentMap, sampleVec, 0.0).rgb * cos(theta) * sin(theta);
             nrSamples++;
         }
     }

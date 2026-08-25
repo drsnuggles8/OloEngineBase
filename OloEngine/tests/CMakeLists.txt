@@ -277,6 +277,7 @@ add_executable(OloEngine-Tests
 		Rendering/RenderStateTest.cpp
 		Rendering/OcclusionStateTest.cpp
 		Rendering/OcclusionIntegrationTest.cpp
+		Rendering/WaterGerstnerNormalScaleTest.cpp
 		Rendering/WaterRenderingTest.cpp
 		Rendering/FluidRenderMathTest.cpp
 		Fluid/FluidKernelContractTest.cpp

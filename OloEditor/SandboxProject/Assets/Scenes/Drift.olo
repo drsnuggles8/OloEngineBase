@@ -212,14 +212,23 @@ PrecipitationSettings:
 #   the first runtime tick DriftWeatherDirector.lua owns these fields and eases
 #   them between the three anchors below, following the wind speed the weather
 #   director blends:
-#     calm     WaveAmplitude 0.05   WaveSpeed 0.8    wind  2 m/s   (Clear)
-#     moderate (as authored)         WaveAmplitude 0.12   WaveSpeed 1.0
+#     calm     WaveAmplitude 0.22   WaveSpeed 0.8    wind  2 m/s   (Clear)
+#     moderate (as authored)         WaveAmplitude 0.45   WaveSpeed 1.0
 #                                                     wind  5 m/s   (Overcast)
-#     rough    WaveAmplitude 0.22   WaveSpeed 1.3    wind 14 m/s   (Storm)
+#     rough    WaveAmplitude 0.70   WaveSpeed 1.3    wind 14 m/s   (Storm)
 #
-#   The anchors are exactly the sets #879 authored and play-tested by hand, so
-#   the boat's character at each one is the character that was signed off; the
-#   script interpolates rather than inventing new numbers. It also moves the
+#   The amplitudes were RE-TUNED in #943 (from 0.05 / 0.12 / 0.22); everything
+#   else is still the set #879 authored and play-tested by hand. The old numbers
+#   were calibrated against a shading bug: WaterCommon.glsl scaled each Gerstner
+#   octave's displacement by WaveAmplitude but built its normal from the
+#   unscaled steepness, so the sea shaded as though it were ~15x steeper than it
+#   was. The old "rough" state is a 0.65 m crest bound at 14 m/s of wind — it
+#   only ever LOOKED like a storm, and the boat has been floating on a ripple
+#   the whole time (BuoyancySystem reads the displacement, which was always
+#   correct, so the physics never agreed with the picture). With the normals
+#   fixed the amplitude has to carry the sea state for real.
+#
+#   The script interpolates rather than inventing new numbers. It also moves the
 #   foam threshold, the specular intensity and the water colour along the same
 #   parameter, which is what makes the sea state legible in a STILL frame
 #   rather than only in motion. Sea-state changes are eased over ~25 s, which is
@@ -230,11 +239,19 @@ PrecipitationSettings:
 #
 #   WaveAmplitude is NOT metres of wave height. It is scaled by WaveFrequency
 #   and the two steepness terms, and the product is what the surface actually
-#   displaces: 0.45 here put crests several metres up, deep enough that the
-#   camera pivot sat INSIDE the swell and the transparent water plane was drawn
-#   over the boat every few seconds. That reads as "the boat is sinking" and, on
-#   the sail, as a dithered stipple that looks exactly like shadow acne and is
-#   not — it is the water surface's own transparency dither in front of it.
+#   displaces. For THIS scene's wavelengths the worst-case crest bound works out
+#   at about 2.95x the amplitude (Water.glsl :: computeMaxWaveDisplacement), so
+#   the three anchors above are roughly 0.65 / 1.33 / 2.06 m.
+#
+#   An earlier note here warned that 0.45 "put crests several metres up, deep
+#   enough that the camera pivot sat INSIDE the swell", with the water plane
+#   drawn over the boat and a dithered stipple on the sail that reads as shadow
+#   acne but is the surface's own transparency dither. That was recorded before
+#   the chase camera was given its 2.0-2.6 m pivot (DriftFollowCamera.lua), and
+#   0.45 is a 1.33 m bound rather than "several metres" — re-checked in Play at
+#   the re-tuned values and the camera stays above the surface. Keep the warning
+#   in mind rather than the number: if the pivot ever starts submerging, it is
+#   this knob against kPivotHighY, and the symptom looks like a rendering fault.
 #   Calibrate this by looking at the frame, never by reading it as a height.
 #   They are worth trying in that order: the boat's character changes far more
 #   between them than any single hull coefficient changes it.
@@ -736,7 +753,7 @@ Entities:
       # metronomic pitch that reads as a treadmill, and the beat between two is
       # most of what makes a swell feel like water. Amplitude is the sea-state
       # knob (see the header).
-      WaveAmplitude: 0.12
+      WaveAmplitude: 0.45
       WaveFrequency: 0.55
       WaveSpeed: 1
       WaveDir0: [1, 0.15]

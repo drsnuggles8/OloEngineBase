@@ -128,7 +128,24 @@ local kSeaTau = 25.0
 
 local kSea = {
     -- t = 0 (calm)                t = 0.5 (moderate)            t = 1 (rough)
-    waveAmplitude      = { 0.05,   0.12,   0.22  },
+    -- RE-TUNED from { 0.05, 0.12, 0.22 } in #943, and the reason is worth
+    -- keeping: the old numbers were chosen against a shading bug. Every Gerstner
+    -- octave in WaterCommon.glsl scaled its DISPLACEMENT by waveAmplitude but
+    -- built its NORMAL from the unscaled steepness, so the surface shaded as if
+    -- it were roughly 15x steeper than it really was. The old "rough" sea is a
+    -- 0.65 m crest bound at 14 m/s of wind — it only ever LOOKED like a storm.
+    -- With the normals fixed, the amplitudes have to carry the sea state for
+    -- real; these give crest bounds of about 0.65 / 1.33 / 2.06 m (the bound is
+    -- ~2.95x amplitude for this scene's wavelengths — Water.glsl ::
+    -- computeMaxWaveDisplacement). Picked by looking at the frame at the chase
+    -- camera's own 9-13.5 m boom, not derived.
+    --
+    -- The top end is deliberately COMPRESSED against the old 1 : 2.4 : 4.4 ratio
+    -- (this is 1 : 2.05 : 3.2). Past roughly 0.8 the steeper normals sweep the
+    -- reflection far enough across the sky gradient that the #943 flats start to
+    -- come back — the water still point-samples a mip-less environment cubemap,
+    -- so that lookup cannot be filtered. Raise these again once that is fixed.
+    waveAmplitude      = { 0.22,   0.45,   0.70  },
     waveSpeed          = { 0.80,   1.00,   1.30  },
     -- Whitecaps start lower down the wave and burn brighter as it builds: this
     -- is the single most legible "the sea got up" cue in a still frame.

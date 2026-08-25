@@ -246,6 +246,28 @@ vec3 proceduralNormal(vec2 uv, float strength)
     return normalize(vec3(-(hx - h0) * strength, 1.0, -(hy - h0) * strength));
 }
 
+// smoothstep() whose transition is widened by the value's own screen-space
+// footprint — analytic anti-aliasing for a threshold on a procedural field
+// (issue #943).
+//
+// Every noise field in this shader is evaluated per pixel from world position,
+// at frequencies (sparkle at 3/7/13 cycles per metre, the foam pattern at 3 and
+// 7.4) that fall far below one sample per pixel long before the horizon. Put a
+// narrow smoothstep across an undersampled field and neighbouring pixels land on
+// opposite sides of the threshold essentially at random, which is what turns the
+// distant sea into hard-edged flats and blobs.
+//
+// fwidth(x) is how much the field moves between adjacent pixels, so padding the
+// edges by it makes the transition exactly as wide as the pixel can resolve:
+// unchanged where the field is well sampled (fwidth ~ 0), and flattening toward
+// the field's local average as it becomes subpixel — which is the correct filtered
+// answer rather than a coin flip.
+float smoothstepAA(float edge0, float edge1, float x)
+{
+    float w = fwidth(x);
+    return smoothstep(edge0 - w, edge1 + w, x);
+}
+
 // FBM noise for foam and detail (3 octaves)
 float fbmNoise(vec2 p)
 {
@@ -519,7 +541,23 @@ void main()
 
     // Reflection: SSR with cubemap fallback
     vec3 reflectDir = reflect(-viewDir, normal);
-    vec3 cubemapReflection = texture(u_EnvironmentMap, reflectDir).rgb;
+    // textureGrad, not texture (#943). Reflectivity is used as Fresnel F0 and is
+    // authored near 1 on every sea, so this cubemap fetch IS most of what the
+    // surface shows. On a rippled sea at a grazing angle `reflectDir` sweeps a
+    // wide solid angle inside a single pixel, so a point sample lands on one
+    // side or the other of the sky's vertical gradient per pixel and the result
+    // is the hard-edged flats of #943 / the "plateaus" of #898 — an aliased
+    // reflection, not an aliased foam edge.
+    //
+    // Handing the hardware the actual screen-space derivatives of the reflected
+    // direction lets it pick a mip matching that footprint: sharp where the
+    // normal field is well sampled (near field, calm water), progressively
+    // filtered as the footprint widens. That is only possible because the sky
+    // bakes now build a mip chain (SkyCubemapBake.cpp); against a single-level
+    // cubemap this degrades to exactly the old point sample rather than
+    // breaking, so a sky without mips is still correct, just unfiltered.
+    vec3 cubemapReflection =
+        textureGrad(u_EnvironmentMap, reflectDir, dFdx(reflectDir), dFdy(reflectDir)).rgb;
     vec3 reflectionColor = cubemapReflection;
 
     // Screen Space Reflections (when enabled: u_SSRParams.x > 0)
@@ -577,20 +615,22 @@ void main()
         // Use procedural noise if no noise texture is bound
         vec4 noiseSample = texture(u_NoiseMap, (v_WorldPos.xz + u_RenderOrigin.xz) * 0.5 + u_NormalMapScroll.xy * 0.3);
         bool hasNoiseMap = (noiseSample.r + noiseSample.g + noiseSample.b) > 0.001;
-        float noiseVal;
-        if (hasNoiseMap)
-        {
-            noiseVal = noiseSample.r;
-        }
-        else
-        {
-            // Procedural sparkle noise at 3 different frequencies
-            float n1p = valueNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 3.0 + u_NormalMapScroll.xy * 5.0);
-            float n2p = valueNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 7.0 - u_NormalMapScroll.zw * 3.0);
-            float n3p = valueNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 13.0 + time * 0.5);
-            noiseVal = n1p * n2p * n3p;
-            noiseVal = smoothstep(0.02, 0.15, noiseVal); // Threshold for sparkle dots
-        }
+        // Procedural sparkle noise at 3 different frequencies. Evaluated
+        // UNCONDITIONALLY and selected afterwards, rather than inside the
+        // `hasNoiseMap` else-branch where it used to sit: `hasNoiseMap` comes
+        // from a texture sample, so it is not quad-uniform, and smoothstepAA's
+        // fwidth() is a derivative — undefined in non-uniform control flow. The
+        // cost is a few noise evaluations on the rarely-taken texture path;
+        // `noiseIntensity > 0.0` above is a uniform so that branch is fine.
+        float n1p = valueNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 3.0 + u_NormalMapScroll.xy * 5.0);
+        float n2p = valueNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 7.0 - u_NormalMapScroll.zw * 3.0);
+        float n3p = valueNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 13.0 + time * 0.5);
+        // smoothstepAA: at 3/7/13 cycles per metre this product is deep below
+        // Nyquist by mid-distance, and a hard threshold on it was the brightest
+        // of the three flat-patch sources (#943).
+        float proceduralSparkle = smoothstepAA(0.02, 0.15, n1p * n2p * n3p); // Threshold for sparkle dots
+
+        float noiseVal = hasNoiseMap ? noiseSample.r : proceduralSparkle;
         sparkleNoise = mix(1.0, noiseVal, noiseIntensity);
     }
 
@@ -652,7 +692,7 @@ void main()
     // Very low-frequency noise so only sparse, random patches of
     // crests get foam — eliminates the grid/checkerboard pattern.
     float foamGateNoise = fbmNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 0.03 + vec2(5.3, 11.7));
-    float foamGate = smoothstep(0.62, 0.88, foamGateNoise);  // ~10% of area gets foam — sparse, clustered whitecaps
+    float foamGate = smoothstepAA(0.62, 0.88, foamGateNoise);  // ~10% of area gets foam — sparse, clustered whitecaps
     heightFoam *= foamGate;
     angleFoam  *= foamGate;
 
@@ -681,21 +721,20 @@ void main()
     vec4 foamSample = texture(u_FoamTexture, foamUV);
     bool hasFoamTexture = (foamSample.r + foamSample.g + foamSample.b) > 0.001;
 
-    if (hasFoamTexture)
-    {
-        foam *= foamSample.r;
-    }
-    else
-    {
-        // Procedural foam pattern: multi-octave smooth noise
-        // Two scales blended to break up regularity
-        float foamNoise1 = fbmNoise(foamUV * 1.5);
-        float foamNoise2 = fbmNoise(foamUV * 3.7 + vec2(17.3, 31.7));
-        float foamNoise = foamNoise1 * 0.6 + foamNoise2 * 0.4;
-        // Smooth, wide ramp instead of hard threshold — avoids speckle
-        float foamPattern = smoothstep(0.25, 0.65, foamNoise);
-        foam *= foamPattern;
-    }
+    // Procedural foam pattern: multi-octave smooth noise, two scales blended to
+    // break up regularity. Evaluated UNCONDITIONALLY and selected below for the
+    // same reason as the sparkle noise above — `hasFoamTexture` is derived from
+    // a texture sample and so is not quad-uniform, and smoothstepAA() takes a
+    // derivative, which is undefined in non-uniform control flow.
+    float foamNoise1 = fbmNoise(foamUV * 1.5);
+    float foamNoise2 = fbmNoise(foamUV * 3.7 + vec2(17.3, 31.7));
+    float foamNoise = foamNoise1 * 0.6 + foamNoise2 * 0.4;
+    // Smooth, wide ramp instead of hard threshold — avoids speckle. Widened by
+    // its own footprint: foamUV is per-metre, so this noise is undersampled well
+    // before the foam distance fade ends (#943).
+    float foamPattern = smoothstepAA(0.25, 0.65, foamNoise);
+
+    foam *= hasFoamTexture ? foamSample.r : foamPattern;
 
     finalColor = mix(finalColor, vec3(foamBrightness), clamp(foam, 0.0, 1.0));
 

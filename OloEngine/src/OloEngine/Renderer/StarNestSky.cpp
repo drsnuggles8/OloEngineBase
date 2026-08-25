@@ -196,7 +196,11 @@ namespace OloEngine
         cubeSpec.Width = resolution;
         cubeSpec.Height = resolution;
         cubeSpec.Format = ImageFormat::RGBA32F;
-        cubeSpec.GenerateMips = false;
+        // Mipped so the water's near-mirror reflection can be filtered by its
+        // screen-space footprint instead of point-sampled into hard-edged flats
+        // (#943). SkyBake::RenderSkyToCubemap generates the chain after the six
+        // faces are written; consumers needing the base level ask for it by LOD.
+        cubeSpec.GenerateMips = true;
         auto cubemap = TextureCubemap::Create(cubeSpec);
         if (!cubemap)
         {

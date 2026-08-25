@@ -88,7 +88,13 @@ void main()
         float NdotL = max(dot(N, L), 0.0);
         if (NdotL > 0.0)
         {
-            prefilteredColor += texture(u_EnvironmentMap, L).rgb * NdotL;
+            // textureLod(..., 0.0), not texture(): the sky bakes now build a mip
+            // chain on this cubemap so the water can filter its reflection
+            // (#943). An implicit-LOD fetch here would start selecting those
+            // mips off the derivative of L and silently blur the prefiltered
+            // result — this convolution wants the base level, which is what it
+            // always got back when the cubemap was single-level.
+            prefilteredColor += textureLod(u_EnvironmentMap, L, 0.0).rgb * NdotL;
             totalWeight += NdotL;
         }
     }

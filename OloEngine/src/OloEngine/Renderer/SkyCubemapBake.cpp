@@ -138,6 +138,26 @@ namespace OloEngine::SkyBake
 
         framebuffer->Unbind();
 
+        // Build the mip chain for the freshly baked faces (#943). Every face was
+        // written through CopyImageSubDataFull above, which touches level 0 only,
+        // so without this the chain is allocated and stale — and a coarse mip of
+        // last frame's sky is worse than no mip at all.
+        //
+        // Why the chain exists: the water surface is a near-mirror that samples
+        // this cubemap along `reflect(-viewDir, normal)`. On a rippled sea at a
+        // grazing angle that direction sweeps a wide solid angle inside a single
+        // pixel, and a single-level cubemap gives the hardware nothing to filter
+        // with — the reflection aliases into hard-edged flats (issue #943, and
+        // the "plateaus" of #898). Water.glsl now samples it with textureGrad so
+        // the footprint picks a mip. Consumers that must keep reading the base
+        // level ask for it explicitly (IBLPrefilter.glsl, IrradianceConvolution
+        // .glsl); the skybox draw is unaffected because it samples with no
+        // gradient spread.
+        //
+        // No-op for a cubemap created with GenerateMips = false, so the three
+        // sky bakes that route through here opt in via their own spec.
+        cubemap->GenerateMipmaps();
+
         if (wasStencilEnabled)
             RenderCommand::EnableStencilTest();
 
