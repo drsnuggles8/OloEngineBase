@@ -20,6 +20,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Math/Math.h"
 
 #include <glm/glm.hpp>
 
@@ -435,12 +436,13 @@ namespace OloEngine::DDGI
     // Euclidean modulo — GLSL's `%` and C++'s both truncate toward zero, which
     // maps a negative lattice coordinate to a NEGATIVE storage index. Cascades
     // routinely go negative (the camera moves toward -x), so this is the single
-    // most load-bearing line in the toroidal scheme.
+    // most load-bearing line in the toroidal scheme. Forwards to the shared
+    // implementation in Math::WrapIndex (also used by the terrain ring-buffer
+    // chunk window) — kept as a same-named alias here so call sites in this
+    // file and DDGIMathTest.cpp don't need to change.
     [[nodiscard("the wrapped index is the only effect")]] inline i32 WrapIndex(i32 value, i32 modulus) noexcept
     {
-        const i32 m = glm::max(modulus, 1);
-        const i32 r = value % m;
-        return (r < 0) ? (r + m) : r;
+        return Math::WrapIndex(value, modulus);
     }
 
     [[nodiscard("the storage coordinate is the only effect")]] inline glm::ivec3 StorageCoordForLattice(const glm::ivec3& lattice, const glm::ivec3& dims) noexcept
