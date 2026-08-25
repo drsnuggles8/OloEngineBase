@@ -94,14 +94,11 @@ namespace OloEngine
             // set. Drift has exactly one (the boat); a future multi-actor
             // scene would need a per-actor UI wiring this single-readout
             // design doesn't attempt.
-            Entity discoverer;
-            for (const auto e : scene.GetAllEntitiesWith<DiscoveredSetComponent>())
-            {
-                discoverer = Entity{ e, &scene };
-                break;
-            }
-            if (!discoverer)
+            const auto discovererView = scene.GetAllEntitiesWith<DiscoveredSetComponent>();
+            const auto discovererIt = discovererView.begin();
+            if (discovererIt == discovererView.end())
                 return;
+            Entity discoverer{ *discovererIt, &scene };
 
             const auto& discovered = discoverer.GetComponent<DiscoveredSetComponent>().m_Discovered;
             // World-space, not local Translation — a discoverer parented under
