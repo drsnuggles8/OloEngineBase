@@ -455,6 +455,7 @@ namespace OloEngine
         cullParams.DebugDrawClusters = static_cast<i32>(m_ClusterBoundsDebugMode);
         cullParams.DebugDrawClusterStride = std::max(m_ClusterBoundsDebugStride, 1u);
         cullParams.RejectCapacity = frameClusterCount;
+        cullParams.SwCapacity = frameClusterCount;
         cullParams.CommandSlotBase = 0u;
         cullParams.ArgsSlotBase = 0u;
         applyCullCameraOverride(cullParams);
@@ -678,6 +679,7 @@ namespace OloEngine
             // statement of intent, not as the mechanism.
             cullParams.DebugDrawClusters = 0;
             cullParams.RejectCapacity = frameClusterCount;
+            cullParams.SwCapacity = frameClusterCount;
             cullParams.CommandSlotBase = frameClusterCount;
             cullParams.ArgsSlotBase = instanceCount;
             applyCullCameraOverride(cullParams);

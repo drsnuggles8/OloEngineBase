@@ -932,7 +932,7 @@ namespace OloEngine
             u32 ArgsSlotBase;                  // 128
             i32 DebugDrawClusters;             // 132 — bit field, 0 = off (issue #725)
             u32 DebugDrawClusterStride;        // 136
-            i32 Pad0;                          // 140
+            u32 SwCapacity;                    // 140 — SW-raster work-list record capacity (this frame's cluster count)
             // ---- Culling-camera override (issue #726) ---------------------
             // Unlike InstanceCullUBO's unconditional field, this one is a
             // flagged override because THIS shader is bound by two views: the

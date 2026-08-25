@@ -410,4 +410,62 @@ namespace OloEngine::Tests
                 << " clusters, past the allocation's " << recordCapacity(frameClusterCount) << " records";
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Issue #862: the software-raster work list (VirtualClusterCull.comp's
+    // `atomicAdd(swList.Count, 1); swList.Records[swSlot] = ...`) had NO bound
+    // check at all — unlike the reject list right above it in the same shader,
+    // which has always guarded its append with `if (slot < u_RejectCapacity)`.
+    // The buffer's own allocation (VirtualMeshRegistry::EnsureFrameBuffers,
+    // `swListBytes`) was already sized correctly to the frame's total cluster
+    // count, exactly like the reject buffer — so this never overflowed in
+    // practice, but the missing guard meant nothing would have caught it if it
+    // ever had. GL's SSBO OOB writes are silently clamped/undefined; Vulkan
+    // without robustBufferAccess can genuinely device-fault (VK_EXT_device_fault
+    // "READ of invalid address") the moment a later shader indexes off a
+    // corrupted record. VirtualGeometryPass now uploads the same bound as
+    // `u_SwCapacity`, and VirtualClusterCull.comp gates the append on it,
+    // falling through to the hardware draw-command path (rather than dropping
+    // the cluster) if it's ever hit.
+    // -------------------------------------------------------------------------
+    TEST(VirtualClusterTwoPhaseOcclusion, SwListAllocationHoldsTheWorstCaseSwRecordCount)
+    {
+        // VirtualMeshRegistry::EnsureFrameBuffers, verbatim:
+        //   swListBytes = 16 + totalFrameClusterCount * sizeof(VirtualVisibleCluster)
+        //   allocated   = max(swListBytes, 1024)
+        const auto allocatedBytes = [](u32 frameClusterCount) -> u32
+        {
+            const u32 swListBytes = 16u + frameClusterCount * static_cast<u32>(sizeof(VirtualVisibleCluster));
+            return std::max(swListBytes, 1024u);
+        };
+        // Records that fit AFTER the header — what the shader may index.
+        const auto recordCapacity = [&allocatedBytes](u32 frameClusterCount) -> u32
+        {
+            return (allocatedBytes(frameClusterCount) - 16u) / static_cast<u32>(sizeof(VirtualVisibleCluster));
+        };
+
+        // 0 and the small counts exercise the 1024-byte floor; the larger ones the
+        // exact-fit path where a missing header byte-count would bite.
+        for (const u32 frameClusterCount : { 0u, 1u, 16u, 63u, 64u, 65u, 4860u, 100000u })
+        {
+            // Every cluster is visited at most once across both cull phases (each
+            // phase-1 cluster is EITHER accepted — HW draw or SW record — OR
+            // deferred to the reject list; a phase-1 reject is re-tested exactly
+            // once more in phase 2), so the worst case is every surviving cluster
+            // routing to the SW list.
+            const u32 worstCaseSwRecords = frameClusterCount;
+            // VirtualGeometryPass passes exactly this as u_SwCapacity.
+            const u32 shaderCapacityBound = frameClusterCount;
+
+            EXPECT_GE(recordCapacity(frameClusterCount), shaderCapacityBound)
+                << "the SW-list buffer allocated for " << frameClusterCount
+                << " clusters holds only " << recordCapacity(frameClusterCount)
+                << " records after its 16-byte header, but the shader is told it may write "
+                << shaderCapacityBound << " — the sizing expression is missing the header";
+            EXPECT_LE(worstCaseSwRecords, recordCapacity(frameClusterCount))
+                << "the cull compute can append " << worstCaseSwRecords << " SW records at "
+                << frameClusterCount << " clusters, past the allocation's "
+                << recordCapacity(frameClusterCount) << " records";
+        }
+    }
 } // namespace OloEngine::Tests
