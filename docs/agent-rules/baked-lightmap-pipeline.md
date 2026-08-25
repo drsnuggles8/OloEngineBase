@@ -363,6 +363,18 @@ The C++ twin (`Renderer/LightmapPageEncoding.h`) and the GLSL twin (`decodeLight
 `decodeLightmapOffset` in `LightmapSampling.glsl`) are a two-mirrors pair. Change one, change both —
 the failure mode is not an error, it is sampling another entity's charts.
 
+**Covering the GLSL half needed a text-scan test, and the reason generalises.** Every C++-side
+assertion about this encoding tests helpers that *nothing on the sampling path calls* — the shader
+decodes the region itself. So deleting `- floor(scaleOffset.z)` from `decodeLightmapOffset` left the
+entire headless suite green, because the only test that renders a paged atlas is behind
+`OLO_ENSURE_GPU_OR_SKIP()`. `LightmapPageEncodingTest.ShaderCarriesTheMatchingPageDecode` scans the
+shader source instead — the same instrument `GBufferBakedGIContractTest` uses, for the same reason.
+It cannot prove the decode is *correct* (the GPU test does that); it proves the shader still carries
+a decode at all and that the sampler is still an array, which are the two ways this silently reverts
+to single-page addressing on a machine with no GPU. **Whenever a contract lives half in C++ and half
+in GLSL, assume the GLSL half has no CI coverage until a text-scan test gives it some** — and
+negative-check that test by breaking the shader, or it can be green and vacuous.
+
 ### The budget policy: a VRAM constant, deliberately not a setting
 
 "As many pages as needed" is not a policy, and the impostor retrofit
