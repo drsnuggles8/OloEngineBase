@@ -8940,8 +8940,16 @@ namespace OloEngine
                     const f32 spacingSizeZ = std::isfinite(water.m_WorldSizeZ)
                                                  ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
                                                  : 0.1f;
-                    const f32 spacingCountX = static_cast<f32>(std::max(water.m_GridResolutionX, 1u));
-                    const f32 spacingCountZ = static_cast<f32>(std::max(water.m_GridResolutionZ, 1u));
+                    // Clamp to the SAME [1, 1024] range the mesh build uses for
+                    // resX/resZ above. Taking the raw resolution here would
+                    // report a spacing finer than the mesh was actually built
+                    // with once the resolution exceeds 1024, and the band-limit
+                    // weight would then keep octaves the surface cannot carry —
+                    // the exact faceting this value exists to prevent.
+                    const f32 spacingCountX =
+                        static_cast<f32>(std::clamp(water.m_GridResolutionX, 1u, 1024u));
+                    const f32 spacingCountZ =
+                        static_cast<f32>(std::clamp(water.m_GridResolutionZ, 1u, 1024u));
                     // The coarser of the two axes is the one that limits what the
                     // surface can carry.
                     const f32 vertexSpacing =

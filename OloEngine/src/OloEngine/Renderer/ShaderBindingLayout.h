@@ -615,7 +615,7 @@ namespace OloEngine
             glm::vec4 DepthRefractionParams; // x = depthSofteningDist, y = refractionDistortion, z = refractionHeightFactor, w = unused
             glm::vec4 RefractionColor;       // rgb = underwater tint, w = unused
             glm::vec4 FoamParams;            // x = foamHeightStart, y = foamFadeDistance, z = foamTiling, w = foamBrightness
-            glm::vec4 FoamParams2;           // x = foamAngleExponent, y = shorelineFoamPower, z = sssIntensity, w = unused
+            glm::vec4 FoamParams2;           // x = foamAngleExponent, y = shorelineFoamPower, z = sssIntensity, w = vertexSpacing (#943)
             glm::vec4 SSSColor;              // rgb = subsurface scattering color, w = foamCoverage (#943)
             glm::vec4 SSRParams;             // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
             glm::vec4 TessParams;            // x = tessellationFactor (0=disabled), y = minTessDistance, z = maxTessDistance, w = frustumCullEnable (1=on, 0=off)
@@ -3136,8 +3136,8 @@ layout(std140, binding = 23) uniform WaterParams {
     vec4 u_DepthRefractionParams;   // x = depthSofteningDist, y = refractionDistortion, z = refractionHeightFactor, w = unused
     vec4 u_RefractionColor;         // rgb = underwater tint, w = unused
     vec4 u_FoamParams;              // x = foamHeightStart, y = foamFadeDistance, z = foamTiling, w = foamBrightness
-    vec4 u_FoamParams2;             // x = foamAngleExponent, y = shorelineFoamPower, z = sssIntensity, w = unused
-    vec4 u_SSSColor;                // rgb = subsurface scattering color, w = unused
+    vec4 u_FoamParams2;             // x = foamAngleExponent, y = shorelineFoamPower, z = sssIntensity, w = vertexSpacing (#943)
+    vec4 u_SSSColor;                // rgb = subsurface scattering color, w = foamCoverage (#943)
     vec4 u_SSRParams;               // x = maxSteps, y = stepSize, z = maxDistance, w = thickness
     vec4 u_TessParams;              // x = tessellationFactor (0 = disabled), y = minDist, z = maxDist, w = frustumCullEnable (1=on, 0=off)
 };)";

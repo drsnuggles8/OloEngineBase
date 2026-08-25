@@ -618,13 +618,32 @@ namespace OloEngine::Tests
         // brightness is set by the night SKY — which TimeOfDayComponent
         // brightens on purpose (m_SkyExposureNight 0.35 against
         // m_SkyExposureDay 0.1) so that stars read at all. A sea that mirrors a
-        // deliberately-lifted night sky lands around half of noon, not a
-        // fifth. Measured on this scene: 84.5 against 162.8, a ratio of 0.52 —
-        // so 0.65 still fails on any regression that stops night from being a
-        // distinct time of day, while 0.4 was simply the wrong number for
-        // water and failed on a correct frame.
-        EXPECT_LT(m_SeaBand["NightClear"].Luma(), m_SeaBand["NoonClear"].Luma() * 0.75)
-            << "the night sea must be clearly darker than the noon sea";
+        // deliberately-lifted night sky lands around half of noon, not a fifth,
+        // so 0.4 was simply the wrong number for water and failed on a correct
+        // frame.
+        //
+        // The bound was 0.65 when noon measured 162.8. It is 0.75 now, and the
+        // reason is worth reading before tightening it back: NIGHT did not
+        // change (84.5 then, 84.7 now). NOON fell — 162.8 to 125.3 — because
+        // #943 deliberately darkened Drift's water colour so the storm reads as
+        // a storm. Dividing an unchanged numerator by a smaller denominator
+        // raises the ratio, so the same correct frame now measures 0.676 and
+        // 0.65 would fail on it. This is a re-derivation forced by a changed
+        // input, not a bar lowered to accommodate a regression.
+        //
+        // Measured on this machine at the values above: night 84.69, noon
+        // 125.34, ratio 0.676 — about 11% of headroom under the bound, which is
+        // the margin left for GPU/vendor variation. A regression that stops
+        // night being a distinct time of day has to brighten the night sea by
+        // more than a tenth to pass, and the failure message prints all three
+        // numbers so the next person re-derives rather than guesses.
+        constexpr f64 kNightSeaRatio = 0.75;
+        EXPECT_LT(m_SeaBand["NightClear"].Luma(), m_SeaBand["NoonClear"].Luma() * kNightSeaRatio)
+            << "the night sea must be clearly darker than the noon sea; night "
+            << m_SeaBand["NightClear"].Luma() << " vs noon "
+            << m_SeaBand["NoonClear"].Luma() << " (ratio "
+            << (m_SeaBand["NightClear"].Luma() / m_SeaBand["NoonClear"].Luma())
+            << ", bound " << kNightSeaRatio << ")";
 
         // 3. Storm darkens the noon sea.
         EXPECT_LT(m_SeaBand["NoonStorm"].Luma(), m_SeaBand["NoonClear"].Luma())

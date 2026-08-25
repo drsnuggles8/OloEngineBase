@@ -110,6 +110,22 @@ namespace
         }
         return {};
     }
+
+    // "* meshW_wl0" / "* meshW" -> the identifier; absent -> "" (unweighted).
+    // The band-limit weight is a SECOND factor the normal must carry, and it is
+    // not covered by the amplitude check: dropping only `* meshW` leaves the
+    // `waveAmplitude * W` intact, so the weights still compare equal while the
+    // normal once again describes an octave the mesh cannot represent.
+    [[nodiscard]] auto ExtractMeshWeight(const std::string& text) -> std::string
+    {
+        static const std::regex kMesh(R"(\*\s*(meshW\w*))");
+        std::smatch match;
+        if (std::regex_search(text, match, kMesh))
+        {
+            return match[1].str();
+        }
+        return {};
+    }
 } // namespace
 
 // Every `displaced += gerstnerWave(...)` must be followed by a
@@ -165,6 +181,22 @@ TEST(WaterGerstnerNormalScale, EveryOctaveScalesItsNormalLikeItsDisplacement)
                " normal must carry the same factor or it describes a wave the surface never had"
                " (issue #943 — WaveAmplitude stopped affecting shading normals entirely, and the"
                " finest octave contributed 10% of the displacement but 100% of the slope).\nPair:\n"
+            << pairText;
+
+        // The band-limit weight is the second factor, checked separately
+        // because the amplitude comparison above passes with it missing.
+        const std::string displacementMesh = ExtractMeshWeight(displacementText);
+        ASSERT_FALSE(displacementMesh.empty())
+            << "octave " << i << ": displacement is not scaled by a `* meshW…` band-limit weight;"
+                                 " the pairing this test checks no longer applies. Pair:\n"
+            << pairText;
+
+        EXPECT_EQ(ExtractMeshWeight(normalArgs), displacementMesh)
+            << "octave " << i << ": displacement is band-limited by `" << displacementMesh
+            << "` but its normal is not scaled by the same weight.\n"
+               "octaveMeshWeight() fades out an octave whose wavelength the vertex grid cannot"
+               " represent. A normal that skips it keeps shading a wave the mesh no longer"
+               " displaces — the same class of mismatch as #943, one factor along.\nPair:\n"
             << pairText;
     }
 }

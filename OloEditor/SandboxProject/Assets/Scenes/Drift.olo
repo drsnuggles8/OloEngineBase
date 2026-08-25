@@ -239,7 +239,7 @@ PrecipitationSettings:
 #   and the two steepness terms, and the product is what the surface actually
 #   displaces. For THIS scene's wavelengths the worst-case crest bound works out
 #   at about 2.95x the amplitude (Water.glsl :: computeMaxWaveDisplacement), so
-#   the three anchors above are roughly 0.65 / 1.33 / 2.06 m.
+#   the three anchors above are roughly 0.15 / 0.35 / 0.65 m.
 #
 #   An earlier note here warned that 0.45 "put crests several metres up, deep
 #   enough that the camera pivot sat INSIDE the swell", with the water plane
