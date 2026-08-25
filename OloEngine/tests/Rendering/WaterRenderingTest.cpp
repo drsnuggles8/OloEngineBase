@@ -209,7 +209,7 @@ TEST(WaterRendering, WaterComponentDefaults)
     EXPECT_FLOAT_EQ(wc.m_WaveSteepness1, 0.3f);
     EXPECT_FLOAT_EQ(wc.m_Wavelength1, 15.0f);
     EXPECT_FLOAT_EQ(wc.m_Transparency, 0.6f);
-    EXPECT_FLOAT_EQ(wc.m_Reflectivity, 0.5f);
+    EXPECT_FLOAT_EQ(wc.m_Reflectivity, 0.02f); // Fresnel F0 for water (#943)
     EXPECT_FLOAT_EQ(wc.m_FresnelPower, 5.0f);
     EXPECT_FLOAT_EQ(wc.m_SpecularIntensity, 1.0f);
     EXPECT_EQ(wc.m_GridResolutionX, 128u);
@@ -243,6 +243,8 @@ TEST(WaterRendering, WaterComponentDefaults)
     EXPECT_FLOAT_EQ(wc.m_FoamBrightness, 1.5f);
     EXPECT_FLOAT_EQ(wc.m_FoamAngleExponent, 2.0f);
     EXPECT_FLOAT_EQ(wc.m_ShorelineFoamPower, 3.0f);
+    // 0.12 reproduces the foam gate that was hardcoded before #943.
+    EXPECT_FLOAT_EQ(wc.m_FoamCoverage, 0.12f);
 
     // SSS defaults
     EXPECT_FLOAT_EQ(wc.m_SSSColor.r, 0.0f);

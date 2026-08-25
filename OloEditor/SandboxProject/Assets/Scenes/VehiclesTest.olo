@@ -171,7 +171,7 @@ Entities:
       WaterColor: [0.16, 0.46, 0.56]
       DeepColor: [0.06, 0.24, 0.34]
       Transparency: 0.6
-      Reflectivity: 0.45
+      Reflectivity: 0.02
       FresnelPower: 3
       SpecularIntensity: 0.4
       GridResolutionX: 128

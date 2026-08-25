@@ -4550,7 +4550,17 @@ namespace OloEngine
         glm::vec3 m_WaterColor = { 0.1f, 0.4f, 0.5f };
         glm::vec3 m_DeepColor = { 0.0f, 0.1f, 0.2f };
         f32 m_Transparency = 0.6f;
-        f32 m_Reflectivity = 0.5f;
+        // Schlick FRESNEL F0, not an artistic "how shiny" slider — Water.glsl
+        // evaluates `F0 + (1 - F0) * pow(1 - NdotV, FresnelPower)` with this as
+        // F0, so it is the reflectance looking straight DOWN at the surface.
+        // Water's real value is ~0.02: near-transparent from above (you see the
+        // body colour and what is under it) and a mirror only at grazing angles,
+        // which Fresnel produces on its own. Raising it does not make the water
+        // "more reflective" so much as make it reflective at angles where real
+        // water is not — at 0.5 the surface was half mirror even from directly
+        // overhead, which also hands the reflection term the whole frame to
+        // alias in (#943). Range stays [0, 1] for a deliberately unphysical look.
+        f32 m_Reflectivity = 0.02f;
         f32 m_FresnelPower = 5.0f;
         f32 m_SpecularIntensity = 1.0f;
         u32 m_GridResolutionX = 128;
@@ -4585,6 +4595,19 @@ namespace OloEngine
         f32 m_FoamBrightness = 1.5f;
         f32 m_FoamAngleExponent = 2.0f;
         f32 m_ShorelineFoamPower = 3.0f;
+        // Fraction of the surface whitecaps are allowed to appear on, before the
+        // height/angle terms narrow it further (issue #943). Foam is gated by a
+        // world-space noise field so crests do not ALL break at once; that gate
+        // used to be hardcoded at "roughly the top 10% of the noise", which left
+        // a storm with about 1% actual foam coverage once the height, distance
+        // and pattern terms had each multiplied it down — far too little for a
+        // built sea to read as rougher than a calm one.
+        //
+        // 0 = no whitecaps at all; the 0.12 default reproduces exactly the old
+        // hardcoded gate, so an existing scene looks unchanged. Raise it for a
+        // storm. It is the fraction of the NOISE range that opens the gate, not
+        // a literal screen coverage, because the terms downstream still apply.
+        f32 m_FoamCoverage = 0.12f;
 
         // Subsurface scattering approximation
         glm::vec3 m_SSSColor = { 0.0f, 0.5f, 0.4f };
@@ -4731,7 +4754,7 @@ namespace OloEngine
                 && m_RefractionEnabled == o.m_RefractionEnabled
                 && blkEq(m_DepthSofteningDistance, m_RefractionColor) // f32*3 + vec3
                 && m_FoamTexture == o.m_FoamTexture
-                && blkEq(m_FoamHeightStart, m_SSSIntensity)    // f32*6 + vec3 + f32
+                && blkEq(m_FoamHeightStart, m_SSSIntensity)    // f32*7 + vec3 + f32
                 && m_SSREnabled == o.m_SSREnabled
                 && blkEq(m_SSRMaxSteps, m_SSRThickness)        // f32*4
                 && m_PlanarReflectionsEnabled == o.m_PlanarReflectionsEnabled
@@ -4816,6 +4839,7 @@ namespace OloEngine
             m_FoamBrightness = src.m_FoamBrightness;
             m_FoamAngleExponent = src.m_FoamAngleExponent;
             m_ShorelineFoamPower = src.m_ShorelineFoamPower;
+            m_FoamCoverage = src.m_FoamCoverage;
             m_SSSColor = src.m_SSSColor;
             m_SSSIntensity = src.m_SSSIntensity;
             m_SSREnabled = src.m_SSREnabled;

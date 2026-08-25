@@ -6696,6 +6696,9 @@ namespace OloEngine
                 ImGui::DragFloat("Foam Brightness", &component.m_FoamBrightness, 0.01f, 0.0f, 5.0f);
                 ImGui::DragFloat("Foam Angle Exponent", &component.m_FoamAngleExponent, 0.1f, 0.1f, 10.0f);
                 ImGui::DragFloat("Shoreline Foam Power", &component.m_ShorelineFoamPower, 0.1f, 0.1f, 10.0f);
+                ImGui::DragFloat("Foam Coverage", &component.m_FoamCoverage, 0.005f, 0.0f, 1.0f);
+                ImGui::SetItemTooltip("Fraction of the noise range that lets whitecaps form. "
+                                      "0 = none; 0.12 is the calm default; raise it for a built sea.");
 
                 ImGui::SeparatorText("Subsurface Scattering");
                 ImGui::ColorEdit3("SSS Color", glm::value_ptr(component.m_SSSColor));
