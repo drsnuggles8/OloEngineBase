@@ -42,6 +42,24 @@ namespace OloEngine
         // CPU normal query from finite differences
         [[nodiscard]] glm::vec3 GetNormalAt(f32 normalizedX, f32 normalizedZ, f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const;
 
+        // The same two queries against a RAW height field, with no TerrainData
+        // (and therefore no GL context) in the way. SetHeights() uploads to the
+        // GPU, so a headless caller — the auto-material coverage tests, any
+        // tool reasoning about a field it just generated — cannot go through the
+        // members above. The members delegate here, so there is exactly one
+        // implementation of the sampling convention and the slope metric that
+        // TerrainGenerator::GenerateSplatmap classifies layers by.
+        [[nodiscard]] static f32 SampleHeight(const std::vector<f32>& heights, u32 resolution,
+                                              f32 normalizedX, f32 normalizedZ);
+        [[nodiscard]] static glm::vec3 SampleNormal(const std::vector<f32>& heights, u32 resolution,
+                                                    f32 normalizedX, f32 normalizedZ, f32 worldSizeX,
+                                                    f32 worldSizeZ, f32 heightScale);
+        // Slope in DEGREES from the surface normal — the quantity a
+        // TerrainLayerRule's MinSlopeDeg/MaxSlopeDeg band is expressed in.
+        [[nodiscard]] static f32 SampleSlopeDegrees(const std::vector<f32>& heights, u32 resolution,
+                                                    f32 normalizedX, f32 normalizedZ, f32 worldSizeX,
+                                                    f32 worldSizeZ, f32 heightScale);
+
         [[nodiscard]] u32 GetResolution() const
         {
             return m_Resolution;

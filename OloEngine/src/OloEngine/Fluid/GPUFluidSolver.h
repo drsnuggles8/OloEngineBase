@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Fluid/FluidSolverTypes.h" // FluidKillBox
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
@@ -133,17 +134,27 @@ namespace OloEngine
         u32 m_GridCellCount = 0;          // current grid-head buffer capacity, in cells
 
         // SSBOs (bindings = ShaderBindingLayout::SSBO_FLUID_*)
-        Ref<StorageBuffer> m_PositionsSSBO;     // 21: vec4[max] — xyz pos, w kill flag
-        Ref<StorageBuffer> m_VelocitiesSSBO;    // 22: vec4[max]
-        Ref<StorageBuffer> m_PredictedASSBO;    // 23: vec4[max] — Jacobi ping / compact scratch
-        Ref<StorageBuffer> m_PredictedBSSBO;    // 24: vec4[max] — Jacobi pong
-        Ref<StorageBuffer> m_AuxSSBO;           // 25: vec4[max] — xyz omega, w lambda
-        Ref<StorageBuffer> m_GridHeadSSBO;      // 26: u32[cells] — linked-list heads (index+1)
-        Ref<StorageBuffer> m_GridNextSSBO;      // 27: u32[max] — linked-list next (index+1)
-        Ref<StorageBuffer> m_CountersSSBO;      // 28: GPUFluidCounters
-        Ref<StorageBuffer> m_EmitStagingSSBO;   // 29: GPUFluidEmitEntry[kEmitStagingCapacity]
-        Ref<StorageBuffer> m_BodyProxiesSSBO;   // 30: FluidBodyProxy[kFluidMaxBodyProxies]
-        Ref<StorageBuffer> m_BodyImpulsesSSBO;  // 31: GPUFluidBodyImpulse[kFluidMaxBodyProxies]
+        Ref<StorageBuffer> m_PositionsSSBO;    // 21: vec4[max] — xyz pos, w kill flag
+        Ref<StorageBuffer> m_VelocitiesSSBO;   // 22: vec4[max]
+        Ref<StorageBuffer> m_PredictedASSBO;   // 23: vec4[max] — Jacobi ping / compact scratch
+        Ref<StorageBuffer> m_PredictedBSSBO;   // 24: vec4[max] — Jacobi pong
+        Ref<StorageBuffer> m_AuxSSBO;          // 25: vec4[max] — xyz omega, w lambda
+        Ref<StorageBuffer> m_GridHeadSSBO;     // 26: u32[cells] — linked-list heads (index+1)
+        Ref<StorageBuffer> m_GridNextSSBO;     // 27: u32[max] — linked-list next (index+1)
+        Ref<StorageBuffer> m_CountersSSBO;     // 28: GPUFluidCounters
+        Ref<StorageBuffer> m_EmitStagingSSBO;  // 29: GPUFluidEmitEntry[kEmitStagingCapacity]
+        Ref<StorageBuffer> m_BodyProxiesSSBO;  // 30: FluidBodyProxy[kFluidMaxBodyProxies]
+        Ref<StorageBuffer> m_BodyImpulsesSSBO; // 31: GPUFluidBodyImpulse[kFluidMaxBodyProxies]
+        // Every GPU->CPU read here goes through a staging copy so the CPU never
+        // touches an SSBO the solver kernels read/write and atomicAdd into —
+        // that would migrate it VIDEO -> HOST for the rest of the session. The
+        // impulse one is staged at the end of Step() and read before the next,
+        // preserving the one-step latency the coupling loop already had; the
+        // particle ones stage and read in the same call, because the parity test
+        // that asks for them wants this step's values.
+        StagedBufferReadback m_ImpulseReadback;
+        StagedBufferReadback m_PositionsReadback;
+        StagedBufferReadback m_VelocitiesReadback;
         Ref<StorageBuffer> m_VelocitiesAltSSBO; // 32: vec4[max] — XSPH pong / compact scratch
 
         // Solver parameters UBO (binding = ShaderBindingLayout::UBO_FLUID)

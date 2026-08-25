@@ -545,6 +545,7 @@ add_executable(OloEngine-Tests
 		Cinematic/CinematicSerializerTest.cpp
 		Cinematic/CinematicEditTest.cpp
 		# Procedural Terrain Generation Tests
+		Terrain/DriftIslandSplatCoverageTest.cpp
 		Terrain/TerrainGeneratorTest.cpp
 		Terrain/TerrainVirtualTextureTest.cpp
 		Terrain/VoxelGreedyMesherTest.cpp

@@ -827,6 +827,7 @@
 		"OloEngine/Renderer/Debug/RendererProfiler.cpp"
 		"OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 		"OloEngine/Renderer/Debug/ShaderDebugDraw.cpp"
+		"OloEngine/Renderer/Debug/StagedBufferReadback.cpp"
 		"OloEngine/Renderer/Debug/ShaderDebugDrawExpansion.h"
 		"OloEngine/Renderer/Debug/ShaderDebugDrawExpansion.cpp"
 		"OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"

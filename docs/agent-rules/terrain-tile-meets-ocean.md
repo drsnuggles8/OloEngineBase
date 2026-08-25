@@ -167,3 +167,95 @@ grep -rn "TessellationEnabled: true" OloEditor/SandboxProject/Assets/Scenes/
 #880, so the octahedral impostor path (#433) had never run outside its own evidence
 test. If a feature's flag appears only in the test that was written with it, the
 feature has test coverage and no product coverage, and those are different things.
+
+---
+
+## 8. The mask you added to make a shoreline is also a ~50 deg slope, and anything keyed on slope now sees it
+
+Issue #942, straight out of §1–§4 above. The radial mask is what gives the tile a
+coastline — and it produces that coastline by ramping the full normalized height
+down to zero between `IslandFalloffRadius` and the inscribed circle. That ramp is
+not a detail of the shoreline; it **is the entire outer flank of the island**, and
+it has a slope you can read off the two numbers you already authored:
+
+```
+ramp slope ~= atan(HeightScale / ((0.5 - IslandFalloffRadius) * WorldSizeX))
+```
+
+Ridgeback: `atan(110 / ((0.5 - 0.3) * 420))` = `atan(110 / 84)` = **53 deg**. Every
+island in Drift lands between roughly 45 and 55 deg by construction. Nobody chose
+that; it fell out of the mask.
+
+The auto-material's `TerrainLayerRule` bands are expressed in degrees. Drift's rock
+rule opened at `MinSlopeDeg: 48` and spanned the whole height range — *below* the
+number the mask guarantees. So rock claimed the flank: **77% of Ridgeback, 86% of
+Sisters, 93% of Stacks**, and because `EvaluateLayerWeights` normalizes, every
+altitude-banded layer was divided down to nothing. Six islands rendered as one flat
+colour each.
+
+Two things make this hard to see:
+
+* **Every stage of the pipeline is correct.** The gate fires, the rules survive
+  deserialization, the splatmap generates, uploads, and is sampled and blended
+  faithfully. We confirmed all of it — log line, a shader that wrote the raw splat
+  sample to `o_Color`, and a second one that wrote the pre-lighting `albedo`. The
+  albedo tracked the splat exactly. There is no broken stage to find, which is
+  where a whole day can go.
+* **The obvious test passes.** "Assert the weights VARY across the height/slope
+  range" — they varied fine. What was false is **coverage**: one layer took the
+  surface and the others got ~0%. Pin coverage, not variation. That is what
+  `DriftIslandSplatCoverageTest` does, and it reads the shipped scene so the scene
+  and the guard cannot drift.
+
+### The second half: bands anchored on a range the field never reaches
+
+The mask multiplies the *normalized* field, and `HeightExponent > 1` compresses it
+again. So the shaped field no longer reaches 1.0 — Mesa peaks at **0.800**. Drift's
+summit bands started at 0.844–0.856, i.e. **above the summit**, and layer 3 drew on
+0.0–3.5% of every island. The rule is valid, it simply never matches a texel, and
+nothing warns.
+
+Anchor altitude bands on the measured `[min, max]` of the shaped field, not on
+`[0, 1]`. `GenerateHeightmap` already logs the range (`height=[...]`) — read it.
+
+### Authoring rule that falls out of both
+
+Give an island **one** cliff threshold and share it: the altitude bands all stop at
+theta, the bare-rock rule starts at theta, same `SlopeBlend`. Three unrelated slope
+numbers (Drift had 34 / 42 / 48) leave gaps that fall through to the "no rule
+matched → layer 0" fallback and overlaps where one rule quietly shadows another.
+Pick theta from the island's own slope distribution — the steepest ~25-30% — not
+from a default copied off another terrain.
+
+### A float trap on terraced fields
+
+`ShapingTerraceSteps` quantizes the height field onto flat plateaus, so a third of
+the surface can share one height value to several decimals. Put a band edge *on*
+that value and the winning layer is decided by the last bit: our f64 tuning model
+and the engine's f32 `SmoothBand` chose **opposite** layers across 36% of Mesa
+(28/31/28/13 predicted, 58/14/28/0 actual). Keep band edges in the quiet parts of
+the height histogram, and if you model this offline, model it in **float32**.
+
+### Coverage is necessary, not sufficient — the palette has to survive the air
+
+Fixing the bands got every layer onto a real share of each island and the frame
+still read as one brown mass, because that is only half of "can a viewer tell
+these apart". Every island also shipped a **pair of materials separated only by
+brightness**: Rock/Heath 0.135 apart in RGB, Palm scrub/Green cap 0.075,
+Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154. On Ridgeback that pair was 47%
+of the surface.
+
+Lightness is the wrong axis to separate on *in this scene specifically*, and the
+reason is in the scene: a warm sun at intensity 3.2, exponential fog at density
+0.0009 (~30% blend at 400 m), and an ACES curve. All three compress luminance and
+pull saturation. Hue is what survives them. Re-separating each pair by hue —
+cool grey cliff vs russet heath, yellow-green scrub vs blue-green canopy — moved
+the measured hue spread of a framed Ridgeback shot from 0.007 (original) to 0.017
+(bands fixed) to **0.034** (bands + palette), with distinct colour buckets
+20 → 21 → 24.
+
+The guard asserts plain RGB distance rather than hue, because a big lightness gap
+genuinely is distinguishable: Stacks pairs Shingle with Guano, both neutral greys,
+0.61 apart and never at risk. What fails is a pair that is close on *both* axes,
+and distance alone catches that. Threshold 0.18; the shipped palette's worst pair
+is 0.223.

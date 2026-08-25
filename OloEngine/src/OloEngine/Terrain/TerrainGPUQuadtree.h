@@ -196,9 +196,11 @@ namespace OloEngine
         // buffer could not be created.
         bool EnsureBuffers(u32 maxDepth);
         void UploadCullParams(const CullInputs& inputs);
-        // Read the overflow flags occasionally and warn. Deliberately NOT every
-        // frame: GetData() is a GPU->CPU sync, which is exactly the stall this
-        // whole class exists to remove.
+        // Read the overflow flags occasionally and warn. Two-phase, and both
+        // halves matter: one call issues a GPU-side copy of the 4 flag bytes
+        // into m_OverflowStaging, a LATER call reads that staging buffer. The
+        // cull-state SSBO itself is never read by the CPU — see PollOverflow's
+        // implementation comment for why that is not just a stall.
         void PollOverflow();
 
         Ref<ComputeShader> m_SelectShader;
@@ -227,5 +229,10 @@ namespace OloEngine
         bool m_HasDispatched = false;
         u32 m_FramesSinceOverflowPoll = 0;
         bool m_OverflowWarned = false;
+        // DeviceToHost staging for the overflow flags, plus whether a copy into
+        // it is outstanding. A raw handle, so — like TerrainGPUPicker's ring —
+        // nothing frees it on its own and the destructor has to.
+        RHI::ResourceHandle m_OverflowStaging = RHI::NullResource;
+        bool m_OverflowCopyPending = false;
     };
 } // namespace OloEngine
