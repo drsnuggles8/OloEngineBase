@@ -414,6 +414,20 @@ namespace OloEngine
         // more. MaxAtlasPages = 1 reproduces the pre-#868 behaviour exactly.
         const u32 maxPages = std::clamp(settings.MaxAtlasPages, 1u, LightmapPageBudget(settings.AtlasSize));
 
+        // The one-page floor is unconditional, so an atlas whose SINGLE page
+        // already blows the ceiling still bakes (refusing would regress a knob
+        // that predates paging — see LightmapPageEncoding.h). It must not be
+        // silent, though: this is the one case where the atlas costs more than
+        // the documented budget.
+        if (SinglePageExceedsLightmapBudget(settings.AtlasSize))
+        {
+            OLO_CORE_WARN("LightmapBaker: one {}px atlas page is {} MiB, above the {} MiB lightmap budget — baking a "
+                          "single page anyway (paging is disabled at this atlas size)",
+                          settings.AtlasSize,
+                          (static_cast<u64>(settings.AtlasSize) * settings.AtlasSize * kLightmapAtlasBytesPerTexel) >> 20,
+                          kLightmapAtlasMemoryBudgetBytes >> 20);
+        }
+
         // Pages are created LAZILY and in order, so the page count reflects
         // what the scene actually needed rather than the budget. Determinism:
         // plans are already in a total order (size desc, UUID asc), pages are

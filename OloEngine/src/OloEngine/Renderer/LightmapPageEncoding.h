@@ -62,14 +62,27 @@ namespace OloEngine
 
     // ── THE BUDGET POLICY (#868 acceptance bullet 3) ───────────────────────
     //
-    // "As many pages as needed" is explicitly not a policy. Total lightmap
-    // atlas VRAM is bounded by a fixed byte ceiling, and the page count is
-    // DERIVED from it — the same shape shared-atlas-allocator.md records for
-    // the impostor retrofit (a budget gate, chosen over unbounded growth).
-    // At the default 1024² atlas one page is 8 MiB, so the 64 MiB ceiling
-    // yields the format's full 8 pages; a 4096² atlas gets 1 (128 MiB per
-    // page already exceeds the ceiling, and the floor of 1 preserves exactly
-    // the pre-#868 single-page behaviour rather than failing the bake).
+    // "As many pages as needed" is explicitly not a policy. What this ceiling
+    // bounds is PAGING — the memory #868 newly made it possible to ask for —
+    // and the page count is DERIVED from it, the same shape
+    // shared-atlas-allocator.md records for the impostor retrofit (a budget
+    // gate, chosen over unbounded growth). At the default 1024² atlas one page
+    // is 8 MiB, so the 64 MiB ceiling yields the format's full 8 pages.
+    //
+    // IT IS NOT A TOTAL VRAM CEILING, and the difference is worth stating
+    // plainly rather than being discovered: the floor of ONE page is
+    // unconditional, so an atlas whose SINGLE page already exceeds the ceiling
+    // still bakes. A 4096² page is 128 MiB and a 16384² page is 2 GiB, both
+    // above the 64 MiB budget, and both are allowed — because one page is
+    // exactly the pre-#868 footprint (`AtlasSize` has always been the user's
+    // knob, and the old single `Texture2D` cost the same bytes), so refusing
+    // would be a regression in behaviour that has nothing to do with paging.
+    // `Prepare()` logs a warning when it happens so the cost is visible.
+    //
+    // The honest statement of the policy is therefore: **total atlas VRAM is
+    // `max(one page, floor(budget / pageBytes)) * pageBytes`** — bounded by the
+    // ceiling for every scene whose atlas fits it at all, and equal to the
+    // pre-#868 single-page cost for every scene whose atlas does not.
     //
     // This is a CONSTANT, not a scene-authored setting, on purpose: the page
     // budget changes the atlas LAYOUT, so making it authorable would require
@@ -80,9 +93,11 @@ namespace OloEngine
     inline constexpr u64 kLightmapAtlasMemoryBudgetBytes = 64ull * 1024ull * 1024ull;
 
     // Pages the budget affords for a square atlas of `atlasSize`, clamped to
-    // [1, kMaxLightmapPages]. Never returns 0 — a single page always packs
-    // (degrading region sizes), which is strictly better than refusing to bake.
-    [[nodiscard]] inline constexpr u32 LightmapPageBudget(u32 atlasSize) noexcept
+    // [1, kMaxLightmapPages]. Never returns 0 — see the unconditional
+    // one-page floor above; `SinglePageExceedsLightmapBudget` is how a caller
+    // asks whether that floor is what it just got.
+    [[nodiscard("the derived page budget is the whole point of the call")]] inline constexpr u32
+    LightmapPageBudget(u32 atlasSize) noexcept
     {
         if (atlasSize == 0)
         {
@@ -97,26 +112,52 @@ namespace OloEngine
         return affordable >= kMaxLightmapPages ? kMaxLightmapPages : static_cast<u32>(affordable);
     }
 
+    // True when a SINGLE page of this atlas already exceeds the memory ceiling,
+    // i.e. the one-page floor above is load-bearing and the bake is about to
+    // spend more than the budget nominally allows. Not an error — see the
+    // policy note — but `Prepare()` warns on it so it is never silent.
+    [[nodiscard("the budget-overrun answer is the whole point of the call")]] inline constexpr bool
+    SinglePageExceedsLightmapBudget(u32 atlasSize) noexcept
+    {
+        const u64 bytesPerPage = static_cast<u64>(atlasSize) * atlasSize * kLightmapAtlasBytesPerTexel;
+        return bytesPerPage > kLightmapAtlasMemoryBudgetBytes;
+    }
+
     // Compose the per-draw vec4 from a PAGE-LOCAL scale/offset and a page index.
     // `pageLocal` is exactly what LightmapEntityEntry::ScaleOffset stores.
-    [[nodiscard]] inline glm::vec4 EncodeLightmapRegion(const glm::vec4& pageLocal, u32 page) noexcept
+    [[nodiscard("returns the encoded region; it does not modify pageLocal")]] inline glm::vec4
+    EncodeLightmapRegion(const glm::vec4& pageLocal, u32 page) noexcept
     {
         return glm::vec4(pageLocal.x, pageLocal.y, pageLocal.z + static_cast<f32>(page), pageLocal.w);
     }
 
     // The C++ twin of the shader's decode — used by tests and by any CPU-side
     // consumer that needs to read a composed region back.
-    [[nodiscard]] inline u32 DecodeLightmapPage(const glm::vec4& encoded) noexcept
+    //
+    // TOTAL BY CONSTRUCTION, for any float whatsoever. A validated asset can
+    // never reach this with a degenerate `.z` (LightmapAsset::Validate() bounds
+    // the region to its page), but this is a public inline helper in a header:
+    // the next caller is not required to have validated anything, and
+    // `static_cast<u32>` of +Inf or of a finite value past UINT32_MAX is
+    // UNDEFINED BEHAVIOUR, not a large number. So the range check happens
+    // BEFORE the cast, and anything outside [0, kMaxLightmapPages) — negative,
+    // NaN, infinite, or merely too large — reads as page 0, which is the same
+    // answer the scale-lane gate would produce anyway.
+    [[nodiscard("returns the decoded page; it does not modify encoded")]] inline u32
+    DecodeLightmapPage(const glm::vec4& encoded) noexcept
     {
         const f32 page = std::floor(encoded.z);
-        if (!(page > 0.0f))
+        // Written as a positive range test so NaN falls through it (every NaN
+        // comparison is false), rather than as a negated one that NaN passes.
+        if (!(page >= 1.0f && page < static_cast<f32>(kMaxLightmapPages)))
         {
-            return 0; // covers 0, negatives and NaN
+            return 0; // 0, negatives, NaN, +/-Inf, and anything past the cap
         }
         return static_cast<u32>(page);
     }
 
-    [[nodiscard]] inline glm::vec4 DecodeLightmapPageLocalRegion(const glm::vec4& encoded) noexcept
+    [[nodiscard("returns the page-local region; it does not modify encoded")]] inline glm::vec4
+    DecodeLightmapPageLocalRegion(const glm::vec4& encoded) noexcept
     {
         return glm::vec4(encoded.x, encoded.y, encoded.z - std::floor(encoded.z), encoded.w);
     }

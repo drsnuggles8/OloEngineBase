@@ -379,10 +379,25 @@ negative-check that test by breaking the shader, or it can be green and vacuous.
 
 "As many pages as needed" is not a policy, and the impostor retrofit
 ([shared-atlas-allocator.md](shared-atlas-allocator.md)) already settled the analogous trade-off in
-favour of a budget gate. Total atlas VRAM is bounded by `kLightmapAtlasMemoryBudgetBytes` (64 MiB),
-and the page count is **derived**: `LightmapPageBudget(atlasSize)` divides the ceiling by one page's
-RGBA16F cost and clamps to `[1, kMaxLightmapPages]`. At the default 1024² that is the format's full
-8 pages; at 4096² it is 1, which is exactly the pre-#868 behaviour rather than a failed bake.
+favour of a budget gate. `kLightmapAtlasMemoryBudgetBytes` (64 MiB) bounds **paging** — the memory
+#868 newly made it possible to ask for — and the page count is **derived**:
+`LightmapPageBudget(atlasSize)` divides the ceiling by one page's RGBA16F cost and clamps to
+`[1, kMaxLightmapPages]`. At the default 1024² that is the format's full 8 pages.
+
+**It is not a TOTAL VRAM ceiling, and the gap is worth stating rather than discovering.** The
+one-page floor is unconditional, so an atlas whose single page already exceeds the budget still
+bakes: a 4096² page is 128 MiB and a 16384² page is 2 GiB, both over the 64 MiB budget, both
+allowed. That is deliberate — one page is exactly the pre-#868 footprint (`AtlasSize` has always
+been the user's knob and the old single `Texture2D` cost the same bytes), so refusing would regress
+behaviour that has nothing to do with paging. `Prepare()` warns when it happens so the cost is
+never silent. The honest statement is **`max(one page, floor(budget / pageBytes)) * pageBytes`**.
+
+The first draft claimed a flat byte ceiling in both the header and the doc, and its test asserted
+`budget == 1 || bytes <= ceiling` — a disjunction that holds for *any* implementation, including one
+that ignores the budget entirely, so it could never have caught the gap it was hiding. Review caught
+it. The lesson is narrow and reusable: **when a policy has an exception, the test must pin the
+exception's precondition, not `or` it away** — here, a one-page budget is only legal when one page
+already exceeds the ceiling, and that is what `SinglePageExceedsLightmapBudget` exists to assert.
 
 It is a **constant, not a scene-authored setting**, and that is load-bearing: the page budget
 changes the atlas LAYOUT, so an authorable budget would have to join

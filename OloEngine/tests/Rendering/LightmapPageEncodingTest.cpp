@@ -21,8 +21,13 @@
 //      as the easiest thing to silently break. It survives because the encoding
 //      only ever biases `.z`, while every gate in the engine and the shader
 //      reads the `.x` SCALE lane.
-//   3. THE BUDGET POLICY is a real ceiling: LightmapPageBudget never exceeds
-//      the format's page cap, never returns 0, and shrinks as the atlas grows.
+//   3. THE BUDGET POLICY, including the one place it is NOT a total ceiling:
+//      LightmapPageBudget never exceeds the format's page cap, never returns 0,
+//      and shrinks as the atlas grows — but the one-page floor is
+//      unconditional, so an atlas whose single page already exceeds the budget
+//      still bakes. That exception is pinned explicitly rather than waved
+//      through by a disjunction, because `budget == 1 || bytes <= ceiling`
+//      holds for any implementation, including one that ignores the budget.
 //
 // Pure CPU maths — no GL, no ECS, no scene.
 // =============================================================================
@@ -192,6 +197,22 @@ namespace OloEngine::Tests
         EXPECT_EQ(DecodeLightmapPage(glm::vec4(0.5f, 0.5f, -1.0f, 0.0f)), 0u);
         EXPECT_EQ(DecodeLightmapPage(glm::vec4(0.5f, 0.5f, -0.25f, 0.0f)), 0u);
         EXPECT_EQ(DecodeLightmapPage(glm::vec4(0.5f, 0.5f, std::numeric_limits<f32>::quiet_NaN(), 0.0f)), 0u);
+
+        // The values where a naive `static_cast<u32>(floor(z))` is UNDEFINED
+        // BEHAVIOUR rather than a large number: infinities, and finite values
+        // past what u32 can hold. `Validate()` keeps these out of any real
+        // asset, but this helper is public and inline, so it has to be total.
+        EXPECT_EQ(DecodeLightmapPage(glm::vec4(0.5f, 0.5f, std::numeric_limits<f32>::infinity(), 0.0f)), 0u);
+        EXPECT_EQ(DecodeLightmapPage(glm::vec4(0.5f, 0.5f, -std::numeric_limits<f32>::infinity(), 0.0f)), 0u);
+        EXPECT_EQ(DecodeLightmapPage(glm::vec4(0.5f, 0.5f, std::numeric_limits<f32>::max(), 0.0f)), 0u);
+        EXPECT_EQ(DecodeLightmapPage(glm::vec4(0.5f, 0.5f, 5.0e9f, 0.0f)), 0u); // past UINT32_MAX
+        EXPECT_EQ(DecodeLightmapPage(glm::vec4(0.5f, 0.5f, 4.0e9f, 0.0f)), 0u); // inside u32, past the cap
+
+        // And the boundary: the last legal page decodes, the first illegal one
+        // does not.
+        EXPECT_EQ(DecodeLightmapPage(glm::vec4(0.5f, 0.5f, static_cast<f32>(kMaxLightmapPages - 1) + 0.5f, 0.0f)),
+                  kMaxLightmapPages - 1);
+        EXPECT_EQ(DecodeLightmapPage(glm::vec4(0.5f, 0.5f, static_cast<f32>(kMaxLightmapPages), 0.0f)), 0u);
     }
 
     // ── 3. The budget policy ───────────────────────────────────────────────
@@ -209,15 +230,61 @@ namespace OloEngine::Tests
             EXPECT_GE(budget, 1u) << "atlas " << atlasSize;
             EXPECT_LE(budget, kMaxLightmapPages) << "atlas " << atlasSize;
             EXPECT_LE(budget, previous) << "a bigger atlas must never afford MORE pages (atlas " << atlasSize << ")";
-            // The ceiling is a real VRAM bound, not a shrug.
-            const u64 bytes = static_cast<u64>(budget) * atlasSize * atlasSize * kLightmapAtlasBytesPerTexel;
-            EXPECT_TRUE(budget == 1u || bytes <= kLightmapAtlasMemoryBudgetBytes)
-                << "atlas " << atlasSize << " budget " << budget << " => " << bytes << " bytes";
+
+            // The ceiling bounds PAGING, and the one-page floor is the single
+            // documented exception. Asserting `budget == 1 || bytes <= ceiling`
+            // would be circular — it holds for ANY implementation, including
+            // one that ignores the budget entirely — so split the two cases and
+            // give each a real bound:
+            //   - a multi-page budget must fit the ceiling exactly;
+            //   - a single-page budget is only allowed when one page ALREADY
+            //     exceeds the ceiling, i.e. no smaller answer existed.
+            const u64 pageBytes = static_cast<u64>(atlasSize) * atlasSize * kLightmapAtlasBytesPerTexel;
+            const u64 bytes = static_cast<u64>(budget) * pageBytes;
+            if (budget > 1u)
+            {
+                EXPECT_LE(bytes, kLightmapAtlasMemoryBudgetBytes)
+                    << "atlas " << atlasSize << " budget " << budget << " => " << bytes << " bytes";
+            }
+            else
+            {
+                EXPECT_TRUE(SinglePageExceedsLightmapBudget(atlasSize))
+                    << "atlas " << atlasSize << " was cut to one page although two would have fitted the budget";
+            }
             previous = budget;
         }
 
         // The default 1024 atlas gets the format's full page count.
         EXPECT_EQ(LightmapPageBudget(1024), kMaxLightmapPages);
+    }
+
+    // The one documented exception, pinned explicitly so it stays a decision
+    // rather than drifting into an accident: an atlas whose SINGLE page already
+    // exceeds the ceiling still gets one page, and the predicate that says so
+    // agrees with the budget function.
+    TEST(LightmapPageEncodingTest, SinglePageOverrunIsAllowedAndReported)
+    {
+        // 2048² x 8 B = 32 MiB — two pages fit the 64 MiB ceiling.
+        EXPECT_FALSE(SinglePageExceedsLightmapBudget(2048));
+        EXPECT_GE(LightmapPageBudget(2048), 2u);
+
+        // 4096² x 8 B = 128 MiB, and 16384² x 8 B = 2 GiB: one page each, both
+        // over the ceiling, both permitted — that is the pre-#868 footprint.
+        for (const u32 atlasSize : { 4096u, 8192u, 16384u })
+        {
+            EXPECT_TRUE(SinglePageExceedsLightmapBudget(atlasSize)) << "atlas " << atlasSize;
+            EXPECT_EQ(LightmapPageBudget(atlasSize), 1u) << "atlas " << atlasSize;
+        }
+
+        // The two must never disagree: a single-page budget and "one page fits"
+        // cannot both be true, or the ceiling would be silently under-spent.
+        for (u32 atlasSize = 16; atlasSize <= 16384; atlasSize *= 2)
+        {
+            if (!SinglePageExceedsLightmapBudget(atlasSize))
+            {
+                EXPECT_GE(LightmapPageBudget(atlasSize), 1u) << "atlas " << atlasSize;
+            }
+        }
     }
 
     // The encoding's exactness argument assumes at most kMaxLightmapPages, and
