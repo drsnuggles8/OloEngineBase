@@ -464,6 +464,14 @@ namespace OloEngine
         // different thing entirely, and hiding it behind an async ring would
         // make "read the probe table" answer with last-second-but-one data for
         // no benefit.
+        //
+        // Blocking, but STAGED — those are independent. Stage-then-read-now
+        // still waits for the copy, so this call still answers with the current
+        // values; what it avoids is the CPU ever touching the SSBOs themselves,
+        // which the probe kernels atomicAdd into every frame. Reading them
+        // directly migrates them VIDEO -> HOST permanently, so one visit to the
+        // probe diagnostics would have taxed every DDGI frame for the rest of
+        // the session. See StagedBufferReadback.
         if (m_Records.empty())
         {
             return;
@@ -472,8 +480,11 @@ namespace OloEngine
         if (m_StatsSSBO)
         {
             ProbeStats stats{};
-            m_StatsSSBO->GetData(&stats, static_cast<u32>(sizeof(stats)));
-            m_Stats = stats;
+            m_StatsReadback.Stage(m_StatsSSBO->GetRHIHandle(), 0, sizeof(ProbeStats));
+            if (m_StatsReadback.Read(&stats, sizeof(ProbeStats)))
+            {
+                m_Stats = stats;
+            }
         }
 
         if (!m_ProbeAuxSSBO)
@@ -482,7 +493,12 @@ namespace OloEngine
         }
 
         std::vector<ProbeAuxRecordGPU> aux(m_Records.size());
-        m_ProbeAuxSSBO->GetData(aux.data(), static_cast<u32>(aux.size() * sizeof(ProbeAuxRecordGPU)));
+        const u64 auxBytes = static_cast<u64>(aux.size()) * sizeof(ProbeAuxRecordGPU);
+        m_AuxReadback.Stage(m_ProbeAuxSSBO->GetRHIHandle(), 0, auxBytes);
+        if (!m_AuxReadback.Read(aux.data(), auxBytes))
+        {
+            return;
+        }
 
         // Probe data (relocation offsets + state) lives in a texture rather
         // than the aux buffer because the GATHER samples it; reading it back
@@ -588,6 +604,12 @@ namespace OloEngine
 
     void DDGIProbeUpdatePass::DestroyResources()
     {
+        // Released here rather than from ~StagedBufferReadback: a raw handle
+        // deleted after RenderCommand::s_RendererAPI is gone dereferences a dead
+        // API. See VirtualShadowMap::DestroyResources for the case that caught it.
+        m_StatsReadback.Release();
+        m_AuxReadback.Release();
+
         m_IrradianceFB[0] = nullptr;
         m_IrradianceFB[1] = nullptr;
         m_VisibilityFB[0] = nullptr;

@@ -51,6 +51,9 @@ namespace OloEngine
           m_EmitStagingSSBO(std::move(other.m_EmitStagingSSBO)),
           m_BodyProxiesSSBO(std::move(other.m_BodyProxiesSSBO)),
           m_BodyImpulsesSSBO(std::move(other.m_BodyImpulsesSSBO)),
+          m_ImpulseReadback(std::move(other.m_ImpulseReadback)),
+          m_PositionsReadback(std::move(other.m_PositionsReadback)),
+          m_VelocitiesReadback(std::move(other.m_VelocitiesReadback)),
           m_VelocitiesAltSSBO(std::move(other.m_VelocitiesAltSSBO)),
           m_FluidUBO(std::move(other.m_FluidUBO)),
           m_EmitShader(std::move(other.m_EmitShader)),
@@ -100,6 +103,9 @@ namespace OloEngine
             m_EmitStagingSSBO = std::move(other.m_EmitStagingSSBO);
             m_BodyProxiesSSBO = std::move(other.m_BodyProxiesSSBO);
             m_BodyImpulsesSSBO = std::move(other.m_BodyImpulsesSSBO);
+            m_ImpulseReadback = std::move(other.m_ImpulseReadback);
+            m_PositionsReadback = std::move(other.m_PositionsReadback);
+            m_VelocitiesReadback = std::move(other.m_VelocitiesReadback);
             m_VelocitiesAltSSBO = std::move(other.m_VelocitiesAltSSBO);
             m_FluidUBO = std::move(other.m_FluidUBO);
             m_EmitShader = std::move(other.m_EmitShader);
@@ -260,6 +266,12 @@ namespace OloEngine
 
     void GPUFluidSolver::Shutdown()
     {
+        // Same reason as VirtualShadowMap::DestroyResources: free the raw staging
+        // handles while the renderer API is still alive.
+        m_ImpulseReadback.Release();
+        m_PositionsReadback.Release();
+        m_VelocitiesReadback.Release();
+
         OLO_PROFILE_FUNCTION();
 
         m_PositionsSSBO = nullptr;
@@ -532,6 +544,16 @@ namespace OloEngine
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
         }
 
+        // Body impulses are complete now that the last displace iteration has
+        // run, and the next Step() clears them — so this is the only moment the
+        // accumulated value exists. Staged here and harvested before the next step,
+        // which is exactly the latency HarvestFeedback already documented.
+        if (proxyCount > 0)
+        {
+            m_ImpulseReadback.Stage(m_BodyImpulsesSSBO->GetRHIHandle(), 0,
+                                    static_cast<u64>(proxyCount) * sizeof(GPUFluidBodyImpulse));
+        }
+
         // ---- Final parity: iteration 0 reads A and writes B, so N iterations
         // leave the result in B when N is odd, A when N is even. --------------
         const u32 finalParity = (params.SolverIterations % 2u == 1u) ? 1u : 0u;
@@ -612,12 +634,21 @@ namespace OloEngine
 
         const u32 count = static_cast<u32>(std::min<sizet>(outFeedback.size(), m_LastProxyCount));
 
-        // Shader writes -> CPU read via GetSubData needs a BufferUpdate barrier
-        // per the GL memory model (cheap; the buffer is <= 2 KB).
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::BufferUpdate);
-
+        // Read the copy Step() staged after its last displace pass, not the
+        // SSBO. Same bytes and the same one-step latency the caller already
+        // relies on (FluidSystem harvests BEFORE launching the next step), so
+        // the coupling loop is unchanged — what changes is that the CPU never
+        // touches a buffer the displace kernel hits with six atomicAdds per
+        // particle-body contact. Reading it directly migrates it VIDEO -> HOST
+        // and every one of those atomics pays for it afterwards.
         std::vector<GPUFluidBodyImpulse> raw(count);
-        m_BodyImpulsesSSBO->GetData(raw.data(), count * static_cast<u32>(sizeof(GPUFluidBodyImpulse)));
+        const u64 rawBytes = static_cast<u64>(count) * sizeof(GPUFluidBodyImpulse);
+        if (!m_ImpulseReadback.Read(raw.data(), rawBytes))
+        {
+            // Nothing staged yet — the very first harvest, before any step has
+            // run. Feedback is already zero-initialised above.
+            return;
+        }
 
         // Average over the last step's constraint iterations — the displace
         // pass accumulates per iteration and the lambda solve re-penetrates
@@ -677,9 +708,15 @@ namespace OloEngine
 
         outPositions.resize(outCount);
         outVelocities.resize(outCount);
-        const u32 bytes = outCount * static_cast<u32>(sizeof(glm::vec4));
-        m_PositionsSSBO->GetData(outPositions.data(), bytes);
-        m_VelocitiesSSBO->GetData(outVelocities.data(), bytes);
+        // Stage-then-read-now: still blocking, because a parity test asking for
+        // the particles wants THIS step's values, not last step's. Staging only
+        // keeps the CPU off the position/velocity SSBOs, which every solver
+        // kernel reads and writes.
+        const u64 bytes = static_cast<u64>(outCount) * sizeof(glm::vec4);
+        m_PositionsReadback.Stage(m_PositionsSSBO->GetRHIHandle(), 0, bytes);
+        m_VelocitiesReadback.Stage(m_VelocitiesSSBO->GetRHIHandle(), 0, bytes);
+        m_PositionsReadback.Read(outPositions.data(), bytes);
+        m_VelocitiesReadback.Read(outVelocities.data(), bytes);
     }
 
     void GPUFluidSolver::Reload()

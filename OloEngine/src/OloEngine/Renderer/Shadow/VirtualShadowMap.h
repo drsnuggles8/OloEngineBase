@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 // Included, not forward-declared: `Ref<T>`'s destructor calls RefUtils::Release,
 // which needs T complete wherever ~VirtualShadowMap is instantiated. Since
@@ -946,6 +947,14 @@ namespace OloEngine
         // command, and that one the cull writes.
         Ref<StorageBuffer> m_DrawCountBuffer;
         std::array<Ref<StorageBuffer>, 2> m_StatsBuffers; // ping-ponged, read one frame late
+        // ...and read through a staging copy, never off the SSBO itself: the
+        // kernels atomicAdd into these every frame, so a CPU read would migrate
+        // them VIDEO -> HOST and make every one of those atomics slower for the
+        // rest of the session. The ping-pong removes the STALL; this removes the
+        // migration. Staged in EndFrame() and read in UpdatePages() — staging at
+        // the READ site instead would have cost a second stale frame. See
+        // StagedBufferReadback.
+        StagedBufferReadback m_StatsReadback;
 
         Ref<UniformBuffer> m_GlobalsUBO;
         Ref<UniformBuffer> m_PassUBO;
