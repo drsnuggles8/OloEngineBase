@@ -845,6 +845,9 @@ The response's `after` block already reports the consequence — no second round
   "after": {
     "pending": false,
     "viewportHovered": true,
+    "hoveredWindow": "Viewport",
+    "hoveredId": 0,
+    "activeId": 0,
     "selectedEntity": { "id": "12652600558176869447", "name": "Cube" },
     "hoveredEntity":  { "id": "12652600558176869447", "name": "Cube" }
   }
@@ -863,6 +866,36 @@ The response's `after` block already reports the consequence — no second round
 For an ImGui widget (a menu, a panel button, a hierarchy row), use `space: "window"` and
 read the pixel off a full-window screenshot from the `run-oloengine` driver
 (`driver.ps1 -Action shot`, which captures the whole window, not just the viewport).
+
+**`after.hoveredWindow` / `hoveredId` / `activeId` — did the click reach a widget at all?
+(issue #921)**
+
+`cursorLanding` above only proves the injected cursor *position* took. It says nothing
+about whether ImGui's hit-test then routed that position to a widget — which is exactly
+the gap issue #921 reported: a click on a docked-panel widget can report `ok: true`,
+`cursorLanding.landed: true`, and still do nothing, because the click reached a DIFFERENT
+window than the one the widget lives in. These three fields are read straight off ImGui's
+own hit-test result (`g.HoveredWindow` / `g.HoveredId` / `g.ActiveId`), latched on the last
+frame the injected plan actually ran (not read after the fact, when the cursor may already
+be gone) — so a reply now distinguishes three shapes:
+
+- `hoveredWindow: null` — ImGui found **no window at all** under the cursor. The click
+  never reached ImGui in any meaningful sense.
+- `hoveredWindow` set, `hoveredId: 0` — ImGui found a window, but **no specific item** in
+  it. The click landed in that window's real estate but missed every widget — usually a
+  coordinate slightly off the intended control; nudge it and re-check `hoveredId`.
+- `hoveredWindow` and `hoveredId` both set — the click reached a real widget. `activeId`
+  matching `hoveredId` means that widget is now holding the mouse (e.g. mid-drag on a
+  slider); for a plain click it is normal for `activeId` to already be back to 0 by the
+  time this is read, since `ButtonBehavior` clears it on release.
+
+```jsonc
+// A docked panel where the click silently misses every widget:
+// olo_input_inject { "action": "click", "x": 246, "y": 90, "space": "window" }
+{ "ok": true, "after": { "hoveredWindow": "Terrain Editor", "hoveredId": 0, "activeId": 0 } }
+// -> reached the panel's own window, but not any control inside it. Nudge the
+//    coordinate and re-check hoveredId.
+```
 
 **Caveats**
 
