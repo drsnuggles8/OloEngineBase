@@ -1113,6 +1113,14 @@ namespace OloEngine::MCP::InputInject
                                            { "landedY", state.CursorLandedY },
                                            { "landed", landedRaw } };
         }
+        // What ImGui's hit-test resolved at the moment of this snapshot (issue #921):
+        // the difference between "reached the widget, widget ignored it" (a hovered
+        // window/id that names the widget you clicked) and "never reached the widget
+        // at all" (empty/unrelated hoveredWindow), which the cursor-landing check
+        // above cannot tell apart on its own.
+        after["hoveredWindow"] = state.HoveredWindowName.empty() ? Json(nullptr) : Json(state.HoveredWindowName);
+        after["hoveredId"] = state.HoveredId;
+        after["activeId"] = state.ActiveId;
         after["selectedEntity"] = state.SelectedEntityId == 0
                                       ? Json(nullptr)
                                       : Json{ { "id", std::to_string(state.SelectedEntityId) },

@@ -171,6 +171,9 @@ namespace
                     state.CursorLandedX = end.WindowX + m_CursorLandingOffsetX;
                     state.CursorLandedY = end.WindowY + m_CursorLandingOffsetY;
                 }
+                state.HoveredWindowName = m_HoveredWindowName;
+                state.HoveredId = m_HoveredId;
+                state.ActiveId = m_ActiveId;
                 return ToolResult::Text(
                     Inject::ToJson(result, state, m_ViewportInfo, request, start, end, /*timedOut*/ false).dump());
             };
@@ -184,6 +187,11 @@ namespace
         f32 m_CursorLandingOffsetX = 0.0f;
         f32 m_CursorLandingOffsetY = 0.0f;
         int m_InjectCount = 0;
+        // What ImGui's hit-test resolved (issue #921) — defaults to "nothing
+        // hovered", the honest answer for a fake with no ImGui context at all.
+        std::string m_HoveredWindowName;
+        u32 m_HoveredId = 0;
+        u32 m_ActiveId = 0;
         McpInputPlan m_LastPlan;
         Inject::ResolvedPoint m_LastStart;
         McpServer m_Server; // declared last => destroyed first (its handler refs members)
@@ -359,6 +367,68 @@ TEST_F(McpInputInjectTest, AHostThatCannotMeasureTheLandingStillReportsOk)
     const Json payload = Json::parse(response["result"]["content"][0]["text"].get<std::string>());
     EXPECT_TRUE(payload["ok"].get<bool>());
     EXPECT_FALSE(payload["after"].contains("cursorLanding"));
+}
+
+// ---- issue #921: telling "reached the widget, widget ignored it" apart from
+// "never reached the widget" ---------------------------------------------------
+//
+// `cursorLanding` (issue #854) only proves the injected POSITION took. It says
+// nothing about whether ImGui's hit-test then routed that position to a widget —
+// the exact gap #921 reports: a docked-panel click lands (`cursorLanding.landed:
+// true`), reports `ok: true`, and the widget never reacts. `after.hoveredWindow` /
+// `hoveredId` / `activeId` are read straight off ImGui's own hit-test result
+// (EditorLayer's g.HoveredWindow / g.HoveredId / g.ActiveId), so a session can now
+// distinguish the two failure shapes instead of guessing from silence.
+
+TEST_F(McpInputInjectTest, HoveredWindowSetButNoItemMeansReachedTheWidgetAreaNotTheWidget)
+{
+    m_Server.SetAllowWrites(true);
+    // ImGui resolved a window at the click point, but no specific item — the
+    // "landed in the right neighborhood, missed the actual control" shape.
+    m_HoveredWindowName = "Terrain Editor";
+    m_HoveredId = 0;
+    m_ActiveId = 0;
+
+    const Json response = m_Server.HandleMessage(
+        MakeCallRequest(76, "olo_input_inject", Json{ { "action", "click" }, { "x", 640 }, { "y", 360 } }));
+    const Json payload = Json::parse(response["result"]["content"][0]["text"].get<std::string>());
+    EXPECT_TRUE(payload["ok"].get<bool>());
+    EXPECT_EQ(payload["after"]["hoveredWindow"].get<std::string>(), "Terrain Editor");
+    EXPECT_EQ(payload["after"]["hoveredId"].get<u32>(), 0u);
+    EXPECT_EQ(payload["after"]["activeId"].get<u32>(), 0u);
+}
+
+TEST_F(McpInputInjectTest, NoHoveredWindowMeansTheClickNeverReachedAnyWidgetAtAll)
+{
+    m_Server.SetAllowWrites(true);
+    // ImGui resolved NO window at all — a stronger, different failure than the
+    // above: the click never reached anything ImGui knows about.
+    // m_HoveredWindowName left at its default (empty).
+
+    const Json response = m_Server.HandleMessage(
+        MakeCallRequest(77, "olo_input_inject", Json{ { "action", "click" }, { "x", 640 }, { "y", 360 } }));
+    const Json payload = Json::parse(response["result"]["content"][0]["text"].get<std::string>());
+    EXPECT_TRUE(payload["ok"].get<bool>());
+    EXPECT_TRUE(payload["after"]["hoveredWindow"].is_null());
+    EXPECT_EQ(payload["after"]["hoveredId"].get<u32>(), 0u);
+}
+
+TEST_F(McpInputInjectTest, HoveredWindowAndItemBothSetMeansTheClickReachedARealWidget)
+{
+    m_Server.SetAllowWrites(true);
+    // The success shape: a window AND an item id, and (once the button transition
+    // is processed) an active id — the click reached an actual control.
+    m_HoveredWindowName = "Renderer Settings";
+    m_HoveredId = 1234;
+    m_ActiveId = 1234;
+
+    const Json response = m_Server.HandleMessage(
+        MakeCallRequest(78, "olo_input_inject", Json{ { "action", "click" }, { "x", 640 }, { "y", 360 } }));
+    const Json payload = Json::parse(response["result"]["content"][0]["text"].get<std::string>());
+    EXPECT_TRUE(payload["ok"].get<bool>());
+    EXPECT_EQ(payload["after"]["hoveredWindow"].get<std::string>(), "Renderer Settings");
+    EXPECT_EQ(payload["after"]["hoveredId"].get<u32>(), 1234u);
+    EXPECT_EQ(payload["after"]["activeId"].get<u32>(), 1234u);
 }
 
 TEST(McpInputInjectLanding, ToleranceCatchesTheRealFailureAndForgivesFloatNoise)

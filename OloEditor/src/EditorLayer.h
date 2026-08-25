@@ -510,6 +510,17 @@ namespace OloEngine
         f32 m_McpCursorAskedY = 0.0f;
         f32 m_McpCursorLandedX = 0.0f;
         f32 m_McpCursorLandedY = 0.0f;
+        // What ImGui's hit-test resolved on the LAST frame an injected plan actually
+        // ran (issue #921), captured at the end of OnImGuiRender (after every panel
+        // has run its Begin/widgets for the frame) while a plan is in flight. A live
+        // read taken when the tool reports back — after the plan has drained and the
+        // cursor may already have been handed back to "nowhere" — is stale by
+        // construction: g.HoveredWindow answers "what's under the cursor NOW", and by
+        // then there may BE no cursor. Latching it during the plan is what makes the
+        // diagnostic answer the question it's meant to answer.
+        std::string m_McpHoveredWindowName;
+        u32 m_McpHoveredId = 0;
+        u32 m_McpActiveId = 0;
 
         // Undo/Redo
         CommandHistory m_CommandHistory;
