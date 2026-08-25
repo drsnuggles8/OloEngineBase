@@ -85,6 +85,13 @@ namespace OloEngine
         { ".oloskilltree", ContentFileType::SkillTree },
         { ".olocharclass", ContentFileType::CharacterClass },
         { ".oloxpcurve", ContentFileType::ExperienceCurve },
+        // Volumetric density grids (issue #724): the cooked native format is
+        // always browsable; the OpenVDB source extension is only offered
+        // when the editor can actually cook it (OLO_WITH_OPENVDB).
+        { ".olovol", ContentFileType::Volume },
+#if defined(OLO_WITH_OPENVDB)
+        { ".vdb", ContentFileType::Volume },
+#endif
     };
 
     ContentFileType GetFileTypeFromExtension(const std::filesystem::path& filepath)
@@ -424,6 +431,20 @@ namespace OloEngine
                 SetAction(result, ContentBrowserAction::Reimport);
             }
         }
+
+#if defined(OLO_WITH_OPENVDB)
+        // OpenVDB is editor/cook-only (never linked into OloEngine — see the
+        // OLO_WITH_OPENVDB option comment in the root CMakeLists.txt), so a
+        // .vdb needs an explicit cook step rather than the generic
+        // AssetManager import path every other source format uses.
+        if (m_Type == ContentFileType::Volume && m_Path.extension() == ".vdb")
+        {
+            if (ImGui::MenuItem("Import as Volume"))
+            {
+                SetAction(result, ContentBrowserAction::ImportVolume);
+            }
+        }
+#endif
 
         ImGui::Separator();
 

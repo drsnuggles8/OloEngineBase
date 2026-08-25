@@ -107,6 +107,9 @@ including a forced port option that never applied; and trap 9, where moving a de
 switched ON an upstream-default option the old header drop never set, which killed ThreadSanitizer
 outright on any hostname resolution) ·
 [asset-import-usd-alembic.md](asset-import-usd-alembic.md) (winding, up-axis, unit scale, UV origin) ·
+[asset-import-openvdb-volumetric.md](asset-import-openvdb-volumetric.md) (a `Texture3D`-shaped fog
+volume rendered as a solid opaque box through every caller of the plain, non-VDB-aware evaluator —
+the default fog path, since `EnableVolumetric` defaults false) ·
 [mcp-protocol-eras.md](mcp-protocol-eras.md) (swapping the event stream's notification carrier drops
 pushes that nothing reports missing — which is why the new carrier runs *beside* the deprecated one,
 not instead of it) ·

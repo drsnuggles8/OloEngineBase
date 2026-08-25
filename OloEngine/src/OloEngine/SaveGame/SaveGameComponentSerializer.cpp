@@ -2671,6 +2671,23 @@ namespace OloEngine
         ar << c.m_Density << c.m_FalloffDistance;
         ar << c.m_Priority << c.m_BlendWeight;
         ar << c.m_Enabled << c.m_AffectTransparent;
+        // m_DensityVolume (#724, FogVolumeShape::Texture3D) was added after
+        // this component's original save layout. Per-component payloads are
+        // size-prefixed, so an older archive has no trailing bytes here;
+        // probe AtEnd() rather than bumping the whole archive format for a
+        // one-field addition (same pattern as DecalComponent::m_Transparent
+        // above).
+        if (ar.IsLoading())
+        {
+            if (ar.AtEnd())
+                c.m_DensityVolume = 0;
+            else
+                ar << c.m_DensityVolume;
+        }
+        else
+        {
+            ar << c.m_DensityVolume;
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, DecalComponent& c)

@@ -20,6 +20,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/VolumeAsset.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/SoundConfigAsset.h"
@@ -7198,7 +7199,7 @@ namespace OloEngine
                                           {
                 ImGui::Checkbox("Enabled##FogVolume", &component.m_Enabled);
 
-                const char* shapeNames[] = { "Box", "Sphere", "Cylinder" };
+                const char* shapeNames[] = { "Box", "Sphere", "Cylinder", "Volume (OpenVDB)" };
                 if (int shape = static_cast<int>(component.m_Shape); ImGui::Combo("Shape##FogVolume", &shape, shapeNames, IM_ARRAYSIZE(shapeNames)))
                     component.m_Shape = static_cast<FogVolumeShape>(shape);
 
@@ -7214,6 +7215,61 @@ namespace OloEngine
                 else
                 {
                     DrawVec3Control("Half Extents", component.m_Extents);
+                }
+
+                if (component.m_Shape == FogVolumeShape::Texture3D)
+                {
+                    ImGui::SeparatorText("Volume Asset");
+                    const std::string volumeLabel = component.m_DensityVolume != 0
+                        ? "Volume: " + std::to_string(static_cast<u64>(component.m_DensityVolume))
+                        : "Volume: <none — drag an imported .vdb / .olovol here>";
+                    ImGui::Button(volumeLabel.c_str(), ImVec2(-1.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                        {
+                            std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                            if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                            {
+                                AssetHandle handle = assetManager->ImportAsset(assetPath);
+                                if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::Volume)
+                                {
+                                    component.m_DensityVolume = handle;
+                                    // Seed Extents from the imported grid's own
+                                    // preserved dimensions/voxel size (#724) —
+                                    // otherwise the user is left eyeballing the
+                                    // default (5,5,5) box against a volume whose
+                                    // real-world size the .vdb import already
+                                    // knows exactly. Rotation/off-center
+                                    // translation in the source grid's transform
+                                    // is NOT applied here (Extents is a symmetric
+                                    // half-size, not a full affine transform) —
+                                    // a known limitation for a later pass.
+                                    if (auto volumeAsset = AssetManager::GetAsset<VolumeAsset>(handle))
+                                    {
+                                        const glm::vec3 halfSize =
+                                            glm::vec3(volumeAsset->GetDimensions()) * volumeAsset->GetVoxelSize() * 0.5f;
+                                        if (halfSize.x > 0.0f && halfSize.y > 0.0f && halfSize.z > 0.0f)
+                                        {
+                                            component.m_Extents = halfSize;
+                                        }
+                                    }
+                                }
+                                else if (handle != 0)
+                                {
+                                    OLO_WARN("Drag-dropped asset is not a Volume (type: {0})",
+                                             AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                                }
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (component.m_DensityVolume != 0)
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Clear##FogVolumeDensityVolume"))
+                            component.m_DensityVolume = 0;
+                    }
                 }
 
                 ImGui::ColorEdit3("Color##FogVolume", glm::value_ptr(component.m_Color));

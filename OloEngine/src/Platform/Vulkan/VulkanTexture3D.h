@@ -67,6 +67,7 @@ namespace OloEngine
         }
 
         void Bind(u32 slot) const override;
+        void SetData(const void* data, u32 size) override;
 
       private:
         Texture3DSpecification m_Specification;

@@ -199,6 +199,9 @@
 		"OloEngine/Asset/Interchange/USD/UsdMeshImporter.cpp"
 		"OloEngine/Asset/Serializers/LightProbeVolumeSerializer.cpp"
 		"OloEngine/Asset/Serializers/LightmapSerializer.cpp"
+		"OloEngine/Asset/VolumeAsset.h"
+		"OloEngine/Asset/Serializers/VolumeSerializer.cpp"
+		"OloEngine/Serialization/VolumeBinaryFormat.h"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"

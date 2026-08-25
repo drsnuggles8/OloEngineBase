@@ -387,6 +387,7 @@ if (entity.HasComponent<FogVolumeComponent>())
     out << YAML::Key << "FalloffDistance" << YAML::Value << comp.m_FalloffDistance;
     out << YAML::Key << "Priority" << YAML::Value << comp.m_Priority;
     out << YAML::Key << "BlendWeight" << YAML::Value << comp.m_BlendWeight;
+    out << YAML::Key << "DensityVolume" << YAML::Value << static_cast<u64>(comp.m_DensityVolume);
     out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
     out << YAML::Key << "AffectTransparent" << YAML::Value << comp.m_AffectTransparent;
     out << YAML::EndMap; // FogVolumeComponent

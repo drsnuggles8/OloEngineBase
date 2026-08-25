@@ -15,6 +15,8 @@
 #include "OloEngine/Renderer/GPUResourceQueue.h"   // For RawTextureData, RawShaderData
 #include "OloEngine/Renderer/TextureCompression.h" // For CompressedTextureImage (.olotex)
 
+#include <glm/glm.hpp>
+
 // Forward declarations
 namespace YAML
 {
@@ -57,16 +59,39 @@ namespace OloEngine
     };
 
     /**
+     * @brief Decoded .olovol payload (issue #724) — pure CPU data, no GPU
+     * resources. GridTransform/VoxelSize/BackgroundValue mirror VolumeAsset's
+     * getters; see OloEngine/src/OloEngine/Serialization/VolumeBinaryFormat.h
+     * for the on-disk layout this decodes.
+     */
+    struct RawVolumeData
+    {
+        std::vector<f32> Density; // Dimensions.x * Dimensions.y * Dimensions.z, row-major (x fastest)
+        glm::uvec3 Dimensions{ 0u, 0u, 0u };
+        glm::vec3 VoxelSize{ 1.0f, 1.0f, 1.0f };
+        glm::mat4 GridTransform{ 1.0f };
+        f32 BackgroundValue = 0.0f;
+        AssetHandle Handle = 0;
+
+        [[nodiscard]] bool IsValid() const
+        {
+            return !Density.empty() && Dimensions.x > 0 && Dimensions.y > 0 && Dimensions.z > 0 &&
+                   Density.size() == static_cast<sizet>(Dimensions.x) * Dimensions.y * Dimensions.z;
+        }
+    };
+
+    /**
      * @brief Variant type for raw asset data loaded from disk (no GPU resources)
      *
      * This is used for async loading where worker threads load data from disk
      * and main thread finalizes GPU resources.
      */
     using RawAssetData = std::variant<
-        std::monostate,        // Empty/invalid
-        RawTextureData,        // Decoded pixel data
-        RawShaderData,         // Shader source code
-        CompressedTextureImage // Offline BCn mip chain (.olotex, #440)
+        std::monostate,         // Empty/invalid
+        RawTextureData,         // Decoded pixel data
+        RawShaderData,          // Shader source code
+        CompressedTextureImage, // Offline BCn mip chain (.olotex, #440)
+        RawVolumeData           // Decoded dense volume density (.olovol, #724)
         // Add more types as needed (RawMeshData, etc.)
         >;
 
@@ -509,6 +534,53 @@ namespace OloEngine
         // .olmap byte stream as the standalone file.
         [[nodiscard]] static bool EncodeToBytes(const LightmapAsset& lightmap, std::vector<u8>& outBytes, std::string_view sourceName);
         [[nodiscard]] static bool DecodeFromBytes(const u8* data, sizet size, Ref<LightmapAsset>& outLightmap, std::string_view sourceName);
+    };
+
+    // `.olovol` dense volumetric density grids (issue #724). Two-phase async
+    // loading like TextureSerializer: TryLoadRawData decodes the binary
+    // container off-thread (pure CPU, no OpenVDB — see VolumeAsset.h),
+    // FinalizeFromRawData creates the GPU Texture3D on the main thread.
+    class VolumeAsset;
+    class VolumeSerializer : public AssetSerializer
+    {
+      public:
+        void Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override {}
+        [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] bool TryLoadRawData(const AssetMetadata& metadata, RawAssetData& outRawData) const override;
+        [[nodiscard]] bool FinalizeFromRawData(const RawAssetData& rawData, Ref<Asset>& asset) const override;
+        [[nodiscard]] bool SupportsAsyncLoading() const override
+        {
+            return true;
+        }
+
+        [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
+        // Byte-stream level — the asset-pack record carries the exact same
+        // .olovol byte stream as the standalone file. Public so
+        // OloEngine-VolumeCook (the editor-only OpenVDB importer) can cook
+        // straight to a .olovol without depending on anything but this and
+        // plain data — it never needs to construct a VolumeAsset/Texture3D
+        // (no GL context at cook time).
+        [[nodiscard]] static bool EncodeToBytes(const glm::uvec3& dimensions, const glm::vec3& voxelSize,
+                                                const glm::mat4& gridTransform, f32 backgroundValue,
+                                                const std::vector<f32>& density, std::vector<u8>& outBytes,
+                                                std::string_view sourceName);
+        [[nodiscard]] static bool DecodeFromBytes(const u8* data, sizet size, RawVolumeData& outVolume, std::string_view sourceName);
+
+        // File-level helpers, mirroring LightmapSerializer::SerializeToFile /
+        // DeserializeFromFile.
+        [[nodiscard]] static bool SerializeToFile(const std::filesystem::path& path, const glm::uvec3& dimensions,
+                                                  const glm::vec3& voxelSize, const glm::mat4& gridTransform,
+                                                  f32 backgroundValue, const std::vector<f32>& density);
+        [[nodiscard]] static bool DeserializeFromFile(const std::filesystem::path& path, RawVolumeData& outVolume);
+
+      private:
+        // Shared tail for TryLoadData/FinalizeFromRawData: uploads a decoded
+        // RawVolumeData into a fresh GPU Texture3D (main-thread only — GL/RHI
+        // calls happen here) and wraps it in a VolumeAsset.
+        [[nodiscard]] static bool BuildVolumeAsset(const RawVolumeData& rawVolume, Ref<Asset>& outAsset);
     };
 
     class DialogueTreeSerializer : public AssetSerializer
