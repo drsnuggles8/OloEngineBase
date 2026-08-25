@@ -10642,7 +10642,11 @@ namespace OloEngine
             }
         }
 
-        // Draw 3D collider gizmos (green wireframes)
+        // Draw 3D collider gizmos (green wireframes). Keep these behind the
+        // same editor setting as the 2D collider overlay: large trigger
+        // volumes otherwise collapse to isolated pixels at distance and leak
+        // into ordinary scene captures even when collider visualization is off.
+        if (Renderer3D::GetRendererSettings().ShowPhysicsColliders)
         {
             // Box colliders
             auto boxView = m_Registry.view<TransformComponent, BoxCollider3DComponent>();
