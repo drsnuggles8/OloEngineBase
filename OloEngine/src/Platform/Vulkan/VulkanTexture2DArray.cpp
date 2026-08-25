@@ -369,18 +369,21 @@ namespace OloEngine
         {
             const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
             const VkImageLayout prior = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
-            // Only on success: a failed submit never executed the chain, so
-            // the image is still in `prior`. Recording SHADER_READ_ONLY here
-            // would make the NEXT barrier name an oldLayout the image never
-            // reached — the desync InitialLayout exists to prevent, and the
-            // shape behind the VUID-09600 family (#800). SetLayerData above
-            // and VulkanTexture2D::SubImage already gate this way.
-            if (!VulkanOneShot::Submit("VulkanTexture2DArray::GenerateMipmaps",
-                                       [&](VkCommandBuffer cmd)
-                                       { record(cmd, prior); }))
+            // Gated on QUEUE ACCEPTANCE, not on the bool. A chain that never
+            // reached the queue leaves the image in `prior`, so recording
+            // SHADER_READ_ONLY would make the NEXT barrier name an oldLayout
+            // the image never reached — the desync InitialLayout exists to
+            // prevent (#800's family). But a chain that WAS accepted and only
+            // outran the fence wait will still execute, so skipping the record
+            // there is the same desync in the other direction. See
+            // VulkanOneShot::Outcome.
+            VulkanOneShot::Outcome outcome = VulkanOneShot::Outcome::NotSubmitted;
+            VulkanOneShot::Submit("VulkanTexture2DArray::GenerateMipmaps", [&](VkCommandBuffer cmd)
+                                  { record(cmd, prior); }, &outcome);
+            if (outcome == VulkanOneShot::Outcome::NotSubmitted)
             {
-                OLO_CORE_ERROR("VulkanTexture2DArray::GenerateMipmaps: one-shot submit failed — tracked layout "
-                               "left unchanged");
+                OLO_CORE_ERROR("VulkanTexture2DArray::GenerateMipmaps: the mip chain never reached the queue — "
+                               "tracked layout left unchanged");
                 return;
             }
         }

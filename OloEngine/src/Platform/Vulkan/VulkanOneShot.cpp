@@ -18,6 +18,7 @@ namespace OloEngine
             // See the header: test-only fault injection for the layout-desync
             // tenants. Render thread only, like the rest of the backend.
             u32 s_FailNextSubmits = 0;
+            u32 s_FailNextFenceWaits = 0;
         } // namespace
 
         void SetFailNextSubmitsForTesting(u32 count)
@@ -29,11 +30,30 @@ namespace OloEngine
         {
             return s_FailNextSubmits;
         }
+
+        void SetFailNextFenceWaitsForTesting(u32 count)
+        {
+            s_FailNextFenceWaits = count;
+        }
+
+        u32 GetPendingFailNextFenceWaitsForTesting()
+        {
+            return s_FailNextFenceWaits;
+        }
 #endif
 
-        bool Submit(const char* what, const std::function<void(VkCommandBuffer)>& record)
+        bool Submit(const char* what, const std::function<void(VkCommandBuffer)>& record, Outcome* outOutcome)
         {
             OLO_PROFILE_FUNCTION();
+
+            // Every early return below leaves this at NotSubmitted, which is
+            // the truth for all of them: none reached vkQueueSubmit2.
+            const auto setOutcome = [outOutcome](Outcome outcome)
+            {
+                if (outOutcome != nullptr)
+                    *outOutcome = outcome;
+            };
+            setOutcome(Outcome::NotSubmitted);
 
 #ifndef OLO_DIST
             if (s_FailNextSubmits > 0)
@@ -123,11 +143,30 @@ namespace OloEngine
             }
             else
             {
+                // ACCEPTED BY THE QUEUE. That, not the fence wait, is what
+                // makes this buffer's transitions real: queue submissions
+                // execute in submit order, so every later submission already
+                // sees the layouts recorded here whether or not the host
+                // managed to observe the fence. Promoting only after a
+                // successful wait left the tracker claiming the OLD layout for
+                // work that was certain to run — the same wrong-oldLayout
+                // desync the rest of #803 is about, just reached by a timeout.
+                immediate.MarkSubmitted();
+                setOutcome(Outcome::Submitted);
+
                 // Blocking wait is the point (see the header): load-time GL
                 // uploads were synchronous, and callers destroy staging
                 // buffers immediately after this returns.
                 constexpr u64 kTimeoutNs = 10'000'000'000ull; // 10 s — an upload that slow is a hang
-                const VkResult waited = vkWaitForFences(device->GetDevice(), 1u, &fence, VK_TRUE, kTimeoutNs);
+                VkResult waited = vkWaitForFences(device->GetDevice(), 1u, &fence, VK_TRUE, kTimeoutNs);
+#ifndef OLO_DIST
+                if (s_FailNextFenceWaits > 0)
+                {
+                    --s_FailNextFenceWaits;
+                    OLO_CORE_WARN("VulkanOneShot::Submit({}): forcing a fence-wait timeout by test injection", what);
+                    waited = VK_TIMEOUT;
+                }
+#endif
                 if (waited != VK_SUCCESS)
                 {
                     OLO_CORE_ERROR("VulkanOneShot::Submit({}): fence wait failed (VkResult {})", what,
@@ -136,9 +175,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    // On the queue and retired: the layouts this buffer
-                    // transitioned are now the images' executed layouts.
-                    immediate.MarkSubmitted();
+                    setOutcome(Outcome::Completed);
                 }
             }
 

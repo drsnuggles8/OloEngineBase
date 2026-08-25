@@ -344,15 +344,16 @@ namespace OloEngine
         {
             const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
             const VkImageLayout prior = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
-            // Only on success — see VulkanTexture2DArray::GenerateMipmaps for
-            // the contract: a failed submit leaves the image in `prior`, and
-            // recording the new layout anyway is the wrong-oldLayout desync.
-            if (!VulkanOneShot::Submit("VulkanTextureCubemap::GenerateMipmaps",
-                                       [&](VkCommandBuffer cmd)
-                                       { recordChain(cmd, prior); }))
+            // Gated on queue acceptance — see VulkanTexture2DArray::
+            // GenerateMipmaps for the contract, and VulkanOneShot::Outcome for
+            // why the bool alone is the wrong question here.
+            VulkanOneShot::Outcome outcome = VulkanOneShot::Outcome::NotSubmitted;
+            VulkanOneShot::Submit("VulkanTextureCubemap::GenerateMipmaps", [&](VkCommandBuffer cmd)
+                                  { recordChain(cmd, prior); }, &outcome);
+            if (outcome == VulkanOneShot::Outcome::NotSubmitted)
             {
-                OLO_CORE_ERROR("VulkanTextureCubemap::GenerateMipmaps: one-shot submit failed — tracked layout "
-                               "left unchanged");
+                OLO_CORE_ERROR("VulkanTextureCubemap::GenerateMipmaps: the mip chain never reached the queue — "
+                               "tracked layout left unchanged");
                 return;
             }
         }

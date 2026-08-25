@@ -3195,10 +3195,26 @@ uploaded. It is wrong for the two cases that matter: a texture created from a
 spec and never uploaded is still `UNDEFINED`, and an **attachment** is in
 whatever the graph left it in. Naming `SHADER_READ_ONLY` there is
 VUID-VkImageMemoryBarrier2-oldLayout-01197 and makes the copied texels
-undefined. `VulkanTexture2D::GetData` now derives it the way
-`ReadTextureSubImage` does: seed the tracker from
-`VulkanImageInfo::InitialLayout`, then ask `CurrentExecutedLayout` — the
-*executed* timeline, because a one-shot runs ahead of the recording frame.
+undefined. `VulkanTexture2D::GetData` now asks the tracker for
+`CurrentExecutedLayout` — the *executed* timeline, because a one-shot runs
+ahead of the recording frame — and falls back to `VulkanImageInfo::InitialLayout`
+when the tracker answers `UNDEFINED`, which is exactly when the registry's
+load-time record is the better answer. Note what it deliberately does **not**
+do: call `RegisterImage` first to "seed" the tracker. Re-registering with
+extents or a registration id the graph did not use **resets that image's rows**,
+and wiping the graph's own tracked layouts to learn one value is a far worse
+trade than a fallback.
+
+**Entrance three: treating "the submit failed" as one thing.** `Submit` returns
+false for a pre-submit failure *and* for a fence wait that timed out after
+`vkQueueSubmit2` was accepted — and those need opposite handling. Accepted work
+executes whether or not the host observed the fence (queue submissions execute
+in submit order), so a caller that keeps the old layout there is stale by
+exactly the amount the first entrance is early. `VulkanOneShot::Outcome`
+(`NotSubmitted` / `Submitted` / `Completed`) is what the layout writes gate on;
+the bool stays "completed and waited" for the callers that mean that.
+`ImmediateExecutionScope::MarkSubmitted` promotes on acceptance for the same
+reason.
 
 **Testing it needs fault injection, and that is fine.** A failed
 `vkQueueSubmit2` is not reachable from a test on a healthy driver, so

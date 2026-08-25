@@ -161,6 +161,7 @@ class VulkanResourceFactory : public ::testing::Test
         // test that armed it and did not reach a one-shot would otherwise
         // leave the NEXT test's first submit silently failing.
         VulkanOneShot::SetFailNextSubmitsForTesting(0u);
+        VulkanOneShot::SetFailNextFenceWaitsForTesting(0u);
         if (!m_Device)
             return;
         vkDeviceWaitIdle(m_Device->GetDevice());
@@ -496,10 +497,11 @@ TEST_F(VulkanResourceFactory, HostUploadOfAMippedWidenedTextureRoundTrips)
         EXPECT_EQ(mip0[pixel * 4 + 3], 0xFFu);
     }
 
-    // GetData barriers from the image's RECORDED layout (#803), so a mip that
-    // reads back at all is also proof the upload left the image in the
-    // backend's steady-state layout AND recorded it — the invariant the host
-    // path declines the whole route rather than weaken.
+    // GetData barriers from the tracker's EXECUTED layout, falling back to
+    // VulkanImageInfo::InitialLayout when the tracker has never seen the image
+    // (#803). So a mip that reads back at all is also proof the upload left the
+    // image in the backend's steady-state layout AND recorded it — the
+    // invariant the host path declines the whole route rather than weaken.
     std::vector<u8> mip2;
     ASSERT_TRUE(texture->GetData(mip2, 2));
     ASSERT_EQ(mip2.size(), sizet{ 2 * 2 * 4 });
@@ -630,6 +632,65 @@ TEST_F(VulkanResourceFactory, CubemapMipGenerationLeavesTheTrackedLayoutAloneWhe
     EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
         << "a successful mip chain does advance it";
+}
+
+TEST_F(VulkanResourceFactory, ArrayMipGenerationStillRecordsTheLayoutWhenOnlyTheFenceWaitFails)
+{
+    ScopedVulkanApiSelection vulkanApi;
+
+    // The other side of the same coin. A fence-wait timeout means the queue
+    // ACCEPTED the chain, so it will execute and the image WILL reach
+    // SHADER_READ_ONLY — keeping the old layout there is the same stale-record
+    // desync, just reached from the opposite direction. Gating on the bool
+    // instead of VulkanOneShot::Outcome is what gets this wrong.
+    Texture2DArraySpecification spec;
+    spec.Width = 8;
+    spec.Height = 8;
+    spec.Layers = 2;
+    spec.Format = Texture2DArrayFormat::RGBA8;
+    spec.GenerateMipmaps = true;
+
+    auto array = Texture2DArray::Create(spec);
+    ASSERT_NE(array, nullptr);
+
+    const VkImage image = static_cast<VulkanTexture2DArray*>(array.get())->GetVkImage();
+    ASSERT_NE(image, VK_NULL_HANDLE);
+    ASSERT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout, VK_IMAGE_LAYOUT_UNDEFINED);
+
+    VulkanOneShot::SetFailNextFenceWaitsForTesting(1u);
+    array->GenerateMipmaps();
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextFenceWaitsForTesting(), 0u)
+        << "the injected timeout must have been consumed by the mip chain's one-shot";
+
+    EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
+              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        << "queued-but-unwaited work still executes, so the layout must be recorded";
+}
+
+TEST_F(VulkanResourceFactory, CubemapMipGenerationStillRecordsTheLayoutWhenOnlyTheFenceWaitFails)
+{
+    ScopedVulkanApiSelection vulkanApi;
+
+    CubemapSpecification spec;
+    spec.Width = 8;
+    spec.Height = 8;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = true;
+
+    auto cubemap = TextureCubemap::Create(spec);
+    ASSERT_NE(cubemap, nullptr);
+
+    const VkImage image = static_cast<VulkanTextureCubemap*>(cubemap.get())->GetVkImage();
+    ASSERT_NE(image, VK_NULL_HANDLE);
+    ASSERT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout, VK_IMAGE_LAYOUT_UNDEFINED);
+
+    VulkanOneShot::SetFailNextFenceWaitsForTesting(1u);
+    cubemap->GenerateMipmaps();
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextFenceWaitsForTesting(), 0u);
+
+    EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
+              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        << "queued-but-unwaited work still executes, so the layout must be recorded";
 }
 
 TEST_F(VulkanResourceFactory, ReadbackBarriersFromTheRecordedLayoutNotAnAssumedOne)
