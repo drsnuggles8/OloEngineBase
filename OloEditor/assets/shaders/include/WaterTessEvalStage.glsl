@@ -131,6 +131,7 @@ void main()
             posAbs, time,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
+            u_FoamParams2.w, // mesh vertex spacing — band-limits the octave ladder (#943)
             displacedNormal
         ) - u_RenderOrigin; // world-anchored phase, relative result (issue #429)
 
@@ -140,6 +141,7 @@ void main()
             posPrevAbs, prevTime,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
+            u_FoamParams2.w, // mesh vertex spacing — band-limits the octave ladder (#943)
             _prevNormalUnused
         ) - u_RenderOrigin;
         v_PrevWorldPos = displacedPosPrev;

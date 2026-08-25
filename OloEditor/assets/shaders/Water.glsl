@@ -94,16 +94,16 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_WaterDeepColor;         // rgb = deep,    a = reflectivity
     vec4 u_VisualParams;           // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
     vec4 u_NormalMapScroll;        // xy = scroll0 offset, zw = scroll1 offset
-    vec4 u_NormalMapSpeed;         // x = speed0, y = speed1, z = PrevTime, w = unused
+    vec4 u_NormalMapSpeed;         // x = speed0, y = speed1, z = PrevTime, w = renderFromBelow
     vec4 u_LightDirection;         // xyz = directional light dir, w = unused
     vec4 u_ScreenParams;           // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_DepthRefractionParams;  // x = depthSoftening, y = refrDistortion, z = refrHeightFactor, w = unused
     vec4 u_RefractionColor;        // rgb = tint color, w = unused
     vec4 u_FoamParams;             // x = heightStart, y = fadeDistance, z = tiling, w = brightness
     vec4 u_FoamParams2;            // x = angleExponent, y = shorelinePower, z = sssIntensity, w = unused
-    vec4 u_SSSColor;               // rgb = subsurface color, w = unused
+    vec4 u_SSSColor;               // rgb = subsurface color, w = foamCoverage (#943)
     vec4 u_SSRParams;              // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
-    vec4 u_TessParams;             // x = tessellationFactor, y = minTessDist, z = maxTessDist, w = unused
+    vec4 u_TessParams;             // x = tessellationFactor, y = minTessDist, z = maxTessDist, w = frustumCullEnable
     vec4 u_FFTParams;              // x = useFFT (0/1), y = 1/patchSize, z = heightScale, w = horizontalScale
 };
 
@@ -457,8 +457,26 @@ void main()
     // emitting NaNs instead of a flat normal.
     vec3 blendedTangentNormal = safeNormalize(n0 + n1, vec3(0.0, 0.0, 1.0));
     vec3 normalMapWorld = safeNormalize(TBN * blendedTangentNormal, gerstnerNormal);
-    // Blend strength: stronger at close range for micro-detail
-    vec3 normal = safeNormalize(mix(gerstnerNormal, normalMapWorld, 0.6), gerstnerNormal);
+    // Blend strength: stronger at close range for micro-detail — and since #943
+    // that is what the code does, not just what this comment said.
+    //
+    // The detail normal is sampled at u_VisualParams.z (tiling) * 8 and * 12
+    // cycles per METRE. Past a few tens of metres that is hundreds of cycles per
+    // pixel: it does not average out, it MOIRES, into large smooth lobes that
+    // tilted the shading normal 30-60 degrees off vertical on a sea whose real
+    // slope is a couple of degrees. Blended in at a flat 0.6 those lobes swing
+    // the reflection across the sky gradient and read as the hard-edged khaki
+    // patches this issue is about — the surface was being shaded by aliasing.
+    //
+    // So fade the detail out as it stops being resolvable. fwidth() on the UV is
+    // how much of the pattern one pixel spans; one cycle of the coarser octave
+    // is 1/8 of a UV unit, so beyond ~0.12 there is less than a cycle per pixel
+    // and the detail is noise. Near water keeps the full 0.6 and looks unchanged;
+    // distance falls back to the Gerstner normal, which is the honest answer for
+    // a surface whose detail the frame cannot resolve.
+    float detailFootprint = max(length(fwidth(uv0)), length(fwidth(uv1)));
+    float detailBlend = 0.6 * (1.0 - smoothstep(0.03, 0.12, detailFootprint));
+    vec3 normal = safeNormalize(mix(gerstnerNormal, normalMapWorld, detailBlend), gerstnerNormal);
 
     // --- Underside (camera submerged) ---
     // Cheap, stable shading for the surface seen from below. Screen-space
@@ -692,7 +710,14 @@ void main()
     // Very low-frequency noise so only sparse, random patches of
     // crests get foam — eliminates the grid/checkerboard pattern.
     float foamGateNoise = fbmNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 0.03 + vec2(5.3, 11.7));
-    float foamGate = smoothstepAA(0.62, 0.88, foamGateNoise);  // ~10% of area gets foam — sparse, clustered whitecaps
+    // The gate's upper edge is driven by FoamCoverage (u_SSSColor.w) instead of
+    // being hardcoded (#943). Coverage is the fraction of the noise range that
+    // opens the gate: the 0.12 default gives exactly the old (0.62, 0.88) edges,
+    // so existing scenes are unchanged, and raising it lets a storm actually
+    // break. The 0.26 ramp width is kept so the clustering stays soft rather
+    // than turning into a hard mask as coverage rises.
+    float foamGateHi = 1.0 - clamp(u_SSSColor.w, 0.0, 1.0);
+    float foamGate = smoothstepAA(foamGateHi - 0.26, foamGateHi, foamGateNoise);
     heightFoam *= foamGate;
     angleFoam  *= foamGate;
 

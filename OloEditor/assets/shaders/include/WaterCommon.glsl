@@ -95,6 +95,39 @@ void gerstnerWaveNormal(vec3 position, vec2 direction, float steepness, float wa
     gerstnerWaveNormal(position, direction, steepness, wavelength, time, 0.0, tangent, binormal);
 }
 
+// How much of an octave the mesh can actually carry, from its wavelength
+// against the surface's vertex spacing (issue #943).
+//
+// A displaced grid can only represent a wave it samples often enough. At two
+// samples per wavelength (Nyquist) the "wave" is a zigzag between adjacent
+// vertices — not a smaller wave, but flat facets whose size tracks the grid.
+// The ladder below runs down to 0.09 * avgWL, about 2 m at Drift's wavelengths,
+// against a 2.5 m grid: those last octaves cost vertex work and contribute
+// nothing a displaced grid can actually show.
+//
+// Smooth GEOMETRY needs rather more than Nyquist, so this fades an octave out
+// between ~6 and ~3 vertices per wavelength rather than cutting at 2. Returning
+// a weight (not a hard cull) matters: a step would pop an octave in and out as
+// the spacing changed, and the fade keeps the sum continuous.
+//
+// SCOPE, measured rather than assumed: this is NOT what produced the hard-edged
+// patches in #943 — those were the detail NORMAL MAP aliasing (see the
+// detailBlend fade in Water.glsl). Band-limiting here changed that frame very
+// little, because the octaves it removes carry the smallest amplitude weights
+// (0.1 - 0.22) while everything that dominates the surface sits at 5-11 samples
+// per wavelength and is kept. It is worth having on its own terms; it is not a
+// fix for that artifact, and reaching for it as one will disappoint.
+//
+// A spacing of 0 (nothing supplied) disables the mechanism and returns 1, so a
+// caller that has not been taught to pass it behaves exactly as before.
+float octaveMeshWeight(float wavelength, float vertexSpacing)
+{
+    if (vertexSpacing <= 0.0)
+        return 1.0;
+    float samplesPerWave = wavelength / vertexSpacing;
+    return smoothstep(3.0, 6.0, samplesPerWave);
+}
+
 // Sum Gerstner wave octaves for realistic water surface animation.
 // Two artist-controlled primary waves plus six procedural detail
 // octaves with golden-angle direction distribution and independent
@@ -107,11 +140,14 @@ void gerstnerWaveNormal(vec3 position, vec2 direction, float steepness, float wa
 // @param waveDir1  xy = direction1, z = steepness1, w = wavelength1
 // @param waveFrequency  Global frequency multiplier
 // @param waveAmplitude  Global amplitude multiplier
+// @param vertexSpacing  Surface mesh vertex spacing in metres; band-limits the
+//                       octave ladder. 0 disables that (every octave at weight 1).
 // @param normal    Output: computed surface normal
 // @return          Displaced world-space position
 vec3 sumGerstnerWaves(vec3 position, float time,
                       vec4 waveDir0, vec4 waveDir1,
                       float waveFrequency, float waveAmplitude,
+                      float vertexSpacing,
                       out vec3 normal)
 {
     vec3 displaced = position;
@@ -147,11 +183,13 @@ vec3 sumGerstnerWaves(vec3 position, float time,
 
     // --- Primary waves (artist-controlled) ---
     // Scaled down to 0.55 each so detail octaves can compete and break the grid
-    displaced += gerstnerWave(position, dir0, waveDir0.z, wl0, time) * waveAmplitude * 0.55;
-    gerstnerWaveNormal(position, dir0, waveDir0.z * waveAmplitude * 0.55, wl0, time, tangent, binormal);
+    float meshW_wl0 = octaveMeshWeight(wl0, vertexSpacing);
+    displaced += gerstnerWave(position, dir0, waveDir0.z, wl0, time) * waveAmplitude * 0.55 * meshW_wl0;
+    gerstnerWaveNormal(position, dir0, waveDir0.z * waveAmplitude * 0.55 * meshW_wl0, wl0, time, tangent, binormal);
 
-    displaced += gerstnerWave(position, dir1, waveDir1.z, wl1, time) * waveAmplitude * 0.55;
-    gerstnerWaveNormal(position, dir1, waveDir1.z * waveAmplitude * 0.55, wl1, time, tangent, binormal);
+    float meshW_wl1 = octaveMeshWeight(wl1, vertexSpacing);
+    displaced += gerstnerWave(position, dir1, waveDir1.z, wl1, time) * waveAmplitude * 0.55 * meshW_wl1;
+    gerstnerWaveNormal(position, dir1, waveDir1.z * waveAmplitude * 0.55 * meshW_wl1, wl1, time, tangent, binormal);
 
     // --- Procedural detail octaves ---
     // Uses golden angle (~137.5 degrees) for direction distribution,
@@ -182,8 +220,9 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float st = avgSteepness * 0.5;
         float ph = PI * 1.7231;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 1.0, wl);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.03, ph) * waveAmplitude * 0.5;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.5, wl, time * 1.03, ph, tangent, binormal);
+        float meshW = octaveMeshWeight(wl, vertexSpacing);
+        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.03, ph) * waveAmplitude * 0.5 * meshW;
+        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.5 * meshW, wl, time * 1.03, ph, tangent, binormal);
     }
 
     // Octave 1: medium crosswave
@@ -194,8 +233,9 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float st = avgSteepness * 0.45;
         float ph = PI * 3.4519;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 2.7, wl);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 0.97, ph) * waveAmplitude * 0.4;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.4, wl, time * 0.97, ph, tangent, binormal);
+        float meshW = octaveMeshWeight(wl, vertexSpacing);
+        displaced += gerstnerWave(warpedPos, d, st, wl, time * 0.97, ph) * waveAmplitude * 0.4 * meshW;
+        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.4 * meshW, wl, time * 0.97, ph, tangent, binormal);
     }
 
     // Octave 2: medium-short chop
@@ -206,8 +246,9 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float st = avgSteepness * 0.38;
         float ph = PI * 0.8637;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 4.1, wl);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.11, ph) * waveAmplitude * 0.3;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.3, wl, time * 1.11, ph, tangent, binormal);
+        float meshW = octaveMeshWeight(wl, vertexSpacing);
+        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.11, ph) * waveAmplitude * 0.3 * meshW;
+        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.3 * meshW, wl, time * 1.11, ph, tangent, binormal);
     }
 
     // Octave 3: choppy detail
@@ -218,8 +259,9 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float st = avgSteepness * 0.3;
         float ph = PI * 5.1043;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 5.9, wl);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 0.89, ph) * waveAmplitude * 0.22;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.22, wl, time * 0.89, ph, tangent, binormal);
+        float meshW = octaveMeshWeight(wl, vertexSpacing);
+        displaced += gerstnerWave(warpedPos, d, st, wl, time * 0.89, ph) * waveAmplitude * 0.22 * meshW;
+        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.22 * meshW, wl, time * 0.89, ph, tangent, binormal);
     }
 
     // Octave 4: fine ripple
@@ -230,8 +272,9 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float st = avgSteepness * 0.22;
         float ph = PI * 2.6891;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 7.3, wl);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.23, ph) * waveAmplitude * 0.15;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.15, wl, time * 1.23, ph, tangent, binormal);
+        float meshW = octaveMeshWeight(wl, vertexSpacing);
+        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.23, ph) * waveAmplitude * 0.15 * meshW;
+        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.15 * meshW, wl, time * 1.23, ph, tangent, binormal);
     }
 
     // Octave 5: finest detail
@@ -242,8 +285,9 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float st = avgSteepness * 0.15;
         float ph = PI * 4.3127;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 9.1, wl);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.07, ph) * waveAmplitude * 0.1;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.1, wl, time * 1.07, ph, tangent, binormal);
+        float meshW = octaveMeshWeight(wl, vertexSpacing);
+        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.07, ph) * waveAmplitude * 0.1 * meshW;
+        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.1 * meshW, wl, time * 1.07, ph, tangent, binormal);
     }
 
     #undef DIR_FROM_ANGLE

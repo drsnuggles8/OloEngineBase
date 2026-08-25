@@ -60,16 +60,16 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_WaterDeepColor;         // rgb = deep color,    a = Reflectivity
     vec4 u_VisualParams;           // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
     vec4 u_NormalMapScroll;        // xy = scroll0 offset, zw = scroll1 offset
-    vec4 u_NormalMapSpeed;         // x = speed0, y = speed1, z/w = unused
+    vec4 u_NormalMapSpeed;         // x = speed0, y = speed1, z = PrevTime, w = renderFromBelow
     vec4 u_LightDirection;         // xyz = directional light dir (normalized), w = unused
     vec4 u_ScreenParams;           // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_DepthRefractionParams;  // x = depthSoftening, y = refrDistortion, z = refrHeightFactor, w = unused
     vec4 u_RefractionColor;        // rgb = tint color, w = unused
     vec4 u_FoamParams;             // x = heightStart, y = fadeDistance, z = tiling, w = brightness
-    vec4 u_FoamParams2;            // x = angleExponent, y = shorelinePower, z = sssIntensity, w = unused
-    vec4 u_SSSColor;               // rgb = subsurface color, w = unused
+    vec4 u_FoamParams2;            // x = angleExponent, y = shorelinePower, z = sssIntensity, w = mesh vertex spacing (#943)
+    vec4 u_SSSColor;               // rgb = subsurface color, w = foamCoverage (#943)
     vec4 u_SSRParams;              // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
-    vec4 u_TessParams;             // x = tessellationFactor (0=disabled), y = minTessDist, z = maxTessDist, w = unused
+    vec4 u_TessParams;             // x = tessellationFactor (0=disabled), y = minTessDist, z = maxTessDist, w = frustumCullEnable
     vec4 u_FFTParams;              // x = useFFT (0/1), y = 1/patchSize, z = heightScale, w = horizontalScale
 };
 
@@ -164,6 +164,7 @@ void main()
             worldPosAbs, time,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
+            u_FoamParams2.w, // mesh vertex spacing — band-limits the octave ladder (#943)
             displacedNormal
         ) - u_RenderOrigin;
 
@@ -174,6 +175,7 @@ void main()
             worldPosPrevAbs, prevTime,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
+            u_FoamParams2.w, // mesh vertex spacing — band-limits the octave ladder (#943)
             _prevNormalUnused
         ) - u_RenderOrigin;
         v_PrevWorldPos = displacedPosPrev;

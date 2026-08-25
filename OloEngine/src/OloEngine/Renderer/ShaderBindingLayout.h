@@ -609,14 +609,14 @@ namespace OloEngine
             glm::vec4 WaterDeepColor;        // rgb = deep color,    a = Reflectivity
             glm::vec4 VisualParams;          // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
             glm::vec4 NormalMapScroll;       // xy = scroll0 dir, zw = scroll1 dir (scrolled by time * speed)
-            glm::vec4 NormalMapSpeed;        // x = speed0, y = speed1, z = PrevTime (for Gerstner reprojection), w = unused
+            glm::vec4 NormalMapSpeed;        // x = speed0, y = speed1, z = PrevTime (for Gerstner reprojection), w = renderFromBelow (1=on)
             glm::vec4 LightDirection;        // xyz = directional light dir (normalized), w = unused
             glm::vec4 ScreenParams;          // x = width, y = height, z = 1/width, w = 1/height
             glm::vec4 DepthRefractionParams; // x = depthSofteningDist, y = refractionDistortion, z = refractionHeightFactor, w = unused
             glm::vec4 RefractionColor;       // rgb = underwater tint, w = unused
             glm::vec4 FoamParams;            // x = foamHeightStart, y = foamFadeDistance, z = foamTiling, w = foamBrightness
             glm::vec4 FoamParams2;           // x = foamAngleExponent, y = shorelineFoamPower, z = sssIntensity, w = unused
-            glm::vec4 SSSColor;              // rgb = subsurface scattering color, w = unused
+            glm::vec4 SSSColor;              // rgb = subsurface scattering color, w = foamCoverage (#943)
             glm::vec4 SSRParams;             // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
             glm::vec4 TessParams;            // x = tessellationFactor (0=disabled), y = minTessDistance, z = maxTessDistance, w = frustumCullEnable (1=on, 0=off)
             glm::vec4 FFTParams;             // x = useFFT (0=Gerstner, 1=FFT ocean), y = 1/patchSize (UV scale), z = heightScale, w = horizontalScale
@@ -3063,7 +3063,7 @@ layout(std140, binding = 23) uniform WaterParams {
     vec4 u_WaterDeepColor;          // rgb = deep color,    a = Reflectivity
     vec4 u_VisualParams;            // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
     vec4 u_NormalMapScroll;         // xy = scroll0 offset, zw = scroll1 offset
-    vec4 u_NormalMapSpeed;          // x = speed0, y = speed1, z = PrevTime (for Gerstner reprojection), w = unused
+    vec4 u_NormalMapSpeed;          // x = speed0, y = speed1, z = PrevTime (for Gerstner reprojection), w = renderFromBelow
     vec4 u_LightDirection;          // xyz = directional light dir (normalized), w = unused
     vec4 u_ScreenParams;            // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_DepthRefractionParams;   // x = depthSofteningDist, y = refractionDistortion, z = refractionHeightFactor, w = unused
