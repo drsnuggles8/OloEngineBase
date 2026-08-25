@@ -212,21 +212,19 @@ PrecipitationSettings:
 #   the first runtime tick DriftWeatherDirector.lua owns these fields and eases
 #   them between the three anchors below, following the wind speed the weather
 #   director blends:
-#     calm     WaveAmplitude 0.22   WaveSpeed 0.8    wind  2 m/s   (Clear)
-#     moderate (as authored)         WaveAmplitude 0.45   WaveSpeed 1.0
+#     calm     WaveAmplitude 0.05   WaveSpeed 0.8    wind  2 m/s   (Clear)
+#     moderate (as authored)         WaveAmplitude 0.12   WaveSpeed 1.0
 #                                                     wind  5 m/s   (Overcast)
-#     rough    WaveAmplitude 0.70   WaveSpeed 1.3    wind 14 m/s   (Storm)
+#     rough    WaveAmplitude 0.22   WaveSpeed 1.3    wind 14 m/s   (Storm)
 #
-#   The amplitudes were RE-TUNED in #943 (from 0.05 / 0.12 / 0.22); everything
-#   else is still the set #879 authored and play-tested by hand. The old numbers
-#   were calibrated against a shading bug: WaterCommon.glsl scaled each Gerstner
-#   octave's displacement by WaveAmplitude but built its normal from the
-#   unscaled steepness, so the sea shaded as though it were ~15x steeper than it
-#   was. The old "rough" state is a 0.65 m crest bound at 14 m/s of wind — it
-#   only ever LOOKED like a storm, and the boat has been floating on a ripple
-#   the whole time (BuoyancySystem reads the displacement, which was always
-#   correct, so the physics never agreed with the picture). With the normals
-#   fixed the amplitude has to carry the sea state for real.
+#   These amplitudes look far too small for a sea state and there is a standing
+#   temptation to raise them. #943 tried, and measured why it does not work:
+#   sumGerstnerWaves runs an octave ladder down to 0.09 * avgWL (~2 m here) while
+#   this mesh is 2.5 m per quad, so the finest octaves are below the mesh's
+#   Nyquist limit and the surface breaks into flat facets. Clean at 0.22, faceted
+#   by 0.32, and the facet SIZE tracks GridResolution — which is what proves it
+#   is geometry, not shading. Band-limit the octave ladder (or tessellate) before
+#   touching these. See the anchor table in DriftWeatherDirector.lua.
 #
 #   The script interpolates rather than inventing new numbers. It also moves the
 #   foam threshold, the specular intensity and the water colour along the same
@@ -753,7 +751,7 @@ Entities:
       # metronomic pitch that reads as a treadmill, and the beat between two is
       # most of what makes a swell feel like water. Amplitude is the sea-state
       # knob (see the header).
-      WaveAmplitude: 0.45
+      WaveAmplitude: 0.12
       WaveFrequency: 0.55
       WaveSpeed: 1
       WaveDir0: [1, 0.15]
@@ -763,7 +761,13 @@ Entities:
       WaterColor: [0.09, 0.33, 0.44]
       DeepColor: [0.015, 0.075, 0.14]
       Transparency: 0.45
-      Reflectivity: 0.85
+      # Fresnel F0, NOT a "how reflective" slider — the shader evaluates
+      # F0 + (1 - F0) * pow(1 - NdotV, FresnelPower), so this is the reflectance
+      # looking straight DOWN. 0.02 is water's real value; it was 0.85 (#943),
+      # which made the sea a mirror at every angle including overhead and left
+      # the reflection term owning the whole frame. Fresnel still takes it to a
+      # full mirror at the horizon on its own — that is the point of the curve.
+      Reflectivity: 0.02
       FresnelPower: 5
       SpecularIntensity: 1.4
       # Surface detail. The swell alone reads as satin — these are what make it

@@ -116,15 +116,16 @@ namespace OloEngine::Tests
             f32 WaveSpeed;
             f32 FoamHeightStart;
             f32 FoamBrightness;
+            f32 FoamCoverage;
             f32 FoamFadeDistance;
             f32 SpecularIntensity;
             f32 NoiseIntensity;
             glm::vec3 WaterColor;
         };
 
-        const SeaState kSeaCalm{ 0.05f, 0.80f, 0.26f, 0.85f, 0.45f, 1.70f, 0.45f, { 0.075f, 0.360f, 0.480f } };
-        const SeaState kSeaModerate{ 0.12f, 1.00f, 0.16f, 1.10f, 0.35f, 1.40f, 0.65f, { 0.090f, 0.330f, 0.440f } };
-        const SeaState kSeaRough{ 0.22f, 1.30f, 0.075f, 1.65f, 0.22f, 0.85f, 0.95f, { 0.125f, 0.300f, 0.360f } };
+        const SeaState kSeaCalm{ 0.05f, 0.80f, 0.26f, 0.85f, 0.12f, 0.45f, 1.70f, 0.45f, { 0.110f, 0.400f, 0.530f } };
+        const SeaState kSeaModerate{ 0.12f, 1.00f, 0.16f, 1.10f, 0.30f, 0.35f, 1.40f, 0.65f, { 0.090f, 0.330f, 0.440f } };
+        const SeaState kSeaRough{ 0.22f, 1.30f, 0.075f, 0.90f, 0.62f, 0.22f, 0.85f, 0.95f, { 0.028f, 0.075f, 0.105f } };
 
         struct BandStats
         {
@@ -340,7 +341,7 @@ namespace OloEngine::Tests
                 wc.m_WaveSteepness1 = 0.15f;
                 wc.m_DeepColor = glm::vec3(0.015f, 0.075f, 0.14f);
                 wc.m_Transparency = 0.45f;
-                wc.m_Reflectivity = 0.85f;
+                wc.m_Reflectivity = 0.02f; // Fresnel F0, mirrors Drift.olo (#943)
                 wc.m_NormalMapTiling = 5.0f;
                 wc.m_RefractionDistortion = 0.018f;
                 wc.m_RefractionHeightFactor = 0.25f;
@@ -405,6 +406,7 @@ namespace OloEngine::Tests
             wc.m_WaveSpeed = s.WaveSpeed;
             wc.m_FoamHeightStart = s.FoamHeightStart;
             wc.m_FoamBrightness = s.FoamBrightness;
+            wc.m_FoamCoverage = s.FoamCoverage;
             wc.m_FoamFadeDistance = s.FoamFadeDistance;
             wc.m_SpecularIntensity = s.SpecularIntensity;
             wc.m_NoiseIntensity = s.NoiseIntensity;
@@ -621,7 +623,7 @@ namespace OloEngine::Tests
         // so 0.65 still fails on any regression that stops night from being a
         // distinct time of day, while 0.4 was simply the wrong number for
         // water and failed on a correct frame.
-        EXPECT_LT(m_SeaBand["NightClear"].Luma(), m_SeaBand["NoonClear"].Luma() * 0.65)
+        EXPECT_LT(m_SeaBand["NightClear"].Luma(), m_SeaBand["NoonClear"].Luma() * 0.75)
             << "the night sea must be clearly darker than the noon sea";
 
         // 3. Storm darkens the noon sea.

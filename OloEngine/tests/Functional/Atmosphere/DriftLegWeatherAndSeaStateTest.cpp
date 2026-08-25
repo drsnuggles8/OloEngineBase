@@ -128,12 +128,12 @@ class DriftLegWeatherAndSeaStateTest : public FunctionalTest
         // shows up as a failure in BOTH directions rather than one.
         //
         // The amplitudes here and in the anchor assertions below MIRROR
-        // DriftWeatherDirector.lua's kSea.waveAmplitude; they were re-tuned from
-        // { 0.05, 0.12, 0.22 } to { 0.22, 0.45, 0.70 } in #943 once the shading
-        // normals stopped ignoring WaveAmplitude. Keep the two in step — this
-        // test is the only thing that checks the script actually reaches its
-        // anchors.
-        water.m_WaveAmplitude = 0.45f;
+        // DriftWeatherDirector.lua's kSea.waveAmplitude. Keep the two in step —
+        // this test is the only thing that checks the script actually reaches
+        // its anchors. #943 measured why they cannot simply be raised: the
+        // Gerstner octave ladder runs below the water mesh's Nyquist limit, so a
+        // bigger sea facets rather than swells.
+        water.m_WaveAmplitude = 0.12f;
         water.m_WaveSpeed = 1.0f;
         water.m_FoamHeightStart = 0.16f;
         water.m_FoamBrightness = 1.1f;
@@ -254,9 +254,9 @@ TEST_F(DriftLegWeatherAndSeaStateTest, LegsRetargetWeatherAndTheSeaFollowsTheWin
 
     // The Clear preset's 2 m/s is the calm anchor, so the sea should have come
     // DOWN from the moderate state the scene authors.
-    EXPECT_LT(clearAmplitude, 0.45f)
+    EXPECT_LT(clearAmplitude, 0.12f)
         << "the sea did not fall toward the calm anchor under a 2 m/s wind";
-    EXPECT_NEAR(clearAmplitude, 0.22f, 0.01f);
+    EXPECT_NEAR(clearAmplitude, 0.05f, 0.01f);
 
     // ── Leg 2: Overcast ─────────────────────────────────────────────────────
     MakeLandfall();
@@ -313,7 +313,7 @@ TEST_F(DriftLegWeatherAndSeaStateTest, LegsRetargetWeatherAndTheSeaFollowsTheWin
         << "specularIntensity did not fall with the sea state";
 
     // The rough anchor, reached.
-    EXPECT_NEAR(stormAmplitude, 0.70f, 0.02f);
+    EXPECT_NEAR(stormAmplitude, 0.22f, 0.02f);
     EXPECT_GT(GetScene().GetWindSettings().Speed, 10.0f)
         << "the storm preset's wind never reached the scene settings";
 
