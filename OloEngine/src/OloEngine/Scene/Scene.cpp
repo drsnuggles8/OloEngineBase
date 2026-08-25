@@ -8245,7 +8245,33 @@ namespace OloEngine
             // Track previous-frame animation time so water/foliage/wind shaders can
             // reproject their on-surface displacement (Gerstner waves, wind sway) for
             // accurate per-fragment velocity output.
-            const f32 animationTime = Time::GetTime();
+            // Time::GetTime() is the WALL clock and keeps running while the scene
+            // is paused, so a paused scene still had drifting Gerstner waves and
+            // swaying foliage (found play-testing #943). Accumulate a scene clock
+            // that simply does not advance while paused.
+            //
+            // Seeded FROM the wall clock rather than from 0 on purpose: the golden
+            // evidence tests pin determinism with Time::SetMockTime(kCaptureTime),
+            // and under a frozen mock clock every per-frame delta here is 0 — so
+            // the value stays at the seed and those captures render the exact wave
+            // phase they always did. Starting at 0 would have silently rephased
+            // every water golden.
+            //
+            // The delta is clamped because a stop/start, an asset load or a stalled
+            // editor frame would otherwise hand the surface the whole gap at once
+            // and jump the wave phase visibly.
+            const f32 wallNow = Time::GetTime();
+            if (m_AnimationClockWall < 0.0f)
+            {
+                m_AnimationClock = wallNow;
+            }
+            else if (!m_IsPaused)
+            {
+                m_AnimationClock += std::clamp(wallNow - m_AnimationClockWall, 0.0f, 0.1f);
+            }
+            m_AnimationClockWall = wallNow;
+
+            const f32 animationTime = m_AnimationClock;
             const f32 prevAnimationTime = (m_LastAnimationTime < 0.0f) ? animationTime : m_LastAnimationTime;
             m_LastAnimationTime = animationTime;
             {

@@ -1143,14 +1143,18 @@ namespace OloEngine
         // nothing's changed. Starts at 0 so the first tick always refreshes.
         u64 m_LocalizationGeneration = 0;
         friend class LocalizationSystem;
-        bool m_Is3DModeEnabled = false;                        // Toggle for 3D rendering mode
-        bool m_RenderingEnabled = true;                        // Skip rendering when throttled
-        bool m_ShowGrid = true;                                // Viewport grid visibility
-        bool m_ShowLightGizmos = true;                         // Light gizmo visibility
-        bool m_ShowWorldAxisHelper = true;                     // World-origin XYZ axes visibility
-        bool m_ShowCameraFrustums = true;                      // Per-CameraComponent frustum gizmo visibility
-        f32 m_GridSpacing = 1.0f;                              // Viewport grid spacing
-        f32 m_LastAnimationTime = -1.0f;                       // Tracks previous-frame animation time for wind/water/foliage velocity reprojection
+        bool m_Is3DModeEnabled = false;    // Toggle for 3D rendering mode
+        bool m_RenderingEnabled = true;    // Skip rendering when throttled
+        bool m_ShowGrid = true;            // Viewport grid visibility
+        bool m_ShowLightGizmos = true;     // Light gizmo visibility
+        bool m_ShowWorldAxisHelper = true; // World-origin XYZ axes visibility
+        bool m_ShowCameraFrustums = true;  // Per-CameraComponent frustum gizmo visibility
+        f32 m_GridSpacing = 1.0f;          // Viewport grid spacing
+        f32 m_LastAnimationTime = -1.0f;   // Tracks previous-frame animation time for wind/water/foliage velocity reprojection
+        // Animation clock for water/foliage/wind. NOT the wall clock: it stops
+        // while the scene is paused. See ProcessScene3DSharedLogic.
+        f32 m_AnimationClock = 0.0f;
+        f32 m_AnimationClockWall = -1.0f;                      // last wall-clock sample, -1 = unseeded
         bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
         bool m_UILayoutResolvedThisFrame = false;              // Guard against double ResolveLayout per frame
         glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };      // FPS fly-camera mouse tracking
