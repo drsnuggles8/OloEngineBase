@@ -62,6 +62,8 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/LightmapPageEncoding.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
@@ -113,6 +115,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
+#include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
@@ -544,6 +547,10 @@ class VulkanPassSuite : public ::testing::Test
         // the PROCESS-GLOBAL backend must be the Vulkan one for the duration.
         // Selection stays active for the whole test (factories switch on it
         // at call time); TearDown restores both.
+        m_PreviousDescriptorHeapEnabled = RHI::DescriptorHeap::Get().IsEnabled();
+        m_HadOpenGlContext = glfwGetCurrentContext() != nullptr;
+        if (m_HadOpenGlContext)
+            RenderCommand::ShutdownGpuResources();
         m_Selection.emplace();
         RenderCommand::RecreateForSelectedBackend();
 
@@ -590,6 +597,12 @@ class VulkanPassSuite : public ::testing::Test
         VulkanPipelineBuilder::Get().ReleaseAll();
         VulkanPipelineCache::Get().SaveAndDestroy();
         VulkanFrameArena::Get().ReleaseBuffers();
+        // A tenant that installed the Vulkan descriptor backend must retire it
+        // while its device and resource heap are still alive. SetUp retired the
+        // displaced GL heap before replacing its owning RenderCommand instance;
+        // the ordinary fixture restore below creates a fresh GL backend.
+        if (m_ShutdownDescriptorHeapOnTearDown)
+            RHI::DescriptorHeap::Get().Shutdown();
         VulkanResourceHeap::Get().Release();
         // #691: raw facade resources (CreateTexture2DHandle /
         // CreateFramebufferHandle) are OWNED by process-wide side registries.
@@ -628,9 +641,10 @@ class VulkanPassSuite : public ::testing::Test
         // the restore). Guarded on a live GL context: with none current the
         // caps queries would touch GL functions illegally, and no GL test can
         // run in that environment anyway.
-        if (glfwGetCurrentContext() != nullptr)
+        if (m_HadOpenGlContext)
         {
             RenderCommand::Init();
+            RHI::DescriptorHeap::Get().SetEnabled(m_PreviousDescriptorHeapEnabled);
             // Tenants that re-home process-wide renderer
             // statics onto the Vulkan device (the ShaderDebugDraw channels,
             // the particle batch renderer) tear the GL-currency versions down
@@ -648,6 +662,8 @@ class VulkanPassSuite : public ::testing::Test
         }
         m_ReinitShaderDebugDrawOnTearDown = false;
         m_ReinitParticleBatchRendererOnTearDown = false;
+        m_ShutdownDescriptorHeapOnTearDown = false;
+        m_HadOpenGlContext = false;
     }
 
     // The tenant harness: producer(input) -> passNode -> caller-backed
@@ -786,6 +802,92 @@ class VulkanPassSuite : public ::testing::Test
         VulkanDeferredReclaim::Get().NotifyFrameCompleted();
     }
 
+    struct alignas(16) TestLightmapRegions
+    {
+        glm::vec4 First;
+        glm::vec4 Second;
+        glm::vec4 Third;
+    };
+    static_assert(sizeof(TestLightmapRegions) == 48);
+
+    struct LightmapSampleHarness
+    {
+        Ref<UniformBuffer> LightmapUbo;
+        Ref<UniformBuffer> RegionUbo;
+        Ref<Shader> ShaderProgram;
+        Ref<Framebuffer> Output;
+    };
+
+    LightmapSampleHarness CreateLightmapSampleHarness(u32 size, const TestLightmapRegions& regions)
+    {
+        ShaderBindingLayout::LightmapUBO lightmapData{};
+        lightmapData.Enabled = 1;
+        lightmapData.Intensity = 1.0f;
+        lightmapData.TexelSize = 1.0f;
+
+        LightmapSampleHarness harness;
+        harness.LightmapUbo = UniformBuffer::Create(
+            ShaderBindingLayout::LightmapUBO::GetSize(), ShaderBindingLayout::UBO_LIGHTMAP);
+        if (harness.LightmapUbo)
+            harness.LightmapUbo->SetData(&lightmapData, ShaderBindingLayout::LightmapUBO::GetSize());
+
+        harness.RegionUbo = UniformBuffer::Create(sizeof(TestLightmapRegions), 2);
+        if (harness.RegionUbo)
+            harness.RegionUbo->SetData(&regions, sizeof(regions));
+
+        harness.ShaderProgram = Shader::Create("assets/shaders/tests/LightmapPagedSampling.glsl");
+
+        FramebufferSpecification outputSpec;
+        outputSpec.Width = size;
+        outputSpec.Height = size;
+        outputSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        harness.Output = Framebuffer::Create(outputSpec);
+        return harness;
+    }
+
+    std::vector<u8> DrawLightmapSample(u32 size, Ref<Shader>& shader,
+                                       Ref<Framebuffer>& output,
+                                       const std::function<void()>& publishInput)
+    {
+        SubmitFrame(
+            [&]()
+            {
+                output->Bind();
+                RenderCommand::SetViewport(0, 0, size, size);
+                RenderCommand::SetDepthTest(false);
+                RenderCommand::SetDepthMask(false);
+                RenderCommand::SetBlendState(false);
+                RenderCommand::DisableCulling();
+                shader->Bind();
+                publishInput();
+                HeapBinding::FlushOffsets();
+
+                const auto triangle = MeshPrimitives::GetFullscreenTriangle();
+                triangle->Bind();
+                RenderCommand::DrawIndexed(triangle);
+
+                auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+                RHI::Barrier toRead{};
+                toRead.Resource = output->GetColorAttachmentHandle(0);
+                toRead.Before = RHI::Access::ColorAttachmentWrite;
+                toRead.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toRead, 1 });
+            });
+
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u);
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+        std::vector<u8> rendered;
+        auto* vkOutput = static_cast<VulkanFramebuffer*>(output.Raw());
+        if (vkOutput->GetColorAttachmentImage(0) == nullptr ||
+            !vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0))
+        {
+            ADD_FAILURE() << "lightmap output readback failed";
+        }
+        return rendered;
+    }
+
     std::unique_ptr<VulkanDevice> m_Device;
     std::optional<ScopedVulkanApiSelection> m_Selection;
     VkCommandBuffer m_Cmd = VK_NULL_HANDLE;
@@ -805,7 +907,107 @@ class VulkanPassSuite : public ::testing::Test
     // when the tenant fails mid-way.
     bool m_ReinitShaderDebugDrawOnTearDown = false;
     bool m_ReinitParticleBatchRendererOnTearDown = false;
+    bool m_ShutdownDescriptorHeapOnTearDown = false;
+    bool m_PreviousDescriptorHeapEnabled = false;
+    bool m_HadOpenGlContext = false;
 };
+
+TEST_F(VulkanPassSuite, PagedRgba16fLightmapSamplesEveryLayerThroughSlot16)
+{
+    constexpr u32 kSize = 32;
+    constexpr std::array<u16, 4> kRed{ 0x3C00u, 0x0000u, 0x0000u, 0x3C00u };
+    constexpr std::array<u16, 4> kGreen{ 0x0000u, 0x3C00u, 0x0000u, 0x3C00u };
+    constexpr std::array<u16, 4> kBlue{ 0x0000u, 0x0000u, 0x3C00u, 0x3C00u };
+
+    m_ShutdownDescriptorHeapOnTearDown = true;
+    ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
+    RHI::DescriptorHeap::Get().SetEnabled(true);
+    ASSERT_TRUE(RHI::DescriptorHeap::Get().IsEnabled());
+
+    Texture2DArraySpecification arraySpec;
+    arraySpec.Width = 1;
+    arraySpec.Height = 1;
+    arraySpec.Layers = 3;
+    arraySpec.Format = Texture2DArrayFormat::RGBA16F;
+    arraySpec.GenerateMipmaps = false;
+    auto atlas = Texture2DArray::Create(arraySpec);
+    ASSERT_TRUE(atlas);
+
+    // Exercise both upload routes: layers 0/1 take the one-shot path before a
+    // recording exists, while page 2 is staged into the live command buffer.
+    atlas->SetLayerData(0, kRed.data(), 1, 1);
+    atlas->SetLayerData(1, kGreen.data(), 1, 1);
+
+    const glm::vec4 fullPage{ 1.0f, 1.0f, 0.0f, 0.0f };
+    const TestLightmapRegions regions{
+        .First = EncodeLightmapRegion(fullPage, 0),
+        .Second = EncodeLightmapRegion(fullPage, 1),
+        .Third = EncodeLightmapRegion(fullPage, 2),
+    };
+    auto harness = CreateLightmapSampleHarness(kSize, regions);
+    ASSERT_TRUE(harness.LightmapUbo);
+    ASSERT_TRUE(harness.RegionUbo);
+    ASSERT_TRUE(harness.ShaderProgram);
+    ASSERT_EQ(harness.ShaderProgram->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    ASSERT_TRUE(harness.Output);
+
+    VulkanFrameArena::Get().BeginFrame(0);
+    const auto rendered = DrawLightmapSample(
+        kSize, harness.ShaderProgram, harness.Output,
+        [&]()
+        {
+            atlas->SetLayerData(2, kBlue.data(), 1, 1);
+            const RHI::HeapOffset offset = HeapBinding::PublishTextureOffsetAndBind(
+                ShaderBindingLayout::TEX_LIGHTMAP, atlas->GetRHIHandle(),
+                RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
+            EXPECT_TRUE(offset.IsValid());
+        });
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto pixel = [&](u32 x, u32 y)
+    {
+        const auto i = (static_cast<sizet>(y) * kSize + x) * 4;
+        return std::array<int, 4>{ rendered[i], rendered[i + 1], rendered[i + 2], rendered[i + 3] };
+    };
+    EXPECT_EQ(pixel(5, 16), (std::array<int, 4>{ 255, 0, 0, 255 })) << "first region must decode page 0";
+    EXPECT_EQ(pixel(16, 16), (std::array<int, 4>{ 0, 255, 0, 255 })) << "second region must decode page 1";
+    EXPECT_EQ(pixel(27, 16), (std::array<int, 4>{ 0, 0, 255, 255 }))
+        << "third region must decode page 2, including the mid-frame upload";
+}
+
+TEST_F(VulkanPassSuite, Rgba16fLightmapTypedArrayNullFallbackIsTransparentBlack)
+{
+    constexpr u32 kSize = 32;
+
+    m_ShutdownDescriptorHeapOnTearDown = true;
+    ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
+    RHI::DescriptorHeap::Get().SetEnabled(true);
+    ASSERT_TRUE(RHI::DescriptorHeap::Get().IsEnabled());
+
+    const glm::vec4 fullPage{ 1.0f, 1.0f, 0.0f, 0.0f };
+    const TestLightmapRegions regions{ fullPage, fullPage, fullPage };
+    auto harness = CreateLightmapSampleHarness(kSize, regions);
+    ASSERT_TRUE(harness.LightmapUbo);
+    ASSERT_TRUE(harness.RegionUbo);
+    ASSERT_TRUE(harness.ShaderProgram);
+    ASSERT_EQ(harness.ShaderProgram->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    ASSERT_TRUE(harness.Output);
+
+    VulkanFrameArena::Get().BeginFrame(0);
+    const auto rendered = DrawLightmapSample(
+        kSize, harness.ShaderProgram, harness.Output,
+        [&]()
+        {
+            HeapBinding::PublishTextureOffsetAndBind(
+                ShaderBindingLayout::TEX_LIGHTMAP, RHI::NullResource,
+                RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
+            EXPECT_EQ(HeapBinding::StagedOffsetAt(ShaderBindingLayout::TEX_LIGHTMAP).Value,
+                      RHI::NullOffsetForSamplerKind(RHI::NullSamplerKind::Texture2DArray));
+        });
+    ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+    const auto i = (static_cast<sizet>(16) * kSize + 16) * 4;
+    EXPECT_EQ((std::array<u8, 4>{ rendered[i], rendered[i + 1], rendered[i + 2], rendered[i + 3] }),
+              (std::array<u8, 4>{ 0, 0, 0, 0 }));
+}
 
 TEST_F(VulkanPassSuite, FxaaPassMatchesTheGoldenThroughTheRenderGraph)
 {
