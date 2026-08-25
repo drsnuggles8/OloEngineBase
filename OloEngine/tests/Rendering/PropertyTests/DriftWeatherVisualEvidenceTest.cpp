@@ -116,15 +116,16 @@ namespace OloEngine::Tests
             f32 WaveSpeed;
             f32 FoamHeightStart;
             f32 FoamBrightness;
+            f32 FoamCoverage;
             f32 FoamFadeDistance;
             f32 SpecularIntensity;
             f32 NoiseIntensity;
             glm::vec3 WaterColor;
         };
 
-        const SeaState kSeaCalm{ 0.05f, 0.80f, 0.26f, 0.85f, 0.45f, 1.70f, 0.45f, { 0.075f, 0.360f, 0.480f } };
-        const SeaState kSeaModerate{ 0.12f, 1.00f, 0.16f, 1.10f, 0.35f, 1.40f, 0.65f, { 0.090f, 0.330f, 0.440f } };
-        const SeaState kSeaRough{ 0.22f, 1.30f, 0.075f, 1.65f, 0.22f, 0.85f, 0.95f, { 0.125f, 0.300f, 0.360f } };
+        const SeaState kSeaCalm{ 0.05f, 0.80f, 0.26f, 0.85f, 0.12f, 0.45f, 1.70f, 0.45f, { 0.110f, 0.400f, 0.530f } };
+        const SeaState kSeaModerate{ 0.12f, 1.00f, 0.16f, 1.10f, 0.30f, 0.35f, 1.40f, 0.65f, { 0.090f, 0.330f, 0.440f } };
+        const SeaState kSeaRough{ 0.22f, 1.30f, 0.075f, 0.90f, 0.62f, 0.22f, 0.85f, 0.95f, { 0.028f, 0.075f, 0.105f } };
 
         struct BandStats
         {
@@ -340,7 +341,7 @@ namespace OloEngine::Tests
                 wc.m_WaveSteepness1 = 0.15f;
                 wc.m_DeepColor = glm::vec3(0.015f, 0.075f, 0.14f);
                 wc.m_Transparency = 0.45f;
-                wc.m_Reflectivity = 0.85f;
+                wc.m_Reflectivity = 0.02f; // Fresnel F0, mirrors Drift.olo (#943)
                 wc.m_NormalMapTiling = 5.0f;
                 wc.m_RefractionDistortion = 0.018f;
                 wc.m_RefractionHeightFactor = 0.25f;
@@ -405,6 +406,7 @@ namespace OloEngine::Tests
             wc.m_WaveSpeed = s.WaveSpeed;
             wc.m_FoamHeightStart = s.FoamHeightStart;
             wc.m_FoamBrightness = s.FoamBrightness;
+            wc.m_FoamCoverage = s.FoamCoverage;
             wc.m_FoamFadeDistance = s.FoamFadeDistance;
             wc.m_SpecularIntensity = s.SpecularIntensity;
             wc.m_NoiseIntensity = s.NoiseIntensity;
@@ -616,13 +618,32 @@ namespace OloEngine::Tests
         // brightness is set by the night SKY — which TimeOfDayComponent
         // brightens on purpose (m_SkyExposureNight 0.35 against
         // m_SkyExposureDay 0.1) so that stars read at all. A sea that mirrors a
-        // deliberately-lifted night sky lands around half of noon, not a
-        // fifth. Measured on this scene: 84.5 against 162.8, a ratio of 0.52 —
-        // so 0.65 still fails on any regression that stops night from being a
-        // distinct time of day, while 0.4 was simply the wrong number for
-        // water and failed on a correct frame.
-        EXPECT_LT(m_SeaBand["NightClear"].Luma(), m_SeaBand["NoonClear"].Luma() * 0.65)
-            << "the night sea must be clearly darker than the noon sea";
+        // deliberately-lifted night sky lands around half of noon, not a fifth,
+        // so 0.4 was simply the wrong number for water and failed on a correct
+        // frame.
+        //
+        // The bound was 0.65 when noon measured 162.8. It is 0.75 now, and the
+        // reason is worth reading before tightening it back: NIGHT did not
+        // change (84.5 then, 84.7 now). NOON fell — 162.8 to 125.3 — because
+        // #943 deliberately darkened Drift's water colour so the storm reads as
+        // a storm. Dividing an unchanged numerator by a smaller denominator
+        // raises the ratio, so the same correct frame now measures 0.676 and
+        // 0.65 would fail on it. This is a re-derivation forced by a changed
+        // input, not a bar lowered to accommodate a regression.
+        //
+        // Measured on this machine at the values above: night 84.69, noon
+        // 125.34, ratio 0.676 — about 11% of headroom under the bound, which is
+        // the margin left for GPU/vendor variation. A regression that stops
+        // night being a distinct time of day has to brighten the night sea by
+        // more than a tenth to pass, and the failure message prints all three
+        // numbers so the next person re-derives rather than guesses.
+        constexpr f64 kNightSeaRatio = 0.75;
+        EXPECT_LT(m_SeaBand["NightClear"].Luma(), m_SeaBand["NoonClear"].Luma() * kNightSeaRatio)
+            << "the night sea must be clearly darker than the noon sea; night "
+            << m_SeaBand["NightClear"].Luma() << " vs noon "
+            << m_SeaBand["NoonClear"].Luma() << " (ratio "
+            << (m_SeaBand["NightClear"].Luma() / m_SeaBand["NoonClear"].Luma())
+            << ", bound " << kNightSeaRatio << ")";
 
         // 3. Storm darkens the noon sea.
         EXPECT_LT(m_SeaBand["NoonStorm"].Luma(), m_SeaBand["NoonClear"].Luma())

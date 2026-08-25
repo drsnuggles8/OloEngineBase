@@ -8245,7 +8245,33 @@ namespace OloEngine
             // Track previous-frame animation time so water/foliage/wind shaders can
             // reproject their on-surface displacement (Gerstner waves, wind sway) for
             // accurate per-fragment velocity output.
-            const f32 animationTime = Time::GetTime();
+            // Time::GetTime() is the WALL clock and keeps running while the scene
+            // is paused, so a paused scene still had drifting Gerstner waves and
+            // swaying foliage (found play-testing #943). Accumulate a scene clock
+            // that simply does not advance while paused.
+            //
+            // Seeded FROM the wall clock rather than from 0 on purpose: the golden
+            // evidence tests pin determinism with Time::SetMockTime(kCaptureTime),
+            // and under a frozen mock clock every per-frame delta here is 0 — so
+            // the value stays at the seed and those captures render the exact wave
+            // phase they always did. Starting at 0 would have silently rephased
+            // every water golden.
+            //
+            // The delta is clamped because a stop/start, an asset load or a stalled
+            // editor frame would otherwise hand the surface the whole gap at once
+            // and jump the wave phase visibly.
+            const f32 wallNow = Time::GetTime();
+            if (m_AnimationClockWall < 0.0f)
+            {
+                m_AnimationClock = wallNow;
+            }
+            else if (!m_IsPaused)
+            {
+                m_AnimationClock += std::clamp(wallNow - m_AnimationClockWall, 0.0f, 0.1f);
+            }
+            m_AnimationClockWall = wallNow;
+
+            const f32 animationTime = m_AnimationClock;
             const f32 prevAnimationTime = (m_LastAnimationTime < 0.0f) ? animationTime : m_LastAnimationTime;
             m_LastAnimationTime = animationTime;
             {
@@ -8897,10 +8923,47 @@ namespace OloEngine
                     waterParams.foamParams = glm::vec4(
                         water.m_FoamHeightStart, water.m_FoamFadeDistance,
                         water.m_FoamTiling, water.m_FoamBrightness);
+                    // .w carries the surface mesh's VERTEX SPACING in metres, so
+                    // sumGerstnerWaves can band-limit its octave ladder to what
+                    // the mesh is actually able to sample (#943). Without it the
+                    // ladder runs down to ~2 m wavelengths on a 2.5 m grid, the
+                    // mesh cannot represent those octaves, and the surface breaks
+                    // into flat facets the moment the amplitude is large enough
+                    // to see — which is what capped the sea state.
+                    //
+                    // Guard the divisor the same way the fog bounds test above
+                    // does: a non-finite or zero grid resolution would produce an
+                    // inf/NaN spacing and take the whole wave sum with it.
+                    const f32 spacingSizeX = std::isfinite(water.m_WorldSizeX)
+                                                 ? std::clamp(water.m_WorldSizeX, 0.1f, 10000.0f)
+                                                 : 0.1f;
+                    const f32 spacingSizeZ = std::isfinite(water.m_WorldSizeZ)
+                                                 ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
+                                                 : 0.1f;
+                    // Clamp to the SAME [1, 1024] range the mesh build uses for
+                    // resX/resZ above. Taking the raw resolution here would
+                    // report a spacing finer than the mesh was actually built
+                    // with once the resolution exceeds 1024, and the band-limit
+                    // weight would then keep octaves the surface cannot carry —
+                    // the exact faceting this value exists to prevent.
+                    const f32 spacingCountX =
+                        static_cast<f32>(std::clamp(water.m_GridResolutionX, 1u, 1024u));
+                    const f32 spacingCountZ =
+                        static_cast<f32>(std::clamp(water.m_GridResolutionZ, 1u, 1024u));
+                    // The coarser of the two axes is the one that limits what the
+                    // surface can carry.
+                    const f32 vertexSpacing =
+                        std::max(spacingSizeX / spacingCountX, spacingSizeZ / spacingCountZ);
+
                     waterParams.foamParams2 = glm::vec4(
                         water.m_FoamAngleExponent, water.m_ShorelineFoamPower,
-                        water.m_SSSIntensity, 0.0f);
-                    waterParams.sssColor = glm::vec4(water.m_SSSColor, 0.0f);
+                        water.m_SSSIntensity, vertexSpacing);
+                    // .w carries the foam gate's coverage (#943). The three water
+                    // shaders only ever read this as .rgb, checked before use — the
+                    // 'w = unused' comments on the other vec4s in this UBO are stale
+                    // (TessParams.w is frustumCullEnable, NormalMapSpeed.w is
+                    // renderFromBelow), so it is worth verifying rather than trusting.
+                    waterParams.sssColor = glm::vec4(water.m_SSSColor, water.m_FoamCoverage);
 
                     // SSR params: x=maxSteps (0=disabled), y=stepSize, z=maxDistance, w=thickness
                     waterParams.ssrParams = glm::vec4(

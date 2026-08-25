@@ -2291,6 +2291,15 @@ namespace OloEngine
         ar << c.m_FoamTexture;
         ar << c.m_FoamHeightStart << c.m_FoamFadeDistance << c.m_FoamTiling << c.m_FoamBrightness;
         ar << c.m_FoamAngleExponent << c.m_ShorelineFoamPower;
+        // Added in v23 (#943). This is a fixed-ORDER archive, so the field has to
+        // be gated rather than appended: a v22 save has no bytes here, and reading
+        // some anyway would consume the next field's and desync everything after
+        // it. An older save simply keeps the constructor default, which is the
+        // value that reproduces the previously-hardcoded foam gate.
+        if (HasFieldsSince(ar, 23))
+        {
+            ar << c.m_FoamCoverage;
+        }
         ar << c.m_SSSColor << c.m_SSSIntensity;
         ar << c.m_SSRMaxSteps << c.m_SSRStepSize << c.m_SSRMaxDistance << c.m_SSRThickness;
         ar << c.m_SSREnabled;
@@ -2467,7 +2476,7 @@ namespace OloEngine
             sanitize(c.m_WaveSteepness1, 0.0f, 1.0f, 0.3f);
             sanitize(c.m_Wavelength1, 0.1f, 500.0f, 15.0f);
             sanitize(c.m_Transparency, 0.0f, 1.0f, 0.6f);
-            sanitize(c.m_Reflectivity, 0.0f, 1.0f, 0.5f);
+            sanitize(c.m_Reflectivity, 0.0f, 1.0f, 0.02f); // Fresnel F0 for water
             sanitize(c.m_FresnelPower, 0.1f, 20.0f, 5.0f);
             sanitize(c.m_SpecularIntensity, 0.0f, 10.0f, 1.0f);
             sanitize(c.m_NormalMapScrollSpeed0, 0.0f, 1.0f, 0.02f);
@@ -2483,6 +2492,7 @@ namespace OloEngine
             sanitize(c.m_FoamBrightness, 0.0f, 5.0f, 1.5f);
             sanitize(c.m_FoamAngleExponent, 0.1f, 10.0f, 2.0f);
             sanitize(c.m_ShorelineFoamPower, 0.1f, 10.0f, 3.0f);
+            sanitize(c.m_FoamCoverage, 0.0f, 1.0f, 0.12f);
             sanitize(c.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
             sanitize(c.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
             sanitize(c.m_SSRStepSize, 0.01f, 1.0f, 0.1f);

@@ -87,7 +87,7 @@ namespace OloEngine
     //      (m_HeightShaping.IslandFalloff / IslandFalloffRadius — issue #880; v21
     //      and older saves omit them and keep the constructor defaults, which have
     //      the mask OFF at strength 0, i.e. the pre-#880 height field exactly)
-    static constexpr u32 kSaveGameFormatVersion = 22;
+    static constexpr u32 kSaveGameFormatVersion = 23; // 23: WaterComponent::m_FoamCoverage (#943)
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

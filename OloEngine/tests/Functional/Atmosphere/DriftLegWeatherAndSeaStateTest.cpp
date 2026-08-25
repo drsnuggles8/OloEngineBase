@@ -126,6 +126,13 @@ class DriftLegWeatherAndSeaStateTest : public FunctionalTest
         // Drift.olo's authored (moderate) values: the script must move these,
         // and starting from the middle anchor means a wrong-direction coupling
         // shows up as a failure in BOTH directions rather than one.
+        //
+        // The amplitudes here and in the anchor assertions below MIRROR
+        // DriftWeatherDirector.lua's kSea.waveAmplitude. Keep the two in step —
+        // this test is the only thing that checks the script actually reaches
+        // its anchors. #943 measured why they cannot simply be raised: the
+        // Gerstner octave ladder runs below the water mesh's Nyquist limit, so a
+        // bigger sea facets rather than swells.
         water.m_WaveAmplitude = 0.12f;
         water.m_WaveSpeed = 1.0f;
         water.m_FoamHeightStart = 0.16f;

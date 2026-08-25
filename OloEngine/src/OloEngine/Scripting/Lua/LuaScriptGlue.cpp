@@ -1147,6 +1147,9 @@ namespace OloEngine
                                          "foamBrightness", sol::property([](const WaterComponent& w)
                                                                          { return w.m_FoamBrightness; }, [](WaterComponent& w, f32 v)
                                                                          { if (std::isfinite(v) && v >= 0.0f && v <= 10.0f) w.m_FoamBrightness = v; }),
+                                         "foamCoverage", sol::property([](const WaterComponent& w)
+                                                                       { return w.m_FoamCoverage; }, [](WaterComponent& w, f32 v)
+                                                                       { if (std::isfinite(v) && v >= 0.0f && v <= 1.0f) w.m_FoamCoverage = v; }),
                                          "underwaterFogColor", sol::property([](const WaterComponent& w)
                                                                              { return w.m_UnderwaterFogColor; }, [](WaterComponent& w, const glm::vec3& v)
                                                                              { if (std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z)) w.m_UnderwaterFogColor = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f)); }),

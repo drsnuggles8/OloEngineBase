@@ -1233,6 +1233,7 @@ registry.push_back(OLO_GFW_FIELD(WaterComponent, "FoamTiling", m_FoamTiling));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FoamBrightness", m_FoamBrightness));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FoamAngleExponent", m_FoamAngleExponent));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "ShorelineFoamPower", m_ShorelineFoamPower));
+registry.push_back(OLO_GFW_FIELD(WaterComponent, "FoamCoverage", m_FoamCoverage));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "SSSColor", m_SSSColor));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "SSSIntensity", m_SSSIntensity));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "SSREnabled", m_SSREnabled));

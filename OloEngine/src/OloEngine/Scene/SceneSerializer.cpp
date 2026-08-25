@@ -1482,6 +1482,7 @@ namespace OloEngine
         water.m_FoamBrightness = waterComponent["FoamBrightness"].as<f32>(water.m_FoamBrightness);
         water.m_FoamAngleExponent = waterComponent["FoamAngleExponent"].as<f32>(water.m_FoamAngleExponent);
         water.m_ShorelineFoamPower = waterComponent["ShorelineFoamPower"].as<f32>(water.m_ShorelineFoamPower);
+        water.m_FoamCoverage = waterComponent["FoamCoverage"].as<f32>(water.m_FoamCoverage);
         water.m_SSSColor = waterComponent["SSSColor"].as<glm::vec3>(water.m_SSSColor);
         water.m_SSSIntensity = waterComponent["SSSIntensity"].as<f32>(water.m_SSSIntensity);
         water.m_SSRMaxSteps = waterComponent["SSRMaxSteps"].as<f32>(water.m_SSRMaxSteps);
@@ -1579,7 +1580,7 @@ namespace OloEngine
         SanitizeFloat(water.m_WaveSteepness1, 0.0f, 1.0f, 0.3f);
         SanitizeFloat(water.m_Wavelength1, 0.1f, 500.0f, 15.0f);
         SanitizeFloat(water.m_Transparency, 0.0f, 1.0f, 0.6f);
-        SanitizeFloat(water.m_Reflectivity, 0.0f, 1.0f, 0.5f);
+        SanitizeFloat(water.m_Reflectivity, 0.0f, 1.0f, 0.02f); // Fresnel F0 for water
         SanitizeFloat(water.m_FresnelPower, 0.1f, 20.0f, 5.0f);
         SanitizeFloat(water.m_SpecularIntensity, 0.0f, 10.0f, 1.0f);
         SanitizeFloat(water.m_NormalMapScrollSpeed0, 0.0f, 1.0f, 0.02f);
@@ -1615,6 +1616,7 @@ namespace OloEngine
         SanitizeFloat(water.m_FoamBrightness, 0.0f, 5.0f, 1.5f);
         SanitizeFloat(water.m_FoamAngleExponent, 0.1f, 10.0f, 2.0f);
         SanitizeFloat(water.m_ShorelineFoamPower, 0.1f, 10.0f, 3.0f);
+        SanitizeFloat(water.m_FoamCoverage, 0.0f, 1.0f, 0.12f);
         SanitizeVec3(water.m_SSSColor, { 0.0f, 0.5f, 0.4f });
         SanitizeFloat(water.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
         SanitizeFloat(water.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
@@ -5214,6 +5216,7 @@ namespace OloEngine
             out << YAML::Key << "FoamBrightness" << YAML::Value << water.m_FoamBrightness;
             out << YAML::Key << "FoamAngleExponent" << YAML::Value << water.m_FoamAngleExponent;
             out << YAML::Key << "ShorelineFoamPower" << YAML::Value << water.m_ShorelineFoamPower;
+            out << YAML::Key << "FoamCoverage" << YAML::Value << water.m_FoamCoverage;
             out << YAML::Key << "SSSColor" << YAML::Value << water.m_SSSColor;
             out << YAML::Key << "SSSIntensity" << YAML::Value << water.m_SSSIntensity;
             out << YAML::Key << "SSRMaxSteps" << YAML::Value << water.m_SSRMaxSteps;

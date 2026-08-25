@@ -251,10 +251,6 @@ void main()
         if (!window)
             return;
 
-        OLO_CORE_TRACE("RenderProgressFrame: progress={:.2f}, label='{}', bootShader={}, bootReady={}, bootStatus={}",
-                       progress, label, s_BootShader != nullptr, s_BootShader ? s_BootShader->IsReady() : false,
-                       s_BootShader ? static_cast<int>(s_BootShader->GetCompilationStatus()) : -1);
-
         if (!s_BootShader || !s_BootShader->IsReady())
             return;
 
@@ -318,9 +314,7 @@ void main()
 
         recordProgressDraws(window->GetWidth(), window->GetHeight());
 
-        OLO_CORE_TRACE("RenderProgressFrame: SwapBuffers...");
         window->SwapBuffers();
-        OLO_CORE_TRACE("RenderProgressFrame: Done.");
     }
 
     std::vector<Ref<Shader>> ShaderWarmup::LoadShadersParallel(

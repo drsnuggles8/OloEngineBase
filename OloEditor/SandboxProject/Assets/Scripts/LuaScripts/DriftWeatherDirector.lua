@@ -128,20 +128,45 @@ local kSeaTau = 25.0
 
 local kSea = {
     -- t = 0 (calm)                t = 0.5 (moderate)            t = 1 (rough)
+    -- DO NOT RAISE THESE without fixing the mesh first — measured in #943.
+    -- They look absurdly small for a sea state, and the tempting reading is that
+    -- they were only ever this low to hide a shading bug (WaterCommon.glsl used
+    -- to build each octave's normal from an UNSCALED steepness, so WaveAmplitude
+    -- did not affect shading normals at all). That bug is fixed, but raising
+    -- these still does not work, for a second and independent reason:
+    --
+    -- sumGerstnerWaves runs an octave ladder down to 0.09 * avgWL — about 2 m at
+    -- this scene's wavelengths — while the surface mesh is 640 quads across
+    -- 1600 m, i.e. 2.5 m per quad. The finest octaves are at or below the mesh's
+    -- Nyquist limit, so the mesh cannot represent them and the surface breaks
+    -- into visible flat facets. Swept live at the chase camera: clean at 0.22,
+    -- facets clearly present at 0.32, and the facet SIZE tracks GridResolution
+    -- (80 -> big facets, 1600 -> small ones), which is what identifies them as
+    -- geometry rather than shading.
+    --
+    -- So ~0.25 is the ceiling this mesh supports, and 0.22 already sits at it.
+    -- To get a genuinely bigger sea, band-limit the octave ladder to the vertex
+    -- spacing (or enable tessellation) — then these can go up.
     waveAmplitude      = { 0.05,   0.12,   0.22  },
     waveSpeed          = { 0.80,   1.00,   1.30  },
     -- Whitecaps start lower down the wave and burn brighter as it builds: this
     -- is the single most legible "the sea got up" cue in a still frame.
     foamHeightStart    = { 0.26,   0.16,   0.075 },
-    foamBrightness     = { 0.85,   1.10,   1.65  },
+    foamBrightness     = { 0.85,   1.10,   0.90  },
+    -- How much of the sea is ALLOWED to break, before the height/angle
+    -- terms narrow it further (#943). Until that issue this was hardcoded
+    -- at the 0.12 equivalent for every sea state, which is why a storm
+    -- carried about 1% actual foam and could not read as rougher than a
+    -- calm. 0.12 keeps calm exactly as it was.
+    foamCoverage       = { 0.12,   0.30,   0.62  },
     foamFadeDistance   = { 0.45,   0.35,   0.22  },
     -- A rough sea is a worse mirror: the specular track breaks up into glitter.
     specularIntensity  = { 1.70,   1.40,   0.85  },
     noiseIntensity     = { 0.45,   0.65,   0.95  },
     -- ...and it reads colder and greyer, because it is carrying air.
-    waterColorR        = { 0.075,  0.090,  0.125 },
-    waterColorG        = { 0.360,  0.330,  0.300 },
-    waterColorB        = { 0.480,  0.440,  0.360 },
+    waterColorR        = { 0.110,  0.090,  0.028 },
+    waterColorG        = { 0.400,  0.330,  0.075 },
+    waterColorB        = { 0.530,  0.440,  0.105 },
     -- Kept coherent even though Drift runs the Gerstner path (UseFFT is false
     -- for the reasons in Drift.olo / issue #898): if the FFT surface is ever
     -- switched back on, the sea state must not silently stop tracking the wind.
@@ -368,6 +393,7 @@ function WeatherDirector.OnUpdate(id, dt)
 
         water.waveAmplitude     = anchor3(kSea.waveAmplitude, seaT)
         water.waveSpeed         = anchor3(kSea.waveSpeed, seaT)
+        water.foamCoverage      = anchor3(kSea.foamCoverage, seaT)
         water.foamHeightStart   = anchor3(kSea.foamHeightStart, seaT)
         water.foamBrightness    = anchor3(kSea.foamBrightness, seaT)
         water.foamFadeDistance  = anchor3(kSea.foamFadeDistance, seaT)
