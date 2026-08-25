@@ -2042,7 +2042,11 @@ namespace OloEngine
         {
             if (i < info.m_ColorAttachmentFormats.size())
             {
-                ImGui::Text("  Attachment %u: Format 0x%X", i, info.m_ColorAttachmentFormats[i]);
+                // Decoded, not raw hex: these carry sized internal formats
+                // now that the GL backend queries the attached object rather
+                // than GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE (#803).
+                ImGui::Text("  Attachment %u: %s", i,
+                            FormatTextureFormat(info.m_ColorAttachmentFormats[i]).c_str());
             }
             else
             {
@@ -2053,7 +2057,7 @@ namespace OloEngine
         // Depth attachment
         if (info.m_HasDepthAttachment)
         {
-            ImGui::Text("Depth Attachment: Format 0x%X", info.m_DepthAttachmentFormat);
+            ImGui::Text("Depth Attachment: %s", FormatTextureFormat(info.m_DepthAttachmentFormat).c_str());
         }
         else
         {
@@ -2063,7 +2067,7 @@ namespace OloEngine
         // Stencil attachment
         if (info.m_HasStencilAttachment)
         {
-            ImGui::Text("Stencil Attachment: Format 0x%X", info.m_StencilAttachmentFormat);
+            ImGui::Text("Stencil Attachment: %s", FormatTextureFormat(info.m_StencilAttachmentFormat).c_str());
         }
         else
         {

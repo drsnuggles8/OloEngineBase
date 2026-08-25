@@ -369,9 +369,20 @@ namespace OloEngine
         {
             const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
             const VkImageLayout prior = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
-            (void)VulkanOneShot::Submit("VulkanTexture2DArray::GenerateMipmaps",
-                                        [&](VkCommandBuffer cmd)
-                                        { record(cmd, prior); });
+            // Only on success: a failed submit never executed the chain, so
+            // the image is still in `prior`. Recording SHADER_READ_ONLY here
+            // would make the NEXT barrier name an oldLayout the image never
+            // reached — the desync InitialLayout exists to prevent, and the
+            // shape behind the VUID-09600 family (#800). SetLayerData above
+            // and VulkanTexture2D::SubImage already gate this way.
+            if (!VulkanOneShot::Submit("VulkanTexture2DArray::GenerateMipmaps",
+                                       [&](VkCommandBuffer cmd)
+                                       { record(cmd, prior); }))
+            {
+                OLO_CORE_ERROR("VulkanTexture2DArray::GenerateMipmaps: one-shot submit failed — tracked layout "
+                               "left unchanged");
+                return;
+            }
         }
         VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }

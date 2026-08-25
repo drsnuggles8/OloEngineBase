@@ -50,6 +50,21 @@ namespace OloEngine
         // writes visible across submissions) → staging destroyed. Blocking,
         // like Submit.
         bool UploadToBuffer(VkBuffer dst, u64 dstOffset, const void* data, u64 sizeBytes, const char* what);
+
+#ifndef OLO_DIST
+        // Fault injection for the layout-desync tenants (#803). The next
+        // `count` Submit() calls return false without recording or submitting
+        // anything, which is the shape a caller must survive: the image stays
+        // in its OLD layout, so a caller that records the NEW one into
+        // VulkanImageInfoRegistry has created the wrong-oldLayout desync
+        // (VUID-VkImageMemoryBarrier2-oldLayout-01197 / the VUID-09600 family)
+        // that InitialLayout exists to prevent.
+        //
+        // Compiled out of Dist. Callers are tests only — a shipping code path
+        // that reaches for this is a bug.
+        void SetFailNextSubmitsForTesting(u32 count);
+        [[nodiscard]] u32 GetPendingFailNextSubmitsForTesting();
+#endif
     } // namespace VulkanOneShot
 } // namespace OloEngine
 

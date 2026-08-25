@@ -180,6 +180,18 @@ namespace OloEngine
     void VulkanDescriptorHeapBackend::UploadSlots(const u32 firstSlot, const u64* descriptors, const u32 count)
     {
         auto& heap = VulkanResourceHeap::Get();
+        // Probed ONCE, not per slot (#803). TryGetRecordingVulkanAPI does a
+        // dynamic_cast on RenderCommand::GetRendererAPI(), and neither the
+        // installed API object nor its recording state can change inside this
+        // loop — a bindless upload of N descriptors was paying N runtime type
+        // checks against the same object.
+        //
+        // Hoisted to the CALL SITE rather than cached in the helper: a cached
+        // VulkanRendererAPI* would have to be invalidated on
+        // RecreateForSelectedBackend, which is amendment (39)'s
+        // construction-order hazard. A loop-local answer has no lifetime at
+        // all, so it cannot go stale.
+        auto* recordingApi = VulkanUpload::TryGetRecordingVulkanAPI();
         for (u32 i = 0; i < count; ++i)
         {
             const u32 slot = firstSlot + i;
@@ -208,10 +220,10 @@ namespace OloEngine
             // survives this seam, so its failing sample comes from another
             // path — most likely the ImGui viewport binding. Closing this gap
             // is worth doing on its own terms; do not read it as that fix.
-            if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
+            if (recordingApi != nullptr)
             {
-                vk->EnsureImageLayoutForDescriptor(staged.Image, staged.Layout,
-                                                   staged.ViewInfo.subresourceRange);
+                recordingApi->EnsureImageLayoutForDescriptor(staged.Image, staged.Layout,
+                                                             staged.ViewInfo.subresourceRange);
             }
             const bool ok = staged.Type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
                                 ? heap.WriteStorageImage(slot, staged.ViewInfo, staged.Layout)

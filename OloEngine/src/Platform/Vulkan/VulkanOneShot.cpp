@@ -12,9 +12,37 @@ namespace OloEngine
 {
     namespace VulkanOneShot
     {
+#ifndef OLO_DIST
+        namespace
+        {
+            // See the header: test-only fault injection for the layout-desync
+            // tenants. Render thread only, like the rest of the backend.
+            u32 s_FailNextSubmits = 0;
+        } // namespace
+
+        void SetFailNextSubmitsForTesting(u32 count)
+        {
+            s_FailNextSubmits = count;
+        }
+
+        u32 GetPendingFailNextSubmitsForTesting()
+        {
+            return s_FailNextSubmits;
+        }
+#endif
+
         bool Submit(const char* what, const std::function<void(VkCommandBuffer)>& record)
         {
             OLO_PROFILE_FUNCTION();
+
+#ifndef OLO_DIST
+            if (s_FailNextSubmits > 0)
+            {
+                --s_FailNextSubmits;
+                OLO_CORE_WARN("VulkanOneShot::Submit({}): failing by test injection", what);
+                return false;
+            }
+#endif
 
             auto* device = VulkanDevice::Get();
             if (device == nullptr)

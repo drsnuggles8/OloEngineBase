@@ -344,9 +344,17 @@ namespace OloEngine
         {
             const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
             const VkImageLayout prior = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
-            (void)VulkanOneShot::Submit("VulkanTextureCubemap::GenerateMipmaps",
-                                        [&](VkCommandBuffer cmd)
-                                        { recordChain(cmd, prior); });
+            // Only on success — see VulkanTexture2DArray::GenerateMipmaps for
+            // the contract: a failed submit leaves the image in `prior`, and
+            // recording the new layout anyway is the wrong-oldLayout desync.
+            if (!VulkanOneShot::Submit("VulkanTextureCubemap::GenerateMipmaps",
+                                       [&](VkCommandBuffer cmd)
+                                       { recordChain(cmd, prior); }))
+            {
+                OLO_CORE_ERROR("VulkanTextureCubemap::GenerateMipmaps: one-shot submit failed — tracked layout "
+                               "left unchanged");
+                return;
+            }
         }
         VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }

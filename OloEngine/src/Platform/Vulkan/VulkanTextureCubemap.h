@@ -37,10 +37,13 @@ namespace OloEngine
     // EnvironmentMap::InitializeIBLSystem, which creates cubemaps eagerly, so
     // WITHOUT this class the factory's assert killed the editor before the
     // first frame. Scope matches VulkanTexture2DArray's: a real image with a
-    // real identity (so binds, barriers and the layout tracker all work), with
-    // the CPU upload / mip-generation / readback halves warn-once no-ops —
-    // the IBL bake path that fills those faces is GPU-side and is later
-    // work (SkyCubemapBake / IBLPrecompute still need the capture seam).
+    // real identity (so binds, barriers and the layout tracker all work).
+    //
+    // The CPU halves are implemented now: SetFaceDataMip stages a per-face
+    // upload, GenerateMipmaps runs the blit chain over all six faces, and
+    // ReadFaces backs GetFaceData/GetData. Only the whole-cubemap SetData and
+    // Invalidate remain warn-once no-ops — the engine fills cubemaps face by
+    // face or from the GPU-side bake, so nothing calls them.
     // -------------------------------------------------------------------------
     class VulkanTextureCubemap : public TextureCubemap
     {

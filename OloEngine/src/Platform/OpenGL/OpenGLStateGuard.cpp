@@ -46,17 +46,6 @@ namespace OloEngine::Detail
             return static_cast<u32>(v);
         }
 
-        u32 GlGetTextureBindingAtUnit(u32 unit, GLenum target)
-        {
-            GLint prevActive = 0;
-            ::glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActive);
-            ::glActiveTexture(GL_TEXTURE0 + unit);
-            GLint bound = 0;
-            ::glGetIntegerv(target, &bound);
-            ::glActiveTexture(static_cast<GLenum>(prevActive));
-            return static_cast<u32>(bound);
-        }
-
         // A snapshotted container-object name is validated before the rebind:
         // the guarded scope may legitimately delete an object that was bound at
         // entry (a render-graph resize destroys framebuffers/VAOs), and
@@ -154,11 +143,24 @@ namespace OloEngine::Detail
         s.m_CapturedTextureSlotLimit = textureSlotLimit;
         s.m_CapturedUboSlotLimit = uboSlotLimit;
 
-        for (u32 i = 0; i < textureSlotLimit; ++i)
+        // Select each unit ONCE and read all three targets while it is active
+        // (#803). This used to run through a per-target helper that saved and
+        // restored GL_ACTIVE_TEXTURE itself, so a 32-unit driver paid 96
+        // redundant glGetIntegerv + glActiveTexture pairs per snapshot. The
+        // active unit is captured above and restored by ApplyGLStateCore, but
+        // this loop restores it too, so a capture on its own is still
+        // side-effect free.
         {
-            s.m_Textures2D[i] = GlGetTextureBindingAtUnit(i, GL_TEXTURE_BINDING_2D);
-            s.m_Textures2DArray[i] = GlGetTextureBindingAtUnit(i, GL_TEXTURE_BINDING_2D_ARRAY);
-            s.m_TexturesCubeMap[i] = GlGetTextureBindingAtUnit(i, GL_TEXTURE_BINDING_CUBE_MAP);
+            GLint prevActive = 0;
+            ::glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActive);
+            for (u32 i = 0; i < textureSlotLimit; ++i)
+            {
+                ::glActiveTexture(GL_TEXTURE0 + i);
+                s.m_Textures2D[i] = GlGetUInt(GL_TEXTURE_BINDING_2D);
+                s.m_Textures2DArray[i] = GlGetUInt(GL_TEXTURE_BINDING_2D_ARRAY);
+                s.m_TexturesCubeMap[i] = GlGetUInt(GL_TEXTURE_BINDING_CUBE_MAP);
+            }
+            ::glActiveTexture(static_cast<GLenum>(prevActive));
         }
 
         for (u32 i = 0; i < uboSlotLimit; ++i)

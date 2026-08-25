@@ -56,8 +56,9 @@ namespace OloEngine
         // see m_DepthArrayViews for what goes wrong without it.)
         static void ReleaseCachedDepthViewsForImage(VkImage image);
 
-        // Will become meaningful when the orchestrator's VulkanRendererAPI
-        // current-render-target state lands — warn-once no-ops until then.
+        // Publish / clear this framebuffer as the current render target
+        // through VulkanBindingState; the dynamic-rendering scope consumes the
+        // selection lazily at the next draw or clear.
         void Bind() override;
         void Unbind() override;
 
@@ -73,7 +74,9 @@ namespace OloEngine
             return m_RenderViewportHeight;
         }
 
-        // Readback / clear-shaped — pipeline concerns, warn-once no-ops.
+        // Readback rides the ReadTextureSubImage spine (top-down coordinates,
+        // amendment (85)); the three clears ride the facade's transfer clears
+        // — integer for RED_INTEGER slots, float otherwise.
         int ReadPixel(u32 attachmentIndex, int x, int y) override;
         void ClearAttachment(u32 attachmentIndex, int value) override;
         void ClearAttachment(u32 attachmentIndex, const glm::vec4& value) override;

@@ -3164,6 +3164,51 @@ in the queue*. If one field serves both "after what I am recording" and "right
 now", the two agree on every steady frame and disagree on the first frame a
 resource's lifetime changes — which is the frame nobody tests.
 
+### 16a. The same desync has two other entrances (#803)
+
+#800 fixed the tracker's *timeline*. Two sibling shapes write a layout the image
+never reached, and both were still live in the transient texture classes after
+the #801 split. Neither is a tracker bug; both are call-site bugs, and both look
+completely reasonable in review.
+
+**Entrance one: recording the new layout unconditionally.** The shape is a
+one-shot whose result is discarded, followed by the layout write:
+
+```cpp
+(void)VulkanOneShot::Submit("…::GenerateMipmaps", record);          // may FAIL
+VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, SHADER_READ_ONLY);
+```
+
+A failed submit executed nothing, so the image is still in its old layout while
+the tracker now claims the new one — and the *next* barrier names an `oldLayout`
+the image never reached. `VulkanTexture2DArray::GenerateMipmaps` and
+`VulkanTextureCubemap::GenerateMipmaps` both had it; every *other* site in the
+family already gated on `ok`, which is what made the two stand out once someone
+went looking. **The rule: a one-shot's return value is the write gate for every
+piece of state that submit was supposed to establish.** `(void)` on a
+`VulkanOneShot::Submit` is the grep that finds them.
+
+**Entrance two: hardcoding the steady state as `oldLayout`.** The comment says
+it out loud — "sampled content sits in `SHADER_READ_ONLY` between graph
+executions" — and that *is* the steady state, for asset textures that were
+uploaded. It is wrong for the two cases that matter: a texture created from a
+spec and never uploaded is still `UNDEFINED`, and an **attachment** is in
+whatever the graph left it in. Naming `SHADER_READ_ONLY` there is
+VUID-VkImageMemoryBarrier2-oldLayout-01197 and makes the copied texels
+undefined. `VulkanTexture2D::GetData` now derives it the way
+`ReadTextureSubImage` does: seed the tracker from
+`VulkanImageInfo::InitialLayout`, then ask `CurrentExecutedLayout` — the
+*executed* timeline, because a one-shot runs ahead of the recording frame.
+
+**Testing it needs fault injection, and that is fine.** A failed
+`vkQueueSubmit2` is not reachable from a test on a healthy driver, so
+`VulkanOneShot::SetFailNextSubmitsForTesting` (compiled out of Dist) makes the
+next N submits return `false` without recording. The tenant is then an A/B on
+one call: inject → assert the tracked layout is **unmoved**; do not inject →
+assert it moved. Only asserting the first half also passes on an implementation
+that never records anything, which is the failure mode the A/B exists to
+exclude.
+
 ---
 
 ## 17. Vulkan 1.4 conveniences (#809): a core feature is not a free feature

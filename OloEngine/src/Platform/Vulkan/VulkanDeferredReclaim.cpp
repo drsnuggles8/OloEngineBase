@@ -9,6 +9,7 @@
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
 
+#include <exception>
 #include <vector>
 
 namespace OloEngine
@@ -19,58 +20,75 @@ namespace OloEngine
         return *s_Instance;
     }
 
-    void VulkanDeferredReclaim::Enqueue(VkImage image, VmaAllocation allocation)
+    void VulkanDeferredReclaim::Push(const Entry& entry) noexcept
+    {
+        try
+        {
+            m_Entries.push_back(entry);
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("VulkanDeferredReclaim: enqueue failed ({}) — the object leaks until process exit", e.what());
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("VulkanDeferredReclaim: enqueue failed (unknown exception) — the object leaks until "
+                           "process exit");
+        }
+    }
+
+    void VulkanDeferredReclaim::Enqueue(VkImage image, VmaAllocation allocation) noexcept
     {
         if (image == VK_NULL_HANDLE && allocation == VK_NULL_HANDLE)
         {
             return;
         }
-        m_Entries.push_back({ .Image = image, .Allocation = allocation, .EnqueuedAtGeneration = m_Generation });
+        Push({ .Image = image, .Allocation = allocation, .EnqueuedAtGeneration = m_Generation });
     }
 
-    void VulkanDeferredReclaim::Enqueue(VkBuffer buffer, VmaAllocation allocation)
+    void VulkanDeferredReclaim::Enqueue(VkBuffer buffer, VmaAllocation allocation) noexcept
     {
         if (buffer == VK_NULL_HANDLE && allocation == VK_NULL_HANDLE)
         {
             return;
         }
-        m_Entries.push_back({ .Buffer = buffer, .Allocation = allocation, .EnqueuedAtGeneration = m_Generation });
+        Push({ .Buffer = buffer, .Allocation = allocation, .EnqueuedAtGeneration = m_Generation });
     }
 
-    void VulkanDeferredReclaim::Enqueue(VkSemaphore semaphore)
+    void VulkanDeferredReclaim::Enqueue(VkSemaphore semaphore) noexcept
     {
         if (semaphore == VK_NULL_HANDLE)
         {
             return;
         }
-        m_Entries.push_back({ .Semaphore = semaphore, .EnqueuedAtGeneration = m_Generation });
+        Push({ .Semaphore = semaphore, .EnqueuedAtGeneration = m_Generation });
     }
 
-    void VulkanDeferredReclaim::Enqueue(VkPipeline pipeline)
+    void VulkanDeferredReclaim::Enqueue(VkPipeline pipeline) noexcept
     {
         if (pipeline == VK_NULL_HANDLE)
         {
             return;
         }
-        m_Entries.push_back({ .Pipeline = pipeline, .EnqueuedAtGeneration = m_Generation });
+        Push({ .Pipeline = pipeline, .EnqueuedAtGeneration = m_Generation });
     }
 
-    void VulkanDeferredReclaim::Enqueue(VkImageView view)
+    void VulkanDeferredReclaim::Enqueue(VkImageView view) noexcept
     {
         if (view == VK_NULL_HANDLE)
         {
             return;
         }
-        m_Entries.push_back({ .View = view, .EnqueuedAtGeneration = m_Generation });
+        Push({ .View = view, .EnqueuedAtGeneration = m_Generation });
     }
 
-    void VulkanDeferredReclaim::Enqueue(VkQueryPool queryPool)
+    void VulkanDeferredReclaim::Enqueue(VkQueryPool queryPool) noexcept
     {
         if (queryPool == VK_NULL_HANDLE)
         {
             return;
         }
-        m_Entries.push_back({ .QueryPool = queryPool, .EnqueuedAtGeneration = m_Generation });
+        Push({ .QueryPool = queryPool, .EnqueuedAtGeneration = m_Generation });
     }
 
     void VulkanDeferredReclaim::DestroyEntry(const Entry& entry)
@@ -134,7 +152,26 @@ namespace OloEngine
         }
     }
 
-    void VulkanDeferredReclaim::NotifyFrameCompleted()
+    void VulkanDeferredReclaim::DestroyEntryGuarded(const Entry& entry) noexcept
+    {
+        try
+        {
+            DestroyEntry(entry);
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("VulkanDeferredReclaim: destroying a reclaim entry threw ({}) — dropping it and "
+                           "continuing the drain",
+                           e.what());
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("VulkanDeferredReclaim: destroying a reclaim entry threw (unknown exception) — dropping "
+                           "it and continuing the drain");
+        }
+    }
+
+    void VulkanDeferredReclaim::NotifyFrameCompleted() noexcept
     {
         ++m_Generation;
 
@@ -144,16 +181,16 @@ namespace OloEngine
             {
                 return false;
             }
-            DestroyEntry(entry);
+            DestroyEntryGuarded(entry);
             return true; });
     }
 
-    void VulkanDeferredReclaim::FlushAll()
+    void VulkanDeferredReclaim::FlushAll() noexcept
     {
         // Caller guarantees vkDeviceWaitIdle has already been done.
         for (const auto& entry : m_Entries)
         {
-            DestroyEntry(entry);
+            DestroyEntryGuarded(entry);
         }
         m_Entries.clear();
     }
