@@ -695,6 +695,27 @@ namespace OloEngine
 		internal static extern void DirectionalLightComponent_SetCastShadows(ulong entityID, bool value);
 		#endregion
 
+		#region DiscoverableComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string DiscoverableComponent_GetDisplayName(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DiscoverableComponent_SetDisplayName(ulong entityID, string value);
+		#endregion
+
+		#region DiscoveryObjectiveMarkerComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DiscoveryObjectiveMarkerComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DiscoveryObjectiveMarkerComponent_SetEnabled(ulong entityID, bool value);
+		#endregion
+
+		#region DiscoveryReadoutComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DiscoveryReadoutComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DiscoveryReadoutComponent_SetEnabled(ulong entityID, bool value);
+		#endregion
+
 		#region FluidComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool FluidComponent_GetEnabled(ulong entityID);

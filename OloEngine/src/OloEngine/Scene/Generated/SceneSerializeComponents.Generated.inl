@@ -279,6 +279,45 @@ if (entity.HasComponent<DirectionalLightComponent>())
     out << YAML::EndMap; // DirectionalLightComponent
 }
 
+if (entity.HasComponent<DiscoverableComponent>())
+{
+    out << YAML::Key << "DiscoverableComponent";
+    out << YAML::BeginMap; // DiscoverableComponent
+    auto const& comp = entity.GetComponent<DiscoverableComponent>();
+    out << YAML::Key << "DisplayName" << YAML::Value << comp.m_DisplayName;
+    out << YAML::EndMap; // DiscoverableComponent
+}
+
+if (entity.HasComponent<DiscoveredSetComponent>())
+{
+    out << YAML::Key << "DiscoveredSetComponent";
+    out << YAML::BeginMap; // DiscoveredSetComponent
+    auto const& comp = entity.GetComponent<DiscoveredSetComponent>();
+    out << YAML::Key << "Discovered" << YAML::Value << YAML::BeginSeq;
+    for (auto const& e : comp.m_Discovered)
+        out << static_cast<u64>(e);
+    out << YAML::EndSeq;
+    out << YAML::EndMap; // DiscoveredSetComponent
+}
+
+if (entity.HasComponent<DiscoveryObjectiveMarkerComponent>())
+{
+    out << YAML::Key << "DiscoveryObjectiveMarkerComponent";
+    out << YAML::BeginMap; // DiscoveryObjectiveMarkerComponent
+    auto const& comp = entity.GetComponent<DiscoveryObjectiveMarkerComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // DiscoveryObjectiveMarkerComponent
+}
+
+if (entity.HasComponent<DiscoveryReadoutComponent>())
+{
+    out << YAML::Key << "DiscoveryReadoutComponent";
+    out << YAML::BeginMap; // DiscoveryReadoutComponent
+    auto const& comp = entity.GetComponent<DiscoveryReadoutComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // DiscoveryReadoutComponent
+}
+
 if (entity.HasComponent<EnvironmentMapComponent>())
 {
     out << YAML::Key << "EnvironmentMapComponent";

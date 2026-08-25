@@ -287,6 +287,15 @@ registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "MaxShadowDistance",
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CascadeSplitLambda", m_CascadeSplitLambda));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CascadeDebugVisualization", m_CascadeDebugVisualization));
 
+// DiscoverableComponent
+registry.push_back(OLO_GFW_FIELD(DiscoverableComponent, "DisplayName", m_DisplayName));
+
+// DiscoveryObjectiveMarkerComponent
+registry.push_back(OLO_GFW_FIELD(DiscoveryObjectiveMarkerComponent, "Enabled", m_Enabled));
+
+// DiscoveryReadoutComponent
+registry.push_back(OLO_GFW_FIELD(DiscoveryReadoutComponent, "Enabled", m_Enabled));
+
 // EnvironmentMapComponent
 registry.push_back(OLO_GFW_FIELD(EnvironmentMapComponent, "EnvironmentMapAsset", m_EnvironmentMapAsset));
 registry.push_back(OLO_GFW_FIELD(EnvironmentMapComponent, "FilePath", m_FilePath));

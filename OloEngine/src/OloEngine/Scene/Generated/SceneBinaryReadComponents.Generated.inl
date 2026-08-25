@@ -322,6 +322,41 @@ case 2327397916u: // DirectionalLightComponent
     if (!SceneBinIO::Read(reader, comp.m_CascadeDebugVisualization)) return false;
     break;
 }
+case 858810945u: // DiscoverableComponent
+{
+    auto& comp = deserializedEntity.AddComponent<DiscoverableComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_DisplayName)) return false;
+    break;
+}
+case 4028072432u: // DiscoveredSetComponent
+{
+    auto& comp = deserializedEntity.AddComponent<DiscoveredSetComponent>();
+    {
+        u32 bn0 = 0;
+        if (!SceneBinIO::ReadU32(reader, bn0) || bn0 > SceneBinIO::MaxContainerElements) return false;
+        comp.m_Discovered.clear();
+        comp.m_Discovered.reserve(bn0);
+        for (u32 bi0 = 0; bi0 < bn0; ++bi0)
+        {
+            decltype(comp.m_Discovered)::value_type bv0{};
+            if (!SceneBinIO::Read(reader, bv0)) return false;
+            comp.m_Discovered.push_back(std::move(bv0));
+        }
+    }
+    break;
+}
+case 4068583233u: // DiscoveryObjectiveMarkerComponent
+{
+    auto& comp = deserializedEntity.AddComponent<DiscoveryObjectiveMarkerComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    break;
+}
+case 2125911754u: // DiscoveryReadoutComponent
+{
+    auto& comp = deserializedEntity.AddComponent<DiscoveryReadoutComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    break;
+}
 case 2313188451u: // EnvironmentMapComponent
 {
     auto& comp = deserializedEntity.AddComponent<EnvironmentMapComponent>();

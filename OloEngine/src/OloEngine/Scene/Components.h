@@ -1805,6 +1805,74 @@ namespace OloEngine
         }
     };
 
+    // ── Discovery loop (issue #881) ──────────────────────────────────────
+    //
+    // A generic "explore and find things" loop: DiscoverableComponent marks
+    // a landmark entity (an island, a ruin, ...); DiscoveredSetComponent —
+    // placed on the discovering actor (the boat) — tracks which
+    // DiscoverableComponent entities it has visited, by UUID. A landing
+    // trigger is an ordinary Rigidbody3DComponent{m_IsTrigger=true} +
+    // BoxCollider3DComponent on the SAME entity as DiscoverableComponent.
+    // DiscoverySystem (Scene::UpdateDiscovery) polls the physics scene's
+    // active contact pairs each tick for a (DiscoveredSetComponent,
+    // DiscoverableComponent-trigger) pair and records a visit the first time
+    // it sees one — inserting an already-present UUID is a no-op, which is
+    // what keeps re-landing from double-counting.
+    //
+    // DiscoveryObjectiveMarkerComponent / DiscoveryReadoutComponent are
+    // empty tags identifying which UI entities the system should drive: the
+    // world-anchored marker (paired with UIWorldAnchorComponent) and the
+    // "Discovered N of M" readout (paired with UITextComponent). Scenes
+    // opt a UI entity in by adding the tag rather than the system hard-
+    // coding an entity name.
+    struct DiscoverableComponent
+    {
+        OLO_PROPERTY(Name = "DisplayName", Type = "string")
+        std::string m_DisplayName;
+
+        DiscoverableComponent() = default;
+        DiscoverableComponent(const DiscoverableComponent&) = default;
+
+        auto operator==(const DiscoverableComponent&) const -> bool = default;
+    };
+
+    // Deliberately NO operator== — every field is runtime-populated by
+    // DiscoverySystem (never hand-authored), so there is no "authored state"
+    // for the editor's undo system to protect. Per SceneHierarchyPanel's
+    // three-tier DrawComponent scheme, a non-trivially-copyable component
+    // with no operator== falls to the "no undo tracking" tier, which is
+    // exactly right here: without it, a landing during Play would silently
+    // push a phantom "Property Change" undo entry.
+    struct DiscoveredSetComponent
+    {
+        std::vector<UUID> m_Discovered;
+
+        DiscoveredSetComponent() = default;
+        DiscoveredSetComponent(const DiscoveredSetComponent&) = default;
+    };
+
+    struct DiscoveryObjectiveMarkerComponent
+    {
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        DiscoveryObjectiveMarkerComponent() = default;
+        DiscoveryObjectiveMarkerComponent(const DiscoveryObjectiveMarkerComponent&) = default;
+
+        auto operator==(const DiscoveryObjectiveMarkerComponent&) const -> bool = default;
+    };
+
+    struct DiscoveryReadoutComponent
+    {
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        DiscoveryReadoutComponent() = default;
+        DiscoveryReadoutComponent(const DiscoveryReadoutComponent&) = default;
+
+        auto operator==(const DiscoveryReadoutComponent&) const -> bool = default;
+    };
+
     // ── Aircraft (issue #438) ────────────────────────────────────────────
     //
     // A force-based fixed-wing flight model. Like BoatComponent this uses NO

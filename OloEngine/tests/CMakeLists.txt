@@ -1032,6 +1032,10 @@ add_executable(OloEngine-Tests
 		Functional/Gameplay/KillGrantsExperienceViaDamageTest.cpp
 		Functional/Gameplay/QuestRewardGrantsExperienceTest.cpp
 		Functional/Scripting/LuaGrantsExperienceViaSceneTickTest.cpp
+		# Discovery loop (issue #881): landing-trigger contact -> DiscoveredSetComponent,
+		# no double-count on resting/repeated contact, and the save-game round-trip +
+		# old-save (pre-dating the component) migration check the issue calls out.
+		Functional/Gameplay/DiscoveryLoopLandingAndSaveTest.cpp
 		# FramePacer: frame-rate cap sleep/spin math + EMA delta smoothing (#456)
 		FramePacerTest.cpp
 		# Octahedral foliage impostor atlas mapping (issue #433)

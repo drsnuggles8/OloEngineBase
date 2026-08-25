@@ -351,6 +351,36 @@ if (auto node = entity["DirectionalLightComponent"]; node)
     comp.m_CascadeDebugVisualization = node["CascadeDebugVisualization"].as<bool>(comp.m_CascadeDebugVisualization);
 }
 
+if (auto node = entity["DiscoverableComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<DiscoverableComponent>();
+    comp.m_DisplayName = node["DisplayName"].as<std::string>(comp.m_DisplayName);
+}
+
+if (auto node = entity["DiscoveredSetComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<DiscoveredSetComponent>();
+    if (auto seqNode = node["Discovered"]; seqNode && seqNode.IsSequence())
+    {
+        comp.m_Discovered.clear();
+        for (auto const& e : seqNode)
+            if (decltype(comp.m_Discovered)::value_type v{}; ::YAML::convert<decltype(comp.m_Discovered)::value_type>::decode(e, v))
+                comp.m_Discovered.push_back(v);
+    }
+}
+
+if (auto node = entity["DiscoveryObjectiveMarkerComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<DiscoveryObjectiveMarkerComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
+if (auto node = entity["DiscoveryReadoutComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<DiscoveryReadoutComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
 if (auto node = entity["EnvironmentMapComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<EnvironmentMapComponent>();

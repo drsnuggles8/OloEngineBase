@@ -2116,6 +2116,10 @@ namespace OloEngine
             DisplayAddComponentEntry<SailComponent>("Sail");
             DisplayAddComponentEntry<AircraftComponent>("Aircraft");
 
+            // Discovery loop (issue #881).
+            DisplayAddComponentEntry<DiscoverableComponent>("Discoverable");
+            DisplayAddComponentEntry<DiscoveredSetComponent>("Discovered Set");
+
             ImGui::Separator();
 
             // Audio Components
@@ -2196,6 +2200,8 @@ namespace OloEngine
             DisplayAddComponentEntry<UIPanelComponent>("UI Panel");
             DisplayAddComponentEntry<UIImageComponent>("UI Image");
             DisplayAddComponentEntry<UITextComponent>("UI Text");
+            DisplayAddComponentEntry<DiscoveryObjectiveMarkerComponent>("Discovery Objective Marker");
+            DisplayAddComponentEntry<DiscoveryReadoutComponent>("Discovery Readout");
             DisplayAddComponentEntry<UIButtonComponent>("UI Button");
             DisplayAddComponentEntry<UISliderComponent>("UI Slider");
             DisplayAddComponentEntry<UICheckboxComponent>("UI Checkbox");
@@ -5295,6 +5301,12 @@ namespace OloEngine
             ImGui::DragFloat("Kerning", &component.m_Kerning, 0.025f);
             ImGui::DragFloat("Line Spacing", &component.m_LineSpacing, 0.025f); });
 
+        DrawComponent<DiscoveryObjectiveMarkerComponent>("Discovery Objective Marker", entity, [](auto& component)
+                                                         { ImGui::Checkbox("Enabled", &component.m_Enabled); });
+
+        DrawComponent<DiscoveryReadoutComponent>("Discovery Readout", entity, [](auto& component)
+                                                 { ImGui::Checkbox("Enabled", &component.m_Enabled); });
+
         DrawComponent<UIButtonComponent>("UI Button", entity, [](auto& component)
                                          {
             ImGui::ColorEdit4("Normal Color", glm::value_ptr(component.m_NormalColor));
@@ -6886,6 +6898,17 @@ namespace OloEngine
 
                 ImGui::TextDisabled("Needs a dynamic Rigidbody 3D and scene Wind enabled.");
                 ImGui::TextDisabled("Pair with Boat - that owns the water, this owns the air."); });
+
+        // Discovery loop (issue #881).
+        DrawComponent<DiscoverableComponent>("Discoverable", entity, [](auto& component)
+                                             {
+                ImGui::InputText("Display Name", &component.m_DisplayName);
+                ImGui::TextDisabled("Pair with a trigger Rigidbody 3D + Collider on this entity to register a visit."); });
+
+        DrawComponent<DiscoveredSetComponent>("Discovered Set", entity, [](auto& component)
+                                              {
+                ImGui::Text("Discovered: %d", static_cast<int>(component.m_Discovered.size()));
+                ImGui::TextDisabled("Populated at runtime by the discovery system; not hand-authored."); });
 
         // Aircraft (issue #438) — a force-based fixed-wing flight model.
         DrawComponent<AircraftComponent>("Aircraft", entity, [](auto& component)
