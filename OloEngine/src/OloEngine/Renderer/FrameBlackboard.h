@@ -189,6 +189,21 @@ namespace OloEngine
             // All within the same Execute; internal to CloudscapeRenderPass.
             RGFramebufferHandle CloudsRaw;
             RGFramebufferHandle CloudsResolved;
+
+            // SSGI / SSR stochastic-signal scratch framebuffers (issue #902).
+            // RGBA16F at the scene band resolution: rgb carries ONLY the
+            // stochastic term (SSGI's indirect diffuse, SSR's reflection
+            // delta) and a carries the positive view-space depth the temporal
+            // resolve's disocclusion test needs. *Signal is written by draw A
+            // and sampled by the resolve (draw B); *Resolved is written by
+            // draw B, sampled by the composite (draw C) and extracted into
+            // the matching history sink. All within one Execute; internal to
+            // SSGIRenderPass / SSRRenderPass. This split is what makes the
+            // signal accumulable at all — the composited colour is not.
+            RGFramebufferHandle SSGISignal;
+            RGFramebufferHandle SSGIResolved;
+            RGFramebufferHandle SSRSignal;
+            RGFramebufferHandle SSRResolved;
         };
 
         // -----------------------------------------------------------------------
@@ -290,6 +305,8 @@ namespace OloEngine
         {
             RGTextureHandle TAAHistory;    // Previous TAA accumulation buffer
             RGTextureHandle CloudsHistory; // Previous cloudscape resolve buffer (half-res, issue #633)
+            RGTextureHandle SSGIHistory;   // Previous resolved SSGI signal (issue #902)
+            RGTextureHandle SSRHistory;    // Previous resolved SSR signal (issue #902)
             // (Fog's temporal history moved into VolumetricFogPass's own 3D
             // scatter volume with the froxel fog rework — issue #435.)
         };

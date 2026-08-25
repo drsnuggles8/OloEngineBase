@@ -148,6 +148,8 @@ namespace OloEngine
             AppendChange(changes, "SSRMaxRoughness", before.SSRMaxRoughness, after.SSRMaxRoughness);
             AppendChange(changes, "SSREdgeFade", before.SSREdgeFade, after.SSREdgeFade);
             AppendChange(changes, "SSRDebugView", before.SSRDebugView, after.SSRDebugView);
+            AppendChange(changes, "SSRTemporalResolve", before.SSRTemporalResolve, after.SSRTemporalResolve);
+            AppendChange(changes, "SSRTemporalFeedback", before.SSRTemporalFeedback, after.SSRTemporalFeedback);
 
             AppendChange(changes, "SSGIEnabled", before.SSGIEnabled, after.SSGIEnabled);
             AppendChange(changes, "SSGIIntensity", before.SSGIIntensity, after.SSGIIntensity);
@@ -158,6 +160,8 @@ namespace OloEngine
             AppendChange(changes, "SSGIRayCount", before.SSGIRayCount, after.SSGIRayCount);
             AppendChange(changes, "SSGIEdgeFade", before.SSGIEdgeFade, after.SSGIEdgeFade);
             AppendChange(changes, "SSGIDebugView", before.SSGIDebugView, after.SSGIDebugView);
+            AppendChange(changes, "SSGITemporalResolve", before.SSGITemporalResolve, after.SSGITemporalResolve);
+            AppendChange(changes, "SSGITemporalFeedback", before.SSGITemporalFeedback, after.SSGITemporalFeedback);
 
             AppendChange(changes, "ContactShadowEnabled", before.ContactShadowEnabled, after.ContactShadowEnabled);
             AppendChange(changes, "ContactShadowIntensity", before.ContactShadowIntensity, after.ContactShadowIntensity);
@@ -324,6 +328,11 @@ namespace OloEngine
                 ImGui::SliderFloat("Max Roughness##SSR", &settings.SSRMaxRoughness, 0.0f, 1.0f, "%.2f");
                 ImGui::SliderFloat("Edge Fade##SSR", &settings.SSREdgeFade, 0.0f, 0.5f, "%.2f");
                 ImGui::Checkbox("Debug View (reflection only)##SSR", &settings.SSRDebugView);
+                ImGui::Checkbox("Temporal Resolve##SSR", &settings.SSRTemporalResolve);
+                // AlwaysClamp so Ctrl+Click text entry cannot push feedback past the
+                // 0.98 ceiling OloTemporalBlend enforces anyway.
+                ImGui::SliderFloat("Temporal Feedback##SSR", &settings.SSRTemporalFeedback, 0.0f, 0.98f,
+                                   "%.2f", ImGuiSliderFlags_AlwaysClamp);
             }
 
             ImGui::Unindent();
@@ -351,6 +360,11 @@ namespace OloEngine
                 ImGui::SliderInt("Rays##SSGI", &settings.SSGIRayCount, 1, 32);
                 ImGui::SliderFloat("Edge Fade##SSGI", &settings.SSGIEdgeFade, 0.0f, 0.5f, "%.2f");
                 ImGui::Checkbox("Debug View (indirect only)##SSGI", &settings.SSGIDebugView);
+                ImGui::Checkbox("Temporal Resolve##SSGI", &settings.SSGITemporalResolve);
+                // AlwaysClamp so Ctrl+Click text entry cannot push feedback past the
+                // 0.98 ceiling OloTemporalBlend enforces anyway.
+                ImGui::SliderFloat("Temporal Feedback##SSGI", &settings.SSGITemporalFeedback, 0.0f, 0.98f,
+                                   "%.2f", ImGuiSliderFlags_AlwaysClamp);
             }
 
             ImGui::Unindent();

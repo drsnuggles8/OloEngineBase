@@ -6153,6 +6153,8 @@ namespace OloEngine
             out << YAML::Key << "SSRMaxRoughness" << YAML::Value << pp.SSRMaxRoughness;
             out << YAML::Key << "SSREdgeFade" << YAML::Value << pp.SSREdgeFade;
             out << YAML::Key << "SSRDebugView" << YAML::Value << pp.SSRDebugView;
+            out << YAML::Key << "SSRTemporalResolve" << YAML::Value << pp.SSRTemporalResolve;
+            out << YAML::Key << "SSRTemporalFeedback" << YAML::Value << pp.SSRTemporalFeedback;
             out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
             out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
             out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
@@ -6162,6 +6164,8 @@ namespace OloEngine
             out << YAML::Key << "SSGIRayCount" << YAML::Value << pp.SSGIRayCount;
             out << YAML::Key << "SSGIEdgeFade" << YAML::Value << pp.SSGIEdgeFade;
             out << YAML::Key << "SSGIDebugView" << YAML::Value << pp.SSGIDebugView;
+            out << YAML::Key << "SSGITemporalResolve" << YAML::Value << pp.SSGITemporalResolve;
+            out << YAML::Key << "SSGITemporalFeedback" << YAML::Value << pp.SSGITemporalFeedback;
             out << YAML::Key << "ContactShadowEnabled" << YAML::Value << pp.ContactShadowEnabled;
             out << YAML::Key << "ContactShadowIntensity" << YAML::Value << pp.ContactShadowIntensity;
             out << YAML::Key << "ContactShadowMaxDistance" << YAML::Value << pp.ContactShadowMaxDistance;
@@ -6347,6 +6351,8 @@ namespace OloEngine
             TrySet(pp.SSRMaxRoughness, ppNode["SSRMaxRoughness"]);
             TrySet(pp.SSREdgeFade, ppNode["SSREdgeFade"]);
             TrySet(pp.SSRDebugView, ppNode["SSRDebugView"]);
+            TrySet(pp.SSRTemporalResolve, ppNode["SSRTemporalResolve"]);
+            TrySet(pp.SSRTemporalFeedback, ppNode["SSRTemporalFeedback"]);
             TrySet(pp.SSGIEnabled, ppNode["SSGIEnabled"]);
             TrySet(pp.SSGIIntensity, ppNode["SSGIIntensity"]);
             TrySet(pp.SSGIMaxDistance, ppNode["SSGIMaxDistance"]);
@@ -6356,6 +6362,8 @@ namespace OloEngine
             TrySet(pp.SSGIRayCount, ppNode["SSGIRayCount"]);
             TrySet(pp.SSGIEdgeFade, ppNode["SSGIEdgeFade"]);
             TrySet(pp.SSGIDebugView, ppNode["SSGIDebugView"]);
+            TrySet(pp.SSGITemporalResolve, ppNode["SSGITemporalResolve"]);
+            TrySet(pp.SSGITemporalFeedback, ppNode["SSGITemporalFeedback"]);
             TrySet(pp.ContactShadowEnabled, ppNode["ContactShadowEnabled"]);
             TrySet(pp.ContactShadowIntensity, ppNode["ContactShadowIntensity"]);
             TrySet(pp.ContactShadowMaxDistance, ppNode["ContactShadowMaxDistance"]);
@@ -6722,6 +6730,8 @@ namespace OloEngine
             out << YAML::Key << "SSRMaxRoughness" << YAML::Value << pp.SSRMaxRoughness;
             out << YAML::Key << "SSREdgeFade" << YAML::Value << pp.SSREdgeFade;
             out << YAML::Key << "SSRDebugView" << YAML::Value << pp.SSRDebugView;
+            out << YAML::Key << "SSRTemporalResolve" << YAML::Value << pp.SSRTemporalResolve;
+            out << YAML::Key << "SSRTemporalFeedback" << YAML::Value << pp.SSRTemporalFeedback;
             out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
             out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
             out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
@@ -6731,6 +6741,8 @@ namespace OloEngine
             out << YAML::Key << "SSGIRayCount" << YAML::Value << pp.SSGIRayCount;
             out << YAML::Key << "SSGIEdgeFade" << YAML::Value << pp.SSGIEdgeFade;
             out << YAML::Key << "SSGIDebugView" << YAML::Value << pp.SSGIDebugView;
+            out << YAML::Key << "SSGITemporalResolve" << YAML::Value << pp.SSGITemporalResolve;
+            out << YAML::Key << "SSGITemporalFeedback" << YAML::Value << pp.SSGITemporalFeedback;
             out << YAML::Key << "ContactShadowEnabled" << YAML::Value << pp.ContactShadowEnabled;
             out << YAML::Key << "ContactShadowIntensity" << YAML::Value << pp.ContactShadowIntensity;
             out << YAML::Key << "ContactShadowMaxDistance" << YAML::Value << pp.ContactShadowMaxDistance;

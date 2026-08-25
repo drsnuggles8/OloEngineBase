@@ -376,6 +376,10 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SSGIColorTexture = "SSGIColorTexture";                         // Color attachment view of SSGIColor
     inline constexpr std::string_view SSRColor = "SSRColor";                                         // After screen-space reflections composite (only valid when SSR is enabled, deferred path)
     inline constexpr std::string_view SSRColorTexture = "SSRColorTexture";                           // Color attachment view of SSRColor
+    inline constexpr std::string_view SSGISignal = "SSGISignal";                                     // Raw stochastic indirect-diffuse signal, rgb = radiance, a = view depth (SSGI draw A output, issue #902)
+    inline constexpr std::string_view SSGIResolved = "SSGIResolved";                                 // Temporally-resolved SSGI signal (SSGI draw B output; the SSGIHistory source)
+    inline constexpr std::string_view SSRSignal = "SSRSignal";                                       // Raw stochastic reflection delta, rgb = (reflection - base) * blend, a = view depth (SSR draw A output, issue #902)
+    inline constexpr std::string_view SSRResolved = "SSRResolved";                                   // Temporally-resolved SSR signal (SSR draw B output; the SSRHistory source)
     inline constexpr std::string_view ContactShadowColor = "ContactShadowColor";                     // After screen-space contact-shadow composite (only valid when ContactShadow is enabled, deferred path)
     inline constexpr std::string_view ContactShadowColorTexture = "ContactShadowColorTexture";       // Color attachment view of ContactShadowColor
     inline constexpr std::string_view OverdrawColor = "OverdrawColor";                               // Overdraw heatmap debug view (only valid when OverdrawDebugView is on); replaces the viewport late in the post chain
@@ -432,6 +436,8 @@ namespace OloEngine::ResourceNames
     // VolumetricFogPass's own 3D scatter volume — issue #435.)
     inline constexpr std::string_view TAAHistory = "TAAHistory";       // Previous TAA accumulation buffer
     inline constexpr std::string_view CloudsHistory = "CloudsHistory"; // Previous cloudscape resolve buffer (half-res, issue #633)
+    inline constexpr std::string_view SSGIHistory = "SSGIHistory";     // Previous resolved SSGI signal (issue #902)
+    inline constexpr std::string_view SSRHistory = "SSRHistory";       // Previous resolved SSR signal (issue #902)
 
     // Weighted-blended OIT accumulation targets (particles and forward
     // transparent decals write these; OITResolvePass reads them and

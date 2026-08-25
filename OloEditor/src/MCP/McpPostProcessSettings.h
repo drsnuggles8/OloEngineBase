@@ -309,7 +309,9 @@ namespace OloEngine::MCP::PostProcess
         OLO_PP_NUM(SSRIntensity, "ssr", FieldType::Float, 0.0, 16.0, "Overall reflection strength multiplier."),
         OLO_PP_NUM(SSRMaxRoughness, "ssr", FieldType::Float, 0.0, 1.0, "Surfaces rougher than this receive no SSR."),
         OLO_PP_NUM(SSREdgeFade, "ssr", FieldType::Float, 0.0, 0.5, "Screen-border fade width in UV."),
-        OLO_PP_BOOL(SSRDebugView, "ssr", "Show the raw reflection buffer instead of the composite."),
+        OLO_PP_BOOL(SSRDebugView, "ssr", "Show the resolved reflection delta instead of the composite."),
+        OLO_PP_BOOL(SSRTemporalResolve, "ssr", "Accumulate the reflection signal over frames (issue #902)."),
+        OLO_PP_NUM(SSRTemporalFeedback, "ssr", FieldType::Float, 0.0, 0.98, "History weight per frame for the SSR temporal resolve."),
 
         // ---- screen-space global illumination ----------------------------------
         OLO_PP_BOOL(SSGIEnabled, "ssgi", "Run screen-space indirect diffuse (Deferred path only)."),
@@ -321,6 +323,8 @@ namespace OloEngine::MCP::PostProcess
         OLO_PP_NUM(SSGIRayCount, "ssgi", FieldType::Int, 1.0, static_cast<f64>(kSSGIMaxRays), "Cosine-weighted hemisphere rays per pixel."),
         OLO_PP_NUM(SSGIEdgeFade, "ssgi", FieldType::Float, 0.0, 0.5, "Screen-border fade width in UV."),
         OLO_PP_BOOL(SSGIDebugView, "ssgi", "Show the indirect-diffuse buffer in isolation."),
+        OLO_PP_BOOL(SSGITemporalResolve, "ssgi", "Accumulate the indirect-diffuse signal over frames (issue #902)."),
+        OLO_PP_NUM(SSGITemporalFeedback, "ssgi", FieldType::Float, 0.0, 0.98, "History weight per frame for the SSGI temporal resolve."),
 
         // ---- screen-space contact shadows --------------------------------------
         OLO_PP_BOOL(ContactShadowEnabled, "contactshadow", "Run screen-space contact shadows (Deferred path only)."),

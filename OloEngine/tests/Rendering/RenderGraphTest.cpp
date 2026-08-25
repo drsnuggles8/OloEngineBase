@@ -5099,6 +5099,116 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
         << "Test setup requires non-overlapping lifetimes for alias reuse";
 }
 
+// The paired negative for the test above, and the bug it pins is issue #902's:
+// a transient that is copied into a temporal-history sink is read AFTER the last
+// pass has run, so its lifetime does NOT end at its last pass access. Identical
+// setup to NonOverlappingTransientResourcesReuseAliasSlot — same descriptors,
+// same non-overlapping pass accesses, so the planner would happily share one
+// slot — except TempA is now a history-extraction source. It must therefore stay
+// live to the end of the frame and must NOT hand its backing to TempB.
+//
+// Getting this wrong is silent and looks like a pass bug, not a graph bug: the
+// end-of-frame copy reads whatever transient reused the slot, the history is
+// garbage (or last frame's unrelated buffer), and the temporal accumulation
+// degrades to a pass-through that still renders a perfectly plausible frame.
+// Measured on SSGI before the fix: a resolve that should have cut
+// frame-to-frame movement by 10x cut it by 0.3%.
+TEST(RenderGraphTransientPool, HistoryExtractionSourceOutlivesItsLastPassAccess)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    const auto declareDesc = []()
+    {
+        RGResourceDesc desc;
+        desc.Kind = RGResourceHandle::Kind::Texture2D;
+        desc.Format = RGResourceFormat::RGBA16Float;
+        desc.Width = 960;
+        desc.Height = 540;
+        return desc;
+    };
+
+    AddSetupNode(
+        graph,
+        "A",
+        [&declareDesc](RGBuilder& builder)
+        {
+            const auto tempA = builder.CreateTexture("TempA", declareDesc());
+            builder.Write(tempA, RGWriteUsage::RenderTarget);
+            // The whole point: TempA is copied out after every pass has run.
+            builder.ExtractHistoryTexture("TempAHistory", tempA);
+        });
+
+    AddSetupNode(
+        graph,
+        "B",
+        [&declareDesc](RGBuilder& builder)
+        {
+            const auto tempA = builder.CreateTexture("TempA", declareDesc());
+            [[maybe_unused]] const auto readTempA = builder.Read(tempA, RGReadUsage::ShaderSample);
+
+            auto sceneColor = builder.ImportTexture(
+                "SceneColorTex",
+                15,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColorTex"));
+            builder.Write(sceneColor, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "C",
+        [&declareDesc](RGBuilder& builder)
+        {
+            const auto tempB = builder.CreateTexture("TempB", declareDesc());
+            builder.Write(tempB, RGWriteUsage::RenderTarget);
+        });
+
+    AddSetupNode(
+        graph,
+        "Final",
+        [&declareDesc](RGBuilder& builder)
+        {
+            const auto tempB = builder.CreateTexture("TempB", declareDesc());
+            [[maybe_unused]] const auto readTempB = builder.Read(tempB, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("B", "C");
+    graph.SetFinalPass("Final");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto& transientPlan = graph.GetTransientPlan();
+    const auto findPlan = [&transientPlan](const std::string& resource) -> const RenderGraph::TransientPlanEntry*
+    {
+        const auto it = std::ranges::find_if(transientPlan,
+                                             [&resource](const RenderGraph::TransientPlanEntry& entry)
+                                             {
+                                                 return entry.Resource == resource;
+                                             });
+        return it == transientPlan.end() ? nullptr : &(*it);
+    };
+
+    const auto* tempA = findPlan("TempA");
+    const auto* tempB = findPlan("TempB");
+
+    ASSERT_NE(tempA, nullptr);
+    ASSERT_NE(tempB, nullptr);
+    EXPECT_TRUE(tempA->WillAllocate);
+    EXPECT_TRUE(tempB->WillAllocate);
+    EXPECT_EQ(tempA->AliasGroup, tempB->AliasGroup)
+        << "test setup requires identical descriptors, so that only the extended lifetime can "
+           "keep the two apart";
+
+    EXPECT_GE(tempA->LastPassIndex, tempB->LastPassIndex)
+        << "a history-extraction source must stay live to the last pass — the copy into the sink "
+           "runs after all of them";
+    EXPECT_NE(tempA->AliasSlot, tempB->AliasSlot)
+        << "TempA is copied into a history sink AFTER every pass has executed, so its pooled "
+           "backing must not be handed to TempB. Sharing the slot means the end-of-frame copy "
+           "reads TempB's content and the temporal accumulation silently becomes a no-op — see "
+           "docs/agent-rules/render-graph-transient-aliasing.md and issue #902.";
+}
+
 // RG16Float is now a supported framebuffer format (maps to RG16F attachment).
 // R8UNorm has no framebuffer equivalent and remains the canonical "unsupported" test case.
 TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAllocation)

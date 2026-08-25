@@ -135,6 +135,56 @@ touch the same physical texture this frame" is one lookup), and
 `olo_render_validate` reports **versioned-name physical-id groups** — a
 version whose physical differs from its base's is exactly this bug.
 
+## A resource read AFTER the last pass needs its lifetime said out loud
+
+Second archetype, found in #902 while giving SSR and SSGI their own temporal
+history. Different mechanism from the `WriteNewVersion` orphan above, same
+family: the planner and the consumer disagreed about when a transient stops
+being needed.
+
+The planner derives a transient's lifetime from **pass accesses**. A temporal
+history is copied out of its source by `FlushExtractions`, which runs once
+**every pass has executed** — so for a resource whose only accesses live inside
+one pass (which is every three-draw resolve: write it in draw B, read it in draw
+C, done), the planner freed the slot at that pass and the next same-descriptor
+transient legally overwrote it. The end-of-frame copy then read that other
+resource's pixels.
+
+**Why it had not bitten before.** The two existing history sources both dodged
+it by accident. `TAAColor` is read by later post passes, so its lifetime already
+reached the end of the chain; `CloudsResolved` is half-resolution, so its alias
+group has no other member to collide with. A scene-band `SSGIResolved` sitting
+in the same alias group as half a dozen other RGBA16F scene-band targets was the
+first source with neither protection.
+
+**What it looked like.** Nothing threw, nothing logged, the frame was plausible
+from every angle, and the whole point of the feature quietly did not happen:
+
+| | worst frame-to-frame mean\|d\|, static camera |
+|---|---|
+| SSGI, temporal resolve off (control) | 2.408 |
+| SSGI, temporal resolve on — **aliased** | 2.400 (**0.3%** better) |
+| SSGI, temporal resolve on — **fixed** | 0.223 (**10.8x** better) |
+
+The tell that cracked it was `OLO_RG_DISABLE_ALIASING=1`: with per-resource
+backing the accumulation worked instantly. **Reach for that lever the moment a
+temporal or multi-pass feature "runs but does nothing" — it is a two-second
+answer to a question that otherwise looks like a shader bug.**
+
+The fix is in the planner, not in the pass:
+`RenderGraphTransientPlanner::PlanInput::IsExtractedAfterExecution` extends any
+temporal-history source's lifetime to the last pass in the execution order, so
+the alias-slot assigner cannot give its backing away. Pinned by
+`RenderGraphTransientPool.HistoryExtractionSourceOutlivesItsLastPassAccess`,
+which is the deliberate negative of
+`NonOverlappingTransientResourcesReuseAliasSlot` — identical descriptors and
+identical pass accesses, differing only in the extraction.
+
+**The general rule: any consumer that reads a transient outside the pass
+schedule must be visible to the planner.** History sinks are the case that
+exists today; a readback, a cross-frame copy or an async-compute reader would be
+the same bug with a different name.
+
 ## Review checklist for new graph features
 
 - Any new `Get*Handle`-by-name consumer: remember unqualified names redirect

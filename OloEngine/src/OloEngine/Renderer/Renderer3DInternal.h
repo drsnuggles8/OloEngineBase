@@ -212,6 +212,14 @@ namespace OloEngine
         // sink/import mechanics as the TAA history above.
         Ref<Texture2D> CloudsHistoryTexture;
         bool CloudsHistoryValid = false;
+        // Per-pass stochastic-signal histories (issue #902) — SSGI and SSR
+        // each accumulate their OWN signal, so each needs its own sink. Same
+        // mechanics as the two above, at the scene-band resolution the
+        // SSGISignal / SSRSignal scratch targets are declared at.
+        Ref<Texture2D> SSGIHistoryTexture;
+        bool SSGIHistoryValid = false;
+        Ref<Texture2D> SSRHistoryTexture;
+        bool SSRHistoryValid = false;
         // Surface weather response UBO (binding 53, issue #633): wetness +
         // cloud-shadow map transform for the PBR surface shaders. Uploaded
         // every frame by UploadExecutionState (zeroed when nothing is
@@ -271,6 +279,10 @@ namespace OloEngine
             TAAHistoryValid = false;
             CloudsHistoryTexture.Reset();
             CloudsHistoryValid = false;
+            SSGIHistoryTexture.Reset();
+            SSGIHistoryValid = false;
+            SSRHistoryTexture.Reset();
+            SSRHistoryValid = false;
             AtmosphereShadingUBO.Reset();
             InvalidateBlackboardCache();
         }

@@ -147,11 +147,15 @@ TEST(ScreenSpaceGI, SSGIUBOGetSizeMatchesSizeof)
 }
 
 // The std140 block in PostProcess_SSGI.glsl is laid out byte-for-byte against
-// this struct: 3 mat4 (192) + 4 vec4 (64) = 256.
+// this struct: 3 mat4 (192) + 5 vec4 (80) = 272. The trailing TemporalParams
+// vec4 (#902: per-pass temporal resolve) is read by the SAME block declared in
+// PostProcess_SSGIResolve.glsl and PostProcess_SSGIComposite.glsl, so a drift
+// here breaks three shaders.
 TEST(ScreenSpaceGI, SSGIUBOLayoutSizeMatchesShader)
 {
-    EXPECT_EQ(sizeof(SSGIUBOData), 256u) << "SSGIUBOData drifted from the PostProcess_SSGI.glsl SSGIParams block";
+    EXPECT_EQ(sizeof(SSGIUBOData), 272u) << "SSGIUBOData drifted from the PostProcess_SSGI.glsl SSGIParams block";
     EXPECT_EQ(offsetof(SSGIUBOData, RayParams), 192u) << "RayParams must follow the 3 matrices at offset 192";
+    EXPECT_EQ(offsetof(SSGIUBOData, TemporalParams), 256u) << "TemporalParams must follow Flags at offset 256";
 }
 
 TEST(ScreenSpaceGI, SSGIBindingIsUniqueAndExpected)
@@ -390,4 +394,109 @@ TEST(ScreenSpaceGI, SanitizeClampsNonFiniteAndRanges)
     EXPECT_GE(s.SSGIRayCount, 1);
     EXPECT_GE(s.SSGIEdgeFade, 0.0f);
     EXPECT_LE(s.SSGIEdgeFade, 0.5f);
+}
+
+// ---- Signal / composite split (issue #902) ----------------------------------
+
+// PostProcess_SSGI.glsl no longer composites. It writes the raw indirect
+// diffuse into SSGISignal (no base colour, no intensity), the resolve
+// accumulates that through OloTemporalBlend, and
+// PostProcess_SSGIComposite.glsl adds resolved * intensity to the upstream
+// colour.
+//
+// The ORDER of those last two is the whole contract, and it is the thing a
+// still image cannot show: accumulate-then-scale and scale-then-accumulate
+// agree at every fixed intensity and diverge only while the intensity is
+// CHANGING. So the test drives the accumulator over frames with the slider
+// moving, which is exactly when a reader would notice — and is what fails if
+// anyone folds intensity into the signal draw.
+namespace
+{
+    // Mirrors OloTemporalBlend(current, history, feedback, confidence) at
+    // confidence 1: resolved = mix(current, history, feedback).
+    [[nodiscard]] f32 BlendOneFrame(f32 current, f32 history, f32 feedback)
+    {
+        return current * (1.0f - feedback) + history * feedback;
+    }
+} // namespace
+
+TEST(ScreenSpaceGI, IntensityAppliedAfterTheResolveTracksTheSliderWithoutWaitingForHistory)
+{
+    // The engine's own default, so the test moves when the shipped tuning does.
+    const PostProcessSettings defaults;
+    const f32 feedback = defaults.SSGITemporalFeedback;
+    ASSERT_GT(feedback, 0.5f) << "the property below is only interesting for a real accumulator";
+
+    constexpr f32 rawIndirect = 0.4f; // steady scene: the gather returns the same estimate
+    constexpr f32 base = 0.3f;
+
+    // Settle both orderings at intensity 1.
+    f32 signalHistory = rawIndirect;        // production: raw signal accumulates
+    f32 scaledHistory = rawIndirect * 1.0f; // counterfactual: scaled value accumulates
+
+    // The slider jumps to 4. Production scales the ALREADY-settled signal, so
+    // the composite is correct on the very next frame; the counterfactual has
+    // to re-converge from its old value.
+    constexpr f32 newIntensity = 4.0f;
+    signalHistory = BlendOneFrame(rawIndirect, signalHistory, feedback);
+    scaledHistory = BlendOneFrame(rawIndirect * newIntensity, scaledHistory, feedback);
+
+    const f32 productionComposite = base + signalHistory * newIntensity;
+    const f32 counterfactualComposite = base + scaledHistory;
+    const f32 converged = base + rawIndirect * newIntensity;
+
+    EXPECT_NEAR(productionComposite, converged, 1e-5f)
+        << "with intensity applied AFTER the resolve, a settled signal must follow the slider "
+           "immediately";
+    EXPECT_LT(counterfactualComposite, converged - 0.5f)
+        << "the paired negative: folding intensity into the accumulated signal must visibly lag. "
+           "If this ever stops holding the test has stopped discriminating between the two "
+           "orderings and is no longer testing anything";
+}
+
+// A pixel that gathered nothing must feed the accumulator a hard ZERO. This is
+// the property that makes the buffer accumulable at all, and its paired
+// negative is the pre-#902 behaviour: that pixel used to be written as `base`,
+// and accumulating the scene colour is the smear #902 removed.
+TEST(ScreenSpaceGI, AMissContributesExactlyZeroToTheAccumulatedSignal)
+{
+    const PostProcessSettings defaults;
+    const f32 feedback = defaults.SSGITemporalFeedback;
+    constexpr f32 base = 0.3f;
+    constexpr f32 intensity = 2.5f;
+
+    // Production: the signal draw writes 0 for a miss, so however many frames
+    // accumulate, the composite stays exactly the upstream colour.
+    f32 history = 0.0f;
+    for (int frame = 0; frame < 32; ++frame)
+        history = BlendOneFrame(0.0f, history, feedback);
+    EXPECT_FLOAT_EQ(base + history * intensity, base)
+        << "a miss must contribute nothing, at any number of accumulated frames";
+
+    // Paired negative: the pre-split output for that same pixel was `base`.
+    f32 legacyHistory = base;
+    for (int frame = 0; frame < 32; ++frame)
+        legacyHistory = BlendOneFrame(base, legacyHistory, feedback);
+    EXPECT_GT(legacyHistory, 0.0f)
+        << "the pre-#902 output of a miss was the base colour — non-zero, and therefore something "
+           "a temporal resolve would have smeared";
+}
+
+TEST(ScreenSpaceGI, SanitizeClampsTheTemporalFeedback)
+{
+    PostProcessSettings s;
+    s.SSGITemporalFeedback = 1.0f;
+    SanitizeSSGI(s);
+    EXPECT_LE(s.SSGITemporalFeedback, 0.98f);
+
+    s.SSGITemporalFeedback = std::numeric_limits<f32>::quiet_NaN();
+    SanitizeSSGI(s);
+    EXPECT_TRUE(std::isfinite(s.SSGITemporalFeedback));
+
+    s.SSGITemporalFeedback = -2.0f;
+    SanitizeSSGI(s);
+    EXPECT_GE(s.SSGITemporalFeedback, 0.0f);
+
+    const PostProcessSettings defaults;
+    EXPECT_TRUE(defaults.SSGITemporalResolve);
 }

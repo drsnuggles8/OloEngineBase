@@ -4895,6 +4895,50 @@ namespace OloEngine
         return m_HistoryTextureSinks.contains(std::string(historyResource));
     }
 
+    bool RenderGraph::IsExtractedAfterExecution(std::string_view resourceName) const
+    {
+        // A sink contract's SOURCE is read by FlushExtractions once every pass
+        // has executed, so the transient planner must keep its backing alive to
+        // the end of the frame rather than to its last pass access. Both
+        // contract lists qualify for the same reason: they are DECLARED (Setup,
+        // or a registration that outlives the frame) and cleared only on a
+        // topology reset, so they are visible when the plan is computed.
+        //
+        // The per-frame `m_TextureExtracts` / `m_FramebufferExtracts` callback
+        // lists are deliberately NOT consulted. They are filled during Execute,
+        // which is after RebuildTransientPlan has already run for the frame, so
+        // reading them here could only ever describe the PREVIOUS frame's
+        // extractions — an answer that is wrong in both directions. A resource
+        // extracted that way needs a declared contract (or a pass access that
+        // spans the read), not a lookup the planner cannot see in time.
+        // Compare against the CANONICAL name, because that is the key the
+        // transient planner buckets lifetimes under. A contract records the
+        // name of the handle it was given, and that is routinely a
+        // WriteNewVersion rename — TAA extracts from `TAAColor@TAAPass` while
+        // the planner tracks the lifetime of `TAAColor`. Matching raw strings
+        // silently misses every versioned source, which is the majority of the
+        // interesting ones.
+        const auto canonical = [this](const std::string& name) -> const std::string&
+        {
+            const std::string* current = &name;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+            {
+                const auto aliasIt = m_VersionAliasTargets.find(*current);
+                if (aliasIt == m_VersionAliasTargets.end())
+                {
+                    return *current;
+                }
+                current = &aliasIt->second;
+            }
+            return *current;
+        };
+
+        const auto matches = [resourceName, &canonical](const auto& contract)
+        { return canonical(contract.SourceResource) == resourceName; };
+        return std::ranges::any_of(m_TemporalHistoryContracts, matches) ||
+               std::ranges::any_of(m_ExternalTextureSinkContracts, matches);
+    }
+
     bool RenderGraph::IsResourceReachableForExtraction(std::string_view resourceName) const
     {
         if (resourceName.empty())
@@ -5147,6 +5191,8 @@ namespace OloEngine
             { return IsPassReachable(passName); },
             .IsExternallyBackedTransientResource = [this](std::string_view name)
             { return IsExternallyBackedTransientResource(name); },
+            .IsExtractedAfterExecution = [this](std::string_view name)
+            { return IsExtractedAfterExecution(name); },
         });
     }
 

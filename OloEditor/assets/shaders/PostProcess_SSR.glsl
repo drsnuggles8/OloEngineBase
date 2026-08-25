@@ -51,6 +51,15 @@ void main()
 // fades. Reflections of opaque geometry can only contain what is already on
 // screen, so off-screen rays fade out gracefully.
 //
+// OUTPUT (issue #902): this pass writes ONLY the stochastic term into the
+// dedicated SSRSignal target — rgb = the reflection DELTA, (reflection - base)
+// * blend, and a = the positive view-space depth of the shading point (the
+// temporal resolve's disocclusion test needs it and there is no depth history
+// buffer). `base + delta` reproduces the old `mix(base, reflection, blend)`
+// exactly, so the resolve accumulates the reflection and nothing else. It no
+// longer composites: PostProcess_SSRResolve.glsl accumulates the signal and
+// PostProcess_SSRComposite.glsl adds it to the upstream colour afterwards.
+//
 // The math here is mirrored on the CPU by ScreenSpaceReflectionMathTest, and the
 // rendered frame is checked by SSRVisualEvidenceTest.
 
@@ -93,6 +102,7 @@ layout(std140, binding = 38) uniform SSRParams
     vec4 u_ScreenParams; // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_Flags;        // x = DebugView (0/1), y = FrameIndex, zw = pad
     vec4 u_HZBParams;    // xy = HZB UVFactor, z = HZB mip count, w = UseHiZ (0/1)
+    vec4 u_TemporalParams; // #902; read by the resolve/composite draws, not here
 };
 
 // Named SSR_MIN_ROUGHNESS, not MIN_ROUGHNESS: PBRCommon.glsl (pulled in by
@@ -100,6 +110,10 @@ layout(std140, binding = 38) uniform SSRParams
 // `const float MIN_ROUGHNESS = ...` here would expand into a syntax error.
 const float SSR_MIN_ROUGHNESS = 0.045;
 const float SKY_DEPTH = 0.999999;
+// Ceiling for the view depth this pass hands the temporal resolve in alpha.
+// Must stay under the RGBA16F (half-float) maximum of 65504 — see the clamp in
+// main() for why exceeding it defeats the guard entirely.
+const float OLO_MAX_VIEW_DEPTH = 60000.0;
 const int HARD_MAX_STEPS = 256;
 const int HARD_MAX_BIN_STEPS = 32;
 const int HARD_MAX_HZB_LEVELS = 16; // loop-safety cap on the HZB mip used for skipping
@@ -167,9 +181,32 @@ void main()
     vec3 baseColor = texture(u_SceneColor, v_TexCoord).rgb;
 
     float depth = texture(u_DepthTexture, v_TexCoord).r;
+
+    // View-space position first, so the depth this pass hands the temporal
+    // resolve in alpha is written on EVERY path — including the early-outs
+    // below. A pixel that returned before filling alpha would compare against
+    // zero next frame and read as a permanent disocclusion.
+    vec3 P = ViewPosFromDepth(v_TexCoord, depth); // view-space position (z < 0)
+    // Saturate rather than max(): at the far plane the inverse-projection
+    // divide can hand back a non-finite w, and a single Inf or NaN in alpha
+    // would come back next frame as a NaN confidence, a NaN resolve, and — once
+    // bloom has spread it — a black block (the amplification chain in
+    // docs/agent-rules/render-graph-transient-aliasing.md). The predicate is
+    // FALSE for NaN and Inf alike, which is the point.
+    //
+    // The ceiling is 60000, not some round 1e6: alpha travels through an
+    // RGBA16F signal target and an RGBA16F history copy, and half-float tops
+    // out at 65504. A larger sentinel would be stored as +Inf — reintroducing
+    // exactly the value this guard exists to keep out — so the clamp has to
+    // land inside the format that carries it. 60000 is exactly representable
+    // in half (1875 x 32) and is far beyond any real view distance.
+    float rawViewDepth = -P.z;
+    float viewDepth = (rawViewDepth > 0.0 && rawViewDepth < OLO_MAX_VIEW_DEPTH) ? rawViewDepth
+                                                                                : OLO_MAX_VIEW_DEPTH;
+
     if (depth >= SKY_DEPTH) // sky / background — nothing to reflect from
     {
-        o_Color = vec4(baseColor, 1.0);
+        o_Color = vec4(0.0, 0.0, 0.0, viewDepth);
         return;
     }
 
@@ -177,15 +214,17 @@ void main()
     float roughness = max(gN.z, SSR_MIN_ROUGHNESS);
     float maxRoughness = u_ShadeParams.y;
 
-    // Rougher-than-cutoff surfaces still receive no SSR. The cutoff predates the
-    // VNDF ray below and is deliberately left where it was: a single stochastic
-    // sample per pixel with no temporal resolve behind it cannot carry a wide
-    // lobe, so raising it would trade the old too-sharp reflection for a noisy
-    // one. Raise it when SSR gets a history buffer, not before.
+    // Rougher-than-cutoff surfaces receive no SSR. The cutoff is no longer the
+    // "one sample can't carry a wide lobe" workaround it was — issue #902 gave
+    // this pass its own history, and the resolve is what averages the VNDF
+    // samples over frames — so the default moved 0.6 -> 0.8. It stays a fade
+    // rather than a hard edge because a screen-space reflection still has to
+    // hand over to the IBL somewhere, and a very rough lobe needs a ray count
+    // this pass does not spend.
     float roughFade = 1.0 - smoothstep(maxRoughness * 0.75, maxRoughness, roughness);
     if (roughFade <= 0.0)
     {
-        o_Color = vec4(baseColor, 1.0);
+        o_Color = vec4(0.0, 0.0, 0.0, viewDepth);
         return;
     }
 
@@ -197,8 +236,7 @@ void main()
     vec3 Nworld = OctDecode(gN.xy);
     vec3 Nview = normalize(mat3(u_View) * Nworld);
 
-    vec3 P = ViewPosFromDepth(v_TexCoord, depth); // view-space position (z < 0)
-    vec3 V = normalize(P);                         // eye -> fragment direction
+    vec3 V = normalize(P); // eye -> fragment direction
 
     // ---- Stochastic reflection ray (issue #706) ---------------------------
     //
@@ -231,7 +269,7 @@ void main()
     float vndfWeight = ggxVNDFWeight(NdotV, NdotL, roughness);
     if (vndfWeight <= 0.0) // sampled microfacet sent the ray below the horizon
     {
-        o_Color = vec4(baseColor, 1.0);
+        o_Color = vec4(0.0, 0.0, 0.0, viewDepth);
         return;
     }
 
@@ -365,7 +403,7 @@ void main()
 
     if (!hit)
     {
-        o_Color = vec4(baseColor, 1.0);
+        o_Color = vec4(0.0, 0.0, 0.0, viewDepth);
         return;
     }
 
@@ -417,11 +455,13 @@ void main()
     float blend =
         clamp(fresnelScalar * vndfWeight * roughFade * edgeFade * distFade * facingFade * u_ShadeParams.x, 0.0, 1.0);
 
-    if (u_Flags.x > 0.5) // debug: show the (blended) reflection contribution in isolation
-    {
-        o_Color = vec4(reflTarget * blend, 1.0);
-        return;
-    }
-
-    o_Color = vec4(mix(baseColor, reflTarget, blend), 1.0);
+    // Signal only — the stochastic DELTA, not the composite. Because
+    // mix(base, refl, blend) == base + (refl - base) * blend, the composite
+    // draw can reproduce the identical replace/mix resolve with a plain add,
+    // and what accumulates here is the reflection alone. It is exactly zero on
+    // every early-out above, which is what a miss should contribute. The debug
+    // view moved to the composite draw so it can show the RESOLVED signal
+    // rather than this frame's single noisy sample. Alpha is the view depth the
+    // resolve's disocclusion test compares against next frame.
+    o_Color = vec4((reflTarget - baseColor) * blend, viewDepth);
 }

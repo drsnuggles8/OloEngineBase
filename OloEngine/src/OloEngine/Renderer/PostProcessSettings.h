@@ -249,9 +249,24 @@ namespace OloEngine
         i32 SSRMaxSteps = 64;         // Maximum linear march iterations
         i32 SSRBinarySearchSteps = 6; // Binary-search refinement iterations after a crossing is found
         f32 SSRIntensity = 1.0f;      // Overall reflection strength multiplier
-        f32 SSRMaxRoughness = 0.6f;   // Surfaces rougher than this receive no SSR (fade-out cutoff)
-        f32 SSREdgeFade = 0.1f;       // Screen-border fade width in UV (0..0.5); larger = softer edges
-        bool SSRDebugView = false;    // Show the raw reflection buffer instead of the composite
+        // Surfaces rougher than this receive no SSR (fade-out cutoff). Raised
+        // from 0.6 to 0.8 in issue #902: the cutoff existed because a single
+        // VNDF sample per pixel with nothing accumulating it could not carry a
+        // wide lobe, and SSR now accumulates its own signal through
+        // TemporalResolve.glsl. Turning SSRTemporalResolve off does NOT lower
+        // it back — the two are independent knobs, and the off state is a
+        // bisect lever, not a supported look.
+        f32 SSRMaxRoughness = 0.8f;
+        f32 SSREdgeFade = 0.1f;    // Screen-border fade width in UV (0..0.5); larger = softer edges
+        bool SSRDebugView = false; // Show the resolved reflection delta instead of the composite
+        // Temporal accumulation of the reflection signal (issue #902). The
+        // stochastic term is rendered into its own SSRSignal target, resolved
+        // against the previous frame through include/TemporalResolve.glsl, and
+        // only then composited — so what accumulates is the reflection, never
+        // the base colour. Off is a bisect lever: the pass still runs, the
+        // resolve just keeps none of the history.
+        bool SSRTemporalResolve = true;
+        f32 SSRTemporalFeedback = 0.92f; // History weight per frame (0 = no accumulation, 0.98 cap)
 
         // Screen-Space Global Illumination (SSGI)
         // Deferred-only: one-bounce indirect *diffuse* lighting. For each opaque
@@ -275,6 +290,12 @@ namespace OloEngine
         i32 SSGIRayCount = 8;       // Cosine-weighted hemisphere rays per pixel
         f32 SSGIEdgeFade = 0.1f;    // Screen-border fade width in UV (0..0.5); larger = softer edges
         bool SSGIDebugView = false; // Show the indirect-diffuse buffer in isolation instead of the composite
+        // Temporal accumulation of the indirect-diffuse signal (issue #902) —
+        // same shape as SSRTemporalResolve above: SSGISignal carries only the
+        // hemisphere estimate, the resolve accumulates it, the composite adds
+        // it to the upstream colour afterwards.
+        bool SSGITemporalResolve = true;
+        f32 SSGITemporalFeedback = 0.92f; // History weight per frame (0 = no accumulation, 0.98 cap)
 
         // Screen-Space Contact Shadows (SSCS)
         // Deferred-only: short-range per-pixel hard shadows for the primary
@@ -339,8 +360,11 @@ namespace OloEngine
         s.SSRMaxSteps = std::clamp(s.SSRMaxSteps, 1, kSSRMaxSteps);
         s.SSRBinarySearchSteps = std::clamp(s.SSRBinarySearchSteps, 0, kSSRMaxBinarySearchSteps);
         s.SSRIntensity = std::clamp(finite(s.SSRIntensity, 1.0f), 0.0f, 16.0f);
-        s.SSRMaxRoughness = std::clamp(finite(s.SSRMaxRoughness, 0.6f), 0.0f, 1.0f);
+        s.SSRMaxRoughness = std::clamp(finite(s.SSRMaxRoughness, 0.8f), 0.0f, 1.0f);
         s.SSREdgeFade = std::clamp(finite(s.SSREdgeFade, 0.1f), 0.0f, 0.5f);
+        // 0.98 is the hard cap OloTemporalBlend applies anyway; clamping here
+        // keeps a persisted 1.0 from reading as "never updates" in the panel.
+        s.SSRTemporalFeedback = std::clamp(finite(s.SSRTemporalFeedback, 0.92f), 0.0f, 0.98f);
     }
 
     // Upper bounds for the SSGI ray-march counts. These MUST match the runtime
@@ -367,6 +391,7 @@ namespace OloEngine
         s.SSGIMaxSteps = std::clamp(s.SSGIMaxSteps, 1, kSSGIMaxSteps);
         s.SSGIRayCount = std::clamp(s.SSGIRayCount, 1, kSSGIMaxRays);
         s.SSGIEdgeFade = std::clamp(finite(s.SSGIEdgeFade, 0.1f), 0.0f, 0.5f);
+        s.SSGITemporalFeedback = std::clamp(finite(s.SSGITemporalFeedback, 0.92f), 0.0f, 0.98f);
     }
 
     // Upper bound for the contact-shadow march step count. MUST match the runtime
@@ -644,13 +669,20 @@ namespace OloEngine
         glm::vec4 ShadeParams = glm::vec4(1.0f, 0.6f, 0.1f, 6.0f);
         // x = width, y = height, z = 1/width, w = 1/height
         glm::vec4 ScreenParams = glm::vec4(0.0f);
-        // x = DebugView (0/1), yzw = pad
+        // x = DebugView (0/1), y = StochasticFrameIndex, zw = pad
         glm::vec4 Flags = glm::vec4(0.0f);
         // Min-depth HZB acceleration (#284). x = HZB UVFactor.x, y = HZB
         // UVFactor.y (hzbUV = screenUV * UVFactor), z = HZB mip count, w =
         // UseHiZ (0 = pure linear march, 1 = hierarchical-Z skip). The HZB
         // texture itself is bound separately at TEX_SSR_HZB.
         glm::vec4 HZBParams = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
+        // Temporal resolve (issue #902), shared by PostProcess_SSRResolve.glsl
+        // and PostProcess_SSRComposite.glsl (both read this same block).
+        // x = Feedback, y = HasVelocity (0/1), z = HistoryUsable (0/1 — the
+        // resolve toggle AND a valid previous frame), w = neighbourhood clip
+        // gamma. z is what makes the FIRST frame correct: with no history the
+        // resolve must output the current frame, not blend against garbage.
+        glm::vec4 TemporalParams = glm::vec4(0.92f, 0.0f, 0.0f, 1.25f);
 
         static constexpr u32 GetSize()
         {
@@ -659,7 +691,7 @@ namespace OloEngine
     };
 
     static_assert(sizeof(SSRUBOData) % 16 == 0, "SSRUBOData must be 16-byte aligned for std140");
-    static_assert(sizeof(SSRUBOData) == 272, "SSRUBOData std140 size drifted — update PostProcess_SSR.glsl layout");
+    static_assert(sizeof(SSRUBOData) == 288, "SSRUBOData std140 size drifted — update PostProcess_SSR.glsl layout");
 
     // GPU-side UBO layout for screen-space global illumination (std140, binding 40).
     // All math the PostProcess_SSGI.glsl hemisphere gather needs: camera matrices
@@ -678,8 +710,10 @@ namespace OloEngine
         glm::vec4 ShadeParams = glm::vec4(1.0f, 8.0f, 0.1f, 0.0f);
         // x = width, y = height, z = 1/width, w = 1/height
         glm::vec4 ScreenParams = glm::vec4(0.0f);
-        // x = DebugView (0/1), yzw = pad
+        // x = DebugView (0/1), y = StochasticFrameIndex, zw = pad
         glm::vec4 Flags = glm::vec4(0.0f);
+        // Temporal resolve (issue #902) — same lanes as SSRUBOData::TemporalParams.
+        glm::vec4 TemporalParams = glm::vec4(0.92f, 0.0f, 0.0f, 1.25f);
 
         static constexpr u32 GetSize()
         {
@@ -688,7 +722,7 @@ namespace OloEngine
     };
 
     static_assert(sizeof(SSGIUBOData) % 16 == 0, "SSGIUBOData must be 16-byte aligned for std140");
-    static_assert(sizeof(SSGIUBOData) == 256, "SSGIUBOData std140 size drifted — update PostProcess_SSGI.glsl layout");
+    static_assert(sizeof(SSGIUBOData) == 272, "SSGIUBOData std140 size drifted — update PostProcess_SSGI.glsl layout");
 
     // GPU-side UBO layout for screen-space contact shadows (std140, binding 41).
     // All math the PostProcess_ContactShadow.glsl ray march needs: camera matrices

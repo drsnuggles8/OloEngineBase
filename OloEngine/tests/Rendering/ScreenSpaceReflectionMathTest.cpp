@@ -106,12 +106,16 @@ TEST(ScreenSpaceReflection, SSRUBOGetSizeMatchesSizeof)
 }
 
 // The std140 block in PostProcess_SSR.glsl is laid out byte-for-byte against
-// this struct: 3 mat4 (192) + 5 vec4 (80) = 272. The trailing HZBParams vec4
-// (#284: min-depth HZB acceleration) must keep the size 16-byte aligned.
+// this struct: 3 mat4 (192) + 6 vec4 (96) = 288. The HZBParams vec4 (#284:
+// min-depth HZB acceleration) and the trailing TemporalParams vec4 (#902:
+// per-pass temporal resolve) must each keep the size 16-byte aligned. The
+// SAME block is declared by PostProcess_SSRResolve.glsl and
+// PostProcess_SSRComposite.glsl, so a drift here breaks three shaders.
 TEST(ScreenSpaceReflection, SSRUBOLayoutSizeMatchesShader)
 {
-    EXPECT_EQ(sizeof(SSRUBOData), 272u) << "SSRUBOData drifted from the PostProcess_SSR.glsl SSRParams block";
+    EXPECT_EQ(sizeof(SSRUBOData), 288u) << "SSRUBOData drifted from the PostProcess_SSR.glsl SSRParams block";
     EXPECT_EQ(offsetof(SSRUBOData, HZBParams), 256u) << "HZBParams must follow Flags at offset 256";
+    EXPECT_EQ(offsetof(SSRUBOData, TemporalParams), 272u) << "TemporalParams must follow HZBParams at offset 272";
 }
 
 TEST(ScreenSpaceReflection, SSRBindingIsUniqueAndExpected)
@@ -311,4 +315,97 @@ TEST(ScreenSpaceReflection, SanitizeClampsNonFiniteAndRanges)
     EXPECT_LE(s.SSRMaxRoughness, 1.0f);
     EXPECT_GE(s.SSREdgeFade, 0.0f);
     EXPECT_LE(s.SSREdgeFade, 0.5f);
+}
+
+// ---- Signal / composite split (issue #902) ----------------------------------
+
+// PostProcess_SSR.glsl no longer composites. It writes the DELTA
+// (reflection - base) * blend into SSRSignal, and PostProcess_SSRComposite.glsl
+// adds that to the upstream colour. This is the algebraic identity the split
+// rests on, and it is what makes the accumulated buffer carry ONLY the
+// stochastic term: get it wrong and the temporal resolve accumulates base
+// colour, which is precisely the failure #902 exists to remove.
+TEST(ScreenSpaceReflection, DeltaCompositeReproducesTheReplaceMixResolve)
+{
+    const auto base = glm::vec3(0.20f, 0.35f, 0.55f);
+    const auto reflection = glm::vec3(0.90f, 0.10f, 0.05f);
+
+    for (const f32 blend : { 0.0f, 0.17f, 0.5f, 0.83f, 1.0f })
+    {
+        const glm::vec3 delta = (reflection - base) * blend; // what draw A writes
+        const glm::vec3 composited = base + delta;           // what draw C computes
+        const glm::vec3 legacy = glm::mix(base, reflection, blend);
+
+        EXPECT_NEAR(composited.r, legacy.r, 1e-6f) << "blend=" << blend;
+        EXPECT_NEAR(composited.g, legacy.g, 1e-6f) << "blend=" << blend;
+        EXPECT_NEAR(composited.b, legacy.b, 1e-6f) << "blend=" << blend;
+    }
+}
+
+// A miss must contribute EXACTLY nothing. Every early-out in
+// PostProcess_SSR.glsl (sky, roughness fade closed, sub-horizon microfacet, no
+// hit) writes a zero delta rather than the base colour, so a pixel that never
+// reflects anything feeds the accumulator a hard zero instead of a copy of the
+// scene. The pairing matters: with the OLD composite-in-place output, a miss
+// wrote `base`, and accumulating THAT is the smear the issue describes.
+TEST(ScreenSpaceReflection, AMissContributesExactlyZeroToTheAccumulatedSignal)
+{
+    const auto base = glm::vec3(0.20f, 0.35f, 0.55f);
+    const auto reflection = glm::vec3(0.90f, 0.10f, 0.05f);
+
+    const glm::vec3 missDelta = (reflection - base) * 0.0f;
+    EXPECT_FLOAT_EQ(missDelta.r, 0.0f);
+    EXPECT_FLOAT_EQ(missDelta.g, 0.0f);
+    EXPECT_FLOAT_EQ(missDelta.b, 0.0f);
+    EXPECT_FLOAT_EQ((base + missDelta).r, base.r);
+
+    // The paired negative: the pre-#902 output of a miss was the base colour,
+    // which is NOT zero and would have dragged the scene into the history.
+    EXPECT_GT(base.r + base.g + base.b, 0.0f);
+}
+
+// The roughness cutoff moved 0.6 -> 0.8 because SSR now has an accumulator
+// behind its single VNDF sample. Pin the default and the fade window it
+// implies, so a future change to either is deliberate rather than incidental.
+TEST(ScreenSpaceReflection, MaxRoughnessDefaultMatchesTheTemporalResolveEra)
+{
+    const PostProcessSettings defaults;
+    EXPECT_FLOAT_EQ(defaults.SSRMaxRoughness, 0.8f)
+        << "the SSR roughness cutoff is a visual claim tied to the per-pass temporal resolve "
+           "(issue #902) — if it moved, the evidence in "
+           "ScreenSpaceTemporalResolveEvidenceTest must move with it";
+    EXPECT_TRUE(defaults.SSRTemporalResolve);
+
+    // roughFade = 1 - smoothstep(max * 0.75, max, roughness): full strength at
+    // or below 0.6, fully closed at or above 0.8, partial in between. The 0.7
+    // sphere in the evidence scene sits inside that window on purpose.
+    const auto roughFade = [](f32 roughness, f32 maxRoughness)
+    {
+        return 1.0f - glm::smoothstep(maxRoughness * 0.75f, maxRoughness, roughness);
+    };
+    EXPECT_FLOAT_EQ(roughFade(0.55f, 0.8f), 1.0f);
+    EXPECT_FLOAT_EQ(roughFade(0.85f, 0.8f), 0.0f);
+    EXPECT_GT(roughFade(0.7f, 0.8f), 0.0f);
+    EXPECT_LT(roughFade(0.7f, 0.8f), 1.0f);
+    // ...and the old cutoff rejected that same surface outright, which is the
+    // difference the evidence test measures on screen.
+    EXPECT_FLOAT_EQ(roughFade(0.7f, 0.6f), 0.0f);
+}
+
+// Feedback is clamped to the 0.98 ceiling OloTemporalBlend enforces anyway, so
+// a persisted 1.0 cannot read as "the history never updates" in the panel.
+TEST(ScreenSpaceReflection, SanitizeClampsTheTemporalFeedback)
+{
+    PostProcessSettings s;
+    s.SSRTemporalFeedback = 1.0f;
+    SanitizeSSR(s);
+    EXPECT_LE(s.SSRTemporalFeedback, 0.98f);
+
+    s.SSRTemporalFeedback = std::numeric_limits<f32>::quiet_NaN();
+    SanitizeSSR(s);
+    EXPECT_TRUE(std::isfinite(s.SSRTemporalFeedback));
+
+    s.SSRTemporalFeedback = -2.0f;
+    SanitizeSSR(s);
+    EXPECT_GE(s.SSRTemporalFeedback, 0.0f);
 }

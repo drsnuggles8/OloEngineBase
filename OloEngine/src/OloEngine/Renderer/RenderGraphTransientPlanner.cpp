@@ -312,6 +312,28 @@ namespace OloEngine::RenderGraphTransientPlanner
             }
         }
 
+        // 1b. Extend every end-of-frame-extracted resource's lifetime to the
+        //     LAST pass. The copy into a history sink happens after the whole
+        //     execution order has run, so "last pass that accessed it" is not
+        //     when it stops being needed — and a resource whose only accesses
+        //     live inside a single pass would otherwise free its slot
+        //     immediately and let the next same-descriptor transient overwrite
+        //     the very texels the sink is about to copy.
+        if (input.IsExtractedAfterExecution && !input.ExecutionOrder.empty())
+        {
+            const auto lastIndex = static_cast<u32>(input.ExecutionOrder.size() - 1u);
+            const auto& lastPass = input.ExecutionOrder[lastIndex];
+            for (auto& [resourceName, lifetime] : lifetimes)
+            {
+                if (!lifetime.Reachable || !input.IsExtractedAfterExecution(resourceName))
+                    continue;
+                if (lifetime.Last >= lastIndex)
+                    continue;
+                lifetime.Last = lastIndex;
+                lifetime.LastPass = lastPass;
+            }
+        }
+
         // 2. Compose one plan entry per transient descriptor; classify into
         //    allocatable vs skip-with-reason. We compute the hashed alias
         //    group key once per entry and use it for the sort comparator
