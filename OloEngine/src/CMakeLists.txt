@@ -994,6 +994,8 @@
 		"OloEngine/Renderer/Shadow/ShadowMap.cpp"
 		"OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 		"OloEngine/Renderer/Shadow/VirtualShadowMap.cpp"
+		"OloEngine/Renderer/VRCS/ShadingRateClassifier.h"
+		"OloEngine/Renderer/VRCS/ShadingRateClassifier.cpp"
 		"OloEngine/Renderer/Texture2DArray.h"
 		"OloEngine/Renderer/Texture3D.h"
 		"OloEngine/Renderer/Commands/CommandAllocator.cpp"

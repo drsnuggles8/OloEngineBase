@@ -230,6 +230,60 @@ namespace OloEngine
         f32 GTAODenoiseBeta = 1.2f; // Edge sensitivity
         bool GTAODebugView = false;
 
+        // ---------------------------------------------------------------------
+        // Variable Rate Compute Shading (VRCS) — issue #683
+        //
+        // A shared 8x8-tile classification pass rates each tile into a shading
+        // FOOTPRINT (1x1 / 2x2 / 4x4); a consuming compute pass then computes
+        // once per footprint and broadcasts. See
+        // docs/agent-rules/variable-rate-compute-shading.md and
+        // OloEditor/assets/shaders/include/VRCS.glsl.
+        //
+        // TWO GATES, on purpose. `VRCSEnabled` is the GLOBAL kill switch: off,
+        // the classification dispatch does not run at all and every consumer
+        // reads a footprint of 1, which is byte-for-byte the pre-#683 path.
+        // `VRCSGTAO` is the per-pass opt-in. A consumer must check BOTH, so a
+        // single toggle can retire the whole feature without visiting each pass
+        // — the thing you want when a shading-rate bug is suspected mid-session.
+        bool VRCSEnabled = false;
+        bool VRCSGTAO = true;
+
+        // 4x4 is off by default. It is a 16:1 reduction and the thresholds that
+        // make it safe are much tighter than the 2x2 ones; treat it as opt-in
+        // per scene rather than as a free extra tier.
+        bool VRCSAllow4x4 = false;
+
+        // Classification thresholds. Each is an UPPER BOUND on a tile metric,
+        // and a tile must pass all of them to coarsen — so LOWERING any of them
+        // makes classification more conservative (more full-rate tiles), never
+        // less. Defaults were chosen to keep silhouettes and creases full-rate;
+        // VRCSClassificationTest pins the behaviour at the boundaries.
+        //
+        // Depth: how far the tile departs from a PLANE, as the largest residual
+        // of a least-squares fit over inverse depth, relative to the tile's
+        // mean inverse depth. Zero for a flat surface at any angle — including
+        // a floor receding steeply toward the horizon, which a depth-RANGE test
+        // rejects and which is most of an outdoor frame. Large for a step.
+        f32 VRCSDepthThreshold = 0.01f;
+        // Normal: 1 - |mean(n)| over the tile — 0 when every normal agrees.
+        // 0.02 corresponds to roughly a 10-degree fan; a box edge inside a tile
+        // is far past it.
+        f32 VRCSNormalThreshold = 0.02f;
+        // Luminance: the previous frame's (max - min) relative to the tile's
+        // darkest pixel. Only consulted when a colour history exists; with TAA
+        // off the term contributes nothing and classification is stricter for
+        // it, not looser.
+        f32 VRCSLumaThreshold = 0.25f;
+        // Tolerance multiplier the 4x4 test applies to all three thresholds, so
+        // the 4x4 set is a strict subset of the 2x2 set by construction.
+        f32 VRCS4x4ToleranceScale = 0.25f;
+
+        // Paint the footprint each invocation actually used into the AO term
+        // (1.0 full rate, 0.5 at 2x2, 0.25 at 4x4) instead of the AO itself.
+        // Combine with GTAODebugView to see it on screen. Derived from the
+        // shader's own decision, so it cannot disagree with what ran.
+        bool VRCSDebugOverlay = false;
+
         // Screen-Space Reflections (SSR)
         // Deferred-only: reflects the lit scene color off opaque G-Buffer
         // surfaces via a view-space ray march against scene depth. The reflection

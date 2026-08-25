@@ -2019,6 +2019,15 @@ namespace OloEngine
         HashBool(h, data.PostProcess.SSAOEnabled);
         HashBool(h, data.PostProcess.GTAOEnabled);
         HashBool(h, data.PostProcess.SSGIEnabled);
+        // VRCS (issue #683). GTAORenderPass::Setup branches on both gates —
+        // with VRCS on it declares a Read edge on the TAA history for the
+        // classifier's luminance term, and with it off it does not. A Setup()
+        // that branches on runtime state the fingerprint does not hash is
+        // frozen at whatever the first cached frame decided
+        // (virtual-shadow-map-page-cache.md §5): the toggle would appear dead
+        // until something else happened to invalidate the graph.
+        HashBool(h, data.PostProcess.VRCSEnabled);
+        HashBool(h, data.PostProcess.VRCSGTAO);
         HashBool(h, data.PostProcess.SSREnabled);
         HashBool(h, data.PostProcess.ContactShadowEnabled);
         // Overdraw debug view (#519) declares/drops the OverdrawColor resource, so

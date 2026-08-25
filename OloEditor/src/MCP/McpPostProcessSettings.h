@@ -264,6 +264,25 @@ namespace OloEngine::MCP::PostProcess
         OLO_PP_NUM(GTAODenoiseBeta, "ao", FieldType::Float, 0.0, 16.0, "GTAO denoise edge sensitivity."),
         OLO_PP_BOOL(GTAODebugView, "ao", "Show the raw GTAO buffer instead of the composite."),
 
+        // ---- variable rate compute shading (issue #683) ------------------------
+        // Two gates: VRCSEnabled is the global kill switch (off = the classifier
+        // never dispatches and every consumer runs full rate), VRCSGTAO is the
+        // per-pass opt-in. Both rebuild the render graph when flipped.
+        OLO_PP_BOOL(VRCSEnabled, "ao",
+                    "Global VRCS kill switch: classify 8x8 tiles into 1x1/2x2/4x4 shading footprints."),
+        OLO_PP_BOOL(VRCSGTAO, "ao", "Let the GTAO compute pass consume the VRCS shading rates."),
+        OLO_PP_BOOL(VRCSAllow4x4, "ao", "Permit the 4x4 (16:1) footprint, not just 2x2."),
+        OLO_PP_NUM(VRCSDepthThreshold, "ao", FieldType::Float, 0.0, 1.0,
+                   "Max tile depth range, relative to its nearest surface, that may still coarsen. Lower = more full-rate tiles."),
+        OLO_PP_NUM(VRCSNormalThreshold, "ao", FieldType::Float, 0.0, 1.0,
+                   "Max tile normal spread (1 - |mean normal|) that may still coarsen. Lower = more full-rate tiles."),
+        OLO_PP_NUM(VRCSLumaThreshold, "ao", FieldType::Float, 0.0, 16.0,
+                   "Max previous-frame luminance range, relative to the tile's darkest pixel, that may still coarsen."),
+        OLO_PP_NUM(VRCS4x4ToleranceScale, "ao", FieldType::Float, 0.0, 1.0,
+                   "Multiplier the 4x4 test applies to all three thresholds, so 4x4 is a strict subset of 2x2."),
+        OLO_PP_BOOL(VRCSDebugOverlay, "ao",
+                    "Paint the per-invocation shading footprint into the AO term (1.0/0.5/0.25). Needs GTAODebugView to be visible."),
+
         // ---- bloom ------------------------------------------------------------
         OLO_PP_BOOL(BloomEnabled, "bloom", "Run the bloom down/upsample pyramid."),
         OLO_PP_NUM(BloomThreshold, "bloom", FieldType::Float, 0.0, 64.0, "Luminance above which a texel contributes to bloom."),

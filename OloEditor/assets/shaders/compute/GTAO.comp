@@ -49,12 +49,20 @@ layout(std140, binding = 28) uniform GTAOParams
     int   u_DebugView;
 
     mat4  u_ViewMatrix;    // World-to-view transform for normal conversion
+
+    // Variable Rate Compute Shading (issue #683). APPENDED, never inserted:
+    // GTAO_Denoise.comp declares a SHORTER prefix of this same block, which
+    // std140 allows, and inserting a member would silently relayout every
+    // field the denoise shader reads. x = consume the rate image, y = paint the
+    // rate heatmap into the AO term instead of the AO, zw reserved.
+    ivec4 u_VRCSParams;
 };
 
 // ---------------------------------------------------------------------------
 // Resources
 // ---------------------------------------------------------------------------
 #include "../include/BindlessHeap.glsl"
+#include "../include/VRCS.glsl"
 
 // Heap-bindless conversion (issue #691). Under OLO_BINDLESS the
 // declarations move into main() as locals built from the heap descriptors at
@@ -75,11 +83,18 @@ layout(binding = 1, r8) writeonly uniform image2D o_Edges;
 #define u_HZBDepth OLO_HEAP_TEX_2D(3)
 #define u_ViewNormals OLO_HEAP_TEX_2D(4)
 #define u_HilbertLUT OLO_HEAP_TEX_2D_UINT(5)
+#define u_ShadingRate OLO_HEAP_TEX_2D_UINT(6)
 #else
 layout(binding = 3) uniform sampler2D u_HZBDepth;        // HZB depth pyramid
 layout(binding = 4) uniform sampler2D u_ViewNormals;     // Octahedral-encoded view normals
 
 layout(binding = 5) uniform usampler2D u_HilbertLUT;     // 64x64 R16UI Hilbert curve index
+
+// VRCS per-tile shading rate (R8UI, one texel per 8x8 pixels — issue #683).
+// UNSIGNED sampler, like the Hilbert LUT above and for the same reason: a heap
+// handle carries no type, so reading an R8UI image through the float macro
+// reinterprets the same uvec2 and returns garbage with no diagnostic (§5d).
+layout(binding = 6) uniform usampler2D u_ShadingRate;
 #endif
 
 // ---------------------------------------------------------------------------
@@ -181,18 +196,168 @@ float CalculateEdges(float centerZ, float leftZ, float rightZ, float topZ, float
 }
 
 // ---------------------------------------------------------------------------
-// Main AO computation
+// Write this invocation's AO and edge weight across its VRCS footprint (#683).
+//
+// At full rate (footprint 1) this is exactly the two imageStores the shader
+// always did. At 2x2 / 4x4 it is the BROADCAST half of the contract in
+// include/VRCS.glsl.
+//
+// THE EDGE WEIGHT IS BROADCAST TOO, which an earlier version of this shader
+// deliberately did not do — it computed the edge term per pixel on the grounds
+// that the denoise pass uses it as bilateral guidance and must not blur across
+// a discontinuity. That reasoning was right about the risk and wrong about
+// where it applies: inside a coarse tile the classifier has already certified
+// planarity AND normal agreement, so there is no discontinuity for the edge
+// term to protect and its per-pixel variation there is noise. Keeping it
+// per-pixel also meant every follower invocation still did five HZB taps, so
+// no invocation could retire early — which is most of why the first
+// measured build was 43% SLOWER rather than faster (see §4 of
+// docs/agent-rules/variable-rate-compute-shading.md).
+//
+// The bounds test is not optional — a footprint may hang off the right or
+// bottom edge of the viewport even though its leader is inside (footprints are
+// origin-aligned, so the leader is the minimum corner).
+//
+// The images are declared HERE rather than in main() because under OLO_BINDLESS
+// the heap macro declares and initialises a FUNCTION-SCOPED local, so it has to
+// be repeated in every function that touches the image (glsl-shaders.md §5b).
 // ---------------------------------------------------------------------------
-void main()
+void StoreResultFootprint(ivec2 base, uint footprint, float ao, float edge)
 {
 #ifdef OLO_BINDLESS
     OLO_HEAP_IMAGE(r8, writeonly, image2D, o_AOTerm, 0);
     OLO_HEAP_IMAGE(r8, writeonly, image2D, o_Edges, 1);
 #endif
-    ivec2 pixCoord = ivec2(gl_GlobalInvocationID.xy);
+    for (uint dy = 0u; dy < footprint; ++dy)
+    {
+        for (uint dx = 0u; dx < footprint; ++dx)
+        {
+            ivec2 target = base + ivec2(int(dx), int(dy));
+            if (target.x < u_ScreenWidth && target.y < u_ScreenHeight)
+            {
+                imageStore(o_AOTerm, target, vec4(ao));
+                imageStore(o_Edges, target, vec4(edge));
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Map this invocation to the pixel it should SHADE, compacting the work so
+// whole waves retire (issue #683).
+//
+// THIS IS THE STEP THAT MAKES VRCS FASTER RATHER THAN SLOWER, and leaving it
+// out is the whole of the first build's 43% regression. The obvious
+// implementation — every invocation keeps its own pixel and returns unless it
+// is its footprint's leader — masks lanes but does not retire waves. Leaders
+// sit at even x and even y, so with a 16x16 group every 32-lane wave still
+// contains 8 of them and still pays the full latency of the slice loop; the
+// only thing the "saving" bought was an extra fetch, an extra branch and four
+// times the stores.
+//
+// So instead: the group's 256 invocations are handed out as a COMPACTED list of
+// the leaders of the four 8x8 tiles the group covers. With all four tiles at
+// 2x2 that is 64 work items, so lanes 64-255 — six of the eight waves — retire
+// on a single comparison and never touch a texture.
+//
+// Returns false when this invocation has no work.
+// ---------------------------------------------------------------------------
+bool ResolveVRCSWorkItem(out ivec2 pixCoord, out uint footprint)
+{
+    uint lane = gl_LocalInvocationIndex;
+
+    // VRCS off: the identity mapping, byte-for-byte the pre-#683 path. A
+    // group-uniform branch on a uniform, so it costs nothing, and it keeps the
+    // disabled path's memory access pattern EXACTLY as it was rather than
+    // as a permutation that happens to cover the same pixels.
+    if (u_VRCSParams.x == 0)
+    {
+        pixCoord = ivec2(gl_GlobalInvocationID.xy);
+        footprint = OLO_VRCS_RATE_1X1;
+        return true;
+    }
+
+    ivec2 groupTile = ivec2(gl_WorkGroupID.xy) * 2;
+
+    uint fps[4];
+    uint counts[4];
+    uint total = 0u;
+    for (uint t = 0u; t < 4u; ++t)
+    {
+        // An out-of-range texelFetch on the rate image returns 0, which decodes
+        // to full rate — so a group hanging off the tile grid degrades to
+        // correct-and-slow rather than to a coarse block of nothing.
+        ivec2 tc = groupTile + ivec2(int(t & 1u), int(t >> 1u));
+        uint f = OloVRCSDecodeFootprint(texelFetch(u_ShadingRate, tc, 0).r);
+        uint perSide = uint(OLO_VRCS_TILE_SIZE) / f;
+        fps[t] = f;
+        counts[t] = perSide * perSide;
+        total += counts[t];
+    }
+
+    if (lane >= total)
+    {
+        pixCoord = ivec2(0);
+        footprint = OLO_VRCS_RATE_1X1;
+        return false;
+    }
+
+    // Which tile does this work item belong to, and which leader within it?
+    uint t = 0u;
+    uint local = lane;
+    while (t < 3u && local >= counts[t])
+    {
+        local -= counts[t];
+        ++t;
+    }
+
+    uint f = fps[t];
+    uint perSide = uint(OLO_VRCS_TILE_SIZE) / f;
+    ivec2 tileOrigin = (groupTile + ivec2(int(t & 1u), int(t >> 1u))) * OLO_VRCS_TILE_SIZE;
+
+    pixCoord = tileOrigin + ivec2(int((local % perSide) * f), int((local / perSide) * f));
+    footprint = f;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Main AO computation
+// ---------------------------------------------------------------------------
+void main()
+{
+    // Variable Rate Compute Shading (issue #683). Every invocation that gets
+    // past this point OWNS a footprint and shades it; the ones with no work
+    // have already retired, in whole waves wherever the group's tiles are
+    // coarse. With VRCS off this is the identity mapping and every line below
+    // behaves exactly as it did before — there is deliberately no second copy
+    // of the AO code to keep in sync.
+    ivec2 pixCoord;
+    uint vrcsFootprint;
+    if (!ResolveVRCSWorkItem(pixCoord, vrcsFootprint))
+    {
+        return;
+    }
 
     if (pixCoord.x >= u_ScreenWidth || pixCoord.y >= u_ScreenHeight)
     {
+        return;
+    }
+
+    // Rate-visualisation heatmap: 1.0 full rate, 0.5 at 2x2, 0.25 at 4x4,
+    // written into the AO term so the existing GTAO debug view displays it.
+    //
+    // Derived from the footprint this invocation ACTUALLY used, never re-read
+    // from the rate image, so the overlay cannot disagree with what ran.
+    //
+    // Placed FIRST, above every early-out, so the heatmap is uniform: a sky or
+    // sentinel tile takes an early return that publishes AO = 1.0, and reading
+    // that as "full rate" in the overlay would paint a legitimately-coarse sky
+    // tile white. GTAORenderPass also suppresses the denoise while this is on,
+    // because four bilateral blur passes over a block pattern is a blur of the
+    // thing the overlay exists to show.
+    if (u_VRCSParams.y != 0)
+    {
+        StoreResultFootprint(pixCoord, vrcsFootprint, OloVRCSDebugShade(vrcsFootprint), 0.0);
         return;
     }
 
@@ -204,8 +369,10 @@ void main()
 
     if (deviceZ <= 0.0 || deviceZ >= XE_GTAO_FAR_DEPTH_THRESHOLD)
     {
-        imageStore(o_AOTerm, pixCoord, vec4(1.0));
-        imageStore(o_Edges, pixCoord, vec4(0.0));
+        // Classification refuses to coarsen a tile that mixes sky and
+        // geometry, so every pixel of this footprint is on the same side of
+        // this test as the invocation that took it.
+        StoreResultFootprint(pixCoord, vrcsFootprint, 1.0, 0.0);
         return;
     }
 
@@ -219,8 +386,9 @@ void main()
     vec2 encodedNormal = texelFetch(u_ViewNormals, pixCoord, 0).rg;
     if (encodedNormal.x < -1.5)
     {
-        imageStore(o_AOTerm, pixCoord, vec4(1.0));
-        imageStore(o_Edges, pixCoord, vec4(0.0));
+        // Same argument as the sky case: a tile containing a sentinel normal is
+        // never coarsened, so this footprint is uniform in that respect too.
+        StoreResultFootprint(pixCoord, vrcsFootprint, 1.0, 0.0);
         return;
     }
 
@@ -232,7 +400,11 @@ void main()
     float pixTZ = LinearizeDepth(SampleHZBDepth((vec2(pixCoord) + vec2( 0.0,-1.0) + 0.5) * pixelSize, 0.0));
     float pixBZ = LinearizeDepth(SampleHZBDepth((vec2(pixCoord) + vec2( 0.0, 1.0) + 0.5) * pixelSize, 0.0));
 
-    // Edge weight for denoise
+    // Edge weight for the denoise's bilateral guidance. Broadcast across the
+    // footprint alongside the AO term — see StoreResultFootprint for why that
+    // is safe inside a tile the classifier has already certified as planar and
+    // normal-consistent, and why keeping it per-pixel was what stopped any
+    // invocation from retiring.
     float edgeWeight = CalculateEdges(viewspaceZ, pixLZ, pixRZ, pixTZ, pixBZ);
 
     // Reconstruct view-space position
@@ -282,8 +454,7 @@ void main()
     // Too small to matter — skip
     if (pixelRadius < 2.0)
     {
-        imageStore(o_AOTerm, pixCoord, vec4(1.0));
-        imageStore(o_Edges, pixCoord, vec4(edgeWeight));
+        StoreResultFootprint(pixCoord, vrcsFootprint, 1.0, edgeWeight);
         return;
     }
 
@@ -450,7 +621,6 @@ void main()
     visibility = pow(visibility, u_FinalValuePower);
     visibility = clamp(visibility, 0.03, 1.0);
 
-    // Store results
-    imageStore(o_AOTerm, pixCoord, vec4(visibility));
-    imageStore(o_Edges, pixCoord, vec4(edgeWeight));
+    // Store results across this invocation's footprint.
+    StoreResultFootprint(pixCoord, vrcsFootprint, visibility, edgeWeight);
 }
