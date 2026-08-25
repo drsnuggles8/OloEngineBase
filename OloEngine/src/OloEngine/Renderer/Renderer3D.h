@@ -1496,11 +1496,6 @@ namespace OloEngine
             return CreateRenderStreamDrawCall<T>(RenderStreamType::Foliage);
         }
 
-        static void SubmitFoliagePacket(CommandPacket* packet)
-        {
-            SubmitRenderStreamPacket(RenderStreamType::Foliage, packet);
-        }
-
         template<typename T>
         static CommandPacket* CreateForwardOverlayDrawCall()
         {
