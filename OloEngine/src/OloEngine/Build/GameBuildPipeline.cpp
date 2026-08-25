@@ -44,7 +44,7 @@ namespace OloEngine
                 continue;
             }
 
-            std::string extension = it->path().extension().string();
+            auto extension = it->path().extension().string();
             std::ranges::transform(extension, extension.begin(), [](unsigned char c)
                                    { return static_cast<char>(std::tolower(c)); });
             if (extension == ".dll")
@@ -101,7 +101,7 @@ namespace OloEngine
                 continue;
             }
 
-            std::string extension = it->path().extension().string();
+            auto extension = it->path().extension().string();
             std::ranges::transform(extension, extension.begin(), [](unsigned char c)
                                    { return static_cast<char>(std::tolower(c)); });
             if (textureExtensions.contains(extension))
@@ -371,7 +371,7 @@ namespace OloEngine
         // Step 8c: Copy writable project runtime configuration. Input actions
         // stay loose (rather than inside the immutable asset pack) because the
         // in-game rebind panel persists back to this same path.
-        if (!CopyProjectRuntimeConfig(outputDir, result.ErrorMessage))
+        if (!StageProjectRuntimeFiles(outputDir, result.ErrorMessage))
         {
             return result;
         }
@@ -939,7 +939,7 @@ namespace OloEngine
         return true;
     }
 
-    bool GameBuildPipeline::CopyProjectRuntimeConfig(
+    bool GameBuildPipeline::StageProjectRuntimeFiles(
         const std::filesystem::path& outputDir,
         std::string& errorMessage)
     {

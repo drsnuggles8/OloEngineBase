@@ -3495,6 +3495,15 @@ namespace OloEngine
             inputContextTable["Custom"] = static_cast<i32>(InputContextType::Custom);
         }
 
+        // --- UIButtonState constants (for authored UI controller scripts) ---
+        {
+            auto buttonStateTable = lua.create_named_table("UIButtonState");
+            buttonStateTable["Normal"] = static_cast<i32>(UIButtonState::Normal);
+            buttonStateTable["Hovered"] = static_cast<i32>(UIButtonState::Hovered);
+            buttonStateTable["Pressed"] = static_cast<i32>(UIButtonState::Pressed);
+            buttonStateTable["Disabled"] = static_cast<i32>(UIButtonState::Disabled);
+        }
+
         // --- DialogueComponent ---
         lua.new_usertype<DialogueComponent>("DialogueComponent",
                                             "dialogueTree", &DialogueComponent::m_DialogueTree,

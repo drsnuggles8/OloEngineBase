@@ -8,8 +8,6 @@
 local MainMenu = {}
 
 local kSaveSlot = "drift_voyage"
-local kButtonPressed = 2
-local kButtonHovered = 1
 
 local buttonIDs = {}
 local previousStates = {}
@@ -35,7 +33,7 @@ local function clicked(name)
     local current = button.state
     local previous = previousStates[name]
     previousStates[name] = current
-    return previous == kButtonPressed and current == kButtonHovered
+    return previous == UIButtonState.Pressed and current == UIButtonState.Hovered
 end
 
 local function refreshContinue()

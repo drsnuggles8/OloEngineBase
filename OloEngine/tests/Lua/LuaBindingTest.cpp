@@ -81,6 +81,17 @@ TEST_F(LuaBindingTest, InputRequestRebindMenuCarriesAuthoredContextToHost)
     InputActionManager::Shutdown();
 }
 
+TEST_F(LuaBindingTest, UIButtonStateConstantsMatchComponentStateValues)
+{
+    auto result = lua.script("return UIButtonState.Normal, UIButtonState.Hovered, "
+                             "UIButtonState.Pressed, UIButtonState.Disabled");
+    const auto values = result.get<std::tuple<i32, i32, i32, i32>>();
+    EXPECT_EQ(std::get<0>(values), static_cast<i32>(UIButtonState::Normal));
+    EXPECT_EQ(std::get<1>(values), static_cast<i32>(UIButtonState::Hovered));
+    EXPECT_EQ(std::get<2>(values), static_cast<i32>(UIButtonState::Pressed));
+    EXPECT_EQ(std::get<3>(values), static_cast<i32>(UIButtonState::Disabled));
+}
+
 // =============================================================================
 // GLM vector constructors and access
 // =============================================================================

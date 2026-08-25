@@ -947,7 +947,7 @@ namespace OloEngine
         }
 
         // Load shader
-        const std::string authoredShaderName = materialNode["Shader"].as<std::string>("PBR_MultiLight");
+        const auto authoredShaderName = materialNode["Shader"].as<std::string>("PBR_MultiLight");
         const std::string shaderName = ResolveRuntimeShaderName(authoredShaderName);
         auto& shaderLibrary = Renderer3D::GetShaderLibrary();
         Ref<Shader> shader;

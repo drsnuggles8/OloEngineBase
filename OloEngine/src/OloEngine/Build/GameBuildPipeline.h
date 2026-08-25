@@ -220,7 +220,7 @@ namespace OloEngine
          * start scene and RuntimeInputRebindMenu writes the player's changes
          * back to the same file so bindings survive a process restart.
          */
-        static bool CopyProjectRuntimeConfig(
+        static bool StageProjectRuntimeFiles(
             const std::filesystem::path& outputDir,
             std::string& errorMessage);
 

@@ -600,26 +600,11 @@ namespace OloEngine
         /// already had instead of dropping it into a torn-down state.
         [[nodiscard]] bool ActivateScene(const std::filesystem::path& path, const std::string& saveSlot = {})
         {
-            auto loaded = SceneTransition::LoadSceneFile(path, /*requirePrimaryCamera=*/true);
+            auto loaded = SceneTransition::LoadSceneFile(path, /*requirePrimaryCamera=*/true, saveSlot);
             if (!loaded)
             {
                 OLO_CORE_ERROR("[Runtime] {}", loaded.Error);
                 return false;
-            }
-
-            // Continue restores into the DESERIALIZED but not-yet-running
-            // scene. Physics, scripts and audio then initialize from the saved
-            // component state exactly once. Loading after OnRuntimeStart would
-            // replace the registry underneath already-live subsystem handles.
-            if (!saveSlot.empty())
-            {
-                const SaveLoadResult result = SaveGameManager::Load(*loaded.LoadedScene, saveSlot);
-                if (result != SaveLoadResult::Success)
-                {
-                    OLO_CORE_ERROR("[Runtime] Could not restore save slot '{}' for scene '{}' (result {}). Staying on '{}'.",
-                                   saveSlot, path.string(), static_cast<int>(result), m_ScenePath.string());
-                    return false;
-                }
             }
 
             // Close the rebind menu first — it holds a Scene* / entity handles into the scene

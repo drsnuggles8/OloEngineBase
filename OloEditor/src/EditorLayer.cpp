@@ -4243,22 +4243,11 @@ namespace OloEngine
 
         // Load and validate BEFORE tearing the running scene down, so a bad
         // target leaves Play mode running rather than half-stopped.
-        auto loaded = SceneTransition::LoadSceneFile(resolved, /*requirePrimaryCamera=*/true);
+        auto loaded = SceneTransition::LoadSceneFile(resolved, /*requirePrimaryCamera=*/true, saveSlot);
         if (!loaded)
         {
             OLO_CORE_ERROR("[Editor] Scene switch failed: {}", loaded.Error);
             return false;
-        }
-
-        if (!saveSlot.empty())
-        {
-            const SaveLoadResult result = SaveGameManager::Load(*loaded.LoadedScene, saveSlot);
-            if (result != SaveLoadResult::Success)
-            {
-                OLO_CORE_ERROR("[Editor] Could not restore save slot '{}' for scene '{}' (result {}). Staying on the current scene.",
-                               saveSlot, resolved.string(), static_cast<int>(result));
-                return false;
-            }
         }
 
         OLO_CORE_INFO("[Editor] Switching play scene to '{}'", resolved.string());
