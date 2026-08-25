@@ -858,8 +858,9 @@ Entities:
   #
   # Waterline at 0.218 of the height range (24 m of base below sea level over a
   # 110 m HeightScale); peak about 84 m above the water. The layer bands below are
-  # anchored on that number, not on absolute heights, so every island bands the
-  # same way in relative terms however deep it is sunk.
+  # anchored on that number AND on this island's own slope distribution, so every
+  # island bands the same way in relative terms however deep it is sunk and however
+  # steep it is — see the note above its LayerRules (issue #942).
   - Entity: 879000000000005
     TagComponent:
       Tag: Island - Ridgeback
@@ -896,38 +897,56 @@ Entities:
       ShapingIslandFalloffRadius: 0.3
       AutoMaterial: true
       SplatmapGenResolution: 512
+      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
+      # #942). Two things had to be measured, and only the first ever was:
+      #
+      #   * HEIGHT. The reachable range here is [0.218, 0.986] — the waterline at the
+      #     bottom, and at the top whatever the island mask and the height exponent
+      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
+      #     the summit layer above the summit, so it never drew at all.
+      #   * SLOPE. 69 deg is this island's cliff line: the steepest ~28% of its
+      #     surface. It is ONE number shared by all four rules — the three altitude
+      #     bands stop there and the bare-rock rule starts there — because a rock
+      #     rule that opens BELOW the median slope claims the whole island and
+      #     normalizes every altitude band to nothing. That is what it used to do:
+      #     the #880 shoreline mask ramps full height to zero across the outer
+      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
+      #     threshold sat under it.
+      #
+      # Resulting share of the above-water surface: 16/37/27/20 %.
+      # Guarded by DriftIslandSplatCoverageTest.
       LayerRules:
         - LayerIndex: 0
           MinHeight: 0
-          MaxHeight: 0.296
-          HeightBlend: 0.05
+          MaxHeight: 0.298
+          HeightBlend: 0.077
           MinSlopeDeg: 0
-          MaxSlopeDeg: 34
-          SlopeBlend: 10
+          MaxSlopeDeg: 69
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 1
-          MinHeight: 0.312
-          MaxHeight: 0.734
-          HeightBlend: 0.06
+          MinHeight: 0.298
+          MaxHeight: 0.528
+          HeightBlend: 0.077
           MinSlopeDeg: 0
-          MaxSlopeDeg: 42
-          SlopeBlend: 12
+          MaxSlopeDeg: 69
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 2
           MinHeight: 0
           MaxHeight: 1
           HeightBlend: 0
-          MinSlopeDeg: 48
+          MinSlopeDeg: 69
           MaxSlopeDeg: 90
-          SlopeBlend: 12
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 3
-          MinHeight: 0.844
+          MinHeight: 0.528
           MaxHeight: 1
-          HeightBlend: 0.05
+          HeightBlend: 0.077
           MinSlopeDeg: 0
-          MaxSlopeDeg: 45
-          SlopeBlend: 10
+          MaxSlopeDeg: 69
+          SlopeBlend: 8
           Strength: 1
       # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
       # island resolve as you sail toward it instead of popping: nodes are selected by
@@ -1082,8 +1101,9 @@ Entities:
   #
   # Waterline at 0.282 of the height range (24 m of base below sea level over a
   # 85 m HeightScale); peak about 44 m above the water. The layer bands below are
-  # anchored on that number, not on absolute heights, so every island bands the
-  # same way in relative terms however deep it is sunk.
+  # anchored on that number AND on this island's own slope distribution, so every
+  # island bands the same way in relative terms however deep it is sunk and however
+  # steep it is — see the note above its LayerRules (issue #942).
   - Entity: 879000000000006
     TagComponent:
       Tag: Island - Mesa
@@ -1120,38 +1140,56 @@ Entities:
       ShapingIslandFalloffRadius: 0.29
       AutoMaterial: true
       SplatmapGenResolution: 512
+      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
+      # #942). Two things had to be measured, and only the first ever was:
+      #
+      #   * HEIGHT. The reachable range here is [0.282, 0.800] — the waterline at the
+      #     bottom, and at the top whatever the island mask and the height exponent
+      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
+      #     the summit layer above the summit, so it never drew at all.
+      #   * SLOPE. 24 deg is this island's cliff line: the steepest ~28% of its
+      #     surface. It is ONE number shared by all four rules — the three altitude
+      #     bands stop there and the bare-rock rule starts there — because a rock
+      #     rule that opens BELOW the median slope claims the whole island and
+      #     normalizes every altitude band to nothing. That is what it used to do:
+      #     the #880 shoreline mask ramps full height to zero across the outer
+      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
+      #     threshold sat under it.
+      #
+      # Resulting share of the above-water surface: 28/31/27/14 %.
+      # Guarded by DriftIslandSplatCoverageTest.
       LayerRules:
         - LayerIndex: 0
           MinHeight: 0
-          MaxHeight: 0.354
-          HeightBlend: 0.05
+          MaxHeight: 0.422
+          HeightBlend: 0.052
           MinSlopeDeg: 0
-          MaxSlopeDeg: 34
-          SlopeBlend: 10
+          MaxSlopeDeg: 24
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 1
-          MinHeight: 0.369
-          MaxHeight: 0.756
-          HeightBlend: 0.06
+          MinHeight: 0.422
+          MaxHeight: 0.622
+          HeightBlend: 0.052
           MinSlopeDeg: 0
-          MaxSlopeDeg: 42
-          SlopeBlend: 12
+          MaxSlopeDeg: 24
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 2
           MinHeight: 0
           MaxHeight: 1
           HeightBlend: 0
-          MinSlopeDeg: 48
+          MinSlopeDeg: 24
           MaxSlopeDeg: 90
-          SlopeBlend: 12
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 3
-          MinHeight: 0.856
+          MinHeight: 0.622
           MaxHeight: 1
-          HeightBlend: 0.05
+          HeightBlend: 0.052
           MinSlopeDeg: 0
-          MaxSlopeDeg: 45
-          SlopeBlend: 10
+          MaxSlopeDeg: 24
+          SlopeBlend: 8
           Strength: 1
       # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
       # island resolve as you sail toward it instead of popping: nodes are selected by
@@ -1306,8 +1344,9 @@ Entities:
   #
   # Waterline at 0.400 of the height range (24 m of base below sea level over a
   # 60 m HeightScale); peak about 36 m above the water. The layer bands below are
-  # anchored on that number, not on absolute heights, so every island bands the
-  # same way in relative terms however deep it is sunk.
+  # anchored on that number AND on this island's own slope distribution, so every
+  # island bands the same way in relative terms however deep it is sunk and however
+  # steep it is — see the note above its LayerRules (issue #942).
   - Entity: 879000000000007
     TagComponent:
       Tag: Island - Atoll
@@ -1344,38 +1383,56 @@ Entities:
       ShapingIslandFalloffRadius: 0.33
       AutoMaterial: true
       SplatmapGenResolution: 512
+      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
+      # #942). Two things had to be measured, and only the first ever was:
+      #
+      #   * HEIGHT. The reachable range here is [0.400, 1.000] — the waterline at the
+      #     bottom, and at the top whatever the island mask and the height exponent
+      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
+      #     the summit layer above the summit, so it never drew at all.
+      #   * SLOPE. 47 deg is this island's cliff line: the steepest ~28% of its
+      #     surface. It is ONE number shared by all four rules — the three altitude
+      #     bands stop there and the bare-rock rule starts there — because a rock
+      #     rule that opens BELOW the median slope claims the whole island and
+      #     normalizes every altitude band to nothing. That is what it used to do:
+      #     the #880 shoreline mask ramps full height to zero across the outer
+      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
+      #     threshold sat under it.
+      #
+      # Resulting share of the above-water surface: 17/35/27/21 %.
+      # Guarded by DriftIslandSplatCoverageTest.
       LayerRules:
         - LayerIndex: 0
           MinHeight: 0
           MaxHeight: 0.46
-          HeightBlend: 0.05
-          MinSlopeDeg: 0
-          MaxSlopeDeg: 34
-          SlopeBlend: 10
-          Strength: 1
-        - LayerIndex: 1
-          MinHeight: 0.472
-          MaxHeight: 0.796
           HeightBlend: 0.06
           MinSlopeDeg: 0
-          MaxSlopeDeg: 42
-          SlopeBlend: 12
+          MaxSlopeDeg: 47
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 1
+          MinHeight: 0.46
+          MaxHeight: 0.69
+          HeightBlend: 0.06
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 47
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 2
           MinHeight: 0
           MaxHeight: 1
           HeightBlend: 0
-          MinSlopeDeg: 48
+          MinSlopeDeg: 47
           MaxSlopeDeg: 90
-          SlopeBlend: 12
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 3
-          MinHeight: 0.88
+          MinHeight: 0.69
           MaxHeight: 1
-          HeightBlend: 0.05
+          HeightBlend: 0.06
           MinSlopeDeg: 0
-          MaxSlopeDeg: 45
-          SlopeBlend: 10
+          MaxSlopeDeg: 47
+          SlopeBlend: 8
           Strength: 1
       # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
       # island resolve as you sail toward it instead of popping: nodes are selected by
@@ -1530,8 +1587,9 @@ Entities:
   #
   # Waterline at 0.185 of the height range (24 m of base below sea level over a
   # 130 m HeightScale); peak about 98 m above the water. The layer bands below are
-  # anchored on that number, not on absolute heights, so every island bands the
-  # same way in relative terms however deep it is sunk.
+  # anchored on that number AND on this island's own slope distribution, so every
+  # island bands the same way in relative terms however deep it is sunk and however
+  # steep it is — see the note above its LayerRules (issue #942).
   - Entity: 879000000000008
     TagComponent:
       Tag: Island - Stacks
@@ -1568,38 +1626,56 @@ Entities:
       ShapingIslandFalloffRadius: 0.26
       AutoMaterial: true
       SplatmapGenResolution: 512
+      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
+      # #942). Two things had to be measured, and only the first ever was:
+      #
+      #   * HEIGHT. The reachable range here is [0.185, 0.941] — the waterline at the
+      #     bottom, and at the top whatever the island mask and the height exponent
+      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
+      #     the summit layer above the summit, so it never drew at all.
+      #   * SLOPE. 81 deg is this island's cliff line: the steepest ~28% of its
+      #     surface. It is ONE number shared by all four rules — the three altitude
+      #     bands stop there and the bare-rock rule starts there — because a rock
+      #     rule that opens BELOW the median slope claims the whole island and
+      #     normalizes every altitude band to nothing. That is what it used to do:
+      #     the #880 shoreline mask ramps full height to zero across the outer
+      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
+      #     threshold sat under it.
+      #
+      # Resulting share of the above-water surface: 18/37/26/19 %.
+      # Guarded by DriftIslandSplatCoverageTest.
       LayerRules:
         - LayerIndex: 0
           MinHeight: 0
-          MaxHeight: 0.266
-          HeightBlend: 0.05
+          MaxHeight: 0.235
+          HeightBlend: 0.076
           MinSlopeDeg: 0
-          MaxSlopeDeg: 34
-          SlopeBlend: 10
+          MaxSlopeDeg: 81
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 1
-          MinHeight: 0.282
-          MaxHeight: 0.723
-          HeightBlend: 0.06
+          MinHeight: 0.235
+          MaxHeight: 0.385
+          HeightBlend: 0.076
           MinSlopeDeg: 0
-          MaxSlopeDeg: 42
-          SlopeBlend: 12
+          MaxSlopeDeg: 81
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 2
           MinHeight: 0
           MaxHeight: 1
           HeightBlend: 0
-          MinSlopeDeg: 48
+          MinSlopeDeg: 81
           MaxSlopeDeg: 90
-          SlopeBlend: 12
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 3
-          MinHeight: 0.837
+          MinHeight: 0.385
           MaxHeight: 1
-          HeightBlend: 0.05
+          HeightBlend: 0.076
           MinSlopeDeg: 0
-          MaxSlopeDeg: 45
-          SlopeBlend: 10
+          MaxSlopeDeg: 81
+          SlopeBlend: 8
           Strength: 1
       # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
       # island resolve as you sail toward it instead of popping: nodes are selected by
@@ -1704,8 +1780,9 @@ Entities:
   #
   # Waterline at 0.253 of the height range (24 m of base below sea level over a
   # 95 m HeightScale); peak about 65 m above the water. The layer bands below are
-  # anchored on that number, not on absolute heights, so every island bands the
-  # same way in relative terms however deep it is sunk.
+  # anchored on that number AND on this island's own slope distribution, so every
+  # island bands the same way in relative terms however deep it is sunk and however
+  # steep it is — see the note above its LayerRules (issue #942).
   - Entity: 879000000000009
     TagComponent:
       Tag: Island - Dunes
@@ -1742,38 +1819,56 @@ Entities:
       ShapingIslandFalloffRadius: 0.32
       AutoMaterial: true
       SplatmapGenResolution: 512
+      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
+      # #942). Two things had to be measured, and only the first ever was:
+      #
+      #   * HEIGHT. The reachable range here is [0.253, 0.936] — the waterline at the
+      #     bottom, and at the top whatever the island mask and the height exponent
+      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
+      #     the summit layer above the summit, so it never drew at all.
+      #   * SLOPE. 51 deg is this island's cliff line: the steepest ~28% of its
+      #     surface. It is ONE number shared by all four rules — the three altitude
+      #     bands stop there and the bare-rock rule starts there — because a rock
+      #     rule that opens BELOW the median slope claims the whole island and
+      #     normalizes every altitude band to nothing. That is what it used to do:
+      #     the #880 shoreline mask ramps full height to zero across the outer
+      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
+      #     threshold sat under it.
+      #
+      # Resulting share of the above-water surface: 17/37/26/21 %.
+      # Guarded by DriftIslandSplatCoverageTest.
       LayerRules:
         - LayerIndex: 0
           MinHeight: 0
-          MaxHeight: 0.327
-          HeightBlend: 0.05
+          MaxHeight: 0.423
+          HeightBlend: 0.068
           MinSlopeDeg: 0
-          MaxSlopeDeg: 34
-          SlopeBlend: 10
+          MaxSlopeDeg: 51
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 1
-          MinHeight: 0.342
-          MaxHeight: 0.746
-          HeightBlend: 0.06
+          MinHeight: 0.423
+          MaxHeight: 0.693
+          HeightBlend: 0.068
           MinSlopeDeg: 0
-          MaxSlopeDeg: 42
-          SlopeBlend: 12
+          MaxSlopeDeg: 51
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 2
           MinHeight: 0
           MaxHeight: 1
           HeightBlend: 0
-          MinSlopeDeg: 48
+          MinSlopeDeg: 51
           MaxSlopeDeg: 90
-          SlopeBlend: 12
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 3
-          MinHeight: 0.851
+          MinHeight: 0.693
           MaxHeight: 1
-          HeightBlend: 0.05
+          HeightBlend: 0.068
           MinSlopeDeg: 0
-          MaxSlopeDeg: 45
-          SlopeBlend: 10
+          MaxSlopeDeg: 51
+          SlopeBlend: 8
           Strength: 1
       # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
       # island resolve as you sail toward it instead of popping: nodes are selected by
@@ -1928,8 +2023,9 @@ Entities:
   #
   # Waterline at 0.320 of the height range (24 m of base below sea level over a
   # 75 m HeightScale); peak about 51 m above the water. The layer bands below are
-  # anchored on that number, not on absolute heights, so every island bands the
-  # same way in relative terms however deep it is sunk.
+  # anchored on that number AND on this island's own slope distribution, so every
+  # island bands the same way in relative terms however deep it is sunk and however
+  # steep it is — see the note above its LayerRules (issue #942).
   - Entity: 879000000000011
     TagComponent:
       Tag: Island - Sisters
@@ -1966,38 +2062,56 @@ Entities:
       ShapingIslandFalloffRadius: 0.28
       AutoMaterial: true
       SplatmapGenResolution: 512
+      # Bands anchored on this island's MEASURED distribution, not on [0,1] (issue
+      # #942). Two things had to be measured, and only the first ever was:
+      #
+      #   * HEIGHT. The reachable range here is [0.320, 1.000] — the waterline at the
+      #     bottom, and at the top whatever the island mask and the height exponent
+      #     actually leave standing, which is NOT 1.0. Bands written against 1.0 put
+      #     the summit layer above the summit, so it never drew at all.
+      #   * SLOPE. 75 deg is this island's cliff line: the steepest ~28% of its
+      #     surface. It is ONE number shared by all four rules — the three altitude
+      #     bands stop there and the bare-rock rule starts there — because a rock
+      #     rule that opens BELOW the median slope claims the whole island and
+      #     normalizes every altitude band to nothing. That is what it used to do:
+      #     the #880 shoreline mask ramps full height to zero across the outer
+      #     flank, which is ~50 deg of unavoidable slope, and the old 48 deg rock
+      #     threshold sat under it.
+      #
+      # Resulting share of the above-water surface: 17/36/27/19 %.
+      # Guarded by DriftIslandSplatCoverageTest.
       LayerRules:
         - LayerIndex: 0
           MinHeight: 0
-          MaxHeight: 0.388
-          HeightBlend: 0.05
+          MaxHeight: 0.45
+          HeightBlend: 0.068
           MinSlopeDeg: 0
-          MaxSlopeDeg: 34
-          SlopeBlend: 10
+          MaxSlopeDeg: 75
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 1
-          MinHeight: 0.402
-          MaxHeight: 0.769
-          HeightBlend: 0.06
+          MinHeight: 0.45
+          MaxHeight: 0.76
+          HeightBlend: 0.068
           MinSlopeDeg: 0
-          MaxSlopeDeg: 42
-          SlopeBlend: 12
+          MaxSlopeDeg: 75
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 2
           MinHeight: 0
           MaxHeight: 1
           HeightBlend: 0
-          MinSlopeDeg: 48
+          MinSlopeDeg: 75
           MaxSlopeDeg: 90
-          SlopeBlend: 12
+          SlopeBlend: 8
           Strength: 1
         - LayerIndex: 3
-          MinHeight: 0.864
+          MinHeight: 0.76
           MaxHeight: 1
-          HeightBlend: 0.05
+          HeightBlend: 0.068
           MinSlopeDeg: 0
-          MaxSlopeDeg: 45
-          SlopeBlend: 10
+          MaxSlopeDeg: 75
+          SlopeBlend: 8
           Strength: 1
       # The GPU LOD quadtree drives this terrain (issue #714). It is what makes an
       # island resolve as you sail toward it instead of popping: nodes are selected by
