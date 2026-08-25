@@ -16,9 +16,15 @@ keeps rendering — slightly wrong, in one scene, at one camera angle.
 ## 1. The issue's premise was wrong about three of its four passes
 
 The issue opens with "the heavy lighting passes are fully compute (`DeferredLightingPass`, GTAO,
-SSGI, `VolumetricFogPass`)". That is true of one and a half of them, and the plan's explicit
-ordering — "integrate `DeferredLightingPass` first" — is built on it. Measured against the tree at
-`7581bb05b`:
+SSGI, `VolumetricFogPass`)". **Two of those four are compute** — GTAO and `VolumetricFogPass` — and
+**only one of them can take screen-tile VRCS as designed**, which is GTAO. The other three fail for
+two different reasons, so they are not one category: `DeferredLightingPass` and `SSGIRenderPass` are
+fullscreen *fragment* draws and have no per-invocation work to compact at all, while
+`VolumetricFogPass` *is* compute but dispatches over a froxel volume rather than screen tiles, so the
+rate image does not index it.
+
+The plan's explicit ordering — "integrate `DeferredLightingPass` first" — is built on the premise,
+and that pass is in the fragment group. Measured against the tree at `7581bb05b`:
 
 | pass | what it actually is | VRCS applicable? |
 |---|---|---|
