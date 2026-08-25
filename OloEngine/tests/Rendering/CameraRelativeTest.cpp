@@ -128,6 +128,36 @@ TEST(CameraRelative, RelativeViewProjectionIsInvariantForNearbyGeometry)
         EXPECT_NEAR(ndcRel[i], ndcWorld[i], 1e-3f) << "ndc component " << i;
 }
 
+TEST(CameraRelative, MainCameraPackingDoesNotReconstructProjectionFromViewProjection)
+{
+    // Regression for #952/#954. A terrain draw re-uploads the shared CameraUBO
+    // between the depth and colour replays. The old upload recovered projection
+    // as (P * V) * inverse(V); at this deterministic repro pose that is not
+    // bit-identical to P and changes clip-space depth despite being
+    // algebraically equivalent.
+    const glm::vec3 eye(6.55f, 4.57f, -241.0f);
+    const glm::vec3 target(0.0f, 0.6f, -250.0f);
+    const glm::mat4 projection = glm::perspective(glm::radians(45.0f), 16.0f / 9.0f, 0.1f, 1000.0f);
+    const glm::mat4 view = glm::lookAt(eye, target, { 0.0f, 1.0f, 0.0f });
+    const glm::mat4 viewProjection = projection * view;
+
+    const glm::mat4 packed = MakeViewProjectionRelative(projection, view, glm::vec3(0.0f));
+    const glm::mat4 reconstructedProjection = viewProjection * glm::inverse(view);
+    const glm::mat4 reconstructed = reconstructedProjection * MakeViewRelative(view, glm::vec3(0.0f));
+
+    u32 differentComponents = 0;
+    for (int column = 0; column < 4; ++column)
+    {
+        for (int row = 0; row < 4; ++row)
+        {
+            EXPECT_FLOAT_EQ(packed[column][row], viewProjection[column][row]);
+            differentComponents += packed[column][row] != reconstructed[column][row] ? 1u : 0u;
+        }
+    }
+    EXPECT_GT(differentComponents, 0u)
+        << "The repro depends on inverse-based projection recovery losing exact depth parity";
+}
+
 // -----------------------------------------------------------------------------
 // The payoff: fine local geometric detail is what f32 loses far from origin (a
 // mesh's sub-ULP vertex offsets collapse — the visible jitter/deformation). The
