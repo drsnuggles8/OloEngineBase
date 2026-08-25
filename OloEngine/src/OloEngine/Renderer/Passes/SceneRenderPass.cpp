@@ -128,7 +128,7 @@ namespace OloEngine
             return;
         }
 
-        // Deferred path: bind a 4-RT G-Buffer instead of the forward scene FB.
+        // Deferred path: bind the G-Buffer instead of the forward scene FB.
         // The G-Buffer is lazily created here so Forward / Forward+ paths pay
         // zero memory cost if Deferred is never enabled.
         auto const& rendererSettings = Renderer3D::GetRendererSettings();
@@ -164,6 +164,16 @@ namespace OloEngine
         // In Deferred mode the entityID slot isn't present — ClearAllAttachments
         // iterates the attachment list so it is safe either way.
         renderFB->ClearAllAttachments({ 0.1f, 0.1f, 0.1f, 1.0f }, -1);
+
+        // Baked-GI RT (G-Buffer RT5, issue #865) must clear to zero, not to the
+        // generic 0.1/1.0 fill: its .a is COVERAGE, and a cleared 1.0 reads as
+        // "this pixel has a valid baked texel" everywhere the G-Buffer pass never
+        // ran. Same reasoning as the velocity clear below — one shared clear
+        // colour cannot be right for a target whose channels are not colour.
+        if (deferredActive && m_GBuffer)
+        {
+            renderFB->ClearAttachment(std::to_underlying(GBuffer::BakedGI), glm::vec4(0.0f));
+        }
 
         // Velocity RT (scene FB attachment 3 in Forward / Forward+) must clear
         // to zero so non-PBR forward shaders that don't emit location=3 leave

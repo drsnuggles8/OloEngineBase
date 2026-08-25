@@ -23,6 +23,7 @@ namespace OloEngine
                 FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },     // RT2 Emissive + Flags
                 FramebufferTextureSpecification{ FramebufferTextureFormat::RG16F },       // RT3 Velocity
                 FramebufferTextureSpecification{ FramebufferTextureFormat::RED_INTEGER }, // RT4 EntityID (picking)
+                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },     // RT5 Baked lightmap irradiance + coverage (issue #865)
                 // Depth must match the scene framebuffer's depth format
                 // (`FramebufferTextureFormat::Depth` = DEPTH24STENCIL8) so that
                 // `RenderCommand::BlitFramebuffer(RHI::BlitAspect::Depth, …)` — the path used

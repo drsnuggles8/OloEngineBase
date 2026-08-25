@@ -327,9 +327,10 @@ namespace OloEngine
         }
 
         Ref<Shader> shaderToUse;
-        // Deferred mode demands that every ScenePass draw write the 4-RT
+        // Deferred mode demands that every ScenePass draw write the full
         // G-Buffer layout (Albedo/Metallic, Normal/Roughness/AO, Emissive/
-        // Flags, Velocity). Non-PBR materials selecting s_Data.DefaultForwardShader
+        // Flags, Velocity, EntityID, BakedGI). Non-PBR materials selecting
+        // s_Data.DefaultForwardShader
         // would instead write the legacy forward outputs (o_Color / o_EntityID
         // / o_ViewNormal / o_Velocity), which alias onto the G-Buffer slots
         // and corrupt lighting for every subsequent pixel.

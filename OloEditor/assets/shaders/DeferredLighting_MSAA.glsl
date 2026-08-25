@@ -136,6 +136,10 @@ layout(binding = 44) uniform sampler2DMS u_GBufferNormal;
 layout(binding = 45) uniform sampler2DMS u_GBufferEmissive;
 layout(binding = 46) uniform sampler2DMS u_GBufferVelocity;
 layout(binding = 47) uniform sampler2DMS u_GBufferDepth;
+// RT5 — baked lightmap irradiance + coverage (issue #865). Fetched per SAMPLE
+// like the rest: resolving it first would average two charts' coverage across a
+// silhouette and shade the pixel from a blend the geometry never had.
+layout(binding = 69) uniform sampler2DMS u_GBufferBakedGI;
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
@@ -204,7 +208,9 @@ void main()
         // use (issue #429). No-op near origin (u_RenderOrigin == 0).
         vec3 worldPos = ReconstructWorldPosGB(v_TexCoord, depth) - u_RenderOrigin;
 
-        accum += ComputeDeferredLit(albedo, metallic, N, roughness, ao, emissiveFlags, worldPos);
+        vec4 bakedGI = texelFetch(u_GBufferBakedGI, pixel, s);
+
+        accum += ComputeDeferredLit(albedo, metallic, N, roughness, ao, emissiveFlags, worldPos, bakedGI);
     }
 
     vec3 color = accum / float(sampleCount);

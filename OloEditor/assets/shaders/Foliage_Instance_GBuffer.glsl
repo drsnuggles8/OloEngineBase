@@ -207,6 +207,14 @@ layout(location = 1) out vec4 o_GBufferNormal;
 layout(location = 2) out vec4 o_GBufferEmissive;
 layout(location = 3) out vec2 o_GBufferVelocity;
 layout(location = 4) out int  o_GBufferEntityID;
+// Baked lightmap irradiance target (G-Buffer RT5, issue #865). This shader
+// draws no lightmapped receiver, but an MRT output it never writes is
+// UNDEFINED in that attachment, and RT5's .a is a coverage flag — undefined
+// there reads as "this pixel has baked GI" and the deferred ambient ladder
+// shades it from whatever the target happened to hold. Writing vec4(0) is the
+// explicit "no baked GI here" every non-lightmapped G-Buffer writer owes the
+// lighting pass.
+layout(location = 5) out vec4 o_GBufferBakedGI;
 
 vec2 octEncodeGB(vec3 n)
 {
@@ -255,4 +263,5 @@ void main()
     o_GBufferVelocity = (ndcCurr - ndcPrev) * 0.5;
 
     o_GBufferEntityID = u_EntityID;
+    o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
 }

@@ -60,20 +60,7 @@ namespace OloEngine
         ResetResolvedState();
         m_FramesUntilRecheck = 0;
         m_WarnedResolveFailure = false;
-        m_WarnedUnsampledPath = false;
         m_FailedUnwraps.clear();
-    }
-
-    void SceneLightmapRuntime::WarnIfActivePathCannotSample(const char* pathName)
-    {
-        if (m_WarnedUnsampledPath || !IsValid())
-            return;
-
-        m_WarnedUnsampledPath = true;
-        OLO_CORE_WARN("SceneLightmapRuntime: a valid baked lightmap is resolved, but the active {} render path "
-                      "cannot sample it — those draws fall back to probes/IBL, so the bake has no visible effect. "
-                      "Switch the rendering path to Forward to see baked GI (tracked: issue #865).",
-                      pathName);
     }
 
     void SceneLightmapRuntime::ResetResolvedState()

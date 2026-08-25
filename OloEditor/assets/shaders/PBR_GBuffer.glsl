@@ -11,6 +11,16 @@
 //   RT1 (RGBA16F) — OctNormal.xy + Roughness(z) + AO(w)
 //   RT2 (RGBA16F) — Emissive.rgb + MaterialFlags(A)
 //   RT3 (RG16F)   — Screen-space velocity (curr.xy - prev.xy)
+//   RT4 (R32I)    — Picking entity ID
+//   RT5 (RGBA16F) — Baked lightmap irradiance E.rgb + coverage .a (issue #865)
+//
+// RT5 is why this shader carries UV2 at all. The deferred lighting pass shades
+// from the G-Buffer and by then the fragment has neither UV2 nor instance
+// identity, so the atlas fetch has to happen HERE — the last stage that still
+// has both — and the result travels as irradiance, which is what the ambient
+// ladder consumes on the forward path too. Everything downstream of this file
+// treats RT5 exactly as PBR_MultiLight.glsl treats
+// sampleLightmapIrradiance()'s return value.
 // =============================================================================
 
 #type vertex
@@ -28,11 +38,25 @@ layout(std430, binding = 57) readonly buffer OloVertexPull
 {
     float v[];
 } b_Vertices;
+// Lightmap UV2 pull (issue #866/#865) — same reservation and the same reasoning
+// as PBR_MultiLight.glsl: bones and lightmap UV2 are mutually exclusive per mesh
+// (MeshSource::Build fills VAO stream 1 with one or the other), and this is the
+// non-skinned G-Buffer variant, so it never shares a VAO with
+// PBR_GBuffer_Skinned.glsl's bone data.
+layout(std430, binding = 63) readonly buffer OloLightmapUVPull
+{
+    vec2 v[];
+} b_LightmapUV;
 #define OLO_PULLED_VERTEX 1
 #else
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TexCoord;
+// Lightmap UV2 (issue #439): a SEPARATE MeshSource stream at attribute 3
+// (static meshes only — skinned VAOs keep bones at 3/4 and never carry it).
+// Every static VAO exposes the attribute; unbaked meshes back it with the
+// stride-0 constant stub, so the layout is identical across draws.
+layout(location = 3) in vec2 a_TexCoord2;
 #endif
 
 // Camera UBO (binding 0)
@@ -60,6 +84,7 @@ layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord;
 layout(location = 3) out vec4 v_ClipPosCurr;
 layout(location = 4) out vec4 v_ClipPosPrev;
+layout(location = 5) out vec2 v_TexCoord2;
 
 // Depth-prepass contract: the color pass re-tests at GL_LEQUAL against depth
 // written by DepthPrepass*.glsl, which replicates this exact position math.
@@ -73,11 +98,24 @@ void main()
     vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
     vec3 a_Normal = vec3(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4], b_Vertices.v[vertBase + 5]);
     vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
+    // Gate the pull on the SAME per-instance signal sampleLightmapIrradiance()
+    // uses. An unbaked static mesh has no stream-1 buffer, so an unconditional
+    // pull resolves to the frame arena's fixed-size null block and a real mesh's
+    // vertex count runs off the end of it — a buffer-device-address read has no
+    // bounds, so that is a device loss, not a clamped read (ADR 0011 amendment
+    // (89)). LightmapScaleOffset.x > 0 is only ever published for a mesh whose
+    // UV2 stream was actually built.
+    vec2 a_TexCoord2 = vec2(0.0);
+    if (instances[gl_InstanceIndex].LightmapScaleOffset.x > 0.0)
+    {
+        a_TexCoord2 = b_LightmapUV.v[gl_VertexIndex];
+    }
 #endif
     OLO_INSTANCE_FORWARD();
     v_WorldPos = vec3(u_Model * vec4(a_Position, 1.0));
     v_Normal = mat3(u_Normal) * a_Normal;
     v_TexCoord = a_TexCoord;
+    v_TexCoord2 = a_TexCoord2;
 
     v_ClipPosCurr = u_ViewProjection * vec4(v_WorldPos, 1.0);
     // Per-entity previous-frame transform (u_PrevModel) plus the previous
@@ -138,6 +176,11 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 // block signatures matched across stages.
 #include "include/InstanceBlock.glsl"
 
+// Baked lightmap atlas (issue #439): UBO 1 + sampler 16. Included AFTER the
+// instance block because the per-draw atlas region it needs travels in
+// InstanceData::LightmapScaleOffset.
+#include "include/LightmapSampling.glsl"
+
 // Texture bindings — must match PBR_MultiLight so material data works unchanged.
 //
 // This shader declares ONLY the material five, so converting it is the whole
@@ -164,12 +207,14 @@ layout(location = 1) in vec3 v_Normal;
 layout(location = 2) in vec2 v_TexCoord;
 layout(location = 3) in vec4 v_ClipPosCurr;
 layout(location = 4) in vec4 v_ClipPosPrev;
+layout(location = 5) in vec2 v_TexCoord2;
 
 layout(location = 0) out vec4 o_GBufferAlbedo;    // RGBA8       albedo + metallic
 layout(location = 1) out vec4 o_GBufferNormal;    // RGBA16F     octNormal + roughness + ao
 layout(location = 2) out vec4 o_GBufferEmissive;  // RGBA16F     emissive + flags
 layout(location = 3) out vec2 o_GBufferVelocity;  // RG16F       screen-space velocity
 layout(location = 4) out int  o_GBufferEntityID;  // RED_INTEGER picking entity ID (blitted to SceneColor RT1 by DeferredLightingPass)
+layout(location = 5) out vec4 o_GBufferBakedGI;  // RGBA16F     baked lightmap irradiance E + coverage (issue #865)
 
 // Octahedral encode: unit normal -> [-1,1]^2.
 vec2 octEncodeGB(vec3 n)
@@ -223,4 +268,10 @@ void main()
     o_GBufferEmissive = vec4(emissive, 0.0); // flags reserved
     o_GBufferVelocity = velocity;
     o_GBufferEntityID = u_EntityID;
+    // vec4(0) whenever the scene kill switch is off, this draw has no atlas
+    // region, or the texel was never baked — the deferred ambient ladder then
+    // falls through to probes/IBL exactly as it did before #865. Coverage is the
+    // sampler's alpha, never the colour: a validly baked pure-black texel must
+    // keep its darkness rather than glow with sky IBL.
+    o_GBufferBakedGI = sampleLightmapIrradiance(v_TexCoord2, instances[v_InstanceIndex].LightmapScaleOffset);
 }

@@ -341,6 +341,7 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view GBufferNormal = "GBufferNormal";     // RT1 — canonical single-sample normal + roughness + AO view (direct attachment or MSAA resolve view)
     inline constexpr std::string_view GBufferEmissive = "GBufferEmissive"; // RT2 — canonical single-sample emissive HDR view (direct attachment or MSAA resolve view)
     inline constexpr std::string_view Velocity = "Velocity";               // canonical single-sample motion vectors (direct attachment or MSAA resolve view)
+    inline constexpr std::string_view GBufferBakedGI = "GBufferBakedGI";   // RT5 — canonical single-sample baked lightmap irradiance + coverage view (issue #865)
 
     // Multisample deferred attachments (deferred + MSAA). When MSAA is active,
     // the canonical single-sample handles above are modeled as explicit
@@ -351,6 +352,7 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view GBufferNormalMS = "GBufferNormalMS";
     inline constexpr std::string_view GBufferEmissiveMS = "GBufferEmissiveMS";
     inline constexpr std::string_view VelocityMS = "VelocityMS";
+    inline constexpr std::string_view GBufferBakedGIMS = "GBufferBakedGIMS";
     inline constexpr std::string_view SceneDepthMS = "SceneDepthMS";
 
     // Indirect occlusion outputs.

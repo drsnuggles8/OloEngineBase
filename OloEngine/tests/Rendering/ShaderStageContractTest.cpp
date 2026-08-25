@@ -264,12 +264,18 @@ namespace OloEngine::Tests
             const char* Why;
         };
 
-        // kNone is RHI::NoAttachment — "this draw slot writes nowhere".
+        // kNone is RHI::NoAttachment — "this draw slot writes nowhere". Each map
+        // has one entry per G-Buffer attachment (GBuffer::Count), so these
+        // literals grow when the layout does — issue #865's RT5 (baked lightmap
+        // irradiance) added the sixth kNone. That is not incidental: a SHORT
+        // initializer list value-initializes the tail to 0, and 0 is attachment
+        // 0, not "nowhere" — so a map that silently lost an entry would route a
+        // decal's unwritten location 5 straight at RT0.
         const DecalMode kModes[] = {
-            { "Decal_GBuffer.glsl", { 0u }, "drawAlbedoOnly={0,kNone,kNone,kNone,kNone}", "Albedo writes RT0 only" },
-            { "Decal_GBuffer_Normal.glsl", { 1u }, "drawNormalOnly={kNone,1,kNone,kNone,kNone}", "Normal writes RT1 only" },
-            { "Decal_GBuffer_RMA.glsl", { 0u, 1u }, "drawAlbedoAndNormal={0,1,kNone,kNone,kNone}", "RMA writes RT0.a and RT1.zw" },
-            { "Decal_GBuffer_Emissive.glsl", { 2u }, "drawEmissiveOnly={kNone,kNone,2,kNone,kNone}", "Emissive writes RT2 only" },
+            { "Decal_GBuffer.glsl", { 0u }, "drawAlbedoOnly={0,kNone,kNone,kNone,kNone,kNone}", "Albedo writes RT0 only" },
+            { "Decal_GBuffer_Normal.glsl", { 1u }, "drawNormalOnly={kNone,1,kNone,kNone,kNone,kNone}", "Normal writes RT1 only" },
+            { "Decal_GBuffer_RMA.glsl", { 0u, 1u }, "drawAlbedoAndNormal={0,1,kNone,kNone,kNone,kNone}", "RMA writes RT0.a and RT1.zw" },
+            { "Decal_GBuffer_Emissive.glsl", { 2u }, "drawEmissiveOnly={kNone,kNone,2,kNone,kNone,kNone}", "Emissive writes RT2 only" },
         };
 
         const fs::path passSource = ResolveRepoFile("OloEngine/src/OloEngine/Renderer/Passes/DecalRenderPass.cpp");

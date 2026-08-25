@@ -255,6 +255,29 @@ namespace OloEngine
                 return;
         }
 
+        // Our OWN pass markers, echoed back at us. Every render-graph pass is
+        // wrapped in glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, ...) /
+        // glPopDebugGroup() so a RenderDoc/Nsight capture is readable
+        // (OpenGLRendererAPI::PushDebugGroup), and KHR_debug specifies that BOTH
+        // calls generate a debug message through this callback — so each pass
+        // costs two NOTIFICATION lines per frame, which is two-per-pass-per-frame
+        // of pure noise burying anything actionable. They carry nothing the
+        // GPUPassTimerPool and the graph's own submission-plan log do not already
+        // say, and nothing in the engine or the tests reads them.
+        //
+        // This is the general form of the AsyncBatch[ prefix filter above, which
+        // was the same problem noticed one marker at a time; that one stays
+        // because it also covers glDebugMessageInsert markers, which are neither
+        // group type.
+        //
+        // Filtering on TYPE, not on source or on the message text: the group
+        // types are exactly "this is a marker, not a diagnostic", whereas source
+        // APPLICATION also carries real inserted messages worth seeing.
+        if (type == GL_DEBUG_TYPE_PUSH_GROUP || type == GL_DEBUG_TYPE_POP_GROUP)
+        {
+            return;
+        }
+
         if (type == GL_DEBUG_TYPE_ERROR)
         {
             s_GLErrorCount.fetch_add(1, std::memory_order_relaxed);

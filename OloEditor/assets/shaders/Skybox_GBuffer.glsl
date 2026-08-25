@@ -69,6 +69,14 @@ layout(location = 1) out vec4 o_GBufferNormal;    // RGBA16F
 layout(location = 2) out vec4 o_GBufferEmissive;  // RGBA16F — carries unlit flag in .a
 layout(location = 3) out vec2 o_GBufferVelocity;  // RG16F
 layout(location = 4) out int  o_GBufferEntityID;  // RED_INTEGER — skybox is not pickable
+// Baked lightmap irradiance target (G-Buffer RT5, issue #865). This shader
+// draws no lightmapped receiver, but an MRT output it never writes is
+// UNDEFINED in that attachment, and RT5's .a is a coverage flag — undefined
+// there reads as "this pixel has baked GI" and the deferred ambient ladder
+// shades it from whatever the target happened to hold. Writing vec4(0) is the
+// explicit "no baked GI here" every non-lightmapped G-Buffer writer owes the
+// lighting pass.
+layout(location = 5) out vec4 o_GBufferBakedGI;
 
 #include "include/BindlessHeap.glsl"
 #ifdef OLO_BINDLESS
@@ -94,4 +102,5 @@ void main()
     // Skybox is rigidly attached to the camera — no screen-space velocity.
     o_GBufferVelocity = vec2(0.0);
     o_GBufferEntityID = -1;
+    o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
 }

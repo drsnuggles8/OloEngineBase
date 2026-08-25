@@ -15,7 +15,7 @@ namespace OloEngine
 {
     // @brief Deferred lighting composition pass.
     //
-    // Reads a 4-RT G-Buffer and writes fully-lit scene colour into the
+    // Reads the G-Buffer and writes fully-lit scene colour into the
     // forward scene framebuffer's colour attachment 0. This keeps
     // downstream passes (PostProcess, Selection Outline, UIComposite)
     // oblivious to the rendering path.
@@ -82,6 +82,7 @@ namespace OloEngine
             RGTextureHandle GBufferNormal;
             RGTextureHandle GBufferEmissive;
             RGTextureHandle Velocity;
+            RGTextureHandle GBufferBakedGI; // RT5 — baked lightmap irradiance + coverage (issue #865)
             RGTextureHandle SceneDepth;
             RGTextureHandle AOBuffer;
             RGTextureHandle ShadowMapCSM;

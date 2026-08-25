@@ -2386,6 +2386,7 @@ namespace OloEngine
             //   RT1 Normal   — octahedral normal + roughness + AO
             //   RT2 Emissive — emissive HDR
             //   RT3 Velocity — screen-space motion vectors
+            //   RT5 BakedGI  — baked lightmap irradiance + coverage (issue #865)
             auto buildGBufferFramebufferDesc = [&gbuffer](const u32 sampleCount, std::string_view debugName) -> RGResourceDesc
             {
                 RGResourceDesc desc;
@@ -2405,6 +2406,11 @@ namespace OloEngine
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::RG16Float,
                     RGResourceFormat::R32Int,
+                    // Index 5 (RGBA16Float) is the baked-lightmap irradiance +
+                    // coverage target the G-Buffer pass fills and
+                    // DeferredLightingPass consumes as the ambient ladder's top
+                    // rung (issue #865).
+                    RGResourceFormat::RGBA16Float,
                     RGResourceFormat::Depth24Stencil8,
                 };
                 desc.DebugName = std::string(debugName);
@@ -2439,6 +2445,7 @@ namespace OloEngine
                 board.GBuffer.GBufferNormalMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferNormalMS, multisampleGBuffer, 1u);
                 board.GBuffer.GBufferEmissiveMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferEmissiveMS, multisampleGBuffer, 2u);
                 board.GBuffer.VelocityMS = graph.CreateFramebufferAttachmentView(ResourceNames::VelocityMS, multisampleGBuffer, 3u);
+                board.GBuffer.GBufferBakedGIMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferBakedGIMS, multisampleGBuffer, 5u);
                 board.GBuffer.SceneDepthMS = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepthMS, multisampleGBuffer);
 
                 const auto sceneDepthResolvedBacking =
@@ -2453,6 +2460,8 @@ namespace OloEngine
                     graph.CreateFramebufferAttachmentView(buildResolvedBackingName(ResourceNames::GBufferEmissive), resolvedGBuffer, 2u);
                 const auto velocityResolvedBacking =
                     graph.CreateFramebufferAttachmentView(buildResolvedBackingName(ResourceNames::Velocity), resolvedGBuffer, 3u);
+                const auto bakedGIResolvedBacking =
+                    graph.CreateFramebufferAttachmentView(buildResolvedBackingName(ResourceNames::GBufferBakedGI), resolvedGBuffer, 5u);
 
                 // Canonical deferred single-sample handles remain the semantic
                 // read surface for downstream passes, but when MSAA is active
@@ -2480,6 +2489,9 @@ namespace OloEngine
                 board.GBuffer.Velocity = graph.CreateTextureMultisampleResolveView(ResourceNames::Velocity,
                                                                                    board.GBuffer.VelocityMS,
                                                                                    velocityResolvedBacking);
+                board.GBuffer.GBufferBakedGI = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferBakedGI,
+                                                                                         board.GBuffer.GBufferBakedGIMS,
+                                                                                         bakedGIResolvedBacking);
             }
             else
             {
@@ -2490,6 +2502,7 @@ namespace OloEngine
                 board.GBuffer.GBufferNormal = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferNormal, resolvedGBuffer, 1u);
                 board.GBuffer.GBufferEmissive = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferEmissive, resolvedGBuffer, 2u);
                 board.GBuffer.Velocity = graph.CreateFramebufferAttachmentView(ResourceNames::Velocity, resolvedGBuffer, 3u);
+                board.GBuffer.GBufferBakedGI = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferBakedGI, resolvedGBuffer, 5u);
             }
         }
 

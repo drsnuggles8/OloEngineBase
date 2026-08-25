@@ -117,6 +117,8 @@ namespace OloEngine
                 return "GBufferNormal";
             case Source::GBufferEmissive:
                 return "GBufferEmissive";
+            case Source::GBufferBakedGI:
+                return "GBufferBakedGI";
             case Source::Velocity:
                 return "Velocity";
             case Source::SceneNormals:
@@ -600,6 +602,7 @@ namespace OloEngine
             captureGraphTexture(Source::GBufferAlbedo, ResourceNames::GBufferAlbedo);
             captureGraphTexture(Source::GBufferNormal, ResourceNames::GBufferNormal);
             captureGraphTexture(Source::GBufferEmissive, ResourceNames::GBufferEmissive);
+            captureGraphTexture(Source::GBufferBakedGI, ResourceNames::GBufferBakedGI);
             captureGraphTexture(Source::Velocity, ResourceNames::Velocity);
         }
 

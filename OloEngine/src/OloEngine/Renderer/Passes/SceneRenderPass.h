@@ -27,7 +27,7 @@ namespace OloEngine
     // render graph.
     //
     // Deferred path: when RenderingPath::Deferred is active, Execute() binds a
-    // 4-RT G-Buffer instead of the forward scene target. After the G-Buffer
+    // G-Buffer instead of the forward scene target. After the G-Buffer
     // color pass, DeferredLightingPass composites lit HDR into the scene
     // framebuffer; ForwardOverlayRenderPass then adds overlay geometry that
     // did not participate in G-Buffer writes (skybox, terrain, foliage…).

@@ -85,7 +85,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        // In Deferred mode route into the ScenePass (which binds the 4-RT
+        // In Deferred mode route into the ScenePass (which binds the
         // G-Buffer) and substitute the LightCube_GBuffer variant shader so
         // the cube writes a full MRT payload with `emissive.a = 1.0` (unlit
         // flag). `ComputeDeferredLit` then short-circuits and outputs the
@@ -181,7 +181,7 @@ namespace OloEngine
         }
 
         // In Deferred mode, swap to the Skybox_GBuffer variant and submit the
-        // packet to ScenePass (which binds the 4-RT G-Buffer). The shader
+        // packet to ScenePass (which binds the G-Buffer). The shader
         // writes the cubemap sample into RT2.rgb with `emissive.a = 1.0`
         // (unlit flag) so `ComputeDeferredLit` short-circuits and passes the
         // colour through unshaded. Falls back to ForwardOverlayPass when the

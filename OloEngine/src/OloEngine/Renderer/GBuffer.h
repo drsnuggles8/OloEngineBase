@@ -7,7 +7,7 @@
 
 namespace OloEngine
 {
-    // @brief 5-RT G-Buffer for the deferred renderer.
+    // @brief 6-RT G-Buffer for the deferred renderer.
     //
     // Layout (matches the plan in /memories/session/plan.md and the slot
     // constants in ShaderBindingLayout::TEX_GBUFFER_*):
@@ -22,6 +22,22 @@ namespace OloEngine
     //                       Blitted into SceneColor RT1 by DeferredLightingPass
     //                       so the SelectionOutline JFA Init sees per-pixel
     //                       entity IDs in Deferred just like Forward.
+    //   RT5 (RGBA16F)     — Baked lightmap irradiance E (rgb) + coverage (a),
+    //                       issue #865. The G-Buffer pass does the atlas fetch
+    //                       (it is the only stage that still has UV2 and the
+    //                       per-draw atlas region); the lighting pass consumes
+    //                       the result as the ambient ladder's top rung, exactly
+    //                       as the forward path consumes
+    //                       sampleLightmapIrradiance()'s vec4. Storing the
+    //                       IRRADIANCE rather than the atlas UV is deliberate:
+    //                       an MSAA resolve averages colour attachments, and
+    //                       averaging two charts' UVs across a silhouette reads
+    //                       an unrelated atlas texel, whereas averaging E and
+    //                       coverage together is exactly the alpha-weighted
+    //                       blend the sampler already documents. Every G-Buffer
+    //                       writer must write this target (vec4(0) = "no baked
+    //                       GI here"); an unwritten MRT output is undefined, and
+    //                       an undefined .a reads as coverage.
     //   Depth (D32F)      — shared with subsequent lighting / OIT passes
     //
     // The class is a thin convenience wrapper around a Framebuffer. The
@@ -37,7 +53,8 @@ namespace OloEngine
             Emissive = 2, // RGBA16F     — emissive + material flags
             Velocity = 3, // RG16F       — screen-space velocity
             EntityID = 4, // RED_INTEGER — per-pixel picking entity ID (cleared to -1)
-            Count = 5
+            BakedGI = 5,  // RGBA16F     — baked lightmap irradiance + coverage (issue #865)
+            Count = 6
         };
 
         // Create a G-Buffer sized to (width, height). sampleCount = 1 means
