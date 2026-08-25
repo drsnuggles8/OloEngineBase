@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/HZBGenerator.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/VRCS/ShadingRateClassifier.h"
 
 namespace OloEngine
 {
@@ -87,6 +88,30 @@ namespace OloEngine
             return m_HZBGenerator;
         }
 
+        // VRCS classifier (issue #683). Owned here for the same reason
+        // HZBGenerator is: it is a self-contained GPU utility, GTAO is its
+        // first consumer, and the HZB precedent shows a second consumer can
+        // share one instance without either pass owning a graph node. Exposed
+        // so the next adopter (and VRCSClassifierGpuTest) can reach the same
+        // classification rather than dispatching a second one.
+        [[nodiscard]] ShadingRateClassifier& GetShadingRateClassifier()
+        {
+            return m_ShadingRateClassifier;
+        }
+        [[nodiscard]] const ShadingRateClassifier& GetShadingRateClassifier() const
+        {
+            return m_ShadingRateClassifier;
+        }
+
+        // True when the LAST Execute both classified and consumed shading
+        // rates. Reports what actually happened, not what the settings asked
+        // for — the two differ whenever classification declined (no depth or
+        // normals, a shader that failed to compile, a zero-sized viewport).
+        [[nodiscard]] bool WasVariableRateActive() const noexcept
+        {
+            return m_VRCSActiveLastExecute;
+        }
+
       private:
         void GenerateHilbertLUT();
         // Clear the AO target to "fully visible" (1.0). The identity for a
@@ -102,6 +127,7 @@ namespace OloEngine
                              RHI::ResourceHandle pongTexture);
 
         HZBGenerator m_HZBGenerator;
+        ShadingRateClassifier m_ShadingRateClassifier;
 
         Ref<ComputeShader> m_GTAOShader;
         Ref<ComputeShader> m_DenoiseShader;
@@ -129,6 +155,26 @@ namespace OloEngine
         RGTextureHandle m_SelectedHZBDepthTexture{};
         RGTextureHandle m_SelectedDenoisePingTexture{};
         RGTextureHandle m_SelectedDenoisePongTexture{};
+        // Previous frame's resolved colour, for the VRCS luminance term
+        // (issue #683). The TAA history is the engine's only full-screen
+        // previous-frame colour, so with TAA off this stays invalid and
+        // classification simply drops that signal — which makes it more
+        // conservative, never less.
+        RGTextureHandle m_SelectedPreviousColorTexture{};
+
+        // Monotonic Execute counter, used only as the classifier's
+        // once-per-frame stamp. NOT m_GPUData->NoiseIndex, which wraps at 256
+        // and would make the classifier skip a dispatch every 256th frame.
+        //
+        // GTAO is currently the only VRCS consumer, so a per-pass counter is a
+        // faithful frame stamp. WHEN A SECOND PASS ADOPTS VRCS this must become
+        // a renderer-wide frame index, or the two passes will disagree about
+        // which frame it is and each will re-dispatch classification — the
+        // exact duplication the stamp exists to prevent. There is no such
+        // engine-wide monotonic counter today (InflightFrameManager's index is
+        // a ring position, not a frame number).
+        u64 m_FrameCounter = 0;
+        bool m_VRCSActiveLastExecute = false;
 
         u32 m_Width = 0;
         u32 m_Height = 0;

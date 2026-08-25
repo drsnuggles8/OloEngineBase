@@ -65,7 +65,7 @@ namespace OloEngine::Tests
         // 43 = the base 33, plus the five #691 compute blocks, plus
         // ColorBlindParams (#458), plus PrefixSumParams (#713),
         // TerrainCullParams (#714) and the two DDGI blocks (#707).
-        const std::array<KnownBlock, 43> kKnownBlocks = { {
+        const std::array<KnownBlock, 44> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -137,6 +137,13 @@ namespace OloEngine::Tests
             // is the drift shape this table exists for.
             { "DDGIVolume", sizeof(UBOStructures::DDGIVolumeUBO) },
             { "DDGIPassData", sizeof(UBOStructures::DDGIPassDataUBO) },
+            // Variable Rate Compute Shading classification (issue #683),
+            // declared in compute/VRCSClassify.comp. It shares UBO_USER_0 with
+            // DDGIPassData, so the two are the same binding at different sizes
+            // — the reason each dispatch refills the slot immediately before
+            // using it, and the reason both are listed here rather than trusted
+            // to agree by inspection.
+            { "ShadingRateParams", sizeof(UBOStructures::ShadingRateUBO) },
         } };
 
         const KnownBlock* FindKnownBlock(std::string_view glslName)
