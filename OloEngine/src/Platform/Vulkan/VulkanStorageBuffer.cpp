@@ -48,6 +48,15 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("~VulkanStorageBuffer: release failed ({}) — leaking the buffer until process exit", e.what());
         }
+        catch (...)
+        {
+            // The catch-all is not belt-and-braces: `catch (const
+            // std::exception&)` alone lets anything not derived from it escape
+            // and terminate. One policy across every Vulkan resource
+            // destructor (#803).
+            OLO_CORE_ERROR("~VulkanStorageBuffer: release failed (unknown exception) — leaking the buffer until "
+                           "process exit");
+        }
     }
 
     void VulkanStorageBuffer::CreateBuffer()
@@ -161,7 +170,14 @@ namespace OloEngine
         {
             return;
         }
-        if (offset + size > std::max(m_Size, 1u))
+        // Widened BEFORE the sum: both operands are u32, so `offset + size`
+        // is evaluated modulo 2^32 and offset=0xFFFFFF00, size=0x200 wraps to
+        // 0x100 — passing the very guard meant to stop it, then handing the
+        // wrapped range to the mapped memcpy below (a heap write far outside
+        // the mapping) or to VulkanOneShot::UploadToBuffer.
+        // VulkanTexture2D::SubImage already compares against the remaining
+        // extent for the same reason.
+        if (static_cast<u64>(offset) + static_cast<u64>(size) > static_cast<u64>(std::max(m_Size, 1u)))
         {
             OLO_CORE_ERROR("VulkanStorageBuffer::SetData: {}+{} exceeds the buffer's {} bytes — dropping", offset,
                            size, m_Size);
@@ -212,6 +228,8 @@ namespace OloEngine
         // Bytes the new snapshot must carry: everything written so far this
         // frame (a shader may read any prefix the draw's instance count
         // covers), never less than a live snapshot already promised.
+        // `offset + size` cannot wrap here: SetData is the only caller and its
+        // widened range guard has already proven the sum is <= m_Size.
         const u32 newBytes = std::max(offset + size, liveSnapshot ? m_SnapshotBytes : 0u);
 
         // A write that does not start at 0 needs prefix bytes [0, offset)
@@ -306,7 +324,8 @@ namespace OloEngine
         {
             return;
         }
-        if (offset + size > std::max(m_Size, 1u))
+        // Widened before the sum — same u32 wrap as SetData's guard.
+        if (static_cast<u64>(offset) + static_cast<u64>(size) > static_cast<u64>(std::max(m_Size, 1u)))
         {
             OLO_CORE_ERROR("VulkanStorageBuffer::GetData: {}+{} exceeds the buffer's {} bytes", offset, size, m_Size);
             std::memset(outData, 0, size);

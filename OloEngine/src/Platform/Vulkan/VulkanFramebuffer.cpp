@@ -13,6 +13,7 @@
 #include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <algorithm>
+#include <exception>
 #include <unordered_set>
 
 namespace OloEngine
@@ -155,30 +156,55 @@ namespace OloEngine
 
     VulkanFramebuffer::~VulkanFramebuffer()
     {
-        // API-side state must not outlive the object: end a scope targeting
-        // this framebuffer and drop any pending lazy clear naming it (a later
-        // materialization would dereference the freed object). Live-object
-        // probe, the ClearData rule.
-        if (auto* vk = VulkanUpload::TryGetVulkanAPI(); vk != nullptr)
+        // No exception may escape a destructor — it terminates the process.
+        // Steps below touch node-based containers and the API facade, so the
+        // whole body is guarded, with the same two arms as every other Vulkan
+        // resource destructor (#803): losing one framebuffer's cleanup beats
+        // std::terminate, and the log keeps it loud.
+        try
         {
-            vk->NotifyFramebufferDestroyed(this, m_RHIHandle.Get());
+            // ORDER MATTERS under the guard: everything that publishes `this`
+            // to something outliving it is dropped FIRST. Each of these is an
+            // erase-by-key on an already-sized container and cannot realistically
+            // throw, so a failure further down can no longer strand a dangling
+            // pointer that ReleaseCachedDepthViewsForImage would later walk into.
+            LiveFramebuffers().erase(this);
+            VulkanBindingState::Get().ClearIfCurrentFramebuffer(this);
+            VulkanRootObjectRegistry::Get().Unregister(m_RHIHandle.Get());
+            // API-side state must not outlive the object: end a scope targeting
+            // this framebuffer and drop any pending lazy clear naming it (a later
+            // materialization would dereference the freed object). Live-object
+            // probe, the ClearData rule.
+            if (auto* vk = VulkanUpload::TryGetVulkanAPI(); vk != nullptr)
+            {
+                vk->NotifyFramebufferDestroyed(this, m_RHIHandle.Get());
+            }
+            // The per-cascade depth views (AttachDepthTextureArrayLayer) are owned
+            // here, not by the array texture — they outlive no frame of their own,
+            // so they retire on the deferred queue like every other view.
+            // (Enqueue is noexcept and contains its own failure.)
+            for (const auto& [key, cachedView] : m_DepthArrayViews)
+            {
+                if (cachedView != VK_NULL_HANDLE)
+                    VulkanDeferredReclaim::Get().Enqueue(cachedView);
+            }
+            m_DepthArrayViews.clear();
+            m_DepthArrayAttachment = DepthArrayLayerAttachment{};
+            // Retire the framebuffer identity; the attachment Refs release next
+            // and each texture enqueues its image on VulkanDeferredReclaim.
+            m_RHIHandle.Reset();
         }
-        VulkanBindingState::Get().ClearIfCurrentFramebuffer(this);
-        VulkanRootObjectRegistry::Get().Unregister(m_RHIHandle.Get());
-        // The per-cascade depth views (AttachDepthTextureArrayLayer) are owned
-        // here, not by the array texture — they outlive no frame of their own,
-        // so they retire on the deferred queue like every other view.
-        for (const auto& [key, cachedView] : m_DepthArrayViews)
+        catch (const std::exception& e)
         {
-            if (cachedView != VK_NULL_HANDLE)
-                VulkanDeferredReclaim::Get().Enqueue(cachedView);
+            OLO_CORE_ERROR("~VulkanFramebuffer: teardown failed ({}) — leaking this framebuffer's views until "
+                           "process exit",
+                           e.what());
         }
-        m_DepthArrayViews.clear();
-        LiveFramebuffers().erase(this);
-        m_DepthArrayAttachment = DepthArrayLayerAttachment{};
-        // Retire the framebuffer identity; the attachment Refs release next
-        // and each texture enqueues its image on VulkanDeferredReclaim.
-        m_RHIHandle.Reset();
+        catch (...)
+        {
+            OLO_CORE_ERROR("~VulkanFramebuffer: teardown failed (unknown exception) — leaking this framebuffer's "
+                           "views until process exit");
+        }
     }
 
     void VulkanFramebuffer::CreateAttachments()

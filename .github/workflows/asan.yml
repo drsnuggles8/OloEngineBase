@@ -655,11 +655,29 @@ jobs:
     name: TSan (Linux/Clang)
     needs: detect-changes
     if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
-    # 120, not 90: a cold sccache restore (concurrent runs evict each other under
-    # the 10 GB repo cache cap) makes the instrumented TSan build alone take ~78
-    # minutes, and a cancelled job skips the cache save — so 90 produced a chronic
-    # cold → timeout → no-save → cold loop across unrelated branches.
-    timeout-minutes: 120
+    # 180, not 120, not 90: the same cold-cache loop, measured twice.
+    #
+    # A cold sccache restore (concurrent runs evict each other under the 10 GB
+    # repo cache cap) makes the instrumented TSan build alone take ~78 minutes,
+    # and a cancelled job skips the cache save — so 90 produced a chronic
+    # cold → timeout → no-save → cold loop across unrelated branches. 120 did
+    # not end it: PR #945 restored a stale key, reported a **2.70% hit rate**
+    # (1371 of 1409 TUs compiled from scratch), spent 92 of its 120 minutes in
+    # the build, and was cancelled at 6224/6651 tests with every one of them
+    # passing and zero ThreadSanitizer reports. Its own `if: always()` save then
+    # failed — "Unable to reserve cache with key … another job may be creating
+    # this cache" — so the next attempt would have started just as cold.
+    #
+    # For scale: the same job on master the day before finished in 86 minutes.
+    # The warm path has always fit; it is only the cold path that does not, and
+    # a timeout on the cold path is what keeps it cold.
+    #
+    # 180 is also what the sibling jobs effectively get. TSan is the ONLY
+    # sanitizer job here with a `timeout-minutes` at all — asan-lsan-linux,
+    # ubsan-linux and asan-windows run under the 360-minute default, and UBSan
+    # has been observed finishing at 126 minutes, i.e. over this cap. The
+    # asymmetry, not the duration, was the bug.
+    timeout-minutes: 180
     # See asan-lsan-linux above for why this pins the distro codename.
     runs-on: ubuntu-24.04
     permissions:

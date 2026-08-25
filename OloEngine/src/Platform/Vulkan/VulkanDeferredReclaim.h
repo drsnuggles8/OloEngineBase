@@ -55,31 +55,44 @@ namespace OloEngine
         // VulkanImageInfoRegistry::Get for the rationale).
         [[nodiscard]] static VulkanDeferredReclaim& Get();
 
-        void Enqueue(VkImage image, VmaAllocation allocation);
-        void Enqueue(VkBuffer buffer, VmaAllocation allocation);
+        // ALL of these are noexcept, and that is load-bearing: every caller is
+        // a resource destructor, the queue is a std::vector, and a push_back
+        // that throws out of a destructor terminates the process. A failed
+        // enqueue drops the entry with an error log — leaking one object until
+        // process exit beats std::terminate, and it stays loud rather than
+        // silent. Callers therefore need no try/catch around Enqueue itself;
+        // the destructors keep theirs for the OTHER teardown work they do.
+        void Enqueue(VkImage image, VmaAllocation allocation) noexcept;
+        void Enqueue(VkBuffer buffer, VmaAllocation allocation) noexcept;
         // Non-VMA device objects share the same generation discipline.
         // A semaphore may be referenced by an in-flight submit's wait/signal
         // list; a pipeline by an in-flight command buffer (ADR 0011 §3(d) —
         // hot-reload destruction is deferred, never inline).
-        void Enqueue(VkSemaphore semaphore);
-        void Enqueue(VkPipeline pipeline);
+        void Enqueue(VkSemaphore semaphore) noexcept;
+        void Enqueue(VkPipeline pipeline) noexcept;
         // Attachment views (vkCmdBeginRendering references them from
         // in-flight command buffers exactly like pipelines).
-        void Enqueue(VkImageView view);
+        void Enqueue(VkImageView view) noexcept;
         // Phase 7 Wave C: occlusion query pools. vkCmdResetQueryPool /
         // vkCmdBeginQuery reference the pool from in-flight command buffers,
         // and DeleteQueries is called from a frame that may still have the
         // previous one submitted — same generation discipline as pipelines.
-        void Enqueue(VkQueryPool queryPool);
+        void Enqueue(VkQueryPool queryPool) noexcept;
 
         // Called by the frame loop once per completed frame. Destroys every
         // entry enqueued >= 2 notifications ago; also unregisters images from
         // VulkanImageInfoRegistry at actual-destroy time.
-        void NotifyFrameCompleted();
+        //
+        // noexcept for the same reason as Enqueue, plus one of its own: both
+        // drain paths run during teardown, and an entry that throws must not
+        // strand the entries BEHIND it — an entry that never reaches
+        // vmaDestroyAllocator is the "allocations not freed" abort. So each
+        // entry's destroy is isolated and a failure is logged, not propagated.
+        void NotifyFrameCompleted() noexcept;
 
         // Destroy everything immediately. Caller guarantees device idle
         // (vkDeviceWaitIdle already done — shutdown, swapchain teardown).
-        void FlushAll();
+        void FlushAll() noexcept;
 
         // Diagnostic/test affordance.
         [[nodiscard]] sizet GetPendingCount() const
@@ -107,6 +120,14 @@ namespace OloEngine
         // dropped with a warn log — leaking at process exit beats calling
         // into a destroyed allocator.
         static void DestroyEntry(const Entry& entry);
+
+        // The one push_back every Enqueue overload funnels through, with the
+        // allocation failure contained (see the Enqueue block above).
+        void Push(const Entry& entry) noexcept;
+
+        // DestroyEntry with any escape contained, so one bad entry cannot
+        // strand the rest of a drain.
+        static void DestroyEntryGuarded(const Entry& entry) noexcept;
 
         // Matches VulkanContextData::kFramesInFlight.
         static constexpr u64 kFramesInFlight = 2;

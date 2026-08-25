@@ -229,6 +229,14 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("~VulkanTexture2D: release failed ({}) — leaking the image until process exit", e.what());
         }
+        catch (...)
+        {
+            // See ~VulkanStorageBuffer: `catch (const std::exception&)` alone
+            // still lets a non-std throw escape and terminate. One policy
+            // across every Vulkan resource destructor (#803).
+            OLO_CORE_ERROR("~VulkanTexture2D: release failed (unknown exception) — leaking the image until process "
+                           "exit");
+        }
     }
 
     void VulkanTexture2D::CreateImage()
@@ -1083,13 +1091,44 @@ namespace OloEngine
             return false;
         }
 
+        // The image's ACTUAL prior layout, not the steady-state assumption.
+        // Sampled asset content usually does sit in SHADER_READ_ONLY between
+        // graph executions, but two cases break the assumption and both are
+        // invalid usage (VUID-VkImageMemoryBarrier2-oldLayout-01197) that also
+        // leaves the copied texels undefined: a texture created and never
+        // uploaded is still UNDEFINED, and an ATTACHMENT sits in whatever
+        // layout the graph left it in.
+        //
+        // Prefer the tracker's EXECUTED layout, not its recorded one — this is
+        // a one-shot, so it runs BEFORE the still-recording frame command
+        // buffer whose transitions the recorded layout already reflects (#800,
+        // the same reasoning as VulkanRendererAPI::ReadTextureSubImage's borrow
+        // mode). Deliberately NO RegisterImage first: re-registering with
+        // extents or a registration id the graph did not use RESETS that
+        // image's rows, and wiping the graph's own tracked layouts to learn one
+        // value would be a far worse trade. An image the tracker has never seen
+        // answers UNDEFINED, which is exactly when the registry's load-time
+        // record is the better answer.
+        const auto* imageInfo = VulkanImageInfoRegistry::Get().Lookup(m_Image);
+        const VkImageLayout registryLayout =
+            imageInfo != nullptr ? imageInfo->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+        const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, 1u, 0u, 1u };
+        auto* vk = VulkanUpload::TryGetVulkanAPI();
+        VkImageLayout priorLayout = registryLayout;
+        if (vk != nullptr)
+        {
+            if (const VkImageLayout tracked = vk->LayoutTracker().CurrentExecutedLayout(m_Image, range);
+                tracked != VK_IMAGE_LAYOUT_UNDEFINED)
+            {
+                priorLayout = tracked;
+            }
+        }
+
         const bool ok = VulkanOneShot::Submit(
             "VulkanTexture2D::GetData",
             [&](VkCommandBuffer cmd)
             {
-                // Steady-state invariant again: sampled content sits in
-                // SHADER_READ_ONLY between graph executions.
-                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, priorLayout,
                                                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                                  VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
                                                  VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, mipLevel, 1u);
@@ -1103,10 +1142,37 @@ namespace OloEngine
                                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
                                                  VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                                  VK_ACCESS_2_MEMORY_READ_BIT, mipLevel, 1u);
+
+                // Settle recorded INSIDE the one-shot's immediate-execution
+                // scope, so it advances the executed layout only once the
+                // buffer really reached the queue (#800) — the same shape as
+                // VulkanRendererAPI::ReadTextureSubImage's non-borrow arm.
+                if (vk != nullptr)
+                {
+                    vk->LayoutTracker().SetLayout(m_Image, range, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                }
             });
 
         if (ok)
         {
+            // The chain ended in SHADER_READ_ONLY, so an image that entered
+            // UNDEFINED has genuinely reached it. Record it in the registry
+            // too: the tracker SetLayout above no-ops for an image the tracker
+            // never registered, and leaving a stale UNDEFINED behind would let
+            // the next barrier legally discard the texels. Only on success —
+            // the same gate as every other layout write in this backend.
+            //
+            // ONLY when this read covered the whole image. InitialLayout is a
+            // WHOLE-IMAGE field and the barriers above name `mipLevel` alone,
+            // so stamping it after a single-mip read of a mipped texture would
+            // claim mips 1..N reached SHADER_READ_ONLY when they are still
+            // UNDEFINED — manufacturing the very desync this change removes.
+            // The per-subresource truth is the tracker's, set inside the
+            // callback above.
+            if (m_MipLevels == 1u)
+            {
+                VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
             vmaInvalidateAllocation(device->GetAllocator(), readbackAllocation, 0, sizeBytes);
             outData.resize(sizeBytes);
             std::memcpy(outData.data(), readbackOut.pMappedData, sizeBytes);

@@ -98,11 +98,16 @@ namespace OloEngine
             u32 Height = 0;
             u32 Status = 0; // native (backend) framebuffer-status enum value
             u32 ColorAttachmentCount = 0;
-            std::vector<u32> ColorAttachmentFormats; // native enum values
+            // The attachments' SIZED INTERNAL formats, as native enum values
+            // decodable by FormatTextureFormatName — GL_RGBA16F, not the
+            // GL_FLOAT component TYPE the GL arm used to answer with (#803).
+            // 0 means "no queryable object": an attachment of the default
+            // framebuffer, or none at all (0 is GL_NONE).
+            std::vector<u32> ColorAttachmentFormats;
             bool HasDepthAttachment = false;
-            u32 DepthAttachmentFormat = 0; // native enum value
+            u32 DepthAttachmentFormat = 0;
             bool HasStencilAttachment = false;
-            u32 StencilAttachmentFormat = 0; // native enum value
+            u32 StencilAttachmentFormat = 0;
             sizet MemoryUsage = 0;
         };
 
