@@ -6,6 +6,7 @@
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
 
+#include <glm/glm.hpp>
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
@@ -40,6 +41,12 @@
 // swallow the rest. That is the property a reader checks in a screenshot, and it
 // is the one that was false.
 //
+// Coverage is necessary and not sufficient. A layer can hold 20% of the surface
+// and still be invisible if its colour matches its neighbour, which is what the
+// third test here guards — every island shipped a pair separated only by
+// brightness, and under this scene's haze and tone curve those read as one
+// material no matter what the splatmap says.
+//
 // Pure CPU — GenerateHeightField and the TerrainData::Sample* statics need no GL
 // context (the TerrainData MEMBERS would: SetHeights uploads to the GPU). Reads
 // the shipped scene directly, so retuning the scene and this test cannot drift.
@@ -69,6 +76,7 @@ namespace OloEngine::Tests
             TerrainGenerator::HeightParams Params;
             std::vector<TerrainLayerRule> Rules;
             std::vector<std::string> LayerNames;
+            std::vector<glm::vec3> LayerColours;
             f32 WorldSizeX = 0.0f;
             f32 WorldSizeZ = 0.0f;
             f32 HeightScale = 0.0f;
@@ -154,7 +162,13 @@ namespace OloEngine::Tests
                 if (const YAML::Node layers = terrain["Layers"]; layers && layers.IsSequence())
                 {
                     for (const auto& l : layers)
+                    {
                         isl.LayerNames.push_back(l["Name"].as<std::string>("<unnamed>"));
+                        glm::vec3 c{ 0.5f, 0.5f, 0.5f };
+                        if (const YAML::Node bc = l["BaseColor"]; bc && bc.size() == 3)
+                            c = { bc[0].as<f32>(0.5f), bc[1].as<f32>(0.5f), bc[2].as<f32>(0.5f) };
+                        isl.LayerColours.push_back(c);
+                    }
                 }
 
                 islands.push_back(std::move(isl));
@@ -318,5 +332,49 @@ namespace OloEngine::Tests
         EXPECT_TRUE(sawShortfall)
             << "no Drift island falls short of full height any more — if the island mask stopped "
                "compressing the field, the anchoring rationale in the scene comments is stale.";
+    }
+
+    // Coverage says each layer occupies a real share of the surface. It says
+    // nothing about whether a viewer can TELL them apart, and on the first pass
+    // of #942 that was the remaining half of "the islands look flat": every
+    // island carried a pair of materials separated only by brightness — Rock vs
+    // Heath 0.135 apart in RGB, Palm scrub vs Green cap 0.075, Shingle vs Lichen
+    // 0.134, Dry scrub vs Sandstone 0.154. On Ridgeback that pair was 47% of the
+    // surface, so correcting the splat still left the uplands reading as one mass.
+    //
+    // The threshold is on plain RGB distance rather than on hue, because a large
+    // lightness gap really is distinguishable: Stacks pairs Shingle with Guano,
+    // both neutral greys, 0.61 apart and in no danger of merging. What fails is a
+    // pair that is close on BOTH axes, and distance alone catches that.
+    TEST(DriftIslandSplatCoverage, EveryIslandsLayerColoursAreDistinguishable)
+    {
+        const fs::path scene = DriftScenePath();
+        ASSERT_TRUE(fs::exists(scene)) << "Drift scene not found at " << scene.generic_string();
+
+        const std::vector<Island> islands = LoadAutoMaterialIslands(scene);
+        ASSERT_GE(islands.size(), 1u);
+
+        // Shipped palette's worst pair is 0.223 (Mesa's Dry scrub vs Sandstone),
+        // so this leaves room to re-tune a colour without tripping the guard while
+        // still failing every pair the issue found.
+        constexpr f32 kMinSeparation = 0.18f;
+
+        for (const Island& isl : islands)
+        {
+            ASSERT_GE(isl.LayerColours.size(), 2u) << isl.Name << " has fewer than two layers";
+            for (sizet i = 0; i < isl.LayerColours.size(); ++i)
+            {
+                for (sizet j = i + 1; j < isl.LayerColours.size(); ++j)
+                {
+                    const f32 d = glm::length(isl.LayerColours[i] - isl.LayerColours[j]);
+                    EXPECT_GE(d, kMinSeparation)
+                        << isl.Name << ": layers '" << isl.LayerNames[i] << "' and '"
+                        << isl.LayerNames[j] << "' are only " << d
+                        << " apart in RGB — they will read as one material under the scene's "
+                           "haze and tone curve, whatever the splatmap assigns. Separate them by "
+                           "hue rather than by another step of brightness (issue #942).";
+                }
+            }
+        }
     }
 } // namespace OloEngine::Tests

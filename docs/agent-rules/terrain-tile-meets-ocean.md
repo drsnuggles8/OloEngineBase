@@ -235,3 +235,27 @@ that value and the winning layer is decided by the last bit: our f64 tuning mode
 and the engine's f32 `SmoothBand` chose **opposite** layers across 36% of Mesa
 (28/31/28/13 predicted, 58/14/28/0 actual). Keep band edges in the quiet parts of
 the height histogram, and if you model this offline, model it in **float32**.
+
+### Coverage is necessary, not sufficient — the palette has to survive the air
+
+Fixing the bands got every layer onto a real share of each island and the frame
+still read as one brown mass, because that is only half of "can a viewer tell
+these apart". Every island also shipped a **pair of materials separated only by
+brightness**: Rock/Heath 0.135 apart in RGB, Palm scrub/Green cap 0.075,
+Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154. On Ridgeback that pair was 47%
+of the surface.
+
+Lightness is the wrong axis to separate on *in this scene specifically*, and the
+reason is in the scene: a warm sun at intensity 3.2, exponential fog at density
+0.0009 (~30% blend at 400 m), and an ACES curve. All three compress luminance and
+pull saturation. Hue is what survives them. Re-separating each pair by hue —
+cool grey cliff vs russet heath, yellow-green scrub vs blue-green canopy — moved
+the measured hue spread of a framed Ridgeback shot from 0.007 (original) to 0.017
+(bands fixed) to **0.034** (bands + palette), with distinct colour buckets
+20 → 21 → 24.
+
+The guard asserts plain RGB distance rather than hue, because a big lightness gap
+genuinely is distinguishable: Stacks pairs Shingle with Guano, both neutral greys,
+0.61 apart and never at risk. What fails is a pair that is close on *both* axes,
+and distance alone catches that. Threshold 0.18; the shipped palette's worst pair
+is 0.223.

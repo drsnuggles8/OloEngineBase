@@ -966,6 +966,18 @@ Entities:
       VoxelSize: 1
       SplatmapPath0: ""
       SplatmapPath1: ""
+      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
+      # scene renders under a warm haze and an ACES curve, both of which compress
+      # luminance and pull saturation, so two materials that differ only in
+      # brightness converge into one mass on screen. Each island previously had a
+      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
+      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
+      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
+      # pairs that used to collide were re-separated by HUE rather than by another
+      # step of brightness. A big lightness gap is fine on its own — Shingle vs
+      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
+      # distance, which is the property that actually holds. See
+      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
       Layers:
         - Name: Sand
           AlbedoPath: ""
@@ -974,7 +986,7 @@ Entities:
           TilingScale: 22
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.78, 0.72, 0.55]
+          BaseColor: [0.8, 0.73, 0.55]
           Roughness: 0.95
           Metallic: 0
         - Name: Scrub
@@ -984,7 +996,7 @@ Entities:
           TilingScale: 24
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.28, 0.4, 0.21]
+          BaseColor: [0.26, 0.42, 0.19]
           Roughness: 0.92
           Metallic: 0
         - Name: Rock
@@ -994,7 +1006,7 @@ Entities:
           TilingScale: 14
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.44, 0.41, 0.38]
+          BaseColor: [0.4, 0.4, 0.43]
           Roughness: 0.85
           Metallic: 0
         - Name: Heath
@@ -1004,7 +1016,7 @@ Entities:
           TilingScale: 18
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.52, 0.5, 0.44]
+          BaseColor: [0.5, 0.31, 0.24]
           Roughness: 0.8
           Metallic: 0
     # Discovery loop (issue #881): landing trigger + landmark tag. The box is
@@ -1209,6 +1221,18 @@ Entities:
       VoxelSize: 1
       SplatmapPath0: ""
       SplatmapPath1: ""
+      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
+      # scene renders under a warm haze and an ACES curve, both of which compress
+      # luminance and pull saturation, so two materials that differ only in
+      # brightness converge into one mass on screen. Each island previously had a
+      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
+      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
+      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
+      # pairs that used to collide were re-separated by HUE rather than by another
+      # step of brightness. A big lightness gap is fine on its own — Shingle vs
+      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
+      # distance, which is the property that actually holds. See
+      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
       Layers:
         - Name: Sand
           AlbedoPath: ""
@@ -1217,7 +1241,7 @@ Entities:
           TilingScale: 20
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.84, 0.76, 0.58]
+          BaseColor: [0.86, 0.78, 0.6]
           Roughness: 0.96
           Metallic: 0
         - Name: Dry scrub
@@ -1227,7 +1251,7 @@ Entities:
           TilingScale: 22
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.52, 0.5, 0.28]
+          BaseColor: [0.52, 0.55, 0.24]
           Roughness: 0.93
           Metallic: 0
         - Name: Sandstone
@@ -1237,7 +1261,7 @@ Entities:
           TilingScale: 12
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.66, 0.48, 0.34]
+          BaseColor: [0.7, 0.42, 0.26]
           Roughness: 0.88
           Metallic: 0
         - Name: Caprock
@@ -1247,7 +1271,7 @@ Entities:
           TilingScale: 16
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.72, 0.6, 0.46]
+          BaseColor: [0.46, 0.4, 0.42]
           Roughness: 0.82
           Metallic: 0
     # Discovery loop (issue #881): landing trigger + landmark tag. The box is
@@ -1452,6 +1476,18 @@ Entities:
       VoxelSize: 1
       SplatmapPath0: ""
       SplatmapPath1: ""
+      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
+      # scene renders under a warm haze and an ACES curve, both of which compress
+      # luminance and pull saturation, so two materials that differ only in
+      # brightness converge into one mass on screen. Each island previously had a
+      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
+      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
+      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
+      # pairs that used to collide were re-separated by HUE rather than by another
+      # step of brightness. A big lightness gap is fine on its own — Shingle vs
+      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
+      # distance, which is the property that actually holds. See
+      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
       Layers:
         - Name: White sand
           AlbedoPath: ""
@@ -1460,7 +1496,7 @@ Entities:
           TilingScale: 24
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.9, 0.86, 0.74]
+          BaseColor: [0.92, 0.87, 0.74]
           Roughness: 0.94
           Metallic: 0
         - Name: Palm scrub
@@ -1470,7 +1506,7 @@ Entities:
           TilingScale: 26
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.24, 0.46, 0.2]
+          BaseColor: [0.34, 0.5, 0.18]
           Roughness: 0.9
           Metallic: 0
         - Name: Coral rock
@@ -1480,7 +1516,7 @@ Entities:
           TilingScale: 14
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.62, 0.58, 0.52]
+          BaseColor: [0.7, 0.6, 0.53]
           Roughness: 0.86
           Metallic: 0
         - Name: Green cap
@@ -1490,7 +1526,7 @@ Entities:
           TilingScale: 18
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.3, 0.44, 0.24]
+          BaseColor: [0.16, 0.34, 0.22]
           Roughness: 0.84
           Metallic: 0
     # Discovery loop (issue #881): landing trigger + landmark tag. The box is
@@ -1695,6 +1731,18 @@ Entities:
       VoxelSize: 1
       SplatmapPath0: ""
       SplatmapPath1: ""
+      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
+      # scene renders under a warm haze and an ACES curve, both of which compress
+      # luminance and pull saturation, so two materials that differ only in
+      # brightness converge into one mass on screen. Each island previously had a
+      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
+      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
+      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
+      # pairs that used to collide were re-separated by HUE rather than by another
+      # step of brightness. A big lightness gap is fine on its own — Shingle vs
+      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
+      # distance, which is the property that actually holds. See
+      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
       Layers:
         - Name: Shingle
           AlbedoPath: ""
@@ -1703,7 +1751,7 @@ Entities:
           TilingScale: 18
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.42, 0.4, 0.38]
+          BaseColor: [0.44, 0.42, 0.42]
           Roughness: 0.94
           Metallic: 0
         - Name: Lichen
@@ -1713,7 +1761,7 @@ Entities:
           TilingScale: 22
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.34, 0.36, 0.28]
+          BaseColor: [0.42, 0.52, 0.22]
           Roughness: 0.92
           Metallic: 0
         - Name: Basalt
@@ -1723,7 +1771,7 @@ Entities:
           TilingScale: 10
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.2, 0.2, 0.22]
+          BaseColor: [0.17, 0.17, 0.2]
           Roughness: 0.72
           Metallic: 0
         - Name: Guano
@@ -1733,7 +1781,7 @@ Entities:
           TilingScale: 16
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.68, 0.67, 0.62]
+          BaseColor: [0.8, 0.79, 0.74]
           Roughness: 0.78
           Metallic: 0
     # Discovery loop (issue #881): landing trigger + landmark tag. The box is
@@ -1888,6 +1936,18 @@ Entities:
       VoxelSize: 1
       SplatmapPath0: ""
       SplatmapPath1: ""
+      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
+      # scene renders under a warm haze and an ACES curve, both of which compress
+      # luminance and pull saturation, so two materials that differ only in
+      # brightness converge into one mass on screen. Each island previously had a
+      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
+      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
+      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
+      # pairs that used to collide were re-separated by HUE rather than by another
+      # step of brightness. A big lightness gap is fine on its own — Shingle vs
+      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
+      # distance, which is the property that actually holds. See
+      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
       Layers:
         - Name: White sand
           AlbedoPath: ""
@@ -1896,7 +1956,7 @@ Entities:
           TilingScale: 24
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.9, 0.86, 0.74]
+          BaseColor: [0.92, 0.87, 0.74]
           Roughness: 0.94
           Metallic: 0
         - Name: Palm scrub
@@ -1906,7 +1966,7 @@ Entities:
           TilingScale: 26
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.24, 0.46, 0.2]
+          BaseColor: [0.34, 0.5, 0.18]
           Roughness: 0.9
           Metallic: 0
         - Name: Coral rock
@@ -1916,7 +1976,7 @@ Entities:
           TilingScale: 14
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.62, 0.58, 0.52]
+          BaseColor: [0.7, 0.6, 0.53]
           Roughness: 0.86
           Metallic: 0
         - Name: Green cap
@@ -1926,7 +1986,7 @@ Entities:
           TilingScale: 18
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.3, 0.44, 0.24]
+          BaseColor: [0.16, 0.34, 0.22]
           Roughness: 0.84
           Metallic: 0
     # Discovery loop (issue #881): landing trigger + landmark tag. The box is
@@ -2131,6 +2191,18 @@ Entities:
       VoxelSize: 1
       SplatmapPath0: ""
       SplatmapPath1: ""
+      # Palette separates by HUE, not by lightness (issue #942 follow-up). This
+      # scene renders under a warm haze and an ACES curve, both of which compress
+      # luminance and pull saturation, so two materials that differ only in
+      # brightness converge into one mass on screen. Each island previously had a
+      # pair that did exactly that — Rock/Heath 0.135 apart in RGB, Palm scrub/Green
+      # cap 0.075, Shingle/Lichen 0.134, Dry scrub/Sandstone 0.154 — and on Ridgeback
+      # that pair was 47% of the surface. Every pair is now >= 0.22 apart, and the
+      # pairs that used to collide were re-separated by HUE rather than by another
+      # step of brightness. A big lightness gap is fine on its own — Shingle vs
+      # Guano is 0.61 apart and both are neutral greys — so the guard asserts
+      # distance, which is the property that actually holds. See
+      # DriftIslandSplatCoverageTest.EveryIslandsLayerColoursAreDistinguishable.
       Layers:
         - Name: Sand
           AlbedoPath: ""
@@ -2139,7 +2211,7 @@ Entities:
           TilingScale: 22
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.78, 0.72, 0.55]
+          BaseColor: [0.8, 0.73, 0.55]
           Roughness: 0.95
           Metallic: 0
         - Name: Scrub
@@ -2149,7 +2221,7 @@ Entities:
           TilingScale: 24
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.28, 0.4, 0.21]
+          BaseColor: [0.26, 0.42, 0.19]
           Roughness: 0.92
           Metallic: 0
         - Name: Rock
@@ -2159,7 +2231,7 @@ Entities:
           TilingScale: 14
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.44, 0.41, 0.38]
+          BaseColor: [0.4, 0.4, 0.43]
           Roughness: 0.85
           Metallic: 0
         - Name: Heath
@@ -2169,7 +2241,7 @@ Entities:
           TilingScale: 18
           HeightBlendSharpness: 4
           TriplanarSharpness: 8
-          BaseColor: [0.52, 0.5, 0.44]
+          BaseColor: [0.5, 0.31, 0.24]
           Roughness: 0.8
           Metallic: 0
     # Discovery loop (issue #881): landing trigger + landmark tag. The box is
