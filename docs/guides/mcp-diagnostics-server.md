@@ -882,10 +882,8 @@ be gone) — so a reply now distinguishes three shapes:
 - `hoveredWindow: null` — ImGui found **no window at all** under the cursor. The click
   never reached ImGui in any meaningful sense.
 - `hoveredWindow` set, `hoveredId: 0` — ImGui found a window, but **no specific item** in
-  it. The click landed in that window's real estate but missed every widget — often a
-  sign the target widget's actual clickable rect is smaller, or positioned differently,
-  than it visually appears (e.g. a dock node whose hit-test rect doesn't match what it
-  paints — see the note on a known instance of this below).
+  it. The click landed in that window's real estate but missed every widget — usually a
+  coordinate slightly off the intended control; nudge it and re-check `hoveredId`.
 - `hoveredWindow` and `hoveredId` both set — the click reached a real widget. `activeId`
   matching `hoveredId` means that widget is now holding the mouse (e.g. mid-drag on a
   slider); for a plain click it is normal for `activeId` to already be back to 0 by the
@@ -896,18 +894,8 @@ be gone) — so a reply now distinguishes three shapes:
 // olo_input_inject { "action": "click", "x": 246, "y": 90, "space": "window" }
 { "ok": true, "after": { "hoveredWindow": "Terrain Editor", "hoveredId": 0, "activeId": 0 } }
 // -> reached the panel's own window, but not any control inside it. Nudge the
-//    coordinate, or suspect the panel's hit-test rect doesn't match its paint area.
+//    coordinate and re-check hoveredId.
 ```
-
-Known instance of the "wrong rect" shape: a panel docked into a **newly created** split
-(dragged there mid-session, as opposed to one restored from a layout already saved in
-`imgui.ini`) can end up with a hit-test rect narrower than the area it visually paints —
-so a click on the *visually* correct spot for a control near the far edge of the panel
-actually lands on whatever sibling panel's rect still (incorrectly) covers that space,
-which silently swallows the click. `hoveredWindow` names that sibling, not the panel you
-aimed at, which is how you tell the two apart without guessing. Tracked as a follow-up
-(root cause is in ImGui's docking layout, not in `olo_input_inject`'s injection path) —
-see issue #921's tracker for the filed follow-up.
 
 **Caveats**
 

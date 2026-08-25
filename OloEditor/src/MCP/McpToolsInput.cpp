@@ -352,9 +352,14 @@ namespace OloEngine::MCP
                                                                             .Desc("Accumulated relative displacement from mouseDelta calls, in window-client logical pixels. Unlike an absolute injection this PERSISTS after the call — that is what lets a delta-integrating consumer register the movement. Zero it with mouseDelta { resetOffset: true }."))
                                                    .Prop("selectedEntity", Schema::Raw(Json{ { "type", Json::array({ "object", "null" }) } }).Desc("{id, name} of the selected entity, or null when none."))
                                                    .Prop("hoveredEntity", Schema::Raw(Json{ { "type", Json::array({ "object", "null" }) } }).Desc("{id, name} of the entity under the cursor, or null when none."))
-                                                   .Prop("hoveredWindow", Schema::Raw(Json{ { "type", Json::array({ "string", "null" }) } }).Desc("issue #921: the ImGui window name under the cursor on the last frame the injected plan ran (g.HoveredWindow), or null when ImGui resolved no window there at all. Distinguishes 'the click reached a window but missed every widget' (this set, hoveredId 0) from 'the click never reached ImGui' (null)."))
+                                                   .Prop("hoveredWindow", Schema::Raw(Json{ { "type", Json::array({ "string", "null" }) } })
+                                                                              .Desc("issue #921: the ImGui window name under the cursor on the last frame the injected "
+                                                                                    "plan ran (g.HoveredWindow), or null when ImGui resolved no window there at all. "
+                                                                                    "Distinguishes 'the click reached a window but missed every widget' (this set, "
+                                                                                    "hoveredId 0) from 'the click never reached ImGui' (null)."))
                                                    .Prop("hoveredId", Schema::Int().Desc("issue #921: the ImGui item id under the cursor (g.HoveredId), 0 when no widget was hovered even though hoveredWindow may be set."))
-                                                   .Prop("activeId", Schema::Int().Desc("issue #921: the ImGui item id currently holding the mouse (g.ActiveId), 0 when nothing is active — normal for a plain click once ButtonBehavior releases it."))
+                                                   .Prop("activeId", Schema::Int().Desc("issue #921: the ImGui item id currently holding the mouse (g.ActiveId), 0 when "
+                                                                                        "nothing is active — normal for a plain click once ButtonBehavior releases it."))
                                                    .Desc("Post-injection editor state — the state change the injection caused."))
                                 .Required({ "available", "ok", "framesInjected", "message", "after" });
         tool.MainMarshaled = true;
