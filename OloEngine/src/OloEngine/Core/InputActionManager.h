@@ -148,7 +148,7 @@ namespace OloEngine
 
         // One-shot host side of RequestRebindMenu. Returns nullopt when no
         // script requested the panel since the previous consume.
-        [[nodiscard]] static std::optional<InputContextType> ConsumeRebindMenuRequest()
+        [[nodiscard("rebind-menu request result must be handled")]] static std::optional<InputContextType> ConsumeRebindMenuRequest()
         {
             auto request = s_PendingRebindMenuContext;
             s_PendingRebindMenuContext.reset();

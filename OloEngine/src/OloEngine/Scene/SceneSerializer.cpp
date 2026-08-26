@@ -197,6 +197,16 @@ namespace OloEngine
         return path.generic_string();
     }
 
+    static std::filesystem::path ResolveSceneFontPath(const std::filesystem::path& path)
+    {
+        if (path.empty() || path.is_absolute() || !Project::GetActive())
+        {
+            return path;
+        }
+
+        return Project::GetProjectDirectory() / path;
+    }
+
     // ---------- Sanitization helpers (shared across all Deserialize* functions) ----------
 
     /// Replace non-finite values with \p fallback, then clamp to [lo, hi].
@@ -2022,7 +2032,7 @@ namespace OloEngine
             tc.TextString = textComponent["TextString"].as<std::string>();
             if (textComponent["FontPath"])
             {
-                tc.FontAsset = Font::Create(textComponent["FontPath"].as<std::string>());
+                tc.FontAsset = Font::Create(ResolveSceneFontPath(textComponent["FontPath"].as<std::string>()));
             }
             tc.Color = textComponent["Color"].as<glm::vec4>();
             tc.Kerning = textComponent["Kerning"].as<float>();
@@ -2920,7 +2930,7 @@ namespace OloEngine
             TrySet(text.m_Text, uiTextComponent["Text"]);
             if (uiTextComponent["FontPath"])
             {
-                text.m_FontAsset = Font::Create(uiTextComponent["FontPath"].as<std::string>());
+                text.m_FontAsset = Font::Create(ResolveSceneFontPath(uiTextComponent["FontPath"].as<std::string>()));
             }
             TrySet(text.m_FontSize, uiTextComponent["FontSize"]);
             TrySet(text.m_Color, uiTextComponent["Color"]);
@@ -2951,7 +2961,7 @@ namespace OloEngine
             TrySet(input.m_Placeholder, uiInputFieldComponent["Placeholder"]);
             if (uiInputFieldComponent["FontPath"])
             {
-                input.m_FontAsset = Font::Create(uiInputFieldComponent["FontPath"].as<std::string>());
+                input.m_FontAsset = Font::Create(ResolveSceneFontPath(uiInputFieldComponent["FontPath"].as<std::string>()));
             }
             TrySet(input.m_FontSize, uiInputFieldComponent["FontSize"]);
             TrySet(input.m_TextColor, uiInputFieldComponent["TextColor"]);
@@ -2983,7 +2993,7 @@ namespace OloEngine
             TrySet(dropdown.m_TextColor, uiDropdownComponent["TextColor"]);
             if (uiDropdownComponent["FontPath"])
             {
-                dropdown.m_FontAsset = Font::Create(uiDropdownComponent["FontPath"].as<std::string>());
+                dropdown.m_FontAsset = Font::Create(ResolveSceneFontPath(uiDropdownComponent["FontPath"].as<std::string>()));
             }
             TrySet(dropdown.m_FontSize, uiDropdownComponent["FontSize"]);
             TrySet(dropdown.m_ItemHeight, uiDropdownComponent["ItemHeight"]);

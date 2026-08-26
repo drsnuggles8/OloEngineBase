@@ -1528,6 +1528,17 @@ namespace OloEngine::Tests
         EXPECT_EQ(yaml.find(fontPath.generic_string()), std::string::npos)
             << "Build Game must not rewrite a scene font to the editor host's absolute path.";
         EXPECT_NE(yaml.find("OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf"), std::string::npos);
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<UITextComponent>());
+        const auto& restoredText = restored.GetComponent<UITextComponent>();
+        ASSERT_TRUE(restoredText.m_FontAsset)
+            << "A project-relative serialized font path must load after scene deserialization.";
+        EXPECT_EQ(std::filesystem::weakly_canonical(restoredText.m_FontAsset->GetPath()), fontPath);
     }
 
     // -------------------------------------------------------------------------

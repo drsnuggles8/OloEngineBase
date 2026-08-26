@@ -954,7 +954,14 @@ namespace OloEngine
         OLO_CORE_INFO("[GameBuild] Copied {} loose runtime texture file(s)", copiedTextureCount);
 
         const std::filesystem::path inputActionsSrc = Project::GetInputActionMapPath();
-        if (!std::filesystem::exists(inputActionsSrc))
+        std::error_code existsEc;
+        const bool hasInputActions = std::filesystem::exists(inputActionsSrc, existsEc);
+        if (existsEc)
+        {
+            errorMessage = "Failed to query project input-action config: " + existsEc.message();
+            return false;
+        }
+        if (!hasInputActions)
         {
             OLO_CORE_INFO("[GameBuild] No project input-action config to copy");
             return true;

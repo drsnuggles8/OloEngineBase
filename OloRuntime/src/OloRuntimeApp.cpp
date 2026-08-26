@@ -24,6 +24,7 @@
 #include "OloEngine/UI/UINavigationSystem.h"
 
 #include <filesystem>
+#include <optional>
 #include <imgui.h>
 #include <yaml-cpp/yaml.h>
 
@@ -194,7 +195,7 @@ namespace OloEngine
             OLO_CORE_INFO("[Runtime] No saved input bindings — seeded default game actions");
         }
 
-        void ToggleRebindMenu(InputContextType targetContext = InputContextType::Gameplay)
+        void ToggleRebindMenu(std::optional<InputContextType> targetContext = std::nullopt)
         {
             if (!m_ActiveScene)
             {
@@ -203,18 +204,28 @@ namespace OloEngine
 
             if (m_RebindMenu.IsOpen())
             {
-                CloseRebindMenu();
+                if (targetContext)
+                {
+                    m_RebindMenu.Open(*m_ActiveScene, *targetContext, kInputActionsPath);
+                }
+                else
+                {
+                    CloseRebindMenu();
+                }
             }
             else
             {
-                // Suppress gameplay input while remapping by pushing the Menu context; the menu
-                // itself always edits the Gameplay map regardless of the active context.
+                const InputContextType contextToEdit = targetContext.value_or(InputActionManager::GetInputContext());
+
+                // Suppress gameplay input while remapping by pushing the Menu context; Open()
+                // edits the caller-supplied target context rather than always Gameplay.
                 InputActionManager::PushContext(InputContextType::Menu);
                 m_MenuContextPushed = true;
                 // The panel needs a visible cursor to click; restore the game's cursor on close.
                 m_PrevCursorMode = Input::GetCursorMode();
                 Input::SetCursorMode(CursorMode::Normal);
-                m_RebindMenu.Open(*m_ActiveScene, targetContext, kInputActionsPath);
+                m_RebindMenu.Open(*m_ActiveScene, contextToEdit == InputContextType::Menu ? InputContextType::Gameplay : contextToEdit,
+                                  kInputActionsPath);
             }
         }
 
@@ -385,8 +396,7 @@ namespace OloEngine
             // F1 toggles the in-game input rebind menu.
             if (e.GetKeyCode() == Key::F1)
             {
-                const InputContextType active = InputActionManager::GetInputContext();
-                ToggleRebindMenu(active == InputContextType::Menu ? InputContextType::Gameplay : active);
+                ToggleRebindMenu();
                 return true;
             }
             return false;
