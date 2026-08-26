@@ -35,7 +35,14 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <vector>
+
+#ifndef OLO_TEST_EDITOR_ROOT
+#error "OLO_TEST_EDITOR_ROOT must be defined by the test target's CMake"
+#endif
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test brevity
 
@@ -68,6 +75,16 @@ namespace
             }
         }
         return (n == 0) ? -1.0f : (sum / static_cast<f32>(n));
+    }
+
+    std::string ReadPbrCommon()
+    {
+        const std::filesystem::path path = std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" /
+                                           "include" / "PBRCommon.glsl";
+        std::ifstream file(path, std::ios::binary);
+        if (!file)
+            return {};
+        return { std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
     }
 } // namespace
 
@@ -140,6 +157,30 @@ TEST(PCSSShadow, OnlyUltraPresetUsesPCSS)
     EXPECT_FALSE(GetPresetSettings(QualityPreset::Medium).SoftShadows);
     EXPECT_FALSE(GetPresetSettings(QualityPreset::High).SoftShadows);
     EXPECT_TRUE(GetPresetSettings(QualityPreset::Ultra).SoftShadows);
+}
+
+TEST(PCSSShadow, CSMNormalBiasOffsetsTheReceiverInWorldSpace)
+{
+    // CSM's normal-bias value comes from DirectionalLightComponent and is
+    // configured in metres. It must offset the receiver before the light-space
+    // projection, exactly like the established VSM normal-offset path, not be
+    // added to normalized comparison depth.
+    const std::string source = ReadPbrCommon();
+    ASSERT_FALSE(source.empty()) << "PBRCommon.glsl was not found under OLO_TEST_EDITOR_ROOT";
+
+    const std::size_t csmBegin = source.find("float calculateCascadedShadowFactorCSM(");
+    const std::size_t csmEnd = source.find("// SHADOW ATLAS SAMPLING", csmBegin);
+    ASSERT_NE(csmBegin, std::string::npos);
+    ASSERT_NE(csmEnd, std::string::npos);
+    const std::string csm = source.substr(csmBegin, csmEnd - csmBegin);
+
+    EXPECT_NE(csm.find("vec3 surfaceNormal,"), std::string::npos);
+    EXPECT_NE(csm.find("vec3 biasedWorldPos = worldPos + normalize(surfaceNormal) * shadowParams.y;"), std::string::npos)
+        << "CSM stopped consuming ShadowParams.y as a world-space normal offset";
+    EXPECT_NE(csm.find("vec4(biasedWorldPos, 1.0)"), std::string::npos)
+        << "the biased receiver position is not projected into the CSM";
+    EXPECT_EQ(csm.find("vec4(worldPos, 1.0)"), std::string::npos)
+        << "one CSM cascade still projects the un-biased receiver, causing a blend seam";
 }
 
 // =============================================================================

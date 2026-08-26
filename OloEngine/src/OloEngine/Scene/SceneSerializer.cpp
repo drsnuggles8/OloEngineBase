@@ -6180,6 +6180,11 @@ namespace OloEngine
             out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
             out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
             out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
+            if (pp.AOTechniqueOverride)
+            {
+                out << YAML::Key << "ActiveAOTechnique" << YAML::Value << std::to_underlying(pp.ActiveAOTechnique);
+                out << YAML::Key << "GTAOEnabled" << YAML::Value << pp.GTAOEnabled;
+            }
             out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
             out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
             out << YAML::Key << "SSAOBias" << YAML::Value << pp.SSAOBias;
@@ -6378,6 +6383,17 @@ namespace OloEngine
             TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
             TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
             TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
+            if (const auto activeAOTechniqueNode = ppNode["ActiveAOTechnique"])
+            {
+                const i32 activeAOTechnique = activeAOTechniqueNode.as<i32>(std::to_underlying(pp.ActiveAOTechnique));
+                if (activeAOTechnique >= std::to_underlying(AOTechnique::None) &&
+                    activeAOTechnique <= std::to_underlying(AOTechnique::GTAO))
+                {
+                    pp.ActiveAOTechnique = static_cast<AOTechnique>(activeAOTechnique);
+                    pp.AOTechniqueOverride = true;
+                }
+            }
+            TrySet(pp.GTAOEnabled, ppNode["GTAOEnabled"]);
             TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
             TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
             TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
@@ -6757,6 +6773,11 @@ namespace OloEngine
             out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
             out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
             out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
+            if (pp.AOTechniqueOverride)
+            {
+                out << YAML::Key << "ActiveAOTechnique" << YAML::Value << std::to_underlying(pp.ActiveAOTechnique);
+                out << YAML::Key << "GTAOEnabled" << YAML::Value << pp.GTAOEnabled;
+            }
             out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
             out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
             out << YAML::Key << "SSAOBias" << YAML::Value << pp.SSAOBias;

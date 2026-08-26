@@ -407,6 +407,7 @@ void main()
                     u_ShadowMapCSM,
                     u_ShadowMapCSMRaw,
                     v_WorldPos,
+                    N,
                     viewDepth,
                     u_DirectionalLightSpaceMatrices,
                     u_CascadePlaneDistances,

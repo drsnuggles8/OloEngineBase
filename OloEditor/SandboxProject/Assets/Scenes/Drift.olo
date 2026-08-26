@@ -21,6 +21,10 @@ PostProcessSettings:
   MotionBlurStrength: 0.5
   MotionBlurSamples: 4
   ColorGradingEnabled: false
+  # Explicitly opt out of AO for the thin two-sided sail/deck geometry. The
+  # authored selector survives quality-tier application; see issue #901.
+  ActiveAOTechnique: 0
+  GTAOEnabled: false
   SSAOEnabled: false
   SSAORadius: 0.5
   SSAOBias: 0.025
@@ -150,10 +154,9 @@ PrecipitationSettings:
 # addition #880 needed is the terrain generator's radial island falloff — see the
 # LAYOUT section.
 #
-# BEFORE YOU PLAY: turn GTAO OFF (Renderer Settings panel). The boat's sail
-# picks up flickering black speckle with it on, and the AO technique is not
-# scene-serialized so this file cannot ask for it. Full write-up on the Sun
-# entity's CastShadows field below.
+# The scene explicitly disables ambient occlusion: the sail and deck are thin,
+# two-sided geometry, so GTAO's depth-only horizon search would self-occlude
+# them. CSM shadows remain enabled with receiver normal bias below.
 #
 # HOW TO SAIL IT
 #   W / S            throttle ahead / astern      (gamepad: right / left trigger)
@@ -384,75 +387,11 @@ Entities:
       Direction: [-0.32, -0.78, 0.54]
       Color: [1, 0.94, 0.84]
       Intensity: 3.2
-      # OFF, and this is the one setting here I am not happy about.
-      #
-      # The boat model's sail and deck pick up heavy hatched black speckling
-      # that FLICKERS as the boat moves. It took several rounds to characterise
-      # because it is intermittent — any single capture can be clean, so "that
-      # fixed it" is easy to believe and wrong three times running.
-      #
-      # There are TWO independent contributors, and turning off either one alone
-      # still leaves the other:
-      #
-      #   1. The directional light's CSM shadow pass. This is what CastShadows
-      #      below turns off, and it is the only one of the two a SCENE can
-      #      control.
-      #   2. GTAO. Toggling the gtao pass off (Renderer Settings panel, or
-      #      olo_render_toggle_pass) removes the speckle on its own, with
-      #      shadows still on — proving it is not all shadow acne.
-      #
-      # Verified clean only with BOTH off, across several frames including
-      # mid-turn. So opening this scene cold still needs one manual step:
-      # turn GTAO off. PostProcessSettings::ActiveAOTechnique is not
-      # scene-serialized (only SSAOEnabled is) and the project's quality tiering
-      # re-derives GTAO on every scene load, so the scene cannot ask for it.
-      # Filed against the engine.
-      #
-      # What was RULED OUT for the shadow half: resolution (the CSM is
-      # 4096 x 4096 with four cascades, per olo_render_list_targets), bias
-      # (0.02 / 0.3 gave a clean capture that did not hold), and cascade fit
-      # (MaxShadowDistance 120 -> 35 with CascadeSplitLambda 0.85 -> 0.4, which
-      # moves the boat off the cascade 1/2 seam its 9-13 m boom parks it on —
-      # several clean frames, then speckle again). The tuned values are kept
-      # below for whoever picks this up.
-      #
-      # Common factor worth chasing: both passes sample the depth/normal
-      # buffers, and the sail is thin, near-zero-thickness geometry. The asset
-      # import already warns about it in the log — "12 of 12 triangles are
-      # degenerate (zero-UV-area)".
-      CastShadows: false
-      # THE SHADOW SETTINGS ARE LOAD-BEARING. At the stock values this scene
-      # showed heavy blocky self-shadow acne — hard black chunks on the sail and
-      # deck that crawled as the boat moved. Two things about it are worth not
-      # re-deriving, because both misled the first two attempts at a fix:
-      #
-      #   * It is NOT a resolution problem. The CSM here is 4096 x 4096 with four
-      #     cascades (olo_render_list_targets reports ShadowMapCSM at 4096), so
-      #     texel density was never the constraint. Raising ShadowBias alone
-      #     appeared to fix it once and had not — the boat simply happened to be
-      #     riding high in that capture.
-      #   * The cascade fit uses min(cameraFar, MaxShadowDistance), and the
-      #     splits are lerp(uniform, log, CascadeSplitLambda) — so at 120 m with
-      #     lambda 0.85 the splits land at 5.2 / 12.6 / 32.7 / 120 m and the
-      #     rig's own 9-13 m boom parks the boat right on the cascade 1/2 seam,
-      #     in the far coarser of the two. Pulling MaxShadowDistance in to 35 m
-      #     and dropping lambda to 0.4 puts the whole boat inside one tight
-      #     near cascade, and the acne goes away outright.
-      #
-      # A raked, near-vertical thin sheet (the sail) is textbook acne geometry,
-      # so lean on NORMAL bias rather than depth bias: it offsets along the
-      # surface normal, which is what a thin sheet needs, and peter-pans far less
-      # than the equivalent depth bias.
-      #
-      # 35 m costs nothing here — the only shadow a player can resolve is the
-      # boat's own, and the nearest island is ~270 m away.
-      #
-      # Turning Virtual Shadow Maps on (Renderer Settings panel) also fixes it
-      # completely and was how the diagnosis was confirmed, but VSM is a renderer
-      # setting rather than a scene field, so a scene cannot ask for it and the
-      # island would stop casting. The CSM tuning above is the shippable fix.
+      # CSM now applies this world-space normal bias to the receiver before
+      # sampling. Keep the sail casting rather than hiding its self-shadowing.
+      CastShadows: true
       ShadowBias: 0.008
-      ShadowNormalBias: 0.8
+      ShadowNormalBias: 0.05
       MaxShadowDistance: 35
       CascadeSplitLambda: 0.4
       CascadeDebugVisualization: false

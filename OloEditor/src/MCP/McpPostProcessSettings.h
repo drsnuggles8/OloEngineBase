@@ -13,8 +13,8 @@
 // fog block. While root-causing the GTAO grazing-angle collapse the A/B that
 // mattered — *same scene, same pose, GTAO vs SSAO* — could not be driven at all;
 // the workarounds were hand-editing the scene `.olo` and relaunching (slow,
-// mutates project data, and still cannot reach `ActiveAOTechnique`, which is not
-// scene-serialised), or giving up and reasoning analytically. The read side was
+// mutates project data, and could not switch `ActiveAOTechnique` live), or
+// giving up and reasoning analytically. The read side was
 // equally missing: parameter values had to be read off a screenshot of the panel.
 //
 // Scope — the two live settings PODs the renderer evaluates every frame:
@@ -245,7 +245,7 @@ namespace OloEngine::MCP::PostProcess
         // ---- ambient occlusion ----------------------------------------------
         OLO_PP_ENUM(ActiveAOTechnique, "ao", kAOTechniqueValues, /*RequiresRendererApply*/ true,
                     "Which AO pass is registered in the render graph. Switching rebuilds the render-graph topology "
-                    "(issue #533) — this is the GTAO-vs-SSAO A/B lever, and it is NOT scene-serialised."),
+                    "(issue #533) — this is the GTAO-vs-SSAO A/B lever. This live write is reset by scene reload."),
         OLO_PP_BOOL(SSAOEnabled, "ao", "Run the SSAO pass (also needs ActiveAOTechnique = ssao)."),
         OLO_PP_NUM(SSAORadius, "ao", FieldType::Float, 0.01, 32.0, "SSAO world-space sampling radius."),
         OLO_PP_NUM(SSAOBias, "ao", FieldType::Float, 0.0, 1.0, "SSAO depth bias (self-occlusion guard)."),

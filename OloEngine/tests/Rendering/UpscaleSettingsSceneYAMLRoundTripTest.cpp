@@ -20,6 +20,7 @@
 // =============================================================================
 
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 
@@ -132,4 +133,101 @@ TEST(UpscaleSettingsSceneYAMLRoundTripTest, AnOlderSceneWithNoUpscaleKeysLoadsAs
            "exactly as they did before the feature existed";
     EXPECT_EQ(loaded.Upscale, UpscaleMode::Quality)
         << "removing the new keys disturbed the FSR1 render-scale preset next to them";
+}
+
+TEST(UpscaleSettingsSceneYAMLRoundTripTest, ExplicitNoAOSurvivesSaveReopenAndSceneCopy)
+{
+    PostProcessSettings authored;
+    authored.ActiveAOTechnique = AOTechnique::None;
+    authored.AOTechniqueOverride = true;
+    authored.SSAOEnabled = false;
+    authored.GTAOEnabled = false;
+
+    const Ref<Scene> restored = RoundTrip(authored);
+    ASSERT_TRUE(restored) << "an authored AO selection must not make the scene fail to load";
+
+    const PostProcessSettings& loaded = restored->GetPostProcessSettings();
+    EXPECT_TRUE(loaded.AOTechniqueOverride)
+        << "the presence of ActiveAOTechnique must mark the selection as scene-authored";
+    EXPECT_EQ(loaded.ActiveAOTechnique, AOTechnique::None);
+    EXPECT_FALSE(loaded.SSAOEnabled);
+    EXPECT_FALSE(loaded.GTAOEnabled);
+
+    // Entering Play Mode clones the scene. The opt-out must survive that
+    // transition too, not merely a disk reopen.
+    Ref<Scene> mutableRestored = restored;
+    const Ref<Scene> copy = Scene::Copy(mutableRestored);
+    ASSERT_TRUE(copy);
+    EXPECT_TRUE(copy->GetPostProcessSettings().AOTechniqueOverride);
+    EXPECT_EQ(copy->GetPostProcessSettings().ActiveAOTechnique, AOTechnique::None);
+
+    PostProcessSettings runtime = loaded;
+    ShadowSettings shadow;
+    ApplyTieringToSettings(GetPresetSettings(QualityPreset::High), runtime, shadow);
+    EXPECT_EQ(runtime.ActiveAOTechnique, AOTechnique::None)
+        << "quality tiering must not re-enable AO after an authored scene opt-out";
+    EXPECT_FALSE(runtime.GTAOEnabled);
+}
+
+TEST(UpscaleSettingsSceneYAMLRoundTripTest, ASceneWithoutAOSelectorKeepsLegacyTierBehavior)
+{
+    // The writer intentionally omits ActiveAOTechnique unless a scene opted
+    // out of tier ownership. That preserves every existing scene's quality
+    // preset behavior while allowing new scenes to author None/SSAO/GTAO.
+    PostProcessSettings legacy;
+    legacy.ActiveAOTechnique = AOTechnique::None;
+    legacy.SSAOEnabled = false;
+    legacy.GTAOEnabled = false;
+
+    Ref<Scene> source = Scene::Create();
+    source->SetRenderingEnabled(false);
+    source->SetPostProcessSettings(legacy);
+    SceneSerializer writer(source);
+    const std::string yaml = writer.SerializeToYAML();
+    ASSERT_FALSE(yaml.empty());
+    EXPECT_EQ(yaml.find("ActiveAOTechnique"), std::string::npos);
+
+    Ref<Scene> restored = Scene::Create();
+    restored->SetRenderingEnabled(false);
+    SceneSerializer reader(restored);
+    ASSERT_TRUE(reader.DeserializeFromYAML(yaml));
+    EXPECT_FALSE(restored->GetPostProcessSettings().AOTechniqueOverride);
+
+    PostProcessSettings runtime = restored->GetPostProcessSettings();
+    ShadowSettings shadow;
+    ApplyTieringToSettings(GetPresetSettings(QualityPreset::High), runtime, shadow);
+    EXPECT_EQ(runtime.ActiveAOTechnique, AOTechnique::GTAO);
+    EXPECT_TRUE(runtime.GTAOEnabled);
+}
+
+TEST(UpscaleSettingsSceneYAMLRoundTripTest, AnInvalidAOSelectorFallsBackToLegacyTierBehavior)
+{
+    PostProcessSettings authored;
+    authored.ActiveAOTechnique = AOTechnique::None;
+    authored.AOTechniqueOverride = true;
+    authored.SSAOEnabled = false;
+    authored.GTAOEnabled = false;
+
+    Ref<Scene> source = Scene::Create();
+    source->SetRenderingEnabled(false);
+    source->SetPostProcessSettings(authored);
+    SceneSerializer writer(source);
+    std::string yaml = writer.SerializeToYAML();
+    ASSERT_FALSE(yaml.empty());
+
+    const std::size_t selector = yaml.find("ActiveAOTechnique: 0");
+    ASSERT_NE(selector, std::string::npos);
+    yaml.replace(selector, std::string_view("ActiveAOTechnique: 0").size(), "ActiveAOTechnique: 99");
+
+    Ref<Scene> restored = Scene::Create();
+    restored->SetRenderingEnabled(false);
+    SceneSerializer reader(restored);
+    ASSERT_TRUE(reader.DeserializeFromYAML(yaml));
+    EXPECT_FALSE(restored->GetPostProcessSettings().AOTechniqueOverride);
+
+    PostProcessSettings runtime = restored->GetPostProcessSettings();
+    ShadowSettings shadow;
+    ApplyTieringToSettings(GetPresetSettings(QualityPreset::High), runtime, shadow);
+    EXPECT_EQ(runtime.ActiveAOTechnique, AOTechnique::GTAO);
+    EXPECT_TRUE(runtime.GTAOEnabled);
 }

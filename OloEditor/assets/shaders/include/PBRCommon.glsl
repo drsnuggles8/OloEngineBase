@@ -1180,7 +1180,8 @@ float sampleShadowLayer(sampler2DArrayShadow shadowMap, sampler2DArray rawMap,
 // Calculate CSM shadow factor for directional lights
 // shadowMap: sampler2DArrayShadow bound at TEX_SHADOW (binding 8)
 // worldPos: fragment world position
-// viewPos: fragment position in view space (needed for cascade selection)
+// surfaceNormal: fragment shading normal for world-space receiver offset
+// viewDepth: fragment view-space depth (needed for cascade selection)
 // lightSpaceMatrices[4]: per-cascade light VP matrices
 // cascadePlaneDistances: view-space far distances for each cascade
 // shadowParams: x=bias, y=normalBias, z=softness, w=maxShadowDistance
@@ -1189,6 +1190,7 @@ float calculateCascadedShadowFactorCSM(
     sampler2DArrayShadow shadowMap,
     sampler2DArray rawShadowMap,
     vec3 worldPos,
+    vec3 surfaceNormal,
     float viewDepth,
     mat4 lightSpaceMatrices[4],
     vec4 cascadePlaneDistances,
@@ -1226,8 +1228,15 @@ float calculateCascadedShadowFactorCSM(
         }
     }
 
+    // Offset the receiver along its shading normal before projection. The
+    // light component's normal-bias setting is in world metres (as VSM's
+    // normal offset is), so applying it to compare depth would be both the
+    // wrong space and wildly over-biased. This prevents a thin receiver from
+    // comparing against its own rasterized depth at grazing angles.
+    vec3 biasedWorldPos = worldPos + normalize(surfaceNormal) * shadowParams.y;
+
     // Transform to light space
-    vec4 lightSpacePos = lightSpaceMatrices[cascadeIndex] * vec4(worldPos, 1.0);
+    vec4 lightSpacePos = lightSpaceMatrices[cascadeIndex] * vec4(biasedWorldPos, 1.0);
     vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
     projCoords = projCoords * 0.5 + 0.5; // NDC [-1,1] -> [0,1]
 
@@ -1263,7 +1272,7 @@ float calculateCascadedShadowFactorCSM(
         if (blendFactor > 0.0)
         {
             // Sample next cascade
-            vec4 nextLightSpacePos = lightSpaceMatrices[cascadeIndex + 1] * vec4(worldPos, 1.0);
+            vec4 nextLightSpacePos = lightSpaceMatrices[cascadeIndex + 1] * vec4(biasedWorldPos, 1.0);
             vec3 nextProjCoords = nextLightSpacePos.xyz / nextLightSpacePos.w;
             nextProjCoords = nextProjCoords * 0.5 + 0.5;
             float nextBias = baseBias * float(cascadeIndex + 2);

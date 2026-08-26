@@ -206,8 +206,12 @@ namespace OloEngine
         // Color Grading
         bool ColorGradingEnabled = false;
 
-        // AO technique (None/SSAO/GTAO)
+        // AO technique (None/SSAO/GTAO). Quality tiers own this selection for
+        // legacy scenes. A scene only overrides the tier when it explicitly
+        // authored a technique (the serializer uses the presence of
+        // ActiveAOTechnique as that on-disk marker).
         AOTechnique ActiveAOTechnique = AOTechnique::SSAO;
+        bool AOTechniqueOverride = false;
 
         // SSAO
         bool SSAOEnabled = false;
