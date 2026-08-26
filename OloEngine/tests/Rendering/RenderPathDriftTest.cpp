@@ -344,4 +344,45 @@ namespace OloEngine::Tests
                "draw that is handed its material — say so in the TU:\n"
                "    // OLO_MATERIAL_RESOLVE_EXEMPT: <reason>";
     }
+
+    // -------------------------------------------------------------------------------------
+    // (c) ONE terrain-height sampling rule. Coarse terrain nodes must not sample mip zero.
+    //
+    // The GPU-driven terrain path deliberately reduces vertex density with distance. Sampling
+    // the full-resolution heightmap at those sparse vertices aliases sub-vertex terrain detail
+    // into detached one-pixel summits above a distant silhouette (issue #953). Forward,
+    // deferred and depth must derive the same footprint and sample the same filtered height;
+    // otherwise a path switch changes the geometry, or the depth prepass disagrees with color.
+    // -------------------------------------------------------------------------------------
+    TEST(RenderPathDrift, EveryTerrainDisplacementStageUsesTheSharedFootprintFilter)
+    {
+        const std::filesystem::path root = RepoRoot();
+        const std::filesystem::path shaderDir = root / "OloEditor/assets/shaders";
+        const std::filesystem::path helperPath = shaderDir / "include/TerrainHeightSampling.glsl";
+        const std::string helper = StripComments(ReadFile(helperPath));
+
+        ASSERT_FALSE(helper.empty()) << "missing shared terrain-height sampler: " << helperPath.string();
+        EXPECT_NE(helper.find("gl_TessLevelOuter"), std::string::npos)
+            << "terrain height filtering must follow the tessellated UV footprint, not camera distance alone";
+        EXPECT_NE(helper.find("u_HeightmapResolution"), std::string::npos)
+            << "the UV footprint must be converted to source-heightmap texels";
+        EXPECT_NE(helper.find("textureLod"), std::string::npos)
+            << "a non-fragment stage has no implicit derivatives; terrain height sampling needs an explicit mip";
+
+        for (const char* shaderName : { "Terrain_PBR.glsl", "Terrain_GBuffer.glsl", "Terrain_Depth.glsl" })
+        {
+            const std::filesystem::path shaderPath = shaderDir / shaderName;
+            const std::string source = StripComments(ReadFile(shaderPath));
+            ASSERT_FALSE(source.empty()) << "could not read " << shaderPath.string();
+            EXPECT_NE(source.find("include/TerrainHeightSampling.glsl"), std::string::npos)
+                << shaderName << " bypasses the shared terrain-height sampling rule";
+            EXPECT_NE(source.find("oloTerrainFilteredHeight("), std::string::npos)
+                << shaderName << " still displaces terrain from an unfiltered height sample";
+        }
+
+        const std::string terrainData = StripComments(ReadFile(root / "OloEngine/src/OloEngine/Terrain/TerrainData.cpp"));
+        ASSERT_FALSE(terrainData.empty());
+        EXPECT_NE(terrainData.find("spec.GenerateMips = true"), std::string::npos)
+            << "the explicit terrain LOD is useless unless TerrainData uploads a height mip chain";
+    }
 } // namespace OloEngine::Tests

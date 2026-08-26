@@ -27,6 +27,7 @@
 #include "PropertyTests/RenderPropertyTest.h"
 
 #include "Platform/OpenGL/OpenGLResourceInspectorBackend.h"
+#include "Platform/OpenGL/OpenGLTexture.h"
 
 #include <glad/gl.h>
 
@@ -155,4 +156,32 @@ TEST(ResourceInspectorTextureQuery, MutableSingleLevelTextureIsNotReportedAsAFul
     EXPECT_EQ(query.MemoryUsage, ExpectedRgba8Bytes(1));
 
     ::glDeleteTextures(1, &texture);
+}
+
+TEST(OpenGLTextureMipUpload, SetDataPopulatesTheRequestedMipChain)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    OloEngine::TextureSpecification spec;
+    spec.Width = 8;
+    spec.Height = 8;
+    spec.Format = OloEngine::ImageFormat::RGBA8;
+    spec.GenerateMips = true;
+
+    auto texture = OloEngine::Ref<OloEngine::OpenGLTexture2D>::Create(spec);
+    ASSERT_NE(texture, nullptr);
+    ASSERT_EQ(texture->GetMipLevelCount(), 4u);
+
+    // A constant image has the same value in every generated mip. Before #953,
+    // SetData wrote level zero only; the allocated lower levels remained undefined.
+    std::vector<u8> pixels(8u * 8u * 4u, 0x80u);
+    texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+
+    std::vector<u8> mip2;
+    ASSERT_TRUE(texture->GetData(mip2, 2));
+    ASSERT_EQ(mip2.size(), sizet{ 2u * 2u * 4u });
+    for (const u8 byte : mip2)
+    {
+        EXPECT_EQ(byte, 0x80u);
+    }
 }

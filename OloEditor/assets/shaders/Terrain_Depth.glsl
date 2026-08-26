@@ -143,6 +143,8 @@ layout(binding = 23) uniform sampler2D u_TerrainHeightmap;
 layout(binding = 30) uniform sampler2D u_SnowDepthMap;
 #endif
 
+#include "include/TerrainHeightSampling.glsl"
+
 // Snow Accumulation UBO (binding 16)
 layout(std140, binding = 16) uniform SnowAccumulationParams {
     mat4 u_ClipmapViewProj[3];
@@ -162,7 +164,8 @@ void main()
 
     // Displace Y from heightmap
     float heightScale = u_WorldSizeAndHeightScale.z;
-    pos.y = texture(u_TerrainHeightmap, uv).r * heightScale;
+    float heightMip = oloTerrainHeightMip(tc_TexCoord[0], tc_TexCoord[1], tc_TexCoord[2]);
+    pos.y = oloTerrainFilteredHeight(uv, heightMip) * heightScale;
 
     // Snow accumulation displacement (must match Terrain_PBR.glsl)
     if (u_DisplacementParams.z > 0.5)
