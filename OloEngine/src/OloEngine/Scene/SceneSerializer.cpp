@@ -6180,7 +6180,7 @@ namespace OloEngine
             out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
             out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
             out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
-            if (pp.AOTechniqueOverride)
+            if (pp.m_AOTechniqueOverride)
             {
                 out << YAML::Key << "ActiveAOTechnique" << YAML::Value << std::to_underlying(pp.ActiveAOTechnique);
                 out << YAML::Key << "GTAOEnabled" << YAML::Value << pp.GTAOEnabled;
@@ -6383,6 +6383,7 @@ namespace OloEngine
             TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
             TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
             TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
+            pp.m_AOTechniqueOverride = false;
             if (const auto activeAOTechniqueNode = ppNode["ActiveAOTechnique"])
             {
                 const i32 activeAOTechnique = activeAOTechniqueNode.as<i32>(std::to_underlying(pp.ActiveAOTechnique));
@@ -6390,7 +6391,7 @@ namespace OloEngine
                     activeAOTechnique <= std::to_underlying(AOTechnique::GTAO))
                 {
                     pp.ActiveAOTechnique = static_cast<AOTechnique>(activeAOTechnique);
-                    pp.AOTechniqueOverride = true;
+                    pp.m_AOTechniqueOverride = true;
                 }
             }
             TrySet(pp.GTAOEnabled, ppNode["GTAOEnabled"]);
@@ -6773,7 +6774,7 @@ namespace OloEngine
             out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
             out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
             out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
-            if (pp.AOTechniqueOverride)
+            if (pp.m_AOTechniqueOverride)
             {
                 out << YAML::Key << "ActiveAOTechnique" << YAML::Value << std::to_underlying(pp.ActiveAOTechnique);
                 out << YAML::Key << "GTAOEnabled" << YAML::Value << pp.GTAOEnabled;

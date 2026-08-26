@@ -125,7 +125,7 @@ namespace OloEngine
         // Legacy scenes defer their AO selection to the active quality tier.
         // A scene with an authored selection (including None) must retain it:
         // otherwise loading it immediately re-enables the tier's AO pass.
-        if (!pp.AOTechniqueOverride)
+        if (!pp.m_AOTechniqueOverride)
         {
             pp.ActiveAOTechnique = tiering.AO;
             pp.SSAOEnabled = (tiering.AO == AOTechnique::SSAO);

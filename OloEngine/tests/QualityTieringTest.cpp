@@ -66,7 +66,7 @@ TEST(QualityTiering, AuthoredNoAOOverridesThePreset)
     ShadowSettings shadow;
 
     pp.ActiveAOTechnique = AOTechnique::None;
-    pp.AOTechniqueOverride = true;
+    pp.m_AOTechniqueOverride = true;
     pp.SSAOEnabled = false;
     pp.GTAOEnabled = false;
 
@@ -91,7 +91,7 @@ TEST(QualityTiering, LegacyAOSelectionRemainsTierControlled)
 
     ApplyTieringToSettings(tiering, pp, shadow);
 
-    EXPECT_FALSE(pp.AOTechniqueOverride);
+    EXPECT_FALSE(pp.m_AOTechniqueOverride);
     EXPECT_EQ(pp.ActiveAOTechnique, AOTechnique::GTAO);
     EXPECT_FALSE(pp.SSAOEnabled);
     EXPECT_TRUE(pp.GTAOEnabled);
@@ -101,7 +101,7 @@ TEST(QualityTiering, SavingPreservesAnAuthoredNoAOSelection)
 {
     PostProcessSettings renderer;
     renderer.ActiveAOTechnique = AOTechnique::None;
-    renderer.AOTechniqueOverride = true;
+    renderer.m_AOTechniqueOverride = true;
     renderer.SSAOEnabled = false;
     renderer.GTAOEnabled = false;
 
@@ -115,7 +115,7 @@ TEST(QualityTiering, SavingPreservesAnAuthoredNoAOSelection)
 
     const PostProcessSettings saved = StripTieringOverlay(renderer, scene);
 
-    EXPECT_TRUE(saved.AOTechniqueOverride);
+    EXPECT_TRUE(saved.m_AOTechniqueOverride);
     EXPECT_EQ(saved.ActiveAOTechnique, AOTechnique::None);
     EXPECT_FALSE(saved.SSAOEnabled);
     EXPECT_FALSE(saved.GTAOEnabled);

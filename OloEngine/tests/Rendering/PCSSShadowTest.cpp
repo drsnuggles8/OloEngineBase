@@ -37,6 +37,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -175,12 +176,19 @@ TEST(PCSSShadow, CSMNormalBiasOffsetsTheReceiverInWorldSpace)
     const std::string csm = source.substr(csmBegin, csmEnd - csmBegin);
 
     EXPECT_NE(csm.find("vec3 surfaceNormal,"), std::string::npos);
-    EXPECT_NE(csm.find("vec3 biasedWorldPos = worldPos + normalize(surfaceNormal) * shadowParams.y;"), std::string::npos)
+    const std::size_t biasAssignment = csm.find("vec3 biasedWorldPos = worldPos + normalize(surfaceNormal) * shadowParams.y;");
+    ASSERT_NE(biasAssignment, std::string::npos)
         << "CSM stopped consuming ShadowParams.y as a world-space normal offset";
-    EXPECT_NE(csm.find("vec4(biasedWorldPos, 1.0)"), std::string::npos)
-        << "the biased receiver position is not projected into the CSM";
-    EXPECT_EQ(csm.find("vec4(worldPos, 1.0)"), std::string::npos)
-        << "one CSM cascade still projects the un-biased receiver, causing a blend seam";
+    const std::size_t primaryProjection = csm.find("lightSpaceMatrices[cascadeIndex] * vec4(biasedWorldPos, 1.0)");
+    const std::size_t nextCascadeProjection = csm.find("lightSpaceMatrices[cascadeIndex + 1] * vec4(biasedWorldPos, 1.0)");
+    EXPECT_NE(primaryProjection, std::string::npos)
+        << "the primary CSM cascade does not project the biased receiver";
+    EXPECT_NE(nextCascadeProjection, std::string::npos)
+        << "the blended next CSM cascade does not project the biased receiver";
+    if (primaryProjection != std::string::npos)
+        EXPECT_LT(biasAssignment, primaryProjection) << "the primary CSM projection precedes receiver bias";
+    if (nextCascadeProjection != std::string::npos)
+        EXPECT_LT(biasAssignment, nextCascadeProjection) << "the next CSM projection precedes receiver bias";
 }
 
 // =============================================================================

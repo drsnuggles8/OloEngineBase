@@ -139,7 +139,7 @@ TEST(UpscaleSettingsSceneYAMLRoundTripTest, ExplicitNoAOSurvivesSaveReopenAndSce
 {
     PostProcessSettings authored;
     authored.ActiveAOTechnique = AOTechnique::None;
-    authored.AOTechniqueOverride = true;
+    authored.m_AOTechniqueOverride = true;
     authored.SSAOEnabled = false;
     authored.GTAOEnabled = false;
 
@@ -147,7 +147,7 @@ TEST(UpscaleSettingsSceneYAMLRoundTripTest, ExplicitNoAOSurvivesSaveReopenAndSce
     ASSERT_TRUE(restored) << "an authored AO selection must not make the scene fail to load";
 
     const PostProcessSettings& loaded = restored->GetPostProcessSettings();
-    EXPECT_TRUE(loaded.AOTechniqueOverride)
+    EXPECT_TRUE(loaded.m_AOTechniqueOverride)
         << "the presence of ActiveAOTechnique must mark the selection as scene-authored";
     EXPECT_EQ(loaded.ActiveAOTechnique, AOTechnique::None);
     EXPECT_FALSE(loaded.SSAOEnabled);
@@ -158,7 +158,7 @@ TEST(UpscaleSettingsSceneYAMLRoundTripTest, ExplicitNoAOSurvivesSaveReopenAndSce
     Ref<Scene> mutableRestored = restored;
     const Ref<Scene> copy = Scene::Copy(mutableRestored);
     ASSERT_TRUE(copy);
-    EXPECT_TRUE(copy->GetPostProcessSettings().AOTechniqueOverride);
+    EXPECT_TRUE(copy->GetPostProcessSettings().m_AOTechniqueOverride);
     EXPECT_EQ(copy->GetPostProcessSettings().ActiveAOTechnique, AOTechnique::None);
 
     PostProcessSettings runtime = loaded;
@@ -189,9 +189,12 @@ TEST(UpscaleSettingsSceneYAMLRoundTripTest, ASceneWithoutAOSelectorKeepsLegacyTi
 
     Ref<Scene> restored = Scene::Create();
     restored->SetRenderingEnabled(false);
+    PostProcessSettings stale;
+    stale.m_AOTechniqueOverride = true;
+    restored->SetPostProcessSettings(stale);
     SceneSerializer reader(restored);
     ASSERT_TRUE(reader.DeserializeFromYAML(yaml));
-    EXPECT_FALSE(restored->GetPostProcessSettings().AOTechniqueOverride);
+    EXPECT_FALSE(restored->GetPostProcessSettings().m_AOTechniqueOverride);
 
     PostProcessSettings runtime = restored->GetPostProcessSettings();
     ShadowSettings shadow;
@@ -204,7 +207,7 @@ TEST(UpscaleSettingsSceneYAMLRoundTripTest, AnInvalidAOSelectorFallsBackToLegacy
 {
     PostProcessSettings authored;
     authored.ActiveAOTechnique = AOTechnique::None;
-    authored.AOTechniqueOverride = true;
+    authored.m_AOTechniqueOverride = true;
     authored.SSAOEnabled = false;
     authored.GTAOEnabled = false;
 
@@ -221,9 +224,12 @@ TEST(UpscaleSettingsSceneYAMLRoundTripTest, AnInvalidAOSelectorFallsBackToLegacy
 
     Ref<Scene> restored = Scene::Create();
     restored->SetRenderingEnabled(false);
+    PostProcessSettings stale;
+    stale.m_AOTechniqueOverride = true;
+    restored->SetPostProcessSettings(stale);
     SceneSerializer reader(restored);
     ASSERT_TRUE(reader.DeserializeFromYAML(yaml));
-    EXPECT_FALSE(restored->GetPostProcessSettings().AOTechniqueOverride);
+    EXPECT_FALSE(restored->GetPostProcessSettings().m_AOTechniqueOverride);
 
     PostProcessSettings runtime = restored->GetPostProcessSettings();
     ShadowSettings shadow;

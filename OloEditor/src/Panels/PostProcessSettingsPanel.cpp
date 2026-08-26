@@ -742,7 +742,7 @@ namespace OloEngine
             if (int currentTechnique = static_cast<int>(std::to_underlying(settings.ActiveAOTechnique)); ImGui::Combo("Technique##AO", &currentTechnique, aoTechniqueNames, IM_ARRAYSIZE(aoTechniqueNames)))
             {
                 settings.ActiveAOTechnique = static_cast<AOTechnique>(currentTechnique);
-                settings.AOTechniqueOverride = true;
+                settings.m_AOTechniqueOverride = true;
                 switch (settings.ActiveAOTechnique)
                 {
                     case AOTechnique::None:

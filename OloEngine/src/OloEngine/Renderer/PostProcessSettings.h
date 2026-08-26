@@ -211,7 +211,7 @@ namespace OloEngine
         // authored a technique (the serializer uses the presence of
         // ActiveAOTechnique as that on-disk marker).
         AOTechnique ActiveAOTechnique = AOTechnique::SSAO;
-        bool AOTechniqueOverride = false;
+        bool m_AOTechniqueOverride = false;
 
         // SSAO
         bool SSAOEnabled = false;
