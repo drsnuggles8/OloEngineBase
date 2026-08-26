@@ -495,7 +495,8 @@ namespace OloEngine
         // is a byte-identical no-op — existing near-origin scenes are unaffected.
         const glm::vec3 renderOrigin = data.RenderOrigin;
         const glm::mat4 relativeView = MakeViewRelative(data.ViewMatrix, renderOrigin);
-        const glm::mat4 relativeViewProjection = data.ProjectionMatrix * relativeView;
+        const glm::mat4 relativeViewProjection =
+            MakeViewProjectionRelative(data.ProjectionMatrix, data.ViewMatrix, renderOrigin);
         const glm::mat4 relativePrevViewProjection = MakeViewProjectionRelative(data.PrevViewProjectionMatrix, renderOrigin);
 
         // CommandDispatch keeps the *world* camera matrices — depth sort keys and

@@ -102,6 +102,18 @@ namespace OloEngine
         return viewRel;
     }
 
+    // Build the main camera's render-relative view-projection from the stored
+    // projection and view matrices. Keep this as a direct P * V_rel product:
+    // recovering P as (VP * inverse(V)) is only algebraically equivalent and
+    // introduces enough f32 error for a later CameraUBO upload to disagree with
+    // an earlier depth prepass at GL_LEQUAL (issues #952 and #954).
+    [[nodiscard]] inline glm::mat4 MakeViewProjectionRelative(const glm::mat4& projection,
+                                                              const glm::mat4& viewWorld,
+                                                              const glm::vec3& origin)
+    {
+        return projection * MakeViewRelative(viewWorld, origin);
+    }
+
     // Build a render-relative view-projection (or any camera-space *) matrix
     // from its world counterpart:  mRel = mWorld * translate(origin), so that
     // mRel * (worldPos - origin) == mWorld * worldPos. Used for the main

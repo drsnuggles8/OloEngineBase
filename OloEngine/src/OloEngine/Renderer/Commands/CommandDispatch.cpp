@@ -1325,11 +1325,6 @@ namespace OloEngine
         if (!s_Data.CameraUBO)
             return;
 
-        // Same packing as the terrain/voxel inline uploads — derive Projection
-        // from VP * inverse(View) so callers only have to set the three matrices
-        // + position via Set*. PrevViewProjection comes from the true previous
-        // frame propagated by Renderer3D (no aliasing of the current VP).
-        //
         // Camera-relative (issue #429): the stored matrices are world-space, so
         // rebuild the view / view-projection about the render origin and supply
         // the camera position relative to it before upload. This one path covers
@@ -1337,9 +1332,11 @@ namespace OloEngine
         // sets world mirror matrices via Set* then calls this).
         const glm::vec3 origin = s_Data.RenderOrigin;
         const glm::mat4 relView = MakeViewRelative(s_Data.ViewMatrix, origin);
-        // Projection is translation-free, so it is identical whether taken from
-        // the world or relative VP — derive it once for the UBO's Projection.
-        const glm::mat4 projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
+        // Use the stored projection directly. Reconstructing it as VP * inverse(V)
+        // is algebraically valid but not bit-stable in f32; terrain and voxel
+        // draws re-upload this shared UBO between the depth and colour replays,
+        // so even a small reconstruction error can make GL_LEQUAL reject pixels.
+        const glm::mat4& projection = s_Data.ProjectionMatrix;
 
         // A8 projection seam: the stored matrices stay GL-convention; the
         // GPU-visible copies flip at upload (identity on GL). This one seam
@@ -1348,7 +1345,8 @@ namespace OloEngine
         // consumers difference clip .xy against the current (flipped)
         // rasterized position, and the two flip flavours agree on .xy.
         ShaderBindingLayout::CameraUBO cameraData{};
-        cameraData.ViewProjection = RHI::AdjustProjectionForBackend(projection * relView);
+        cameraData.ViewProjection = RHI::AdjustProjectionForBackend(
+            MakeViewProjectionRelative(projection, s_Data.ViewMatrix, origin));
         cameraData.View = relView;
         cameraData.Projection = RHI::AdjustProjectionForBackend(projection);
         cameraData.Position = MakePositionRelative(s_Data.ViewPos, origin);
