@@ -178,6 +178,8 @@ layout(binding = 23) uniform sampler2D u_TerrainHeightmap;
 layout(binding = 30) uniform sampler2D u_SnowDepthMap;
 #endif
 
+#include "include/TerrainHeightSampling.glsl"
+
 // Snow Accumulation UBO (binding 16)
 layout(std140, binding = 16) uniform SnowAccumulationParams {
     mat4 u_ClipmapViewProj[3];
@@ -207,7 +209,8 @@ void main()
     vec3 nrm = normalize(interpolate3(tc_Normal[0], tc_Normal[1], tc_Normal[2]));
 
     float heightScale = u_WorldSizeAndHeightScale.z;
-    float sampledHeight = texture(u_TerrainHeightmap, uv).r * heightScale;
+    float heightMip = oloTerrainHeightMip(tc_TexCoord[0], tc_TexCoord[1], tc_TexCoord[2]);
+    float sampledHeight = oloTerrainFilteredHeight(uv, heightMip) * heightScale;
 
     // Displace Y from heightmap
     pos.y = sampledHeight;
@@ -233,14 +236,14 @@ void main()
     }
 
     // Recompute normal from heightmap derivatives
-    float texelSize = u_TerrainParams.x;
+    float texelSize = u_TerrainParams.x * exp2(heightMip);
     float worldSizeX = u_WorldSizeAndHeightScale.x;
     float worldSizeZ = u_WorldSizeAndHeightScale.y;
 
-    float hL = texture(u_TerrainHeightmap, uv + vec2(-texelSize, 0.0)).r * heightScale;
-    float hR = texture(u_TerrainHeightmap, uv + vec2( texelSize, 0.0)).r * heightScale;
-    float hD = texture(u_TerrainHeightmap, uv + vec2(0.0, -texelSize)).r * heightScale;
-    float hU = texture(u_TerrainHeightmap, uv + vec2(0.0,  texelSize)).r * heightScale;
+    float hL = oloTerrainFilteredHeight(uv + vec2(-texelSize, 0.0), heightMip) * heightScale;
+    float hR = oloTerrainFilteredHeight(uv + vec2( texelSize, 0.0), heightMip) * heightScale;
+    float hD = oloTerrainFilteredHeight(uv + vec2(0.0, -texelSize), heightMip) * heightScale;
+    float hU = oloTerrainFilteredHeight(uv + vec2(0.0,  texelSize), heightMip) * heightScale;
 
     float dX = (hR - hL) / (2.0 * texelSize * worldSizeX);
     float dZ = (hU - hD) / (2.0 * texelSize * worldSizeZ);

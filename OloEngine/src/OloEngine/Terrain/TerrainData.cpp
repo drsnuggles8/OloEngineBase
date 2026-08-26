@@ -245,7 +245,7 @@ namespace OloEngine
         spec.Width = m_Resolution;
         spec.Height = m_Resolution;
         spec.Format = ImageFormat::R32F;
-        spec.GenerateMips = false;
+        spec.GenerateMips = true;
 
         m_GPUHeightmap = Texture2D::Create(spec);
         m_GPUHeightmap->SetData(m_Heights.data(), static_cast<u32>(m_Heights.size() * sizeof(f32)));
@@ -272,7 +272,17 @@ namespace OloEngine
         if (width == 0 || height == 0)
             return;
 
-        // Extract the sub-region into a contiguous buffer
+        if (m_GPUHeightmap->GetMipLevelCount() > 1)
+        {
+            // Every coarser level depends on the edited base region. Texture2D has
+            // no backend-neutral partial-mip regeneration command, so refresh the
+            // complete base image and let SetData rebuild the chain on both APIs.
+            // Terrain sculpt uploads happen before the frame is recorded.
+            m_GPUHeightmap->SetData(m_Heights.data(), static_cast<u32>(m_Heights.size() * sizeof(f32)));
+            return;
+        }
+
+        // Extract the sub-region into a contiguous buffer.
         std::vector<f32> regionData(static_cast<sizet>(width) * height);
         for (u32 row = 0; row < height; ++row)
         {
@@ -281,7 +291,7 @@ namespace OloEngine
             std::memcpy(&regionData[dstOffset], &m_Heights[srcOffset], width * sizeof(f32));
         }
 
-        // Partial upload via SubImage
+        // Single-level textures can retain the cheap partial upload.
         u32 dataSize = width * height * static_cast<u32>(sizeof(f32));
         m_GPUHeightmap->SubImage(x, y, width, height, regionData.data(), dataSize);
     }

@@ -866,6 +866,7 @@ namespace OloEngine
 
         // Streaming path: route the upload through a double-buffered PBO ring so the
         // CPU copy and the GPU DMA overlap instead of stalling the render thread.
+        bool uploadedViaPbo = false;
         if (m_Specification.Streaming && m_Specification.Samples <= 1u && data)
         {
             if (m_PBO[0] == 0u || m_PBOCapacity != size)
@@ -887,19 +888,31 @@ namespace OloEngine
                                                   GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT))
             {
                 std::memcpy(ptr, data, size);
-                glUnmapNamedBuffer(pbo);
-
-                // glTextureSubImage2D sources from the bound GL_PIXEL_UNPACK_BUFFER when
-                // the data pointer is a (null) buffer offset. Restore the binding to 0 after.
-                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-                glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, nullptr);
-                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-                return;
+                if (glUnmapNamedBuffer(pbo) == GL_TRUE)
+                {
+                    // glTextureSubImage2D sources from the bound GL_PIXEL_UNPACK_BUFFER when
+                    // the data pointer is a (null) buffer offset. Restore the binding to 0 after.
+                    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+                    glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, nullptr);
+                    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                    uploadedViaPbo = true;
+                }
             }
-            // Map failed — fall through to the direct (client-memory) upload below.
+            // Map or unmap failed — fall through to the direct (client-memory) upload below.
         }
 
-        glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, data);
+        if (!uploadedViaPbo)
+        {
+            glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, data);
+        }
+
+        if (m_MipLevels > 1u)
+        {
+            glGenerateTextureMipmap(m_RendererID);
+            m_MipsPopulated = true;
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
+                                SelectMinFilter(IsIntegerFormat(m_Specification.Format), true));
+        }
     }
 
     void OpenGLTexture2D::SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, [[maybe_unused]] u32 dataSize)
