@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 
+#include <array>
 #include <span>
 
 namespace OloEngine
@@ -180,6 +181,17 @@ namespace OloEngine
         // Render 2D overlays and screen-space UI via the per-frame callback
         if (m_RenderCallback)
         {
+            // Renderer2D's fragment stages produce colour, entity-ID, and
+            // view-normal outputs. The background blit above only needs RT0,
+            // but narrowing the callback draw map to that one attachment makes
+            // locations 1 and 2 unavailable to its Vulkan pipelines. Keep all
+            // three attachments active while Renderer2D draws, then mask the
+            // auxiliary targets so UI remains non-pickable and does not alter
+            // the composited normal attachment.
+            static constexpr std::array<u32, 3> renderer2DAttachments = { 0u, 1u, 2u };
+            context.SetDrawBuffers(renderer2DAttachments);
+            RenderCommand::SetColorMaskForAttachment(1u, false, false, false, false);
+            RenderCommand::SetColorMaskForAttachment(2u, false, false, false, false);
             context.SetBlendState(true);
             context.SetAlphaBlendStandard();
             context.SetDepthTest(false);
@@ -194,6 +206,8 @@ namespace OloEngine
             context.SetDepthTest(true);
             context.SetDepthMask(true);
             context.SetCulling(true);
+            RenderCommand::SetColorMask(true, true, true, true);
+            context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 
             // One-shot: clear for next frame
             m_RenderCallback = nullptr;
