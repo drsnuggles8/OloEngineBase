@@ -4754,8 +4754,20 @@ TEST_F(VulkanPassSuite, UiCompositeClearsBlitsAndBlendsTheOverlayCallback)
             colorToSampled.Before = RHI::Access::ColorAttachmentWrite;
             colorToSampled.After = RHI::Access::ShaderSampleRead;
             api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &colorToSampled, 1 });
-            // The entity attachment was only transfer-CLEARED (the narrowed
-            // draw-buffer scope never contained it).
+            // The entity attachment was only transfer-CLEARED as far as the
+            // DRAWS are concerned — the narrowed draw-buffer scope never
+            // contained it — so `Before` names the clear.
+            //
+            // That is deliberately the naive-but-reasonable declaration, and it
+            // is not the whole truth: the attachment was still part of the
+            // render pass instance, so vkCmdEndRendering's storeOp wrote it
+            // too. Sync validation flagged exactly that as a WRITE_AFTER_WRITE
+            // against the layout transition. IssueBarrierBatch now widens the
+            // source scope from the TRACKED LAYOUT rather than trusting
+            // `Before` alone (VulkanRendererAPI.cpp, the attachment-layout arm
+            // beside the transfer one), which is what keeps a caller reasoning
+            // about draws from having to reason about storeOps as well. Left
+            // as-is on purpose: this is the case that pins that widening.
             RHI::Barrier entityToSampled{};
             entityToSampled.Resource = outputFramebuffer->GetColorAttachmentHandle(1);
             entityToSampled.Before = RHI::Access::TransferWrite;
