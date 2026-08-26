@@ -74,6 +74,7 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <gtest/gtest.h>
+#include <glm/gtc/constants.hpp>
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 
@@ -174,6 +175,74 @@ namespace OloEngine::Tests
                 s.LumaStdDev = std::sqrt(std::max(lumaSqSum / n - mean * mean, 0.0));
             }
             return s;
+        }
+
+        // Collider gizmos use a saturated green that does not occur naturally
+        // in Drift's dusk sky. At long range their wireframe edges collapse to
+        // isolated one-pixel flecks, so count only pixels with at most three
+        // similarly green neighbours in their 3x3 neighbourhood.
+        [[nodiscard]] u32 CountIsolatedColliderGizmoPixels(const std::vector<u8>& pixels,
+                                                           u32 width, u32 height,
+                                                           u32 rowBegin, u32 rowEnd)
+        {
+            if (pixels.size() != static_cast<std::size_t>(width) * height * 4u ||
+                width < 3 || height < 3)
+            {
+                return 0;
+            }
+
+            const auto isGizmoGreen = [&](u32 x, u32 y)
+            {
+                const std::size_t i = (static_cast<std::size_t>(y) * width + x) * 4u;
+                const u32 r = pixels[i + 0];
+                const u32 g = pixels[i + 1];
+                const u32 b = pixels[i + 2];
+                return g >= 96u && g >= r * 2u && g >= b * 2u;
+            };
+
+            rowBegin = std::max(rowBegin, 1u);
+            rowEnd = std::min(rowEnd, height - 1u);
+            u32 count = 0;
+            for (u32 y = rowBegin; y < rowEnd; ++y)
+            {
+                for (u32 x = 1; x + 1 < width; ++x)
+                {
+                    if (!isGizmoGreen(x, y))
+                        continue;
+
+                    u32 greenNeighbors = 0;
+                    for (i32 dy = -1; dy <= 1; ++dy)
+                    {
+                        for (i32 dx = -1; dx <= 1; ++dx)
+                        {
+                            if (dx == 0 && dy == 0)
+                                continue;
+                            greenNeighbors += isGizmoGreen(
+                                                  static_cast<u32>(static_cast<i32>(x) + dx),
+                                                  static_cast<u32>(static_cast<i32>(y) + dy))
+                                                  ? 1u
+                                                  : 0u;
+                        }
+                    }
+                    if (greenNeighbors <= 3u)
+                        ++count;
+                }
+            }
+            return count;
+        }
+
+        void FlipRgbaRows(std::vector<u8>& pixels, u32 width, u32 height)
+        {
+            const std::size_t rowBytes = static_cast<std::size_t>(width) * 4u;
+            std::vector<u8> tmp(rowBytes);
+            for (u32 y = 0; y < height / 2u; ++y)
+            {
+                u8* top = pixels.data() + static_cast<std::size_t>(y) * rowBytes;
+                u8* bottom = pixels.data() + static_cast<std::size_t>(height - 1u - y) * rowBytes;
+                std::memcpy(tmp.data(), top, rowBytes);
+                std::memcpy(top, bottom, rowBytes);
+                std::memcpy(bottom, tmp.data(), rowBytes);
+            }
         }
 
         [[nodiscard]] f64 Rgba8Rmse(const std::vector<u8>& a, const std::vector<u8>& b)
@@ -663,5 +732,89 @@ namespace OloEngine::Tests
                "weather reached the sky but not the water (storm stddev "
             << m_SeaBand["NoonStorm"].LumaStdDev << " vs clear "
             << m_SeaBand["NoonClear"].LumaStdDev << ")";
+    }
+
+    TEST_F(DriftWeatherVisualEvidenceTest, HiddenPhysicsCollidersDoNotLeakIntoLowHorizonSky)
+    {
+        struct ScopedMockTime
+        {
+            ScopedMockTime()
+            {
+                Time::SetMockTime(kCaptureTime);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime;
+
+        auto& tod = m_Atmosphere.GetComponent<TimeOfDayComponent>();
+        tod.m_TimeOfDayHours = 18.9f;
+
+        auto& weather = m_Atmosphere.GetComponent<WeatherStateComponent>();
+        weather.m_CurrentState = WeatherStateId::Storm;
+        weather.m_TargetState = WeatherStateId::Storm;
+        weather.m_TransitionProgress = 1.0f;
+        weather.m_PrevTargetSeen = WeatherStateId::Storm;
+        weather.m_BlendedValid = false;
+        WeatherSystem::ApplyImmediate(GetScene());
+        ApplySeaState(kSeaRough);
+
+        // Mirror Drift's Ridgeback discovery trigger. From the issue's camera
+        // pose this 300x160x300 m volume is centred on the horizon, where its
+        // green wireframe collapses to scattered one-pixel fragments.
+        Entity trigger = GetScene().CreateEntity("Ridgeback discovery trigger");
+        auto& triggerTransform = trigger.GetComponent<TransformComponent>();
+        triggerTransform.Translation = { -210.0f, -24.0f, 70.0f };
+        auto& collider = trigger.AddComponent<BoxCollider3DComponent>();
+        collider.m_HalfExtents = { 150.0f, 80.0f, 150.0f };
+        collider.m_Offset = { 210.0f, 24.0f, 210.0f };
+
+        EditorCamera camera(30.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight),
+                            0.1f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 4.0f, -262.0f }, glm::pi<f32>(), glm::radians(2.121f));
+        auto& rendererSettings = Renderer3D::GetRendererSettings();
+        const bool savedShowPhysicsColliders = rendererSettings.ShowPhysicsColliders;
+        struct RestoreColliderSetting
+        {
+            bool& Setting;
+            bool Saved;
+            ~RestoreColliderSetting()
+            {
+                Setting = Saved;
+            }
+        } restoreColliderSetting{ rendererSettings.ShowPhysicsColliders, savedShowPhysicsColliders };
+
+        auto captureSceneColor = [&]()
+        {
+            RunEditorFrames(camera, 4);
+            auto framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+            EXPECT_TRUE(framebuffer) << "No SceneColor framebuffer for collider-gizmo check";
+            std::vector<u8> pixels;
+            if (!framebuffer)
+                return pixels;
+            ReadbackRgba8(framebuffer->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            EXPECT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
+            if (pixels.size() == static_cast<std::size_t>(kWidth) * kHeight * 4u)
+                FlipRgbaRows(pixels, kWidth, kHeight);
+            return pixels;
+        };
+
+        const u32 horizonBandEnd = kHeight * 55u / 100u;
+        rendererSettings.ShowPhysicsColliders = false;
+        const auto clean = captureSceneColor();
+        ASSERT_FALSE(clean.empty());
+        EXPECT_EQ(CountIsolatedColliderGizmoPixels(clean, kWidth, kHeight, 1u, horizonBandEnd), 0u)
+            << "hidden collider gizmos leaked saturated green specks into SceneColor";
+
+        // Deliberately bad control: the same frame with visualization enabled
+        // must light up the detector. This proves both that the camera/volume
+        // reproduce the artifact and that the detector is sensitive to it.
+        rendererSettings.ShowPhysicsColliders = true;
+        const auto control = captureSceneColor();
+        ASSERT_FALSE(control.empty());
+        EXPECT_GT(CountIsolatedColliderGizmoPixels(control, kWidth, kHeight, 1u, horizonBandEnd), 0u)
+            << "enabled distant collider gizmo did not reproduce the green horizon specks";
     }
 } // namespace OloEngine::Tests
