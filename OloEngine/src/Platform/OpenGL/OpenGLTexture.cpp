@@ -888,16 +888,17 @@ namespace OloEngine
                                                   GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT | GL_MAP_UNSYNCHRONIZED_BIT))
             {
                 std::memcpy(ptr, data, size);
-                glUnmapNamedBuffer(pbo);
-
-                // glTextureSubImage2D sources from the bound GL_PIXEL_UNPACK_BUFFER when
-                // the data pointer is a (null) buffer offset. Restore the binding to 0 after.
-                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-                glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, nullptr);
-                glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-                uploadedViaPbo = true;
+                if (glUnmapNamedBuffer(pbo) == GL_TRUE)
+                {
+                    // glTextureSubImage2D sources from the bound GL_PIXEL_UNPACK_BUFFER when
+                    // the data pointer is a (null) buffer offset. Restore the binding to 0 after.
+                    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+                    glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), m_DataFormat, dataType, nullptr);
+                    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                    uploadedViaPbo = true;
+                }
             }
-            // Map failed — fall through to the direct (client-memory) upload below.
+            // Map or unmap failed — fall through to the direct (client-memory) upload below.
         }
 
         if (!uploadedViaPbo)
