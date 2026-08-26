@@ -2666,6 +2666,8 @@ namespace OloEngine
                     return name.contains("Lightmap") || name.contains("lightmap");
                 case UBO_WATER:
                     return name.contains("Water") || name.contains("water");
+                case UBO_WATER_DISTURBANCE:
+                    return name.contains("WaterDisturbance") || name.contains("waterDisturbance");
                 case UBO_SHADER_GRAPH:
                     return name.contains("ShaderGraph") || name.contains("shaderGraph");
                 case UBO_FORWARD_PLUS:
@@ -2951,6 +2953,8 @@ namespace OloEngine
                     return name.contains("Refraction") || name.contains("refraction");
                 case TEX_WATER_FOAM:
                     return name.contains("Foam") || name.contains("foam");
+                case TEX_WATER_DISTURBANCE:
+                    return name.contains("Disturbance") || name.contains("disturbance");
                 case TEX_WATER_SSR:
                     return name.contains("SSR") || name.contains("ssr") ||
                            (name.contains("Screen") && name.contains("Reflection"));

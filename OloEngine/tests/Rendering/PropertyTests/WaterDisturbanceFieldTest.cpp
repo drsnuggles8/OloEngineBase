@@ -508,6 +508,82 @@ TEST(WaterDisturbanceFieldTest, TrailLookupPastTheEndReportsInvalidRatherThanWra
     EXPECT_FALSE(trail.At(BoatWakeTrail::kCapacity * 3u).m_Valid);
 }
 
+TEST(WaterDisturbanceFieldTest, TheVArmsSampleAnAgeRangeSoTheirOffsetGrows)
+{
+    using OloEngine::BoatWakeSample;
+    using OloEngine::BoatWakeSystem;
+    using OloEngine::BoatWakeTrail;
+
+    // THE pin for the defect that shipped in review: the arms were laid at a
+    // SINGLE age (`AtAge(now, kArmAgeSeconds)`), and because AtAge returns the
+    // newest sample at least that old, the age — and therefore the lateral
+    // offset — was the same every frame. The "diverging V" was two parallel
+    // lines at a fixed offset. It rendered perfectly, so nothing failed.
+    //
+    // What must hold is that the sampled ages SPREAD, so the offsets computed
+    // from them spread too. Asserting the offsets strictly increase is what a
+    // single-age implementation cannot satisfy.
+
+    // A boat running dead straight at a constant 8 m/s (above the full-speed
+    // gate) for 4 s at 100 Hz.
+    constexpr f32 kDt = 0.01f;
+    constexpr f32 kSpeed = 8.0f;
+    BoatWakeTrail trail;
+    for (int i = 0; i <= 400; ++i)
+    {
+        BoatWakeSample s;
+        s.m_TimeSeconds = static_cast<f32>(i) * kDt;
+        s.m_WorldXZ = glm::vec2(0.0f, s.m_TimeSeconds * kSpeed);
+        s.m_ForwardXZ = glm::vec2(0.0f, 1.0f);
+        s.m_ForwardSpeed = kSpeed;
+        s.m_Valid = true;
+        trail.Push(s);
+    }
+    const f32 now = 4.0f;
+
+    // The ring must actually reach back across the whole arm range, or the
+    // outer segments are never laid at all.
+    ASSERT_GE(static_cast<f32>(BoatWakeTrail::kCapacity) * kDt, BoatWakeSystem::kArmAgeMaxSeconds)
+        << "BoatWakeTrail::kCapacity no longer spans kArmAgeMaxSeconds at 100 Hz";
+
+    constexpr f32 kBeam = 2.4f;
+    f32 previousAge = -1.0f;
+    f32 previousOffset = -1.0f;
+    u32 laid = 0;
+    for (u32 i = 0; i < BoatWakeSystem::kArmAgeSamples; ++i)
+    {
+        const f32 t = static_cast<f32>(i) / static_cast<f32>(BoatWakeSystem::kArmAgeSamples - 1u);
+        const f32 wantAge = BoatWakeSystem::kArmAgeMinSeconds +
+                            t * (BoatWakeSystem::kArmAgeMaxSeconds - BoatWakeSystem::kArmAgeMinSeconds);
+        const BoatWakeSample s = trail.AtAge(now, wantAge);
+        ASSERT_TRUE(s.m_Valid) << "no history at age " << wantAge;
+
+        const f32 age = now - s.m_TimeSeconds;
+        // Mirrors BoatWakeSystem's own offset expression; gate is 1 at 8 m/s.
+        const f32 offset = kBeam * 0.5f + BoatWakeSystem::kArmSpreadMetresPerSecond * age * 1.0f;
+
+        EXPECT_GT(age, previousAge) << "sample " << i << " is not older than the one before it";
+        EXPECT_GT(offset, previousOffset) << "arm offset did not grow at sample " << i;
+        previousAge = age;
+        previousOffset = offset;
+        ++laid;
+    }
+
+    // NEGATIVE CONTROL: a single-sample configuration would trivially satisfy
+    // "offsets increase" with nothing to compare against.
+    ASSERT_GE(laid, 2u) << "fewer than two arm samples — the growth assertions are vacuous";
+
+    // And the spread is worth having: the outermost arm must sit meaningfully
+    // wider than the innermost, or the V is visually a pair of parallel lines
+    // even though the offsets technically differ.
+    const f32 innerOffset = kBeam * 0.5f +
+                            BoatWakeSystem::kArmSpreadMetresPerSecond * BoatWakeSystem::kArmAgeMinSeconds;
+    const f32 outerOffset = kBeam * 0.5f +
+                            BoatWakeSystem::kArmSpreadMetresPerSecond * BoatWakeSystem::kArmAgeMaxSeconds;
+    EXPECT_GT(outerOffset - innerOffset, 1.0f)
+        << "the V spreads by less than a metre across its whole age range";
+}
+
 TEST(WaterDisturbanceFieldTest, TrailAgeLookupPicksTheNewestSampleOldEnough)
 {
     using OloEngine::BoatWakeSample;

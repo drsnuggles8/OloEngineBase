@@ -33,9 +33,15 @@ namespace OloEngine
     // the leak only shows up in a long play session, which no test runs.
     //
     // Capacity is sized from what actually reads the history: the V-arm lookup
-    // reaches back kArmAgeSeconds, so the ring must span that at the slowest
-    // plausible tick rate. 128 samples covers 1.2 s down to ~107 Hz and 2.1 s at
-    // 60 Hz, with headroom.
+    // reaches back kArmAgeMaxSeconds (1.5 s), so the ring must span that at the
+    // FASTEST plausible tick rate — a higher rate means more samples for the
+    // same wall-clock window, so that is the demanding direction. 256 samples
+    // covers 1.5 s up to ~170 Hz, and 4.2 s at 60 Hz.
+    //
+    // Running short is graceful rather than wrong: `AtAge` reports invalid past
+    // the end of the history and the affected arm segment is simply not laid
+    // that frame, which is also what happens for a boat that has only just
+    // started moving.
     //
     // Header-only and free of Scene/Jolt so WaterDisturbanceTrailTest can drive
     // it headlessly — the eviction behaviour is an acceptance criterion, and a
@@ -45,7 +51,7 @@ namespace OloEngine
     class BoatWakeTrail
     {
       public:
-        static constexpr u32 kCapacity = 128;
+        static constexpr u32 kCapacity = 256;
 
         void Push(const BoatWakeSample& sample) noexcept
         {
@@ -123,13 +129,23 @@ namespace OloEngine
     // What it emits per boat per frame:
     //   * the HULL churn — one capsule swept from the previous recorded pose to
     //     this one, so a fast boat cannot leave a dotted trail;
-    //   * the two V-ARMS — a capsule either side of the pose that is
-    //     kArmAgeSeconds old, offset laterally by an amount that grows with
-    //     that age. Laying each arm once, when its world position reaches the
-    //     right age, is what produces a DIVERGING V from a per-frame stamp: the
-    //     offset cannot grow after the fact, so the growth has to come from
-    //     picking an older sample each frame rather than re-stamping a newer
-    //     one. It follows an S-turn because the historical headings do.
+    //   * the two V-ARMS — a chain of capsules either side of the trail,
+    //     sampled at kArmAgeSamples ages spanning [kArmAgeMin, kArmAgeMax] and
+    //     offset laterally by an amount computed from EACH sample's own age.
+    //
+    //     The age RANGE is what makes the V diverge, and getting this wrong is
+    //     easy: an earlier version stamped one arm pair per frame at a single
+    //     age, reasoning that each patch of water would be stamped once, when
+    //     it reached that age. But `AtAge` returns the newest sample at least
+    //     that old, so the age — and therefore the offset — was the SAME every
+    //     frame, and the "diverging V" was two parallel lines at a fixed offset.
+    //     It rendered perfectly and looked like a wake, which is why the code
+    //     and its own comment disagreed for a while without anything failing.
+    //
+    //     Sampling a range instead means one patch of water is re-stamped at a
+    //     growing offset as it ages, which is what actually traces a widening V.
+    //     `max()` combining makes the repeats idempotent. It follows an S-turn
+    //     because the historical headings do.
     //   * the PROPELLER wash — a point splat at the stern, gated on throttle
     //     rather than speed, so a boat holding station against a current still
     //     churns.
@@ -141,8 +157,19 @@ namespace OloEngine
         /// kMinSpeed there is no wake at all — a drifting hull does not foam.
         static constexpr f32 kMinSpeedMetresPerSecond = 0.6f;
         static constexpr f32 kFullSpeedMetresPerSecond = 6.0f;
-        /// How far back the V-arms are laid, and how fast they diverge.
-        static constexpr f32 kArmAgeSeconds = 0.55f;
+
+        /// The age RANGE the V-arms are laid over, and how fast they diverge.
+        ///
+        /// A range, not a single age, and that is the whole reason the arms
+        /// spread at all — see the class comment below. At 1.6 m/s of spread
+        /// these produce a half-angle of roughly 15 degrees, against the ~19.5
+        /// of a real Kelvin wake.
+        static constexpr f32 kArmAgeMinSeconds = 0.25f;
+        static constexpr f32 kArmAgeMaxSeconds = 1.5f;
+        /// Samples taken across that range each frame. Consecutive samples are
+        /// joined by a capsule, so this is (kArmAgeSamples - 1) segments per
+        /// side — 6 splats per boat per frame at 4.
+        static constexpr u32 kArmAgeSamples = 4;
         static constexpr f32 kArmSpreadMetresPerSecond = 1.6f;
 
         /// Record this tick's hull poses and submit the resulting splats.

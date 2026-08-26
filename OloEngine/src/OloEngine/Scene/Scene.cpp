@@ -855,6 +855,12 @@ namespace OloEngine
 
         m_RuntimeSnowPrevPositions.Remove(entityUUID);
         m_EditorSnowPrevPositions.Remove(entityUUID);
+        // Boat hull-pose history (issue #967), same per-entity keying as the
+        // snow maps above. Without this a destroyed boat's ring stays in the
+        // map for the scene's lifetime, and a later entity that reused the UUID
+        // would inherit its trail.
+        m_RuntimeBoatWakeTrails.Remove(entityUUID);
+        m_EditorBoatWakeTrails.Remove(entityUUID);
 
         // Unified diagnostics timeline (#306), recorded only once the destroy
         // has actually gone through (the early returns above bail before this).
@@ -1862,6 +1868,8 @@ namespace OloEngine
 
         m_RuntimeSnowPrevPositions.Empty();
         m_EditorSnowPrevPositions.Empty();
+        m_RuntimeBoatWakeTrails.Empty();
+        m_EditorBoatWakeTrails.Empty();
 
         // Reset animation clock on stop so re-entering runtime (or switching
         // to edit mode) seeds a fresh baseline instead of leaking a stale
@@ -2748,6 +2756,16 @@ namespace OloEngine
         }
 
         PostPhysicsSync();
+
+        // Boat wake foam (issue #967) — mirrors the "BoatWake" scheduler node,
+        // which the runtime path orders after PhysicsFence. AFTER
+        // PostPhysicsSync for the same reason the node reads LocalTransforms:
+        // the wake describes where the hull ENDED this tick.
+        //
+        // This is the Simulate-mode call site and it is the one that matters —
+        // Simulate runs physics with no gameplay scripts, so it is how a boat
+        // moves in the editor. Keep it in sync with the scheduler node.
+        BoatWakeSystem::OnUpdate(this, m_EditorBoatWakeTrails, m_SimulationTime, ts.GetSeconds());
     }
 
     void Scene::KickPhysicsStep(Timestep const ts)
@@ -3493,8 +3511,9 @@ namespace OloEngine
             // unsynchronised static state. Marking it would need the
             // thread-safety audit in the table above, and boats are rare enough
             // that the barrier costs nothing. The editor Simulate path mirrors
-            // this with a direct call in Scene::StepPhysics — keep the two call
-            // sites in sync.
+            // this with a direct call at the end of Scene::StepPhysics, after
+            // PostPhysicsSync — keep the two call sites in sync. Edit mode has
+            // no call and needs none: it runs no physics.
             sched.AddSystem("BoatWake", [](Scene& s, Timestep ts)
                             { s.UpdateBoatWake(ts); })
                 .Reads(kLocalTransforms);
@@ -4661,11 +4680,12 @@ namespace OloEngine
         // Process snow deformer entities in editor preview
         ProcessSnowDeformers(ts, m_EditorSnowPrevPositions);
 
-        // Boat wake foam in editor preview (issue #967) — the mirror of the
-        // "BoatWake" scheduler node on the runtime path. Its own trail map, so
-        // an editor preview and a Play session cannot cross-contaminate each
-        // other's history.
-        BoatWakeSystem::OnUpdate(this, m_EditorBoatWakeTrails, m_SimulationTime, ts.GetSeconds());
+        // NOTE no BoatWake call here. Edit mode runs no physics, so there is no
+        // Jolt scene, no hull pose to record and nothing to lay a wake from —
+        // BoatWakeSystem::OnUpdate would return immediately. The editor-side
+        // call lives in Scene::StepPhysics, which is the SIMULATE path, where
+        // boats actually move. The two editor modes are not interchangeable
+        // here, and putting it in this one is a silent no-op.
 
         // Live-retargeting bake also runs in edit mode so the retargeted clips
         // preview without entering Play (issue #631). Idempotent per

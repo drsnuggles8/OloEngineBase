@@ -167,6 +167,31 @@ the measured values in the comment. A band derived from percentages is a guess
 about the projection, and the failure it produces looks exactly like the bug the
 test exists to catch.
 
+## 4b. A new binding constant is not a new binding — the VALIDATOR has to learn it
+
+`ShaderBindingLayout` holds two hand-maintained switch statements,
+`IsKnownUBOBinding` and `IsKnownTextureBinding`, that
+`ShaderReflectionBinding.AllProductionShaderBindingsMatchCppLayout` reflects every
+production shader against. Declaring `UBO_WATER_DISTURBANCE = 63` and using it in
+a `.comp` compiles, links, dispatches and renders correctly — and fails that test,
+because 63 is not in the switch:
+
+```
+WaterDisturbance_Update.comp:
+  UBO binding 63 (name='WaterDisturbanceParams') is not recognised by
+  ShaderBindingLayout::IsKnownUBOBinding.
+```
+
+Both switches match on the **block/sampler NAME** as well as the number, so the
+case has to agree with what the shader actually calls the thing. Add the case in
+the same commit as the constant.
+
+Worth knowing where this surfaces: the test is a headless text/reflection check,
+so it runs on Linux CI inside the full ctest sweep — it is not in the water or
+renderer filters you would naturally run while doing water work. #967 found it
+only when the TSan job (which runs the whole suite) came back red, 1 failure out
+of 6736. Run `--gtest_filter='Shader*'` before pushing a new binding.
+
 ## 5. Adding a `TEX_*` slot is also a shader edit — and it moves a hand-written literal
 
 Covered in full in `ShaderBindingLayout.h` and `include/BindlessHeap.glsl`, but it

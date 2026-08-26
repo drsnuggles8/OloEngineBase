@@ -156,11 +156,17 @@ namespace OloEngine
             HullExtents(body, beam, length);
 
             // Speed gate. |speed| so a boat backing up churns too — a reversing
-            // propeller makes more foam than a forward one, not less.
-            const f32 speedGate =
-                glm::clamp((std::abs(forwardSpeed) - kMinSpeedMetresPerSecond) /
-                               std::max(kFullSpeedMetresPerSecond - kMinSpeedMetresPerSecond, 1.0e-3f),
-                           0.0f, 1.0f);
+            // propeller makes more foam than a forward one, not less. Shared by
+            // the hull sweep and every V-arm segment, each of which gates on the
+            // speed the hull had at ITS sample's moment rather than on the
+            // speed right now.
+            const auto speedGate = [](f32 speed)
+            {
+                return glm::clamp((std::abs(speed) - kMinSpeedMetresPerSecond) /
+                                      std::max(kFullSpeedMetresPerSecond - kMinSpeedMetresPerSecond, 1.0e-3f),
+                                  0.0f, 1.0f);
+            };
+            const f32 hullGate = speedGate(forwardSpeed);
 
             // Starboard in a right-handed frame with +Y up is forward x up,
             // i.e. forward rotated -90 degrees about Y. Getting this backwards
@@ -169,7 +175,7 @@ namespace OloEngine
             const glm::vec2 starboardXZ(-forwardXZ.y, forwardXZ.x);
 
             // --- 1. Hull churn: the swept capsule -----------------------------
-            if (speedGate > 0.0f)
+            if (hullGate > 0.0f)
             {
                 WaterDisturbanceSplat hull;
                 // A first sample has no predecessor; degenerate the capsule to a
@@ -178,45 +184,72 @@ namespace OloEngine
                 hull.m_From = previous.m_Valid ? previous.m_WorldXZ : posXZ;
                 hull.m_To = posXZ;
                 hull.m_Radius = beam * 0.55f;
-                hull.m_Strength = 0.35f + 0.5f * speedGate;
+                hull.m_Strength = 0.35f + 0.5f * hullGate;
                 hull.m_Softness = 1.4f;
                 hull.m_TimeSeconds = simulationTime;
                 (void)WaterDisturbanceSystem::SubmitSplat(hull);
             }
 
             // --- 2. The diverging V-arms --------------------------------------
-            // Laid at the pose that is now kArmAgeSeconds old, offset laterally
-            // by an amount that grows with that age. See the header for why the
-            // offset has to come from picking an older sample rather than from
-            // re-stamping a newer one.
-            const BoatWakeSample armSample = trail.AtAge(simulationTime, kArmAgeSeconds);
-            if (armSample.m_Valid)
+            // Sample the hull history at several AGES and join consecutive ones
+            // with a capsule per side, offsetting each end by its own sample's
+            // age. The age range is what makes the V spread — see the header for
+            // why a single age silently produces parallel lines instead.
             {
-                const f32 armAge = simulationTime - armSample.m_TimeSeconds;
-                const f32 armGate = glm::clamp(
-                    (std::abs(armSample.m_ForwardSpeed) - kMinSpeedMetresPerSecond) /
-                        std::max(kFullSpeedMetresPerSecond - kMinSpeedMetresPerSecond, 1.0e-3f),
-                    0.0f, 1.0f);
-                if (armGate > 0.0f)
+                BoatWakeSample prevSample{};
+                f32 prevOffset = 0.0f;
+                f32 prevGate = 0.0f;
+                bool prevValid = false;
+
+                for (u32 i = 0; i < kArmAgeSamples; ++i)
                 {
-                    const glm::vec2 armStarboard(-armSample.m_ForwardXZ.y, armSample.m_ForwardXZ.x);
-                    const f32 offset = beam * 0.5f + kArmSpreadMetresPerSecond * armAge * armGate;
-                    // The arms are narrower and weaker than the hull churn, and
-                    // fade with the spread — a real Kelvin arm thins as it
-                    // diverges.
-                    const f32 armStrength = (0.25f + 0.35f * armGate) /
-                                            (1.0f + 0.6f * kArmSpreadMetresPerSecond * armAge);
-                    for (const f32 side : { -1.0f, 1.0f })
+                    const f32 t =
+                        (kArmAgeSamples > 1u) ? static_cast<f32>(i) / static_cast<f32>(kArmAgeSamples - 1u) : 0.0f;
+                    const f32 wantAge = kArmAgeMinSeconds + t * (kArmAgeMaxSeconds - kArmAgeMinSeconds);
+
+                    const BoatWakeSample s = trail.AtAge(simulationTime, wantAge);
+                    if (!s.m_Valid)
                     {
-                        WaterDisturbanceSplat arm;
-                        arm.m_From = armSample.m_WorldXZ + armStarboard * (offset * side);
-                        arm.m_To = arm.m_From;
-                        arm.m_Radius = std::max(beam * 0.3f, 0.4f);
-                        arm.m_Strength = armStrength;
-                        arm.m_Softness = 2.0f;
-                        arm.m_TimeSeconds = simulationTime;
-                        (void)WaterDisturbanceSystem::SubmitSplat(arm);
+                        // History does not reach back this far yet (a boat that
+                        // just got under way, or a ring that has wrapped). Break
+                        // the chain rather than joining across the gap, which
+                        // would draw one long arm through water the hull never
+                        // crossed. Ages only increase, so nothing later can be
+                        // valid either.
+                        break;
                     }
+
+                    const f32 age = simulationTime - s.m_TimeSeconds;
+                    const f32 gate = speedGate(s.m_ForwardSpeed);
+                    const f32 offset = beam * 0.5f + kArmSpreadMetresPerSecond * age * gate;
+
+                    if (prevValid && gate > 0.0f && prevGate > 0.0f)
+                    {
+                        const glm::vec2 prevStarboard(-prevSample.m_ForwardXZ.y, prevSample.m_ForwardXZ.x);
+                        const glm::vec2 curStarboard(-s.m_ForwardXZ.y, s.m_ForwardXZ.x);
+                        // The arms are narrower and weaker than the hull churn,
+                        // and fade as they spread — a real Kelvin arm thins as
+                        // it diverges. Keyed on the OLDER end so a segment never
+                        // reads brighter than the one ahead of it.
+                        const f32 armStrength =
+                            (0.25f + 0.35f * gate) / (1.0f + 0.6f * kArmSpreadMetresPerSecond * age);
+                        for (const f32 side : { -1.0f, 1.0f })
+                        {
+                            WaterDisturbanceSplat arm;
+                            arm.m_From = prevSample.m_WorldXZ + prevStarboard * (prevOffset * side);
+                            arm.m_To = s.m_WorldXZ + curStarboard * (offset * side);
+                            arm.m_Radius = std::max(beam * 0.3f, 0.4f);
+                            arm.m_Strength = armStrength;
+                            arm.m_Softness = 2.0f;
+                            arm.m_TimeSeconds = simulationTime;
+                            (void)WaterDisturbanceSystem::SubmitSplat(arm);
+                        }
+                    }
+
+                    prevSample = s;
+                    prevOffset = offset;
+                    prevGate = gate;
+                    prevValid = true;
                 }
             }
 

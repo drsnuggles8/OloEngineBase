@@ -2521,6 +2521,12 @@ namespace OloEngine
             sanitize(c.m_WakeFoamHalfLife, 0.05f, 120.0f, 6.0f);
             sanitize(c.m_WakeFoamFadeStart, 0.0f, 2000.0f, 60.0f);
             sanitize(c.m_WakeFoamFadeEnd, 1.0f, 4000.0f, 220.0f);
+            // Endpoint ordering — the same invariant the scene serializer
+            // enforces. Clamping the two independently cannot establish it, and
+            // an inverted pair reaches the shader as smoothstep(hi, lo, x),
+            // which is undefined.
+            if (c.m_WakeFoamFadeEnd < c.m_WakeFoamFadeStart + 1.0f)
+                c.m_WakeFoamFadeEnd = c.m_WakeFoamFadeStart + 1.0f;
             sanitize(c.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
             sanitize(c.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
             sanitize(c.m_SSRStepSize, 0.01f, 1.0f, 0.1f);
