@@ -37,6 +37,8 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #else
 
 #include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -45,6 +47,7 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
+#include "Rendering/Texture2DArrayRoundTrip.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
@@ -58,7 +61,9 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanTextureCubemap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
+#include <glad/gl.h>
 #include <volk.h>
+#include <GLFW/glfw3.h>
 
 #include <algorithm>
 #include <cstring>
@@ -82,6 +87,37 @@ namespace
         {
             RendererAPI::SetAPI(RendererAPI::API::OpenGL);
         }
+    };
+
+    // The shared RGBA16F contract uses the public RenderCommand readback
+    // facade, so this one resource-factory tenant must temporarily recreate
+    // that process-global facade for Vulkan as well as selecting Vulkan for
+    // resource factories. Put the initialized GL facade back for later tests.
+    struct ScopedVulkanRenderCommand
+    {
+        ScopedVulkanRenderCommand()
+            : PreviousDescriptorHeapEnabled(RHI::DescriptorHeap::Get().IsEnabled()),
+              HadOpenGlContext(glfwGetCurrentContext() != nullptr)
+        {
+            if (HadOpenGlContext)
+                RenderCommand::ShutdownGpuResources();
+            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
+            RenderCommand::RecreateForSelectedBackend();
+        }
+
+        ~ScopedVulkanRenderCommand()
+        {
+            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
+            RenderCommand::RecreateForSelectedBackend();
+            if (HadOpenGlContext)
+            {
+                RenderCommand::Init();
+                RHI::DescriptorHeap::Get().SetEnabled(PreviousDescriptorHeapEnabled);
+            }
+        }
+
+        bool PreviousDescriptorHeapEnabled;
+        bool HadOpenGlContext;
     };
 } // namespace
 
@@ -287,6 +323,12 @@ TEST_F(VulkanResourceFactory, TextureUploadRoundTripsThroughGetData)
     ASSERT_TRUE(texture->GetData(readback, 0));
     ASSERT_EQ(readback.size(), pixels.size());
     EXPECT_EQ(std::memcmp(readback.data(), pixels.data(), pixels.size()), 0);
+}
+
+TEST_F(VulkanResourceFactory, Rgba16fTextureArrayLayersRoundTripBitExactlyThroughThePublicFacade)
+{
+    ScopedVulkanRenderCommand vulkanCommand;
+    EXPECT_TRUE(OloEngine::Tests::KnownHalfEncodedTextureArrayLayersRoundTrip());
 }
 
 TEST_F(VulkanResourceFactory, RgbUploadWidensToRgbaWithOpaqueAlpha)
