@@ -1,13 +1,15 @@
 # Runtime scene load/switch — host-serviced transitions (issue #642)
 
 How a script-requested scene change gets from `SceneManager.LoadScene("Level2")` /
-`Scene.LoadScene("Level2")` to a running scene, and the five ordering rules that make it
-safe. Read before touching `Scene::SetPendingSceneLoad`, `SceneTransition`,
+`Scene.LoadScene("Level2")` to a running scene, and the ordering rules that make it
+safe. The same path supports `LoadSceneFromSave("Level2", "slot")`, which pairs an
+optional restore request with the scene request. Read before touching
+`Scene::SetPendingSceneLoad`, `SceneTransition`,
 `RuntimeLayer::ActivateScene`, or `EditorLayer::SwitchPlayScene`.
 
 The shape: **Scene records the request, the HOST applies it.** `Scene` deliberately owns
-no loading code — it holds a `std::string m_PendingSceneLoad` and nothing else. The two
-hosts (OloRuntime's `RuntimeLayer`, the editor's Play branch) service it after the tick
+no loading code — it only records the requested scene and optional save slot. The two
+hosts (OloRuntime's `RuntimeLayer`, the editor's Play branch) service them after the tick
 returns, both through the shared `SceneTransition::{ResolveScenePath, LoadSceneFile}`.
 
 ---
@@ -69,11 +71,19 @@ Corollary for tests: a headless harness can't call `OnRuntimeStart` (it needs
 Forgetting that sweep makes the incoming scene's scripts look dead in the test for a reason
 that has nothing to do with the code under test.
 
+For a Continue transition, restore the save into the successfully deserialized incoming
+scene **before** stopping the outgoing scene and before `OnRuntimeStart`. A save restore
+replaces component state; applying it after startup would invalidate physics, script, and
+audio handles that were created from the authored registry. If restore fails, discard the
+incoming scene and leave the outgoing scene running, just like a deserialize failure. The
+save slot is stored beside the scene request and cleared with it so it cannot leak into a
+later ordinary transition.
+
 ## 5. `OnRuntimeStart` must clear the pending request
 
 A request that survives into the scene it caused is an infinite bounce: tick 0 of the new
 scene re-fires the switch, forever, at frame rate. `Scene::OnRuntimeStart` clears both
-`m_PendingReload` and `m_PendingSceneLoad` next to its existing
+`m_PendingReload`, `m_PendingSceneLoad`, and the paired save slot next to its existing
 `ClearPendingEntityCommands()` for exactly the same reason that call is there. Pinned by
 `RuntimeSceneSwitchTest.AServicedRequestDoesNotRefireOnTheNewScene`.
 

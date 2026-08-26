@@ -41,6 +41,8 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Core/YAMLConverters.h"
+#include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/Font.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -62,6 +64,30 @@ namespace OloEngine::Tests
         // Distinctive enough that the wrong entity won't accidentally
         // pass on a multi-entity load.
         constexpr const char* kTestTag = "RoundTripEntity_uniqueA72F";
+
+        class ActiveProjectRestorer
+        {
+          public:
+            ActiveProjectRestorer()
+                : m_Previous(Project::GetActive())
+            {
+            }
+
+            ~ActiveProjectRestorer()
+            {
+                if (m_Previous)
+                {
+                    Project::NewInMemory(m_Previous->GetDirectory(), m_Previous->GetConfig());
+                }
+                else
+                {
+                    Project::Unload();
+                }
+            }
+
+          private:
+            Ref<Project> m_Previous;
+        };
 
         Entity FindByTag(Scene& scene, const char* tag)
         {
@@ -1476,6 +1502,43 @@ namespace OloEngine::Tests
         EXPECT_NEAR(t.m_Color.a, expectedColor.a, kFloatEpsilon);
         EXPECT_NEAR(t.m_Kerning, expectedKerning, kFloatEpsilon);
         EXPECT_NEAR(t.m_LineSpacing, expectedLineSpacing, kFloatEpsilon);
+    }
+
+    TEST(ComponentRoundTrip, UITextFontPathStaysPortableWhenTheLoadedFontPathIsAbsolute)
+    {
+        ActiveProjectRestorer restoreProject;
+        const auto repoRoot = std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+        const auto fontPath = std::filesystem::weakly_canonical(
+            repoRoot / "OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf");
+        ASSERT_TRUE(std::filesystem::is_regular_file(fontPath));
+
+        ProjectConfig config;
+        config.Name = "PortableFontPathTest";
+        config.AssetDirectory = ".";
+        ASSERT_TRUE(Project::NewInMemory(repoRoot, config));
+
+        auto scene = Scene::Create();
+        Entity entity = scene->CreateEntity(kTestTag);
+        auto& text = entity.AddComponent<UITextComponent>();
+        text.m_FontAsset = Font::Create(fontPath);
+        ASSERT_TRUE(text.m_FontAsset);
+
+        const auto yaml = SceneSerializer(scene).SerializeToYAML();
+
+        EXPECT_EQ(yaml.find(fontPath.generic_string()), std::string::npos)
+            << "Build Game must not rewrite a scene font to the editor host's absolute path.";
+        EXPECT_NE(yaml.find("OloEditor/assets/fonts/opensans/OpenSans-Regular.ttf"), std::string::npos);
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<UITextComponent>());
+        const auto& restoredText = restored.GetComponent<UITextComponent>();
+        ASSERT_TRUE(restoredText.m_FontAsset)
+            << "A project-relative serialized font path must load after scene deserialization.";
+        EXPECT_EQ(std::filesystem::weakly_canonical(restoredText.m_FontAsset->GetPath()), fontPath);
     }
 
     // -------------------------------------------------------------------------

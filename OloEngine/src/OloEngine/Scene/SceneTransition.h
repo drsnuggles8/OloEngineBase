@@ -71,5 +71,9 @@ namespace OloEngine::SceneTransition
     /// `requirePrimaryCamera` refuses a scene with no primary CameraComponent —
     /// the runtime has no editor camera to fall back on, so such a scene would
     /// render nothing.
-    [[nodiscard]] LoadResult LoadSceneFile(const std::filesystem::path& path, bool requirePrimaryCamera);
+    /// When `saveSlot` is non-empty, restore it into the successfully
+    /// deserialized scene before returning. A restore failure discards the new
+    /// scene so the host has not yet stopped its current one.
+    [[nodiscard]] LoadResult LoadSceneFile(const std::filesystem::path& path, bool requirePrimaryCamera,
+                                           std::string_view saveSlot = {});
 } // namespace OloEngine::SceneTransition

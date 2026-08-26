@@ -70,6 +70,70 @@ TEST(GameBuildPipelineTest, CSharpScriptingIsWindowsOnly)
     EXPECT_FALSE(IsScriptingAvailableOnPlatform(BuildTargetPlatform::Linux));
 }
 
+TEST(GameBuildPipelineTest, WindowsStagesEveryDynamicLibraryBesideTheRuntime)
+{
+    const auto runtimeDir = OloEngine::Tests::TempDir("runtime-dependencies");
+    const auto outputDir = OloEngine::Tests::TempDir("staged-dependencies");
+    std::filesystem::create_directories(runtimeDir);
+    std::filesystem::create_directories(outputDir);
+
+    const std::array expectedNames{
+        "avcodec-61.dll",
+        "steam_api64.dll",
+        "future-runtime-dependency.DLL",
+    };
+    for (const auto* name : expectedNames)
+    {
+        std::ofstream(runtimeDir / name) << name;
+    }
+    std::ofstream(runtimeDir / "OloRuntime.exe") << "runtime";
+    std::ofstream(runtimeDir / "avcodec.lib") << "import library";
+
+    sizet copiedCount = 0;
+    std::string errorMessage;
+    ASSERT_TRUE(StageRuntimeDependencyLibraries(
+        BuildTargetPlatform::Windows, runtimeDir, outputDir, copiedCount, errorMessage))
+        << errorMessage;
+
+    EXPECT_EQ(copiedCount, expectedNames.size());
+    for (const auto* name : expectedNames)
+    {
+        EXPECT_TRUE(std::filesystem::exists(outputDir / name)) << name;
+    }
+    EXPECT_FALSE(std::filesystem::exists(outputDir / "OloRuntime.exe"));
+    EXPECT_FALSE(std::filesystem::exists(outputDir / "avcodec.lib"));
+}
+
+TEST(GameBuildPipelineTest, LooseRuntimeTexturesPreserveTheirProjectRelativePaths)
+{
+    const auto projectAssets = OloEngine::Tests::TempDir("project-assets");
+    const auto outputAssets = OloEngine::Tests::TempDir("output-assets");
+    std::filesystem::create_directories(projectAssets / "Textures" / "Menu");
+    std::filesystem::create_directories(projectAssets / "Models" / "Boat");
+
+    const std::array expectedPaths{
+        std::filesystem::path{ "Textures/Menu/background.png" },
+        std::filesystem::path{ "Models/Boat/albedo.JPG" },
+    };
+    for (const auto& path : expectedPaths)
+    {
+        std::ofstream(projectAssets / path) << path.generic_string();
+    }
+    std::ofstream(projectAssets / "Textures/Menu/readme.txt") << "not a texture";
+
+    sizet copiedCount = 0;
+    std::string errorMessage;
+    ASSERT_TRUE(StageLooseRuntimeTextures(projectAssets, outputAssets, copiedCount, errorMessage))
+        << errorMessage;
+
+    EXPECT_EQ(copiedCount, expectedPaths.size());
+    for (const auto& path : expectedPaths)
+    {
+        EXPECT_TRUE(std::filesystem::exists(outputAssets / path)) << path;
+    }
+    EXPECT_FALSE(std::filesystem::exists(outputAssets / "Textures/Menu/readme.txt"));
+}
+
 TEST(GameBuildPipelineTest, ToStringIsHumanReadable)
 {
     EXPECT_STREQ(ToString(BuildTargetPlatform::Windows), "Windows");

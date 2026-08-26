@@ -36,6 +36,10 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Memory/Platform.h" // OLO_ASAN_ENABLED
+#include "OloEngine/Project/Project.h"
+#include "OloEngine/SaveGame/SaveGameFile.h"
+#include "OloEngine/SaveGame/SaveGameManager.h"
+#include "OloEngine/SaveGame/SaveGameSerializer.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
@@ -75,18 +79,33 @@ class SceneTransitionTest : public ::testing::Test
   protected:
     void SetUp() override
     {
+        m_PreviousProject = Project::GetActive();
         std::error_code ec;
         m_Root = OloEngine::Tests::TempDir("game");
         std::filesystem::create_directories(m_Root / "Scenes", ec);
         ASSERT_FALSE(ec) << "could not create the temp game directory: " << ec.message();
+
+        ProjectConfig config;
+        config.Name = "SceneTransitionTest";
+        config.AssetDirectory = "Assets";
+        ASSERT_TRUE(Project::NewInMemory(m_Root, config));
     }
 
     void TearDown() override
     {
+        if (m_PreviousProject)
+        {
+            Project::NewInMemory(m_PreviousProject->GetDirectory(), m_PreviousProject->GetConfig());
+        }
+        else
+        {
+            Project::Unload();
+        }
         std::error_code ec;
         std::filesystem::remove_all(m_Root, ec);
     }
 
+    Ref<Project> m_PreviousProject;
     std::filesystem::path m_Root;
 };
 
@@ -213,6 +232,42 @@ TEST_F(SceneTransitionTest, LoadingAValidSceneReturnsAStartableScene)
            "outgoing scene has to release the process-wide script context first.";
 }
 
+TEST_F(SceneTransitionTest, ContinueRestoresBeforeReturningAStartableScene)
+{
+    const auto scenePath = m_Root / "Scenes" / "Drift.olo";
+    WriteSceneFile(scenePath, "AuthoredMarker", /*withCamera=*/true);
+
+    auto savedScene = Scene::Create();
+    savedScene->SetName("Drift");
+    (void)savedScene->CreateEntity("RestoredMarker");
+    Entity camera = savedScene->CreateEntity("Camera");
+    camera.AddComponent<CameraComponent>().Primary = true;
+
+    const auto payload = SaveGameSerializer::CaptureSceneState(*savedScene);
+    ASSERT_FALSE(payload.empty());
+    SaveGameHeader header;
+    header.EntityCount = 2;
+    SaveGameMetadata metadata;
+    metadata.DisplayName = "Drift voyage";
+    metadata.SceneName = "Drift";
+    metadata.EntityCount = 2;
+    std::filesystem::create_directories(SaveGameManager::GetSaveDirectory());
+    ASSERT_TRUE(SaveGameFile::Write(SaveGameManager::GetSaveFilePath("drift_voyage"),
+                                    header, metadata, {}, payload));
+
+    auto loaded = SceneTransition::LoadSceneFile(scenePath, /*requirePrimaryCamera=*/true, "drift_voyage");
+    ASSERT_TRUE(static_cast<bool>(loaded)) << loaded.Error;
+    EXPECT_TRUE(static_cast<bool>(loaded.LoadedScene->FindEntityByName("RestoredMarker")));
+    EXPECT_FALSE(static_cast<bool>(loaded.LoadedScene->FindEntityByName("AuthoredMarker")));
+    EXPECT_FALSE(loaded.LoadedScene->IsRunning())
+        << "the shared transition helper must restore before either host starts the scene.";
+
+    auto missing = SceneTransition::LoadSceneFile(scenePath, /*requirePrimaryCamera=*/true, "missing_slot");
+    EXPECT_FALSE(static_cast<bool>(missing))
+        << "a missing save must discard the incoming scene so the host keeps the outgoing scene alive.";
+    EXPECT_FALSE(missing.Error.empty());
+}
+
 TEST_F(SceneTransitionTest, ASceneWithNoPrimaryCameraIsRefused)
 {
     const auto scenePath = m_Root / "Scenes" / "NoCamera.olo";
@@ -281,7 +336,7 @@ TEST_F(SceneTransitionTest, AMissingOrMalformedTargetFailsWithoutASceneAndWithAR
 // -----------------------------------------------------------------------------
 TEST_F(SceneTransitionTest, AFreshSceneHasNoPendingTransition)
 {
-    Ref<Scene> scene = Scene::Create();
+    auto scene = Scene::Create();
     EXPECT_FALSE(scene->HasPendingSceneLoad());
     EXPECT_FALSE(scene->GetPendingReload());
 }
@@ -317,4 +372,28 @@ TEST_F(SceneTransitionTest, ClearingAPendingLoadLeavesNoRequestBehind)
     scene->ClearPendingSceneLoad();
     EXPECT_FALSE(scene->HasPendingSceneLoad());
     EXPECT_TRUE(scene->GetPendingSceneLoad().empty());
+}
+
+TEST_F(SceneTransitionTest, ContinueRequestKeepsSaveSlotPairedWithItsScene)
+{
+    Ref<Scene> scene = Scene::Create();
+    scene->SetPendingSceneLoadFromSave("Drift", "drift_voyage");
+
+    ASSERT_TRUE(scene->HasPendingSceneLoad());
+    EXPECT_EQ(scene->GetPendingSceneLoad(), "Drift");
+    EXPECT_EQ(scene->GetPendingSceneLoadSaveSlot(), "drift_voyage");
+
+    // A later ordinary load must not accidentally restore the earlier save,
+    // and clearing the request must clear both halves atomically.
+    scene->SetPendingSceneLoad("Credits");
+    EXPECT_TRUE(scene->GetPendingSceneLoadSaveSlot().empty());
+    scene->SetPendingSceneLoadFromSave("Drift", "drift_voyage");
+    scene->ClearPendingSceneLoad();
+    EXPECT_FALSE(scene->HasPendingSceneLoad());
+    EXPECT_TRUE(scene->GetPendingSceneLoadSaveSlot().empty());
+
+    scene->SetPendingSceneLoadFromSave("Drift", "drift_voyage");
+    scene->SetPendingReload(true);
+    EXPECT_FALSE(scene->HasPendingSceneLoad());
+    EXPECT_TRUE(scene->GetPendingSceneLoadSaveSlot().empty());
 }

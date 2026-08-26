@@ -738,6 +738,9 @@ namespace OloEngine
 
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void Scene_LoadScene(string path);
+
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_LoadSceneFromSave(string path, string saveSlot);
 		#endregion
 
 		#region Localization

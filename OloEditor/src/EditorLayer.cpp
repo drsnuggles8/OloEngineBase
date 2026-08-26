@@ -1547,11 +1547,12 @@ namespace OloEngine
                 if (m_ActiveScene->HasPendingSceneLoad())
                 {
                     const std::string request = m_ActiveScene->GetPendingSceneLoad();
+                    const std::string saveSlot = m_ActiveScene->GetPendingSceneLoadSaveSlot();
                     m_ActiveScene->ClearPendingSceneLoad();
                     // A failed switch is deliberately not fatal — the error is
                     // logged and Play carries on with the current scene, which
                     // is what an author needs to see to fix the scene name.
-                    (void)SwitchPlayScene(request);
+                    (void)SwitchPlayScene(request, saveSlot);
                 }
                 else if (m_ActiveScene->GetPendingReload())
                 {
@@ -4225,7 +4226,7 @@ namespace OloEngine
         m_AudioEventsPanel.SetActiveScene(scene);
     }
 
-    bool EditorLayer::SwitchPlayScene(const std::string& request)
+    bool EditorLayer::SwitchPlayScene(const std::string& request, const std::string& saveSlot)
     {
         // Resolve against the project's asset directory — that is where the
         // editor's Scenes/ live. In a shipped game the same request resolves
@@ -4242,7 +4243,7 @@ namespace OloEngine
 
         // Load and validate BEFORE tearing the running scene down, so a bad
         // target leaves Play mode running rather than half-stopped.
-        auto loaded = SceneTransition::LoadSceneFile(resolved, /*requirePrimaryCamera=*/true);
+        auto loaded = SceneTransition::LoadSceneFile(resolved, /*requirePrimaryCamera=*/true, saveSlot);
         if (!loaded)
         {
             OLO_CORE_ERROR("[Editor] Scene switch failed: {}", loaded.Error);

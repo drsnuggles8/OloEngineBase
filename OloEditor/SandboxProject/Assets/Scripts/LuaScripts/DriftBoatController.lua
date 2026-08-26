@@ -89,6 +89,10 @@ local sailID     = nil
 local warnedNoBoat = false
 local warnedNoSail = false
 local wasLuffing = false
+local saveElapsed = 0.0
+local nextSaveAt = 3.0
+local kSaveInterval = 30.0
+local kSaveSlot = "drift_voyage"
 
 -- Exponential blend factor for a time constant, frame-rate independent.
 local function blend(tau, dt)
@@ -126,6 +130,7 @@ function BoatController.OnCreate(id)
     sailSet = 1.0
     prevPos, speed = nil, 0.0
     wasLuffing = false
+    saveElapsed, nextSaveAt = 0.0, 3.0
     sailID = entity_utils.find_by_name(kSailChildName)
 
     Log.Info("[Drift] Under sail — A/D helm, Q/E sail set, W/S auxiliary engine, C look astern.")
@@ -165,6 +170,17 @@ function BoatController.OnUpdate(id, dt)
         speed = speed + (instant - speed) * blend(0.20, dt)
     end
     prevPos = pos
+
+    -- Persist a first Continue point shortly after the voyage becomes live,
+    -- then refresh it at a deliberately low cadence. SaveGameManager captures
+    -- on the game thread and writes asynchronously, so this never asks the
+    -- renderer or a script callback to swap registries mid-tick.
+    saveElapsed = saveElapsed + dt
+    if saveElapsed >= nextSaveAt then
+        SaveGame.Save(kSaveSlot, "Drift voyage")
+        nextSaveAt = saveElapsed + kSaveInterval
+        Log.Info("[Drift] Voyage progress queued for save.")
+    end
 
     -- ── Auxiliary engine ────────────────────────────────────────────────────
     local throttleTarget = axisMagnitude("Boat.ThrottleAhead") - axisMagnitude("Boat.ThrottleAstern")

@@ -2,6 +2,7 @@
 #include "OloEngine/Scene/SceneTransition.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 
@@ -169,7 +170,7 @@ namespace OloEngine::SceneTransition
         return {};
     }
 
-    LoadResult LoadSceneFile(const std::filesystem::path& path, bool requirePrimaryCamera)
+    LoadResult LoadSceneFile(const std::filesystem::path& path, bool requirePrimaryCamera, std::string_view saveSlot)
     {
         LoadResult result;
 
@@ -205,6 +206,17 @@ namespace OloEngine::SceneTransition
                            "' has no entity with a primary CameraComponent — it would render nothing. "
                            "Add one in the editor and rebuild.";
             return result;
+        }
+
+        if (!saveSlot.empty())
+        {
+            if (const auto loadResult = SaveGameManager::Load(*scene, std::string(saveSlot));
+                loadResult != SaveLoadResult::Success)
+            {
+                result.Error = "failed to restore save slot '" + std::string(saveSlot) + "' into scene '" +
+                               path.string() + "' (result " + std::to_string(static_cast<int>(loadResult)) + ")";
+                return result;
+            }
         }
 
         result.LoadedScene = scene;

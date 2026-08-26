@@ -6,6 +6,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Core/KeyCodes.h"
+#include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/MouseCodes.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
@@ -66,6 +67,30 @@ class LuaBindingTest : public ::testing::Test
         LuaScriptGlue::RegisterAllTypes(lua);
     }
 };
+
+TEST_F(LuaBindingTest, InputRequestRebindMenuCarriesAuthoredContextToHost)
+{
+    InputActionManager::Init();
+
+    auto result = lua.script("return Input.RequestRebindMenu(InputContext.Vehicle)");
+    EXPECT_TRUE(result.get<bool>());
+    const auto request = InputActionManager::ConsumeRebindMenuRequest();
+    ASSERT_TRUE(request.has_value());
+    EXPECT_EQ(*request, InputContextType::Vehicle);
+
+    InputActionManager::Shutdown();
+}
+
+TEST_F(LuaBindingTest, UIButtonStateConstantsMatchComponentStateValues)
+{
+    auto result = lua.script("return UIButtonState.Normal, UIButtonState.Hovered, "
+                             "UIButtonState.Pressed, UIButtonState.Disabled");
+    const auto values = result.get<std::tuple<i32, i32, i32, i32>>();
+    EXPECT_EQ(std::get<0>(values), static_cast<i32>(UIButtonState::Normal));
+    EXPECT_EQ(std::get<1>(values), static_cast<i32>(UIButtonState::Hovered));
+    EXPECT_EQ(std::get<2>(values), static_cast<i32>(UIButtonState::Pressed));
+    EXPECT_EQ(std::get<3>(values), static_cast<i32>(UIButtonState::Disabled));
+}
 
 // =============================================================================
 // GLM vector constructors and access

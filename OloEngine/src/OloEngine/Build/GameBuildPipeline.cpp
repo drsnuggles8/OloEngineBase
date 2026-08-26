@@ -17,6 +17,135 @@
 
 namespace OloEngine
 {
+    bool StageRuntimeDependencyLibraries(
+        BuildTargetPlatform targetPlatform,
+        const std::filesystem::path& runtimeBinDir,
+        const std::filesystem::path& outputDir,
+        sizet& copiedCount,
+        std::string& errorMessage)
+    {
+        copiedCount = 0;
+        if (targetPlatform != BuildTargetPlatform::Windows)
+        {
+            return true;
+        }
+
+        std::error_code ec;
+        std::vector<std::filesystem::path> dependencies;
+        for (std::filesystem::directory_iterator it(runtimeBinDir, ec), end; it != end && !ec; it.increment(ec))
+        {
+            const bool isRegularFile = it->is_regular_file(ec);
+            if (ec)
+            {
+                break;
+            }
+            if (!isRegularFile)
+            {
+                continue;
+            }
+
+            auto extension = it->path().extension().string();
+            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            if (extension == ".dll")
+            {
+                dependencies.push_back(it->path());
+            }
+        }
+        if (ec)
+        {
+            errorMessage = "Failed to enumerate runtime dependencies in " + runtimeBinDir.string() + ": " + ec.message();
+            return false;
+        }
+
+        std::ranges::sort(dependencies);
+        for (const auto& srcDll : dependencies)
+        {
+            std::filesystem::copy_file(srcDll, outputDir / srcDll.filename(),
+                                       std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec)
+            {
+                errorMessage = "Failed to copy runtime dependency " + srcDll.filename().string() + ": " + ec.message();
+                return false;
+            }
+            ++copiedCount;
+        }
+
+        return true;
+    }
+
+    bool StageLooseRuntimeTextures(
+        const std::filesystem::path& projectAssetsDir,
+        const std::filesystem::path& outputAssetsDir,
+        sizet& copiedCount,
+        std::string& errorMessage)
+    {
+        copiedCount = 0;
+
+        static const std::unordered_set<std::string> textureExtensions = {
+            ".png", ".jpg", ".jpeg", ".tga", ".bmp"
+        };
+
+        std::error_code ec;
+        std::vector<std::filesystem::path> textures;
+        for (std::filesystem::recursive_directory_iterator it(projectAssetsDir, ec), end;
+             it != end && !ec; it.increment(ec))
+        {
+            const bool isRegularFile = it->is_regular_file(ec);
+            if (ec)
+            {
+                break;
+            }
+            if (!isRegularFile)
+            {
+                continue;
+            }
+
+            auto extension = it->path().extension().string();
+            std::ranges::transform(extension, extension.begin(), [](unsigned char c)
+                                   { return static_cast<char>(std::tolower(c)); });
+            if (textureExtensions.contains(extension))
+            {
+                textures.push_back(it->path());
+            }
+        }
+        if (ec)
+        {
+            errorMessage = "Failed to enumerate loose project textures in " + projectAssetsDir.string() + ": " + ec.message();
+            return false;
+        }
+
+        std::ranges::sort(textures);
+        for (const auto& texture : textures)
+        {
+            const auto relative = std::filesystem::relative(texture, projectAssetsDir, ec);
+            if (ec || relative.empty() || relative.generic_string().starts_with(".."))
+            {
+                errorMessage = "Failed to make project texture path relative: " + texture.string();
+                return false;
+            }
+
+            const auto destination = outputAssetsDir / relative;
+            std::filesystem::create_directories(destination.parent_path(), ec);
+            if (ec)
+            {
+                errorMessage = "Failed to create runtime texture directory: " + ec.message();
+                return false;
+            }
+
+            std::filesystem::copy_file(texture, destination,
+                                       std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec)
+            {
+                errorMessage = "Failed to copy loose runtime texture " + relative.generic_string() + ": " + ec.message();
+                return false;
+            }
+            ++copiedCount;
+        }
+
+        return true;
+    }
+
     GameBuildResult GameBuildPipeline::Build(
         const GameBuildSettings& settings,
         std::atomic<f32>& progress,
@@ -239,6 +368,14 @@ namespace OloEngine
             }
         }
 
+        // Step 8c: Copy writable project runtime configuration. Input actions
+        // stay loose (rather than inside the immutable asset pack) because the
+        // in-game rebind panel persists back to this same path.
+        if (!StageProjectRuntimeFiles(outputDir, result.ErrorMessage))
+        {
+            return result;
+        }
+
         // Step 9: Write game manifest (95% -> 100%)
         OLO_CORE_INFO("[GameBuild] Step 9/9: Writing game manifest...");
         if (!WriteGameManifest(settings, outputDir, result.ErrorMessage))
@@ -443,35 +580,14 @@ namespace OloEngine
             runtimeBinDir = engineRoot / ".." / "bin" / settings.BuildConfiguration / "OloRuntime";
         }
 
-        std::vector<std::string> requiredDlls = {
-            // zlib is linked statically (zlibstatic), no DLL needed.
-            // Add any future runtime DLL dependencies here.
-        };
-
         sizet copiedCount = 0;
-        for (const auto& dllName : requiredDlls)
+        if (!StageRuntimeDependencyLibraries(settings.TargetPlatform, runtimeBinDir, outputDir, copiedCount, errorMessage))
         {
-            std::filesystem::path srcDll = runtimeBinDir / dllName;
-            if (!std::filesystem::exists(srcDll))
-            {
-                continue; // Optional — not all variants exist (debug vs release)
-            }
-
-            std::error_code ec;
-            std::filesystem::copy_file(srcDll, outputDir / dllName,
-                                       std::filesystem::copy_options::overwrite_existing, ec);
-            if (ec)
-            {
-                OLO_CORE_WARN("[GameBuild] Failed to copy DLL {}: {}", dllName, ec.message());
-            }
-            else
-            {
-                ++copiedCount;
-            }
+            return false;
         }
 
         OLO_CORE_INFO("[GameBuild] Copied {} dependency DLLs", copiedCount);
-        return true; // DLL copy failures are non-fatal warnings
+        return true;
     }
 
     bool GameBuildPipeline::CopyEngineResources(
@@ -820,6 +936,55 @@ namespace OloEngine
         {
             OLO_CORE_INFO("[GameBuild] Copied {} Lua script file(s) to output", copiedCount);
         }
+        return true;
+    }
+
+    bool GameBuildPipeline::StageProjectRuntimeFiles(
+        const std::filesystem::path& outputDir,
+        std::string& errorMessage)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        sizet copiedTextureCount = 0;
+        if (!StageLooseRuntimeTextures(Project::GetAssetDirectory(), outputDir / "Assets",
+                                       copiedTextureCount, errorMessage))
+        {
+            return false;
+        }
+        OLO_CORE_INFO("[GameBuild] Copied {} loose runtime texture file(s)", copiedTextureCount);
+
+        const std::filesystem::path inputActionsSrc = Project::GetInputActionMapPath();
+        std::error_code existsEc;
+        const bool hasInputActions = std::filesystem::exists(inputActionsSrc, existsEc);
+        if (existsEc)
+        {
+            errorMessage = "Failed to query project input-action config: " + existsEc.message();
+            return false;
+        }
+        if (!hasInputActions)
+        {
+            OLO_CORE_INFO("[GameBuild] No project input-action config to copy");
+            return true;
+        }
+
+        const std::filesystem::path inputActionsDst = outputDir / "Config" / "InputActions.yaml";
+        std::error_code ec;
+        std::filesystem::create_directories(inputActionsDst.parent_path(), ec);
+        if (ec)
+        {
+            errorMessage = "Failed to create runtime Config directory: " + ec.message();
+            return false;
+        }
+
+        std::filesystem::copy_file(inputActionsSrc, inputActionsDst,
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec)
+        {
+            errorMessage = "Failed to copy project input actions: " + ec.message();
+            return false;
+        }
+
+        OLO_CORE_INFO("[GameBuild] Copied writable input actions to {}", inputActionsDst.string());
         return true;
     }
 

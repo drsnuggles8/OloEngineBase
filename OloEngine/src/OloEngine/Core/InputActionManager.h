@@ -137,6 +137,24 @@ namespace OloEngine
         // and resets cached press/axis state since the active map may have changed.
         static void ReplaceAllContextMaps(const std::unordered_map<InputContextType, InputActionMap>& maps);
 
+        // Ask the standalone host to open its existing runtime rebind panel for
+        // `ctx`. Scripts issue the request during a scene tick; OloRuntime
+        // consumes it only after that tick returns, because opening the panel
+        // creates UI entities and must not mutate the registry mid-iteration.
+        static void RequestRebindMenu(InputContextType ctx)
+        {
+            s_PendingRebindMenuContext = ctx;
+        }
+
+        // One-shot host side of RequestRebindMenu. Returns nullopt when no
+        // script requested the panel since the previous consume.
+        [[nodiscard("rebind-menu request result must be handled")]] static std::optional<InputContextType> ConsumeRebindMenuRequest()
+        {
+            auto request = s_PendingRebindMenuContext;
+            s_PendingRebindMenuContext.reset();
+            return request;
+        }
+
       private:
         // The active context is always the top of the stack; its map lives in s_ContextMaps.
         [[nodiscard]] static InputActionMap& ActiveMap()
@@ -159,6 +177,7 @@ namespace OloEngine
         inline static std::unordered_map<std::string, bool, StringHash, StringEqual> s_CurrentState;
         inline static std::unordered_map<std::string, bool, StringHash, StringEqual> s_PreviousState;
         inline static std::unordered_map<std::string, f32, StringHash, StringEqual> s_AxisValues;
+        inline static std::optional<InputContextType> s_PendingRebindMenuContext;
         static IInputProvider* s_InputProvider;
     };
 

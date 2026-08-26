@@ -281,6 +281,26 @@ TEST_F(RuntimeSceneSwitchTest, ScriptRequestIsRecordedButNotAppliedDuringTheTick
     EXPECT_EQ(m_Active->GetPendingSceneLoad(), "Level1");
 }
 
+TEST_F(RuntimeSceneSwitchTest, LuaContinueRequestRecordsSceneAndSaveSlotForTheHost)
+{
+    AttachScript(m_MenuMarker, R"(
+local script = { done = false }
+function script.OnUpdate(entityID, ts)
+    if script.done then return end
+    script.done = true
+    Scene.LoadSceneFromSave("Drift", "drift_voyage")
+end
+return script
+)",
+                 "menu_continue");
+
+    Tick();
+
+    ASSERT_TRUE(m_Active->HasPendingSceneLoad());
+    EXPECT_EQ(m_Active->GetPendingSceneLoad(), "Drift");
+    EXPECT_EQ(m_Active->GetPendingSceneLoadSaveSlot(), "drift_voyage");
+}
+
 TEST_F(RuntimeSceneSwitchTest, HostSwapReplacesTheSceneAndTheOldOneIsGone)
 {
     WriteSceneFile("Level1", "Level1Marker");

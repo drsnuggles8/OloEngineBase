@@ -108,6 +108,16 @@ TEST_F(RuntimeInputRebindMenuTest, ClickingRebindButtonStartsCapture)
     EXPECT_TRUE(m_Menu.Controller().IsCapturing());
 }
 
+TEST_F(RuntimeInputRebindMenuTest, ReopenRetargetsAnOpenPanel)
+{
+    InputActionManager::SetActionMap(InputContextType::Vehicle, CreateDefaultGameActions());
+
+    m_Menu.Open(*m_Scene, InputContextType::Vehicle, {});
+
+    EXPECT_TRUE(m_Menu.IsOpen());
+    EXPECT_EQ(m_Menu.Controller().GetTargetContext(), InputContextType::Vehicle);
+}
+
 TEST_F(RuntimeInputRebindMenuTest, ClickingResetAllRestoresDefaultsThroughTheMenu)
 {
     // Mutate Jump away from its default via the controller, then click "Reset All".

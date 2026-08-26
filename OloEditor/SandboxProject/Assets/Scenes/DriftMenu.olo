@@ -1,0 +1,695 @@
+Scene: DriftMenu.olo
+Version: 1
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.5
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.3
+  VignetteSmoothness: 0.15
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.005
+  FXAAEnabled: false
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 8
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+  SSREnabled: false
+  SSRMaxDistance: 40
+  SSRThickness: 0.8
+  SSRStride: 0.25
+  SSRMaxSteps: 64
+  SSRBinarySearchSteps: 6
+  SSRIntensity: 1
+  SSRMaxRoughness: 0.8
+  SSREdgeFade: 0.1
+  SSRDebugView: false
+  SSRTemporalResolve: true
+  SSRTemporalFeedback: 0.92
+  SSGIEnabled: false
+  SSGIIntensity: 1
+  SSGIMaxDistance: 8
+  SSGIThickness: 0.5
+  SSGIStride: 0.25
+  SSGIMaxSteps: 24
+  SSGIRayCount: 8
+  SSGIEdgeFade: 0.1
+  SSGIDebugView: false
+  SSGITemporalResolve: true
+  SSGITemporalFeedback: 0.92
+  ContactShadowEnabled: false
+  ContactShadowIntensity: 1
+  ContactShadowMaxDistance: 1
+  ContactShadowThickness: 0.3
+  ContactShadowStride: 0.04
+  ContactShadowMaxSteps: 24
+  ContactShadowBias: 0.02
+  ContactShadowEdgeFade: 0.1
+  ContactShadowDebugView: false
+  AutoExposureEnabled: false
+  AutoExposureMinLogLuminance: -8
+  AutoExposureMaxLogLuminance: 3.5
+  AutoExposureSpeedUp: 3
+  AutoExposureSpeedDown: 1
+  AutoExposureCompensation: 0
+  AutoExposureMinExposure: 0.05
+  AutoExposureMaxExposure: 16
+  CASEnabled: false
+  CASSharpness: 0.5
+  Upscale: 0
+  RCASSharpness: 0.5
+  UpscaleTechnique: 0
+  FSR2SharpeningEnabled: true
+  FSR2Sharpness: 0.5
+SnowSettings:
+  Enabled: false
+  HeightStart: -5
+  HeightFull: 5
+  SlopeStart: 0.7
+  SlopeFull: 0.3
+  Albedo: [0.92, 0.93, 0.98]
+  Roughness: 0.65
+  SSSColor: [0.4, 0.6, 0.9]
+  SSSIntensity: 0.6
+  SparkleIntensity: 0.8
+  SparkleDensity: 80
+  SparkleScale: 1
+  NormalPerturbStrength: 0.25
+  WindDriftFactor: 0
+  SSSBlurEnabled: false
+  SSSBlurRadius: 2
+  SSSBlurFalloff: 1
+FogSettings:
+  Enabled: false
+  Mode: 2
+  Color: [0.5, 0.6, 0.7]
+  Density: 0.02
+  Start: 10
+  End: 300
+  HeightFalloff: 0.1
+  HeightOffset: 0
+  MaxOpacity: 1
+  EnableScattering: false
+  RayleighStrength: 1
+  MieStrength: 0.005
+  MieDirectionality: 0.76
+  RayleighColor: [0.27, 0.51, 0.83]
+  SunIntensity: 22
+  EnableVolumetric: false
+  VolumetricSamples: 32
+  AbsorptionCoefficient: 0.02
+  EnableNoise: false
+  NoiseScale: 0.01
+  NoiseSpeed: 0.1
+  NoiseIntensity: 0.3
+  EnableLightShafts: false
+  LightShaftIntensity: 1
+  EnableVolumetricSelfShadow: true
+  VolumetricSelfShadowStrength: 1
+  VolumetricSelfShadowExtent: 300
+WindSettings:
+  Enabled: false
+  Direction: [1, 0, 0]
+  Speed: 5
+  GustStrength: 0.3
+  GustFrequency: 0.5
+  TurbulenceIntensity: 0.5
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+SnowAccumulationSettings:
+  Enabled: false
+  AccumulationRate: 0.02
+  MaxDepth: 0.5
+  MeltRate: 0.005
+  RestorationRate: 0.01
+  DisplacementScale: 1
+  ClipmapResolution: 2048
+  ClipmapExtent: 128
+  NumClipmapRings: 3
+  SnowDensity: 0.3
+SnowEjectaSettings:
+  Enabled: false
+  ParticlesPerDeform: 8
+  EjectaSpeed: 2.5
+  SpeedVariance: 0.8
+  UpwardBias: 0.6
+  LifetimeMin: 0.4
+  LifetimeMax: 1.2
+  InitialSize: 0.04
+  SizeVariance: 0.02
+  GravityScale: 0.3
+  DragCoefficient: 2
+  Color: [0.95, 0.97, 1, 0.7]
+  VelocityThreshold: 0.1
+  MaxParticles: 8192
+  WindInfluence: 0.5
+  NoiseStrength: 0.3
+  NoiseFrequency: 2
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+PrecipitationSettings:
+  Enabled: false
+  Type: 0
+  Intensity: 0.5
+  TransitionSpeed: 1
+  BaseEmissionRate: 4000
+  MaxParticlesNearField: 100000
+  MaxParticlesFarField: 200000
+  NearFieldExtent: [15, 20, 15]
+  NearFieldParticleSize: 0.04
+  NearFieldSizeVariance: 0.02
+  NearFieldSpeedMin: 0.8
+  NearFieldSpeedMax: 2
+  NearFieldLifetime: 10
+  FarFieldExtent: [60, 30, 60]
+  FarFieldParticleSize: 0.025
+  FarFieldSpeedMin: 0.5
+  FarFieldSpeedMax: 1.5
+  FarFieldLifetime: 15
+  FarFieldAlphaMultiplier: 0.5
+  GravityScale: 0.8
+  WindInfluence: 1
+  DragCoefficient: 0.3
+  TurbulenceStrength: 0.8
+  TurbulenceFrequency: 0.5
+  GroundCollisionEnabled: true
+  GroundY: 0
+  CollisionBounce: 0
+  CollisionFriction: 1
+  FeedAccumulation: true
+  AccumulationFeedRate: 0.0001
+  ScreenStreaksEnabled: true
+  ScreenStreakIntensity: 0.3
+  ScreenStreakLength: 0.15
+  LensImpactsEnabled: true
+  LensImpactRate: 3
+  LensImpactLifetime: 1.5
+  LensImpactSize: 0.03
+  LODNearDistance: 30
+  LODFarDistance: 120
+  FrameBudgetMs: 1
+  ParticleColor: [0.95, 0.97, 1, 0.85]
+  ColorVariance: 0.05
+  RotationSpeed: 30
+StreamingSettings:
+  Enabled: false
+  DefaultLoadRadius: 200
+  DefaultUnloadRadius: 250
+  MaxLoadedRegions: 16
+  RegionDirectory: ""
+WorldOriginSettings:
+  Enabled: false
+  RebaseThreshold: 2048
+  SnapGridSize: 1024
+LightmapSettings:
+  LightmapAsset: 0
+  Enabled: true
+  Intensity: 1
+  AtlasSize: 1024
+  SamplesPerTexel: 128
+  MaxBounces: 4
+  TexelsPerMeter: 8
+Entities:
+  - Entity: 883000000000001
+    TagComponent:
+      Tag: Menu Camera
+    TransformComponent:
+      Translation: [0, 0, 5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7853982
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 5
+  - Entity: 883000000000010
+    TagComponent:
+      Tag: Drift Menu Canvas
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/DriftMainMenu.lua
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 883000000000011
+        - 883000000000015
+        - 883000000000012
+        - 883000000000013
+        - 883000000000016
+        - 883000000000017
+        - 883000000000020
+        - 883000000000014
+    UICanvasComponent:
+      RenderMode: 0
+      ScaleMode: 1
+      SortOrder: 100
+      ReferenceResolution: [1920, 1080]
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [0, 0]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000011
+    TagComponent:
+      Tag: Menu Backdrop
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIImageComponent:
+      TexturePath: Assets/Textures/DriftMenuBackground-v2.png
+      Color: [1, 1, 1, 1]
+      BorderInsets: [0, 0, 0, 0]
+    UIPanelComponent:
+      BackgroundColor: [0.015, 0.025, 0.04, 1]
+    RelationshipComponent:
+      ParentHandle: 883000000000010
+      Children:
+        []
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [0, 0]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000012
+    TagComponent:
+      Tag: Drift Title
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UITextComponent:
+      Text: DRIFT
+      FontPath: assets/fonts/opensans/OpenSans-Light.ttf
+      FontSize: 104
+      Color: [0.94, 0.96, 0.96, 1]
+      Alignment: 3
+      Kerning: 0
+      LineSpacing: 0
+    RelationshipComponent:
+      ParentHandle: 883000000000010
+      Children:
+        []
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      AnchoredPosition: [108, 82]
+      SizeDelta: [500, 132]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000013
+    TagComponent:
+      Tag: Drift Subtitle
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UITextComponent:
+      Text: SAIL BEYOND THE LAST LIGHT
+      FontPath: assets/fonts/opensans/OpenSans-SemiBold.ttf
+      FontSize: 20
+      Color: [0.92, 0.68, 0.34, 1]
+      Alignment: 3
+      Kerning: 0
+      LineSpacing: 0
+    RelationshipComponent:
+      ParentHandle: 883000000000010
+      Children:
+        []
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      AnchoredPosition: [114, 210]
+      SizeDelta: [500, 42]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000014
+    TagComponent:
+      Tag: Menu Help
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UITextComponent:
+      Text: W/S  THROTTLE     A/D  HELM     Q/E  SAIL     C  LOOK ASTERN
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      FontSize: 15
+      Color: [0.62, 0.69, 0.72, 0.9]
+      Alignment: 6
+      Kerning: 0
+      LineSpacing: 0
+    RelationshipComponent:
+      ParentHandle: 883000000000010
+      Children:
+        []
+    UIRectTransformComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [0, 1]
+      AnchoredPosition: [114, -38]
+      SizeDelta: [720, 32]
+      Pivot: [0, 1]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000015
+    TagComponent:
+      Tag: Menu Contrast Scrim
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIPanelComponent:
+      BackgroundColor: [0.006, 0.014, 0.024, 0.72]
+    RelationshipComponent:
+      ParentHandle: 883000000000010
+      Children:
+        []
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 1]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [650, 0]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000016
+    TagComponent:
+      Tag: Drift Tagline
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UITextComponent:
+      Text: A solitary voyage across a restless archipelago.
+      FontPath: assets/fonts/opensans/OpenSans-Regular.ttf
+      FontSize: 18
+      Color: [0.62, 0.69, 0.72, 1]
+      Alignment: 3
+      Kerning: 0
+      LineSpacing: 0
+    RelationshipComponent:
+      ParentHandle: 883000000000010
+      Children:
+        []
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      AnchoredPosition: [114, 252]
+      SizeDelta: [500, 36]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000017
+    TagComponent:
+      Tag: Drift Accent Line
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIPanelComponent:
+      BackgroundColor: [0.92, 0.68, 0.34, 1]
+    RelationshipComponent:
+      ParentHandle: 883000000000010
+      Children:
+        []
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      AnchoredPosition: [114, 300]
+      SizeDelta: [64, 3]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000020
+    TagComponent:
+      Tag: Main Menu Grid
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIPanelComponent:
+      BackgroundColor: [0.008, 0.02, 0.032, 0.62]
+    RelationshipComponent:
+      ParentHandle: 883000000000010
+      Children:
+        - 883000000000021
+        - 883000000000022
+        - 883000000000023
+        - 883000000000024
+    UIGridLayoutComponent:
+      CellSize: [450, 64]
+      Spacing: [0, 14]
+      Padding: [26, 26, 26, 26]
+      StartCorner: 0
+      StartAxis: 0
+      ConstraintCount: 1
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      AnchoredPosition: [88, 332]
+      SizeDelta: [502, 362]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000021
+    TagComponent:
+      Tag: New Game Button
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      ParentHandle: 883000000000020
+      Children:
+        - 883000000000031
+    UIButtonComponent:
+      NormalColor: [0.035, 0.075, 0.095, 0.88]
+      HoveredColor: [0.12, 0.31, 0.37, 0.98]
+      PressedColor: [0.92, 0.68, 0.34, 0.92]
+      DisabledColor: [0.025, 0.035, 0.042, 0.78]
+      Interactable: true
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [440, 68]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000022
+    TagComponent:
+      Tag: Continue Button
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      ParentHandle: 883000000000020
+      Children:
+        - 883000000000032
+    UIButtonComponent:
+      NormalColor: [0.035, 0.075, 0.095, 0.88]
+      HoveredColor: [0.12, 0.31, 0.37, 0.98]
+      PressedColor: [0.92, 0.68, 0.34, 0.92]
+      DisabledColor: [0.025, 0.035, 0.042, 0.78]
+      Interactable: true
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [440, 68]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000023
+    TagComponent:
+      Tag: Settings Button
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      ParentHandle: 883000000000020
+      Children:
+        - 883000000000033
+    UIButtonComponent:
+      NormalColor: [0.035, 0.075, 0.095, 0.88]
+      HoveredColor: [0.12, 0.31, 0.37, 0.98]
+      PressedColor: [0.92, 0.68, 0.34, 0.92]
+      DisabledColor: [0.025, 0.035, 0.042, 0.78]
+      Interactable: true
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [440, 68]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000024
+    TagComponent:
+      Tag: Quit Button
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      ParentHandle: 883000000000020
+      Children:
+        - 883000000000034
+    UIButtonComponent:
+      NormalColor: [0.035, 0.075, 0.095, 0.88]
+      HoveredColor: [0.12, 0.31, 0.37, 0.98]
+      PressedColor: [0.92, 0.68, 0.34, 0.92]
+      DisabledColor: [0.025, 0.035, 0.042, 0.78]
+      Interactable: true
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [0, 0]
+      AnchoredPosition: [0, 0]
+      SizeDelta: [440, 68]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000031
+    TagComponent:
+      Tag: New Game Label
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UITextComponent:
+      Text: NEW GAME
+      FontPath: assets/fonts/opensans/OpenSans-SemiBold.ttf
+      FontSize: 22
+      Color: [0.92, 0.95, 1, 1]
+      Alignment: 3
+      Kerning: 0
+      LineSpacing: 0
+    RelationshipComponent:
+      ParentHandle: 883000000000021
+      Children:
+        []
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [24, 0]
+      SizeDelta: [-48, 0]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000032
+    TagComponent:
+      Tag: Continue Label
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UITextComponent:
+      Text: CONTINUE
+      FontPath: assets/fonts/opensans/OpenSans-SemiBold.ttf
+      FontSize: 22
+      Color: [0.92, 0.95, 1, 1]
+      Alignment: 3
+      Kerning: 0
+      LineSpacing: 0
+    RelationshipComponent:
+      ParentHandle: 883000000000022
+      Children:
+        []
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [24, 0]
+      SizeDelta: [-48, 0]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000033
+    TagComponent:
+      Tag: Settings Label
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UITextComponent:
+      Text: CONTROLS
+      FontPath: assets/fonts/opensans/OpenSans-SemiBold.ttf
+      FontSize: 22
+      Color: [0.92, 0.95, 1, 1]
+      Alignment: 3
+      Kerning: 0
+      LineSpacing: 0
+    RelationshipComponent:
+      ParentHandle: 883000000000023
+      Children:
+        []
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [24, 0]
+      SizeDelta: [-48, 0]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]
+  - Entity: 883000000000034
+    TagComponent:
+      Tag: Quit Label
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UITextComponent:
+      Text: QUIT
+      FontPath: assets/fonts/opensans/OpenSans-SemiBold.ttf
+      FontSize: 22
+      Color: [0.92, 0.95, 1, 1]
+      Alignment: 3
+      Kerning: 0
+      LineSpacing: 0
+    RelationshipComponent:
+      ParentHandle: 883000000000024
+      Children:
+        []
+    UIRectTransformComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      AnchoredPosition: [24, 0]
+      SizeDelta: [-48, 0]
+      Pivot: [0, 0]
+      Rotation: 0
+      Scale: [1, 1]

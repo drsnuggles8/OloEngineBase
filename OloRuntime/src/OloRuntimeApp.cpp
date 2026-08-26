@@ -15,13 +15,16 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneTransition.h"
+#include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/UI/RuntimeInputRebindMenu.h"
+#include "OloEngine/UI/UINavigationSystem.h"
 
 #include <filesystem>
+#include <optional>
 #include <imgui.h>
 #include <yaml-cpp/yaml.h>
 
@@ -67,6 +70,7 @@ namespace OloEngine
             // disagree about what the file said.
             const YAML::Node manifest = LoadGameManifest();
             MountGameProject(manifest);
+            SaveGameManager::Initialize();
 
             // Set up runtime asset manager with pack-based loading
             auto runtimeAssetManager = Ref<RuntimeAssetManager>::Create();
@@ -127,6 +131,13 @@ namespace OloEngine
                 }
             }
 
+            // Input maps must exist before scene scripts receive OnCreate: the
+            // Drift menu selects the Menu context there, and gameplay scripts
+            // select Vehicle. The project-authored maps are shipped loose by
+            // GameBuildPipeline so saved rebinds can overwrite the same path.
+            LoadInputActions();
+            UINavigationSystem::InstallDefaultMenuActions();
+
             // Load + start the runtime (physics, scripts, audio, animations).
             // Shares ActivateScene with reload and script-driven scene switching
             // (issue #642), so the start scene is validated by exactly the same
@@ -137,14 +148,13 @@ namespace OloEngine
                 return;
             }
 
-            LoadInputActions();
-
             OLO_CORE_INFO("[Runtime] Game started successfully");
         }
 
-        // Restore saved key bindings so a rebind persists across restarts (issue #475). Falls
-        // back to CreateDefaultGameActions so the in-game rebind menu (toggle with F1) always
-        // has a populated Gameplay map to remap.
+        // Restore project and player key bindings so rebinds persist across
+        // restarts (issue #475). Generic Gameplay defaults are merged only for
+        // hosts/content that still depend on them; authored contexts such as
+        // Drift's Vehicle map remain intact for the settings panel to edit.
         void LoadInputActions()
         {
             if (std::filesystem::exists(kInputActionsPath))
@@ -157,7 +167,7 @@ namespace OloEngine
                     // the player's saved rebinds. This covers a fully-empty Gameplay context (never
                     // written because Save skips empty maps) AND a partially-populated one (a
                     // default action added in a newer build that the old save predates), so the
-                    // game — and the rebind menu, which edits Gameplay — always sees the full set.
+                    // generic gameplay and its F1 fallback always see the full set.
                     InputActionMap& gameplay = InputActionManager::GetActionMapMutable(InputContextType::Gameplay);
                     const InputActionMap defaults = CreateDefaultGameActions();
                     u32 addedDefaults = 0;
@@ -185,7 +195,7 @@ namespace OloEngine
             OLO_CORE_INFO("[Runtime] No saved input bindings — seeded default game actions");
         }
 
-        void ToggleRebindMenu()
+        void ToggleRebindMenu(std::optional<InputContextType> targetContext = std::nullopt)
         {
             if (!m_ActiveScene)
             {
@@ -194,18 +204,28 @@ namespace OloEngine
 
             if (m_RebindMenu.IsOpen())
             {
-                CloseRebindMenu();
+                if (targetContext)
+                {
+                    m_RebindMenu.Open(*m_ActiveScene, *targetContext, kInputActionsPath);
+                }
+                else
+                {
+                    CloseRebindMenu();
+                }
             }
             else
             {
-                // Suppress gameplay input while remapping by pushing the Menu context; the menu
-                // itself always edits the Gameplay map regardless of the active context.
+                const InputContextType contextToEdit = targetContext.value_or(InputActionManager::GetInputContext());
+
+                // Suppress gameplay input while remapping by pushing the Menu context; Open()
+                // edits the caller-supplied target context rather than always Gameplay.
                 InputActionManager::PushContext(InputContextType::Menu);
                 m_MenuContextPushed = true;
                 // The panel needs a visible cursor to click; restore the game's cursor on close.
                 m_PrevCursorMode = Input::GetCursorMode();
                 Input::SetCursorMode(CursorMode::Normal);
-                m_RebindMenu.Open(*m_ActiveScene, InputContextType::Gameplay, kInputActionsPath);
+                m_RebindMenu.Open(*m_ActiveScene, contextToEdit == InputContextType::Menu ? InputContextType::Gameplay : contextToEdit,
+                                  kInputActionsPath);
             }
         }
 
@@ -232,6 +252,7 @@ namespace OloEngine
                 m_ActiveScene->OnRuntimeStop();
                 m_ActiveScene = nullptr;
             }
+            SaveGameManager::Shutdown();
         }
 
         void OnUpdate(Timestep const ts) override
@@ -267,6 +288,7 @@ namespace OloEngine
             // fixed-timestep tick (issue #452): the raw frame delta `ts` is
             // accumulated and gameplay advances in fixed dt steps, rendering once.
             m_ActiveScene->OnUpdateRuntimeFixed(ts, Application::Get().GetFixedTimeStep());
+            SaveGameManager::Tick(ts, *m_ActiveScene);
 
             // Drive networking AFTER the simulation step: on a client this polls the
             // transport (spawning/despawning replicated entities and running RPC
@@ -275,6 +297,14 @@ namespace OloEngine
             // the state the tick above just produced. Game thread only — see the
             // threading contract on NetworkManager.
             NetworkManager::Tick(ts);
+
+            // A scene script can request the settings panel during its tick. Open
+            // it only after the tick returns: Open() creates UI entities, which
+            // would invalidate a live script/component view if done inline.
+            if (const auto requestedContext = InputActionManager::ConsumeRebindMenuRequest())
+            {
+                ToggleRebindMenu(*requestedContext);
+            }
 
             // Drive the in-game rebind menu AFTER the scene's UI input pass so its button
             // states and captured gamepad input are current this frame.
@@ -299,8 +329,9 @@ namespace OloEngine
             if (m_ActiveScene->HasPendingSceneLoad())
             {
                 const std::string request = m_ActiveScene->GetPendingSceneLoad();
+                const std::string saveSlot = m_ActiveScene->GetPendingSceneLoadSaveSlot();
                 m_ActiveScene->ClearPendingSceneLoad();
-                SwitchScene(request);
+                SwitchScene(request, saveSlot);
             }
             else if (m_ActiveScene->GetPendingReload())
             {
@@ -551,7 +582,7 @@ namespace OloEngine
         /// running — because a bad scene name from script is a content bug, and
         /// killing the game gives the player nothing to act on while the log
         /// says exactly what was wrong.
-        void SwitchScene(const std::string& request)
+        void SwitchScene(const std::string& request, const std::string& saveSlot = {})
         {
             // The game's data directory is the working directory (that is where
             // game.manifest and Scenes/ are looked up from at startup).
@@ -565,7 +596,7 @@ namespace OloEngine
             }
 
             OLO_CORE_INFO("[Runtime] Switching scene: {} -> {}", m_ScenePath.string(), resolved.string());
-            if (!ActivateScene(resolved))
+            if (!ActivateScene(resolved, saveSlot))
             {
                 OLO_CORE_ERROR("[Runtime] Staying on '{}'.", m_ScenePath.string());
             }
@@ -577,9 +608,9 @@ namespace OloEngine
         /// The new scene is deserialized and validated BEFORE the current one
         /// is stopped, so a bad target leaves the game running on the scene it
         /// already had instead of dropping it into a torn-down state.
-        [[nodiscard]] bool ActivateScene(const std::filesystem::path& path)
+        [[nodiscard]] bool ActivateScene(const std::filesystem::path& path, const std::string& saveSlot = {})
         {
-            auto loaded = SceneTransition::LoadSceneFile(path, /*requirePrimaryCamera=*/true);
+            auto loaded = SceneTransition::LoadSceneFile(path, /*requirePrimaryCamera=*/true, saveSlot);
             if (!loaded)
             {
                 OLO_CORE_ERROR("[Runtime] {}", loaded.Error);
