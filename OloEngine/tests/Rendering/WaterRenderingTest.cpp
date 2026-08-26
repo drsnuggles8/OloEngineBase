@@ -1215,6 +1215,26 @@ TEST(WaterRendering, WaterShaderNormalizesThroughSafeNormalize)
         << "half-vector no longer uses safeNormalize — grazing opposition sums to zero";
 }
 
+// #898: Drift does not bind water normal-map assets, so its FFT sea uses this
+// procedural fallback. It is transformed by TBN below, which means the local
+// surface-up axis must be tangent-space +Z, just like a sampled normal map.
+TEST(WaterRendering, ProceduralNormalFallbackUsesTangentSpaceZUp)
+{
+    const std::string src = ReadShaderSource(std::filesystem::path{ "assets" } / "shaders" / "Water.glsl");
+    ASSERT_FALSE(src.empty());
+
+    const std::size_t functionStart = src.find("vec3 proceduralNormal(vec2 uv, float strength)");
+    ASSERT_NE(functionStart, std::string::npos) << "Water.glsl lost its procedural normal fallback";
+    const std::size_t functionEnd = src.find("\n}", functionStart);
+    ASSERT_NE(functionEnd, std::string::npos) << "could not isolate Water.glsl's proceduralNormal body";
+    const std::string function = src.substr(functionStart, functionEnd - functionStart);
+
+    EXPECT_NE(function.find("vec3(-(hx - h0) * strength, -(hy - h0) * strength, 1.0)"), std::string::npos)
+        << "proceduralNormal must return a tangent-space normal with +Z up before TBN transforms it";
+    EXPECT_EQ(function.find("vec3(-(hx - h0) * strength, 1.0, -(hy - h0) * strength)"), std::string::npos)
+        << "proceduralNormal put its up component in tangent-space Y again, turning the fallback sideways";
+}
+
 TEST(WaterRendering, BloomDownsampleKillsNonFiniteInputs)
 {
     const std::string src = ReadShaderSource(std::filesystem::path{ "assets" } / "shaders" / "PostProcess_BloomDownsample.glsl");
