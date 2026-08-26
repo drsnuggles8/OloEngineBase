@@ -326,8 +326,7 @@ namespace OloEngine::Tests::ShaderHarness
         // reflected stage inputs, outputs and descriptor bindings are unchanged.
         constexpr std::string_view kUnsupportedVulkan14Diagnostic =
             "Invalid SPIR-V binary version 1.6 for target environment SPIR-V 1.0";
-        if (result.GetCompilationStatus() == shaderc_compilation_status_internal_error &&
-            std::string_view(result.GetErrorMessage()).contains(kUnsupportedVulkan14Diagnostic))
+        if (std::string_view(result.GetErrorMessage()).contains(kUnsupportedVulkan14Diagnostic))
         {
             return compileForEnvironment(shaderc_env_version_vulkan_1_2, kShadercSpirv15);
         }
