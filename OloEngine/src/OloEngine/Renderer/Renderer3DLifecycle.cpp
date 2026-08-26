@@ -506,6 +506,13 @@ namespace OloEngine
         // Initialize wind system (3D wind-field volume)
         WindSystem::Init();
 
+        // Initialize the water-disturbance (boat wake foam) field, issue #967.
+        // Owned by Renderer3D's lifecycle, not Renderer3D's 3D-draw path, so it
+        // is released by the matching Shutdown below — a shared lazy static
+        // released from a narrower scope leaks in every session that never
+        // reaches that scope (docs/agent-rules/lazy-static-release-ownership.md).
+        WaterDisturbanceSystem::Init();
+
         // Initialize snow accumulation & ejecta systems
         SnowAccumulationSystem::Init();
         SnowEjectaSystem::Init(s_Data.SnowEjecta.MaxParticles);
@@ -627,6 +634,9 @@ namespace OloEngine
         // Shutdown snow systems
         SnowEjectaSystem::Shutdown();
         SnowAccumulationSystem::Shutdown();
+
+        // Water-disturbance field (issue #967)
+        WaterDisturbanceSystem::Shutdown();
 
         // Shutdown Forward+ system
         s_Data.ForwardPlus.Shutdown();

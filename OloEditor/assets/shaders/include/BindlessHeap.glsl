@@ -208,9 +208,12 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // MAX_ENGINE_TEXTURE_SLOTS = TEX_SHADER_GRAPH_0 + 1 — so it MOVES whenever an
 // engine texture slot is added, and this literal does not move with it.
 //
-// 70 since issue #715 inserted TEX_TERRAIN_VT_INDIRECTION (67) and
-// TEX_TERRAIN_VT_CACHE (68) and pushed the shader-graph base to 69. Note this
-// is the first bump that ALSO moved the array size above — 78 used entries
+// 72 since issue #967 inserted TEX_WATER_DISTURBANCE (70) and pushed the
+// shader-graph base to 71.
+//
+// 71 before that, since issue #715 inserted TEX_TERRAIN_VT_INDIRECTION (67) and
+// TEX_TERRAIN_VT_CACHE (68) and pushed the shader-graph base to 70. Note that
+// was the first bump that ALSO moved the array size above — 78 used entries
 // round to 80 rather than the 76 they rounded to before — so the two mirrors
 // moved together for once instead of only this literal.
 //
@@ -226,7 +229,7 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // headless CI. It is now pinned headlessly by
 // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout — if you are here
 // because that failed, update this number, do not relax the test.
-#define OLO_HEAP_IMAGE_BASE 71u
+#define OLO_HEAP_IMAGE_BASE 72u
 #define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
 
 // Pass this as `mem` for an image you both read and write, or for one with no

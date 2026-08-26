@@ -720,6 +720,23 @@ Entities:
       FoamHeightStart: 0.16
       FoamBrightness: 1.1
       FoamFadeDistance: 0.35
+      # Persistent boat-driven wake (issue #967). ON here, and this is the only
+      # scene that turns it on: a feature no scene enables has zero coverage in
+      # practice, however green its tests are — the terrain tessellation path
+      # sat unexercised for exactly that reason.
+      #
+      # The half-life is the feel knob. 7 s leaves a trail roughly a boat-length
+      # per second behind at cruise, which reads as a wake rather than as a
+      # painted stripe that never goes away. The fade pair is deliberately far
+      # longer than the crest-foam fade above: a wake is a low-frequency,
+      # world-anchored signal that does not alias toward the horizon the way
+      # whitecaps do, and fading it at whitecap distances would delete it behind
+      # the chase camera the game is played from.
+      WakeFoamEnabled: true
+      WakeFoamIntensity: 0.9
+      WakeFoamHalfLife: 7
+      WakeFoamFadeStart: 80
+      WakeFoamFadeEnd: 260
       # Refraction pulled well down from the defaults. The submerged half of the
       # hull is visible THROUGH the surface, and at the stock distortion it came
       # through as a stippled ghost lying alongside the boat that reads as a

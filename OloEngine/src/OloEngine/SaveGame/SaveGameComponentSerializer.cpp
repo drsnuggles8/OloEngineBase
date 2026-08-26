@@ -2452,6 +2452,28 @@ namespace OloEngine
             ar << c.m_PlanarReflectionIntensity << c.m_PlanarReflectionDistortion;
         }
 
+        // Boat / actor wake foam (issue #967), appended after the planar block —
+        // same trailing-AtEnd() probe as every addition above it, so an archive
+        // written before this feature ends here and falls back to the component
+        // defaults (wake off). Deliberately the AtEnd() form rather than a
+        // HasFieldsSince() version gate: this is the TRAILING position, where
+        // the surrounding additions all use the probe, and mixing the two idioms
+        // in one function is how a reader ends up trusting the wrong one.
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_WakeFoamEnabled = false;
+            c.m_WakeFoamIntensity = 1.0f;
+            c.m_WakeFoamHalfLife = 6.0f;
+            c.m_WakeFoamFadeStart = 60.0f;
+            c.m_WakeFoamFadeEnd = 220.0f;
+        }
+        else
+        {
+            ar << c.m_WakeFoamEnabled;
+            ar << c.m_WakeFoamIntensity << c.m_WakeFoamHalfLife;
+            ar << c.m_WakeFoamFadeStart << c.m_WakeFoamFadeEnd;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -2493,6 +2515,12 @@ namespace OloEngine
             sanitize(c.m_FoamAngleExponent, 0.1f, 10.0f, 2.0f);
             sanitize(c.m_ShorelineFoamPower, 0.1f, 10.0f, 3.0f);
             sanitize(c.m_FoamCoverage, 0.0f, 1.0f, 0.12f);
+            // Wake foam (issue #967) — the same bounds as the scene serializer,
+            // the component annotations and Scene's per-frame publish.
+            sanitize(c.m_WakeFoamIntensity, 0.0f, 4.0f, 1.0f);
+            sanitize(c.m_WakeFoamHalfLife, 0.05f, 120.0f, 6.0f);
+            sanitize(c.m_WakeFoamFadeStart, 0.0f, 2000.0f, 60.0f);
+            sanitize(c.m_WakeFoamFadeEnd, 1.0f, 4000.0f, 220.0f);
             sanitize(c.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
             sanitize(c.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
             sanitize(c.m_SSRStepSize, 0.01f, 1.0f, 0.1f);

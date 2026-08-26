@@ -22,6 +22,7 @@
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -65,6 +66,7 @@
 #include "OloEngine/Physics3D/JoltShapes.h"
 #include "OloEngine/Physics3D/AircraftSystem.h"
 #include "OloEngine/Physics3D/BoatSystem.h"
+#include "OloEngine/Physics3D/BoatWakeSystem.h"
 #include "OloEngine/Physics3D/SailSystem.h"
 #include "OloEngine/Physics3D/BuoyancySystem.h"
 #include "OloEngine/Physics3D/ClothWindSystem.h"
@@ -1427,6 +1429,17 @@ namespace OloEngine
     {
         m_IsRunning = true;
 
+        // Drop any wake foam and hull history left by a previous scene or a
+        // previous run (issue #967). The disturbance field is WORLD-anchored
+        // and persists across frames, so without this a second Play session —
+        // or a runtime scene switch into another watery scene — starts with the
+        // previous one's trail already painted at the same world coordinates.
+        // The trail would then decay away over the next few seconds, which
+        // reads as a rendering glitch rather than as stale state.
+        // docs/agent-rules/runtime-scene-switching.md.
+        m_RuntimeBoatWakeTrails.Empty();
+        WaterDisturbanceSystem::Reset();
+
         // Deterministic run setup (issue #452): reset the fixed-timestep tick
         // counter / accumulator / animation clock and re-seed the gameplay RNG
         // from the application's configured seed. Doing it here — the single
@@ -1896,6 +1909,12 @@ namespace OloEngine
         m_InterpCurr.clear();
         m_HasInterpSnapshots = false;
         m_RenderInterpAlpha = 0.0f;
+        // Same wake reset as OnRuntimeStart, for the same reason — and it also
+        // matters that m_SimulationTime is zeroed just above: the hull history
+        // is time-stamped against that clock, so a retained trail would carry
+        // timestamps from the future and the V-arm age lookup would never match.
+        m_EditorBoatWakeTrails.Empty();
+        WaterDisturbanceSystem::Reset();
 
         // Seed each particle system's RNG from the fixed preview seed so a
         // Simulate session's emission is decorrelated across systems and
@@ -3457,6 +3476,29 @@ namespace OloEngine
                             { s.UpdateSnowDeformers(ts); })
                 .Reads(kLocalTransforms);
 
+            // Boat wake foam (issue #967): record each hull's post-physics pose
+            // into its bounded history ring and submit the resulting
+            // disturbance splats.
+            //
+            // Reads(kLocalTransforms) is the load-bearing declaration, and it is
+            // a real data-flow edge rather than positioning: it pulls this
+            // behind PhysicsFence, which WRITES LocalTransforms. The wake has to
+            // describe where the hull ENDED this tick — reading a pre-physics
+            // pose lays the trail one tick behind the boat, which at 15 m/s is a
+            // quarter of a metre of visible gap between the hull and its own
+            // foam, and looks like a shader offset rather than an ordering bug.
+            //
+            // UNMARKED (join-all barrier), NOT Parallelizable: it queues into
+            // WaterDisturbanceSystem's process-wide splat queue, which is plain
+            // unsynchronised static state. Marking it would need the
+            // thread-safety audit in the table above, and boats are rare enough
+            // that the barrier costs nothing. The editor Simulate path mirrors
+            // this with a direct call in Scene::StepPhysics — keep the two call
+            // sites in sync.
+            sched.AddSystem("BoatWake", [](Scene& s, Timestep ts)
+                            { s.UpdateBoatWake(ts); })
+                .Reads(kLocalTransforms);
+
             // Move the flock (issue #731). Registered LAST on purpose: it is a
             // transform WRITER, so the write-after-read edges pull it behind
             // every transform reader above (Audio / Particles / Snow /
@@ -4158,6 +4200,12 @@ namespace OloEngine
         ProcessSnowDeformers(ts, m_RuntimeSnowPrevPositions);
     }
 
+    void Scene::UpdateBoatWake(Timestep ts)
+    {
+        // Record post-physics hull poses and submit wake splats (issue #967).
+        BoatWakeSystem::OnUpdate(this, m_RuntimeBoatWakeTrails, m_SimulationTime, ts.GetSeconds());
+    }
+
     void Scene::RenderRuntime(Timestep const ts)
     {
         // Advance video playback once per displayed frame at the display rate
@@ -4612,6 +4660,12 @@ namespace OloEngine
 
         // Process snow deformer entities in editor preview
         ProcessSnowDeformers(ts, m_EditorSnowPrevPositions);
+
+        // Boat wake foam in editor preview (issue #967) — the mirror of the
+        // "BoatWake" scheduler node on the runtime path. Its own trail map, so
+        // an editor preview and a Play session cannot cross-contaminate each
+        // other's history.
+        BoatWakeSystem::OnUpdate(this, m_EditorBoatWakeTrails, m_SimulationTime, ts.GetSeconds());
 
         // Live-retargeting bake also runs in edit mode so the retargeted clips
         // preview without entering Play (issue #631). Idempotent per
@@ -8781,6 +8835,21 @@ namespace OloEngine
                 f32 planarReflectionDistortion = 0.02f;
                 f32 bestPlanarArea = -1.0f;
 
+                // Boat / actor wake foam (issue #967). There is ONE disturbance
+                // field per frame, so the largest enabled wake surface publishes
+                // its tunables — the same "dominant surface wins" rule the
+                // planar reflection above uses, and for the same reason: a
+                // single global resource cannot be per-tile.
+                //
+                // Default-constructed means DISABLED, and it is published
+                // unconditionally after the loop. That is what makes a scene
+                // with no water (or with wake switched off) actively clear the
+                // field rather than inherit the previous scene's settings —
+                // the cross-frame-history defect in
+                // docs/agent-rules/runtime-scene-switching.md.
+                WaterDisturbanceSettings wakeSettings{};
+                f32 bestWakeArea = -1.0f;
+
                 auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
                 for (auto entity : waterView)
                 {
@@ -8860,6 +8929,37 @@ namespace OloEngine
                             planarReflectionDistortion = std::isfinite(water.m_PlanarReflectionDistortion)
                                                              ? std::clamp(water.m_PlanarReflectionDistortion, 0.0f, 0.25f)
                                                              : 0.02f;
+                        }
+                    }
+
+                    // Wake foam field tunables (issue #967). Measured on the
+                    // sanitized COMPONENT extents rather than the transform-
+                    // scaled area the mirror uses above: this picks whose
+                    // tunables win, not which plane to mirror across, so the
+                    // authored size is the honest metric.
+                    if (water.m_WakeFoamEnabled)
+                    {
+                        if (const f32 wakeArea = sizeX * sizeZ;
+                            std::isfinite(wakeArea) && wakeArea > bestWakeArea)
+                        {
+                            bestWakeArea = wakeArea;
+                            wakeSettings.m_Enabled = true;
+                            wakeSettings.m_Intensity =
+                                std::isfinite(water.m_WakeFoamIntensity)
+                                    ? std::clamp(water.m_WakeFoamIntensity, 0.0f, 4.0f)
+                                    : 1.0f;
+                            wakeSettings.m_HalfLifeSeconds =
+                                std::isfinite(water.m_WakeFoamHalfLife)
+                                    ? std::clamp(water.m_WakeFoamHalfLife, 0.05f, 120.0f)
+                                    : 6.0f;
+                            wakeSettings.m_FadeStartMetres =
+                                std::isfinite(water.m_WakeFoamFadeStart)
+                                    ? std::clamp(water.m_WakeFoamFadeStart, 0.0f, 2000.0f)
+                                    : 60.0f;
+                            wakeSettings.m_FadeEndMetres =
+                                std::isfinite(water.m_WakeFoamFadeEnd)
+                                    ? std::clamp(water.m_WakeFoamFadeEnd, 1.0f, 4000.0f)
+                                    : 220.0f;
                         }
                     }
 
@@ -9200,6 +9300,12 @@ namespace OloEngine
                                                      planarReflectionActive,
                                                      planarReflectionIntensity,
                                                      planarReflectionDistortion);
+
+                // Publish the wake-foam settings UNCONDITIONALLY (issue #967) —
+                // including the default-constructed, disabled form when no water
+                // tile asked for a wake. Publishing only when enabled is what
+                // would let a scene switch inherit the previous scene's field.
+                Renderer3D::GetWaterDisturbanceSettings() = wakeSettings;
             }
 
             // Screen-space fluid draws (issue #630): every enabled fluid domain

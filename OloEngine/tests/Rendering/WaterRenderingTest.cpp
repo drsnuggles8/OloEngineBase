@@ -34,9 +34,16 @@ TEST(WaterRendering, WaterUBOAlignment)
 
 TEST(WaterRendering, WaterUBOSizeStable)
 {
-    // 18 x glm::vec4 = 18 x 16 = 288 bytes (FFTParams appended for the
-    // Tessendorf FFT ocean — WATER_FUTURE_IMPROVEMENTS.md §1)
-    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 288u);
+    // 20 x glm::vec4 = 20 x 16 = 320 bytes. Was 18 x 16 = 288 until issue #967
+    // appended WakeFieldParams / WakeFieldParams2 for the boat-wake foam field;
+    // FFTParams was the one before that (the Tessendorf FFT ocean,
+    // WATER_FUTURE_IMPROVEMENTS.md §1).
+    //
+    // A change here is a five-file edit, not a one-line one: the block is
+    // declared identically in Water.glsl, Water_Depth.glsl and the three
+    // WaterTess*/WaterVertexStage includes, because GL requires every stage of a
+    // program to declare a shared uniform block the same way.
+    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 320u);
 }
 
 TEST(WaterRendering, WaterUBOGetSizeMatchesSizeof)

@@ -10075,6 +10075,20 @@ namespace
         "assets/shaders/compute/PrefixSum_Scan.comp",
         "assets/shaders/compute/PrefixSum_AddBlockOffsets.comp",
         "assets/shaders/compute/Particle_CompactScatter.comp",
+        // Issue #967 — the boat/actor wake foam field. Also never had bare
+        // uniforms (it was written under this contract rather than migrated to
+        // it), and listed here for the same reason as the prefix-sum pair: this
+        // is the CROSS-BACKEND acceptance criterion for the feature. GL and
+        // Vulkan must behave equivalently, and the only way that can silently
+        // fail is the compute program not existing on one of them — which does
+        // not error at the call site, it just leaves the field permanently
+        // black and the wake permanently absent on that backend.
+        //
+        // It also carries something none of the others do: a fixed-size array
+        // of structs in its std140 block. Compiling it through shaderc is what
+        // proves that array's stride survives the Vulkan target, not only GL's
+        // native compiler.
+        "assets/shaders/compute/WaterDisturbance_Update.comp",
     };
 } // namespace
 

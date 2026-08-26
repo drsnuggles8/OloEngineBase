@@ -1660,6 +1660,37 @@ namespace OloEngine
                 CommandDispatch::SetSnowDepthTexture(SnowAccumulationSystem::GetSnowDepthTextureHandle());
             }
 
+            // Boat / actor wake foam field (issue #967). Dispatched HERE, in
+            // the same pre-graph block as the wind/snow computes, for two
+            // reasons: the field must be written before the water shading that
+            // samples it, and it is a PERSISTENT cross-frame texture — exactly
+            // the resource the render graph's transient aliasing is wrong for
+            // (docs/agent-rules/render-graph-transient-aliasing.md).
+            //
+            // Called unconditionally, unlike the snow block above: Update()
+            // itself handles the disabled case by dropping the queued splats
+            // and marking the field for a clear, so a scene that turns wake off
+            // cannot leave a frozen — rather than decayed — trail behind for
+            // whenever it is turned back on.
+            //
+            // The window follows the VIEW position, so the field always covers
+            // the water the camera can see; the boat is wherever it happens to
+            // be inside it.
+            // Driven by Time::GetTime() rather than the block's steady_clock
+            // `dt` above, deliberately and for the same reason the cloud
+            // advection below is: Time::SetMockTime then FREEZES the decay, so a
+            // golden capture of a wake trail is deterministic and a test can
+            // advance the field by an exact number of seconds. A wall-clock dt
+            // would decay the field by however long the previous frame happened
+            // to take, which is unrepeatable and would make every wake golden
+            // flaky rather than merely approximate.
+            const f32 wakeNow = Time::GetTime();
+            const f32 wakeDt = std::clamp(wakeNow - data.WaterDisturbancePrevTimeSeconds, 0.0f, 0.25f);
+            data.WaterDisturbancePrevTimeSeconds = wakeNow;
+            WaterDisturbanceSystem::Update(data.WaterDisturbance,
+                                           glm::vec2(data.ViewPos.x, data.ViewPos.z),
+                                           Timestep(wakeDt));
+
             // Update snow ejecta particle simulation
             if (data.SnowEjecta.Enabled)
             {

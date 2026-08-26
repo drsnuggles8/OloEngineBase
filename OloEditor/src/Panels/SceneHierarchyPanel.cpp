@@ -6700,6 +6700,21 @@ namespace OloEngine
                 ImGui::SetItemTooltip("Fraction of the noise range that lets whitecaps form. "
                                       "0 = none; 0.12 is the calm default; raise it for a built sea.");
 
+                ImGui::SeparatorText("Wake Foam");
+                ImGui::Checkbox("Wake Foam Enabled", &component.m_WakeFoamEnabled);
+                ImGui::SetItemTooltip("Persistent, world-anchored foam left by boats, propellers and "
+                                      "impacts (issue #967). One field per scene: the LARGEST enabled "
+                                      "water surface publishes these settings.");
+                ImGui::DragFloat("Wake Intensity", &component.m_WakeFoamIntensity, 0.01f, 0.0f, 4.0f);
+                ImGui::DragFloat("Wake Half-Life", &component.m_WakeFoamHalfLife, 0.05f, 0.05f, 120.0f, "%.2f s");
+                ImGui::SetItemTooltip("Seconds for the trail to fade to half. Exponential, so it is "
+                                      "independent of frame rate.");
+                ImGui::DragFloat("Wake Fade Start", &component.m_WakeFoamFadeStart, 1.0f, 0.0f, 2000.0f, "%.0f m");
+                ImGui::DragFloat("Wake Fade End", &component.m_WakeFoamFadeEnd, 1.0f, 1.0f, 4000.0f, "%.0f m");
+                ImGui::SetItemTooltip("Camera distance over which the wake fades out. Deliberately much "
+                                      "longer than the crest-foam fade — a wake is low-frequency and "
+                                      "does not alias toward the horizon the way whitecaps do.");
+
                 ImGui::SeparatorText("Subsurface Scattering");
                 ImGui::ColorEdit3("SSS Color", glm::value_ptr(component.m_SSSColor));
                 ImGui::DragFloat("SSS Intensity", &component.m_SSSIntensity, 0.01f, 0.0f, 5.0f);

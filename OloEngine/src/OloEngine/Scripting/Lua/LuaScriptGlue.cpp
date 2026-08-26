@@ -1150,6 +1150,23 @@ namespace OloEngine
                                          "foamCoverage", sol::property([](const WaterComponent& w)
                                                                        { return w.m_FoamCoverage; }, [](WaterComponent& w, f32 v)
                                                                        { if (std::isfinite(v) && v >= 0.0f && v <= 1.0f) w.m_FoamCoverage = v; }),
+                                         // Boat / actor wake foam (issue #967). Exposed because
+                                         // DriftWeatherDirector.lua already owns this component's sea-state
+                                         // fields at runtime, and a wake that cannot be eased with the rest
+                                         // of them would pop the moment the weather changed.
+                                         "wakeFoamEnabled", &WaterComponent::m_WakeFoamEnabled,
+                                         "wakeFoamIntensity", sol::property([](const WaterComponent& w)
+                                                                            { return w.m_WakeFoamIntensity; }, [](WaterComponent& w, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f && v <= 4.0f) w.m_WakeFoamIntensity = v; }),
+                                         "wakeFoamHalfLife", sol::property([](const WaterComponent& w)
+                                                                           { return w.m_WakeFoamHalfLife; }, [](WaterComponent& w, f32 v)
+                                                                           { if (std::isfinite(v) && v >= 0.05f && v <= 120.0f) w.m_WakeFoamHalfLife = v; }),
+                                         "wakeFoamFadeStart", sol::property([](const WaterComponent& w)
+                                                                            { return w.m_WakeFoamFadeStart; }, [](WaterComponent& w, f32 v)
+                                                                            { if (std::isfinite(v) && v >= 0.0f && v <= 2000.0f) w.m_WakeFoamFadeStart = v; }),
+                                         "wakeFoamFadeEnd", sol::property([](const WaterComponent& w)
+                                                                          { return w.m_WakeFoamFadeEnd; }, [](WaterComponent& w, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 1.0f && v <= 4000.0f) w.m_WakeFoamFadeEnd = v; }),
                                          "underwaterFogColor", sol::property([](const WaterComponent& w)
                                                                              { return w.m_UnderwaterFogColor; }, [](WaterComponent& w, const glm::vec3& v)
                                                                              { if (std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z)) w.m_UnderwaterFogColor = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f)); }),

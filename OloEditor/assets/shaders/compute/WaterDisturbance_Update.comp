@@ -1,0 +1,119 @@
+#version 460 core
+
+// ============================================================================
+// WaterDisturbance_Update.comp — one pass over the world-anchored, toroidally
+// stored water-disturbance field (issue #967).
+//
+// Per storage texel, in this order:
+//   1. resolve the ABSOLUTE lattice coordinate this texel holds in the current
+//      window (toroidal inverse);
+//   2. reset it if it is newly exposed — i.e. that lattice coordinate was NOT
+//      inside the previous window, so the stored value is content from the far
+//      side of the field rather than this texel's own history;
+//   3. decay what survives by the frame's exponential factor;
+//   4. stamp every submitted capsule splat with `max`.
+//
+// Steps 1 and 2 ARE the toroidal scheme. Dropping step 2 does not error and
+// does not blank the frame — the field keeps rendering, carrying a mirror image
+// of itself that trails the camera, which reads as a second phantom wake.
+//
+// The addressing and the splat falloff live in the shared include, not here, so
+// this shader and Water.glsl cannot disagree about where a texel is. The C++
+// source of truth is Renderer/Water/WaterDisturbanceField.h.
+// ============================================================================
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+#include "../include/BindlessHeap.glsl"
+#include "../include/WaterDisturbanceCommon.glsl"
+
+// Heap-bindless conversion (issue #691). Under OLO_BINDLESS the declaration
+// moves into main() as a local built from the heap descriptor at this image
+// unit; the body below is unchanged either way.
+#ifndef OLO_BINDLESS
+layout(rg16f, binding = 0) uniform image2D u_DisturbanceField;
+#endif
+
+// One submitted disturbance. A capsule from P0 to P1 — a point splat is
+// P0 == P1, so propeller wash and hull wake use the same record.
+struct WaterDisturbanceSplat
+{
+    vec4 P0Radius; // xy = p0 world XZ, z = radius (metres), w = strength [0,1]
+    vec4 P1Shape;  // xy = p1 world XZ, z = softness (falloff exponent), w = unused
+};
+
+// Field + splat parameters. A std140 UBO rather than bare uniforms: GLSL-for-
+// Vulkan forbids a non-opaque uniform outside a block and VulkanComputeShader::
+// Set* is a deliberate no-op there, so bare uniforms are both a SPIR-V compile
+// error and a guaranteed zero-read on that route (issue #691).
+//
+// The splat array is a FIXED-SIZE UBO array on purpose: it makes the bounded
+// queue a structural property rather than a policy anyone can forget to
+// enforce. C++ twin: UBOStructures::WaterDisturbanceUBO
+// (ShaderBindingLayout::UBO_WATER_DISTURBANCE).
+layout(std140, binding = 63) uniform WaterDisturbanceParams
+{
+    ivec2 u_LatticeMin;     // 0  — lower corner of THIS frame's window
+    ivec2 u_PrevLatticeMin; // 8  — lower corner of the PREVIOUS frame's window
+    float u_TexelSize;      // 16 — metres per texel
+    float u_DecayFactor;    // 20 — this frame's multiplicative decay
+    int   u_Resolution;     // 24 — texels per axis
+    int   u_SplatCount;     // 28 — live entries in u_Splats
+    int   u_ResetAll;       // 32 — 1 = clear the whole field this dispatch
+    int   _padding0;        // 36
+    int   _padding1;        // 40
+    int   _padding2;        // 44
+    WaterDisturbanceSplat u_Splats[96]; // 48 — WaterDisturbance::kMaxSplatsPerFrame
+};
+
+void main()
+{
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(rg16f, OLO_HEAP_IMAGE_RW, image2D, u_DisturbanceField, 0);
+#endif
+    ivec2 storage = ivec2(gl_GlobalInvocationID.xy);
+    if (storage.x >= u_Resolution || storage.y >= u_Resolution)
+        return;
+
+    ivec2 lattice = waterDisturbanceLatticeForStorage(storage, u_LatticeMin, u_Resolution);
+
+    // Newly exposed texels carry the far side of the field, not their own past.
+    bool keep = (u_ResetAll == 0) &&
+                waterDisturbanceWindowContains(lattice, u_PrevLatticeMin, u_Resolution);
+    float value = keep ? imageLoad(u_DisturbanceField, storage).r : 0.0;
+
+    // Guard against a NaN that has somehow entered the field: it would survive
+    // every decay and every max() below and pin this texel permanently.
+    if (isnan(value) || isinf(value))
+        value = 0.0;
+
+    value *= u_DecayFactor;
+
+    // Texel CENTRE, matching WaterDisturbance::WorldForLatticeCentre. The +0.5
+    // is the half-texel convention and dropping it shifts the whole field by
+    // half a texel against the shader's sample point, which reads as the wake
+    // sitting slightly off the hull.
+    vec2 worldXZ = (vec2(lattice) + 0.5) * u_TexelSize;
+
+    for (int i = 0; i < u_SplatCount; ++i)
+    {
+        vec4 p0r = u_Splats[i].P0Radius;
+        vec4 p1s = u_Splats[i].P1Shape;
+
+        // Cheap AABB reject before the capsule distance. The loop is uniform
+        // control flow (u_SplatCount is a uniform), so this costs no divergence
+        // and saves the sqrt for the overwhelming majority of texels — a full
+        // queue over a 512x512 field is 25M capsule evaluations otherwise.
+        vec2 lo = min(p0r.xy, p1s.xy) - p0r.z;
+        vec2 hi = max(p0r.xy, p1s.xy) + p0r.z;
+        if (any(lessThan(worldXZ, lo)) || any(greaterThan(worldXZ, hi)))
+            continue;
+
+        float w = waterDisturbanceSplatWeight(worldXZ, p0r.xy, p1s.xy, p0r.z, p1s.z);
+        // `max`, not `+=` — see WaterDisturbance::CombineSplat for why an
+        // accumulate would make the foam frame-rate dependent.
+        value = max(value, clamp(p0r.w, 0.0, 1.0) * w);
+    }
+
+    imageStore(u_DisturbanceField, storage, vec4(clamp(value, 0.0, 1.0), 0.0, 0.0, 0.0));
+}

@@ -53,6 +53,7 @@ run is **not** evidence.
 | [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) | a terrain tile ended in a vertical wall of ground where the tile stopped, for two shipped issues, in a scene whose own notes named the waterline as the thing to watch. Nothing renders wrong, nothing asserts anything about a tile's OUTERMOST RING, and raising the height exponent removes the wall and the island at exactly the same rate — so tuning reads as progress right up to the point where the island is 1.4% of the tile |
 | [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) §8 | six islands each rendered as ONE flat colour while every stage of the auto-material pipeline was correct — gate, rules, splatmap, upload, blend, all verified. The shoreline mask from the same document is itself a ~50 deg slope across the whole outer flank, so a rock rule keyed at 48 deg took 77-93%% of each island and normalization divided the rest to nothing. The obvious test — "assert the weights VARY" — passes on the bug; what is false is COVERAGE |
 | [water-shading-nyquist.md](water-shading-nyquist.md) | eight Gerstner octaves derived their normals WITHOUT the amplitude their displacement carried, so the shading described waves the geometry did not have — for months. No C++ test could catch it: the CPU mirror `BuoyancySystem` samples computes displacement only and has no normal at all, so the pin has to be a text test against the GLSL |
+| [persistent-world-space-fields.md](persistent-world-space-fields.md) | a wake stored in an R8 texture renders correctly, follows the boat correctly, wraps correctly — and NEVER FADES, because a 6 s half-life at 60 Hz moves a texel by 0.00096 and R8 rounds anything under 0.00196 straight back to where it started. The decay function is fine, so every math test passes; the bug is in the storage, which no math test touches. Plus: the three addressing failures all leave a plausible wake somewhere else in frame, so only comparing two regions of the SAME frame separates "wrong" from "different" |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -304,6 +305,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [light-path-photometric-parity.md](light-path-photometric-parity.md) ·
 [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) ·
 [water-shading-nyquist.md](water-shading-nyquist.md) ·
+[persistent-world-space-fields.md](persistent-world-space-fields.md) ·
 [pbf-solver-stability.md](pbf-solver-stability.md)
 
 **Scene, ECS & serialization** — [component-serializer-codegen.md](component-serializer-codegen.md) ·

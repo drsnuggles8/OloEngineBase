@@ -4609,6 +4609,46 @@ namespace OloEngine
         // a literal screen coverage, because the terms downstream still apply.
         f32 m_FoamCoverage = 0.12f;
 
+        // --- Boat / actor wake foam (issue #967) ---
+        // A world-anchored, toroidally stored disturbance field, written by a
+        // compute pass from generic radius/strength splats and sampled on TOP
+        // of the procedural / shoreline / Jacobian foam above. Boats are one
+        // client; propellers, impacts and scripts submit through the same API.
+        //
+        // These are SCENE-level controls even though they live on the component
+        // — there is one field per frame, and the dominant enabled
+        // WaterComponent publishes it (the same "largest surface wins" rule the
+        // planar reflection uses). A second water tile does not get a second
+        // field.
+        //
+        // NOTE these are NOT free to add. WaterComponent holds Ref<> runtime
+        // state, so it is excluded from the generated serializer blocks AND it
+        // hand-writes its copy constructor and operator== — which makes those
+        // two per-FIELD lists. A field added here and nowhere else round-trips
+        // through scene YAML perfectly and still: reverts to its default the
+        // moment you press Play (missing from CopySerializedStateFrom below),
+        // or records no undo entry (missing from operator==). See CLAUDE.md,
+        // "Definition of done" §3, and m_FoamCoverage (#943) as the worked
+        // example of every touch-point one of these needs.
+        bool m_WakeFoamEnabled = false;
+        // Multiplier on the sampled field. 0 disables the sampling too, so
+        // turning it off can never leave a stale field on screen.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 4.0f)
+        f32 m_WakeFoamIntensity = 1.0f;
+        // Seconds for a disturbance to halve. Drives an exponential decay, so
+        // the wake fades at the same wall-clock rate regardless of frame rate.
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 120.0f)
+        f32 m_WakeFoamHalfLife = 6.0f;
+        // Camera distances over which the wake fades out. Deliberately much
+        // longer than the crest-foam fade: that one exists because procedural
+        // whitecaps alias into a white wash near the horizon (#943), which a
+        // low-frequency world-anchored trail does not do — and fading a wake at
+        // 45 m would delete it behind any chase camera.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 2000.0f)
+        f32 m_WakeFoamFadeStart = 60.0f;
+        OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 4000.0f)
+        f32 m_WakeFoamFadeEnd = 220.0f;
+
         // Subsurface scattering approximation
         glm::vec3 m_SSSColor = { 0.0f, 0.5f, 0.4f };
         f32 m_SSSIntensity = 0.5f;
@@ -4754,7 +4794,18 @@ namespace OloEngine
                 && m_RefractionEnabled == o.m_RefractionEnabled
                 && blkEq(m_DepthSofteningDistance, m_RefractionColor) // f32*3 + vec3
                 && m_FoamTexture == o.m_FoamTexture
-                && blkEq(m_FoamHeightStart, m_SSSIntensity)    // f32*7 + vec3 + f32
+                // Wake foam (issue #967) SPLIT this run in three, and the split
+                // is load-bearing rather than cosmetic. `blkEq` memcmps a
+                // contiguous range of members, which is only valid while that
+                // range contains no PADDING — padding bytes are indeterminate,
+                // so a memcmp across them can report two identical components as
+                // different. Inserting `bool m_WakeFoamEnabled` between
+                // m_FoamCoverage and m_WakeFoamIntensity introduces exactly that:
+                // one bool followed by three pad bytes. It is compared on its
+                // own, which is why every other bool in this operator is too.
+                && blkEq(m_FoamHeightStart, m_FoamCoverage)    // f32*7
+                && m_WakeFoamEnabled == o.m_WakeFoamEnabled
+                && blkEq(m_WakeFoamIntensity, m_SSSIntensity)  // f32*4 + vec3 + f32
                 && m_SSREnabled == o.m_SSREnabled
                 && blkEq(m_SSRMaxSteps, m_SSRThickness)        // f32*4
                 && m_PlanarReflectionsEnabled == o.m_PlanarReflectionsEnabled
@@ -4840,6 +4891,16 @@ namespace OloEngine
             m_FoamAngleExponent = src.m_FoamAngleExponent;
             m_ShorelineFoamPower = src.m_ShorelineFoamPower;
             m_FoamCoverage = src.m_FoamCoverage;
+            // Boat / actor wake foam (issue #967). Missing from THIS list is not
+            // a serializer bug and scene YAML keeps round-tripping perfectly:
+            // Scene::Copy runs on every Play/Simulate entry and every duplicate,
+            // so the authored value would simply revert to its default the
+            // moment you press Play.
+            m_WakeFoamEnabled = src.m_WakeFoamEnabled;
+            m_WakeFoamIntensity = src.m_WakeFoamIntensity;
+            m_WakeFoamHalfLife = src.m_WakeFoamHalfLife;
+            m_WakeFoamFadeStart = src.m_WakeFoamFadeStart;
+            m_WakeFoamFadeEnd = src.m_WakeFoamFadeEnd;
             m_SSSColor = src.m_SSSColor;
             m_SSSIntensity = src.m_SSSIntensity;
             m_SSREnabled = src.m_SSREnabled;
