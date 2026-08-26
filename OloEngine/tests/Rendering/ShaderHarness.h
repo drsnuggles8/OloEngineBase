@@ -29,6 +29,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -278,5 +279,57 @@ namespace OloEngine::Tests::ShaderHarness
 
         const std::string name = shaderPath.generic_string();
         return compiler.CompileGlslToSpv(stageSource, kind, name.c_str(), options);
+    }
+
+    /// Compile one raster stage through the production VulkanShader tier:
+    /// Vulkan 1.4, SPIR-V 1.6, OLO_VULKAN=1, debug names and performance
+    /// optimisation. Contract tests use this route when the authoring-side
+    /// backend fork itself is what must be reflected (not the OpenGL-via-SPIR-V
+    /// tier used by CompileStageToSpv above).
+    inline shaderc::SpvCompilationResult CompileVulkanBackendStageToSpv(
+        const fs::path& shaderPath,
+        const std::string& stageSource,
+        shaderc_shader_kind kind,
+        const fs::path& root,
+        shaderc::Compiler& compiler)
+    {
+        constexpr auto kShadercEnvVulkan14 = static_cast<shaderc_env_version>((1u << 22) | (4u << 12));
+        constexpr auto kShadercSpirv16 = static_cast<shaderc_spirv_version>((1u << 16) | (6u << 8));
+        constexpr auto kShadercSpirv15 = static_cast<shaderc_spirv_version>((1u << 16) | (5u << 8));
+        static_assert(static_cast<u32>(kShadercEnvVulkan14) == 0x00404000u);
+        static_assert(static_cast<u32>(kShadercSpirv16) == 0x00010600u);
+        static_assert(static_cast<u32>(kShadercSpirv15) == 0x00010500u);
+
+        const std::string name = shaderPath.generic_string();
+        const auto compileForEnvironment = [&](shaderc_env_version environment, shaderc_spirv_version spirvVersion)
+        {
+            shaderc::CompileOptions options;
+            options.SetTargetEnvironment(shaderc_target_env_vulkan, environment);
+            options.SetTargetSpirv(spirvVersion);
+            options.SetPreserveBindings(true);
+            options.SetAutoBindUniforms(false);
+            options.SetGenerateDebugInfo();
+            options.SetOptimizationLevel(shaderc_optimization_level_performance);
+            options.SetSuppressWarnings();
+            options.AddMacroDefinition("OLO_VULKAN", "1");
+            options.SetIncluder(std::make_unique<Includer>(root));
+            return compiler.CompileGlslToSpv(stageSource, kind, name.c_str(), options);
+        };
+
+        auto result = compileForEnvironment(kShadercEnvVulkan14, kShadercSpirv16);
+        // Ubuntu's shaderc 2023.8 accepts the hand-encoded Vulkan 1.4 value but
+        // silently treats it as Vulkan 1.0. Its optimiser then rejects the
+        // explicitly requested SPIR-V 1.6 module. Production cannot run Vulkan
+        // on that pre-1.4 toolchain, but sanitizer CI still needs to reflect the
+        // same OLO_VULKAN interface. Retry only that toolchain diagnostic with
+        // the Vulkan 1.2/SPIR-V 1.5 pair already used by CompileStageToSpv; the
+        // reflected stage inputs, outputs and descriptor bindings are unchanged.
+        constexpr std::string_view kUnsupportedVulkan14Diagnostic =
+            "Invalid SPIR-V binary version 1.6 for target environment SPIR-V 1.0";
+        if (std::string_view(result.GetErrorMessage()).contains(kUnsupportedVulkan14Diagnostic))
+        {
+            return compileForEnvironment(shaderc_env_version_vulkan_1_2, kShadercSpirv15);
+        }
+        return result;
     }
 } // namespace OloEngine::Tests::ShaderHarness

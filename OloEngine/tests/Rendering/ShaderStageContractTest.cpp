@@ -34,9 +34,12 @@
 #include <gtest/gtest.h>
 #include <spirv_cross/spirv_cross.hpp>
 
+#include "OloEngine/Renderer/GBuffer.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "ShaderHarness.h"
 
 #include <algorithm>
+#include <array>
 #include <set>
 #include <sstream>
 #include <string>
@@ -322,6 +325,152 @@ namespace OloEngine::Tests
             EXPECT_EQ(locations, mode.ExpectedLocations)
                 << mode.Why << " — every fragment output location must equal the G-Buffer RT index the "
                 << "mode's draw-attachment map assigns it, or the write lands on no attachment (#770).";
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // VulkanVertexPullShadersExposeNoFixedFunctionInputs (issue #955)
+    //
+    // Vulkan pipelines deliberately publish an empty fixed-function vertex-input
+    // state. Mesh shaders therefore read VAO stream 0 through the engine-wide
+    // vertex-pull SSBO at binding 57. A fixed layout(location=N) input compiles
+    // successfully, but vkCreateGraphicsPipelines then reports VUID-07904 for
+    // every declared attribute and the bake consumes undefined vertex data.
+    //
+    // Compile the exact production Vulkan branch and reflect both sides of the
+    // contract: no stage inputs, plus every pull stream the draw shape requires.
+    // The positive binding assertions prevent an empty-input shader that never
+    // reads its vertex/instance data from satisfying the test accidentally.
+    // -------------------------------------------------------------------------
+    TEST(ShaderStageContract, VulkanVertexPullShadersExposeNoFixedFunctionInputs)
+    {
+        struct PullContract
+        {
+            const char* m_Shader;
+            std::set<u32> m_RequiredBindings;
+        };
+        const PullContract contracts[] = {
+            { "Impostor_Bake.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL } },
+            { "Foliage_Instance.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
+            { "Foliage_Depth.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
+            { "Foliage_Instance_GBuffer.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
+            { "Foliage_Impostor.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
+        };
+
+        const fs::path root = SH::ResolveShaderRoot();
+        ASSERT_FALSE(root.empty());
+
+        shaderc::Compiler compiler;
+        ASSERT_TRUE(compiler.IsValid());
+
+        for (const auto& contract : contracts)
+        {
+            SCOPED_TRACE(contract.m_Shader);
+            const fs::path path = root / contract.m_Shader;
+            ASSERT_TRUE(fs::exists(path)) << path.generic_string();
+
+            bool sawVertexStage = false;
+            for (const auto& [kind, stageSource] : SH::SplitByType(SH::ReadWholeFile(path)))
+            {
+                if (kind != shaderc_glsl_vertex_shader)
+                    continue;
+                sawVertexStage = true;
+
+                const auto result = SH::CompileVulkanBackendStageToSpv(path, stageSource, kind, root, compiler);
+                ASSERT_EQ(result.GetCompilationStatus(), shaderc_compilation_status_success)
+                    << result.GetErrorMessage();
+
+                spirv_cross::Compiler reflection(std::vector<u32>(result.cbegin(), result.cend()));
+                const auto resources = reflection.get_shader_resources();
+                EXPECT_TRUE(resources.stage_inputs.empty())
+                    << "VulkanPipelineBuilder publishes no fixed-function vertex attributes; "
+                       "the Vulkan stage must pull every required stream.";
+
+                std::set<u32> storageBindings;
+                for (const auto& buffer : resources.storage_buffers)
+                    storageBindings.insert(reflection.get_decoration(buffer.id, spv::DecorationBinding));
+                for (const u32 binding : contract.m_RequiredBindings)
+                    EXPECT_TRUE(storageBindings.contains(binding))
+                        << "missing required vertex-pull SSBO binding " << binding;
+            }
+            EXPECT_TRUE(sawVertexStage);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // FullGBufferWritersMatchTheProductionAttachmentNumericTypes (issue #955)
+    //
+    // The table is not a test-side copy: GBuffer.cpp creates its real draw and
+    // resolve framebuffers from GBuffer::s_ColorAttachmentFormats. Reflect every
+    // full writer against that same production-owned ordering so moving an int
+    // output onto a float attachment (or vice versa) fails before Vulkan reports
+    // undefined values at draw time.
+    // -------------------------------------------------------------------------
+    TEST(ShaderStageContract, FullGBufferWritersMatchTheProductionAttachmentNumericTypes)
+    {
+        static constexpr std::array s_Writers = {
+            "PBR_GBuffer.glsl",
+            "PBR_GBuffer_Skinned.glsl",
+            "Skybox_GBuffer.glsl",
+            "LightCube_GBuffer.glsl",
+            "InfiniteGrid_GBuffer.glsl",
+            "Terrain_GBuffer.glsl",
+            "Terrain_Voxel_GBuffer.glsl",
+            "Terrain_VoxelGreedy_GBuffer.glsl",
+            "Foliage_Instance_GBuffer.glsl",
+            "VirtualMeshGBuffer.glsl",
+            "VirtualMeshletGBuffer.glsl",
+        };
+
+        const fs::path root = SH::ResolveShaderRoot();
+        ASSERT_FALSE(root.empty());
+        shaderc::Compiler compiler;
+        ASSERT_TRUE(compiler.IsValid());
+
+        for (const char* shader : s_Writers)
+        {
+            SCOPED_TRACE(shader);
+            const fs::path path = root / shader;
+            ASSERT_TRUE(fs::exists(path)) << path.generic_string();
+
+            bool sawFragmentStage = false;
+            for (const auto& [kind, stageSource] : SH::SplitByType(SH::ReadWholeFile(path)))
+            {
+                if (kind != shaderc_glsl_fragment_shader)
+                    continue;
+                sawFragmentStage = true;
+
+                const auto result = SH::CompileVulkanBackendStageToSpv(path, stageSource, kind, root, compiler);
+                ASSERT_EQ(result.GetCompilationStatus(), shaderc_compilation_status_success)
+                    << result.GetErrorMessage();
+
+                spirv_cross::Compiler reflection(std::vector<u32>(result.cbegin(), result.cend()));
+                const auto& outputs = reflection.get_shader_resources().stage_outputs;
+                ASSERT_EQ(outputs.size(), GBuffer::s_ColorAttachmentFormats.size())
+                    << "a full G-Buffer writer must define every attachment, including BakedGI";
+
+                std::set<u32> locations;
+                for (const auto& output : outputs)
+                {
+                    const u32 location = reflection.get_decoration(output.id, spv::DecorationLocation);
+                    ASSERT_LT(location, GBuffer::s_ColorAttachmentFormats.size());
+                    locations.insert(location);
+
+                    const auto baseType = reflection.get_type(output.type_id).basetype;
+                    const auto format = GBuffer::s_ColorAttachmentFormats[location];
+                    const auto expectedType = format == FramebufferTextureFormat::RED_INTEGER
+                                                  ? spirv_cross::SPIRType::Int
+                                                  : spirv_cross::SPIRType::Float;
+                    EXPECT_EQ(baseType, expectedType)
+                        << "fragment output location " << location
+                        << " has a numeric class incompatible with its production G-Buffer attachment";
+                }
+
+                EXPECT_EQ(locations.size(), GBuffer::s_ColorAttachmentFormats.size());
+                for (u32 location = 0; location < GBuffer::s_ColorAttachmentFormats.size(); ++location)
+                    EXPECT_TRUE(locations.contains(location)) << "missing G-Buffer output location " << location;
+            }
+            EXPECT_TRUE(sawFragmentStage);
         }
     }
 } // namespace OloEngine::Tests

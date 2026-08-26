@@ -17,25 +17,21 @@ namespace OloEngine
             spec.Width = width;
             spec.Height = height;
             spec.Samples = sampleCount;
-            spec.Attachments = FramebufferAttachmentSpecification{
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA8 },       // RT0 Albedo + Metallic
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },     // RT1 Normal + Roughness + AO
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },     // RT2 Emissive + Flags
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RG16F },       // RT3 Velocity
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RED_INTEGER }, // RT4 EntityID (picking)
-                FramebufferTextureSpecification{ FramebufferTextureFormat::RGBA16F },     // RT5 Baked lightmap irradiance + coverage (issue #865)
-                // Depth must match the scene framebuffer's depth format
-                // (`FramebufferTextureFormat::Depth` = DEPTH24STENCIL8) so that
-                // `RenderCommand::BlitFramebuffer(RHI::BlitAspect::Depth, …)` — the path used
-                // by `DeferredLightingPass` to hand G-Buffer depth to downstream
-                // passes and by `SceneRenderPass::ResolveToScene` in forward+ —
-                // succeeds. A format mismatch here surfaces as a per-frame flood
-                // of `GL_INVALID_OPERATION: Depth formats do not match` and
-                // leaves the scene-FB depth uninitialised, breaking every
-                // downstream depth-read (overlays, foliage, decals, water,
-                // SSAO/GTAO, fog, DoF, motion blur).
-                FramebufferTextureSpecification{ FramebufferTextureFormat::Depth }
-            };
+            spec.Attachments.Attachments.reserve(GBuffer::s_ColorAttachmentFormats.size() + 1);
+            for (const auto format : GBuffer::s_ColorAttachmentFormats)
+                spec.Attachments.Attachments.emplace_back(format);
+
+            // Depth must match the scene framebuffer's depth format
+            // (`FramebufferTextureFormat::Depth` = DEPTH24STENCIL8) so that
+            // `RenderCommand::BlitFramebuffer(RHI::BlitAspect::Depth, …)` — the path used
+            // by `DeferredLightingPass` to hand G-Buffer depth to downstream
+            // passes and by `SceneRenderPass::ResolveToScene` in forward+ —
+            // succeeds. A format mismatch here surfaces as a per-frame flood
+            // of `GL_INVALID_OPERATION: Depth formats do not match` and
+            // leaves the scene-FB depth uninitialised, breaking every
+            // downstream depth-read (overlays, foliage, decals, water,
+            // SSAO/GTAO, fog, DoF, motion blur).
+            spec.Attachments.Attachments.emplace_back(FramebufferTextureFormat::Depth);
             return spec;
         }
 

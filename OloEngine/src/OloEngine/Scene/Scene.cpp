@@ -8752,7 +8752,7 @@ namespace OloEngine
                             impostor.Radius = layer.ImpostorRadius;
                         }
 
-                        auto* packet = Renderer3D::DrawFoliageLayer(
+                        Renderer3D::DrawFoliageLayer(
                             layer.VertexArrayID, layer.IndexCount, layer.InstanceCount,
                             layer.AlbedoTextureID,
                             modelMat,
@@ -8764,10 +8764,6 @@ namespace OloEngine
                             layer.Bounds,
                             entityID,
                             impostor);
-                        if (packet)
-                        {
-                            Renderer3D::SubmitFoliagePacket(packet);
-                        }
                     }
                 }
             }

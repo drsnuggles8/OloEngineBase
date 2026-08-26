@@ -15,6 +15,28 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Select the stream whose framebuffer matches the active foliage
+        // shader's fragment interface. The G-Buffer variant must execute in
+        // Geometry/SceneRenderPass; forward and impostor variants execute in
+        // FoliageRenderPass against the Scene MRT.
+        [[nodiscard]] constexpr Renderer3D::RenderStreamType SelectFoliageRenderStream(
+            bool useImpostor, RenderingPath path, bool gBufferRouteReady) noexcept
+        {
+            return !useImpostor && path == RenderingPath::Deferred && gBufferRouteReady
+                       ? Renderer3D::RenderStreamType::Geometry
+                       : Renderer3D::RenderStreamType::Foliage;
+        }
+
+        using FoliageStream = Renderer3D::RenderStreamType;
+        static_assert(SelectFoliageRenderStream(false, RenderingPath::Deferred, true) == FoliageStream::Geometry);
+        static_assert(SelectFoliageRenderStream(true, RenderingPath::Deferred, true) == FoliageStream::Foliage);
+        static_assert(SelectFoliageRenderStream(false, RenderingPath::Deferred, false) == FoliageStream::Foliage);
+        static_assert(SelectFoliageRenderStream(false, RenderingPath::Forward, true) == FoliageStream::Foliage);
+        static_assert(SelectFoliageRenderStream(false, RenderingPath::ForwardPlus, true) == FoliageStream::Foliage);
+    } // namespace
+
     CommandPacket* Renderer3D::DrawDecal(
         const glm::mat4& decalTransform,
         const glm::mat4& inverseDecalTransform,
@@ -164,7 +186,7 @@ namespace OloEngine
         return packet;
     }
 
-    CommandPacket* Renderer3D::DrawFoliageLayer(
+    void Renderer3D::DrawFoliageLayer(
         RHI::ResourceHandle vertexArrayID, u32 indexCount, u32 instanceCount,
         RHI::ResourceHandle albedoTextureID,
         const glm::mat4& modelTransform,
@@ -182,12 +204,12 @@ namespace OloEngine
         if (!s_Data.Pipeline->RenderStreamPasses.Foliage)
         {
             OLO_CORE_ERROR("Renderer3D::DrawFoliageLayer: FoliagePass is null!");
-            return nullptr;
+            return;
         }
 
         if (!s_Data.FoliageShader)
         {
-            return nullptr;
+            return;
         }
 
         // Octahedral impostor path (issue #433): always routes through the
@@ -199,8 +221,9 @@ namespace OloEngine
         // G-Buffer variant shader so foliage participates in the deferred
         // lighting composite. Falls back to the forward FoliagePass route
         // when the variant is missing.
-        const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
-        const bool useGBufferVariant = !useImpostor && deferredActive && s_Data.FoliageGBufferShader && s_Data.Pipeline->FrameCorePasses.Scene;
+        const bool gBufferRouteReady = s_Data.FoliageGBufferShader && s_Data.Pipeline->FrameCorePasses.Scene;
+        const RenderStreamType targetStream = SelectFoliageRenderStream(useImpostor, s_Data.Settings.Path, gBufferRouteReady);
+        const bool useGBufferVariant = targetStream == RenderStreamType::Geometry;
         Ref<Shader> activeShader = useImpostor         ? s_Data.FoliageImpostorShader
                                    : useGBufferVariant ? s_Data.FoliageGBufferShader
                                                        : s_Data.FoliageShader;
@@ -211,17 +234,15 @@ namespace OloEngine
             const BoundingBox worldBounds = layerBounds.Transform(modelTransform);
             if (!s_Data.ViewFrustum.IsBoundingBoxVisible(worldBounds))
             {
-                return nullptr;
+                return;
             }
         }
 
-        CommandPacket* packet = useGBufferVariant
-                                    ? CreateDrawCall<DrawFoliageLayerCommand>()
-                                    : CreateFoliageDrawCall<DrawFoliageLayerCommand>();
+        CommandPacket* packet = CreateRenderStreamDrawCall<DrawFoliageLayerCommand>(targetStream);
         if (!packet)
         {
             OLO_CORE_ERROR("Renderer3D::DrawFoliageLayer: Failed to allocate foliage command packet!");
-            return nullptr;
+            return;
         }
         auto* cmd = packet->GetCommandData<DrawFoliageLayerCommand>();
         cmd->header.type = CommandType::DrawFoliageLayer;
@@ -282,7 +303,12 @@ namespace OloEngine
         metadata.m_IsStatic = false;
         packet->SetMetadata(metadata);
 
-        return packet;
+        // Allocation and submission use the SAME selected stream. Previously
+        // the G-Buffer packet was allocated from Geometry but returned to a
+        // caller that unconditionally submitted it to FoliageRenderPass. That
+        // executed Foliage_Instance_GBuffer against the forward Scene MRT,
+        // mapping its float location 1 onto Scene's R32_SINT entity-ID target.
+        SubmitRenderStreamPacket(targetStream, packet);
     }
 
     CommandPacket* Renderer3D::DrawWaterSurface(

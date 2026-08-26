@@ -10,9 +10,23 @@
 #type vertex
 #version 460 core
 
+#ifdef OLO_VULKAN
+// The Vulkan backend deliberately declares no fixed-function vertex input.
+// ImpostorBaker draws an ordinary engine MeshSource vertex stream, so consume
+// the canonical 32-byte Vertex layout through the engine-wide pull binding:
+// vec3 position @ 0, vec3 normal @ 12, vec2 UV @ 24. This is the same V1
+// contract as PBR_MultiLight/PBR_GBuffer and preserves the mesh data used by
+// the OpenGL attribute route below.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+    float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TexCoord;
+#endif
 
 layout(std140, binding = 55) uniform ImpostorBakeParams
 {
@@ -28,6 +42,12 @@ layout(location = 2) out vec2 v_TexCoord;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+    int vertBase = gl_VertexIndex * 8;
+    vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
+    vec3 a_Normal = vec3(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4], b_Vertices.v[vertBase + 5]);
+    vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
+#endif
     v_ObjPos = a_Position;
     v_Normal = a_Normal; // object space
     v_TexCoord = a_TexCoord;
