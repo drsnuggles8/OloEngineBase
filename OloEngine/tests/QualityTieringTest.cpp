@@ -59,6 +59,68 @@ TEST(QualityTiering, ApplyWritesPostProcessSettings)
     EXPECT_EQ(pp.ChromaticAberrationEnabled, tiering.ChromaticAberrationEnabled);
 }
 
+TEST(QualityTiering, AuthoredNoAOOverridesThePreset)
+{
+    const auto tiering = GetPresetSettings(QualityPreset::High);
+    PostProcessSettings pp;
+    ShadowSettings shadow;
+
+    pp.ActiveAOTechnique = AOTechnique::None;
+    pp.m_AOTechniqueOverride = true;
+    pp.SSAOEnabled = false;
+    pp.GTAOEnabled = false;
+
+    ApplyTieringToSettings(tiering, pp, shadow);
+
+    EXPECT_EQ(pp.ActiveAOTechnique, AOTechnique::None);
+    EXPECT_FALSE(pp.SSAOEnabled);
+    EXPECT_FALSE(pp.GTAOEnabled);
+}
+
+TEST(QualityTiering, LegacyAOSelectionRemainsTierControlled)
+{
+    const auto tiering = GetPresetSettings(QualityPreset::High);
+    PostProcessSettings pp;
+    ShadowSettings shadow;
+
+    // The technique field alone is not an override: scenes written before the
+    // key existed must still adopt the project's tier when they are opened.
+    pp.ActiveAOTechnique = AOTechnique::None;
+    pp.SSAOEnabled = false;
+    pp.GTAOEnabled = false;
+
+    ApplyTieringToSettings(tiering, pp, shadow);
+
+    EXPECT_FALSE(pp.m_AOTechniqueOverride);
+    EXPECT_EQ(pp.ActiveAOTechnique, AOTechnique::GTAO);
+    EXPECT_FALSE(pp.SSAOEnabled);
+    EXPECT_TRUE(pp.GTAOEnabled);
+}
+
+TEST(QualityTiering, SavingPreservesAnAuthoredNoAOSelection)
+{
+    PostProcessSettings renderer;
+    renderer.ActiveAOTechnique = AOTechnique::None;
+    renderer.m_AOTechniqueOverride = true;
+    renderer.SSAOEnabled = false;
+    renderer.GTAOEnabled = false;
+
+    // A legacy scene can still carry un-tiered AO values while the renderer has
+    // an explicit selection made in the post-process panel. Saving strips the
+    // tier overlay through this helper, so it must keep the authored choice.
+    PostProcessSettings scene;
+    scene.ActiveAOTechnique = AOTechnique::SSAO;
+    scene.SSAOEnabled = false;
+    scene.GTAOEnabled = false;
+
+    const PostProcessSettings saved = StripTieringOverlay(renderer, scene);
+
+    EXPECT_TRUE(saved.m_AOTechniqueOverride);
+    EXPECT_EQ(saved.ActiveAOTechnique, AOTechnique::None);
+    EXPECT_FALSE(saved.SSAOEnabled);
+    EXPECT_FALSE(saved.GTAOEnabled);
+}
+
 // =============================================================================
 // String Conversions
 // =============================================================================

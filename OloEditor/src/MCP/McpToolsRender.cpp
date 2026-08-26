@@ -6156,9 +6156,9 @@ namespace OloEngine::MCP
             tool.Description =
                 "Write one post-process / ambient-occlusion / fog parameter to verify a rendering change LIVE — "
                 "the part of the renderer olo_renderer_settings_set never reached. THE motivating case: "
-                "'ActiveAOTechnique' (none|ssao|gtao) makes the same-scene, same-pose GTAO-vs-SSAO A/B a single "
-                "call; it is not scene-serialised, so before this tool it could not be driven from an agent "
-                "session at all. Also reaches every AO/GTAO/SSAO parameter, the *DebugView flags, bloom, DOF, "
+                "'ActiveAOTechnique' (none|ssao|gtao) makes the same-scene, same-pose GTAO-vs-SSAO A/B two "
+                "calls — one per technique — rather than a scene edit and relaunch. Also reaches every AO/GTAO/SSAO parameter, the "
+                "*DebugView flags, bloom, DOF, "
                 "TAA, SSR, SSGI, contact shadows, exposure/auto-exposure and the whole fog block. 'field' is a "
                 "C++ field name (GTAORadius, SSAOBias, FogDensity), case- and separator-insensitive; 'value' is "
                 "a boolean, a number (CLAMPED to the field's declared range — the reply reports 'clamped'), an "

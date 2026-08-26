@@ -122,10 +122,15 @@ namespace OloEngine
 
     void CopyTierPPFields(const QualityTieringSettings& tiering, PostProcessSettings& pp)
     {
-        // AO technique
-        pp.ActiveAOTechnique = tiering.AO;
-        pp.SSAOEnabled = (tiering.AO == AOTechnique::SSAO);
-        pp.GTAOEnabled = (tiering.AO == AOTechnique::GTAO);
+        // Legacy scenes defer their AO selection to the active quality tier.
+        // A scene with an authored selection (including None) must retain it:
+        // otherwise loading it immediately re-enables the tier's AO pass.
+        if (!pp.m_AOTechniqueOverride)
+        {
+            pp.ActiveAOTechnique = tiering.AO;
+            pp.SSAOEnabled = (tiering.AO == AOTechnique::SSAO);
+            pp.GTAOEnabled = (tiering.AO == AOTechnique::GTAO);
+        }
         pp.SSAOSamples = tiering.SSAOSamples;
         pp.SSAORadius = tiering.SSAORadius;
         pp.SSAOBias = tiering.SSAOBias;
@@ -210,6 +215,8 @@ namespace OloEngine
 
         // Start with the renderer's PP (has user edits to non-tier fields + tiering overlay).
         // Replace tier-owned fields with the scene's stored (un-tiered) values.
+        // In particular, an AO selector change in the panel marks the renderer
+        // settings as authored, so CopyTierPPFields deliberately preserves it.
         PostProcessSettings result = rendererPP;
 
         // Build a pseudo-tiering struct from the scene's PP to reuse the shared mapping.
