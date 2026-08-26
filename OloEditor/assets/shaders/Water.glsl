@@ -236,14 +236,17 @@ float valueNoise(vec2 p)
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
-// Procedural normal from value noise (central differences)
+// Procedural tangent-space normal from value noise (central differences).
+// Tangent-space normal maps use +Z as the surface normal; putting the unit
+// component in Y turns a missing-map fallback sideways through the TBN and
+// makes it dominate the ocean lighting as a blocky, near-horizontal normal.
 vec3 proceduralNormal(vec2 uv, float strength)
 {
     float eps = 0.02;
     float h0 = valueNoise(uv);
     float hx = valueNoise(uv + vec2(eps, 0.0));
     float hy = valueNoise(uv + vec2(0.0, eps));
-    return normalize(vec3(-(hx - h0) * strength, 1.0, -(hy - h0) * strength));
+    return normalize(vec3(-(hx - h0) * strength, -(hy - h0) * strength, 1.0));
 }
 
 // smoothstep() whose transition is widened by the value's own screen-space

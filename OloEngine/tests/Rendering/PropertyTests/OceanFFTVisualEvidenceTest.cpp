@@ -17,6 +17,9 @@
 //      whole chain works end to end (OceanFFTField CPU evaluation → GPU
 //      displacement/normal textures → Water.glsl sampling), not just that the
 //      flag is wired.
+//   4. Drift's low sea state and a rough sea state produce distinct FFT frames,
+//      so the amplitude control cannot silently fall back to unchanged Gerstner
+//      water.
 //
 // The PNGs are evidence artifacts, not committed goldens (the spectral detail is
 // GPU-float sensitive), so this test never fails on cross-GPU pixel drift.
@@ -111,6 +114,9 @@ namespace OloEngine::Tests
                 wc.m_WorldSizeZ = 200.0f;
                 wc.m_GridResolutionX = 200;
                 wc.m_GridResolutionZ = 200;
+                // Keep a dense surface mesh so this visual evidence exercises
+                // the FFT displacement and shading path, not a deliberately
+                // coarse water surface.
                 wc.m_RenderFromBelow = true;
                 wc.m_UnderwaterFogColor = glm::vec3(0.04f, 0.18f, 0.3f);
                 wc.m_UnderwaterFogDensity = 0.08f;
@@ -307,6 +313,63 @@ namespace OloEngine::Tests
             << "FFT-on and FFT-off frames are nearly identical (RMSE " << rmse
             << ") — the FFT surface is not actually being applied. Compare "
                "OceanFFT_ToggleOn.png vs OceanFFT_ToggleOff.png";
+    }
+
+    // The FFT path must carry an authoring sea-state change all the way to the
+    // frame. The low value is Drift's configured amplitude; the high value
+    // exercises the crest range where #898's plateaus were most obvious.
+    // Keeping the Gerstner fields untouched makes an unchanged pair a direct
+    // signal that FFT was not actually sampled. Evidence:
+    // OceanFFT_{DriftAmplitude,StormAmplitude}.png.
+    TEST_F(OceanFFTVisualEvidenceTest, DriftAmplitudeRangeVisiblyChangesFFTOcean)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        ASSERT_TRUE(static_cast<bool>(m_OceanEntity));
+        auto& wc = m_OceanEntity.GetComponent<WaterComponent>();
+        ASSERT_TRUE(wc.m_UseFFT);
+
+        const glm::vec3 pos(0.0f, 3.0f, 42.0f);
+        const f32 yaw = 0.0f, pitch = 0.05f;
+        wc.m_FFTAmplitude = 0.55f; // Drift.olo
+        std::vector<u8> driftAmplitude;
+        Capture("DriftAmplitude", pos, yaw, pitch, driftAmplitude);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        wc.m_FFTAmplitude = 6.0f;
+        std::vector<u8> stormAmplitude;
+        Capture("StormAmplitude", pos, yaw, pitch, stormAmplitude);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        auto meanChannelOf = [](const std::vector<u8>& pixels)
+        {
+            u64 lumaSum = 0;
+            for (std::size_t i = 0; i < pixels.size(); i += 4)
+                lumaSum += pixels[i] + pixels[i + 1] + pixels[i + 2];
+            return static_cast<f64>(lumaSum) / (static_cast<f64>(kWidth) * kHeight * 3.0);
+        };
+        EXPECT_GT(meanChannelOf(driftAmplitude), 5.0) << "Drift-amplitude FFT frame rendered (near-)black";
+        EXPECT_GT(meanChannelOf(stormAmplitude), 5.0) << "Storm-amplitude FFT frame rendered (near-)black";
+
+        const f64 rmse = Rgba8Rmse(driftAmplitude, stormAmplitude);
+        EXPECT_GT(rmse, 2.0)
+            << "FFT frames at Drift and storm amplitudes are nearly identical (RMSE " << rmse
+            << ") — the FFT sea state is not reaching the rendered surface. Compare "
+               "OceanFFT_DriftAmplitude.png vs OceanFFT_StormAmplitude.png";
     }
 
     // The GPU compute butterfly and the CPU reference must render the SAME
