@@ -236,6 +236,11 @@ namespace OloEngine
         // Paint surface/subsoil/bedrock material bands into one seeded chunk.
         void PaintDepthStrata(const VoxelCoord& coord);
 
+        // Dirty the existing chunks sharing a face with the cell at local
+        // (lx, ly, lz) of `chunkCoord`. Split out so a caller that already
+        // holds the owning chunk does not pay to resolve it a second time.
+        void MarkNeighbourChunksDirty(const VoxelCoord& chunkCoord, u32 lx, u32 ly, u32 lz);
+
         std::unordered_map<VoxelCoord, VoxelChunk, VoxelCoordHash> m_Chunks;
         f32 m_VoxelSize = 1.0f;
         f32 m_WorldSizeX = 256.0f;

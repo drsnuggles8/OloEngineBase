@@ -506,10 +506,10 @@ namespace OloEngine
                                 std::move(oldRegion0), std::move(newSplatmap0)));
                     }
                 }
-                else if (m_EditMode == TerrainEditMode::Voxel && m_StrokeVoxels && !m_VoxelStroke.Empty())
-                {
-                    m_CommandHistory->PushAlreadyExecuted(std::make_unique<VoxelEditCommand>(m_StrokeVoxels, std::move(m_VoxelStroke)));
-                }
+                // No Voxel case here: EditorLayer routes Voxel mode to
+                // OnVoxelUpdate instead of this function, which is where the
+                // stroke is committed. The resets below still clear the voxel
+                // stroke state, so a mode switch mid-stroke leaves nothing behind.
             }
 
             m_StrokeActive = false;
@@ -686,6 +686,10 @@ namespace OloEngine
         if (!voxels || !hit.Hit || !mouseDown)
             return;
 
+        // Deliberately not gated on m_CommandHistory: an editor without an undo
+        // stack can still edit voxels, it just cannot undo them. The push above
+        // is the conditional part, so losing the history costs the undo entry
+        // rather than silently swallowing the brush.
         if (!m_StrokeActive)
         {
             m_StrokeActive = true;

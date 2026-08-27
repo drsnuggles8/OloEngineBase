@@ -1667,6 +1667,14 @@ namespace OloEngine
                             const glm::mat4 inverseTransform = glm::inverse(transform.GetTransform());
                             const glm::vec3 localOrigin = glm::vec3(inverseTransform * glm::vec4(mouseRay.Origin, 1.0f));
                             const glm::vec3 localDirectionUnnormalized = glm::vec3(inverseTransform * glm::vec4(mouseRay.Direction, 0.0f));
+                            // A degenerate transform (a zero on any scale axis is
+                            // one click away in the inspector) inverts to a matrix
+                            // full of inf/NaN. The magnitude check below cannot
+                            // catch that: `NaN <= 1e-8f` is FALSE, so a poisoned
+                            // ray sails through it and reaches the DDA, where
+                            // flooring NaN to an i32 cell index is UB.
+                            if (!Math::IsFinite(localOrigin) || !Math::IsFinite(localDirectionUnnormalized))
+                                continue;
                             const f32 localDistanceScale = glm::length(localDirectionUnnormalized);
                             if (localDistanceScale <= 1.0e-8f)
                                 continue;
