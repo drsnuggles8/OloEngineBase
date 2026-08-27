@@ -34,9 +34,16 @@ TEST(WaterRendering, WaterUBOAlignment)
 
 TEST(WaterRendering, WaterUBOSizeStable)
 {
-    // 18 x glm::vec4 = 18 x 16 = 288 bytes (FFTParams appended for the
-    // Tessendorf FFT ocean — WATER_FUTURE_IMPROVEMENTS.md §1)
-    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 288u);
+    // 20 x glm::vec4 = 20 x 16 = 320 bytes. Was 18 x 16 = 288 until issue #967
+    // appended WakeFieldParams / WakeFieldParams2 for the boat-wake foam field;
+    // FFTParams was the one before that (the Tessendorf FFT ocean,
+    // WATER_FUTURE_IMPROVEMENTS.md §1).
+    //
+    // A change here is a five-file edit, not a one-line one: the block is
+    // declared identically in Water.glsl, Water_Depth.glsl and the three
+    // WaterTess*/WaterVertexStage includes, because GL requires every stage of a
+    // program to declare a shared uniform block the same way.
+    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 320u);
 }
 
 TEST(WaterRendering, WaterUBOGetSizeMatchesSizeof)
@@ -69,6 +76,12 @@ TEST(WaterRendering, WaterUBOFieldRoundTrip)
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, DepthRefractionParams), 160u);
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, TessParams), 256u);
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, FFTParams), 272u);
+    // Boat / actor wake foam (issue #967). The offsets matter as much as the
+    // total size: WaterUBOSizeStable would still pass if these two were
+    // inserted anywhere in the block, and every field after the insertion point
+    // would then read its neighbour's value on the GPU.
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WakeFieldParams), 288u);
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WakeFieldParams2), 304u);
 
     UBOStructures::WaterUBO ubo{};
     ubo.WaveParams = glm::vec4(1.0f, 2.0f, 0.5f, 3.0f);
@@ -88,6 +101,9 @@ TEST(WaterRendering, WaterUBOFieldRoundTrip)
     ubo.SSSColor = glm::vec4(0.0f, 0.5f, 0.4f, 0.0f);
     ubo.SSRParams = glm::vec4(64.0f, 0.1f, 50.0f, 0.5f);
     ubo.TessParams = glm::vec4(8.0f, 10.0f, 200.0f, 0.0f);
+    ubo.FFTParams = glm::vec4(1.0f, 0.0125f, 1.25f, 1.0f);
+    ubo.WakeFieldParams = glm::vec4(-128.5f, 64.25f, 1.0f / 256.0f, 0.9f);
+    ubo.WakeFieldParams2 = glm::vec4(80.0f, 260.0f, 0.42f, 0.0f);
 
     // Verify memcpy round-trip (simulating UBO upload)
     UBOStructures::WaterUBO copy{};
@@ -116,6 +132,18 @@ TEST(WaterRendering, WaterUBOFieldRoundTrip)
     EXPECT_FLOAT_EQ(copy.SSSColor.g, 0.5f);
     EXPECT_FLOAT_EQ(copy.SSRParams.x, 64.0f);
     EXPECT_FLOAT_EQ(copy.SSRParams.w, 0.5f);
+    EXPECT_FLOAT_EQ(copy.FFTParams.y, 0.0125f);
+    // Wake foam (issue #967) — the last two vec4s in the block, so they are the
+    // ones a trailing-size mistake corrupts first. Negative window-centre
+    // components on purpose: the field is world-anchored and a boat sailing
+    // into -X/-Z is half the map.
+    EXPECT_FLOAT_EQ(copy.WakeFieldParams.x, -128.5f);
+    EXPECT_FLOAT_EQ(copy.WakeFieldParams.y, 64.25f);
+    EXPECT_FLOAT_EQ(copy.WakeFieldParams.z, 1.0f / 256.0f);
+    EXPECT_FLOAT_EQ(copy.WakeFieldParams.w, 0.9f);
+    EXPECT_FLOAT_EQ(copy.WakeFieldParams2.x, 80.0f);
+    EXPECT_FLOAT_EQ(copy.WakeFieldParams2.y, 260.0f);
+    EXPECT_FLOAT_EQ(copy.WakeFieldParams2.z, 0.42f);
     EXPECT_FLOAT_EQ(copy.TessParams.x, 8.0f);
     EXPECT_FLOAT_EQ(copy.TessParams.z, 200.0f);
 }

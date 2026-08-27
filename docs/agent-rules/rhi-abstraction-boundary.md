@@ -3338,3 +3338,60 @@ host route silently on a machine that has it, and the fixture's
 zero-validation-errors assertion is what makes "it round-tripped" mean
 "it round-tripped legally".
 
+
+## 18. A barrier's `Before` is a claim about what the CALLER did; the tracker knows what the QUEUE did
+
+Found fixing `VulkanPassSuite.UiCompositeClearsBlitsAndBlendsTheOverlayCallback`,
+which had been failing on `master` — one validation error, and the only failure
+in a ~6750-test suite.
+
+```
+vkCmdPipelineBarrier2(): WRITE_AFTER_WRITE hazard detected. ... performs image
+layout transition on the VkImage ..., which was previously written at the end of
+the render pass instance (vkCmdEndRendering) by the attachment storeOp.
+  srcStageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+  srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+```
+
+The caller declared `Before = TransferWrite`, and honestly: the attachment in
+question was the entity-ID target, which the pass **cleared** with a transfer
+clear and then deliberately kept out of the draws by narrowing
+`SetDrawBuffers({0})`. From the caller's point of view a transfer clear really is
+the last thing that touched it.
+
+**It is not the last thing the queue did to it.** A narrowed draw-buffer scope
+steers *fragment outputs*; it does not remove the attachment from the render pass
+instance. So `vkCmdEndRendering` still ran its **storeOp** over that attachment,
+and a storeOp is a `COLOR_ATTACHMENT_WRITE` at
+`COLOR_ATTACHMENT_OUTPUT`. "Nothing was drawn to it" and "nothing wrote it" are
+different statements, and only the first one is true.
+
+**The rule:** a source scope derived from what the caller *believes it did* will
+miss writes the queue performed on its behalf. `IssueBarrierBatch` already knew
+this in one direction — it widens the source scope with the transfer stage
+whenever the tracker reports a TRANSFER layout, because the graph planner names
+`ColorAttachmentWrite` while a `vkCmdClearColorImage` it never declared is the
+real last writer. The attachment case is the exact mirror, and now sits beside it:
+
+```cpp
+else if (trackedLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+{
+    vkBarrier.srcStageMask  |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    vkBarrier.srcAccessMask |= VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+}
+```
+
+Generalise it as: **the tracked layout is evidence about the last WRITER, not
+only about `oldLayout`.** Any layout that only an operation of kind X can leave
+behind is a statement that an X-write happened, whatever the caller declared.
+Widening a source scope is always safe — it can over-synchronise, never
+under-synchronise — and here it costs one stage bit on a barrier that is already
+transitioning, over work that has demonstrably already completed.
+
+### Why it stayed broken
+
+It is GPU-gated, so the Linux sanitizer CI jobs skip it entirely and cannot
+corroborate either way; and it is one failure at the end of a long local suite,
+which is exactly where a failure gets attributed to whatever you just changed.
+The A/B is cheap and settles it — `git switch --detach <base>`, build, run that
+one test. Do that before either fixing or excusing it.

@@ -21,6 +21,7 @@
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
+#include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ReflectionProbeArray.h"
 #include "OloEngine/Renderer/RenderingPath.h"
@@ -1426,6 +1427,13 @@ namespace OloEngine
             return s_Data.SnowAccumulation;
         }
 
+        /// Boat / actor wake foam field settings (issue #967). Published by the
+        /// scene, consumed by RenderPipeline's disturbance dispatch.
+        static WaterDisturbanceSettings& GetWaterDisturbanceSettings()
+        {
+            return s_Data.WaterDisturbance;
+        }
+
         static SnowEjectaSettings& GetSnowEjectaSettings()
         {
             return s_Data.SnowEjecta;
@@ -2004,6 +2012,18 @@ namespace OloEngine
             UnderwaterFogState UnderwaterFog{};
             Ref<UniformBuffer> UnderwaterFogBuffer;
             WindSettings Wind;
+            // Boat / actor wake foam (issue #967). Written each frame by
+            // Scene::ProcessScene3DSharedLogic from the dominant enabled
+            // WaterComponent, read by RenderPipeline to drive the disturbance
+            // compute. Reset to defaults (disabled) by BeginScene when the
+            // scene stops publishing, so a scene with no water cannot inherit
+            // the previous one's wake settings.
+            WaterDisturbanceSettings WaterDisturbance;
+            // Previous Time::GetTime() sample for the wake field's dt — the same
+            // mockable-clock trick CloudPrevTimeSeconds uses, so
+            // Time::SetMockTime freezes the decay for deterministic golden
+            // captures instead of decaying by however long the last frame took.
+            f32 WaterDisturbancePrevTimeSeconds = 0.0f;
             SnowAccumulationSettings SnowAccumulation;
             SnowEjectaSettings SnowEjecta;
             PrecipitationSettings Precipitation;

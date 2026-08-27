@@ -65,8 +65,8 @@ namespace OloEngine::Tests
         // 44 = the base 33, plus the five #691 compute blocks, plus
         // ColorBlindParams (#458), plus PrefixSumParams (#713),
         // TerrainCullParams (#714), the two DDGI blocks (#707) and
-        // ShadingRateParams (#683).
-        const std::array<KnownBlock, 44> kKnownBlocks = { {
+        // ShadingRateParams (#683) and WaterDisturbanceParams (#967).
+        const std::array<KnownBlock, 45> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -138,6 +138,13 @@ namespace OloEngine::Tests
             // is the drift shape this table exists for.
             { "DDGIVolume", sizeof(UBOStructures::DDGIVolumeUBO) },
             { "DDGIPassData", sizeof(UBOStructures::DDGIPassDataUBO) },
+            // Boat / actor wake foam field (issue #967). Listed for the reason
+            // the comment at the top of this block gives, and with an extra one
+            // of its own: the block ends in a fixed-size array of structs, which
+            // is where a std140 stride mismatch hides — a wrong padding byte in
+            // the C++ twin shifts every splat after the first and the wake lands
+            // in a fan of wrong places rather than failing.
+            { "WaterDisturbanceParams", sizeof(UBOStructures::WaterDisturbanceUBO) },
             // Variable Rate Compute Shading classification (issue #683),
             // declared in compute/VRCSClassify.comp. It shares UBO_USER_0 with
             // DDGIPassData, so the two are the same binding at different sizes

@@ -43,6 +43,14 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_SSRParams;
     vec4 u_TessParams;
     vec4 u_FFTParams;
+    // Boat / actor wake foam field (issue #967). C++ twin:
+    // UBOStructures::WaterUBO::WakeFieldParams / WakeFieldParams2. Declared in
+    // EVERY stage of the water programs, identically, because GL requires a
+    // uniform block shared across a program's stages to be declared the same
+    // way in each — appending to only the stage that reads it is a link error,
+    // not a silent mismatch. Only the fragment stage actually reads them.
+    vec4 u_WakeFieldParams;        // xy = field window centre (world XZ), z = 1/fieldExtent, w = intensity (<=0 disables)
+    vec4 u_WakeFieldParams2;       // x = wake fade start (m), y = wake fade end (m), z = edge-fade start, w = unused
 };
 
 layout(location = 0) in vec3 v_WorldPos[];

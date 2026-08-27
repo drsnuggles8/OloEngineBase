@@ -1,6 +1,12 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+// The water-disturbance encoding contract (issue #967). Included for
+// WaterDisturbance::kMaxSplatsPerFrame, which sizes WaterDisturbanceUBO's splat
+// array below. Taking the constant rather than repeating the literal is the
+// point: the C++ struct, the GLSL block and the CPU-side queue are then one
+// number, and the header itself pulls in nothing but Core/Base.h + glm.
+#include "OloEngine/Renderer/Water/WaterDisturbanceField.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <string_view>
@@ -620,10 +626,81 @@ namespace OloEngine
             glm::vec4 SSRParams;             // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
             glm::vec4 TessParams;            // x = tessellationFactor (0=disabled), y = minTessDistance, z = maxTessDistance, w = frustumCullEnable (1=on, 0=off)
             glm::vec4 FFTParams;             // x = useFFT (0=Gerstner, 1=FFT ocean), y = 1/patchSize (UV scale), z = heightScale, w = horizontalScale
+            // Boat / actor wake foam field (issue #967). The world-anchored,
+            // toroidally stored disturbance field produced by
+            // WaterDisturbanceSystem, sampled ON TOP of the procedural,
+            // shoreline and Jacobian foam above — it never replaces them.
+            //
+            // xy = the field window's world-XZ centre (for the edge fade),
+            // z  = 1 / fieldExtentMetres (the REPEAT-wrap UV scale),
+            // w  = intensity. w <= 0 IS the disabled state; there is no separate
+            //      enable flag, so a frame in which the compute did not run
+            //      cannot leave a stale field showing.
+            // Mirrors WaterDisturbance::kInvFieldExtentMetres / WindowCentreWorld.
+            glm::vec4 WakeFieldParams;
+            // x = wake fade start (m), y = wake fade end (m),
+            // z = edge-fade start as a normalised half-extent
+            //     (WaterDisturbance::kEdgeFadeStart), w = unused.
+            //
+            // The wake carries its OWN distance fade rather than reusing the
+            // crest-foam one, and a much longer one. That fade exists because
+            // procedural whitecaps compress toward the horizon into a white
+            // wash (#943); a wake is a low-frequency, world-anchored, properly
+            // filtered signal with no such failure mode, and fading it out at
+            // 45 m would delete the trail behind the boat under any chase
+            // camera — which is the whole feature.
+            glm::vec4 WakeFieldParams2;
 
             static constexpr u32 GetSize()
             {
                 return static_cast<u32>(sizeof(WaterUBO));
+            }
+        };
+
+        // @brief One capsule disturbance as the compute shader sees it
+        // (issue #967). GPU-mirror struct, so bare PascalCase fields per
+        // CLAUDE.md -> Conventions.
+        //
+        // A capsule rather than a disc: one record covers a whole frame's hull
+        // sweep, so a fast boat cannot leave a dotted trail across a dropped
+        // frame. A point splat (propeller burst, impact) is P0 == P1.
+        struct WaterDisturbanceSplatGpu
+        {
+            glm::vec4 P0Radius; // xy = p0 world XZ, z = radius (m), w = strength [0,1]
+            glm::vec4 P1Shape;  // xy = p1 world XZ, z = softness (falloff exponent), w = unused
+        };
+        static_assert(sizeof(WaterDisturbanceSplatGpu) == 32,
+                      "WaterDisturbanceSplatGpu must be two tightly packed vec4 for the std140 array stride");
+
+        // @brief Water-disturbance field update params (binding
+        // UBO_WATER_DISTURBANCE, issue #967).
+        //
+        // GLSL twin: the `WaterDisturbanceParams` block in
+        // compute/WaterDisturbance_Update.comp. The addressing these fields
+        // describe is specified once in
+        // Renderer/Water/WaterDisturbanceField.h — read that before changing
+        // any member here.
+        //
+        // The splat array is fixed-size ON PURPOSE: the bounded queue is then a
+        // structural property of the format rather than a policy the CPU side
+        // has to remember to enforce.
+        struct WaterDisturbanceUBO
+        {
+            glm::ivec2 LatticeMin;                                                 // 0  — lower corner of THIS frame's window
+            glm::ivec2 PrevLatticeMin;                                             // 8  — lower corner of the PREVIOUS frame's window
+            f32 TexelSize;                                                         // 16 — metres per texel
+            f32 DecayFactor;                                                       // 20 — this frame's multiplicative decay
+            i32 Resolution;                                                        // 24 — texels per axis
+            i32 SplatCount;                                                        // 28 — live entries in Splats
+            i32 ResetAll;                                                          // 32 — 1 = clear the whole field this dispatch
+            i32 Pad0;                                                              // 36
+            i32 Pad1;                                                              // 40
+            i32 Pad2;                                                              // 44
+            WaterDisturbanceSplatGpu Splats[WaterDisturbance::kMaxSplatsPerFrame]; // 48
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(WaterDisturbanceUBO));
             }
         };
 
@@ -1628,7 +1705,13 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::LightmapUBO) % 16 == 0, "LightmapUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::LightmapUBO) == 16, "LightmapUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
-    static_assert(sizeof(UBOStructures::WaterUBO) == 288, "WaterUBO unexpected size -- update GLSL layout");
+    // 288 until issue #967 appended WakeFieldParams / WakeFieldParams2.
+    static_assert(sizeof(UBOStructures::WaterUBO) == 320, "WaterUBO unexpected size -- update GLSL layout");
+    static_assert(sizeof(UBOStructures::WaterDisturbanceUBO) % 16 == 0,
+                  "WaterDisturbanceUBO size must be 16-byte aligned for std140");
+    // 48 B header + kMaxSplatsPerFrame (96) * 32 B per capsule splat.
+    static_assert(sizeof(UBOStructures::WaterDisturbanceUBO) == 3120,
+                  "WaterDisturbanceUBO unexpected size -- update WaterDisturbance_Update.comp");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) % 16 == 0, "ForwardPlusUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 48, "ForwardPlusUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
@@ -1753,6 +1836,19 @@ namespace OloEngine
         // WITHIN-SHADER one: no single shader may use the same number in two
         // namespaces, because Vulkan's single-set model collapses them. Check
         // the include tree, not the table.
+        // Water-disturbance field update params (WaterDisturbanceUBO, issue
+        // #967) — the compute's window/decay header plus its fixed-size splat
+        // array. One of the three numbers the note above reserved out of the
+        // UNIFORM-BUFFER namespace; the SSBO namespace is full at 0..83, so
+        // this is the only kind of binding left to claim.
+        //
+        // The within-shader rule is what actually has to hold, and it does:
+        // WaterDisturbance_Update.comp declares this block and nothing else at
+        // 63 — it has no SSBO at all, and its only other resource is storage
+        // image unit 0, which lives in the rebased image namespace.
+        // SSBO_BONE_PULL (63) is a Vulkan-only vertex-pull stream that no
+        // compute shader touches.
+        static constexpr u32 UBO_WATER_DISTURBANCE = 63;
         static constexpr u32 UBO_SNOW_COMPUTE = 66;         // Snow accumulate/deform clipmap params (SnowComputeUBO)
         static constexpr u32 UBO_TERRAIN_EROSION = 67;      // Hydraulic-erosion droplet params (TerrainErosionUBO)
         static constexpr u32 UBO_LIGHT_CULLING = 68;        // Forward+/clustered light-cull dispatch params (LightCullingUBO) — the CULLER's view/counts; UBO_FORWARD_PLUS (25) is the shading side
@@ -1858,7 +1954,8 @@ namespace OloEngine
         // one only has to be RAISED when a binding exceeds it, which the
         // static_assert below makes a compile error rather than a black frame.
         static constexpr u32 UBO_BINDING_LIMIT = 83;
-        static_assert(UBO_AUTO_EXPOSURE < UBO_BINDING_LIMIT && UBO_INSTANCE_CULL < UBO_BINDING_LIMIT &&
+        static_assert(UBO_WATER_DISTURBANCE < UBO_BINDING_LIMIT &&
+                          UBO_AUTO_EXPOSURE < UBO_BINDING_LIMIT && UBO_INSTANCE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBES < UBO_BINDING_LIMIT && UBO_HEAP_OFFSETS < UBO_BINDING_LIMIT &&
                           UBO_DEBUG_DRAW < UBO_BINDING_LIMIT && UBO_PRECIPITATION_FEED < UBO_BINDING_LIMIT &&
@@ -2090,7 +2187,14 @@ namespace OloEngine
         // BindlessHeapGpuTest.cpp's inline copy) move with it.
         static constexpr u32 TEX_GBUFFER_BAKEDGI = 69; // G-Buffer RT5 (baked lightmap irradiance + coverage)
 
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 70; // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Boat / actor wake foam (issue #967). RG16F; only .r is read, .g is
+        // reserved. World-anchored and toroidally stored — see
+        // Renderer/Water/WaterDisturbanceField.h for the addressing, and note
+        // that this is the SAMPLED view; the compute writes the same texture
+        // through storage image unit 0.
+        static constexpr u32 TEX_WATER_DISTURBANCE = 70;
+
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 71; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -2562,6 +2666,8 @@ namespace OloEngine
                     return name.contains("Lightmap") || name.contains("lightmap");
                 case UBO_WATER:
                     return name.contains("Water") || name.contains("water");
+                case UBO_WATER_DISTURBANCE:
+                    return name.contains("WaterDisturbance") || name.contains("waterDisturbance");
                 case UBO_SHADER_GRAPH:
                     return name.contains("ShaderGraph") || name.contains("shaderGraph");
                 case UBO_FORWARD_PLUS:
@@ -2847,6 +2953,8 @@ namespace OloEngine
                     return name.contains("Refraction") || name.contains("refraction");
                 case TEX_WATER_FOAM:
                     return name.contains("Foam") || name.contains("foam");
+                case TEX_WATER_DISTURBANCE:
+                    return name.contains("Disturbance") || name.contains("disturbance");
                 case TEX_WATER_SSR:
                     return name.contains("SSR") || name.contains("ssr") ||
                            (name.contains("Screen") && name.contains("Reflection"));
@@ -3140,6 +3248,9 @@ layout(std140, binding = 23) uniform WaterParams {
     vec4 u_SSSColor;                // rgb = subsurface scattering color, w = foamCoverage (#943)
     vec4 u_SSRParams;               // x = maxSteps, y = stepSize, z = maxDistance, w = thickness
     vec4 u_TessParams;              // x = tessellationFactor (0 = disabled), y = minDist, z = maxDist, w = frustumCullEnable (1=on, 0=off)
+    vec4 u_FFTParams;               // x = useFFT (0/1), y = 1/patchSize, z = heightScale, w = horizontalScale
+    vec4 u_WakeFieldParams;         // xy = field window centre (world XZ), z = 1/fieldExtent, w = intensity (<=0 disables) (#967)
+    vec4 u_WakeFieldParams2;        // x = wake fade start (m), y = wake fade end (m), z = edge-fade start, w = unused (#967)
 };)";
         }
 

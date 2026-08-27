@@ -374,6 +374,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShadowEarlyOutVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TwoSidedShadowCastTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
+		Rendering/PropertyTests/WaterDisturbanceFieldTest.cpp
+		Rendering/PropertyTests/WaterWakeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
 		Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp
