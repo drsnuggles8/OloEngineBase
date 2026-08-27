@@ -57,6 +57,9 @@ namespace OloEngine
         if (ImGui::RadioButton("Paint", m_EditMode == TerrainEditMode::Paint))
             m_EditMode = TerrainEditMode::Paint;
         ImGui::SameLine();
+        if (ImGui::RadioButton("Voxel", m_EditMode == TerrainEditMode::Voxel))
+            m_EditMode = TerrainEditMode::Voxel;
+        ImGui::SameLine();
         if (ImGui::RadioButton("Erosion", m_EditMode == TerrainEditMode::Erosion))
             m_EditMode = TerrainEditMode::Erosion;
 
@@ -72,6 +75,9 @@ namespace OloEngine
                 break;
             case TerrainEditMode::Paint:
                 DrawPaintUI();
+                break;
+            case TerrainEditMode::Voxel:
+                DrawVoxelUI();
                 break;
             case TerrainEditMode::Erosion:
                 DrawErosionUI();
@@ -500,10 +506,10 @@ namespace OloEngine
                                 std::move(oldRegion0), std::move(newSplatmap0)));
                     }
                 }
-                else
-                {
-                    // No additional handling required.
-                }
+                // No Voxel case here: EditorLayer routes Voxel mode to
+                // OnVoxelUpdate instead of this function, which is where the
+                // stroke is committed. The resets below still clear the voxel
+                // stroke state, so a mode switch mid-stroke leaves nothing behind.
             }
 
             m_StrokeActive = false;
@@ -514,6 +520,8 @@ namespace OloEngine
             m_StrokeTerrainData = nullptr;
             m_StrokeChunkManager = nullptr;
             m_StrokeMaterial = nullptr;
+            m_StrokeVoxels = nullptr;
+            m_VoxelStroke = {};
             m_StrokeEntity = entt::null;
         }
 
@@ -657,6 +665,45 @@ namespace OloEngine
         }
     }
 
+    void TerrainEditorPanel::OnVoxelUpdate(Ref<VoxelOverride> voxels, const VoxelRayHit& hit, bool mouseDown)
+    {
+        if (m_EditMode != TerrainEditMode::Voxel)
+            return;
+
+        m_HasBrushHit = hit.Hit;
+        if (hit.Hit)
+            m_BrushWorldPos = hit.Point;
+
+        if (m_StrokeActive && !mouseDown)
+        {
+            if (m_CommandHistory && m_StrokeVoxels && !m_VoxelStroke.Empty())
+                m_CommandHistory->PushAlreadyExecuted(std::make_unique<VoxelEditCommand>(m_StrokeVoxels, std::move(m_VoxelStroke)));
+            m_StrokeActive = false;
+            m_StrokeVoxels = nullptr;
+            m_VoxelStroke = {};
+            return;
+        }
+        if (!voxels || !hit.Hit || !mouseDown)
+            return;
+
+        // Deliberately not gated on m_CommandHistory: an editor without an undo
+        // stack can still edit voxels, it just cannot undo them. The push above
+        // is the conditional part, so losing the history costs the undo entry
+        // rather than silently swallowing the brush.
+        if (!m_StrokeActive)
+        {
+            m_StrokeActive = true;
+            m_StrokeVoxels = voxels;
+            m_VoxelStroke = {};
+        }
+
+        VoxelEditStroke frame = ApplyVoxelBrush(*voxels, hit, m_VoxelSettings);
+        for (auto& [coord, snapshot] : frame.Before)
+            m_VoxelStroke.Before.try_emplace(coord, std::move(snapshot));
+        for (auto& [coord, snapshot] : frame.After)
+            m_VoxelStroke.After.insert_or_assign(coord, std::move(snapshot));
+    }
+
     f32 TerrainEditorPanel::GetBrushRadius() const
     {
         switch (m_EditMode)
@@ -665,9 +712,24 @@ namespace OloEngine
                 return m_SculptSettings.Radius;
             case TerrainEditMode::Paint:
                 return m_PaintSettings.Radius;
+            case TerrainEditMode::Voxel:
+                return m_VoxelSettings.Radius;
             default:
                 return 0.0f;
         }
+    }
+
+    void TerrainEditorPanel::DrawVoxelUI()
+    {
+        static constexpr const char* operationNames[] = { "Place", "Carve", "Fill", "Paint" };
+        i32 operation = static_cast<i32>(m_VoxelSettings.Operation);
+        if (ImGui::Combo("Operation", &operation, operationNames, IM_ARRAYSIZE(operationNames)))
+            m_VoxelSettings.Operation = static_cast<VoxelBrushOperation>(operation);
+        ImGui::DragFloat("Radius", &m_VoxelSettings.Radius, 0.1f, 0.0f, 64.0f, "%.2f");
+        i32 material = m_VoxelSettings.Material;
+        if (ImGui::DragInt("Material", &material, 1.0f, 0, 255))
+            m_VoxelSettings.Material = static_cast<u8>(std::clamp(material, 0, 255));
+        ImGui::TextDisabled("Click a voxel surface to edit its exact grid cell. A stroke is one undo step.");
     }
 
     void TerrainEditorPanel::DrawErosionUI()
@@ -764,6 +826,8 @@ namespace OloEngine
                 return m_SculptSettings.Falloff;
             case TerrainEditMode::Paint:
                 return m_PaintSettings.Falloff;
+            case TerrainEditMode::Voxel:
+                return 1.0f;
             default:
                 return 0.5f;
         }

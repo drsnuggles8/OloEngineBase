@@ -11,6 +11,7 @@
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/Editor/TerrainBrush.h"
+#include "OloEngine/Terrain/Voxel/VoxelEdit.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Dialogue/DialogueTypes.h"
 #include "OloEngine/Gameplay/Progression/SkillTreeDatabase.h"
@@ -352,6 +353,39 @@ namespace OloEngine
         u32 m_RegionH;
         std::vector<u8> m_OldData;
         std::vector<u8> m_NewData;
+    };
+
+    // A voxel stroke snapshots only chunks it changed. Unlike a cell-delta
+    // command this also restores sparse allocation exactly when a brush creates
+    // or removes the last meaningful data in a chunk.
+    class VoxelEditCommand : public EditorCommand
+    {
+      public:
+        VoxelEditCommand(Ref<VoxelOverride> voxels, VoxelEditStroke stroke)
+            : m_Voxels(std::move(voxels)), m_Stroke(std::move(stroke))
+        {
+        }
+
+        void Execute() override
+        {
+            if (m_Voxels)
+                m_Stroke.ApplyAfter(*m_Voxels);
+        }
+
+        void Undo() override
+        {
+            if (m_Voxels)
+                m_Stroke.ApplyBefore(*m_Voxels);
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Voxel Edit";
+        }
+
+      private:
+        Ref<VoxelOverride> m_Voxels;
+        VoxelEditStroke m_Stroke;
     };
 
     // =========================================================================

@@ -468,6 +468,17 @@ namespace OloEngine
         std::vector<VoxelCoord> dirtyCoords;
         voxels.GetDirtyChunks(dirtyCoords);
 
+        // Voxel undo can restore the sparse map to a state where a chunk did
+        // not exist. Drop its old render mesh before processing the remaining
+        // dirty chunks; no dirty flag can be stored on a chunk that is gone.
+        for (auto it = meshes.begin(); it != meshes.end();)
+        {
+            if (!voxels.HasChunk(it->first))
+                it = meshes.erase(it);
+            else
+                ++it;
+        }
+
         for (const auto& coord : dirtyCoords)
         {
             const auto& chunk = voxels.GetChunks()[coord];

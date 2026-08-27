@@ -114,6 +114,18 @@ namespace OloEngine
         }
     };
 
+    // Integer coordinate of one cell in the unbounded voxel grid.  Chunks are
+    // an implementation detail here: picking and brushes must not change their
+    // behaviour at a 32-cell chunk edge.
+    struct VoxelGridCoord
+    {
+        i32 X = 0;
+        i32 Y = 0;
+        i32 Z = 0;
+
+        bool operator==(const VoxelGridCoord& other) const = default;
+    };
+
     // Sparse 3D SDF grid overlaid on the heightmap terrain.
     // Only regions with explicit modifications store voxel data.
     // Used for caves, overhangs, and other non-heightmap geometry.
@@ -183,6 +195,21 @@ namespace OloEngine
         {
             return m_VoxelSize;
         }
+
+        // Sparse-grid cell access. A cell in a missing chunk is empty (SDF +1)
+        // with material zero. SetVoxel creates the owning chunk only when a
+        // caller actually writes a value.
+        [[nodiscard]] f32 GetVoxelSDF(const VoxelGridCoord& voxel) const;
+        [[nodiscard]] u8 GetVoxelMaterial(const VoxelGridCoord& voxel) const;
+        void SetVoxel(const VoxelGridCoord& voxel, f32 sdf, u8 material = 0);
+
+        [[nodiscard]] VoxelCoord GridToChunkCoord(const VoxelGridCoord& voxel) const;
+        [[nodiscard]] VoxelGridCoord ChunkToGridCoord(const VoxelCoord& chunk, u32 lx, u32 ly, u32 lz) const;
+
+        // A face on a chunk border changes its neighbour's mesh too. This is
+        // deliberately public so a bulk editor can coalesce writes and still
+        // preserve the same incremental-remesh contract as SetVoxel.
+        void MarkVoxelAndNeighboursDirty(const VoxelGridCoord& voxel);
         [[nodiscard]] u32 GetChunkCount() const
         {
             return static_cast<u32>(m_Chunks.size());
@@ -208,6 +235,11 @@ namespace OloEngine
 
         // Paint surface/subsoil/bedrock material bands into one seeded chunk.
         void PaintDepthStrata(const VoxelCoord& coord);
+
+        // Dirty the existing chunks sharing a face with the cell at local
+        // (lx, ly, lz) of `chunkCoord`. Split out so a caller that already
+        // holds the owning chunk does not pay to resolve it a second time.
+        void MarkNeighbourChunksDirty(const VoxelCoord& chunkCoord, u32 lx, u32 ly, u32 lz);
 
         std::unordered_map<VoxelCoord, VoxelChunk, VoxelCoordHash> m_Chunks;
         f32 m_VoxelSize = 1.0f;

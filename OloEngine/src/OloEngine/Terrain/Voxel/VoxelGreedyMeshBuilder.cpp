@@ -85,6 +85,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        PruneMissing(voxels);
         DispatchDirty(voxels);
         CollectCompleted(voxels.GetVoxelSize(), voxels);
     }
@@ -93,6 +94,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        PruneMissing(voxels);
         DispatchDirty(voxels);
         for (auto& [coord, pending] : m_Pending)
         {
@@ -172,6 +174,24 @@ namespace OloEngine
         for (const auto& coord : dirtyCoords)
         {
             voxels.MarkChunkClean(coord);
+        }
+    }
+
+    void VoxelGreedyMeshBuilder::PruneMissing(const VoxelOverride& voxels)
+    {
+        for (auto it = m_Meshes.begin(); it != m_Meshes.end();)
+        {
+            if (!voxels.HasChunk(it->first))
+                it = m_Meshes.erase(it);
+            else
+                ++it;
+        }
+        for (auto it = m_Pending.begin(); it != m_Pending.end();)
+        {
+            if (!voxels.HasChunk(it->first))
+                it = m_Pending.erase(it);
+            else
+                ++it;
         }
     }
 

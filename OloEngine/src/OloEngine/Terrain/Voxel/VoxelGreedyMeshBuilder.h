@@ -114,6 +114,7 @@ namespace OloEngine
         void UploadMesh(const VoxelCoord& coord, const std::vector<PackedQuad>& quads,
                         f32 voxelSize, const VoxelOverride& voxels);
         void EnsureSharedGeometry();
+        void PruneMissing(const VoxelOverride& voxels);
 
         std::unordered_map<VoxelCoord, VoxelQuadMesh, VoxelCoordHash> m_Meshes;
         // Keyed, not a vector: DispatchDirty looks up "is this chunk already
