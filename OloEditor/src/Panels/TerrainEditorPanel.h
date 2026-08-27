@@ -6,6 +6,7 @@
 #include "OloEngine/Terrain/Editor/TerrainBrush.h"
 #include "OloEngine/Terrain/Editor/TerrainPaintBrush.h"
 #include "OloEngine/Terrain/Editor/TerrainErosion.h"
+#include "OloEngine/Terrain/Voxel/VoxelEdit.h"
 
 #include <glm/glm.hpp>
 #include <vector>
@@ -20,6 +21,7 @@ namespace OloEngine
         Generate,
         Sculpt,
         Paint,
+        Voxel,
         Erosion
     };
 
@@ -40,6 +42,14 @@ namespace OloEngine
 
         // Called from EditorLayer each frame with terrain hit info
         void OnUpdate(f32 deltaTime, const glm::vec3& hitPos, bool hasHit, bool mouseDown);
+        // Voxel picking supplies the exact grid cell and placement face rather
+        // than inferring one from the rendered surface.
+        //
+        // By value, not by const reference: Ref<T> propagates constness, so a
+        // const Ref hands out a const VoxelOverride& that the brush — which
+        // writes cells — cannot bind to. Copying the Ref is one refcount bump
+        // and matches the shared ownership the panel takes for the stroke.
+        void OnVoxelUpdate(Ref<VoxelOverride> voxels, const VoxelRayHit& hit, bool mouseDown);
 
         [[nodiscard]] TerrainEditMode GetEditMode() const
         {
@@ -68,6 +78,7 @@ namespace OloEngine
         void DrawGenerateUI();
         void DrawSculptUI();
         void DrawPaintUI();
+        void DrawVoxelUI();
         void DrawErosionUI();
 
         Ref<Scene> m_Context;
@@ -79,6 +90,7 @@ namespace OloEngine
 
         // Paint settings
         TerrainPaintSettings m_PaintSettings;
+        VoxelBrushSettings m_VoxelSettings;
 
         // Erosion
         TerrainErosion m_Erosion;
@@ -105,6 +117,8 @@ namespace OloEngine
         Ref<TerrainData> m_StrokeTerrainData;
         Ref<TerrainChunkManager> m_StrokeChunkManager;
         Ref<TerrainMaterial> m_StrokeMaterial;
+        Ref<VoxelOverride> m_StrokeVoxels;
+        VoxelEditStroke m_VoxelStroke;
         f32 m_StrokeWorldSizeX = 0.0f;
         f32 m_StrokeWorldSizeZ = 0.0f;
         f32 m_StrokeHeightScale = 0.0f;

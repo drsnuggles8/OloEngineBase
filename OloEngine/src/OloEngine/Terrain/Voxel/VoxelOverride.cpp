@@ -3,6 +3,7 @@
 #include "OloEngine/Terrain/TerrainData.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cmath>
 #include <cstring>
 
@@ -220,6 +221,89 @@ namespace OloEngine
         return m_Chunks.contains(coord);
     }
 
+    namespace
+    {
+        i32 FloorDivide(i32 numerator, i32 denominator)
+        {
+            OLO_CORE_ASSERT(denominator > 0, "Voxel grid divisor must be positive");
+            const i32 quotient = numerator / denominator;
+            const i32 remainder = numerator % denominator;
+            return remainder < 0 ? quotient - 1 : quotient;
+        }
+
+        u32 PositiveModulo(i32 value, i32 modulus)
+        {
+            const i32 remainder = value % modulus;
+            return static_cast<u32>(remainder < 0 ? remainder + modulus : remainder);
+        }
+    } // namespace
+
+    VoxelCoord VoxelOverride::GridToChunkCoord(const VoxelGridCoord& voxel) const
+    {
+        constexpr i32 chunkSize = static_cast<i32>(VoxelChunk::CHUNK_SIZE);
+        return { FloorDivide(voxel.X, chunkSize), FloorDivide(voxel.Y, chunkSize), FloorDivide(voxel.Z, chunkSize) };
+    }
+
+    VoxelGridCoord VoxelOverride::ChunkToGridCoord(const VoxelCoord& chunk, u32 lx, u32 ly, u32 lz) const
+    {
+        return {
+            chunk.X * static_cast<i32>(VoxelChunk::CHUNK_SIZE) + static_cast<i32>(lx),
+            chunk.Y * static_cast<i32>(VoxelChunk::CHUNK_SIZE) + static_cast<i32>(ly),
+            chunk.Z * static_cast<i32>(VoxelChunk::CHUNK_SIZE) + static_cast<i32>(lz)
+        };
+    }
+
+    f32 VoxelOverride::GetVoxelSDF(const VoxelGridCoord& voxel) const
+    {
+        const auto it = m_Chunks.find(GridToChunkCoord(voxel));
+        if (it == m_Chunks.end())
+            return 1.0f;
+        constexpr i32 chunkSize = static_cast<i32>(VoxelChunk::CHUNK_SIZE);
+        return it->second.At(PositiveModulo(voxel.X, chunkSize), PositiveModulo(voxel.Y, chunkSize), PositiveModulo(voxel.Z, chunkSize));
+    }
+
+    u8 VoxelOverride::GetVoxelMaterial(const VoxelGridCoord& voxel) const
+    {
+        const auto it = m_Chunks.find(GridToChunkCoord(voxel));
+        if (it == m_Chunks.end())
+            return 0;
+        constexpr i32 chunkSize = static_cast<i32>(VoxelChunk::CHUNK_SIZE);
+        return it->second.MaterialAt(PositiveModulo(voxel.X, chunkSize), PositiveModulo(voxel.Y, chunkSize), PositiveModulo(voxel.Z, chunkSize));
+    }
+
+    void VoxelOverride::SetVoxel(const VoxelGridCoord& voxel, f32 sdf, u8 material)
+    {
+        constexpr i32 chunkSize = static_cast<i32>(VoxelChunk::CHUNK_SIZE);
+        VoxelChunk& chunk = GetOrCreateChunk(GridToChunkCoord(voxel));
+        chunk.At(PositiveModulo(voxel.X, chunkSize), PositiveModulo(voxel.Y, chunkSize), PositiveModulo(voxel.Z, chunkSize)) = sdf;
+        chunk.SetMaterialAt(PositiveModulo(voxel.X, chunkSize), PositiveModulo(voxel.Y, chunkSize), PositiveModulo(voxel.Z, chunkSize), material);
+        MarkVoxelAndNeighboursDirty(voxel);
+    }
+
+    void VoxelOverride::MarkVoxelAndNeighboursDirty(const VoxelGridCoord& voxel)
+    {
+        constexpr i32 chunkSize = static_cast<i32>(VoxelChunk::CHUNK_SIZE);
+        const VoxelCoord chunkCoord = GridToChunkCoord(voxel);
+        if (auto it = m_Chunks.find(chunkCoord); it != m_Chunks.end())
+            it->second.Dirty = true;
+
+        const i32 local[] = { static_cast<i32>(PositiveModulo(voxel.X, chunkSize)), static_cast<i32>(PositiveModulo(voxel.Y, chunkSize)), static_cast<i32>(PositiveModulo(voxel.Z, chunkSize)) };
+        for (i32 axis = 0; axis < 3; ++axis)
+        {
+            if (local[axis] != 0 && local[axis] != chunkSize - 1)
+                continue;
+            VoxelCoord neighbour = chunkCoord;
+            if (axis == 0)
+                neighbour.X += local[axis] == 0 ? -1 : 1;
+            else if (axis == 1)
+                neighbour.Y += local[axis] == 0 ? -1 : 1;
+            else
+                neighbour.Z += local[axis] == 0 ? -1 : 1;
+            if (auto it = m_Chunks.find(neighbour); it != m_Chunks.end())
+                it->second.Dirty = true;
+        }
+    }
+
     void VoxelOverride::GetDirtyChunks(std::vector<VoxelCoord>& outCoords) const
     {
         OLO_PROFILE_FUNCTION();
@@ -295,22 +379,16 @@ namespace OloEngine
 
     // ── RLE Serialization ────────────────────────────────────────────────
     //
-    // NOTE (issue #727): this persists SDF only — `VoxelChunk::MaterialData` is
-    // deliberately not written. Both are currently true: the pair has no callers
-    // anywhere in the engine, and the only producer of material data
-    // (SeedFromHeightmap) derives it from the height field, so a round-trip
-    // through here followed by a reseed loses nothing. Anything that starts
-    // PAINTING materials — a sculpt brush, an authored palette — must extend
-    // this format (with a version tag) or the paint is silently dropped.
-    //
     // Format:
-    //   [4 bytes: chunk count]
+    //   V1: [4 bytes: 'VXO1'][4 bytes: version][4 bytes: chunk count]
+    //   Legacy: [4 bytes: chunk count] (SDF only)
     //   Per chunk:
     //     [12 bytes: VoxelCoord (X, Y, Z as i32)]
     //     [4 bytes: run count]
     //     Per run:
     //       [4 bytes: f32 value]
     //       [2 bytes: u16 count]
+    //   V1 only: [1 byte: material-data-present][32768 material bytes if present]
 
     std::vector<u8> VoxelOverride::SerializeRLE() const
     {
@@ -325,6 +403,10 @@ namespace OloEngine
         auto writeF32 = [&data](f32 v)
         { data.insert(data.end(), reinterpret_cast<const u8*>(&v), reinterpret_cast<const u8*>(&v) + 4); };
 
+        constexpr i32 magic = 0x31584F56; // little-endian "VXO1"
+        constexpr i32 version = 1;
+        writeI32(magic);
+        writeI32(version);
         u32 chunkCount = static_cast<u32>(m_Chunks.size());
         writeI32(static_cast<i32>(chunkCount));
 
@@ -364,6 +446,10 @@ namespace OloEngine
                 writeF32(val);
                 writeU16(count);
             }
+
+            data.push_back(chunk.MaterialData.empty() ? u8{ 0 } : u8{ 1 });
+            if (!chunk.MaterialData.empty())
+                data.insert(data.end(), chunk.MaterialData.begin(), chunk.MaterialData.end());
         }
 
         return data;
@@ -386,7 +472,20 @@ namespace OloEngine
         auto readF32 = [&data, &offset]() -> f32
         { f32 v; std::memcpy(&v, &data[offset], 4); offset += 4; return v; };
 
-        i32 rawChunkCount = readI32();
+        constexpr i32 magic = 0x31584F56;
+        const i32 firstWord = readI32();
+        bool hasMaterials = false;
+        i32 rawChunkCount = firstWord;
+        if (firstWord == magic)
+        {
+            if (offset + 8 > data.size())
+                return false;
+            const i32 version = readI32();
+            if (version != 1)
+                return false;
+            rawChunkCount = readI32();
+            hasMaterials = true;
+        }
         if (rawChunkCount < 0)
             return false;
         u32 chunkCount = static_cast<u32>(rawChunkCount);
@@ -438,6 +537,21 @@ namespace OloEngine
 
             if (idx != VoxelChunk::TOTAL_VOXELS)
                 return false;
+
+            if (hasMaterials)
+            {
+                if (offset + 1 > data.size())
+                    return false;
+                const bool materialPresent = data[offset++] != 0;
+                if (materialPresent)
+                {
+                    if (offset + VoxelChunk::TOTAL_VOXELS > data.size())
+                        return false;
+                    chunk.MaterialData.assign(data.begin() + static_cast<std::ptrdiff_t>(offset),
+                                              data.begin() + static_cast<std::ptrdiff_t>(offset + VoxelChunk::TOTAL_VOXELS));
+                    offset += VoxelChunk::TOTAL_VOXELS;
+                }
+            }
 
             chunk.Dirty = true;
         }

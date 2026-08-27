@@ -557,6 +557,8 @@ add_executable(OloEngine-Tests
 		Terrain/TerrainGeneratorTest.cpp
 		Terrain/TerrainVirtualTextureTest.cpp
 		Terrain/VoxelGreedyMesherTest.cpp
+		Terrain/VoxelEditTest.cpp
+		Terrain/VoxelEditRemeshTest.cpp
 		Terrain/VolumetricChunkWindowTest.cpp
 		# Morph Target Tests
 		MorphTargetTest.cpp

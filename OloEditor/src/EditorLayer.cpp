@@ -25,6 +25,7 @@
 #include <vector>
 #include "UndoRedo/EntityCommands.h"
 #include "UndoRedo/ComponentCommands.h"
+#include "OloEngine/Terrain/Voxel/VoxelRaycast.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
@@ -1648,10 +1649,48 @@ namespace OloEngine
             // Terrain editor: raycast from mouse into heightmap and update brush
             if (m_ShowTerrainEditor && m_TerrainEditorPanel.IsActive() && m_ViewportHovered && m_SceneState == SceneState::Edit)
             {
-                glm::vec3 terrainHitPos{};
-                bool hasTerrainHit = TerrainRaycast({ mx, my }, viewportSize, terrainHitPos);
                 bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft) && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
-                m_TerrainEditorPanel.OnUpdate(ts, terrainHitPos, hasTerrainHit, mouseDown);
+                if (m_TerrainEditorPanel.GetEditMode() == TerrainEditMode::Voxel)
+                {
+                    VoxelRayHit voxelHit;
+                    Ref<VoxelOverride> voxels;
+                    Ray mouseRay;
+                    if (BuildMouseRay({ mx, my }, viewportSize, mouseRay) && m_ActiveScene)
+                    {
+                        auto terrainView = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
+                        for (const auto terrainEntity : terrainView)
+                        {
+                            const auto& terrain = terrainView.get<TerrainComponent>(terrainEntity);
+                            if (!terrain.m_VoxelEnabled || !terrain.m_VoxelOverride)
+                                continue;
+                            const auto& transform = terrainView.get<TransformComponent>(terrainEntity);
+                            const glm::mat4 inverseTransform = glm::inverse(transform.GetTransform());
+                            const glm::vec3 localOrigin = glm::vec3(inverseTransform * glm::vec4(mouseRay.Origin, 1.0f));
+                            const glm::vec3 localDirectionUnnormalized = glm::vec3(inverseTransform * glm::vec4(mouseRay.Direction, 0.0f));
+                            const f32 localDistanceScale = glm::length(localDirectionUnnormalized);
+                            if (localDistanceScale <= 1.0e-8f)
+                                continue;
+                            const glm::vec3 localDirection = localDirectionUnnormalized / localDistanceScale;
+                            voxelHit = RaycastVoxels(*terrain.m_VoxelOverride,
+                                                     Ray(localOrigin, localDirection,
+                                                         mouseRay.TMin * localDistanceScale,
+                                                         mouseRay.TMax * localDistanceScale));
+                            if (voxelHit.Hit)
+                            {
+                                voxelHit.Point = glm::vec3(transform.GetTransform() * glm::vec4(voxelHit.Point, 1.0f));
+                                voxels = terrain.m_VoxelOverride;
+                                break;
+                            }
+                        }
+                    }
+                    m_TerrainEditorPanel.OnVoxelUpdate(voxels, voxelHit, mouseDown);
+                }
+                else
+                {
+                    glm::vec3 terrainHitPos{};
+                    const bool hasTerrainHit = TerrainRaycast({ mx, my }, viewportSize, terrainHitPos);
+                    m_TerrainEditorPanel.OnUpdate(ts, terrainHitPos, hasTerrainHit, mouseDown);
+                }
             }
 
             // Instance scatter brush: raycasts the terrain heightmap AND the
