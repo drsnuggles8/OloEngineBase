@@ -321,6 +321,11 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         "ParticlesCPU",
         "ParticlesGPU",
         "SnowDeformers",
+        // Boat wake foam (issue #967): reads LocalTransforms, same resource
+        // profile as SnowDeformers, registered immediately after it, so it
+        // lands here by the registration-order tie-break. Unmarked — it queues
+        // into WaterDisturbanceSystem's process-wide splat queue.
+        "BoatWake",
         "BoidMovement",
         // Camera rig (issue #645) is registered dead last: it must see the
         // target's FINAL pose for the tick, so it sits behind the physics
@@ -594,6 +599,13 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_TRUE(sched.DependsOn("ParticlesCPU", "PhysicsFence"));
     EXPECT_TRUE(sched.DependsOn("ParticlesGPU", "PhysicsFence"));
     EXPECT_TRUE(sched.DependsOn("SnowDeformers", "PhysicsFence"));
+    // Boat wake foam (issue #967). This edge is the whole ordering contract for
+    // the feature, and it is a REACHABILITY assertion rather than a position
+    // one for the usual reason: the trail must describe where the hull ENDED
+    // this tick. A pre-fence read lays the wake one tick behind the boat, which
+    // reads as a shader offset rather than as an ordering bug.
+    EXPECT_TRUE(sched.DependsOn("BoatWake", "PhysicsFence"));
+    EXPECT_TRUE(sched.DependsOn("BoatWake", "Boat")); // this tick's forces are integrated first
 
     // And the deliberate independence the parallel executor exploits: the
     // marked systems (and the transform read-only tail) have no path between
@@ -631,6 +643,7 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_TRUE(sched.DependsOn("BoidMovement", "Audio"));
     EXPECT_TRUE(sched.DependsOn("BoidMovement", "ParticlesCPU"));
     EXPECT_TRUE(sched.DependsOn("BoidMovement", "SnowDeformers"));
+    EXPECT_TRUE(sched.DependsOn("BoidMovement", "BoatWake"));
     EXPECT_TRUE(sched.DependsOn("BoidMovement", "PropagateTransforms"));
 
     // And the independence that earns BoidSteering its Parallelizable mark: no

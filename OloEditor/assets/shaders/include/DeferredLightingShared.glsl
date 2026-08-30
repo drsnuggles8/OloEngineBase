@@ -164,6 +164,7 @@ vec3 ComputeDeferredLit(
                     u_ShadowMapCSM,
                     u_ShadowMapCSMRaw,
                     worldPos,
+                    N,
                     viewDepth,
                     u_DirectionalLightSpaceMatrices,
                     u_CascadePlaneDistances,

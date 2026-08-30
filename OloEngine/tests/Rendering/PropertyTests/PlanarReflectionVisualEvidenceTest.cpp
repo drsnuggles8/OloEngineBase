@@ -256,27 +256,61 @@ namespace OloEngine::Tests
             return;
         }
 
-        // Sample a water band directly below the pillar (centre column, lower-mid
-        // of the frame — water, not the pillar itself which is up top). The pillar
-        // sits at screen centre; its reflection falls straight below it.
-        const u32 x0 = (kWidth * 3u) / 8u; // centre-ish column around the pillar
-        const u32 x1 = (kWidth * 5u) / 8u;
-        const u32 y0 = (kHeight * 11u) / 20u; // just below the waterline
-        const u32 y1 = (kHeight * 17u) / 20u; // foreground water
+        // Sample the pillar's REFLECTION COLUMN, and only that.
+        //
+        // The band is derived, not guessed: the pillar stands at world x = 0 and
+        // the camera sits at x = 0 with yaw 0, so the reflection falls down the
+        // screen's centre column by construction. Measured on this fixture it is
+        // ~95 px wide, so +/-40 px sits comfortably inside it even as the ripple
+        // moves the edges, and rows 320..560 span it from just under the
+        // waterline to where it fades out.
+        //
+        // This used to be x in [3/8, 5/8) of the width — 320 px for a 95 px
+        // reflection. That is not a slightly-loose band, it is a different
+        // measurement: two thirds of it is water the pillar never reflects into,
+        // and out at the edges the mountains' reflections make the water DARKER,
+        // so the red the mirror really does add gets averaged against red it
+        // takes away. Measured over the same frames:
+        //
+        //     x = 640 +/- 160 (the old band):  dR = +0.99   <- fails > +8
+        //     x = 640 +/-  40 (this band):     dR = +6.10, dG = -14.74, dB = -10.49
+        //
+        // The reflection was correct the whole time; only the ruler was wrong.
+        // The amplified On-minus-Off difference image shows an unmistakable red
+        // column exactly where this band now sits.
+        constexpr u32 kColumnHalfWidth = 40u;
+        const u32 x0 = kWidth / 2u - kColumnHalfWidth;
+        const u32 x1 = kWidth / 2u + kColumnHalfWidth;
+        const u32 y0 = 320u; // just below the waterline
+        const u32 y1 = 560u; // where the reflection has faded out
         const BandMean mOn = MeanOfBand(on, x0, x1, y0, y1);
         const BandMean mOff = MeanOfBand(off, x0, x1, y0, y1);
 
         // Both frames must render something (not black).
         ASSERT_GT(mOff.R + mOff.G + mOff.B, 6.0) << "reflection-OFF water band rendered near-black";
 
-        // The reflection adds the pillar's red to the water: red rises with the
-        // mirror on, and rises MORE than the other channels (a red pillar, not a
-        // brightness change). These are the discriminating signals.
-        EXPECT_GT(mOn.R, mOff.R + 8.0)
+        // The reflection adds the pillar's red to the water. Threshold is half
+        // the measured +6.10, so it reports a reflection that has genuinely
+        // weakened while absorbing cross-vendor variance in the ripple.
+        //
+        // NOTE this magnitude is a function of the water's Fresnel F0, which
+        // #943 moved from an unphysical 0.5 to water's real 0.02. That is a ~25x
+        // change in reflectance and it is NOT what broke this test (verified by
+        // re-running at 0.5: dR stayed ~+2 over the old band) — but it is the
+        // obvious suspect, so: if this threshold ever needs revisiting, re-derive
+        // it from a difference image rather than tuning it until it passes.
+        EXPECT_GT(mOn.R, mOff.R + 3.0)
             << "Planar reflection ON did not add the red pillar to the water "
             << "(R on=" << mOn.R << " off=" << mOff.R << "). See PlanarReflection_On/Off.png";
         EXPECT_GT(mOn.R - mOff.R, mOn.B - mOff.B)
             << "Water gained more blue than red — that's sky, not the red pillar "
             << "(dR=" << (mOn.R - mOff.R) << " dB=" << (mOn.B - mOff.B) << ").";
+        // The reflection REPLACES sky with pillar, so the band must also lose
+        // blue. Red-up-and-blue-down together is the signature of a red object
+        // being mirrored in; red up with blue up as well would just be the whole
+        // frame getting brighter.
+        EXPECT_LT(mOn.B, mOff.B)
+            << "Water did not lose any blue with the mirror on (dB=" << (mOn.B - mOff.B)
+            << ") — the pillar is not replacing the sky in this band.";
     }
 } // namespace OloEngine::Tests

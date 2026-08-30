@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 
 namespace OloEngine
 {
@@ -230,6 +231,17 @@ namespace OloEngine
                                                  RHI::HeapSlotLifetime::FrameTransient);
         if (m_PlanarReflectionUBO)
             m_PlanarReflectionUBO->Bind();
+
+        // Boat / actor wake foam field (issue #967). Published HERE rather than
+        // at the RenderPipeline dispatch site for the same reason as the four
+        // above: it is pass-level state for whatever the command bucket
+        // dispatches below, and a slot bind issued several passes earlier is
+        // not guaranteed to survive to the water draw. Unlike them the
+        // descriptor is Persistent, not FrameTransient — the field is a
+        // system-owned texture that lives across frames, not a graph resource.
+        // No-op when the system never initialised, which leaves the offset at
+        // the reserved null and the water UBO's intensity at 0.
+        WaterDisturbanceSystem::BindFieldTexture();
 
         // Publish the offsets before the bucket runs. Nothing inside
         // CommandBucket::Execute flushes on this pass's behalf, so without this

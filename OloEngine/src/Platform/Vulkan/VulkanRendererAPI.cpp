@@ -584,6 +584,38 @@ namespace OloEngine
                                                        ? VK_ACCESS_2_TRANSFER_WRITE_BIT
                                                        : VK_ACCESS_2_TRANSFER_READ_BIT;
                     }
+                    // THE EXACT MIRROR OF THE CASE ABOVE, and the same
+                    // argument. A subresource sitting in an ATTACHMENT layout
+                    // was left there by a render pass instance, and at
+                    // vkCmdEndRendering that instance's storeOp performs a
+                    // COLOR_ATTACHMENT_WRITE / DEPTH_STENCIL_ATTACHMENT_WRITE.
+                    //
+                    // Crucially, the storeOp writes EVERY attachment in the
+                    // instance — including ones nothing was drawn to. A
+                    // narrowed SetDrawBuffers scope steers fragment outputs;
+                    // it does not remove an attachment from the render pass,
+                    // so "we only transfer-cleared this one" is true about the
+                    // draws and false about the store. A caller that declares
+                    // `Before` from what it believes it did (TransferWrite
+                    // after a clear) then names a source scope that misses the
+                    // store, and sync validation calls the layout transition a
+                    // WRITE_AFTER_WRITE hazard against it. It is right.
+                    //
+                    // Same cost argument as the transfer widening: one extra
+                    // stage bit on a barrier that is already transitioning, on
+                    // work that has demonstrably already happened, so it
+                    // cannot over-synchronise anything real.
+                    else if (trackedLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+                    {
+                        vkBarrier.srcStageMask |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+                        vkBarrier.srcAccessMask |= VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+                    }
+                    else if (trackedLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                    {
+                        vkBarrier.srcStageMask |= VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                                                  VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+                        vkBarrier.srcAccessMask |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+                    }
                     // The pure lowering emits the full shader-stage union;
                     // the device knows which stage features are ENABLED
                     // (VUID-…-03929/-03930). A masked-off stage can hold no

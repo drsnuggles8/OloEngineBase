@@ -23,6 +23,7 @@
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Asset/AssetManager.h"
 
@@ -2821,6 +2822,18 @@ namespace OloEngine
             waterData.SSRParams = cmd->ssrParams;
             waterData.TessParams = cmd->tessParams;
             waterData.FFTParams = cmd->fftParams;
+            // Boat / actor wake foam field (issue #967). Read from the service
+            // here rather than carried on the draw command, because the field is
+            // ONE global resource and not a per-surface property: routing it
+            // through DrawWaterCommand would let two water tiles in the same
+            // frame disagree about where the field is, which would show as the
+            // wake jumping between them.
+            //
+            // Reports the disabled state (w == 0) whenever the field is
+            // unusable — not initialised, disabled, or never yet written — so
+            // filling this unconditionally cannot put a stale field on screen.
+            waterData.WakeFieldParams = WaterDisturbanceSystem::GetShaderParams();
+            waterData.WakeFieldParams2 = WaterDisturbanceSystem::GetShaderParams2();
             waterUBO->SetData(&waterData, ShaderBindingLayout::WaterUBO::GetSize());
             api.BindUniformBuffer(ShaderBindingLayout::UBO_WATER, waterUBO->GetRHIHandle());
         }

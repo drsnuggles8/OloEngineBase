@@ -1234,6 +1234,11 @@ registry.push_back(OLO_GFW_FIELD(WaterComponent, "FoamBrightness", m_FoamBrightn
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FoamAngleExponent", m_FoamAngleExponent));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "ShorelineFoamPower", m_ShorelineFoamPower));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FoamCoverage", m_FoamCoverage));
+registry.push_back(OLO_GFW_FIELD(WaterComponent, "WakeFoamEnabled", m_WakeFoamEnabled));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "WakeFoamIntensity", m_WakeFoamIntensity, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(4.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "WakeFoamHalfLife", m_WakeFoamHalfLife, OLO_GFW_BOUND(0.05f), OLO_GFW_BOUND(120.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "WakeFoamFadeStart", m_WakeFoamFadeStart, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(2000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "WakeFoamFadeEnd", m_WakeFoamFadeEnd, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(4000.0f)));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "SSSColor", m_SSSColor));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "SSSIntensity", m_SSSIntensity));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "SSREnabled", m_SSREnabled));

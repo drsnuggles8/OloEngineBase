@@ -284,6 +284,7 @@ void main()
                 u_ShadowMapCSM,
                 u_ShadowMapCSMRaw,
                 hitPos,
+                N,
                 viewDepth,
                 u_DirectionalLightSpaceMatrices,
                 u_CascadePlaneDistances,

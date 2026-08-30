@@ -6,6 +6,7 @@
 #include "OloEngine/Task/Task.h"
 #include "OloEngine/Containers/Map.h"
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Physics3D/BoatWakeSystem.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
@@ -1105,6 +1106,7 @@ namespace OloEngine
         void UpdateParticlesGPU(Timestep ts); // GPU / GL-compute systems (game thread)
         void UpdateParticlesPartition(Timestep ts, bool gpuPartition);
         void UpdateSnowDeformers(Timestep ts); // snow deformation stamps + ejecta
+        void UpdateBoatWake(Timestep ts);      // boat hull-pose history + wake splats (#967)
 
       public:
         // The process-wide gameplay system schedule. Built once (thread-safe
@@ -1212,6 +1214,12 @@ namespace OloEngine
         // Per-entity previous positions for velocity estimation (snow ejecta)
         TMap<u64, glm::vec3> m_RuntimeSnowPrevPositions;
         TMap<u64, glm::vec3> m_EditorSnowPrevPositions;
+        // Bounded, time-stamped hull-pose history per boat (issue #967).
+        // Scene-owned, and split runtime/editor exactly like the snow maps
+        // above, so it dies with the scene instead of leaking a trail from one
+        // play session into the next.
+        TMap<u64, BoatWakeTrail> m_RuntimeBoatWakeTrails;
+        TMap<u64, BoatWakeTrail> m_EditorBoatWakeTrails;
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;

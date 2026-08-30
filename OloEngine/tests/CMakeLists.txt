@@ -374,6 +374,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShadowEarlyOutVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TwoSidedShadowCastTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
+		Rendering/PropertyTests/WaterDisturbanceFieldTest.cpp
+		Rendering/PropertyTests/WaterWakeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
 		Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp
@@ -557,6 +559,8 @@ add_executable(OloEngine-Tests
 		Terrain/TerrainGeneratorTest.cpp
 		Terrain/TerrainVirtualTextureTest.cpp
 		Terrain/VoxelGreedyMesherTest.cpp
+		Terrain/VoxelEditTest.cpp
+		Terrain/VoxelEditRemeshTest.cpp
 		Terrain/VolumetricChunkWindowTest.cpp
 		# Morph Target Tests
 		MorphTargetTest.cpp

@@ -473,4 +473,90 @@ namespace OloEngine::Tests
             EXPECT_TRUE(sawFragmentStage);
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Renderer2DOutputsMatchUiCompositeCallbackDrawAttachments (issue #957)
+    //
+    // UIComposite starts with a colour-only fullscreen blit, but its callback
+    // invokes Renderer2D, whose fragment stages write the colour, entity-ID,
+    // and view-normal attachment locations. On Vulkan the active draw map is
+    // the dynamic-rendering attachment contract: leaving it at {0} causes
+    // validation to report the two Renderer2D MRT outputs as unavailable.
+    //
+    // Reflect every shared Renderer2D batch shader, then bind that result to
+    // the production callback's exact draw map. The test deliberately checks
+    // the source-owned map as well as the SPIR-V output locations, so removing
+    // either side cannot silently reintroduce the validation noise.
+    // -------------------------------------------------------------------------
+    TEST(ShaderStageContract, Renderer2DOutputsMatchUiCompositeCallbackDrawAttachments)
+    {
+        const fs::path passSource = ResolveRepoFile("OloEngine/src/OloEngine/Renderer/Passes/UICompositeRenderPass.cpp");
+        ASSERT_TRUE(fs::exists(passSource)) << "could not locate UICompositeRenderPass.cpp from cwd " << s_StartCwd.string();
+        const std::string passText = StripWhitespace(SH::ReadWholeFile(passSource));
+        ASSERT_FALSE(passText.empty());
+        EXPECT_NE(passText.find("renderer2DAttachments={0u,1u,2u}"), std::string::npos)
+            << "UIComposite's Renderer2D callback must expose each of the batcher's MRT locations to Vulkan dynamic rendering.";
+        EXPECT_NE(passText.find("context.SetDrawBuffers(renderer2DAttachments)"), std::string::npos)
+            << "the Renderer2D callback must switch away from UIComposite's colour-only background-blit draw map.";
+
+        const fs::path pipelineSource = ResolveRepoFile("OloEngine/src/OloEngine/Renderer/RenderPipeline.cpp");
+        ASSERT_TRUE(fs::exists(pipelineSource)) << "could not locate RenderPipeline.cpp from cwd " << s_StartCwd.string();
+        const std::string pipelineText = StripWhitespace(SH::ReadWholeFile(pipelineSource));
+        ASSERT_FALSE(pipelineText.empty());
+        EXPECT_NE(pipelineText.find("uiCompositeDesc.Attachments={RGResourceFormat::RGBA8UNorm,RGResourceFormat::R32Int,RGResourceFormat::RG16Float}"), std::string::npos)
+            << "UIComposite's graph resource must back every Renderer2D callback output with a matching attachment.";
+
+        static constexpr std::array s_Shaders = {
+            "Renderer2D_Quad.glsl",
+            "Renderer2D_Polygon.glsl",
+            "Renderer2D_Circle.glsl",
+            "Renderer2D_Line.glsl",
+            "Renderer2D_Text.glsl",
+        };
+        const std::set<u32> expectedLocations = { 0u, 1u, 2u };
+        static constexpr std::array expectedTypes = {
+            spirv_cross::SPIRType::Float,
+            spirv_cross::SPIRType::Int,
+            spirv_cross::SPIRType::Float,
+        };
+
+        const fs::path root = SH::ResolveShaderRoot();
+        ASSERT_FALSE(root.empty());
+        shaderc::Compiler compiler;
+        ASSERT_TRUE(compiler.IsValid());
+
+        for (const char* shader : s_Shaders)
+        {
+            SCOPED_TRACE(shader);
+            const fs::path path = root / shader;
+            ASSERT_TRUE(fs::exists(path)) << path.generic_string();
+
+            bool sawFragmentStage = false;
+            for (const auto& [kind, stageSource] : SH::SplitByType(SH::ReadWholeFile(path)))
+            {
+                if (kind != shaderc_glsl_fragment_shader)
+                    continue;
+                sawFragmentStage = true;
+
+                const auto result = SH::CompileVulkanBackendStageToSpv(path, stageSource, kind, root, compiler);
+                ASSERT_EQ(result.GetCompilationStatus(), shaderc_compilation_status_success)
+                    << result.GetErrorMessage();
+
+                spirv_cross::Compiler reflection(std::vector<u32>(result.cbegin(), result.cend()));
+                std::set<u32> outputLocations;
+                for (const auto& output : reflection.get_shader_resources().stage_outputs)
+                {
+                    const u32 location = reflection.get_decoration(output.id, spv::DecorationLocation);
+                    outputLocations.insert(location);
+                    ASSERT_LT(location, expectedTypes.size());
+                    EXPECT_EQ(reflection.get_type(output.type_id).basetype, expectedTypes[location])
+                        << "Renderer2D output location " << location
+                        << " must match UIComposite's RGBA8/R32I/RG16F attachment type.";
+                }
+                EXPECT_EQ(outputLocations, expectedLocations)
+                    << "every Renderer2D fragment output must be backed by UIComposite's callback draw map.";
+            }
+            EXPECT_TRUE(sawFragmentStage);
+        }
+    }
 } // namespace OloEngine::Tests

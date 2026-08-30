@@ -1523,6 +1523,14 @@ namespace OloEngine
         water.m_FoamAngleExponent = waterComponent["FoamAngleExponent"].as<f32>(water.m_FoamAngleExponent);
         water.m_ShorelineFoamPower = waterComponent["ShorelineFoamPower"].as<f32>(water.m_ShorelineFoamPower);
         water.m_FoamCoverage = waterComponent["FoamCoverage"].as<f32>(water.m_FoamCoverage);
+        // Boat / actor wake foam (issue #967). Defaulted to the component's own
+        // value so a scene authored before this feature loads unchanged with the
+        // wake off.
+        water.m_WakeFoamEnabled = waterComponent["WakeFoamEnabled"].as<bool>(water.m_WakeFoamEnabled);
+        water.m_WakeFoamIntensity = waterComponent["WakeFoamIntensity"].as<f32>(water.m_WakeFoamIntensity);
+        water.m_WakeFoamHalfLife = waterComponent["WakeFoamHalfLife"].as<f32>(water.m_WakeFoamHalfLife);
+        water.m_WakeFoamFadeStart = waterComponent["WakeFoamFadeStart"].as<f32>(water.m_WakeFoamFadeStart);
+        water.m_WakeFoamFadeEnd = waterComponent["WakeFoamFadeEnd"].as<f32>(water.m_WakeFoamFadeEnd);
         water.m_SSSColor = waterComponent["SSSColor"].as<glm::vec3>(water.m_SSSColor);
         water.m_SSSIntensity = waterComponent["SSSIntensity"].as<f32>(water.m_SSSIntensity);
         water.m_SSRMaxSteps = waterComponent["SSRMaxSteps"].as<f32>(water.m_SSRMaxSteps);
@@ -1657,6 +1665,23 @@ namespace OloEngine
         SanitizeFloat(water.m_FoamAngleExponent, 0.1f, 10.0f, 2.0f);
         SanitizeFloat(water.m_ShorelineFoamPower, 0.1f, 10.0f, 3.0f);
         SanitizeFloat(water.m_FoamCoverage, 0.0f, 1.0f, 0.12f);
+        // Wake foam (issue #967). Same bounds the component annotations and
+        // Scene's per-frame publish use — three copies of one range, kept
+        // identical on purpose: a value that survives deserialization but is
+        // clamped differently at publish time would render differently from
+        // what the inspector shows.
+        SanitizeFloat(water.m_WakeFoamIntensity, 0.0f, 4.0f, 1.0f);
+        SanitizeFloat(water.m_WakeFoamHalfLife, 0.05f, 120.0f, 6.0f);
+        SanitizeFloat(water.m_WakeFoamFadeStart, 0.0f, 2000.0f, 60.0f);
+        SanitizeFloat(water.m_WakeFoamFadeEnd, 1.0f, 4000.0f, 220.0f);
+        // Endpoint ordering, same shape as the tessellation distances below.
+        // Clamping the two independently cannot enforce it: a scene authored
+        // (or hand-edited) with the pair inverted survives both clamps and
+        // reaches the shader as smoothstep(hi, lo, x), which is UNDEFINED for
+        // edge0 >= edge1. The consumer clamps too, but fixing it here as well
+        // means the inspector shows the value that will actually be used.
+        if (water.m_WakeFoamFadeEnd < water.m_WakeFoamFadeStart + 1.0f)
+            water.m_WakeFoamFadeEnd = water.m_WakeFoamFadeStart + 1.0f;
         SanitizeVec3(water.m_SSSColor, { 0.0f, 0.5f, 0.4f });
         SanitizeFloat(water.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
         SanitizeFloat(water.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
@@ -5257,6 +5282,16 @@ namespace OloEngine
             out << YAML::Key << "FoamAngleExponent" << YAML::Value << water.m_FoamAngleExponent;
             out << YAML::Key << "ShorelineFoamPower" << YAML::Value << water.m_ShorelineFoamPower;
             out << YAML::Key << "FoamCoverage" << YAML::Value << water.m_FoamCoverage;
+            // Boat / actor wake foam (issue #967). Hand-written here, like every
+            // other WaterComponent field, because the component holds Ref<> and
+            // so is excluded from the generated serializer blocks — a new field
+            // that is NOT added to all three of write / read / sanitize below is
+            // silently dropped from every scene save with nothing failing.
+            out << YAML::Key << "WakeFoamEnabled" << YAML::Value << water.m_WakeFoamEnabled;
+            out << YAML::Key << "WakeFoamIntensity" << YAML::Value << water.m_WakeFoamIntensity;
+            out << YAML::Key << "WakeFoamHalfLife" << YAML::Value << water.m_WakeFoamHalfLife;
+            out << YAML::Key << "WakeFoamFadeStart" << YAML::Value << water.m_WakeFoamFadeStart;
+            out << YAML::Key << "WakeFoamFadeEnd" << YAML::Value << water.m_WakeFoamFadeEnd;
             out << YAML::Key << "SSSColor" << YAML::Value << water.m_SSSColor;
             out << YAML::Key << "SSSIntensity" << YAML::Value << water.m_SSSIntensity;
             out << YAML::Key << "SSRMaxSteps" << YAML::Value << water.m_SSRMaxSteps;
@@ -6180,6 +6215,11 @@ namespace OloEngine
             out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
             out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
             out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
+            if (pp.m_AOTechniqueOverride)
+            {
+                out << YAML::Key << "ActiveAOTechnique" << YAML::Value << std::to_underlying(pp.ActiveAOTechnique);
+                out << YAML::Key << "GTAOEnabled" << YAML::Value << pp.GTAOEnabled;
+            }
             out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
             out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
             out << YAML::Key << "SSAOBias" << YAML::Value << pp.SSAOBias;
@@ -6378,6 +6418,18 @@ namespace OloEngine
             TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
             TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
             TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
+            pp.m_AOTechniqueOverride = false;
+            if (const auto activeAOTechniqueNode = ppNode["ActiveAOTechnique"])
+            {
+                const i32 activeAOTechnique = activeAOTechniqueNode.as<i32>(std::to_underlying(pp.ActiveAOTechnique));
+                if (activeAOTechnique >= std::to_underlying(AOTechnique::None) &&
+                    activeAOTechnique <= std::to_underlying(AOTechnique::GTAO))
+                {
+                    pp.ActiveAOTechnique = static_cast<AOTechnique>(activeAOTechnique);
+                    pp.m_AOTechniqueOverride = true;
+                }
+            }
+            TrySet(pp.GTAOEnabled, ppNode["GTAOEnabled"]);
             TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
             TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
             TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
@@ -6757,6 +6809,11 @@ namespace OloEngine
             out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
             out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
             out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
+            if (pp.m_AOTechniqueOverride)
+            {
+                out << YAML::Key << "ActiveAOTechnique" << YAML::Value << std::to_underlying(pp.ActiveAOTechnique);
+                out << YAML::Key << "GTAOEnabled" << YAML::Value << pp.GTAOEnabled;
+            }
             out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
             out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
             out << YAML::Key << "SSAOBias" << YAML::Value << pp.SSAOBias;

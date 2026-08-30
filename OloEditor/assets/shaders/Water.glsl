@@ -105,6 +105,14 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_SSRParams;              // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
     vec4 u_TessParams;             // x = tessellationFactor, y = minTessDist, z = maxTessDist, w = frustumCullEnable
     vec4 u_FFTParams;              // x = useFFT (0/1), y = 1/patchSize, z = heightScale, w = horizontalScale
+    // Boat / actor wake foam field (issue #967). C++ twin:
+    // UBOStructures::WaterUBO::WakeFieldParams / WakeFieldParams2. Declared in
+    // EVERY stage of the water programs, identically, because GL requires a
+    // uniform block shared across a program's stages to be declared the same
+    // way in each — appending to only the stage that reads it is a link error,
+    // not a silent mismatch. Only the fragment stage actually reads them.
+    vec4 u_WakeFieldParams;        // xy = field window centre (world XZ), z = 1/fieldExtent, w = intensity (<=0 disables)
+    vec4 u_WakeFieldParams2;       // x = wake fade start (m), y = wake fade end (m), z = edge-fade start, w = unused
 };
 
 // Environment map for reflection (same slot as PBR shaders)
@@ -150,6 +158,16 @@ layout(binding = 41) uniform sampler2D u_FoamTexture;
 #else
 layout(binding = 22) uniform sampler2D u_SceneNormals;
 #endif
+
+// Boat / actor wake foam field (issue #967) — the world-anchored, toroidally
+// stored disturbance field written by compute/WaterDisturbance_Update.comp and
+// published by WaterDisturbanceSystem::BindFieldTexture. RG16F; only .r is read.
+#ifdef OLO_BINDLESS
+#define u_WaterDisturbance OLO_HEAP_TEX_2D(70)  // TEX_WATER_DISTURBANCE
+#else
+layout(binding = 70) uniform sampler2D u_WaterDisturbance;
+#endif
+#include "include/WaterDisturbanceCommon.glsl"
 
 // Planar reflection — the opaque scene re-rendered from a mirrored, oblique-
 // clipped camera by PlanarReflectionRenderPass. u_PlanarReflectionVP projects a
@@ -236,14 +254,17 @@ float valueNoise(vec2 p)
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
-// Procedural normal from value noise (central differences)
+// Procedural tangent-space normal from value noise (central differences).
+// Tangent-space normal maps use +Z as the surface normal; putting the unit
+// component in Y turns a missing-map fallback sideways through the TBN and
+// makes it dominate the ocean lighting as a blocky, near-horizontal normal.
 vec3 proceduralNormal(vec2 uv, float strength)
 {
     float eps = 0.02;
     float h0 = valueNoise(uv);
     float hx = valueNoise(uv + vec2(eps, 0.0));
     float hy = valueNoise(uv + vec2(0.0, eps));
-    return normalize(vec3(-(hx - h0) * strength, 1.0, -(hy - h0) * strength));
+    return normalize(vec3(-(hx - h0) * strength, -(hy - h0) * strength, 1.0));
 }
 
 // smoothstep() whose transition is widened by the value's own screen-space
@@ -760,6 +781,34 @@ void main()
     float foamPattern = smoothstepAA(0.25, 0.65, foamNoise);
 
     foam *= hasFoamTexture ? foamSample.r : foamPattern;
+
+    // --- Boat / actor wake foam (issue #967) --------------------------------
+    // Sampled ON TOP of everything above, never instead of it: the crest,
+    // shoreline and Jacobian terms describe what the SEA is doing, this one
+    // describes what something has DONE to it.
+    //
+    // Folded in AFTER the crest-foam distance fade on purpose. That fade exists
+    // because procedural whitecaps compress toward the horizon into a white
+    // wash (#943); a wake is a low-frequency, world-anchored, filtered signal
+    // with no such failure mode, and inheriting a 12->45 m fade would delete
+    // the trail behind the boat under any chase camera — i.e. delete the
+    // feature. It gets its own, much longer fade from u_WakeFieldParams2.xy.
+    //
+    // Everything here is evaluated unconditionally and combined with max(): the
+    // field sample is a plain textureLod (no derivative), so it is safe in this
+    // position, and there is no branch on a texture-derived condition of the
+    // kind docs/agent-rules/water-shading-nyquist.md §2 warns about.
+    vec2 wakeWorldXZ = v_WorldPos.xz + u_RenderOrigin.xz;
+    float wakeFoam = sampleWaterDisturbance(wakeWorldXZ, u_WaterDisturbance,
+                                            u_WakeFieldParams, u_WakeFieldParams2);
+    // Break the field up with the SAME foam pattern the rest of the foam uses,
+    // so the wake reads as churned water rather than a painted stripe. Kept
+    // partly transparent to the pattern (0.55 floor) because a wake's core is
+    // genuinely continuous where a whitecap's is not.
+    wakeFoam *= mix(0.55, 1.0, hasFoamTexture ? foamSample.r : foamPattern);
+    wakeFoam *= u_WakeFieldParams.w;
+    wakeFoam *= 1.0 - smoothstep(u_WakeFieldParams2.x, u_WakeFieldParams2.y, foamCamDist);
+    foam = max(foam, clamp(wakeFoam, 0.0, 1.0));
 
     finalColor = mix(finalColor, vec3(foamBrightness), clamp(foam, 0.0, 1.0));
 
