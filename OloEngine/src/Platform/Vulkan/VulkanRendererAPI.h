@@ -303,6 +303,10 @@ namespace OloEngine
         // selections) deliberately survives — the frame continues, it does
         // not restart.
         [[nodiscard]] VkCommandBuffer SuspendRecordingForFlush();
+        // Called only after the suspended command buffer was accepted by the
+        // queue. Keeps the executed-layout view accurate while a graph records
+        // later split segments in the same frame.
+        void MarkSuspendedRecordingSubmitted();
         void ResumeRecordingAfterFlush(VkCommandBuffer cmd);
 
         // Backend-internal (#691): record a staged buffer→image copy
@@ -416,6 +420,10 @@ namespace OloEngine
         {
             return m_DroppedDrawsThisRecording;
         }
+        [[nodiscard]] u32 GetGpuWrittenRootDrawsThisRecording() const
+        {
+            return m_GpuWrittenRootDrawsThisRecording;
+        }
         // Draws the host-side conditional-render predicate skipped. Kept apart
         // from the dropped counter on purpose: a conditional skip is the
         // requested behaviour, a drop is a failure.
@@ -472,7 +480,15 @@ namespace OloEngine
         void DispatchComputeIndirect(RHI::ResourceHandle argsBuffer, u32 offsetBytes) override;
         void DrawMeshTasks(u32 groupsX, u32 groupsY, u32 groupsZ) override;
         void MemoryBarrier(MemoryBarrierFlags flags) override;
+        [[nodiscard]] bool WriteBufferDeviceAddress(RHI::ResourceHandle destination, u32 destinationOffset,
+                                                    RHI::ResourceHandle source) override;
+        [[nodiscard]] bool QueryGpuDrivenRootDataLayout(RHI::ResourceHandle shader, u32 storageBinding,
+                                                        GpuDrivenRootDataLayout& outLayout) override;
+        [[nodiscard]] bool SetNextDrawRootData(RHI::ResourceHandle rootData, u32 gpuWrittenStorageBinding,
+                                               u32 expectedFieldOffsetBytes) override;
         void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) override;
+        [[nodiscard]] bool SupportsRenderGraphFenceSubmission() const override;
+        [[nodiscard]] bool SubmitRenderGraphFenceSegment() override;
         void BindDefaultFramebuffer() override;
         void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height) override;
         void BindTexture(u32 slot, RHI::ResourceHandle texture) override;
@@ -749,6 +765,9 @@ namespace OloEngine
         // address its GPU-write participants require (#691).
         [[nodiscard]] bool AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
                                                    const VulkanVertexArray* vao, bool commandOrderedBufferReads);
+        void AssembleRootData(const VulkanRootDataLayout& layout, const char* shaderName,
+                              const VulkanVertexArray* vao, bool commandOrderedBufferReads);
+        [[nodiscard]] bool PushRootDataAddress(VkDeviceAddress rootAddress);
 
         // Selection-map plumbing (see FramebufferAttachmentSelection above).
         [[nodiscard]] static u64 SelectionKey(RHI::ResourceHandle framebuffer)
@@ -796,8 +815,10 @@ namespace OloEngine
         bool m_HeapBoundThisRecording = false;
         u32 m_PreparedDrawsThisRecording = 0;
         u32 m_DroppedDrawsThisRecording = 0;
+        u32 m_GpuWrittenRootDrawsThisRecording = 0;
         VulkanVertexArray* m_BoundVertexArray = nullptr; ///< BindVertexArrayRaw's publication.
         std::vector<u8> m_RootScratch;
+        VkDeviceAddress m_NextDrawRootDataAddress = 0;
         // Recorded scissor box (the WITH_COUNT dynamic state is emitted by
         // the draw front-end, not by the setter — see SetScissorBox).
         VkRect2D m_ScissorRect{};

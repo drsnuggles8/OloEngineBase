@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <gtest/gtest.h>
@@ -10,7 +11,9 @@
 #include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/RenderGraphPlanExecutor.h"
 #include "OloEngine/Renderer/RenderGraphTransientPlanner.h"
+#include "OloEngine/Renderer/RHI/RHIGpuFence.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
@@ -9237,6 +9240,184 @@ TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
     EXPECT_EQ(endIt->OutputResources[0].ExternalNode, "GfxPost");
 }
 
+TEST(RenderGraphSubmissionPlan, CrossLaneDependenciesEmitPairedFenceCommandsAndSequentialLeverRemovesThem)
+{
+    // The edge records must come from actual resource transitions, not merely
+    // from BatchBegin/BatchEnd: this graph crosses Graphics -> Compute for
+    // InputTex and Compute -> Graphics for OutputTex.
+    const bool originalSequential = Levers::RenderGraphSequential();
+    struct SequentialRestore
+    {
+        bool Value;
+        ~SequentialRestore()
+        {
+            Levers::SetRenderGraphSequential(Value);
+        }
+    } restore{ originalSequential };
+    Levers::SetRenderGraphSequential(false);
+    ASSERT_FALSE(Levers::RenderGraphSequential());
+
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    AddSetupNode(
+        graph,
+        "GfxProducer",
+        [](RGBuilder& builder)
+        {
+            auto input = builder.ImportTexture(
+                "InputTex", 711,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "InputTex"));
+            builder.Write(input, RGWriteUsage::RenderTarget);
+        });
+    AddSetupNode(
+        graph,
+        "ComputeTransform",
+        RenderGraphNodeFlags::Compute,
+        [](RGBuilder& builder)
+        {
+            auto input = builder.ImportTexture(
+                "InputTex", 711,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "InputTex"));
+            [[maybe_unused]] const auto sampled = builder.Read(input, RGReadUsage::ShaderSample);
+            auto output = builder.ImportTexture(
+                "OutputTex", 712,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "OutputTex"));
+            builder.Write(output, RGWriteUsage::ShaderImage);
+        });
+    AddSetupNode(
+        graph,
+        "GfxConsumer",
+        [](RGBuilder& builder)
+        {
+            auto output = builder.ImportTexture(
+                "OutputTex", 712,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "OutputTex"));
+            [[maybe_unused]] const auto sampled = builder.Read(output, RGReadUsage::ShaderSample);
+        });
+
+    graph.AddExecutionDependency("GfxProducer", "ComputeTransform");
+    graph.AddExecutionDependency("ComputeTransform", "GfxConsumer");
+    graph.SetFinalPass("GfxConsumer");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto transitions = graph.GetResourceTransitions();
+    std::ostringstream transitionSummary;
+    for (const auto& transition : transitions)
+    {
+        transitionSummary << transition.ProducerPass << " -> " << transition.ConsumerPass
+                          << " [" << transition.ResourceName << ", cross="
+                          << transition.IsCrossLane << "]\n";
+    }
+
+    const auto plan = graph.GetSubmissionPlan();
+    const auto signalCount = CountKind(plan, SCKind::FenceSignal);
+    const auto waitCount = CountKind(plan, SCKind::FenceWait);
+    ASSERT_EQ(signalCount, 2u) << "One producer signal command per cross-lane dependency\n"
+                               << transitionSummary.str();
+    ASSERT_EQ(waitCount, 2u) << "One consumer wait command per cross-lane dependency\n"
+                             << transitionSummary.str();
+
+    std::vector<RenderGraph::FenceEdge> signals;
+    std::vector<RenderGraph::FenceEdge> waits;
+    for (const auto& command : plan)
+    {
+        if (command.CommandKind == SCKind::FenceSignal)
+            signals.insert(signals.end(), command.FenceEdges.begin(), command.FenceEdges.end());
+        if (command.CommandKind == SCKind::FenceWait)
+            waits.insert(waits.end(), command.FenceEdges.begin(), command.FenceEdges.end());
+    }
+    ASSERT_EQ(signals.size(), 2u);
+    ASSERT_EQ(waits.size(), 2u);
+    for (const auto& signal : signals)
+    {
+        const auto paired = std::ranges::find_if(
+            waits,
+            [&signal](const RenderGraph::FenceEdge& wait)
+            {
+                return wait.Index == signal.Index && wait.ProducerPass == signal.ProducerPass &&
+                       wait.ConsumerPass == signal.ConsumerPass && wait.Resources == signal.Resources;
+            });
+        ASSERT_NE(paired, waits.end()) << "Every signal edge needs its exact consumer wait";
+    }
+
+    const auto producerSignal = std::ranges::find_if(
+        signals,
+        [](const RenderGraph::FenceEdge& edge)
+        { return edge.ProducerPass == "GfxProducer" && edge.ConsumerPass == "ComputeTransform"; });
+    ASSERT_NE(producerSignal, signals.end());
+    EXPECT_EQ(producerSignal->Resources, std::vector<std::string>{ "InputTex" });
+    EXPECT_EQ(producerSignal->ProducerLane, RenderGraph::QueueLane::Graphics);
+    EXPECT_EQ(producerSignal->ConsumerLane, RenderGraph::QueueLane::Compute);
+
+    const auto outputPath = OloEngine::Tests::TempFile("render_graph_split_fences.json");
+    ASSERT_TRUE(graph.DumpToJson(outputPath.string()));
+    std::ifstream in(outputPath);
+    const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_NE(json.find("\"kind\": \"FenceSignal\""), std::string::npos);
+    EXPECT_NE(json.find("\"kind\": \"FenceWait\""), std::string::npos);
+    EXPECT_NE(json.find("\"fenceEdges\":"), std::string::npos);
+    EXPECT_NE(json.find("\"fenceEdgeCount\": 2"), std::string::npos);
+    std::error_code ec;
+    std::filesystem::remove(outputPath, ec);
+
+    // A runtime lever change recompiles only the execution IR. The full
+    // MemoryBarrier commands remain, but no timeline pairs may survive.
+    Levers::SetRenderGraphSequential(true);
+    graph.Execute();
+    const auto sequentialPlan = graph.GetSubmissionPlan();
+    EXPECT_EQ(CountKind(sequentialPlan, SCKind::FenceSignal), 0u);
+    EXPECT_EQ(CountKind(sequentialPlan, SCKind::FenceWait), 0u);
+    EXPECT_GT(CountKind(sequentialPlan, SCKind::MemoryBarrier), 0u)
+        << "The bisection lever removes scheduling only, never visibility barriers";
+}
+
+TEST(RenderGraphSubmissionPlan, OrderingOnlyCrossLaneDependencyEmitsFencePair)
+{
+    const bool originalSequential = Levers::RenderGraphSequential();
+    struct SequentialRestore
+    {
+        bool Value;
+        ~SequentialRestore()
+        {
+            Levers::SetRenderGraphSequential(Value);
+        }
+    } restore{ originalSequential };
+    Levers::SetRenderGraphSequential(false);
+
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    AddSetupNode(graph, "OrderingProducer", [](RGBuilder&) {});
+    AddSetupNode(graph, "OrderingConsumer", RenderGraphNodeFlags::Compute, [](RGBuilder&) {});
+    graph.AddExecutionDependency("OrderingProducer", "OrderingConsumer");
+    graph.SetFinalPass("OrderingConsumer");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto plan = graph.GetSubmissionPlan();
+    const auto signal = std::ranges::find_if(
+        plan,
+        [](const RenderGraph::SubmissionCommand& command)
+        {
+            return command.CommandKind == SCKind::FenceSignal && command.FenceEdges.size() == 1u &&
+                   command.FenceEdges.front().ProducerPass == "OrderingProducer";
+        });
+    const auto wait = std::ranges::find_if(
+        plan,
+        [](const RenderGraph::SubmissionCommand& command)
+        {
+            return command.CommandKind == SCKind::FenceWait && command.FenceEdges.size() == 1u &&
+                   command.FenceEdges.front().ConsumerPass == "OrderingConsumer";
+        });
+    ASSERT_NE(signal, plan.end());
+    ASSERT_NE(wait, plan.end());
+    EXPECT_EQ(signal->FenceEdges.front().Index, wait->FenceEdges.front().Index);
+    EXPECT_TRUE(signal->FenceEdges.front().Resources.empty())
+        << "An ordering-only dependency has no resource transition to annotate";
+    EXPECT_EQ(signal->FenceEdges.front().ProducerLane, RenderGraph::QueueLane::Graphics);
+    EXPECT_EQ(signal->FenceEdges.front().ConsumerLane, RenderGraph::QueueLane::Compute);
+}
+
 TEST(RenderGraphSubmissionPlan, DumpToJsonIncludesSubmissionPlan)
 {
     RenderGraph graph;
@@ -9336,6 +9517,95 @@ TEST(RenderGraphSubmissionPlan, PlanPreservesHoistedExecutionOrder)
 // =============================================================================
 // RenderGraphExecutePlanDriven — Execute() via submission-plan IR
 // =============================================================================
+
+TEST(RenderGraphExecutePlanDriven, CulledFenceEdgeDoesNotDisableLaterReachableSplit)
+{
+    class RecordingFence final : public RHI::GpuFence
+    {
+      public:
+        RecordingFence(u32& signals, u32& waits)
+            : RHI::GpuFence(0u), m_Signals(signals), m_Waits(waits)
+        {
+        }
+        void QueueSignal(const u64 value, RHI::FenceSignalOp) override
+        {
+            NoteSignalValue(value);
+            ++m_Signals;
+        }
+        void QueueWait(u64, RHI::FenceCompareOp) override
+        {
+            ++m_Waits;
+        }
+        void HostSignal(u64 value, RHI::FenceSignalOp) override
+        {
+            NoteSignalValue(value);
+        }
+        [[nodiscard]] bool HostWait(u64, u64, RHI::FenceCompareOp) override
+        {
+            return true;
+        }
+        [[nodiscard]] u64 CompletedValue() const override
+        {
+            return 0u;
+        }
+
+      private:
+        u32& m_Signals;
+        u32& m_Waits;
+    };
+
+    const RenderGraph::FenceEdge culledEdge{
+        .Index = 0u,
+        .ProducerPass = "CulledProducer",
+        .ConsumerPass = "CulledConsumer",
+        .ProducerLane = RenderGraph::QueueLane::Graphics,
+        .ConsumerLane = RenderGraph::QueueLane::Compute,
+    };
+    const RenderGraph::FenceEdge liveEdge{
+        .Index = 1u,
+        .ProducerPass = "LiveProducer",
+        .ConsumerPass = "LiveConsumer",
+        .ProducerLane = RenderGraph::QueueLane::Graphics,
+        .ConsumerLane = RenderGraph::QueueLane::Compute,
+    };
+    const auto fenceCommand = [](const RenderGraph::SubmissionCommand::Kind kind,
+                                 const RenderGraph::FenceEdge& edge)
+    {
+        RenderGraph::SubmissionCommand command;
+        command.CommandKind = kind;
+        command.FenceEdges.push_back(edge);
+        return command;
+    };
+    const std::array plan{
+        fenceCommand(RenderGraph::SubmissionCommand::Kind::FenceSignal, culledEdge),
+        fenceCommand(RenderGraph::SubmissionCommand::Kind::FenceWait, culledEdge),
+        fenceCommand(RenderGraph::SubmissionCommand::Kind::FenceSignal, liveEdge),
+        fenceCommand(RenderGraph::SubmissionCommand::Kind::FenceWait, liveEdge),
+    };
+
+    RGCommandContext context;
+    u32 signalCount = 0u;
+    u32 waitCount = 0u;
+    u32 submitCount = 0u;
+    const auto timings = RenderGraphPlanExecutor::ExecutePlan({
+        .SubmissionPlan = plan,
+        .Context = context,
+        .RuntimeBarrierExecutionEnabled = false,
+        .IsPassReachable = [](const std::string& passName)
+        { return passName.starts_with("Live"); },
+        .SupportsFenceSubmission = []()
+        { return true; },
+        .SubmitFenceSegment = [&submitCount]()
+        { ++submitCount; return true; },
+        .CreateGpuFence = [&signalCount, &waitCount]() -> Ref<RHI::GpuFence>
+        { return Ref<RecordingFence>::Create(signalCount, waitCount); },
+    });
+
+    EXPECT_TRUE(timings.empty());
+    EXPECT_EQ(signalCount, 1u);
+    EXPECT_EQ(waitCount, 1u);
+    EXPECT_EQ(submitCount, 2u) << "producer submit plus final wait-only submit";
+}
 
 TEST(RenderGraphExecutePlanDriven, PureGraphicsGraphPassesExecuteInOrder)
 {

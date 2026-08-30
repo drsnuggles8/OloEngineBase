@@ -68,6 +68,20 @@ layout(std430, binding = 17) buffer InstanceCullIndirect {
     uint _indirectPad2;
 } indirect;
 
+// ADR 0011 §4.2: the GPU-driven producer owns the root data for its
+// compatible indirect draw. The backend writes the compacted-output BDA into
+// this seed as a transfer command; the compute shader writes the GPU-owned
+// instance-data field at its reflected root-layout offset. uvec2, rather than
+// uint64_t, keeps this shader legal on the portable Vulkan feature set — the
+// two words preserve the address bits.
+layout(std430, binding = 18) readonly buffer InstanceCullRootSeed {
+    uvec2 outputInstanceAddress;
+} rootSeed;
+
+layout(std430, binding = 19) writeonly buffer InstanceCullRootData {
+    uvec2 rootDataWords[];
+} rootData;
+
 layout(std140, binding = 0) uniform CameraMatrices
 {
     mat4 u_ViewProjection;
@@ -113,6 +127,10 @@ layout(std140, binding = 71) uniform InstanceCullParams
     // camera UBO's relative VP whenever nothing is frozen, so this is the only
     // path rather than a branch that only runs in debug mode.
     mat4  u_CullViewProjection;  // 128
+    uint  u_RootDataOffsetBytes; // 192 — UINT_MAX disables §4.2 publication
+    uint  _rootDataPad0;         // 196
+    uint  _rootDataPad1;         // 200
+    uint  _rootDataPad2;         // 204
 };
 
 // GPU readback-stats channel (issue #721). Supplies the counters this pass
@@ -138,6 +156,8 @@ vec4 extractPlane(int col, float colSign)
 void main()
 {
     uint idx = gl_GlobalInvocationID.x;
+    if (idx == 0u && u_RootDataOffsetBytes != 0xFFFFFFFFu)
+        rootData.rootDataWords[u_RootDataOffsetBytes / 8u] = rootSeed.outputInstanceAddress;
     if (idx >= u_InstanceCount)
         return;
 

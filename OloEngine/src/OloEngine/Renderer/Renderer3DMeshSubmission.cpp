@@ -896,7 +896,9 @@ namespace OloEngine
         // `cullIndirectBufferID` is non-zero — skipping the FrameDataBuffer
         // scratch loop and binding the pre-culled survivors at SSBO_INSTANCE_DATA.
         const auto buildPacket = [&](RHI::ResourceHandle outputInstanceBuffer,
-                                     RHI::ResourceHandle indirectBuffer) -> CommandPacket*
+                                     RHI::ResourceHandle indirectBuffer,
+                                     RHI::ResourceHandle rootDataBuffer = {},
+                                     const u32 rootDataAddressOffsetBytes = 0u) -> CommandPacket*
         {
             CommandPacket* packet = overlayRoute
                                         ? CreateForwardOverlayDrawCall<DrawMeshInstancedCommand>()
@@ -919,6 +921,8 @@ namespace OloEngine
             cmd->isAnimatedMesh = false;
             cmd->cullOutputInstanceBufferID = outputInstanceBuffer;
             cmd->cullIndirectBufferID = indirectBuffer;
+            cmd->cullRootDataBufferID = rootDataBuffer;
+            cmd->cullRootDataAddressOffsetBytes = rootDataAddressOffsetBytes;
 
             packet->SetCommandType(cmd->header.type);
             packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -998,10 +1002,20 @@ namespace OloEngine
         // bypassing deferred occlusion above) — drawn through the normal
         // ScenePass / G-Buffer bucket, or submitted directly to
         // ForwardOverlayPass when overlayRoute (mirrors DrawMeshInstanced()).
+        GpuDrivenRootDataLayout reflectedRootLayout{};
+        [[maybe_unused]] const bool hasGpuDrivenRootLayout = RenderCommand::QueryGpuDrivenRootDataLayout(
+            shaderToUse->GetRHIHandle(), ShaderBindingLayout::SSBO_INSTANCE_DATA, reflectedRootLayout);
+        // The neutral reflected layout is already exactly the culler's target
+        // contract; a failed query leaves the value invalid and selects the
+        // ordinary CPU-assembled root path.
+
         auto cullResult = s_Data.GPUFrustumCuller->Cull(
-            packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
+            packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion, reflectedRootLayout);
         CommandPacket* packet = buildPacket(cullResult.OutputBuffer->GetStorage()->GetRHIHandle(),
-                                            cullResult.IndirectBuffer->GetRHIHandle());
+                                            cullResult.IndirectBuffer->GetRHIHandle(),
+                                            cullResult.RootDataBuffer ? cullResult.RootDataBuffer->GetRHIHandle()
+                                                                      : RHI::ResourceHandle{},
+                                            cullResult.RootDataAddressOffsetBytes);
         if (overlayRoute)
         {
             if (packet)

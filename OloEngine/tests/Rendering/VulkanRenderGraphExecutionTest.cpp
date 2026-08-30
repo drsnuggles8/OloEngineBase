@@ -20,11 +20,10 @@
 //      COUNTED, never silent).
 //
 // The gate: VulkanDevice::GetValidationErrorCount() must stay 0 across all
-// of it. Deliberately NOT routed through RenderCommand's process-wide
-// backend: swapping the global mid-suite would destroy an initialized GL
-// backend under later GPU tests. The facade wiring is exercised by the GL
-// suite (same neutral path); this test injects a local VulkanRendererAPI,
-// which is exactly what CommandBucket::Execute(RendererAPI&) exists for.
+// of it. Most tenants inject a local VulkanRendererAPI. The #807 fence tenant
+// deliberately owns a hidden no-API GLFW window and a real VulkanContext so
+// production acquire/segment/continuation/present code is exercised, then it
+// restores the displaced GL facade for later GPU tests.
 //
 // SKIP ladder mirrors VulkanBringUpTest: no loader / no instance / no device
 // satisfying the ADR 0010 contract -> clean SKIP, headless CI stays green.
@@ -42,6 +41,7 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Commands/CommandAllocator.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -49,24 +49,32 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
+#include "OloEngine/Renderer/RenderGraphPlanExecutor.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/RHI/RHIGpuFence.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
+#include "Platform/Vulkan/VulkanContext.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanGpuFence.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanStorageBuffer.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include "RenderingTestUtils.h"
+#include "VulkanTestSupport.h"
 
 #include <volk.h>
+#include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <functional>
 #include <limits>
@@ -75,6 +83,7 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 namespace
 {
     using namespace OloEngine;
+    using OloEngine::Tests::ScopedVulkanRenderCommandSelection;
 
     // RAII flip of the process-wide API selector around the factory calls —
     // Texture2D::Create / StorageBuffer::Create switch on it. Restores
@@ -94,15 +103,44 @@ namespace
         }
     };
 
+    class ScopedNoApiGlfwWindow
+    {
+      public:
+        ScopedNoApiGlfwWindow()
+        {
+            if (glfwInit() != GLFW_TRUE || glfwVulkanSupported() != GLFW_TRUE)
+                return;
+            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+            glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+            m_Window = glfwCreateWindow(64, 64, "OloEngine Vulkan fence test", nullptr, nullptr);
+            glfwDefaultWindowHints();
+        }
+
+        ~ScopedNoApiGlfwWindow()
+        {
+            if (m_Window != nullptr)
+                glfwDestroyWindow(m_Window);
+        }
+
+        [[nodiscard]] GLFWwindow* Get() const
+        {
+            return m_Window;
+        }
+
+      private:
+        GLFWwindow* m_Window = nullptr;
+    };
+
     // Minimal setup-lambda node (the RenderGraphTest.cpp stub pattern —
     // local because that helper is file-local there).
     class VkExecStubPass : public RenderGraphNode
     {
       public:
         using SetupFn = std::function<void(RGBuilder&)>;
+        using ExecuteFn = std::function<void()>;
 
-        VkExecStubPass(const std::string& name, SetupFn setup)
-            : m_Setup(std::move(setup))
+        VkExecStubPass(const std::string& name, SetupFn setup, ExecuteFn execute = {})
+            : m_Setup(std::move(setup)), m_Execute(std::move(execute))
         {
             m_Name = name;
         }
@@ -114,7 +152,11 @@ namespace
             if (m_Setup)
                 m_Setup(builder);
         }
-        void Execute(RGCommandContext& /*context*/) override {}
+        void Execute(RGCommandContext& /*context*/) override
+        {
+            if (m_Execute)
+                m_Execute();
+        }
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override
         {
             return nullptr;
@@ -122,6 +164,7 @@ namespace
 
       private:
         SetupFn m_Setup;
+        ExecuteFn m_Execute;
     };
 } // namespace
 
@@ -719,6 +762,134 @@ TEST_F(VulkanRenderGraphExecution, GpuFenceSignalsAndWaitsAcrossHostAndQueue)
     VulkanDeferredReclaim::Get().NotifyFrameCompleted();
 
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+// -----------------------------------------------------------------------------
+// #807, ADR 0011 §6: a dependency discovered by the render graph becomes an
+// actual producer-signal / consumer-wait pair on a live Vulkan device. The
+// producer fills a buffer, the separately submitted consumer copies it, and
+// the timeline semaphore is the only cross-submission dependency supplied.
+// -----------------------------------------------------------------------------
+TEST(VulkanRenderGraphExecutionContext, GraphDependencyFencePairOrdersProductionVulkanContextSubmissions)
+{
+    if (volkInitialize() != VK_SUCCESS)
+        GTEST_SKIP() << "No Vulkan loader on this machine.";
+
+    ScopedNoApiGlfwWindow window;
+    if (window.Get() == nullptr)
+        GTEST_SKIP() << "GLFW could not create a hidden Vulkan-capable window.";
+
+    const bool originalSequential = Levers::RenderGraphSequential();
+    struct SequentialRestore
+    {
+        bool Value;
+        ~SequentialRestore()
+        {
+            Levers::SetRenderGraphSequential(Value);
+        }
+    } sequentialRestore{ originalSequential };
+    Levers::SetRenderGraphSequential(false);
+
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    {
+        VulkanContext context(window.Get());
+        try
+        {
+            context.Init();
+        }
+        catch (const std::exception& e)
+        {
+            GTEST_SKIP() << "VulkanContext bring-up refused: " << e.what();
+        }
+        RenderCommand::Init();
+        VulkanDevice::ResetValidationErrorCount();
+
+        auto source = StorageBuffer::Create(sizeof(u32), 30u, StorageBufferUsage::DynamicCopy);
+        auto destination = StorageBuffer::Create(sizeof(u32), 31u, StorageBufferUsage::DynamicCopy);
+        ASSERT_TRUE(source && destination);
+        auto* vkSource = static_cast<VulkanStorageBuffer*>(source.Raw());
+        auto* vkDestination = static_cast<VulkanStorageBuffer*>(destination.Raw());
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+        constexpr u32 kGraphBufferIdentity = 807u;
+        constexpr u32 kPattern = 0x8070A110u;
+        const RGResourceDesc graphBufferDesc =
+            RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::StorageBuffer, "GraphFenceBuffer");
+
+        RenderGraph graph;
+        graph.SetRuntimeBarrierExecutionEnabled(false);
+        auto producer = Ref<VkExecStubPass>::Create(
+            "FenceProducer",
+            [graphBufferDesc](RGBuilder& builder)
+            {
+                auto buffer = builder.ImportBuffer("GraphFenceBuffer", kGraphBufferIdentity, graphBufferDesc);
+                builder.Write(buffer, RGWriteUsage::ShaderStorage);
+            },
+            [&]()
+            {
+                vkCmdFillBuffer(api.CurrentCommandBuffer(), vkSource->GetVkBuffer(), 0u, sizeof(kPattern), kPattern);
+            });
+        graph.AddNode(producer);
+
+        auto consumer = Ref<VkExecStubPass>::Create(
+            "FenceConsumer",
+            [graphBufferDesc](RGBuilder& builder)
+            {
+                auto buffer = builder.ImportBuffer("GraphFenceBuffer", kGraphBufferIdentity, graphBufferDesc);
+                [[maybe_unused]] const auto read = builder.Read(buffer, RGReadUsage::ShaderStorage);
+            },
+            [&]()
+            {
+                VkBufferCopy copy{};
+                copy.size = sizeof(kPattern);
+                vkCmdCopyBuffer(api.CurrentCommandBuffer(), vkSource->GetVkBuffer(),
+                                vkDestination->GetVkBuffer(), 1u, &copy);
+            });
+        consumer->SetPassWorkType(RenderGraphNode::PassWorkType::Compute);
+        graph.AddNode(consumer);
+        graph.AddExecutionDependency("FenceProducer", "FenceConsumer");
+        graph.SetFinalPass("FenceConsumer");
+        graph.BuildFrameGraph();
+
+        const auto plan = graph.GetSubmissionPlan();
+        const auto signalCommand = std::ranges::find_if(
+            plan,
+            [](const RenderGraph::SubmissionCommand& command)
+            { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::FenceSignal; });
+        const auto waitCommand = std::ranges::find_if(
+            plan,
+            [](const RenderGraph::SubmissionCommand& command)
+            { return command.CommandKind == RenderGraph::SubmissionCommand::Kind::FenceWait; });
+        ASSERT_NE(signalCommand, plan.end());
+        ASSERT_NE(waitCommand, plan.end());
+        ASSERT_EQ(signalCommand->FenceEdges.size(), 1u);
+        ASSERT_EQ(waitCommand->FenceEdges.size(), 1u);
+        EXPECT_EQ(signalCommand->FenceEdges.front().Index, waitCommand->FenceEdges.front().Index);
+
+        context.SetFrameRenderCallback(
+            [&](const GraphicsContext::FrameRenderTarget&)
+            {
+                graph.Execute();
+                return false; // let VulkanContext own the backbuffer clear/present
+            });
+        context.SwapBuffers();
+        ASSERT_NE(VulkanDevice::Get(), nullptr);
+        ASSERT_EQ(vkQueueWaitIdle(VulkanDevice::Get()->GetQueue()), VK_SUCCESS);
+
+        EXPECT_EQ(context.GetRenderGraphFenceSegmentSubmitCountThisFrame(), 2u)
+            << "producer and wait-only consumer segments must travel through VulkanContext";
+        EXPECT_EQ(context.GetRenderGraphTimelineSignalCountThisFrame(), 1u);
+        EXPECT_EQ(context.GetRenderGraphTimelineWaitCountThisFrame(), 1u);
+        EXPECT_EQ(VulkanGpuFence::GetPendingSubmitOpCount(), 0u);
+
+        u32 copied = 0u;
+        destination->GetData(&copied, sizeof(copied));
+        EXPECT_EQ(copied, kPattern);
+        context.SetFrameRenderCallback({});
+    }
+
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u)
+        << "production split submissions and VulkanContext teardown must remain validation-clean";
 }
 
 #endif // OLO_WITH_VULKAN

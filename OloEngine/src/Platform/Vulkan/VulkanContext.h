@@ -91,6 +91,26 @@ namespace OloEngine
         // price GL always paid for glGetBufferSubData.
         [[nodiscard]] bool FlushFrameRecordingAndWait();
 
+        // Ends and submits the current render-graph producer segment without
+        // waiting for the GPU, then opens a fresh command buffer for the
+        // consumer segment. Staged RHI::GpuFence operations drain onto this
+        // producer submit. Only the live SwapBuffers callback may use it;
+        // headless device tests intentionally remain one-submit recordings.
+        [[nodiscard]] bool SubmitRenderGraphFenceSegment();
+        [[nodiscard]] bool CanSubmitRenderGraphFenceSegments() const;
+        [[nodiscard]] u32 GetRenderGraphFenceSegmentSubmitCountThisFrame() const
+        {
+            return m_RenderGraphFenceSegmentSubmitCountThisFrame;
+        }
+        [[nodiscard]] u32 GetRenderGraphTimelineSignalCountThisFrame() const
+        {
+            return m_RenderGraphTimelineSignalCountThisFrame;
+        }
+        [[nodiscard]] u32 GetRenderGraphTimelineWaitCountThisFrame() const
+        {
+            return m_RenderGraphTimelineWaitCountThisFrame;
+        }
+
         // Swapchain facts the ImGui renderer backend needs at Init (#691):
         // imgui_impl_vulkan bakes the swapchain color format into
         // its pipeline (dynamic rendering) and sizes its per-frame buffers
@@ -116,6 +136,9 @@ namespace OloEngine
         FrameRenderCallback m_FrameRenderCallback;
         /// Re-entrancy latch — see the nested-present guard in SwapBuffers.
         bool m_InSwapBuffers = false;
+        u32 m_RenderGraphFenceSegmentSubmitCountThisFrame = 0;
+        u32 m_RenderGraphTimelineSignalCountThisFrame = 0;
+        u32 m_RenderGraphTimelineWaitCountThisFrame = 0;
 
         inline static VulkanContext* s_Instance = nullptr;
     };

@@ -21,6 +21,7 @@
 #include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanShader.h"
+#include "Platform/Vulkan/VulkanStorageBuffer.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <glm/gtc/packing.hpp>
@@ -219,6 +220,7 @@ namespace OloEngine
         m_ScissorRectSet = false;
         m_PreparedDrawsThisRecording = 0;
         m_DroppedDrawsThisRecording = 0;
+        m_GpuWrittenRootDrawsThisRecording = 0;
         m_ConditionallySkippedDrawsThisRecording = 0;
         // Query state is command-buffer state too: an unbalanced Begin from a
         // previous recording must not leak into this one.
@@ -298,9 +300,19 @@ namespace OloEngine
             return VK_NULL_HANDLE;
         }
         EndRenderingScope();
+        // Clear() is lazy until a rendering scope opens. A dependency signal
+        // must nevertheless sit after every producer command, including a
+        // clear-only pass, so materialize it into the segment being detached
+        // instead of carrying it into the consumer command buffer.
+        MaterializePendingClear();
         const VkCommandBuffer cmd = m_Cmd;
         m_Cmd = VK_NULL_HANDLE;
         return cmd;
+    }
+
+    void VulkanRendererAPI::MarkSuspendedRecordingSubmitted()
+    {
+        m_LayoutTracker.CommitRecordedToExecuted();
     }
 
     void VulkanRendererAPI::ResumeRecordingAfterFlush(const VkCommandBuffer cmd)
@@ -625,6 +637,177 @@ namespace OloEngine
         dep.pBufferMemoryBarriers = bufferBarriers.empty() ? nullptr : bufferBarriers.data();
 
         vkCmdPipelineBarrier2(m_Cmd, &dep);
+    }
+
+    bool VulkanRendererAPI::WriteBufferDeviceAddress(const RHI::ResourceHandle destination, const u32 destinationOffset,
+                                                     const RHI::ResourceHandle source)
+    {
+        if (m_Cmd == VK_NULL_HANDLE || (destinationOffset % sizeof(u32)) != 0u ||
+            RHI::ResourceRegistry::Get().KindOf(destination) != RHI::ResourceKind::Buffer ||
+            RHI::ResourceRegistry::Get().KindOf(source) != RHI::ResourceKind::Buffer)
+        {
+            return false;
+        }
+
+        const auto* destinationEntry = VulkanRootObjectRegistry::Get().Lookup(destination);
+        if (destinationEntry == nullptr || destinationEntry->Kind != VulkanRootObjectKind::StorageBuffer ||
+            destinationEntry->Object == nullptr)
+            return false;
+        const auto* destinationBuffer = static_cast<const VulkanStorageBuffer*>(destinationEntry->Object);
+        if (destinationBuffer->GetSize() < sizeof(VkDeviceAddress) ||
+            destinationOffset > destinationBuffer->GetSize() - sizeof(VkDeviceAddress))
+            return false;
+
+        const u64 destinationNative = RHI::ResourceRegistry::Get().ResolveNativeForBackend(destination);
+        const u64 sourceNative = RHI::ResourceRegistry::Get().ResolveNativeForBackend(source);
+        auto* device = VulkanDevice::Get();
+        if (destinationNative == 0u || sourceNative == 0u || device == nullptr)
+            return false;
+
+        VkBufferDeviceAddressInfo addressInfo{};
+        addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+        addressInfo.buffer = reinterpret_cast<VkBuffer>(sourceNative);
+        const VkDeviceAddress sourceAddress = vkGetBufferDeviceAddress(device->GetDevice(), &addressInfo);
+        if (sourceAddress == 0u)
+            return false;
+
+        // vkCmdUpdateBuffer is a GPU transfer, not a CPU root-struct write.
+        // The cull compute consumes this one address as input and writes the
+        // root ABI itself before its indirect draw is recorded.
+        EndRenderingScope();
+        vkCmdUpdateBuffer(m_Cmd, reinterpret_cast<VkBuffer>(destinationNative), destinationOffset,
+                          sizeof(sourceAddress), &sourceAddress);
+        return true;
+    }
+
+    bool VulkanRendererAPI::QueryGpuDrivenRootDataLayout(const RHI::ResourceHandle shaderHandle,
+                                                         const u32 storageBinding,
+                                                         GpuDrivenRootDataLayout& outLayout)
+    {
+        outLayout = {};
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(shaderHandle);
+        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::Shader || entry->Object == nullptr)
+            return false;
+
+        auto* shader = static_cast<VulkanShader*>(entry->Object);
+        const auto& layout = shader->GetRootDataLayout();
+        const auto field = std::ranges::find_if(
+            layout.Fields,
+            [storageBinding](const VulkanRootDataLayout::Field& candidate)
+            {
+                return candidate.Binding.Set == 0u && candidate.Binding.Binding == storageBinding &&
+                       candidate.Binding.BindingKind == VulkanShaderBinding::Kind::StorageBuffer;
+            });
+        if (field == layout.Fields.end())
+            return false;
+
+        outLayout = {
+            .SizeBytes = layout.SizeBytes,
+            .GpuWrittenFieldOffsetBytes = field->Offset,
+        };
+        return outLayout.IsValid();
+    }
+
+    bool VulkanRendererAPI::SetNextDrawRootData(const RHI::ResourceHandle rootData,
+                                                const u32 gpuWrittenStorageBinding,
+                                                const u32 expectedFieldOffsetBytes)
+    {
+        // Failed selection must not leak an earlier unconsumed hand-off into
+        // the next draw. A successful call below republishes the address.
+        m_NextDrawRootDataAddress = 0u;
+        if (m_Cmd == VK_NULL_HANDLE)
+            return false;
+
+        const auto* rootEntry = VulkanRootObjectRegistry::Get().Lookup(rootData);
+        if (rootEntry == nullptr || rootEntry->Kind != VulkanRootObjectKind::StorageBuffer || rootEntry->Object == nullptr)
+            return false;
+        auto* rootBuffer = static_cast<VulkanStorageBuffer*>(rootEntry->Object);
+
+        VulkanShader* shader = VulkanShader::GetCurrentlyBound();
+        if (shader == nullptr)
+            return false;
+        const auto& layout = shader->GetRootDataLayout();
+        const auto gpuField = std::ranges::find_if(
+            layout.Fields,
+            [gpuWrittenStorageBinding](const VulkanRootDataLayout::Field& candidate)
+            {
+                return candidate.Binding.Set == 0u && candidate.Binding.Binding == gpuWrittenStorageBinding &&
+                       candidate.Binding.BindingKind == VulkanShaderBinding::Kind::StorageBuffer;
+            });
+        constexpr u32 kMaxUpdateBytes = 65536u;
+        if (gpuField == layout.Fields.end() || gpuField->Offset != expectedFieldOffsetBytes ||
+            layout.SizeBytes == 0u || layout.SizeBytes > rootBuffer->GetSize() || layout.SizeBytes > kMaxUpdateBytes)
+        {
+            return false;
+        }
+
+        const VkDeviceAddress rootAddress = rootBuffer->GetDeviceAddress();
+        if (rootAddress == 0u)
+            return false;
+
+        // The cull compute already wrote this field. Complete every other
+        // field from the binding state that belongs to THIS sorted draw, but
+        // never overwrite the GPU-owned address. Recording vkCmdUpdateBuffer
+        // keeps the completed struct in GPU command order; no GPU result is
+        // read back and no CPU-built replacement is substituted for the
+        // compute-written field.
+        AssembleRootData(layout, shader->GetName().c_str(), m_BoundVertexArray,
+                         /*commandOrderedBufferReads=*/true);
+
+        const u32 gpuFieldEnd = gpuField->Offset + static_cast<u32>(sizeof(VkDeviceAddress));
+        const VkBuffer native = rootBuffer->GetVkBuffer();
+        EndRenderingScope();
+        const auto updateRange = [&](const u32 offset, const u32 size)
+        {
+            if (size == 0u)
+                return;
+            vkCmdUpdateBuffer(m_Cmd, native, offset, size, m_RootScratch.data() + offset);
+        };
+        if (gpuField->Offset > 0u)
+            updateRange(0u, gpuField->Offset);
+        if (gpuFieldEnd < layout.SizeBytes)
+            updateRange(gpuFieldEnd, layout.SizeBytes - gpuFieldEnd);
+
+        // Both the compute-written address and the transfer-written static
+        // fields must be visible when descriptor mapping dereferences the root
+        // struct. This resource-local barrier is intentionally after the last
+        // update and immediately before the draw that consumes it.
+        VkBufferMemoryBarrier2 rootBarrier{};
+        rootBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        rootBarrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        rootBarrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        rootBarrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+        rootBarrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+        rootBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        rootBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        rootBarrier.buffer = native;
+        rootBarrier.offset = 0u;
+        rootBarrier.size = layout.SizeBytes;
+        VkDependencyInfo dependency{};
+        dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dependency.bufferMemoryBarrierCount = 1u;
+        dependency.pBufferMemoryBarriers = &rootBarrier;
+        vkCmdPipelineBarrier2(m_Cmd, &dependency);
+
+        m_NextDrawRootDataAddress = rootAddress;
+        return true;
+    }
+
+    bool VulkanRendererAPI::SupportsRenderGraphFenceSubmission() const
+    {
+        // A bare VulkanRendererAPI in a device-gated fixture has a command
+        // buffer but no swapchain/frame owner. It must not stage a fence pair
+        // into that fixture's single submit: producer signal and consumer wait
+        // would then be the invalid same-submit shape this API exists to avoid.
+        const VulkanContext* context = VulkanContext::Get();
+        return m_Cmd != VK_NULL_HANDLE && context != nullptr && context->CanSubmitRenderGraphFenceSegments();
+    }
+
+    bool VulkanRendererAPI::SubmitRenderGraphFenceSegment()
+    {
+        if (VulkanContext* context = VulkanContext::Get(); context != nullptr)
+            return context->SubmitRenderGraphFenceSegment();
+        return false;
     }
 
     // --- Transient clears (the poison instrument's backend) ----------------
@@ -1700,6 +1883,13 @@ namespace OloEngine
 
     bool VulkanRendererAPI::PrepareDrawCommon(const VulkanVertexArray* vao, const bool meshPipeline)
     {
+        // This is deliberately consumed by the next *attempted* draw, even
+        // when the attempt later drops. Letting it leak into an unrelated draw
+        // after a missing shader/pipeline failure would be worse than dropping
+        // the producer's work (and would violate the one-draw hand-off).
+        const VkDeviceAddress gpuWrittenRootData = m_NextDrawRootDataAddress;
+        m_NextDrawRootDataAddress = 0;
+
         if (m_Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("Draw(outside recording bracket)", StubKind::OutsideRecording);
@@ -1843,10 +2033,16 @@ namespace OloEngine
             m_HeapBoundThisRecording = true;
         }
 
-        const bool assembled =
-            AssembleAndPushRootData(layout, shader->GetName().c_str(), vao, /*commandOrderedBufferReads=*/true);
+        const bool assembled = gpuWrittenRootData != 0u
+                                   ? PushRootDataAddress(gpuWrittenRootData)
+                                   : AssembleAndPushRootData(layout, shader->GetName().c_str(), vao,
+                                                             /*commandOrderedBufferReads=*/true);
         if (assembled)
+        {
             ++m_PreparedDrawsThisRecording;
+            if (gpuWrittenRootData != 0u)
+                ++m_GpuWrittenRootDrawsThisRecording;
+        }
         else
             ++m_DroppedDrawsThisRecording;
         return assembled;
@@ -1879,8 +2075,8 @@ namespace OloEngine
         }
     } // namespace
 
-    bool VulkanRendererAPI::AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
-                                                    const VulkanVertexArray* vao, bool commandOrderedBufferReads)
+    void VulkanRendererAPI::AssembleRootData(const VulkanRootDataLayout& layout, const char* shaderName,
+                                             const VulkanVertexArray* vao, const bool commandOrderedBufferReads)
     {
         // Root-struct assembly: one u64 device address per buffer block, one
         // u32 heap slot per image, from the process-global binding state
@@ -2022,17 +2218,29 @@ namespace OloEngine
                 }
             }
         }
+    }
 
+    bool VulkanRendererAPI::AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
+                                                    const VulkanVertexArray* vao, const bool commandOrderedBufferReads)
+    {
+        AssembleRootData(layout, shaderName, vao, commandOrderedBufferReads);
         const auto rootAllocation = VulkanFrameArena::Get().Push(m_RootScratch.data(), m_RootScratch.size(), 16);
         if (!rootAllocation.IsValid())
         {
             return false; // arena overflow — dropped work, counted by the arena
         }
 
+        return PushRootDataAddress(rootAllocation.Gpu);
+    }
+
+    bool VulkanRendererAPI::PushRootDataAddress(const VkDeviceAddress rootAddress)
+    {
+        if (m_Cmd == VK_NULL_HANDLE || rootAddress == 0u)
+            return false;
+
         VkPushDataInfoEXT pushInfo{};
         pushInfo.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
         pushInfo.offset = 0;
-        VkDeviceAddress rootAddress = rootAllocation.Gpu;
         pushInfo.data = { .address = &rootAddress, .size = sizeof(rootAddress) };
         vkCmdPushDataEXT(m_Cmd, &pushInfo);
         return true;

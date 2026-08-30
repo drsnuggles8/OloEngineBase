@@ -1227,6 +1227,10 @@ namespace OloEngine
         //                   backends insert a queue-wait here.
         //   BatchEnd      — close the current async-compute slot;
         //                   backends insert a queue-signal / fence here.
+        //   FenceWait     — wait for dependency-derived timeline values before
+        //                   recording the consumer pass.
+        //   FenceSignal   — signal dependency-derived timeline values after
+        //                   recording the producer pass.
         //
         // Backend mapping:
         //   GL 4.6   : BatchEnd → glFenceSync; BatchBegin → glClientWaitSync.
@@ -1235,6 +1239,23 @@ namespace OloEngine
         //              queue with matching wait/signal semaphores.
         //   DX12     : BatchBegin/BatchEnd bound a compute command-list with
         //              fence Signal/Wait pairs.
+        //
+        // FenceWait/FenceSignal deliberately name DEPENDENCY EDGES rather
+        // than async batches. A graphics -> copy edge and a compute ->
+        // graphics edge are equally real synchronization work; batches are
+        // merely one scheduling heuristic that may group several such edges.
+        // The sequential debug lever omits these commands and leaves the
+        // existing full memory barriers in place.
+        struct FenceEdge
+        {
+            u32 Index = 0; ///< stable within one compiled submission plan
+            std::string ProducerPass;
+            std::string ConsumerPass;
+            QueueLane ProducerLane = QueueLane::Graphics;
+            QueueLane ConsumerLane = QueueLane::Graphics;
+            std::vector<std::string> Resources; ///< resources sharing this producer -> consumer edge
+        };
+
         struct SubmissionCommand
         {
             enum class Kind : u8
@@ -1243,6 +1264,8 @@ namespace OloEngine
                 MemoryBarrier,
                 BatchBegin,
                 BatchEnd,
+                FenceWait,
+                FenceSignal,
             };
 
             Kind CommandKind = Kind::Pass;
@@ -1273,6 +1296,11 @@ namespace OloEngine
             std::vector<std::string> SignalNodes;                 ///< for BatchEnd commands
             std::vector<BatchResourceDependency> InputResources;  ///< for BatchBegin commands
             std::vector<BatchResourceDependency> OutputResources; ///< for BatchEnd commands
+
+            // For FenceWait/FenceSignal: one record per graph dependency edge.
+            // The executor instantiates a timeline fence/value pair only when
+            // the active backend can split the recording into submissions.
+            std::vector<FenceEdge> FenceEdges;
         };
 
         // Build the submission-plan IR for the current frame.
@@ -1451,6 +1479,7 @@ namespace OloEngine
         // Execution-ready cache — rebuilt when m_DependencyGraphDirty is set.
         // The compiled submission plan is the only execution IR used by Execute().
         std::vector<SubmissionCommand> m_CachedSubmissionPlan; ///< IR cached after barrier planning
+        bool m_CachedSubmissionPlanSequential = false;         ///< cache key for OLO_RENDERGRAPH_SEQUENTIAL
         std::string m_LastLoggedSubmissionPlanDigest;
         std::string m_LastLoggedCulledPassDigest;
         std::string m_LastLoggedBuildDiagnosticDigest;

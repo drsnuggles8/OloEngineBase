@@ -24,14 +24,16 @@
 #   - Measured >= 1.5x baseline  -> WARN-level (fails only when STRICT)
 #   - Faster than baseline       -> PASS, never fail on improvements
 #
-# Metric: minimum of 20 GL_TIME_ELAPSED samples after 5 warmup draws.
-# The minimum (not median) is used because driver scheduling + GPU
-# idle-ramp can only add time; the fastest run is the cleanest signal.
+# Metric: minimum of 20 samples after 5 warmups. Fullscreen passes use
+# GL_TIME_ELAPSED; CPU/submission benches use steady_clock and state their
+# unit in the test log. The fastest run is the cleanest signal.
 
 bloom_downsample_512x512 15360
 bloom_threshold_512x512 5120
 bloom_upsample_512x512 12288
 classic_geometry_frame_1280x720 6445056
+gpu_frustum_cull_safe_root_bindings_1024 132700
+render_graph_fence_execute_32_edges 34926
 scene_draw_burst_512x512 328704
 tone_map_512x512 9216
 virtual_geometry_frame_1280x720 4628480

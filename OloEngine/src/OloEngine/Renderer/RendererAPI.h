@@ -26,6 +26,24 @@ namespace OloEngine
         u32 height = 0;
     };
 
+    // Backend-neutral description of the one root-data field a GPU-driven
+    // producer owns. The rest of the root struct remains shader-specific and
+    // is completed from the draw's published bindings immediately before the
+    // indirect draw. A backend that does not use pointer-shaped root data
+    // leaves the query unsupported.
+    struct GpuDrivenRootDataLayout
+    {
+        u32 SizeBytes = 0;
+        u32 GpuWrittenFieldOffsetBytes = 0;
+
+        [[nodiscard]] bool IsValid() const
+        {
+            return SizeBytes >= sizeof(u64) &&
+                   GpuWrittenFieldOffsetBytes <= SizeBytes - sizeof(u64) &&
+                   (GpuWrittenFieldOffsetBytes % alignof(u64)) == 0u;
+        }
+    };
+
     class RendererAPI
     {
       public:
@@ -203,6 +221,30 @@ namespace OloEngine
         virtual void DrawMeshTasks(u32 groupsX, u32 groupsY, u32 groupsZ) = 0;
         virtual void MemoryBarrier(MemoryBarrierFlags flags) = 0;
 
+        // GPU-written root-data hand-off (ADR 0011 §4.2). A GPU-driven
+        // producer seeds a tiny input with the address of the payload it
+        // generated; its compute shader writes the GPU-owned field directly
+        // into an ABI-compatible root struct. The next indirect draw may then
+        // consume it without a CPU readback; shader-specific static fields are
+        // completed in command order. Backends that do not use buffer-address
+        // root data leave these as conservative no-ops.
+        [[nodiscard]] virtual bool WriteBufferDeviceAddress(RHI::ResourceHandle /*destination*/, u32 /*destinationOffset*/,
+                                                            RHI::ResourceHandle /*source*/)
+        {
+            return false;
+        }
+        [[nodiscard]] virtual bool QueryGpuDrivenRootDataLayout(RHI::ResourceHandle /*shader*/, u32 /*storageBinding*/,
+                                                                GpuDrivenRootDataLayout& outLayout)
+        {
+            outLayout = {};
+            return false;
+        }
+        [[nodiscard]] virtual bool SetNextDrawRootData(RHI::ResourceHandle /*rootData*/, u32 /*gpuWrittenStorageBinding*/,
+                                                       u32 /*expectedFieldOffsetBytes*/)
+        {
+            return false;
+        }
+
         // The render graph's pre-pass barrier batch, carrying BOTH barrier
         // currencies (ADR 0011 §1.5). `flags` is the GL lowering —
         // the glMemoryBarrier bitmask the planner derives; `barriers` is the
@@ -214,6 +256,21 @@ namespace OloEngine
         // the two is authoritative per backend — neither backend may consult
         // both.
         virtual void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) = 0;
+
+        // Render-graph split-barrier scheduling. The graph always retains its
+        // normal pre-pass MemoryBarrier; a backend returns true here only when
+        // it can end the current recording segment, submit producer work with
+        // staged GpuFence signals, and resume recording a consumer segment.
+        // OpenGL and headless Vulkan tests deliberately keep the conservative
+        // single-stream path.
+        [[nodiscard]] virtual bool SupportsRenderGraphFenceSubmission() const
+        {
+            return false;
+        }
+        [[nodiscard]] virtual bool SubmitRenderGraphFenceSegment()
+        {
+            return false;
+        }
 
         // New methods for render graph
         virtual void BindDefaultFramebuffer() = 0;

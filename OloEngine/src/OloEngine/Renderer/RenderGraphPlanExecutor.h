@@ -2,6 +2,7 @@
 
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RHI/RHIGpuFence.h"
 
 #include <functional>
 #include <span>
@@ -41,6 +42,16 @@ namespace OloEngine::RenderGraphPlanExecutor
         // the GL flags. When null — headless plan-shape tests — the barrier
         // batch carries flags only, which is the complete GL behaviour.
         RenderGraph* GraphForBarrierResolution = nullptr;
+
+        // Optional owner-specific submission adapter. The live renderer uses
+        // RGCommandContext; a headless/offscreen owner can supply the same two
+        // operations for its own command-buffer chain without a platform
+        // downcast in this backend-neutral executor.
+        std::function<bool()> SupportsFenceSubmission;
+        std::function<bool()> SubmitFenceSegment;
+        // Test/alternate-owner seam for the otherwise backend-selected fence
+        // factory. Production leaves this empty and uses GpuFence::Create().
+        std::function<Ref<RHI::GpuFence>()> CreateGpuFence;
     };
 
     // Runs the IR walk and returns per-pass CPU timings (one entry per

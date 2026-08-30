@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
@@ -55,7 +56,13 @@ namespace OloEngine
         {
             Ref<InstanceBuffer> OutputBuffer;  // bind at SSBO_INSTANCE_DATA = 15 before the draw
             Ref<StorageBuffer> IndirectBuffer; // pass to glDrawElementsIndirect
-            u32 InputCount = 0;                // pre-cull count, recorded for the profiler
+            // A reflected root ABI payload whose instance-data address is
+            // written by the cull compute itself. On Vulkan,
+            // SetNextDrawRootData() completes its other fields and hands it to
+            // a compatible indirect draw; GL retains its normal bind-state path.
+            Ref<StorageBuffer> RootDataBuffer;
+            u32 RootDataAddressOffsetBytes = 0;
+            u32 InputCount = 0; // pre-cull count, recorded for the profiler
         };
 
         // Per-frame Hi-Z occlusion inputs (#431). When `Enabled` and a valid
@@ -163,6 +170,11 @@ namespace OloEngine
                         u32 indexCount, u32 baseIndex,
                         const glm::vec4& localBoundingSphere,
                         f32 radiusExpansion);
+        CullResult Cull(std::span<const InstanceData> instances,
+                        u32 indexCount, u32 baseIndex,
+                        const glm::vec4& localBoundingSphere,
+                        f32 radiusExpansion,
+                        GpuDrivenRootDataLayout rootDataLayout);
 
         // Two-phase phase 1 (#431). Dispatched at submission against the
         // per-frame occlusion inputs (SetOcclusion → previous frame's HZB):
@@ -198,6 +210,8 @@ namespace OloEngine
             Ref<StorageBuffer> InputBuffer;    // binding 16 — CPU writes InstanceData[]
             Ref<InstanceBuffer> OutputBuffer;  // binding 15 — compute writes survivors
             Ref<StorageBuffer> IndirectBuffer; // binding 17 — DrawElementsIndirectCommand
+            Ref<StorageBuffer> RootSeedBuffer; // binding 18 — output-buffer address, GPU-read (frustum path only)
+            Ref<StorageBuffer> RootDataBuffer; // binding 19 — GPU-written ABI root struct (frustum path only)
             u32 Capacity = 0;                  // in instances
 
             // Two-phase additions (#431), allocated lazily by

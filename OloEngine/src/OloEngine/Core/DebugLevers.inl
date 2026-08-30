@@ -37,6 +37,9 @@ OLO_LEVER_TOGGLE(DisableTransientAliasing, "OLO_RG_DISABLE_ALIASING",
                  "transient planner's lifetime analysis let two live resources share one GPU object.")
 OLO_LEVER_TOGGLE(BlackSquareHunt, "OLO_RG_BLACKSQUARE_HUNT",
                  "Extra per-pass logging for the transient black-square artifact hunt.")
+OLO_LEVER_EXACT(RenderGraphSequential, "OLO_RENDERGRAPH_SEQUENTIAL",
+                "Keep render-graph work in one submission and suppress split-barrier fence scheduling. "
+                "The normal per-pass barriers remain, making this the A/B for a queue-scheduling race.")
 
 // --- RHI --------------------------------------------------------------------
 OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",

@@ -3,8 +3,8 @@
 //
 // Layer-6 (Performance Regression, doc section 6) microbenchmarks. Wronski's
 // "microbenchmarks with controlled inputs" philosophy — isolate individual
-// post-process passes on fixed-size synthetic inputs and measure GPU time
-// via GL timestamp queries, then compare against a dev-PC baseline stored
+// post-process passes on fixed-size synthetic inputs, plus CPU executor
+// hot paths, then compare them against a dev-PC baseline stored
 // in `perf_baselines.txt` (tracked in git, rebased via the
 // `--olo-perf-rebase` flag).
 //
@@ -49,6 +49,8 @@
 //      ~43 tests asserted it was CORRECT and not one asserted it was FAST, which
 //      is uncomfortable given that being fast is the entire reason it exists. A
 //      3x regression in the cluster cull would have been invisible.
+//   8. Render-graph fence execution for a 32-edge cross-lane plan
+//   9. Production GPU frustum culling with the root-publication path prepared
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -73,11 +75,15 @@
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
+#include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RenderGraphPlanExecutor.h"
+#include "OloEngine/Renderer/RHI/RHIGpuFence.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -90,6 +96,7 @@
 #include "OloEngine/Scene/Scene.h"
 
 #include <algorithm>
+#include <array>
 #include <utility>
 #include <chrono>
 #include <cmath>
@@ -101,6 +108,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -225,9 +233,9 @@ namespace OloEngine::Tests
                 << "#   - Measured >= 1.5x baseline  -> WARN-level (fails only when STRICT)\n"
                 << "#   - Faster than baseline       -> PASS, never fail on improvements\n"
                 << "#\n"
-                << "# Metric: minimum of 20 GL_TIME_ELAPSED samples after 5 warmup draws.\n"
-                << "# The minimum (not median) is used because driver scheduling + GPU\n"
-                << "# idle-ramp can only add time; the fastest run is the cleanest signal.\n\n";
+                << "# Metric: minimum of 20 samples after 5 warmups. Fullscreen passes use\n"
+                << "# GL_TIME_ELAPSED; CPU/submission benches use steady_clock and state\n"
+                << "# their unit in the test log. The fastest run is the cleanest signal.\n\n";
             // Sort for stability.
             std::vector<std::string> keys;
             keys.reserve(baselines.size());
@@ -451,7 +459,225 @@ namespace OloEngine::Tests
           private:
             GLuint m_Query = 0;
         };
+
+        // General counterpart to MeasureFullscreenPassStableNs. A single
+        // attempt takes the minimum of 20 batched samples; when that still
+        // crosses the warning ratio, retry once and keep the faster attempt.
+        // This is the same anti-flake policy as the GPU microbenchmarks, applied
+        // to the render-graph executor's allocation/callback-heavy hot path.
+        template<typename MeasureFn>
+        u64 MeasureBenchmarkStableNs(const std::string& baselineKey, MeasureFn&& measure)
+        {
+            const u64 first = measure();
+            const auto it = PerfBaselineCache().find(baselineKey);
+            if (it == PerfBaselineCache().end() || it->second == 0u || PerfShouldRebase())
+                return first;
+
+            if (const f32 ratio = static_cast<f32>(first) / static_cast<f32>(it->second);
+                ratio < kPerfWarnRatio)
+            {
+                return first;
+            }
+
+            return std::min(first, measure());
+        }
+
+        class PerfGpuFence final : public RHI::GpuFence
+        {
+          public:
+            PerfGpuFence() : RHI::GpuFence(0u) {}
+
+            void QueueSignal(const u64 value, RHI::FenceSignalOp) override
+            {
+                NoteSignalValue(value);
+            }
+            void QueueWait(u64, RHI::FenceCompareOp) override {}
+            void HostSignal(const u64 value, RHI::FenceSignalOp) override
+            {
+                NoteSignalValue(value);
+            }
+            [[nodiscard]] bool HostWait(u64, u64, RHI::FenceCompareOp) override
+            {
+                return true;
+            }
+            [[nodiscard]] u64 CompletedValue() const override
+            {
+                return 0u;
+            }
+        };
     } // namespace
+
+    // The production executor allocates/stages one timeline fence per
+    // cross-lane dependency and walks each edge at both its signal and wait.
+    // Thirty-two edges is deliberately above the shipping graph's current
+    // count, leaving budget for graph growth while still measuring one frame's
+    // work rather than an artificial stress limit.
+    TEST(PerfRegressionTest, RenderGraphFenceExecutionStaysWithinCpuBudget)
+    {
+        constexpr u32 kEdgeCount = 32u;
+        constexpr u32 kExecutionsPerSample = 64u;
+        constexpr u32 kWarmupSamples = 5u;
+        constexpr u32 kMeasureSamples = 20u;
+        constexpr std::string_view kBaselineKey = "render_graph_fence_execute_32_edges";
+
+        std::vector<RenderGraph::SubmissionCommand> plan;
+        plan.reserve(kEdgeCount * 2u);
+        for (u32 index = 0u; index < kEdgeCount; ++index)
+        {
+            RenderGraph::FenceEdge edge{
+                .Index = index,
+                .ProducerPass = "GraphicsProducer" + std::to_string(index),
+                .ConsumerPass = "ComputeConsumer" + std::to_string(index),
+                .ProducerLane = RenderGraph::QueueLane::Graphics,
+                .ConsumerLane = RenderGraph::QueueLane::Compute,
+            };
+
+            RenderGraph::SubmissionCommand signal;
+            signal.CommandKind = RenderGraph::SubmissionCommand::Kind::FenceSignal;
+            signal.Lane = RenderGraph::QueueLane::Graphics;
+            signal.FenceEdges.push_back(edge);
+            plan.push_back(std::move(signal));
+
+            RenderGraph::SubmissionCommand wait;
+            wait.CommandKind = RenderGraph::SubmissionCommand::Kind::FenceWait;
+            wait.Lane = RenderGraph::QueueLane::Compute;
+            wait.FenceEdges.push_back(std::move(edge));
+            plan.push_back(std::move(wait));
+        }
+
+        RGCommandContext context;
+        u64 submitCount = 0u;
+        sizet timingCount = 0u;
+        const auto executeOnce = [&]() -> sizet
+        {
+            const auto timings = RenderGraphPlanExecutor::ExecutePlan({
+                .SubmissionPlan = plan,
+                .Context = context,
+                .RuntimeBarrierExecutionEnabled = false,
+                .IsPassReachable = [](const std::string&)
+                { return true; },
+                .SupportsFenceSubmission = []()
+                { return true; },
+                .SubmitFenceSegment = [&submitCount]()
+                { ++submitCount; return true; },
+                .CreateGpuFence = []() -> Ref<RHI::GpuFence>
+                { return Ref<PerfGpuFence>::Create(); },
+            });
+            return timings.size();
+        };
+
+        const auto measure = [&]() -> u64
+        {
+            for (u32 sample = 0u; sample < kWarmupSamples; ++sample)
+                for (u32 execution = 0u; execution < kExecutionsPerSample; ++execution)
+                    timingCount += executeOnce();
+
+            std::array<u64, kMeasureSamples> samples{};
+            for (u64& sample : samples)
+            {
+                const auto start = std::chrono::steady_clock::now();
+                for (u32 execution = 0u; execution < kExecutionsPerSample; ++execution)
+                    timingCount += executeOnce();
+                const auto end = std::chrono::steady_clock::now();
+                sample = static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()) /
+                         kExecutionsPerSample;
+            }
+            return *std::ranges::min_element(samples);
+        };
+
+        const u64 measuredNs = MeasureBenchmarkStableNs(std::string(kBaselineKey), measure);
+        std::cout << "[BENCHMARK] " << kBaselineKey << ": " << measuredNs << " ns/execution\n";
+        CheckPerfRegression(std::string(kBaselineKey), measuredNs);
+
+        EXPECT_EQ(timingCount, 0u);
+        EXPECT_GE(submitCount, static_cast<u64>(kEdgeCount) * kExecutionsPerSample)
+            << "the timed path did not stage and submit the dependency fence work";
+    }
+
+    namespace
+    {
+        class GPUFrustumCullPerf : public RendererAttachedTest
+        {
+          protected:
+            void BuildScene() override {}
+        };
+    } // namespace
+
+    // Pins the steady-state production culler after the root-preparation
+    // buffers have been created. OpenGL declines the address write, so this
+    // benchmark measures the backend-neutral shader and safe-buffer binding
+    // fallback; the Vulkan device tenant separately pins actual publication.
+    TEST_F(GPUFrustumCullPerf, SafeRootBindingDispatchStaysWithinBudget)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kInstanceCount = 1024u;
+        constexpr u32 kWarmup = 5u;
+        constexpr u32 kMeasure = 20u;
+        constexpr std::string_view kBaselineKey = "gpu_frustum_cull_safe_root_bindings_1024";
+
+        std::vector<InstanceData> instances(kInstanceCount);
+        for (u32 i = 0u; i < kInstanceCount; ++i)
+        {
+            const f32 x = static_cast<f32>(static_cast<i32>(i % 32u) - 16);
+            const f32 y = static_cast<f32>(static_cast<i32>(i / 32u) - 16);
+            instances[i].Transform[3] = glm::vec4(x, y, -20.0f, 1.0f);
+            instances[i].PrevTransform = instances[i].Transform;
+        }
+
+        auto culler = Ref<GPUFrustumCuller>::Create();
+        culler->EnsureInitialised();
+        const GpuDrivenRootDataLayout rootLayout{
+            .SizeBytes = 32u,
+            .GpuWrittenFieldOffsetBytes = 0u,
+        };
+
+        const auto dispatchOnce = [&]()
+        {
+            culler->BeginFrame();
+            return culler->Cull(instances, 36u, 0u, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), 1.365f,
+                                rootLayout);
+        };
+        for (u32 i = 0u; i < kWarmup; ++i)
+            static_cast<void>(dispatchOnce());
+        ::glFinish();
+
+        const auto measure = [&]() -> u64
+        {
+            std::array<u64, kMeasure> samples{};
+            for (u64& sample : samples)
+            {
+                const auto start = std::chrono::steady_clock::now();
+                const auto result = dispatchOnce();
+                ::glFinish();
+                const auto end = std::chrono::steady_clock::now();
+                if (!result.OutputBuffer || !result.IndirectBuffer)
+                {
+                    ADD_FAILURE() << "production GPU frustum culler did not publish draw buffers";
+                    return std::numeric_limits<u64>::max();
+                }
+                sample = static_cast<u64>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+            }
+            return *std::ranges::min_element(samples);
+        };
+
+        const u64 measuredNs = MeasureBenchmarkStableNs(std::string(kBaselineKey), measure);
+        std::cout << "[BENCHMARK] " << kBaselineKey << ": " << measuredNs << " ns/dispatch\n";
+        CheckPerfRegression(std::string(kBaselineKey), measuredNs);
+
+        // This suite shares one long-lived GL context. Release every binding
+        // the production culler touched before its local buffers/program can be
+        // destroyed, so deferred GL deletion cannot contaminate a later test.
+        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_DATA, RHI::NullResource);
+        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_CULL_INPUT, RHI::NullResource);
+        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_DRAW_INDIRECT, RHI::NullResource);
+        RenderCommand::BindStorageBuffer(18u, RHI::NullResource);
+        RenderCommand::BindStorageBuffer(19u, RHI::NullResource);
+        RenderCommand::BindUniformBuffer(ShaderBindingLayout::UBO_INSTANCE_CULL, RHI::NullResource);
+        RenderCommand::BindShaderProgram(RHI::NullResource);
+        culler.Reset();
+    }
 
     // Run the tone-map pass over a uniform input and confirm that GPU timing
     // infrastructure works end-to-end. Reports the median over N runs. This

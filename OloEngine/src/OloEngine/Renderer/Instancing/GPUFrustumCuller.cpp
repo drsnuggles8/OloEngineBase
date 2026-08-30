@@ -31,6 +31,13 @@ namespace OloEngine
         // InstanceOcclusionCull.comp bindings 18 / 19.
         constexpr u32 kRejectedBinding = 18;
         constexpr u32 kRejectedCountBinding = 19;
+        // Frustum-only culling uses these same short-lived dispatch-local
+        // slots for its §4.2 root seed and output. The occlusion shader owns
+        // 18/19 for its reject list, so the root-data path intentionally runs
+        // only on the frustum tenant. This keeps every binding within the
+        // portable 0..83 engine namespace.
+        constexpr u32 kRootSeedBinding = 18;
+        constexpr u32 kRootDataBinding = 19;
 
         // 5 u32 fields + a reservation cursor + 2 padding uints. The tail must be
         // present even though the GL spec only reads the first 5 — the SSBO
@@ -152,6 +159,15 @@ namespace OloEngine
                                                         const glm::vec4& localBoundingSphere,
                                                         f32 radiusExpansion)
     {
+        return Cull(instances, indexCount, baseIndex, localBoundingSphere, radiusExpansion, GpuDrivenRootDataLayout{});
+    }
+
+    GPUFrustumCuller::CullResult GPUFrustumCuller::Cull(std::span<const InstanceData> instances,
+                                                        u32 indexCount, u32 baseIndex,
+                                                        const glm::vec4& localBoundingSphere,
+                                                        f32 radiusExpansion,
+                                                        const GpuDrivenRootDataLayout rootDataLayout)
+    {
         OLO_PROFILE_FUNCTION();
 
         EnsureInitialised();
@@ -205,14 +221,51 @@ namespace OloEngine
         slot.IndirectBuffer->SetData(&seed, sizeof(seed), 0);
 
         // ── 3. Bind SSBOs and dispatch ───────────────────────────────────
+        // Pick the frustum-only or frustum + Hi-Z occlusion compute (#431).
+        // The latter owns bindings 18/19 for its reject list, whereas the
+        // former reuses them for its root-data seed/output pair.
+        const bool useOcclusion = IsOcclusionActive();
+        bool gpuRootDataEnabled = false;
+
         slot.InputBuffer->Bind();    // SSBO_INSTANCE_CULL_INPUT (16)
         slot.OutputBuffer->Bind();   // SSBO_INSTANCE_DATA (15)
         slot.IndirectBuffer->Bind(); // SSBO_INSTANCE_DRAW_INDIRECT (17)
 
-        // Pick the frustum-only or frustum + Hi-Z occlusion compute (#431). The
-        // occlusion variant rejects, in addition to the frustum test, instances
-        // whose screen-space bounds are fully behind the retained depth pyramid.
-        const bool useOcclusion = IsOcclusionActive();
+        const bool usesRootBindings = !useOcclusion && inputCount > 0u;
+        if (usesRootBindings)
+        {
+            // The shader declares both bindings even when the selected
+            // graphics shader has no compatible root field. Bind safe storage
+            // unconditionally on that route; the disabled UINT_MAX offset keeps
+            // the shader from touching it. Backends without pointer-shaped root
+            // data simply decline WriteBufferDeviceAddress below.
+            if (!slot.RootSeedBuffer)
+                slot.RootSeedBuffer = StorageBuffer::Create(16u, kRootSeedBinding, StorageBufferUsage::DynamicCopy);
+            if (!slot.RootDataBuffer)
+                slot.RootDataBuffer = StorageBuffer::Create(
+                    std::max(rootDataLayout.SizeBytes, 16u), kRootDataBinding, StorageBufferUsage::DynamicCopy);
+            if (slot.RootSeedBuffer && slot.RootDataBuffer)
+            {
+                if (slot.RootDataBuffer->GetSize() < rootDataLayout.SizeBytes)
+                    slot.RootDataBuffer->Resize(rootDataLayout.SizeBytes);
+                slot.RootSeedBuffer->Bind(); // dispatch-local root seed (18)
+                slot.RootDataBuffer->Bind(); // GPU-written root data (19)
+
+                // The recorded transfer writes only the address seed. The compute
+                // below publishes the compute-owned instance-data field directly
+                // into the draw's reflected root layout. No CPU reads the survivor
+                // count or the generated address. A non-address backend simply
+                // retains its ordinary root/bind path.
+                gpuRootDataEnabled = rootDataLayout.IsValid() && RenderCommand::WriteBufferDeviceAddress(
+                                                                     slot.RootSeedBuffer->GetRHIHandle(), 0u, slot.OutputBuffer->GetStorage()->GetRHIHandle());
+                if (gpuRootDataEnabled)
+                    RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+            }
+        }
+
+        // The occlusion variant rejects, in addition to the frustum test,
+        // instances whose screen-space bounds are fully behind the retained
+        // depth pyramid.
         const Ref<ComputeShader>& cullShader = useOcclusion ? m_OcclusionCullShader : m_CullShader;
 
         cullShader->Bind();
@@ -231,6 +284,8 @@ namespace OloEngine
         cullParams.LocalBoundingSphere = localBoundingSphere;
         cullParams.RadiusExpansion = radiusExpansion;
         cullParams.OutputCapacity = ResolveOutputCapacity(inputCount);
+        if (gpuRootDataEnabled)
+            cullParams.RootDataOffsetBytes = rootDataLayout.GpuWrittenFieldOffsetBytes;
 
         if (useOcclusion)
         {
@@ -281,6 +336,9 @@ namespace OloEngine
         CullResult result;
         result.OutputBuffer = slot.OutputBuffer;
         result.IndirectBuffer = slot.IndirectBuffer;
+        result.RootDataBuffer = gpuRootDataEnabled ? slot.RootDataBuffer : nullptr;
+        result.RootDataAddressOffsetBytes =
+            gpuRootDataEnabled ? rootDataLayout.GpuWrittenFieldOffsetBytes : 0u;
         result.InputCount = inputCount;
         return result;
     }

@@ -1032,6 +1032,15 @@ namespace OloEngine
             // separately-rotting branch — it is the only path.
             glm::mat4 CullViewProjection; // 128
 
+            // ADR 0011 §4.2: byte offset of SSBO_INSTANCE_DATA's address in
+            // the compatible graphics shader's reflected root struct.
+            // UINT32_MAX disables publication for GL, occlusion, or an
+            // incompatible shader. The tail padding preserves std140.
+            u32 RootDataOffsetBytes = UINT32_MAX; // 192
+            u32 Pad0 = 0;                         // 196
+            u32 Pad1 = 0;                         // 200
+            u32 Pad2 = 0;                         // 204
+
             static constexpr u32 GetSize()
             {
                 return static_cast<u32>(sizeof(InstanceCullUBO));
@@ -1039,8 +1048,8 @@ namespace OloEngine
         };
 
         static_assert(sizeof(InstanceCullUBO) % 16 == 0, "InstanceCullUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(InstanceCullUBO) == 192,
-                      "InstanceCullUBO std140 size drifted from GLSL expectation (192 B)");
+        static_assert(sizeof(InstanceCullUBO) == 208,
+                      "InstanceCullUBO std140 size drifted from GLSL expectation (208 B)");
 
         // @brief Ocean FFT compute-chain parameters, uploaded at UBO_OCEAN_FFT
         // (73). GLSL twin: the OceanFFTParams block shared verbatim by

@@ -40,6 +40,10 @@ namespace OloEngine::RenderGraphSubmissionPlan
     struct PlanInput
     {
         std::span<const std::string> ExecutionOrder;
+        // Incoming graph edges (consumer -> producers). Split submission is
+        // derived from this complete ordering graph; resource transitions only
+        // annotate those edges with the resources that caused them.
+        const std::unordered_map<std::string, std::vector<std::string>>& Dependencies;
         std::span<const RenderGraph::PlannedBarrier> PlannedBarriers;
         // ADR 0011 §1.5: the per-resource transition records for
         // the same barrier plan. Attached (deduplicated) to each emitted
@@ -49,6 +53,10 @@ namespace OloEngine::RenderGraphSubmissionPlan
         // reads them.
         std::span<const RenderGraph::ResourceTransition> Transitions;
         std::span<const RenderGraph::AsyncComputeBatch> Batches;
+        // False under OLO_RENDERGRAPH_SEQUENTIAL. Normal MemoryBarrier
+        // commands are always emitted; this only removes the additional
+        // cross-submission signal/wait scheduling IR.
+        bool EnableSplitBarriers = true;
         std::function<RenderGraphPassWorkType(const std::string&)> GetPassWorkType;
         // Returns the node pointer for the named pass, or nullptr if the
         // pass is unknown / external.

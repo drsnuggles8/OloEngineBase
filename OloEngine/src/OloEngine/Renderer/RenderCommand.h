@@ -345,12 +345,42 @@ namespace OloEngine
             s_RendererAPI->MemoryBarrier(flags);
         }
 
+        [[nodiscard]] static bool WriteBufferDeviceAddress(RHI::ResourceHandle destination, const u32 destinationOffset,
+                                                           RHI::ResourceHandle source)
+        {
+            return s_RendererAPI->WriteBufferDeviceAddress(destination, destinationOffset, source);
+        }
+
+        [[nodiscard]] static bool QueryGpuDrivenRootDataLayout(RHI::ResourceHandle shader, const u32 storageBinding,
+                                                               GpuDrivenRootDataLayout& outLayout)
+        {
+            return s_RendererAPI && s_RendererAPI->QueryGpuDrivenRootDataLayout(shader, storageBinding, outLayout);
+        }
+
+        [[nodiscard]] static bool SetNextDrawRootData(RHI::ResourceHandle rootData,
+                                                      const u32 gpuWrittenStorageBinding,
+                                                      const u32 expectedFieldOffsetBytes)
+        {
+            return s_RendererAPI && s_RendererAPI->SetNextDrawRootData(
+                                        rootData, gpuWrittenStorageBinding, expectedFieldOffsetBytes);
+        }
+
         // ADR 0011 §1.5: the render graph's pre-pass barrier batch
         // carrying both currencies — GL executes `flags`, explicit-barrier
         // backends lower `barriers`.
         static void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers)
         {
             s_RendererAPI->IssueBarrierBatch(flags, barriers);
+        }
+
+        [[nodiscard]] static bool SupportsRenderGraphFenceSubmission()
+        {
+            return s_RendererAPI && s_RendererAPI->SupportsRenderGraphFenceSubmission();
+        }
+
+        [[nodiscard]] static bool SubmitRenderGraphFenceSegment()
+        {
+            return s_RendererAPI && s_RendererAPI->SubmitRenderGraphFenceSegment();
         }
 
         // Per-attachment blend control. Tri-state: see the declaration in

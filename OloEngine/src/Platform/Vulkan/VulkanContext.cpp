@@ -101,6 +101,12 @@ namespace OloEngine
             VkSemaphore ImageAvailable = VK_NULL_HANDLE;
             VkFence InFlight = VK_NULL_HANDLE;
             VkCommandBuffer Cmd = VK_NULL_HANDLE;
+            // A graph fence signal splits the frame into ordered submits. The
+            // command pool owns these buffers; the frame fence proves every
+            // prior segment completed before a slot reuses one next frame.
+            std::vector<VkCommandBuffer> CommandBuffers;
+            u32 CommandBufferCursor = 0;
+            bool AcquireWaitConsumed = false;
         };
         Frame Frames[kFramesInFlight]{};
         u32 FrameIndex = 0;
@@ -252,6 +258,7 @@ namespace OloEngine
         for (VulkanContextData::Frame& frame : d.Frames)
         {
             VkCheck(vkAllocateCommandBuffers(device, &cmdInfo, &frame.Cmd), "vkAllocateCommandBuffers");
+            frame.CommandBuffers.push_back(frame.Cmd);
             VkCheck(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &frame.ImageAvailable), "vkCreateSemaphore");
             VkCheck(vkCreateFence(device, &fenceInfo, nullptr, &frame.InFlight), "vkCreateFence");
         }
@@ -450,6 +457,93 @@ namespace OloEngine
         DestroySwapchain();
         CreateSwapchain();
         OLO_CORE_INFO("[Vulkan] Swapchain recreated ({}x{})", d.SwapchainExtent.width, d.SwapchainExtent.height);
+    }
+
+    bool VulkanContext::CanSubmitRenderGraphFenceSegments() const
+    {
+        return m_InSwapBuffers && m_Data != nullptr;
+    }
+
+    bool VulkanContext::SubmitRenderGraphFenceSegment()
+    {
+        // The render graph reaches this only after it staged at least one
+        // GpuFence signal. Keeping the operation inside SwapBuffers is
+        // essential: that is where the swapchain acquire semaphore and the
+        // frame-slot fence live. A stand-alone VulkanRendererAPI recording has
+        // no safe owner for either and therefore reports unsupported.
+        if (!CanSubmitRenderGraphFenceSegments())
+            return false;
+
+        VulkanContextData& d = *m_Data;
+        VulkanContextData::Frame& frame = d.Frames[d.FrameIndex];
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        const VkCommandBuffer completed = api.SuspendRecordingForFlush();
+        if (completed == VK_NULL_HANDLE)
+            return false;
+
+        VkCheck(vkEndCommandBuffer(completed), "vkEndCommandBuffer(render-graph fence segment)");
+
+        std::vector<VkSemaphoreSubmitInfo> waitInfos;
+        std::vector<VkSemaphoreSubmitInfo> signalInfos;
+        VulkanGpuFence::DrainPendingSubmitOps(waitInfos, signalInfos);
+        m_RenderGraphTimelineWaitCountThisFrame += static_cast<u32>(waitInfos.size());
+        m_RenderGraphTimelineSignalCountThisFrame += static_cast<u32>(signalInfos.size());
+
+        // A binary acquire semaphore may be waited exactly once. The first
+        // graph segment becomes the frame's first queue submit, so it owns the
+        // wait even when it happens not to touch the backbuffer itself; queue
+        // order carries that availability to all later segments.
+        if (!frame.AcquireWaitConsumed)
+        {
+            VkSemaphoreSubmitInfo acquire{};
+            acquire.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            acquire.semaphore = frame.ImageAvailable;
+            acquire.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            waitInfos.push_back(acquire);
+        }
+
+        VkCommandBufferSubmitInfo cmdInfo{};
+        cmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+        cmdInfo.commandBuffer = completed;
+        VkSubmitInfo2 submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        submit.waitSemaphoreInfoCount = static_cast<u32>(waitInfos.size());
+        submit.pWaitSemaphoreInfos = waitInfos.empty() ? nullptr : waitInfos.data();
+        submit.commandBufferInfoCount = 1;
+        submit.pCommandBufferInfos = &cmdInfo;
+        submit.signalSemaphoreInfoCount = static_cast<u32>(signalInfos.size());
+        submit.pSignalSemaphoreInfos = signalInfos.empty() ? nullptr : signalInfos.data();
+        VkCheck(vkQueueSubmit2(d.Device.GetQueue(), 1, &submit, VK_NULL_HANDLE),
+                "vkQueueSubmit2(render-graph fence segment)");
+        ++m_RenderGraphFenceSegmentSubmitCountThisFrame;
+        api.MarkSuspendedRecordingSubmitted();
+        frame.AcquireWaitConsumed = true;
+
+        // Hand the continuation a different primary command buffer. Resetting
+        // `completed` would be invalid while its submit is pending; per-slot
+        // reuse occurs only at the next frame-fence wait above.
+        ++frame.CommandBufferCursor;
+        if (frame.CommandBufferCursor == frame.CommandBuffers.size())
+        {
+            VkCommandBufferAllocateInfo allocate{};
+            allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocate.commandPool = d.Device.GetCommandPool();
+            allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocate.commandBufferCount = 1;
+            VkCommandBuffer next = VK_NULL_HANDLE;
+            VkCheck(vkAllocateCommandBuffers(d.Device.GetDevice(), &allocate, &next),
+                    "vkAllocateCommandBuffers(render-graph fence segment)");
+            frame.CommandBuffers.push_back(next);
+        }
+
+        frame.Cmd = frame.CommandBuffers[frame.CommandBufferCursor];
+        VkCheck(vkResetCommandBuffer(frame.Cmd, 0), "vkResetCommandBuffer(render-graph fence segment)");
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        VkCheck(vkBeginCommandBuffer(frame.Cmd, &begin), "vkBeginCommandBuffer(render-graph fence segment)");
+        api.ResumeRecordingAfterFlush(frame.Cmd);
+        return true;
     }
 
     bool VulkanContext::FlushFrameRecordingAndWait()
@@ -656,6 +750,9 @@ namespace OloEngine
                 Flag = false;
             }
         } swapLatch{ m_InSwapBuffers };
+        m_RenderGraphFenceSegmentSubmitCountThisFrame = 0u;
+        m_RenderGraphTimelineSignalCountThisFrame = 0u;
+        m_RenderGraphTimelineWaitCountThisFrame = 0u;
 
         // Minimised: a 0-sized framebuffer cannot host a swapchain — skip frames
         // until the window has area again.
@@ -715,6 +812,14 @@ namespace OloEngine
         // Only reset the fence once this frame will actually submit (a reset
         // without a submit would deadlock the next wait).
         VkCheck(vkResetFences(device, 1, &frame.InFlight), "vkResetFences");
+
+        // Reuse the first command buffer for each frame slot. Any additional
+        // buffers were allocated by prior split-barrier segments and are safe
+        // to reset/reuse now because the InFlight wait above covered every
+        // submit in this queue-order chain.
+        frame.CommandBufferCursor = 0;
+        frame.Cmd = frame.CommandBuffers.front();
+        frame.AcquireWaitConsumed = false;
 
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -873,7 +978,8 @@ namespace OloEngine
         // (refine when the real frame loop settles on a fixed first stage).
         waitInfo.stageMask =
             rendered ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_2_CLEAR_BIT;
-        waitInfos.push_back(waitInfo);
+        if (!frame.AcquireWaitConsumed)
+            waitInfos.push_back(waitInfo);
         VkSemaphoreSubmitInfo signalInfo{};
         signalInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         signalInfo.semaphore = d.RenderFinished[imageIndex];
