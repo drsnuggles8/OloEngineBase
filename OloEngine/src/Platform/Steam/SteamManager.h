@@ -118,6 +118,41 @@ namespace OloEngine
         [[nodiscard]] static std::vector<std::string> CloudEnumerate();
         static SteamResult GetCloudQuota(SteamCloudQuota& outQuota);
 
+        // --- input -----------------------------------------------------------------------
+        //
+        // Steam Input is brought up and torn down as part of Initialize()/Shutdown() and
+        // pumped as part of RunCallbacks() — see those methods — so there is no separate
+        // Init/Shutdown/RunFrame here. IsInputAvailable() can be false while IsAvailable() is
+        // true (Steam is up but Steam Input failed to init, or nothing is connected), so
+        // callers must check it before relying on any of the below.
+        //
+        // See docs/agent-rules/steamworks-platform-integration.md §11 for how
+        // InputActionManager drives this seam to implement "Steam Input wins when available".
+
+        [[nodiscard]] static bool IsInputAvailable();
+
+        [[nodiscard]] static std::vector<SteamInputHandle> GetConnectedControllers();
+
+        [[nodiscard]] static SteamInputActionSetHandle GetActionSetHandle(std::string_view actionSetName);
+        static void ActivateActionSet(SteamInputHandle controller, SteamInputActionSetHandle actionSet);
+
+        [[nodiscard]] static SteamInputDigitalActionHandle GetDigitalActionHandle(std::string_view actionName);
+        [[nodiscard]] static SteamInputDigitalActionState GetDigitalActionState(SteamInputHandle controller,
+                                                                                SteamInputDigitalActionHandle action);
+
+        [[nodiscard]] static SteamInputAnalogActionHandle GetAnalogActionHandle(std::string_view actionName);
+        [[nodiscard]] static SteamInputAnalogActionState GetAnalogActionState(SteamInputHandle controller,
+                                                                              SteamInputAnalogActionHandle action);
+
+        [[nodiscard]] static std::string GetGlyphLabelForDigitalAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                                       SteamInputDigitalActionHandle action);
+        [[nodiscard]] static std::string GetGlyphLabelForAnalogAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                                      SteamInputAnalogActionHandle action);
+        [[nodiscard]] static std::string GetGlyphPngForDigitalAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                                     SteamInputDigitalActionHandle action);
+        [[nodiscard]] static std::string GetGlyphPngForAnalogAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                                    SteamInputAnalogActionHandle action);
+
         // --- test seam ---------------------------------------------------------------------
 
         // Swap in a fake backend. Takes ownership; pass nullptr to restore the real one.

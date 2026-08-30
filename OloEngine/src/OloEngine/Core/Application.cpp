@@ -598,20 +598,27 @@ namespace OloEngine
             GamepadManager::Update();
             OLO_PROFILE_FRAMEMARK_END("GamepadManager Update");
 
-            // Update action mapping state (reads fresh GLFW state)
-            OLO_PROFILE_FRAMEMARK_START("InputActionManager Update");
-            InputActionManager::Update();
-            OLO_PROFILE_FRAMEMARK_END("InputActionManager Update");
-
-            // Drain Steam's callback queue (#644). Position matters twice over:
-            //   * AFTER the input/platform block and BEFORE ProcessTasks below, so a Steam
-            //     callback that enqueues a game-thread task is drained in the SAME frame rather
-            //     than sitting until the next one;
+            // Drain Steam's callback queue (#644). Position matters three ways now:
+            //   * AFTER the raw input/platform polling above and BEFORE ProcessTasks below, so a
+            //     Steam callback that enqueues a game-thread task is drained in the SAME frame
+            //     rather than sitting until the next one;
+            //   * BEFORE InputActionManager::Update() below (#893) — RunCallbacks() is what pumps
+            //     ISteamInput::RunFrame() (SteamManager::RunCallbacks -> ISteamBackend::
+            //     InputRunFrame), which is the SDK's explicit per-frame refresh for Steam Input's
+            //     controller/action state (Steam Input was brought up with
+            //     bExplicitlyCallRunFrame=true). Reading Steam Input state before this runs would
+            //     read the PREVIOUS frame's snapshot, one frame stale;
             //   * in Run(), NOT in RenderFrameLayers — that function has a re-entrancy latch and
             //     the nested-swap path would pump Steam callbacks twice per frame.
             OLO_PROFILE_FRAMEMARK_START("Steam RunCallbacks");
             SteamManager::RunCallbacks();
             OLO_PROFILE_FRAMEMARK_END("Steam RunCallbacks");
+
+            // Update action mapping state (reads fresh GLFW state, and — per the ordering above —
+            // this frame's freshly-pumped Steam Input state).
+            OLO_PROFILE_FRAMEMARK_START("InputActionManager Update");
+            InputActionManager::Update();
+            OLO_PROFILE_FRAMEMARK_END("InputActionManager Update");
 
             // Process tasks targeted at the Game Thread
             Tasks::FNamedThreadManager::Get().ProcessTasks(true);

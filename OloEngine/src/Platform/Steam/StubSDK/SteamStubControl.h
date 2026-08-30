@@ -67,7 +67,37 @@ namespace OloEngine::SteamStub
 
     [[nodiscard]] bool CloudHasFile(std::string_view name);
 
+    // --- Steam Input ----------------------------------------------------------------------
+    //
+    // The stub does not model action manifests at all — GetActionSetHandle / GetDigitalAction-
+    // Handle / GetAnalogActionHandle hand back a stable handle for ANY name a caller passes
+    // (see SteamStubSDK.cpp), matching real Steam Input's behaviour for a name that exists in
+    // the game's manifest. A test drives behaviour purely through these knobs.
+
+    // Simulate a controller connecting/disconnecting. Handles are caller-chosen opaque
+    // non-zero values, mirroring how the real SDK hands back stable-for-the-session handles.
+    void SetConnectedControllers(const std::vector<u64>& controllerHandles);
+
+    // Set what GetDigitalActionState should report for (controller, action-name) pairs looked
+    // up via GetDigitalActionHandle(actionName). Active defaults to true once set here — call
+    // with active=false to simulate an action with no origin bound in the current set.
+    void SetDigitalActionState(u64 controllerHandle, std::string_view actionName, bool pressed, bool active = true);
+
+    // Same idea for an analog action.
+    void SetAnalogActionState(u64 controllerHandle, std::string_view actionName, f32 x, f32 y, bool active = true);
+
+    // Which action set is currently active for a controller, as recorded by ActivateActionSet.
+    // Empty when never activated. Lets a test assert InputActionManager is routing action-set
+    // activation on a context switch rather than merely calling into the backend.
+    [[nodiscard]] std::string GetActiveActionSetName(u64 controllerHandle);
+
+    // Glyph label / PNG path the stub reports for an action name, regardless of which
+    // controller or action set is asked — real Steam Input varies these per physically
+    // connected controller, but the stub only needs to prove the engine reads them through.
+    void SetGlyphForAction(std::string_view actionName, std::string_view label, std::string_view pngPath);
+
     // Wipe all stub state back to defaults: init succeeds, no achievements, cloud on and empty,
-    // overlay closed. Tests must call this in SetUp so they cannot leak state into each other.
+    // overlay closed, no controllers connected. Tests must call this in SetUp so they cannot
+    // leak state into each other.
     void Reset();
 } // namespace OloEngine::SteamStub

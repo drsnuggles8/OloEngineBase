@@ -162,6 +162,28 @@ namespace OloEngine
             return s_ContextMaps[s_ContextStack.back()];
         }
 
+        // Route the active context's Steam Input controller(s) into s_CurrentState /
+        // s_AxisValues alongside the raw device query below. See
+        // docs/agent-rules/steamworks-platform-integration.md §11 for the "Steam Input wins
+        // when available" contract this implements. Declared here (rather than as a free
+        // function in the .cpp) only so it can reach the private handle caches below; it has no
+        // reason to be part of the public API.
+        // `connectedControllers` is computed once per Update() and threaded through, rather than
+        // re-queried per action — SteamManager::GetConnectedControllers() allocates and makes a
+        // virtual call into the backend, and this runs once per action in the active map.
+        // `axisSuppliedBySteam` is set true when a Steam analog action actually supplied
+        // `axisValue`, so Update()'s "snap a partial axis to full scale when also digitally
+        // pressed" fallback (meant for a weak/absent raw-gamepad axis) does not clobber a real
+        // Steam analog magnitude.
+        static void ApplySteamInputForAction(const std::string& actionName, const InputAction& action,
+                                             const std::vector<u64>& connectedControllers, bool& pressed, f32& axisValue,
+                                             bool& axisSuppliedBySteam);
+
+        // Activate the Steam Input action set matching ctx (by InputContextTypeToString) on
+        // every connected controller. Cheap and idempotent, so it is safe to call once per
+        // Update() rather than only on a context change.
+        static void ActivateSteamActionSet(InputContextType ctx, const std::vector<u64>& connectedControllers);
+
         // Clear cached press/axis state and suppress just-pressed/just-released on the
         // next Update() — used whenever the active context (and thus its map) changes.
         static void ResetStateForContextChange();
@@ -179,6 +201,13 @@ namespace OloEngine
         inline static std::unordered_map<std::string, f32, StringHash, StringEqual> s_AxisValues;
         inline static std::optional<InputContextType> s_PendingRebindMenuContext;
         static IInputProvider* s_InputProvider;
+
+        // Steam Input handle caches. Steam hands back a STABLE handle for a given name for the
+        // life of the process, so these are populated lazily (first query per action/context)
+        // and never invalidated — see ApplySteamInputForAction.
+        inline static std::unordered_map<std::string, u64, StringHash, StringEqual> s_SteamDigitalHandles;
+        inline static std::unordered_map<std::string, u64, StringHash, StringEqual> s_SteamAnalogHandles;
+        inline static std::unordered_map<InputContextType, u64> s_SteamActionSetHandles;
     };
 
 } // namespace OloEngine

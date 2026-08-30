@@ -392,3 +392,133 @@ proves the code compiles, links and its branches behave; it proves nothing about
 This repo's own rule — *"whenever the dev box happens to match the value CI varies, local green
 proves nothing"* — bites unusually hard here, because with the real SDK the dev box is the **only**
 box that can be green. The stub job exists so that is not the whole story.
+
+---
+
+## 11. Steam Input on `ISteamBackend`, and the decision on `InputActionManager`
+
+Added for #893 (Deck Verified needs controller remapping through Steam's own configurator, and
+Steam Input is the layer through which most Deck and many desktop players will actually bind
+their controls).
+
+### The surface
+
+`ISteamBackend` gained action sets, digital/analog action state and glyph/origin lookup —
+`SteamTypes.h` (`SteamInputHandle`, `SteamInputActionSetHandle`, `SteamInputDigitalActionHandle`,
+`SteamInputAnalogActionHandle`, `SteamInputDigitalActionState`, `SteamInputAnalogActionState`),
+implemented for real against `ISteamInput` in `SteamworksBackend.cpp`, mirrored in the stub SDK
+(`StubSDK/public/steam/steam_api.h` + `SteamStubSDK.cpp`), and wrapped on `SteamManager`. Unlike
+the rest of the interface, Steam Input needs its own init/shutdown/pump — `SteamManager::
+Initialize()` calls `InputInit()` right after the base `Initialize()` succeeds (logging and
+continuing, never failing, if it doesn't), `RunCallbacks()` calls `InputRunFrame()` alongside
+`SteamAPI_RunCallbacks()`, and `Shutdown()` tears input down before the base backend. So callers
+never call an `Input*` lifecycle method directly — only `SteamManager::IsInputAvailable()` and the
+query methods.
+
+The stub SDK does not model an action manifest (there is no manifest in a CI checkout — a game's
+manifest is authored content, uploaded to the Steamworks partner site, not engine code). Any
+action-set or action **name** the caller passes gets a stable handle assigned on first sight,
+matching how the real SDK behaves for a name that genuinely exists in the manifest. This means the
+stub tests prove the *plumbing* (handles round-trip, action-set activation reaches the SDK,
+digital/analog state and glyph lookup pass through), not that a specific action name is correctly
+declared in a manifest — that part is only checkable against the real SDK with a real manifest
+file, which is tier 2 in §10.
+
+### The decision: Steam Input wins when available, per gamepad-origin binding
+
+**`InputActionManager` decides per-frame, not per-action-map.** When `SteamManager::
+IsInputAvailable()` is true and at least one controller is connected (`GetConnectedControllers()`
+non-empty), `InputActionManager::Update()`:
+
+1. Activates the Steam Input action set whose **name equals `InputContextTypeToString` of the
+   active context** (`"Gameplay"`, `"Menu"`, `"Vehicle"`, `"Custom"`) on every connected
+   controller. This is the load-bearing naming convention: a game's Steam Input manifest must
+   define an action set per `InputContextType` the game uses, named exactly that, or Steam Input
+   silently has nothing bound for that context (see the non-goal risk below).
+2. For every action in the active map, **skips `GamepadButton`/`GamepadAxis` bindings entirely**
+   and instead queries the Steam digital/analog action **whose name equals the `InputAction::Name`**
+   (`GetDigitalActionState`/`GetAnalogActionState`, handles cached for the process after first
+   lookup — see `ApplySteamInputForAction` in `InputActionManager.cpp`). `Active` on the returned
+   state means "Steam has an origin bound to this action in the current set"; when false, the
+   Steam contribution is skipped entirely for that action this frame, not treated as "not
+   pressed" — so an action Steam doesn't recognise falls all the way back to whatever the engine
+   bindings would have said, which is nothing, since gamepad bindings are already skipped. In
+   practice that means: an action absent from the manifest is simply unreachable via a connected
+   Steam Input controller, by design — add it to the manifest, don't add a special case here.
+3. `Keyboard`/`Mouse` bindings are **never affected** — they run exactly as before, both with and
+   without a Steam Input controller connected, so keyboard-and-mouse play is identical either way
+   and a menu/UI flow that expects Enter/Escape to always work keeps working.
+
+The result: **Steam Input governs the physical controller whenever it's present; the engine's own
+gamepad bindings are the fallback for a controller Steam Input isn't driving** (no Steam client,
+Steam Input failed to init, or nothing connected through it). Keyboard and mouse are orthogonal to
+both and always live. This was chosen over the alternative (OR-ing engine gamepad polling
+together with Steam Input state) because the same physical pad can appear to both APIs
+simultaneously under Steam's controller emulation — ORing them risks double-firing an action from
+what is, to the player, a single button press, and it defeats the entire point of Steam Input
+remapping (a player who rebound "Jump" away from the physical A button in Steam's configurator
+would still trigger it here through the untouched GLFW polling).
+
+**Known limitations, deliberate for #893's scope:**
+
+- Only the *first* connected controller (`GetConnectedControllers()[0]`) drives action state —
+  the same simplification the pre-existing `GetActionAxisValue`/`IsGamepadButtonPressed` default
+  (`gamepadIndex = 0`) already made for raw engine bindings. Local multiplayer through Steam
+  Input (per-player controller → per-player action state) is out of scope here; revisit together
+  with any local co-op feature, not before.
+- `ApplySteamInputForAction` only ever reads `SteamInputAnalogActionState::X`. A Steam Input
+  manifest analog action can be 2-axis (a joystick-move action, where `Y` also carries signal);
+  an `InputAction` that wants Steam Input to drive a *vertical* engine axis would currently read
+  0 from Steam while `Active` is true. There's no ambiguity to resolve on the engine's side of
+  `InputAction`/`InputActionMap` — an action is a single named f32, not an X/Y pair — so this
+  isn't a bug to fix here so much as a real limit of the current one-axis-per-action design; a
+  future 2D "move" action would need a second engine-side action name (or a new binding shape)
+  to carry `Y`, not a change to this routing code.
+- No normalisation between Valve's analog-action range conventions (a Trigger-mode Steam Input
+  action reports `0..1`; a joystick-move action reports `-1..1`) and this engine's own gamepad
+  convention (`GamepadAxis` triggers read `-1..1`, `-1` = released — see `GamepadCodes.h`).
+  `InputAnalogActionData_t::eMode` (`EInputSourceMode`) tells the real SDK which convention
+  applies to a given read, but `ISteamBackend`'s `SteamInputAnalogActionState` does not surface
+  it, so `ApplySteamInputForAction` cannot reconcile the two conventions per-action today. A
+  manifest-defined Trigger-mode action bound to an engine trigger action will therefore read `0`
+  (not `-1`) at rest once Steam Input takes it over — worth knowing before wiring a specific
+  trigger-shaped action through Steam Input, and a candidate for a follow-up that threads `eMode`
+  through the seam if a real Drift binding needs it.
+
+### Non-goals (deliberate, not forgotten)
+
+- **Leaderboards, DLC entitlements, UGC/Workshop** — `ISteamBackend` still exposes none of these.
+  Verified absent by the same `grep -r "ISteamLeaderboard\|ISteamDLC\|ISteamUGC" OloEngine/src/`
+  that #893 itself opened with. Revisit only if a specific Drift (#878) feature needs one of
+  them — a Steam Deck-relevant example would be a leaderboard for a time-trial mode, which does
+  not exist today.
+
+### Manual real-SDK verification checklist (tier 2 from §10)
+
+There is no automated way to prove Steam Input against the real client — the stub proves the
+plumbing, nothing about Valve's servers or a real controller. Run this by hand, once per Steam
+Input change, on a machine with `STEAMWORKS_SDK_ROOT` set and `480` in
+`OloEditor/steam_appid.txt` (§10). It needs a Steam Input action manifest for the test app — a
+minimal one action-set-per-`InputContextType`, one digital action per test binding — uploaded via
+the Steamworks partner site for App ID 480, or configured locally through Steam's own
+"Manage Steam Input" screen for a connected controller if partner-site access isn't available
+(the origins Steam reports differ, but the plumbing check is the same).
+
+| # | Step | Expected | Result recorded 2026-08-30 |
+|---|---|---|---|
+| 1 | Launch with a Steam Input-capable controller connected (Xbox/DualSense/Deck), Steam client running | `SteamManager::IsInputAvailable()` true, `GetConnectedControllers()` non-empty | Not run — no physical controller attached to this machine this session |
+| 2 | Switch `InputContextType` (e.g. open a menu) | The corresponding named action set activates in Steam's overlay controller HUD | Not run |
+| 3 | Press a button bound to an engine action via Steam's configurator to a DIFFERENT physical button than the engine default | The action fires from the remapped button, not the engine default | Not run |
+| 4 | Open Steam's own "Manage controller layout" from the overlay | Reflects the game's action-set names from the manifest | Not run |
+| 5 | Disconnect the controller mid-session | Engine falls back to keyboard/mouse cleanly, no crash, no stuck-pressed action | Not run |
+| 6 | `GetGlyphPngForDigitalAction`/`GetGlyphLabelForDigitalAction` for a bound action | Returns a real PNG path / human string matching the connected controller type | Not run |
+| 7 | Launch with the Steam client NOT running | `IsAvailable()` and `IsInputAvailable()` both false, engine starts normally, gamepad bindings work via GLFW as before | Not run — see §5's Variant A/B contract, exercised automatically by `SteamStubOnPathTest` and `SteamManagerTest` instead |
+
+**Honest status as of this PR: rows 1–6 were not executed.** No Steam Input-capable physical
+controller was available in this session's environment (see
+`docs/agent-rules/oloengine-perf-tests-are-dev-workstation-only.md`-style "dev workstation only"
+caveat — this one is "developer *with a controller in hand*"). Row 7's degradation contract is
+covered by CI (`SteamStubOnPathTest::InputComesUpAutomaticallyWithSteamItself` and friends) and
+by the pre-existing Variant A/B tests. **Rows 1–6 remain the open manual-verification debt for
+whoever next holds a controller and this SDK** — re-run and update this table rather than adding a
+new checklist.

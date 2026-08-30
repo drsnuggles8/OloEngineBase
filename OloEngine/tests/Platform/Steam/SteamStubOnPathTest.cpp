@@ -312,6 +312,112 @@ namespace
         EXPECT_EQ(SteamManager::CloudRead("empty.sav", readBack), SteamResult::NotFound);
     }
 
+    // =================================================================================
+    // Steam Input through the real ISteamInput calls.
+    // =================================================================================
+
+    TEST_F(SteamStubOnPathTest, InputComesUpAutomaticallyWithSteamItself)
+    {
+        SteamManager::Initialize();
+        EXPECT_TRUE(SteamManager::IsInputAvailable());
+    }
+
+    TEST_F(SteamStubOnPathTest, NoControllersConnectedIsTheOrdinaryState)
+    {
+        SteamManager::Initialize();
+        EXPECT_TRUE(SteamManager::GetConnectedControllers().empty());
+    }
+
+    TEST_F(SteamStubOnPathTest, ConnectedControllersRoundTripThroughTheSdk)
+    {
+        SteamStub::SetConnectedControllers({ 1, 2 });
+        SteamManager::Initialize();
+
+        const auto controllers = SteamManager::GetConnectedControllers();
+        ASSERT_EQ(controllers.size(), 2u);
+        EXPECT_EQ(controllers[0], 1u);
+        EXPECT_EQ(controllers[1], 2u);
+    }
+
+    TEST_F(SteamStubOnPathTest, ActivateActionSetReachesTheSdk)
+    {
+        SteamStub::SetConnectedControllers({ 1 });
+        SteamManager::Initialize();
+
+        const auto actionSet = SteamManager::GetActionSetHandle("Gameplay");
+        SteamManager::ActivateActionSet(1, actionSet);
+        EXPECT_EQ(SteamStub::GetActiveActionSetName(1), "Gameplay");
+    }
+
+    // An action with no configured state reports Active=false — "not bound", not a fabricated
+    // press — which is what lets InputActionManager fall back to the engine's own bindings.
+    TEST_F(SteamStubOnPathTest, UnboundDigitalActionReportsInactive)
+    {
+        SteamManager::Initialize();
+        const auto handle = SteamManager::GetDigitalActionHandle("Jump");
+        const auto state = SteamManager::GetDigitalActionState(1, handle);
+        EXPECT_FALSE(state.Active);
+    }
+
+    TEST_F(SteamStubOnPathTest, DigitalAndAnalogActionStateReachTheSdk)
+    {
+        SteamManager::Initialize();
+
+        const auto digitalHandle = SteamManager::GetDigitalActionHandle("Jump");
+        SteamStub::SetDigitalActionState(1, "Jump", /*pressed*/ true);
+        const auto digitalState = SteamManager::GetDigitalActionState(1, digitalHandle);
+        EXPECT_TRUE(digitalState.Active);
+        EXPECT_TRUE(digitalState.Pressed);
+
+        const auto analogHandle = SteamManager::GetAnalogActionHandle("Move");
+        SteamStub::SetAnalogActionState(1, "Move", 0.75f, -0.5f);
+        const auto analogState = SteamManager::GetAnalogActionState(1, analogHandle);
+        EXPECT_TRUE(analogState.Active);
+        EXPECT_FLOAT_EQ(analogState.X, 0.75f);
+        EXPECT_FLOAT_EQ(analogState.Y, -0.5f);
+    }
+
+    // Glyph lookup through GetDigitalActionOrigins -> GetStringForActionOrigin /
+    // GetGlyphPNGForActionOrigin — the real chain a button prompt takes, not a shortcut keyed
+    // straight off the action name.
+    TEST_F(SteamStubOnPathTest, GlyphLookupReachesTheSdkThroughOrigins)
+    {
+        SteamManager::Initialize();
+        SteamStub::SetGlyphForAction("Jump", "A Button", "/glyphs/a_button.png");
+
+        // A real (non-zero) action set handle is required here: GetDigitalActionOrigins is the
+        // real Valve API contract, and SteamworksBackend rejects kInvalidSteamInputActionSetHandle
+        // (0) before ever reaching the SDK — the stub itself ignores the actionSet value, but the
+        // backend's own guard does not, so passing the sentinel here always resolves to "no origin".
+        const auto actionSet = SteamManager::GetActionSetHandle("Gameplay");
+        const auto handle = SteamManager::GetDigitalActionHandle("Jump");
+        EXPECT_EQ(SteamManager::GetGlyphLabelForDigitalAction(1, actionSet, handle), "A Button");
+        EXPECT_EQ(SteamManager::GetGlyphPngForDigitalAction(1, actionSet, handle), "/glyphs/a_button.png");
+    }
+
+    TEST_F(SteamStubOnPathTest, GlyphLookupForAnUnconfiguredActionIsNotConfusedWithARealFailure)
+    {
+        SteamManager::Initialize();
+        const auto actionSet = SteamManager::GetActionSetHandle("Gameplay");
+        const auto handle = SteamManager::GetDigitalActionHandle("NeverConfigured");
+
+        // The stub's fallback label is deliberately obviously-synthetic (matching the rule
+        // applied to SteamAPI_InitEx's error message) rather than empty, so a test reading the
+        // log can't mistake it for a real Steam response.
+        EXPECT_EQ(SteamManager::GetGlyphLabelForDigitalAction(1, actionSet, handle), "stub SDK: unlabelled origin");
+        EXPECT_TRUE(SteamManager::GetGlyphPngForDigitalAction(1, actionSet, handle).empty());
+    }
+
+    TEST_F(SteamStubOnPathTest, InputShutdownIsSafeAndRepeatable)
+    {
+        SteamManager::Initialize();
+        ASSERT_TRUE(SteamManager::IsInputAvailable());
+
+        EXPECT_NO_THROW(SteamManager::Shutdown());
+        EXPECT_FALSE(SteamManager::IsInputAvailable());
+        EXPECT_NO_THROW(SteamManager::Shutdown());
+    }
+
     // Per-frame pump against the real SteamAPI_RunCallbacks symbol.
     TEST_F(SteamStubOnPathTest, RunCallbacksIsSafeBeforeAndAfterInit)
     {

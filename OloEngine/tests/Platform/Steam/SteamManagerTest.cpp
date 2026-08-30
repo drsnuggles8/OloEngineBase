@@ -467,6 +467,98 @@ namespace
     }
 
     // =================================================================================
+    // Steam Input.
+    // =================================================================================
+
+    TEST_F(SteamManagerTest, InputIsUnavailableUntilInitializeSucceedsAndAControllerIsConnected)
+    {
+        // Steam itself up, Steam Input never brought up (default fake state) — degrades same as
+        // no controller at all.
+        InitializeManager();
+        EXPECT_TRUE(SteamManager::IsAvailable());
+        EXPECT_TRUE(SteamManager::IsInputAvailable()) << "InputInit() runs automatically as part of Initialize()";
+        EXPECT_TRUE(SteamManager::GetConnectedControllers().empty());
+    }
+
+    TEST_F(SteamManagerTest, FailedInputInitLeavesInputUnavailableButSteamItselfFine)
+    {
+        m_Fake->InputInitSucceeds = false;
+        InitializeManager();
+
+        EXPECT_TRUE(SteamManager::IsAvailable()) << "a Steam Input failure must not take down the rest of Steam";
+        EXPECT_FALSE(SteamManager::IsInputAvailable());
+        EXPECT_TRUE(SteamManager::GetConnectedControllers().empty());
+    }
+
+    TEST_F(SteamManagerTest, ActivateActionSetReachesTheBackend)
+    {
+        InitializeManager();
+        m_Fake->ConnectedControllers = { 1 };
+
+        const auto controllers = SteamManager::GetConnectedControllers();
+        ASSERT_EQ(controllers.size(), 1u);
+
+        const auto actionSet = SteamManager::GetActionSetHandle("Gameplay");
+        SteamManager::ActivateActionSet(controllers[0], actionSet);
+        EXPECT_EQ(m_Fake->ActivateActionSetCalls, 1u);
+    }
+
+    TEST_F(SteamManagerTest, DigitalActionStatePassesThroughUnavailableWhenNotBound)
+    {
+        InitializeManager();
+        const auto handle = SteamManager::GetDigitalActionHandle("Jump");
+
+        // No state configured on the fake for this (controller, handle) pair — must report
+        // Active=false ("not bound"), not fabricate a pressed state.
+        const auto state = SteamManager::GetDigitalActionState(1, handle);
+        EXPECT_FALSE(state.Active);
+        EXPECT_FALSE(state.Pressed);
+    }
+
+    TEST_F(SteamManagerTest, DigitalAndAnalogActionStateReachTheBackend)
+    {
+        InitializeManager();
+        m_Fake->DigitalActionHandles["Jump"] = 42;
+        m_Fake->AnalogActionHandles["Move"] = 43;
+        m_Fake->DigitalActionStates[{ 1, 42 }] = { .Pressed = true, .Active = true };
+        m_Fake->AnalogActionStates[{ 1, 43 }] = { .X = 0.5f, .Y = -0.25f, .Active = true };
+
+        const auto digitalHandle = SteamManager::GetDigitalActionHandle("Jump");
+        const auto digitalState = SteamManager::GetDigitalActionState(1, digitalHandle);
+        EXPECT_TRUE(digitalState.Active);
+        EXPECT_TRUE(digitalState.Pressed);
+
+        const auto analogHandle = SteamManager::GetAnalogActionHandle("Move");
+        const auto analogState = SteamManager::GetAnalogActionState(1, analogHandle);
+        EXPECT_TRUE(analogState.Active);
+        EXPECT_FLOAT_EQ(analogState.X, 0.5f);
+        EXPECT_FLOAT_EQ(analogState.Y, -0.25f);
+    }
+
+    TEST_F(SteamManagerTest, GlyphLookupReachesTheBackend)
+    {
+        InitializeManager();
+        m_Fake->DigitalActionHandles["Jump"] = 42;
+        m_Fake->GlyphLabels["Jump"] = "A Button";
+        m_Fake->GlyphPngs["Jump"] = "/glyphs/a_button.png";
+
+        const auto handle = SteamManager::GetDigitalActionHandle("Jump");
+        EXPECT_EQ(SteamManager::GetGlyphLabelForDigitalAction(1, 0, handle), "A Button");
+        EXPECT_EQ(SteamManager::GetGlyphPngForDigitalAction(1, 0, handle), "/glyphs/a_button.png");
+    }
+
+    TEST_F(SteamManagerTest, InputSurfaceNoOpsWhenSteamUnavailable)
+    {
+        // Never initialized — the whole surface must be inert, matching every other entry point.
+        EXPECT_FALSE(SteamManager::IsInputAvailable());
+        EXPECT_TRUE(SteamManager::GetConnectedControllers().empty());
+        EXPECT_EQ(SteamManager::GetActionSetHandle("Gameplay"), OloEngine::kInvalidSteamInputActionSetHandle);
+        EXPECT_EQ(SteamManager::GetDigitalActionHandle("Jump"), OloEngine::kInvalidSteamInputDigitalActionHandle);
+        EXPECT_NO_THROW(SteamManager::ActivateActionSet(1, 1));
+        EXPECT_TRUE(SteamManager::GetGlyphLabelForDigitalAction(1, 1, 1).empty());
+    }
+
+    // =================================================================================
     // SteamResult helpers.
     // =================================================================================
 

@@ -167,3 +167,72 @@ ISteamUserStats* SteamUserStats();
 ISteamFriends* SteamFriends();
 ISteamUtils* SteamUtils();
 ISteamRemoteStorage* SteamRemoteStorage();
+
+// --- Steam Input --------------------------------------------------------------------------
+//
+// Only the entry points SteamworksBackend.cpp calls, same rule as the rest of this file.
+
+using InputHandle_t = uint64;
+using InputActionSetHandle_t = uint64;
+using InputDigitalActionHandle_t = uint64;
+using InputAnalogActionHandle_t = uint64;
+
+inline constexpr int STEAM_INPUT_MAX_COUNT = 16;
+inline constexpr int STEAM_INPUT_MAX_ORIGINS = 8;
+
+// A tiny slice of the real EInputActionOrigin enum — enough to exercise "an origin was found"
+// vs "nothing is bound" (k_EInputActionOrigin_None) without reproducing Valve's ~300-entry
+// per-controller-type enum.
+enum EInputActionOrigin
+{
+    k_EInputActionOrigin_None = 0,
+    k_EInputActionOrigin_XBoxOne_A = 1,
+};
+
+enum ESteamInputGlyphSize
+{
+    k_ESteamInputGlyphSize_Small = 0,
+    k_ESteamInputGlyphSize_Medium = 1,
+    k_ESteamInputGlyphSize_Large = 2,
+};
+
+struct InputDigitalActionData_t
+{
+    bool bState;
+    bool bActive;
+};
+
+struct InputAnalogActionData_t
+{
+    float x;
+    float y;
+    bool bActive;
+};
+
+class ISteamInput
+{
+  public:
+    bool Init(bool bExplicitlyCallRunFrame);
+    bool Shutdown();
+    void RunFrame(bool bReservedValue = true);
+
+    int GetConnectedControllers(InputHandle_t* handlesOut);
+
+    InputActionSetHandle_t GetActionSetHandle(const char* pszActionSetName);
+    void ActivateActionSet(InputHandle_t inputHandle, InputActionSetHandle_t actionSetHandle);
+
+    InputDigitalActionHandle_t GetDigitalActionHandle(const char* pszActionName);
+    InputDigitalActionData_t GetDigitalActionData(InputHandle_t inputHandle, InputDigitalActionHandle_t digitalActionHandle);
+    int GetDigitalActionOrigins(InputHandle_t inputHandle, InputActionSetHandle_t actionSetHandle,
+                                InputDigitalActionHandle_t digitalActionHandle, EInputActionOrigin* originsOut);
+
+    InputAnalogActionHandle_t GetAnalogActionHandle(const char* pszActionName);
+    InputAnalogActionData_t GetAnalogActionData(InputHandle_t inputHandle, InputAnalogActionHandle_t analogActionHandle);
+    int GetAnalogActionOrigins(InputHandle_t inputHandle, InputActionSetHandle_t actionSetHandle,
+                               InputAnalogActionHandle_t analogActionHandle, EInputActionOrigin* originsOut);
+
+    const char* GetStringForActionOrigin(EInputActionOrigin eOrigin);
+    const char* GetGlyphPNGForActionOrigin(EInputActionOrigin eOrigin, ESteamInputGlyphSize eSize, uint32 unFlags);
+};
+
+ISteamInput* SteamInput();

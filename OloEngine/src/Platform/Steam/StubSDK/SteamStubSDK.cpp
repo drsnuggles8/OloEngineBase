@@ -26,6 +26,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -60,6 +61,42 @@ namespace
         // returns a pointer into Steam-owned memory valid until the next call; matching that
         // contract with a member keeps callers honest about not retaining it.
         std::string LastEnumeratedName;
+
+        // --- Steam Input ---------------------------------------------------------------
+        bool InputInitialized = false;
+        std::vector<u64> ConnectedControllers;
+
+        // The stub does not model an action manifest: any name handed to GetActionSetHandle /
+        // GetDigitalActionHandle / GetAnalogActionHandle gets a stable handle, assigned on
+        // first sight. Real Steam Input only recognises names present in the game's manifest;
+        // the stub can't see one (there is no manifest in a CI checkout), so it trusts the
+        // caller instead — exactly the same trust the rest of this stub places in the engine.
+        std::map<std::string, u64, std::less<>> ActionSetHandles;
+        std::map<std::string, u64, std::less<>> DigitalActionHandles;
+        std::map<std::string, u64, std::less<>> AnalogActionHandles;
+        u64 NextHandle = 1;
+
+        std::map<u64, std::string> ActiveActionSetByController;
+        // Keyed by (controller handle, action NAME) rather than the numeric handle, so
+        // SteamStub::SetDigitalActionState can be called before or after the engine has
+        // resolved a handle for that name — test setup order shouldn't matter.
+        std::map<std::pair<u64, std::string>, InputDigitalActionData_t> DigitalActionStateByName;
+        std::map<std::pair<u64, std::string>, InputAnalogActionData_t> AnalogActionStateByName;
+        // Reverse lookup so GetDigitalActionData(handle) can find the name the state was keyed
+        // under.
+        std::map<u64, std::string> DigitalHandleToName;
+        std::map<u64, std::string> AnalogHandleToName;
+
+        std::map<std::string, std::string, std::less<>> GlyphLabelByAction;
+        std::map<std::string, std::string, std::less<>> GlyphPngByAction;
+
+        // Fabricated per-action "origin" so GetStringForActionOrigin / GetGlyphPNGForActionOrigin
+        // — which the real SDK keys purely off the origin, not the action — can still find their
+        // way back to the action name the origin was handed out for. Starts well above the one
+        // named EInputActionOrigin constant the stub declares, so the two numbering spaces never
+        // collide.
+        std::map<int, std::string> OriginToActionName;
+        int NextOrigin = 1000;
     };
 
     StubState& State()
@@ -73,6 +110,39 @@ namespace
     ISteamFriends s_Friends;
     ISteamUtils s_Utils;
     ISteamRemoteStorage s_RemoteStorage;
+    ISteamInput s_Input;
+
+    // First-sight handle assignment shared by GetActionSetHandle / GetDigitalActionHandle /
+    // GetAnalogActionHandle — see the comment on StubState::ActionSetHandles for why the stub
+    // doesn't validate names against a manifest.
+    u64 InternHandle(std::map<std::string, u64, std::less<>>& table, std::string_view name)
+    {
+        if (const auto found = table.find(name); found != table.end())
+        {
+            return found->second;
+        }
+        StubState& state = State();
+        const u64 handle = state.NextHandle++;
+        table.emplace(std::string{ name }, handle);
+        return handle;
+    }
+
+    // First-sight origin assignment for an action name, and the reverse entry that lets
+    // GetStringForActionOrigin / GetGlyphPNGForActionOrigin find their way back to it — see the
+    // comment on StubState::OriginToActionName.
+    int AssignOrigin(StubState& state, const std::string& actionName)
+    {
+        for (const auto& [origin, name] : state.OriginToActionName)
+        {
+            if (name == actionName)
+            {
+                return origin;
+            }
+        }
+        const int origin = state.NextOrigin++;
+        state.OriginToActionName.emplace(origin, actionName);
+        return origin;
+    }
 } // namespace
 
 // --- init / shutdown --------------------------------------------------------------------
@@ -346,6 +416,172 @@ ISteamRemoteStorage* SteamRemoteStorage()
     return State().Initialized ? &s_RemoteStorage : nullptr;
 }
 
+ISteamInput* SteamInput()
+{
+    // Steam Input's accessor is available whenever SteamAPI itself is up — Init() below is
+    // what actually brings the subsystem online, matching the real SDK's two-step contract
+    // (SteamInput() can return non-null before ISteamInput::Init() has been called).
+    return State().Initialized ? &s_Input : nullptr;
+}
+
+// --- ISteamInput --------------------------------------------------------------------------
+
+bool ISteamInput::Init(bool /*bExplicitlyCallRunFrame*/)
+{
+    State().InputInitialized = true;
+    return true;
+}
+
+bool ISteamInput::Shutdown()
+{
+    State().InputInitialized = false;
+    return true;
+}
+
+void ISteamInput::RunFrame(bool /*bReservedValue*/) {}
+
+int ISteamInput::GetConnectedControllers(InputHandle_t* handlesOut)
+{
+    if (!handlesOut)
+    {
+        return 0;
+    }
+    const StubState& state = State();
+    const int count = static_cast<int>(std::min(state.ConnectedControllers.size(), static_cast<sizet>(STEAM_INPUT_MAX_COUNT)));
+    for (int i = 0; i < count; ++i)
+    {
+        handlesOut[i] = static_cast<InputHandle_t>(state.ConnectedControllers[static_cast<sizet>(i)]);
+    }
+    return count;
+}
+
+InputActionSetHandle_t ISteamInput::GetActionSetHandle(const char* pszActionSetName)
+{
+    if (!pszActionSetName)
+    {
+        return 0;
+    }
+    return static_cast<InputActionSetHandle_t>(InternHandle(State().ActionSetHandles, pszActionSetName));
+}
+
+void ISteamInput::ActivateActionSet(InputHandle_t inputHandle, InputActionSetHandle_t actionSetHandle)
+{
+    StubState& state = State();
+    for (const auto& [name, handle] : state.ActionSetHandles)
+    {
+        if (handle == static_cast<u64>(actionSetHandle))
+        {
+            state.ActiveActionSetByController[static_cast<u64>(inputHandle)] = name;
+            return;
+        }
+    }
+}
+
+InputDigitalActionHandle_t ISteamInput::GetDigitalActionHandle(const char* pszActionName)
+{
+    if (!pszActionName)
+    {
+        return 0;
+    }
+    StubState& state = State();
+    const u64 handle = InternHandle(state.DigitalActionHandles, pszActionName);
+    state.DigitalHandleToName[handle] = pszActionName;
+    return static_cast<InputDigitalActionHandle_t>(handle);
+}
+
+InputDigitalActionData_t ISteamInput::GetDigitalActionData(InputHandle_t inputHandle, InputDigitalActionHandle_t digitalActionHandle)
+{
+    const StubState& state = State();
+    const auto nameIt = state.DigitalHandleToName.find(static_cast<u64>(digitalActionHandle));
+    if (nameIt == state.DigitalHandleToName.end())
+    {
+        return {};
+    }
+    const auto stateIt = state.DigitalActionStateByName.find({ static_cast<u64>(inputHandle), nameIt->second });
+    return stateIt != state.DigitalActionStateByName.end() ? stateIt->second : InputDigitalActionData_t{};
+}
+
+int ISteamInput::GetDigitalActionOrigins(InputHandle_t /*inputHandle*/, InputActionSetHandle_t /*actionSetHandle*/,
+                                         InputDigitalActionHandle_t digitalActionHandle, EInputActionOrigin* originsOut)
+{
+    if (!originsOut)
+    {
+        return 0;
+    }
+    StubState& state = State();
+    const auto nameIt = state.DigitalHandleToName.find(static_cast<u64>(digitalActionHandle));
+    if (nameIt == state.DigitalHandleToName.end())
+    {
+        return 0;
+    }
+    originsOut[0] = static_cast<EInputActionOrigin>(AssignOrigin(state, nameIt->second));
+    return 1;
+}
+
+InputAnalogActionHandle_t ISteamInput::GetAnalogActionHandle(const char* pszActionName)
+{
+    if (!pszActionName)
+    {
+        return 0;
+    }
+    StubState& state = State();
+    const u64 handle = InternHandle(state.AnalogActionHandles, pszActionName);
+    state.AnalogHandleToName[handle] = pszActionName;
+    return static_cast<InputAnalogActionHandle_t>(handle);
+}
+
+InputAnalogActionData_t ISteamInput::GetAnalogActionData(InputHandle_t inputHandle, InputAnalogActionHandle_t analogActionHandle)
+{
+    const StubState& state = State();
+    const auto nameIt = state.AnalogHandleToName.find(static_cast<u64>(analogActionHandle));
+    if (nameIt == state.AnalogHandleToName.end())
+    {
+        return {};
+    }
+    const auto stateIt = state.AnalogActionStateByName.find({ static_cast<u64>(inputHandle), nameIt->second });
+    return stateIt != state.AnalogActionStateByName.end() ? stateIt->second : InputAnalogActionData_t{};
+}
+
+int ISteamInput::GetAnalogActionOrigins(InputHandle_t /*inputHandle*/, InputActionSetHandle_t /*actionSetHandle*/,
+                                        InputAnalogActionHandle_t analogActionHandle, EInputActionOrigin* originsOut)
+{
+    if (!originsOut)
+    {
+        return 0;
+    }
+    StubState& state = State();
+    const auto nameIt = state.AnalogHandleToName.find(static_cast<u64>(analogActionHandle));
+    if (nameIt == state.AnalogHandleToName.end())
+    {
+        return 0;
+    }
+    originsOut[0] = static_cast<EInputActionOrigin>(AssignOrigin(state, nameIt->second));
+    return 1;
+}
+
+const char* ISteamInput::GetStringForActionOrigin(EInputActionOrigin eOrigin)
+{
+    StubState& state = State();
+    const auto nameIt = state.OriginToActionName.find(static_cast<int>(eOrigin));
+    const std::string* actionName = nameIt != state.OriginToActionName.end() ? &nameIt->second : nullptr;
+    const auto labelIt = actionName ? state.GlyphLabelByAction.find(*actionName) : state.GlyphLabelByAction.end();
+    // A test that never called SetGlyphForAction still gets a non-empty, obviously-synthetic
+    // label rather than an empty string — matching the "real failure vs stubbed value must
+    // never be confused" rule the rest of this stub follows for its error strings.
+    state.LastEnumeratedName = labelIt != state.GlyphLabelByAction.end() ? labelIt->second : "stub SDK: unlabelled origin";
+    return state.LastEnumeratedName.c_str();
+}
+
+const char* ISteamInput::GetGlyphPNGForActionOrigin(EInputActionOrigin eOrigin, ESteamInputGlyphSize /*eSize*/, uint32 /*unFlags*/)
+{
+    StubState& state = State();
+    const auto nameIt = state.OriginToActionName.find(static_cast<int>(eOrigin));
+    const std::string* actionName = nameIt != state.OriginToActionName.end() ? &nameIt->second : nullptr;
+    const auto pngIt = actionName ? state.GlyphPngByAction.find(*actionName) : state.GlyphPngByAction.end();
+    state.LastEnumeratedName = pngIt != state.GlyphPngByAction.end() ? pngIt->second : std::string{};
+    return state.LastEnumeratedName.c_str();
+}
+
 // --- control surface --------------------------------------------------------------------
 
 namespace OloEngine::SteamStub
@@ -428,6 +664,37 @@ namespace OloEngine::SteamStub
         return State().CloudFiles.contains(name);
     }
 
+    void SetConnectedControllers(const std::vector<u64>& controllerHandles)
+    {
+        State().ConnectedControllers = controllerHandles;
+    }
+
+    void SetDigitalActionState(u64 controllerHandle, std::string_view actionName, bool pressed, bool active)
+    {
+        State().DigitalActionStateByName[{ controllerHandle, std::string{ actionName } }] =
+            InputDigitalActionData_t{ .bState = pressed, .bActive = active };
+    }
+
+    void SetAnalogActionState(u64 controllerHandle, std::string_view actionName, f32 x, f32 y, bool active)
+    {
+        State().AnalogActionStateByName[{ controllerHandle, std::string{ actionName } }] =
+            InputAnalogActionData_t{ .x = x, .y = y, .bActive = active };
+    }
+
+    std::string GetActiveActionSetName(u64 controllerHandle)
+    {
+        const StubState& state = State();
+        const auto found = state.ActiveActionSetByController.find(controllerHandle);
+        return found != state.ActiveActionSetByController.end() ? found->second : std::string{};
+    }
+
+    void SetGlyphForAction(std::string_view actionName, std::string_view label, std::string_view pngPath)
+    {
+        StubState& state = State();
+        state.GlyphLabelByAction[std::string{ actionName }] = std::string{ label };
+        state.GlyphPngByAction[std::string{ actionName }] = std::string{ pngPath };
+    }
+
     void Reset()
     {
         // Whole-struct reassignment rather than field-by-field, so a member added later is reset
@@ -467,6 +734,14 @@ namespace OloEngine::SteamStub
     {
         return false;
     }
+    void SetConnectedControllers(const std::vector<u64>&) {}
+    void SetDigitalActionState(u64, std::string_view, bool, bool) {}
+    void SetAnalogActionState(u64, std::string_view, f32, f32, bool) {}
+    std::string GetActiveActionSetName(u64)
+    {
+        return {};
+    }
+    void SetGlyphForAction(std::string_view, std::string_view, std::string_view) {}
     void Reset() {}
 } // namespace OloEngine::SteamStub
 

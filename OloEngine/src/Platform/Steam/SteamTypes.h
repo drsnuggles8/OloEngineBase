@@ -77,4 +77,43 @@ namespace OloEngine
             return TotalBytes >= AvailableBytes ? TotalBytes - AvailableBytes : 0;
         }
     };
+
+    // --- Steam Input -------------------------------------------------------------------
+    //
+    // Steam's own handle types (InputHandle_t, InputActionSetHandle_t, ...) are all opaque
+    // uint64_t under the hood, so the seam carries them as plain u64 rather than pulling any
+    // Valve type across the ISteamBackend boundary. 0 is Steam's own "invalid handle" sentinel
+    // for every one of these.
+
+    // One per physically connected controller Steam Input is driving.
+    using SteamInputHandle = u64;
+    // Identifies a named action set (e.g. "Gameplay", "Menu") from the game's Steam Input
+    // manifest.
+    using SteamInputActionSetHandle = u64;
+    using SteamInputDigitalActionHandle = u64;
+    using SteamInputAnalogActionHandle = u64;
+
+    inline constexpr SteamInputHandle kInvalidSteamInputHandle = 0;
+    inline constexpr SteamInputActionSetHandle kInvalidSteamInputActionSetHandle = 0;
+    inline constexpr SteamInputDigitalActionHandle kInvalidSteamInputDigitalActionHandle = 0;
+    inline constexpr SteamInputAnalogActionHandle kInvalidSteamInputAnalogActionHandle = 0;
+
+    // State of a digital (button-shaped) Steam Input action for one controller.
+    struct SteamInputDigitalActionState
+    {
+        bool Pressed = false;
+        // False when the action has no origin bound in the controller's current action set
+        // (or Steam Input controller config) — distinct from "bound but not pressed".
+        bool Active = false;
+    };
+
+    // State of an analog (stick/trigger-shaped) Steam Input action for one controller.
+    // Y is 0 for a single-axis (trigger) action; consult the game's Steam Input manifest.
+    struct SteamInputAnalogActionState
+    {
+        f32 X = 0.0f;
+        f32 Y = 0.0f;
+        // False when the action has no origin bound in the controller's current action set.
+        bool Active = false;
+    };
 } // namespace OloEngine
