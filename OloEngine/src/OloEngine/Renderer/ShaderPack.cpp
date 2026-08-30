@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
+#include <algorithm>
 #include <fstream>
 
 namespace OloEngine
@@ -188,6 +189,12 @@ namespace OloEngine
                 return;
             }
 
+            if (!ReadString(in, entry.ContentHash))
+            {
+                OLO_CORE_ERROR("[ShaderPack] Failed to read content hash for '{}'", entry.Name);
+                return;
+            }
+
             if (!ReadRaw(in, entry.StageCount))
             {
                 OLO_CORE_ERROR("[ShaderPack] Failed to read stage count for '{}'", entry.Name);
@@ -219,6 +226,16 @@ namespace OloEngine
     bool ShaderPack::Contains(const std::string& name) const
     {
         return m_Index.contains(name);
+    }
+
+    std::optional<std::string> ShaderPack::GetContentHash(const std::string& name) const
+    {
+        auto it = m_Index.find(name);
+        if (it == m_Index.end())
+        {
+            return std::nullopt;
+        }
+        return it->second.ContentHash;
     }
 
     std::vector<std::string> ShaderPack::GetShaderNames() const
@@ -295,28 +312,7 @@ namespace OloEngine
     // =========================================================================
     bool ShaderPack::CreateFromLibraries(ShaderLibrary& lib2D, ShaderLibrary& lib3D, const std::filesystem::path& outputPath)
     {
-        // Ensure parent directory exists
-        if (auto parentDir = outputPath.parent_path(); !parentDir.empty())
-        {
-            std::filesystem::create_directories(parentDir);
-        }
-
-        std::ofstream out(outputPath, std::ios::binary);
-        if (!out)
-        {
-            OLO_CORE_ERROR("[ShaderPack] Failed to create output file: {}", outputPath.string());
-            return false;
-        }
-
-        // Collect all shaders from both libraries
-        struct ShaderInfo
-        {
-            std::string Name;
-            const std::unordered_map<unsigned int, std::vector<u32>>* VulkanSPIRV = nullptr;
-            const std::unordered_map<unsigned int, std::vector<u32>>* OpenGLSPIRV = nullptr;
-        };
-
-        std::vector<ShaderInfo> shaders;
+        std::vector<PackShaderInfo> shaders;
 
         auto collectShaders = [&shaders](ShaderLibrary& lib)
         {
@@ -330,18 +326,143 @@ namespace OloEngine
                 }
 
                 const auto* glShader = static_cast<OpenGLShader*>(shader.get());
-                shaders.push_back({ shader->GetFilePath(),
-                                    &glShader->GetVulkanSPIRV(),
-                                    &glShader->GetOpenGLSPIRV() });
+
+                // Hashed from the shader's OWN preprocessed source
+                // (GetOriginalSourceCode) — the exact text that produced the
+                // SPIR-V being packed below — rather than re-reading the file
+                // from disk. A fresh disk re-read here would be a TOCTOU
+                // window: if the file changed after this shader was compiled
+                // but before "Build Shader Pack" ran, a re-read would hash
+                // the NEW text while packing the OLD (in-memory) SPIR-V, so a
+                // later runtime hash check against the (by-then also new)
+                // on-disk file would falsely validate stale bytes.
+                const std::string contentHash =
+                    OpenGLShader::ComputeContentHashFromSources(glShader->GetOriginalSourceCode());
+                if (contentHash.empty())
+                {
+                    OLO_CORE_WARN("[ShaderPack] Skipping shader '{}' (couldn't recompute its content hash)",
+                                  shader->GetFilePath());
+                    continue;
+                }
+
+                shaders.push_back({ shader->GetFilePath(), contentHash,
+                                    &glShader->GetVulkanSPIRV(), &glShader->GetOpenGLSPIRV() });
             }
         };
 
         collectShaders(lib2D);
         collectShaders(lib3D);
 
+        return WritePackFile(shaders, outputPath);
+    }
+
+    // =========================================================================
+    // ShaderPack — Create from filepaths (headless, no GL context — issue #908)
+    // =========================================================================
+    bool ShaderPack::CreateFromFilepaths(const std::vector<std::string>& filepaths, const std::filesystem::path& outputPath)
+    {
+        if (filepaths.empty())
+        {
+            OLO_CORE_WARN("[ShaderPack] No shader filepaths to pack");
+            return false;
+        }
+
+        // CPU-only: read, preprocess, shaderc, SPIRV-Cross. No GL call anywhere
+        // in this call chain — see Shader::PrepareBatch / OpenGLShader::PrepareCPU.
+        std::vector<Ref<Shader>> prepared = Shader::PrepareBatch(filepaths, nullptr);
+
+        std::vector<PackShaderInfo> shaders;
+        shaders.reserve(filepaths.size());
+
+        for (sizet i = 0; i < filepaths.size(); ++i)
+        {
+            Ref<Shader> shader = (i < prepared.size()) ? prepared[i] : nullptr;
+            if (!shader)
+            {
+                OLO_CORE_WARN("[ShaderPack] Skipping '{}' (CPU prepare failed)", filepaths[i]);
+                continue;
+            }
+
+            auto* glShader = static_cast<OpenGLShader*>(shader.get());
+            if (glShader->GetVulkanSPIRV().empty())
+            {
+                OLO_CORE_WARN("[ShaderPack] Skipping '{}' (no compiled SPIR-V)", filepaths[i]);
+                continue;
+            }
+
+            const std::string contentHash = OpenGLShader::ComputeContentHash(filepaths[i]);
+            if (contentHash.empty())
+            {
+                OLO_CORE_WARN("[ShaderPack] Skipping '{}' (couldn't recompute its content hash)", filepaths[i]);
+                continue;
+            }
+
+            shaders.push_back({ filepaths[i], contentHash, &glShader->GetVulkanSPIRV(), &glShader->GetOpenGLSPIRV() });
+        }
+
+        return WritePackFile(shaders, outputPath);
+    }
+
+    std::vector<std::string> ShaderPack::CollectShaderFilepaths(const std::filesystem::path& shadersRoot)
+    {
+        std::vector<std::string> filepaths;
+
+        if (!std::filesystem::exists(shadersRoot))
+        {
+            OLO_CORE_WARN("[ShaderPack] Shaders root does not exist: {}", shadersRoot.string());
+            return filepaths;
+        }
+
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(shadersRoot, ec))
+        {
+            if (!entry.is_regular_file() || entry.path().extension() != ".glsl")
+            {
+                continue;
+            }
+
+            // "include" (headers, no #type marker) and "tests" (never shipped)
+            // are excluded by directory component, not by full-path substring —
+            // a shader legitimately named e.g. "assets/shaders/tests_utils.glsl"
+            // must not be swept out by a naive `.find("tests")`.
+            const bool excluded = std::ranges::any_of(entry.path(),
+                                                      [](const std::filesystem::path& component)
+                                                      {
+                                                          return component == "include" || component == "tests";
+                                                      });
+            if (excluded)
+            {
+                continue;
+            }
+
+            filepaths.push_back(entry.path().generic_string());
+        }
+
+        std::ranges::sort(filepaths);
+        return filepaths;
+    }
+
+    // =========================================================================
+    // ShaderPack — shared binary writer
+    // =========================================================================
+    bool ShaderPack::WritePackFile(const std::vector<PackShaderInfo>& shaders, const std::filesystem::path& outputPath)
+    {
         if (shaders.empty())
         {
             OLO_CORE_WARN("[ShaderPack] No shaders to pack");
+            return false;
+        }
+
+        // Ensure parent directory exists
+        if (auto parentDir = outputPath.parent_path(); !parentDir.empty())
+        {
+            std::filesystem::create_directories(parentDir);
+        }
+
+        std::ofstream out(outputPath, std::ios::binary);
+        if (!out)
+        {
+            OLO_CORE_ERROR("[ShaderPack] Failed to create output file: {}", outputPath.string());
             return false;
         }
 
@@ -354,13 +475,15 @@ namespace OloEngine
         // We'll backfill the data offsets after writing all SPIR-V data.
         const auto indexStartPos = out.tellp();
 
-        // Compute index size so we can calculate where data starts
-        // For each shader: u32(nameLen) + name + u32(stageCount) + per-stage(u8 + 4*u64)
+        // Compute index size so we can calculate where data starts. For each
+        // shader: u32(nameLen) + name + u32(hashLen) + hash + u32(stageCount)
+        // + per-stage(u8 + 4*u64)
         u64 indexSize = 0;
         for (const auto& info : shaders)
         {
-            indexSize += sizeof(u32) + info.Name.size(); // name
-            indexSize += sizeof(u32);                    // stageCount
+            indexSize += sizeof(u32) + info.Name.size();        // name
+            indexSize += sizeof(u32) + info.ContentHash.size(); // content hash
+            indexSize += sizeof(u32);                           // stageCount
             u32 stageCount = static_cast<u32>(info.VulkanSPIRV->size());
             indexSize += stageCount * (sizeof(u8) + 4 * sizeof(u64)); // per-stage refs
         }
@@ -433,6 +556,7 @@ namespace OloEngine
             const auto& offsets = allOffsets[i];
 
             WriteString(out, info.Name);
+            WriteString(out, info.ContentHash);
             u32 stageCount = static_cast<u32>(offsets.Stages.size());
             WriteRaw(out, stageCount);
 

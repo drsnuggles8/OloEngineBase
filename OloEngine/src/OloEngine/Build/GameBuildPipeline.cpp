@@ -146,6 +146,39 @@ namespace OloEngine
         return true;
     }
 
+    bool StageShaderPack(
+        const std::filesystem::path& shaderPackSrc,
+        const std::filesystem::path& outputAssetsDir,
+        bool& packStaged,
+        std::string& errorMessage)
+    {
+        packStaged = false;
+
+        if (!std::filesystem::exists(shaderPackSrc))
+        {
+            return true;
+        }
+
+        std::error_code ec;
+        std::filesystem::create_directories(outputAssetsDir, ec);
+        if (ec)
+        {
+            errorMessage = "Failed to create asset output directory for the shader pack: " + ec.message();
+            return false;
+        }
+
+        std::filesystem::copy_file(shaderPackSrc, outputAssetsDir / shaderPackSrc.filename(),
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec)
+        {
+            errorMessage = "Failed to copy shader pack: " + ec.message();
+            return false;
+        }
+
+        packStaged = true;
+        return true;
+    }
+
     GameBuildResult GameBuildPipeline::Build(
         const GameBuildSettings& settings,
         std::atomic<f32>& progress,
@@ -627,6 +660,27 @@ namespace OloEngine
             }
         }
         OLO_CORE_INFO("[GameBuild] Copied {} shader files", shaderCount);
+
+        // --- Shader pack (issue #908, optional) ---
+        bool packStaged = false;
+        if (!StageShaderPack("assets/ShaderPack.osp", shaderDst.parent_path(), packStaged, errorMessage))
+        {
+            return false;
+        }
+        if (packStaged)
+        {
+            // "Fixed engine set" — a script-loaded custom shader
+            // (ShaderLibrary.Load exposed to Lua) isn't in the pack's
+            // enumeration and still cold-compiles on first launch; see
+            // docs/agent-rules/shader-pack-bake.md.
+            OLO_CORE_INFO("[GameBuild] Staged shader pack (ShaderPack.osp) — packaged runtime will not "
+                          "compile the fixed engine shader set from source on first launch");
+        }
+        else
+        {
+            OLO_CORE_INFO("[GameBuild] No shader pack found — packaged runtime will compile shaders "
+                          "from source on first launch");
+        }
 
         // --- Textures (skybox cubemaps, IBL, etc.) ---
         const std::filesystem::path textureSrc = "assets/textures";

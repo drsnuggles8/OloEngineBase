@@ -52,6 +52,22 @@ namespace OloEngine
         std::string& errorMessage);
 
     /**
+     * @brief Stage the CI-baked shader pack (.osp), if one was built (issue #908).
+     *
+     * A shader pack is a portable, content-hash-validated cache of
+     * pre-compiled SPIR-V — optional, not required. `packStaged` reports
+     * whether one was found and copied; when `shaderPackSrc` doesn't exist
+     * this returns true with `packStaged == false` (not an error) because a
+     * packaged runtime with no pack falls back to compiling from the shipped
+     * `assets/shaders` source tree, same as it always has.
+     */
+    bool StageShaderPack(
+        const std::filesystem::path& shaderPackSrc,
+        const std::filesystem::path& outputAssetsDir,
+        bool& packStaged,
+        std::string& errorMessage);
+
+    /**
      * @brief Orchestrates the full game build pipeline
      *
      * The GameBuildPipeline is responsible for taking the active project

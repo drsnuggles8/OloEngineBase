@@ -19,6 +19,24 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <array>
+#include <filesystem>
+
+namespace
+{
+    // The 2D shader filepaths Init() loads, and what Renderer2D::GetShaderFilepaths()
+    // (issue #908) returns — ONE array, two readers, so the headless ShaderPack
+    // bake can never enumerate a different set than what this library actually
+    // tries to serve from the pack at runtime.
+    constexpr std::array kShaderPaths2D = {
+        "assets/shaders/Renderer2D_Quad.glsl",
+        "assets/shaders/Renderer2D_Polygon.glsl",
+        "assets/shaders/Renderer2D_Circle.glsl",
+        "assets/shaders/Renderer2D_Line.glsl",
+        "assets/shaders/Renderer2D_Text.glsl",
+    };
+} // namespace
+
 namespace OloEngine
 {
     struct QuadVertex
@@ -158,9 +176,19 @@ namespace OloEngine
 
     ShaderLibrary Renderer2D::m_ShaderLibrary;
 
+    std::vector<std::string> Renderer2D::GetShaderFilepaths()
+    {
+        return std::vector<std::string>(kShaderPaths2D.begin(), kShaderPaths2D.end());
+    }
+
     void Renderer2D::Init(Window* loadingWindow)
     {
         OLO_PROFILE_FUNCTION();
+
+        // A CI-baked pack (issue #908) is optional — LoadShaderPack() is a
+        // no-op when the file doesn't exist, so Load() below falls back to
+        // compiling from source, same as it always has.
+        m_ShaderLibrary.LoadShaderPack("assets/ShaderPack.osp");
 
         Window* window = loadingWindow;
 
@@ -260,13 +288,7 @@ namespace OloEngine
         // sequentially afterward on this (render) thread; see
         // ShaderWarmup::LoadShadersParallel.
         OLO_CORE_INFO("Renderer2D::Init: Loading 2D shaders...");
-        const std::vector<std::string> shaderPaths2D = {
-            "assets/shaders/Renderer2D_Quad.glsl",
-            "assets/shaders/Renderer2D_Polygon.glsl",
-            "assets/shaders/Renderer2D_Circle.glsl",
-            "assets/shaders/Renderer2D_Line.glsl",
-            "assets/shaders/Renderer2D_Text.glsl",
-        };
+        const std::vector<std::string> shaderPaths2D(kShaderPaths2D.begin(), kShaderPaths2D.end());
         ShaderWarmup::LoadShadersParallel(m_ShaderLibrary, window, shaderPaths2D, "2D shaders", 0);
         OLO_CORE_INFO("Renderer2D::Init: 2D shaders loaded");
 

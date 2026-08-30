@@ -61,6 +61,11 @@ namespace OloEngine::Tests
         // --olo-mcp-attach-seconds=<n> : how long the headless attach test
         // waits for the editor's MCP discovery file. 0 keeps the test default.
         i32 McpAttachSeconds = 0;
+        // --olo-bake-shader-pack=<path> : bake a ShaderPack.osp to this path
+        // instead of running the test suite normally — the headless CI
+        // producer for issue #908 (no GL context; see ShaderPackBakeTest).
+        // Empty means "not baking".
+        std::string BakeShaderPackPath;
     };
 
     // Parse and consume the `--olo-*` flags. Call before InitGoogleTest so the

@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <filesystem>
+#include <fstream>
 
 using namespace OloEngine;
 
@@ -132,6 +133,41 @@ TEST(GameBuildPipelineTest, LooseRuntimeTexturesPreserveTheirProjectRelativePath
         EXPECT_TRUE(std::filesystem::exists(outputAssets / path)) << path;
     }
     EXPECT_FALSE(std::filesystem::exists(outputAssets / "Textures/Menu/readme.txt"));
+}
+
+TEST(GameBuildPipelineTest, ShaderPackIsStagedWhenPresent)
+{
+    const auto editorAssets = OloEngine::Tests::TempDir("shaderpack-src");
+    const auto outputAssets = OloEngine::Tests::TempDir("shaderpack-dst");
+    std::filesystem::create_directories(editorAssets);
+
+    const auto packSrc = editorAssets / "ShaderPack.osp";
+    std::ofstream(packSrc) << "not a real pack, just bytes for the copy step";
+
+    bool packStaged = false;
+    std::string errorMessage;
+    ASSERT_TRUE(StageShaderPack(packSrc, outputAssets, packStaged, errorMessage)) << errorMessage;
+
+    EXPECT_TRUE(packStaged);
+    EXPECT_TRUE(std::filesystem::exists(outputAssets / "ShaderPack.osp"));
+}
+
+TEST(GameBuildPipelineTest, ShaderPackStagingIsANoOpWhenAbsent)
+{
+    const auto editorAssets = OloEngine::Tests::TempDir("shaderpack-src-missing");
+    const auto outputAssets = OloEngine::Tests::TempDir("shaderpack-dst-missing");
+    std::filesystem::create_directories(editorAssets);
+    // Deliberately no ShaderPack.osp written — a fresh worktree, or the CI
+    // bake step never ran, is not a build failure (issue #908's plan
+    // explicitly leans "explicit on request" for whether it exists).
+
+    bool packStaged = false;
+    std::string errorMessage;
+    ASSERT_TRUE(StageShaderPack(editorAssets / "ShaderPack.osp", outputAssets, packStaged, errorMessage))
+        << errorMessage;
+
+    EXPECT_FALSE(packStaged);
+    EXPECT_FALSE(std::filesystem::exists(outputAssets / "ShaderPack.osp"));
 }
 
 TEST(GameBuildPipelineTest, ToStringIsHumanReadable)

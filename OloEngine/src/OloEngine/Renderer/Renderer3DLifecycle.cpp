@@ -76,10 +76,78 @@
 #include <atomic>
 #include <cmath>
 
+namespace
+{
+    // The 3D shader filepaths Init() loads, and what Renderer3D::GetShaderFilepaths()
+    // (issue #908) returns — ONE array, two readers, so the headless ShaderPack
+    // bake can never enumerate a different set than what this library actually
+    // tries to serve from the pack at runtime. Keep totalShaders3D (below) in
+    // sync with this array's length.
+    constexpr std::array kShaderPaths3D = {
+        "assets/shaders/LightCube.glsl",
+        "assets/shaders/Renderer3D_Quad.glsl",
+        "assets/shaders/PBR_MultiLight.glsl",
+        "assets/shaders/PBR_MultiLight_Skinned.glsl",
+        "assets/shaders/PBR_GBuffer.glsl",
+        "assets/shaders/PBR_GBuffer_Skinned.glsl",
+        "assets/shaders/EquirectangularToCubemap.glsl",
+        "assets/shaders/ProceduralSky.glsl",
+        "assets/shaders/StarNestSky.glsl",
+        "assets/shaders/AtmosphereSky.glsl",
+        "assets/shaders/IrradianceConvolution.glsl",
+        "assets/shaders/IrradianceConvolutionAdvanced.glsl",
+        "assets/shaders/IrradianceFromSH.glsl",
+        "assets/shaders/IBLPrefilter.glsl",
+        "assets/shaders/IBLPrefilterImportance.glsl",
+        "assets/shaders/BRDFLutGeneration.glsl",
+        "assets/shaders/BRDFIntegrationAdvanced.glsl",
+        "assets/shaders/Skybox.glsl",
+        "assets/shaders/Skybox_GBuffer.glsl",
+        "assets/shaders/LightCube_GBuffer.glsl",
+        "assets/shaders/InfiniteGrid.glsl",
+        "assets/shaders/InfiniteGrid_GBuffer.glsl",
+        "assets/shaders/ShadowDepth.glsl",
+        "assets/shaders/ShadowDepthSkinned.glsl",
+        "assets/shaders/DepthPrepass.glsl",
+        "assets/shaders/DepthPrepass_Skinned.glsl",
+        "assets/shaders/DepthPrepass_Mask.glsl",
+        "assets/shaders/DepthPrepass_MaskSkinned.glsl",
+        "assets/shaders/Terrain_PBR.glsl",
+        "assets/shaders/Terrain_GBuffer.glsl",
+        "assets/shaders/Terrain_Depth.glsl",
+        "assets/shaders/Terrain_Voxel.glsl",
+        "assets/shaders/Terrain_Voxel_GBuffer.glsl",
+        "assets/shaders/Terrain_VoxelDepth.glsl",
+        "assets/shaders/Terrain_VoxelGreedy.glsl",
+        "assets/shaders/Terrain_VoxelGreedy_GBuffer.glsl",
+        "assets/shaders/Terrain_VoxelGreedyDepth.glsl",
+        "assets/shaders/Foliage_Instance.glsl",
+        "assets/shaders/Foliage_Instance_GBuffer.glsl",
+        "assets/shaders/Foliage_Depth.glsl",
+        "assets/shaders/Foliage_Impostor.glsl",
+        "assets/shaders/Impostor_Bake.glsl",
+        "assets/shaders/Water.glsl",
+        "assets/shaders/Water_Depth.glsl",
+        "assets/shaders/Decal.glsl",
+        "assets/shaders/Decal_OIT.glsl",
+        "assets/shaders/Decal_GBuffer.glsl",
+        "assets/shaders/Decal_GBuffer_Normal.glsl",
+        "assets/shaders/Decal_GBuffer_RMA.glsl",
+        "assets/shaders/Decal_GBuffer_Emissive.glsl",
+        "assets/shaders/OcclusionProxy.glsl",
+        "assets/shaders/ForwardPlusDebug.glsl",
+    };
+} // namespace
+
 namespace OloEngine
 {
     Renderer3D::Renderer3DData Renderer3D::s_Data;
     ShaderLibrary Renderer3D::m_ShaderLibrary;
+
+    std::vector<std::string> Renderer3D::GetShaderFilepaths()
+    {
+        return std::vector<std::string>(kShaderPaths3D.begin(), kShaderPaths3D.end());
+    }
 
     void Renderer3D::Init(Window* loadingWindow)
     {
@@ -207,8 +275,9 @@ namespace OloEngine
             s_Data.FullscreenQuadVAO->AddVertexBuffer(quadVBO);
         }
 
-        // NOTE: Keep totalShaders3D in sync with the number of paths in s_ShaderPaths below.
+        // NOTE: Keep totalShaders3D in sync with kShaderPaths3D's length above.
         constexpr u32 totalShaders3D = 52;
+        static_assert(kShaderPaths3D.size() == totalShaders3D);
 
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
@@ -216,73 +285,23 @@ namespace OloEngine
         ShaderWarmup::Init();
         ShaderLibrary::InitFallbackShader();
 
+        // A CI-baked pack (issue #908) is optional — LoadShaderPack() is a
+        // no-op when the file doesn't exist, so every Load() below falls
+        // back to compiling from source, same as it always has.
+        m_ShaderLibrary.LoadShaderPack("assets/ShaderPack.osp");
+
         Window* window = loadingWindow;
 
         // All Load() calls issue glLinkProgram() back-to-back WITHOUT checking
         // GL_LINK_STATUS. When GL_ARB_parallel_shader_compile is available the
         // driver links them all in parallel. Status is checked later via
         // PollPendingShaders() each frame from `RenderPipeline::PrepareFrame()`.
-        static constexpr std::array s_ShaderPaths = {
-            "assets/shaders/LightCube.glsl",
-            "assets/shaders/Renderer3D_Quad.glsl",
-            "assets/shaders/PBR_MultiLight.glsl",
-            "assets/shaders/PBR_MultiLight_Skinned.glsl",
-            "assets/shaders/PBR_GBuffer.glsl",
-            "assets/shaders/PBR_GBuffer_Skinned.glsl",
-            "assets/shaders/EquirectangularToCubemap.glsl",
-            "assets/shaders/ProceduralSky.glsl",
-            "assets/shaders/StarNestSky.glsl",
-            "assets/shaders/AtmosphereSky.glsl",
-            "assets/shaders/IrradianceConvolution.glsl",
-            "assets/shaders/IrradianceConvolutionAdvanced.glsl",
-            "assets/shaders/IrradianceFromSH.glsl",
-            "assets/shaders/IBLPrefilter.glsl",
-            "assets/shaders/IBLPrefilterImportance.glsl",
-            "assets/shaders/BRDFLutGeneration.glsl",
-            "assets/shaders/BRDFIntegrationAdvanced.glsl",
-            "assets/shaders/Skybox.glsl",
-            "assets/shaders/Skybox_GBuffer.glsl",
-            "assets/shaders/LightCube_GBuffer.glsl",
-            "assets/shaders/InfiniteGrid.glsl",
-            "assets/shaders/InfiniteGrid_GBuffer.glsl",
-            "assets/shaders/ShadowDepth.glsl",
-            "assets/shaders/ShadowDepthSkinned.glsl",
-            "assets/shaders/DepthPrepass.glsl",
-            "assets/shaders/DepthPrepass_Skinned.glsl",
-            "assets/shaders/DepthPrepass_Mask.glsl",
-            "assets/shaders/DepthPrepass_MaskSkinned.glsl",
-            "assets/shaders/Terrain_PBR.glsl",
-            "assets/shaders/Terrain_GBuffer.glsl",
-            "assets/shaders/Terrain_Depth.glsl",
-            "assets/shaders/Terrain_Voxel.glsl",
-            "assets/shaders/Terrain_Voxel_GBuffer.glsl",
-            "assets/shaders/Terrain_VoxelDepth.glsl",
-            "assets/shaders/Terrain_VoxelGreedy.glsl",
-            "assets/shaders/Terrain_VoxelGreedy_GBuffer.glsl",
-            "assets/shaders/Terrain_VoxelGreedyDepth.glsl",
-            "assets/shaders/Foliage_Instance.glsl",
-            "assets/shaders/Foliage_Instance_GBuffer.glsl",
-            "assets/shaders/Foliage_Depth.glsl",
-            "assets/shaders/Foliage_Impostor.glsl",
-            "assets/shaders/Impostor_Bake.glsl",
-            "assets/shaders/Water.glsl",
-            "assets/shaders/Water_Depth.glsl",
-            "assets/shaders/Decal.glsl",
-            "assets/shaders/Decal_OIT.glsl",
-            "assets/shaders/Decal_GBuffer.glsl",
-            "assets/shaders/Decal_GBuffer_Normal.glsl",
-            "assets/shaders/Decal_GBuffer_RMA.glsl",
-            "assets/shaders/Decal_GBuffer_Emissive.glsl",
-            "assets/shaders/OcclusionProxy.glsl",
-            "assets/shaders/ForwardPlusDebug.glsl",
-        };
-        static_assert(s_ShaderPaths.size() == totalShaders3D);
-
+        //
         // CPU-side compile of independent shaders runs in parallel across
         // shaders (issue #907) — GL program creation/link still happens
         // sequentially afterward on this (render) thread; see
         // ShaderWarmup::LoadShadersParallel.
-        const std::vector<std::string> shaderPaths3D(s_ShaderPaths.begin(), s_ShaderPaths.end());
+        const std::vector<std::string> shaderPaths3D(kShaderPaths3D.begin(), kShaderPaths3D.end());
         ShaderWarmup::LoadShadersParallel(m_ShaderLibrary, window, shaderPaths3D, "3D shaders", 1);
 
         // Log how many shaders are still compiling asynchronously
