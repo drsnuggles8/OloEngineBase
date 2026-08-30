@@ -11,19 +11,22 @@ validated, and something `GameBuildPipeline` actually ships.
 ## The invalidation contract
 
 A pack entry is now keyed by a **content hash**
-(`OpenGLShader::ComputeContentHash`), not by name alone. The hash is computed
-from the exact two ingredients the per-stage #906 SPIR-V cache already hashes
-on: the preprocessed source (per stage, includes already resolved) and the
-Vulkan tier's compiler-options descriptor (`Utils::VulkanTierOptions::Descriptor`).
-Two callers that get the same hash string back are guaranteed to compile to
-the same bytes — a mismatch is unambiguously a miss, never a "maybe stale".
+(`OpenGLShader::ComputeContentHash` / `ComputeContentHashFromSources`), not by
+name alone. The hash is computed from the preprocessed source (per stage,
+includes already resolved) plus **both** compiler-option descriptors the two
+SPIR-V tiers a pack entry stores actually depend on:
+`Utils::VulkanTierOptions::Descriptor()` (the Vulkan-tier SPIR-V) and
+`Utils::OpenGLTierOptions::Descriptor()` (the OpenGL-cross-compiled SPIR-V,
+via SPIRV-Cross). Two callers that get the same hash string back are
+guaranteed to compile to the same bytes for both tiers — a mismatch is
+unambiguously a miss, never a "maybe stale".
 
 `ShaderLibrary::TryReadPackEntry` recomputes the hash from the CURRENT
 on-disk source before ever calling `ShaderPack::LoadEntry`, and only serves
 the pack entry when it matches `ShaderPack::GetContentHash(filepath)`. A
 mismatch (or a pack that predates this contract — see the version bump below)
-falls back to the normal compile path, silently and correctly, exactly like
-any other pack miss.
+logs an `OLO_CORE_WARN` and falls back to the normal compile path, exactly
+like any other pack miss — not silent, just not fatal.
 
 `SHADER_PACK_VERSION` bumped from 1 to 2 for the new on-disk field; a v1 pack
 fails the version check outright rather than being half-read.

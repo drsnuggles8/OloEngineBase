@@ -154,12 +154,18 @@ namespace OloEngine
     {
         packStaged = false;
 
-        if (!std::filesystem::exists(shaderPackSrc))
+        std::error_code ec;
+        const bool srcExists = std::filesystem::exists(shaderPackSrc, ec);
+        if (ec)
+        {
+            errorMessage = "Failed to check for a shader pack at " + shaderPackSrc.string() + ": " + ec.message();
+            return false;
+        }
+        if (!srcExists)
         {
             return true;
         }
 
-        std::error_code ec;
         std::filesystem::create_directories(outputAssetsDir, ec);
         if (ec)
         {
@@ -669,12 +675,17 @@ namespace OloEngine
         }
         if (packStaged)
         {
-            // "Fixed engine set" — a script-loaded custom shader
-            // (ShaderLibrary.Load exposed to Lua) isn't in the pack's
-            // enumeration and still cold-compiles on first launch; see
-            // docs/agent-rules/shader-pack-bake.md.
-            OLO_CORE_INFO("[GameBuild] Staged shader pack (ShaderPack.osp) — packaged runtime will not "
-                          "compile the fixed engine shader set from source on first launch");
+            // Staging alone doesn't guarantee a hit: the runtime still
+            // content-hash-validates every entry against the shipped
+            // `assets/shaders` source (ShaderLibrary::TryReadPackEntry) before
+            // serving it, and falls back to compiling from source for
+            // anything that doesn't validate — a pack staged here from a
+            // stale bake, or a script-loaded custom shader (ShaderLibrary.Load
+            // exposed to Lua) outside the pack's fixed enumeration, still
+            // compiles on first launch. See docs/agent-rules/shader-pack-bake.md.
+            OLO_CORE_INFO("[GameBuild] Staged shader pack (ShaderPack.osp) — the packaged runtime will "
+                          "try it first and fall back to compiling from source for any shader that "
+                          "doesn't validate");
         }
         else
         {

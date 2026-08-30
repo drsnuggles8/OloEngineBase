@@ -390,7 +390,14 @@ namespace OloEngine
                 continue;
             }
 
-            const std::string contentHash = OpenGLShader::ComputeContentHash(filepaths[i]);
+            // Hashed from the shader's OWN preprocessed source, not a second
+            // re-read of the file — same reasoning as CreateFromLibraries
+            // above: a re-read here would be a second, independent disk read
+            // of the same file Shader::PrepareBatch just read to produce
+            // this SPIR-V, so a file that changed between the two reads
+            // would pack SPIR-V from read #1 under a hash from read #2.
+            const std::string contentHash =
+                OpenGLShader::ComputeContentHashFromSources(glShader->GetOriginalSourceCode());
             if (contentHash.empty())
             {
                 OLO_CORE_WARN("[ShaderPack] Skipping '{}' (couldn't recompute its content hash)", filepaths[i]);

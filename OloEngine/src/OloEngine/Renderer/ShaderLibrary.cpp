@@ -411,7 +411,20 @@ void main()
         // here, once, rather than duplicated at every LoadShaderPack call
         // site — Renderer2D::Init() and Renderer3D::Init() used to each
         // carry their own copy of this exact guard.
-        if (!std::filesystem::exists(path))
+        //
+        // The std::error_code overload: this runs on every engine startup,
+        // so an exception here (a permissions error, a broken symlink, ...)
+        // would be an uncaught throw straight out of Init() rather than a
+        // graceful "no pack" — treat any query failure as "not present"
+        // rather than crashing startup over an optional feature.
+        std::error_code ec;
+        const bool exists = std::filesystem::exists(path, ec);
+        if (ec)
+        {
+            OLO_CORE_WARN("[ShaderLibrary] Couldn't check for a shader pack at '{}': {}", path.string(), ec.message());
+            return;
+        }
+        if (!exists)
         {
             return;
         }
