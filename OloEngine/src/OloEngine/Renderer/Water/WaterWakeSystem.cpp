@@ -65,6 +65,19 @@ namespace OloEngine
         {
             return std::isfinite(v.x) && std::isfinite(v.y);
         }
+
+        /// Every field of one arm sample is finite.
+        ///
+        /// A named predicate rather than the conjunction inline: five terms in one
+        /// `if` is over SonarCloud's conditional-operator limit, and the name is
+        /// what the call site actually means.
+        [[nodiscard("the finiteness result must be used")]] bool IsFiniteArmSample(
+            const WaterWakeArmSample& s) noexcept
+        {
+            return IsFinite2(s.m_CentreXZ) && IsFinite2(s.m_ForwardXZ) &&
+                   std::isfinite(s.m_AgeSeconds) && std::isfinite(s.m_Speed) &&
+                   std::isfinite(s.m_Gate);
+        }
     } // namespace
 
     WaterWakeSystem::WaterWakeData WaterWakeSystem::s_Data;
@@ -138,8 +151,7 @@ namespace OloEngine
         for (u32 i = 0; i < requested; ++i)
         {
             const WaterWakeArmSample& s = desc.m_Arms[i];
-            if (!IsFinite2(s.m_CentreXZ) || !IsFinite2(s.m_ForwardXZ) ||
-                !std::isfinite(s.m_AgeSeconds) || !std::isfinite(s.m_Speed) || !std::isfinite(s.m_Gate))
+            if (!IsFiniteArmSample(s))
             {
                 // Stop rather than skip. Skipping would join the segment across
                 // the hole, drawing one long arm through water the hull never

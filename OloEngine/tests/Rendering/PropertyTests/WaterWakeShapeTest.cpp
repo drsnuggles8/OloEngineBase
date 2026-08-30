@@ -82,12 +82,27 @@ namespace
     }
 } // namespace
 
+/// Clears the process-wide records after each case.
+///
+/// `EvaluateOne` and the record-level tests below Reset() on the way IN, which
+/// protects these tests from each other but leaves hulls standing for whatever
+/// runs next in the binary. WaterWakeBuoyancyTest resets in its TearDown for the
+/// same reason; these are free functions, so they get a fixture.
+class WaterWakeShapeTest : public ::testing::Test
+{
+  protected:
+    void TearDown() override
+    {
+        WaterWakeSystem::Reset();
+    }
+};
+
 // =============================================================================
 // 1. Hull exclusion — the acceptance criterion "no water clipping through the
 //    boat's deck or hull interior".
 // =============================================================================
 
-TEST(WaterWakeShapeTest, HullFootprintFullySuppressesTheOceanInsideAndNothingWellOutside)
+TEST_F(WaterWakeShapeTest, HullFootprintFullySuppressesTheOceanInsideAndNothingWellOutside)
 {
     const WaterWakeHullDesc desc = StraightRunner();
 
@@ -111,7 +126,7 @@ TEST(WaterWakeShapeTest, HullFootprintFullySuppressesTheOceanInsideAndNothingWel
     EXPECT_LT(rim.m_Flatten, kFlatten) << "the mask has not begun to fall by the middle of its fade band";
 }
 
-TEST(WaterWakeShapeTest, FootprintIsORIENTEDWithTheHullRatherThanAxisAligned)
+TEST_F(WaterWakeShapeTest, FootprintIsORIENTEDWithTheHullRatherThanAxisAligned)
 {
     // A hull heading north-east. A point off its BEAM must be outside the
     // footprint while an equally distant point along its LENGTH is inside —
@@ -139,7 +154,7 @@ TEST(WaterWakeShapeTest, FootprintIsORIENTEDWithTheHullRatherThanAxisAligned)
 // 2. The Kelvin V — arm geometry.
 // =============================================================================
 
-TEST(WaterWakeShapeTest, ArmRidgeSitsAtTheKelvinHalfAngleAndIsSpeedIndependent)
+TEST_F(WaterWakeShapeTest, ArmRidgeSitsAtTheKelvinHalfAngleAndIsSpeedIndependent)
 {
     // Walk down the trail behind the hull and find, at each along-track
     // distance, the lateral offset where the wake height peaks. The ratio of
@@ -188,7 +203,7 @@ TEST(WaterWakeShapeTest, ArmRidgeSitsAtTheKelvinHalfAngleAndIsSpeedIndependent)
     }
 }
 
-TEST(WaterWakeShapeTest, ArmsAreSymmetricAboutTheTrackAndAbsentOnIt)
+TEST_F(WaterWakeShapeTest, ArmsAreSymmetricAboutTheTrackAndAbsentOnIt)
 {
     const WaterWakeHullDesc desc = StraightRunner();
     const f32 age = 1.5f;
@@ -209,7 +224,7 @@ TEST(WaterWakeShapeTest, ArmsAreSymmetricAboutTheTrackAndAbsentOnIt)
         << "the trail centre is as raised as the arms — the V has collapsed onto the track";
 }
 
-TEST(WaterWakeShapeTest, ArmsFollowACurvedHistoryRatherThanTheCurrentHeading)
+TEST_F(WaterWakeShapeTest, ArmsFollowACurvedHistoryRatherThanTheCurrentHeading)
 {
     // An S-turn: the hull is heading +Z now, but its recent poses curve away to
     // starboard. The arms must follow THOSE poses. A wake laid from the current
@@ -262,7 +277,7 @@ TEST(WaterWakeShapeTest, ArmsFollowACurvedHistoryRatherThanTheCurrentHeading)
 // 3. Bow and stern.
 // =============================================================================
 
-TEST(WaterWakeShapeTest, BowRisesAndSternDipsAndBothVanishWhenStopped)
+TEST_F(WaterWakeShapeTest, BowRisesAndSternDipsAndBothVanishWhenStopped)
 {
     const WaterWakeHullDesc moving = StraightRunner();
 
@@ -291,7 +306,7 @@ TEST(WaterWakeShapeTest, BowRisesAndSternDipsAndBothVanishWhenStopped)
         << "a stopped hull stopped keeping the sea out of itself";
 }
 
-TEST(WaterWakeShapeTest, TheSternTroughDoesNotCancelTheBowBumpUnderTheHull)
+TEST_F(WaterWakeShapeTest, TheSternTroughDoesNotCancelTheBowBumpUnderTheHull)
 {
     // A trough centred ON the stern is symmetric in the along-hull coordinate,
     // so it digs the same depression forward under the hull and eats the bow
@@ -310,7 +325,7 @@ TEST(WaterWakeShapeTest, TheSternTroughDoesNotCancelTheBowBumpUnderTheHull)
 // 4. Boundedness, disablement and the band limit.
 // =============================================================================
 
-TEST(WaterWakeShapeTest, TheHeightIsBoundedEvenWithEveryHullStackedOnOneSpot)
+TEST_F(WaterWakeShapeTest, TheHeightIsBoundedEvenWithEveryHullStackedOnOneSpot)
 {
     // Four hulls at the same place, at the height scale's ceiling. Nothing about
     // this is realistic; the point is that the clamp exists, because this term
@@ -343,7 +358,7 @@ TEST(WaterWakeShapeTest, TheHeightIsBoundedEvenWithEveryHullStackedOnOneSpot)
     }
 }
 
-TEST(WaterWakeShapeTest, AZeroHeightScaleDisablesTheFlattenToo)
+TEST_F(WaterWakeShapeTest, AZeroHeightScaleDisablesTheFlattenToo)
 {
     // The disabled state has to remove the footprint as well as the height. A
     // scale that only zeroed the height would leave a hull-shaped patch of dead
@@ -359,7 +374,7 @@ TEST(WaterWakeShapeTest, AZeroHeightScaleDisablesTheFlattenToo)
     EXPECT_FLOAT_EQ(off.m_Flatten, 0.0f) << "a disabled wake still presses its hull into the sea";
 }
 
-TEST(WaterWakeShapeTest, TheBandLimitFadesFeaturesBelowTheMeshVertexSpacing)
+TEST_F(WaterWakeShapeTest, TheBandLimitFadesFeaturesBelowTheMeshVertexSpacing)
 {
     const WaterWakeHullDesc desc = StraightRunner();
     const f32 age = 1.5f;
@@ -390,7 +405,7 @@ TEST(WaterWakeShapeTest, TheBandLimitFadesFeaturesBelowTheMeshVertexSpacing)
 // 5. The record itself — the validation boundary and the bounded array.
 // =============================================================================
 
-TEST(WaterWakeShapeTest, NonFiniteHullInputIsRejectedRatherThanRepaired)
+TEST_F(WaterWakeShapeTest, NonFiniteHullInputIsRejectedRatherThanRepaired)
 {
     // WaterWake.h section 3: this is the ONE validation boundary, so that the
     // two evaluators can stay literal mirrors. A hull with a garbage pose is a
@@ -421,7 +436,7 @@ TEST(WaterWakeShapeTest, NonFiniteHullInputIsRejectedRatherThanRepaired)
     EXPECT_EQ(WaterWakeSystem::GetHullCount(), 1u);
 }
 
-TEST(WaterWakeShapeTest, HullsPastTheCapAreDroppedAndCountedRatherThanEvicting)
+TEST_F(WaterWakeShapeTest, HullsPastTheCapAreDroppedAndCountedRatherThanEvicting)
 {
     WaterWakeSystem::Reset();
     WaterWakeSystem::BeginFrame();
@@ -443,7 +458,7 @@ TEST(WaterWakeShapeTest, HullsPastTheCapAreDroppedAndCountedRatherThanEvicting)
     EXPECT_GT(first.m_Flatten, 0.0f) << "the first-submitted hull was displaced by a later one";
 }
 
-TEST(WaterWakeShapeTest, BeginFrameDropsLastFrameSHullsSoAStoppedProducerLeavesNothing)
+TEST_F(WaterWakeShapeTest, BeginFrameDropsLastFrameSHullsSoAStoppedProducerLeavesNothing)
 {
     // The failure this prevents: a boat beaches, BoatWakeSystem stops submitting
     // for it, and its footprint stays pressed into the sea forever because
@@ -465,7 +480,7 @@ TEST(WaterWakeShapeTest, BeginFrameDropsLastFrameSHullsSoAStoppedProducerLeavesN
     EXPECT_FLOAT_EQ(after.m_Height, 0.0f);
 }
 
-TEST(WaterWakeShapeTest, ABoundingCircleRejectionNeverClipsALiveFeature)
+TEST_F(WaterWakeShapeTest, ABoundingCircleRejectionNeverClipsALiveFeature)
 {
     // The bounding circle is a pure optimisation, so it must be conservative:
     // anywhere it rejects, the full evaluation must have produced nothing.

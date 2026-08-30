@@ -91,6 +91,22 @@ namespace OloEngine::Tests
             ScopedSsbo& operator=(const ScopedSsbo&) = delete;
         };
 
+        /// Clears the process-wide records on EVERY exit path, including a
+        /// GTEST_SKIP and an ASSERT_* return.
+        ///
+        /// WaterWakeSystem's records are static, so a test that leaves hulls
+        /// standing shapes the sea for whatever runs next in this binary — the
+        /// same hazard WaterWakeBuoyancyTest resets for in its TearDown. These
+        /// tests already Reset() on the way IN, which protects them but not
+        /// their successors.
+        struct ScopedWakeReset
+        {
+            ~ScopedWakeReset()
+            {
+                WaterWakeSystem::Reset();
+            }
+        };
+
         /// A hull under way along +Z, with a full historical arm polyline —
         /// the same fixture shape WaterWakeShapeTest uses.
         [[nodiscard]] WaterWakeHullDesc Runner(glm::vec2 centre, glm::vec2 forward, f32 speed)
@@ -128,6 +144,7 @@ namespace OloEngine::Tests
     TEST(WaterWakeParityTest, CpuAndGpuAgreeOnWakeHeightAtSampledPoints)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedWakeReset scopedWakeReset;
 
         // --- Build a record set the CPU and the GPU will both be handed ------
         // Three hulls, deliberately different: one fast and curving, one slow
@@ -298,6 +315,7 @@ namespace OloEngine::Tests
     TEST(WaterWakeParityTest, CpuAndGpuAgreeThatADisabledWakeIsExactlyNothing)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedWakeReset scopedWakeReset;
 
         // The disabled state is worth its own case because it is the one both
         // halves reach through an EARLY OUT rather than through the shared

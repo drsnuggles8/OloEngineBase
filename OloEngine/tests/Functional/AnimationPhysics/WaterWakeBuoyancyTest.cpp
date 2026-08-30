@@ -121,6 +121,11 @@ class WaterWakeBuoyancyTest : public FunctionalTest
     /// record exercises exactly that with nothing else moving.
     /// BoatWakeSystem's own production of the record is covered by
     /// WaterWakeShapeTest and the visual evidence pass.
+    /// NOTE the ASSERT_TRUE inside: a fatal gtest failure returns from THIS
+    /// function only, not from the test that called it. Every call site therefore
+    /// wraps this in ASSERT_NO_FATAL_FAILURE — without it a failed submission
+    /// inside the settle loops below would be recorded 360 times over while the
+    /// loop kept running against an empty record set.
     static void PublishHullsAt(std::initializer_list<glm::vec2> centres, f32 speed)
     {
         WaterWakeSystem::BeginFrame();
@@ -180,7 +185,7 @@ TEST_F(WaterWakeBuoyancyTest, VisualOnlyModeLeavesBuoyancyExactlyAsItWas)
     Entity buoy = SpawnBuoy({ 0.0f, 2.0f, 0.0f });
     EnablePhysics3D();
 
-    PublishHullUnder(hullCentre, 10.0f);
+    ASSERT_NO_FATAL_FAILURE(PublishHullUnder(hullCentre, 10.0f));
 
     // NEGATIVE CONTROL: the records really do raise the surface here. Without
     // this, a fixture whose wake happened to be zero at the buoy would pass
@@ -221,7 +226,7 @@ TEST_F(WaterWakeBuoyancyTest, PhysicalModeLiftsTheBuoyOntoTheWake)
         const std::vector<WaterProbe::Volume> volumes = WaterProbe::CollectEnabledVolumes(&GetScene());
         ASSERT_EQ(volumes.size(), 1u);
         ASSERT_TRUE(volumes[0].m_WakeAffectsPhysics);
-        PublishHullUnder(hullCentre, 10.0f);
+        ASSERT_NO_FATAL_FAILURE(PublishHullUnder(hullCentre, 10.0f));
         expectedSurfaceY = WaterProbe::SampleSurfaceY(volumes[0], { 0.0f, 0.0f }, 0.0f);
     }
 
@@ -237,7 +242,7 @@ TEST_F(WaterWakeBuoyancyTest, PhysicalModeLiftsTheBuoyOntoTheWake)
     // rather than a live one.
     for (int i = 0; i < 360; ++i) // 6 s at 60 Hz
     {
-        PublishHullUnder(hullCentre, 10.0f);
+        ASSERT_NO_FATAL_FAILURE(PublishHullUnder(hullCentre, 10.0f));
         RunFrames(1);
     }
 
@@ -258,7 +263,7 @@ TEST_F(WaterWakeBuoyancyTest, ADisabledWakeIsIndistinguishableFromNoWakeAtAll)
     Entity buoy = SpawnBuoy({ 0.0f, 2.0f, 0.0f });
     EnablePhysics3D();
 
-    PublishHullUnder({ 0.0f, -3.5f }, 10.0f);
+    ASSERT_NO_FATAL_FAILURE(PublishHullUnder({ 0.0f, -3.5f }, 10.0f));
 
     const std::vector<WaterProbe::Volume> volumes = WaterProbe::CollectEnabledVolumes(&GetScene());
     ASSERT_EQ(volumes.size(), 1u);
@@ -326,7 +331,7 @@ TEST_F(WaterWakeBuoyancyTest, ABigAndASmallBodyAreLiftedTheSameAmountByTheSameWa
     // near bodies are not over a raised surface" against a working feature.
     // BuoyancySystem itself is unaffected — it runs inside the physics kick,
     // before the fence, while the records are still standing.
-    publish();
+    ASSERT_NO_FATAL_FAILURE(publish());
     {
         const std::vector<WaterProbe::Volume> volumes = WaterProbe::CollectEnabledVolumes(&GetScene());
         ASSERT_EQ(volumes.size(), 1u);
@@ -343,7 +348,7 @@ TEST_F(WaterWakeBuoyancyTest, ABigAndASmallBodyAreLiftedTheSameAmountByTheSameWa
 
     for (int i = 0; i < 480; ++i) // 8 s at 60 Hz — the heavier pair settles slower
     {
-        publish();
+        ASSERT_NO_FATAL_FAILURE(publish());
         RunFrames(1);
     }
 

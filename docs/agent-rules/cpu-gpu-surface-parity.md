@@ -43,7 +43,8 @@ BoatWakeSystem (physics tick)
 Both consumers are handed the same bytes and asked the same question, so parity
 is a property of the design rather than a thing to be synchronised. That is what
 `WaterWakeParityTest` can assert at all, and it is worth paying for: the record
-is 1.6 KB of UBO against a readback's stall.
+is 1280 bytes of UBO — 80 `vec4` — against a readback's stall. (`WaterUBO` as a
+whole is 1616 B; the record is the 80-`vec4` array inside it.)
 
 **The general rule: if two subsystems must agree about a value, do not make one
 of them the only place it exists.** Pick the representation that both can

@@ -330,6 +330,10 @@ namespace OloEngine::Tests
         /// SubmitSplat directly: the service knows nothing about boats, and a
         /// capture that needed a physics-driven boat would be measuring
         /// BoatSystem's settling behaviour as much as this feature.
+        /// NOTE the ASSERT_TRUE inside: a fatal gtest failure returns from THIS
+        /// function only, so RenderInto wraps both calls in
+        /// ASSERT_NO_FATAL_FAILURE — otherwise a rejected hull would be followed
+        /// by a rendered, read-back and golden-compared frame containing no wake.
         static void PublishHull(TrailShape shape, f32 speed)
         {
             WaterWakeSystem::BeginFrame();
@@ -381,14 +385,14 @@ namespace OloEngine::Tests
         {
             m_Ocean.GetComponent<WaterComponent>().m_WakeShapeEnabled = wakeEnabled;
             Time::SetMockTime(kCaptureTime);
-            PublishHull(shape, speed);
+            ASSERT_NO_FATAL_FAILURE(PublishHull(shape, speed));
             RunEditorFrames(camera, 1);
             // A second frame at the same instant: the settings reach the shader
             // through Renderer3D's published block, which is filled DURING a
             // frame, so the first frame after a toggle can still carry the
             // previous state. Rendering twice makes the A/B measure the wake
             // rather than a one-frame lag in the plumbing.
-            PublishHull(shape, speed);
+            ASSERT_NO_FATAL_FAILURE(PublishHull(shape, speed));
             RunEditorFrames(camera, 1);
 
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
