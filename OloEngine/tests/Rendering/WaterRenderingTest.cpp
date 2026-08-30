@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Water/WaterWake.h"
+
 #include <gtest/gtest.h>
 
 #include "RenderingTestUtils.h"
@@ -34,16 +36,25 @@ TEST(WaterRendering, WaterUBOAlignment)
 
 TEST(WaterRendering, WaterUBOSizeStable)
 {
-    // 20 x glm::vec4 = 20 x 16 = 320 bytes. Was 18 x 16 = 288 until issue #967
-    // appended WakeFieldParams / WakeFieldParams2 for the boat-wake foam field;
-    // FFTParams was the one before that (the Tessendorf FFT ocean,
-    // WATER_FUTURE_IMPROVEMENTS.md §1).
+    // 101 x glm::vec4 = 101 x 16 = 1616 bytes:
+    //   20  the scalar params (18 until #967 appended WakeFieldParams /
+    //       WakeFieldParams2 for the boat-wake foam field; FFTParams was the one
+    //       before that, WATER_FUTURE_IMPROVEMENTS.md §1),
+    //   +1  WakeShapeParams and
+    //   +80 WakeHulls[WaterWake::kHullVec4Count] for the #968 wake SHAPE.
+    //
+    // The array is what makes #968 cost ZERO new binding slots — the engine has
+    // exactly one UBO slot left below UBO_BINDING_LIMIT, and a wake block was
+    // not what to spend it on. 1616 B is comfortably under the 16 KB std140
+    // block ceiling, and water is single-instance so it uploads once per draw.
     //
     // A change here is a five-file edit, not a one-line one: the block is
     // declared identically in Water.glsl, Water_Depth.glsl and the three
     // WaterTess*/WaterVertexStage includes, because GL requires every stage of a
     // program to declare a shared uniform block the same way.
-    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 320u);
+    EXPECT_EQ(sizeof(UBOStructures::WaterUBO),
+              (20u + 1u + WaterWake::kHullVec4Count) * sizeof(glm::vec4));
+    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 1616u);
 }
 
 TEST(WaterRendering, WaterUBOGetSizeMatchesSizeof)

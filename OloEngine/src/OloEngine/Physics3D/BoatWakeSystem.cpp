@@ -6,6 +6,7 @@
 #include "OloEngine/Physics3D/Physics3DTypes.h"
 #include "OloEngine/Physics3D/WaterProbe.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
+#include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
@@ -75,6 +76,15 @@ namespace OloEngine
 
         if (!scene || !std::isfinite(simulationTime) || !std::isfinite(deltaTime) || deltaTime <= 0.0f)
             return;
+
+        // Drop last tick's wake-shape records BEFORE any of the early-outs
+        // below (issue #968). A frame with no physics scene, no boats or no
+        // water must publish an EMPTY record set, not last frame's — otherwise
+        // a boat that beaches, or a scene whose water is switched off, leaves
+        // its hull footprint pressed into the sea until something else happens
+        // to overwrite the slot, and buoyancy keeps floating on a wake that is
+        // no longer being made.
+        WaterWakeSystem::BeginFrame();
 
         JoltScene* jolt = scene->GetPhysicsScene();
         if (!jolt)
@@ -190,6 +200,18 @@ namespace OloEngine
                 (void)WaterDisturbanceSystem::SubmitSplat(hull);
             }
 
+            // The wake-shape record for this hull (issue #968), filled from the
+            // same arm loop below and submitted once it has run. `HullExtents`
+            // reports full beam and length; the shape record wants halves.
+            WaterWakeHullDesc shapeDesc{};
+            shapeDesc.m_CentreXZ = posXZ;
+            shapeDesc.m_ForwardXZ = forwardXZ;
+            shapeDesc.m_HalfBeam = beam * 0.5f;
+            shapeDesc.m_HalfLength = length * 0.5f;
+            shapeDesc.m_Speed = forwardSpeed;
+            shapeDesc.m_Gate = hullGate;
+            u32 shapeSampleCount = 0;
+
             // --- 2. The diverging V-arms --------------------------------------
             // Sample the hull history at several AGES and join consecutive ones
             // with a capsule per side, offsetting each end by its own sample's
@@ -221,7 +243,27 @@ namespace OloEngine
 
                     const f32 age = simulationTime - s.m_TimeSeconds;
                     const f32 gate = speedGate(s.m_ForwardSpeed);
-                    const f32 offset = beam * 0.5f + kArmSpreadMetresPerSecond * age * gate;
+                    // The Kelvin law (WaterWake.h section 4): the lateral offset
+                    // grows with the DISTANCE run, not the time elapsed, so the
+                    // arms open at 19.47 degrees whatever the throttle. The
+                    // constant 1.6 m/s spread this replaced gave 15 degrees at
+                    // 6 m/s and 5 at 18, i.e. a wake that visibly narrowed as
+                    // the boat accelerated.
+                    const f32 offset = ArmOffset(beam * 0.5f, s.m_ForwardSpeed, gate, age);
+
+                    // The same pose feeds the wake SHAPE record (issue #968).
+                    // Collected here rather than in a second pass over the trail
+                    // so the foam arm and the height ridge cannot be laid from
+                    // different samples.
+                    if (shapeSampleCount < WaterWake::kMaxArmSamples)
+                    {
+                        WaterWakeArmSample& shape = shapeDesc.m_Arms[shapeSampleCount++];
+                        shape.m_CentreXZ = s.m_WorldXZ;
+                        shape.m_ForwardXZ = s.m_ForwardXZ;
+                        shape.m_AgeSeconds = age;
+                        shape.m_Speed = s.m_ForwardSpeed;
+                        shape.m_Gate = gate;
+                    }
 
                     if (prevValid && gate > 0.0f && prevGate > 0.0f)
                     {
@@ -232,7 +274,7 @@ namespace OloEngine
                         // it diverges. Keyed on the OLDER end so a segment never
                         // reads brighter than the one ahead of it.
                         const f32 armStrength =
-                            (0.25f + 0.35f * gate) / (1.0f + 0.6f * kArmSpreadMetresPerSecond * age);
+                            (0.25f + 0.35f * gate) / (1.0f + kArmFoamDecayPerSecond * age);
                         for (const f32 side : { -1.0f, 1.0f })
                         {
                             WaterDisturbanceSplat arm;
@@ -252,6 +294,16 @@ namespace OloEngine
                     prevValid = true;
                 }
             }
+
+            // Publish the shape. Submitted for EVERY boat over water, including
+            // one that is stopped: the hull footprint suppression and its own
+            // displacement are not speed-gated (a moored boat still keeps the
+            // sea out of its cockpit), and only the bow/stern/arm amplitudes
+            // fade to nothing with the gate. Submitting only moving boats is
+            // what would make a stopped hull start clipping water through the
+            // deck — which is the acceptance criterion this whole feature is for.
+            shapeDesc.m_ArmSampleCount = shapeSampleCount;
+            (void)WaterWakeSystem::SubmitHull(shapeDesc);
 
             // --- 3. Propeller wash --------------------------------------------
             // Gated on THROTTLE, not speed: a boat holding station against a

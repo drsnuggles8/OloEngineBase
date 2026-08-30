@@ -55,6 +55,7 @@ run is **not** evidence.
 | [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) §8 | six islands each rendered as ONE flat colour while every stage of the auto-material pipeline was correct — gate, rules, splatmap, upload, blend, all verified. The shoreline mask from the same document is itself a ~50 deg slope across the whole outer flank, so a rock rule keyed at 48 deg took 77-93%% of each island and normalization divided the rest to nothing. The obvious test — "assert the weights VARY" — passes on the bug; what is false is COVERAGE |
 | [water-shading-nyquist.md](water-shading-nyquist.md) | eight Gerstner octaves derived their normals WITHOUT the amplitude their displacement carried, so the shading described waves the geometry did not have — for months. No C++ test could catch it: the CPU mirror `BuoyancySystem` samples computes displacement only and has no normal at all, so the pin has to be a text test against the GLSL |
 | [persistent-world-space-fields.md](persistent-world-space-fields.md) | a wake stored in an R8 texture renders correctly, follows the boat correctly, wraps correctly — and NEVER FADES, because a 6 s half-life at 60 Hz moves a texel by 0.00096 and R8 rounds anything under 0.00196 straight back to where it started. The decay function is fine, so every math test passes; the bug is in the storage, which no math test touches. Plus: the three addressing failures all leave a plausible wake somewhere else in frame, so only comparing two regions of the SAME frame separates "wrong" from "different" |
+| [cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md) | the shader evaluated the boat wake at the vertex's AUTHORED xz and the CPU at the COLUMN xz, so the two agreed on the function and disagreed about where it was — identical on a flat sea, a metre apart on a choppy one, and the parity test cannot see it because it feeds both sides the same point. Plus: a wake arm laid at a constant lateral SPREAD RATE opens at 15 deg at 6 m/s and 5 at 18, so it narrows as the boat accelerates and reads as perspective; a single-speed test passes on it. Plus: four of five hand-posed evidence cameras pointed AWAY from the boat and the fifth at the empty sky, every capture a plausible picture of an ocean and every golden happily rebased - the A/B assertion (`maxDiff == 0`) was the only thing that knew |
 
 **The counter-move:** name the observation that *would* have failed. Usually it's a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
@@ -307,6 +308,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) ·
 [water-shading-nyquist.md](water-shading-nyquist.md) ·
 [persistent-world-space-fields.md](persistent-world-space-fields.md) ·
+[cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md) ·
 [pbf-solver-stability.md](pbf-solver-stability.md)
 
 **Scene, ECS & serialization** — [component-serializer-codegen.md](component-serializer-codegen.md) ·

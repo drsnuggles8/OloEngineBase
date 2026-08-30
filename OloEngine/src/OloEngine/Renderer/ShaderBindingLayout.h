@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Water/WaterWake.h"
 // The water-disturbance encoding contract (issue #967). Included for
 // WaterDisturbance::kMaxSplatsPerFrame, which sizes WaterDisturbanceUBO's splat
 // array below. Taking the constant rather than repeating the literal is the
@@ -650,6 +651,26 @@ namespace OloEngine
             // 45 m would delete the trail behind the boat under any chase
             // camera — which is the whole feature.
             glm::vec4 WakeFieldParams2;
+
+            // Boat / actor wake SHAPE (issue #968). The analytic height + hull
+            // suppression the water stages evaluate through
+            // include/WaterWakeCommon.glsl, and the CPU twin
+            // WaterWake::Evaluate that buoyancy floats on.
+            //
+            // x = live hull count, y = height scale (<= 0 disables the height
+            // AND the hull flatten), z/w reserved.
+            //
+            // Mirrors WaterWakeSystem::GetHullCount / GetRenderHeightScale.
+            glm::vec4 WakeShapeParams;
+            // The packed hull records. Layout is WaterWake.h's, verbatim; a
+            // flat vec4 array because its std140 stride is exactly 16 bytes on
+            // every implementation, with no padding rule to get wrong.
+            //
+            // In WaterUBO rather than a block of its own because the engine has
+            // exactly ONE UBO binding left below UBO_BINDING_LIMIT and this is
+            // not what to spend it on. Water is single-instance by design, so
+            // the block is uploaded once per water draw regardless of size.
+            glm::vec4 WakeHulls[WaterWake::kHullVec4Count];
 
             static constexpr u32 GetSize()
             {
@@ -1705,8 +1726,16 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::LightmapUBO) % 16 == 0, "LightmapUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::LightmapUBO) == 16, "LightmapUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
-    // 288 until issue #967 appended WakeFieldParams / WakeFieldParams2.
-    static_assert(sizeof(UBOStructures::WaterUBO) == 320, "WaterUBO unexpected size -- update GLSL layout");
+    // 288 until issue #967 appended WakeFieldParams / WakeFieldParams2; 320 until
+    // #968 appended WakeShapeParams + WakeHulls[80] for the wake SHAPE.
+    // 101 vec4 = 1616 B, comfortably under the 16 KB std140 block ceiling — and
+    // an ARRAY rather than a block of its own precisely because the engine has
+    // exactly one UBO binding left below UBO_BINDING_LIMIT.
+    static_assert(sizeof(UBOStructures::WaterUBO) ==
+                      (20u + 1u + WaterWake::kHullVec4Count) * sizeof(glm::vec4),
+                  "WaterUBO no longer matches its own field list -- a member was added without "
+                  "updating this expression");
+    static_assert(sizeof(UBOStructures::WaterUBO) == 1616, "WaterUBO unexpected size -- update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterDisturbanceUBO) % 16 == 0,
                   "WaterDisturbanceUBO size must be 16-byte aligned for std140");
     // 48 B header + kMaxSplatsPerFrame (96) * 32 B per capsule splat.

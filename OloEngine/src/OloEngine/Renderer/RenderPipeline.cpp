@@ -1691,6 +1691,14 @@ namespace OloEngine
                                            glm::vec2(data.ViewPos.x, data.ViewPos.z),
                                            Timestep(wakeDt));
 
+            // Boat / actor wake SHAPE (issue #968). No dispatch and no dt: the
+            // records are plain CPU state that BoatWakeSystem rebuilt during the
+            // tick, so all the render path does is hand the service this frame's
+            // scene settings before CommandDispatch packs them into WaterUBO.
+            // Forwarded unconditionally, including the disabled default, for the
+            // same reason the disturbance settings are.
+            WaterWakeSystem::SetSettings(data.WaterWakeShape);
+
             // Update snow ejecta particle simulation
             if (data.SnowEjecta.Enabled)
             {

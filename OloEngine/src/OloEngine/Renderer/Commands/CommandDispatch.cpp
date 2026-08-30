@@ -24,6 +24,7 @@
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
+#include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Asset/AssetManager.h"
 
@@ -2821,6 +2822,19 @@ namespace OloEngine
             // filling this unconditionally cannot put a stale field on screen.
             waterData.WakeFieldParams = WaterDisturbanceSystem::GetShaderParams();
             waterData.WakeFieldParams2 = WaterDisturbanceSystem::GetShaderParams2();
+            // Boat / actor wake SHAPE (issue #968). Same reasoning as the foam
+            // field above — one global record read from the service here rather
+            // than carried per-surface, so two water tiles cannot disagree about
+            // where the boat is. GetRenderHeightScale() reports 0 for every
+            // reason the wake could be unusable (feature off, no hulls this
+            // frame), which is why this is packed unconditionally: there is no
+            // path that leaves last frame's hull pressed into the sea.
+            waterData.WakeShapeParams =
+                glm::vec4(static_cast<f32>(WaterWakeSystem::GetHullCount()),
+                          WaterWakeSystem::GetRenderHeightScale(),
+                          WaterWakeSystem::GetSettings().m_FlattenStrength, 0.0f);
+            std::memcpy(waterData.WakeHulls, WaterWakeSystem::GetHullData(),
+                        sizeof(waterData.WakeHulls));
             waterUBO->SetData(&waterData, ShaderBindingLayout::WaterUBO::GetSize());
             api.BindUniformBuffer(ShaderBindingLayout::UBO_WATER, waterUBO->GetRHIHandle());
         }

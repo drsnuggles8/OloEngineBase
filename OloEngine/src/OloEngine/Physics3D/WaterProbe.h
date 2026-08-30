@@ -48,6 +48,30 @@ namespace OloEngine::WaterProbe
         /// instead of the analytic Gerstner field. Null ⇒ Gerstner.
         Ref<Ocean::OceanFFTField> m_OceanField;
         f32 m_FFTHeightScale = 1.0f; ///< artist multiplier (WaterComponent::m_FFTHeightScale, u_FFTParams.z)
+
+        // --- Boat / actor wake shape (issue #968) ---------------------------
+        //
+        // Carried PER TILE, read straight off the WaterComponent the body is
+        // over, rather than from WaterWakeSystem's published settings. Two
+        // reasons, and the second is the load-bearing one:
+        //
+        //   * the render settings are published from
+        //     Scene::ProcessScene3DSharedLogic, which is on the RENDER path — a
+        //     headless scene tick never runs it, so physics would silently never
+        //     see the wake and every functional test of it would pass by
+        //     agreeing that nothing happened;
+        //   * the tile a body floats on is the one whose settings should govern
+        //     it, which is already how m_FFTHeightScale works above.
+        //
+        // The hull RECORDS still come from WaterWakeSystem: those are produced
+        // by BoatWakeSystem on the physics path and are one global set, not a
+        // per-tile property.
+
+        /// The visual-only switch. False means this tile's wake shapes what you
+        /// see and nothing that floats.
+        bool m_WakeAffectsPhysics = false;
+        f32 m_WakeHeightScale = 0.0f;     ///< 0 when the wake is disabled on this tile
+        f32 m_WakeFlattenStrength = 0.9f; ///< WaterComponent::m_WakeShapeFlattenStrength
     };
 
     /// Every enabled WaterComponent tile in the scene, resolved to world space.

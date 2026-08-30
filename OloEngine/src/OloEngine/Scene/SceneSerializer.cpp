@@ -1531,6 +1531,17 @@ namespace OloEngine
         water.m_WakeFoamHalfLife = waterComponent["WakeFoamHalfLife"].as<f32>(water.m_WakeFoamHalfLife);
         water.m_WakeFoamFadeStart = waterComponent["WakeFoamFadeStart"].as<f32>(water.m_WakeFoamFadeStart);
         water.m_WakeFoamFadeEnd = waterComponent["WakeFoamFadeEnd"].as<f32>(water.m_WakeFoamFadeEnd);
+        // Boat / actor wake shape (issue #968). Same defaulting rule: a scene
+        // authored before this feature loads with the shape off, and — because
+        // WakeShapeAffectsPhysics defaults false — a scene that turns it on
+        // still gets the visual-only mode until it is explicitly opted in.
+        water.m_WakeShapeEnabled = waterComponent["WakeShapeEnabled"].as<bool>(water.m_WakeShapeEnabled);
+        water.m_WakeShapeAffectsPhysics =
+            waterComponent["WakeShapeAffectsPhysics"].as<bool>(water.m_WakeShapeAffectsPhysics);
+        water.m_WakeShapeHeightScale =
+            waterComponent["WakeShapeHeightScale"].as<f32>(water.m_WakeShapeHeightScale);
+        water.m_WakeShapeFlattenStrength =
+            waterComponent["WakeShapeFlattenStrength"].as<f32>(water.m_WakeShapeFlattenStrength);
         water.m_SSSColor = waterComponent["SSSColor"].as<glm::vec3>(water.m_SSSColor);
         water.m_SSSIntensity = waterComponent["SSSIntensity"].as<f32>(water.m_SSSIntensity);
         water.m_SSRMaxSteps = waterComponent["SSRMaxSteps"].as<f32>(water.m_SSRMaxSteps);
@@ -1682,6 +1693,12 @@ namespace OloEngine
         // means the inspector shows the value that will actually be used.
         if (water.m_WakeFoamFadeEnd < water.m_WakeFoamFadeStart + 1.0f)
             water.m_WakeFoamFadeEnd = water.m_WakeFoamFadeStart + 1.0f;
+        // Wake shape (issue #968). Bounds identical to the OLO_SERIALIZE(Clamp)
+        // annotations on the fields and to WaterWakeSystem::SetSettings, for the
+        // reason stated above the foam clamps: a value clamped differently at
+        // publish time would render differently from what the inspector shows.
+        SanitizeFloat(water.m_WakeShapeHeightScale, 0.0f, 4.0f, 1.0f);
+        SanitizeFloat(water.m_WakeShapeFlattenStrength, 0.0f, 1.0f, 0.9f);
         SanitizeVec3(water.m_SSSColor, { 0.0f, 0.5f, 0.4f });
         SanitizeFloat(water.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
         SanitizeFloat(water.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
@@ -5292,6 +5309,10 @@ namespace OloEngine
             out << YAML::Key << "WakeFoamHalfLife" << YAML::Value << water.m_WakeFoamHalfLife;
             out << YAML::Key << "WakeFoamFadeStart" << YAML::Value << water.m_WakeFoamFadeStart;
             out << YAML::Key << "WakeFoamFadeEnd" << YAML::Value << water.m_WakeFoamFadeEnd;
+            out << YAML::Key << "WakeShapeEnabled" << YAML::Value << water.m_WakeShapeEnabled;
+            out << YAML::Key << "WakeShapeAffectsPhysics" << YAML::Value << water.m_WakeShapeAffectsPhysics;
+            out << YAML::Key << "WakeShapeHeightScale" << YAML::Value << water.m_WakeShapeHeightScale;
+            out << YAML::Key << "WakeShapeFlattenStrength" << YAML::Value << water.m_WakeShapeFlattenStrength;
             out << YAML::Key << "SSSColor" << YAML::Value << water.m_SSSColor;
             out << YAML::Key << "SSSIntensity" << YAML::Value << water.m_SSSIntensity;
             out << YAML::Key << "SSRMaxSteps" << YAML::Value << water.m_SSRMaxSteps;

@@ -2,6 +2,8 @@
 #include "OloEngine/Physics3D/WaterProbe.h"
 
 #include "OloEngine/Renderer/Ocean/OceanFFTField.h"
+#include "OloEngine/Renderer/Water/WaterWake.h"
+#include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
@@ -72,6 +74,21 @@ namespace OloEngine::WaterProbe
                 w.m_FFTHeightScale = WaterSurface::ClampFFTHeightScale(wc.m_FFTHeightScale);
             }
 
+            // Boat / actor wake shape (issue #968). Clamped to the SAME bounds
+            // the OLO_SERIALIZE annotations, SceneSerializer's sanitize pass and
+            // WaterWakeSystem::SetSettings use, so the surface physics samples
+            // cannot be shaped differently from the surface that is drawn.
+            w.m_WakeAffectsPhysics = wc.m_WakeShapeEnabled && wc.m_WakeShapeAffectsPhysics;
+            w.m_WakeHeightScale =
+                wc.m_WakeShapeEnabled
+                    ? (std::isfinite(wc.m_WakeShapeHeightScale)
+                           ? std::clamp(wc.m_WakeShapeHeightScale, 0.0f, 4.0f)
+                           : 1.0f)
+                    : 0.0f;
+            w.m_WakeFlattenStrength = std::isfinite(wc.m_WakeShapeFlattenStrength)
+                                          ? std::clamp(wc.m_WakeShapeFlattenStrength, 0.0f, 1.0f)
+                                          : 0.9f;
+
             waters.push_back(w);
         }
         return waters;
@@ -97,8 +114,40 @@ namespace OloEngine::WaterProbe
 
     f32 SampleSurfaceY(const Volume& volume, const glm::vec2& worldXZ, f32 rawTime)
     {
-        return volume.m_OceanField
-                   ? WaterSurface::SampleHeightFFT(*volume.m_OceanField, worldXZ, volume.m_Params.m_PlaneHeight, volume.m_FFTHeightScale)
-                   : WaterSurface::SampleHeight(volume.m_Params, worldXZ, rawTime);
+        const f32 oceanY =
+            volume.m_OceanField
+                ? WaterSurface::SampleHeightFFT(*volume.m_OceanField, worldXZ, volume.m_Params.m_PlaneHeight, volume.m_FFTHeightScale)
+                : WaterSurface::SampleHeight(volume.m_Params, worldXZ, rawTime);
+
+        // --- Boat / actor wake shape (issue #968) --------------------------
+        // The SAME records and the SAME evaluator the water stages run through
+        // WaterWakeCommon.glsl, so a hull floats on the surface that is drawn
+        // rather than on the one it would have been drawn on without a boat in
+        // it. The TILE's own switches gate it, not a global one: visual-only
+        // mode, or a wake disabled on this water surface, collapses the whole
+        // block to `oceanY`. See Volume's comment for why they live there.
+        //
+        // `vertexSpacing` is 0 — "no mesh, no band limit". That is not a parity
+        // hole: the limit exists because a ridge narrower than the water mesh's
+        // vertices aliases on screen, and physics has no vertices. Buoyancy
+        // also samples at the hull, where the mesh is at its finest and the
+        // factor is 1 anyway. See WaterWake.h section 5.
+        if (!volume.m_WakeAffectsPhysics || !(volume.m_WakeHeightScale > 0.0f))
+            return oceanY;
+
+        const WaterWake::Sample wake = WaterWake::Evaluate(
+            WaterWakeSystem::GetHullData(), WaterWakeSystem::GetHullCount(), volume.m_WakeHeightScale,
+            volume.m_WakeFlattenStrength, worldXZ, 0.0f);
+
+        // Mirrors the shader's order exactly (WaterVertexStage/WaterTessEval):
+        // suppress the ocean displacement inside the hull footprint FIRST,
+        // relative to the undisplaced plane, then add the wake height. Applying
+        // them the other way round would flatten away part of the wake's own
+        // bow bump under the hull, which is a difference the parity test would
+        // not catch because it only exercises the shared evaluator.
+        const f32 planeY = volume.m_Params.m_PlaneHeight;
+        const f32 suppressed = planeY + (oceanY - planeY) * (1.0f - wake.m_Flatten);
+        const f32 result = suppressed + wake.m_Height;
+        return std::isfinite(result) ? result : oceanY; // physics must never see a NaN height
     }
 } // namespace OloEngine::WaterProbe

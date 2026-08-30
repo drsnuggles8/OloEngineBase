@@ -2474,6 +2474,22 @@ namespace OloEngine
             ar << c.m_WakeFoamFadeStart << c.m_WakeFoamFadeEnd;
         }
 
+        // Boat / actor wake SHAPE (issue #968), appended after the foam block —
+        // the same trailing-AtEnd() probe, which stays the right idiom here for
+        // the reason the comment above gives: this is now the trailing position.
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_WakeShapeEnabled = false;
+            c.m_WakeShapeAffectsPhysics = false;
+            c.m_WakeShapeHeightScale = 1.0f;
+            c.m_WakeShapeFlattenStrength = 0.9f;
+        }
+        else
+        {
+            ar << c.m_WakeShapeEnabled << c.m_WakeShapeAffectsPhysics;
+            ar << c.m_WakeShapeHeightScale << c.m_WakeShapeFlattenStrength;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -2527,6 +2543,8 @@ namespace OloEngine
             // which is undefined.
             if (c.m_WakeFoamFadeEnd < c.m_WakeFoamFadeStart + 1.0f)
                 c.m_WakeFoamFadeEnd = c.m_WakeFoamFadeStart + 1.0f;
+            sanitize(c.m_WakeShapeHeightScale, 0.0f, 4.0f, 1.0f);
+            sanitize(c.m_WakeShapeFlattenStrength, 0.0f, 1.0f, 0.9f);
             sanitize(c.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
             sanitize(c.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
             sanitize(c.m_SSRStepSize, 0.01f, 1.0f, 0.1f);
