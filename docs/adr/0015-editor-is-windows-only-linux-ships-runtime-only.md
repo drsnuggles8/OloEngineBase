@@ -11,9 +11,11 @@ attempt of `OloEditor` (see "Build attempt" below).
 **Native.** This is not a green-field choice: `OloRuntime` and `OloServer` are already
 continuously built and tested on Linux, and have been for a while.
 
-- `.github/workflows/vulkan-off.yml`, `video-ffmpeg.yml`, and `steam-stub.yml` all build
-  `OloEngine-Tests`, `OloRuntime` and `OloServer` on `ubuntu-24.04` — on every PR that touches the
-  relevant paths, on every push to `master`, and on a weekly schedule.
+- `.github/workflows/vulkan-off.yml` builds `OloEngine-Tests`, `OloRuntime` **and** `OloServer`
+  on `ubuntu-24.04` — on every PR that touches the relevant paths, on every push to `master`, and
+  on a weekly schedule. `video-ffmpeg.yml` and `steam-stub.yml` also build and run on
+  `ubuntu-24.04`, but only `OloEngine-Tests` — they exercise the engine core on Linux, not
+  `OloRuntime`/`OloServer` specifically.
 - `.github/workflows/gpu-conformance-amd.yml` runs the **full test suite, goldens and visual
   evidence included**, against a real AMD Navi 10 (RX 5600 XT) via Mesa radeonsi on a self-hosted
   Linux runner — genuine cross-vendor hardware validation, not a software rasterizer stand-in.

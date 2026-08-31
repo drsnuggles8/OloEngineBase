@@ -350,8 +350,9 @@ C++23 baseline, OpenGL 4.6 with DSA. Layout:
 - `OloEditor/` — ImGui editor. Panels under `src/`; runtime assets under `assets/`; sample game under `SandboxProject/`.
 - `OloRuntime/` — standalone game runtime that loads what the editor builds.
 - `OloServer/` — headless dedicated server. Linux is a first-class CI target, not just a WSL2
-  convenience: `OloEngine-Tests`, `OloRuntime` and `OloServer` build on `ubuntu-24.04` in every
-  `vulkan-off.yml`/`video-ffmpeg.yml`/`steam-stub.yml` run, and `gpu-conformance-amd.yml` runs the
+  convenience: `vulkan-off.yml` builds `OloEngine-Tests`, `OloRuntime` **and** `OloServer` on
+  `ubuntu-24.04`; `video-ffmpeg.yml` and `steam-stub.yml` build and run `OloEngine-Tests` there
+  too (engine core only, not the runtime/server targets); and `gpu-conformance-amd.yml` runs the
   full suite (goldens included) on real Linux/AMD hardware. `OloEditor` is the one target that is
   **not** CI-built on Linux — see [ADR 0015](docs/adr/0015-editor-is-windows-only-linux-ships-runtime-only.md).
 - `OloEngine-ScriptCore/` (C# / Mono, Windows only) and `OloEngine-LuaScriptCore/` (Lua / Sol2, all platforms).
