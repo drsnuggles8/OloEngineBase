@@ -9322,7 +9322,7 @@ namespace OloEngine
                             // w = horizontalScale (choppiness is already baked
                             // into the texture's dx/dz, so keep this at 1).
                             waterParams.fftParams = glm::vec4(
-                                static_cast<f32>(preset.Count), invPatch,
+                                static_cast<f32>(preset.m_Count), invPatch,
                                 WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale), 1.0f);
                             waterParams.fftCascadeParams = Ocean::PackCascadeShaderParams(preset);
                             // FFT crests can exceed the Gerstner-derived TCS cull

@@ -120,9 +120,12 @@ namespace OloEngine
         // too, or the same scene tiles on GL and smears on Vulkan, which is
         // the one-row-order-per-backend class of divergence in
         // docs/agent-rules/rhi-abstraction-boundary.md.
-        registryInfo.AddressMode = isDepth                      ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
-                                   : m_Specification.RepeatWrap ? VK_SAMPLER_ADDRESS_MODE_REPEAT
-                                                                : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        if (isDepth)
+            registryInfo.AddressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+        else if (m_Specification.RepeatWrap)
+            registryInfo.AddressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        else
+            registryInfo.AddressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         VulkanImageInfoRegistry::Get().Register(m_Image, registryInfo);
 
         m_RHIHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(m_Image), RHI::Backend::Vulkan);

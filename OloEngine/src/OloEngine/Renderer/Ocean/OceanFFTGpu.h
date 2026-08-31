@@ -106,10 +106,6 @@ namespace OloEngine::Ocean
         // Mirrors of the file-scope shared programs (see EnsureShaders), held
         // as Refs so this object cannot outlive the code it dispatches.
         bool m_ShaderInitAttempted = false;
-        bool m_ShadersValid = false;
-        Ref<ComputeShader> m_EvolveShader;
-        Ref<ComputeShader> m_ButterflyShader;
-        Ref<ComputeShader> m_AssembleShader;
 
         u32 m_Resolution = 0u;
         f32 m_PatchSize = 0.0f;

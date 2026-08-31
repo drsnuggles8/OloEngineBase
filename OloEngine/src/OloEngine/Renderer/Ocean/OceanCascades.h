@@ -143,31 +143,31 @@ namespace OloEngine::Ocean
     /// KMax is infinite (its own grid Nyquist is the real limit).
     struct CascadeBand
     {
-        f32 PatchSize = 0.0f;      ///< L_i, world tile size (metres)
-        u32 Resolution = 0u;       ///< N_i derived from the band's shortest wavelength
-        f32 KMin = 0.0f;           ///< inclusive lower wave-vector magnitude (rad/m)
-        f32 KMax = 0.0f;           ///< exclusive upper wave-vector magnitude (rad/m)
-        f32 DomainRotation = 0.0f; ///< theta_i, sampling-domain rotation (radians)
+        f32 m_PatchSize = 0.0f;      ///< L_i, world tile size (metres)
+        u32 m_Resolution = 0u;       ///< N_i derived from the band's shortest wavelength
+        f32 m_KMin = 0.0f;           ///< inclusive lower wave-vector magnitude (rad/m)
+        f32 m_KMax = 0.0f;           ///< exclusive upper wave-vector magnitude (rad/m)
+        f32 m_DomainRotation = 0.0f; ///< theta_i, sampling-domain rotation (radians)
         /// Grid the CPU physics proxy for this band is evaluated on — derived
         /// from the band's own occupied bins, not shared. A band limited to six
         /// bins does not need a 64² inverse FFT every tick to reproduce them,
         /// and paying for one is most of what the preset used to cost on the
         /// CPU. Same zero-padding argument as Resolution above: the field is
         /// identical, only cheaper.
-        u32 PhysicsResolution = 0u;
+        u32 m_PhysicsResolution = 0u;
     };
 
     /// The whole preset: Count active bands plus the shared grid size every
     /// chain actually runs at (see the header comment).
     struct CascadePreset
     {
-        u32 Count = 0u;
-        u32 ArrayResolution = 0u;
-        std::array<CascadeBand, kMaxOceanCascades> Bands{};
+        u32 m_Count = 0u;
+        u32 m_ArrayResolution = 0u;
+        std::array<CascadeBand, kMaxOceanCascades> m_Bands{};
 
         [[nodiscard]] bool IsValid() const noexcept
         {
-            return Count > 0u && Count <= kMaxOceanCascades && ArrayResolution > 0u;
+            return m_Count > 0u && m_Count <= kMaxOceanCascades && m_ArrayResolution > 0u;
         }
     };
 
@@ -203,7 +203,7 @@ namespace OloEngine::Ocean
     //   Not camera-relative (add u_RenderOrigin.xz back first), and not the
     //   authored base position of a vertex the displacement has since moved.
     //
-    // For each active cascade i, with theta_i = Bands[i].DomainRotation:
+    // For each active cascade i, with theta_i = Bands[i].m_DomainRotation:
     //
     //   uv_i    = RotateVec2(worldXZ, cos t_i,  sin t_i) / L_i
     //   disp_i  = displacement[layer i] sampled at uv_i   (dx, h, dz, foam)

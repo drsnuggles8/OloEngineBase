@@ -143,7 +143,7 @@ rather than being duplicated here. The four load-bearing decisions:
 |---|---|
 | The authored patch size becomes the **mid** band; broad and fine tiles derive either side of it | an author keeps the wave scale they tuned, and the preset adds an octave in each direction |
 | Band boundaries sit at the **next tile's fundamental** ($2\pi/L_{i+1}$), as half-open ranges | no gap and no double-counted energy at the handoff — every wave vector belongs to exactly one band |
-| Tile ratios (4.79, 4.31) are deliberately **non-commensurate**, and the mid band's sampling domain is **rotated** (with its wind counter-rotated to match) | the three lattices share neither a period nor an axis, so there is no repetition for the eye to lock onto |
+| Tile ratios (broad $L_0 = 6.29\,L$, fine $L_2 = L/4.43$) are deliberately **non-commensurate**, and the mid band's sampling domain is **rotated** (with its wind counter-rotated to match) | the three lattices share neither a period nor an axis, so there is no repetition for the eye to lock onto |
 | Per-band resolutions are derived from each band's **shortest wavelength** | the bounded bands need 64 where the fine band needs the authored resolution |
 
 The three fields are **layers of one `Texture2DArray` pair**, so the preset costs

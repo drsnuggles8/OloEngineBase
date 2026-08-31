@@ -2437,20 +2437,26 @@ namespace OloEngine
             ar << c.m_FFTJonswapGamma << c.m_FFTJonswapFetch;
         }
 
-        // Band-limited cascade preset (§1.3, issue #969) appended after the
-        // spectrum block — same trailing-AtEnd() probe, so a save written
-        // before it restores the single-cascade default and the surface the
-        // player last saw.
-        if (ar.IsLoading() && ar.AtEnd())
-        {
-            c.m_FFTCascades = Ocean::kSingleCascadeCount;
-        }
-        else
+        // Band-limited cascade preset (§1.3, issue #969). VERSION-GATED, and
+        // deliberately NOT the trailing-AtEnd() probe every addition above it
+        // uses: this field sits in the MIDDLE of the block, ahead of the
+        // planar-reflection and wake additions, and AtEnd() is only a valid
+        // "was this ever written?" test at the TRAILING position. A v23-or-older
+        // archive still has planar and wake bytes pending here, so the probe
+        // reads false, the cascade count is decoded out of the first
+        // planar-reflection bytes, and every field after it desyncs. (The wake
+        // block below states the same rule for its own position — that is the
+        // rule this insertion originally broke.)
+        if (HasFieldsSince(ar, 24))
         {
             ar << c.m_FFTCascades;
             if (ar.IsLoading() && c.m_FFTCascades != Ocean::kSingleCascadeCount &&
                 c.m_FFTCascades != Ocean::kThreeBandCascadeCount)
                 c.m_FFTCascades = Ocean::kSingleCascadeCount;
+        }
+        else
+        {
+            c.m_FFTCascades = Ocean::kSingleCascadeCount;
         }
 
         // Planar (mirror) reflections appended after the cascade field

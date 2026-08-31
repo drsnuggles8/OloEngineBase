@@ -84,7 +84,7 @@ namespace OloEngine::Ocean
     const DisplacementField& OceanFFTField::GetCascadeField(u32 cascade) const noexcept
     {
         static const DisplacementField s_Empty{};
-        if (cascade >= m_Preset.Count || cascade >= kMaxOceanCascades)
+        if (cascade >= m_Preset.m_Count || cascade >= kMaxOceanCascades)
             return s_Empty;
         return m_Cascades[cascade].Field;
     }
@@ -95,11 +95,11 @@ namespace OloEngine::Ocean
 
         // Every band's chain runs at the array resolution — the three fields are
         // layers of one texture array, so they must share a size. The per-band
-        // derived resolution (Bands[i].Resolution) is what SIZED that array and
+        // derived resolution (Bands[i].m_Resolution) is what SIZED that array and
         // is not a second grid: a band-limited spectrum on a larger grid is the
         // same spectrum with the extra bins zero, and its inverse FFT is the
         // exact band-limited reconstruction. See Ocean/OceanCascades.h.
-        const u32 N = m_Preset.ArrayResolution;
+        const u32 N = m_Preset.m_ArrayResolution;
 
         // Pass 1: build each band's unit-amplitude, band-limited spectrum and
         // measure the height variance it contributes.
@@ -113,14 +113,14 @@ namespace OloEngine::Ocean
         // Scaling each band to the target separately would flatten the spectrum
         // into three equal-energy octaves, which is not an ocean.
         f64 totalVariance = 0.0;
-        for (u32 i = 0u; i < m_Preset.Count; ++i)
+        for (u32 i = 0u; i < m_Preset.m_Count; ++i)
         {
-            const CascadeBand& band = m_Preset.Bands[i];
+            const CascadeBand& band = m_Preset.m_Bands[i];
             Cascade& c = m_Cascades[i];
 
             SpectrumParams bandParams = params;
             bandParams.m_Resolution = N;
-            bandParams.m_PatchSize = band.PatchSize;
+            bandParams.m_PatchSize = band.m_PatchSize;
             bandParams.m_Seed = CascadeSeed(params.m_Seed, i);
             // Express the authored wind in the BAND'S OWN FRAME, so that
             // sampling at R(θ)·x puts the waves back on the authored world
@@ -132,8 +132,8 @@ namespace OloEngine::Ocean
             // whose waves travel across the wind, at 2θ to it in the flipped
             // case. See OceanCascades.h point 3, and
             // OceanCascadeTest.RotatedMidBandStillTravelsWithTheWind.
-            c.CosRotation = std::cos(band.DomainRotation);
-            c.SinRotation = std::sin(band.DomainRotation);
+            c.CosRotation = std::cos(band.m_DomainRotation);
+            c.SinRotation = std::sin(band.m_DomainRotation);
             bandParams.m_WindDirection =
                 RotateVec2(params.m_WindDirection, c.CosRotation, c.SinRotation);
             c.Params = bandParams;
@@ -149,7 +149,7 @@ namespace OloEngine::Ocean
                 c.NoiseResolution = N;
             }
             std::vector<Complex> h0 = GenerateH0FromNoise(unit, c.Noise);
-            ApplyBandLimit(h0, N, band.PatchSize, band.KMin, band.KMax);
+            ApplyBandLimit(h0, N, band.m_PatchSize, band.m_KMin, band.m_KMax);
 
             // SPECTRAL DENSITY: each band's amplitude must carry its own bin
             // spacing. THIS IS THE ONE THING A SINGLE-CASCADE FIELD NEVER HAD
@@ -176,7 +176,7 @@ namespace OloEngine::Ocean
             // the RMS normalisation in pass 2, which is also why a one-cascade
             // field is unchanged — a single constant factor divides straight
             // back out.
-            const f32 binSpacing = kTwoPi / band.PatchSize;
+            const f32 binSpacing = kTwoPi / band.m_PatchSize;
             for (Complex& v : h0)
                 v *= binSpacing;
 
@@ -197,7 +197,7 @@ namespace OloEngine::Ocean
         // state easing toward a new wave height never comes back through here.
         const f32 totalRms = static_cast<f32>(std::sqrt(totalVariance));
         const f32 unitScale = (totalRms > 1e-6f) ? (1.0f / totalRms) : 0.0f;
-        for (u32 i = 0u; i < m_Preset.Count; ++i)
+        for (u32 i = 0u; i < m_Preset.m_Count; ++i)
         {
             Cascade& c = m_Cascades[i];
             for (Complex& v : c.H0Unit)
@@ -209,9 +209,9 @@ namespace OloEngine::Ocean
         m_AppliedAmplitude = -1.0f; // force ApplyAmplitude to re-bake
 
         // Bands the preset does not use must not keep a stale field: GetField()
-        // and the CPU sampler both loop to m_Preset.Count, but a later Update()
+        // and the CPU sampler both loop to m_Preset.m_Count, but a later Update()
         // that RAISES the count would otherwise inherit one.
-        for (u32 i = m_Preset.Count; i < kMaxOceanCascades; ++i)
+        for (u32 i = m_Preset.m_Count; i < kMaxOceanCascades; ++i)
             m_Cascades[i] = Cascade{};
     }
 
@@ -223,7 +223,7 @@ namespace OloEngine::Ocean
 
         OLO_PROFILE_FUNCTION();
         const f32 scale = safe * kRmsMetresPerAmplitude;
-        for (u32 i = 0u; i < m_Preset.Count; ++i)
+        for (u32 i = 0u; i < m_Preset.m_Count; ++i)
         {
             Cascade& c = m_Cascades[i];
             // Rescale from the UNIT spectrum every time, never in place from the
@@ -238,6 +238,58 @@ namespace OloEngine::Ocean
             c.GpuH0Dirty = true;
         }
         m_AppliedAmplitude = safe;
+    }
+
+    // Every band needs its own GPU producer before the compute path can run;
+    // one unavailable producer sends the whole field back to the CPU reference,
+    // because a half-GPU field would mix two different surfaces.
+    bool OceanFFTField::EnsureGpuProducers()
+    {
+        for (u32 i = 0u; i < m_Preset.m_Count; ++i)
+        {
+            if (!m_Cascades[i].Gpu)
+                m_Cascades[i].Gpu = Ref<OceanFFTGpu>::Create();
+            if (!m_Cascades[i].Gpu->IsAvailable())
+                return false;
+        }
+        return true;
+    }
+
+    // The retained CPU field buoyancy reads while the render layers live on the
+    // GPU. PER-BAND grid, not a shared one: a band limited to six occupied bins
+    // is reproduced exactly on a 32² grid, and evaluating it at 64² every tick
+    // buys nothing but cost. Measured on Drift, a flat 64² for all three bands
+    // was 21.4 ms of CPU per frame against Gerstner's 2.3 (Debug) — the GPU side
+    // of the preset is free, so this was the whole regression.
+    void OceanFFTField::EvaluatePhysicsProxies(u32 N, f32 time)
+    {
+        OLO_PROFILE_SCOPE("OceanFFTField::PhysicsProxyEvaluate");
+        for (u32 i = 0u; i < m_Preset.m_Count; ++i)
+        {
+            Cascade& c = m_Cascades[i];
+            // Never above N: ExtractBandLimitedH0 RETURNS THE SOURCE UNCHANGED
+            // when the target grid is >= the source one, so a proxy larger than
+            // N would hand EvaluateField an N² buffer while telling it the grid
+            // is proxyRes² — a size mismatch rather than a coarser field. Only
+            // reachable when a scene authors an FFT resolution below 8 (the
+            // single-cascade path keeps the authored N un-floored), which is
+            // exactly the case the floor is otherwise reaching for.
+            const u32 proxyRes = std::min(std::max(m_Preset.m_Bands[i].m_PhysicsResolution, 8u), N);
+            if (c.PhysicsH0Unit.empty() || c.PhysicsResolution != proxyRes)
+            {
+                // Extracted from the UNIT spectrum, then scaled, so an amplitude
+                // change never re-extracts.
+                c.PhysicsH0Unit = ExtractBandLimitedH0(c.H0Unit, N, proxyRes);
+                c.PhysicsResolution = proxyRes;
+                const f32 scale = m_AppliedAmplitude * kRmsMetresPerAmplitude;
+                c.PhysicsH0.resize(c.PhysicsH0Unit.size());
+                for (sizet j = 0; j < c.PhysicsH0Unit.size(); ++j)
+                    c.PhysicsH0[j] = c.PhysicsH0Unit[j] * scale;
+            }
+            SpectrumParams proxyParams = c.Params;
+            proxyParams.m_Resolution = proxyRes;
+            c.Field = EvaluateField(proxyParams, c.PhysicsH0, time);
+        }
     }
 
     void OceanFFTField::Update(const SpectrumParams& params, f32 time, bool uploadToGpu, bool useGpuCompute)
@@ -273,74 +325,30 @@ namespace OloEngine::Ocean
         // the knob a weather director eases every tick.
         ApplyAmplitude(params.m_Amplitude);
 
-        const u32 N = m_Preset.ArrayResolution;
+        const u32 N = m_Preset.m_ArrayResolution;
 
         // GPU compute butterfly path (§1.2): the layers are generated on the
         // GPU and the retained CPU fields shrink to band-limited physics
         // proxies. Falls back to the CPU reference when compute is unavailable.
-        if (uploadToGpu && useGpuCompute)
+        if (uploadToGpu && useGpuCompute && EnsureGpuProducers())
         {
-            bool allAvailable = true;
-            for (u32 i = 0u; i < m_Preset.Count; ++i)
+            EnsureTextures(N, m_Preset.m_Count);
+            for (u32 i = 0u; i < m_Preset.m_Count; ++i)
             {
-                if (!m_Cascades[i].Gpu)
-                    m_Cascades[i].Gpu = Ref<OceanFFTGpu>::Create();
-                if (!m_Cascades[i].Gpu->IsAvailable())
+                Cascade& c = m_Cascades[i];
+                if (c.GpuH0Dirty)
                 {
-                    allAvailable = false;
-                    break;
+                    c.Gpu->SetH0(c.H0, N, m_Preset.m_Bands[i].m_PatchSize, params.m_Gravity);
+                    c.GpuH0Dirty = false;
                 }
+                c.Gpu->Evaluate(time, params.m_Choppiness, m_DisplacementTex, m_DerivativesTex, i);
             }
-
-            if (allAvailable)
-            {
-                EnsureTextures(N, m_Preset.Count);
-                for (u32 i = 0u; i < m_Preset.Count; ++i)
-                {
-                    Cascade& c = m_Cascades[i];
-                    if (c.GpuH0Dirty)
-                    {
-                        c.Gpu->SetH0(c.H0, N, m_Preset.Bands[i].PatchSize, params.m_Gravity);
-                        c.GpuH0Dirty = false;
-                    }
-                    c.Gpu->Evaluate(time, params.m_Choppiness, m_DisplacementTex, m_DerivativesTex, i);
-                }
-
-                {
-                    // The retained CPU field buoyancy reads. PER-BAND grid, not
-                    // a shared one: a band limited to six occupied bins is
-                    // reproduced exactly on a 32² grid, and evaluating it at 64²
-                    // every tick buys nothing but cost. Measured on Drift, a
-                    // flat 64² for all three bands was 21.4 ms of CPU per frame
-                    // against Gerstner's 2.3 (Debug) — the GPU side of the
-                    // preset is free, so this was the whole regression.
-                    OLO_PROFILE_SCOPE("OceanFFTField::PhysicsProxyEvaluate");
-                    for (u32 i = 0u; i < m_Preset.Count; ++i)
-                    {
-                        Cascade& c = m_Cascades[i];
-                        const u32 proxyRes = std::max(m_Preset.Bands[i].PhysicsResolution, 8u);
-                        if (c.PhysicsH0Unit.empty() || c.PhysicsResolution != proxyRes)
-                        {
-                            // Extracted from the UNIT spectrum, then scaled, so
-                            // an amplitude change never re-extracts.
-                            c.PhysicsH0Unit = ExtractBandLimitedH0(c.H0Unit, N, proxyRes);
-                            c.PhysicsResolution = proxyRes;
-                            const f32 scale = m_AppliedAmplitude * kRmsMetresPerAmplitude;
-                            c.PhysicsH0.resize(c.PhysicsH0Unit.size());
-                            for (sizet j = 0; j < c.PhysicsH0Unit.size(); ++j)
-                                c.PhysicsH0[j] = c.PhysicsH0Unit[j] * scale;
-                        }
-                        SpectrumParams proxyParams = c.Params;
-                        proxyParams.m_Resolution = proxyRes;
-                        c.Field = EvaluateField(proxyParams, c.PhysicsH0, time);
-                    }
-                }
-                return;
-            }
+            EvaluatePhysicsProxies(N, time);
+            return;
         }
 
         bool anyValid = false;
-        for (u32 i = 0u; i < m_Preset.Count; ++i)
+        for (u32 i = 0u; i < m_Preset.m_Count; ++i)
         {
             m_Cascades[i].Field = EvaluateField(m_Cascades[i].Params, m_Cascades[i].H0, time);
             anyValid = anyValid || m_Cascades[i].Field.IsValid();
@@ -379,8 +387,8 @@ namespace OloEngine::Ocean
     void OceanFFTField::Upload()
     {
         OLO_PROFILE_FUNCTION();
-        const u32 N = m_Preset.ArrayResolution;
-        EnsureTextures(N, m_Preset.Count);
+        const u32 N = m_Preset.m_ArrayResolution;
+        EnsureTextures(N, m_Preset.m_Count);
         if (!m_DisplacementTex || !m_DerivativesTex)
             return;
 
@@ -388,7 +396,7 @@ namespace OloEngine::Ocean
         m_DisplacementScratch.resize(count);
         m_DerivativesScratch.resize(count);
 
-        for (u32 layer = 0u; layer < m_Preset.Count; ++layer)
+        for (u32 layer = 0u; layer < m_Preset.m_Count; ++layer)
         {
             const DisplacementField& field = m_Cascades[layer].Field;
             if (!field.IsValid() || field.m_Resolution != N)
@@ -441,14 +449,14 @@ namespace OloEngine::Ocean
         if (!std::isfinite(worldXZ.x) || !std::isfinite(worldXZ.y))
             return out;
 
-        for (u32 i = 0u; i < m_Preset.Count; ++i)
+        for (u32 i = 0u; i < m_Preset.m_Count; ++i)
         {
             const Cascade& c = m_Cascades[i];
             const DisplacementField& field = c.Field;
             if (!field.IsValid())
                 continue;
 
-            const f32 L = m_Preset.Bands[i].PatchSize;
+            const f32 L = m_Preset.m_Bands[i].m_PatchSize;
             if (!(L > 0.0f))
                 continue;
 
@@ -474,7 +482,7 @@ namespace OloEngine::Ocean
             const sizet i01 = static_cast<sizet>(z1) * N + x0;
             const sizet i11 = static_cast<sizet>(z1) * N + x1;
 
-            const auto bilerp2 = [&](const auto& v)
+            const auto bilerp2 = [i00, i10, i01, i11, tx, tz](const auto& v)
             {
                 return glm::mix(glm::mix(v[i00], v[i10], tx), glm::mix(v[i01], v[i11], tx), tz);
             };
@@ -521,7 +529,7 @@ namespace OloEngine::Ocean
 
     f32 OceanFFTField::SampleHeight(glm::vec2 worldXZ) const
     {
-        if (m_Preset.Count == 0u)
+        if (m_Preset.m_Count == 0u)
             return 0.0f;
 
         // Invert the SUMMED choppy horizontal displacement: find the base

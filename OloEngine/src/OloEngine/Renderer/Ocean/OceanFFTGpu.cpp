@@ -102,8 +102,10 @@ namespace OloEngine::Ocean
             s_Shaders.Evolve = ComputeShader::Create("assets/shaders/compute/Ocean_SpectrumEvolve.comp");
             s_Shaders.Butterfly = ComputeShader::Create("assets/shaders/compute/Ocean_FFTButterfly.comp");
             s_Shaders.Assemble = ComputeShader::Create("assets/shaders/compute/Ocean_Assemble.comp");
-            s_Shaders.Valid = s_Shaders.Evolve && s_Shaders.Evolve->IsValid() && s_Shaders.Butterfly &&
-                              s_Shaders.Butterfly->IsValid() && s_Shaders.Assemble && s_Shaders.Assemble->IsValid();
+            const bool evolveOk = s_Shaders.Evolve && s_Shaders.Evolve->IsValid();
+            const bool butterflyOk = s_Shaders.Butterfly && s_Shaders.Butterfly->IsValid();
+            const bool assembleOk = s_Shaders.Assemble && s_Shaders.Assemble->IsValid();
+            s_Shaders.Valid = evolveOk && butterflyOk && assembleOk;
             if (!s_Shaders.Valid)
             {
                 OLO_CORE_WARN("OceanFFTGpu: compute shaders unavailable — falling back to the CPU FFT path");
@@ -113,12 +115,18 @@ namespace OloEngine::Ocean
             }
         }
 
+        // Deliberately NO per-instance Ref<ComputeShader> copies. The programs
+        // are owned solely by s_Shaders, which ShutdownSharedResources() releases
+        // from Renderer3D shutdown while the graphics device is still valid. An
+        // instance holding its own Ref would keep the program alive past that
+        // point — and OceanFFTField instances are retained by WaterComponents,
+        // so they routinely outlive the renderer — leaving the ComputeShader
+        // destructor to make GL calls with no context
+        // (docs/agent-rules/lazy-static-release-ownership.md). Reading the
+        // statics at use time also means a shut-down field cannot dispatch
+        // against dangling programs: s_Shaders.Valid is false the moment they go.
         m_ShaderInitAttempted = true;
-        m_EvolveShader = s_Shaders.Evolve;
-        m_ButterflyShader = s_Shaders.Butterfly;
-        m_AssembleShader = s_Shaders.Assemble;
-        m_ShadersValid = s_Shaders.Valid;
-        return m_ShadersValid;
+        return s_Shaders.Valid;
     }
 
     void OceanFFTGpu::EnsureResources(u32 resolution)
@@ -231,7 +239,7 @@ namespace OloEngine::Ocean
         const u32 stages = static_cast<u32>(std::countr_zero(N));
         const u32 groups = (N + kLocalSize - 1u) / kLocalSize;
 
-        m_ButterflyShader->Bind();
+        s_Shaders.Butterfly->Bind();
         // Persistent: the twiddle table is pass-owned and never pooled. Staged
         // once here rather than per stage — the offset scratch persists across
         // flushes, and the loop below already flushes per iteration for the
@@ -275,7 +283,7 @@ namespace OloEngine::Ocean
                                const Ref<Texture2DArray>& derivativesTex, u32 layer)
     {
         OLO_PROFILE_FUNCTION();
-        if (!m_ShadersValid || m_Resolution == 0u)
+        if (!s_Shaders.Valid || m_Resolution == 0u)
             return;
         if (!displacementTex || !derivativesTex || displacementTex->GetWidth() != m_Resolution ||
             derivativesTex->GetWidth() != m_Resolution)
@@ -295,7 +303,7 @@ namespace OloEngine::Ocean
         // 1. Time-evolve the spectra into ping-pong[0].
         {
             OLO_PROFILE_SCOPE("OceanFFTGpu::SpectrumEvolve");
-            m_EvolveShader->Bind();
+            s_Shaders.Evolve->Bind();
             UBOStructures::OceanFFTUBO fftParams{};
             fftParams.Resolution = static_cast<i32>(N);
             fftParams.PatchSize = m_PatchSize;
@@ -324,7 +332,7 @@ namespace OloEngine::Ocean
         // 3. Assemble the displacement/derivatives textures.
         {
             OLO_PROFILE_SCOPE("OceanFFTGpu::Assemble");
-            m_AssembleShader->Bind();
+            s_Shaders.Assemble->Bind();
             UBOStructures::OceanFFTUBO fftParams{};
             fftParams.Resolution = static_cast<i32>(N);
             fftParams.Choppiness = choppiness;

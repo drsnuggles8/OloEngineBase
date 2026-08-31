@@ -101,13 +101,13 @@ TEST(OceanCascade, SingleCascadePresetIsTheAuthoredTileAndGrid)
     // tell the cascade code exists.
     const Ocean::CascadePreset preset = Ocean::MakeCascadePreset(1u, 140.0f, 128u);
     ASSERT_TRUE(preset.IsValid());
-    EXPECT_EQ(preset.Count, 1u);
-    EXPECT_EQ(preset.ArrayResolution, 128u);
-    EXPECT_FLOAT_EQ(preset.Bands[0].PatchSize, 140.0f);
-    EXPECT_EQ(preset.Bands[0].Resolution, 128u);
-    EXPECT_FLOAT_EQ(preset.Bands[0].KMin, 0.0f);
-    EXPECT_TRUE(std::isinf(preset.Bands[0].KMax)) << "the single band must carry the WHOLE spectrum";
-    EXPECT_FLOAT_EQ(preset.Bands[0].DomainRotation, 0.0f);
+    EXPECT_EQ(preset.m_Count, 1u);
+    EXPECT_EQ(preset.m_ArrayResolution, 128u);
+    EXPECT_FLOAT_EQ(preset.m_Bands[0].m_PatchSize, 140.0f);
+    EXPECT_EQ(preset.m_Bands[0].m_Resolution, 128u);
+    EXPECT_FLOAT_EQ(preset.m_Bands[0].m_KMin, 0.0f);
+    EXPECT_TRUE(std::isinf(preset.m_Bands[0].m_KMax)) << "the single band must carry the WHOLE spectrum";
+    EXPECT_FLOAT_EQ(preset.m_Bands[0].m_DomainRotation, 0.0f);
 }
 
 TEST(OceanCascade, ThreeBandPresetPutsTheAuthoredTileInTheMiddle)
@@ -115,13 +115,13 @@ TEST(OceanCascade, ThreeBandPresetPutsTheAuthoredTileInTheMiddle)
     const f32 L = 140.0f;
     const Ocean::CascadePreset preset = Ocean::MakeCascadePreset(3u, L, 128u);
     ASSERT_TRUE(preset.IsValid());
-    ASSERT_EQ(preset.Count, 3u);
+    ASSERT_EQ(preset.m_Count, 3u);
 
     // Broad > authored > fine. An author who tuned the patch size keeps the
     // wave scale they tuned, with an octave added either side of it.
-    EXPECT_FLOAT_EQ(preset.Bands[1].PatchSize, L);
-    EXPECT_GT(preset.Bands[0].PatchSize, L);
-    EXPECT_LT(preset.Bands[2].PatchSize, L);
+    EXPECT_FLOAT_EQ(preset.m_Bands[1].m_PatchSize, L);
+    EXPECT_GT(preset.m_Bands[0].m_PatchSize, L);
+    EXPECT_LT(preset.m_Bands[2].m_PatchSize, L);
 }
 
 TEST(OceanCascade, EveryWaveVectorBelongsToExactlyOneBand)
@@ -131,15 +131,15 @@ TEST(OceanCascade, EveryWaveVectorBelongsToExactlyOneBand)
     // property it is. Swept across four decades of |k|, INCLUDING the two
     // boundaries themselves, which is where a >=/> slip would show.
     const Ocean::CascadePreset preset = Ocean::MakeCascadePreset(3u, 140.0f, 128u);
-    ASSERT_EQ(preset.Count, 3u);
+    ASSERT_EQ(preset.m_Count, 3u);
 
     std::vector<f32> probes;
     for (int i = 0; i <= 400; ++i)
         probes.push_back(std::pow(10.0f, -3.0f + 0.015f * static_cast<f32>(i)));
     // The exact endpoints and their immediate neighbours.
-    for (u32 b = 0u; b + 1u < preset.Count; ++b)
+    for (u32 b = 0u; b + 1u < preset.m_Count; ++b)
     {
-        const f32 edge = preset.Bands[b].KMax;
+        const f32 edge = preset.m_Bands[b].m_KMax;
         probes.push_back(std::nextafter(edge, 0.0f));
         probes.push_back(edge);
         probes.push_back(std::nextafter(edge, std::numeric_limits<f32>::infinity()));
@@ -149,8 +149,8 @@ TEST(OceanCascade, EveryWaveVectorBelongsToExactlyOneBand)
     for (f32 k : probes)
     {
         int owners = 0;
-        for (u32 b = 0u; b < preset.Count; ++b)
-            if (k >= preset.Bands[b].KMin && k < preset.Bands[b].KMax)
+        for (u32 b = 0u; b < preset.m_Count; ++b)
+            if (k >= preset.m_Bands[b].m_KMin && k < preset.m_Bands[b].m_KMax)
                 ++owners;
         EXPECT_EQ(owners, 1) << "|k| = " << k << " is carried by " << owners
                              << " bands (0 = a gap in the spectrum, 2 = doubled energy)";
@@ -163,14 +163,14 @@ TEST(OceanCascade, BandBoundarySitsAtTheNextTilesFundamental)
     // tile can represent at all, so nothing is handed to a cascade that cannot
     // carry it and nothing is left behind by the one that could.
     const Ocean::CascadePreset preset = Ocean::MakeCascadePreset(3u, 140.0f, 128u);
-    ASSERT_EQ(preset.Count, 3u);
-    for (u32 b = 0u; b + 1u < preset.Count; ++b)
+    ASSERT_EQ(preset.m_Count, 3u);
+    for (u32 b = 0u; b + 1u < preset.m_Count; ++b)
     {
-        EXPECT_NEAR(preset.Bands[b].KMax, kTwoPi / preset.Bands[b + 1u].PatchSize, 1e-4f);
-        EXPECT_FLOAT_EQ(preset.Bands[b].KMax, preset.Bands[b + 1u].KMin);
+        EXPECT_NEAR(preset.m_Bands[b].m_KMax, kTwoPi / preset.m_Bands[b + 1u].m_PatchSize, 1e-4f);
+        EXPECT_FLOAT_EQ(preset.m_Bands[b].m_KMax, preset.m_Bands[b + 1u].m_KMin);
     }
-    EXPECT_FLOAT_EQ(preset.Bands[0].KMin, 0.0f);
-    EXPECT_TRUE(std::isinf(preset.Bands[preset.Count - 1u].KMax));
+    EXPECT_FLOAT_EQ(preset.m_Bands[0].m_KMin, 0.0f);
+    EXPECT_TRUE(std::isinf(preset.m_Bands[preset.m_Count - 1u].m_KMax));
 }
 
 TEST(OceanCascade, TileSizesAreNonCommensurate)
@@ -189,12 +189,12 @@ TEST(OceanCascade, TileSizesAreNonCommensurate)
     // bounds it near 1/(q+1)), so 0.10 is the shipped margin, not a round number
     // somebody liked.
     const Ocean::CascadePreset preset = Ocean::MakeCascadePreset(3u, 140.0f, 128u);
-    ASSERT_EQ(preset.Count, 3u);
+    ASSERT_EQ(preset.m_Count, 3u);
 
     const f32 ratios[] = {
-        preset.Bands[0].PatchSize / preset.Bands[1].PatchSize,
-        preset.Bands[1].PatchSize / preset.Bands[2].PatchSize,
-        preset.Bands[0].PatchSize / preset.Bands[2].PatchSize,
+        preset.m_Bands[0].m_PatchSize / preset.m_Bands[1].m_PatchSize,
+        preset.m_Bands[1].m_PatchSize / preset.m_Bands[2].m_PatchSize,
+        preset.m_Bands[0].m_PatchSize / preset.m_Bands[2].m_PatchSize,
     };
     for (f32 r : ratios)
     {
@@ -215,7 +215,7 @@ TEST(OceanCascade, TheBroadLatticeDoesNotRepeatWithinASeaThisEngineDraws)
     // to sail before the broad tile lines back up with a finer one closely
     // enough to read as the same water twice.
     const Ocean::CascadePreset preset = Ocean::MakeCascadePreset(3u, 140.0f, 128u);
-    ASSERT_EQ(preset.Count, 3u);
+    ASSERT_EQ(preset.m_Count, 3u);
 
     // 2 km — comfortably past Drift's 1.6 km sea, which #878 sets as the
     // floating-origin ceiling for this kind of world.
@@ -223,10 +223,10 @@ TEST(OceanCascade, TheBroadLatticeDoesNotRepeatWithinASeaThisEngineDraws)
     // Within a tenth of a tile counts as "lined back up".
     constexpr f32 kAlignedFraction = 0.1f;
 
-    for (u32 finer = 1u; finer < preset.Count; ++finer)
+    for (u32 finer = 1u; finer < preset.m_Count; ++finer)
     {
-        const f32 broad = preset.Bands[0].PatchSize;
-        const f32 fine = preset.Bands[finer].PatchSize;
+        const f32 broad = preset.m_Bands[0].m_PatchSize;
+        const f32 fine = preset.m_Bands[finer].m_PatchSize;
         f32 firstAlignment = std::numeric_limits<f32>::infinity();
         for (u32 q = 1u; static_cast<f32>(q) * broad <= kLargestSeaMetres * 4.0f; ++q)
         {
@@ -253,23 +253,23 @@ TEST(OceanCascade, DerivedResolutionResolvesTheBandsShortestWavelength)
     // BELOW the authored resolution, or the derivation is doing nothing.
     const u32 authored = 128u;
     const Ocean::CascadePreset preset = Ocean::MakeCascadePreset(3u, 140.0f, authored);
-    ASSERT_EQ(preset.Count, 3u);
+    ASSERT_EQ(preset.m_Count, 3u);
 
-    for (u32 b = 0u; b + 1u < preset.Count; ++b)
+    for (u32 b = 0u; b + 1u < preset.m_Count; ++b)
     {
-        const Ocean::CascadeBand& band = preset.Bands[b];
+        const Ocean::CascadeBand& band = preset.m_Bands[b];
         // Highest signed bin index the band populates, and hence the samples
         // the grid spends on its shortest wavelength.
-        const f32 nMax = band.KMax * band.PatchSize / kTwoPi;
-        const f32 samplesPerShortestWavelength = static_cast<f32>(band.Resolution) / nMax;
+        const f32 nMax = band.m_KMax * band.m_PatchSize / kTwoPi;
+        const f32 samplesPerShortestWavelength = static_cast<f32>(band.m_Resolution) / nMax;
         EXPECT_GE(samplesPerShortestWavelength, Ocean::kMinSamplesPerWavelength)
             << "band " << b << " cannot interpolate its own shortest wave smoothly";
-        EXPECT_LT(band.Resolution, authored) << "band " << b << " gained nothing from the derivation";
+        EXPECT_LT(band.m_Resolution, authored) << "band " << b << " gained nothing from the derivation";
     }
     // The top band has no upper boundary, so its grid Nyquist IS the limit and
     // it keeps the authored resolution — exactly the single-cascade situation.
-    EXPECT_EQ(preset.Bands[2].Resolution, authored);
-    EXPECT_EQ(preset.ArrayResolution, authored);
+    EXPECT_EQ(preset.m_Bands[2].m_Resolution, authored);
+    EXPECT_EQ(preset.m_ArrayResolution, authored);
 }
 
 TEST(OceanCascade, DerivedResolutionReproducesTheArrayResolutionField)
@@ -281,36 +281,36 @@ TEST(OceanCascade, DerivedResolutionReproducesTheArrayResolutionField)
     // Stated in OceanCascades.h; pinned here, because an unfalsified claim in a
     // comment is a decoration.
     const Ocean::CascadePreset preset = Ocean::MakeCascadePreset(3u, 140.0f, 128u);
-    ASSERT_EQ(preset.Count, 3u);
-    const Ocean::CascadeBand& band = preset.Bands[0]; // the broad band, 64 derived vs 128 shared
-    ASSERT_LT(band.Resolution, preset.ArrayResolution);
+    ASSERT_EQ(preset.m_Count, 3u);
+    const Ocean::CascadeBand& band = preset.m_Bands[0]; // the broad band, 64 derived vs 128 shared
+    ASSERT_LT(band.m_Resolution, preset.m_ArrayResolution);
 
-    Ocean::SpectrumParams big = MakeParams(3u, band.PatchSize, preset.ArrayResolution);
+    Ocean::SpectrumParams big = MakeParams(3u, band.m_PatchSize, preset.m_ArrayResolution);
     std::vector<Ocean::Complex> h0Big = Ocean::GenerateH0(big);
-    Ocean::ApplyBandLimit(h0Big, preset.ArrayResolution, band.PatchSize, band.KMin, band.KMax);
+    Ocean::ApplyBandLimit(h0Big, preset.m_ArrayResolution, band.m_PatchSize, band.m_KMin, band.m_KMax);
 
     // The SAME spectrum on the derived grid: same wave vectors per signed
     // frequency, rescaled for the grid-size-dependent 1/N² the inverse carries.
     const std::vector<Ocean::Complex> h0Small =
-        Ocean::ExtractBandLimitedH0(h0Big, preset.ArrayResolution, band.Resolution);
+        Ocean::ExtractBandLimitedH0(h0Big, preset.m_ArrayResolution, band.m_Resolution);
 
     Ocean::SpectrumParams small = big;
-    small.m_Resolution = band.Resolution;
+    small.m_Resolution = band.m_Resolution;
 
     const Ocean::DisplacementField fBig = Ocean::EvaluateField(big, h0Big, 3.5f);
     const Ocean::DisplacementField fSmall = Ocean::EvaluateField(small, h0Small, 3.5f);
     ASSERT_TRUE(fBig.IsValid());
     ASSERT_TRUE(fSmall.IsValid());
 
-    const u32 step = preset.ArrayResolution / band.Resolution;
+    const u32 step = preset.m_ArrayResolution / band.m_Resolution;
     f64 maxAbsDiff = 0.0;
     f64 peak = 0.0;
-    for (u32 z = 0u; z < band.Resolution; ++z)
+    for (u32 z = 0u; z < band.m_Resolution; ++z)
     {
-        for (u32 x = 0u; x < band.Resolution; ++x)
+        for (u32 x = 0u; x < band.m_Resolution; ++x)
         {
-            const f32 a = fBig.m_Height[static_cast<sizet>(z * step) * preset.ArrayResolution + x * step];
-            const f32 b = fSmall.m_Height[static_cast<sizet>(z) * band.Resolution + x];
+            const f32 a = fBig.m_Height[static_cast<sizet>(z * step) * preset.m_ArrayResolution + x * step];
+            const f32 b = fSmall.m_Height[static_cast<sizet>(z) * band.m_Resolution + x];
             maxAbsDiff = std::max(maxAbsDiff, static_cast<f64>(std::abs(a - b)));
             peak = std::max(peak, static_cast<f64>(std::abs(a)));
         }
@@ -664,7 +664,7 @@ TEST(OceanCascade, DiagBandEnergyAndSlopeAtDriftSettings)
             f64 acc = 0.0;
             for (f32 h : f.m_Height)
                 acc += static_cast<f64>(h) * h;
-            std::cout << "[ DIAG ]   band " << i << " tile " << field->GetPreset().Bands[i].PatchSize
+            std::cout << "[ DIAG ]   band " << i << " tile " << field->GetPreset().m_Bands[i].m_PatchSize
                       << " m, height RMS = " << (f.m_Height.empty() ? 0.0 : std::sqrt(acc / f.m_Height.size()))
                       << " m\n";
         }
@@ -816,10 +816,10 @@ TEST(OceanCascade, ShaderParamsAreThePresetsOwnTilesAndRotation)
     // reads the preset and this test reads the preset.
     const Ocean::CascadePreset preset = Ocean::MakeCascadePreset(3u, 140.0f, 128u);
     const glm::vec4 packed = Ocean::PackCascadeShaderParams(preset);
-    EXPECT_FLOAT_EQ(packed.x, 1.0f / preset.Bands[1].PatchSize);
-    EXPECT_FLOAT_EQ(packed.y, 1.0f / preset.Bands[2].PatchSize);
-    EXPECT_FLOAT_EQ(packed.z, std::cos(preset.Bands[1].DomainRotation));
-    EXPECT_FLOAT_EQ(packed.w, std::sin(preset.Bands[1].DomainRotation));
+    EXPECT_FLOAT_EQ(packed.x, 1.0f / preset.m_Bands[1].m_PatchSize);
+    EXPECT_FLOAT_EQ(packed.y, 1.0f / preset.m_Bands[2].m_PatchSize);
+    EXPECT_FLOAT_EQ(packed.z, std::cos(preset.m_Bands[1].m_DomainRotation));
+    EXPECT_FLOAT_EQ(packed.w, std::sin(preset.m_Bands[1].m_DomainRotation));
 
     // The one-cascade pack must be the identity rotation and no extra tiles, so
     // a shader that loops `i < count` never reads a scale that means nothing.

@@ -6528,9 +6528,11 @@ namespace OloEngine
                     // surface before the fixed preset is visually proven, and
                     // everything the preset decides is derived from the patch
                     // size above.
-                    const char* kCascadeLabels[] = { "Single (legacy)", "Three-band preset" };
-                    i32 cascadeIdx = (component.m_FFTCascades > Ocean::kSingleCascadeCount) ? 1 : 0;
-                    if (ImGui::Combo("Cascades", &cascadeIdx, kCascadeLabels, 2))
+                    static constexpr std::array<const char*, 2> kCascadeLabels = { "Single (legacy)",
+                                                                                  "Three-band preset" };
+                    if (i32 cascadeIdx = (component.m_FFTCascades > Ocean::kSingleCascadeCount) ? 1 : 0;
+                        ImGui::Combo("Cascades", &cascadeIdx, kCascadeLabels.data(),
+                                     static_cast<i32>(kCascadeLabels.size())))
                         component.m_FFTCascades = (cascadeIdx == 1) ? Ocean::kThreeBandCascadeCount
                                                                     : Ocean::kSingleCascadeCount;
                     if (ImGui::IsItemHovered())

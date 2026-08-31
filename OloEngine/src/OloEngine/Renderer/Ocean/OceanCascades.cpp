@@ -37,17 +37,17 @@ namespace OloEngine::Ocean
         // that has not opted in must not be able to tell this file exists.
         if (cascadeCount <= kSingleCascadeCount)
         {
-            preset.Count = kSingleCascadeCount;
-            preset.ArrayResolution = resolution;
-            preset.Bands[0].PatchSize = L;
-            preset.Bands[0].Resolution = resolution;
-            preset.Bands[0].KMin = 0.0f;
-            preset.Bands[0].KMax = std::numeric_limits<f32>::infinity();
-            preset.Bands[0].DomainRotation = 0.0f;
+            preset.m_Count = kSingleCascadeCount;
+            preset.m_ArrayResolution = resolution;
+            preset.m_Bands[0].m_PatchSize = L;
+            preset.m_Bands[0].m_Resolution = resolution;
+            preset.m_Bands[0].m_KMin = 0.0f;
+            preset.m_Bands[0].m_KMax = std::numeric_limits<f32>::infinity();
+            preset.m_Bands[0].m_DomainRotation = 0.0f;
             // Unbounded above, so the proxy keeps the cap — exactly the size the
             // pre-#969 field used, which is what leaves the fallback path's CPU
             // cost where it was.
-            preset.Bands[0].PhysicsResolution = std::min(resolution, kPhysicsProxyResolution);
+            preset.m_Bands[0].m_PhysicsResolution = std::min(resolution, kPhysicsProxyResolution);
             return preset;
         }
 
@@ -73,49 +73,49 @@ namespace OloEngine::Ocean
         const f32 broadNMax = kBroadMid * broadL / kTwoPi;
         const f32 midNMax = kMidFine * midL / kTwoPi;
 
-        preset.Count = kThreeBandCascadeCount;
+        preset.m_Count = kThreeBandCascadeCount;
 
-        preset.Bands[0].PatchSize = broadL;
-        preset.Bands[0].Resolution = RoundUpCascadeResolution(kMinSamplesPerWavelength * broadNMax, N);
-        preset.Bands[0].KMin = 0.0f;
-        preset.Bands[0].KMax = kBroadMid;
-        preset.Bands[0].DomainRotation = 0.0f;
-        preset.Bands[0].PhysicsResolution =
+        preset.m_Bands[0].m_PatchSize = broadL;
+        preset.m_Bands[0].m_Resolution = RoundUpCascadeResolution(kMinSamplesPerWavelength * broadNMax, N);
+        preset.m_Bands[0].m_KMin = 0.0f;
+        preset.m_Bands[0].m_KMax = kBroadMid;
+        preset.m_Bands[0].m_DomainRotation = 0.0f;
+        preset.m_Bands[0].m_PhysicsResolution =
             std::min(RoundUpCascadeResolution(kProxySamplesPerWavelength * broadNMax, N), kPhysicsProxyResolution);
 
-        preset.Bands[1].PatchSize = midL;
-        preset.Bands[1].Resolution = RoundUpCascadeResolution(kMinSamplesPerWavelength * midNMax, N);
-        preset.Bands[1].KMin = kBroadMid;
-        preset.Bands[1].KMax = kMidFine;
-        preset.Bands[1].DomainRotation = kMidCascadeRotationRadians;
-        preset.Bands[1].PhysicsResolution =
+        preset.m_Bands[1].m_PatchSize = midL;
+        preset.m_Bands[1].m_Resolution = RoundUpCascadeResolution(kMinSamplesPerWavelength * midNMax, N);
+        preset.m_Bands[1].m_KMin = kBroadMid;
+        preset.m_Bands[1].m_KMax = kMidFine;
+        preset.m_Bands[1].m_DomainRotation = kMidCascadeRotationRadians;
+        preset.m_Bands[1].m_PhysicsResolution =
             std::min(RoundUpCascadeResolution(kProxySamplesPerWavelength * midNMax, N), kPhysicsProxyResolution);
 
         // The top band has no upper boundary of its own — its grid Nyquist is
         // the limit, exactly as in the single-cascade field — so it is the one
         // band that keeps the authored resolution.
-        preset.Bands[2].PatchSize = fineL;
-        preset.Bands[2].Resolution = N;
-        preset.Bands[2].KMin = kMidFine;
-        preset.Bands[2].KMax = std::numeric_limits<f32>::infinity();
-        preset.Bands[2].DomainRotation = 0.0f;
+        preset.m_Bands[2].m_PatchSize = fineL;
+        preset.m_Bands[2].m_Resolution = N;
+        preset.m_Bands[2].m_KMin = kMidFine;
+        preset.m_Bands[2].m_KMax = std::numeric_limits<f32>::infinity();
+        preset.m_Bands[2].m_DomainRotation = 0.0f;
         // The only band with no upper boundary, so the only one that needs the
         // full proxy grid.
-        preset.Bands[2].PhysicsResolution = std::min(N, kPhysicsProxyResolution);
+        preset.m_Bands[2].m_PhysicsResolution = std::min(N, kPhysicsProxyResolution);
 
-        preset.ArrayResolution =
-            std::max({ preset.Bands[0].Resolution, preset.Bands[1].Resolution, preset.Bands[2].Resolution });
+        preset.m_ArrayResolution =
+            std::max({ preset.m_Bands[0].m_Resolution, preset.m_Bands[1].m_Resolution, preset.m_Bands[2].m_Resolution });
         return preset;
     }
 
     glm::vec4 PackCascadeShaderParams(const CascadePreset& preset)
     {
-        if (preset.Count <= kSingleCascadeCount)
+        if (preset.m_Count <= kSingleCascadeCount)
             return glm::vec4(0.0f, 0.0f, 1.0f, 0.0f); // no extra cascades, identity rotation
 
-        const f32 invMid = (preset.Bands[1].PatchSize > 0.0f) ? (1.0f / preset.Bands[1].PatchSize) : 0.0f;
-        const f32 invFine = (preset.Bands[2].PatchSize > 0.0f) ? (1.0f / preset.Bands[2].PatchSize) : 0.0f;
-        return glm::vec4(invMid, invFine, std::cos(preset.Bands[1].DomainRotation),
-                         std::sin(preset.Bands[1].DomainRotation));
+        const f32 invMid = (preset.m_Bands[1].m_PatchSize > 0.0f) ? (1.0f / preset.m_Bands[1].m_PatchSize) : 0.0f;
+        const f32 invFine = (preset.m_Bands[2].m_PatchSize > 0.0f) ? (1.0f / preset.m_Bands[2].m_PatchSize) : 0.0f;
+        return glm::vec4(invMid, invFine, std::cos(preset.m_Bands[1].m_DomainRotation),
+                         std::sin(preset.m_Bands[1].m_DomainRotation));
     }
 } // namespace OloEngine::Ocean

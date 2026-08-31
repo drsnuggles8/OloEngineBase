@@ -108,7 +108,7 @@ namespace OloEngine::Ocean
         }
         [[nodiscard]] u32 GetCascadeCount() const noexcept
         {
-            return m_Preset.Count;
+            return m_Preset.m_Count;
         }
 
         /// Patch size of the BROAD band (cascade 0) — the tile the shader's
@@ -117,7 +117,7 @@ namespace OloEngine::Ocean
         /// patch size on the single-cascade path.
         [[nodiscard]] f32 GetPatchSize() const noexcept
         {
-            return m_Preset.Count > 0u ? m_Preset.Bands[0].PatchSize : m_Params.m_PatchSize;
+            return m_Preset.m_Count > 0u ? m_Preset.m_Bands[0].m_PatchSize : m_Params.m_PatchSize;
         }
         [[nodiscard]] f32 GetChoppiness() const noexcept
         {
@@ -232,6 +232,12 @@ namespace OloEngine::Ocean
         void ApplyAmplitude(f32 amplitude);
         void Upload();
         void EnsureTextures(u32 resolution, u32 layers);
+        /// Create/verify one GPU producer per band. False sends the whole field
+        /// to the CPU reference — a half-GPU field would mix two surfaces.
+        [[nodiscard]] bool EnsureGpuProducers();
+        /// Re-evaluate the retained per-band CPU proxies buoyancy reads while the
+        /// render layers live on the GPU.
+        void EvaluatePhysicsProxies(u32 N, f32 time);
         /// Summed horizontal (choppy) displacement at a parameter position —
         /// the quantity SampleHeight's fixed-point iteration inverts.
         [[nodiscard]] glm::vec2 SampleHorizontalBilinear(glm::vec2 worldXZ) const;

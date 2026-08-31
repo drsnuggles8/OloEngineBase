@@ -347,12 +347,12 @@ namespace OloEngine::Tests
                                                     const std::vector<glm::vec4>& disp, glm::vec2 worldXZ)
         {
             TexelCascadeSum out;
-            for (u32 i = 0u; i < preset.Count; ++i)
+            for (u32 i = 0u; i < preset.m_Count; ++i)
             {
-                const f32 c = std::cos(preset.Bands[i].DomainRotation);
-                const f32 sn = std::sin(preset.Bands[i].DomainRotation);
-                const glm::vec2 uv = Ocean::RotateVec2(worldXZ, c, sn) / preset.Bands[i].PatchSize;
-                const glm::vec4 d = BilinearLayer(disp, preset.ArrayResolution, i, uv);
+                const f32 c = std::cos(preset.m_Bands[i].m_DomainRotation);
+                const f32 sn = std::sin(preset.m_Bands[i].m_DomainRotation);
+                const glm::vec2 uv = Ocean::RotateVec2(worldXZ, c, sn) / preset.m_Bands[i].m_PatchSize;
+                const glm::vec4 d = BilinearLayer(disp, preset.m_ArrayResolution, i, uv);
                 out.Height += d.y;
                 out.Horizontal += Ocean::RotateVec2(glm::vec2(d.x, d.z), c, -sn);
                 out.Foam += d.w;
@@ -379,7 +379,7 @@ namespace OloEngine::Tests
         field->Update(p, 5.0f, /*uploadToGpu=*/true, /*useGpuCompute=*/true);
 
         const Ocean::CascadePreset& preset = field->GetPreset();
-        ASSERT_EQ(preset.Count, 3u);
+        ASSERT_EQ(preset.m_Count, 3u);
         ASSERT_NE(field->GetDisplacementTextureID(), 0u);
         ASSERT_NE(field->GetDerivativesTextureID(), 0u);
         // GPU mode must actually have engaged, or this compares CPU with CPU.
@@ -387,20 +387,20 @@ namespace OloEngine::Tests
         // not the full grid) rather than against a fixed size: the proxy grid is
         // derived per band from that band's occupied bins, so a literal here
         // pins a number that legitimately moves.
-        ASSERT_LT(field->GetCascadeField(0).m_Resolution, preset.ArrayResolution)
+        ASSERT_LT(field->GetCascadeField(0).m_Resolution, preset.m_ArrayResolution)
             << "GPU mode did not engage (physics proxy missing) — compute path silently fell back?";
-        for (u32 i = 0u; i < preset.Count; ++i)
-            EXPECT_EQ(field->GetCascadeField(i).m_Resolution, preset.Bands[i].PhysicsResolution)
+        for (u32 i = 0u; i < preset.m_Count; ++i)
+            EXPECT_EQ(field->GetCascadeField(i).m_Resolution, preset.m_Bands[i].m_PhysicsResolution)
                 << "band " << i << " did not use its derived physics-proxy grid";
 
-        const auto disp = ReadbackRgba32fArray(field->GetDisplacementTextureID(), preset.ArrayResolution, 3u);
-        const auto deriv = ReadbackRgba32fArray(field->GetDerivativesTextureID(), preset.ArrayResolution, 3u);
+        const auto disp = ReadbackRgba32fArray(field->GetDisplacementTextureID(), preset.m_ArrayResolution, 3u);
+        const auto deriv = ReadbackRgba32fArray(field->GetDerivativesTextureID(), preset.m_ArrayResolution, 3u);
 
         // EVERY layer must carry a real field. A dispatch that wrote the wrong
         // layer — or wrote layer 0 three times — leaves the others at their
         // allocation contents, which is the failure this catches and which
         // renders as a perfectly plausible one-cascade sea.
-        const sizet perLayer = static_cast<sizet>(preset.ArrayResolution) * preset.ArrayResolution;
+        const sizet perLayer = static_cast<sizet>(preset.m_ArrayResolution) * preset.m_ArrayResolution;
         for (u32 layer = 0u; layer < 3u; ++layer)
         {
             f64 acc = 0.0;
@@ -456,10 +456,10 @@ namespace OloEngine::Tests
         auto field = Ref<Ocean::OceanFFTField>::Create();
         field->Update(p, 9.0f, /*uploadToGpu=*/true, /*useGpuCompute=*/false);
         const Ocean::CascadePreset& preset = field->GetPreset();
-        ASSERT_EQ(preset.Count, 3u);
+        ASSERT_EQ(preset.m_Count, 3u);
         ASSERT_NE(field->GetDisplacementTextureID(), 0u);
 
-        const auto disp = ReadbackRgba32fArray(field->GetDisplacementTextureID(), preset.ArrayResolution, 3u);
+        const auto disp = ReadbackRgba32fArray(field->GetDisplacementTextureID(), preset.m_ArrayResolution, 3u);
 
         f32 maxHeightErr = 0.0f;
         f32 maxHorizErr = 0.0f;
@@ -546,7 +546,7 @@ namespace OloEngine::Tests
         field->Update(p, 1.0f, true, true);
         ASSERT_EQ(field->GetCascadeCount(), 3u);
         ASSERT_TRUE(field->GetDisplacementTextureHandle().IsValid());
-        const u32 arrayRes = field->GetPreset().ArrayResolution;
+        const u32 arrayRes = field->GetPreset().m_ArrayResolution;
         const auto disp = ReadbackRgba32fArray(field->GetDisplacementTextureID(), arrayRes, 3u);
         ASSERT_EQ(disp.size(), static_cast<sizet>(arrayRes) * arrayRes * 3u);
         for (const glm::vec4& t : disp)
