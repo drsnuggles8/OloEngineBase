@@ -262,9 +262,11 @@ the code found nothing (all four bugs were individually plausible-looking).
 
 ## A different signature: cloud puffs in front of terrain
 
-Origin: issue #987. This looked like a temporal-history leak, but the puffs
-were already present in `CloudsRaw`. Two depth-classification errors in the
-half-resolution raymarch combined at the silhouette:
+Origin: issue #987. PR #986 fixed the original temporal-history ghost: its
+reported view measured zero affected texels in `CloudsRaw` and six added by
+`CloudsResolved`. The residual edge-width puffs left at the silhouette looked
+similar, but a new live probe found them in `CloudsRaw` itself. Two
+depth-classification errors combined there:
 
 1. One cloud invocation represents a 2x2 footprint in the full-resolution
    scene depth. A filtered or centre sample can select sky even when another
@@ -275,7 +277,7 @@ half-resolution raymarch combined at the silhouette:
    Drift's 1000 m far plane, valid ridge depth reached about `0.999904`, so a
    broad epsilon classified the terrain itself as sky.
 
-The decisive probe was a same-frame `CloudsRaw` capture plus four exact
+The decisive probe was a same-view `CloudsRaw` capture plus four exact
 `SceneDepth` texels under one affected half-resolution pixel. Pin both cases
-in an `R32F` render-pass contract: RGBA8 cannot represent the far-depth values
+in an `R32F` shader-unit contract: RGBA8 cannot represent the far-depth values
 that distinguish valid geometry from the clear sentinel.

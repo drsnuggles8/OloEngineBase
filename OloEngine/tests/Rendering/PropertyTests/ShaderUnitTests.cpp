@@ -97,7 +97,132 @@ namespace OloEngine::Tests
                 return m_Id;
             }
         };
+
+        struct ScopedTexture2D
+        {
+            GLuint m_Id = 0;
+
+            ScopedTexture2D(u32 width, u32 height, const f32* pixels)
+            {
+                ::glCreateTextures(GL_TEXTURE_2D, 1, &m_Id);
+                ::glTextureStorage2D(m_Id, 1, GL_R32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+                ::glTextureSubImage2D(m_Id, 0, 0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height),
+                                      GL_RED, GL_FLOAT, pixels);
+                ::glTextureParameteri(m_Id, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                ::glTextureParameteri(m_Id, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            }
+
+            ~ScopedTexture2D()
+            {
+                if (m_Id != 0)
+                    ::glDeleteTextures(1, &m_Id);
+            }
+
+            ScopedTexture2D(const ScopedTexture2D&) = delete;
+            ScopedTexture2D& operator=(const ScopedTexture2D&) = delete;
+
+            operator GLuint() const
+            {
+                return m_Id;
+            }
+        };
+
+        struct CloudDepthProbeSample
+        {
+            f32 Depth;
+            f32 ContainsGeometry;
+        };
+        static_assert(sizeof(CloudDepthProbeSample) == 2 * sizeof(f32));
+
+        std::vector<CloudDepthProbeSample> RunCloudDepthProbe(u32 width, u32 height,
+                                                              const std::vector<f32>& depthPixels)
+        {
+            const sizet expectedPixelCount = static_cast<sizet>(width) * height;
+            if (depthPixels.size() != expectedPixelCount)
+            {
+                ADD_FAILURE() << "cloud depth probe expected " << expectedPixelCount
+                              << " depth pixels, got " << depthPixels.size();
+                return {};
+            }
+
+            const u32 halfWidth = (width + 1u) / 2u;
+            const u32 halfHeight = (height + 1u) / 2u;
+            std::vector<CloudDepthProbeSample> output(static_cast<sizet>(halfWidth) * halfHeight);
+
+            ScopedTexture2D depthTexture(width, height, depthPixels.data());
+            ScopedBuffer outputBuffer(static_cast<GLsizeiptr>(output.size() * sizeof(CloudDepthProbeSample)),
+                                      GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+
+            auto shader = ComputeShader::Create("assets/shaders/tests/ShaderUnit_CloudscapeDepth.glsl");
+            if (!shader || !shader->IsValid())
+            {
+                ADD_FAILURE() << "cloud depth compute shader failed to compile";
+                return {};
+            }
+
+            shader->Bind();
+            ::glBindTextureUnit(0, depthTexture);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, outputBuffer);
+            ::glDispatchCompute(halfWidth, halfHeight, 1);
+            ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+            ::glGetNamedBufferSubData(outputBuffer, 0,
+                                      static_cast<GLsizeiptr>(output.size() * sizeof(CloudDepthProbeSample)),
+                                      output.data());
+
+            ::glBindTextureUnit(0, 0);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+            ::glUseProgram(0);
+            return output;
+        }
     } // namespace
+
+    TEST(ShaderUnitCloudDepthTest, MixedFootprintUsesMinimumGeometryDepth)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kWidth = 4;
+        constexpr u32 kHeight = 2;
+        std::vector<f32> depthPixels(kWidth * kHeight, 1.0f);
+        depthPixels[0] = 0.42f;
+
+        const auto output = RunCloudDepthProbe(kWidth, kHeight, depthPixels);
+        ASSERT_EQ(output.size(), 2u);
+        EXPECT_FLOAT_EQ(output[0].Depth, 0.42f);
+        EXPECT_FLOAT_EQ(output[1].Depth, 1.0f);
+    }
+
+    TEST(ShaderUnitCloudDepthTest, OddExtentClampsTheFinalFootprint)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kWidth = 5;
+        constexpr u32 kHeight = 3;
+        std::vector<f32> depthPixels(kWidth * kHeight, 1.0f);
+        depthPixels.back() = 0.625f;
+
+        const auto output = RunCloudDepthProbe(kWidth, kHeight, depthPixels);
+        ASSERT_EQ(output.size(), 6u);
+        EXPECT_FLOAT_EQ(output.back().Depth, 0.625f);
+    }
+
+    TEST(ShaderUnitCloudDepthTest, ExactClearSentinelAloneClassifiesAsSky)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kWidth = 4;
+        constexpr u32 kHeight = 2;
+        std::vector<f32> depthPixels(kWidth * kHeight, 1.0f);
+        for (u32 y = 0; y < kHeight; ++y)
+        {
+            depthPixels[static_cast<sizet>(y) * kWidth] = 0.99995f;
+            depthPixels[static_cast<sizet>(y) * kWidth + 1u] = 0.99995f;
+        }
+
+        const auto output = RunCloudDepthProbe(kWidth, kHeight, depthPixels);
+        ASSERT_EQ(output.size(), 2u);
+        EXPECT_FLOAT_EQ(output[0].ContainsGeometry, 1.0f);
+        EXPECT_FLOAT_EQ(output[1].ContainsGeometry, 0.0f);
+    }
 
     // =========================================================================
     // sRGB ↔ linear round-trip. For every input in [0, 1], linear→sRGB→linear

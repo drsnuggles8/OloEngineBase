@@ -3591,20 +3591,14 @@ TEST_F(VulkanPassSuite, SelectionOutlineRingsTheSelectedBlobAndIdlesWithoutSelec
 //
 // Contract — the documented FLOOR: executes clean (4 draws, zero stubs,
 // zero validation errors), the history extract actually copied (the sink
-// valid-flag flips), and clouds render SOMETHING against the sky-blue input.
-// The first quarter additionally carries one geometry sample in every
-// full-res 2x2 footprint while the other three samples remain sky. A
-// half-res cloud texel covers the whole footprint, so any geometry sample
-// must terminate its ray before the layer; sampling only the footprint
-// centre aliases the mixed cell to sky and puts clouds over the geometry
-// silhouette. The second quarter is solid far geometry just below the
-// depth-buffer clear sentinel — it must not be mistaken for sky by a broad
-// epsilon. The right half stays all-sky and proves the two conservative
-// occlusion cases do not erase real clouds. A stronger radiometric contract
+// valid-flag flips), and clouds render SOMETHING against the sky-blue input
+// — the camera looks straight up at the layer, so the composite must differ
+// from the input at the zenith and vary across the frame (slant paths + the
+// per-pixel IGN jitter make uniformity impossible). A stronger contract
 // would need an unjittered, single-step march over the uniform medium so the
 // slab path length per pixel becomes closed-form (inscatter/transmittance as
 // exact functions of view angle) — that requires a jitter kill-switch the
-// shader does not expose.
+// shader does not expose today.
 // =============================================================================
 TEST_F(VulkanPassSuite, CloudscapeRendersCloudsAgainstTheSkyAndExtractsHistory)
 {
@@ -3614,32 +3608,8 @@ TEST_F(VulkanPassSuite, CloudscapeRendersCloudsAgainstTheSkyAndExtractsHistory)
 
     auto skyInput = MakeSolidTexture(kSize, 90, 140, 220, 255);
     ASSERT_NE(skyInput, nullptr);
-
-    // First quarter: one just-inside-the-old-threshold geometry sample in
-    // every 2x2 footprint. The footprint-centre bilinear value is ~0.9999675,
-    // while the conservative minimum is 0.99987. Second quarter: solid
-    // 0.99995 far geometry, which is valid depth but the former 0.9999 cutoff
-    // mistook for sky. R32F is deliberate: RGBA8 cannot represent either
-    // far-depth case. Right half remains the exact depth 1.0 clear sentinel.
-    std::vector<f32> depthPixels(static_cast<sizet>(kSize) * kSize, 1.0f);
-    for (u32 y = 0; y < kSize; ++y)
-    {
-        for (u32 x = 0; x < kSize / 2u; ++x)
-        {
-            if (x >= kSize / 4u)
-                depthPixels[static_cast<sizet>(y) * kSize + x] = 0.99995f;
-            else if (x % 2u == 0u && y % 2u == 0u)
-                depthPixels[static_cast<sizet>(y) * kSize + x] = 0.99987f;
-        }
-    }
-    TextureSpecification depthSpec;
-    depthSpec.Width = kSize;
-    depthSpec.Height = kSize;
-    depthSpec.Format = ImageFormat::R32F;
-    depthSpec.GenerateMips = false;
-    auto depthTexture = Texture2D::Create(depthSpec);
+    auto depthTexture = MakeSolidTexture(kSize, 255, 255, 255, 255); // depth 1.0 = sky everywhere
     ASSERT_NE(depthTexture, nullptr);
-    depthTexture->SetData(depthPixels.data(), static_cast<u32>(depthPixels.size() * sizeof(f32)));
     auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
     ASSERT_TRUE(blitShader);
     ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
@@ -3771,7 +3741,7 @@ TEST_F(VulkanPassSuite, CloudscapeRendersCloudsAgainstTheSkyAndExtractsHistory)
 
     RGResourceDesc importDesc;
     importDesc.Kind = RGResourceHandle::Kind::Texture2D;
-    importDesc.Format = RGResourceFormat::R32Float;
+    importDesc.Format = RGResourceFormat::RGBA8UNorm;
     importDesc.Width = kSize;
     importDesc.Height = kSize;
     blackboard.Scene.SceneDepth =
@@ -3849,32 +3819,16 @@ TEST_F(VulkanPassSuite, CloudscapeRendersCloudsAgainstTheSkyAndExtractsHistory)
     ASSERT_TRUE(vkOutput->GetColorAttachmentImage(0)->GetData(rendered, 0));
     ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
 
-    // Mixed geometry footprints on the left must be exact sky passthrough;
-    // the all-sky right half must still contain cloud-altered pixels.
+    // Clouds must have changed the zenith away from the sky-blue input...
     const auto px = [&](u32 x, u32 y)
     {
         const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
         return std::array<int, 3>{ rendered[i], rendered[i + 1], rendered[i + 2] };
     };
-    u32 occludedPixelsChanged = 0;
-    u32 skyPixelsChanged = 0;
-    constexpr u32 kBoundaryMargin = 4;
-    for (u32 y = 0; y < kSize; ++y)
-    {
-        for (u32 x = 0; x < kSize; ++x)
-        {
-            const auto color = px(x, y);
-            const int delta =
-                std::abs(color[0] - 90) + std::abs(color[1] - 140) + std::abs(color[2] - 220);
-            if (x < kSize / 2u - kBoundaryMargin && delta > 3)
-                ++occludedPixelsChanged;
-            else if (x >= kSize / 2u + kBoundaryMargin && delta > 3)
-                ++skyPixelsChanged;
-        }
-    }
-    EXPECT_EQ(occludedPixelsChanged, 0u)
-        << "clouds must reject both mixed geometry footprints and valid geometry near the far plane";
-    EXPECT_GT(skyPixelsChanged, 0u) << "the all-sky half must still render clouds";
+    const auto centre = px(64, 64);
+    const int centreDelta =
+        std::abs(centre[0] - 90) + std::abs(centre[1] - 140) + std::abs(centre[2] - 220);
+    EXPECT_GE(centreDelta, 30) << "an opaque deck straight overhead must not pass the sky through";
     // ...and the frame must not be UNIFORM: the striped weather field must
     // put both cloud deck AND clear-sky gaps on screen (observed: a
     // saturated deck at ~255 with sky-blue stripes — scan the whole frame,
