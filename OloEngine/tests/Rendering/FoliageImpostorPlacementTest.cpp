@@ -42,7 +42,9 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <cctype>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -96,6 +98,44 @@ namespace
         }
         return out;
     }
+    /// The comma-separated arguments of the first `vec3(...)` in `expr`, with all
+    /// whitespace removed. Returns empty if there is no balanced vec3 call.
+    [[nodiscard]] std::vector<std::string> Vec3Args(const std::string& expr)
+    {
+        const auto open = expr.find("vec3(");
+        if (open == std::string::npos)
+            return {};
+        std::vector<std::string> args;
+        std::string current;
+        int depth = 0;
+        for (std::size_t i = open + 4; i < expr.size(); ++i)
+        {
+            const char c = expr[i];
+            if (c == '(')
+            {
+                if (++depth == 1)
+                    continue; // the vec3's own opening paren
+            }
+            else if (c == ')')
+            {
+                if (--depth == 0)
+                {
+                    args.push_back(current);
+                    return args;
+                }
+            }
+            else if (c == ',' && depth == 1)
+            {
+                args.push_back(current);
+                current.clear();
+                continue;
+            }
+            if (!std::isspace(static_cast<unsigned char>(c)))
+                current.push_back(c);
+        }
+        return {}; // unbalanced
+    }
+
 } // namespace
 
 // Both stages must place the instance stream the same way. This is the
@@ -149,13 +189,33 @@ TEST(FoliageImpostorPlacementTest, ImpostorCardIsAnchoredOnTheMeshCentreNotItsRa
     ASSERT_NE(at, std::string::npos) << "no card anchor expression found";
     const std::string expr = vertex.substr(at, vertex.find(';', at) - at);
 
-    EXPECT_NE(expr.find("height"), std::string::npos)
-        << "the card anchor does not scale with the plant height: " << expr
-        << " -- the bake centres the tile on the mesh's bounding-box centre, so the anchor must "
-           "be half the DRAWN height. Anchoring by the card radius instead floats the tree inside "
-           "its own card once the radius carries the height (issue #953).";
-    EXPECT_EQ(expr.find(", radius,"), std::string::npos)
-        << "the card anchor is back to offsetting by the card radius: " << expr;
+    // Assert what the offset IS, not merely that the word "height" appears in it:
+    // `vec3(0.0, height, 0.0)` and `vec3(0.0, height * 2.0, 0.0)` both mention the
+    // height and both float the tree. Term ORDER is free — `0.5 * height * scale`,
+    // `height * scale * 0.5` and `scale * height * 0.5` are the same offset — so
+    // the Y term is checked by the factors it carries, not by its spelling.
+    const std::vector<std::string> args = Vec3Args(expr);
+    ASSERT_EQ(args.size(), 3u) << "card anchor is not a vec3(x, y, z) offset: " << expr;
+
+    EXPECT_TRUE(args[0] == "0.0" || args[0] == "0") << "card anchor shifts X: " << expr;
+    EXPECT_TRUE(args[2] == "0.0" || args[2] == "0") << "card anchor shifts Z: " << expr;
+
+    const std::string& y = args[1];
+    const bool carriesHeight = y.find("height") != std::string::npos;
+    const bool carriesScale = y.find("scale") != std::string::npos;
+    const bool carriesHalf = y.find("0.5") != std::string::npos || y.find("/2.0") != std::string::npos ||
+                             y.find("/2") != std::string::npos;
+
+    EXPECT_TRUE(carriesHeight && carriesScale && carriesHalf)
+        << "the card anchor must be HALF the DRAWN height (height * scale), because the bake "
+           "centres each tile on the source mesh's bounding-box centre. Got: "
+        << y
+        << " -- missing" << (carriesHalf ? "" : " the 1/2 factor") << (carriesHeight ? "" : " the height")
+        << (carriesScale ? "" : " the instance scale") << " (issue #953).";
+
+    EXPECT_EQ(y.find("radius"), std::string::npos)
+        << "the card anchor is back to offsetting by the card radius: " << y
+        << " -- that floats the tree inside its own card once the radius carries the height.";
 }
 
 // The card has to carry the per-instance height, or it is short by the whole
