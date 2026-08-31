@@ -140,6 +140,47 @@ namespace OloEngine
             return m_OpenGLSPIRV;
         }
 
+        // Content-addressed identity for a shader FILE (issue #908), reusing the
+        // exact ingredients (preprocessed per-stage source + the Vulkan AND
+        // OpenGL tiers' compiler options — see VulkanTierOptions::Descriptor /
+        // OpenGLTierOptions::Descriptor) the #906 SPIR-V cache already hashes
+        // on. This is what ShaderPack keys its entries by: two callers that
+        // get the same string back are guaranteed to compile to the same
+        // bytes, so a mismatch is a definite miss, never a maybe. Reads and
+        // preprocesses `filepath` fresh — no GL call, no compile, safe from
+        // any thread and safe with no GL context at all (a CI bake runner has
+        // none). Returns an empty string if the file can't be read or produces
+        // no compilable stages.
+        //
+        // A FRESH re-read: for a shader that was already compiled (its
+        // GetOriginalSourceCode() below is non-empty), prefer
+        // ComputeContentHashFromSources(GetOriginalSourceCode()) instead — see
+        // its comment for why re-reading from disk here can TOCTOU-desync the
+        // hash from the SPIR-V it is meant to describe.
+        [[nodiscard]] static std::string ComputeContentHash(const std::string& filepath);
+
+        // Same hash, computed from ALREADY-preprocessed source rather than
+        // re-reading the file. Use this when packing an already-compiled
+        // shader (ShaderPack::CreateFromLibraries): hashing
+        // GetOriginalSourceCode() — the exact text that produced the
+        // in-memory SPIR-V — instead of re-reading the file from disk closes
+        // a TOCTOU window a fresh ComputeContentHash(filepath) call has (issue
+        // #908 review): if the file on disk changed between compile and pack,
+        // a fresh re-read would hash the NEW text while still packing the OLD
+        // (in-memory) SPIR-V, so a later hash comparison against the (by-then
+        // also new) on-disk text would falsely validate stale bytes.
+        [[nodiscard]] static std::string ComputeContentHashFromSources(
+            const std::unordered_map<GLenum, std::string>& preprocessedSources);
+
+        // The preprocessed per-stage source that produced this shader's
+        // compiled SPIR-V (issue #908: the input to
+        // ComputeContentHashFromSources above). Empty until PrepareCPU() has
+        // run.
+        [[nodiscard]] const std::unordered_map<GLenum, std::string>& GetOriginalSourceCode() const
+        {
+            return m_OriginalSourceCode;
+        }
+
         // Include processing — public so compute shaders can reuse it
         static std::string ProcessIncludes(const std::string& source, const std::string& directory = "");
 
@@ -200,7 +241,12 @@ namespace OloEngine
 
         static std::string ReadFile(const std::string& filepath);
         static std::string ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles);
-        std::unordered_map<GLenum, std::string> PreProcess(std::string_view source) const;
+
+        // Static (touches no instance state, only the filesystem via
+        // ProcessIncludes) so ComputeContentHash can call it without an
+        // OpenGLShader to hang off — a source-only recompute of the same split
+        // ordinary loading does.
+        static std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
 
         // Returns false if any shader stage failed to compile (already logged via
         // OLO_CORE_CRITICAL). Callers must not proceed to link/finalize on failure —

@@ -38,6 +38,14 @@ namespace
         }
     }
 
+    // A fixed dummy content hash (issue #908) — this file constructs the raw
+    // binary layout by hand rather than going through ShaderPack::WritePackFile,
+    // so it must write the same ContentHash field the reader now expects right
+    // after the name. Its actual value doesn't matter to these tests: none of
+    // them exercise the ShaderLibrary-side hash COMPARISON (that's
+    // ShaderPackContentHashTest.cpp) — only ShaderPack's own read/index path.
+    const std::string kDummyContentHash = "0000000000000000";
+
     // Create a minimal .osp with 1 shader (2 stages: vert + frag)
     std::filesystem::path CreateTestPack(const std::filesystem::path& dir, const std::string& shaderName)
     {
@@ -58,8 +66,10 @@ namespace
         WriteRaw(out, header);
 
         // We need to write the index first, then data, but we need data offsets.
-        // Calculate index size: string(4 + name.size()) + stageCount(4) + 2 stages * (1 + 4*8)
-        u64 indexSize = (sizeof(u32) + shaderName.size()) + sizeof(u32) + 2 * (sizeof(u8) + 4 * sizeof(u64));
+        // Calculate index size: string(4 + name.size()) + string(4 + hash.size())
+        // + stageCount(4) + 2 stages * (1 + 4*8)
+        u64 indexSize = (sizeof(u32) + shaderName.size()) + (sizeof(u32) + kDummyContentHash.size()) +
+                        sizeof(u32) + 2 * (sizeof(u8) + 4 * sizeof(u64));
 
         auto indexStart = out.tellp();
         // Write placeholder index
@@ -93,6 +103,7 @@ namespace
         // Backfill index
         out.seekp(indexStart);
         WriteString(out, shaderName);
+        WriteString(out, kDummyContentHash);
         u32 stageCount = 2;
         WriteRaw(out, stageCount);
 
@@ -192,6 +203,18 @@ TEST_F(ShaderPackTest, LoadEntryValid)
     EXPECT_EQ(entry->Stages[1].VulkanSPIRV[2], 4u);
     EXPECT_EQ(entry->Stages[1].OpenGLSPIRV.size(), 6u);
     EXPECT_EQ(entry->Stages[1].OpenGLSPIRV[2], 40u);
+}
+
+TEST_F(ShaderPackTest, GetContentHashRoundTrips)
+{
+    auto packPath = CreateTestPack(m_TestDir, kTestShaderName);
+    ShaderPack pack(packPath);
+
+    auto hash = pack.GetContentHash(kTestShaderName);
+    ASSERT_TRUE(hash.has_value());
+    EXPECT_EQ(*hash, kDummyContentHash);
+
+    EXPECT_FALSE(pack.GetContentHash("nonexistent/shader.glsl").has_value());
 }
 
 TEST_F(ShaderPackTest, LoadEntryNotFound)

@@ -88,6 +88,11 @@ namespace OloEngine
 
         static ShaderLibrary& GetShaderLibrary();
 
+        // The filepaths Init() loads into GetShaderLibrary() — exposed (issue
+        // #908) so the headless ShaderPack bake enumerates EXACTLY what this
+        // library will later try to serve from the pack. No GL call.
+        [[nodiscard]] static std::vector<std::string> GetShaderFilepaths();
+
         // Stats
         struct Statistics
         {

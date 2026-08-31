@@ -404,6 +404,31 @@ void main()
 
     void ShaderLibrary::LoadShaderPack(const std::filesystem::path& path)
     {
+        // A CI-baked pack (issue #908) is optional — the common case (no
+        // pack baked, or a fresh worktree that never fetched one) shouldn't
+        // log a spurious "failed to load" from the ShaderPack constructor
+        // trying to open a file that was never expected to exist. Checked
+        // here, once, rather than duplicated at every LoadShaderPack call
+        // site — Renderer2D::Init() and Renderer3D::Init() used to each
+        // carry their own copy of this exact guard.
+        //
+        // The std::error_code overload: this runs on every engine startup,
+        // so an exception here (a permissions error, a broken symlink, ...)
+        // would be an uncaught throw straight out of Init() rather than a
+        // graceful "no pack" — treat any query failure as "not present"
+        // rather than crashing startup over an optional feature.
+        std::error_code ec;
+        const bool exists = std::filesystem::exists(path, ec);
+        if (ec)
+        {
+            OLO_CORE_WARN("[ShaderLibrary] Couldn't check for a shader pack at '{}': {}", path.string(), ec.message());
+            return;
+        }
+        if (!exists)
+        {
+            return;
+        }
+
         m_ShaderPack = std::make_unique<ShaderPack>(path);
         if (!m_ShaderPack->IsLoaded())
         {
@@ -440,6 +465,26 @@ void main()
 
         if (!m_ShaderPack->Contains(filepath))
         {
+            return std::nullopt;
+        }
+
+        // Content-hash validation (issue #908): a pack entry is only served
+        // when its baked hash matches what the CURRENT on-disk source hashes
+        // to right now — recomputed fresh, not trusted from the pack build. A
+        // name match alone (the pre-#908 contract) would serve stale SPIR-V
+        // for a shader that has since changed, silently — the exact "old
+        // defect" a name-keyed cache used to have (#906's motivation for the
+        // per-stage compile cache). Both sides call the SAME hash function
+        // (OpenGLShader::ComputeContentHash), so two inputs that hash equal
+        // ARE the same bytes shaderc would produce — no separate staleness
+        // check needed, and a mismatch is unambiguously a miss.
+        const std::string currentHash = OpenGLShader::ComputeContentHash(filepath);
+        const auto packHash = m_ShaderPack->GetContentHash(filepath);
+        if (currentHash.empty() || !packHash || *packHash != currentHash)
+        {
+            OLO_CORE_WARN("[ShaderLibrary] Pack entry '{}' content hash mismatch — "
+                          "falling back to compile",
+                          filepath);
             return std::nullopt;
         }
 

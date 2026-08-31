@@ -336,3 +336,29 @@ jobs:
         name: googletest_results_xml
         path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
         if-no-files-found: 'warn'
+
+    # Issue #908: bake a CI-portable SPIR-V shader pack and publish it as a
+    # build artifact for anyone who wants it (a packaged game's build step
+    # pulls it in explicitly — see docs/agent-rules/shader-pack-bake.md — a
+    # fresh worktree does NOT fetch it automatically). This runs the test
+    # binary's own `--olo-bake-shader-pack` mode rather than a full editor
+    # launch: no GL context is created anywhere in that path (verified — see
+    # ShaderPackBakeTest.cpp), so it needs nothing this hosted, GPU-less
+    # runner doesn't already have. `--gtest_filter` isolates the one test
+    # this flag drives so the rest of the suite (already run above) doesn't
+    # execute a second time.
+    - name: Bake shader pack (issue #908)
+      shell: pwsh
+      working-directory: ${{github.workspace}}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $testExe = Join-Path '${{github.workspace}}' 'build/OloEngine/tests/${{env.BUILD_TYPE}}/OloEngine-Tests.exe'
+        & $testExe --gtest_filter=ShaderPackBakeTest.* --olo-bake-shader-pack="OloEditor/assets/ShaderPack.osp"
+        if ($LASTEXITCODE -ne 0) { throw "Shader pack bake failed (exit $LASTEXITCODE)" }
+
+    - name: Upload shader pack artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ShaderPack
+        path: ${{github.workspace}}/OloEditor/assets/ShaderPack.osp
+        if-no-files-found: error

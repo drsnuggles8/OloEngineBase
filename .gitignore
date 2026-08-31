@@ -4,6 +4,11 @@
 bin-int/
 obj/
 **/cache/**
+
+# Baked shader pack (issue #908) — a CI/build-time artifact (or produced
+# locally by the editor's "Build Shader Pack" menu / a headless bake), never
+# hand-authored source.
+OloEditor/assets/ShaderPack.osp
 OloEditor/Resources/Scripts/Hazel-ScriptCore.dll
 OloEditor/Resources/Scripts/Hazel-ScriptCore.pdb
 Intermediates/

@@ -87,6 +87,7 @@ you are in.
 **Renderer**
 
 - [rhi-abstraction-boundary.md](docs/agent-rules/rhi-abstraction-boundary.md) — where the OpenGL boundary actually leaks: the include graph, not a `glXxx(` grep; plus the Vulkan epic's accumulated lessons (§9–§14, incl. the one-row-order-per-backend contract and the mesh-shader stage family).
+- [shader-pack-bake.md](docs/agent-rules/shader-pack-bake.md) — the CI-baked `.osp` (issue #908): the content-hash invalidation contract, why the producer needs no GL context, and why a fresh worktree doesn't fetch it automatically.
 - [shared-atlas-allocator.md](docs/agent-rules/shared-atlas-allocator.md) — the buddy/quadtree allocator behind the shadow atlas and the impostor VRAM budget: the swap-not-mutate pattern for identity-keyed free-on-drop, why the impostor retrofit stayed a budget gate instead of spatial packing, and a non-RAII handle embedded in a POD-looking struct that `vector::resize()` silently leaks.
 - [vulkan-command-ordered-buffer-writes.md](docs/agent-rules/vulkan-command-ordered-buffer-writes.md) — a CPU buffer write between two recorded draws is GL command order; a life-stable Vulkan address silently makes it last-write-wins, and the failure is scene-shaped.
 - [gl-global-setter-resets-indexed-state.md](docs/agent-rules/gl-global-setter-resets-indexed-state.md) — `glColorMask` / `glEnable(GL_BLEND)` are the indexed call for EVERY draw buffer; porting one as a fallback makes an indexed call permanent, and only render target 0 is ever looked at.

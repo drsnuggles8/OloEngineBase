@@ -1036,16 +1036,33 @@ namespace OloEngine
             OLO_TRACK_DEALLOC(this);
         }
 
-        u32 programId = m_RendererID;
-        UnregisterGLProgramLabel(programId);
-        FrameResourceManager::Get().SubmitForDeletion([programId]()
-                                                      {
+        // m_RendererID == 0 means glCreateProgram() was never called for this
+        // object — a CPU-prepared-but-never-finalized shader (issue #908's
+        // headless ShaderPack bake: Shader::PrepareBatch() constructs and can
+        // destroy these with NO GL context ever having existed in the
+        // process, unlike every other caller of this destructor). There is
+        // no GL resource to enqueue for deletion, and reaching the block
+        // below in that case is actively unsafe rather than merely
+        // wasteful: FrameResourceManager::SubmitForDeletion runs its
+        // deletion lambda SYNCHRONOUSLY (glDeleteProgram and friends)
+        // whenever the manager was never Init()'d, on the assumption that
+        // "not yet initialized" always still means "GL context is live,
+        // Renderer::Init() just hasn't reached FrameResourceManager yet" —
+        // true for every other caller, false for a purely headless process
+        // where GLAD's function pointers were never loaded at all, which
+        // crashed with an access violation on the unloaded glDeleteProgram.
+        if (u32 programId = m_RendererID; programId != 0)
+        {
+            UnregisterGLProgramLabel(programId);
+            FrameResourceManager::Get().SubmitForDeletion([programId]()
+                                                          {
                                                           // See Utils::UnbindProgramIfCurrent (issue #625): this
                                                           // program may still be the bound program by the time this
                                                           // deferred deletion runs.
                                                           Utils::UnbindProgramIfCurrent(programId);
                                                           Shader::UnregisterProgram(programId);
                                                           glDeleteProgram(programId); });
+        }
     }
 
     void OpenGLShader::InitializeResourceRegistry(const Ref<Shader>& shaderRef)
@@ -1545,7 +1562,7 @@ namespace OloEngine
         return true;
     }
 
-    std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(std::string_view source) const
+    std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(std::string_view source)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1616,6 +1633,47 @@ namespace OloEngine
         }
 
         return shaderSources;
+    }
+
+    // See the declaration (issue #908): reuses the exact two ingredients the
+    // per-stage #906 cache key hashes — the preprocessed source per stage
+    // (Utils::HashHexSourceMap) and the Vulkan tier's compiler-options
+    // descriptor (Utils::VulkanTierOptions::Descriptor) — composed the same
+    // way OpenGLShader::CompileOrGetBindlessProgram already does for its own
+    // whole-shader program-binary key at line ~1310. A ShaderPack entry and a
+    // live compile that hash to the same string are provably the same bytes;
+    // anything else is a miss, not a "probably fine".
+    std::string OpenGLShader::ComputeContentHash(const std::string& filepath)
+    {
+        const std::string source = ReadFile(filepath);
+        if (source.empty())
+        {
+            return {};
+        }
+
+        const auto sources = PreProcess(source);
+        return ComputeContentHashFromSources(sources);
+    }
+
+    std::string OpenGLShader::ComputeContentHashFromSources(
+        const std::unordered_map<GLenum, std::string>& preprocessedSources)
+    {
+        if (preprocessedSources.empty())
+        {
+            return {};
+        }
+
+        // Both compiler-option descriptors are folded in, not just the Vulkan
+        // tier's: ShaderPack stores BOTH the Vulkan and the OpenGL-cross-
+        // compiled SPIR-V under this one hash (ShaderPack::PackShaderInfo),
+        // so a hash match is a promise about both. The OpenGL tier's own
+        // per-stage cache (CompileOrGetOpenGLBinaries) mixes in
+        // OpenGLTierOptions::Descriptor() for exactly this reason — a
+        // hand-changed SPIRV-Cross recompile option is otherwise invisible
+        // to a pack built before the change, and would keep validating
+        // (and serving now-wrong OpenGLSPIRV bytes) forever.
+        return Utils::HashHex({ Utils::VulkanTierOptions::Descriptor(), Utils::OpenGLTierOptions::Descriptor() }) +
+               Utils::HashHexSourceMap(preprocessedSources);
     }
 
     bool OpenGLShader::CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources)

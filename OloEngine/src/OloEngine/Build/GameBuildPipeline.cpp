@@ -146,6 +146,45 @@ namespace OloEngine
         return true;
     }
 
+    bool StageShaderPack(
+        const std::filesystem::path& shaderPackSrc,
+        const std::filesystem::path& outputAssetsDir,
+        bool& packStaged,
+        std::string& errorMessage)
+    {
+        packStaged = false;
+
+        std::error_code ec;
+        const bool srcExists = std::filesystem::exists(shaderPackSrc, ec);
+        if (ec)
+        {
+            errorMessage = "Failed to check for a shader pack at " + shaderPackSrc.string() + ": " + ec.message();
+            return false;
+        }
+        if (!srcExists)
+        {
+            return true;
+        }
+
+        std::filesystem::create_directories(outputAssetsDir, ec);
+        if (ec)
+        {
+            errorMessage = "Failed to create asset output directory for the shader pack: " + ec.message();
+            return false;
+        }
+
+        std::filesystem::copy_file(shaderPackSrc, outputAssetsDir / shaderPackSrc.filename(),
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec)
+        {
+            errorMessage = "Failed to copy shader pack: " + ec.message();
+            return false;
+        }
+
+        packStaged = true;
+        return true;
+    }
+
     GameBuildResult GameBuildPipeline::Build(
         const GameBuildSettings& settings,
         std::atomic<f32>& progress,
@@ -627,6 +666,32 @@ namespace OloEngine
             }
         }
         OLO_CORE_INFO("[GameBuild] Copied {} shader files", shaderCount);
+
+        // --- Shader pack (issue #908, optional) ---
+        bool packStaged = false;
+        if (!StageShaderPack("assets/ShaderPack.osp", shaderDst.parent_path(), packStaged, errorMessage))
+        {
+            return false;
+        }
+        if (packStaged)
+        {
+            // Staging alone doesn't guarantee a hit: the runtime still
+            // content-hash-validates every entry against the shipped
+            // `assets/shaders` source (ShaderLibrary::TryReadPackEntry) before
+            // serving it, and falls back to compiling from source for
+            // anything that doesn't validate — a pack staged here from a
+            // stale bake, or a script-loaded custom shader (ShaderLibrary.Load
+            // exposed to Lua) outside the pack's fixed enumeration, still
+            // compiles on first launch. See docs/agent-rules/shader-pack-bake.md.
+            OLO_CORE_INFO("[GameBuild] Staged shader pack (ShaderPack.osp) — the packaged runtime will "
+                          "try it first and fall back to compiling from source for any shader that "
+                          "doesn't validate");
+        }
+        else
+        {
+            OLO_CORE_INFO("[GameBuild] No shader pack found — packaged runtime will compile shaders "
+                          "from source on first launch");
+        }
 
         // --- Textures (skybox cubemaps, IBL, etc.) ---
         const std::filesystem::path textureSrc = "assets/textures";

@@ -1462,6 +1462,12 @@ namespace OloEngine
         // Shader library access for PBR material shader selection
         static ShaderLibrary& GetShaderLibrary();
 
+        // The filepaths Init() loads into GetShaderLibrary() — exposed (issue
+        // #908) so the headless ShaderPack bake enumerates EXACTLY what this
+        // library will later try to serve from the pack, with no second list
+        // that could drift from the real one. No GL call, no side effect.
+        [[nodiscard]] static std::vector<std::string> GetShaderFilepaths();
+
         template<typename T>
         static CommandPacket* CreateRenderStreamDrawCall(RenderStreamType stream)
         {
