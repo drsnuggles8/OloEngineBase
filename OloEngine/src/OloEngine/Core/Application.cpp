@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Core/BuildInfo.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Audio/AudioEngine.h"
 #include "OloEngine/Core/CVar.h"
@@ -126,6 +127,10 @@ namespace OloEngine
         // Register the application name with the crash reporter
         CrashReporter::SetApplicationInfo(m_Specification.Name, OLO_ENGINE_VERSION);
         CrashReporter::SetHeadless(m_Specification.IsHeadless);
+
+        // Build identity (#894) — the one line every bug report can quote back
+        // to name the exact build it came from.
+        OLO_CORE_INFO("[{}] Build: {}", m_Specification.Name, BuildInfo::GetBuildId());
 
         try
         {

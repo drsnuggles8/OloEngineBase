@@ -209,3 +209,8 @@ coverage/
 
 # Machine-local CMake presets (absolute toolchain/cache paths) — never committed
 CMakeUserPresets.json
+
+# Rendered steamcmd VDFs (#894) — embed a real, machine-local contentroot path.
+# The templates that produce them are the reviewable, committed artefact; see
+# docs/ops/shipping.md#steamcmd-upload-automation.
+scripts/steam/generated/

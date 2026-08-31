@@ -47,6 +47,48 @@ else()
             LANGUAGES CXX C)
 endif()
 
+# --------------------------------------------------------------------------
+# Build identity (#894) — a git hash and a configure-time timestamp, computed
+# once here and baked into the engine alongside the static CMAKE_PROJECT_VERSION
+# macro (OLO_ENGINE_VERSION, below in OloEngine/CMakeLists.txt). This is what
+# lets a bug report name the exact build it came from — see BuildInfo.h and
+# docs/ops/shipping.md.
+#
+# Falls back to "unknown" rather than failing configure when there is no git
+# checkout to ask (a source tarball, or a stripped-down CI archive) — build
+# identity is a diagnostic aid, not a build requirement.
+find_package(Git QUIET)
+set(OLO_BUILD_GIT_HASH "unknown")
+set(OLO_BUILD_GIT_DESCRIBE "unknown")
+if(GIT_EXECUTABLE AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --short=10 HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE _olo_git_hash
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE _olo_git_hash_result)
+    if(_olo_git_hash_result EQUAL 0 AND _olo_git_hash)
+        set(OLO_BUILD_GIT_HASH "${_olo_git_hash}")
+    endif()
+
+    # --always falls back to the abbreviated hash when the checkout has no tags
+    # at all (true of this repo today), so this still succeeds rather than
+    # erroring — --dirty flags a build made from an uncommitted working tree.
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE _olo_git_describe
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE _olo_git_describe_result)
+    if(_olo_git_describe_result EQUAL 0 AND _olo_git_describe)
+        set(OLO_BUILD_GIT_DESCRIBE "${_olo_git_describe}")
+    endif()
+endif()
+string(TIMESTAMP OLO_BUILD_TIMESTAMP "%Y-%m-%dT%H:%M:%SZ" UTC)
+message(STATUS "Build identity: version=${CMAKE_PROJECT_VERSION} git=${OLO_BUILD_GIT_HASH} describe=${OLO_BUILD_GIT_DESCRIBE}")
+
 # Fail fast and helpfully when the vcpkg toolchain is absent. Without it every
 # find_package() below resolves against system paths (or not at all), and the
 # first symptom is a wall of "Could not find a package configuration file" —

@@ -5,6 +5,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Asset/AssetPack.h"
+#include "OloEngine/Core/BuildInfo.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputAction.h"
 #include "OloEngine/Core/InputActionManager.h"
@@ -69,6 +70,22 @@ namespace OloEngine
             // the project config, the start scene and the rendering mode can't
             // disagree about what the file said.
             const YAML::Node manifest = LoadGameManifest();
+
+            // Build identity (#894) — read from the manifest first so a shipped
+            // build (which may be OLDER than the engine that's now reading it,
+            // if a player keeps a stale copy) reports the identity it was
+            // PACKAGED with, not whatever this binary happens to be. Falls back
+            // to this binary's own BuildInfo when the manifest predates the
+            // BuildId field.
+            {
+                std::string buildId = BuildInfo::GetBuildId();
+                if (manifest["Game"] && manifest["Game"]["BuildId"])
+                {
+                    buildId = manifest["Game"]["BuildId"].as<std::string>();
+                }
+                OLO_CORE_INFO("[Runtime] Build: {}", buildId);
+            }
+
             MountGameProject(manifest);
             SaveGameManager::Initialize();
 

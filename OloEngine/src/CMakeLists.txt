@@ -340,6 +340,8 @@
 		"OloEngine/Core/Application.h"
 		"OloEngine/Core/Assert.h"
 		"OloEngine/Core/Base.h"
+		"OloEngine/Core/BuildInfo.cpp"
+		"OloEngine/Core/BuildInfo.h"
 		"OloEngine/Core/CVar.h"
 		"OloEngine/Core/CVar.cpp"
 		"OloEngine/Core/DebugLevers.h"

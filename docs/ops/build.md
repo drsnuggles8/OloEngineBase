@@ -136,6 +136,10 @@ dedicated workflow builds the Steam path against hand-written stub headers
 If you add a Steamworks call, add it to the stubs too or that job goes red — see
 [.github/workflows/steam-stub.yml](../../.github/workflows/steam-stub.yml).
 
+Building the SDK in is only half of shipping on Steam — actually publishing a build (depot layout,
+`steamcmd` upload automation, build identity) is a separate, developer-run concern documented in
+[shipping.md](shipping.md).
+
 ---
 
 ## Windows

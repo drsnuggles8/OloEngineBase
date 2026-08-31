@@ -1,0 +1,172 @@
+# Steam release tooling validation (#894).
+#
+# WHY THIS WORKFLOW DOES NOT PUBLISH ANYTHING
+# --------------------------------------------
+# `steamcmd` normally needs an interactive Steam Guard login on first use per machine, and Steam
+# publish credentials are exactly the kind of secret that should never sit in a public repo's CI
+# environment — the same reasoning that keeps the Steamworks SDK itself off every runner (see
+# steam-stub.yml and docs/ops/build.md). There is also no GameBuildPipeline output to publish:
+# that pipeline runs inside the editor's GUI (Build Game panel), which a headless runner can't
+# drive.
+#
+# So this job validates the *tooling* — scripts/steam/Publish-ToSteam.ps1 and its VDF templates —
+# against a synthetic fixture, entirely with -WhatIf, and never installs or invokes steamcmd. It
+# proves the template substitution is correct and the safety guards (the beta-branch-only
+# default, the steam_appid.txt refusal) actually fire. A real publish stays a documented, human-run
+# local action — see docs/ops/shipping.md#doing-a-real-publish.
+#
+# WHAT IT DOES NOT PROVE
+# -----------------------
+# Nothing about a real steamcmd upload, Valve's servers, or the Steamworks partner site. Live
+# behaviour is manually verified by a human with Steam partner access, per the shipping doc.
+name: Release (Steam tooling validation)
+
+# Manual-dispatch only, per CLAUDE.md: publishing tooling is deliberately never triggered
+# automatically, even for validation-only runs like this one.
+on:
+  workflow_dispatch:
+    inputs:
+      app_id:
+        description: "Steam App ID to render the fixture VDFs with (any placeholder value works — nothing is uploaded)"
+        required: false
+        default: "480"
+      depot_id:
+        description: "Steam Depot ID to render the fixture VDFs with"
+        required: false
+        default: "481"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-publish-tooling:
+    name: Validate Publish-ToSteam.ps1 (dry run only)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build a synthetic GameBuildPipeline-shaped fixture
+        shell: bash
+        run: |
+          mkdir -p /tmp/fixture-good
+          cat > /tmp/fixture-good/game.manifest <<'EOF'
+          Game:
+            Name: FixtureGame
+            EngineVersion: "0.0.1"
+            BuildId: "0.0.1+cafef00d00"
+          EOF
+
+          # A second fixture that carries the dev-only App 480 affordance —
+          # Publish-ToSteam.ps1 must refuse to touch this one at all.
+          mkdir -p /tmp/fixture-with-appid
+          cp /tmp/fixture-good/game.manifest /tmp/fixture-with-appid/game.manifest
+          echo "480" > /tmp/fixture-with-appid/steam_appid.txt
+
+      - name: WhatIf run against a valid fixture renders both VDFs correctly
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $out = "/tmp/fixture-good-output"
+
+          pwsh scripts/steam/Publish-ToSteam.ps1 `
+              -BuildPath /tmp/fixture-good `
+              -AppId ${{ inputs.app_id }} `
+              -DepotId ${{ inputs.depot_id }} `
+              -BetaBranch beta `
+              -Description "CI validation run — never uploaded" `
+              -OutputDir $out `
+              -WhatIf
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Publish-ToSteam.ps1 -WhatIf exited $LASTEXITCODE against a valid fixture — it should succeed."
+              exit 1
+          }
+
+          $appVdf = Get-Content -Raw (Join-Path $out "app_build_${{ inputs.app_id }}.vdf")
+          $depotVdf = Get-Content -Raw (Join-Path $out "depot_build_${{ inputs.depot_id }}.vdf")
+
+          foreach ($rendered in @($appVdf, $depotVdf)) {
+              if ($rendered -match '\{\{[A-Z_]+\}\}') {
+                  Write-Error "Rendered VDF still contains an unsubstituted token: $($Matches[0])"
+                  exit 1
+              }
+          }
+          # Whitespace-tolerant: match the VDF key/value pair regardless of the
+          # template's exact tab padding, which is a formatting detail this
+          # check shouldn't be coupled to.
+          if ($appVdf -notmatch '"appid"\s+"${{ inputs.app_id }}"') {
+              Write-Error "app_build.vdf does not contain the expected appid line."
+              exit 1
+          }
+          if ($appVdf -notmatch '"setlive"\s+"beta"') {
+              Write-Error "app_build.vdf does not set the beta branch live."
+              exit 1
+          }
+          if ($depotVdf -notmatch '"DepotID"\s+"${{ inputs.depot_id }}"') {
+              Write-Error "depot_build.vdf does not contain the expected DepotID line."
+              exit 1
+          }
+          Write-Host "OK: both VDFs rendered with no leftover tokens and the expected App/Depot IDs and branch."
+
+      - name: The public/default branch guard refuses without -Force
+        shell: pwsh
+        run: |
+          pwsh scripts/steam/Publish-ToSteam.ps1 `
+              -BuildPath /tmp/fixture-good `
+              -AppId ${{ inputs.app_id }} `
+              -DepotId ${{ inputs.depot_id }} `
+              -BetaBranch public `
+              -OutputDir /tmp/fixture-good-output-public `
+              -WhatIf
+          if ($LASTEXITCODE -eq 0) {
+              Write-Error "Publish-ToSteam.ps1 accepted -BetaBranch public without -Force — the safety guard regressed."
+              exit 1
+          }
+          Write-Host "OK: -BetaBranch public was refused without -Force (exit $LASTEXITCODE)."
+
+      - name: A build folder carrying steam_appid.txt is refused
+        shell: pwsh
+        run: |
+          pwsh scripts/steam/Publish-ToSteam.ps1 `
+              -BuildPath /tmp/fixture-with-appid `
+              -AppId ${{ inputs.app_id }} `
+              -DepotId ${{ inputs.depot_id }} `
+              -BetaBranch beta `
+              -OutputDir /tmp/fixture-with-appid-output `
+              -WhatIf
+          if ($LASTEXITCODE -eq 0) {
+              Write-Error "Publish-ToSteam.ps1 accepted a build folder containing steam_appid.txt — the dev-App-ID guard regressed."
+              exit 1
+          }
+          Write-Host "OK: a build folder carrying steam_appid.txt was refused (exit $LASTEXITCODE)."
+
+      - name: A missing BuildPath / game.manifest is refused
+        shell: pwsh
+        run: |
+          pwsh scripts/steam/Publish-ToSteam.ps1 `
+              -BuildPath /tmp/does-not-exist `
+              -AppId ${{ inputs.app_id }} `
+              -DepotId ${{ inputs.depot_id }} `
+              -BetaBranch beta `
+              -OutputDir /tmp/fixture-missing-output `
+              -WhatIf
+          if ($LASTEXITCODE -eq 0) {
+              Write-Error "Publish-ToSteam.ps1 accepted a nonexistent BuildPath."
+              exit 1
+          }
+          Write-Host "OK: a nonexistent BuildPath was refused (exit $LASTEXITCODE)."
+
+      - name: steamcmd was never installed on this runner
+        shell: bash
+        run: |
+          # The whole point of this job: prove the validation above never needed steamcmd at all.
+          if command -v steamcmd >/dev/null 2>&1; then
+            echo "::error::steamcmd is present on this runner — this job must never install or invoke it."
+            exit 1
+          fi
+          echo "OK: steamcmd was never installed; every check above ran through -WhatIf only."
