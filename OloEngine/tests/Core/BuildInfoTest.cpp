@@ -67,4 +67,21 @@ namespace OloEngine::Tests
                 << "GetBuildId() = '" << buildId << "' should embed the resolved git hash '" << hash << "'";
         }
     }
+
+    TEST(BuildInfoTest, BuildIdDirtySuffixMatchesIsWorkingTreeDirty)
+    {
+        // GetBuildId()'s "-dirty" suffix must come from IsWorkingTreeDirty()
+        // (a real git status check), never from parsing GetGitDescribe()'s
+        // text — a permitted tag literally named e.g. "release-dirty" would
+        // otherwise make a CLEAN checkout look dirty. This can't fabricate a
+        // dirty tree to prove the reverse (there's no seam to fake
+        // IsWorkingTreeDirty() from a unit test), but it does pin the
+        // consistency contract between the two: whatever this checkout's
+        // real dirty state is, GetBuildId() must agree with it exactly.
+        const std::string buildId = BuildInfo::GetBuildId();
+        const bool endsWithDirty = buildId.size() >= 6 && buildId.compare(buildId.size() - 6, 6, "-dirty") == 0;
+
+        EXPECT_EQ(endsWithDirty, BuildInfo::IsWorkingTreeDirty())
+            << "GetBuildId() = '" << buildId << "', IsWorkingTreeDirty() = " << BuildInfo::IsWorkingTreeDirty();
+    }
 } // namespace OloEngine::Tests

@@ -83,7 +83,16 @@ namespace OloEngine
                 {
                     if (manifest["Game"] && manifest["Game"]["BuildId"])
                     {
-                        buildId = manifest["Game"]["BuildId"].as<std::string>();
+                        // A defined-but-empty scalar ("BuildId: \"\"") passes
+                        // the presence check above and parses fine, so only
+                        // overwrite the fallback when there's actually
+                        // something to report — an empty string would
+                        // otherwise silently replace a perfectly good id with
+                        // nothing.
+                        if (std::string parsed = manifest["Game"]["BuildId"].as<std::string>(); !parsed.empty())
+                        {
+                            buildId = parsed;
+                        }
                     }
                 }
                 catch (const std::exception& e)

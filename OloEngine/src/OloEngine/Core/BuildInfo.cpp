@@ -1,8 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/BuildInfo.h"
 
-#include <string_view>
-
 // These are baked in as PRIVATE compile definitions on the OloEngine target
 // (OloEngine/CMakeLists.txt, computed once in the root CMakeLists.txt) — the
 // fallbacks below only matter for a TU built outside that target's definitions
@@ -15,6 +13,9 @@
 #endif
 #ifndef OLO_BUILD_GIT_DESCRIBE
 #define OLO_BUILD_GIT_DESCRIBE "unknown"
+#endif
+#ifndef OLO_BUILD_GIT_DIRTY
+#define OLO_BUILD_GIT_DIRTY 0
 #endif
 #ifndef OLO_BUILD_TIMESTAMP
 #define OLO_BUILD_TIMESTAMP "unknown"
@@ -42,6 +43,11 @@ namespace OloEngine::BuildInfo
         return OLO_BUILD_TIMESTAMP;
     }
 
+    bool IsWorkingTreeDirty()
+    {
+        return OLO_BUILD_GIT_DIRTY != 0;
+    }
+
     std::string GetBuildId()
     {
         const std::string hash = GetGitHash();
@@ -54,17 +60,13 @@ namespace OloEngine::BuildInfo
 
         // GetGitHash() alone can't distinguish a build made from a dirty
         // working tree from one made from the exact commit it names — the
-        // hash is the same either way. GetGitDescribe() (git describe
-        // --dirty) is the one that carries that signal, so fold its suffix in
-        // here rather than dropping it: a bug report from a locally-modified
-        // checkout should never look identical to a clean CI build of the
-        // same commit.
-        constexpr std::string_view dirtySuffix = "-dirty";
-        const std::string describe = GetGitDescribe();
-        if (describe.size() >= dirtySuffix.size() &&
-            describe.compare(describe.size() - dirtySuffix.size(), dirtySuffix.size(), dirtySuffix) == 0)
+        // hash is the same either way. IsWorkingTreeDirty() is computed
+        // independently in CMake (git diff-index, not a parse of
+        // GetGitDescribe()'s text) precisely so a real tag that happens to
+        // end in "-dirty" can't be mistaken for an actually-dirty checkout.
+        if (IsWorkingTreeDirty())
         {
-            id += dirtySuffix;
+            id += "-dirty";
         }
 
         return id;

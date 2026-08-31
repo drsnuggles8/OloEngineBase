@@ -115,14 +115,19 @@ definitions):
   `"0.0.1"`).
 - `BuildInfo::GetGitHash()` — a 10-char abbreviated commit hash (`git rev-parse --short=10 HEAD`),
   or `"unknown"` outside a git checkout.
-- `BuildInfo::GetGitDescribe()` — `git describe --tags --always --dirty`; falls back to the
-  abbreviated hash when the checkout has no tags (true of this repo today), and is suffixed
-  `-dirty` for an uncommitted working tree.
+- `BuildInfo::GetGitDescribe()` — `git describe --tags --always --dirty`, for display; falls back
+  to the abbreviated hash when the checkout has no tags (true of this repo today). This is
+  display-only — see `IsWorkingTreeDirty()` below for why nothing parses its `-dirty` suffix.
 - `BuildInfo::GetBuildTimestamp()` — the UTC configure-time timestamp, ISO 8601.
-- `BuildInfo::GetBuildId()` — `"<version>+<git hash>"`, with a `-dirty` suffix folded in from
-  `GetGitDescribe()` when the working tree had uncommitted changes, the one string every bug
-  report should be able to quote. Falls back to just the version when the hash is `"unknown"` (no
-  dangling `+unknown` suffix).
+- `BuildInfo::IsWorkingTreeDirty()` — whether the working tree had uncommitted changes to tracked
+  files at configure time, computed independently via `git diff-index --quiet HEAD --` (the same
+  check `git describe --dirty` uses internally) rather than by string-matching a `-dirty` suffix on
+  `GetGitDescribe()`'s text. That distinction matters: a real, permitted git tag literally named
+  `release-dirty` would make a perfectly clean checkout's `describe` output end in `-dirty` too, so
+  parsing the string can't tell "dirty tree" from "tag that happens to end that way" apart.
+- `BuildInfo::GetBuildId()` — `"<version>+<git hash>"`, with a `-dirty` suffix appended when
+  `IsWorkingTreeDirty()` is true — the one string every bug report should be able to quote. Falls
+  back to just the version when the hash is `"unknown"` (no dangling `+unknown` suffix).
 
 **Where it shows up:**
 
