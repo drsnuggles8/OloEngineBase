@@ -135,6 +135,29 @@ TEST(FoliageImpostorPlacementTest, ImpostorDoesNotTreatInstancePositionsAsAbsolu
            "the original comment conflated this with.";
 }
 
+// The card's ANCHOR has to scale with the card too. Sizing the card by the plant
+// height without moving the anchor lifted the card centre — and the tree drawn
+// around it — metres into the air, which put trees in the sky. The bake centres
+// each tile on the mesh's bounding-box centre, so the anchor is half the drawn
+// height, never the card radius.
+TEST(FoliageImpostorPlacementTest, ImpostorCardIsAnchoredOnTheMeshCentreNotItsRadius)
+{
+    const std::string vertex = StripComments(VertexStageOf(ReadShader("Foliage_Impostor.glsl")));
+    ASSERT_FALSE(vertex.empty());
+
+    const auto at = vertex.find("cardCenter = instWorld");
+    ASSERT_NE(at, std::string::npos) << "no card anchor expression found";
+    const std::string expr = vertex.substr(at, vertex.find(';', at) - at);
+
+    EXPECT_NE(expr.find("height"), std::string::npos)
+        << "the card anchor does not scale with the plant height: " << expr
+        << " -- the bake centres the tile on the mesh's bounding-box centre, so the anchor must "
+           "be half the DRAWN height. Anchoring by the card radius instead floats the tree inside "
+           "its own card once the radius carries the height (issue #953).";
+    EXPECT_EQ(expr.find(", radius,"), std::string::npos)
+        << "the card anchor is back to offsetting by the card radius: " << expr;
+}
+
 // The card has to carry the per-instance height, or it is short by the whole
 // unit-height-mesh factor.
 TEST(FoliageImpostorPlacementTest, ImpostorCardRadiusUsesThePerInstanceHeight)

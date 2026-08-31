@@ -141,13 +141,22 @@ void main()
     // which is the out-of-bounds hazard the old comment was really about (issue
     // #433). The two got conflated, and the transform was dropped with them.
     vec3 instWorld = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
-    // Anchor the impostor so its bounding sphere RESTS ON the ground: centre one
-    // world radius above the instance ground point. This is independent of how
-    // the source mesh is authored (centred-on-origin vs base-at-origin) — using
-    // the baked centre.y directly would half-bury a centred mesh, and a
-    // camera-looking-down view then flattens that half-buried card into the
-    // terrain and depth-culls it (issue #433).
-    vec3 cardCenter = instWorld + vec3(0.0, radius, 0.0);
+    // Anchor the card on the MESH CENTRE, because that is what the bake framed:
+    // ImpostorBaker centres each tile on the source mesh's bounding-box centre
+    // and spans +-u_ImpostorParams1.y around it, so the card's centre has to
+    // land on that same point in world space or the tree floats inside its own
+    // card. The meshes are authored base-at-origin (pine.obj spans y in [0,1])
+    // and the near path already relies on that (`localPos.y *= height * scale`
+    // in Foliage_Instance.glsl), so the centre is half the drawn height up.
+    //
+    // This offset by `radius` instead, which was indistinguishable while radius
+    // was the UNIT-mesh radius (~0.5 m). The moment radius became
+    // R0 * height * scale (6-12 m for Drift's pines) the same line lifted the
+    // card centre — and the tree drawn around it — metres into the air: trees in
+    // the sky. The card's BOTTOM stayed on the terrain, so the card extent
+    // looked right and only its contents floated, which is what made this read
+    // as a placement bug rather than an anchoring one.
+    vec3 cardCenter = instWorld + vec3(0.0, 0.5 * height * scale, 0.0);
 
     // Subtle whole-card wind sway (legacy sine model, matching the near
     // billboard's fallback branch) so a distant tree still moves with the wind.
