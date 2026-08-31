@@ -95,6 +95,30 @@ float cloudIGN(vec2 pixel)
     return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
 }
 
+// The raymarch runs at half resolution, so one invocation represents a 2x2
+// footprint in the full-resolution depth buffer. Taking one filtered/nearest
+// sample lets a silhouette footprint alias to sky even when another covered
+// pixel contains geometry, which marches clouds through the terrain edge.
+// Conventional depth stores nearer geometry at the smaller value, so the
+// footprint minimum is the conservative occluder. Clamp duplicates the last
+// row/column for odd-sized viewports.
+float cloudConservativeDepth()
+{
+    ivec2 depthSize = textureSize(u_DepthTexture, 0);
+    ivec2 footprintOrigin = ivec2(gl_FragCoord.xy) * 2;
+    ivec2 maxCoord = depthSize - ivec2(1);
+    float depth = 1.0;
+    for (int y = 0; y <= 1; ++y)
+    {
+        for (int x = 0; x <= 1; ++x)
+        {
+            ivec2 coord = min(footprintOrigin + ivec2(x, y), maxCoord);
+            depth = min(depth, texelFetch(u_DepthTexture, coord, 0).r);
+        }
+    }
+    return depth;
+}
+
 // The NEAR range of the light march, in metres. Historically this was also the
 // WHOLE march: capped at 1400 m, it could not reach the top of a 2500 m layer,
 // so density above that height darkened nothing — the deep interior of a thick
@@ -135,7 +159,7 @@ void main()
 
 
     // Reconstruct the view ray in absolute world space.
-    float depth = texture(u_DepthTexture, v_TexCoord).r;
+    float depth = cloudConservativeDepth();
     vec4 ndc = vec4(v_TexCoord * 2.0 - 1.0, 1.0, 1.0); // far plane for direction
     vec4 worldFar = u_InverseViewProjection * ndc;
     worldFar.xyz /= worldFar.w;
@@ -144,7 +168,10 @@ void main()
 
     // Geometry distance (absolute world) — clouds render behind geometry.
     float geomT = 1.0e12;
-    if (depth < 0.9999)
+    // Scene depth is cleared to the exact conventional-depth sentinel 1.0.
+    // Do not use a broad epsilon here: with a 1000 m far plane, valid ridge
+    // depth in Drift reaches ~0.999904 and was therefore mistaken for sky.
+    if (depth < 1.0)
     {
         vec4 geomNdc = vec4(v_TexCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
         vec4 geomWorld = u_InverseViewProjection * geomNdc;
