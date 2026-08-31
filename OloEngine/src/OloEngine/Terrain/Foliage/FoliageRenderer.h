@@ -93,6 +93,28 @@ namespace OloEngine
         // Render shadow depth pass for all layers
         void RenderShadows(const Ref<Shader>& depthShader);
 
+        // The owning terrain entity's world transform. GenerateInstances emits
+        // instance positions in TERRAIN-LOCAL space (x/z in [0, WorldSize], y
+        // the raw sampled height in [0, HeightScale] — no base offset), exactly
+        // like the terrain mesh itself, so something has to place them.
+        //
+        // The MAIN draw gets that transform from its command packet
+        // (Scene passes it to Renderer3D::DrawFoliageLayer, and
+        // CommandDispatch::DrawFoliageLayer uploads it as the shaders' single
+        // `u_Model` entry). RenderShadows has no command packet — ShadowRenderPass
+        // drives it straight off this object — so it needs the transform stored
+        // here, and it was uploading plain identity instead, casting every
+        // island's foliage shadow from a heap of plants at the world origin
+        // (issue #953). Render() below uploads it too, for when it regains a
+        // caller; it currently has none.
+        //
+        // Kept as a MATRIX rather than baked into the instance positions so a
+        // terrain that moves takes its foliage with it, with no rebuild.
+        void SetTerrainTransform(const glm::mat4& transform)
+        {
+            m_TerrainTransform = transform;
+        }
+
         [[nodiscard]] u32 GetTotalInstanceCount() const;
         [[nodiscard]] u32 GetVisibleInstanceCount() const
         {
@@ -153,6 +175,7 @@ namespace OloEngine
         void UpdateImpostorAtlas(LayerRenderData& data, const FoliageLayer& layer);
 
         std::vector<LayerRenderData> m_Layers;
+        glm::mat4 m_TerrainTransform{ 1.0f };
         u32 m_VisibleInstances = 0;
         f32 m_Time = 0.0f;
         f32 m_PrevTime = 0.0f;

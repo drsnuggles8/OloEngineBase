@@ -107,13 +107,23 @@ void main()
     float rotation = a_RotationHeight.x;
     float radius = u_ImpostorParams1.y * scale;  // world-space card radius
 
-    // Instance pivot. Foliage's per-instance positions are absolute world in
-    // a_PositionScale; the foliage command uploads only a SINGLE model-matrix
-    // entry to the InstanceData SSBO, so indexing it by gl_InstanceIndex for
-    // instance > 0 reads out of bounds (zero matrix on this driver) and would
-    // collapse every card to the origin. Shift to render-relative space directly
-    // (subtract the render origin) instead of going through u_Model (issue #433).
-    vec3 instWorld = a_PositionScale.xyz - u_RenderOrigin;
+    // Instance pivot. Foliage's per-instance positions are TERRAIN-LOCAL (x/z in
+    // [0, WorldSize], y the raw sampled height), so they only become world
+    // positions after the owning terrain's transform — which DrawFoliageLayer
+    // uploads as the single u_Model entry, already made render-relative by
+    // UploadModelInstance. Foliage_Instance.glsl has always multiplied through
+    // it; this stage did not, and subtracted the render origin directly instead
+    // on the belief that a_PositionScale was absolute world (issue #953). It is
+    // not: no island sits at the origin, so every impostor card rendered at its
+    // island's LOCAL coordinates — all six islands' pines piled into one heap
+    // over open water near (0,0,0), hanging above anything the terrain can
+    // reach, which from the boat reads as a swarm of dark specks in the sky.
+    //
+    // The OLO_INSTANCE_SINGLE define above is what makes u_Model safe here: it
+    // pins the read to instances[0] rather than indexing by gl_InstanceIndex,
+    // which is the out-of-bounds hazard the old comment was really about (issue
+    // #433). The two got conflated, and the transform was dropped with them.
+    vec3 instWorld = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
     // Anchor the impostor so its bounding sphere RESTS ON the ground: centre one
     // world radius above the instance ground point. This is independent of how
     // the source mesh is authored (centred-on-origin vs base-at-origin) — using

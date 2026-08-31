@@ -8322,6 +8322,18 @@ namespace OloEngine
                         foliage.m_NeedsRebuild = true;
                     }
 
+                    // Instance positions are terrain-LOCAL, so the renderer needs
+                    // the owning terrain's transform to place them. The main draw
+                    // gets it via DrawFoliageLayer's modelTransform, but the SHADOW
+                    // path (FoliageRenderer::RenderShadows, driven straight off the
+                    // renderer by ShadowRenderPass) has no command packet to carry
+                    // it and was uploading identity — casting every island's foliage
+                    // shadow from a heap of plants at the world origin (issue #953).
+                    // Set every frame, not just on rebuild, so a terrain that moves
+                    // takes its foliage with it.
+                    foliage.m_Renderer->SetTerrainTransform(
+                        foliageView.get<TransformComponent>(entity).GetTransform());
+
                     if (foliage.m_NeedsRebuild && terrain.m_TerrainData)
                     {
                         foliage.m_Renderer->GenerateInstances(
