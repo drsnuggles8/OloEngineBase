@@ -410,6 +410,10 @@ namespace
         SteamStub::SetAnalogActionState(1, "Accelerate", /*x*/ 0.5f, /*y*/ 0.0f, /*active*/ true, /*triggerMode*/ true);
 
         const auto state = SteamManager::GetAnalogActionState(1, handle);
+        // Active must be checked too — a broken lookup (Steam routing never applied at all)
+        // ALSO returns X=0.0f by default, which would make the float assertion below pass for
+        // the wrong reason.
+        EXPECT_TRUE(state.Active);
         EXPECT_FLOAT_EQ(state.X, 0.0f);
     }
 

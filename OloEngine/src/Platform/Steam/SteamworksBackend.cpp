@@ -147,6 +147,13 @@ namespace OloEngine
             {
                 return;
             }
+            // Close Steam Input FIRST, and unconditionally — mirroring SteamManager's own
+            // ordering (input torn down before the base backend) — so this single call closes
+            // the whole session even when the destructor's defensive fallback below is what
+            // invokes it (an exception unwound past SteamManager::Shutdown() entirely) rather
+            // than the caller having called InputShutdown() itself first. Safe to call whether
+            // or not Steam Input was ever brought up.
+            InputShutdown();
             m_OverlayCallback.Unregister();
             SteamAPI_Shutdown();
             m_Initialized = false;

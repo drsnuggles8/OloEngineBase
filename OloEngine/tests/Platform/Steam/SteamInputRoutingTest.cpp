@@ -219,6 +219,15 @@ namespace
 
         InputActionManager::Update();
         EXPECT_FLOAT_EQ(InputActionManager::GetActionAxisValue("MoveLeft"), 0.0f);
+
+        // A zero result alone doesn't prove the clamp ran — Steam routing being entirely absent
+        // (a broken handle lookup, say) would ALSO read back 0.0f here. Prove it by also feeding
+        // a NEGATIVE deflection, which the binding's direction constraint must let through
+        // unclamped; only a value that changes with the input shows the Steam-sourced state is
+        // actually reaching GetActionAxisValue.
+        m_Fake->AnalogActionStates[{ 1, 45 }] = { .X = -0.6f, .Y = 0.0f, .Active = true };
+        InputActionManager::Update();
+        EXPECT_FLOAT_EQ(InputActionManager::GetActionAxisValue("MoveLeft"), -0.6f);
     }
 
     TEST_F(SteamInputRoutingTest, DisconnectingTheControllerFallsBackCleanly)
