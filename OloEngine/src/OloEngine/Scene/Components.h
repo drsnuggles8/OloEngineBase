@@ -4739,6 +4739,23 @@ namespace OloEngine
         u32 m_FFTSeed = 1337;                          ///< RNG seed for the spectrum (deterministic look)
         bool m_FFTUseGpuCompute = true;                ///< generate the field with the compute butterfly FFT (§1.2); off = CPU reference path
 
+        // Band-limited multi-cascade preset (§1.3, issue #969). ONE is the
+        // shipped default and the pre-#969 field exactly: a single tile at
+        // m_FFTPatchSize carrying the whole spectrum, which is also the tile
+        // size at which the sea visibly repeats. THREE selects the fixed
+        // three-band preset, which treats m_FFTPatchSize as the MID band and
+        // derives a broad and a fine tile either side of it at non-commensurate
+        // ratios, one of them rotated — long swell for the horizon, close chop
+        // for the bow, and no lattice the eye can lock onto. Everything else
+        // about it (tile ratios, band limits, per-band resolutions, the
+        // rotation) is fixed in Renderer/Ocean/OceanCascades.h and deliberately
+        // NOT authored per scene: the issue's non-goal is a knob surface before
+        // the preset is visually proven.
+        //
+        // Opt-in per water surface, so no existing scene changes until someone
+        // sets it. Values other than 1 are treated as the three-band preset.
+        u32 m_FFTCascades = 1;
+
         // Spectrum selection (WATER_FUTURE_IMPROVEMENTS.md §1.4). Phillips is the
         // classic Tessendorf spectrum; JONSWAP gives a sharper fetch-limited peak
         // (Atlantic/Pacific swell). Defaults to Phillips so existing scenes look
@@ -4860,6 +4877,7 @@ namespace OloEngine
                 && blkEq(m_FFTWindDirection, m_FFTHeightScale) // vec2 + f32*3
                 && m_FFTSeed == o.m_FFTSeed
                 && m_FFTUseGpuCompute == o.m_FFTUseGpuCompute
+                && m_FFTCascades == o.m_FFTCascades
                 && m_FFTSpectrumType == o.m_FFTSpectrumType
                 && blkEq(m_FFTJonswapGamma, m_FFTJonswapFetch) // f32*2
                 // Wake shape (issue #968). Two bools compared individually and
@@ -4987,6 +5005,7 @@ namespace OloEngine
             m_FFTHeightScale = src.m_FFTHeightScale;
             m_FFTSeed = src.m_FFTSeed;
             m_FFTUseGpuCompute = src.m_FFTUseGpuCompute;
+            m_FFTCascades = src.m_FFTCascades;
             m_FFTSpectrumType = src.m_FFTSpectrumType;
             m_FFTJonswapGamma = src.m_FFTJonswapGamma;
             m_FFTJonswapFetch = src.m_FFTJonswapFetch;
@@ -4994,6 +5013,15 @@ namespace OloEngine
             m_WakeShapeAffectsPhysics = src.m_WakeShapeAffectsPhysics;
             m_WakeShapeHeightScale = src.m_WakeShapeHeightScale;
             m_WakeShapeFlattenStrength = src.m_WakeShapeFlattenStrength;
+            // Planar reflections were missing from this list while operator==
+            // compared them — the exact asymmetry the comment on m_WakeFoamEnabled
+            // above warns about. Scene::Copy runs on every Play/Simulate entry, so
+            // an authored mirror surface silently reverted to "off" the moment you
+            // pressed Play (and on every DuplicateEntity), while round-tripping
+            // through scene YAML perfectly the whole time.
+            m_PlanarReflectionsEnabled = src.m_PlanarReflectionsEnabled;
+            m_PlanarReflectionIntensity = src.m_PlanarReflectionIntensity;
+            m_PlanarReflectionDistortion = src.m_PlanarReflectionDistortion;
         }
     };
 

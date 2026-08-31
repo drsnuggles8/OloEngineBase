@@ -678,8 +678,10 @@ namespace OloEngine
         //    InitialLayout is exactly that record: UNDEFINED until an upload
         //    publishes content, so it is still UNDEFINED only for a freshly
         //    created (or freshly Resize()d) image. This is what keeps the
-        //    per-frame re-uploaders — VideoTexture::UpdateFrame,
-        //    OceanFFTField::Upload — on the command path where they belong.
+        //    per-frame re-uploaders — VideoTexture::UpdateFrame — on the
+        //    command path where they belong. (OceanFFTField::Upload was the
+        //    other one until issue #969 moved the cascade fields onto
+        //    Texture2DArray::SetLayerData; the same reasoning applies there.)
         const auto* priorInfo = VulkanImageInfoRegistry::Get().Lookup(m_Image);
         const bool firstUpload = priorInfo == nullptr || priorInfo->InitialLayout == VK_IMAGE_LAYOUT_UNDEFINED;
         const bool frameRecording = VulkanUpload::TryGetRecordingVulkanAPI() != nullptr;

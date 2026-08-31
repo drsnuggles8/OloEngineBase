@@ -627,7 +627,19 @@ namespace OloEngine
             glm::vec4 SSSColor;              // rgb = subsurface scattering color, w = foamCoverage (#943)
             glm::vec4 SSRParams;             // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
             glm::vec4 TessParams;            // x = tessellationFactor (0=disabled), y = minTessDistance, z = maxTessDistance, w = frustumCullEnable (1=on, 0=off)
-            glm::vec4 FFTParams;             // x = useFFT (0=Gerstner, 1=FFT ocean), y = 1/patchSize (UV scale), z = heightScale, w = horizontalScale
+            glm::vec4 FFTParams;             // x = cascade count (0=Gerstner), y = 1/L0 (broad tile UV scale), z = heightScale, w = horizontalScale
+            // FFT ocean cascades (issue #969). Packed by
+            // Ocean::PackCascadeShaderParams from the CascadePreset the field
+            // was actually built for — never re-derived here, or the shader
+            // ends up sampling tiles the spectra were not generated on.
+            //
+            // x = 1 / L1 (mid tile), y = 1 / L2 (fine tile),
+            // z = cos, w = sin of the mid cascade's sampling-domain rotation.
+            //
+            // FFTParams.x above carries the cascade COUNT rather than a 0/1
+            // flag; 1 is the single-cascade fallback, so every existing
+            // `> 0.5` test still reads as "the FFT ocean is on".
+            glm::vec4 FFTCascadeParams;
             // Boat / actor wake foam field (issue #967). The world-anchored,
             // toroidally stored disturbance field produced by
             // WaterDisturbanceSystem, sampled ON TOP of the procedural,
@@ -1166,7 +1178,13 @@ namespace OloEngine
             i32 Stage;      // 16 — 0 .. log2(N)-1 — FFTButterfly only
             i32 Vertical;   // 20 — 0 = rows, 1 = columns — FFTButterfly only
             f32 Choppiness; // 24 — λ, horizontal-displacement scale — Assemble only
-            f32 Pad0;       // 28
+            // 28 — which layer of the cascade texture arrays the Assemble pass
+            // writes (issue #969). The multi-cascade field runs one full
+            // evolve/butterfly/assemble chain per band and stores each band in
+            // its own array layer; a single-cascade field is layer 0 of a
+            // one-layer array, so this is 0 on the fallback path. Used by
+            // Assemble only, like Choppiness above.
+            i32 CascadeLayer; // 28
 
             static constexpr u32 GetSize()
             {
@@ -1737,15 +1755,16 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::LightmapUBO) == 16, "LightmapUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
     // 288 until issue #967 appended WakeFieldParams / WakeFieldParams2; 320 until
-    // #968 appended WakeShapeParams + WakeHulls[80] for the wake SHAPE.
-    // 101 vec4 = 1616 B, comfortably under the 16 KB std140 block ceiling — and
+    // #968 appended WakeShapeParams + WakeHulls[80] for the wake SHAPE; 1616
+    // until #969 appended FFTCascadeParams for the band-limited cascades.
+    // 102 vec4 = 1632 B, comfortably under the 16 KB std140 block ceiling — and
     // an ARRAY rather than a block of its own precisely because the engine has
     // exactly one UBO binding left below UBO_BINDING_LIMIT.
     static_assert(sizeof(UBOStructures::WaterUBO) ==
-                      (20u + 1u + WaterWake::kHullVec4Count) * sizeof(glm::vec4),
+                      (21u + 1u + WaterWake::kHullVec4Count) * sizeof(glm::vec4),
                   "WaterUBO no longer matches its own field list -- a member was added without "
                   "updating this expression");
-    static_assert(sizeof(UBOStructures::WaterUBO) == 1616, "WaterUBO unexpected size -- update GLSL layout");
+    static_assert(sizeof(UBOStructures::WaterUBO) == 1632, "WaterUBO unexpected size -- update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterDisturbanceUBO) % 16 == 0,
                   "WaterDisturbanceUBO size must be 16-byte aligned for std140");
     // 48 B header + kMaxSplatsPerFrame (96) * 32 B per capsule splat.

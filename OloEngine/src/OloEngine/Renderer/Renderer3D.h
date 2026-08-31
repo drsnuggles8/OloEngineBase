@@ -1390,9 +1390,16 @@ namespace OloEngine
             glm::vec4 sssColor = glm::vec4(0.0f);
             glm::vec4 ssrParams = glm::vec4(0.0f);
             glm::vec4 tessParams = glm::vec4(0.0f);
-            // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1): x = useFFT (0/1),
-            // y = 1/patchSize, z = heightScale, w = horizontalScale.
+            // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1): x = CASCADE COUNT,
+            // y = 1/L0 (the broad tile), z = heightScale, w = horizontalScale.
+            // x is a count, not a boolean: 0 = Gerstner (no FFT), 1 = the
+            // single-cascade field, 3 = the band-limited preset (issue #969).
+            // Every shader-side `x > 0.5` test still reads correctly as "FFT
+            // on", which is why the widening needed no shader change.
             glm::vec4 fftParams = glm::vec4(0.0f);
+            // Per-cascade tile scales + the mid band's domain rotation; built by
+            // Ocean::PackCascadeShaderParams from the field's own preset.
+            glm::vec4 fftCascadeParams = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
             RHI::ResourceHandle normalMap0ID{};
             RHI::ResourceHandle normalMap1ID{};
             RHI::ResourceHandle noiseTextureID{};

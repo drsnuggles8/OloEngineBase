@@ -45,6 +45,25 @@ namespace OloEngine::Ocean
         // graphics device is still valid.
         Ref<UniformBuffer> s_FFTParamsUBO;
 
+        // The three compute programs, shared across OceanFFTGpu instances for
+        // the same reason and with the same lifetime as the UBO above. This
+        // stopped being a nicety with issue #969: a three-band field owns THREE
+        // OceanFFTGpu instances, and per-instance programs would compile the
+        // same three shaders nine times per field on a cold shader cache.
+        //
+        // The per-instance state that genuinely differs — h0, the butterfly LUT,
+        // the ping-pong arrays — stays per instance; only the programs, which
+        // are pure code, are shared.
+        struct SharedOceanShaders
+        {
+            Ref<ComputeShader> Evolve;
+            Ref<ComputeShader> Butterfly;
+            Ref<ComputeShader> Assemble;
+            bool Attempted = false;
+            bool Valid = false;
+        };
+        SharedOceanShaders s_Shaders;
+
         // Former bare uniforms via ComputeShader::Set*, a deliberate no-op on
         // the Vulkan route — now one std140 refill per dispatch (issue #691
         // Phase 8, the HZB pattern: GL re-uploads the bound buffer; the Vulkan
@@ -69,28 +88,45 @@ namespace OloEngine::Ocean
     void OceanFFTGpu::ShutdownSharedResources()
     {
         s_FFTParamsUBO = nullptr;
+        // Drop the programs while the graphics device is still valid, and reset
+        // the attempt flag so a later Init in the same process re-compiles them
+        // rather than reporting the shutdown state as a compile failure.
+        s_Shaders = {};
     }
 
     bool OceanFFTGpu::EnsureShaders()
     {
-        if (m_ShaderInitAttempted)
-            return m_ShadersValid;
-        m_ShaderInitAttempted = true;
-
-        m_EvolveShader = ComputeShader::Create("assets/shaders/compute/Ocean_SpectrumEvolve.comp");
-        m_ButterflyShader = ComputeShader::Create("assets/shaders/compute/Ocean_FFTButterfly.comp");
-        m_AssembleShader = ComputeShader::Create("assets/shaders/compute/Ocean_Assemble.comp");
-
-        m_ShadersValid = m_EvolveShader && m_EvolveShader->IsValid() && m_ButterflyShader &&
-                         m_ButterflyShader->IsValid() && m_AssembleShader && m_AssembleShader->IsValid();
-        if (!m_ShadersValid)
+        if (!s_Shaders.Attempted)
         {
-            OLO_CORE_WARN("OceanFFTGpu: compute shaders unavailable — falling back to the CPU FFT path");
-            m_EvolveShader = nullptr;
-            m_ButterflyShader = nullptr;
-            m_AssembleShader = nullptr;
+            s_Shaders.Attempted = true;
+            s_Shaders.Evolve = ComputeShader::Create("assets/shaders/compute/Ocean_SpectrumEvolve.comp");
+            s_Shaders.Butterfly = ComputeShader::Create("assets/shaders/compute/Ocean_FFTButterfly.comp");
+            s_Shaders.Assemble = ComputeShader::Create("assets/shaders/compute/Ocean_Assemble.comp");
+            const bool evolveOk = s_Shaders.Evolve && s_Shaders.Evolve->IsValid();
+            const bool butterflyOk = s_Shaders.Butterfly && s_Shaders.Butterfly->IsValid();
+            const bool assembleOk = s_Shaders.Assemble && s_Shaders.Assemble->IsValid();
+            s_Shaders.Valid = evolveOk && butterflyOk && assembleOk;
+            if (!s_Shaders.Valid)
+            {
+                OLO_CORE_WARN("OceanFFTGpu: compute shaders unavailable — falling back to the CPU FFT path");
+                s_Shaders.Evolve = nullptr;
+                s_Shaders.Butterfly = nullptr;
+                s_Shaders.Assemble = nullptr;
+            }
         }
-        return m_ShadersValid;
+
+        // Deliberately NO per-instance Ref<ComputeShader> copies. The programs
+        // are owned solely by s_Shaders, which ShutdownSharedResources() releases
+        // from Renderer3D shutdown while the graphics device is still valid. An
+        // instance holding its own Ref would keep the program alive past that
+        // point — and OceanFFTField instances are retained by WaterComponents,
+        // so they routinely outlive the renderer — leaving the ComputeShader
+        // destructor to make GL calls with no context
+        // (docs/agent-rules/lazy-static-release-ownership.md). Reading the
+        // statics at use time also means a shut-down field cannot dispatch
+        // against dangling programs: s_Shaders.Valid is false the moment they go.
+        m_ShaderInitAttempted = true;
+        return s_Shaders.Valid;
     }
 
     void OceanFFTGpu::EnsureResources(u32 resolution)
@@ -203,7 +239,7 @@ namespace OloEngine::Ocean
         const u32 stages = static_cast<u32>(std::countr_zero(N));
         const u32 groups = (N + kLocalSize - 1u) / kLocalSize;
 
-        m_ButterflyShader->Bind();
+        s_Shaders.Butterfly->Bind();
         // Persistent: the twiddle table is pass-owned and never pooled. Staged
         // once here rather than per stage — the offset scratch persists across
         // flushes, and the loop below already flushes per iteration for the
@@ -243,16 +279,21 @@ namespace OloEngine::Ocean
         return src;
     }
 
-    void OceanFFTGpu::Evaluate(f32 time, f32 choppiness, const Ref<Texture2D>& displacementTex,
-                               const Ref<Texture2D>& derivativesTex)
+    void OceanFFTGpu::Evaluate(f32 time, f32 choppiness, const Ref<Texture2DArray>& displacementTex,
+                               const Ref<Texture2DArray>& derivativesTex, u32 layer)
     {
         OLO_PROFILE_FUNCTION();
-        if (!m_ShadersValid || m_Resolution == 0u)
+        if (!s_Shaders.Valid || m_Resolution == 0u)
             return;
         if (!displacementTex || !derivativesTex || displacementTex->GetWidth() != m_Resolution ||
             derivativesTex->GetWidth() != m_Resolution)
         {
             OLO_CORE_WARN("OceanFFTGpu::Evaluate: output texture resolution mismatch; skipping");
+            return;
+        }
+        if (layer >= displacementTex->GetLayers() || layer >= derivativesTex->GetLayers())
+        {
+            OLO_CORE_WARN("OceanFFTGpu::Evaluate: cascade layer {} out of range; skipping", layer);
             return;
         }
 
@@ -262,7 +303,7 @@ namespace OloEngine::Ocean
         // 1. Time-evolve the spectra into ping-pong[0].
         {
             OLO_PROFILE_SCOPE("OceanFFTGpu::SpectrumEvolve");
-            m_EvolveShader->Bind();
+            s_Shaders.Evolve->Bind();
             UBOStructures::OceanFFTUBO fftParams{};
             fftParams.Resolution = static_cast<i32>(N);
             fftParams.PatchSize = m_PatchSize;
@@ -291,18 +332,22 @@ namespace OloEngine::Ocean
         // 3. Assemble the displacement/derivatives textures.
         {
             OLO_PROFILE_SCOPE("OceanFFTGpu::Assemble");
-            m_AssembleShader->Bind();
+            s_Shaders.Assemble->Bind();
             UBOStructures::OceanFFTUBO fftParams{};
             fftParams.Resolution = static_cast<i32>(N);
             fftParams.Choppiness = choppiness;
+            fftParams.CascadeLayer = static_cast<i32>(layer);
             UploadFFTParams(fftParams);
             HeapBinding::BindImageOrOffset(0, m_PingPong[finalIndex]->GetRHIHandle(), 0, true, 0,
                                            RHI::Access::StorageRead, RHI::Format::RGBA32Float,
                                            RHI::HeapSlotLifetime::Persistent);
-            HeapBinding::BindImageOrOffset(1, displacementTex->GetRHIHandle(), 0, false, 0,
+            // Layered, with the target layer in the params block — see the
+            // Evaluate() doc comment for why this is not an unlayered
+            // single-layer bind.
+            HeapBinding::BindImageOrOffset(1, displacementTex->GetRHIHandle(), 0, true, 0,
                                            RHI::Access::StorageWrite, RHI::Format::RGBA32Float,
                                            RHI::HeapSlotLifetime::Persistent);
-            HeapBinding::BindImageOrOffset(2, derivativesTex->GetRHIHandle(), 0, false, 0,
+            HeapBinding::BindImageOrOffset(2, derivativesTex->GetRHIHandle(), 0, true, 0,
                                            RHI::Access::StorageWrite, RHI::Format::RGBA32Float,
                                            RHI::HeapSlotLifetime::Persistent);
             HeapBinding::FlushOffsets();

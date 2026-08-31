@@ -119,6 +119,27 @@ void main()
         return;
     }
 
+    // A RAY THAT GEOMETRY OCCLUDED HAS NO HISTORY (issue #987).
+    //
+    // The raymarch writes exactly (rgb = 0, a = 1) when the ray never reaches
+    // the cloud layer — including when it stops on terrain. The neighbourhood
+    // clamp below cannot protect that case, because it widens nMax with the
+    // SKY texels next door: at an island's ridge the neighbourhood legitimately
+    // contains cloud, so last frame's cloud stays inside the allowed range and
+    // is blended onto a texel that is now solid rock. Measured on Drift: zero
+    // cloud texels over terrain in the raymarch output, six in the resolved
+    // buffer — six half-res texels, but they upsample into a clearly visible
+    // white patch on the mountain.
+    //
+    // So: when this frame says "nothing in front of me", that is an answer, not
+    // a missing sample. Take it and skip history entirely. Clear sky hits this
+    // path too and is unaffected — clear blended with clear is clear.
+    if (current.a >= 0.999 && all(lessThan(current.rgb, vec3(1.0e-4))))
+    {
+        o_Cloud = current;
+        return;
+    }
+
     vec4 history = texture(u_CloudHistory, prevUV);
 
     // 3x3 neighborhood min/max clamp on the current frame kills ghosting when

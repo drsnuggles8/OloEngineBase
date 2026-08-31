@@ -104,7 +104,16 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_SSSColor;               // rgb = subsurface color, w = foamCoverage (#943)
     vec4 u_SSRParams;              // x = maxSteps (0=disabled), y = stepSize, z = maxDistance, w = thickness
     vec4 u_TessParams;             // x = tessellationFactor, y = minTessDist, z = maxTessDist, w = frustumCullEnable
-    vec4 u_FFTParams;              // x = useFFT (0/1), y = 1/patchSize, z = heightScale, w = horizontalScale
+    vec4 u_FFTParams;              // x = cascade count (0 = Gerstner), y = 1/L0, z = heightScale, w = horizontalScale
+    // FFT ocean cascades (issue #969). C++ twin:
+    // UBOStructures::WaterUBO::FFTCascadeParams, packed by
+    // Ocean::PackCascadeShaderParams. Declared in EVERY stage of the water
+    // programs, identically, for the reason the #967/#968 fields below are.
+    //
+    // u_FFTParams.x carries the CASCADE COUNT rather than a 0/1 flag — 1 is the
+    // single-cascade fallback and 3 the band-limited preset, so every existing
+    // `u_FFTParams.x > 0.5` test still means "FFT is on" and did not change.
+    vec4 u_FFTCascadeParams;       // x = 1/L1 (mid tile), y = 1/L2 (fine tile), z = cos(theta_mid), w = sin(theta_mid)
     // Boat / actor wake foam field (issue #967). C++ twin:
     // UBOStructures::WaterUBO::WakeFieldParams / WakeFieldParams2. Declared in
     // EVERY stage of the water programs, identically, because GL requires a
@@ -137,12 +146,33 @@ layout(std140, binding = 23) uniform WaterParams
 layout(binding = 9) uniform samplerCube u_EnvironmentMap;
 #endif
 
-// FFT ocean displacement (binding 50): a-channel carries the Jacobian-based foam.
+// FFT ocean displacement (binding 50): a-channel carries the Jacobian-based
+// foam. A 2D ARRAY since issue #969 — one layer per cascade band; a
+// single-cascade field is a one-layer array.
 #ifdef OLO_BINDLESS
-#define u_FFTDisplacement OLO_HEAP_TEX_2D(50)  // TEX_WATER_FFT_DISPLACEMENT
+#define u_FFTDisplacement OLO_HEAP_TEX_2D_ARRAY(50)  // TEX_WATER_FFT_DISPLACEMENT
 #else
-layout(binding = 50) uniform sampler2D u_FFTDisplacement;
+layout(binding = 50) uniform sampler2DArray u_FFTDisplacement;
 #endif
+
+// The cascade sum, shared with the vertex and tess-eval stages. The fragment
+// stage needs only the foam channel, but it goes through the SAME walk over the
+// bands: a second, foam-only loop here is exactly the shape that ends up
+// sampling a different set of cascades than the geometry does.
+//
+// The derivatives hook is required by the shared function and returns a flat
+// normal here — this stage does not shade from the FFT normal (it has the
+// interpolated one from the vertex/tess stages), and the compiler dead-strips
+// the unused half of the sum along with the sampler that would have fed it.
+#include "include/OceanCascadeCommon.glsl"
+vec4 oceanCascadeFetchDisplacement(vec2 uv, int layer)
+{
+    return textureLod(u_FFTDisplacement, vec3(uv, float(layer)), 0.0);
+}
+vec4 oceanCascadeFetchDerivatives(vec2 uv, int layer)
+{
+    return vec4(0.0, 1.0, 0.0, 1.0);
+}
 
 // Scrolling normal maps and noise texture
 #ifdef OLO_BINDLESS
@@ -764,8 +794,11 @@ void main()
     // the height/angle thresholds above, so fold it in as a strong contributor.
     if (u_FFTParams.x > 0.5)
     {
-        float fftFoam = textureLod(u_FFTDisplacement, (v_WorldPos.xz + u_RenderOrigin.xz) * u_FFTParams.y, 0.0).a;
-        foam = max(foam, fftFoam);
+        // Absolute world XZ — the space the whole cascade contract is written
+        // in (Renderer/Ocean/OceanCascades.h).
+        OceanCascadeSample fft =
+            sampleOceanCascades(v_WorldPos.xz + u_RenderOrigin.xz, u_FFTParams, u_FFTCascadeParams);
+        foam = max(foam, fft.Foam);
     }
 
     // Distance fade: at grazing angles the foam patches compress toward the

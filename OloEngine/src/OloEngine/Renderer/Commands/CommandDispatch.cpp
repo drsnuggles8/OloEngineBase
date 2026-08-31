@@ -2823,6 +2823,7 @@ namespace OloEngine
             waterData.SSRParams = cmd->ssrParams;
             waterData.TessParams = cmd->tessParams;
             waterData.FFTParams = cmd->fftParams;
+            waterData.FFTCascadeParams = cmd->fftCascadeParams;
             // Boat / actor wake foam field (issue #967). Read from the service
             // here rather than carried on the draw command, because the field is
             // ONE global resource and not a per-surface property: routing it
@@ -2857,9 +2858,15 @@ namespace OloEngine
         BindTrackedTexture(cmd->normalMap1ID, ShaderBindingLayout::TEX_WATER_NORMAL_1);
         BindTrackedTexture(cmd->noiseTextureID, ShaderBindingLayout::TEX_WATER_NOISE);
         BindTrackedTexture(cmd->foamTextureID, ShaderBindingLayout::TEX_WATER_FOAM);
-        // FFT ocean cascade textures (sampled when u_FFTParams.x > 0.5)
-        BindTrackedTexture(cmd->fftDisplacementID, ShaderBindingLayout::TEX_WATER_FFT_DISPLACEMENT);
-        BindTrackedTexture(cmd->fftDerivativesID, ShaderBindingLayout::TEX_WATER_FFT_DERIVATIVES);
+        // FFT ocean cascade textures (sampled when u_FFTParams.x > 0.5). 2D
+        // ARRAYS since issue #969 — one layer per band — so the null-sampler
+        // kind must be the array one: the fallback descriptor a heap miss lands
+        // on has to have the type the shader declares, or the sampler reads a
+        // sampler2D through a sampler2DArray handle.
+        BindTrackedTexture(cmd->fftDisplacementID, ShaderBindingLayout::TEX_WATER_FFT_DISPLACEMENT,
+                           RHI::NullSamplerKind::Texture2DArray);
+        BindTrackedTexture(cmd->fftDerivativesID, ShaderBindingLayout::TEX_WATER_FFT_DERIVATIVES,
+                           RHI::NullSamplerKind::Texture2DArray);
 
         // Bind the global environment cubemap for water reflections (binding 9).
         // The water pass doesn't otherwise touch this slot, so set it explicitly

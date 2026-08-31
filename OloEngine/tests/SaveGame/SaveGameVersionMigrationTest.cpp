@@ -614,4 +614,154 @@ namespace OloEngine::Tests
         EXPECT_TRUE(loaded.m_LODGroup.HasErrorData());
     }
 
+    // ========================================================================
+    // WaterComponent m_FFTCascades (v24, issue #969)
+    //
+    // The cascade count lands in the MIDDLE of WaterComponent's block, ahead of
+    // the planar-reflection and wake fields. It first shipped guarded by the
+    // trailing-AtEnd() probe the surrounding additions use, which is only a
+    // valid "was this written?" test at the TRAILING position: a v23 archive
+    // still has planar and wake bytes pending at that point, so the probe read
+    // false, the cascade count was decoded out of the first planar-reflection
+    // bytes, and every field after it desynced. Hence the version gate, and
+    // hence this test — which is specifically a pre-cascade archive that DOES
+    // carry planar-reflection and wake data, the case the probe got wrong.
+    // ========================================================================
+
+    namespace
+    {
+        /// A v23 (pre-cascade) WaterComponent payload, synthesized exactly rather
+        /// than hand-written: the writer always emits the full current layout, so
+        /// serialize the same component twice with the two legal cascade counts —
+        /// the buffers then differ in precisely the 4 bytes of m_FFTCascades —
+        /// and excise them. Deriving the offset from the data instead of hard-
+        /// coding it means this cannot rot as fields are added around it.
+        std::vector<u8> BuildPreV24WaterPayload(const WaterComponent& seed)
+        {
+            auto write = [](WaterComponent c, u32 cascades)
+            {
+                c.m_FFTCascades = cascades;
+                std::vector<u8> buf;
+                FMemoryWriter writer(buf);
+                writer.ArIsSaveGame = true;
+                writer.SetArchiveVersion(kSaveGameFormatVersion);
+                SaveGameComponentSerializer::Serialize(writer, c);
+                return buf;
+            };
+            // Locate the field with two probe values that differ in EVERY byte.
+            // The obvious choice — the two legal counts, 1 and 3 — differs only
+            // in the u32's low byte, which locates the field's start but not its
+            // width, and silently under-excises by three bytes.
+            const std::vector<u8> probeA = write(seed, 0x01010101u);
+            const std::vector<u8> probeB = write(seed, 0x02020202u);
+
+            EXPECT_EQ(probeA.size(), probeB.size()) << "cascade count is not fixed-width";
+            std::vector<sizet> differing;
+            for (sizet i = 0; i < probeA.size() && i < probeB.size(); ++i)
+            {
+                if (probeA[i] != probeB[i])
+                    differing.push_back(i);
+            }
+            EXPECT_EQ(differing.size(), 4u) << "expected exactly the 4 bytes of a u32 cascade field to differ";
+            if (differing.size() != 4u)
+                return {};
+            EXPECT_EQ(differing.back() - differing.front(), 3u) << "cascade field bytes are not contiguous";
+
+            // The payload itself is written with a LEGAL count, so everything
+            // except the excised field is byte-for-byte what a real save holds.
+            const std::vector<u8> single = write(seed, Ocean::kSingleCascadeCount);
+
+            std::vector<u8> preV24;
+            preV24.reserve(single.size() - 4u);
+            for (sizet i = 0; i < single.size(); ++i)
+            {
+                if (i < differing.front() || i > differing.back())
+                    preV24.push_back(single[i]);
+            }
+            return preV24;
+        }
+    } // namespace
+
+    TEST(SaveGameVersionMigration, PreV24WaterPayloadWithPlanarAndWakeDataDoesNotDesync)
+    {
+        WaterComponent seed;
+        // Everything AFTER the cascade field in the block — the data a desync
+        // would land on. Values are deliberately not the defaults, so a field
+        // that silently falls back is visible.
+        seed.m_PlanarReflectionsEnabled = true;
+        seed.m_PlanarReflectionIntensity = 0.625f;
+        seed.m_PlanarReflectionDistortion = 0.125f;
+        seed.m_WakeFoamEnabled = true;
+        seed.m_WakeFoamIntensity = 0.75f;
+        seed.m_WakeFoamHalfLife = 3.5f;
+        seed.m_WakeFoamFadeStart = 40.0f;
+        seed.m_WakeFoamFadeEnd = 180.0f;
+        seed.m_WakeShapeEnabled = true;
+        seed.m_WakeShapeAffectsPhysics = true;
+        seed.m_WakeShapeHeightScale = 0.5f;
+        seed.m_WakeShapeFlattenStrength = 0.25f;
+
+        const std::vector<u8> payload = BuildPreV24WaterPayload(seed);
+        ASSERT_FALSE(payload.empty());
+
+        WaterComponent loaded;
+        FMemoryReader reader(payload);
+        reader.ArIsSaveGame = true;
+        reader.SetArchiveVersion(23); // pre-cascade
+        SaveGameComponentSerializer::Serialize(reader, loaded);
+
+        EXPECT_FALSE(reader.IsError());
+        EXPECT_TRUE(reader.AtEnd()) << "Reader did not consume exactly the pre-v24 payload -- desync";
+
+        // The gated field falls back to the pre-#969 surface...
+        EXPECT_EQ(loaded.m_FFTCascades, Ocean::kSingleCascadeCount);
+
+        // ...and everything that follows it still reads its own bytes. Under the
+        // AtEnd() probe these were shifted by four and came back as garbage.
+        EXPECT_TRUE(loaded.m_PlanarReflectionsEnabled);
+        EXPECT_FLOAT_EQ(loaded.m_PlanarReflectionIntensity, 0.625f);
+        EXPECT_FLOAT_EQ(loaded.m_PlanarReflectionDistortion, 0.125f);
+        EXPECT_TRUE(loaded.m_WakeFoamEnabled);
+        EXPECT_FLOAT_EQ(loaded.m_WakeFoamIntensity, 0.75f);
+        EXPECT_FLOAT_EQ(loaded.m_WakeFoamHalfLife, 3.5f);
+        EXPECT_FLOAT_EQ(loaded.m_WakeFoamFadeStart, 40.0f);
+        EXPECT_FLOAT_EQ(loaded.m_WakeFoamFadeEnd, 180.0f);
+        EXPECT_TRUE(loaded.m_WakeShapeEnabled);
+        EXPECT_TRUE(loaded.m_WakeShapeAffectsPhysics);
+        EXPECT_FLOAT_EQ(loaded.m_WakeShapeHeightScale, 0.5f);
+        EXPECT_FLOAT_EQ(loaded.m_WakeShapeFlattenStrength, 0.25f);
+    }
+
+    TEST(SaveGameVersionMigration, CurrentVersionWaterPayloadRoundTripsTheCascadeCount)
+    {
+        // The other half of the v24 gate: at the current version the field must
+        // survive, so the pre-v24 test above cannot pass merely because nothing
+        // ever writes it.
+        WaterComponent seed;
+        seed.m_FFTCascades = Ocean::kThreeBandCascadeCount;
+        seed.m_PlanarReflectionsEnabled = true;
+        seed.m_WakeShapeEnabled = true;
+
+        std::vector<u8> buffer;
+        {
+            FMemoryWriter writer(buffer);
+            writer.ArIsSaveGame = true;
+            writer.SetArchiveVersion(kSaveGameFormatVersion);
+            SaveGameComponentSerializer::Serialize(writer, seed);
+            ASSERT_FALSE(writer.IsError());
+        }
+
+        WaterComponent loaded;
+        FMemoryReader reader(buffer);
+        reader.ArIsSaveGame = true;
+        reader.SetArchiveVersion(kSaveGameFormatVersion);
+        SaveGameComponentSerializer::Serialize(reader, loaded);
+
+        EXPECT_FALSE(reader.IsError());
+        EXPECT_TRUE(reader.AtEnd()) << "Reader did not consume exactly the payload -- desync";
+        EXPECT_EQ(loaded.m_FFTCascades, Ocean::kThreeBandCascadeCount);
+        EXPECT_TRUE(loaded.m_PlanarReflectionsEnabled);
+        EXPECT_TRUE(loaded.m_WakeShapeEnabled);
+    }
+
 } // namespace OloEngine::Tests

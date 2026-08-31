@@ -382,6 +382,7 @@ namespace OloEngine
         cmd->ssrParams = params.ssrParams;
         cmd->tessParams = params.tessParams;
         cmd->fftParams = params.fftParams;
+        cmd->fftCascadeParams = params.fftCascadeParams;
         cmd->normalMap0ID = params.normalMap0ID;
         cmd->normalMap1ID = params.normalMap1ID;
         cmd->noiseTextureID = params.noiseTextureID;

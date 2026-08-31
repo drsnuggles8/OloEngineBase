@@ -74,12 +74,13 @@ namespace
     // surface BuoyancySystem reads for an FFT-backed water tile. Deterministic
     // for a fixed seed/params, so chosen sample points are reproducible.
     Ref<Ocean::OceanFFTField> MakeFftField(f32 amplitude = 2.0f, f32 evolveTime = 2.0f, u32 resolution = 64u,
-                                           f32 patchSize = 80.0f)
+                                           f32 patchSize = 80.0f, u32 cascades = 1u)
     {
         Ocean::SpectrumParams sp{};
         sp.m_Resolution = resolution;
         sp.m_PatchSize = patchSize;
         sp.m_Amplitude = amplitude;
+        sp.m_CascadeCount = cascades;
         auto field = Ref<Ocean::OceanFFTField>::Create();
         field->Update(sp, evolveTime, /*uploadToGpu=*/false);
         return field;
@@ -261,6 +262,78 @@ TEST(WaterSurfaceFFTSampler, MatchesFieldProxyAtSameWorldPosition)
                 EXPECT_NEAR(WaterSurface::SampleHeightFFT(*field, xz, planeHeight, heightScale), expected, 1e-5f)
                     << "plane=" << planeHeight << " scale=" << heightScale << " xz=(" << xz.x << "," << xz.y << ")";
             }
+}
+
+TEST(WaterSurfaceFFTSampler, BuoyancyReadsTheSummedSurfaceOfEveryEnabledCascade)
+{
+    // The issue #969 acceptance criterion "buoyancy parity ... for all enabled
+    // cascades", stated as the thing that can actually go wrong: buoyancy must
+    // float on the SUM, not on one band of it.
+    //
+    // Both halves of that are asserted, and the second is the one that bites.
+    // First, the mapping is unchanged — SampleHeightFFT is still exactly
+    // planeHeight + field height * scale, whatever the cascade count. Second,
+    // the height it reads is a SUM: a three-band field must not agree with any
+    // single band of itself, because if it did, the extra cascades would be
+    // displacing the rendered surface while the boat floated on the broad band
+    // alone — a boat riding through its own sea, which reads as a physics
+    // tuning problem and is not one.
+    auto field = MakeFftField(2.0f, 2.0f, 64u, 80.0f, /*cascades=*/3u);
+    ASSERT_EQ(field->GetCascadeCount(), 3u);
+
+    for (f32 planeHeight : { 0.0f, 3.0f, -2.0f })
+    {
+        for (f32 heightScale : { 1.0f, 0.5f, 2.0f })
+        {
+            for (glm::vec2 xz : { glm::vec2(0.0f), glm::vec2(17.0f, -23.0f), glm::vec2(123.0f, 45.0f) })
+            {
+                const f32 expected = planeHeight + field->SampleHeight(xz) * heightScale;
+                EXPECT_NEAR(WaterSurface::SampleHeightFFT(*field, xz, planeHeight, heightScale), expected, 1e-5f)
+                    << "plane=" << planeHeight << " scale=" << heightScale << " xz=(" << xz.x << "," << xz.y << ")";
+            }
+        }
+    }
+
+    // The sum is a sum: at least one probe must depart materially from what the
+    // broad band alone says. Sampled through the public per-band field so this
+    // cannot pass by reading the same number twice.
+    const Ocean::DisplacementField& broad = field->GetCascadeField(0);
+    ASSERT_TRUE(broad.IsValid());
+    f32 maxDeparture = 0.0f;
+    f32 peak = 0.0f;
+    for (int i = 0; i < 64; ++i)
+    {
+        const glm::vec2 xz(static_cast<f32>(i) * 7.5f, static_cast<f32>(i) * 3.25f);
+        const f32 summed = field->SampleHeight(xz);
+        const f32 broadOnly = Ocean::SampleHeightBilinear(broad, field->GetPatchSize(), xz);
+        maxDeparture = std::max(maxDeparture, std::abs(summed - broadOnly));
+        peak = std::max(peak, std::abs(summed));
+    }
+    ASSERT_GT(peak, 0.05f) << "the sea is flat — the comparison below would pass on nothing";
+    EXPECT_GT(maxDeparture, peak * 0.05f)
+        << "the buoyancy height never departs from the broad band alone — the mid and fine cascades "
+           "displace the rendered surface but not the one bodies float on";
+}
+
+TEST(WaterSurfaceFFTSampler, SingleCascadeBuoyancyIsUnchangedByTheCascadeWork)
+{
+    // "Existing one-cascade scenes retain their current authored behavior",
+    // asserted where a scene would actually notice: the height a floating body
+    // is handed. A one-cascade field's SampleHeight must still be the plain
+    // bilinear read of its one retained field, inverted for choppiness — i.e.
+    // the pre-#969 sampler, which is what GetField() still hands back.
+    auto field = MakeFftField(2.0f, 2.0f, 64u, 80.0f, /*cascades=*/1u);
+    ASSERT_EQ(field->GetCascadeCount(), 1u);
+    ASSERT_TRUE(field->GetField().IsValid());
+
+    for (int i = 0; i < 32; ++i)
+    {
+        const glm::vec2 xz(static_cast<f32>(i) * 5.0f - 40.0f, static_cast<f32>(i) * 2.5f);
+        // SampleCascades is the un-inverted read at the same parameter
+        // position; with one band it must be that band's own bilinear value.
+        const f32 direct = Ocean::SampleHeightBilinear(field->GetField(), field->GetPatchSize(), xz);
+        EXPECT_NEAR(field->SampleCascades(xz).Height, direct, 1e-5f) << "at xz=(" << xz.x << "," << xz.y << ")";
+    }
 }
 
 TEST(WaterSurfaceFFTSampler, PlaneHeightShiftsResultByExactlyDelta)

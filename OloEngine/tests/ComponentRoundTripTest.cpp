@@ -2915,6 +2915,7 @@ namespace OloEngine::Tests
         const Ocean::SpectrumType expectedSpectrum = Ocean::SpectrumType::JONSWAP;
         const f32 expectedGamma = 4.2f;
         const f32 expectedFetch = 50000.0f;
+        const u32 expectedCascades = Ocean::kThreeBandCascadeCount; // default is 1
 
         std::string yaml;
         {
@@ -2934,6 +2935,7 @@ namespace OloEngine::Tests
             water.m_FFTSpectrumType = expectedSpectrum;
             water.m_FFTJonswapGamma = expectedGamma;
             water.m_FFTJonswapFetch = expectedFetch;
+            water.m_FFTCascades = expectedCascades;
 
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
@@ -2962,6 +2964,43 @@ namespace OloEngine::Tests
         EXPECT_EQ(water.m_FFTSpectrumType, expectedSpectrum);
         EXPECT_NEAR(water.m_FFTJonswapGamma, expectedGamma, kFloatEpsilon);
         EXPECT_NEAR(water.m_FFTJonswapFetch, expectedFetch, kFloatEpsilon);
+        EXPECT_EQ(water.m_FFTCascades, expectedCascades);
+    }
+
+    // -------------------------------------------------------------------------
+    // WaterComponent — the cascade preset is a DISCRIMINATED value (issue #969)
+    //
+    // 1 is the legacy single-cascade field and 3 the fixed three-band preset,
+    // and there is nothing in between. A corrupt or hand-edited scene must fall
+    // back to the legacy field rather than saturate to the preset: saturating a
+    // discriminated value produces a DIFFERENT VALID value — here, a surface
+    // silently opted into a different ocean than the one it was authored with.
+    // (The Reject-not-Clamp rule in
+    // docs/agent-rules/component-serializer-codegen.md.)
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, WaterComponentRejectsAnOutOfRangeCascadeCount)
+    {
+        for (u32 bogus : { 0u, 2u, 4u, 99u })
+        {
+            std::string yaml;
+            {
+                auto scene = Scene::Create();
+                Entity entity = scene->CreateEntity(kTestTag);
+                auto& water = entity.AddComponent<WaterComponent>();
+                water.m_UseFFT = true;
+                water.m_FFTCascades = bogus;
+                yaml = SceneSerializer(scene).SerializeToYAML();
+            }
+            ASSERT_FALSE(yaml.empty());
+
+            auto reloaded = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+            Entity restored = FindByTag(*reloaded, kTestTag);
+            ASSERT_TRUE(static_cast<bool>(restored));
+            ASSERT_TRUE(restored.HasComponent<WaterComponent>());
+            EXPECT_EQ(restored.GetComponent<WaterComponent>().m_FFTCascades, Ocean::kSingleCascadeCount)
+                << "a cascade count of " << bogus << " should fall back to the legacy field, not saturate";
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -4415,6 +4454,59 @@ Entities:
     //
     // Both were live for all eleven virtual-texturing fields (issue #715
     // slices 1-4) until CodeRabbit caught it on the slice 3+4 PR.
+    // Scene::Copy runs on every Play/Simulate entry, so a WaterComponent field
+    // missing from CopySerializedStateFrom reverts to its default the moment you
+    // press Play while round-tripping through scene YAML perfectly — which is how
+    // the planar-reflection settings sat broken: operator== compared all three,
+    // the copy list carried none of them. Same shape as the terrain test below.
+    TEST(ComponentRoundTrip, WaterPlanarReflectionFieldsSurviveSceneCopy)
+    {
+        auto scene = Scene::Create();
+        {
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& water = entity.AddComponent<WaterComponent>();
+            // Deliberately not the defaults, so a dropped field reads as one.
+            water.m_PlanarReflectionsEnabled = true;
+            water.m_PlanarReflectionIntensity = 0.625f;
+            water.m_PlanarReflectionDistortion = 0.125f;
+        }
+
+        // The exact call Scene::OnRuntimeStart makes.
+        Ref<Scene> copy = Scene::Copy(scene);
+        ASSERT_TRUE(static_cast<bool>(copy));
+
+        Entity copied = FindByTag(*copy, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(copied));
+        ASSERT_TRUE(copied.HasComponent<WaterComponent>());
+        const auto& water = copied.GetComponent<WaterComponent>();
+
+        EXPECT_TRUE(water.m_PlanarReflectionsEnabled);
+        EXPECT_FLOAT_EQ(water.m_PlanarReflectionIntensity, 0.625f);
+        EXPECT_FLOAT_EQ(water.m_PlanarReflectionDistortion, 0.125f);
+    }
+
+    // The other half: operator== must SEE each of them, or an inspector edit
+    // records no undo entry (DrawComponent<T> picks the equality tier).
+    TEST(ComponentRoundTrip, WaterPlanarReflectionFieldsAreVisibleToUndoEquality)
+    {
+        WaterComponent a;
+        {
+            WaterComponent b = a;
+            b.m_PlanarReflectionsEnabled = !a.m_PlanarReflectionsEnabled;
+            EXPECT_FALSE(a == b) << "m_PlanarReflectionsEnabled is invisible to operator==";
+        }
+        {
+            WaterComponent b = a;
+            b.m_PlanarReflectionIntensity = a.m_PlanarReflectionIntensity + 0.25f;
+            EXPECT_FALSE(a == b) << "m_PlanarReflectionIntensity is invisible to operator==";
+        }
+        {
+            WaterComponent b = a;
+            b.m_PlanarReflectionDistortion = a.m_PlanarReflectionDistortion + 0.25f;
+            EXPECT_FALSE(a == b) << "m_PlanarReflectionDistortion is invisible to operator==";
+        }
+    }
+
     TEST(ComponentRoundTrip, TerrainVirtualTextureFieldsSurviveSceneCopy)
     {
         auto scene = Scene::Create();

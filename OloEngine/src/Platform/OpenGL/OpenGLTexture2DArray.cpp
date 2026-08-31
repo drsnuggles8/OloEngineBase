@@ -83,7 +83,14 @@ namespace OloEngine
         }
 
         const bool isDepthFormat = (spec.Format == Texture2DArrayFormat::DEPTH_COMPONENT32F);
-        const GLenum wrapMode = isDepthFormat ? GL_CLAMP_TO_BORDER : GL_CLAMP_TO_EDGE;
+        // RepeatWrap is for layers that are periodic by construction (the FFT
+        // ocean cascades, issue #969) — never for depth, whose bordered clamp is
+        // what makes an out-of-cascade shadow lookup read as "fully lit".
+        GLenum wrapMode = GL_CLAMP_TO_EDGE;
+        if (isDepthFormat)
+            wrapMode = GL_CLAMP_TO_BORDER;
+        else if (spec.RepeatWrap)
+            wrapMode = GL_REPEAT;
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, static_cast<GLint>(wrapMode));
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, static_cast<GLint>(wrapMode));
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_R, static_cast<GLint>(wrapMode));

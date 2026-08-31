@@ -1606,6 +1606,10 @@ namespace OloEngine
             waterComponent["FFTSpectrumType"].as<u32>(static_cast<u32>(water.m_FFTSpectrumType)));
         water.m_FFTJonswapGamma = waterComponent["FFTJonswapGamma"].as<f32>(water.m_FFTJonswapGamma);
         water.m_FFTJonswapFetch = waterComponent["FFTJonswapFetch"].as<f32>(water.m_FFTJonswapFetch);
+        // Band-limited cascade preset (§1.3, issue #969). Absent in every scene
+        // written before it, and the default is 1 — the pre-#969 single-cascade
+        // field — so an old scene deserialises to exactly the sea it had.
+        water.m_FFTCascades = waterComponent["FFTCascades"].as<u32>(water.m_FFTCascades);
 
         // Sanitize FFT fields (ranges match the clamps in Scene.cpp / the editor
         // UI) so no NaN/Inf or out-of-range value reaches the spectrum/GPU.
@@ -1618,6 +1622,15 @@ namespace OloEngine
         SanitizeFloat(water.m_FFTHeightScale, 0.0f, 20.0f, 1.0f);
         // m_FFTSeed: any u32 is a valid RNG seed; m_UseFFT is a plain bool — no
         // validation needed for either.
+        // Cascades: a DISCRIMINATED value, not a magnitude — 1 is the legacy
+        // field and 3 the fixed preset, and there is nothing in between. An
+        // out-of-range value falls back to the single-cascade default rather
+        // than saturating to 3, so a corrupt scene cannot silently opt a
+        // surface into a different ocean (the Reject-not-Clamp rule in
+        // docs/agent-rules/component-serializer-codegen.md).
+        if (water.m_FFTCascades != Ocean::kSingleCascadeCount &&
+            water.m_FFTCascades != Ocean::kThreeBandCascadeCount)
+            water.m_FFTCascades = Ocean::kSingleCascadeCount;
         // Spectrum: clamp unknown enum values back to Phillips; bound JONSWAP shape.
         if (static_cast<u32>(water.m_FFTSpectrumType) > static_cast<u32>(Ocean::SpectrumType::JONSWAP))
             water.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
@@ -5362,6 +5375,7 @@ namespace OloEngine
             out << YAML::Key << "FFTSpectrumType" << YAML::Value << static_cast<u32>(water.m_FFTSpectrumType);
             out << YAML::Key << "FFTJonswapGamma" << YAML::Value << water.m_FFTJonswapGamma;
             out << YAML::Key << "FFTJonswapFetch" << YAML::Value << water.m_FFTJonswapFetch;
+            out << YAML::Key << "FFTCascades" << YAML::Value << water.m_FFTCascades;
 
             out << YAML::EndMap; // WaterComponent
         }

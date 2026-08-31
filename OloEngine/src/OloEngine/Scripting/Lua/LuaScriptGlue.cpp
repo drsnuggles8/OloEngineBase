@@ -1242,7 +1242,8 @@ namespace OloEngine
                                          "fftHeightScale", sol::property([](const WaterComponent& w)
                                                                          { return w.m_FFTHeightScale; }, [](WaterComponent& w, f32 v)
                                                                          { if (std::isfinite(v) && v >= 0.0f && v <= 20.0f) w.m_FFTHeightScale = v; }),
-                                         "fftUseGpuCompute", &WaterComponent::m_FFTUseGpuCompute);
+                                         "fftUseGpuCompute", &WaterComponent::m_FFTUseGpuCompute,
+                                         "fftCascades", &WaterComponent::m_FFTCascades);
 
         // --- TerrainComponent ---
         // Exposes the scalar procedural-generation params so gameplay scripts can drive

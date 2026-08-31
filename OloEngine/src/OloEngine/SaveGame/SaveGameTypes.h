@@ -87,7 +87,11 @@ namespace OloEngine
     //      (m_HeightShaping.IslandFalloff / IslandFalloffRadius — issue #880; v21
     //      and older saves omit them and keep the constructor defaults, which have
     //      the mask OFF at strength 0, i.e. the pre-#880 height field exactly)
-    static constexpr u32 kSaveGameFormatVersion = 23; // 23: WaterComponent::m_FoamCoverage (#943)
+    // v24: WaterComponent::m_FFTCascades (#969). Version-gated rather than
+    //      AtEnd()-probed because it lands mid-block, ahead of the planar
+    //      reflection and wake fields; v23 and older omit it and keep the
+    //      single-cascade default, which is the pre-#969 surface exactly.
+    static constexpr u32 kSaveGameFormatVersion = 24; // 24: WaterComponent::m_FFTCascades (#969)
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

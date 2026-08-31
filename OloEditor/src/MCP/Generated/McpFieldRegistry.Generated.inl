@@ -1283,6 +1283,7 @@ registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTChoppiness", m_FFTChoppines
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTHeightScale", m_FFTHeightScale));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTSeed", m_FFTSeed));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTUseGpuCompute", m_FFTUseGpuCompute));
+registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTCascades", m_FFTCascades));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTSpectrumType", m_FFTSpectrumType));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTJonswapGamma", m_FFTJonswapGamma));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTJonswapFetch", m_FFTJonswapFetch));

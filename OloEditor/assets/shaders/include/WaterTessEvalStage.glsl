@@ -44,7 +44,16 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_SSSColor;
     vec4 u_SSRParams;
     vec4 u_TessParams;
-    vec4 u_FFTParams;
+    vec4 u_FFTParams;              // x = cascade count (0 = Gerstner), y = 1/L0, z = heightScale, w = horizontalScale
+    // FFT ocean cascades (issue #969). C++ twin:
+    // UBOStructures::WaterUBO::FFTCascadeParams, packed by
+    // Ocean::PackCascadeShaderParams. Declared in EVERY stage of the water
+    // programs, identically, for the reason the #967/#968 fields below are.
+    //
+    // u_FFTParams.x carries the CASCADE COUNT rather than a 0/1 flag — 1 is the
+    // single-cascade fallback and 3 the band-limited preset, so every existing
+    // `u_FFTParams.x > 0.5` test still means "FFT is on" and did not change.
+    vec4 u_FFTCascadeParams;       // x = 1/L1 (mid tile), y = 1/L2 (fine tile), z = cos(theta_mid), w = sin(theta_mid)
     // Boat / actor wake foam field (issue #967). C++ twin:
     // UBOStructures::WaterUBO::WakeFieldParams / WakeFieldParams2. Declared in
     // EVERY stage of the water programs, identically, because GL requires a
@@ -85,13 +94,29 @@ vec4 waterWakeFetch(int index)
 
 // FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1).
 #include "BindlessHeap.glsl"
+// ARRAYS since issue #969: one layer per cascade band, so the three-band preset
+// costs the same two engine texture slots the single-cascade field did. A scene
+// that has not opted in gets a ONE-layer array holding the identical field.
 #ifdef OLO_BINDLESS
-#define u_FFTDisplacement OLO_HEAP_TEX_2D(50)  // rgb = (dx, h, dz), a = foam — TEX_WATER_FFT_DISPLACEMENT
-#define u_FFTDerivatives OLO_HEAP_TEX_2D(51)  // rgb = normal, a = jacobian — TEX_WATER_FFT_DERIVATIVES
+#define u_FFTDisplacement OLO_HEAP_TEX_2D_ARRAY(50)  // rgb = (dx, h, dz), a = foam — TEX_WATER_FFT_DISPLACEMENT
+#define u_FFTDerivatives OLO_HEAP_TEX_2D_ARRAY(51)  // rgb = normal, a = jacobian — TEX_WATER_FFT_DERIVATIVES
 #else
-layout(binding = 50) uniform sampler2D u_FFTDisplacement; // rgb = (dx, h, dz), a = foam
-layout(binding = 51) uniform sampler2D u_FFTDerivatives;  // rgb = normal, a = jacobian
+layout(binding = 50) uniform sampler2DArray u_FFTDisplacement; // rgb = (dx, h, dz), a = foam
+layout(binding = 51) uniform sampler2DArray u_FFTDerivatives;  // rgb = normal, a = jacobian
 #endif
+
+// The cascade sum, shared with the tess-eval and fragment stages and mirrored
+// on the CPU by OceanFFTField::SampleCascades. The fetch hooks are what let one
+// walk over the bands serve every stage's own sampler declaration.
+#include "OceanCascadeCommon.glsl"
+vec4 oceanCascadeFetchDisplacement(vec2 uv, int layer)
+{
+    return textureLod(u_FFTDisplacement, vec3(uv, float(layer)), 0.0);
+}
+vec4 oceanCascadeFetchDerivatives(vec2 uv, int layer)
+{
+    return textureLod(u_FFTDerivatives, vec3(uv, float(layer)), 0.0);
+}
 
 layout(location = 0) in vec3 tc_WorldPos[];
 layout(location = 1) in vec3 tc_Normal[];
@@ -151,11 +176,15 @@ void main()
     vec3 displacedPos;
     if (u_FFTParams.x > 0.5)
     {
-        vec2 fftUV = posAbs.xz * u_FFTParams.y; // world-anchored (issue #429)
-        vec4 disp = textureLod(u_FFTDisplacement, fftUV, 0.0);
-        displacedPos = pos + vec3(disp.x * u_FFTParams.w, disp.y * u_FFTParams.z, disp.z * u_FFTParams.w);
+        // Band-limited cascade sum (issue #969), through the SAME shared
+        // function the vertex stage uses — the two stages displace the same
+        // surface and must not each own a copy of how.
+        OceanCascadeSample fft = sampleOceanCascades(posAbs.xz, u_FFTParams, u_FFTCascadeParams);
+        displacedPos = pos + vec3(fft.Displacement.x * u_FFTParams.w,
+                                  fft.Displacement.y * u_FFTParams.z,
+                                  fft.Displacement.z * u_FFTParams.w);
         // Zero/NaN-safe — see the vertex-stage FFT branch.
-        vec3 fftNormal = textureLod(u_FFTDerivatives, fftUV, 0.0).xyz;
+        vec3 fftNormal = oceanCascadeNormal(fft);
         displacedNormal = (dot(fftNormal, fftNormal) > 1e-12) ? normalize(fftNormal) : vec3(0.0, 1.0, 0.0);
         v_PrevWorldPos = displacedPos; // FFT field has no prev-frame copy
     }

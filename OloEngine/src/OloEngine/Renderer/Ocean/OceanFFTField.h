@@ -4,45 +4,60 @@
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Renderer/Ocean/OceanCascades.h"
 #include "OloEngine/Renderer/Ocean/OceanFFTGpu.h"
 #include "OloEngine/Renderer/Ocean/OceanSpectrum.h"
-#include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/Texture2DArray.h"
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <vector>
 
 namespace OloEngine::Ocean
 {
     // =========================================================================
-    // Runtime owner of one Tessendorf FFT ocean cascade
-    // (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1).
+    // Runtime owner of the Tessendorf FFT ocean cascades
+    // (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1, issue #969 for §1.3).
     //
-    // Each tick it produces two GPU textures the water shader samples instead
-    // of summing Gerstner waves:
+    // Each tick it produces two GPU texture ARRAYS the water shader samples
+    // instead of summing Gerstner waves, one layer per cascade band:
     //   * Displacement (RGBA32F): rgb = (dx, height, dz) choppy displacement,
     //     a = foam factor (saturate(1 - Jacobian)).
     //   * Derivatives  (RGBA32F): rgb = surface normal, a = raw Jacobian.
-    // Both tile seamlessly (REPEAT) over PatchSize world metres.
+    // Each layer tiles seamlessly (REPEAT) over its own band's PatchSize.
     //
-    // Two interchangeable producers fill those textures (§6.4 transition path
+    // HOW MANY LAYERS IS THE ONLY THING THAT CHANGED FOR AN EXISTING SCENE.
+    // `SpectrumParams::m_CascadeCount == 1` is the shipped default and yields a
+    // ONE-layer array holding exactly the field this class produced before —
+    // the authored patch size and resolution, the whole spectrum, no rotation.
+    // The three-band preset (Ocean/OceanCascades.h) is opt-in per water surface.
+    // Making the single-cascade path a one-layer array rather than keeping a
+    // separate 2D path is deliberate: one binding pair, one shader loop, one
+    // CPU sampler — the alternative is two mirrors of the same contract, and
+    // docs/agent-rules/README.md's two-mirrors-drift is what happens next.
+    //
+    // Two interchangeable producers fill those layers (§6.4 transition path
     // — same output textures, different generation method):
-    //   * GPU compute butterfly (OceanFFTGpu, §1.2) — the default. The
-    //     spectrum evolution + inverse FFTs + assembly run as compute passes;
+    //   * GPU compute butterfly (OceanFFTGpu, §1.2) — the default. One
+    //     evolve/butterfly/assemble chain per band, each writing its own layer;
     //     no per-tick CPU FFT and no texture upload.
     //   * CPU reference (OceanSpectrum + OceanFFT) — validation baseline and
-    //     automatic fallback when compute is unavailable; evaluates the field
-    //     on the CPU and uploads it.
+    //     automatic fallback when compute is unavailable; evaluates every band
+    //     on the CPU and uploads each as a layer.
     //
-    // The base spectrum h0(k) is CPU-generated either way (deterministic
+    // The base spectra h0(k) are CPU-generated either way (deterministic
     // mt19937) and regenerated only when the wind/shape params change.
     //
-    // A CPU copy of the field is retained so physics/buoyancy can sample the
-    // rendered surface with no GPU readback. In GPU mode that copy is a
-    // band-limited low-resolution proxy (ExtractBandLimitedH0, ≤64²) — the
-    // same waves at the same world positions minus sub-metre detail — so
-    // SampleHeight()/GetField() keep working at a fraction of the full-grid
-    // CPU cost (the point of the port).
+    // A CPU copy of every band is retained so physics/buoyancy can sample the
+    // rendered surface with no GPU readback. In GPU mode those copies are
+    // band-limited low-resolution proxies (ExtractBandLimitedH0, ≤64² each) —
+    // the same waves at the same world positions minus sub-metre detail — so
+    // SampleHeight()/SampleCascades() keep working at a fraction of the full-
+    // grid CPU cost (the point of the port).
+    //
+    // The summation contract every consumer obeys — GPU and CPU, and which
+    // SPACE its argument is in — is written out once in Ocean/OceanCascades.h.
     // =========================================================================
     class OceanFFTField : public RefCounted
     {
@@ -53,14 +68,26 @@ namespace OloEngine::Ocean
         OceanFFTField(const OceanFFTField&) = delete;
         OceanFFTField& operator=(const OceanFFTField&) = delete;
 
-        /// Evaluate the field at `time` seconds. Regenerates the base spectrum
+        /// The summed surface at one world column — the CPU half of the
+        /// sampling contract in OceanCascades.h. `Slope` is (dh/dx, dh/dz) in
+        /// world axes, so the normal is normalize(vec3(-Slope.x, 1, -Slope.y));
+        /// slopes rather than normals because normals do not add.
+        struct SurfaceSample
+        {
+            f32 Height = 0.0f;
+            glm::vec2 Horizontal{ 0.0f }; ///< summed choppy (dx, dz), world axes
+            glm::vec2 Slope{ 0.0f };      ///< summed height gradient, world axes
+            f32 Foam = 0.0f;              ///< saturated sum of per-band folding
+        };
+
+        /// Evaluate the field at `time` seconds. Regenerates the base spectra
         /// only when the shape params changed. When `uploadToGpu` is true the
         /// GPU textures are produced (requires a live GL context); pass false
         /// for headless/CPU-only use (tests, physics warm-up). When
-        /// `useGpuCompute` is also true the textures are generated by the
-        /// compute butterfly pipeline (OceanFFTGpu) and the retained CPU field
-        /// becomes a band-limited ≤64² physics proxy; with it false (or when
-        /// compute is unavailable) the validated CPU path evaluates at full
+        /// `useGpuCompute` is also true the layers are generated by the compute
+        /// butterfly pipeline (OceanFFTGpu) and the retained CPU fields become
+        /// band-limited ≤64² physics proxies; with it false (or when compute is
+        /// unavailable) the validated CPU path evaluates every band at full
         /// resolution and uploads, exactly as before the GPU port.
         void Update(const SpectrumParams& params, f32 time, bool uploadToGpu = true, bool useGpuCompute = true);
 
@@ -70,9 +97,27 @@ namespace OloEngine::Ocean
         // issue #691. The raw ids stay for the debug/tools paths.
         [[nodiscard]] RHI::ResourceHandle GetDisplacementTextureHandle() const;
         [[nodiscard]] RHI::ResourceHandle GetDerivativesTextureHandle() const;
+
+        /// The cascade preset this field is currently built for. Its band list
+        /// is what the shader's per-cascade UV scales and rotation must be
+        /// packed from (Ocean::PackCascadeShaderParams) — reading the tile sizes
+        /// from anywhere else is how the two halves start disagreeing.
+        [[nodiscard]] const CascadePreset& GetPreset() const noexcept
+        {
+            return m_Preset;
+        }
+        [[nodiscard]] u32 GetCascadeCount() const noexcept
+        {
+            return m_Preset.m_Count;
+        }
+
+        /// Patch size of the BROAD band (cascade 0) — the tile the shader's
+        /// legacy `u_FFTParams.y` UV scale is built from, and the one that sets
+        /// the distance at which the sea visibly repeats. Equal to the authored
+        /// patch size on the single-cascade path.
         [[nodiscard]] f32 GetPatchSize() const noexcept
         {
-            return m_Params.m_PatchSize;
+            return m_Preset.m_Count > 0u ? m_Preset.m_Bands[0].m_PatchSize : m_Params.m_PatchSize;
         }
         [[nodiscard]] f32 GetChoppiness() const noexcept
         {
@@ -80,29 +125,48 @@ namespace OloEngine::Ocean
         }
 
         /// CPU height of the surface column above world `worldXZ` (metres),
-        /// inverting the choppy horizontal shift with a short fixed-point
-        /// iteration. Returns 0 before the first Update(). In GPU-compute mode
-        /// this samples the band-limited physics proxy (see class comment).
+        /// inverting the summed choppy horizontal shift with a short
+        /// fixed-point iteration. Returns 0 before the first Update(). In
+        /// GPU-compute mode this samples the band-limited physics proxies.
         [[nodiscard]] f32 SampleHeight(glm::vec2 worldXZ) const;
 
-        /// The retained CPU field. Full resolution on the CPU path; the
-        /// band-limited ≤64² physics proxy in GPU-compute mode.
+        /// The full summed surface at `worldXZ` — height, choppy displacement,
+        /// slope and foam — WITHOUT inverting the horizontal shift, i.e. this
+        /// answers "what does the field do at this parameter position", where
+        /// SampleHeight answers "how high is the water above this column".
+        /// The GPU evaluates the same sum at the same kind of position; this is
+        /// the function OceanCascadeParityTest compares it against.
+        [[nodiscard]] SurfaceSample SampleCascades(glm::vec2 worldXZ) const;
+
+        /// The retained CPU field for one band. Full resolution on the CPU
+        /// path; the band-limited ≤64² physics proxy in GPU-compute mode.
+        /// Returns an empty field for an inactive band.
+        [[nodiscard]] const DisplacementField& GetCascadeField(u32 cascade) const noexcept;
+
+        /// Cascade 0's retained CPU field. Kept as the name every pre-#969
+        /// caller used; a multi-cascade field's surface is the SUM of the bands,
+        /// so this is the broad band alone and not the surface — use
+        /// SampleCascades()/SampleHeight() for that.
         [[nodiscard]] const DisplacementField& GetField() const noexcept
         {
-            return m_Field;
+            return GetCascadeField(0u);
         }
 
       private:
-        // The subset of SpectrumParams that determines h0(k); a change here
-        // forces a base-spectrum regeneration. Choppiness/time are excluded
-        // (they only affect the per-tick evaluation, not h0).
+        // The subset of SpectrumParams that determines the base spectra; a
+        // change here forces a regeneration. Choppiness/time are excluded (they
+        // only affect the per-tick evaluation, not h0).
         struct H0Key
         {
             u32 Resolution = 0u;
             f32 PatchSize = 0.0f;
             f32 WindSpeed = 0.0f;
             glm::vec2 WindDirection{ 0.0f };
-            f32 Amplitude = 0.0f;
+            // Amplitude is deliberately NOT here. It is a pure linear scale on
+            // the spectrum, so a change to it needs a multiply, not a
+            // regeneration — and Drift's weather director eases it every single
+            // tick, which made "regenerate when the key changes" mean
+            // "regenerate every frame". See ApplyAmplitude.
             f32 Gravity = 0.0f;
             f32 SmallWaveSuppression = 0.0f;
             f32 DirectionalExponent = 0.0f;
@@ -110,6 +174,7 @@ namespace OloEngine::Ocean
             u32 SpectrumType = 0u; ///< SpectrumType cast to u32 (selector affects h0)
             f32 JonswapGamma = 0.0f;
             f32 JonswapFetch = 0.0f;
+            u32 CascadeCount = 0u; ///< the band partition itself is part of the spectrum
 
             // Bit-exact change detection (a "slider moved" check, not a math
             // equality test) — Math::BitwiseEqual is the sanctioned form, so we
@@ -126,27 +191,69 @@ namespace OloEngine::Ocean
         };
         [[nodiscard]] static H0Key MakeH0Key(const SpectrumParams& p);
 
+        /// One band: its own spectrum, its own producer, its own retained CPU
+        /// copy. Everything a band needs is here so nothing has to be indexed
+        /// out of three parallel arrays.
+        struct Cascade
+        {
+            SpectrumParams Params; ///< the band's own L/N/wind (wind counter-rotated)
+            /// The band's spectrum at UNIT summed RMS — everything about it
+            /// except the amplitude. Kept so an amplitude change is a multiply
+            /// into H0 rather than a regeneration, and so repeated changes
+            /// rescale from the original each time instead of accumulating
+            /// float error through an in-place ratio.
+            std::vector<Complex> H0Unit;
+            std::vector<Complex> H0; ///< H0Unit * the current amplitude scale
+            DisplacementField Field; ///< retained CPU copy (the physics proxy)
+            Ref<OceanFFTGpu> Gpu;    ///< GPU producer for this band
+            bool GpuH0Dirty = false;
+            /// The band's Gaussian draws, cached per (seed, grid). PER BAND,
+            /// not shared: each cascade draws from its own seed (CascadeSeed),
+            /// so one field-level cache would miss on every band of every
+            /// regeneration and cache nothing at all.
+            ///
+            /// Independent of wind / amplitude / spectrum type — only the
+            /// per-bin sqrt(Phi(k)) factor depends on those — so an easing sea
+            /// state reuses these instead of re-running mt19937 every frame.
+            std::vector<glm::vec2> Noise;
+            u32 NoiseSeed = 0u;
+            u32 NoiseResolution = 0u;
+            std::vector<Complex> PhysicsH0Unit; ///< the proxy band of H0Unit
+            std::vector<Complex> PhysicsH0;     ///< PhysicsH0Unit * the amplitude scale
+            u32 PhysicsResolution = 0u;
+            f32 CosRotation = 1.0f; ///< cos/sin of the band's sampling-domain rotation
+            f32 SinRotation = 0.0f;
+        };
+
+        void RegenerateSpectra(const SpectrumParams& params);
+        /// Apply `amplitude` to every band's unit spectrum. Cheap enough to run
+        /// on a sea state that eases every tick, which is exactly what it is
+        /// for. No-op when the scale has not moved.
+        void ApplyAmplitude(f32 amplitude);
         void Upload();
-        void EnsureTextures(u32 resolution);
+        void EnsureTextures(u32 resolution, u32 layers);
+        /// Create/verify one GPU producer per band. False sends the whole field
+        /// to the CPU reference — a half-GPU field would mix two surfaces.
+        [[nodiscard]] bool EnsureGpuProducers();
+        /// Re-evaluate the retained per-band CPU proxies buoyancy reads while the
+        /// render layers live on the GPU.
+        void EvaluatePhysicsProxies(u32 N, f32 time);
+        /// Summed horizontal (choppy) displacement at a parameter position —
+        /// the quantity SampleHeight's fixed-point iteration inverts.
         [[nodiscard]] glm::vec2 SampleHorizontalBilinear(glm::vec2 worldXZ) const;
 
         SpectrumParams m_Params;
+        CascadePreset m_Preset;
         H0Key m_H0Key;
         bool m_HasH0 = false;
-        std::vector<Complex> m_H0;
-        DisplacementField m_Field;
+        /// The amplitude scale currently baked into every band's H0. NaN-safe
+        /// sentinel start so the first Update always applies one.
+        f32 m_AppliedAmplitude = -1.0f;
+        std::array<Cascade, kMaxOceanCascades> m_Cascades;
 
-        Ref<Texture2D> m_DisplacementTex; // rgb = (dx, h, dz), a = foam
-        Ref<Texture2D> m_DerivativesTex;  // rgb = normal,      a = jacobian
+        Ref<Texture2DArray> m_DisplacementTex; // per layer: rgb = (dx, h, dz), a = foam
+        Ref<Texture2DArray> m_DerivativesTex;  // per layer: rgb = normal,      a = jacobian
         std::vector<glm::vec4> m_DisplacementScratch;
         std::vector<glm::vec4> m_DerivativesScratch;
-
-        // GPU compute butterfly producer (§1.2) + the band-limited h0 the CPU
-        // physics proxy is evaluated from while the GPU owns the rendered
-        // field. Both are refreshed when h0 regenerates.
-        Ref<OceanFFTGpu> m_GpuFFT;
-        bool m_GpuH0Dirty = false;
-        std::vector<Complex> m_PhysicsH0;
-        u32 m_PhysicsResolution = 0u;
     };
 } // namespace OloEngine::Ocean
