@@ -61,6 +61,10 @@ namespace
         m->SetAlphaMode(AlphaMode::Mask);
         m->SetAlphaCutoff(0.375f);
 
+        // The versioned closure selector (issue #975) — non-default, so a copy
+        // path that drops it silently reverts a v2 material to Legacy.
+        m->SetPBRModel(PBRModel::ClosureV2);
+
         // A representative uniform of each scalar kind, to guard the uniform maps.
         m->Set("u_TestFloat", 12.5f);
         m->Set("u_TestInt", 7);
@@ -95,6 +99,9 @@ namespace
         // The regression the guard exists for.
         EXPECT_EQ(m.GetAlphaMode(), AlphaMode::Mask);
         EXPECT_FLOAT_EQ(m.GetAlphaCutoff(), 0.375f);
+
+        // Issue #975's closure selector — same drop-on-copy hazard class.
+        EXPECT_EQ(m.GetPBRModel(), PBRModel::ClosureV2);
 
         EXPECT_FLOAT_EQ(m.GetFloat("u_TestFloat"), 12.5f);
         EXPECT_EQ(m.GetInt("u_TestInt"), 7);

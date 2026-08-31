@@ -91,7 +91,7 @@ namespace OloEngine
     //      AtEnd()-probed because it lands mid-block, ahead of the planar
     //      reflection and wake fields; v23 and older omit it and keep the
     //      single-cascade default, which is the pre-#969 surface exactly.
-    static constexpr u32 kSaveGameFormatVersion = 24; // 24: WaterComponent::m_FFTCascades (#969)
+    static constexpr u32 kSaveGameFormatVersion = 25; // 25: Material::PBRModel closure selector (#975)
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

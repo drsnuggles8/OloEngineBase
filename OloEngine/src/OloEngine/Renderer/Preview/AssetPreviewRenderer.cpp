@@ -281,6 +281,12 @@ namespace OloEngine
         block.MetallicFactor = glm::clamp(safeF(material->GetMetalness(), 0.0f), 0.0f, 1.0f);
         block.RoughnessFactor = glm::clamp(safeF(material->GetRoughness(), 0.45f), 0.0f, 1.0f);
         block.EmissiveFactor = glm::max(0.0f, safeF(material->GetEmission(), 0.0f));
+        // The #975 PBRModel selector deliberately does not reach previews:
+        // MaterialPreview.glsl carries its own standalone closure copy (it
+        // does not include PBRCommon.glsl), so thumbnails always render that
+        // preview closure regardless of the material's model. Recorded in
+        // ADR 0016 §5; revisit if the preview shader ever adopts
+        // evaluatePBRClosure.
 
         // Textures are pulled directly off the underlying `Material` rather
         // than through `MaterialAsset::GetAlbedoMap()` and friends. The

@@ -34,6 +34,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/BoundingVolumeHierarchy.h"
+#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/Ray.h"
 #include "OloEngine/Renderer/Vertex.h"
 
@@ -81,6 +82,13 @@ namespace OloEngine::PathTracing
         // reach for this anywhere else; a reference that quietly uses a
         // different BRDF than the renderer is not a reference.
         bool LambertianDiffuseOnly = false;
+
+        // The versioned PBR closure this material shades with (issue #975),
+        // mirroring Material::GetPBRModel() — ReferenceSceneBuilder copies it
+        // across so the reference traces the same closure the raster path
+        // shades. Dispatch lives in PBRClosureBSDF.h. Ignored while
+        // LambertianDiffuseOnly is set (that diagnostic overrides everything).
+        PBRModel Model = PBRModel::Legacy;
     };
 
     // -------------------------------------------------------------------------

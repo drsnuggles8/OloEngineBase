@@ -443,6 +443,31 @@ TEST(FrameDataBuffer, MaterialDataTableDifferentDataGetDifferentIndices)
     EXPECT_EQ(buffer.GetMaterialDataCount(), 2u);
 }
 
+TEST(FrameDataBuffer, MaterialDataTableSeparatesPbrModels)
+{
+    FrameDataBuffer buffer(16, 16);
+    buffer.Reset();
+
+    // Two materials identical except the versioned closure selector (issue
+    // #975). The table index is the material-UBO cache key, so if pbrModel is
+    // ever dropped from PODMaterialData::operator== these deduplicate and a
+    // Legacy/ClosureV2 pair silently shades with whichever closure uploaded
+    // first.
+    PODMaterialData legacy{};
+    legacy.shaderRendererID = TestHandle(7u);
+    legacy.enablePBR = true;
+    legacy.pbrModel = 0;
+
+    PODMaterialData closureV2 = legacy;
+    closureV2.pbrModel = 1;
+
+    u16 idxLegacy = buffer.AllocateMaterialData(legacy);
+    u16 idxV2 = buffer.AllocateMaterialData(closureV2);
+
+    EXPECT_NE(idxLegacy, idxV2) << "pbrModel must participate in material-data identity";
+    EXPECT_EQ(buffer.GetMaterialDataCount(), 2u);
+}
+
 TEST(FrameDataBuffer, MaterialDataTableRoundTrip)
 {
     FrameDataBuffer buffer(16, 16);

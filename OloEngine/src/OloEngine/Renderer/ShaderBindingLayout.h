@@ -168,7 +168,7 @@ namespace OloEngine
             i32 EnableLightProbes;       // Enable light probe indirect diffuse
             f32 IBLIntensity = 1.0f;     // Runtime IBL strength multiplier
             i32 AlphaMode = 0;           // 0=Opaque, 1=Mask, 2=Blend (matches AlphaMode enum)
-            i32 Pad2 = 0;
+            i32 PBRModel = 0;            // 0=Legacy, 1=ClosureV2 (matches PBRModel enum, issue #975)
 
             // PER-MATERIAL HEAP OFFSETS (issue #691, ADR 0011 amendment (32)).
             //
@@ -3177,7 +3177,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableLightProbes;
     float u_IBLIntensity;
     int u_AlphaMode;
-    int u__pbrPad2;
+    int u_PBRModel;
 };)";
         }
 

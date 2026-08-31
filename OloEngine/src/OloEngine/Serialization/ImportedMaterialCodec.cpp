@@ -301,6 +301,13 @@ namespace OloEngine::ImportedMaterialCodec
             desc.NormalScale = material->GetNormalScale();
             desc.OcclusionStrength = material->GetOcclusionStrength();
             desc.EnableIBL = material->IsIBLEnabled();
+            // PBRModel (#975) is DELIBERATELY not carried through this codec:
+            // importers cannot author it, so every cached imported material is
+            // Legacy by construction in this slice (ADR 0016 §5). If imported
+            // materials ever gain a closure selector, add the field with a
+            // CurrentVersion bump (binary-format-versioning.md) — omitting
+            // that would silently revert ClosureV2 to Legacy on the SECOND
+            // load, the cache-stored silent-drop class CI never sees.
 
             // Destructured from the shared slot list rather than re-fetching each getter:
             // adding a slot there is then a compile error here until this is updated too.

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/Map.h"
 #include "OloEngine/Containers/String.h"
+#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -32,6 +33,10 @@ namespace OloEngine
         Legacy = 0, // Legacy Phong-style material
         PBR = 1     // Physically Based Rendering material
     };
+
+    // PBRModel (the versioned closure selector, issue #975) lives in
+    // Renderer/PBRModel.h — included above — so the GL-free reference path
+    // tracer can name it without pulling in Material's renderer dependencies.
 
     // Matches glTF 2.0 spec alphaMode. Encoded as i32 in shader UBOs.
     enum class AlphaMode : i32
@@ -101,6 +106,17 @@ namespace OloEngine
         MaterialType GetType() const
         {
             return m_MaterialType;
+        }
+
+        // The versioned PBR closure this material shades with (issue #975).
+        // Legacy by default; ClosureV2 is an explicit opt-in. See PBRModel.h.
+        void SetPBRModel(PBRModel model)
+        {
+            m_PBRModel = model;
+        }
+        PBRModel GetPBRModel() const
+        {
+            return m_PBRModel;
         }
 
         void SetShader(const Ref<Shader>& shader)
@@ -521,6 +537,7 @@ namespace OloEngine
         bool m_EnableIBL = false;                      // Enable IBL
         AlphaMode m_AlphaMode = AlphaMode::Opaque;     // glTF-style alpha mode
         f32 m_AlphaCutoff = 0.5f;                      // Threshold for MASK mode discard
+        PBRModel m_PBRModel = PBRModel::Legacy;        // Versioned closure (issue #975)
 
         // PBR texture maps
         Ref<Texture2D> m_AlbedoMap;            // Base color texture

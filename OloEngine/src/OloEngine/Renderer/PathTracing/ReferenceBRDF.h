@@ -38,6 +38,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/PathTracing/GgxEnergyTables.h"
 
 #include <glm/glm.hpp>
 
@@ -381,6 +382,173 @@ namespace OloEngine::PathTracing
         if (!(total > 0.0f))
             return 0.5f;
         return std::clamp(specularWeight / total, 0.1f, 0.9f);
+    }
+
+    // =========================================================================
+    // PBR CLOSURE V2 (issue #975) — twins of the PBR CLOSURE V2 section in
+    // PBRCommon.glsl, in the same order. The Legacy functions above are frozen;
+    // these are the versioned opt-in closure the reference tracer dispatches to
+    // through PBRClosureBSDF.h when ReferenceMaterial::Model == ClosureV2.
+    // Pinned by ReferenceBRDFGpuParityTest's v2 probe channels.
+    // =========================================================================
+
+    // GLSL: closureV2Roughness. The ONLY roughness guard in the v2 closure —
+    // applied identically before evaluating, sampling and computing the
+    // density, which is what lets ONE D serve all three.
+    [[nodiscard]] inline f32 ClosureV2Roughness(f32 roughness) noexcept
+    {
+        return std::clamp(roughness, kMinRoughness, 1.0f);
+    }
+
+    // GLSL: ggxEnergyLoss — bilinear lookup of 1 - Ess(mu, r) in the generated
+    // cell-centered 16x16 table (GgxEnergyTables.h). `roughness` is AUTHORED
+    // perceptual roughness; the table rows bake the v2 alpha clamp in.
+    [[nodiscard]] inline f32 GgxEnergyLoss(f32 mu, f32 roughness) noexcept
+    {
+        constexpr auto fs = static_cast<f32>(kGgxEnergyTableSize);
+        const f32 x = std::clamp(std::clamp(mu, 0.0f, 1.0f) * fs - 0.5f, 0.0f, fs - 1.0f);
+        const f32 y = std::clamp(std::clamp(roughness, 0.0f, 1.0f) * fs - 0.5f, 0.0f, fs - 1.0f);
+        const auto x0 = static_cast<u32>(x);
+        const auto y0 = static_cast<u32>(y);
+        const u32 x1 = std::min(x0 + 1, kGgxEnergyTableSize - 1);
+        const u32 y1 = std::min(y0 + 1, kGgxEnergyTableSize - 1);
+        const f32 fx = x - static_cast<f32>(x0);
+        const f32 fy = y - static_cast<f32>(y0);
+        const f32 v00 = GgxEnergyLossEntry(y0 * kGgxEnergyTableSize + x0);
+        const f32 v10 = GgxEnergyLossEntry(y0 * kGgxEnergyTableSize + x1);
+        const f32 v01 = GgxEnergyLossEntry(y1 * kGgxEnergyTableSize + x0);
+        const f32 v11 = GgxEnergyLossEntry(y1 * kGgxEnergyTableSize + x1);
+        return glm::mix(glm::mix(v00, v10, fx), glm::mix(v01, v11, fx), fy);
+    }
+
+    // GLSL: ggxEnergyLossAverage — linear lookup of 1 - E_avg(r).
+    [[nodiscard]] inline f32 GgxEnergyLossAverage(f32 roughness) noexcept
+    {
+        constexpr auto fs = static_cast<f32>(kGgxEnergyTableSize);
+        const f32 y = std::clamp(std::clamp(roughness, 0.0f, 1.0f) * fs - 0.5f, 0.0f, fs - 1.0f);
+        const auto y0 = static_cast<u32>(y);
+        const u32 y1 = std::min(y0 + 1, kGgxEnergyTableSize - 1);
+        const f32 fy = y - static_cast<f32>(y0);
+        return glm::mix(GgxEnergyLossAvgEntry(y0), GgxEnergyLossAvgEntry(y1), fy);
+    }
+
+    // GLSL: closureV2MultiScatter — the Kulla-Conty multiple-scattering lobe:
+    //
+    //   f_ms = F_ms * (1 - Ess(NdotV)) * (1 - Ess(NdotL)) / (pi * (1 - E_avg))
+    //   F_ms = F_avg^2 * E_avg / (1 - F_avg * (1 - E_avg)), F_avg = F0 + (1-F0)/21
+    //
+    // Symmetric in NdotV/NdotL, so it preserves reciprocity. With F_avg == 1
+    // its hemispherical cosine integral is exactly 1 - Ess(NdotV), which is
+    // what closes the white furnace and what the furnace test asserts.
+    [[nodiscard]] inline glm::vec3 ClosureV2MultiScatter(f32 nDotV, f32 nDotL, f32 roughness,
+                                                         const glm::vec3& f0) noexcept
+    {
+        const f32 lossAvg = GgxEnergyLossAverage(roughness);
+        // Below the table's resolution the lobe is near-mirror and sheds
+        // nothing worth compensating; also guards the 1/lossAvg denominator.
+        if (lossAvg < 1.0e-4f)
+            return glm::vec3(0.0f);
+
+        const f32 lossV = GgxEnergyLoss(nDotV, roughness);
+        const f32 lossL = GgxEnergyLoss(nDotL, roughness);
+        const f32 eAvg = 1.0f - lossAvg;
+
+        const glm::vec3 fAvg = f0 + (glm::vec3(1.0f) - f0) * (1.0f / 21.0f);
+        const glm::vec3 fresnelMs = fAvg * fAvg * eAvg / (glm::vec3(1.0f) - fAvg * lossAvg);
+
+        return fresnelMs * (lossV * lossL) / (kPi * lossAvg);
+    }
+
+    // GLSL: closureV2Evaluate — the v2 Evaluate: f(v, l) WITHOUT the cosine,
+    // matching CookTorranceBRDF's convention. One geometry term
+    // (height-correlated Smith visibility), alpha-clamped unclamped-denominator
+    // D, Kulla-Conty compensation, (1 - F(H)) * (1 - metallic) Lambert diffuse.
+    [[nodiscard]] inline glm::vec3 ClosureV2Evaluate(const glm::vec3& n, const glm::vec3& v, const glm::vec3& l,
+                                                     const glm::vec3& albedo, f32 metallic, f32 roughness) noexcept
+    {
+        const f32 r = ClosureV2Roughness(roughness);
+        const glm::vec3 h = glm::normalize(v + l);
+        const f32 nDotV = std::max(glm::dot(n, v), 0.0f);
+        const f32 nDotL = std::max(glm::dot(n, l), 0.0f);
+        const f32 nDotH = std::max(glm::dot(n, h), 0.0f);
+
+        const glm::vec3 f0 = glm::mix(glm::vec3(kDefaultDielectricF0), albedo, metallic);
+        const f32 d = DistributionGGXSamplingDensity(nDotH, r);
+        const f32 vis = VisibilitySmithGGXCorrelated(nDotV, nDotL, r);
+        const glm::vec3 f = FresnelSchlick(std::max(glm::dot(h, v), 0.0f), f0);
+
+        // AUTHORED roughness into the energy lookup, per its contract — the
+        // table rows bake the v2 clamp in; the clamped r would double-apply
+        // it. GLSL twin agrees (closureV2Evaluate).
+        const glm::vec3 specular = d * vis * f + ClosureV2MultiScatter(nDotV, nDotL, roughness, f0);
+
+        const glm::vec3 kD = (glm::vec3(1.0f) - f) * (1.0f - metallic);
+        return kD * albedo * kInvPi + specular;
+    }
+
+    // GLSL: sampleGGXVNDFTangent — Heitz 2018 §3.2 visible-normal sample in
+    // TANGENT space (z = macrosurface normal), the reference listing
+    // transcribed. Takes ALPHAS. The f64 brute-force twin used by the property
+    // tests lives in StochasticSamplerTest.cpp's namespace Vndf; this is the
+    // production-precision mirror of the GLSL.
+    [[nodiscard]] inline glm::vec3 SampleGGXVNDFTangent(const glm::vec3& ve, f32 alphaX, f32 alphaY,
+                                                        const glm::vec2& xi) noexcept
+    {
+        // 1. Stretch the view direction so the ellipsoid becomes a hemisphere.
+        const glm::vec3 vh = glm::normalize(glm::vec3(alphaX * ve.x, alphaY * ve.y, ve.z));
+
+        // 2. Orthonormal basis around Vh (degenerate when Vh is the pole).
+        const f32 lenSq = vh.x * vh.x + vh.y * vh.y;
+        const glm::vec3 t1 = (lenSq > 0.0f) ? (glm::vec3(-vh.y, vh.x, 0.0f) * (1.0f / std::sqrt(lenSq)))
+                                            : glm::vec3(1.0f, 0.0f, 0.0f);
+        const glm::vec3 t2 = glm::cross(vh, t1);
+
+        // 3. Uniform point on the projected area: a disk, with the half below
+        //    the horizon squashed into the visible hemisphere's silhouette.
+        const f32 r = std::sqrt(xi.x);
+        const f32 phi = kTwoPi * xi.y;
+        const f32 p1 = r * std::cos(phi);
+        f32 p2 = r * std::sin(phi);
+        const f32 s = 0.5f * (1.0f + vh.z);
+        p2 = (1.0f - s) * std::sqrt(std::max(0.0f, 1.0f - p1 * p1)) + s * p2;
+
+        // 4. Lift back onto the hemisphere, then unstretch to the ellipsoid.
+        const glm::vec3 nh = p1 * t1 + p2 * t2 + std::sqrt(std::max(0.0f, 1.0f - p1 * p1 - p2 * p2)) * vh;
+        return glm::normalize(glm::vec3(alphaX * nh.x, alphaY * nh.y, std::max(0.0f, nh.z)));
+    }
+
+    // GLSL: sampleGGXVNDF — world-space isotropic wrapper; pass roughness, not
+    // alpha (it squares internally, matching the GLSL).
+    [[nodiscard]] inline glm::vec3 SampleGGXVNDF(const glm::vec3& n, const glm::vec3& v, f32 roughness,
+                                                 const glm::vec2& xi) noexcept
+    {
+        glm::vec3 tangent;
+        glm::vec3 bitangent;
+        OrthonormalBasis(n, tangent, bitangent);
+
+        const glm::vec3 ve(glm::dot(v, tangent), glm::dot(v, bitangent), glm::dot(v, n));
+        const f32 alpha = roughness * roughness;
+        const glm::vec3 h = SampleGGXVNDFTangent(ve, alpha, alpha, xi);
+        return glm::normalize(tangent * h.x + bitangent * h.y + n * h.z);
+    }
+
+    // Solid-angle density of a direction produced by reflecting `v` about a
+    // half-vector drawn from SampleGGXVNDF:
+    //
+    //   pdf(l) = D_vis(h) / (4 (v·h)) = G1(nDotV) * D(nDotH) / (4 * nDotV)
+    //
+    // (the v·h factors cancel). D is the UNCLAMPED NDF on the same alpha the
+    // sampler stretched by — the "a PDF describes the SAMPLER" rule above, and
+    // with the v2 alpha clamp this same D is also what ClosureV2Evaluate
+    // evaluates, which is what makes Evaluate/Sample/Pdf agree. GLSL twin: the
+    // specular term of closureV2Pdf.
+    [[nodiscard]] inline f32 PdfGGXVNDF(f32 nDotV, f32 nDotH, f32 roughness) noexcept
+    {
+        if (nDotV <= 0.0f)
+            return 0.0f;
+        const f32 alpha = roughness * roughness;
+        const f32 g1V = 1.0f / (1.0f + GgxSmithLambda(nDotV, alpha));
+        return g1V * DistributionGGXSamplingDensity(nDotH, roughness) / (4.0f * nDotV);
     }
 
     // -------------------------------------------------------------------------

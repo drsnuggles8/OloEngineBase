@@ -2,6 +2,7 @@
 
 #include "OloEngine/Renderer/PathTracing/PathTracer.h"
 
+#include "OloEngine/Renderer/PathTracing/PBRClosureBSDF.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceBRDF.h"
 #include "OloEngine/Task/ParallelFor.h"
 
@@ -14,107 +15,34 @@ namespace OloEngine::PathTracing
 {
     namespace
     {
-        // Roughness used for IMPORTANCE SAMPLING and its density, floored at
-        // PBRCommon's MIN_ROUGHNESS.
-        //
-        // The BRDF is still EVALUATED at the material's raw roughness — the
-        // reference must reproduce what the renderer computes, including the
-        // fact that `distributionGGX`'s EPSILON denominator clamp makes the
-        // engine's specular lobe *collapse* below roughness ~0.27 instead of
-        // becoming a mirror. Widening only the sampling distribution leaves the
-        // estimator unbiased (the sampled lobe strictly contains the evaluated
-        // one) while keeping the density away from the numerical cliff at
-        // alpha -> 0.
-        [[nodiscard]] f32 SamplingRoughness(f32 materialRoughness)
-        {
-            return std::clamp(materialRoughness, kMinRoughness, 1.0f);
-        }
-
-        // The single BRDF evaluation point for the whole integrator. Normally
-        // PBRCommon's `cookTorranceBRDF`; the Lambertian branch exists solely
-        // for the DDGI parity diagnostic (see ReferenceMaterial::
-        // LambertianDiffuseOnly for why that is not a loophole).
+        // The BSDF bodies that used to live here are now the versioned
+        // Evaluate/Sample/Pdf contract in PBRClosureBSDF.h (issue #975) — the
+        // Legacy branch is those bodies moved verbatim, so the bit-identical
+        // render hashes are unchanged. These thin wrappers keep the
+        // integrator's call sites and, in SampleBsdf, own the sampler
+        // DIMENSION DRAW ORDER (Get1D then Get2D, unconditionally), which is
+        // part of the determinism contract.
         [[nodiscard]] glm::vec3 EvaluateBRDF(const ReferenceMaterial& material, const glm::vec3& n,
                                              const glm::vec3& v, const glm::vec3& l)
         {
-            if (material.LambertianDiffuseOnly)
-                return material.BaseColor * kInvPi;
-            return CookTorranceBRDF(n, v, l, material.BaseColor, material.Metallic, material.Roughness);
+            return BSDF::Evaluate(material, n, v, l);
         }
 
-        [[nodiscard]] f32 SpecularProbability(const ReferenceMaterial& material)
-        {
-            if (material.LambertianDiffuseOnly)
-                return 0.0f;
-            return SpecularLobeProbability(material.BaseColor, material.Metallic);
-        }
-
-        // Solid-angle density of the one-sample lobe mixture the BSDF sampler
-        // draws from. Used by both the sampler (to divide by) and NEE (for the
-        // MIS weight) — deliberately ONE function, because a MIS weight built
-        // from an independently-written density is the classic silently-biased
-        // integrator.
         [[nodiscard]] f32 BsdfPdf(const glm::vec3& n, const glm::vec3& v, const glm::vec3& l,
                                   const ReferenceMaterial& material)
         {
-            const f32 nDotL = glm::dot(n, l);
-            if (nDotL <= 0.0f)
-                return 0.0f;
-
-            const f32 pdfDiffuse = PdfCosineHemisphere(nDotL);
-            const f32 pSpecular = SpecularProbability(material);
-            if (!(pSpecular > 0.0f))
-                return pdfDiffuse;
-
-            const glm::vec3 h = glm::normalize(v + l);
-            const f32 nDotH = glm::dot(n, h);
-            const f32 vDotH = glm::dot(v, h);
-            const f32 roughness = SamplingRoughness(material.Roughness);
-            const f32 pdfSpecular = PdfGGX(nDotH, vDotH, roughness);
-
-            return pSpecular * pdfSpecular + (1.0f - pSpecular) * pdfDiffuse;
+            return BSDF::Pdf(material, n, v, l);
         }
 
-        struct BsdfSample
-        {
-            glm::vec3 Direction{ 0.0f };
-            glm::vec3 Value{ 0.0f }; // f(l, v), no cosine
-            f32 Pdf = 0.0f;
-        };
+        using BsdfSample = BSDF::BSDFSample;
 
         [[nodiscard]] bool SampleBsdf(const glm::vec3& n, const glm::vec3& v,
                                       const ReferenceMaterial& material, PathSampler& sampler,
                                       BsdfSample& outSample)
         {
-            const f32 roughness = SamplingRoughness(material.Roughness);
-            const f32 pSpecular = SpecularProbability(material);
-
             const f32 lobeSelect = sampler.Get1D();
             const glm::vec2 xi = sampler.Get2D();
-
-            glm::vec3 l;
-            if (lobeSelect < pSpecular)
-            {
-                const glm::vec3 h = ImportanceSampleGGX(xi, n, roughness);
-                l = glm::reflect(-v, h);
-            }
-            else
-            {
-                l = CosineSampleHemisphere(xi, n);
-            }
-
-            const f32 nDotL = glm::dot(n, l);
-            if (nDotL <= 0.0f)
-                return false;
-
-            const f32 pdf = BsdfPdf(n, v, l, material);
-            if (!(pdf > 0.0f))
-                return false;
-
-            outSample.Direction = l;
-            outSample.Value = EvaluateBRDF(material, n, v, l);
-            outSample.Pdf = pdf;
-            return true;
+            return BSDF::Sample(material, n, v, lobeSelect, xi, outSample);
         }
 
         // Offset a ray origin off the surface along the geometric normal, on

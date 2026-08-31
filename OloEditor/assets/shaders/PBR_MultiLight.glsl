@@ -180,12 +180,12 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableLightProbes;    // Enable light probe indirect diffuse
     float u_IBLIntensity;       // Runtime IBL strength multiplier
     int u_AlphaMode;            // 0=Opaque, 1=Mask, 2=Blend
-    int _pbrPad2;
+    int u_PBRModel;             // PBRModel selector: 0=Legacy, 1=ClosureV2 (issue #975)
 #ifdef OLO_BINDLESS
     // The per-material offset lanes, declared ONLY on the bindless build. The
     // C++ PBRMaterialUBO always uploads them (sizeof == 144); a std140 block may
     // declare a PREFIX of what the CPU writes, which is why the slot-based build
-    // can stop at _pbrPad2 and stay correct. Must be LAST — the lane layout in
+    // can stop at u_PBRModel and stay correct. Must be LAST — the lane layout in
     // include/BindlessHeap.glsl and CommandDispatch::WriteMaterialHeapOffsets
     // both assume it.
     uvec4 u_MaterialHeapOffsets[3];
@@ -398,7 +398,7 @@ void main()
     if (fplusActive)
     {
         float fplusViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
-        Lo += fplusEvaluateTileLights(N, V, v_WorldPos, albedo, metallic, roughness, fplusViewDepth);
+        Lo += fplusEvaluateTileLights(N, V, v_WorldPos, albedo, metallic, roughness, fplusViewDepth, u_PBRModel);
     }
 
     // UBO light loop: when Forward+ is active, only evaluate directional lights
@@ -409,7 +409,7 @@ void main()
     {
         int lightType = int(u_Lights[i].position.w);
 
-        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
+        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos, u_PBRModel);
         if (lightType == DIRECTIONAL_LIGHT)
         {
             lightContrib *= cloudShadow;
