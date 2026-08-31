@@ -83,6 +83,7 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 namespace
 {
     using namespace OloEngine;
+    using OloEngine::Tests::ProbeVulkanDeviceTestGate;
     using OloEngine::Tests::ScopedVulkanRenderCommandSelection;
 
     // RAII flip of the process-wide API selector around the factory calls —
@@ -173,65 +174,9 @@ class VulkanRenderGraphExecution : public ::testing::Test
   protected:
     void SetUp() override
     {
-        if (volkInitialize() != VK_SUCCESS)
-            GTEST_SKIP() << "No Vulkan loader on this machine.";
-
-        // Probe with VulkanBringUpTest's EXACT ladder (bare instance, no
-        // layers/extensions, enumerate, Evaluate) BEFORE constructing
-        // VulkanDevice: a loader-without-ICD CI runner survives this probe
-        // path provably (VulkanBringUp skips cleanly there), while the full
-        // bring-up's extra loader calls SEH-faulted on the Windows ASan
-        // runner. Skip decisions belong on the proven path.
-        {
-            VkApplicationInfo appInfo{};
-            appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-            appInfo.pApplicationName = "OloEngine-Tests";
-            appInfo.apiVersion = VulkanCapabilities::kMinApiVersion;
-            VkInstanceCreateInfo instanceInfo{};
-            instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-            instanceInfo.pApplicationInfo = &appInfo;
-            VkInstance probe = VK_NULL_HANDLE;
-            if (vkCreateInstance(&instanceInfo, nullptr, &probe) != VK_SUCCESS)
-                GTEST_SKIP() << "vkCreateInstance failed (driver below Vulkan 1.4?).";
-            volkLoadInstance(probe);
-
-            u32 deviceCount = 0;
-            if (vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr) != VK_SUCCESS)
-            {
-                vkDestroyInstance(probe, nullptr);
-                GTEST_SKIP() << "vkEnumeratePhysicalDevices (count) failed on this machine.";
-            }
-            std::vector<VkPhysicalDevice> devices(deviceCount);
-            if (deviceCount > 0)
-            {
-                const VkResult listResult = vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
-                if (listResult == VK_SUCCESS || listResult == VK_INCOMPLETE)
-                {
-                    // The second call rewrites deviceCount with how many it
-                    // actually returned (fewer on VK_INCOMPLETE).
-                    devices.resize(deviceCount);
-                }
-                else
-                {
-                    vkDestroyInstance(probe, nullptr);
-                    GTEST_SKIP() << "vkEnumeratePhysicalDevices (list) failed on this machine.";
-                }
-            }
-            const bool anySatisfies = std::ranges::any_of(
-                devices,
-                [](VkPhysicalDevice device)
-                { return VulkanCapabilities::Evaluate(device).Satisfied; });
-            vkDestroyInstance(probe, nullptr);
-            if (!anySatisfies)
-            {
-                GTEST_SKIP() << "No device satisfies the ADR 0010 capability contract here — the gate would "
-                                "refuse --rhi=vulkan.";
-            }
-            // The probe's volkLoadInstance left instance-scoped pointers
-            // behind; restore loader-scoped ones for the real bring-up.
-            if (volkInitialize() != VK_SUCCESS)
-                GTEST_SKIP() << "Vulkan loader re-initialisation failed.";
-        }
+        const auto gate = ProbeVulkanDeviceTestGate();
+        if (!gate.Available)
+            GTEST_SKIP() << gate.Reason;
 
         m_Device = std::make_unique<VulkanDevice>();
         try
@@ -772,8 +717,9 @@ TEST_F(VulkanRenderGraphExecution, GpuFenceSignalsAndWaitsAcrossHostAndQueue)
 // -----------------------------------------------------------------------------
 TEST(VulkanRenderGraphExecutionContext, GraphDependencyFencePairOrdersProductionVulkanContextSubmissions)
 {
-    if (volkInitialize() != VK_SUCCESS)
-        GTEST_SKIP() << "No Vulkan loader on this machine.";
+    const auto gate = ProbeVulkanDeviceTestGate();
+    if (!gate.Available)
+        GTEST_SKIP() << gate.Reason;
 
     ScopedNoApiGlfwWindow window;
     if (window.Get() == nullptr)

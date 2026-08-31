@@ -78,6 +78,7 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 namespace
 {
     using namespace OloEngine;
+    using OloEngine::Tests::ProbeVulkanDeviceTestGate;
     using OloEngine::Tests::ScopedVulkanRenderCommandSelection;
 
     struct ScopedVulkanApiSelection
@@ -186,50 +187,9 @@ class VulkanDrawPath : public ::testing::Test
   protected:
     void SetUp() override
     {
-        if (volkInitialize() != VK_SUCCESS)
-            GTEST_SKIP() << "No Vulkan loader on this machine.";
-
-        {
-            VkApplicationInfo appInfo{};
-            appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-            appInfo.pApplicationName = "OloEngine-Tests";
-            appInfo.apiVersion = VulkanCapabilities::kMinApiVersion;
-            VkInstanceCreateInfo instanceInfo{};
-            instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-            instanceInfo.pApplicationInfo = &appInfo;
-            VkInstance probe = VK_NULL_HANDLE;
-            if (vkCreateInstance(&instanceInfo, nullptr, &probe) != VK_SUCCESS)
-                GTEST_SKIP() << "vkCreateInstance failed (driver below Vulkan 1.4?).";
-            volkLoadInstance(probe);
-
-            u32 deviceCount = 0;
-            if (vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr) != VK_SUCCESS)
-            {
-                vkDestroyInstance(probe, nullptr);
-                GTEST_SKIP() << "vkEnumeratePhysicalDevices (count) failed on this machine.";
-            }
-            std::vector<VkPhysicalDevice> devices(deviceCount);
-            if (deviceCount > 0)
-            {
-                const VkResult listResult = vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
-                if (listResult == VK_SUCCESS || listResult == VK_INCOMPLETE)
-                    devices.resize(deviceCount);
-                else
-                {
-                    vkDestroyInstance(probe, nullptr);
-                    GTEST_SKIP() << "vkEnumeratePhysicalDevices (list) failed on this machine.";
-                }
-            }
-            const bool anySatisfies = std::ranges::any_of(
-                devices,
-                [](VkPhysicalDevice device)
-                { return VulkanCapabilities::Evaluate(device).Satisfied; });
-            vkDestroyInstance(probe, nullptr);
-            if (!anySatisfies)
-                GTEST_SKIP() << "No device satisfies the ADR 0010 capability contract here.";
-            if (volkInitialize() != VK_SUCCESS)
-                GTEST_SKIP() << "Vulkan loader re-initialisation failed.";
-        }
+        const auto gate = ProbeVulkanDeviceTestGate();
+        if (!gate.Available)
+            GTEST_SKIP() << gate.Reason;
 
         m_Device = std::make_unique<VulkanDevice>();
         try
