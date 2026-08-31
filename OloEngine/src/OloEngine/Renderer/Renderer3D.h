@@ -1393,6 +1393,7 @@ namespace OloEngine
             // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1): x = useFFT (0/1),
             // y = 1/patchSize, z = heightScale, w = horizontalScale.
             glm::vec4 fftParams = glm::vec4(0.0f);
+            glm::vec4 fftCascadeParams = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
             RHI::ResourceHandle normalMap0ID{};
             RHI::ResourceHandle normalMap1ID{};
             RHI::ResourceHandle noiseTextureID{};

@@ -49,6 +49,16 @@ namespace OloEngine::Ocean
         f32 m_Choppiness = 1.0f;                    ///< λ, horizontal-displacement (choppy crests) scale
         u32 m_Seed = 1337u;                         ///< RNG seed for the Gaussian spectrum (deterministic)
 
+        /// How many band-limited cascades OceanFFTField builds from these
+        /// params (issue #969). 1 — the default every existing scene keeps — is
+        /// the single-cascade field this struct always described: one tile at
+        /// m_PatchSize, one grid at m_Resolution, the whole spectrum. Anything
+        /// else selects the fixed three-band preset, which DERIVES its own tile
+        /// sizes, per-band resolutions, band limits and one rotated sampling
+        /// domain from m_PatchSize/m_Resolution — see Ocean/OceanCascades.h.
+        /// The count is part of the h0 key: changing it rebuilds the spectra.
+        u32 m_CascadeCount = 1u;
+
         // JONSWAP-only shape parameters (ignored when m_SpectrumType == Phillips).
         SpectrumType m_SpectrumType = SpectrumType::Phillips; ///< which energy spectrum to evaluate
         f32 m_JonswapGamma = 3.3f;                            ///< γ peak-enhancement (1 ≈ Pierson-Moskowitz, 3.3 = mean JONSWAP)
@@ -81,6 +91,19 @@ namespace OloEngine::Ocean
     /// N×N. h0(k) = (1/√2)(ξr + iξi)·√(Phillips(k)) with ξ ~ N(0,1).
     /// Deterministic for a fixed seed/params.
     [[nodiscard]] std::vector<Complex> GenerateH0(const SpectrumParams& params);
+
+    /// Zero every bin of a GenerateH0()-layout spectrum whose wave-vector
+    /// magnitude falls outside the half-open band [kMin, kMax) — the operation
+    /// that makes the multi-cascade preset's bands DISJOINT (issue #969, see
+    /// Ocean/OceanCascades.h). `patchSize` and `resolution` must be the ones the
+    /// spectrum was generated with, since |k| is derived from the bin's signed
+    /// frequency. A band with kMin == 0 and an infinite kMax is a no-op, which
+    /// is exactly what the single-cascade fallback asks for.
+    ///
+    /// Half-open on purpose: two adjacent bands sharing an endpoint then hand
+    /// that endpoint's bin to exactly one of them, so no wave vector is either
+    /// dropped at the handoff or counted in both cascades.
+    void ApplyBandLimit(std::vector<Complex>& h0, u32 resolution, f32 patchSize, f32 kMin, f32 kMax);
 
     /// Extract the low-|k| band of a full-resolution h0 into a
     /// targetResolution² spectrum (same patch size ⇒ same wave vectors per

@@ -36,16 +36,17 @@ TEST(WaterRendering, WaterUBOAlignment)
 
 TEST(WaterRendering, WaterUBOSizeStable)
 {
-    // 101 x glm::vec4 = 101 x 16 = 1616 bytes:
-    //   20  the scalar params (18 until #967 appended WakeFieldParams /
+    // 102 x glm::vec4 = 102 x 16 = 1632 bytes:
+    //   21  the scalar params (18 until #967 appended WakeFieldParams /
     //       WakeFieldParams2 for the boat-wake foam field; FFTParams was the one
-    //       before that, WATER_FUTURE_IMPROVEMENTS.md §1),
+    //       before that, WATER_FUTURE_IMPROVEMENTS.md §1; FFTCascadeParams the
+    //       one after, for #969's band-limited cascades),
     //   +1  WakeShapeParams and
     //   +80 WakeHulls[WaterWake::kHullVec4Count] for the #968 wake SHAPE.
     //
     // The array is what makes #968 cost ZERO new binding slots — the engine has
     // exactly one UBO slot left below UBO_BINDING_LIMIT, and a wake block was
-    // not what to spend it on. 1616 B is comfortably under the 16 KB std140
+    // not what to spend it on. 1632 B is comfortably under the 16 KB std140
     // block ceiling, and water is single-instance so it uploads once per draw.
     //
     // A change here is a five-file edit, not a one-line one: the block is
@@ -53,8 +54,8 @@ TEST(WaterRendering, WaterUBOSizeStable)
     // WaterTess*/WaterVertexStage includes, because GL requires every stage of a
     // program to declare a shared uniform block the same way.
     EXPECT_EQ(sizeof(UBOStructures::WaterUBO),
-              (20u + 1u + WaterWake::kHullVec4Count) * sizeof(glm::vec4));
-    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 1616u);
+              (21u + 1u + WaterWake::kHullVec4Count) * sizeof(glm::vec4));
+    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 1632u);
 }
 
 TEST(WaterRendering, WaterUBOGetSizeMatchesSizeof)
@@ -87,12 +88,19 @@ TEST(WaterRendering, WaterUBOFieldRoundTrip)
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, DepthRefractionParams), 160u);
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, TessParams), 256u);
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, FFTParams), 272u);
+    // FFT ocean cascades (issue #969), inserted directly after FFTParams — the
+    // two are read together by include/OceanCascadeCommon.glsl and there is no
+    // reason for the shader to reach across the block for the second half of
+    // one contract.
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, FFTCascadeParams), 288u);
     // Boat / actor wake foam (issue #967). The offsets matter as much as the
     // total size: WaterUBOSizeStable would still pass if these two were
     // inserted anywhere in the block, and every field after the insertion point
-    // would then read its neighbour's value on the GPU.
-    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WakeFieldParams), 288u);
-    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WakeFieldParams2), 304u);
+    // would then read its neighbour's value on the GPU. Which is exactly what
+    // #969 did to them — they moved up by one vec4, and this test is how the
+    // five GLSL declarations were kept honest about it.
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WakeFieldParams), 304u);
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WakeFieldParams2), 320u);
 
     UBOStructures::WaterUBO ubo{};
     ubo.WaveParams = glm::vec4(1.0f, 2.0f, 0.5f, 3.0f);

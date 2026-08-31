@@ -120,13 +120,65 @@ only while unpaused — with two details worth copying:
 - **Clamp the delta.** A stop/start, an asset load or a stalled editor frame
   otherwise hands the surface the whole gap at once and jumps the phase visibly.
 
+## 7. A SPECTRUM IS A DENSITY, and a second grid makes its bin spacing load-bearing
+
+From issue #969 (the band-limited three-cascade FFT ocean). Same shape as
+everything above: every test green, the sea gone.
+
+Tessendorf's construction sets the amplitude of each frequency bin to
+`|h0(k)| = sqrt(Phi(k))` with no bin-area factor. That is sound with **one**
+grid, because the missing constant is absorbed into the amplitude scale nobody
+measures in absolute terms. It stops being sound the moment a second grid exists:
+`Phi` is a spectral **density**, so a bin stands for `Phi(k) * dk^2` of energy,
+and `dk = 2*pi/L` differs per cascade. The fine cascade's tile was 4.43x smaller,
+so its k-lattice was 4.43x **coarser** and each of its bins stood for 19.6x more
+of the spectrum than a mid-band bin — while carrying the same amplitude.
+
+The failure is worth stating precisely, because its signature is what makes it
+invisible:
+
+| quantity | single cascade | three cascades (unfixed) |
+|---|---|---|
+| summed height RMS | 0.167 m | 0.170 m — **preserved** |
+| summed **slope** RMS | 0.0425 | 0.0262 — **38% lost** |
+
+The amplitude normalisation is defined on height, so it dutifully held height
+constant while the energy drained out of the short waves. **Height is what the
+tests asserted; slope is what the eye reads.** The captures showed a
+mirror-smooth foreground you could see the sky reflected in — a sea that had
+stopped being water — and not one assertion moved.
+
+**Two rules come out of it.**
+
+*Weight each grid by its own bin spacing.* Multiply cascade `i`'s spectrum by
+`dk_i = 2*pi/L_i` before the shared normalisation. Only the ratio between bands
+matters, which is also why a one-cascade field is bit-identical: a single
+constant factor divides straight back out through the normalisation.
+
+*When a change redistributes a signal across scales, assert on the DERIVATIVE,
+not just the value.* A test on summed height cannot tell "the same sea, arranged
+differently" from "a flat sea with a long swell under it". `OceanCascadeTest
+.DiagBandEnergyAndSlopeAtDriftSettings` reports per-band height RMS **and**
+summed slope RMS, and fails if the preset costs more than 30% of the slope the
+author tuned. This generalises past water: any change that moves energy between
+frequencies — an LOD scheme, a noise octave rebalance, a filter — needs its
+acceptance written on the quantity that survives the redistribution, and the
+value usually is not it.
+
+The diagnostic path was cheap once started, and is the one to copy: the captures
+said "flatter", so the question became *which* statistic had moved. Measuring
+per-band RMS **and** slope at the scene's own authored settings localised it to
+the fine band in one run — no bisecting, no instrumenting the shader.
+
 ---
 
 ## The through-line
 
-Four defects, one symptom, zero test failures. Each was found by *looking at pixels*
-under a deliberately chosen condition — a specific distance, a grazing angle, a
-top-down view — and none by running the suite. `CLAUDE.md` requires visual
+Five defects now, one symptom, zero test failures. Each was found by *looking at
+pixels* under a deliberately chosen condition — a specific distance, a grazing
+angle, a top-down view — and none by running the suite. §7 was found the same way
+a year of water work later, in a subsystem with a parity test that was passing
+*exactly*, on a quantity that was not the one that mattered. `CLAUDE.md` requires visual
 verification for rendering changes for exactly this reason: the math tests prove the
 formula, and every bug here was a formula that was individually defensible and
 wrong in company.

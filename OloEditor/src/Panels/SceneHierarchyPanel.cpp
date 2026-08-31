@@ -6523,6 +6523,26 @@ namespace OloEngine
                     ImGui::DragFloat("Height Scale", &component.m_FFTHeightScale, 0.01f, 0.0f, 20.0f);
                     if (i32 seed = static_cast<i32>(component.m_FFTSeed); ImGui::DragInt("Seed", &seed, 1, 0, 1000000))
                         component.m_FFTSeed = static_cast<u32>(std::max(seed, 0));
+                    // Band-limited cascade preset (§1.3, issue #969). Two
+                    // choices, not a slider: the issue's non-goal is a knob
+                    // surface before the fixed preset is visually proven, and
+                    // everything the preset decides is derived from the patch
+                    // size above.
+                    const char* kCascadeLabels[] = { "Single (legacy)", "Three-band preset" };
+                    i32 cascadeIdx = (component.m_FFTCascades > Ocean::kSingleCascadeCount) ? 1 : 0;
+                    if (ImGui::Combo("Cascades", &cascadeIdx, kCascadeLabels, 2))
+                        component.m_FFTCascades = (cascadeIdx == 1) ? Ocean::kThreeBandCascadeCount
+                                                                    : Ocean::kSingleCascadeCount;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "Single: one tile at Patch Size carrying the whole spectrum.
+"
+                            "Three-band: Patch Size becomes the MID tile, with a broad tile for
+"
+                            "long swell and a fine tile for close chop either side of it, at
+"
+                            "non-commensurate sizes and one rotated, so the sea does not repeat.");
+
                     ImGui::Checkbox("GPU Compute FFT", &component.m_FFTUseGpuCompute);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Generate the ocean field with compute shaders (butterfly FFT).\nUntick to use the CPU reference path for comparison.");

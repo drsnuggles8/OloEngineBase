@@ -9290,22 +9290,41 @@ namespace OloEngine
                         sp.m_SpectrumType = water.m_FFTSpectrumType;
                         sp.m_JonswapGamma = clampF(water.m_FFTJonswapGamma, 1.0f, 10.0f, 3.3f);
                         sp.m_JonswapFetch = clampF(water.m_FFTJonswapFetch, 1.0f, 1.0e6f, 100000.0f);
+                        // Band-limited multi-cascade preset (§1.3, issue #969).
+                        // 1 is the shipped default and the pre-#969 field
+                        // exactly; anything else selects the fixed three-band
+                        // preset, which derives its own tiles from m_PatchSize.
+                        sp.m_CascadeCount = (water.m_FFTCascades <= Ocean::kSingleCascadeCount)
+                                                ? Ocean::kSingleCascadeCount
+                                                : Ocean::kThreeBandCascadeCount;
 
                         water.m_OceanField->Update(sp, animationTime, /*uploadToGpu=*/true,
                                                    /*useGpuCompute=*/water.m_FFTUseGpuCompute);
 
                         const RHI::ResourceHandle dispID = water.m_OceanField->GetDisplacementTextureHandle();
                         const RHI::ResourceHandle derivID = water.m_OceanField->GetDerivativesTextureHandle();
-                        if (dispID.IsValid() && derivID.IsValid())
+                        const Ocean::CascadePreset& preset = water.m_OceanField->GetPreset();
+                        if (dispID.IsValid() && derivID.IsValid() && preset.IsValid())
                         {
                             waterParams.fftDisplacementID = dispID;
                             waterParams.fftDerivativesID = derivID;
-                            const f32 invPatch = 1.0f / sp.m_PatchSize;
-                            // x = enabled, y = 1/patchSize (UV scale), z = heightScale,
-                            // w = horizontalScale (choppiness is already baked into the
-                            // texture's dx/dz, so keep this at 1).
+                            // Read off the preset the FIELD was actually built
+                            // for, never re-derived from sp — the shader has to
+                            // sample the tiles the spectra were generated on,
+                            // and a second derivation is a second chance to
+                            // disagree. GetPatchSize() is band 0's tile, which
+                            // IS the authored patch size on the one-cascade
+                            // path, so this line is unchanged there.
+                            const f32 invPatch = 1.0f / water.m_OceanField->GetPatchSize();
+                            // x = cascade count (>0 enables; every `> 0.5` test
+                            // in the shaders still reads as "FFT on"),
+                            // y = 1/L0 (broad-tile UV scale), z = heightScale,
+                            // w = horizontalScale (choppiness is already baked
+                            // into the texture's dx/dz, so keep this at 1).
                             waterParams.fftParams = glm::vec4(
-                                1.0f, invPatch, WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale), 1.0f);
+                                static_cast<f32>(preset.Count), invPatch,
+                                WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale), 1.0f);
+                            waterParams.fftCascadeParams = Ocean::PackCascadeShaderParams(preset);
                             // FFT crests can exceed the Gerstner-derived TCS cull
                             // margin; disable the per-patch frustum cull so off-screen-
                             // edge crests aren't clipped early.
@@ -9491,8 +9510,9 @@ namespace OloEngine
                     constexpr f32 kMinWaveReach = 2.0f;
                     f32 waveReach = kMinWaveReach;
                     // m_UseFFT alone is not the condition the SHADER runs on.
-                    // The render path only sets fftParams.x = 1 once the field
-                    // has actually produced both textures; until then the
+                    // The render path only sets fftParams.x to a non-zero
+                    // cascade count once the field has actually produced both
+                    // texture arrays; until then the
                     // surface is displaced by Gerstner waves, whose amplitude is
                     // unrelated to m_FFTAmplitude. Sizing the fog reach from the
                     // FFT amplitude in that window would size it for waves that

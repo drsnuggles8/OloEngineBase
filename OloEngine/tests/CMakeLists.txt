@@ -314,6 +314,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/OcclusionCullDeferredVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredInstancedShadingEvidenceTest.cpp
 		Rendering/PropertyTests/OceanFFTGpuContractTest.cpp
+		Rendering/PropertyTests/OceanCascadeTest.cpp
+		Rendering/PropertyTests/OceanCascadeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/OceanFFTSpectrumTest.cpp
 		Rendering/PropertyTests/PostProcessPropertyTests.cpp
 		Rendering/PropertyTests/PbrPropertyTests.cpp

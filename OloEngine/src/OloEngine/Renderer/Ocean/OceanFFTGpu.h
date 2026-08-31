@@ -52,10 +52,13 @@ namespace OloEngine::Ocean
         /// GL context). False ⇒ use the CPU path.
         [[nodiscard]] bool IsAvailable();
 
-        /// Release the file-scope FFT-params UBO shared by all instances.
-        /// Called from Renderer3D shutdown (the CloudNoise::Shutdown wiring)
-        /// so the Ref drops while the graphics device is still valid instead
-        /// of at static destruction. Idempotent; lazily re-creatable.
+        /// Release the file-scope resources shared by all instances — the
+        /// FFT-params UBO and, since issue #969, the three compute programs
+        /// (a three-band field owns three OceanFFTGpu instances, and they all
+        /// run the same code). Called from Renderer3D shutdown (the
+        /// CloudNoise::Shutdown wiring) so the Refs drop while the graphics
+        /// device is still valid instead of at static destruction. Idempotent;
+        /// lazily re-creatable.
         static void ShutdownSharedResources();
 
         /// Upload the (already amplitude-normalised) base spectrum h0 and
@@ -69,10 +72,21 @@ namespace OloEngine::Ocean
         }
 
         /// Run the full evolve → IFFT → assemble chain at `time` seconds,
-        /// image-storing into the two RGBA32F textures (must match the h0
-        /// resolution). Issues the memory barrier the sampling shader needs.
-        void Evaluate(f32 time, f32 choppiness, const Ref<Texture2D>& displacementTex,
-                      const Ref<Texture2D>& derivativesTex);
+        /// image-storing into `layer` of the two RGBA32F texture ARRAYS (whose
+        /// width/height must match the h0 resolution). Issues the memory barrier
+        /// the sampling shader needs.
+        ///
+        /// The layer is how the multi-cascade preset (issue #969) keeps one
+        /// binding pair: each band owns an OceanFFTGpu and writes its own layer
+        /// of the shared arrays. A single-cascade field is layer 0 of a
+        /// one-layer array, so there is no second code path to keep in step.
+        /// The whole array is bound layered and the target layer travels in the
+        /// shared params block — deliberately, rather than binding a single
+        /// layer as an image2D: nothing in this engine binds a non-zero layer
+        /// unlayered, and the layered path is the one the ping-pong arrays in
+        /// this same chain already exercise on both backends.
+        void Evaluate(f32 time, f32 choppiness, const Ref<Texture2DArray>& displacementTex,
+                      const Ref<Texture2DArray>& derivativesTex, u32 layer);
 
         /// Test hook: inverse-2D-FFT an N×N complex grid through the exact GPU
         /// butterfly chain and read it back (normalised by 1/N² on the CPU,
@@ -89,6 +103,8 @@ namespace OloEngine::Ocean
         /// index `srcIndex`; returns the index holding the final result.
         [[nodiscard]] u32 RunButterflyPasses(u32 srcIndex);
 
+        // Mirrors of the file-scope shared programs (see EnsureShaders), held
+        // as Refs so this object cannot outlive the code it dispatches.
         bool m_ShaderInitAttempted = false;
         bool m_ShadersValid = false;
         Ref<ComputeShader> m_EvolveShader;

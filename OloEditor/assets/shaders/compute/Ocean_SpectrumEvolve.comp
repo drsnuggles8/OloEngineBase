@@ -60,7 +60,7 @@ layout(std140, binding = 73) uniform OceanFFTParams
     int   u_Stage;       // 16 — 0 .. log2(N)-1 — FFTButterfly only
     int   u_Vertical;    // 20 — 0 = rows, 1 = columns — FFTButterfly only
     float u_Choppiness;  // 24 — λ, horizontal-displacement scale — Assemble only
-    float _oceanFFTPad0; // 28
+    int   u_CascadeLayer; // 28 — target cascade array layer — Assemble only (#969)
 };
 
 const float kTwoPi = 6.28318530717958647692;

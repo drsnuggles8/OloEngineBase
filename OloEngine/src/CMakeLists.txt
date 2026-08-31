@@ -733,6 +733,8 @@
 		"OloEngine/Renderer/Water/WaterWake.h"
 		"OloEngine/Renderer/Water/WaterWakeSystem.h"
 		"OloEngine/Renderer/Water/WaterWakeSystem.cpp"
+		"OloEngine/Renderer/Ocean/OceanCascades.cpp"
+		"OloEngine/Renderer/Ocean/OceanCascades.h"
 		"OloEngine/Renderer/Ocean/OceanFFT.cpp"
 		"OloEngine/Renderer/Ocean/OceanFFT.h"
 		"OloEngine/Renderer/Ocean/OceanSpectrum.cpp"

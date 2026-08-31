@@ -28,6 +28,7 @@
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/Ocean/OceanFFT.h"
+#include "OloEngine/Renderer/Ocean/OceanCascades.h"
 #include "OloEngine/Renderer/Ocean/OceanFFTField.h"
 #include "OloEngine/Renderer/Ocean/OceanFFTGpu.h"
 #include "OloEngine/Renderer/Ocean/OceanSpectrum.h"
@@ -51,19 +52,6 @@ namespace OloEngine::Tests
 {
     namespace
     {
-        [[nodiscard]] std::vector<glm::vec4> ReadbackRgba32f(u32 textureID, u32 resolution)
-        {
-            std::vector<glm::vec4> out(static_cast<sizet>(resolution) * resolution);
-            // Defaults, in case an earlier test left pack state dirty.
-            glPixelStorei(GL_PACK_ROW_LENGTH, 0);
-            glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
-            glPixelStorei(GL_PACK_SKIP_ROWS, 0);
-            glPixelStorei(GL_PACK_ALIGNMENT, 4);
-            glGetTextureImage(textureID, 0, GL_RGBA, GL_FLOAT,
-                              static_cast<GLsizei>(out.size() * sizeof(glm::vec4)), out.data());
-            return out;
-        }
-
         [[nodiscard]] f32 RmsOf(const std::vector<f32>& v)
         {
             if (v.empty())
@@ -74,15 +62,30 @@ namespace OloEngine::Tests
             return static_cast<f32>(std::sqrt(acc / static_cast<f64>(v.size())));
         }
 
-        [[nodiscard]] Ref<Texture2D> MakeFieldTexture(u32 resolution)
+        // The cascade outputs are 2D ARRAYS since issue #969 — one layer per
+        // band — so a readback returns every layer back to back.
+        [[nodiscard]] std::vector<glm::vec4> ReadbackRgba32fArray(u32 textureID, u32 resolution, u32 layers)
         {
-            TextureSpecification spec;
+            std::vector<glm::vec4> out(static_cast<sizet>(resolution) * resolution * layers);
+            // Defaults, in case an earlier test left pack state dirty.
+            glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+            glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+            glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+            glPixelStorei(GL_PACK_ALIGNMENT, 4);
+            glGetTextureImage(textureID, 0, GL_RGBA, GL_FLOAT,
+                              static_cast<GLsizei>(out.size() * sizeof(glm::vec4)), out.data());
+            return out;
+        }
+
+        [[nodiscard]] Ref<Texture2DArray> MakeFieldTexture(u32 resolution, u32 layers = 1u)
+        {
+            Texture2DArraySpecification spec;
             spec.Width = resolution;
             spec.Height = resolution;
-            spec.Format = ImageFormat::RGBA32F;
-            spec.GenerateMips = false;
-            spec.MipLevels = 1;
-            return Texture2D::Create(spec);
+            spec.Layers = layers;
+            spec.Format = Texture2DArrayFormat::RGBA32F;
+            spec.GenerateMipmaps = false;
+            return Texture2DArray::Create(spec);
         }
     } // namespace
 
@@ -182,10 +185,10 @@ namespace OloEngine::Tests
 
         auto dispTex = MakeFieldTexture(N);
         auto derivTex = MakeFieldTexture(N);
-        gpu->Evaluate(time, p.m_Choppiness, dispTex, derivTex);
+        gpu->Evaluate(time, p.m_Choppiness, dispTex, derivTex, /*layer=*/0u);
 
-        const auto gpuDisp = ReadbackRgba32f(dispTex->GetRendererID(), N);
-        const auto gpuDeriv = ReadbackRgba32f(derivTex->GetRendererID(), N);
+        const auto gpuDisp = ReadbackRgba32fArray(dispTex->GetRendererID(), N, 1u);
+        const auto gpuDeriv = ReadbackRgba32fArray(derivTex->GetRendererID(), N, 1u);
 
         // Tolerances scale with the field's own magnitude (the raw Phillips
         // amplitude is unitless): both sides are f32 and run the identical
@@ -264,10 +267,12 @@ namespace OloEngine::Tests
             << "GPU mode did not engage (physics proxy missing) — compute path silently fell back?";
         ASSERT_EQ(cpuField->GetField().m_Resolution, N);
 
-        const auto gpuDisp = ReadbackRgba32f(gpuField->GetDisplacementTextureID(), N);
-        const auto cpuDisp = ReadbackRgba32f(cpuField->GetDisplacementTextureID(), N);
-        const auto gpuDeriv = ReadbackRgba32f(gpuField->GetDerivativesTextureID(), N);
-        const auto cpuDeriv = ReadbackRgba32f(cpuField->GetDerivativesTextureID(), N);
+        // One cascade ⇒ one array layer; the readback is the whole array.
+        ASSERT_EQ(gpuField->GetCascadeCount(), 1u);
+        const auto gpuDisp = ReadbackRgba32fArray(gpuField->GetDisplacementTextureID(), N, 1u);
+        const auto cpuDisp = ReadbackRgba32fArray(cpuField->GetDisplacementTextureID(), N, 1u);
+        const auto gpuDeriv = ReadbackRgba32fArray(gpuField->GetDerivativesTextureID(), N, 1u);
+        const auto cpuDeriv = ReadbackRgba32fArray(cpuField->GetDerivativesTextureID(), N, 1u);
 
         // The fields are RMS-normalised to metres (amplitude 3 ⇒ ~0.9 m RMS).
         f32 maxDispErr = 0.0f, maxDerivErr = 0.0f;
@@ -294,5 +299,257 @@ namespace OloEngine::Tests
         std::cout << "[ DIAG ] physics-proxy SampleHeight max divergence = " << maxSampleErr << " m\n";
         EXPECT_LT(maxSampleErr, 0.1f)
             << "band-limited physics proxy no longer tracks the rendered surface";
+    }
+
+    // -----------------------------------------------------------------------
+    // 4. The band-limited three-cascade preset (issue #969)
+    // -----------------------------------------------------------------------
+
+    // The texture-space sum, written straight off the contract in
+    // Ocean/OceanCascades.h and evaluated on READ-BACK TEXELS — i.e. on the
+    // exact bytes the water shader samples. This is a third evaluation of one
+    // function, and that is the point: OceanFFTField::SampleCascades and
+    // include/OceanCascadeCommon.glsl are the two production halves, and a test
+    // that re-read the CPU field would only be checking the CPU half against
+    // itself.
+    namespace
+    {
+        struct TexelCascadeSum
+        {
+            f32 Height = 0.0f;
+            glm::vec2 Horizontal{ 0.0f };
+            f32 Foam = 0.0f;
+        };
+
+        [[nodiscard]] glm::vec4 BilinearLayer(const std::vector<glm::vec4>& texels, u32 resolution, u32 layer,
+                                              glm::vec2 uv)
+        {
+            const f32 fN = static_cast<f32>(resolution);
+            f32 gx = uv.x * fN;
+            f32 gz = uv.y * fN;
+            gx -= std::floor(gx / fN) * fN;
+            gz -= std::floor(gz / fN) * fN;
+            const u32 x0 = static_cast<u32>(gx) % resolution;
+            const u32 z0 = static_cast<u32>(gz) % resolution;
+            const u32 x1 = (x0 + 1u) % resolution;
+            const u32 z1 = (z0 + 1u) % resolution;
+            const f32 tx = gx - std::floor(gx);
+            const f32 tz = gz - std::floor(gz);
+            const sizet base = static_cast<sizet>(layer) * resolution * resolution;
+            const glm::vec4 a = texels[base + static_cast<sizet>(z0) * resolution + x0];
+            const glm::vec4 b = texels[base + static_cast<sizet>(z0) * resolution + x1];
+            const glm::vec4 c = texels[base + static_cast<sizet>(z1) * resolution + x0];
+            const glm::vec4 d = texels[base + static_cast<sizet>(z1) * resolution + x1];
+            return glm::mix(glm::mix(a, b, tx), glm::mix(c, d, tx), tz);
+        }
+
+        [[nodiscard]] TexelCascadeSum SumFromTexels(const Ocean::CascadePreset& preset,
+                                                    const std::vector<glm::vec4>& disp, glm::vec2 worldXZ)
+        {
+            TexelCascadeSum out;
+            for (u32 i = 0u; i < preset.Count; ++i)
+            {
+                const f32 c = std::cos(preset.Bands[i].DomainRotation);
+                const f32 sn = std::sin(preset.Bands[i].DomainRotation);
+                const glm::vec2 uv = Ocean::RotateVec2(worldXZ, c, sn) / preset.Bands[i].PatchSize;
+                const glm::vec4 d = BilinearLayer(disp, preset.ArrayResolution, i, uv);
+                out.Height += d.y;
+                out.Horizontal += Ocean::RotateVec2(glm::vec2(d.x, d.z), c, -sn);
+                out.Foam += d.w;
+            }
+            out.Foam = std::clamp(out.Foam, 0.0f, 1.0f);
+            return out;
+        }
+    } // namespace
+
+    TEST_F(OceanFFTGpuContractTest, ThreeCascadeFieldProducesEveryLayerOnTheGpu)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Ocean::SpectrumParams p{};
+        p.m_Resolution = 128u;
+        p.m_PatchSize = 64.0f;
+        p.m_WindSpeed = 16.0f;
+        p.m_WindDirection = glm::vec2(1.0f, 0.25f);
+        p.m_Amplitude = 3.0f;
+        p.m_Choppiness = 1.1f;
+        p.m_CascadeCount = 3u;
+
+        auto field = Ref<Ocean::OceanFFTField>::Create();
+        field->Update(p, 5.0f, /*uploadToGpu=*/true, /*useGpuCompute=*/true);
+
+        const Ocean::CascadePreset& preset = field->GetPreset();
+        ASSERT_EQ(preset.Count, 3u);
+        ASSERT_NE(field->GetDisplacementTextureID(), 0u);
+        ASSERT_NE(field->GetDerivativesTextureID(), 0u);
+        // GPU mode must actually have engaged, or this compares CPU with CPU.
+        ASSERT_EQ(field->GetCascadeField(0).m_Resolution, 64u)
+            << "GPU mode did not engage (physics proxy missing) — compute path silently fell back?";
+
+        const auto disp = ReadbackRgba32fArray(field->GetDisplacementTextureID(), preset.ArrayResolution, 3u);
+        const auto deriv = ReadbackRgba32fArray(field->GetDerivativesTextureID(), preset.ArrayResolution, 3u);
+
+        // EVERY layer must carry a real field. A dispatch that wrote the wrong
+        // layer — or wrote layer 0 three times — leaves the others at their
+        // allocation contents, which is the failure this catches and which
+        // renders as a perfectly plausible one-cascade sea.
+        const sizet perLayer = static_cast<sizet>(preset.ArrayResolution) * preset.ArrayResolution;
+        for (u32 layer = 0u; layer < 3u; ++layer)
+        {
+            f64 acc = 0.0;
+            for (sizet i = 0; i < perLayer; ++i)
+            {
+                const f32 h = disp[static_cast<sizet>(layer) * perLayer + i].y;
+                ASSERT_TRUE(std::isfinite(h)) << "layer " << layer << " texel " << i << " is not finite";
+                acc += static_cast<f64>(h) * h;
+                // The derivatives layer must hold an upward normal.
+                const glm::vec4 n = deriv[static_cast<sizet>(layer) * perLayer + i];
+                ASSERT_GT(n.y, 0.0f) << "layer " << layer << " normal points down";
+            }
+            const f64 rms = std::sqrt(acc / static_cast<f64>(perLayer));
+            std::cout << "[ DIAG ] cascade layer " << layer << " height RMS = " << rms << " m\n";
+            EXPECT_GT(rms, 1e-4) << "cascade layer " << layer << " is empty";
+        }
+
+        // The bands are disjoint, so no two layers may hold the same field —
+        // which is what "the same chain ran three times" would look like.
+        for (u32 a = 0u; a < 3u; ++a)
+        {
+            for (u32 b = a + 1u; b < 3u; ++b)
+            {
+                f64 maxDiff = 0.0;
+                for (sizet i = 0; i < perLayer; ++i)
+                    maxDiff = std::max(maxDiff,
+                                       static_cast<f64>(std::abs(disp[static_cast<sizet>(a) * perLayer + i].y -
+                                                                 disp[static_cast<sizet>(b) * perLayer + i].y)));
+                EXPECT_GT(maxDiff, 1e-4) << "cascade layers " << a << " and " << b << " hold the same field";
+            }
+        }
+    }
+
+    TEST_F(OceanFFTGpuContractTest, SummedHeightMatchesBetweenTheCpuSamplerAndTheCascadeTextures)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // The issue's "CPU/GPU summed height parity ... for all enabled
+        // cascades" criterion. Run in CPU-generation mode so the retained CPU
+        // fields are full resolution and the ONLY difference between the two
+        // sides is the summation itself — a band-limited physics proxy would
+        // put a real, expected divergence between them and leave the assertion
+        // unable to tell that apart from a wrong rotation or a swapped layer.
+        Ocean::SpectrumParams p{};
+        p.m_Resolution = 64u;
+        p.m_PatchSize = 90.0f;
+        p.m_WindSpeed = 14.0f;
+        p.m_WindDirection = glm::vec2(1.0f, 0.4f);
+        p.m_Amplitude = 3.0f;
+        p.m_Choppiness = 1.2f;
+        p.m_CascadeCount = 3u;
+
+        auto field = Ref<Ocean::OceanFFTField>::Create();
+        field->Update(p, 9.0f, /*uploadToGpu=*/true, /*useGpuCompute=*/false);
+        const Ocean::CascadePreset& preset = field->GetPreset();
+        ASSERT_EQ(preset.Count, 3u);
+        ASSERT_NE(field->GetDisplacementTextureID(), 0u);
+
+        const auto disp = ReadbackRgba32fArray(field->GetDisplacementTextureID(), preset.ArrayResolution, 3u);
+
+        f32 maxHeightErr = 0.0f;
+        f32 maxHorizErr = 0.0f;
+        f32 maxFoamErr = 0.0f;
+        f32 peakHeight = 0.0f;
+        for (int zi = 0; zi < 16; ++zi)
+        {
+            for (int xi = 0; xi < 16; ++xi)
+            {
+                const glm::vec2 xz(static_cast<f32>(xi) * 13.7f - 90.0f, static_cast<f32>(zi) * 17.3f - 110.0f);
+                const auto cpu = field->SampleCascades(xz);
+                const auto tex = SumFromTexels(preset, disp, xz);
+                maxHeightErr = std::max(maxHeightErr, std::abs(cpu.Height - tex.Height));
+                maxHorizErr = std::max({ maxHorizErr, std::abs(cpu.Horizontal.x - tex.Horizontal.x),
+                                         std::abs(cpu.Horizontal.y - tex.Horizontal.y) });
+                maxFoamErr = std::max(maxFoamErr, std::abs(cpu.Foam - tex.Foam));
+                peakHeight = std::max(peakHeight, std::abs(cpu.Height));
+            }
+        }
+        std::cout << "[ DIAG ] summed parity — height " << maxHeightErr << " m, horizontal " << maxHorizErr
+                  << " m, foam " << maxFoamErr << " (peak height " << peakHeight << " m)\n";
+        ASSERT_GT(peakHeight, 0.1f) << "the sea is flat — every assertion below would pass on nothing";
+        EXPECT_LT(maxHeightErr, 1e-3f)
+            << "the CPU sampler and the cascade textures disagree about the summed height — a layer order, "
+               "a tile scale or a rotation direction differs between the two halves";
+        EXPECT_LT(maxHorizErr, 1e-3f) << "the summed choppy displacement disagrees between the two halves";
+        EXPECT_LT(maxFoamErr, 1e-3f) << "the summed foam disagrees between the two halves";
+    }
+
+    TEST_F(OceanFFTGpuContractTest, CascadeArraysTileRatherThanClamp)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Every cascade layer is periodic over its own patch size, and the water
+        // shader addresses it with an unbounded worldXZ * (1/L). The single-
+        // cascade field got REPEAT for free from the GL texture default; the
+        // Texture2DArray it moved onto defaults to CLAMP_TO_EDGE, which renders
+        // one tile of sea and smears its border across the rest of the frame.
+        // That is an invariant a container swap drops silently and no math test
+        // can see, so it is asserted on the texture object itself.
+        Ocean::SpectrumParams p{};
+        p.m_Resolution = 64u;
+        p.m_PatchSize = 80.0f;
+        p.m_Amplitude = 2.0f;
+
+        for (u32 cascades : { 1u, 3u })
+        {
+            p.m_CascadeCount = cascades;
+            auto field = Ref<Ocean::OceanFFTField>::Create();
+            field->Update(p, 1.0f, true, true);
+            for (u32 id : { field->GetDisplacementTextureID(), field->GetDerivativesTextureID() })
+            {
+                ASSERT_NE(id, 0u);
+                GLint wrapS = 0;
+                GLint wrapT = 0;
+                glGetTextureParameteriv(id, GL_TEXTURE_WRAP_S, &wrapS);
+                glGetTextureParameteriv(id, GL_TEXTURE_WRAP_T, &wrapT);
+                EXPECT_EQ(wrapS, GL_REPEAT) << "cascades=" << cascades << ": the field does not tile in S";
+                EXPECT_EQ(wrapT, GL_REPEAT) << "cascades=" << cascades << ": the field does not tile in T";
+            }
+        }
+    }
+
+    TEST_F(OceanFFTGpuContractTest, SwitchingCascadeCountRebuildsTheTextureArray)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // Resource lifetime across the opt-in: the arrays are allocated for a
+        // layer count, and toggling the preset has to rebuild them rather than
+        // leave a one-layer array that a three-band draw would sample layer 2 of.
+        Ocean::SpectrumParams p{};
+        p.m_Resolution = 64u;
+        p.m_PatchSize = 80.0f;
+        p.m_Amplitude = 2.0f;
+
+        auto field = Ref<Ocean::OceanFFTField>::Create();
+
+        p.m_CascadeCount = 1u;
+        field->Update(p, 1.0f, true, true);
+        ASSERT_EQ(field->GetCascadeCount(), 1u);
+        ASSERT_TRUE(field->GetDisplacementTextureHandle().IsValid());
+
+        p.m_CascadeCount = 3u;
+        field->Update(p, 1.0f, true, true);
+        ASSERT_EQ(field->GetCascadeCount(), 3u);
+        ASSERT_TRUE(field->GetDisplacementTextureHandle().IsValid());
+        const u32 arrayRes = field->GetPreset().ArrayResolution;
+        const auto disp = ReadbackRgba32fArray(field->GetDisplacementTextureID(), arrayRes, 3u);
+        ASSERT_EQ(disp.size(), static_cast<sizet>(arrayRes) * arrayRes * 3u);
+        for (const glm::vec4& t : disp)
+            ASSERT_TRUE(std::isfinite(t.y)) << "the widened array holds uninitialised texels";
+
+        // ...and back, which is the direction that would otherwise leave a
+        // three-layer array in place with two stale bands still in it.
+        p.m_CascadeCount = 1u;
+        field->Update(p, 1.0f, true, true);
+        EXPECT_EQ(field->GetCascadeCount(), 1u);
+        EXPECT_TRUE(field->GetDisplacementTextureHandle().IsValid());
     }
 } // namespace OloEngine::Tests

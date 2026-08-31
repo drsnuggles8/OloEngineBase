@@ -32,6 +32,20 @@ namespace OloEngine
         Texture2DArrayFormat Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
         bool DepthComparisonMode = false; // Enable hardware shadow comparison (sampler2DArrayShadow)
         bool GenerateMipmaps = false;     // Allocate mipmap levels (for color texture arrays)
+
+        // Tile the layers instead of clamping them (issue #969). The default is
+        // CLAMP_TO_EDGE, which is right for every array that existed first —
+        // shadow cascades, terrain material layers, the VT cache — because each
+        // layer is a bounded image and sampling past its edge is a bug.
+        //
+        // A layer that is PERIODIC BY CONSTRUCTION needs the opposite: the FFT
+        // ocean's cascade fields tile seamlessly over their own patch size, and
+        // the water shader addresses them with an unbounded worldXZ/L, so
+        // clamping renders one tile and then smears its border across the rest
+        // of the sea. Honoured by both backends (the Vulkan side registers the
+        // address mode the heap mints its sampler from), and only meaningful
+        // for colour formats — depth arrays keep their bordered clamp.
+        bool RepeatWrap = false;
     };
 
     class Texture2DArray : public RefCounted

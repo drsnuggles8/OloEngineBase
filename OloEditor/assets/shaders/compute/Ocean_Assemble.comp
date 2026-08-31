@@ -10,8 +10,11 @@
 // normalisation, and packs the SAME two RGBA32F textures the CPU path
 // uploads — so Water.glsl is untouched (§6.4 transition path):
 //
-//   displacement: rgb = (λ·dx, height, λ·dz), a = foam = saturate(1 - J)
-//   derivatives:  rgb = unit surface normal,  a = Jacobian J
+//   displacement[layer]: rgb = (λ·dx, height, λ·dz), a = foam = saturate(1 - J)
+//   derivatives [layer]: rgb = unit surface normal,  a = Jacobian J
+//
+// Both outputs are 2D ARRAYS, one layer per cascade band (issue #969). A
+// single-cascade field is a one-layer array, so there is one code path.
 //
 // Mirrors the final packing loop of OceanSpectrum.cpp::EvaluateField +
 // OceanFFTField::Upload.
@@ -26,8 +29,8 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 // these image units; the body below is unchanged either way.
 #ifndef OLO_BINDLESS
 layout(rgba32f, binding = 0) readonly uniform image2DArray u_Spectra;
-layout(rgba32f, binding = 1) writeonly uniform image2D u_Displacement;
-layout(rgba32f, binding = 2) writeonly uniform image2D u_Derivatives;
+layout(rgba32f, binding = 1) writeonly uniform image2DArray u_Displacement;
+layout(rgba32f, binding = 2) writeonly uniform image2DArray u_Derivatives;
 #endif
 
 // Former bare uniforms, migrated to a std140 block (issue #691):
@@ -48,15 +51,15 @@ layout(std140, binding = 73) uniform OceanFFTParams
     int   u_Stage;       // 16 — 0 .. log2(N)-1 — FFTButterfly only
     int   u_Vertical;    // 20 — 0 = rows, 1 = columns — FFTButterfly only
     float u_Choppiness;  // 24 — λ, horizontal-displacement scale — Assemble only
-    float _oceanFFTPad0; // 28
+    int   u_CascadeLayer; // 28 — target cascade array layer — Assemble only (#969)
 };
 
 void main()
 {
 #ifdef OLO_BINDLESS
     OLO_HEAP_IMAGE(rgba32f, OLO_HEAP_IMAGE_RW, image2DArray, u_Spectra, 0);
-    OLO_HEAP_IMAGE(rgba32f, writeonly, image2D, u_Displacement, 1);
-    OLO_HEAP_IMAGE(rgba32f, writeonly, image2D, u_Derivatives, 2);
+    OLO_HEAP_IMAGE(rgba32f, writeonly, image2DArray, u_Displacement, 1);
+    OLO_HEAP_IMAGE(rgba32f, writeonly, image2DArray, u_Derivatives, 2);
 #endif
     ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
     if (gid.x >= u_Resolution || gid.y >= u_Resolution)
@@ -86,6 +89,10 @@ void main()
     float jacobian = jxx * jzz - jxz * jxz;
     float foam = clamp(1.0 - jacobian, 0.0, 1.0);
 
-    imageStore(u_Displacement, gid, vec4(disp.x, height, disp.y, foam));
-    imageStore(u_Derivatives, gid, vec4(normal, jacobian));
+    // One chain per cascade band, each landing in its own array layer
+    // (issue #969). The single-cascade fallback is layer 0 of a one-layer
+    // array, so this addressing is the same code on both paths.
+    ivec3 dst = ivec3(gid, u_CascadeLayer);
+    imageStore(u_Displacement, dst, vec4(disp.x, height, disp.y, foam));
+    imageStore(u_Derivatives, dst, vec4(normal, jacobian));
 }

@@ -1055,7 +1055,10 @@ namespace OloEngine
         glm::vec4 sssColor = glm::vec4(0.0f);              // rgb = SSS color
         glm::vec4 ssrParams = glm::vec4(0.0f);             // maxSteps, stepSize, maxDistance, thickness
         glm::vec4 tessParams = glm::vec4(0.0f);            // tessellationFactor, minDist, maxDist, frustumCullEnable
-        glm::vec4 fftParams = glm::vec4(0.0f);             // useFFT (0/1), 1/patchSize, heightScale, horizontalScale
+        glm::vec4 fftParams = glm::vec4(0.0f);             // cascade count (0=off), 1/L0, heightScale, horizontalScale
+        // Per-cascade tile scales + the mid band's domain rotation (issue #969).
+        // Ocean::PackCascadeShaderParams builds it from the field's own preset.
+        glm::vec4 fftCascadeParams = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
 
         // Normal map / noise texture IDs
         RHI::ResourceHandle normalMap0ID{};

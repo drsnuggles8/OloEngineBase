@@ -114,9 +114,15 @@ namespace OloEngine
         registryInfo.ViewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
         // §4f sampler table: colour arrays are CLAMP_TO_EDGE on GL, depth
         // arrays CLAMP_TO_BORDER with an opaque-white border (the
-        // out-of-cascade shadow lookup must read "fully lit").
-        registryInfo.AddressMode =
-            isDepth ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        // out-of-cascade shadow lookup must read "fully lit"). A colour array
+        // whose layers are PERIODIC by construction asks for REPEAT instead
+        // (the FFT ocean cascades, issue #969) — and must get it on this side
+        // too, or the same scene tiles on GL and smears on Vulkan, which is
+        // the one-row-order-per-backend class of divergence in
+        // docs/agent-rules/rhi-abstraction-boundary.md.
+        registryInfo.AddressMode = isDepth                      ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
+                                   : m_Specification.RepeatWrap ? VK_SAMPLER_ADDRESS_MODE_REPEAT
+                                                                : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         VulkanImageInfoRegistry::Get().Register(m_Image, registryInfo);
 
         m_RHIHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(m_Image), RHI::Backend::Vulkan);

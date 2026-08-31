@@ -42,7 +42,16 @@ layout(std140, binding = 23) uniform WaterParams
     vec4 u_SSSColor;
     vec4 u_SSRParams;
     vec4 u_TessParams;
-    vec4 u_FFTParams;
+    vec4 u_FFTParams;              // x = cascade count (0 = Gerstner), y = 1/L0, z = heightScale, w = horizontalScale
+    // FFT ocean cascades (issue #969). C++ twin:
+    // UBOStructures::WaterUBO::FFTCascadeParams, packed by
+    // Ocean::PackCascadeShaderParams. Declared in EVERY stage of the water
+    // programs, identically, for the reason the #967/#968 fields below are.
+    //
+    // u_FFTParams.x carries the CASCADE COUNT rather than a 0/1 flag — 1 is the
+    // single-cascade fallback and 3 the band-limited preset, so every existing
+    // `u_FFTParams.x > 0.5` test still means "FFT is on" and did not change.
+    vec4 u_FFTCascadeParams;       // x = 1/L1 (mid tile), y = 1/L2 (fine tile), z = cos(theta_mid), w = sin(theta_mid)
     // Boat / actor wake foam field (issue #967). C++ twin:
     // UBOStructures::WaterUBO::WakeFieldParams / WakeFieldParams2. Declared in
     // EVERY stage of the water programs, identically, because GL requires a

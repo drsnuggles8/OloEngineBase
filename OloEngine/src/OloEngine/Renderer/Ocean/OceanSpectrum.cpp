@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Ocean/OceanSpectrum.h"
 
 #include <cmath>
+#include <limits>
 #include <random>
 
 // =============================================================================
@@ -159,6 +160,24 @@ namespace OloEngine::Ocean
             }
         }
         return h0;
+    }
+
+    void ApplyBandLimit(std::vector<Complex>& h0, u32 resolution, f32 patchSize, f32 kMin, f32 kMax)
+    {
+        const u32 N = resolution;
+        OLO_CORE_ASSERT(h0.size() == static_cast<sizet>(N) * N, "ApplyBandLimit: h0 size mismatch");
+        if (kMin <= 0.0f && !(kMax < std::numeric_limits<f32>::infinity()))
+            return; // the whole spectrum — the single-cascade case, untouched
+
+        for (u32 m = 0u; m < N; ++m)
+        {
+            for (u32 n = 0u; n < N; ++n)
+            {
+                const f32 k = glm::length(WaveVector(n, m, N, patchSize));
+                if (k < kMin || k >= kMax)
+                    h0[static_cast<sizet>(m) * N + n] = Complex(0.0f, 0.0f);
+            }
+        }
     }
 
     std::vector<Complex> ExtractBandLimitedH0(const std::vector<Complex>& h0, u32 resolution, u32 targetResolution)

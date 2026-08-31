@@ -73,10 +73,14 @@ fallback. Shipped:
   Pinned by `OceanFFTSpectrumTest` (γ peak enhancement, fetch→peak-frequency
   shift, dispatch routing, metre-scale field) + a `ComponentRoundTrip` YAML test.
 
-Still open (natural follow-on): **cascaded FFT** (§1.3). **Buoyancy sampling
-from the FFT field** (§5.1) is now **shipped** — `BuoyancySystem` reads
-`OceanFFTField`'s band-limited CPU proxy via `WaterSurface::SampleHeightFFT`
-when a tile uses the FFT ocean, falling back to the Gerstner sum otherwise.
+- ✅ **Band-limited three-cascade preset (§1.3)** — opt-in per water surface
+  (`m_FFTCascades`), shipped by issue #969. See §1.3 below.
+
+**Buoyancy sampling from the FFT field** (§5.1) is also **shipped** —
+`BuoyancySystem` reads `OceanFFTField`'s band-limited CPU proxy via
+`WaterSurface::SampleHeightFFT` when a tile uses the FFT ocean, falling back to
+the Gerstner sum otherwise; since #969 that proxy is the SUM of the enabled
+cascades.
 
 ### 1.1 Tessendorf FFT Pipeline
 
@@ -116,18 +120,57 @@ For OloEngine (OpenGL 4.6 / compute shaders):
 - **Output textures**: displacement map (RGB16F — dx, height, dz), normal map
   (RG16F or RGB8), folding/Jacobian map (R16F — for foam generation).
 
-### 1.3 Cascaded FFT
+### 1.3 Cascaded FFT — **shipped** (issue #969)
 
-A single 512² grid covers one wavelength range. Real oceans need waves from
-centimeters to hundreds of meters. Solution: 3–4 cascaded FFT grids at
-different scales (e.g. 4m, 64m, 512m, 4096m tiles).
-
-Each cascade uses a different band of the Phillips spectrum. During rendering,
-all cascades are sampled and summed in the vertex/tessellation shader.
+A single grid covers one wavelength range. Real oceans need waves from
+centimetres to hundreds of metres, and the one tile a single-cascade field
+settles on is also the distance at which the whole sea visibly repeats — which
+is what #969 opened with, as "weak near-to-horizon coherence" in Drift captures.
 
 **Reference**: Dupuy & Bruneton, *"Real-Time Animation and Rendering of Ocean
-Whitecaps"* (SIGGRAPH Asia 2012) — describes a multi-cascade approach with
-correct filtering.
+Whitecaps"* (SIGGRAPH Asia 2012).
+
+What shipped is a **fixed three-band preset**, not an N-cascade system — the
+issue's non-goal is an artist knob surface before the preset is visually proven.
+A water surface opts in with `m_FFTCascades = 3` (default 1 = the pre-#969
+field, unchanged); everything else derives from the patch size and resolution
+the scene already authors. The full design, and the reasoning behind each
+constant, lives at the top of
+[`Ocean/OceanCascades.h`](../../OloEngine/src/OloEngine/Renderer/Ocean/OceanCascades.h)
+rather than being duplicated here. The four load-bearing decisions:
+
+| decision | what it buys |
+|---|---|
+| The authored patch size becomes the **mid** band; broad and fine tiles derive either side of it | an author keeps the wave scale they tuned, and the preset adds an octave in each direction |
+| Band boundaries sit at the **next tile's fundamental** ($2\pi/L_{i+1}$), as half-open ranges | no gap and no double-counted energy at the handoff — every wave vector belongs to exactly one band |
+| Tile ratios (4.79, 4.31) are deliberately **non-commensurate**, and the mid band's sampling domain is **rotated** (with its wind counter-rotated to match) | the three lattices share neither a period nor an axis, so there is no repetition for the eye to lock onto |
+| Per-band resolutions are derived from each band's **shortest wavelength** | the bounded bands need 64 where the fine band needs the authored resolution |
+
+The three fields are **layers of one `Texture2DArray` pair**, so the preset costs
+the same two engine texture slots (`TEX_WATER_FFT_DISPLACEMENT` /
+`_DERIVATIVES`) the single-cascade field did, and the single-cascade path is a
+one-layer array through the same code. The sum itself is written once per side:
+`OceanFFTField::SampleCascades` on the CPU (which is what buoyancy floats on)
+and `include/OceanCascadeCommon.glsl::sampleOceanCascades` on the GPU, included
+by the vertex, tessellation-evaluation and fragment stages rather than copied
+into each.
+
+**Consequence worth knowing before changing the classifier:** every chain runs
+at the array resolution rather than at its own derived one, because a texture
+array's layers must share a size. That costs GPU time and nothing else — a
+band-limited spectrum on a larger grid is the same spectrum with the extra bins
+zero, and its inverse FFT is the exact band-limited reconstruction of the
+smaller one. That equivalence is pinned by
+`OceanCascadeTest.DerivedResolutionReproducesTheArrayResolutionField`, not
+asserted in a comment.
+
+Pinned by `OceanCascadeTest` (band partition, tile non-commensurability,
+resolution derivation, the single-cascade fallback against an independent
+re-derivation of the old pipeline, summed slope vs summed height, and a text
+test that all three water stages share one sum), `OceanFFTGpuContractTest`
+(every layer produced and distinct on the GPU, CPU/texture summed parity, array
+lifetime across the opt-in), `WaterSurfaceSamplerTest` (buoyancy reads the sum)
+and `OceanCascadeVisualEvidenceTest` (near/mid/horizon A/B captures).
 
 ### 1.4 JONSWAP Spectrum — **shipped**
 

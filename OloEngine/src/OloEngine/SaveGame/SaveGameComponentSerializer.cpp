@@ -2437,7 +2437,23 @@ namespace OloEngine
             ar << c.m_FFTJonswapGamma << c.m_FFTJonswapFetch;
         }
 
-        // Planar (mirror) reflections appended after the spectrum block
+        // Band-limited cascade preset (§1.3, issue #969) appended after the
+        // spectrum block — same trailing-AtEnd() probe, so a save written
+        // before it restores the single-cascade default and the surface the
+        // player last saw.
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_FFTCascades = Ocean::kSingleCascadeCount;
+        }
+        else
+        {
+            ar << c.m_FFTCascades;
+            if (ar.IsLoading() && c.m_FFTCascades != Ocean::kSingleCascadeCount &&
+                c.m_FFTCascades != Ocean::kThreeBandCascadeCount)
+                c.m_FFTCascades = Ocean::kSingleCascadeCount;
+        }
+
+        // Planar (mirror) reflections appended after the cascade field
         // — same trailing-AtEnd() probe so archives written before it fall back to
         // the component defaults (planar reflections off).
         if (ar.IsLoading() && ar.AtEnd())

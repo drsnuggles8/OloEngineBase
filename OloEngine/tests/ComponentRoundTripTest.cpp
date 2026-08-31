@@ -2915,6 +2915,7 @@ namespace OloEngine::Tests
         const Ocean::SpectrumType expectedSpectrum = Ocean::SpectrumType::JONSWAP;
         const f32 expectedGamma = 4.2f;
         const f32 expectedFetch = 50000.0f;
+        const u32 expectedCascades = Ocean::kThreeBandCascadeCount; // default is 1
 
         std::string yaml;
         {
@@ -2934,6 +2935,7 @@ namespace OloEngine::Tests
             water.m_FFTSpectrumType = expectedSpectrum;
             water.m_FFTJonswapGamma = expectedGamma;
             water.m_FFTJonswapFetch = expectedFetch;
+            water.m_FFTCascades = expectedCascades;
 
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
@@ -2962,6 +2964,43 @@ namespace OloEngine::Tests
         EXPECT_EQ(water.m_FFTSpectrumType, expectedSpectrum);
         EXPECT_NEAR(water.m_FFTJonswapGamma, expectedGamma, kFloatEpsilon);
         EXPECT_NEAR(water.m_FFTJonswapFetch, expectedFetch, kFloatEpsilon);
+        EXPECT_EQ(water.m_FFTCascades, expectedCascades);
+    }
+
+    // -------------------------------------------------------------------------
+    // WaterComponent — the cascade preset is a DISCRIMINATED value (issue #969)
+    //
+    // 1 is the legacy single-cascade field and 3 the fixed three-band preset,
+    // and there is nothing in between. A corrupt or hand-edited scene must fall
+    // back to the legacy field rather than saturate to the preset: saturating a
+    // discriminated value produces a DIFFERENT VALID value — here, a surface
+    // silently opted into a different ocean than the one it was authored with.
+    // (The Reject-not-Clamp rule in
+    // docs/agent-rules/component-serializer-codegen.md.)
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, WaterComponentRejectsAnOutOfRangeCascadeCount)
+    {
+        for (u32 bogus : { 0u, 2u, 4u, 99u })
+        {
+            std::string yaml;
+            {
+                auto scene = Scene::Create();
+                Entity entity = scene->CreateEntity(kTestTag);
+                auto& water = entity.AddComponent<WaterComponent>();
+                water.m_UseFFT = true;
+                water.m_FFTCascades = bogus;
+                yaml = SceneSerializer(scene).SerializeToYAML();
+            }
+            ASSERT_FALSE(yaml.empty());
+
+            auto reloaded = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+            Entity restored = FindByTag(*reloaded, kTestTag);
+            ASSERT_TRUE(static_cast<bool>(restored));
+            ASSERT_TRUE(restored.HasComponent<WaterComponent>());
+            EXPECT_EQ(restored.GetComponent<WaterComponent>().m_FFTCascades, Ocean::kSingleCascadeCount)
+                << "a cascade count of " << bogus << " should fall back to the legacy field, not saturate";
+        }
     }
 
     // -------------------------------------------------------------------------
