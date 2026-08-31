@@ -99,14 +99,20 @@ namespace OloEngine::Tests
                 m_Shader = Shader::Create("assets/shaders/tests/PbrClosureV2ParityProbe.glsl");
             }
 
-            void Draw()
+            // Returns false on a resource-creation failure (a missing probe
+            // shader or an FBO the driver refused). A gtest ASSERT here would
+            // only exit THIS helper — the caller would then null-deref in
+            // ReadOutput() — so the status propagates and every call site
+            // ASSERT_TRUEs it before reading anything back.
+            [[nodiscard]] bool Draw()
             {
-                // Fail loudly on a resource-creation failure (a missing probe
-                // shader or an FBO the driver refused) instead of nullptr-
-                // dereferencing below, which reads as a crash rather than a
-                // diagnosable setup problem.
-                ASSERT_TRUE(m_OutputFB != nullptr) << "parity probe framebuffer was not created";
-                ASSERT_TRUE(m_Shader != nullptr) << "PbrClosureV2ParityProbe.glsl failed to load/compile";
+                if (m_OutputFB == nullptr || m_Shader == nullptr)
+                {
+                    ADD_FAILURE() << (m_OutputFB == nullptr
+                                          ? "parity probe framebuffer was not created"
+                                          : "PbrClosureV2ParityProbe.glsl failed to load/compile");
+                    return false;
+                }
 
                 GLStateGuard guard("ClosureV2GpuParity::Draw", GLStateGuard::Policy::Restore);
                 m_OutputFB->Bind();
@@ -118,6 +124,7 @@ namespace OloEngine::Tests
                 m_Pass.Draw(0);
                 ::glFinish();
                 m_OutputFB->Unbind();
+                return true;
             }
 
             void ReadOutput(std::vector<f32>& out) const
@@ -176,7 +183,7 @@ namespace OloEngine::Tests
         OLO_ENSURE_GPU_OR_SKIP();
 
         ParityProbeHarness harness;
-        harness.Draw();
+        ASSERT_TRUE(harness.Draw());
 
         std::vector<f32> pixels;
         harness.ReadOutput(pixels);
@@ -284,7 +291,7 @@ namespace OloEngine::Tests
         OLO_ENSURE_GPU_OR_SKIP();
 
         ParityProbeHarness harness;
-        harness.Draw();
+        ASSERT_TRUE(harness.Draw());
 
         std::vector<f32> pixels;
         harness.ReadOutput(pixels);
@@ -356,7 +363,7 @@ namespace OloEngine::Tests
         OLO_ENSURE_GPU_OR_SKIP();
 
         ParityProbeHarness harness;
-        harness.Draw();
+        ASSERT_TRUE(harness.Draw());
 
         std::vector<f32> pixels;
         harness.ReadOutput(pixels);
