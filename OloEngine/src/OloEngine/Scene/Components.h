@@ -5013,6 +5013,15 @@ namespace OloEngine
             m_WakeShapeAffectsPhysics = src.m_WakeShapeAffectsPhysics;
             m_WakeShapeHeightScale = src.m_WakeShapeHeightScale;
             m_WakeShapeFlattenStrength = src.m_WakeShapeFlattenStrength;
+            // Planar reflections were missing from this list while operator==
+            // compared them — the exact asymmetry the comment on m_WakeFoamEnabled
+            // above warns about. Scene::Copy runs on every Play/Simulate entry, so
+            // an authored mirror surface silently reverted to "off" the moment you
+            // pressed Play (and on every DuplicateEntity), while round-tripping
+            // through scene YAML perfectly the whole time.
+            m_PlanarReflectionsEnabled = src.m_PlanarReflectionsEnabled;
+            m_PlanarReflectionIntensity = src.m_PlanarReflectionIntensity;
+            m_PlanarReflectionDistortion = src.m_PlanarReflectionDistortion;
         }
     };
 

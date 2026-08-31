@@ -4454,6 +4454,59 @@ Entities:
     //
     // Both were live for all eleven virtual-texturing fields (issue #715
     // slices 1-4) until CodeRabbit caught it on the slice 3+4 PR.
+    // Scene::Copy runs on every Play/Simulate entry, so a WaterComponent field
+    // missing from CopySerializedStateFrom reverts to its default the moment you
+    // press Play while round-tripping through scene YAML perfectly — which is how
+    // the planar-reflection settings sat broken: operator== compared all three,
+    // the copy list carried none of them. Same shape as the terrain test below.
+    TEST(ComponentRoundTrip, WaterPlanarReflectionFieldsSurviveSceneCopy)
+    {
+        auto scene = Scene::Create();
+        {
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& water = entity.AddComponent<WaterComponent>();
+            // Deliberately not the defaults, so a dropped field reads as one.
+            water.m_PlanarReflectionsEnabled = true;
+            water.m_PlanarReflectionIntensity = 0.625f;
+            water.m_PlanarReflectionDistortion = 0.125f;
+        }
+
+        // The exact call Scene::OnRuntimeStart makes.
+        Ref<Scene> copy = Scene::Copy(scene);
+        ASSERT_TRUE(static_cast<bool>(copy));
+
+        Entity copied = FindByTag(*copy, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(copied));
+        ASSERT_TRUE(copied.HasComponent<WaterComponent>());
+        const auto& water = copied.GetComponent<WaterComponent>();
+
+        EXPECT_TRUE(water.m_PlanarReflectionsEnabled);
+        EXPECT_FLOAT_EQ(water.m_PlanarReflectionIntensity, 0.625f);
+        EXPECT_FLOAT_EQ(water.m_PlanarReflectionDistortion, 0.125f);
+    }
+
+    // The other half: operator== must SEE each of them, or an inspector edit
+    // records no undo entry (DrawComponent<T> picks the equality tier).
+    TEST(ComponentRoundTrip, WaterPlanarReflectionFieldsAreVisibleToUndoEquality)
+    {
+        WaterComponent a;
+        {
+            WaterComponent b = a;
+            b.m_PlanarReflectionsEnabled = !a.m_PlanarReflectionsEnabled;
+            EXPECT_FALSE(a == b) << "m_PlanarReflectionsEnabled is invisible to operator==";
+        }
+        {
+            WaterComponent b = a;
+            b.m_PlanarReflectionIntensity = a.m_PlanarReflectionIntensity + 0.25f;
+            EXPECT_FALSE(a == b) << "m_PlanarReflectionIntensity is invisible to operator==";
+        }
+        {
+            WaterComponent b = a;
+            b.m_PlanarReflectionDistortion = a.m_PlanarReflectionDistortion + 0.25f;
+            EXPECT_FALSE(a == b) << "m_PlanarReflectionDistortion is invisible to operator==";
+        }
+    }
+
     TEST(ComponentRoundTrip, TerrainVirtualTextureFieldsSurviveSceneCopy)
     {
         auto scene = Scene::Create();
