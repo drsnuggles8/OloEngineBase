@@ -22,7 +22,10 @@ namespace OloEngine::BuildInfo
     const char* GetBuildTimestamp();
 
     /// Human-readable build identity for logs, crash reports, the game manifest
-    /// and any in-game display: "<version>+<git hash>". Falls back to just the
-    /// version when the git hash is unavailable.
+    /// and any in-game display: "<version>+<git hash>", with a "-dirty" suffix
+    /// when GetGitDescribe() reports the working tree had uncommitted changes —
+    /// so a build made from a modified checkout never looks identical to a
+    /// clean build of the same commit. Falls back to just the version when the
+    /// git hash is unavailable.
     std::string GetBuildId();
 } // namespace OloEngine::BuildInfo

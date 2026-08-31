@@ -119,9 +119,10 @@ definitions):
   abbreviated hash when the checkout has no tags (true of this repo today), and is suffixed
   `-dirty` for an uncommitted working tree.
 - `BuildInfo::GetBuildTimestamp()` — the UTC configure-time timestamp, ISO 8601.
-- `BuildInfo::GetBuildId()` — `"<version>+<git hash>"`, the one string every bug report should be
-  able to quote. Falls back to just the version when the hash is `"unknown"` (no dangling
-  `+unknown` suffix).
+- `BuildInfo::GetBuildId()` — `"<version>+<git hash>"`, with a `-dirty` suffix folded in from
+  `GetGitDescribe()` when the working tree had uncommitted changes, the one string every bug
+  report should be able to quote. Falls back to just the version when the hash is `"unknown"` (no
+  dangling `+unknown` suffix).
 
 **Where it shows up:**
 

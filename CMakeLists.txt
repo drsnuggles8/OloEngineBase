@@ -86,6 +86,19 @@ if(GIT_EXECUTABLE AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
         set(OLO_BUILD_GIT_DESCRIBE "${_olo_git_describe}")
     endif()
 endif()
+
+# Both values are about to be embedded as a quoted C string literal in a compile
+# definition (OLO_BUILD_GIT_HASH="${OLO_BUILD_GIT_HASH}", below in
+# OloEngine/CMakeLists.txt). git-check-ref-format does NOT forbid a double quote
+# or backslash in a tag name, and OLO_BUILD_GIT_DESCRIBE is derived from tags —
+# an unescaped one would break out of the string literal and corrupt the
+# compile definitions that follow it. Strip both characters rather than
+# escaping them: neither has any legitimate place in a hash or describe string.
+string(REPLACE "\"" "" OLO_BUILD_GIT_HASH "${OLO_BUILD_GIT_HASH}")
+string(REPLACE "\\" "" OLO_BUILD_GIT_HASH "${OLO_BUILD_GIT_HASH}")
+string(REPLACE "\"" "" OLO_BUILD_GIT_DESCRIBE "${OLO_BUILD_GIT_DESCRIBE}")
+string(REPLACE "\\" "" OLO_BUILD_GIT_DESCRIBE "${OLO_BUILD_GIT_DESCRIBE}")
+
 string(TIMESTAMP OLO_BUILD_TIMESTAMP "%Y-%m-%dT%H:%M:%SZ" UTC)
 message(STATUS "Build identity: version=${CMAKE_PROJECT_VERSION} git=${OLO_BUILD_GIT_HASH} describe=${OLO_BUILD_GIT_DESCRIBE}")
 

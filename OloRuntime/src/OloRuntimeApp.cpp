@@ -79,9 +79,21 @@ namespace OloEngine
             // BuildId field.
             {
                 std::string buildId = BuildInfo::GetBuildId();
-                if (manifest["Game"] && manifest["Game"]["BuildId"])
+                try
                 {
-                    buildId = manifest["Game"]["BuildId"].as<std::string>();
+                    if (manifest["Game"] && manifest["Game"]["BuildId"])
+                    {
+                        buildId = manifest["Game"]["BuildId"].as<std::string>();
+                    }
+                }
+                catch (const std::exception& e)
+                {
+                    // A malformed BuildId node (e.g. a map/sequence instead of
+                    // a scalar, from a hand-edited or corrupted manifest) must
+                    // not stop the game from starting — fall back to this
+                    // binary's own BuildInfo rather than letting .as<std::string>()'s
+                    // exception propagate out of OnAttach.
+                    OLO_CORE_WARN("[Runtime] Failed to read BuildId from the manifest: {}", e.what());
                 }
                 OLO_CORE_INFO("[Runtime] Build: {}", buildId);
             }

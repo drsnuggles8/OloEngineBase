@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/BuildInfo.h"
 
+#include <string_view>
+
 // These are baked in as PRIVATE compile definitions on the OloEngine target
 // (OloEngine/CMakeLists.txt, computed once in the root CMakeLists.txt) — the
 // fallbacks below only matter for a TU built outside that target's definitions
@@ -47,6 +49,24 @@ namespace OloEngine::BuildInfo
         {
             return GetEngineVersion();
         }
-        return std::string(GetEngineVersion()) + "+" + hash;
+
+        std::string id = std::string(GetEngineVersion()) + "+" + hash;
+
+        // GetGitHash() alone can't distinguish a build made from a dirty
+        // working tree from one made from the exact commit it names — the
+        // hash is the same either way. GetGitDescribe() (git describe
+        // --dirty) is the one that carries that signal, so fold its suffix in
+        // here rather than dropping it: a bug report from a locally-modified
+        // checkout should never look identical to a clean CI build of the
+        // same commit.
+        constexpr std::string_view dirtySuffix = "-dirty";
+        const std::string describe = GetGitDescribe();
+        if (describe.size() >= dirtySuffix.size() &&
+            describe.compare(describe.size() - dirtySuffix.size(), dirtySuffix.size(), dirtySuffix) == 0)
+        {
+            id += dirtySuffix;
+        }
+
+        return id;
     }
 } // namespace OloEngine::BuildInfo

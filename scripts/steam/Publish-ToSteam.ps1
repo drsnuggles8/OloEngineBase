@@ -110,6 +110,15 @@ if ([string]::IsNullOrWhiteSpace($DepotId))
 # itself keeps whatever case the caller gave it, since a custom branch name's
 # case is significant to steamcmd.
 $BetaBranch = $BetaBranch.Trim()
+if ([string]::IsNullOrWhiteSpace($BetaBranch))
+{
+    # PowerShell's Mandatory-parameter binding rejects a truly empty "" up
+    # front, but NOT a whitespace-only value ("   ") — that reaches here,
+    # and Trim()ming it down to "" would otherwise silently render
+    # "setlive" "" (steamcmd's "don't set live on any branch" spelling)
+    # instead of failing loud on what should be a required argument.
+    Fail "BetaBranch is required and cannot be blank."
+}
 $normalizedBranch = $BetaBranch.ToLowerInvariant()
 if (($normalizedBranch -eq "public" -or $normalizedBranch -eq "default") -and -not $Force)
 {
