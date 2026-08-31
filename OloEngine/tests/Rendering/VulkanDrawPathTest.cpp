@@ -34,10 +34,17 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #else
 
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceData.h"
+#include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
@@ -56,17 +63,23 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
+#include "VulkanTestSupport.h"
+
 #include <volk.h>
+#include <GLFW/glfw3.h>
 
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <vector>
 
 namespace
 {
     using namespace OloEngine;
+    using OloEngine::Tests::ProbeVulkanDeviceTestGate;
+    using OloEngine::Tests::ScopedVulkanRenderCommandSelection;
 
     struct ScopedVulkanApiSelection
     {
@@ -78,6 +91,55 @@ namespace
         {
             RendererAPI::SetAPI(RendererAPI::API::OpenGL);
         }
+    };
+
+    class ScopedOloEditorWorkingDirectory
+    {
+      public:
+        ScopedOloEditorWorkingDirectory()
+        {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            m_Original = fs::current_path(ec);
+            if (ec)
+                return;
+
+            fs::path candidate = m_Original;
+            for (int i = 0; i < 6; ++i)
+            {
+                const fs::path editorDir = candidate / "OloEditor";
+                if (fs::exists(editorDir / "assets" / "shaders", ec) && !ec)
+                {
+                    fs::current_path(editorDir, ec);
+                    m_Valid = !ec;
+                    return;
+                }
+                ec.clear();
+                if (!candidate.has_parent_path() || candidate.parent_path() == candidate)
+                    break;
+                candidate = candidate.parent_path();
+            }
+
+            m_Valid = fs::exists(fs::path("assets") / "shaders", ec) && !ec;
+        }
+
+        ~ScopedOloEditorWorkingDirectory()
+        {
+            if (!m_Original.empty())
+            {
+                std::error_code ec;
+                std::filesystem::current_path(m_Original, ec);
+            }
+        }
+
+        [[nodiscard]] bool IsValid() const
+        {
+            return m_Valid;
+        }
+
+      private:
+        std::filesystem::path m_Original;
+        bool m_Valid = false;
     };
 
     // The minimal §5f-shaped pair: vertex pulling from the reserved binding
@@ -125,50 +187,9 @@ class VulkanDrawPath : public ::testing::Test
   protected:
     void SetUp() override
     {
-        if (volkInitialize() != VK_SUCCESS)
-            GTEST_SKIP() << "No Vulkan loader on this machine.";
-
-        {
-            VkApplicationInfo appInfo{};
-            appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-            appInfo.pApplicationName = "OloEngine-Tests";
-            appInfo.apiVersion = VulkanCapabilities::kMinApiVersion;
-            VkInstanceCreateInfo instanceInfo{};
-            instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-            instanceInfo.pApplicationInfo = &appInfo;
-            VkInstance probe = VK_NULL_HANDLE;
-            if (vkCreateInstance(&instanceInfo, nullptr, &probe) != VK_SUCCESS)
-                GTEST_SKIP() << "vkCreateInstance failed (driver below Vulkan 1.4?).";
-            volkLoadInstance(probe);
-
-            u32 deviceCount = 0;
-            if (vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr) != VK_SUCCESS)
-            {
-                vkDestroyInstance(probe, nullptr);
-                GTEST_SKIP() << "vkEnumeratePhysicalDevices (count) failed on this machine.";
-            }
-            std::vector<VkPhysicalDevice> devices(deviceCount);
-            if (deviceCount > 0)
-            {
-                const VkResult listResult = vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
-                if (listResult == VK_SUCCESS || listResult == VK_INCOMPLETE)
-                    devices.resize(deviceCount);
-                else
-                {
-                    vkDestroyInstance(probe, nullptr);
-                    GTEST_SKIP() << "vkEnumeratePhysicalDevices (list) failed on this machine.";
-                }
-            }
-            const bool anySatisfies = std::ranges::any_of(
-                devices,
-                [](VkPhysicalDevice device)
-                { return VulkanCapabilities::Evaluate(device).Satisfied; });
-            vkDestroyInstance(probe, nullptr);
-            if (!anySatisfies)
-                GTEST_SKIP() << "No device satisfies the ADR 0010 capability contract here.";
-            if (volkInitialize() != VK_SUCCESS)
-                GTEST_SKIP() << "Vulkan loader re-initialisation failed.";
-        }
+        const auto gate = ProbeVulkanDeviceTestGate();
+        if (!gate.Available)
+            GTEST_SKIP() << gate.Reason;
 
         m_Device = std::make_unique<VulkanDevice>();
         try
@@ -580,6 +601,191 @@ void main()
         wrongPixels += magentaPixel ? 0u : 1u;
     }
     EXPECT_EQ(wrongPixels, 0u) << "every texel must carry the UBO tint the dispatch stored";
+}
+
+// =============================================================================
+// ADR 0011 §4.2: the production frustum-cull pass writes the root data for its
+// compatible indirect draw. The exact shader produces the compacted instances,
+// DrawElementsIndirect args, and the root address; the graphics draw consumes
+// all three with no CPU readback; the GPU-owned address is preserved while
+// command-ordered static fields complete the reflected struct.
+// =============================================================================
+TEST_F(VulkanDrawPath, ProductionFrustumCullWritesRootDataForIndirectDraw)
+{
+    ScopedOloEditorWorkingDirectory editorWorkingDirectory;
+    ASSERT_TRUE(editorWorkingDirectory.IsValid())
+        << "Could not locate OloEditor/assets/shaders from " << std::filesystem::current_path().string();
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr const char* kVertexSrc = R"(
+#version 460 core
+void main()
+{
+    const vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+    gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+}
+)";
+    constexpr const char* kFragmentSrc = R"(
+#version 460 core
+struct InstanceData {
+    mat4 Transform;
+    mat4 Normal;
+    mat4 PrevTransform;
+    vec4 Color;
+    int EntityID;
+    float Custom;
+    int _instancePad0;
+    int _instancePad1;
+    vec4 LightmapScaleOffset;
+};
+layout(std430, binding = 15) readonly buffer InstanceCullOutput {
+    InstanceData outputInstances[];
+};
+layout(std140, binding = 3) uniform TintBlock {
+    vec4 u_Tint;
+};
+layout(location = 0) out vec4 o_Color;
+void main()
+{
+    o_Color = outputInstances[0].Color * u_Tint;
+}
+)";
+
+    FramebufferSpecification fbSpec;
+    fbSpec.Width = 32;
+    fbSpec.Height = 32;
+    fbSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    auto framebuffer = Framebuffer::Create(fbSpec);
+    ASSERT_NE(framebuffer, nullptr);
+    const std::array<f32, 6> positions = { -1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f };
+    std::array<u32, 3> indices = { 0u, 1u, 2u };
+    auto vertexBuffer = VertexBuffer::Create(positions.data(), static_cast<u32>(sizeof(positions)));
+    auto indexBuffer = IndexBuffer::Create(indices.data(), static_cast<u32>(indices.size()));
+    auto vertexArray = VertexArray::Create();
+    ASSERT_TRUE(vertexBuffer && indexBuffer && vertexArray);
+    vertexArray->AddVertexBuffer(vertexBuffer);
+    vertexArray->SetIndexBuffer(indexBuffer);
+
+    auto stats = StorageBuffer::Create(144u, ShaderBindingLayout::SSBO_GPU_STATS, StorageBufferUsage::DynamicCopy);
+    auto camera = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), 0u);
+    auto tint = UniformBuffer::Create(16u, 3u);
+    ASSERT_TRUE(stats && camera && tint);
+
+    InstanceData visible;
+    visible.Color = { 0.0f, 1.0f, 0.0f, 1.0f };
+    const std::array<u32, 36> disabledStats{};
+    stats->SetData(disabledStats.data(), static_cast<u32>(sizeof(disabledStats)));
+    UBOStructures::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    camera->SetData(&cameraData, UBOStructures::CameraUBO::GetSize());
+    const glm::vec4 whiteTint{ 1.0f };
+    tint->SetData(&whiteTint, static_cast<u32>(sizeof(whiteTint)));
+
+    auto drawShader = Ref<VulkanShader>::Create("GpuWrittenRootConsumer", kVertexSrc, kFragmentSrc);
+    ASSERT_EQ(drawShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    auto& api = renderCommandSelection.Get();
+    auto culler = Ref<GPUFrustumCuller>::Create();
+    culler->BeginFrame();
+    GpuDrivenRootDataLayout rootLayout{};
+    ASSERT_TRUE(api.QueryGpuDrivenRootDataLayout(
+        drawShader->GetRHIHandle(), ShaderBindingLayout::SSBO_INSTANCE_DATA, rootLayout));
+    ASSERT_TRUE(rootLayout.IsValid());
+    ASSERT_EQ(rootLayout.SizeBytes, 16u);
+    ASSERT_EQ(rootLayout.GpuWrittenFieldOffsetBytes, 8u)
+        << "the tint UBO must precede the GPU-written instance address";
+
+    const bool ownsFrameData = !FrameDataBufferManager::IsInitialized();
+    if (ownsFrameData)
+        FrameDataBufferManager::Init();
+    struct FrameDataRestore
+    {
+        bool Owns;
+        ~FrameDataRestore()
+        {
+            if (Owns)
+                FrameDataBufferManager::Shutdown();
+        }
+    } frameDataRestore{ ownsFrameData };
+    auto& frameData = FrameDataBufferManager::Get();
+    frameData.Reset();
+
+    PODMaterialData material{};
+    material.shaderRendererID = drawShader->GetRHIHandle();
+    material.enablePBR = false;
+    const u16 materialIndex = frameData.AllocateMaterialData(material);
+    PODRenderState renderState{};
+    renderState.depthTestEnabled = false;
+    renderState.depthWriteMask = false;
+    const u16 renderStateIndex = frameData.AllocateRenderState(renderState);
+    ASSERT_NE(materialIndex, INVALID_MATERIAL_DATA_INDEX);
+    ASSERT_NE(renderStateIndex, INVALID_RENDER_STATE_INDEX);
+
+    const auto colorHandle = framebuffer->GetColorAttachmentHandle(0);
+    ASSERT_TRUE(colorHandle.IsValid());
+    bool producedGpuRoot = false;
+    SubmitFrame(api,
+                [&]()
+                {
+                    stats->Bind();
+                    camera->Bind();
+                    tint->Bind();
+
+                    const std::array<InstanceData, 1> instances{ visible };
+                    const auto cullResult = culler->Cull(
+                        instances, 3u, 0u, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, rootLayout);
+                    ASSERT_TRUE(cullResult.OutputBuffer && cullResult.IndirectBuffer && cullResult.RootDataBuffer);
+                    producedGpuRoot = cullResult.RootDataAddressOffsetBytes == rootLayout.GpuWrittenFieldOffsetBytes;
+
+                    RHI::Barrier toColor{};
+                    toColor.Resource = colorHandle;
+                    toColor.Before = RHI::Access::Undefined;
+                    toColor.After = RHI::Access::ColorAttachmentWrite;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toColor, 1 });
+                    framebuffer->Bind();
+                    api.SetViewport(0, 0, 32, 32);
+                    api.SetClearColor({ 1.0f, 0.0f, 0.0f, 1.0f });
+                    api.Clear();
+
+                    DrawMeshInstancedCommand command{};
+                    command.vertexArrayID = vertexArray->GetRHIHandle();
+                    command.indexCount = 3u;
+                    command.transformCount = 1u;
+                    command.instanceCount = 1u;
+                    command.materialDataIndex = materialIndex;
+                    command.renderStateIndex = renderStateIndex;
+                    command.cullOutputInstanceBufferID = cullResult.OutputBuffer->GetStorage()->GetRHIHandle();
+                    command.cullIndirectBufferID = cullResult.IndirectBuffer->GetRHIHandle();
+                    command.cullRootDataBufferID = cullResult.RootDataBuffer->GetRHIHandle();
+                    command.cullRootDataAddressOffsetBytes = cullResult.RootDataAddressOffsetBytes;
+                    CommandDispatch::ResetState();
+                    CommandDispatch::DrawMeshInstanced(&command, api);
+                    framebuffer->Unbind();
+
+                    RHI::Barrier toSampled{};
+                    toSampled.Resource = colorHandle;
+                    toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                    toSampled.After = RHI::Access::ShaderSampleRead;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+                });
+
+    EXPECT_TRUE(producedGpuRoot);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+    EXPECT_EQ(api.GetGpuWrittenRootDrawsThisRecording(), 1u)
+        << "the indirect draw must consume the compute-written root buffer, not the CPU root fallback";
+    std::vector<u8> pixels;
+    ASSERT_TRUE(static_cast<VulkanFramebuffer*>(framebuffer.Raw())->GetColorAttachmentImage(0)->GetData(pixels, 0));
+    ASSERT_EQ(pixels.size(), sizet{ 32 * 32 * 4 });
+    for (sizet i = 0; i < pixels.size(); i += 4)
+    {
+        EXPECT_EQ(pixels[i + 0], 0x00u);
+        EXPECT_EQ(pixels[i + 1], 0xFFu);
+        EXPECT_EQ(pixels[i + 2], 0x00u);
+        EXPECT_EQ(pixels[i + 3], 0xFFu);
+    }
 }
 
 // =============================================================================

@@ -522,8 +522,8 @@ still produce wrong pixels — that's L1 and L8.
 
 **What it catches.** Microbenchmark-level slowdowns in individual
 post-process passes (tone map, bloom threshold / downsample / upsample
-at 512²) and pass-to-pass transition cost via a whole-frame
-post-process chain bench.
+at 512²), pass-to-pass transition cost via a whole-frame post-process
+chain, render-graph fence-executor CPU overhead, and GPU-driven culling.
 
 **Where the code lives.**
 
@@ -532,9 +532,10 @@ post-process chain bench.
 - Historical TSVs: [`perf_history/`](../OloEngine/tests/Rendering/PropertyTests/perf_history/)
 - Trend detector: [`OloEngine/tests/scripts/perf_trend.py`](../OloEngine/tests/scripts/perf_trend.py)
 
-**How it works.** Each bench renders a fullscreen pass, times it via
-`GL_TIME_ELAPSED` queries, takes the **minimum of 20 samples after 5
-warmup draws** (minimum is robust to thermal / scheduler noise). Policy
+**How it works.** GPU-pass benches use `GL_TIME_ELAPSED`; CPU/submission
+benches use `steady_clock`, and end-to-end dispatch benches synchronize
+before recording the sample. Each takes the **minimum of 20 samples after
+5 warmups** (minimum is robust to thermal / scheduler noise). Policy
 is `PASS < 1.5× baseline / WARN 1.5–2.5× / FAIL ≥ 2.5×` with a sanity
 ceiling of 100 ms. The bloom passes (typical cost 5–15 µs, very
 susceptible to scheduler jitter) additionally route through
@@ -550,12 +551,14 @@ and runs a 3-sigma drift detector that compares the last 30 samples
 against the prior 30 — exits 1 when the recent median is more than
 three prior-window standard deviations slower.
 
-**Limitations.** All benches remain fragment / fullscreen-pass
-oriented — vertex-heavy or draw-call-explosion regressions in the 3D
-pipeline (ECS traversal, culling, material resolution) are currently
-only observed indirectly via CPU-time cost on the full-scene smoke in
-L9. A fully Renderer3D-driven frame budget would drag the whole
-scene-loading surface into L6 and is intentionally out of scope.
+**Limitations.** The fence-executor bench uses callback stand-ins, so it
+does not measure a Vulkan queue submission. The culler bench directly
+times the production OpenGL dispatch and safe root bindings, but not
+Vulkan buffer-address publication. ECS traversal, material resolution,
+and draw-call-explosion regressions remain visible only indirectly via
+the full-scene smoke in L9; a fully Renderer3D-driven frame budget would
+drag the whole scene-loading surface into L6 and is intentionally out of
+scope.
 
 #### L7 — Smoke / sanity readback
 

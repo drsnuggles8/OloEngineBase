@@ -114,6 +114,11 @@ namespace OloEngine
         // GL executes the flags exactly as MemoryBarrier() did, an
         // explicit-barrier backend lowers the RHI::Barrier span instead.
         void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) const;
+        // The plan executor asks these around dependency-derived timeline
+        // signals. They stay here so the executor never needs a Platform/Vulkan
+        // include or a downcast to a graphics context.
+        [[nodiscard]] bool SupportsFenceSubmission() const;
+        [[nodiscard]] bool SubmitFenceSegment() const;
         void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0) const;
         // Async-compute batch boundaries.
         // In GL 4.6 (single command stream) these insert KHR_debug group labels

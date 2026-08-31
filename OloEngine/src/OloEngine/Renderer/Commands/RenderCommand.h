@@ -719,6 +719,12 @@ namespace OloEngine
         // threshold; left at 0 for the regular CPU-cull / upload path.
         RHI::ResourceHandle cullOutputInstanceBufferID{};
         RHI::ResourceHandle cullIndirectBufferID{};
+        // ADR 0011 §4.2: the frustum compute wrote the binding-15 address at
+        // this reflected offset. The dispatcher completes the shader-specific
+        // root struct around that field and hands the GPU buffer to the
+        // matching indirect draw. Invalid handle = ordinary CPU root assembly.
+        RHI::ResourceHandle cullRootDataBufferID{};
+        u32 cullRootDataAddressOffsetBytes = 0;
     };
 
     // Static assertion to verify DrawMeshInstancedCommand is trivially copyable

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 
@@ -278,6 +279,103 @@ namespace OloEngine::RenderGraphSubmissionPlan
                 list.push_back(transition);
         }
 
+        // Build the concrete signal/wait edge set from the graph's complete
+        // dependency map, not from the async-batch heuristic or only from
+        // resource transitions. Ordering-only AddExecutionDependency edges are
+        // real dependencies too. Resource transitions annotate an edge with
+        // its resources; the normal MemoryBarrier remains in the plan because
+        // timeline submission ordering supplements visibility/layout work, it
+        // does not replace it (ADR 0011 §6).
+        std::vector<RenderGraph::FenceEdge> fenceEdges;
+        if (input.EnableSplitBarriers)
+        {
+            const auto passIsScheduled = [&input](const std::string& passName)
+            {
+                return std::ranges::contains(input.ExecutionOrder, passName);
+            };
+            const auto findOrAddEdge = [&fenceEdges, &input](const std::string& producerPass,
+                                                             const std::string& consumerPass)
+                -> RenderGraph::FenceEdge*
+            {
+                const auto producerLane = MapWorkTypeToLane(input.GetPassWorkType(producerPass));
+                const auto consumerLane = MapWorkTypeToLane(input.GetPassWorkType(consumerPass));
+                if (producerLane == consumerLane)
+                    return nullptr;
+
+                auto existing = std::ranges::find_if(
+                    fenceEdges,
+                    [&producerPass, &consumerPass](const RenderGraph::FenceEdge& edge)
+                    {
+                        return edge.ProducerPass == producerPass && edge.ConsumerPass == consumerPass;
+                    });
+                if (existing == fenceEdges.end())
+                {
+                    existing = fenceEdges.emplace(
+                        fenceEdges.end(),
+                        RenderGraph::FenceEdge{
+                            .ProducerPass = producerPass,
+                            .ConsumerPass = consumerPass,
+                            .ProducerLane = producerLane,
+                            .ConsumerLane = consumerLane,
+                            .Resources = {},
+                        });
+                }
+                return &*existing;
+            };
+
+            for (const auto& [consumerPass, producerPasses] : input.Dependencies)
+            {
+                if (!passIsScheduled(consumerPass))
+                    continue;
+                for (const auto& producerPass : producerPasses)
+                {
+                    if (passIsScheduled(producerPass))
+                        findOrAddEdge(producerPass, consumerPass);
+                }
+            }
+
+            for (const auto& transition : input.Transitions)
+            {
+                if (!transition.IsCrossLane || transition.ProducerPass.empty() ||
+                    transition.ProducerPass == "external" || transition.ConsumerPass.empty() ||
+                    !passIsScheduled(transition.ProducerPass) || !passIsScheduled(transition.ConsumerPass))
+                {
+                    continue;
+                }
+
+                if (auto* edge = findOrAddEdge(transition.ProducerPass, transition.ConsumerPass);
+                    edge != nullptr && !std::ranges::contains(edge->Resources, transition.ResourceName))
+                {
+                    edge->Resources.push_back(transition.ResourceName);
+                }
+            }
+
+            // The planner's vector is normally insertion-order stable; make
+            // stability a contract nonetheless because fence values appear in
+            // GPU captures and a nondeterministic diagnostic is no diagnostic.
+            std::ranges::sort(
+                fenceEdges,
+                [](const RenderGraph::FenceEdge& a, const RenderGraph::FenceEdge& b)
+                {
+                    return std::tie(a.ProducerPass, a.ConsumerPass, a.ProducerLane, a.ConsumerLane) <
+                           std::tie(b.ProducerPass, b.ConsumerPass, b.ProducerLane, b.ConsumerLane);
+                });
+            for (u32 index = 0; index < static_cast<u32>(fenceEdges.size()); ++index)
+            {
+                auto& edge = fenceEdges[index];
+                edge.Index = index;
+                std::ranges::sort(edge.Resources);
+            }
+        }
+
+        std::unordered_map<std::string, std::vector<const RenderGraph::FenceEdge*>> waitsByPass;
+        std::unordered_map<std::string, std::vector<const RenderGraph::FenceEdge*>> signalsByPass;
+        for (const auto& edge : fenceEdges)
+        {
+            waitsByPass[edge.ConsumerPass].push_back(&edge);
+            signalsByPass[edge.ProducerPass].push_back(&edge);
+        }
+
         // Walk the execution order and emit commands.
         u32 currentBatch = std::numeric_limits<u32>::max();
 
@@ -331,6 +429,21 @@ namespace OloEngine::RenderGraphSubmissionPlan
             auto* nodePtr = input.ResolveNodePointer(passName);
             const auto passLane = MapWorkTypeToLane(passWorkType);
 
+            // Queue waits attach to the consumer submission BEFORE its normal
+            // barrier and pass body. The barrier still carries the resource
+            // visibility/layout transition; the wait only orders distinct
+            // submissions/queues.
+            if (const auto waitIt = waitsByPass.find(passName); waitIt != waitsByPass.end())
+            {
+                SubmissionCommand wait;
+                wait.CommandKind = SubmissionCommand::Kind::FenceWait;
+                wait.Lane = passLane;
+                wait.FenceEdges.reserve(waitIt->second.size());
+                for (const auto* edge : waitIt->second)
+                    wait.FenceEdges.push_back(*edge);
+                plan.push_back(std::move(wait));
+            }
+
             // Memory barrier before this pass (if any).
             if (const auto barIt = barrierForPass.find(passName); barIt != barrierForPass.end())
             {
@@ -351,6 +464,21 @@ namespace OloEngine::RenderGraphSubmissionPlan
             passCmd.WorkType = passWorkType;
             passCmd.Lane = passLane;
             plan.push_back(std::move(passCmd));
+
+            // Signals are emitted after the producer body. The executor
+            // submits this command-buffer segment only after it has staged all
+            // signals in the command, so one producer fan-out still costs one
+            // submission rather than one submit per resource edge.
+            if (const auto signalIt = signalsByPass.find(passName); signalIt != signalsByPass.end())
+            {
+                SubmissionCommand signal;
+                signal.CommandKind = SubmissionCommand::Kind::FenceSignal;
+                signal.Lane = passLane;
+                signal.FenceEdges.reserve(signalIt->second.size());
+                for (const auto* edge : signalIt->second)
+                    signal.FenceEdges.push_back(*edge);
+                plan.push_back(std::move(signal));
+            }
         }
 
         // Close any trailing open batch.

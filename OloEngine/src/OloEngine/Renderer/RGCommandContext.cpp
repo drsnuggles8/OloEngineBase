@@ -150,6 +150,16 @@ namespace OloEngine
         RenderCommand::IssueBarrierBatch(flags, barriers);
     }
 
+    bool RGCommandContext::SupportsFenceSubmission() const
+    {
+        return RenderCommand::SupportsRenderGraphFenceSubmission();
+    }
+
+    bool RGCommandContext::SubmitFenceSegment() const
+    {
+        return RenderCommand::SubmitRenderGraphFenceSegment();
+    }
+
     void RGCommandContext::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount) const
     {
         RenderCommand::DrawIndexed(vertexArray, indexCount);

@@ -1,6 +1,5 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Core/DebugLevers.h"
-#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Core/Environment.h"
 
@@ -3237,6 +3236,7 @@ namespace OloEngine
         for (auto& slot : m_BufferHandleSlots)
             slot.PlaceholderWarnedThisFrame = false;
 
+        const bool sequentialSubmissionPlan = Levers::RenderGraphSequential();
         if (m_DependencyGraphDirty)
         {
             if (!UpdateDependencyGraph())
@@ -3262,7 +3262,17 @@ namespace OloEngine
             // Cache the submission plan after barrier planning so
             // the execution loop below is a simple sequential walk over a pre-built
             // IR rather than repeating inline barrier-map lookups every frame.
-            m_CachedSubmissionPlan = GetSubmissionPlan();
+            m_CachedSubmissionPlan = BuildSubmissionPlan(sequentialSubmissionPlan);
+            m_CachedSubmissionPlanSequential = sequentialSubmissionPlan;
+            LogSubmissionPlanIfChanged();
+        }
+        else if (m_CachedSubmissionPlanSequential != sequentialSubmissionPlan)
+        {
+            // This is a scheduling-only A/B: dependency, transient and normal
+            // barrier plans remain valid, while FenceWait/FenceSignal commands
+            // are added or removed for the next frame.
+            m_CachedSubmissionPlan = BuildSubmissionPlan(sequentialSubmissionPlan);
+            m_CachedSubmissionPlanSequential = sequentialSubmissionPlan;
             LogSubmissionPlanIfChanged();
         }
 
@@ -4256,6 +4266,11 @@ namespace OloEngine
     // command stream that a backend can replay without touching the graph.
     std::vector<RenderGraph::SubmissionCommand> RenderGraph::GetSubmissionPlan() const
     {
+        return BuildSubmissionPlan(Levers::RenderGraphSequential());
+    }
+
+    std::vector<RenderGraph::SubmissionCommand> RenderGraph::BuildSubmissionPlan(const bool sequential) const
+    {
         // Delegate to the extracted submission-plan module.
         // GetAsyncComputeBatches itself delegates; here we just plumb the
         // results into the IR builder.
@@ -4266,9 +4281,11 @@ namespace OloEngine
         const auto transitions = GetResourceTransitions();
         return RenderGraphSubmissionPlan::BuildPlan({
             .ExecutionOrder = m_ExecutionOrder,
+            .Dependencies = m_Dependencies,
             .PlannedBarriers = m_PlannedBarriers,
             .Transitions = transitions,
             .Batches = batches,
+            .EnableSplitBarriers = !sequential,
             .GetPassWorkType = [this](const std::string& passName)
             { return GetGraphEntryWorkType(passName); },
             .ResolveNodePointer = [this](const std::string& passName) -> RenderGraphNode*
@@ -4590,6 +4607,26 @@ namespace OloEngine
 
         if (digest.empty())
             digest = "<empty>";
+
+        // Include the scheduling edge IR in the diagnostic identity. Without
+        // this, toggling OLO_RENDERGRAPH_SEQUENTIAL leaves the pass-only
+        // digest unchanged and hides the one difference the bisection lever
+        // is supposed to expose.
+        std::string fenceDigest;
+        for (const auto& cmd : m_CachedSubmissionPlan)
+        {
+            if (cmd.CommandKind != SubmissionCommand::Kind::FenceSignal)
+                continue;
+            for (const auto& edge : cmd.FenceEdges)
+            {
+                if (!fenceDigest.empty())
+                    fenceDigest += ", ";
+                fenceDigest += edge.ProducerPass;
+                fenceDigest += " => ";
+                fenceDigest += edge.ConsumerPass;
+            }
+        }
+        digest += fenceDigest.empty() ? " | fences:sequential" : " | fences:" + fenceDigest;
 
         if (digest == m_LastLoggedSubmissionPlanDigest)
             return;
@@ -5919,6 +5956,12 @@ namespace OloEngine
             dumpTransitions,
             [](const ResourceTransition& tr)
             { return tr.IsCrossLane; }));
+        u32 fenceEdgeCount = 0;
+        for (const auto& command : submissionPlan)
+        {
+            if (command.CommandKind == SubmissionCommand::Kind::FenceSignal)
+                fenceEdgeCount += static_cast<u32>(command.FenceEdges.size());
+        }
 
         // Unified resource lifetime records.
         const auto dumpLifetimes = GetResourceLifetimes();
@@ -5939,6 +5982,10 @@ namespace OloEngine
                     return "BatchBegin";
                 case SubmissionCommand::Kind::BatchEnd:
                     return "BatchEnd";
+                case SubmissionCommand::Kind::FenceWait:
+                    return "FenceWait";
+                case SubmissionCommand::Kind::FenceSignal:
+                    return "FenceSignal";
                 default:
                     return "Unknown";
             }
@@ -5970,6 +6017,7 @@ namespace OloEngine
             << ", \"batchInputResourceCount\": " << batchInputResourceCount
             << ", \"batchOutputResourceCount\": " << batchOutputResourceCount
             << ", \"submissionCommandCount\": " << submissionPlan.size()
+            << ", \"fenceEdgeCount\": " << fenceEdgeCount
             << ", \"resourceTransitionCount\": " << resourceTransitionCount
             << ", \"crossLaneSyncCount\": " << crossLaneSyncCount
             << ", \"resourceLifetimeCount\": " << resourceLifetimeCount
@@ -6469,6 +6517,31 @@ namespace OloEngine
             else if (cmd.CommandKind == SubmissionCommand::Kind::MemoryBarrier)
             {
                 out << ", \"flags\": " << std::to_underlying(cmd.Barriers);
+            }
+            else if (cmd.CommandKind == SubmissionCommand::Kind::FenceWait ||
+                     cmd.CommandKind == SubmissionCommand::Kind::FenceSignal)
+            {
+                out << ", \"fenceEdges\": [";
+                for (sizet i = 0; i < cmd.FenceEdges.size(); ++i)
+                {
+                    const auto& edge = cmd.FenceEdges[i];
+                    out << "{ \"index\": " << edge.Index
+                        << ", \"producerPass\": \"" << jsonEscape(edge.ProducerPass)
+                        << "\", \"consumerPass\": \"" << jsonEscape(edge.ConsumerPass)
+                        << "\", \"producerLane\": \"" << queueLaneToString(edge.ProducerLane)
+                        << "\", \"consumerLane\": \"" << queueLaneToString(edge.ConsumerLane)
+                        << "\", \"resources\": [";
+                    for (sizet resourceIndex = 0; resourceIndex < edge.Resources.size(); ++resourceIndex)
+                    {
+                        out << "\"" << jsonEscape(edge.Resources[resourceIndex]) << "\"";
+                        if (resourceIndex + 1 < edge.Resources.size())
+                            out << ", ";
+                    }
+                    out << "] }";
+                    if (i + 1 < cmd.FenceEdges.size())
+                        out << ", ";
+                }
+                out << "]";
             }
             else if (cmd.CommandKind == SubmissionCommand::Kind::BatchBegin ||
                      cmd.CommandKind == SubmissionCommand::Kind::BatchEnd)
@@ -7723,7 +7796,9 @@ namespace OloEngine
         // Execute() can walk the pre-built IR without re-deriving it.
         {
             OLO_PERF_SCOPE_AUTO("RG::BuildFrameGraph/GetSubmissionPlan");
-            m_CachedSubmissionPlan = GetSubmissionPlan();
+            const bool sequentialSubmissionPlan = Levers::RenderGraphSequential();
+            m_CachedSubmissionPlan = BuildSubmissionPlan(sequentialSubmissionPlan);
+            m_CachedSubmissionPlanSequential = sequentialSubmissionPlan;
         }
         LogSubmissionPlanIfChanged();
 

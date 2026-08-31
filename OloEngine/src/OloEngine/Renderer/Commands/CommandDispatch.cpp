@@ -1986,6 +1986,19 @@ namespace OloEngine
             // UploadMaterialState and BindShadowTextures have staged offsets by
             // here; an indirect draw reads them exactly as a direct one does.
             HeapBinding::FlushOffsets();
+            if (cmd->cullRootDataBufferID.IsValid())
+            {
+                // The cull compute owns SSBO_INSTANCE_DATA's address. Complete
+                // the remaining reflected fields from this draw's bindings and
+                // select the GPU buffer for exactly the next attempted draw.
+                // A layout mismatch (for example a depth-prepass replacement
+                // shader) returns false and PrepareDrawCommon conservatively
+                // assembles ordinary CPU-written root data instead.
+                [[maybe_unused]] const bool selectedGpuRoot = api.SetNextDrawRootData(
+                    cmd->cullRootDataBufferID,
+                    ShaderBindingLayout::SSBO_INSTANCE_DATA,
+                    cmd->cullRootDataAddressOffsetBytes);
+            }
             // The VAO is already bound by BindVAOIfNeeded above — draw from it
             // rather than re-binding behind the redundant-bind cache's back.
             api.DrawBoundElementsIndirect(cmd->cullIndirectBufferID, RHI::PrimitiveTopology::TriangleList);

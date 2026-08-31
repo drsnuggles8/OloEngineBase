@@ -152,6 +152,10 @@ layout(std140, binding = 71) uniform InstanceCullParams
     // camera UBO's relative VP whenever nothing is frozen, so this is the only
     // path rather than a branch that only runs in debug mode.
     mat4  u_CullViewProjection;  // 128
+    uint  u_RootDataOffsetBytes; // 192 — unused by the occlusion variant
+    uint  _rootDataPad0;         // 196
+    uint  _rootDataPad1;         // 200
+    uint  _rootDataPad2;         // 204
 };
 
 // GPU readback-stats channel (issue #721). Declared VERBATIM in both cull
