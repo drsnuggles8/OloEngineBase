@@ -105,22 +105,58 @@ void main()
 
     float scale = a_PositionScale.w;
     float rotation = a_RotationHeight.x;
-    float radius = u_ImpostorParams1.y * scale;  // world-space card radius
+    float height = a_RotationHeight.y;
 
-    // Instance pivot. Foliage's per-instance positions are absolute world in
-    // a_PositionScale; the foliage command uploads only a SINGLE model-matrix
-    // entry to the InstanceData SSBO, so indexing it by gl_InstanceIndex for
-    // instance > 0 reads out of bounds (zero matrix on this driver) and would
-    // collapse every card to the origin. Shift to render-relative space directly
-    // (subtract the render origin) instead of going through u_Model (issue #433).
-    vec3 instWorld = a_PositionScale.xyz - u_RenderOrigin;
-    // Anchor the impostor so its bounding sphere RESTS ON the ground: centre one
-    // world radius above the instance ground point. This is independent of how
-    // the source mesh is authored (centred-on-origin vs base-at-origin) — using
-    // the baked centre.y directly would half-bury a centred mesh, and a
-    // camera-looking-down view then flattens that half-buried card into the
-    // terrain and depth-culls it (issue #433).
-    vec3 cardCenter = instWorld + vec3(0.0, radius, 0.0);
+    // World-space card radius. u_ImpostorParams1.y is the OBJECT-space radius the
+    // bake framed the mesh with, and the meshes are authored unit-height
+    // (pine.obj spans y in [0,1], radius 0.560) — so the per-instance world
+    // height has to come back in here, exactly as the near path applies it
+    // (`localPos.y *= height * scale` in Foliage_Instance.glsl). This used to
+    // read only `scale`, drawing a 9-16 m pine as a ~1.5 m card: an ~8x shrink
+    // the moment an instance crossed ImpostorStartDistance (issue #953).
+    //
+    // UNIFORM, not anisotropic. Matching the near quad's aspect exactly would
+    // mean stretching the card 1:16, which renders the baked pine as a needle —
+    // and the near quad is a deliberately different thing anyway (a tufted
+    // billboard; the impostor is what "gives the tree line a 3D silhouette from
+    // any azimuth at range", issue #433). Scaling uniformly puts the drawn tree
+    // at exactly `height * scale` tall, so nothing pops vertically across the
+    // transition, and leaves it its own proportions.
+    float radius = u_ImpostorParams1.y * height * scale;
+
+    // Instance pivot. Foliage's per-instance positions are TERRAIN-LOCAL (x/z in
+    // [0, WorldSize], y the raw sampled height), so they only become world
+    // positions after the owning terrain's transform — which DrawFoliageLayer
+    // uploads as the single u_Model entry, already made render-relative by
+    // UploadModelInstance. Foliage_Instance.glsl has always multiplied through
+    // it; this stage did not, and subtracted the render origin directly instead
+    // on the belief that a_PositionScale was absolute world (issue #953). It is
+    // not: no island sits at the origin, so every impostor card rendered at its
+    // island's LOCAL coordinates — all six islands' pines piled into one heap
+    // over open water near (0,0,0), hanging above anything the terrain can
+    // reach, which from the boat reads as a swarm of dark specks in the sky.
+    //
+    // The OLO_INSTANCE_SINGLE define above is what makes u_Model safe here: it
+    // pins the read to instances[0] rather than indexing by gl_InstanceIndex,
+    // which is the out-of-bounds hazard the old comment was really about (issue
+    // #433). The two got conflated, and the transform was dropped with them.
+    vec3 instWorld = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    // Anchor the card on the MESH CENTRE, because that is what the bake framed:
+    // ImpostorBaker centres each tile on the source mesh's bounding-box centre
+    // and spans +-u_ImpostorParams1.y around it, so the card's centre has to
+    // land on that same point in world space or the tree floats inside its own
+    // card. The meshes are authored base-at-origin (pine.obj spans y in [0,1])
+    // and the near path already relies on that (`localPos.y *= height * scale`
+    // in Foliage_Instance.glsl), so the centre is half the drawn height up.
+    //
+    // This offset by `radius` instead, which was indistinguishable while radius
+    // was the UNIT-mesh radius (~0.5 m). The moment radius became
+    // R0 * height * scale (6-12 m for Drift's pines) the same line lifted the
+    // card centre — and the tree drawn around it — metres into the air: trees in
+    // the sky. The card's BOTTOM stayed on the terrain, so the card extent
+    // looked right and only its contents floated, which is what made this read
+    // as a placement bug rather than an anchoring one.
+    vec3 cardCenter = instWorld + vec3(0.0, 0.5 * height * scale, 0.0);
 
     // Subtle whole-card wind sway (legacy sine model, matching the near
     // billboard's fallback branch) so a distant tree still moves with the wind.

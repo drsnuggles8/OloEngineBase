@@ -329,20 +329,27 @@ namespace OloEngine
         m_VisibleInstances = 0;
 
         // Foliage's per-blade transforms come from its own instance VBO
-        // (a_PositionScale, a_RotationHeight) in absolute world space. The
-        // shaders read `u_Model` from the engine's ModelInstanceBuffer
-        // (binding 15). Upload the render-relative model matrix once so it (a)
-        // overrides whatever the previous DrawMesh wrote into the SSBO and (b)
-        // shifts the absolute blade positions into render-relative space —
-        // camera-relative rendering (issue #429). The matrix is a pure
-        // translation by -renderOrigin, so the default identity Normal matrix
-        // is correct; the foliage shaders add u_RenderOrigin back for the
-        // world-anchored wind field. No-op near origin (renderOrigin == 0).
+        // (a_PositionScale, a_RotationHeight) in TERRAIN-LOCAL space — the same
+        // space the terrain mesh is authored in, because GenerateInstances
+        // derives them straight from the heightfield (x/z in [0, WorldSize], y
+        // the raw sampled height, no base offset). The shaders read `u_Model`
+        // from the engine's ModelInstanceBuffer (binding 15). Upload the owning
+        // terrain's render-relative model matrix once so it (a) overrides
+        // whatever the previous DrawMesh wrote into the SSBO, (b) places the
+        // plants on their island, and (c) shifts them into render-relative
+        // space — camera-relative rendering (issue #429). The foliage shaders
+        // add u_RenderOrigin back for the world-anchored wind field.
+        //
+        // This used to upload plain identity, on the stated belief that the
+        // instance positions were already absolute world (issue #953). They are
+        // not, and no island in Drift sits at the origin, so all six islands'
+        // foliage was drawn in one heap over open water near (0,0,0) — read
+        // from the boat as a swarm of dark specks hanging in the sky.
         if (auto instanceBuffer = Renderer3D::GetModelInstanceBuffer())
         {
             InstanceData bladeModel{};
             bladeModel.EntityID = -1;
-            bladeModel.Transform = MakeModelRelative(glm::mat4(1.0f), Renderer3D::GetRenderOrigin());
+            bladeModel.Transform = MakeModelRelative(m_TerrainTransform, Renderer3D::GetRenderOrigin());
             bladeModel.PrevTransform = bladeModel.Transform;
             const std::span<const InstanceData> one(&bladeModel, 1);
             instanceBuffer->Upload(one);
@@ -398,14 +405,15 @@ namespace OloEngine
 
         // Same render-relative model pattern as Render() (issue #429): the depth
         // shader reads u_Model from the ModelInstanceBuffer and foliage's per-blade
-        // data is absolute world, so translate by -renderOrigin to render the
-        // shadow caster in the same render-relative space as the shifted lightVP.
-        // No-op near origin.
+        // data is TERRAIN-LOCAL (see Render), so go through the owning terrain's
+        // transform and then -renderOrigin, to render the shadow caster in the
+        // same render-relative space as the shifted lightVP. Must stay identical
+        // to the main pass or the shadow detaches from the plant (issue #953).
         if (auto instanceBuffer = Renderer3D::GetModelInstanceBuffer())
         {
             InstanceData bladeModel{};
             bladeModel.EntityID = -1;
-            bladeModel.Transform = MakeModelRelative(glm::mat4(1.0f), Renderer3D::GetRenderOrigin());
+            bladeModel.Transform = MakeModelRelative(m_TerrainTransform, Renderer3D::GetRenderOrigin());
             bladeModel.PrevTransform = bladeModel.Transform;
             const std::span<const InstanceData> one(&bladeModel, 1);
             instanceBuffer->Upload(one);
