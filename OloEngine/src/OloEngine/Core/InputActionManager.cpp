@@ -3,6 +3,7 @@
 #include "OloEngine/Core/GamepadManager.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Debug/Instrumentor.h"
+#include "Platform/Steam/SteamManager.h"
 
 namespace OloEngine
 {
@@ -194,6 +195,9 @@ namespace OloEngine
         s_AxisValues.clear();
         s_SuppressTransientOnNextUpdate = false;
         s_PendingRebindMenuContext.reset();
+        s_SteamDigitalHandles.clear();
+        s_SteamAnalogHandles.clear();
+        s_SteamActionSetHandles.clear();
     }
 
     void InputActionManager::Shutdown()
@@ -207,6 +211,9 @@ namespace OloEngine
         s_AxisValues.clear();
         s_SuppressTransientOnNextUpdate = false;
         s_PendingRebindMenuContext.reset();
+        s_SteamDigitalHandles.clear();
+        s_SteamAnalogHandles.clear();
+        s_SteamActionSetHandles.clear();
     }
 
     void InputActionManager::Update()
@@ -241,6 +248,22 @@ namespace OloEngine
             }
         }
 
+        // Steam Input, when a controller is connected, governs every GAMEPAD-origin binding for
+        // the frame — "Steam Input wins when available", see
+        // docs/agent-rules/steamworks-platform-integration.md §11. Keyboard/Mouse bindings are
+        // unaffected either way, so they still work as a fallback (and simultaneously) with a
+        // Steam Input controller connected.
+        //
+        // Queried ONCE here rather than per-action: GetConnectedControllers() allocates and
+        // makes a virtual call into the backend, and threading the result through avoids paying
+        // that once per action in the active map.
+        const std::vector<u64> steamControllers = SteamManager::IsInputAvailable() ? SteamManager::GetConnectedControllers() : std::vector<u64>{};
+        const bool steamGovernsGamepad = !steamControllers.empty();
+        if (steamGovernsGamepad)
+        {
+            ActivateSteamActionSet(s_ContextStack.back(), steamControllers);
+        }
+
         for (const auto& [actionName, action] : activeMap.Actions)
         {
             bool pressed = false;
@@ -264,6 +287,10 @@ namespace OloEngine
                 }
                 else if (binding.Type == InputBindingType::GamepadButton)
                 {
+                    if (steamGovernsGamepad)
+                    {
+                        continue; // Steam Input owns this controller now; see ApplySteamInputForAction below.
+                    }
                     if (s_InputProvider->IsGamepadButtonPressed(binding.GPButton))
                     {
                         pressed = true;
@@ -272,6 +299,10 @@ namespace OloEngine
                 }
                 else if (binding.Type == InputBindingType::GamepadAxis)
                 {
+                    if (steamGovernsGamepad)
+                    {
+                        continue;
+                    }
                     f32 axisVal = s_InputProvider->GetGamepadAxis(binding.GPAxis);
                     if (binding.AxisPositive && axisVal >= binding.AxisThreshold)
                     {
@@ -289,36 +320,50 @@ namespace OloEngine
                     // No additional handling required.
                 }
             }
-            s_CurrentState[actionName] = pressed;
 
             // Track the best analog value for axis queries.
             // Prefer actual axis deflection over digital 0/1.
             f32 bestAxisValue = 0.0f;
-            for (const auto& binding : action.Bindings)
+            if (!steamGovernsGamepad)
             {
-                if (binding.Type == InputBindingType::GamepadAxis)
+                for (const auto& binding : action.Bindings)
                 {
-                    f32 axisVal = s_InputProvider->GetGamepadAxis(binding.GPAxis);
-                    if (binding.AxisPositive)
+                    if (binding.Type == InputBindingType::GamepadAxis)
                     {
-                        axisVal = std::max(0.0f, axisVal);
-                    }
-                    else
-                    {
-                        axisVal = std::min(0.0f, axisVal);
-                    }
-                    if (std::abs(axisVal) > std::abs(bestAxisValue))
-                    {
-                        bestAxisValue = axisVal;
+                        f32 axisVal = s_InputProvider->GetGamepadAxis(binding.GPAxis);
+                        if (binding.AxisPositive)
+                        {
+                            axisVal = std::max(0.0f, axisVal);
+                        }
+                        else
+                        {
+                            axisVal = std::min(0.0f, axisVal);
+                        }
+                        if (std::abs(axisVal) > std::abs(bestAxisValue))
+                        {
+                            bestAxisValue = axisVal;
+                        }
                     }
                 }
             }
-            // Fall back to digital state only when no axis produced a stronger value
-            if (pressed && std::abs(bestAxisValue) < 1.0f)
+
+            bool axisSuppliedBySteam = false;
+            if (steamGovernsGamepad)
+            {
+                ApplySteamInputForAction(actionName, action, steamControllers, pressed, bestAxisValue, axisSuppliedBySteam);
+            }
+
+            // Fall back to digital state only when no axis produced a stronger value. Skipped
+            // when Steam Input supplied a real analog magnitude this frame — that value is
+            // trustworthy on its own (e.g. a 40% trigger pull alongside a digitally-bound
+            // "pressed past threshold" origin on the same action) and must not be discarded in
+            // favour of a fabricated full-scale snap.
+            if (!axisSuppliedBySteam && pressed && std::abs(bestAxisValue) < 1.0f)
             {
                 constexpr f32 axisZeroEpsilon = 1e-6f;
                 bestAxisValue = (std::abs(bestAxisValue) > axisZeroEpsilon) ? std::copysign(1.0f, bestAxisValue) : 1.0f;
             }
+            s_CurrentState[actionName] = pressed;
             s_AxisValues[actionName] = bestAxisValue;
         }
 
@@ -471,6 +516,80 @@ namespace OloEngine
             return 0.0f;
         }
         return it->second;
+    }
+
+    void InputActionManager::ActivateSteamActionSet(InputContextType ctx, const std::vector<u64>& connectedControllers)
+    {
+        auto handleIt = s_SteamActionSetHandles.find(ctx);
+        const u64 actionSet = handleIt != s_SteamActionSetHandles.end()
+                                  ? handleIt->second
+                                  : s_SteamActionSetHandles.emplace(ctx, SteamManager::GetActionSetHandle(InputContextTypeToString(ctx))).first->second;
+
+        for (const auto controller : connectedControllers)
+        {
+            SteamManager::ActivateActionSet(controller, actionSet);
+        }
+    }
+
+    void InputActionManager::ApplySteamInputForAction(const std::string& actionName, const InputAction& action,
+                                                      const std::vector<u64>& connectedControllers, bool& pressed, f32& axisValue,
+                                                      bool& axisSuppliedBySteam)
+    {
+        if (connectedControllers.empty())
+        {
+            return;
+        }
+        // Only the primary (first) connected controller drives action state — the same
+        // simplification GetActionAxisValue already makes for engine gamepad bindings (index 0
+        // only). Multi-controller local co-op through Steam Input is out of scope; see the
+        // integration doc.
+        const u64 controller = connectedControllers[0];
+
+        auto digitalIt = s_SteamDigitalHandles.find(actionName);
+        const u64 digitalHandle = digitalIt != s_SteamDigitalHandles.end()
+                                      ? digitalIt->second
+                                      : s_SteamDigitalHandles.emplace(actionName, SteamManager::GetDigitalActionHandle(actionName)).first->second;
+
+        // Active=false means "no origin bound in the current action set" — the action-set
+        // switch above may have just changed that, so this is re-checked every frame rather
+        // than cached. Only override `pressed` when Steam actually has this action bound;
+        // otherwise leave the keyboard/mouse-only result from above untouched.
+        if (const SteamInputDigitalActionState digitalState = SteamManager::GetDigitalActionState(controller, digitalHandle);
+            digitalState.Active)
+        {
+            pressed = pressed || digitalState.Pressed;
+        }
+
+        auto analogIt = s_SteamAnalogHandles.find(actionName);
+        const u64 analogHandle = analogIt != s_SteamAnalogHandles.end()
+                                     ? analogIt->second
+                                     : s_SteamAnalogHandles.emplace(actionName, SteamManager::GetAnalogActionHandle(actionName)).first->second;
+
+        if (const SteamInputAnalogActionState analogState = SteamManager::GetAnalogActionState(controller, analogHandle);
+            analogState.Active)
+        {
+            f32 value = analogState.X;
+
+            // If the action's own engine-side binding constrains this axis to one direction
+            // (the split-into-two-actions convention, e.g. "MoveLeft"/"MoveRight" both reading
+            // the same physical axis with opposite AxisPositive), honour that constraint for
+            // the Steam-sourced value too — mirroring the clamp the raw-gamepad path above
+            // applies — so an action doesn't silently start reporting the wrong sign purely
+            // because a Steam Input controller took over. An action with no GamepadAxis
+            // binding at all (Steam Input governs it entirely) is left unconstrained.
+            for (const auto& binding : action.Bindings)
+            {
+                if (binding.Type != InputBindingType::GamepadAxis)
+                {
+                    continue;
+                }
+                value = binding.AxisPositive ? std::max(0.0f, value) : std::min(0.0f, value);
+                break;
+            }
+
+            axisValue = value;
+            axisSuppliedBySteam = true;
+        }
     }
 
 } // namespace OloEngine

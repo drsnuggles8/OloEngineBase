@@ -55,6 +55,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 
 namespace OloEngine
 {
@@ -146,6 +147,13 @@ namespace OloEngine
             {
                 return;
             }
+            // Close Steam Input FIRST, and unconditionally — mirroring SteamManager's own
+            // ordering (input torn down before the base backend) — so this single call closes
+            // the whole session even when the destructor's defensive fallback below is what
+            // invokes it (an exception unwound past SteamManager::Shutdown() entirely) rather
+            // than the caller having called InputShutdown() itself first. Safe to call whether
+            // or not Steam Input was ever brought up.
+            InputShutdown();
             m_OverlayCallback.Unregister();
             SteamAPI_Shutdown();
             m_Initialized = false;
@@ -412,7 +420,257 @@ namespace OloEngine
             return SteamResult::Success;
         }
 
+        // --- input -------------------------------------------------------------------------
+
+        bool InputInit() override
+        {
+            if (m_InputInitialized)
+            {
+                return true;
+            }
+            ISteamInput* input = SteamInput();
+            if (!input)
+            {
+                return false;
+            }
+            // We drive the pump ourselves from RunFrame() below (called once per engine frame,
+            // right after SteamAPI_RunCallbacks) rather than letting the SDK run it implicitly
+            // off SteamAPI_RunCallbacks — explicit control is what the SDK recommends for a
+            // game with its own fixed frame loop.
+            m_InputInitialized = input->Init(true);
+            return m_InputInitialized;
+        }
+
+        void InputShutdown() override
+        {
+            if (!m_InputInitialized)
+            {
+                return;
+            }
+            if (ISteamInput* input = SteamInput())
+            {
+                input->Shutdown();
+            }
+            m_InputInitialized = false;
+        }
+
+        void InputRunFrame() override
+        {
+            if (m_InputInitialized)
+            {
+                if (ISteamInput* input = SteamInput())
+                {
+                    input->RunFrame();
+                }
+            }
+        }
+
+        [[nodiscard]] bool IsInputAvailable() const override
+        {
+            return m_InputInitialized;
+        }
+
+        [[nodiscard]] std::vector<SteamInputHandle> GetConnectedControllers() const override
+        {
+            std::vector<SteamInputHandle> result;
+            ISteamInput* input = SteamInput();
+            if (!m_InputInitialized || !input)
+            {
+                return result;
+            }
+
+            std::array<InputHandle_t, STEAM_INPUT_MAX_COUNT> handles{};
+            const int count = input->GetConnectedControllers(handles.data());
+            result.reserve(static_cast<sizet>(std::max(count, 0)));
+            for (int i = 0; i < count; ++i)
+            {
+                result.push_back(static_cast<SteamInputHandle>(handles[static_cast<sizet>(i)]));
+            }
+            return result;
+        }
+
+        [[nodiscard]] SteamInputActionSetHandle GetActionSetHandle(std::string_view actionSetName) const override
+        {
+            ISteamInput* input = SteamInput();
+            if (!m_InputInitialized || !input)
+            {
+                return kInvalidSteamInputActionSetHandle;
+            }
+            const std::string name = ToCString(actionSetName);
+            return static_cast<SteamInputActionSetHandle>(input->GetActionSetHandle(name.c_str()));
+        }
+
+        void ActivateActionSet(SteamInputHandle controller, SteamInputActionSetHandle actionSet) override
+        {
+            ISteamInput* input = SteamInput();
+            if (!m_InputInitialized || !input || controller == kInvalidSteamInputHandle ||
+                actionSet == kInvalidSteamInputActionSetHandle)
+            {
+                return;
+            }
+            input->ActivateActionSet(static_cast<InputHandle_t>(controller), static_cast<InputActionSetHandle_t>(actionSet));
+        }
+
+        [[nodiscard]] SteamInputDigitalActionHandle GetDigitalActionHandle(std::string_view actionName) const override
+        {
+            ISteamInput* input = SteamInput();
+            if (!m_InputInitialized || !input)
+            {
+                return kInvalidSteamInputDigitalActionHandle;
+            }
+            const std::string name = ToCString(actionName);
+            return static_cast<SteamInputDigitalActionHandle>(input->GetDigitalActionHandle(name.c_str()));
+        }
+
+        [[nodiscard]] SteamInputDigitalActionState GetDigitalActionState(SteamInputHandle controller,
+                                                                         SteamInputDigitalActionHandle action) const override
+        {
+            ISteamInput* input = SteamInput();
+            if (!m_InputInitialized || !input || controller == kInvalidSteamInputHandle ||
+                action == kInvalidSteamInputDigitalActionHandle)
+            {
+                return {};
+            }
+            const InputDigitalActionData_t data =
+                input->GetDigitalActionData(static_cast<InputHandle_t>(controller), static_cast<InputDigitalActionHandle_t>(action));
+            return SteamInputDigitalActionState{ .Pressed = data.bState, .Active = data.bActive };
+        }
+
+        [[nodiscard]] SteamInputAnalogActionHandle GetAnalogActionHandle(std::string_view actionName) const override
+        {
+            ISteamInput* input = SteamInput();
+            if (!m_InputInitialized || !input)
+            {
+                return kInvalidSteamInputAnalogActionHandle;
+            }
+            const std::string name = ToCString(actionName);
+            return static_cast<SteamInputAnalogActionHandle>(input->GetAnalogActionHandle(name.c_str()));
+        }
+
+        [[nodiscard]] SteamInputAnalogActionState GetAnalogActionState(SteamInputHandle controller,
+                                                                       SteamInputAnalogActionHandle action) const override
+        {
+            ISteamInput* input = SteamInput();
+            if (!m_InputInitialized || !input || controller == kInvalidSteamInputHandle ||
+                action == kInvalidSteamInputAnalogActionHandle)
+            {
+                return {};
+            }
+            const InputAnalogActionData_t data =
+                input->GetAnalogActionData(static_cast<InputHandle_t>(controller), static_cast<InputAnalogActionHandle_t>(action));
+
+            f32 x = data.x;
+            f32 y = data.y;
+            if (data.eMode == k_EInputSourceMode_Trigger)
+            {
+                // Valve reports a Trigger-mode analog action on 0..1 (0 = released). Normalize to
+                // this engine's own GamepadAxis convention — -1..1, -1 = released (see
+                // GamepadCodes.h's GamepadAxis::RightTrigger) — so a trigger-shaped action reads
+                // identically whether it came from Steam Input or raw XInput/DirectInput.
+                x = (x * 2.0f) - 1.0f;
+                y = (y * 2.0f) - 1.0f; // unused by a Trigger action, but kept consistent.
+            }
+            // Every other source mode (JoystickMove and the button/dpad/mouse modes an analog
+            // action can theoretically report) is already on a -1..1-or-boolean convention this
+            // engine's own gamepad axes match, so nothing else needs converting.
+
+            return SteamInputAnalogActionState{ .X = x, .Y = y, .Active = data.bActive };
+        }
+
+        [[nodiscard]] std::string GetGlyphLabelForDigitalAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                                SteamInputDigitalActionHandle action) const override
+        {
+            const EInputActionOrigin origin = FirstDigitalOrigin(controller, actionSet, action);
+            return OriginLabel(origin);
+        }
+
+        [[nodiscard]] std::string GetGlyphLabelForAnalogAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                               SteamInputAnalogActionHandle action) const override
+        {
+            const EInputActionOrigin origin = FirstAnalogOrigin(controller, actionSet, action);
+            return OriginLabel(origin);
+        }
+
+        [[nodiscard]] std::string GetGlyphPngForDigitalAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                              SteamInputDigitalActionHandle action) const override
+        {
+            const EInputActionOrigin origin = FirstDigitalOrigin(controller, actionSet, action);
+            return OriginGlyphPng(origin);
+        }
+
+        [[nodiscard]] std::string GetGlyphPngForAnalogAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                             SteamInputAnalogActionHandle action) const override
+        {
+            const EInputActionOrigin origin = FirstAnalogOrigin(controller, actionSet, action);
+            return OriginGlyphPng(origin);
+        }
+
       private:
+        [[nodiscard]] EInputActionOrigin FirstDigitalOrigin(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                            SteamInputDigitalActionHandle action) const
+        {
+            ISteamInput* input = SteamInput();
+            if (!m_InputInitialized || !input || controller == kInvalidSteamInputHandle ||
+                actionSet == kInvalidSteamInputActionSetHandle || action == kInvalidSteamInputDigitalActionHandle)
+            {
+                return k_EInputActionOrigin_None;
+            }
+            std::array<EInputActionOrigin, STEAM_INPUT_MAX_ORIGINS> origins{};
+            const int count = input->GetDigitalActionOrigins(static_cast<InputHandle_t>(controller),
+                                                             static_cast<InputActionSetHandle_t>(actionSet),
+                                                             static_cast<InputDigitalActionHandle_t>(action), origins.data());
+            return count > 0 ? origins[0] : k_EInputActionOrigin_None;
+        }
+
+        [[nodiscard]] EInputActionOrigin FirstAnalogOrigin(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                           SteamInputAnalogActionHandle action) const
+        {
+            ISteamInput* input = SteamInput();
+            if (!m_InputInitialized || !input || controller == kInvalidSteamInputHandle ||
+                actionSet == kInvalidSteamInputActionSetHandle || action == kInvalidSteamInputAnalogActionHandle)
+            {
+                return k_EInputActionOrigin_None;
+            }
+            std::array<EInputActionOrigin, STEAM_INPUT_MAX_ORIGINS> origins{};
+            const int count = input->GetAnalogActionOrigins(static_cast<InputHandle_t>(controller),
+                                                            static_cast<InputActionSetHandle_t>(actionSet),
+                                                            static_cast<InputAnalogActionHandle_t>(action), origins.data());
+            return count > 0 ? origins[0] : k_EInputActionOrigin_None;
+        }
+
+        [[nodiscard]] std::string OriginLabel(EInputActionOrigin origin) const
+        {
+            if (origin == k_EInputActionOrigin_None)
+            {
+                return {};
+            }
+            ISteamInput* input = SteamInput();
+            if (!input)
+            {
+                return {};
+            }
+            const char* label = input->GetStringForActionOrigin(origin);
+            return label ? std::string{ label } : std::string{};
+        }
+
+        [[nodiscard]] std::string OriginGlyphPng(EInputActionOrigin origin) const
+        {
+            if (origin == k_EInputActionOrigin_None)
+            {
+                return {};
+            }
+            ISteamInput* input = SteamInput();
+            if (!input)
+            {
+                return {};
+            }
+            // Medium is a reasonable general-purpose size for an in-game prompt; callers that
+            // need a different size can add a parameter later, but nothing in the engine wants
+            // one today.
+            const char* path = input->GetGlyphPNGForActionOrigin(origin, k_ESteamInputGlyphSize_Medium, 0);
+            return path ? std::string{ path } : std::string{};
+        }
+
         void OnGameOverlayActivated(GameOverlayActivated_t* callback)
         {
             if (!callback)
@@ -425,6 +683,7 @@ namespace OloEngine
 
         bool m_Initialized = false;
         bool m_OverlayActive = false;
+        bool m_InputInitialized = false;
 
         // Manual registration (CCallbackManual): a CCallback registering in the constructor
         // would run before SteamAPI_Init, which is not valid. Registered in Initialize() only on

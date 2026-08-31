@@ -6,6 +6,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace OloEngine::Testing
@@ -226,7 +227,150 @@ namespace OloEngine::Testing
             return SteamResult::Success;
         }
 
+        // --- Steam Input ----------------------------------------------------------------
+
+        // When false, InputInit() reports failure — Steam is up but Steam Input isn't, the
+        // same shape as a stats/achievements-only integration that skips it.
+        bool InputInitSucceeds = true;
+        bool InputInitialized = false;
+
+        std::vector<SteamInputHandle> ConnectedControllers;
+        std::map<std::string, SteamInputDigitalActionHandle, std::less<>> DigitalActionHandles;
+        std::map<std::string, SteamInputAnalogActionHandle, std::less<>> AnalogActionHandles;
+        std::map<std::pair<SteamInputHandle, SteamInputDigitalActionHandle>, SteamInputDigitalActionState> DigitalActionStates;
+        std::map<std::pair<SteamInputHandle, SteamInputAnalogActionHandle>, SteamInputAnalogActionState> AnalogActionStates;
+        // The action-set handle most recently activated for each controller — lets a test
+        // resolve the EXPECTED handle by name via GetActionSetHandle and compare it directly,
+        // rather than only counting calls (which would pass even if the wrong action set were
+        // activated).
+        std::map<SteamInputHandle, SteamInputActionSetHandle> LastActivatedActionSet;
+        std::map<std::string, std::string, std::less<>> GlyphLabels;
+        std::map<std::string, std::string, std::less<>> GlyphPngs;
+
+        u32 ActivateActionSetCalls = 0;
+        mutable SteamInputActionSetHandle NextHandle = 1;
+
+        bool InputInit() override
+        {
+            InputInitialized = InputInitSucceeds;
+            return InputInitialized;
+        }
+        void InputShutdown() override
+        {
+            InputInitialized = false;
+        }
+        void InputRunFrame() override {}
+        [[nodiscard]] bool IsInputAvailable() const override
+        {
+            return InputInitialized;
+        }
+        [[nodiscard]] std::vector<SteamInputHandle> GetConnectedControllers() const override
+        {
+            return ConnectedControllers;
+        }
+
+        [[nodiscard]] SteamInputActionSetHandle GetActionSetHandle(std::string_view actionSetName) const override
+        {
+            // The fake doesn't validate against a manifest, matching the stub SDK's contract
+            // (see StubState::ActionSetHandles) — any name gets a handle. Interned by name
+            // (first-sight assignment), also matching the stub's InternHandle: a caller that
+            // asks for the same action-set name twice must get the same handle back.
+            if (const auto found = m_ActionSetHandles.find(actionSetName); found != m_ActionSetHandles.end())
+            {
+                return found->second;
+            }
+            const SteamInputActionSetHandle handle = NextHandle++;
+            m_ActionSetHandles.emplace(std::string{ actionSetName }, handle);
+            return handle;
+        }
+        void ActivateActionSet(SteamInputHandle controller, SteamInputActionSetHandle actionSet) override
+        {
+            ++ActivateActionSetCalls;
+            LastActivatedActionSet[controller] = actionSet;
+        }
+
+        [[nodiscard]] SteamInputDigitalActionHandle GetDigitalActionHandle(std::string_view actionName) const override
+        {
+            auto it = DigitalActionHandles.find(actionName);
+            return it != DigitalActionHandles.end() ? it->second : kInvalidSteamInputDigitalActionHandle;
+        }
+        [[nodiscard]] SteamInputDigitalActionState GetDigitalActionState(SteamInputHandle controller,
+                                                                         SteamInputDigitalActionHandle action) const override
+        {
+            auto it = DigitalActionStates.find({ controller, action });
+            return it != DigitalActionStates.end() ? it->second : SteamInputDigitalActionState{};
+        }
+
+        [[nodiscard]] SteamInputAnalogActionHandle GetAnalogActionHandle(std::string_view actionName) const override
+        {
+            auto it = AnalogActionHandles.find(actionName);
+            return it != AnalogActionHandles.end() ? it->second : kInvalidSteamInputAnalogActionHandle;
+        }
+        [[nodiscard]] SteamInputAnalogActionState GetAnalogActionState(SteamInputHandle controller,
+                                                                       SteamInputAnalogActionHandle action) const override
+        {
+            auto it = AnalogActionStates.find({ controller, action });
+            return it != AnalogActionStates.end() ? it->second : SteamInputAnalogActionState{};
+        }
+
+        [[nodiscard]] std::string GetGlyphLabelForDigitalAction(SteamInputHandle, SteamInputActionSetHandle,
+                                                                SteamInputDigitalActionHandle action) const override
+        {
+            return GlyphLabelFor(FindDigitalActionName(action));
+        }
+        [[nodiscard]] std::string GetGlyphLabelForAnalogAction(SteamInputHandle, SteamInputActionSetHandle,
+                                                               SteamInputAnalogActionHandle action) const override
+        {
+            return GlyphLabelFor(FindAnalogActionName(action));
+        }
+        [[nodiscard]] std::string GetGlyphPngForDigitalAction(SteamInputHandle, SteamInputActionSetHandle,
+                                                              SteamInputDigitalActionHandle action) const override
+        {
+            return GlyphPngFor(FindDigitalActionName(action));
+        }
+        [[nodiscard]] std::string GetGlyphPngForAnalogAction(SteamInputHandle, SteamInputActionSetHandle,
+                                                             SteamInputAnalogActionHandle action) const override
+        {
+            return GlyphPngFor(FindAnalogActionName(action));
+        }
+
       private:
+        [[nodiscard]] std::string FindDigitalActionName(SteamInputDigitalActionHandle action) const
+        {
+            for (const auto& [name, handle] : DigitalActionHandles)
+            {
+                if (handle == action)
+                {
+                    return name;
+                }
+            }
+            return {};
+        }
+        [[nodiscard]] std::string FindAnalogActionName(SteamInputAnalogActionHandle action) const
+        {
+            for (const auto& [name, handle] : AnalogActionHandles)
+            {
+                if (handle == action)
+                {
+                    return name;
+                }
+            }
+            return {};
+        }
+        [[nodiscard]] std::string GlyphLabelFor(const std::string& name) const
+        {
+            auto it = GlyphLabels.find(name);
+            return it != GlyphLabels.end() ? it->second : std::string{};
+        }
+        [[nodiscard]] std::string GlyphPngFor(const std::string& name) const
+        {
+            auto it = GlyphPngs.find(name);
+            return it != GlyphPngs.end() ? it->second : std::string{};
+        }
+
         bool m_Available = false;
+
+        // Backs GetActionSetHandle's first-sight interning above.
+        mutable std::map<std::string, SteamInputActionSetHandle, std::less<>> m_ActionSetHandles;
     };
 } // namespace OloEngine::Testing

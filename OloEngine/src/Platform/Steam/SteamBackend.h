@@ -100,6 +100,62 @@ namespace OloEngine
         virtual SteamResult CloudDelete(std::string_view name) = 0;
         [[nodiscard]] virtual std::vector<std::string> CloudEnumerate() const = 0;
         virtual SteamResult GetCloudQuota(SteamCloudQuota& outQuota) const = 0;
+
+        // --- input -------------------------------------------------------------------------
+        //
+        // Steam Input (action sets, digital/analog action state, glyph lookup for button
+        // prompts). Unlike the rest of this interface, Steam Input needs its OWN init/shutdown/
+        // pump beyond the base Initialize()/RunCallbacks() pair — the SDK models it as a
+        // separate subsystem with its own per-frame refresh, so calling it out explicitly (rather
+        // than folding it into Initialize()) keeps that true here too.
+        //
+        // See docs/agent-rules/steamworks-platform-integration.md §11 for how InputActionManager
+        // drives this seam.
+
+        // Bring Steam Input up. Only meaningful once IsAvailable() is true; safe (and a no-op
+        // returning false) otherwise.
+        virtual bool InputInit() = 0;
+        virtual void InputShutdown() = 0;
+
+        // Steam Input keeps its own per-frame refresh, distinct from RunCallbacks(). Call both
+        // every frame — skipping this one means action/glyph state never updates.
+        virtual void InputRunFrame() = 0;
+
+        [[nodiscard]] virtual bool IsInputAvailable() const = 0;
+
+        // Every controller Steam Input is currently driving. Empty whenever IsInputAvailable()
+        // is false or nothing is connected — callers must treat that as "fall back to the
+        // engine's own gamepad bindings", not as an error.
+        [[nodiscard]] virtual std::vector<SteamInputHandle> GetConnectedControllers() const = 0;
+
+        // Handles are looked up by the action-set / action names in the game's Steam Input
+        // manifest (steam_input_manifest.vdf on the partner site) and are stable for the
+        // process, so callers are expected to cache them rather than look up every frame.
+        [[nodiscard]] virtual SteamInputActionSetHandle GetActionSetHandle(std::string_view actionSetName) const = 0;
+        virtual void ActivateActionSet(SteamInputHandle controller, SteamInputActionSetHandle actionSet) = 0;
+
+        [[nodiscard]] virtual SteamInputDigitalActionHandle GetDigitalActionHandle(std::string_view actionName) const = 0;
+        [[nodiscard]] virtual SteamInputDigitalActionState GetDigitalActionState(SteamInputHandle controller,
+                                                                                 SteamInputDigitalActionHandle action) const = 0;
+
+        [[nodiscard]] virtual SteamInputAnalogActionHandle GetAnalogActionHandle(std::string_view actionName) const = 0;
+        [[nodiscard]] virtual SteamInputAnalogActionState GetAnalogActionState(SteamInputHandle controller,
+                                                                               SteamInputAnalogActionHandle action) const = 0;
+
+        // Button-prompt lookup for whatever the player is physically holding, keyed off the
+        // FIRST origin bound to the action (a Steam Input action may have several; the engine
+        // only ever needs one prompt per action). Both return empty when the action has no
+        // bound origin or Steam Input is unavailable.
+        [[nodiscard]] virtual std::string GetGlyphLabelForDigitalAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                                        SteamInputDigitalActionHandle action) const = 0;
+        [[nodiscard]] virtual std::string GetGlyphLabelForAnalogAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                                       SteamInputAnalogActionHandle action) const = 0;
+
+        // Absolute path to a PNG glyph on disk matching the physically connected controller.
+        [[nodiscard]] virtual std::string GetGlyphPngForDigitalAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                                      SteamInputDigitalActionHandle action) const = 0;
+        [[nodiscard]] virtual std::string GetGlyphPngForAnalogAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                                     SteamInputAnalogActionHandle action) const = 0;
     };
 
     // The always-unavailable backend.
@@ -187,6 +243,62 @@ namespace OloEngine
         SteamResult GetCloudQuota(SteamCloudQuota&) const override
         {
             return SteamResult::Unavailable;
+        }
+
+        bool InputInit() override
+        {
+            return false;
+        }
+        void InputShutdown() override {}
+        void InputRunFrame() override {}
+        [[nodiscard]] bool IsInputAvailable() const override
+        {
+            return false;
+        }
+        [[nodiscard]] std::vector<SteamInputHandle> GetConnectedControllers() const override
+        {
+            return {};
+        }
+        [[nodiscard]] SteamInputActionSetHandle GetActionSetHandle(std::string_view) const override
+        {
+            return kInvalidSteamInputActionSetHandle;
+        }
+        void ActivateActionSet(SteamInputHandle, SteamInputActionSetHandle) override {}
+        [[nodiscard]] SteamInputDigitalActionHandle GetDigitalActionHandle(std::string_view) const override
+        {
+            return kInvalidSteamInputDigitalActionHandle;
+        }
+        [[nodiscard]] SteamInputDigitalActionState GetDigitalActionState(SteamInputHandle, SteamInputDigitalActionHandle) const override
+        {
+            return {};
+        }
+        [[nodiscard]] SteamInputAnalogActionHandle GetAnalogActionHandle(std::string_view) const override
+        {
+            return kInvalidSteamInputAnalogActionHandle;
+        }
+        [[nodiscard]] SteamInputAnalogActionState GetAnalogActionState(SteamInputHandle, SteamInputAnalogActionHandle) const override
+        {
+            return {};
+        }
+        [[nodiscard]] std::string GetGlyphLabelForDigitalAction(SteamInputHandle, SteamInputActionSetHandle,
+                                                                SteamInputDigitalActionHandle) const override
+        {
+            return {};
+        }
+        [[nodiscard]] std::string GetGlyphLabelForAnalogAction(SteamInputHandle, SteamInputActionSetHandle,
+                                                               SteamInputAnalogActionHandle) const override
+        {
+            return {};
+        }
+        [[nodiscard]] std::string GetGlyphPngForDigitalAction(SteamInputHandle, SteamInputActionSetHandle,
+                                                              SteamInputDigitalActionHandle) const override
+        {
+            return {};
+        }
+        [[nodiscard]] std::string GetGlyphPngForAnalogAction(SteamInputHandle, SteamInputActionSetHandle,
+                                                             SteamInputAnalogActionHandle) const override
+        {
+            return {};
         }
     };
 

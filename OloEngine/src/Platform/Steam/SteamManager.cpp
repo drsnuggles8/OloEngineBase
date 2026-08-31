@@ -65,6 +65,16 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("[Steam] Initialized. AppID={0}, user='{1}'.", s_Backend->GetAppId(), s_Backend->GetPersonaName());
+
+        // Steam Input is a separate subsystem with its own init call. Failing to bring it up
+        // is not fatal to the rest of Steam — the game simply falls back entirely to the
+        // engine's own gamepad bindings, exactly as if no Steam Input controller were
+        // connected. See IsInputAvailable().
+        if (!s_Backend->InputInit())
+        {
+            OLO_CORE_TRACE("[Steam] Steam Input did not start; controller remap prompts and Steam-side rebinding are "
+                           "unavailable this session. The engine's own gamepad bindings still work normally.");
+        }
     }
 
     void SteamManager::Shutdown()
@@ -75,6 +85,7 @@ namespace OloEngine
         // early — so it must tolerate a backend that was never created or never initialised.
         if (s_Backend)
         {
+            s_Backend->InputShutdown();
             s_Backend->Shutdown();
             s_Backend.reset();
         }
@@ -86,6 +97,7 @@ namespace OloEngine
         if (ISteamBackend* backend = AvailableBackend())
         {
             backend->RunCallbacks();
+            backend->InputRunFrame();
         }
     }
 
@@ -336,10 +348,93 @@ namespace OloEngine
         return backend->GetCloudQuota(outQuota);
     }
 
+    bool SteamManager::IsInputAvailable()
+    {
+        ISteamBackend* backend = AvailableBackend();
+        return backend && backend->IsInputAvailable();
+    }
+
+    std::vector<SteamInputHandle> SteamManager::GetConnectedControllers()
+    {
+        ISteamBackend* backend = AvailableBackend();
+        return backend ? backend->GetConnectedControllers() : std::vector<SteamInputHandle>{};
+    }
+
+    SteamInputActionSetHandle SteamManager::GetActionSetHandle(std::string_view actionSetName)
+    {
+        ISteamBackend* backend = AvailableBackend();
+        return backend ? backend->GetActionSetHandle(actionSetName) : kInvalidSteamInputActionSetHandle;
+    }
+
+    void SteamManager::ActivateActionSet(SteamInputHandle controller, SteamInputActionSetHandle actionSet)
+    {
+        if (ISteamBackend* backend = AvailableBackend())
+        {
+            backend->ActivateActionSet(controller, actionSet);
+        }
+    }
+
+    SteamInputDigitalActionHandle SteamManager::GetDigitalActionHandle(std::string_view actionName)
+    {
+        ISteamBackend* backend = AvailableBackend();
+        return backend ? backend->GetDigitalActionHandle(actionName) : kInvalidSteamInputDigitalActionHandle;
+    }
+
+    SteamInputDigitalActionState SteamManager::GetDigitalActionState(SteamInputHandle controller, SteamInputDigitalActionHandle action)
+    {
+        ISteamBackend* backend = AvailableBackend();
+        return backend ? backend->GetDigitalActionState(controller, action) : SteamInputDigitalActionState{};
+    }
+
+    SteamInputAnalogActionHandle SteamManager::GetAnalogActionHandle(std::string_view actionName)
+    {
+        ISteamBackend* backend = AvailableBackend();
+        return backend ? backend->GetAnalogActionHandle(actionName) : kInvalidSteamInputAnalogActionHandle;
+    }
+
+    SteamInputAnalogActionState SteamManager::GetAnalogActionState(SteamInputHandle controller, SteamInputAnalogActionHandle action)
+    {
+        ISteamBackend* backend = AvailableBackend();
+        return backend ? backend->GetAnalogActionState(controller, action) : SteamInputAnalogActionState{};
+    }
+
+    std::string SteamManager::GetGlyphLabelForDigitalAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                            SteamInputDigitalActionHandle action)
+    {
+        ISteamBackend* backend = AvailableBackend();
+        return backend ? backend->GetGlyphLabelForDigitalAction(controller, actionSet, action) : std::string{};
+    }
+
+    std::string SteamManager::GetGlyphLabelForAnalogAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                           SteamInputAnalogActionHandle action)
+    {
+        ISteamBackend* backend = AvailableBackend();
+        return backend ? backend->GetGlyphLabelForAnalogAction(controller, actionSet, action) : std::string{};
+    }
+
+    std::string SteamManager::GetGlyphPngForDigitalAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                          SteamInputDigitalActionHandle action)
+    {
+        ISteamBackend* backend = AvailableBackend();
+        return backend ? backend->GetGlyphPngForDigitalAction(controller, actionSet, action) : std::string{};
+    }
+
+    std::string SteamManager::GetGlyphPngForAnalogAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,
+                                                         SteamInputAnalogActionHandle action)
+    {
+        ISteamBackend* backend = AvailableBackend();
+        return backend ? backend->GetGlyphPngForAnalogAction(controller, actionSet, action) : std::string{};
+    }
+
     void SteamManager::SetBackendForTesting(Scope<ISteamBackend> backend)
     {
         if (s_Backend)
         {
+            // Mirror the real Shutdown() ordering (input torn down before the base backend) so
+            // a test that swaps backends mid-run without an intervening Shutdown()/
+            // ResetForTesting() doesn't leak whatever the outgoing backend's InputShutdown()
+            // was responsible for releasing.
+            s_Backend->InputShutdown();
             s_Backend->Shutdown();
         }
         s_Backend = std::move(backend);
