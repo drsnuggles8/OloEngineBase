@@ -46,6 +46,16 @@ jobs:
   validate-publish-tooling:
     name: Validate Publish-ToSteam.ps1 (dry run only)
     runs-on: ubuntu-24.04
+    # SonarCloud (GitHub Actions script-injection rule): a `${{ inputs.* }}` expression
+    # substitutes TEXTUALLY into a run: block before the shell ever parses it — a
+    # workflow_dispatch input containing e.g. `"; rm -rf /` would inject straight into the
+    # script rather than being passed as an argument. Routed through job-level env: once
+    # here instead, and every step below reads $INPUT_APP_ID / $INPUT_DEPOT_ID (an
+    # environment variable expansion, not a textual substitution) rather than the `${{ }}`
+    # form directly in a run: block.
+    env:
+      INPUT_APP_ID: ${{ inputs.app_id }}
+      INPUT_DEPOT_ID: ${{ inputs.depot_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,11 +83,13 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $out = "/tmp/fixture-good-output"
+          $appId = $env:INPUT_APP_ID
+          $depotId = $env:INPUT_DEPOT_ID
 
           pwsh scripts/steam/Publish-ToSteam.ps1 `
               -BuildPath /tmp/fixture-good `
-              -AppId ${{ inputs.app_id }} `
-              -DepotId ${{ inputs.depot_id }} `
+              -AppId $appId `
+              -DepotId $depotId `
               -BetaBranch beta `
               -Description "CI validation run — never uploaded" `
               -OutputDir $out `
@@ -87,8 +99,8 @@ jobs:
               exit 1
           }
 
-          $appVdf = Get-Content -Raw (Join-Path $out "app_build_${{ inputs.app_id }}.vdf")
-          $depotVdf = Get-Content -Raw (Join-Path $out "depot_build_${{ inputs.depot_id }}.vdf")
+          $appVdf = Get-Content -Raw (Join-Path $out "app_build_$appId.vdf")
+          $depotVdf = Get-Content -Raw (Join-Path $out "depot_build_$depotId.vdf")
 
           foreach ($rendered in @($appVdf, $depotVdf)) {
               if ($rendered -match '\{\{[A-Z_]+\}\}') {
@@ -98,8 +110,10 @@ jobs:
           }
           # Whitespace-tolerant: match the VDF key/value pair regardless of the
           # template's exact tab padding, which is a formatting detail this
-          # check shouldn't be coupled to.
-          if ($appVdf -notmatch '"appid"\s+"${{ inputs.app_id }}"') {
+          # check shouldn't be coupled to. Built via concatenation (not string
+          # interpolation of a quote-containing pattern) to keep the embedded
+          # literal double-quotes unambiguous.
+          if ($appVdf -notmatch ('"appid"\s+"' + [regex]::Escape($appId) + '"')) {
               Write-Error "app_build.vdf does not contain the expected appid line."
               exit 1
           }
@@ -107,7 +121,7 @@ jobs:
               Write-Error "app_build.vdf does not set the beta branch live."
               exit 1
           }
-          if ($depotVdf -notmatch '"DepotID"\s+"${{ inputs.depot_id }}"') {
+          if ($depotVdf -notmatch ('"DepotID"\s+"' + [regex]::Escape($depotId) + '"')) {
               Write-Error "depot_build.vdf does not contain the expected DepotID line."
               exit 1
           }
@@ -118,8 +132,8 @@ jobs:
         run: |
           pwsh scripts/steam/Publish-ToSteam.ps1 `
               -BuildPath /tmp/fixture-good `
-              -AppId ${{ inputs.app_id }} `
-              -DepotId ${{ inputs.depot_id }} `
+              -AppId $env:INPUT_APP_ID `
+              -DepotId $env:INPUT_DEPOT_ID `
               -BetaBranch public `
               -OutputDir /tmp/fixture-good-output-public `
               -WhatIf
@@ -134,8 +148,8 @@ jobs:
         run: |
           pwsh scripts/steam/Publish-ToSteam.ps1 `
               -BuildPath /tmp/fixture-with-appid `
-              -AppId ${{ inputs.app_id }} `
-              -DepotId ${{ inputs.depot_id }} `
+              -AppId $env:INPUT_APP_ID `
+              -DepotId $env:INPUT_DEPOT_ID `
               -BetaBranch beta `
               -OutputDir /tmp/fixture-with-appid-output `
               -WhatIf
@@ -150,8 +164,8 @@ jobs:
         run: |
           pwsh scripts/steam/Publish-ToSteam.ps1 `
               -BuildPath /tmp/does-not-exist `
-              -AppId ${{ inputs.app_id }} `
-              -DepotId ${{ inputs.depot_id }} `
+              -AppId $env:INPUT_APP_ID `
+              -DepotId $env:INPUT_DEPOT_ID `
               -BetaBranch beta `
               -OutputDir /tmp/fixture-missing-output `
               -WhatIf
