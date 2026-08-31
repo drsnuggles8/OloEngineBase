@@ -1394,6 +1394,7 @@ namespace OloEngine
         void ComputeReachability();
         void ComputeBarrierPlan();
         void LogSubmissionPlanIfChanged();
+        [[nodiscard]] std::vector<SubmissionCommand> BuildSubmissionPlan(bool sequential) const;
         [[nodiscard]] static MemoryBarrierFlags ResolveProducerBarrierFlags(RGWriteUsage usage);
         [[nodiscard]] static MemoryBarrierFlags ResolveConsumerBarrierFlags(RGReadUsage usage);
 

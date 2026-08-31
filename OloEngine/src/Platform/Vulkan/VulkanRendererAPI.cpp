@@ -221,6 +221,10 @@ namespace OloEngine
         m_PreparedDrawsThisRecording = 0;
         m_DroppedDrawsThisRecording = 0;
         m_GpuWrittenRootDrawsThisRecording = 0;
+        // The GPU-written root hand-off belongs to one attempted draw in one
+        // recording. A rejected indirect draw must not carry its address into
+        // the next command buffer's first draw.
+        m_NextDrawRootDataAddress = 0;
         m_ConditionallySkippedDrawsThisRecording = 0;
         // Query state is command-buffer state too: an unbalanced Begin from a
         // previous recording must not leak into this one.
@@ -733,11 +737,15 @@ namespace OloEngine
         if (field == layout.Fields.end())
             return false;
 
-        outLayout = {
+        const GpuDrivenRootDataLayout described{
             .SizeBytes = layout.SizeBytes,
             .GpuWrittenFieldOffsetBytes = field->Offset,
         };
-        return outLayout.IsValid();
+        if (!described.IsValid())
+            return false;
+
+        outLayout = described;
+        return true;
     }
 
     bool VulkanRendererAPI::SetNextDrawRootData(const RHI::ResourceHandle rootData,

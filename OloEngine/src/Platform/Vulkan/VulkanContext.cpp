@@ -863,6 +863,18 @@ namespace OloEngine
             }
             catch (const std::exception& e)
             {
+                if (api.CurrentCommandBuffer() == VK_NULL_HANDLE)
+                {
+                    // A split-segment Vulkan failure is not the same as the
+                    // backend declining the split before detaching. Producer
+                    // commands may already be ended or submitted, so the full-
+                    // barrier path cannot replay them safely. Do not continue
+                    // into overlay/final submission with a closed recording
+                    // bracket; preserve VkCheck's fatal error instead.
+                    OLO_CORE_ERROR("[Vulkan] frame render callback failed after detaching its command buffer: {}",
+                                   e.what());
+                    throw;
+                }
                 // The callback runs arbitrary engine code inside an OPEN
                 // command buffer; letting an exception escape would leave the
                 // bracket unbalanced and take the process down with it. Log

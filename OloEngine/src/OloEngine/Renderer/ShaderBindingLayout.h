@@ -8,6 +8,7 @@
 // number, and the header itself pulls in nothing but Core/Base.h + glm.
 #include "OloEngine/Renderer/Water/WaterDisturbanceField.h"
 #include <glm/glm.hpp>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
