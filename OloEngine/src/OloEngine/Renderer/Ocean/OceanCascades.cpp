@@ -44,6 +44,10 @@ namespace OloEngine::Ocean
             preset.Bands[0].KMin = 0.0f;
             preset.Bands[0].KMax = std::numeric_limits<f32>::infinity();
             preset.Bands[0].DomainRotation = 0.0f;
+            // Unbounded above, so the proxy keeps the cap — exactly the size the
+            // pre-#969 field used, which is what leaves the fallback path's CPU
+            // cost where it was.
+            preset.Bands[0].PhysicsResolution = std::min(resolution, kPhysicsProxyResolution);
             return preset;
         }
 
@@ -76,12 +80,16 @@ namespace OloEngine::Ocean
         preset.Bands[0].KMin = 0.0f;
         preset.Bands[0].KMax = kBroadMid;
         preset.Bands[0].DomainRotation = 0.0f;
+        preset.Bands[0].PhysicsResolution =
+            std::min(RoundUpCascadeResolution(kProxySamplesPerWavelength * broadNMax, N), kPhysicsProxyResolution);
 
         preset.Bands[1].PatchSize = midL;
         preset.Bands[1].Resolution = RoundUpCascadeResolution(kMinSamplesPerWavelength * midNMax, N);
         preset.Bands[1].KMin = kBroadMid;
         preset.Bands[1].KMax = kMidFine;
         preset.Bands[1].DomainRotation = kMidCascadeRotationRadians;
+        preset.Bands[1].PhysicsResolution =
+            std::min(RoundUpCascadeResolution(kProxySamplesPerWavelength * midNMax, N), kPhysicsProxyResolution);
 
         // The top band has no upper boundary of its own — its grid Nyquist is
         // the limit, exactly as in the single-cascade field — so it is the one
@@ -91,6 +99,9 @@ namespace OloEngine::Ocean
         preset.Bands[2].KMin = kMidFine;
         preset.Bands[2].KMax = std::numeric_limits<f32>::infinity();
         preset.Bands[2].DomainRotation = 0.0f;
+        // The only band with no upper boundary, so the only one that needs the
+        // full proxy grid.
+        preset.Bands[2].PhysicsResolution = std::min(N, kPhysicsProxyResolution);
 
         preset.ArrayResolution =
             std::max({ preset.Bands[0].Resolution, preset.Bands[1].Resolution, preset.Bands[2].Resolution });

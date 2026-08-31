@@ -137,29 +137,49 @@ namespace OloEngine::Ocean
         return std::sqrt(std::max(gravity * kMagnitude, 0.0f));
     }
 
-    std::vector<Complex> GenerateH0(const SpectrumParams& params)
+    std::vector<glm::vec2> GenerateSpectrumNoise(u32 seed, u32 resolution)
+    {
+        const u32 N = resolution;
+        OLO_CORE_ASSERT(IsPowerOfTwo(N), "Ocean spectrum resolution must be a power of two");
+
+        std::vector<glm::vec2> noise(static_cast<sizet>(N) * N);
+        std::mt19937 rng(seed);
+        std::normal_distribution<f32> gauss(0.0f, 1.0f);
+        // Row-major, two draws per bin, in exactly the order GenerateH0 used to
+        // consume them — that ordering IS the contract, because it is what makes
+        // a given seed reproduce a given sea.
+        for (glm::vec2& v : noise)
+        {
+            v.x = gauss(rng);
+            v.y = gauss(rng);
+        }
+        return noise;
+    }
+
+    std::vector<Complex> GenerateH0FromNoise(const SpectrumParams& params, const std::vector<glm::vec2>& noise)
     {
         const u32 N = params.m_Resolution;
         OLO_CORE_ASSERT(IsPowerOfTwo(N), "Ocean spectrum resolution must be a power of two");
+        OLO_CORE_ASSERT(noise.size() == static_cast<sizet>(N) * N, "GenerateH0FromNoise: noise size mismatch");
 
         std::vector<Complex> h0(static_cast<sizet>(N) * N);
-
-        std::mt19937 rng(params.m_Seed);
-        std::normal_distribution<f32> gauss(0.0f, 1.0f);
-
         const f32 invSqrt2 = 0.70710678118654752440f;
         for (u32 m = 0u; m < N; ++m)
         {
             for (u32 n = 0u; n < N; ++n)
             {
+                const sizet i = static_cast<sizet>(m) * N + n;
                 const glm::vec2 k = WaveVector(n, m, N, params.m_PatchSize);
                 const f32 amp = std::sqrt(SpectrumEnergy(params, k));
-                const f32 xr = gauss(rng);
-                const f32 xi = gauss(rng);
-                h0[static_cast<sizet>(m) * N + n] = invSqrt2 * Complex(xr, xi) * amp;
+                h0[i] = invSqrt2 * Complex(noise[i].x, noise[i].y) * amp;
             }
         }
         return h0;
+    }
+
+    std::vector<Complex> GenerateH0(const SpectrumParams& params)
+    {
+        return GenerateH0FromNoise(params, GenerateSpectrumNoise(params.m_Seed, params.m_Resolution));
     }
 
     void ApplyBandLimit(std::vector<Complex>& h0, u32 resolution, f32 patchSize, f32 kMin, f32 kMax)
@@ -217,6 +237,34 @@ namespace OloEngine::Ocean
             }
         }
         return small;
+    }
+
+    f32 ReferenceHeightRms(const std::vector<Complex>& h0, u32 resolution)
+    {
+        const u32 N = resolution;
+        OLO_CORE_ASSERT(h0.size() == static_cast<sizet>(N) * N, "ReferenceHeightRms: h0 size mismatch");
+        if (N == 0u)
+            return 0.0f;
+
+        // sum_k |h0(k) + conj(h0(-k))|^2 — the t=0 case of EvaluateField's
+        // Hermitian construction, so the two agree exactly rather than
+        // approximately.
+        f64 sumSq = 0.0;
+        for (u32 m = 0u; m < N; ++m)
+        {
+            const u32 mm = (N - m) % N;
+            for (u32 n = 0u; n < N; ++n)
+            {
+                const u32 mn = (N - n) % N;
+                const Complex h = h0[static_cast<sizet>(m) * N + n] +
+                                  std::conj(h0[static_cast<sizet>(mm) * N + mn]);
+                sumSq += static_cast<f64>(h.real()) * h.real() + static_cast<f64>(h.imag()) * h.imag();
+            }
+        }
+        // The inverse transform divides by N^2, so the spatial mean square is
+        // sum/N^4 (Parseval for a 1/M-normalised inverse DFT with M = N^2).
+        const f64 nSqr = static_cast<f64>(N) * static_cast<f64>(N);
+        return static_cast<f32>(std::sqrt(sumSq / (nSqr * nSqr)));
     }
 
     DisplacementField EvaluateField(const SpectrumParams& params, const std::vector<Complex>& h0, f32 time)

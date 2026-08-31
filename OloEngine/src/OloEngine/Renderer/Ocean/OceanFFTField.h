@@ -162,7 +162,11 @@ namespace OloEngine::Ocean
             f32 PatchSize = 0.0f;
             f32 WindSpeed = 0.0f;
             glm::vec2 WindDirection{ 0.0f };
-            f32 Amplitude = 0.0f;
+            // Amplitude is deliberately NOT here. It is a pure linear scale on
+            // the spectrum, so a change to it needs a multiply, not a
+            // regeneration — and Drift's weather director eases it every single
+            // tick, which made "regenerate when the key changes" mean
+            // "regenerate every frame". See ApplyAmplitude.
             f32 Gravity = 0.0f;
             f32 SmallWaveSuppression = 0.0f;
             f32 DirectionalExponent = 0.0f;
@@ -192,18 +196,40 @@ namespace OloEngine::Ocean
         /// out of three parallel arrays.
         struct Cascade
         {
-            SpectrumParams Params;   ///< the band's own L/N/wind (wind counter-rotated)
-            std::vector<Complex> H0; ///< band-limited, amplitude-normalised base spectrum
-            DisplacementField Field; ///< retained CPU copy (full-res, or the physics proxy)
+            SpectrumParams Params; ///< the band's own L/N/wind (wind counter-rotated)
+            /// The band's spectrum at UNIT summed RMS — everything about it
+            /// except the amplitude. Kept so an amplitude change is a multiply
+            /// into H0 rather than a regeneration, and so repeated changes
+            /// rescale from the original each time instead of accumulating
+            /// float error through an in-place ratio.
+            std::vector<Complex> H0Unit;
+            std::vector<Complex> H0; ///< H0Unit * the current amplitude scale
+            DisplacementField Field; ///< retained CPU copy (the physics proxy)
             Ref<OceanFFTGpu> Gpu;    ///< GPU producer for this band
             bool GpuH0Dirty = false;
-            std::vector<Complex> PhysicsH0;
+            /// The band's Gaussian draws, cached per (seed, grid). PER BAND,
+            /// not shared: each cascade draws from its own seed (CascadeSeed),
+            /// so one field-level cache would miss on every band of every
+            /// regeneration and cache nothing at all.
+            ///
+            /// Independent of wind / amplitude / spectrum type — only the
+            /// per-bin sqrt(Phi(k)) factor depends on those — so an easing sea
+            /// state reuses these instead of re-running mt19937 every frame.
+            std::vector<glm::vec2> Noise;
+            u32 NoiseSeed = 0u;
+            u32 NoiseResolution = 0u;
+            std::vector<Complex> PhysicsH0Unit; ///< the proxy band of H0Unit
+            std::vector<Complex> PhysicsH0;     ///< PhysicsH0Unit * the amplitude scale
             u32 PhysicsResolution = 0u;
             f32 CosRotation = 1.0f; ///< cos/sin of the band's sampling-domain rotation
             f32 SinRotation = 0.0f;
         };
 
         void RegenerateSpectra(const SpectrumParams& params);
+        /// Apply `amplitude` to every band's unit spectrum. Cheap enough to run
+        /// on a sea state that eases every tick, which is exactly what it is
+        /// for. No-op when the scale has not moved.
+        void ApplyAmplitude(f32 amplitude);
         void Upload();
         void EnsureTextures(u32 resolution, u32 layers);
         /// Summed horizontal (choppy) displacement at a parameter position —
@@ -214,6 +240,9 @@ namespace OloEngine::Ocean
         CascadePreset m_Preset;
         H0Key m_H0Key;
         bool m_HasH0 = false;
+        /// The amplitude scale currently baked into every band's H0. NaN-safe
+        /// sentinel start so the first Update always applies one.
+        f32 m_AppliedAmplitude = -1.0f;
         std::array<Cascade, kMaxOceanCascades> m_Cascades;
 
         Ref<Texture2DArray> m_DisplacementTex; // per layer: rgb = (dx, h, dz), a = foam

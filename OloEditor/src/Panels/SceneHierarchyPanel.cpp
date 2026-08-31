@@ -6535,12 +6535,9 @@ namespace OloEngine
                                                                     : Ocean::kSingleCascadeCount;
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip(
-                            "Single: one tile at Patch Size carrying the whole spectrum.
-"
-                            "Three-band: Patch Size becomes the MID tile, with a broad tile for
-"
-                            "long swell and a fine tile for close chop either side of it, at
-"
+                            "Single: one tile at Patch Size carrying the whole spectrum.\n"
+                            "Three-band: Patch Size becomes the MID tile, with a broad tile for\n"
+                            "long swell and a fine tile for close chop either side of it, at\n"
                             "non-commensurate sizes and one rotated, so the sea does not repeat.");
 
                     ImGui::Checkbox("GPU Compute FFT", &component.m_FFTUseGpuCompute);

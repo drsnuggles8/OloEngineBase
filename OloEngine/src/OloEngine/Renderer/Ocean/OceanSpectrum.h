@@ -105,6 +105,24 @@ namespace OloEngine::Ocean
     /// dropped at the handoff or counted in both cascades.
     void ApplyBandLimit(std::vector<Complex>& h0, u32 resolution, f32 patchSize, f32 kMin, f32 kMax);
 
+    /// The deterministic Gaussian draws GenerateH0 uses, for one seed and
+    /// resolution: 2 unit normals per bin, in the same row-major order.
+    ///
+    /// Split out because the draws depend on NOTHING but the seed and the grid
+    /// — not the wind, not the amplitude, not the spectrum type. Only the
+    /// per-bin sqrt(Phi(k)) factor does. A weather director easing the wind
+    /// therefore re-ran a full mt19937 + normal_distribution sweep every frame
+    /// to arrive at exactly the same numbers, which in a Debug build is the
+    /// dominant cost of a regeneration.
+    [[nodiscard]] std::vector<glm::vec2> GenerateSpectrumNoise(u32 seed, u32 resolution);
+
+    /// GenerateH0 with the draws supplied — identical output, no RNG. `noise`
+    /// must be GenerateSpectrumNoise(params.m_Seed, params.m_Resolution).
+    /// Pinned against the RNG form by
+    /// OceanCascadeTest.CachedNoiseReproducesGenerateH0Exactly.
+    [[nodiscard]] std::vector<Complex> GenerateH0FromNoise(const SpectrumParams& params,
+                                                           const std::vector<glm::vec2>& noise);
+
     /// Extract the low-|k| band of a full-resolution h0 into a
     /// targetResolution² spectrum (same patch size ⇒ same wave vectors per
     /// signed frequency), so the small-grid IFFT reproduces the band-limited
@@ -119,6 +137,22 @@ namespace OloEngine::Ocean
     /// Returns a copy when targetResolution >= the source resolution.
     [[nodiscard]] std::vector<Complex> ExtractBandLimitedH0(const std::vector<Complex>& h0, u32 resolution,
                                                             u32 targetResolution);
+
+    /// Height RMS the t=0 field of `h0` would have, WITHOUT running the
+    /// inverse FFT — Parseval's theorem on the same construction
+    /// EvaluateField uses (h~(k,0) = h0(k) + conj(h0(-k)), inverse-transformed
+    /// with the 1/N^2 normalisation):
+    ///
+    ///     meanSquareHeight = (1 / N^4) * sum_k |h~(k,0)|^2
+    ///
+    /// This is EXACT, not an estimate, and it exists because the amplitude
+    /// normalisation used to call EvaluateField purely to measure this one
+    /// number — an O(N^2 log N) transform, and eight of them, to produce a
+    /// scalar. Drift's weather director eases the sea state every tick, so that
+    /// ran EVERY FRAME: measured at 41 ms per frame on a 128 grid with one
+    /// cascade, 108 with three. Pinned by
+    /// OceanCascadeTest.AnalyticReferenceRmsMatchesTheEvaluatedField.
+    [[nodiscard]] f32 ReferenceHeightRms(const std::vector<Complex>& h0, u32 resolution);
 
     /// One fully-evaluated ocean tile at a given time. All grids are row-major
     /// N×N (index = y*N + x); x/y step PatchSize/N metres in world XZ.

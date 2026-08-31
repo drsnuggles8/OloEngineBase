@@ -383,8 +383,15 @@ namespace OloEngine::Tests
         ASSERT_NE(field->GetDisplacementTextureID(), 0u);
         ASSERT_NE(field->GetDerivativesTextureID(), 0u);
         // GPU mode must actually have engaged, or this compares CPU with CPU.
-        ASSERT_EQ(field->GetCascadeField(0).m_Resolution, 64u)
+        // Asserted as the PROPERTY (the retained CPU field is a reduced proxy,
+        // not the full grid) rather than against a fixed size: the proxy grid is
+        // derived per band from that band's occupied bins, so a literal here
+        // pins a number that legitimately moves.
+        ASSERT_LT(field->GetCascadeField(0).m_Resolution, preset.ArrayResolution)
             << "GPU mode did not engage (physics proxy missing) — compute path silently fell back?";
+        for (u32 i = 0u; i < preset.Count; ++i)
+            EXPECT_EQ(field->GetCascadeField(i).m_Resolution, preset.Bands[i].PhysicsResolution)
+                << "band " << i << " did not use its derived physics-proxy grid";
 
         const auto disp = ReadbackRgba32fArray(field->GetDisplacementTextureID(), preset.ArrayResolution, 3u);
         const auto deriv = ReadbackRgba32fArray(field->GetDerivativesTextureID(), preset.ArrayResolution, 3u);

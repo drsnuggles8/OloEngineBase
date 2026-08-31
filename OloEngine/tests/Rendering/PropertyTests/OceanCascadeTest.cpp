@@ -685,6 +685,126 @@ TEST(OceanCascade, DiagBandEnergyAndSlopeAtDriftSettings)
         << " against " << singleSlope << ") — energy has moved into wavelengths too long to see";
 }
 
+TEST(OceanCascade, AnalyticReferenceRmsMatchesTheEvaluatedField)
+{
+    // The amplitude normalisation needs one number: the height RMS the t=0
+    // field would have. It used to get it by running EvaluateField — eight
+    // inverse FFTs — and throwing the field away. ReferenceHeightRms computes
+    // the same number from Parseval, and this is what makes that swap safe
+    // rather than plausible: EXACT agreement, not a tolerance somebody picked.
+    for (u32 N : { 16u, 32u, 64u })
+    {
+        for (f32 wind : { 6.0f, 12.0f, 20.0f })
+        {
+            Ocean::SpectrumParams p = MakeParams(1u, 137.0f, N);
+            p.m_WindSpeed = wind;
+            const std::vector<Ocean::Complex> h0 = Ocean::GenerateH0(p);
+
+            const Ocean::DisplacementField f = Ocean::EvaluateField(p, h0, 0.0f);
+            f64 sumSq = 0.0;
+            for (f32 h : f.m_Height)
+                sumSq += static_cast<f64>(h) * h;
+            const f64 measured = std::sqrt(sumSq / static_cast<f64>(f.m_Height.size()));
+            const f64 analytic = Ocean::ReferenceHeightRms(h0, N);
+
+            ASSERT_GT(measured, 1e-9) << "N=" << N << " wind=" << wind << ": the field is flat";
+            EXPECT_NEAR(analytic, measured, measured * 1e-4)
+                << "N=" << N << " wind=" << wind << ": Parseval disagrees with the inverse FFT";
+        }
+    }
+}
+
+TEST(OceanCascade, AmplitudeChangeDoesNotRegenerateTheSpectrum)
+{
+    // Drift's weather director eases the sea state EVERY TICK, so amplitude is
+    // the most frequently written field on the component. It is a pure linear
+    // scale on the spectrum, so it must not be part of the regeneration key —
+    // it was, and that made an easing sea state regenerate the whole spectrum
+    // (and run a full-resolution inverse FFT) every frame: 41 ms at one cascade,
+    // 108 at three, measured in Drift.
+    //
+    // Asserted two ways, because the cheap half alone would pass on a field that
+    // simply ignored the new amplitude: the surface must SCALE with it, and it
+    // must scale linearly and exactly.
+    Ocean::SpectrumParams p = MakeParams(3u, 140.0f, 64u);
+    p.m_Amplitude = 1.0f;
+    auto field = Ref<Ocean::OceanFFTField>::Create();
+    field->Update(p, 4.0f, /*uploadToGpu=*/false, /*useGpuCompute=*/false);
+
+    std::vector<f32> before;
+    for (int i = 0; i < 24; ++i)
+        before.push_back(field->SampleCascades(glm::vec2(i * 9.0f, i * 4.0f)).Height);
+
+    // Double it. Same spectrum, twice the sea.
+    p.m_Amplitude = 2.0f;
+    field->Update(p, 4.0f, /*uploadToGpu=*/false, /*useGpuCompute=*/false);
+
+    f64 peak = 0.0;
+    for (int i = 0; i < 24; ++i)
+    {
+        const f32 after = field->SampleCascades(glm::vec2(i * 9.0f, i * 4.0f)).Height;
+        peak = std::max(peak, std::abs(static_cast<f64>(before[i])));
+        EXPECT_NEAR(after, before[i] * 2.0f, std::max(std::abs(before[i]) * 1e-3f, 1e-5f))
+            << "sample " << i << ": doubling the amplitude did not double the surface";
+    }
+    ASSERT_GT(peak, 1e-3) << "the sea is flat — every assertion above passed on nothing";
+
+    // ...and back down again, exactly. A rescale that accumulated a ratio in
+    // place would drift here, which is why the unit spectrum is retained.
+    p.m_Amplitude = 1.0f;
+    field->Update(p, 4.0f, /*uploadToGpu=*/false, /*useGpuCompute=*/false);
+    for (int i = 0; i < 24; ++i)
+        EXPECT_NEAR(field->SampleCascades(glm::vec2(i * 9.0f, i * 4.0f)).Height, before[i],
+                    std::max(std::abs(before[i]) * 1e-4f, 1e-6f))
+            << "sample " << i << ": returning to the original amplitude did not return the original sea";
+}
+
+TEST(OceanCascade, CachedNoiseReproducesGenerateH0Exactly)
+{
+    // Splitting the Gaussian draws out of GenerateH0 is only safe if the draws
+    // really are independent of everything else — the seed and the grid decide
+    // them, the wind and the spectrum type do not. If that were wrong, a cached
+    // noise set would silently freeze the sea's randomness at whatever the wind
+    // was when it was first drawn, and every statistic would still look fine.
+    //
+    // BIT-exact, not near: the two paths must be the same arithmetic in the same
+    // order, because a seed reproducing a given sea is the contract.
+    for (u32 N : { 16u, 32u })
+    {
+        for (f32 wind : { 5.0f, 14.0f })
+        {
+            for (u32 seed : { 1337u, 4242u })
+            {
+                Ocean::SpectrumParams p = MakeParams(1u, 111.0f, N);
+                p.m_WindSpeed = wind;
+                p.m_Seed = seed;
+
+                const std::vector<Ocean::Complex> viaRng = Ocean::GenerateH0(p);
+                const std::vector<glm::vec2> noise = Ocean::GenerateSpectrumNoise(seed, N);
+                const std::vector<Ocean::Complex> viaNoise = Ocean::GenerateH0FromNoise(p, noise);
+
+                ASSERT_EQ(viaRng.size(), viaNoise.size());
+                for (sizet i = 0; i < viaRng.size(); ++i)
+                {
+                    ASSERT_FLOAT_EQ(viaNoise[i].real(), viaRng[i].real()) << "N=" << N << " seed=" << seed << " bin " << i;
+                    ASSERT_FLOAT_EQ(viaNoise[i].imag(), viaRng[i].imag()) << "N=" << N << " seed=" << seed << " bin " << i;
+                }
+            }
+        }
+    }
+
+    // ...and the draws really are wind-independent: same seed, different wind,
+    // same noise. (The SPECTRUM differs, which the loop above already covers.)
+    const std::vector<glm::vec2> a = Ocean::GenerateSpectrumNoise(99u, 32u);
+    const std::vector<glm::vec2> b = Ocean::GenerateSpectrumNoise(99u, 32u);
+    ASSERT_EQ(a.size(), b.size());
+    for (sizet i = 0; i < a.size(); ++i)
+    {
+        EXPECT_FLOAT_EQ(a[i].x, b[i].x);
+        EXPECT_FLOAT_EQ(a[i].y, b[i].y);
+    }
+}
+
 // -----------------------------------------------------------------------------
 // The UBO packing
 // -----------------------------------------------------------------------------

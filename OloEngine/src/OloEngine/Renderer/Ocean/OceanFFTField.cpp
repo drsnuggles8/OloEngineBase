@@ -6,38 +6,65 @@
 
 namespace OloEngine::Ocean
 {
+    namespace
+    {
+        // Snap a continuously-varying shape parameter to a step before it goes
+        // into the regeneration key.
+        //
+        // WHY THIS EXISTS. The key is a bit-exact compare, so a wind speed
+        // easing by 1e-6 m/s counted as "the sea changed" and rebuilt every
+        // band's spectrum — a full O(N^2) sweep of sqrt/exp/pow per bin, per
+        // band, per frame. Drift's weather director eases the wind every tick by
+        // design, so "regenerate when the key changes" meant "regenerate always".
+        //
+        // Quantising is sound here in a way it would not be for a phase: the
+        // Gaussian draws are seeded and cached, so crossing a step changes only
+        // the per-bin AMPLITUDES by the amount the step is worth — the same
+        // waves, imperceptibly re-weighted — rather than re-rolling the sea.
+        // And the sea already lags the wind by a long time constant on purpose
+        // (kSeaTau in DriftWeatherDirector.lua), so a step finer than the lag
+        // cannot be seen.
+        [[nodiscard]] f32 QuantiseShapeParam(f32 value, f32 step) noexcept
+        {
+            if (!std::isfinite(value) || !(step > 0.0f))
+                return value;
+            return std::round(value / step) * step;
+        }
+
+        // Steps chosen to be below perception for each parameter's own range:
+        // 0.25 m/s against a 0.1-100 m/s wind, ~0.6 degrees of heading, 1% of
+        // fetch. Each is far finer than the director's own easing resolution.
+        constexpr f32 kWindSpeedStep = 0.25f;
+        constexpr f32 kWindDirStep = 0.01f; // on a normalised direction component
+        constexpr f32 kJonswapGammaStep = 0.01f;
+    } // namespace
+
     OceanFFTField::H0Key OceanFFTField::MakeH0Key(const SpectrumParams& p)
     {
         H0Key k;
         k.Resolution = p.m_Resolution;
         k.PatchSize = p.m_PatchSize;
-        k.WindSpeed = p.m_WindSpeed;
-        k.WindDirection = p.m_WindDirection;
-        k.Amplitude = p.m_Amplitude;
+        // Quantised, not raw — see QuantiseShapeParam. Only the KEY is
+        // quantised; the spectrum is still generated from the exact params, so
+        // the sea is never built from a rounded wind, it is merely not rebuilt
+        // until the wind has moved by a step.
+        k.WindSpeed = QuantiseShapeParam(p.m_WindSpeed, kWindSpeedStep);
+        k.WindDirection = glm::vec2(QuantiseShapeParam(p.m_WindDirection.x, kWindDirStep),
+                                    QuantiseShapeParam(p.m_WindDirection.y, kWindDirStep));
         k.Gravity = p.m_Gravity;
         k.SmallWaveSuppression = p.m_SmallWaveSuppression;
         k.DirectionalExponent = p.m_DirectionalExponent;
         k.Seed = p.m_Seed;
         k.SpectrumType = static_cast<u32>(p.m_SpectrumType);
-        k.JonswapGamma = p.m_JonswapGamma;
-        k.JonswapFetch = p.m_JonswapFetch;
+        k.JonswapGamma = QuantiseShapeParam(p.m_JonswapGamma, kJonswapGammaStep);
+        // Fetch spans six orders of magnitude, so its step is relative.
+        k.JonswapFetch = QuantiseShapeParam(p.m_JonswapFetch, std::max(p.m_JonswapFetch * 0.01f, 1.0f));
         k.CascadeCount = p.m_CascadeCount;
         return k;
     }
 
     namespace
     {
-        // Resolution of the band-limited CPU physics proxy evaluated while the
-        // GPU owns the rendered field. 64² keeps SampleHeight() tracking the
-        // rendered waves (same h0 band, same phases) at roughly a fifth of the
-        // 128²-grid CPU cost — the IFFT work scales with N²·log2(N).
-        //
-        // Per BAND, so the three-band preset costs three of these per tick
-        // rather than one. That is the price of buoyancy following a summed
-        // surface; the broad and mid bands are the cheap ones (their spectra
-        // are empty above bin ~5, but the IFFT does not know that).
-        constexpr u32 kPhysicsProxyResolution = 64u;
-
         // Decorrelate the per-band Gaussian draws. Band 0 keeps the authored
         // seed exactly, so a single-cascade field is bit-identical to the
         // pre-#969 one; the golden-ratio odd constant is the usual cheap
@@ -113,7 +140,15 @@ namespace OloEngine::Ocean
 
             SpectrumParams unit = bandParams;
             unit.m_Amplitude = 1.0f;
-            std::vector<Complex> h0 = GenerateH0(unit);
+            // Reuse the cached draws when the seed and grid are unchanged — the
+            // usual case, because the thing that moved was the wind.
+            if (c.Noise.empty() || c.NoiseSeed != unit.m_Seed || c.NoiseResolution != N)
+            {
+                c.Noise = GenerateSpectrumNoise(unit.m_Seed, N);
+                c.NoiseSeed = unit.m_Seed;
+                c.NoiseResolution = N;
+            }
+            std::vector<Complex> h0 = GenerateH0FromNoise(unit, c.Noise);
             ApplyBandLimit(h0, N, band.PatchSize, band.KMin, band.KMax);
 
             // SPECTRAL DENSITY: each band's amplitude must carry its own bin
@@ -145,37 +180,64 @@ namespace OloEngine::Ocean
             for (Complex& v : h0)
                 v *= binSpacing;
 
-            const DisplacementField ref = EvaluateField(bandParams, h0, 0.0f);
-            f64 sumSq = 0.0;
-            for (f32 h : ref.m_Height)
-                sumSq += static_cast<f64>(h) * h;
-            if (!ref.m_Height.empty())
-                totalVariance += sumSq / static_cast<f64>(ref.m_Height.size());
+            // The band's height variance, from Parseval rather than from an
+            // inverse FFT of the whole field. Same number, no transform — see
+            // ReferenceHeightRms. This is the line that used to make an easing
+            // sea state cost 41 ms a frame.
+            const f32 bandRms = ReferenceHeightRms(h0, N);
+            totalVariance += static_cast<f64>(bandRms) * bandRms;
 
-            c.H0 = std::move(h0);
+            c.H0Unit = std::move(h0);
         }
 
-        // Pass 2: bake the single common scale into every band. Because it
+        // Pass 2: normalise every band to a SUMMED unit RMS. Because the scale
         // multiplies h0 linearly, height / displacement / normals / Jacobian all
-        // stay mutually consistent, within a band and across bands.
+        // stay mutually consistent, within a band and across bands. The
+        // amplitude itself is applied separately (ApplyAmplitude), so a sea
+        // state easing toward a new wave height never comes back through here.
         const f32 totalRms = static_cast<f32>(std::sqrt(totalVariance));
-        const f32 targetRms = params.m_Amplitude * kRmsMetresPerAmplitude;
-        const f32 scale = (totalRms > 1e-6f) ? (targetRms / totalRms) : 0.0f;
+        const f32 unitScale = (totalRms > 1e-6f) ? (1.0f / totalRms) : 0.0f;
         for (u32 i = 0u; i < m_Preset.Count; ++i)
         {
             Cascade& c = m_Cascades[i];
-            for (Complex& v : c.H0)
-                v *= scale;
-            c.GpuH0Dirty = true;
+            for (Complex& v : c.H0Unit)
+                v *= unitScale;
+            c.PhysicsH0Unit.clear();
             c.PhysicsH0.clear();
             c.PhysicsResolution = 0u;
         }
+        m_AppliedAmplitude = -1.0f; // force ApplyAmplitude to re-bake
 
         // Bands the preset does not use must not keep a stale field: GetField()
         // and the CPU sampler both loop to m_Preset.Count, but a later Update()
         // that RAISES the count would otherwise inherit one.
         for (u32 i = m_Preset.Count; i < kMaxOceanCascades; ++i)
             m_Cascades[i] = Cascade{};
+    }
+
+    void OceanFFTField::ApplyAmplitude(f32 amplitude)
+    {
+        const f32 safe = std::isfinite(amplitude) ? amplitude : 0.0f;
+        if (Math::BitwiseEqual(safe, m_AppliedAmplitude))
+            return;
+
+        OLO_PROFILE_FUNCTION();
+        const f32 scale = safe * kRmsMetresPerAmplitude;
+        for (u32 i = 0u; i < m_Preset.Count; ++i)
+        {
+            Cascade& c = m_Cascades[i];
+            // Rescale from the UNIT spectrum every time, never in place from the
+            // last scale: an easing sea state would otherwise multiply a ratio
+            // into the same buffer thousands of times a minute.
+            c.H0.resize(c.H0Unit.size());
+            for (sizet j = 0; j < c.H0Unit.size(); ++j)
+                c.H0[j] = c.H0Unit[j] * scale;
+            c.PhysicsH0.resize(c.PhysicsH0Unit.size());
+            for (sizet j = 0; j < c.PhysicsH0Unit.size(); ++j)
+                c.PhysicsH0[j] = c.PhysicsH0Unit[j] * scale;
+            c.GpuH0Dirty = true;
+        }
+        m_AppliedAmplitude = safe;
     }
 
     void OceanFFTField::Update(const SpectrumParams& params, f32 time, bool uploadToGpu, bool useGpuCompute)
@@ -206,6 +268,10 @@ namespace OloEngine::Ocean
             m_H0Key = key;
             m_HasH0 = true;
         }
+
+        // Cheap, and separate from the regeneration above on purpose: this is
+        // the knob a weather director eases every tick.
+        ApplyAmplitude(params.m_Amplitude);
 
         const u32 N = m_Preset.ArrayResolution;
 
@@ -241,15 +307,28 @@ namespace OloEngine::Ocean
                 }
 
                 {
+                    // The retained CPU field buoyancy reads. PER-BAND grid, not
+                    // a shared one: a band limited to six occupied bins is
+                    // reproduced exactly on a 32² grid, and evaluating it at 64²
+                    // every tick buys nothing but cost. Measured on Drift, a
+                    // flat 64² for all three bands was 21.4 ms of CPU per frame
+                    // against Gerstner's 2.3 (Debug) — the GPU side of the
+                    // preset is free, so this was the whole regression.
                     OLO_PROFILE_SCOPE("OceanFFTField::PhysicsProxyEvaluate");
-                    const u32 proxyRes = std::min(N, kPhysicsProxyResolution);
                     for (u32 i = 0u; i < m_Preset.Count; ++i)
                     {
                         Cascade& c = m_Cascades[i];
-                        if (c.PhysicsH0.empty() || c.PhysicsResolution != proxyRes)
+                        const u32 proxyRes = std::max(m_Preset.Bands[i].PhysicsResolution, 8u);
+                        if (c.PhysicsH0Unit.empty() || c.PhysicsResolution != proxyRes)
                         {
-                            c.PhysicsH0 = ExtractBandLimitedH0(c.H0, N, proxyRes);
+                            // Extracted from the UNIT spectrum, then scaled, so
+                            // an amplitude change never re-extracts.
+                            c.PhysicsH0Unit = ExtractBandLimitedH0(c.H0Unit, N, proxyRes);
                             c.PhysicsResolution = proxyRes;
+                            const f32 scale = m_AppliedAmplitude * kRmsMetresPerAmplitude;
+                            c.PhysicsH0.resize(c.PhysicsH0Unit.size());
+                            for (sizet j = 0; j < c.PhysicsH0Unit.size(); ++j)
+                                c.PhysicsH0[j] = c.PhysicsH0Unit[j] * scale;
                         }
                         SpectrumParams proxyParams = c.Params;
                         proxyParams.m_Resolution = proxyRes;

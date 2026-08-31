@@ -119,6 +119,25 @@ namespace OloEngine::Ocean
     /// distinct wave vectors to look like a spectrum rather than a pattern.
     inline constexpr u32 kMinCascadeResolution = 32u;
 
+    /// Grid samples across the shortest wavelength for the CPU PHYSICS PROXY —
+    /// the retained low-resolution field buoyancy reads while the GPU owns the
+    /// rendered one. Half the rendering figure, and the difference is the whole
+    /// point: this grid is never looked at, only integrated over a hull that is
+    /// metres wide. Four samples per period is still twice Nyquist (so the band
+    /// is represented exactly), and the residual bilinear error lands on the
+    /// band's SHORTEST component — for the broad band that is a 140 m wave, and
+    /// 11% of its top bin is millimetres of boat motion.
+    ///
+    /// Measured on Drift: a flat 64² for every band cost 21.4 ms of CPU per
+    /// frame against Gerstner's 2.3 (Debug), because the broad and mid bands
+    /// were being evaluated at 64² to carry six and four occupied bins.
+    inline constexpr f32 kProxySamplesPerWavelength = 4.0f;
+
+    /// Ceiling on a physics-proxy grid. The top band is unbounded above, so it
+    /// keeps this; the pre-#969 single-cascade proxy was this size too, which is
+    /// what makes the fallback path's cost unchanged.
+    inline constexpr u32 kPhysicsProxyResolution = 64u;
+
     /// One band of the preset. KMin/KMax are wave-vector magnitudes in rad/m
     /// and bound the band as the half-open range [KMin, KMax); the top band's
     /// KMax is infinite (its own grid Nyquist is the real limit).
@@ -129,6 +148,13 @@ namespace OloEngine::Ocean
         f32 KMin = 0.0f;           ///< inclusive lower wave-vector magnitude (rad/m)
         f32 KMax = 0.0f;           ///< exclusive upper wave-vector magnitude (rad/m)
         f32 DomainRotation = 0.0f; ///< theta_i, sampling-domain rotation (radians)
+        /// Grid the CPU physics proxy for this band is evaluated on — derived
+        /// from the band's own occupied bins, not shared. A band limited to six
+        /// bins does not need a 64² inverse FFT every tick to reproduce them,
+        /// and paying for one is most of what the preset used to cost on the
+        /// CPU. Same zero-padding argument as Resolution above: the field is
+        /// identical, only cheaper.
+        u32 PhysicsResolution = 0u;
     };
 
     /// The whole preset: Count active bands plus the shared grid size every
