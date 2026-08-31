@@ -47,6 +47,86 @@ else()
             LANGUAGES CXX C)
 endif()
 
+# --------------------------------------------------------------------------
+# Build identity (#894) — a git hash and a configure-time timestamp, computed
+# once here and baked into the engine alongside the static CMAKE_PROJECT_VERSION
+# macro (OLO_ENGINE_VERSION, below in OloEngine/CMakeLists.txt). This is what
+# lets a bug report name the exact build it came from — see BuildInfo.h and
+# docs/ops/shipping.md.
+#
+# Falls back to "unknown" rather than failing configure when there is no git
+# checkout to ask (a source tarball, or a stripped-down CI archive) — build
+# identity is a diagnostic aid, not a build requirement.
+find_package(Git QUIET)
+set(OLO_BUILD_GIT_HASH "unknown")
+set(OLO_BUILD_GIT_DESCRIBE "unknown")
+if(GIT_EXECUTABLE AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --short=10 HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE _olo_git_hash
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE _olo_git_hash_result)
+    if(_olo_git_hash_result EQUAL 0 AND _olo_git_hash)
+        set(OLO_BUILD_GIT_HASH "${_olo_git_hash}")
+    endif()
+
+    # --always falls back to the abbreviated hash when the checkout has no tags
+    # at all (true of this repo today), so this still succeeds rather than
+    # erroring — --dirty flags a build made from an uncommitted working tree
+    # (display only, below; see the independent OLO_BUILD_GIT_DIRTY check).
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE _olo_git_describe
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE _olo_git_describe_result)
+    if(_olo_git_describe_result EQUAL 0 AND _olo_git_describe)
+        set(OLO_BUILD_GIT_DESCRIBE "${_olo_git_describe}")
+    endif()
+
+    # Computed independently of the describe text above, rather than by
+    # string-matching a "-dirty" suffix on it: a real, permitted tag name like
+    # "release-dirty" would make a perfectly CLEAN checkout's describe output
+    # end in "-dirty" too, so parsing the string can't tell "dirty tree" from
+    # "tag that happens to end that way" apart. diff-index --quiet HEAD -- is
+    # the same check `git describe --dirty` uses internally (tracked changes
+    # only, matching its own semantics), just captured as its own signal.
+    set(OLO_BUILD_GIT_DIRTY "0")
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} diff-index --quiet HEAD --
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        RESULT_VARIABLE _olo_git_dirty_result
+        ERROR_QUIET
+        OUTPUT_QUIET)
+    if(NOT _olo_git_dirty_result EQUAL 0)
+        set(OLO_BUILD_GIT_DIRTY "1")
+    endif()
+endif()
+
+# Both git-derived strings are about to be embedded as a quoted C string
+# literal in a compile definition (OLO_BUILD_GIT_HASH="${OLO_BUILD_GIT_HASH}",
+# below in OloEngine/CMakeLists.txt) AND passed through
+# target_compile_definitions, which evaluates CMake generator expressions in
+# its arguments. git-check-ref-format forbids neither a double quote/backslash
+# (breaks the C string literal) nor CMake's own `$<...>` generator-expression
+# syntax (e.g. a tag literally named "v1$<SEMICOLON>evil" — CMake would expand
+# $<SEMICOLON> to `;`, which target_compile_definitions then reads as a list
+# separator, silently splitting or corrupting the definitions that follow).
+# Whitelist rather than blacklist: keep only characters with any legitimate
+# place in a hash or describe string (alnum, dot, dash, underscore, slash,
+# plus — covers every abbreviated hash and every `git describe` shape this
+# repo produces) and drop everything else, which is a strict superset of
+# "no quotes, no backslashes, no generator-expression syntax" and doesn't rely
+# on enumerating every dangerous character by hand.
+string(REGEX REPLACE "[^a-zA-Z0-9._+/-]" "" OLO_BUILD_GIT_HASH "${OLO_BUILD_GIT_HASH}")
+string(REGEX REPLACE "[^a-zA-Z0-9._+/-]" "" OLO_BUILD_GIT_DESCRIBE "${OLO_BUILD_GIT_DESCRIBE}")
+
+string(TIMESTAMP OLO_BUILD_TIMESTAMP "%Y-%m-%dT%H:%M:%SZ" UTC)
+message(STATUS "Build identity: version=${CMAKE_PROJECT_VERSION} git=${OLO_BUILD_GIT_HASH} describe=${OLO_BUILD_GIT_DESCRIBE} dirty=${OLO_BUILD_GIT_DIRTY}")
+
 # Fail fast and helpfully when the vcpkg toolchain is absent. Without it every
 # find_package() below resolves against system paths (or not at all), and the
 # first symptom is a wall of "Could not find a package configuration file" —

@@ -4,6 +4,7 @@
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Build/BuildPipelinePlatform.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Core/BuildInfo.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Project/Project.h"
@@ -1066,7 +1067,11 @@ namespace OloEngine
         out << YAML::BeginMap;
         out << YAML::Key << "Game" << YAML::Value << YAML::BeginMap;
         out << YAML::Key << "Name" << YAML::Value << settings.GameName;
-        out << YAML::Key << "EngineVersion" << YAML::Value << "0.0.1";
+        out << YAML::Key << "EngineVersion" << YAML::Value << BuildInfo::GetEngineVersion();
+        // Build identity (#894) — the version + short git hash the depot was
+        // packaged from, so a bug report can name its exact build. See
+        // BuildInfo.h and docs/ops/shipping.md.
+        out << YAML::Key << "BuildId" << YAML::Value << BuildInfo::GetBuildId();
         out << YAML::EndMap;
 
         out << YAML::Key << "Assets" << YAML::Value << YAML::BeginMap;

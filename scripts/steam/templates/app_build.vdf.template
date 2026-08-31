@@ -1,0 +1,19 @@
+// Steamworks app-build config (issue #894). Rendered by Publish-ToSteam.ps1 —
+// the double-curly placeholders below are substituted at run time, never hand-edited.
+// See docs/ops/shipping.md#steamcmd-upload-automation for the full field reference:
+// https://partner.steamgames.com/doc/sdk/uploading#2
+"appbuild"
+{
+	"appid"				"{{APP_ID}}"
+	"desc"				"{{BUILD_DESC}}"
+	"buildoutput"		"{{BUILD_OUTPUT_DIR}}"
+	"contentroot"		"{{CONTENT_ROOT}}"
+	"setlive"			"{{SET_LIVE_BRANCH}}"
+	"preview"			"{{PREVIEW_FLAG}}"
+	"local"				""
+
+	"depots"
+	{
+		"{{DEPOT_ID}}"	"{{DEPOT_VDF_PATH}}"
+	}
+}

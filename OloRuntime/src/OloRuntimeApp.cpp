@@ -5,6 +5,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Asset/AssetPack.h"
+#include "OloEngine/Core/BuildInfo.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputAction.h"
 #include "OloEngine/Core/InputActionManager.h"
@@ -69,6 +70,43 @@ namespace OloEngine
             // the project config, the start scene and the rendering mode can't
             // disagree about what the file said.
             const YAML::Node manifest = LoadGameManifest();
+
+            // Build identity (#894) — read from the manifest first so a shipped
+            // build (which may be OLDER than the engine that's now reading it,
+            // if a player keeps a stale copy) reports the identity it was
+            // PACKAGED with, not whatever this binary happens to be. Falls back
+            // to this binary's own BuildInfo when the manifest predates the
+            // BuildId field.
+            {
+                std::string buildId = BuildInfo::GetBuildId();
+                try
+                {
+                    if (manifest["Game"] && manifest["Game"]["BuildId"])
+                    {
+                        // A defined-but-empty scalar ("BuildId: \"\"") passes
+                        // the presence check above and parses fine, so only
+                        // overwrite the fallback when there's actually
+                        // something to report — an empty string would
+                        // otherwise silently replace a perfectly good id with
+                        // nothing.
+                        if (std::string parsed = manifest["Game"]["BuildId"].as<std::string>(); !parsed.empty())
+                        {
+                            buildId = parsed;
+                        }
+                    }
+                }
+                catch (const std::exception& e)
+                {
+                    // A malformed BuildId node (e.g. a map/sequence instead of
+                    // a scalar, from a hand-edited or corrupted manifest) must
+                    // not stop the game from starting — fall back to this
+                    // binary's own BuildInfo rather than letting .as<std::string>()'s
+                    // exception propagate out of OnAttach.
+                    OLO_CORE_WARN("[Runtime] Failed to read BuildId from the manifest: {}", e.what());
+                }
+                OLO_CORE_INFO("[Runtime] Build: {}", buildId);
+            }
+
             MountGameProject(manifest);
             SaveGameManager::Initialize();
 

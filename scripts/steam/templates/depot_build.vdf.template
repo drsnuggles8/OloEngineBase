@@ -1,0 +1,24 @@
+// Steamworks depot-build config (issue #894). Rendered by Publish-ToSteam.ps1 —
+// the double-curly placeholders below are substituted at run time, never hand-edited.
+// See docs/ops/shipping.md#depot-layout for the include/exclude rationale, and
+// https://partner.steamgames.com/doc/sdk/uploading#2 for the field reference.
+"DepotBuildConfig"
+{
+	"DepotID"		"{{DEPOT_ID}}"
+	"contentroot"	"{{CONTENT_ROOT}}"
+
+	"FileMapping"
+	{
+		"LocalPath"		"*"
+		"DepotPath"		"."
+		"recursive"		"1"
+	}
+
+	// Belt-and-suspenders on top of docs/ops/shipping.md's depot-layout table:
+	// GameBuildPipeline doesn't produce debug symbols and steam_appid.txt is
+	// git-ignored, so none of these should ever be present under contentroot —
+	// excluded anyway so a hand-assembled or stale build folder can't leak them.
+	"FileExclusion" "*.pdb"
+	"FileExclusion" "*.ilk"
+	"FileExclusion" "steam_appid.txt"
+}
