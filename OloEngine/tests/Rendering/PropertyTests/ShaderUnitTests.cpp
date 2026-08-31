@@ -137,7 +137,7 @@ namespace OloEngine::Tests
         std::vector<CloudDepthProbeSample> RunCloudDepthProbe(u32 width, u32 height,
                                                               const std::vector<f32>& depthPixels)
         {
-            const sizet expectedPixelCount = static_cast<sizet>(width) * height;
+            const auto expectedPixelCount = static_cast<sizet>(width) * height;
             if (depthPixels.size() != expectedPixelCount)
             {
                 ADD_FAILURE() << "cloud depth probe expected " << expectedPixelCount
