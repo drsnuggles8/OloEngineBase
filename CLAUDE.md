@@ -349,7 +349,12 @@ C++23 baseline, OpenGL 4.6 with DSA. Layout:
 - `OloEngine/src/Platform/` — platform-specific implementations (sibling of `OloEngine/`, not under it). Per-OS / per-API glue lives here.
 - `OloEditor/` — ImGui editor. Panels under `src/`; runtime assets under `assets/`; sample game under `SandboxProject/`.
 - `OloRuntime/` — standalone game runtime that loads what the editor builds.
-- `OloServer/` — headless dedicated server (the only target that runs on WSL2).
+- `OloServer/` — headless dedicated server. Linux is a first-class CI target, not just a WSL2
+  convenience: `vulkan-off.yml` builds `OloEngine-Tests`, `OloRuntime` **and** `OloServer` on
+  `ubuntu-24.04`; `video-ffmpeg.yml` and `steam-stub.yml` build and run `OloEngine-Tests` there
+  too (engine core only, not the runtime/server targets); and `gpu-conformance-amd.yml` runs the
+  full suite (goldens included) on real Linux/AMD hardware. `OloEditor` is the one target that is
+  **not** CI-built on Linux — see [ADR 0015](docs/adr/0015-editor-is-windows-only-linux-ships-runtime-only.md).
 - `OloEngine-ScriptCore/` (C# / Mono, Windows only) and `OloEngine-LuaScriptCore/` (Lua / Sol2, all platforms).
 - `OloEngine/vendor/` — `FetchContent` / CPM downloads. **Never edit; CMake reconfigure wipes changes.**
 
