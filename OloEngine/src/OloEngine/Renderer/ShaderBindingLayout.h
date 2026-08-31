@@ -199,6 +199,8 @@ namespace OloEngine
                 return sizeof(PBRMaterialUBO);
             }
         };
+        static_assert(sizeof(PBRMaterialUBO) == 144, "PBRMaterialUBO std140 size drifted from GLSL expectation (144 B)");
+        static_assert(sizeof(PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO must be 16-byte aligned for std140");
 
         struct ModelUBO
         {

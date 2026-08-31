@@ -101,6 +101,13 @@ namespace OloEngine::Tests
 
             void Draw()
             {
+                // Fail loudly on a resource-creation failure (a missing probe
+                // shader or an FBO the driver refused) instead of nullptr-
+                // dereferencing below, which reads as a crash rather than a
+                // diagnosable setup problem.
+                ASSERT_TRUE(m_OutputFB != nullptr) << "parity probe framebuffer was not created";
+                ASSERT_TRUE(m_Shader != nullptr) << "PbrClosureV2ParityProbe.glsl failed to load/compile";
+
                 GLStateGuard guard("ClosureV2GpuParity::Draw", GLStateGuard::Policy::Restore);
                 m_OutputFB->Bind();
                 ::glViewport(0, 0, static_cast<GLsizei>(kWidth), static_cast<GLsizei>(kHeight));

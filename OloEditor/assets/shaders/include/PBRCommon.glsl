@@ -1034,6 +1034,17 @@ ClosureV2Sample closureV2SampleBRDF(vec3 N, vec3 V, vec3 albedo, float metallic,
     float pSpecular = closureV2SpecularProbability(albedo, metallic);
     if (lobeXi < pSpecular)
     {
+        // The VNDF sampler is defined only for views ABOVE the surface; a
+        // backfacing shading normal would feed it garbage while closureV2Pdf
+        // reports zero specular density. Terminate via the documented
+        // Pdf <= 0 convention (C++ twin returns false here).
+        if (dot(N, V) <= 0.0)
+        {
+            s.L = vec3(0.0, 0.0, 1.0);
+            s.Value = vec3(0.0);
+            s.Pdf = 0.0;
+            return s;
+        }
         vec3 H = sampleGGXVNDF(N, V, closureV2Roughness(roughness), Xi);
         s.L = reflect(-V, H);
     }

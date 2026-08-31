@@ -273,7 +273,6 @@ namespace OloEngine::Tests
 
         for (const f32 roughness : { 0.4f, 0.6f, 0.8f, 1.0f })
         {
-            const f32 rClamped = ClosureV2Roughness(roughness);
             for (const f32 muO : { 0.3f, 0.6f, 0.9f })
             {
                 const f32 sinO = std::sqrt(std::max(0.0f, 1.0f - muO * muO));
@@ -294,10 +293,11 @@ namespace OloEngine::Tests
                         full += static_cast<f64>((f.x + f.y + f.z) / 3.0f) * static_cast<f64>(cosTheta);
 
                         // The exact compensation term Evaluate added for this
-                        // direction: same clamped roughness, and dot(n, v) ==
-                        // muO / dot(n, l) == cosTheta exactly for these
-                        // axis-aligned constructions.
-                        const glm::vec3 ms = ClosureV2MultiScatter(muO, cosTheta, rClamped, white);
+                        // direction: same AUTHORED roughness (the lookup's
+                        // contract — Evaluate passes it un-floored), and
+                        // dot(n, v) == muO / dot(n, l) == cosTheta exactly for
+                        // these axis-aligned constructions.
+                        const glm::vec3 ms = ClosureV2MultiScatter(muO, cosTheta, roughness, white);
                         msOnly += static_cast<f64>((ms.x + ms.y + ms.z) / 3.0f) * static_cast<f64>(cosTheta);
                     }
                 }

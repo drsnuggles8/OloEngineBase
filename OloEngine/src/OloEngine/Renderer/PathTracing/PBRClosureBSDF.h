@@ -159,6 +159,14 @@ namespace OloEngine::PathTracing::BSDF
         {
             if (material.Model == PBRModel::ClosureV2)
             {
+                // The VNDF sampler is defined only for views ABOVE the surface
+                // (Heitz 2018 stretches by Ve.z); a backfacing shading normal
+                // (normal mapping can produce one) would feed it garbage while
+                // Pdf reports zero specular density — a mismatched estimator.
+                // Terminate the path instead, matching the below-horizon
+                // convention.
+                if (glm::dot(n, v) <= 0.0f)
+                    return false;
                 // GLSL twin: closureV2SampleBRDF's specular branch — VNDF, on
                 // the same clamped roughness the pdf and evaluation use.
                 const glm::vec3 h = SampleGGXVNDF(n, v, ClosureV2Roughness(material.Roughness), xi);
