@@ -506,21 +506,28 @@ the Steamworks partner site for App ID 480, or configured locally through Steam'
 "Manage Steam Input" screen for a connected controller if partner-site access isn't available
 (the origins Steam reports differ, but the plumbing check is the same).
 
-| # | Step | Expected | Result recorded 2026-08-30 |
+| # | Step | Expected | Result recorded 2026-08-31 |
 |---|---|---|---|
-| 1 | Launch with a Steam Input-capable controller connected (Xbox/DualSense/Deck), Steam client running | `SteamManager::IsInputAvailable()` true, `GetConnectedControllers()` non-empty | Not run — no physical controller attached to this machine this session |
-| 2 | Switch `InputContextType` (e.g. open a menu) | The corresponding named action set activates in Steam's overlay controller HUD | Not run |
-| 3 | Press a button bound to an engine action via Steam's configurator to a DIFFERENT physical button than the engine default | The action fires from the remapped button, not the engine default | Not run |
-| 4 | Open Steam's own "Manage controller layout" from the overlay | Reflects the game's action-set names from the manifest | Not run |
-| 5 | Disconnect the controller mid-session | Engine falls back to keyboard/mouse cleanly, no crash, no stuck-pressed action | Not run |
-| 6 | `GetGlyphPngForDigitalAction`/`GetGlyphLabelForDigitalAction` for a bound action | Returns a real PNG path / human string matching the connected controller type | Not run |
-| 7 | Launch with the Steam client NOT running | `IsAvailable()` and `IsInputAvailable()` both false, engine starts normally, gamepad bindings work via GLFW as before | Not run — see §5's Variant A/B contract, exercised automatically by `SteamStubOnPathTest` and `SteamManagerTest` instead |
+| 1 | Launch with a Steam Input-capable controller connected (Xbox/DualSense/Deck), Steam client running | `SteamManager::IsInputAvailable()` true, `GetConnectedControllers()` non-empty | **PASS.** Against the real client, App ID 480, a Steam Controller (new model): `IsInputAvailable=true ConnectedControllers=1`, live-traced from a running editor. |
+| 2 | Switch `InputContextType` (e.g. open a menu) | The corresponding named action set activates in Steam's overlay controller HUD | **PARTIAL.** `ActivateActionSet` reaches the real `ISteamInput::ActivateActionSet` with the correct context-derived name (`ctx=Gameplay`), confirmed live. The returned handle was `0` (invalid) — Spacewar (App 480, a shared app this project does not own) has no Steam Input action manifest defining a `"Gameplay"` action set, so Steam legitimately has nothing to activate. The overlay HUD step itself was not reachable without a bound action set. |
+| 3 | Press a button bound to an engine action via Steam's configurator to a DIFFERENT physical button than the engine default | The action fires from the remapped button, not the engine default | **BLOCKED**, same root cause as row 2 — no manifest means no action exists to bind or remap. Authoring a manifest for App 480 needs partner-site access to a game this project doesn't own; this needs a real owned App ID (i.e. once #878/Drift ships with its own App ID) to test for real. |
+| 4 | Open Steam's own "Manage controller layout" from the overlay | Reflects the game's action-set names from the manifest | **BLOCKED**, same root cause. |
+| 5 | Disconnect the controller mid-session | Engine falls back to keyboard/mouse cleanly, no crash, no stuck-pressed action | **PASS.** Live-traced `ConnectedControllers` dropping `1 → 0` on physical disconnect; editor stayed fully responsive afterward (368 FPS, scene still rendering, no stuck state) — screenshotted. |
+| 6 | `GetGlyphPngForDigitalAction`/`GetGlyphLabelForDigitalAction` for a bound action | Returns a real PNG path / human string matching the connected controller type | **BLOCKED**, same root cause as rows 2–4 — nothing is bound to look up a glyph for. |
+| 7 | Launch with the Steam client NOT running | `IsAvailable()` and `IsInputAvailable()` both false, engine starts normally, gamepad bindings work via GLFW as before | Not run this session — see §5's Variant A/B contract, exercised automatically by `SteamStubOnPathTest` and `SteamManagerTest` instead. |
 
-**Honest status as of this PR: rows 1–6 were not executed.** No Steam Input-capable physical
-controller was available in this session's environment (see
-`docs/agent-rules/oloengine-perf-tests-are-dev-workstation-only.md`-style "dev workstation only"
-caveat — this one is "developer *with a controller in hand*"). Row 7's degradation contract is
-covered by CI (`SteamStubOnPathTest::InputComesUpAutomaticallyWithSteamItself` and friends) and
-by the pre-existing Variant A/B tests. **Rows 1–6 remain the open manual-verification debt for
-whoever next holds a controller and this SDK** — re-run and update this table rather than adding a
-new checklist.
+**Session notes (2026-08-31):** verification used a temporary trace (`OLO_CORE_WARN` calls in
+`InputActionManager::Update`/`ActivateSteamActionSet`, reverted before commit — not shipped) to
+observe `SteamManager` state live, since the MCP diagnostics tool registration needs a session
+reconnect this run never got. Two real findings came out of it, both structural rather than bugs:
+first, the engine's own raw-gamepad diagnostics panel (`GamepadManager`, GLFW-based) correctly
+shows 0 connected devices for a Steam Controller under active Steam Input management — that
+panel is not, and never will be, the right place to check Steam Input connectivity, since Valve's
+controller deliberately does not expose itself as a standard XInput/DirectInput device while
+Steam Input owns it. Second, and more load-bearing: **rows 2, 3, 4 and 6 cannot be meaningfully
+exercised against App 480**, because Steam Input requires a per-app action manifest (action-set
+and action names) that only the app's Steamworks partner can author, and this project does not
+own Spacewar. The plumbing that *reaches* the real SDK is proven (rows 1 and 5, both live,
+both real); the plumbing that depends on manifest content is structurally blocked until Drift
+(#878) has its own App ID to author a manifest against. That is a content/publishing
+prerequisite, not an engine-code gap — record it as such rather than reporting a false pass.
