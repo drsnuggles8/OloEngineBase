@@ -134,3 +134,24 @@ TEST(FoliageImpostorPlacementTest, ImpostorDoesNotTreatInstancePositionsAsAbsolu
            "indexing by gl_InstanceIndex, which is the out-of-bounds hazard from issue #433 that "
            "the original comment conflated this with.";
 }
+
+// The card has to carry the per-instance height, or it is short by the whole
+// unit-height-mesh factor.
+TEST(FoliageImpostorPlacementTest, ImpostorCardRadiusUsesThePerInstanceHeight)
+{
+    const std::string vertex = StripComments(VertexStageOf(ReadShader("Foliage_Impostor.glsl")));
+    ASSERT_FALSE(vertex.empty());
+
+    EXPECT_NE(vertex.find("a_RotationHeight.y"), std::string::npos)
+        << "Foliage_Impostor.glsl never reads the per-instance height. The foliage meshes are "
+           "authored unit-height (pine.obj spans y in [0,1]) and the near path applies the world "
+           "height itself (`localPos.y *= height * scale`), so a card sized from the bake radius "
+           "and `scale` alone is short by that factor — issue #953 measured a 9-16 m pine drawn "
+           "as a ~1.5 m card.";
+
+    const auto radiusAt = vertex.find("float radius =");
+    ASSERT_NE(radiusAt, std::string::npos) << "no card radius expression found";
+    const std::string radiusExpr = vertex.substr(radiusAt, vertex.find(';', radiusAt) - radiusAt);
+    EXPECT_NE(radiusExpr.find("height"), std::string::npos)
+        << "the card radius expression does not include the per-instance height: " << radiusExpr;
+}

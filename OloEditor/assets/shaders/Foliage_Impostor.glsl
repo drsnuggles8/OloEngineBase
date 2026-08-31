@@ -105,7 +105,24 @@ void main()
 
     float scale = a_PositionScale.w;
     float rotation = a_RotationHeight.x;
-    float radius = u_ImpostorParams1.y * scale;  // world-space card radius
+    float height = a_RotationHeight.y;
+
+    // World-space card radius. u_ImpostorParams1.y is the OBJECT-space radius the
+    // bake framed the mesh with, and the meshes are authored unit-height
+    // (pine.obj spans y in [0,1], radius 0.560) — so the per-instance world
+    // height has to come back in here, exactly as the near path applies it
+    // (`localPos.y *= height * scale` in Foliage_Instance.glsl). This used to
+    // read only `scale`, drawing a 9-16 m pine as a ~1.5 m card: an ~8x shrink
+    // the moment an instance crossed ImpostorStartDistance (issue #953).
+    //
+    // UNIFORM, not anisotropic. Matching the near quad's aspect exactly would
+    // mean stretching the card 1:16, which renders the baked pine as a needle —
+    // and the near quad is a deliberately different thing anyway (a tufted
+    // billboard; the impostor is what "gives the tree line a 3D silhouette from
+    // any azimuth at range", issue #433). Scaling uniformly puts the drawn tree
+    // at exactly `height * scale` tall, so nothing pops vertically across the
+    // transition, and leaves it its own proportions.
+    float radius = u_ImpostorParams1.y * height * scale;
 
     // Instance pivot. Foliage's per-instance positions are TERRAIN-LOCAL (x/z in
     // [0, WorldSize], y the raw sampled height), so they only become world
