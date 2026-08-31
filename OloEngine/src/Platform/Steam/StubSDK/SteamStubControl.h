@@ -83,8 +83,14 @@ namespace OloEngine::SteamStub
     // with active=false to simulate an action with no origin bound in the current set.
     void SetDigitalActionState(u64 controllerHandle, std::string_view actionName, bool pressed, bool active = true);
 
-    // Same idea for an analog action.
-    void SetAnalogActionState(u64 controllerHandle, std::string_view actionName, f32 x, f32 y, bool active = true);
+    // Same idea for an analog action. `triggerMode` selects which of the two analog source
+    // modes SteamworksBackend actually branches on: false reports it as a JoystickMove-shaped
+    // action (already on this engine's -1..1 convention, x/y passed straight through); true
+    // reports it as Trigger-shaped, Valve's own 0..1-with-0-at-rest convention — exercising the
+    // normalization SteamworksBackend::GetAnalogActionState applies for that case. x/y are
+    // always the RAW value as Steam would report it for the selected mode; the stub does not
+    // pre-normalize.
+    void SetAnalogActionState(u64 controllerHandle, std::string_view actionName, f32 x, f32 y, bool active = true, bool triggerMode = false);
 
     // Which action set is currently active for a controller, as recorded by ActivateActionSet.
     // Empty when never activated. Lets a test assert InputActionManager is routing action-set

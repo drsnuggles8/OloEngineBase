@@ -474,16 +474,18 @@ would still trigger it here through the untouched GLFW polling).
   isn't a bug to fix here so much as a real limit of the current one-axis-per-action design; a
   future 2D "move" action would need a second engine-side action name (or a new binding shape)
   to carry `Y`, not a change to this routing code.
-- No normalisation between Valve's analog-action range conventions (a Trigger-mode Steam Input
-  action reports `0..1`; a joystick-move action reports `-1..1`) and this engine's own gamepad
-  convention (`GamepadAxis` triggers read `-1..1`, `-1` = released — see `GamepadCodes.h`).
-  `InputAnalogActionData_t::eMode` (`EInputSourceMode`) tells the real SDK which convention
-  applies to a given read, but `ISteamBackend`'s `SteamInputAnalogActionState` does not surface
-  it, so `ApplySteamInputForAction` cannot reconcile the two conventions per-action today. A
-  manifest-defined Trigger-mode action bound to an engine trigger action will therefore read `0`
-  (not `-1`) at rest once Steam Input takes it over — worth knowing before wiring a specific
-  trigger-shaped action through Steam Input, and a candidate for a follow-up that threads `eMode`
-  through the seam if a real Drift binding needs it.
+- **Trigger-mode range normalization is handled, but ONLY for that one mode.** Valve's own
+  analog-action range conventions differ by `InputAnalogActionData_t::eMode`
+  (`EInputSourceMode`): a Trigger-mode action reports `0..1` (`0` = released), a JoystickMove
+  action already reports `-1..1`. `SteamworksBackend::GetAnalogActionState` checks `eMode` and
+  remaps Trigger-mode `x`/`y` to this engine's own `-1..1` / `-1` = released convention
+  (`GamepadAxis::RightTrigger` etc. — see `GamepadCodes.h`) before it ever reaches
+  `ISteamBackend`; every other mode passes through unchanged. `SteamInputAnalogActionState`
+  itself does NOT carry `eMode` — the normalization happens once, at the SDK boundary, so
+  `InputActionManager` and every other caller of `GetAnalogActionState` never need to know Steam
+  Input's source-mode taxonomy exists. Covered by `SteamStubOnPathTest`'s
+  `TriggerModeAnalogActionAt{Rest,FullPress,HalfPress}Normalizes...` and
+  `JoystickModeAnalogActionIsNotRenormalized`.
 
 ### Non-goals (deliberate, not forgotten)
 

@@ -377,6 +377,55 @@ namespace
         EXPECT_FLOAT_EQ(analogState.Y, -0.5f);
     }
 
+    // Valve reports a Trigger-mode analog action on 0..1 (0 = released); SteamworksBackend must
+    // normalize that to this engine's own GamepadAxis convention (-1..1, -1 = released — see
+    // GamepadCodes.h's GamepadAxis::RightTrigger) so a trigger-shaped action reads identically
+    // whether it came from Steam Input or raw XInput/DirectInput.
+    TEST_F(SteamStubOnPathTest, TriggerModeAnalogActionAtRestNormalizesToMinusOne)
+    {
+        SteamManager::Initialize();
+        const auto handle = SteamManager::GetAnalogActionHandle("Accelerate");
+        SteamStub::SetAnalogActionState(1, "Accelerate", /*x*/ 0.0f, /*y*/ 0.0f, /*active*/ true, /*triggerMode*/ true);
+
+        const auto state = SteamManager::GetAnalogActionState(1, handle);
+        EXPECT_TRUE(state.Active);
+        EXPECT_FLOAT_EQ(state.X, -1.0f);
+    }
+
+    TEST_F(SteamStubOnPathTest, TriggerModeAnalogActionAtFullPressNormalizesToPlusOne)
+    {
+        SteamManager::Initialize();
+        const auto handle = SteamManager::GetAnalogActionHandle("Accelerate");
+        SteamStub::SetAnalogActionState(1, "Accelerate", /*x*/ 1.0f, /*y*/ 0.0f, /*active*/ true, /*triggerMode*/ true);
+
+        const auto state = SteamManager::GetAnalogActionState(1, handle);
+        EXPECT_TRUE(state.Active);
+        EXPECT_FLOAT_EQ(state.X, 1.0f);
+    }
+
+    TEST_F(SteamStubOnPathTest, TriggerModeAnalogActionAtHalfPressNormalizesToZero)
+    {
+        SteamManager::Initialize();
+        const auto handle = SteamManager::GetAnalogActionHandle("Accelerate");
+        SteamStub::SetAnalogActionState(1, "Accelerate", /*x*/ 0.5f, /*y*/ 0.0f, /*active*/ true, /*triggerMode*/ true);
+
+        const auto state = SteamManager::GetAnalogActionState(1, handle);
+        EXPECT_FLOAT_EQ(state.X, 0.0f);
+    }
+
+    // A JoystickMove-mode action (the default, and what DigitalAndAnalogActionStateReachTheSdk
+    // above already exercises) is already on this engine's -1..1 convention and must NOT be
+    // renormalized — the mode check must be selective, not a blanket transform.
+    TEST_F(SteamStubOnPathTest, JoystickModeAnalogActionIsNotRenormalized)
+    {
+        SteamManager::Initialize();
+        const auto handle = SteamManager::GetAnalogActionHandle("Move");
+        SteamStub::SetAnalogActionState(1, "Move", /*x*/ -0.3f, /*y*/ 0.0f, /*active*/ true, /*triggerMode*/ false);
+
+        const auto state = SteamManager::GetAnalogActionState(1, handle);
+        EXPECT_FLOAT_EQ(state.X, -0.3f);
+    }
+
     // Glyph lookup through GetDigitalActionOrigins -> GetStringForActionOrigin /
     // GetGlyphPNGForActionOrigin — the real chain a button prompt takes, not a shortcut keyed
     // straight off the action name.

@@ -551,7 +551,23 @@ namespace OloEngine
             }
             const InputAnalogActionData_t data =
                 input->GetAnalogActionData(static_cast<InputHandle_t>(controller), static_cast<InputAnalogActionHandle_t>(action));
-            return SteamInputAnalogActionState{ .X = data.x, .Y = data.y, .Active = data.bActive };
+
+            f32 x = data.x;
+            f32 y = data.y;
+            if (data.eMode == k_EInputSourceMode_Trigger)
+            {
+                // Valve reports a Trigger-mode analog action on 0..1 (0 = released). Normalize to
+                // this engine's own GamepadAxis convention — -1..1, -1 = released (see
+                // GamepadCodes.h's GamepadAxis::RightTrigger) — so a trigger-shaped action reads
+                // identically whether it came from Steam Input or raw XInput/DirectInput.
+                x = (x * 2.0f) - 1.0f;
+                y = (y * 2.0f) - 1.0f; // unused by a Trigger action, but kept consistent.
+            }
+            // Every other source mode (JoystickMove and the button/dpad/mouse modes an analog
+            // action can theoretically report) is already on a -1..1-or-boolean convention this
+            // engine's own gamepad axes match, so nothing else needs converting.
+
+            return SteamInputAnalogActionState{ .X = x, .Y = y, .Active = data.bActive };
         }
 
         [[nodiscard]] std::string GetGlyphLabelForDigitalAction(SteamInputHandle controller, SteamInputActionSetHandle actionSet,

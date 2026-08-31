@@ -123,8 +123,13 @@ namespace OloEngine
         // Steam Input is brought up and torn down as part of Initialize()/Shutdown() and
         // pumped as part of RunCallbacks() — see those methods — so there is no separate
         // Init/Shutdown/RunFrame here. IsInputAvailable() can be false while IsAvailable() is
-        // true (Steam is up but Steam Input failed to init, or nothing is connected), so
-        // callers must check it before relying on any of the below.
+        // true (Steam is up but Steam Input failed to init), so callers must check it before
+        // relying on any of the below.
+        //
+        // IsInputAvailable() reports ONLY whether Steam Input itself initialised — it says
+        // nothing about whether a controller is plugged in. A game with Steam Input up and no
+        // controller connected is a completely ordinary state (desktop play with mouse/
+        // keyboard); check GetConnectedControllers().empty() for that, not this.
         //
         // See docs/agent-rules/steamworks-platform-integration.md §11 for how
         // InputActionManager drives this seam to implement "Steam Input wins when available".

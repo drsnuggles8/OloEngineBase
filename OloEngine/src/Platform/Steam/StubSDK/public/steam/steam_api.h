@@ -202,8 +202,19 @@ struct InputDigitalActionData_t
     bool bActive;
 };
 
+// A tiny slice of the real EInputSourceMode enum — enough for SteamworksBackend to tell a
+// Trigger-mode analog action (Valve's own convention: 0..1, 0 = released) from one already in
+// this engine's -1..1 convention, without reproducing Valve's full ~16-entry enum.
+enum EInputSourceMode
+{
+    k_EInputSourceMode_None = 0,
+    k_EInputSourceMode_JoystickMove,
+    k_EInputSourceMode_Trigger,
+};
+
 struct InputAnalogActionData_t
 {
+    EInputSourceMode eMode = k_EInputSourceMode_None;
     float x;
     float y;
     bool bActive;

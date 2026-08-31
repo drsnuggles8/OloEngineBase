@@ -239,7 +239,11 @@ namespace OloEngine::Testing
         std::map<std::string, SteamInputAnalogActionHandle, std::less<>> AnalogActionHandles;
         std::map<std::pair<SteamInputHandle, SteamInputDigitalActionHandle>, SteamInputDigitalActionState> DigitalActionStates;
         std::map<std::pair<SteamInputHandle, SteamInputAnalogActionHandle>, SteamInputAnalogActionState> AnalogActionStates;
-        std::map<std::pair<SteamInputHandle, SteamInputActionSetHandle>, std::string> ActiveActionSetNames;
+        // The action-set handle most recently activated for each controller — lets a test
+        // resolve the EXPECTED handle by name via GetActionSetHandle and compare it directly,
+        // rather than only counting calls (which would pass even if the wrong action set were
+        // activated).
+        std::map<SteamInputHandle, SteamInputActionSetHandle> LastActivatedActionSet;
         std::map<std::string, std::string, std::less<>> GlyphLabels;
         std::map<std::string, std::string, std::less<>> GlyphPngs;
 
@@ -282,7 +286,7 @@ namespace OloEngine::Testing
         void ActivateActionSet(SteamInputHandle controller, SteamInputActionSetHandle actionSet) override
         {
             ++ActivateActionSetCalls;
-            ActiveActionSetNames[{ controller, actionSet }] = "activated";
+            LastActivatedActionSet[controller] = actionSet;
         }
 
         [[nodiscard]] SteamInputDigitalActionHandle GetDigitalActionHandle(std::string_view actionName) const override

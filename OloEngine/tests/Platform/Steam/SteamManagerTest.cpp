@@ -470,10 +470,11 @@ namespace
     // Steam Input.
     // =================================================================================
 
-    TEST_F(SteamManagerTest, InputIsUnavailableUntilInitializeSucceedsAndAControllerIsConnected)
+    TEST_F(SteamManagerTest, InputIsAvailableOnSuccessfulInitEvenWithNoControllerConnected)
     {
-        // Steam itself up, Steam Input never brought up (default fake state) — degrades same as
-        // no controller at all.
+        // IsInputAvailable() reports Steam Input's own init state, NOT connection state — a
+        // desktop player with no controller plugged in is a completely ordinary case, and this
+        // asserts that case is NOT mistaken for Steam Input having failed to come up.
         InitializeManager();
         EXPECT_TRUE(SteamManager::IsAvailable());
         EXPECT_TRUE(SteamManager::IsInputAvailable()) << "InputInit() runs automatically as part of Initialize()";

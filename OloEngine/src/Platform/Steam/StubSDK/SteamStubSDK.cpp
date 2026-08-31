@@ -97,6 +97,14 @@ namespace
         // collide.
         std::map<int, std::string> OriginToActionName;
         int NextOrigin = 1000;
+
+        // Backing storage for GetStringForActionOrigin / GetGlyphPNGForActionOrigin's returned
+        // const char*, on the same "valid until the next call" contract as LastEnumeratedName
+        // above — but kept as its OWN member rather than reusing that one. The two accessors
+        // serve unrelated SDK surfaces (ISteamRemoteStorage's file enumeration vs ISteamInput's
+        // glyph lookup), and sharing a single string would silently invalidate whichever
+        // pointer was returned first the moment the other surface is called.
+        std::string LastGlyphString;
     };
 
     StubState& State()
@@ -568,8 +576,8 @@ const char* ISteamInput::GetStringForActionOrigin(EInputActionOrigin eOrigin)
     // A test that never called SetGlyphForAction still gets a non-empty, obviously-synthetic
     // label rather than an empty string — matching the "real failure vs stubbed value must
     // never be confused" rule the rest of this stub follows for its error strings.
-    state.LastEnumeratedName = labelIt != state.GlyphLabelByAction.end() ? labelIt->second : "stub SDK: unlabelled origin";
-    return state.LastEnumeratedName.c_str();
+    state.LastGlyphString = labelIt != state.GlyphLabelByAction.end() ? labelIt->second : "stub SDK: unlabelled origin";
+    return state.LastGlyphString.c_str();
 }
 
 const char* ISteamInput::GetGlyphPNGForActionOrigin(EInputActionOrigin eOrigin, ESteamInputGlyphSize /*eSize*/, uint32 /*unFlags*/)
@@ -578,8 +586,8 @@ const char* ISteamInput::GetGlyphPNGForActionOrigin(EInputActionOrigin eOrigin, 
     const auto nameIt = state.OriginToActionName.find(static_cast<int>(eOrigin));
     const std::string* actionName = nameIt != state.OriginToActionName.end() ? &nameIt->second : nullptr;
     const auto pngIt = actionName ? state.GlyphPngByAction.find(*actionName) : state.GlyphPngByAction.end();
-    state.LastEnumeratedName = pngIt != state.GlyphPngByAction.end() ? pngIt->second : std::string{};
-    return state.LastEnumeratedName.c_str();
+    state.LastGlyphString = pngIt != state.GlyphPngByAction.end() ? pngIt->second : std::string{};
+    return state.LastGlyphString.c_str();
 }
 
 // --- control surface --------------------------------------------------------------------
@@ -675,10 +683,11 @@ namespace OloEngine::SteamStub
             InputDigitalActionData_t{ .bState = pressed, .bActive = active };
     }
 
-    void SetAnalogActionState(u64 controllerHandle, std::string_view actionName, f32 x, f32 y, bool active)
+    void SetAnalogActionState(u64 controllerHandle, std::string_view actionName, f32 x, f32 y, bool active, bool triggerMode)
     {
-        State().AnalogActionStateByName[{ controllerHandle, std::string{ actionName } }] =
-            InputAnalogActionData_t{ .x = x, .y = y, .bActive = active };
+        State().AnalogActionStateByName[{ controllerHandle, std::string{ actionName } }] = InputAnalogActionData_t{
+            .eMode = triggerMode ? k_EInputSourceMode_Trigger : k_EInputSourceMode_JoystickMove, .x = x, .y = y, .bActive = active
+        };
     }
 
     std::string GetActiveActionSetName(u64 controllerHandle)
@@ -736,7 +745,7 @@ namespace OloEngine::SteamStub
     }
     void SetConnectedControllers(const std::vector<u64>&) {}
     void SetDigitalActionState(u64, std::string_view, bool, bool) {}
-    void SetAnalogActionState(u64, std::string_view, f32, f32, bool) {}
+    void SetAnalogActionState(u64, std::string_view, f32, f32, bool, bool) {}
     std::string GetActiveActionSetName(u64)
     {
         return {};

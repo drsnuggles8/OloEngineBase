@@ -74,16 +74,44 @@ namespace
         }
     };
 
-    TEST_F(SteamInputRoutingTest, NoConnectedControllerFallsBackToEngineBindingsUnchanged)
+    // A provider that always reports GamepadButton::South pressed, regardless of gamepad index
+    // — used to prove the GamepadButton binding actually reaches the raw provider when no Steam
+    // Input controller governs it. Asserting against the (inert) default provider instead would
+    // read "not pressed" whether or not the fallback path runs at all, since inert + broken
+    // routing look identical; this provider makes the fallback path's own contribution visible.
+    class SouthPressedProvider final : public OloEngine::IInputProvider
     {
+      public:
+        [[nodiscard]] bool IsKeyPressed(OloEngine::KeyCode) const override
+        {
+            return false;
+        }
+        [[nodiscard]] bool IsMouseButtonPressed(OloEngine::MouseCode) const override
+        {
+            return false;
+        }
+        [[nodiscard]] bool IsGamepadButtonPressed(GamepadButton button, i32) const override
+        {
+            return button == GamepadButton::South;
+        }
+    };
+
+    TEST_F(SteamInputRoutingTest, NoConnectedControllerFallsBackToEngineBindings)
+    {
+        SouthPressedProvider provider;
+        InputActionManager::SetInputProvider(&provider);
+
         InputActionMap map;
         map.AddAction({ "Jump", { InputBinding::GamepadBtn(GamepadButton::South) } });
         InputActionManager::SetActionMap(map);
 
-        // No controllers connected on the fake — Steam must contribute nothing, and the
-        // GamepadButton binding falls back to the (inert) provider, i.e. not pressed.
+        // No controllers connected on the fake — Steam must contribute nothing, so the
+        // GamepadButton binding must fall all the way through to the raw provider, which
+        // reports it pressed.
         InputActionManager::Update();
-        EXPECT_FALSE(InputActionManager::IsActionPressed("Jump"));
+        EXPECT_TRUE(InputActionManager::IsActionPressed("Jump"));
+
+        InputActionManager::SetInputProvider(&m_Provider);
     }
 
     TEST_F(SteamInputRoutingTest, ConnectedControllerActivatesTheContextsActionSet)
@@ -91,9 +119,19 @@ namespace
         m_Fake->ConnectedControllers = { 1 };
         InputActionManager::SetActionMap(InputActionMap{});
 
+        // The active context is Gameplay (InputActionManager's default), so the action set
+        // activated must be the one GetActionSetHandle("Gameplay") resolves to — not just SOME
+        // handle. Resolved via the same interning path InputActionManager itself uses, so a
+        // routing bug that activated a different context's set (or a stale/wrong handle) would
+        // fail this even though ActivateActionSetCalls alone would still show >= 1.
+        const auto expectedHandle = SteamManager::GetActionSetHandle("Gameplay");
+
         InputActionManager::Update();
 
-        EXPECT_GE(m_Fake->ActivateActionSetCalls, 1u);
+        ASSERT_GE(m_Fake->ActivateActionSetCalls, 1u);
+        const auto it = m_Fake->LastActivatedActionSet.find(1);
+        ASSERT_NE(it, m_Fake->LastActivatedActionSet.end()) << "no action set was activated for controller 1";
+        EXPECT_EQ(it->second, expectedHandle);
     }
 
     TEST_F(SteamInputRoutingTest, SteamDigitalActionDrivesAGamepadOriginAction)
