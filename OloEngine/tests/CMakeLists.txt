@@ -377,6 +377,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TwoSidedShadowCastTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
 		Rendering/PropertyTests/WaterDisturbanceFieldTest.cpp
+		Rendering/PropertyTests/WaterWakeShapeTest.cpp
+		Rendering/PropertyTests/WaterWakeParityTest.cpp
+		Rendering/PropertyTests/WaterWakeShapeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterWakeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
@@ -934,6 +937,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/AircraftTest.cpp
 		Functional/AnimationPhysics/RagdollTest.cpp
 		Functional/AnimationPhysics/WaterBuoyancyTest.cpp
+		Functional/AnimationPhysics/WaterWakeBuoyancyTest.cpp
 		Functional/AnimationPhysics/FluidCouplingTest.cpp
 		Functional/AnimationPhysics/AnimationKeepsTickingUnderPhysicsLoadTest.cpp
 		Functional/SaveGame/SceneRoundTripAfterTickTest.cpp

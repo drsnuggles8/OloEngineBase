@@ -51,6 +51,20 @@ layout(std140, binding = 23) uniform WaterParams
     // not a silent mismatch. Only the fragment stage actually reads them.
     vec4 u_WakeFieldParams;        // xy = field window centre (world XZ), z = 1/fieldExtent, w = intensity (<=0 disables)
     vec4 u_WakeFieldParams2;       // x = wake fade start (m), y = wake fade end (m), z = edge-fade start, w = unused
+
+    // Boat / actor wake SHAPE (issue #968). C++ twin:
+    // UBOStructures::WaterUBO::WakeShapeParams / WakeHulls; GLSL evaluator:
+    // include/WaterWakeCommon.glsl. Declared in EVERY stage of the water
+    // programs, identically, for the same reason the #967 fields above are: GL
+    // requires a uniform block shared across a program's stages to be declared
+    // the same way in each, so appending to only the stages that read it is a
+    // LINK error rather than a silent mismatch. Read by the vertex and
+    // tess-eval stages, which is where the surface is displaced.
+    vec4 u_WakeShapeParams;        // x = live hull count, y = height scale (<=0 disables), z = hull flatten strength, w = reserved
+    // 80 = WaterWake::kHullVec4Count (4 hulls x 20 vec4). The layout is
+    // WaterWake.h's, verbatim; WATER_WAKE_* in WaterWakeCommon.glsl mirrors the
+    // offsets so nothing here indexes it by a bare literal.
+    vec4 u_WakeHulls[80];
 };
 
 layout(location = 0) in vec3 v_WorldPos[];

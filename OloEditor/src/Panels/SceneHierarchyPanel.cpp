@@ -6715,6 +6715,26 @@ namespace OloEngine
                                       "longer than the crest-foam fade — a wake is low-frequency and "
                                       "does not alias toward the horizon the way whitecaps do.");
 
+                ImGui::SeparatorText("Wake Shape");
+                ImGui::Checkbox("Wake Shape Enabled", &component.m_WakeShapeEnabled);
+                ImGui::SetItemTooltip("Boats physically shape the water (issue #968): a bow bump, a "
+                                      "stern trough, a Kelvin V-ridge from the hull's recent path, and "
+                                      "the ocean flattened inside the hull footprint so a crest cannot "
+                                      "rise through the deck. Same 'largest surface publishes' rule as "
+                                      "Wake Foam above.");
+                ImGui::Checkbox("Wake Affects Physics", &component.m_WakeShapeAffectsPhysics);
+                ImGui::SetItemTooltip("OFF = visual only: the wake shapes what you see and nothing that "
+                                      "floats. ON = buoyancy samples the same surface, so boats and "
+                                      "buoys ride each other's wake. Leave off until the scene looks "
+                                      "right — a wrong visual wake looks wrong, a wrong physical one "
+                                      "launches the boat.");
+                ImGui::DragFloat("Wake Height Scale", &component.m_WakeShapeHeightScale, 0.01f, 0.0f, 4.0f);
+                ImGui::SetItemTooltip("Multiplier on the wake height. 0 disables the hull flattening "
+                                      "too, so it cannot leave a footprint pressed into the sea.");
+                ImGui::DragFloat("Hull Flatten", &component.m_WakeShapeFlattenStrength, 0.01f, 0.0f, 1.0f);
+                ImGui::SetItemTooltip("How much of the ocean displacement the hull footprint removes. "
+                                      "1 = dead flat inside the hull.");
+
                 ImGui::SeparatorText("Subsurface Scattering");
                 ImGui::ColorEdit3("SSS Color", glm::value_ptr(component.m_SSSColor));
                 ImGui::DragFloat("SSS Intensity", &component.m_SSSIntensity, 0.01f, 0.0f, 5.0f);

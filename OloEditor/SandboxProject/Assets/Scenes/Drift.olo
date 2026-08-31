@@ -737,6 +737,21 @@ Entities:
       WakeFoamHalfLife: 7
       WakeFoamFadeStart: 80
       WakeFoamFadeEnd: 260
+      # Wake SHAPE (issue #968): the boat displaces the surface itself, not only
+      # the foam on it - a bow bump, a stern trough, a Kelvin V-ridge along the
+      # hull's recent path, and the ocean flattened inside the hull footprint so
+      # a crest cannot rise through the deck at close range.
+      WakeShapeEnabled: true
+      # ON, so the boat and any buoy ride each other's wake. Left off by default
+      # everywhere else: a wrong visual wake looks wrong, a wrong physical one
+      # launches the boat. Drift is the scene the CPU/GPU parity was established
+      # against (WaterWakeParityTest), so it is the scene that opts in.
+      WakeShapeAffectsPhysics: true
+      WakeShapeHeightScale: 1
+      # Not a full 1: dead-flat water inside the hull rectangle reads as a hole
+      # cut in the sea from a low chase camera. 0.9 keeps a little chop against
+      # the topsides while still keeping the deck dry.
+      WakeShapeFlattenStrength: 0.9
       # Refraction pulled well down from the defaults. The submerged half of the
       # hull is visible THROUGH the surface, and at the stock distortion it came
       # through as a stippled ghost lying alongside the boat that reads as a

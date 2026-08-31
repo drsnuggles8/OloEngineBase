@@ -4747,6 +4747,43 @@ namespace OloEngine
         f32 m_FFTJonswapGamma = 3.3f;      ///< γ peak-enhancement (JONSWAP only); 1 ≈ Pierson-Moskowitz
         f32 m_FFTJonswapFetch = 100000.0f; ///< fetch in metres the wind blows over (JONSWAP only) — sets the peak frequency
 
+        // --- Boat / actor wake SHAPE (issue #968) ---------------------------
+        //
+        // #967's fields above give the wake its FOAM; these give it the water's
+        // SHAPE — a bow bump, a stern trough, a Kelvin V-ridge from historical
+        // hull poses, and a suppression of the ocean displacement inside the
+        // hull footprint so a crest cannot rise through the deck. Published to
+        // WaterWakeSystem by the same "largest surface wins" rule the foam field
+        // and the planar reflection use.
+        //
+        // Same warning as the #967 block above, and it applies field-for-field:
+        // WaterComponent hand-writes its copy and its operator==, so each of
+        // these needs an entry in BOTH or it round-trips through YAML perfectly
+        // and still reverts on Play, or records no undo.
+        bool m_WakeShapeEnabled = false;
+
+        // THE VISUAL-ONLY SWITCH.
+        //
+        // Off — the default — means the wake shapes what you SEE and nothing
+        // that floats. That is the right default for a scene whose CPU/GPU
+        // parity has not been established, because the two failure modes differ
+        // in kind: a visual wake that is wrong looks wrong, whereas a physical
+        // wake that is wrong launches the boat, and that is a gameplay
+        // regression rather than a rendering one. Turn it on once the scene
+        // looks right.
+        bool m_WakeShapeAffectsPhysics = false;
+
+        // Multiplier on the wake height. 0 disables the height AND the hull
+        // suppression, so turning it off cannot leave a footprint pressed into
+        // the sea.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 4.0f)
+        f32 m_WakeShapeHeightScale = 1.0f;
+        // How much of the ocean displacement the hull footprint removes. 1 is
+        // dead flat inside the hull; the default leaves a little life in the
+        // water against the topsides rather than a visible rectangle of calm.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_WakeShapeFlattenStrength = 0.9f;
+
         // Runtime (not serialized)
         OLO_SERIALIZE(Skip)
         Ref<Mesh> m_WaterMesh;
@@ -4824,7 +4861,15 @@ namespace OloEngine
                 && m_FFTSeed == o.m_FFTSeed
                 && m_FFTUseGpuCompute == o.m_FFTUseGpuCompute
                 && m_FFTSpectrumType == o.m_FFTSpectrumType
-                && blkEq(m_FFTJonswapGamma, m_FFTJonswapFetch); // f32*2
+                && blkEq(m_FFTJonswapGamma, m_FFTJonswapFetch) // f32*2
+                // Wake shape (issue #968). Two bools compared individually and
+                // the two floats as one block, for the padding reason the #967
+                // note above spells out: `bool bool` is followed by two pad
+                // bytes before the first f32, and a memcmp spanning them can
+                // report two identical components as different.
+                && m_WakeShapeEnabled == o.m_WakeShapeEnabled
+                && m_WakeShapeAffectsPhysics == o.m_WakeShapeAffectsPhysics
+                && blkEq(m_WakeShapeHeightScale, m_WakeShapeFlattenStrength); // f32*2
             // clang-format on
         }
 
@@ -4945,6 +4990,10 @@ namespace OloEngine
             m_FFTSpectrumType = src.m_FFTSpectrumType;
             m_FFTJonswapGamma = src.m_FFTJonswapGamma;
             m_FFTJonswapFetch = src.m_FFTJonswapFetch;
+            m_WakeShapeEnabled = src.m_WakeShapeEnabled;
+            m_WakeShapeAffectsPhysics = src.m_WakeShapeAffectsPhysics;
+            m_WakeShapeHeightScale = src.m_WakeShapeHeightScale;
+            m_WakeShapeFlattenStrength = src.m_WakeShapeFlattenStrength;
         }
     };
 

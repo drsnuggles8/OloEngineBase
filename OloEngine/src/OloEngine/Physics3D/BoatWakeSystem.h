@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/Map.h"
+#include "OloEngine/Renderer/Water/WaterWake.h"
 
 #include <glm/glm.hpp>
 
@@ -33,15 +34,18 @@ namespace OloEngine
     // the leak only shows up in a long play session, which no test runs.
     //
     // Capacity is sized from what actually reads the history: the V-arm lookup
-    // reaches back kArmAgeMaxSeconds (1.5 s), so the ring must span that at the
-    // FASTEST plausible tick rate — a higher rate means more samples for the
-    // same wall-clock window, so that is the demanding direction. 256 samples
-    // covers 1.5 s up to ~170 Hz, and 4.2 s at 60 Hz.
-    //
+    // reaches back kArmAgeMaxSeconds, so the ring must span that at the FASTEST
+    // plausible tick rate — a higher rate means more samples for the same
+    // wall-clock window, so that is the demanding direction. #968 lengthened
+    // that reach from 1.5 s to 2.5 s (the height ridge stays legible several
+    // boat-lengths back, where the foam has already decayed), which is why this
+    // grew from 256: 384 samples covers 2.5 s up to ~150 Hz, and 6.4 s at 60 Hz.
     // Running short is graceful rather than wrong: `AtAge` reports invalid past
     // the end of the history and the affected arm segment is simply not laid
     // that frame, which is also what happens for a boat that has only just
-    // started moving.
+    // started moving. It does TRUNCATE the wake though, and a wake that ends in
+    // mid-ocean only at high tick rates is the kind of defect that appears on
+    // somebody else's machine.
     //
     // Header-only and free of Scene/Jolt so WaterDisturbanceTrailTest can drive
     // it headlessly — the eviction behaviour is an acceptance criterion, and a
@@ -51,7 +55,7 @@ namespace OloEngine
     class BoatWakeTrail
     {
       public:
-        static constexpr u32 kCapacity = 256;
+        static constexpr u32 kCapacity = 384;
 
         void Push(const BoatWakeSample& sample) noexcept
         {
@@ -149,6 +153,14 @@ namespace OloEngine
     //   * the PROPELLER wash — a point splat at the stern, gated on throttle
     //     rather than speed, so a boat holding station against a current still
     //     churns.
+    //
+    // #968 added a SECOND consumer of the same pass: each boat also publishes a
+    // WaterWakeHullDesc to WaterWakeSystem, which is what gives the water its
+    // SHAPE (bow bump, stern trough, hull suppression, the height ridge under
+    // the arms) rather than only its foam. Both come from the same pose history
+    // and the same ArmOffset law in the same loop, deliberately: they are one
+    // wake, and computing them in two places is how the foam ends up beside the
+    // ridge instead of on it.
     // =========================================================================
     class BoatWakeSystem
     {
@@ -158,19 +170,49 @@ namespace OloEngine
         static constexpr f32 kMinSpeedMetresPerSecond = 0.6f;
         static constexpr f32 kFullSpeedMetresPerSecond = 6.0f;
 
-        /// The age RANGE the V-arms are laid over, and how fast they diverge.
+        /// The age RANGE the V-arms are laid over.
         ///
         /// A range, not a single age, and that is the whole reason the arms
-        /// spread at all — see the class comment below. At 1.6 m/s of spread
-        /// these produce a half-angle of roughly 15 degrees, against the ~19.5
-        /// of a real Kelvin wake.
-        static constexpr f32 kArmAgeMinSeconds = 0.25f;
-        static constexpr f32 kArmAgeMaxSeconds = 1.5f;
+        /// spread at all — see the class comment below.
+        ///
+        /// #968 widened it from [0.25, 1.5] to [0.15, 2.5] and raised the sample
+        /// count from 4 to 8, so that this ONE polyline serves both the foam
+        /// splats and the wake-height ridge (WaterWakeSystem). They are laid at
+        /// the same ages, from the same poses, by the same offset law, so the
+        /// foam sits ON the ridge rather than beside it — which it would not if
+        /// the two sampled different ages of the same curve.
+        static constexpr f32 kArmAgeMinSeconds = 0.15f;
+        static constexpr f32 kArmAgeMaxSeconds = 2.5f;
         /// Samples taken across that range each frame. Consecutive samples are
         /// joined by a capsule, so this is (kArmAgeSamples - 1) segments per
-        /// side — 6 splats per boat per frame at 4.
-        static constexpr u32 kArmAgeSamples = 4;
-        static constexpr f32 kArmSpreadMetresPerSecond = 1.6f;
+        /// side — 14 arm splats per boat per frame at 8, against the field's
+        /// 96-splat cap, which four boats plus hull and propeller still fit in.
+        ///
+        /// Equal to WaterWake::kMaxArmSamples by construction: the shape record
+        /// carries exactly one point per sample, so a mismatch would silently
+        /// truncate the height ridge to the shorter of the two.
+        static constexpr u32 kArmAgeSamples = WaterWake::kMaxArmSamples;
+
+        /// How fast a foam arm's intensity falls off with age. Was written as
+        /// `0.6 * kArmSpreadMetresPerSecond` (= 0.96) when the spread was a
+        /// constant rate; #968 replaced that rate with the Kelvin law, which is
+        /// speed-dependent and therefore the wrong thing for a fade to key on.
+        /// The number is unchanged so the tuned #967 look is unchanged.
+        static constexpr f32 kArmFoamDecayPerSecond = 0.96f;
+
+        /// Lateral offset of the arm at `age` behind a hull of half-beam
+        /// `halfBeam` that was making `speed` m/s with wake strength `gate`.
+        ///
+        /// Delegates to WaterWake::ArmOffset — the Kelvin law — rather than
+        /// restating it, because the wake-height ridge is placed by the same
+        /// function and the two must not be able to disagree. Folding the gate
+        /// into the speed rather than into the offset is what keeps a
+        /// barely-moving hull's arms tucked against the beam instead of
+        /// springing outward the instant the gate opens.
+        [[nodiscard]] static f32 ArmOffset(f32 halfBeam, f32 speed, f32 gate, f32 age) noexcept
+        {
+            return WaterWake::ArmOffset(halfBeam, speed * gate, age);
+        }
 
         /// Record this tick's hull poses and submit the resulting splats.
         ///

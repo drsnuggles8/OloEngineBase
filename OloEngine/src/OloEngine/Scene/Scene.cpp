@@ -67,6 +67,7 @@
 #include "OloEngine/Physics3D/AircraftSystem.h"
 #include "OloEngine/Physics3D/BoatSystem.h"
 #include "OloEngine/Physics3D/BoatWakeSystem.h"
+#include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Physics3D/SailSystem.h"
 #include "OloEngine/Physics3D/BuoyancySystem.h"
 #include "OloEngine/Physics3D/ClothWindSystem.h"
@@ -1445,6 +1446,7 @@ namespace OloEngine
         // docs/agent-rules/runtime-scene-switching.md.
         m_RuntimeBoatWakeTrails.Empty();
         WaterDisturbanceSystem::Reset();
+        WaterWakeSystem::Reset();
 
         // Deterministic run setup (issue #452): reset the fixed-timestep tick
         // counter / accumulator / animation clock and re-seed the gameplay RNG
@@ -1763,6 +1765,14 @@ namespace OloEngine
         // below; the session is over, so the requests are moot.
         ClearPendingEntityCommands();
 
+        // Drop the wake-shape records (issue #968). Unlike the #967 foam field
+        // these are rebuilt from scratch each tick by BoatWakeSystem, which does
+        // not run in edit mode — so without this, the last tick's hull stays
+        // pressed into the editor's sea for as long as the scene is open, with
+        // no boat moving to explain it. Reset here rather than only on START,
+        // because the stale state is visible BETWEEN sessions, not during one.
+        WaterWakeSystem::Reset();
+
         // Hand the OS cursor back (issue #645). A player rig with
         // m_CaptureCursor locks and hides it for mouse-look; leaving that in
         // place after Play would strand the editor with an invisible, pinned
@@ -1923,6 +1933,7 @@ namespace OloEngine
         // timestamps from the future and the V-arm age lookup would never match.
         m_EditorBoatWakeTrails.Empty();
         WaterDisturbanceSystem::Reset();
+        WaterWakeSystem::Reset();
 
         // Seed each particle system's RNG from the fixed preview seed so a
         // Simulate session's emission is decorrelated across systems and
@@ -1943,6 +1954,14 @@ namespace OloEngine
     {
         OnPhysics2DStop();
         OnPhysics3DStop();
+
+        // Drop the wake-shape records (issue #968). Unlike the #967 foam field
+        // these are rebuilt from scratch each tick by BoatWakeSystem, which does
+        // not run in edit mode — so without this, the last tick's hull stays
+        // pressed into the editor's sea for as long as the scene is open, with
+        // no boat moving to explain it. Reset here rather than only on START,
+        // because the stale state is visible BETWEEN sessions, not during one.
+        WaterWakeSystem::Reset();
 
         // Mirror OnRuntimeStop so returning to edit mode doesn't leak stale
         // animation-clock history into shaders that consume PrevAnimationTime.
@@ -8869,6 +8888,11 @@ namespace OloEngine
                 // docs/agent-rules/runtime-scene-switching.md.
                 WaterDisturbanceSettings wakeSettings{};
                 f32 bestWakeArea = -1.0f;
+                // Boat / actor wake SHAPE (issue #968) — same "largest enabled
+                // surface publishes" rule, its own winner because a scene can
+                // reasonably want foam on one surface and shape on another.
+                WaterWakeSettings wakeShapeSettings{};
+                f32 bestWakeShapeArea = -1.0f;
 
                 auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
                 for (auto entity : waterView)
@@ -8980,6 +9004,30 @@ namespace OloEngine
                                 std::isfinite(water.m_WakeFoamFadeEnd)
                                     ? std::clamp(water.m_WakeFoamFadeEnd, 1.0f, 4000.0f)
                                     : 220.0f;
+                        }
+                    }
+
+                    // Wake SHAPE tunables (issue #968). Measured on the same
+                    // sanitized component extents as the foam block above.
+                    // NOTE this publishes only the RENDER half — the visual-only
+                    // switch and the physics scales ride on WaterProbe::Volume,
+                    // which is read on the physics path and therefore works in a
+                    // headless tick that never reaches this function at all.
+                    if (water.m_WakeShapeEnabled)
+                    {
+                        if (const f32 shapeArea = sizeX * sizeZ;
+                            std::isfinite(shapeArea) && shapeArea > bestWakeShapeArea)
+                        {
+                            bestWakeShapeArea = shapeArea;
+                            wakeShapeSettings.m_Enabled = true;
+                            wakeShapeSettings.m_HeightScale =
+                                std::isfinite(water.m_WakeShapeHeightScale)
+                                    ? std::clamp(water.m_WakeShapeHeightScale, 0.0f, 4.0f)
+                                    : 1.0f;
+                            wakeShapeSettings.m_FlattenStrength =
+                                std::isfinite(water.m_WakeShapeFlattenStrength)
+                                    ? std::clamp(water.m_WakeShapeFlattenStrength, 0.0f, 1.0f)
+                                    : 0.9f;
                         }
                     }
 
@@ -9326,6 +9374,7 @@ namespace OloEngine
                 // tile asked for a wake. Publishing only when enabled is what
                 // would let a scene switch inherit the previous scene's field.
                 Renderer3D::GetWaterDisturbanceSettings() = wakeSettings;
+                Renderer3D::GetWaterWakeSettings() = wakeShapeSettings;
             }
 
             // Screen-space fluid draws (issue #630): every enabled fluid domain

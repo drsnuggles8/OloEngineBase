@@ -1286,6 +1286,10 @@ registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTUseGpuCompute", m_FFTUseGpu
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTSpectrumType", m_FFTSpectrumType));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTJonswapGamma", m_FFTJonswapGamma));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTJonswapFetch", m_FFTJonswapFetch));
+registry.push_back(OLO_GFW_FIELD(WaterComponent, "WakeShapeEnabled", m_WakeShapeEnabled));
+registry.push_back(OLO_GFW_FIELD(WaterComponent, "WakeShapeAffectsPhysics", m_WakeShapeAffectsPhysics));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "WakeShapeHeightScale", m_WakeShapeHeightScale, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(4.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "WakeShapeFlattenStrength", m_WakeShapeFlattenStrength, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 
 }
 

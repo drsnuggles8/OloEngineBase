@@ -53,9 +53,35 @@ layout(std140, binding = 23) uniform WaterParams
     // not a silent mismatch. Only the fragment stage actually reads them.
     vec4 u_WakeFieldParams;        // xy = field window centre (world XZ), z = 1/fieldExtent, w = intensity (<=0 disables)
     vec4 u_WakeFieldParams2;       // x = wake fade start (m), y = wake fade end (m), z = edge-fade start, w = unused
+
+    // Boat / actor wake SHAPE (issue #968). C++ twin:
+    // UBOStructures::WaterUBO::WakeShapeParams / WakeHulls; GLSL evaluator:
+    // include/WaterWakeCommon.glsl. Declared in EVERY stage of the water
+    // programs, identically, for the same reason the #967 fields above are: GL
+    // requires a uniform block shared across a program's stages to be declared
+    // the same way in each, so appending to only the stages that read it is a
+    // LINK error rather than a silent mismatch. Read by the vertex and
+    // tess-eval stages, which is where the surface is displaced.
+    vec4 u_WakeShapeParams;        // x = live hull count, y = height scale (<=0 disables), z = hull flatten strength, w = reserved
+    // 80 = WaterWake::kHullVec4Count (4 hulls x 20 vec4). The layout is
+    // WaterWake.h's, verbatim; WATER_WAKE_* in WaterWakeCommon.glsl mirrors the
+    // offsets so nothing here indexes it by a bare literal.
+    vec4 u_WakeHulls[80];
 };
 
 #include "WaterCommon.glsl"
+
+// Boat / actor wake shape (issue #968). The evaluator is buffer-agnostic and
+// asks for its records through this hook; here they come from the WaterParams
+// block above. Defining it right after the block, rather than letting each call
+// site index u_WakeHulls itself, is what keeps ONE walk over the records shared
+// with the parity probe (tests/ShaderUnit_WaterWake.glsl, which defines the same
+// hook over an SSBO).
+#include "WaterWakeCommon.glsl"
+vec4 waterWakeFetch(int index)
+{
+    return u_WakeHulls[index];
+}
 
 // FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1).
 #include "BindlessHeap.glsl"
@@ -153,6 +179,75 @@ void main()
             _prevNormalUnused
         ) - u_RenderOrigin;
         v_PrevWorldPos = displacedPosPrev;
+    }
+
+
+    // --- Boat / actor wake shape (issue #968) --------------------------------
+    // Applied AFTER the ocean displacement (FFT or Gerstner) and to BOTH, since
+    // it is a property of the boat rather than of the wave model. Three steps,
+    // in this order:
+    //
+    //   1. suppress the ocean displacement inside the oriented hull footprint,
+    //      which is what stops a crest rising through the deck. Scaling the
+    //      whole displacement VECTOR rather than just its y also stops the
+    //      choppy horizontal shift dragging the surface sideways under the
+    //      hull, which reads as the boat sliding on the water;
+    //   2. flatten the ocean normal to match, or the water shades as though the
+    //      crest that was just removed is still there;
+    //   3. add the wake height, and perturb the normal by ITS gradient.
+    //
+    // Step 3's normal is not optional: a displacement whose normal does not
+    // carry the same factor is docs/agent-rules/water-shading-nyquist.md's
+    // first rule, and it renders as flat water with an invisible bulge in it.
+    //
+    // Guarded on the height scale so a scene with the feature off pays one
+    // compare rather than five bounding-circle rejections per vertex.
+    if (u_WakeShapeParams.y > 0.0)
+    {
+        // u_FoamParams2.w is the BASE grid's vertex spacing (#943). This stage
+        // runs on a surface the tessellator has already subdivided, so the
+        // spacing that actually limits what the mesh can carry is that divided
+        // by this patch's tessellation level.
+        //
+        // Using the base spacing here is not conservative, it is wrong in a way
+        // that deletes the feature: Drift's ocean is 1600 m over a 640 grid, so
+        // 2.5 m base spacing — against which a 1 m arm ridge band-limits to
+        // exactly zero, at every distance, however finely the patch under the
+        // boat is actually tessellated. The wake would simply not have arms,
+        // with no error and nothing failing.
+        float wakeTessLevel = max(gl_TessLevelInner[0], 1.0);
+        float wakeSpacing = u_FoamParams2.w / wakeTessLevel;
+        // Evaluated at the DISPLACED vertex's absolute world XZ, not the
+        // undisplaced one. Gerstner (and the FFT's choppiness) shift a vertex
+        // horizontally by up to the wave amplitude, and the CPU side reads the
+        // column ABOVE a world XZ — WaterSurface::SampleHeight inverts that
+        // shift specifically so it can. Evaluating here at the base position
+        // would put the rendered ridge up to a metre from where physics thinks
+        // it is, on a choppy sea only, with the parity test still green because
+        // that test feeds both evaluators the same point. This is the one place
+        // the two paths could agree on the FUNCTION and disagree about WHERE.
+        vec2 wakeXZ = displacedPos.xz + u_RenderOrigin.xz;
+        vec2 wake = waterWakeEvaluate(u_WakeShapeParams.x, u_WakeShapeParams.y, u_WakeShapeParams.z,
+                                      wakeXZ, wakeSpacing);
+        if (wake.x != 0.0 || wake.y > 0.0)
+        {
+            displacedPos = pos + (displacedPos - pos) * (1.0 - wake.y);
+            displacedNormal = normalize(mix(displacedNormal, vec3(0.0, 1.0, 0.0), wake.y));
+
+            displacedPos.y += wake.x;
+            // The finite-difference step: a quarter metre, or half the mesh
+            // spacing when that is coarser. Not smaller — at the absolute world
+            // coordinates this is evaluated at, a step near f32's ulp out there
+            // differences to zero and the wake shades flat.
+            float wakeEps = max(0.25, wakeSpacing * 0.5);
+            displacedNormal = waterWakePerturbNormal(displacedNormal, u_WakeShapeParams.x,
+                                                     u_WakeShapeParams.y, wakeXZ,
+                                                     wakeSpacing, wakeEps);
+        }
+        // v_PrevWorldPos is deliberately left un-waked: the records carry no
+        // previous-frame copy, exactly like the FFT displacement field above,
+        // so the motion vector misses the wake's own motion rather than
+        // reporting a wrong one.
     }
 
     float maxAmplitude = max(amplitude, 0.001);

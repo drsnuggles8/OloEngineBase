@@ -24,6 +24,7 @@
 
 #include "OloEngine/Physics3D/BoatWakeSystem.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceField.h"
+#include "OloEngine/Renderer/Water/WaterWake.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 
 #include <algorithm>
@@ -559,8 +560,12 @@ TEST(WaterDisturbanceFieldTest, TheVArmsSampleAnAgeRangeSoTheirOffsetGrows)
         ASSERT_TRUE(s.m_Valid) << "no history at age " << wantAge;
 
         const f32 age = now - s.m_TimeSeconds;
-        // Mirrors BoatWakeSystem's own offset expression; gate is 1 at 8 m/s.
-        const f32 offset = kBeam * 0.5f + BoatWakeSystem::kArmSpreadMetresPerSecond * age * 1.0f;
+        // Through BoatWakeSystem's own offset helper rather than restating the
+        // expression: #968 replaced the constant 1.6 m/s spread with the Kelvin
+        // law, and a test that had restated the old expression would have gone
+        // on passing against arithmetic nothing runs any more. Gate is 1 at
+        // 8 m/s.
+        const f32 offset = BoatWakeSystem::ArmOffset(kBeam * 0.5f, s.m_ForwardSpeed, 1.0f, age);
 
         EXPECT_GT(age, previousAge) << "sample " << i << " is not older than the one before it";
         EXPECT_GT(offset, previousOffset) << "arm offset did not grow at sample " << i;
@@ -576,12 +581,26 @@ TEST(WaterDisturbanceFieldTest, TheVArmsSampleAnAgeRangeSoTheirOffsetGrows)
     // And the spread is worth having: the outermost arm must sit meaningfully
     // wider than the innermost, or the V is visually a pair of parallel lines
     // even though the offsets technically differ.
-    const f32 innerOffset = kBeam * 0.5f +
-                            BoatWakeSystem::kArmSpreadMetresPerSecond * BoatWakeSystem::kArmAgeMinSeconds;
-    const f32 outerOffset = kBeam * 0.5f +
-                            BoatWakeSystem::kArmSpreadMetresPerSecond * BoatWakeSystem::kArmAgeMaxSeconds;
+    const f32 innerOffset =
+        BoatWakeSystem::ArmOffset(kBeam * 0.5f, kSpeed, 1.0f, BoatWakeSystem::kArmAgeMinSeconds);
+    const f32 outerOffset =
+        BoatWakeSystem::ArmOffset(kBeam * 0.5f, kSpeed, 1.0f, BoatWakeSystem::kArmAgeMaxSeconds);
     EXPECT_GT(outerOffset - innerOffset, 1.0f)
         << "the V spreads by less than a metre across its whole age range";
+
+    // And it spreads at the KELVIN angle (issue #968): the lateral offset grows
+    // as tan(19.47 deg) of the along-track distance run, whatever the speed.
+    // This is the assertion that #967's constant 1.6 m/s spread could not
+    // satisfy — it gave 15 degrees at 6 m/s and 5 at 18, so the wake visibly
+    // narrowed as the boat accelerated while every test stayed green.
+    for (const f32 speed : { 3.0f, 8.0f, 18.0f })
+    {
+        const f32 age = 1.0f;
+        const f32 lateral = BoatWakeSystem::ArmOffset(0.0f, speed, 1.0f, age); // no beam offset
+        const f32 alongTrack = speed * age;
+        EXPECT_NEAR(lateral / alongTrack, OloEngine::WaterWake::kKelvinTanHalfAngle, 1e-5f)
+            << "arm half-angle is speed-dependent at " << speed << " m/s";
+    }
 }
 
 TEST(WaterDisturbanceFieldTest, TrailAgeLookupPicksTheNewestSampleOldEnough)

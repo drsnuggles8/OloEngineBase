@@ -22,6 +22,7 @@
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
+#include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ReflectionProbeArray.h"
 #include "OloEngine/Renderer/RenderingPath.h"
@@ -1434,6 +1435,16 @@ namespace OloEngine
             return s_Data.WaterDisturbance;
         }
 
+        /// Boat / actor wake SHAPE settings (issue #968). Published by the
+        /// scene, forwarded to WaterWakeSystem by RenderPipeline. The RENDER
+        /// half only — the physics half rides on WaterProbe::Volume, so a
+        /// headless tick that never reaches this still shapes the surface
+        /// buoyancy samples.
+        static WaterWakeSettings& GetWaterWakeSettings()
+        {
+            return s_Data.WaterWakeShape;
+        }
+
         static SnowEjectaSettings& GetSnowEjectaSettings()
         {
             return s_Data.SnowEjecta;
@@ -2025,6 +2036,11 @@ namespace OloEngine
             // scene stops publishing, so a scene with no water cannot inherit
             // the previous one's wake settings.
             WaterDisturbanceSettings WaterDisturbance;
+            // Boat / actor wake SHAPE settings (issue #968), published the same
+            // way and reset to the disabled default by BeginScene for the same
+            // reason: a scene with no water must actively clear the wake rather
+            // than inherit the previous scene's.
+            WaterWakeSettings WaterWakeShape;
             // Previous Time::GetTime() sample for the wake field's dt — the same
             // mockable-clock trick CloudPrevTimeSeconds uses, so
             // Time::SetMockTime freezes the decay for deterministic golden
