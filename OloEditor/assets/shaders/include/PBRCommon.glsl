@@ -54,22 +54,62 @@
 // VirtualGBufferFragment, VirtualVisibilityResolve) and one decode
 // (DeferredLightingShared.glsl):
 //
-//   bit 0 — unlit (the overlay shaders write a literal 1.0; PBR writers 0)
-//   bit 1 — PBR closure model. A SINGLE bit: PBRModel.h's numbering is
-//           append-only, so a third model REQUIRES widening this lane in the
-//           same change (the min() below otherwise truncates it to Legacy on
-//           the deferred path only — a silent Forward/Deferred divergence).
+//   bit 0      — unlit (the overlay shaders write a literal 1.0; PBR writers 0)
+//   bits 1..n  — PBR closure model, carried as a WHOLE integer shifted left by
+//                one. There is no field width and no mask: PBRModel.h's
+//                numbering is append-only, and the decode is a plain `>> 1`, so
+//                appending a model needs no edit here and can never truncate to
+//                Legacy. The only ceiling is exact integer representation in
+//                RGBA16F (half is exact to 2048, so model <= 1023); PBRModel.h
+//                static_asserts against it, which is where a hypothetical
+//                1024th model is rejected loudly instead of silently remapped.
 //
-// KNOWN LIMITATION: the lane is not average-safe. In the resolved-MSAA
-// deferred mode (MSAA > 1 with per-sample lighting off — both non-default,
-// session-local toggles) the resolve blit averages samples, and an averaged
-// bitfield decodes wrongly at silhouettes (e.g. ClosureV2 2.0 over Legacy 0.0
-// averages to the unlit code 1.0). The pre-#975 single-flag encoding had the
-// milder variant of the same defect; fixing it means excluding the lane from
-// the averaged resolve, which is deliberately out of this slice.
+// AVERAGE-SAFETY (issue #996). The lane is a bitfield, so it must never be
+// averaged. In the resolved-MSAA deferred mode (MSAA > 1 with per-sample
+// lighting off) `GBuffer::Resolve()` average-blits every colour attachment and
+// then runs `GBufferFlagsResolve.glsl`, which overwrites RT2's alpha alone with
+// the flags ONE REAL SAMPLE wrote — the first lit sample if the pixel has one,
+// sample 0 otherwise. A `texelFetch` at a fixed sample index is exact and fully
+// defined on both backends and every vendor, unlike an averaged bitfield whose
+// half-way cases (a ClosureV2 2.0 over Legacy 0.0 averaging to the unlit code
+// 1.0; 2.0 over sky 1.0 averaging to 1.5, where GLSL round()'s tie-break is
+// implementation-defined) mis-decoded at every silhouette. So every reader of
+// this lane — both deferred lighting variants — sees a value some sample
+// actually wrote, and a pixel a real surface covers is never read as unlit.
 float oloEncodeGBufferPbrFlags(int pbrModel)
 {
-    return float(min(pbrModel, OLO_PBR_MODEL_CLOSURE_V2) * 2);
+    // Multiply rather than shift: the model index is non-negative by
+    // construction (Material / scene YAML / save-games / Lua all reject
+    // out-of-range values to Legacy on the CPU side) and `*2` says "shift up
+    // past the unlit bit" without inheriting <<'s signed-overflow rules.
+    return float(pbrModel * 2);
+}
+
+// The matching DECODE, kept here beside the encode so the layout has one
+// executable home in BOTH directions. `ComputeDeferredLit`
+// (DeferredLightingShared.glsl) is the only production caller; the shader-unit
+// probe calls these same three functions rather than a copy of them, which is
+// what makes the round-trip test a test of the layout instead of a test of a
+// transcription.
+int oloDecodeGBufferFlags(float flagsLane)
+{
+    // Exact, not a tie-break: the lane is only ever read from a value one
+    // sample wrote (issue #996 — see AVERAGE-SAFETY above), so `round` here is
+    // undoing float storage, never resolving a half-way average.
+    return int(round(flagsLane));
+}
+
+bool oloGBufferFlagsAreUnlit(int gbFlags)
+{
+    return (gbFlags & 1) != 0;
+}
+
+int oloGBufferFlagsPbrModel(int gbFlags)
+{
+    // No mask: the model field is the whole rest of the lane, so a model
+    // appended to PBRModel.h arrives un-truncated rather than aliasing to
+    // Legacy on the deferred path only.
+    return gbFlags >> 1;
 }
 
 // =============================================================================

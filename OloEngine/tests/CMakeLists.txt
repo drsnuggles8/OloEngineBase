@@ -410,6 +410,7 @@ add_executable(OloEngine-Tests
 		# the two paths' top ambient rung must stay the same rung. Headless text
 		# scans in front of the GPU parity test.
 		Rendering/PropertyTests/GBufferBakedGIContractTest.cpp
+		Rendering/PropertyTests/GBufferFlagsResolveEvidenceTest.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
 		# Issue #691 Phase 3. BindlessShaderPipelineTest pins the toolchain

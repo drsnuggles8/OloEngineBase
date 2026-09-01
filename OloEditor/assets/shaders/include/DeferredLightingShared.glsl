@@ -88,13 +88,19 @@ vec3 ApplyCascadeDebug(vec3 color, vec3 worldPos)
 //           overlay variants (Skybox_GBuffer, InfiniteGrid_GBuffer,
 //           LightCube_GBuffer) use to opt out of PBR shading while still
 //           participating in motion-vector + depth writes. They write a=1.0.
-//   bit 1 — **PBR closure model** (issue #975): 0=Legacy, 1=ClosureV2,
-//           written by every PBR G-Buffer shader through
-//           oloEncodeGBufferPbrFlags (PBRCommon.glsl) — the ONE executable
-//           home for this layout, incl. its single-bit ceiling and its
-//           documented not-average-safe limitation in the resolved-MSAA
-//           deferred mode. Legacy materials still write a=0.0, byte-identical
-//           to before.
+//   bits 1.. — **PBR closure model** (issues #975, #996): the whole model
+//           index shifted up past the unlit bit, written by every PBR
+//           G-Buffer shader through oloEncodeGBufferPbrFlags (PBRCommon.glsl)
+//           — the ONE executable home for this layout. The field has no width
+//           and the decode below has no mask, so appending a model to
+//           PBRModel.h cannot truncate it to Legacy on this path while Forward
+//           shades it correctly. Legacy materials still write a=0.0.
+//
+//           The lane is a bitfield and is never averaged: GBuffer::Resolve()
+//           overwrites RT2's alpha with one real sample's flags after the blit
+//           (GBufferFlagsResolve.glsl, issue #996), so both the resolved and
+//           the per-sample reader see a value a real sample wrote, and the
+//           int(round()) below is exact rather than a tie-break.
 //
 // `bakedGI` is G-Buffer RT5 (issue #865): baked lightmap irradiance E in .rgb
 // and COVERAGE in .a, already un-premultiplied and intensity-scaled by
@@ -109,15 +115,17 @@ vec3 ComputeDeferredLit(
     vec4 emissiveFlags, vec3 worldPos, vec4 bakedGI)
 {
     vec3 emissive = emissiveFlags.rgb;
-    int gbFlags = int(round(emissiveFlags.a));
-    if ((gbFlags & 1) != 0)
+    int gbFlags = oloDecodeGBufferFlags(emissiveFlags.a);
+    if (oloGBufferFlagsAreUnlit(gbFlags))
     {
         // Unlit pass-through — skybox, editor grid, light-cube billboards
         // etc. sit inside the G-Buffer but do not want PBR shading applied.
         return emissive;
     }
-    // PBR closure model selector (issue #975) — see the flag layout above.
-    int pbrModel = (gbFlags >> 1) & 1;
+    // PBR closure model selector (issues #975, #996) — see the flag layout
+    // above. No mask: the field is the whole rest of the lane, so a model
+    // appended to PBRModel.h arrives here un-truncated.
+    int pbrModel = oloGBufferFlagsPbrModel(gbFlags);
 
     vec3 V = normalize(u_CameraPosition - worldPos);
 

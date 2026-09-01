@@ -199,6 +199,22 @@ void main()
     vec4 gAlbedo    = texture(u_GBufferAlbedo,   v_TexCoord);
     vec4 gNormal    = texture(u_GBufferNormal,   v_TexCoord);
     vec4 gEmissive  = texture(u_GBufferEmissive, v_TexCoord);
+    // The .a of RT2 is the material-flags BITFIELD, not radiometry (issue
+    // #996): it must never be interpolated between two texels, because a
+    // blend of two valid codes is a third code nobody wrote. RGB keeps the
+    // filtered fetch above (it IS radiometry, and it is what stays
+    // byte-identical); the lane is taken by texel here.
+    //
+    // The texel comes from v_TexCoord and textureSize rather than
+    // gl_FragCoord, so this stays a nearest fetch of the right texel even if
+    // the lighting viewport ever stops being 1:1 with the G-Buffer (dynamic
+    // resolution scaling) — the previous filtered read was correct only by
+    // that alignment, and nothing enforces it.
+    {
+        ivec2 flagSize = textureSize(u_GBufferEmissive, 0);
+        ivec2 flagTexel = clamp(ivec2(v_TexCoord * vec2(flagSize)), ivec2(0), flagSize - ivec2(1));
+        gEmissive.a = texelFetch(u_GBufferEmissive, flagTexel, 0).a;
+    }
 
     vec3 albedo    = gAlbedo.rgb;
     float metallic = gAlbedo.a;

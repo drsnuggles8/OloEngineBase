@@ -40,6 +40,11 @@ OLO_LEVER_TOGGLE(BlackSquareHunt, "OLO_RG_BLACKSQUARE_HUNT",
 OLO_LEVER_EXACT(RenderGraphSequential, "OLO_RENDERGRAPH_SEQUENTIAL",
                 "Keep render-graph work in one submission and suppress split-barrier fence scheduling. "
                 "The normal per-pass barriers remain, making this the A/B for a queue-scheduling race.")
+OLO_LEVER_EXACT(DisableGBufferFlagsResolve, "OLO_GBUFFER_NO_FLAGS_RESOLVE",
+                "Skip the G-Buffer flags-lane resolve (issue #996), leaving RT2's alpha as the average "
+                "blit left it. That is the pre-#996 behaviour, so this is the A/B for the black fringe on "
+                "ClosureV2 silhouettes in the resolved-MSAA deferred mode (MSAA > 1, per-sample lighting "
+                "off) — turn it ON and the fringe comes back.")
 
 // --- RHI --------------------------------------------------------------------
 OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",

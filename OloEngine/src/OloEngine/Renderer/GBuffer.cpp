@@ -1,9 +1,14 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/GBuffer.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Instrumentor.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/VertexArray.h"
 
 #include <algorithm>
 
@@ -170,9 +175,111 @@ namespace OloEngine
                                        0, 0, w, h,
                                        RHI::BlitAspect::Depth, RHI::Filter::Nearest);
 
+        // RT2's alpha is a BITFIELD, and the blit above just averaged it
+        // (issue #996). Put back the one channel averaging cannot express.
+        ResolveFlagsLane();
+
         // Restore full draw-buffer set on the resolved FB so subsequent
         // passes that bind it for composition get all attachments.
         RenderCommand::RestoreAllFramebufferDrawAttachments(dstFB, std::to_underlying(Count));
+    }
+
+    void GBuffer::ResolveFlagsLane()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_SampleCount <= 1 || !m_Framebuffer || !m_ResolvedFramebuffer)
+            return;
+
+        // The A/B for this whole change: on, the lane is left exactly as the
+        // average blit produced it, which is the pre-#996 behaviour and the
+        // black fringe. Kept because the defect is invisible to every test that
+        // does not read pixels, so the cheapest way to prove a frame difference
+        // is attributable to this pass is to switch only this pass off.
+        if (Levers::DisableGBufferFlagsResolve())
+            return;
+
+        // The three emissive channels are radiometry and keep the hardware's
+        // averaging resolve; RT2's alpha carries the unlit bit and the PBR
+        // closure model (oloEncodeGBufferPbrFlags, PBRCommon.glsl), and an
+        // averaged bitfield decodes to a material nobody wrote — a ClosureV2
+        // silhouette over Legacy averaged to exactly the UNLIT code and every
+        // v2 object grew a raw-emissive black fringe. So the blit stays (that
+        // is what keeps a Legacy-only frame byte-identical) and this pass
+        // overwrites the alpha channel alone with the flags ONE REAL SAMPLE
+        // wrote — an exactly-defined fetch on every backend and vendor. Which
+        // sample wins (a lit one always outranks an unlit one) is documented in
+        // GBufferFlagsResolve.glsl, beside the loop that decides it.
+        if (!m_FlagsResolveShader && !m_FlagsResolveShaderFailed)
+        {
+            m_FlagsResolveShader = Shader::Create("assets/shaders/GBufferFlagsResolve.glsl");
+            if (!m_FlagsResolveShader)
+            {
+                // Loud once, not once per frame: without this pass the flags
+                // lane is the pre-#996 averaged bitfield, which is a shading
+                // bug at every MSAA silhouette rather than a missing effect.
+                m_FlagsResolveShaderFailed = true;
+                OLO_CORE_ERROR("GBuffer::ResolveFlagsLane: failed to create assets/shaders/GBufferFlagsResolve.glsl - "
+                               "the resolved-MSAA deferred path will mis-decode material flags at silhouettes.");
+            }
+        }
+        if (!m_FlagsResolveShader)
+            return;
+
+        const RHI::ResourceHandle msEmissive = m_Framebuffer->GetColorAttachmentHandle(std::to_underlying(Emissive));
+        if (!msEmissive.IsValid())
+            return;
+
+        const RHI::ResourceHandle dstFB = m_ResolvedFramebuffer->GetRHIHandle();
+
+        m_ResolvedFramebuffer->Bind();
+        RenderCommand::SetFramebufferDrawAttachments(dstFB, std::array<u32, 1>{ std::to_underlying(Emissive) });
+        RenderCommand::SetViewport(0, 0, m_Width, m_Height);
+
+        RenderCommand::SetDepthTest(false);
+        RenderCommand::SetDepthMask(false);
+        RenderCommand::SetBlendState(false);
+        RenderCommand::DisableCulling();
+
+        // ALPHA ONLY. This is the whole point of the pass: the averaged
+        // emissive RGB in the resolve target must survive untouched, so the
+        // fragment shader's rgb output is masked out rather than computed.
+        // SetColorMask is the GLOBAL setter, which is DEFINED as the indexed
+        // one applied to every draw buffer (see
+        // docs/agent-rules/gl-global-setter-resets-indexed-state.md), so it
+        // both covers the single attachment selected above and is undone in
+        // full by the all-true restore below — no per-attachment mask can
+        // survive this pair.
+        RenderCommand::SetColorMask(false, false, false, true);
+
+        m_FlagsResolveShader->Bind();
+        // Through the seam, not RenderCommand::BindTexture directly (ADR 0011
+        // §5c / issue #691). GBufferFlagsResolve.glsl declares its input as a
+        // slot-based `sampler2DMS`, so the seam takes its fallback and issues a
+        // real bind — the same arrangement DeferredLighting_MSAA has, and for
+        // the same reason: the descriptor heap has no reserved MULTISAMPLE
+        // null, so there is no bindless form of this read to convert to. That
+        // pairing is recorded in BindlessShaderPipelineTest's
+        // kSlotBasedByDesign, beside the MSAA lighting variant's entry.
+        HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE, msEmissive,
+                                         RHI::HeapSlotLifetime::FrameTransient);
+
+        const auto va = MeshPrimitives::GetFullscreenTriangle();
+        va->Bind();
+        HeapBinding::FlushOffsets();
+        RenderCommand::DrawIndexed(va);
+
+        RenderCommand::SetColorMask(true, true, true, true);
+        RenderCommand::SetDepthTest(true);
+        RenderCommand::SetDepthMask(true);
+
+        // Back to the default framebuffer. Resolve() is called from the middle
+        // of three different passes and there is no way to ask the RHI what was
+        // bound before, so the choice is between a defined state every
+        // downstream pass overrides by binding its own target, and leaving the
+        // RESOLVE TARGET bound — which would quietly turn the next unguarded
+        // draw into a G-Buffer write. Unbind is the safe half of that pair.
+        m_ResolvedFramebuffer->Unbind();
     }
 
     u32 GBuffer::GetColorAttachmentID(AttachmentIndex index) const
