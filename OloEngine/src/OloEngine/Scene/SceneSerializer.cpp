@@ -2178,8 +2178,9 @@ namespace OloEngine
             }
 
             // Instances: flat-array form. Transform is 16 floats, Color is 4
-            // floats, then EntityID (int) and Custom (float). Anything missing
-            // defaults to identity / white tint / -1 / 0.
+            // floats, then EntityID (int), StableID (uint64), and Custom
+            // (float). Anything missing defaults to identity / white tint /
+            // -1 / unassigned / 0.
             if (auto instances = imcNode["Instances"]; instances && instances.IsSequence())
             {
                 imc.Instances.reserve(instances.size());
@@ -2204,6 +2205,8 @@ namespace OloEngine
                     }
                     if (node["EntityID"])
                         inst.EntityID = node["EntityID"].as<i32>();
+                    if (node["StableID"])
+                        inst.StableID = node["StableID"].as<u64>();
                     if (node["Custom"])
                     {
                         inst.Custom = node["Custom"].as<f32>();
@@ -4352,7 +4355,7 @@ namespace OloEngine
             if (imc.Primitive != MeshPrimitive::None)
                 out << YAML::Key << "Primitive" << YAML::Value << std::to_underlying(imc.Primitive);
 
-            // Only Transform, Color, EntityID, and Custom are authored
+            // Transform, Color, EntityID, StableID, and Custom are authored
             // round-trip data. Normal and PrevTransform are runtime-derived.
             out << YAML::Key << "Instances" << YAML::Value << YAML::BeginSeq;
             for (const auto& inst : imc.Instances)
@@ -4366,6 +4369,8 @@ namespace OloEngine
                     << inst.Color.x << inst.Color.y << inst.Color.z << inst.Color.w << YAML::EndSeq;
                 if (inst.EntityID != -1)
                     out << YAML::Key << "EntityID" << YAML::Value << inst.EntityID;
+                if (inst.StableID != 0)
+                    out << YAML::Key << "StableID" << YAML::Value << inst.StableID;
                 // Skip emitting Custom when it's exactly the default — bit-exact
                 // because the loader assigns the literal 0.0f default (see cpp-coding-quality §2a).
                 {

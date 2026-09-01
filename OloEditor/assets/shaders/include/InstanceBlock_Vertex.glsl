@@ -20,8 +20,7 @@ struct InstanceData {
     vec4 Color;
     int  EntityID;
     float Custom;
-    int  _instancePad0;
-    int  _instancePad1;
+    uvec2 StableID;
     // Lightmap atlas region (issue #439) — see InstanceBlock.glsl.
     vec4 LightmapScaleOffset;
 };

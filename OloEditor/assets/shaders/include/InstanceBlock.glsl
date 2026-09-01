@@ -19,8 +19,7 @@ struct InstanceData {
     vec4 Color;
     int  EntityID;
     float Custom;
-    int  _instancePad0;
-    int  _instancePad1;
+    uvec2 StableID;
     // Lightmap atlas region (issue #439): uv2 * xy + zw addresses this
     // instance's charts in the scene lightmap atlas. xy == 0 means "no
     // lightmap" — the ambient ladder falls through to probes/IBL.

@@ -11,7 +11,7 @@ namespace OloEngine
     // @brief Authored placement data for InstancedMeshComponent.
     //
     // Stores a flat array of world-space `InstanceData` records (transform,
-    // color, custom, entity id). A single `.oloinstances` asset can be
+    // color, custom, entity id, stable id). A single `.oloinstances` asset can be
     // referenced by multiple InstancedMeshComponents — useful for sharing
     // expensive vegetation / debris / crowd placements across scenes, or for
     // splitting a huge population across LOD chunks.

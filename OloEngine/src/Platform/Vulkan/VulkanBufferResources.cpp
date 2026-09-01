@@ -593,11 +593,17 @@ namespace OloEngine
 
         const u64 sizeBytes = static_cast<u64>(count) * sizeof(u32);
         const VkBufferUsageFlags usage =
-            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         const CreatedBuffer created =
             CreatePersistentBuffer(sizeBytes, usage, "vmaCreateBuffer (VulkanIndexBuffer)");
         m_Buffer = created.Buffer;
         m_Allocation = created.Allocation;
+
+        VkBufferDeviceAddressInfo addressInfo{};
+        addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+        addressInfo.buffer = m_Buffer;
+        m_DeviceAddress = vkGetBufferDeviceAddress(VulkanDevice::Get()->GetDevice(), &addressInfo);
 
         m_RHIHandle.Sync(RHI::ResourceKind::Buffer, VkHandleToU64(m_Buffer), RHI::Backend::Vulkan);
         // Diagnostics-only registration (#810) — see VulkanRootObjectKind.
@@ -642,6 +648,7 @@ namespace OloEngine
             VulkanDeferredReclaim::Get().Enqueue(m_Buffer, m_Allocation);
             m_Buffer = VK_NULL_HANDLE;
             m_Allocation = VK_NULL_HANDLE;
+            m_DeviceAddress = 0;
         }
     }
 

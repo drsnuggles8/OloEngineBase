@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 
 #include <glad/gl.h>
 
@@ -24,9 +25,18 @@ namespace OloEngine
         {
             return m_RendererID;
         }
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+        {
+            return m_RHIHandle.Get();
+        }
+        [[nodiscard]] u64 GetDeviceAddress() const override
+        {
+            return 0;
+        }
 
       private:
         u32 m_RendererID{};
         u32 m_Count;
+        RHI::ScopedResourceHandle m_RHIHandle;
     };
 } // namespace OloEngine

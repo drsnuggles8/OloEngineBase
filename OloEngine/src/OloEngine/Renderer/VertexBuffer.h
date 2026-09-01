@@ -4,6 +4,7 @@
 #include <utility>
 #include <type_traits>
 #include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
@@ -23,6 +24,9 @@ namespace OloEngine
         virtual void SetLayout(const BufferLayout& layout) = 0;
 
         [[nodiscard("Store this!")]] virtual u32 GetBufferHandle() const = 0;
+        [[nodiscard]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
+        // Zero when the active backend does not expose buffer device addresses.
+        [[nodiscard]] virtual u64 GetDeviceAddress() const = 0;
 
         static Ref<VertexBuffer> Create(u32 size);
         static Ref<VertexBuffer> Create(f32* vertices, u32 size);

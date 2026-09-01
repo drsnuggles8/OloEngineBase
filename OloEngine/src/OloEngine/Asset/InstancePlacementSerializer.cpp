@@ -30,6 +30,8 @@ namespace OloEngine
                 << inst.Color.x << inst.Color.y << inst.Color.z << inst.Color.w << YAML::EndSeq;
             if (inst.EntityID != -1)
                 out << YAML::Key << "EntityID" << YAML::Value << inst.EntityID;
+            if (inst.StableID != 0)
+                out << YAML::Key << "StableID" << YAML::Value << inst.StableID;
             // Skip emitting Custom when it's exactly the default — bit-exact
             // sentinel comparison per cpp-coding-quality §2a.
             {
@@ -66,6 +68,8 @@ namespace OloEngine
             }
             if (node["EntityID"])
                 out.EntityID = node["EntityID"].as<i32>();
+            if (node["StableID"])
+                out.StableID = node["StableID"].as<u64>();
             if (node["Custom"])
             {
                 out.Custom = node["Custom"].as<f32>();

@@ -33,6 +33,7 @@ bloom_threshold_512x512 5120
 bloom_upsample_512x512 12288
 classic_geometry_frame_1280x720 6445056
 gpu_frustum_cull_safe_root_bindings_1024 132700
+gpu_scene_extract_1024 1535700
 render_graph_fence_execute_32_edges 34926
 scene_draw_burst_512x512 328704
 tone_map_512x512 9216

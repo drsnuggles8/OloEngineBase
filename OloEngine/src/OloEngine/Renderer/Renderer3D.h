@@ -18,6 +18,7 @@
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Renderer/HZBGenerator.h"
+#include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
@@ -34,6 +35,7 @@
 #include <array>
 #include <chrono>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -241,6 +243,18 @@ namespace OloEngine
         static void BeginScene(const EditorCamera& camera);
         static void BeginScene(const Camera& camera, const glm::mat4& transform);
         static void EndScene();
+
+        // GPU-scene extraction is owned by the scene/view traversal and
+        // committed once before render-graph configuration in EndScene().
+        static void BeginGPUSceneExtraction(u64 ownerToken);
+        static void ExtractGPUSceneMesh(u64 stableEntityId, u64 stableInstanceId,
+                                        const Ref<MeshSource>& meshSource, u32 submeshIndex,
+                                        const glm::mat4& worldTransform,
+                                        u32 visibilityMask = std::numeric_limits<u32>::max(),
+                                        u32 flags = 0);
+        static void ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory category, u32 count = 1);
+        static void ResetGPUScene();
+        [[nodiscard]] static const GPUSceneFrameStats& GetGPUSceneStats();
         static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true, i32 entityID = -1, const LODGroup* lodGroup = nullptr);
         // Virtualized geometry (issue #629): queues a cluster-LOD-DAG instance
         // for the GPU-driven VirtualGeometryPass. Builds + registers the DAG for
@@ -1788,6 +1802,11 @@ namespace OloEngine
             // mesh-rendering shader reads its model transform from here; the
             // legacy ModelMatrixUBO at binding 3 has been retired.
             Ref<InstanceBuffer> ModelInstanceBuffer;
+
+            // Stable CPU registries plus RHI-neutral instance/geometry SSBOs.
+            // Value-owned so generations survive renderer restart resets.
+            GPUScene SceneGPU;
+            bool GPUSceneExtractionActive = false;
 
             // GPU-side per-instance frustum cull pre-pass. Used by
             // `DrawMeshInstanced` when the input count crosses

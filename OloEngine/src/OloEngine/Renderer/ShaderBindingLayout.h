@@ -3341,8 +3341,7 @@ struct InstanceData {
     vec4 Color;
     int  EntityID;
     float Custom;
-    int  _pad0;
-    int  _pad1;
+    uvec2 StableID;
     vec4 LightmapScaleOffset;
 };
 

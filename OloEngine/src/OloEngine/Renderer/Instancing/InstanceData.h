@@ -30,8 +30,11 @@ namespace OloEngine
         glm::vec4 Color = glm::vec4(1.0f);         // per-instance tint
         i32 EntityID = -1;                         // editor picking; -1 = no entity
         f32 Custom = 0.0f;                         // free per-instance float
-        i32 Pad0 = 0;
-        i32 Pad1 = 0;
+        // Persistent CPU identity used by GPU Scene temporal matching. It
+        // occupies the former 8-byte padding lane, so the SSBO stride and all
+        // following field offsets remain unchanged. Zero means unassigned;
+        // InstancedMeshComponent assigns a unique non-zero value before use.
+        u64 StableID = 0;
         // Lightmap atlas region (issue #439): the fragment stage addresses this
         // instance's charts in the scene lightmap atlas as uv2 * xy + zw. All
         // zeros (the default) means "no lightmap" — the shader's ambient ladder
@@ -46,8 +49,7 @@ namespace OloEngine
     //   Color               (192, 16)
     //   EntityID            (208,  4)
     //   Custom              (212,  4)
-    //   Pad0               (216,  4)
-    //   Pad1               (220,  4)
+    //   StableID           (216,  8)
     //   LightmapScaleOffset (224, 16)
     // Total: 240 bytes, divisible by 16 (mat4 alignment) so array stride is 240 with no end padding.
     // A drift here means the C++ struct and GLSL block disagree and the shader will read garbage.

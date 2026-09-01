@@ -207,6 +207,20 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         OLO_PERF_SCOPE_AUTO("Renderer3D::EndScene");
+
+        // Commit exactly once per scene/view frame, before pass configuration
+        // can expose the buffers to consumers. StorageBuffer::SetData is the
+        // shared GL/Vulkan path; Vulkan snapshots these writes in command order.
+        // Binding stays pass-local because the portable SSBO namespace is full;
+        // the raster consumer added by #994 will bind immediately before use.
+        if (s_Data.GPUSceneExtractionActive)
+        {
+            (void)s_Data.SceneGPU.EndExtraction();
+            s_Data.SceneGPU.Upload();
+            RendererProfiler::GetInstance().SetGPUSceneStats(s_Data.SceneGPU.GetLastFrameUpdate().m_Stats);
+            s_Data.GPUSceneExtractionActive = false;
+        }
+
         auto& pipeline = *s_Data.Pipeline;
 
         if (!s_Data.RGraph)

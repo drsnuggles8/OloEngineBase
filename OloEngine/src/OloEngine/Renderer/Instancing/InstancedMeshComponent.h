@@ -9,6 +9,8 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Scene/ComponentReflection.h" // OLO_SERIALIZE marker
 
+#include <span>
+#include <unordered_set>
 #include <vector>
 
 namespace OloEngine
@@ -38,6 +40,48 @@ namespace OloEngine
     // now.
     struct InstancedMeshComponent
     {
+        // The high bit distinguishes placement-asset instances from inline
+        // instances when both lists are merged under one component entity.
+        static constexpr u64 AssetStableIDNamespace = u64{ 1 } << 63;
+
+        // Assign persistent IDs to legacy/default records and repair duplicate
+        // or out-of-domain authored IDs. Existing valid IDs never change, so
+        // inserting or erasing another record preserves temporal identity.
+        [[nodiscard]] static bool EnsureStableIDs(std::span<InstanceData> instances)
+        {
+            std::unordered_set<u64> used;
+            used.reserve(instances.size());
+
+            bool changed = false;
+            for (auto& instance : instances)
+            {
+                if (instance.StableID == 0 || instance.StableID >= AssetStableIDNamespace ||
+                    !used.insert(instance.StableID).second)
+                {
+                    instance.StableID = 0;
+                    changed = true;
+                }
+            }
+
+            u64 candidate = 1;
+            for (auto& instance : instances)
+            {
+                if (instance.StableID != 0)
+                {
+                    continue;
+                }
+
+                while (used.contains(candidate))
+                {
+                    ++candidate;
+                }
+                instance.StableID = candidate;
+                used.insert(candidate);
+                ++candidate;
+            }
+            return changed;
+        }
+
         Ref<MeshSource> MeshSource;
 
         // Engine primitive to use when MeshSource is not explicitly assigned —
@@ -71,8 +115,8 @@ namespace OloEngine
         // requires (dominated by the 240 B / element memcpy for thousands of
         // instances). Internal — do not write from user code; not serialized.
         //
-        // Invalidation fingerprint covers: inline `Instances.size()`,
-        // `PlacementAssetHandle`, the asset's instance count, and the asset's
+        // Invalidation fingerprint covers: inline `Instances.size()` and data
+        // pointer, `PlacementAssetHandle`, the asset's instance count, and the asset's
         // instance data pointer (catches hot-reload that swaps the backing
         // storage even when size is unchanged). In-place edits to
         // `Instances[i]` that keep size + pointer stable are NOT detected —
@@ -82,6 +126,7 @@ namespace OloEngine
         {
             std::vector<InstanceData> Data;
             sizet InlineSize = 0;
+            const InstanceData* InlineDataPtr = nullptr;
             AssetHandle PlacementHandle = 0;
             sizet AssetSize = 0;
             const InstanceData* AssetDataPtr = nullptr;

@@ -1211,6 +1211,11 @@ namespace OloEngine
         // Reset to (0,0,0) at OnRuntimeStart; never serialized or copied.
         glm::vec3 m_WorldOrigin{ 0.0f };
 
+        // Durable identity for the GPU-scene extraction owner. A pointer is not
+        // sufficient: an allocator may reuse a destroyed Scene's address and
+        // accidentally carry temporal history into the replacement scene.
+        UUID m_GPUSceneOwnerToken;
+
         // Per-entity previous positions for velocity estimation (snow ejecta)
         TMap<u64, glm::vec3> m_RuntimeSnowPrevPositions;
         TMap<u64, glm::vec3> m_EditorSnowPrevPositions;

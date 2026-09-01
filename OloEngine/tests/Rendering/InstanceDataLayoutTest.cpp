@@ -54,6 +54,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(offsetof(InstanceData, Color), 192u);
         EXPECT_EQ(offsetof(InstanceData, EntityID), 208u);
         EXPECT_EQ(offsetof(InstanceData, Custom), 212u);
+        EXPECT_EQ(offsetof(InstanceData, StableID), 216u);
         EXPECT_EQ(offsetof(InstanceData, LightmapScaleOffset), 224u);
     }
 
@@ -66,6 +67,7 @@ namespace OloEngine::Tests
         InstanceData data{};
         EXPECT_EQ(data.EntityID, -1);
         EXPECT_EQ(data.Custom, 0.0f);
+        EXPECT_EQ(data.StableID, 0u);
         // All-zero scale/offset is the "no lightmap" sentinel — a non-zero
         // default would make every non-lightmapped draw sample the atlas.
         EXPECT_EQ(data.LightmapScaleOffset.x, 0.0f);
@@ -109,10 +111,33 @@ namespace OloEngine::Tests
         // Merge cache starts empty and matches no real input — first render
         // pass will populate it. Sentinel ensures InvalidateMergedCache works.
         EXPECT_EQ(imc._MergedCache.InlineSize, 0u);
+        EXPECT_EQ(imc._MergedCache.InlineDataPtr, nullptr);
         EXPECT_EQ(imc._MergedCache.AssetSize, 0u);
         EXPECT_TRUE(imc._MergedCache.Data.empty());
         imc.InvalidateMergedCache();
         EXPECT_NE(imc._MergedCache.InlineSize, 0u) << "Invalidation should leave the size at a sentinel value distinct from any real inline size";
+    }
+
+    TEST(InstancedMeshComponentStableIDs, AssignmentRepairsLegacyAndDuplicateRecordsWithoutRenumberingLiveIDs)
+    {
+        std::vector<InstanceData> instances(3);
+        instances[0].StableID = 9;
+        instances[2].StableID = 9;
+
+        EXPECT_TRUE(InstancedMeshComponent::EnsureStableIDs(instances));
+        EXPECT_EQ(instances[0].StableID, 9u);
+        EXPECT_NE(instances[1].StableID, 0u);
+        EXPECT_NE(instances[2].StableID, 0u);
+        EXPECT_NE(instances[1].StableID, instances[2].StableID);
+
+        const u64 firstStableID = instances[0].StableID;
+        const u64 lastStableID = instances[2].StableID;
+        instances.insert(instances.begin() + 1, InstanceData{});
+
+        EXPECT_TRUE(InstancedMeshComponent::EnsureStableIDs(instances));
+        EXPECT_EQ(instances[0].StableID, firstStableID);
+        EXPECT_EQ(instances[3].StableID, lastStableID);
+        EXPECT_FALSE(InstancedMeshComponent::EnsureStableIDs(instances));
     }
 
     TEST(InstanceDataLayout, GLSLLayoutMentionsAllFieldsAndBinding)
@@ -126,6 +151,7 @@ namespace OloEngine::Tests
         EXPECT_NE(glsl.find("Color"), std::string_view::npos);
         EXPECT_NE(glsl.find("EntityID"), std::string_view::npos);
         EXPECT_NE(glsl.find("Custom"), std::string_view::npos);
+        EXPECT_NE(glsl.find("StableID"), std::string_view::npos);
         EXPECT_NE(glsl.find("LightmapScaleOffset"), std::string_view::npos);
 
         // Layout qualifier sanity: must be std430 + binding 15. Anything
