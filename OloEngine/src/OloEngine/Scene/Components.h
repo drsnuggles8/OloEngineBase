@@ -2680,11 +2680,13 @@ namespace OloEngine
 
         // Manual operator== — Material lacks defaulted ==, AssetHandle/UUID
         // triggers C2666. Compare the PBR factors bit-exactly via Math::BitwiseEqual
-        // and the asset handle via u64. Texture references are not compared (they
-        // are loaded from disk and equal if the factors round-trip). This is a
-        // hand-maintained PER-FIELD list: a serialized Material field missing
-        // here makes its inspector edits invisible to undo (CLAUDE.md's
-        // copy/equality trap) — PBRModel is in for exactly that reason.
+        // and the asset handle via u64. This is a hand-maintained PER-FIELD
+        // list: a serialized Material field missing here makes its inspector
+        // edits invisible to undo (CLAUDE.md's copy/equality trap) — PBRModel
+        // is in for exactly that reason, and NormalScale + the five texture
+        // maps joined when #974 made them scene-serialized (`*MapPath` keys).
+        // Maps compare by PATH IDENTITY — the serialized property an edit
+        // would change — not by texel content.
         auto operator==(const MaterialComponent& other) const -> bool
         {
             if (!Math::BitwiseEqual(m_Material.GetBaseColorFactor(), other.m_Material.GetBaseColorFactor()))
@@ -2695,7 +2697,23 @@ namespace OloEngine
                 return false;
             if (!Math::BitwiseEqual(m_Material.GetEmissiveFactor(), other.m_Material.GetEmissiveFactor()))
                 return false;
+            if (!Math::BitwiseEqual(m_Material.GetNormalScale(), other.m_Material.GetNormalScale()))
+                return false;
             if (m_Material.GetPBRModel() != other.m_Material.GetPBRModel())
+                return false;
+            const auto samePath = [](const Ref<Texture2D>& a, const Ref<Texture2D>& b)
+            {
+                const bool aSet = a && !a->GetPath().empty();
+                const bool bSet = b && !b->GetPath().empty();
+                if (aSet != bSet)
+                    return false;
+                return !aSet || a->GetPath() == b->GetPath();
+            };
+            if (!samePath(m_Material.GetAlbedoMap(), other.m_Material.GetAlbedoMap()) ||
+                !samePath(m_Material.GetNormalMap(), other.m_Material.GetNormalMap()) ||
+                !samePath(m_Material.GetMetallicRoughnessMap(), other.m_Material.GetMetallicRoughnessMap()) ||
+                !samePath(m_Material.GetAOMap(), other.m_Material.GetAOMap()) ||
+                !samePath(m_Material.GetEmissiveMap(), other.m_Material.GetEmissiveMap()))
                 return false;
             return static_cast<u64>(m_ShaderGraphHandle) == static_cast<u64>(other.m_ShaderGraphHandle);
         }

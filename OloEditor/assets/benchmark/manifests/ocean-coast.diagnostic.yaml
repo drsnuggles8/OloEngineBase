@@ -1,0 +1,149 @@
+# =============================================================================
+# ocean-coast.diagnostic — AOV-heavy inspection capture of the OceanCoast
+# benchmark scene (issue #974), posed at the compositions where water shading
+# historically breaks (CLAUDE.md's water verification angles): straddling the
+# waterline, looking along the coast, fully submerged, and looking down from
+# above. Four deterministic camera cuts in one run; each later camera
+# re-warms 48 frames (the ocean phase is clock-driven, so only the per-frame
+# reflection/exposure state needs to settle after a cut).
+#
+# Rendering path: Forward — same reasoning as ocean-coast.golden (every
+# water scene and evidence test runs the water pipeline forward; Drift runs
+# Forward). The PlanarReflection attachment exports the water's mirror
+# input — the buffer to read when the sea renders as a dark void (the
+# VehiclesTest lesson). It is only registered while the planar pass runs;
+# the scene enables it, but Drift's log once reported the mirror replay
+# disabling itself at runtime — if this attachment fails, check the
+# "[PlanarReflection]" log line before blaming the manifest.
+# =============================================================================
+ManifestVersion: 1
+Id: ocean-coast-diagnostic
+Product: diagnostic
+Scene: Scenes/Benchmark/OceanCoast.olo
+Description: >
+  Four water-failure poses: lens on the waterline looking at the shore, a
+  grazing shot along the coastline, a submerged look up at the hull, and a
+  75-degree overhead of ship, shallows and beach. Exports depth and the
+  planar-reflection input alongside beauty and HDR.
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+Cameras:
+  # Lens ON the waterline (y = 0.15) between ship and shore, looking +Z at
+  # the beach: the swell crosses the near plane, so above-surface shading,
+  # the underwater fog and the meniscus seam all land in one frame.
+  - Id: waterline
+    Position: [20, 0.15, 200]
+    YawDegrees: 180.0
+    PitchDegrees: 0.0
+    FovDegrees: 60.0
+    Near: 0.05
+    Far: 2500.0
+  # Grazing shot ALONG the shoreline (+X), 2.5 m up: shoreline foam, the
+  # terrain/water intersection and any hard seam at the waterline recede
+  # diagonally to the horizon — the composition that exposes them.
+  - Id: along-coast
+    Position: [-120, 2.5, 232]
+    YawDegrees: 101.5
+    PitchDegrees: 1.1
+    FovDegrees: 60.0
+    Near: 0.05
+    Far: 2500.0
+    WarmupFrames: 48
+  # Fully submerged (y = -2.5) looking +Z and slightly up at the hull and
+  # the shelving island flank: underwater fog gradient, refraction,
+  # RenderFromBelow, caustic/god-ray terms.
+  - Id: submerged
+    Position: [14, -2.5, 160]
+    YawDegrees: 180.0
+    PitchDegrees: -6.9
+    FovDegrees: 60.0
+    Near: 0.05
+    Far: 2500.0
+    WarmupFrames: 48
+  # 75 degrees down from 60 m: ship, its anchorage shallows and the beach in
+  # one frame — the top-down case where Fresnel must fall to near-zero
+  # reflectance and the bottom must read through the transparency.
+  - Id: overhead
+    Position: [14, 60, 170]
+    YawDegrees: 180.0
+    PitchDegrees: 75.0
+    FovDegrees: 60.0
+    Near: 0.05
+    Far: 2500.0
+    WarmupFrames: 48
+
+Output:
+  Resolution: [1280, 720]
+  RenderScale: 1.0
+
+RendererSettings:
+  Path: Forward
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 974
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 128
+  PerFeature:
+    Ocean: 64
+    SkyBake: 1
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+    Normalize: none
+  - Name: SceneDepth
+    Source: SceneDepth
+    Format: png
+    Normalize: auto
+  # PlanarReflectionColorTexture is deliberately NOT captured here: measured
+  # on the first run, the planar pass disables itself for the waterline,
+  # along-coast and submerged cameras (mirror replay off at those angles), so
+  # the resource has no backing and the attachment fails 3 of 4 cameras. The
+  # mirror input is inspectable from poses where the pass runs via
+  # olo_render_capture_target.
+
+Tolerance:
+  # The golden measured byte-identical on this scene (see
+  # ocean-coast.golden.yaml); the diagnostic shares every determinism lever.
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: SandboxProject/Assets/Models/KenneyVehicles/ship-small-hull.glb
+    Origin: Kenney (kenney.nl), Pirate Kit — hull half of ship-small.glb, see KenneyVehicles/LICENSE.md
+    License: CC0-1.0
+  - Path: SandboxProject/Assets/Models/KenneyVehicles/ship-small-sail.glb
+    Origin: Kenney (kenney.nl), Pirate Kit — sail half of ship-small.glb, see KenneyVehicles/LICENSE.md
+    License: CC0-1.0
+  - Path: SandboxProject/Assets/Models/Vegetation/palm.obj
+    Origin: Generated in-repo by Vegetation/generate_vegetation.py (issue #880)
+    License: BSD-4-Clause (repository license)
+  - Path: OloEditor/assets/textures/grass.png
+    Origin: In-repo editor asset; provenance not recorded
+    License: unverified (no license file in-repo)
+  - Path: OloEditor/assets/textures/pbr/wall/albedo.png
+    Origin: In-repo editor PBR set; provenance not recorded
+    License: unverified (no license file in-repo)
+  - Path: OloEditor/assets/textures/pbr/wall/normal.png
+    Origin: In-repo editor PBR set; provenance not recorded
+    License: unverified (no license file in-repo)
+  - Path: OloEditor/assets/textures/pbr/wall/occlusionRoughnessMetallic.png
+    Origin: In-repo editor PBR set; provenance not recorded
+    License: unverified (no license file in-repo)
+  # Water/*.png textures not listed: the scene pins all four WaterComponent
+  # texture handles to 0 (built-in fallbacks) — see ocean-coast.golden.yaml.

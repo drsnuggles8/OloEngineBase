@@ -873,3 +873,74 @@ And the shape of the evidence matters as much as the fix. "The build succeeded" 
 not evidence here — the build succeeded throughout the bug's entire lifetime. The
 two things that are evidence: the `#deps 0` count before and after, and a header
 touch that makes ninja plan a rebuild it previously did not.
+
+## 7. The compiler cache only shares between worktrees under its `base_dir`
+
+**Rule:** every worktree lives in `C:\repos`, and the ccache `base_dir` points there. Change one and
+you must change the other, or cross-worktree caching switches off without any error.
+
+`base_dir` rewrites absolute paths under it before hashing, and the `/Z7` (Embedded) override bakes
+the source path into each object. A worktree outside `base_dir` therefore hashes differently and
+shares with nobody. It still caches its own rebuilds, which is why the failure is silent: the cache
+looks alive, it is just never warm. Measured 2026-08-20 with `base_dir = D:\repos` while
+`/start-work` was placing worktrees on `E:`: `D:`→`D:` HIT, `D:`→`E:` MISS, and `E:`→`E:` siblings
+MISS too. ccache takes exactly one `base_dir`. Do not resolve a drive question by moving builds to
+`D:`; that is a mechanical HDD, while `C:` and `E:` are partitions of the same NVMe.
+
+**Rule:** default to the `build-cached` tree. The Visual Studio generator ignores
+`CMAKE_<LANG>_COMPILER_LAUNCHER`, so a `build/` tree can never cache however the tools are set up.
+Measured cost of ignoring this, 2026-08-20: three worktrees ran 58 minutes of builds at a 0% hit
+rate, every command aimed at `build/`, while ccache sat at the previous day's call count. On the
+`OloEngine` target the cached tree measures 12m04s cold and 3m23s in a second worktree with 689/689
+hits. Pin the tool with `OLO_COMPILER_CACHE_TOOL` (an absolute path; a bare `ccache` on PATH may be
+an unrelated bundled copy) and configure `base_dir` + `hash_dir=false`; see
+[cmake/CompilerCache.cmake](../../cmake/CompilerCache.cmake).
+
+## 8. Build concurrency across worktrees: the second slot, and why the link bound is N mutexes
+
+**Rule:** `build-lock.ps1` grants a second concurrent build only when the new build and every
+current holder target a cached Ninja tree and free memory is above `-ConcurrentMinFreeGB` (default
+24). The lane ceiling is divided among active builds. Every uncertainty answers no.
+`-MaxConcurrent 1` restores strict one-at-a-time behaviour.
+
+Why a second slot exists: pure serialisation was measured across three worktrees on 2026-08-20 at
+43 minutes of waiting against 58 minutes of building, including one build that waited 13.8 minutes
+to run for 1.1. Why it is so narrow: a wrong no costs a queue wait, a wrong yes costs an OOM that
+loses every session's work.
+
+Why a `build/` tree never qualifies: `OLO_LINK_JOBS` (the Ninja link pool, default 2) is scoped to
+one tree, so N concurrent trees get up to N×2 linkers. Measured 2026-08-19 with the mutex bypassed,
+sampling every 15 s:
+
+| concurrent linkers | memory in use | peak compilers |
+|---|---|---|
+| 1 | avg 41.2 GiB | |
+| 2 | avg 43.4 GiB, max 55.3 | 2 |
+| 3 | 59.1 GiB, 4.7 GiB free | |
+
+One sample caught a +11.3 GiB jump as the third linker started; peak compilers across the whole run
+was two, so the spike is linking, not compile lanes.
+
+That gap is closed by [cmake/LinkSemaphore.cmake](../../cmake/LinkSemaphore.cmake): every link runs
+through a wrapper holding one of `OLO_LINK_SEMAPHORE_SLOTS` (default 2) OS-named mutexes that every
+build tree on the machine contends for. It fails open: if the permits are unavailable the link runs
+unthrottled. Because `CMAKE_<LANG>_LINKER_LAUNCHER` is honoured only by Ninja and Makefiles, a
+Visual Studio tree has no link bound, no job pool and no cache, which is why the build lock never
+gives it a concurrent slot.
+
+**Why N mutexes and not one semaphore.** A Windows semaphore's count has no owner, so a holder that
+is killed never returns its permit. The first version used a semaphore, and a test appeared to show
+the permit reclaimed after a hard kill; that test had one holder, so killing it dropped the last
+handle, the kernel destroyed the object, and the next process created a fresh one with a full count.
+Re-measured with a second process keeping the object alive, the permit leaked and the next linker
+waited out the whole fail-open timeout. `build-lock.ps1` kills whole build trees when it detects an
+orphan, so each cleanup would have burned a permit. A mutex is owned: a dead owner hands the next
+waiter an `AbandonedMutexException` together with the acquisition, verified at 3.3 s where the
+semaphore version timed out.
+
+**Job counts outside the lock.** Ninja's default is `cores + 2`, 30 on this host, and
+`cmake --build --parallel` with no number forwards the omission to the tool, so dropping the number
+raises the width. `-j6` is the conservative default; #759 measured a clean Debug build peaking at
+about 47 GiB (MSVC) or 42 GiB (clang-cl) at `-j6`, with `-j12` adding only about 2 GiB of peak for a
+1.3 to 1.6× speed-up, so `-j12` is safe when the box is otherwise idle. The box is an i7-14700KF,
+20 cores, 64 GB, and also hosts the `gh-runner-1/2/3` runners for another repository.

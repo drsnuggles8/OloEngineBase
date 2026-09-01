@@ -345,6 +345,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
+		Rendering/PropertyTests/BenchmarkCaptureTest.cpp
+		Rendering/PropertyTests/MaterialLabSceneEvidenceTest.cpp
 		Rendering/PropertyTests/PlayerCameraRigVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualGeometryVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SubmeshMaterialPathParityTest.cpp
@@ -401,6 +403,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/DriftIslandFieldEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainGPUPickEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainVTCompressBC7Test.cpp
+		Rendering/PropertyTests/TerrainGPUBrushParityTest.cpp
+		Rendering/PropertyTests/TerrainGPUBrushVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainVirtualTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelGreedyMeshVisualEvidenceTest.cpp
@@ -576,6 +580,7 @@ add_executable(OloEngine-Tests
 		Terrain/DriftIslandSplatCoverageTest.cpp
 		Terrain/TerrainGeneratorTest.cpp
 		Terrain/TerrainVirtualTextureTest.cpp
+		Terrain/TerrainAuthoringReadbackTest.cpp
 		Terrain/VoxelGreedyMesherTest.cpp
 		Terrain/VoxelEditTest.cpp
 		Terrain/VoxelEditRemeshTest.cpp
@@ -673,6 +678,7 @@ add_executable(OloEngine-Tests
 		# actual handlers + registrations (issue #357 split of the monolith).
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpTools.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsAssets.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsBenchmark.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsCamera.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsDiagnostics.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsInput.cpp

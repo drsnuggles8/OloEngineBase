@@ -1375,7 +1375,13 @@ namespace OloEngine
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, MaterialComponent& c)
     {
-        // Serialize core material properties (matching SceneSerializer coverage)
+        // Persists the gameplay-mutable material FACTORS only. The texture
+        // maps (albedo/normal/metallic-roughness/AO/emissive — scene-YAML
+        // `*MapPath` keys since #974) are deliberately NOT here: a save-game
+        // loads ON TOP of the scene load, which already restored the maps,
+        // and no script/gameplay API mutates them — the same stance as
+        // DecalComponent's textures. If a map-mutating API ever appears,
+        // the paths must be appended here behind a format-version gate.
         auto& mat = c.m_Material;
         if (ar.IsSaving())
         {
@@ -1455,7 +1461,7 @@ namespace OloEngine
             if (ar.IsLoading())
                 mat.SetPBRModel(std::to_underlying(model) < kPBRModelCount ? model : PBRModel::Legacy);
         }
-        // Texture maps (Ref<>) are runtime-only asset references — not serialized in save game
+        // Texture maps: restored by the scene load, see the function header.
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, DirectionalLightComponent& c)

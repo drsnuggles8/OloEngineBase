@@ -83,6 +83,27 @@ namespace OloEngine
             historyValid = false;
         }
 
+        // The ONE mockable per-frame dt idiom (issue #974) shared by every
+        // renderer-side accumulator (auto-exposure adaptation, fog noise, wind
+        // field, wake decay, cloud advection): sample Time::GetTime() — the
+        // mock when Time::SetMockTime is active, else the wall clock — clamp
+        // against the stored previous sample so a breakpoint / clock jump
+        // cannot hand an accumulator a giant dt, and store the new sample.
+        // Under a stepped mock clock every caller integrates identically run
+        // to run; unmocked, GetTime() IS the wall clock, so live behavior
+        // matches the steady_clock code this replaced. `prevSeconds` lives in
+        // RendererData (reset by Renderer3DLifecycle on Init/Shutdown) so a
+        // renderer re-init in one process cannot leak a stale sample across
+        // sessions. FSR2's dt deliberately does NOT use this: its temporal
+        // locks decay on real elapsed time by contract (see its block).
+        f32 SampleMockableDt(f32& prevSeconds, f32 clampSeconds)
+        {
+            const f32 now = Time::GetTime();
+            const f32 dt = std::clamp(now - prevSeconds, 0.0f, clampSeconds);
+            prevSeconds = now;
+            return dt;
+        }
+
         void EnsureHistoryStorage(Ref<Texture2D>& historyTexture,
                                   bool& historyValid,
                                   const u32 width,
@@ -1169,10 +1190,9 @@ namespace OloEngine
             ae.MaxExposure = pp.AutoExposureMaxExposure;
             ae.LowPercentile = pp.AutoExposureLowPercentile;
             ae.HighPercentile = pp.AutoExposureHighPercentile;
-            static auto s_LastAutoExposureTime = std::chrono::steady_clock::now();
-            const auto aeNow = std::chrono::steady_clock::now();
-            ae.DeltaTime = std::clamp(std::chrono::duration<f32>(aeNow - s_LastAutoExposureTime).count(), 0.0f, 0.1f);
-            s_LastAutoExposureTime = aeNow;
+            // Mockable dt (issue #974) — deterministic auto-exposure
+            // convergence captures. See SampleMockableDt.
+            ae.DeltaTime = SampleMockableDt(data.AutoExposurePrevTimeSeconds, 0.1f);
             PostProcessPasses.ToneMap->SetAutoExposure(ae);
         }
 
@@ -1213,9 +1233,11 @@ namespace OloEngine
 
             // FSR2 reads the frame delta as a wall-clock hint for how fast its
             // temporal locks decay, so it must be REAL elapsed time and not a
-            // fixed timestep. Metered here with the same steady_clock pattern the
-            // auto-exposure block above uses, and clamped so a breakpoint or a
-            // stalled frame does not hand it a delta that expires every lock.
+            // fixed timestep — which is why this block deliberately keeps a raw
+            // steady_clock and does NOT use SampleMockableDt (a mocked clock
+            // must not stall lock decay; benchmark manifests keep Upscale off
+            // instead, enforced by the capture entry points). Clamped so a
+            // breakpoint or a stalled frame does not expire every lock.
             static auto s_LastTemporalUpscaleTime = std::chrono::steady_clock::now();
             const auto temporalNow = std::chrono::steady_clock::now();
             const f32 temporalDt = std::clamp(
@@ -1574,11 +1596,9 @@ namespace OloEngine
                                   fog.EnableScattering ? 1.0f : 0.0f,
                                   fog.EnableVolumetric ? 1.0f : 0.0f);
 
-            // Accumulate time for noise animation
-            const auto fogNow = std::chrono::steady_clock::now();
-            const f32 fogDt = std::clamp(std::chrono::duration<f32>(fogNow - data.FogLastTime).count(), 0.0f, 0.1f);
-            data.FogLastTime = fogNow;
-            data.FogTime += fogDt;
+            // Accumulate time for noise animation. Mockable dt (issue #974) —
+            // a fog golden holds still / steps exactly with a mocked clock.
+            data.FogTime += SampleMockableDt(data.FogPrevTimeSeconds, 0.1f);
 
             const f32 effectiveNoiseIntensity = fog.EnableNoise ? fog.NoiseIntensity : 0.0f;
             gpu.NoiseParams = glm::vec4(fog.NoiseScale, fog.NoiseSpeed, effectiveNoiseIntensity, data.FogTime);
@@ -1642,12 +1662,11 @@ namespace OloEngine
 
         // Update wind system (regenerate 3D wind field, upload wind UBO)
         {
-            // TODO(olbu): Pass actual frame dt once Timestep is threaded through BeginScene
-            static auto lastTime = std::chrono::steady_clock::now();
-            const auto now = std::chrono::steady_clock::now();
-            f32 dt = std::chrono::duration<f32>(now - lastTime).count();
-            dt = std::clamp(dt, 0.0f, 0.1f);
-            lastTime = now;
+            // Mockable dt (issue #974) — the wind field, and with it foliage
+            // sway plus the snow / ejecta / precipitation updates below which
+            // all ride this dt, freezes or steps exactly with a mocked clock.
+            // See SampleMockableDt.
+            const f32 dt = SampleMockableDt(data.WindPrevTimeSeconds, 0.1f);
 
             WindSystem::Update(data.Wind, data.ViewPos, Timestep(dt));
             WindSystem::BindWindTexture();
@@ -1676,17 +1695,12 @@ namespace OloEngine
             // The window follows the VIEW position, so the field always covers
             // the water the camera can see; the boat is wherever it happens to
             // be inside it.
-            // Driven by Time::GetTime() rather than the block's steady_clock
-            // `dt` above, deliberately and for the same reason the cloud
-            // advection below is: Time::SetMockTime then FREEZES the decay, so a
-            // golden capture of a wake trail is deterministic and a test can
-            // advance the field by an exact number of seconds. A wall-clock dt
-            // would decay the field by however long the previous frame happened
-            // to take, which is unrepeatable and would make every wake golden
-            // flaky rather than merely approximate.
-            const f32 wakeNow = Time::GetTime();
-            const f32 wakeDt = std::clamp(wakeNow - data.WaterDisturbancePrevTimeSeconds, 0.0f, 0.25f);
-            data.WaterDisturbancePrevTimeSeconds = wakeNow;
+            // Mockable dt (see SampleMockableDt): Time::SetMockTime FREEZES the
+            // decay, so a golden capture of a wake trail is deterministic and a
+            // test can advance the field by an exact number of seconds. A
+            // wall-clock dt would decay the field by however long the previous
+            // frame happened to take, making every wake golden flaky.
+            const f32 wakeDt = SampleMockableDt(data.WaterDisturbancePrevTimeSeconds, 0.25f);
             WaterDisturbanceSystem::Update(data.WaterDisturbance,
                                            glm::vec2(data.ViewPos.x, data.ViewPos.z),
                                            Timestep(wakeDt));
@@ -1744,14 +1758,11 @@ namespace OloEngine
 
                 // Advance the wind-advection accumulators (shared by the
                 // raymarch and the cloud-shadow compute so both sample the
-                // field at the same scroll position). Deliberately driven by
-                // Time::GetTime() rather than a raw steady_clock so
-                // Time::SetMockTime freezes the cloud field for deterministic
-                // golden captures (AtmosphereVisualEvidenceTest) — under a
-                // mocked clock the dt is 0 and the field holds still.
-                const f32 cloudNow = Time::GetTime();
-                const f32 cloudDt = std::clamp(cloudNow - data.CloudPrevTimeSeconds, 0.0f, 0.1f);
-                data.CloudPrevTimeSeconds = cloudNow;
+                // field at the same scroll position). Mockable dt (see
+                // SampleMockableDt): Time::SetMockTime freezes the cloud field
+                // for deterministic golden captures
+                // (AtmosphereVisualEvidenceTest).
+                const f32 cloudDt = SampleMockableDt(data.CloudPrevTimeSeconds, 0.1f);
                 const glm::vec2 cloudWindXZ(data.Wind.Direction.x, data.Wind.Direction.z);
                 if (const f32 cloudWindLen = glm::length(cloudWindXZ); cloudWindLen > 1e-6f)
                 {

@@ -1,380 +1,316 @@
-# agent-rules — index by failure mode
+# agent-rules — the index
 
-This directory holds two kinds of document:
+Two kinds of document live here:
 
-- **Postmortems** — one real failure each, written so the next person doesn't repeat it. Indexed by
-  failure mode below.
-- **Reference guides** — the `notes-*.md` family, accumulated per-subsystem gotchas rather than a
-  single failure. Listed under *Subsystem notes*.
+- **Postmortems**: one real failure each, written so the next person doesn't repeat it.
+- **Reference guides**: the `notes-*.md` family, accumulated per-subsystem gotchas.
 
-`CLAUDE.md` → *Companion guides* lists everything **by subsystem** — use that when you know what
-you're touching. Use **this** file when you know what you're *doing* but not yet what can go wrong.
+Use **Part A** when you know what you are touching. Use **Part B** when you know what you are
+doing but not yet what can go wrong; the archetypes there cut across subsystems, and the failure
+transfers even when the code does not.
 
-The recurring archetypes below cut across subsystems. If your change fits one, read that row's docs
-even when they're about a subsystem you're not in — the failure transfers, the code doesn't.
+Each entry is one sentence stating the rule. The story that taught it is inside the file.
 
 ---
 
+# Part A: by subsystem
+
+## Code and review standards
+
+- [cpp-coding-quality.md](cpp-coding-quality.md): the coding rules, including float comparison, `auto`, IWYU, and the defaulted `operator==` MSVC quirk.
+- [glsl-shaders.md](glsl-shaders.md): the SPIR-V rules a shader must follow to compile: no bare uniforms, UBO bindings, MRT outputs.
+- [sonarqube-review-alignment.md](sonarqube-review-alignment.md): read before `/code-review` so local findings match the cloud profile.
+
+## Testing and verification
+
+- [testing-architecture.md](testing-architecture.md): which renderer layer or Functional axis a new test belongs to, and the registration contract.
+- [../testing.md](../testing.md): why we test what we test; value heuristic, anti-patterns, retirement criteria.
+- [substituted-seams-compound.md](substituted-seams-compound.md): every substitution a test makes is a seam it stops testing, and they compound.
+- [reference-path-tracer.md](reference-path-tracer.md): the ground-truth oracle for "is it correct", where a golden can only say "did it change".
+- [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md): measure the noise floor and audit a recording before baking a per-vendor baseline.
+- [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md): give a visual-test scene a ground plane, then look at the PNG.
+- [live-verification-noise-floor.md](live-verification-noise-floor.md): measure frame-to-frame noise before attributing a pixel change, and confirm the editor is drawing at all.
+- [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md): a generator fix and its golden rebake ship in the same PR.
+- [timed-wait-test-assertions.md](timed-wait-test-assertions.md): measure timed waits in microseconds and assert one-sided.
+- [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md): use `TestTempDir.h`, never a fixed temp path; every test case is its own process.
+
+## Build and dependencies
+
+- [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md): never build msvc and clangcl trees together; caches, link bounds, memory, the local ASan recipe.
+- [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md): a .lib cannot exceed 4 GiB, and `LNK1248` under-reports the overshoot.
+- [vcpkg-dependency-management.md](vcpkg-dependency-management.md): read before adding, bumping or removing a dependency; the CRT triplet mismatch is heap corruption.
+- [configure-time-variable-visibility.md](configure-time-variable-visibility.md): a CMake variable must be set before the `add_subdirectory()` that reads it.
+- [asset-import-usd-alembic.md](asset-import-usd-alembic.md): the importer registry seam, and vendoring OpenUSD / Alembic / MaterialX statically.
+- [asset-import-openvdb-volumetric.md](asset-import-openvdb-volumetric.md): keep OpenVDB editor-only; derive the grid transform without hand-transposing; extend every exhaustive `switch`.
+- [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md): when a correct fix makes no sense live, suspect a stale incremental object before the code.
+- [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md): a CI cache that restores is not
+  one that works.
+- [shader-pack-bake.md](shader-pack-bake.md): the CI-baked `.osp` pack, its content-hash invalidation, and why a fresh worktree does not fetch it.
+- [steamworks-platform-integration.md](steamworks-platform-integration.md): the SDK is developer-supplied, CI builds a stub, and exactly one TU may include a Valve header.
+
+## Renderer
+
+- [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md): the OpenGL boundary leaks through the include graph, not a `glXxx(` grep; plus the Vulkan epic's lessons.
+- [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md): a CPU buffer write between two recorded draws is last-write-wins on Vulkan.
+- [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md): `glColorMask` and `glEnable(GL_BLEND)` are indexed calls for every draw buffer; never port one as a fallback.
+- [lazy-static-release-ownership.md](lazy-static-release-ownership.md): release a shared lazy static from an unconditional teardown, not from `Renderer3D::Shutdown`.
+- [gpu-debug-draws.md](gpu-debug-draws.md): any shader can draw a primitive into the viewport; read the overflow protocol before concluding "it drew nothing".
+- [observer-camera.md](observer-camera.md): the frozen culling camera decides what is drawn, never how it looks.
+- [gpu-scan-compaction.md](gpu-scan-compaction.md): no early return in front of a work-group scan; test compaction order, not sets.
+- [variable-rate-compute-shading.md](variable-rate-compute-shading.md): measure departure from a plane, not depth range, and read the heatmap first.
+- [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md): publish GPU counters by name without stalling; the buffer-binding namespace is full.
+- [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md): blue noise is a claim about the error spectrum; the VNDF weight fails silently; a resolve clips, not clamps.
+- [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md): wrap every new clear site in `GLClearProgramGuard`, unbind and restore.
+- [render-pass-published-state.md](render-pass-published-state.md): a pass that publishes engine-global bindings runs last and is not wrapped in `GLStateGuard(Restore)`.
+- [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md): `WriteNewVersion` renames a physical resource; use the poison and disable levers to find stale reads.
+- [render-pipeline-caches.md](render-pipeline-caches.md): process-wide render caches invalidate on every topology reset, not only on a fingerprint change.
+- [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md): the DDGI clipmap is toroidal, `%` truncates toward zero, and sparsity fails as "no GI, no error".
+- [baked-lightmap-pipeline.md](baked-lightmap-pipeline.md): the GI units ledger, UV2 as a parallel stream, and keying the seam split after the unwrap.
+- [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md): phase 1 tests the previous frame's final pyramid; pass order decides who sees old depth.
+- [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md): four page-cache invariants; a `Setup()` that branches on a runtime toggle is frozen by the fingerprint cache.
+- [cluster-lod-simplification.md](cluster-lod-simplification.md): a terminal group's boundary lock outlives the level that created it.
+- [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md): the LOD plane faces the mesh, not the camera, and the error metric must be a ratio.
+- [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md): every writer of mip 0 owes the rest of the chain.
+- [terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md): crack-freedom is a vertex-set property; picking must not inherit the tessellation gate.
+- [terrain-virtual-texturing.md](terrain-virtual-texturing.md): every VT defect is a wrong address; touch LRU in reverse priority; an eviction is an entry, not an absence.
+- [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md): measure a tile's outermost ring, and never key an auto-material rock rule below the shoreline mask's slope.
+- [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md): the packed-quad encoding is mirrored in GLSL, and a merged quad can render plausibly and wrong six ways.
+- [camera-relative-rendering.md](camera-relative-rendering.md): every world-space GPU upload is a site; f32 cancellation shows as jitter and shadow swim.
+- [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md): one encoding contract mirrored in three places, and a miss sentinel that shades from stale sky.
+- [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md): three ways impostor cards go missing, separable only by reading PNGs from several azimuths.
+- [light-path-photometric-parity.md](light-path-photometric-parity.md): the three light evaluators must agree; a dropped GPU struct field is a dead knob.
+- [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md): eight causes of a uniform veil, and how to tell "darker" from "directionally darker".
+- [water-shading-nyquist.md](water-shading-nyquist.md): a derived normal carries every factor its displacement carries; drop sub-pixel detail rather than filter it.
+- [cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md): the shared thing between a shader and gameplay sampling must be an analytic record, in one agreed space.
+- [persistent-world-space-fields.md](persistent-world-space-fields.md): a multiplicative decay is unrepresentable in a normalized-integer texture below a rate threshold.
+- [pbf-solver-stability.md](pbf-solver-stability.md): PBF/SPH reference constants assume unit-mass particles.
+- [shared-atlas-allocator.md](shared-atlas-allocator.md): the buddy allocator behind the shadow atlas and impostor budget; swap, don't mutate, and beware the non-RAII handle.
+
+## Scene, ECS and serialization
+
+- [component-serializer-codegen.md](component-serializer-codegen.md): when a component round-trips for free, when to annotate a field, and every generated touch-point's exclusion set.
+- [scene-binary-sidecar.md](scene-binary-sidecar.md): the `.scenebin` fast path: generated, hybrid-covered, and how it is invalidated.
+- [binary-format-versioning.md](binary-format-versioning.md): gate each new field of a fixed-order archive; the header check does not exclude old data.
+- [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md): a cache must refuse to store a name nothing can resolve; the failure shows on the second load only.
+- [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md): `Scene::Copy()` must carry every scene-level settings struct into Play.
+- [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md): four subsystems hold world-space state outside the rebased set, each needing a different fix.
+- [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md): a precondition asserted in a constructor delegates safety to every call site.
+
+## Gameplay, physics and simulation
+
+- [force-model-vehicles.md](force-model-vehicles.md): boats and aircraft driven by `AddForce`; every bug here leaves the suite green.
+- [jolt-softbody-kinematic-attachment.md](jolt-softbody-kinematic-attachment.md): drive a pinned cloth vertex by velocity, never by position.
+- [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md): a `CharacterVirtual` is invisible to UUID-keyed body filters, and a follow camera runs last.
+- [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md): a valid navmesh silently switches every `NavAgentComponent` onto the crowd follower.
+- [parallelizable-mover-systems.md](parallelizable-mover-systems.md): how to move an entity-moving system onto a worker thread, and the two traps in its determinism test.
+- [terrain-collision-streaming-sculpt.md](terrain-collision-streaming-sculpt.md): streamed tile bodies live in a second `JoltScene` map, and tile pose must match the draw transform exactly.
+- [procedural-skinned-mesh-primitives.md](procedural-skinned-mesh-primitives.md): code-built test meshes need a live GL context and a shared bind-pose origin.
+- [destructible-debris.md](destructible-debris.md): pre-authored debris chunks, and two unrelated physics layer numberings.
+- [audio-voice-budget.md](audio-voice-budget.md): admit the voice cap inside `Play()`, because sounds start from six call sites.
+
+## Scripting, networking and tooling
+
+- [script-structural-command-safe-point.md](script-structural-command-safe-point.md): a script binding that changes the registry structurally queues a command, never acts inline.
+- [visual-script-vm.md](visual-script-vm.md): a loop node charges its own iteration, memoization is per exec step, and `PinType` numbering is on disk.
+- [runtime-scene-switching.md](runtime-scene-switching.md): the host applies a scene swap after the tick; five ordering rules and the `Project` mount.
+- [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md): grep for callers of the entry point, not for tests.
+- [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md): copy-then-swap MCP writes are unsound when `operator=` cannot reproduce a setter's side effects.
+- [mcp-protocol-eras.md](mcp-protocol-eras.md): the stateless core is a second transport; adding `server/discover` alone breaks working clients.
+
+## Concurrency and memory
+
+- [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md): a decrement-then-reread of a refcount is a double-free even with atomics.
+- [non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md): fix the callee that locks internally; don't wrap a self-synchronised member in an outer lock.
+- [spinlock-payload-cache-line-separation.md](spinlock-payload-cache-line-separation.md): keep a lock off its payload's cache line.
+- [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md): three checks before promoting a per-tick scratch vector to persistent state.
+
+## Subsystem notes (`notes-*.md`)
+
+Accumulated per-subsystem gotchas. Skim the relevant one before working in that area.
+
+- [notes-renderer.md](notes-renderer.md): offline capture, GL wrappers, shader bindings, SSAO/SSR/FSR, IBL bakes, GPU timers.
+- [notes-mcp-tool-authoring.md](notes-mcp-tool-authoring.md): the three-part tool split, schemas, consent and undo, frame capture.
+- [notes-core-and-threading.md](notes-core-and-threading.md): yaml-cpp decode, `Ref<T>` constness, the task system, EnTT first-touch, C++ traps.
+- [notes-gameplay-physics-nav.md](notes-gameplay-physics-nav.md): the two Jolt systems, joints, Detour, dialogue guards, the gameplay scheduler.
+- [notes-audio-animation-sim.md](notes-audio-animation-sim.md): pose sampling, retargeting, morph targets, the fixed-timestep split, SoundGraph.
+- [notes-editor-and-assets.md](notes-editor-and-assets.md): Content Browser, filewatch import, placeholders, texture cook, the ScriptCore build edge.
+
+---
+
+# Part B: by failure mode
+
 ## 1. The suite is green and the feature is broken
 
-The dominant archetype in this repo. A change compiles, passes every contract test, produces
-plausible output, and is completely wrong. If your work is in one of these areas, a passing test
-run is **not** evidence.
+The dominant archetype here. If your change is in one of these areas, a passing run is not evidence.
 
 | Doc | What stayed green |
 |---|---|
-| [force-model-vehicles.md](force-model-vehicles.md) | a boat with no thrust still floats; an aircraft that oscillates still has finite positions |
-| [jolt-softbody-kinematic-attachment.md](jolt-softbody-kinematic-attachment.md) | the cape detaches, jitters or freezes rigid — unit tests pass through all three |
-| [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) | three separate bugs, each rendering a *plausible* frame, all reading as "impostors missing" |
-| [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md) | a bright saturated material renders near-black and the test asserts nothing about it |
-| [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) | settings reset the instant Play starts; `FunctionalTest` never calls `Scene::Copy()`, so headless can't see it |
-| [light-path-photometric-parity.md](light-path-photometric-parity.md) | two lighting bugs that 4300 green tests missed |
-| [component-serializer-codegen.md](component-serializer-codegen.md) | a corrupt drive mode clamped to a *different valid* mode — the car still drove |
-| [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md) | "load the scene, does it crash?" passes while the bug is fully present — the trigger is *resolution*, not loading |
-| [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) | a test believed it exercised the manual path; a valid navmesh had silently switched it to the crowd follower |
-| [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | a steady-state offset check passes with a full one-tick lag present |
-| [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | a position check passes on the scheduler tie-break alone, with the dependency edge missing |
-| [mcp-protocol-eras.md](mcp-protocol-eras.md) | adding `server/discover` alone keeps every test green — and converts a *working* legacy fallback into a broken modern conversation, because answering it is a client's proof the server is modern |
-| [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | two scenes render skybox-only, one renders perfectly, zero errors — no tenant interleaved two uploads of one SSBO with draws |
-| [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) | every Vulkan draw in the process wrote colour attachment 0 alone for a whole phase — the forward path displays only attachment 0, so the editor looked fine |
-| [substituted-seams-compound.md](substituted-seams-compound.md) | a 300-line decal tenant made THREE substitutions — the dispatch function, the geometry, and the render graph — and each one was hiding a different live bug; no decal had produced a pixel in any real scene, on either path |
-| [gpu-scan-compaction.md](gpu-scan-compaction.md) | a compaction test that sorts both sides passes identically on `atomicAdd` and on the scan meant to replace it — the *set* was never the broken thing |
-| [variable-rate-compute-shading.md](variable-rate-compute-shading.md) | the shading-rate classifier coarsened the sky and nothing else — every test passed, because a feature that does NOTHING satisfies every "did coarsening damage the image" assertion perfectly. Only the debug heatmap could say *where* it engaged. Plus: a coarsening lattice is a one-pixel step every eight columns, a rounding error in a mean image diff over a million pixels and an obvious grid on screen |
-| [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | every glyph in the engine invisible on AMD, with the font loaded, 189 glyphs packed and 852 quads submitted — bake that and the nightly defends a blank UI forever |
-| [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | a merged quad with U and V swapped, or width and height transposed, still merges and still draws — five of the six face directions look right |
-| [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) | 7/7 green on every CI run and every clean checkout — a runner never has a warm cache, so the failing path is the one nothing runs twice |
-| [observer-camera.md](observer-camera.md) | the frozen cut looks entirely plausible when culling quietly follows the observer -- so an instrument built to be ground truth can be wrong in exactly the way it exists to detect |
-| [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) §14 | every tenant + sweep green while the first FULL virtual-geometry frame on Vulkan found a pipeline-creation failure, a device fault and a missing device feature bit — a subsystem's first full frame on a backend is an audit of the subsystem, and runtime mode levers are what make its failures attributable |
-| [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) §18 | a barrier declared `Before = TransferWrite` for an attachment the pass had transfer-cleared and deliberately kept out of the draws — true about the draws, false about the queue, because a narrowed draw-buffer scope does not remove an attachment from the render pass instance and `vkCmdEndRendering`'s storeOp wrote it anyway. GPU-gated, so the sanitizer CI jobs skip it; one failure at the end of a 6750-test local suite, which is exactly where a failure gets blamed on whatever you just changed |
-| [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) §16 | one CPU field answered two questions — what the recording WILL leave, and what the queue HAS — and the two agree on every steady frame, because the graph ends each frame in the layouts it started in. They disagree on exactly one frame: the one where an attachment is created. One validation error per window resize, self-healing next frame, invisible to every test |
-| [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) | a GGX VNDF sample missing its `G2/G1` weight renders a perfectly believable, permanently too-bright specular — and the bias is +1% at roughness 0.4 against +19% at 0.7, so it is smallest exactly where you would check it. A blue-noise sampler degraded back to white passes every summary statistic: uniform values, correct mean, full range |
-| [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) §2 | two blue-noise channels seeded `seed * <the PRNG's own increment>` are the same stream ONE DRAW apart. Both channels pass every per-channel metric — full range, mean 0.5, low/high power 0.0002, neighbour correlation −0.28 — while correlating with each other at +0.55, so the 2D samples they feed are not independent at all |
-| [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) §3a | a Cranley-Patterson rotation applied to a hemisphere RADIUS — textbook-correct on a torus, and it made the sampler measurably WORSE than the interleaved-gradient noise it replaced (error RMS 0.0349 vs 0.0218). Every CPU test passed, because they modelled one sample on the unit square where the rotation is right |
-| [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) §5a | a resolve whose signal is RGBA fills TWO statistics structs from ONE nine-tap gather, and the way that breaks is a crossed accumulator — alpha's moments written from the colour box, or the reverse. Every CPU mirror of the *functions* those statistics feed still passes, and the frame stays entirely plausible; only a GPU probe over a neighbourhood with flat colour and varied alpha, plus its mirror image, separates them. And adopting a shared kernel is not adopting all of it — every knob in one encodes the FIRST caller's failure mode |
-| [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) | projecting a mesh's AABB through the real view-projection instead of onto a plane facing it passes EVERY value test — `SelectLODByPixelError` is a pure function of one float, so both implementations score identically on it. The separation only shows in an invariance test that holds camera-to-subject distance fixed while changing direction |
-| [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) | a terrain tile ended in a vertical wall of ground where the tile stopped, for two shipped issues, in a scene whose own notes named the waterline as the thing to watch. Nothing renders wrong, nothing asserts anything about a tile's OUTERMOST RING, and raising the height exponent removes the wall and the island at exactly the same rate — so tuning reads as progress right up to the point where the island is 1.4% of the tile |
-| [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) §8 | six islands each rendered as ONE flat colour while every stage of the auto-material pipeline was correct — gate, rules, splatmap, upload, blend, all verified. The shoreline mask from the same document is itself a ~50 deg slope across the whole outer flank, so a rock rule keyed at 48 deg took 77-93%% of each island and normalization divided the rest to nothing. The obvious test — "assert the weights VARY" — passes on the bug; what is false is COVERAGE |
-| [water-shading-nyquist.md](water-shading-nyquist.md) | eight Gerstner octaves derived their normals WITHOUT the amplitude their displacement carried, so the shading described waves the geometry did not have — for months. No C++ test could catch it: the CPU mirror `BuoyancySystem` samples computes displacement only and has no normal at all, so the pin has to be a text test against the GLSL |
-| [water-shading-nyquist.md](water-shading-nyquist.md) §7 | a spectrum is a DENSITY, so a second FFT grid makes its bin spacing load-bearing: the fine cascade's k-lattice was 4.43x coarser, each bin stood for 19.6x more of the spectrum, and nothing weighted it. The amplitude normalisation is defined on HEIGHT, so summed height RMS held at 0.167 -> 0.170 m while summed SLOPE RMS lost 38% — every assertion green, and the captures showed a mirror-smooth sea you could see the sky in. When a change redistributes a signal across scales, the acceptance has to be written on the DERIVATIVE, because the value is what the normalisation is holding constant |
-| [persistent-world-space-fields.md](persistent-world-space-fields.md) | a wake stored in an R8 texture renders correctly, follows the boat correctly, wraps correctly — and NEVER FADES, because a 6 s half-life at 60 Hz moves a texel by 0.00096 and R8 rounds anything under 0.00196 straight back to where it started. The decay function is fine, so every math test passes; the bug is in the storage, which no math test touches. Plus: the three addressing failures all leave a plausible wake somewhere else in frame, so only comparing two regions of the SAME frame separates "wrong" from "different" |
-| [cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md) | the shader evaluated the boat wake at the vertex's AUTHORED xz and the CPU at the COLUMN xz, so the two agreed on the function and disagreed about where it was — identical on a flat sea, a metre apart on a choppy one, and the parity test cannot see it because it feeds both sides the same point. Plus: a wake arm laid at a constant lateral SPREAD RATE opens at 15 deg at 6 m/s and 5 at 18, so it narrows as the boat accelerates and reads as perspective; a single-speed test passes on it. Plus: four of five hand-posed evidence cameras pointed AWAY from the boat and the fifth at the empty sky, every capture a plausible picture of an ocean and every golden happily rebased - the A/B assertion (`maxDiff == 0`) was the only thing that knew |
+| [force-model-vehicles.md](force-model-vehicles.md) | A boat with no thrust still floats and an oscillating aircraft still has finite positions. |
+| [jolt-softbody-kinematic-attachment.md](jolt-softbody-kinematic-attachment.md) | Unit tests pass whether the cape detaches, jitters or freezes rigid. |
+| [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) | Three separate bugs each rendered a plausible frame that read as "impostors missing". |
+| [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md) | A bright material rendered near-black and the test asserted nothing about it. |
+| [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) | Settings reset on Play, and headless tests never call `Scene::Copy()`. |
+| [light-path-photometric-parity.md](light-path-photometric-parity.md) | Two lighting bugs survived 4300 green tests. |
+| [component-serializer-codegen.md](component-serializer-codegen.md) | A corrupt drive mode clamped to a different valid mode, and the car still drove. |
+| [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md) | "Load the scene, does it crash?" passes because the trigger is resolution, not loading. |
+| [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) | A test believed it exercised the manual path while a valid navmesh had switched it to the crowd follower. |
+| [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | A steady-state offset check passes with a full one-tick lag present. |
+| [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | A position check passes on the scheduler tie-break alone, with the dependency edge missing. |
+| [mcp-protocol-eras.md](mcp-protocol-eras.md) | Adding `server/discover` alone keeps tests green and breaks the legacy fallback for real clients. |
+| [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | Two scenes rendered skybox-only with zero errors because no test interleaved two SSBO uploads with draws. |
+| [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) | Every Vulkan draw wrote colour attachment 0 alone, and the forward path only displays attachment 0. |
+| [substituted-seams-compound.md](substituted-seams-compound.md) | A decal tenant made three substitutions, each hiding a different live bug; no decal had ever produced a pixel. |
+| [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md) | A compute kernel wrote mip 0 and left coarser mips stale; the visual test was green because every mip was uniformly stale. |
+| [gpu-scan-compaction.md](gpu-scan-compaction.md) | A compaction test that sorts both sides passes identically on `atomicAdd` and on the scan replacing it. |
+| [variable-rate-compute-shading.md](variable-rate-compute-shading.md) | A classifier that coarsens nothing passes every "did coarsening damage the image" assertion. |
+| [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | Every glyph invisible on AMD with 852 quads submitted; baking that would defend a blank UI forever. |
+| [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | A merged quad with U and V swapped still merges and draws, and five of six face directions look right. |
+| [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) | Green on every CI run because a runner never has a warm cache, and the failing path needs a second load. |
+| [observer-camera.md](observer-camera.md) | The frozen cut looks plausible when culling quietly follows the observer. |
+| [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) §14, §16, §18 | Every tenant and sweep was green while the first full virtual-geometry frame on Vulkan failed three ways; a barrier scope true about the draws was false about the queue; one field answered two questions that disagree on the frame an attachment is created. |
+| [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) | A missing VNDF weight renders believable, permanently too-bright specular, smallest where you would check; two channels seeded with the PRNG increment correlate at +0.55 while passing every per-channel metric; a resolve with crossed accumulators stays plausible. |
+| [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) | Projecting through the real view-projection instead of a facing plane passes every value test; only an invariance test under camera direction separates them. |
+| [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) | A vertical wall at the tile edge, and six flat-coloured islands, with every pipeline stage verified correct; "assert the weights vary" passes on the bug. |
+| [water-shading-nyquist.md](water-shading-nyquist.md) | Normals derived without the amplitude the displacement carried, for months; a second FFT grid lost 38% of slope RMS while height RMS held. |
+| [persistent-world-space-fields.md](persistent-world-space-fields.md) | A wake in an R8 texture renders and follows correctly and never fades, because the decay step rounds to zero. |
+| [cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md) | Shader and CPU agreed on the function and disagreed on which space its argument was in; four of five evidence cameras pointed away from the boat. |
 
-**The counter-move:** name the observation that *would* have failed. Usually it's a moving target
-instead of a static one, an edge instead of a steady state, a second camera angle, or the physical
+**The counter-move:** name the observation that would have failed. Usually it is a moving target
+instead of a static one, an edge instead of a steady state, a second camera angle, or a physical
 quantity in pinned units rather than a composited pixel.
 
 ## 2. One contract, several mirrors
 
-The same fact written down in more than one place. Nothing enforces agreement, so they drift, and
-the drift is silent because each side is individually self-consistent.
+The same fact written in more than one place, with nothing enforcing agreement.
 
 | Doc | The mirrors |
 |---|---|
-| [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md) | header ↔ bake ↔ GLSL — pinned by a regex parity test |
-| [light-path-photometric-parity.md](light-path-photometric-parity.md) | three light evaluators that can render the same scene |
-| [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) | the cascade-shift invalidation is derived INDEPENDENTLY on the CPU and the GPU from the same two lattice origins — on purpose, because the GPU telling the CPU would be the readback #707 exists to delete |
-| [reference-path-tracer.md](reference-path-tracer.md) | a C++ BRDF port against the GLSL it mirrors |
-| [baked-lightmap-pipeline.md](baked-lightmap-pipeline.md) | the GI stores' units ledger (DDGI/lightmap store irradiance E, the baked-SH path stores radiance — a pinned, pre-existing divergence), and the bake-time unwrap parameters mirrored by the runtime's self-healing resolve |
-| [component-serializer-codegen.md](component-serializer-codegen.md) | five exclusion sets, plus generator-vs-coverage-test rosters |
-| [runtime-scene-switching.md](runtime-scene-switching.md) | the build pipeline and the runtime must agree on an asset layout, or scripts never load |
-| [audio-voice-budget.md](audio-voice-budget.md) | adding one config field costs four edits, one of them silent |
-| [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | two build trees writing the same generated files |
-| [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | four subsystems holding world-space state outside the set that gets rebased |
-| [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | the packed-quad bit layout, face numbering and U/V basis live in `VoxelQuad.h` **and** `include/VoxelQuadUnpack.glsl`; nothing links them and a mismatch compiles |
-| [destructible-debris.md](destructible-debris.md) | two unrelated physics "layer" numberings — `SetCollisionLayer(Debris /*7*/)` never reaches Jolt's `ObjectLayers::DEBRIS /*4*/`, so debris silently shoves the player |
-| [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | four uint packings (page key, feedback word, indirection texel, bake request) live in C++ **and** in four GLSL files; the bake↔shade UV mapping is an exact inverse spread across a compute kernel and an include. A wrong bit shifts the address, and a wrong address renders plausible, wrong content rather than an error |
-| `ShaderBindingLayout.h` ↔ `include/BindlessHeap.glsl` | `HEAP_IMAGE_SLOT_BASE` is *derived* (`= MAX_ENGINE_TEXTURE_SLOTS`) but its GLSL twin `OLO_HEAP_IMAGE_BASE` is a hand-written literal — so **adding any `TEX_*` slot is also a shader edit**. #702 added one, the base moved 66→67, and every bindless storage image read a sampler descriptor through an image declaration (undefined, not blank). The comment there had claimed the two "cannot disagree". Now pinned by `BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout` |
+| [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md) | Header, bake and GLSL, pinned by a regex parity test. |
+| [light-path-photometric-parity.md](light-path-photometric-parity.md) | Three light evaluators that can render the same scene. |
+| [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) | The cascade-shift invalidation is derived independently on CPU and GPU, on purpose. |
+| [reference-path-tracer.md](reference-path-tracer.md) | A C++ BRDF port against the GLSL it mirrors. |
+| [baked-lightmap-pipeline.md](baked-lightmap-pipeline.md) | The GI stores' units ledger, and bake-time unwrap parameters mirrored by the runtime resolve. |
+| [component-serializer-codegen.md](component-serializer-codegen.md) | Five exclusion sets, each mirrored by a coverage-test roster. |
+| [runtime-scene-switching.md](runtime-scene-switching.md) | The build pipeline and the runtime must agree on an asset layout. |
+| [audio-voice-budget.md](audio-voice-budget.md) | One config field costs four edits, one of them silent. |
+| [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | Two build trees writing the same generated files. |
+| [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | Four subsystems hold world-space state outside the rebased set. |
+| [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | The packed-quad layout lives in `VoxelQuad.h` and `VoxelQuadUnpack.glsl`, and a mismatch compiles. |
+| [destructible-debris.md](destructible-debris.md) | Two unrelated physics layer numberings; `SetCollisionLayer(Debris)` never reaches Jolt's `DEBRIS`. |
+| [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | Four uint packings in C++ and four GLSL files; a wrong bit renders plausible wrong content. |
+| `ShaderBindingLayout.h` ↔ `include/BindlessHeap.glsl` | `HEAP_IMAGE_SLOT_BASE` is derived in C++ and a literal in GLSL, so adding any `TEX_*` slot is also a shader edit (#702). Pinned by `BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout`. |
 
-**The counter-move:** a parity test that reads both sides as text, or a generator that makes one
-side derived. A comment saying "keep these in sync" is not a mechanism.
+**The counter-move:** a parity test that reads both sides as text, or a generator that makes one side
+derived. A "keep in sync" comment is not a mechanism.
 
 ## 3. It silently drops something
 
-No crash, no error, no log line. Work or data disappears and the system keeps running.
+No crash, no error, no log line; work or data disappears and the system keeps running.
 
-[binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) (a stale wall between two chunks,
-when a carve does not rebuild the neighbours it uncovered) ·
-[component-serializer-codegen.md](component-serializer-codegen.md) (a field, from every save) ·
-[terrain-virtual-texturing.md](terrain-virtual-texturing.md) §4 (an *unmapping*, once publishing
-became incremental — the eviction that used to be expressed by clearing the whole map now has to be
-an explicit entry, and one of its two sources fires no notification at all) ·
-[scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) (a
-settings struct, on entering Play) ·
-[gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) §7 (a virtual-shadow page request,
-once the ring filled — the page falls back to a coarser level for the frame, and because the drop
-self-heals the only evidence is persistently slightly-too-soft shadows) ·
-[light-path-photometric-parity.md](light-path-photometric-parity.md) (an authored light parameter →
-a dead knob) · [reference-path-tracer.md](reference-path-tracer.md) §5 (DDGI's entire
-infinite-bounce term, for any probe volume fitted to a room's air — a guard that was load-bearing
-for a second, unwritten reason) · [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) (world
-position, gradually) · [runtime-scene-switching.md](runtime-scene-switching.md) (every script, in
-shipped games only) · [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) (a
-component's teardown, when `m_Registry.destroy()` skips `OnComponentRemoved`) ·
-[vcpkg-dependency-management.md](vcpkg-dependency-management.md) (three of five traps silent —
-including a forced port option that never applied; and trap 9, where moving a dependency to a port
-switched ON an upstream-default option the old header drop never set, which killed ThreadSanitizer
-outright on any hostname resolution) ·
-[asset-import-usd-alembic.md](asset-import-usd-alembic.md) (winding, up-axis, unit scale, UV origin) ·
-[asset-import-openvdb-volumetric.md](asset-import-openvdb-volumetric.md) (a `Texture3D`-shaped fog
-volume rendered as a solid opaque box through every caller of the plain, non-VDB-aware evaluator —
-the default fog path, since `EnableVolumetric` defaults false) ·
-[mcp-protocol-eras.md](mcp-protocol-eras.md) (swapping the event stream's notification carrier drops
-pushes that nothing reports missing — which is why the new carrier runs *beside* the deprecated one,
-not instead of it) ·
-[steamworks-platform-integration.md](steamworks-platform-integration.md) (an SDK path set one level
-too high drops the whole feature — the build succeeds with Steam quietly switched off, and the error
-explaining the correct layout is the one thing that never fires) ·
-[configure-time-variable-visibility.md](configure-time-variable-visibility.md) (a DLL, from the test
-executable — a configure-time guard that could not tell "does not apply here" from "not computed
-yet", so the copy step was never generated and the exe died at gtest discovery with an error naming
-nothing about Steam) ·
-[cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) (a texture, from the
-SECOND load onward — an empty reference in a cache is indistinguishable from a slot that was never
-set, so every step downstream handles it "correctly") ·
-[shared-atlas-allocator.md](shared-atlas-allocator.md) (a plain accounting handle embedded in an
-otherwise-POD-looking struct — `vector::resize()` shrinking, a `= T{}` reset, and the enclosing
-object's own destructor all discard it silently, leaking a process-wide budget claim)
+| Doc | What was dropped |
+|---|---|
+| [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | The neighbour rebuild after a carve, leaving a stale wall. |
+| [component-serializer-codegen.md](component-serializer-codegen.md) | A field, from every save. |
+| [terrain-virtual-texturing.md](terrain-virtual-texturing.md) §4 | An unmapping, once publishing became incremental. |
+| [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) | A settings struct, on entering Play. |
+| [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) §7 | A virtual-shadow page request once the ring filled; the only evidence is slightly-too-soft shadows. |
+| [light-path-photometric-parity.md](light-path-photometric-parity.md) | An authored light parameter, turned into a dead knob. |
+| [reference-path-tracer.md](reference-path-tracer.md) §5 | DDGI's whole infinite-bounce term for any probe volume fitted to a room. |
+| [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | World position, gradually. |
+| [runtime-scene-switching.md](runtime-scene-switching.md) | Every script, in shipped games only. |
+| [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) | A component's teardown, when `m_Registry.destroy()` skips `OnComponentRemoved`. |
+| [vcpkg-dependency-management.md](vcpkg-dependency-management.md) | Three of five traps are silent, including a port option that never applied and one that switched on and killed TSan. |
+| [asset-import-usd-alembic.md](asset-import-usd-alembic.md) | Winding, up-axis, unit scale, UV origin. |
+| [asset-import-openvdb-volumetric.md](asset-import-openvdb-volumetric.md) | A fog volume rendered as a solid box through every non-VDB-aware evaluator. |
+| [mcp-protocol-eras.md](mcp-protocol-eras.md) | Event pushes, when the notification carrier was swapped instead of run beside the old one. |
+| [steamworks-platform-integration.md](steamworks-platform-integration.md) | The whole feature, when the SDK path is one level too high; the build succeeds with Steam off. |
+| [configure-time-variable-visibility.md](configure-time-variable-visibility.md) | A DLL copy step for the test executable, on the first configure only. |
+| [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) | A texture, from the second load onward. |
+| [shared-atlas-allocator.md](shared-atlas-allocator.md) | A budget claim, when `vector::resize()` or a `= T{}` reset discards a non-RAII handle. |
 
-**The counter-move:** ask what the *absence* would look like, and whether anything in the system
-would be different. If the answer is "nothing", you need a coverage test, not a unit test.
+**The counter-move:** ask what the absence would look like. If nothing would differ, you need a
+coverage test, not a unit test.
 
 ## 4. Your instrument is lying to you
 
-The check you're using to verify the fix passes for a correct implementation *and* for a broken one.
-Read before trusting any measurement.
+The check passes for a correct implementation and for a broken one.
 
 | Doc | The instrument that failed |
 |---|---|
-| [live-verification-noise-floor.md](live-verification-noise-floor.md) | the flagship: a self-consistency crop check that a mirrored (wrong) position scored *better* on — and read-tools that answer 200 with a stale frame from an iconified window |
-| [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | the instrument built *to be* the instrument: a GPU counter has no wrong-looking failure, it just returns a plausible number — and a counter that stopped updating is byte-identical to one that is genuinely constant |
-| [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) | a red that recurs every run gets normalised, blinding the whole suite |
-| [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) | a `glXxx(` grep is wrong three different ways; three published counts, none right |
-| [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) | capture targets show the *editor* camera; include-only shader edits don't hot-reload; "the medium got darker" passes for real self-shadowing *and* for every uniform veil — only "darker on the side away from the light" separates them |
-| [timed-wait-test-assertions.md](timed-wait-test-assertions.md) | `duration_cast<milliseconds>` truncates toward zero — the "flaky test" may not be test-side at all |
-| [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md) | a CI comment asserted a safety property nobody had measured; and the issue's own repro had been fixed two months earlier |
-| [reference-path-tracer.md](reference-path-tracer.md) | a golden answers "did it change?", never "is it correct?" |
-| [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | a per-vendor baseline set is the instrument validating itself — and a small cross-vendor RMSE measures portability, never correctness |
-| [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) | every obvious noise metric passes on white noise — only the error image's *frequency spectrum* separates blue from white, so any metric that a NEW and a REPLACED formulation could both pass needs a paired assertion that the replaced one FAILS it |
-| [gpu-debug-draws.md](gpu-debug-draws.md) | read the two-counter overflow protocol before concluding "it drew nothing" |
-| [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) | `LNK1248` reports the offset where the archive crossed 4 GiB, not its size — two readings both looked ~0.5 MB over when the real overshoot was ~1.1 GB |
-| [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §5e | the CI job that said `--config Release` was building no config at all, and grepping for `--parallel` finds four sites of which only one is a runaway — the generator, not the flag, decides |
-| [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | GL has no allocator-teardown assertion, so a clean GL close is not evidence of a clean teardown — the same leak was silent there for the backend's whole life |
-| [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md) | a correct fix, re-derived and re-read four times, that a live rebuild-and-relaunch kept "disproving" — the binary, not the source, was the thing lying |
-| [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §6 | a compiler-cache hit restored the object but not its dependency file, so 699 of 701 objects had no header deps recorded and a header edit rebuilt nothing — every build green, the whole time, and the better the cache worked the more of the tree was frozen |
-| [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) | every CI cache restored, logged a hit and rebuilt everything anyway — a cache has no wrong-looking failure state, it fails by being SLOW, and slow is what everyone already expects CI to be. 0 hits out of 1516 compiles and 3 of 116 packages restored, green the whole time, for at least six days across three independent defects |
+| [live-verification-noise-floor.md](live-verification-noise-floor.md) | A crop check that a mirrored, wrong position scored better on; read tools that answer 200 with a stale frame from an iconified window. |
+| [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | A GPU counter that stopped updating is byte-identical to one that is constant. |
+| [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) | A red that recurs every run gets normalised and blinds the suite. |
+| [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) | A `glXxx(` grep is wrong three different ways. |
+| [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) | Capture targets show the editor camera; include-only shader edits do not hot-reload; "darker" passes for every uniform veil. |
+| [timed-wait-test-assertions.md](timed-wait-test-assertions.md) | `duration_cast<milliseconds>` truncates toward zero. |
+| [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md) | A CI comment asserted a safety property nobody had measured. |
+| [reference-path-tracer.md](reference-path-tracer.md) | A golden answers "did it change", never "is it correct". |
+| [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | A per-vendor baseline validates itself; a small cross-vendor RMSE measures portability, not correctness. |
+| [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) | Every obvious noise metric passes on white noise; only the error spectrum separates blue from white. |
+| [gpu-debug-draws.md](gpu-debug-draws.md) | Read the two-counter overflow protocol before concluding "it drew nothing". |
+| [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) | `LNK1248` reports the offset where the archive crossed 4 GiB, not its size. |
+| [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §5e, §6 | A CI job that said `--config Release` built no config; a cache hit restored objects without dependency files, so header edits rebuilt nothing. |
+| [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | GL has no allocator-teardown assertion, so a clean GL close proves nothing about teardown. |
+| [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md) | A correct fix that a live rebuild kept "disproving"; the binary was stale, not the source. |
+| [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) | A cache has no wrong-looking failure state: it fails by being slow. Every save in the repo had been refused for six days and every run stayed green. |
 
-**The counter-move:** measure the noise floor first, and construct a case the instrument *must*
-fail on before trusting a case it passes.
+**The counter-move:** measure the noise floor first, and construct a case the instrument must fail
+on before trusting a case it passes.
 
 ## 5. Ordering and lifetime
 
 The logic is right; when it runs, or how long it lives, is wrong.
 
-[script-structural-command-safe-point.md](script-structural-command-safe-point.md) (mutating a
-registry mid-iteration) · [visual-script-vm.md](visual-script-vm.md) (a loop node that forgets to
-charge its own iteration hangs the frame; four things a graph must never do inline) · [runtime-scene-switching.md](runtime-scene-switching.md) (five ordering
-rules for a swap that destroys the thing being iterated) ·
-[follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) (input
-before the physics kick, camera last) ·
-[two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) (pass order decides who still sees
-previous-frame depth) ·
-[virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) (clearing the LRU bit one step
-early evicts the whole cache every frame; §8 — a perspective light face cannot be culled by
-projecting AABB corners and dividing by w, and the caster vanishes only when it gets close) ·
-[terrain-virtual-texturing.md](terrain-virtual-texturing.md) (§5 — LRU moves to the front and evicts
-from the tail, so touching a priority-ordered list front-to-back evicts the highest-priority page
-first; §3a — the coarse-to-fine fill must be one dispatch per level, barriers between) · [render-pass-published-state.md](render-pass-published-state.md) (publish
-last, restore deliberately) · [cluster-lod-simplification.md](cluster-lod-simplification.md) (a lock
-that must outlive the level that created it) ·
-[render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) (a read from a pooled
-resource whose lifetime already ended) ·
-[intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) (TOCTOU between a
-decrement and a re-read) ·
-[non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) (a locked
-scope that calls a sibling method which locks the same non-recursive mutex — deterministic, silent,
-and fixed twice in one day because the first fix moved a *caller* instead of unlocking the
-*callee*) · [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md) (promoting a
-per-tick local to persistent state) ·
-[parallelizable-mover-systems.md](parallelizable-mover-systems.md) (splitting a system at its write
-boundary) · [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) (what is *bound*
-when you clear) ·
-[vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) (a CPU write
-between two recorded draws is GL command order; a life-stable Vulkan address makes it
-last-write-wins) · [gpu-scan-compaction.md](gpu-scan-compaction.md) (a `barrier()` only some
-invocations reach — the early-return habit in front of a work-group scan) ·
-[lazy-static-release-ownership.md](lazy-static-release-ownership.md) (a shared lazy static released
-from a *conditional* teardown — fine until a session creates it without running that teardown) ·
-[configure-time-variable-visibility.md](configure-time-variable-visibility.md) (a CMake variable read
-by a subdirectory processed *before* the line that sets it — correct on every configure but the
-first, which is the only one that matters)
+| Doc | The ordering or lifetime rule |
+|---|---|
+| [script-structural-command-safe-point.md](script-structural-command-safe-point.md) | Never mutate the registry mid-iteration. |
+| [visual-script-vm.md](visual-script-vm.md) | A loop node that forgets to charge its own iteration hangs the frame. |
+| [runtime-scene-switching.md](runtime-scene-switching.md) | Five ordering rules for a swap that destroys the thing being iterated. |
+| [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | Input before the physics kick, camera last. |
+| [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) | Pass order decides who still sees previous-frame depth. |
+| [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) | Clearing the LRU bit one step early evicts the whole cache every frame; a perspective face cannot be culled like an ortho level (§8). |
+| [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | Touch a priority-ordered LRU in reverse (§5); coarse-to-fine fill is one dispatch per level with barriers (§3a). |
+| [render-pass-published-state.md](render-pass-published-state.md) | Publish last, restore deliberately. |
+| [cluster-lod-simplification.md](cluster-lod-simplification.md) | A lock must outlive the level that created it. |
+| [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) | A read from a pooled resource whose lifetime already ended. |
+| [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) | TOCTOU between a decrement and a re-read. |
+| [non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) | A locked scope calling a sibling that locks the same non-recursive mutex; unlock the callee, don't move the caller. |
+| [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md) | Promoting a per-tick local to persistent state. |
+| [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | Split a system at its write boundary. |
+| [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) | What is bound when you clear. |
+| [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | A CPU write between two recorded draws is last-write-wins on Vulkan. |
+| [gpu-scan-compaction.md](gpu-scan-compaction.md) | A `barrier()` only some invocations reach. |
+| [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | A shared lazy static released from a conditional teardown. |
+| [configure-time-variable-visibility.md](configure-time-variable-visibility.md) | A CMake variable read by a subdirectory processed before the line that sets it. |
 
 ## 6. It was never actually called
 
-Code that exists, is well-tested, and has no production caller — or has more callers than the
-obvious grep suggests.
+Code that exists, is tested, and has no production caller, or has more callers than the grep shows.
 
-- [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md) — ~20
-  well-tested networking classes produced nothing, because the drive function had zero call sites
-  and a comment claimed a wiring that didn't exist. **Grep for callers of the entry point, not for
-  tests.**
-- [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) — `AddAgent` /
-  `SetAgentTarget` had zero production callers for as long as they existed.
-- [audio-voice-budget.md](audio-voice-budget.md) — the inverse: sounds start from **six** call
-  sites, not the two a grep suggests, so the budget had to move inside `Play()`.
-- [substituted-seams-compound.md](substituted-seams-compound.md) — the deferred AND forward decal
-  paths both drew zero fragments for as long as they had existed (`cullFace = Front` keeps the
-  projection box's back faces; `depthFunction = LessOrEqual` rejects them). **A feature with no scene
-  has no coverage, whatever the suite says** — `TEST_SCENES.md` had no decal entry, and the tenant
-  substituted a quad for the cube, so the cull/depth pairing was untested everywhere at once.
-- [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) §7 — the *game* scene still did not
-  set `TessellationEnabled`, so the island the player sails at was not on the GPU LOD quadtree at
-  all, two issues after the test scene that exists to set it. `UseImpostor` was worse: **no**
-  shipped scene had ever set it. **If a feature's flag appears only in the test written with it,
-  it has test coverage and no product coverage.**
-- [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) §2 — the inverse shape: a
-  trigger that was load-bearing for something that is not the build. GitHub scopes a cache
-  entry to the ref that wrote it, so only DEFAULT-BRANCH runs produce an entry other branches
-  can read — all 15 active entries here were `refs/heads/master`. Dropping `push: master` as a
-  redundant second opinion on already-tested code would have deleted the only cache writer in
-  the system. **Before removing a trigger, ask what else that trigger was doing.**
-- [render-pass-published-state.md](render-pass-published-state.md) — `MeshComponent { Primitive: 0 }`
-  is `None`: an entity that silently never renders.
-- [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) §5 — a render-graph pass's
-  `Setup()` runs only when the frame graph is *rebuilt*, and the rebuild fingerprint does not
-  include your feature's on/off setting. A `Setup()` that early-returns while the feature is off
-  freezes that decision in: the pass keeps executing and keeps doing nothing. **The tell is that the
-  feature works when it is enabled before the first frame and not when it is toggled on later.**
-
----
-
-## Subsystem notes (`notes-*.md`)
-
-A second, distinct family: **accumulated reference gotchas per subsystem**, rather than a postmortem
-of one failure. Skim the relevant one before working in that area — each is a numbered list of
-"this will bite you" facts.
-
-- [notes-renderer.md](notes-renderer.md) — offline capture, the GL wrappers, shader bindings, SSAO/SSR/FSR1, IBL bakes, GPU timers.
-- [notes-mcp-tool-authoring.md](notes-mcp-tool-authoring.md) — the three-part tool split, schemas, consent/undo, frame capture, what the live frame can honestly answer.
-- [notes-core-and-threading.md](notes-core-and-threading.md) — yaml-cpp non-finite decode, `Ref<T>` constness, the task system, lock-free allocator testing, C++ traps.
-- [notes-gameplay-physics-nav.md](notes-gameplay-physics-nav.md) — the two Jolt systems, joint/ragdoll wiring, Detour partial paths, dialogue guards, terrain/foliage.
-- [notes-audio-animation-sim.md](notes-audio-animation-sim.md) — pose sampling by name, retargeting, morph targets, the fixed-timestep split, SoundGraph parameters and spatialization.
-- [notes-editor-and-assets.md](notes-editor-and-assets.md) — Content Browser refresh, filewatch import, asset placeholders, texture cook, platform utils.
-
-> These were salvaged in one pass from 229 memory files stranded across 143 deleted worktrees. See
-> `docs/process/task-loop.md` Phase 7 for the rule that stops it recurring.
-
----
-
-## Full roster
-
-Everything above, plus the docs that are pure reference rather than postmortem.
-
-**Standards** — [cpp-coding-quality.md](cpp-coding-quality.md) ·
-[glsl-shaders.md](glsl-shaders.md) · [sonarqube-review-alignment.md](sonarqube-review-alignment.md)
-
-**Testing** — [testing-architecture.md](testing-architecture.md) ·
-[reference-path-tracer.md](reference-path-tracer.md) ·
-[vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) ·
-[single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md) ·
-[live-verification-noise-floor.md](live-verification-noise-floor.md) ·
-[procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) ·
-[timed-wait-test-assertions.md](timed-wait-test-assertions.md) ·
-[shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md)
-
-**Build & deps** — [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) ·
-[static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) ·
-[configure-time-variable-visibility.md](configure-time-variable-visibility.md) ·
-[vcpkg-dependency-management.md](vcpkg-dependency-management.md) ·
-[asset-import-usd-alembic.md](asset-import-usd-alembic.md) ·
-[incremental-build-odr-staleness.md](incremental-build-odr-staleness.md)
-
-**Renderer** — [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) ·
-[ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) ·
-[baked-lightmap-pipeline.md](baked-lightmap-pipeline.md) ·
-[vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) ·
-[gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) ·
-[lazy-static-release-ownership.md](lazy-static-release-ownership.md) ·
-[gpu-debug-draws.md](gpu-debug-draws.md) ·
-[observer-camera.md](observer-camera.md) ·
-[gpu-scan-compaction.md](gpu-scan-compaction.md) ·
-[variable-rate-compute-shading.md](variable-rate-compute-shading.md) ·
-[gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) ·
-[gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) ·
-[render-pass-published-state.md](render-pass-published-state.md) ·
-[render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) ·
-[render-pipeline-caches.md](render-pipeline-caches.md) ·
-[two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) ·
-[virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) ·
-[cluster-lod-simplification.md](cluster-lod-simplification.md) ·
-[pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) ·
-[terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md) ·
-[terrain-virtual-texturing.md](terrain-virtual-texturing.md) ·
-[terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) ·
-[camera-relative-rendering.md](camera-relative-rendering.md) ·
-[distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md) ·
-[foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) ·
-[light-path-photometric-parity.md](light-path-photometric-parity.md) ·
-[volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) ·
-[water-shading-nyquist.md](water-shading-nyquist.md) ·
-[persistent-world-space-fields.md](persistent-world-space-fields.md) ·
-[cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md) ·
-[pbf-solver-stability.md](pbf-solver-stability.md)
-
-**Scene, ECS & serialization** — [component-serializer-codegen.md](component-serializer-codegen.md) ·
-[scene-binary-sidecar.md](scene-binary-sidecar.md) ·
-[binary-format-versioning.md](binary-format-versioning.md) ·
-[cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) ·
-[scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) ·
-[floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) ·
-[asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md)
-
-**Gameplay, physics & simulation** — [force-model-vehicles.md](force-model-vehicles.md) ·
-[jolt-softbody-kinematic-attachment.md](jolt-softbody-kinematic-attachment.md) ·
-[follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) ·
-[crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) ·
-[parallelizable-mover-systems.md](parallelizable-mover-systems.md) ·
-[terrain-collision-streaming-sculpt.md](terrain-collision-streaming-sculpt.md) ·
-[procedural-skinned-mesh-primitives.md](procedural-skinned-mesh-primitives.md) ·
-[audio-voice-budget.md](audio-voice-budget.md) ·
-[destructible-debris.md](destructible-debris.md)
-
-**Scripting, networking & tooling** —
-[script-structural-command-safe-point.md](script-structural-command-safe-point.md) ·
-[visual-script-vm.md](visual-script-vm.md) ·
-[runtime-scene-switching.md](runtime-scene-switching.md) ·
-[server-authoritative-networking-loop.md](server-authoritative-networking-loop.md) ·
-[mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md) ·
-[mcp-protocol-eras.md](mcp-protocol-eras.md) ·
-[steamworks-platform-integration.md](steamworks-platform-integration.md)
-
-**Build & CI** — [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) ·
-[build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) ·
-[static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) ·
-[vcpkg-dependency-management.md](vcpkg-dependency-management.md) ·
-[configure-time-variable-visibility.md](configure-time-variable-visibility.md) ·
-[incremental-build-odr-staleness.md](incremental-build-odr-staleness.md)
-
-**Concurrency & memory** —
-[intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) ·
-[non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) ·
-[spinlock-payload-cache-line-separation.md](spinlock-payload-cache-line-separation.md) ·
-[per-frame-scratch-reuse.md](per-frame-scratch-reuse.md)
+| Doc | The finding |
+|---|---|
+| [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md) | Twenty tested networking classes produced nothing because the drive function had zero call sites. Grep for callers of the entry point, not for tests. |
+| [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) | `AddAgent` / `SetAgentTarget` had zero production callers. |
+| [audio-voice-budget.md](audio-voice-budget.md) | Sounds start from six call sites, not the two a grep suggests. |
+| [substituted-seams-compound.md](substituted-seams-compound.md) | Both decal paths drew zero fragments for as long as they existed; a feature with no scene has no coverage. |
+| [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) §7 | The game scene never set `TessellationEnabled`, and no shipped scene ever set `UseImpostor`. A flag that appears only in its own test has no product coverage. |
+| [render-pass-published-state.md](render-pass-published-state.md) | `MeshComponent { Primitive: 0 }` is `None`: an entity that never renders. |
+| [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) §5 | A `Setup()` that early-returns while a feature is off freezes that decision into the frame-graph fingerprint. |
 
 ---
 
 ## Adding a doc here
 
-The corpus grows roughly ten files a month, so consistency matters more than completeness.
+The corpus grows about ten files a month, so style and size matter more than completeness.
 
-1. **Write it when the bug is fixed, not later.** The value is in the wrong hypotheses you held on
-   the way, and those evaporate within a day.
-2. **Title it as the rule, not the topic** — "Drive a pinned vertex by velocity, not position", not
-   "Cloth attachment notes". The title is what makes it findable in the Companion-guides list.
-3. **Lead with what stayed green.** If the failure was caught by a test, it probably doesn't need a
-   doc — the test is the artifact. These files exist for the failures tests *couldn't* see.
-4. **Cite the issue number.** 45 of 46 existing docs do.
-5. **Add two links**: one line in `CLAUDE.md` → *Companion guides* under its subsystem, and a row in
-   whichever archetype above it belongs to. An unlinked doc is an unread doc — five files sat
-   orphaned here before this index existed.
-6. **Keep it under ~10 KB.** Past that it stops being read; split it or push the history into an
-   appendix at the end.
+1. **Write it when the bug is fixed.** The wrong hypotheses you held evaporate within a day.
+2. **Title it as the rule.** "Drive a pinned vertex by velocity, not position", not "Cloth notes".
+3. **Rule first, story second.** The first sentence says what to do; the failure follows.
+   No metaphor where a literal phrase exists.
+4. **Lead with what stayed green.** A failure a test caught usually needs no doc; these files exist
+   for the failures tests could not see.
+5. **Cite the issue number.**
+6. **Add two links, both in this file:** one sentence in Part A under its subsystem, and one row in
+   the Part B archetype it belongs to. Nothing goes into `CLAUDE.md`.
+7. **Keep it under about 10 KB.** Past that it stops being read; split it or move history to an
+   appendix.

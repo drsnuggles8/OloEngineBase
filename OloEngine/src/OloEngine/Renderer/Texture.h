@@ -161,6 +161,24 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] virtual u32 GetMipLevelCount() const = 0;
 
+        // Rebuild mips 1..N from level 0 (issue #716).
+        //
+        // SetData and the mip-aware path in SubImage do this implicitly, so before
+        // GPU-resident terrain authoring existed there was no producer that needed
+        // to ask. A compute kernel writing level 0 through imageStore, or a
+        // GPU-to-GPU region copy, is exactly such a producer: it leaves the coarse
+        // levels holding pre-edit content, and NOTHING reports an error.
+        //
+        // That is not a cosmetic concern for the terrain heightmap. The tessellation
+        // stage picks a mip from the triangle footprint and reads the height that
+        // POSITIONS the vertex (include/TerrainHeightSampling.glsl), so a stale
+        // chain means distant terrain keeps its old shape and snaps to the new one
+        // as the camera closes — correct everywhere the artist is looking, wrong
+        // everywhere they are not.
+        //
+        // No-op when the texture has a single level.
+        virtual void RegenerateMips() = 0;
+
         // Recreate the texture with new dimensions (same spec otherwise).
         // Needed because glTextureStorage2D allocates immutable storage.
         virtual void Resize(u32 width, u32 height) = 0;

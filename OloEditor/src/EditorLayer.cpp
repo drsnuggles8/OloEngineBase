@@ -1565,6 +1565,15 @@ namespace OloEngine
             }
         }
 
+        // Outside the !skipRender block and never gated at the call site: the terrain
+        // panel's continuous-erosion session is driven from the panel's own widgets,
+        // so it must keep stepping while the cursor is over the panel rather than the
+        // viewport, and it must keep ticking on a THROTTLED frame. The permission is
+        // passed as an argument instead of wrapping this call, because a session that
+        // is no longer allowed to run still has to SETTLE — pushing its undo entry and
+        // releasing the terrain it holds. Skipping the call would strand it.
+        m_TerrainEditorPanel.OnFrameTick(m_ShowTerrainEditor && m_SceneState == SceneState::Edit);
+
         if (!skipRender)
         {
             auto [mx, my] = ImGui::GetMousePos();

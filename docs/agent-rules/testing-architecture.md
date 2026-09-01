@@ -216,3 +216,24 @@ The harder problem: vertex/fragment/etc. stages compile under `shaderc_target_en
 | CI workflows | `.github/workflows/{cross-vendor,fuzz}.yml` |
 
 If you are editing any of these, the pre-commit hook will revalidate.
+
+## 8. Screenshot and scene-load tests run in the normal suite (issue #258)
+
+**Rule:** a new screenshot test calls `EnableRendering(w, h)` on the `RendererAttachedTest` fixture
+and renders through `RunFrames` (runtime primary camera) or `RunEditorFrames` (an explicitly posed
+`EditorCamera`, for multi-angle shots). It skips cleanly when no GL 4.6 context exists. Never use
+`DISABLED_`.
+
+`SetRenderingEnabled(false)` is the fixture's opt-out default, not a hard limit. Both helpers wrap
+the full-pipeline tick in a `GLStateGuard(Restore)`, so a render no longer poisons later GPU tests,
+and a process-wide `Renderer::Shutdown()` after `RUN_ALL_TESTS()` removed the old teardown crash.
+`SceneRenderEvidenceTest` (lit cube) and `WaterVisualEvidenceTest` (six angles, golden PNG plus
+driver-independent contracts) gate every GPU-equipped run and skip on headless CI.
+
+`AssetSceneLoadTest` loads every sandbox scene through `SceneSerializer::Deserialize` with the
+editor asset manager mounted, the full File → Open Scene path. It needs the same live context,
+because the deserializer eagerly builds GPU resources (`MeshSource::Build`, `Texture2D::Create`,
+`Font::Create`, shader-graph compiles). Its earlier `DISABLED_` diagnosis blamed a deserializer
+refactor; that was wrong. The one real bug it found: `ScriptEngine::GetEntityClass` dereferenced a
+null `s_Data` when the C# engine was not initialised, so a scene with a `ScriptComponent` crashed
+deserialise. It is now null-guarded and such scenes load with scripting off.

@@ -11,11 +11,12 @@ an unlisted doc is an unread doc.
 Two genres: **postmortems** (one real failure each) and the **`notes-*.md` reference guides**
 (accumulated per-subsystem gotchas). Two indexes, deliberately:
 
-- **[agent-rules/README.md](agent-rules/README.md)** — indexed by **failure mode** (green-but-wrong,
-  one-contract-several-mirrors, silent drop, your-instrument-is-lying, ordering/lifetime,
-  never-actually-called). Use this when you know what you're *doing* but not what can go wrong.
-- **`CLAUDE.md` → Companion guides** — the same set indexed by **subsystem**, one line each. Use
-  this when you know what you're *touching*.
+- **[agent-rules/README.md](agent-rules/README.md) Part A** — indexed by **subsystem**, one sentence
+  each. Use this when you know what you're *touching*.
+- **[agent-rules/README.md](agent-rules/README.md) Part B** — the same set indexed by **failure
+  mode** (green-but-wrong, one-contract-several-mirrors, silent drop, your-instrument-is-lying,
+  ordering/lifetime, never-actually-called). Use this when you know what you're *doing* but not
+  what can go wrong.
 
 Read the relevant file before non-trivial work; don't duplicate its content into `CLAUDE.md`.
 

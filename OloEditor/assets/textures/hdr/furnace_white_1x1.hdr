@@ -1,0 +1,6 @@
+#?RADIANCE
+# 1x1 uniform white (radiance 1.0) furnace-test environment, generated for issue 974
+FORMAT=32-bit_rle_rgbe
+
+-Y 1 +X 1
+€€€

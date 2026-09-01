@@ -1,0 +1,69 @@
+# Material laboratory WHITE FURNACE — Product GOLDEN capture (issue #974).
+# Schema: docs/guides/renderer-benchmarks.md "Capture manifest schema (v1)".
+#
+# The energy-conservation probe: pure-white-albedo sweep grid inside a uniform
+# white HDRI, no sun, no ground. In the SceneColorHDR attachment an
+# energy-conserving material is indistinguishable from the background; a
+# sphere darker than the sky is losing energy, brighter is gaining it.
+# Manual exposure 1.0 — auto exposure would meter the furnace to grey and
+# destroy the reading.
+ManifestVersion: 1
+Id: material-lab-furnace-golden
+Product: golden
+Scene: Scenes/Benchmark/MaterialLabFurnace.olo
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+# Same pose as the scene's Primary camera (Translation [0, 9, 16],
+# Rotation.x -0.55 rad). PitchDegrees positive-down (EditorCamera::SetPose).
+Camera:
+  Id: golden
+  Position: [0.0, 9.0, 16.0]
+  YawDegrees: 0.0
+  PitchDegrees: 31.5
+  FovDegrees: 45.0
+  Near: 0.05
+  Far: 300.0
+
+Output:
+  Resolution: [1280, 720]
+  RenderScale: 1.0
+
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: false
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 974
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 32
+  PerFeature:
+    TAA: 8
+    IBL: 16
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+
+Tolerance:
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: assets/textures/hdr/furnace_white_1x1.hdr
+    Origin: generated in-repo (uniform white 1x1 Radiance HDR, issue #974)
+    License: CC0-1.0

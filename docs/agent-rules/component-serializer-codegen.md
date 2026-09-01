@@ -277,3 +277,57 @@ Kept because it is the evidence for the diff-the-`.inl` rule: every slice flippe
   `Reject` path also writes through.
 - [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §1b — how the codegen is wired
   into the build graph, and how to force a regeneration.
+
+## 7. Every generated touch-point, its exclusion set, and what stays hand-maintained
+
+OloHeaderTool ([tools/OloHeaderTool/](../../tools/OloHeaderTool/)) scans `OloEngine/src/` for every
+`struct *Component` definition and emits six artefacts. Five have an exclusion set in
+`tools/OloHeaderTool/main.cpp`; the sets are deliberately different and each is mirrored by a
+coverage test that must be kept in sync.
+
+| Artefact | Lands in | Exclusion set | Coverage test |
+|---|---|---|---|
+| `AllComponents` tuple (scene copy, prefab, `HasComponent<T>()`) | `Scene/Generated/AllComponents.Generated.inl`, included at the bottom of `Scene/Components.h` | `kComponentsNotInTuple`: runtime-only `IDComponent`/`TagComponent`, per-tick `*StateComponent` / `UIResolvedRectComponent` | `ComponentTupleCoverageTest` (`kNotInTuple`) |
+| `OnComponentAdded<T>` / `OnComponentRemoved<T>` no-ops | `Scene/Generated/OnComponent{Added,Removed}.Generated.inl`, included by `Scene.cpp` | `kComponentsCustomOnAdd` / `kComponentsCustomOnRemove`: components with a real hand-written body. The two sets differ (`CameraComponent` does work on add only; `Rigidbody2DComponent` on remove only). `Skeleton` is not a `*Component` and stays hand-written. | `ComponentHandlerCoverageTest` |
+| Scene YAML serialize/deserialize blocks | `Scene/Generated/Scene{Serialize,Deserialize}Components.Generated.inl`, included by `SceneSerializer.cpp` | `kComponentsCustomSerialize`: hand-written blocks (§4). A non-trivial or non-public member skips the component automatically with no exclusion. | `ComponentSerializerCoverageTest` |
+| Save-game capture/restore lists | `SaveGame/Generated/SaveGameComponent{Capture,Restore}.Generated.inl`, included by `SaveGameSerializer.cpp` | `kComponentsNotInSaveGame`: everything without a `Serialize` overload. Keeps `IDComponent`/`TagComponent`, drops the per-tick components plus `AudioSoundGraphComponent` / `LocalizedTextComponent`. | `SaveGameComponentSerializerCoverageTest` |
+| Editor MCP writable-field registry (issue #607) | `OloEditor/src/MCP/Generated/McpFieldRegistry.Generated.inl`, included by `McpGenericFieldWrite.h` | `kComponentsNotMcpEditable`: the `*StateComponent` family, `AnimationStateComponent`, `UIResolvedRectComponent`, `WorldTransformComponent`, `IDComponent`. One entry per public JSON-coercible member; `OLO_SERIALIZE(Clamp)` and the `kMcpFieldClamps` table make writes clamp like a scene load. | `McpFieldRegistryTest` |
+| C++ / C# scripting glue | `Scripting/C#/Generated/`, `OloEngine-ScriptCore/src/OloEngine/` | none; driven by `OLO_PROPERTY` annotations, not the struct scan | |
+
+Failure modes are loud on purpose. A component in a custom-handler set without a body is a link
+error; a body without the set entry is a duplicate definition; a serializer double-emit fails the
+coverage test. The one silent case is a component persisted some way other than a sub-map
+(`IDComponent`), which is why a classifier widening must be followed by a rebuild of
+`GenerateBindings` and a diff of the generated `.inl`.
+
+**Still hand-maintained, and not guarded by any test:**
+
+- The save-game `Serialize` overload in `SaveGame/SaveGameComponentSerializer.{h,cpp}` and its
+  `RegisterAll` registration. Without them the component is dropped from every save-game while
+  round-tripping through scene YAML perfectly.
+- `Scripting/Lua/LuaScriptGlue.cpp::RegisterAllTypes()`. Many components are legitimately not
+  Lua-exposed, so only per-component functional round-trips exist (`tests/Lua/LuaBindingTest.cpp`).
+- The editor's two per-component lists in `OloEditor/src/Panels/SceneHierarchyPanel.cpp`:
+  `DrawComponent<T>` for the inspector and `DisplayAddComponentEntry<T>` for the Add Component menu
+  (`TransformComponent` is inspectable but not addable). A missing entry is invisible in the editor
+  and nothing else; it has gone unnoticed for several PRs.
+- A component that hand-writes its copy constructor, copy-assignment and `operator==` because it
+  holds `Ref<T>` runtime state (`TerrainComponent` and the others in that shape). Those three are
+  per-field lists, so a new **field** trips them, not a new component. Missing from the copy path:
+  `Scene::Copy` runs on every Play entry and the authored value reverts to its default. Missing from
+  `operator==`: the inspector records no change and undo cannot revert it. Caught in review on #715
+  after eleven fields had been missing across two shipped PRs. Guard it the way
+  `ComponentRoundTripTest`'s `TerrainVirtualTextureFieldsSurviveSceneCopy` and
+  `…AreVisibleToUndoEquality` do: a `Scene::Copy` round-trip plus one mutation per field.
+
+**Two traps around the scan itself.**
+
+- Any struct whose name ends in `Component` is swept in, ECS or not. A helper record named that way
+  fails the build in unrelated TUs with `C2065: undeclared identifier` and a `C3544` pack error.
+  Give registry records and DTOs another suffix, then rebuild `GenerateBindings`.
+- The coverage tests parse generated files as text (for example `CollectTupleMembers` reads the
+  `AllComponents = ComponentGroup<…>` marker). When a touch-point moves from hand-written code into
+  a generated file, repoint the test's parser or it fails on an empty parse.
+
+Build-graph wiring, the depfile gate and how to force a regeneration: §1b of
+[build-trees-and-windows-asan.md](build-trees-and-windows-asan.md).

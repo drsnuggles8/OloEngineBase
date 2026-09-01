@@ -30,22 +30,17 @@ namespace OloEngine
         f32 normX = worldPos.x / worldSizeX;
         f32 normZ = worldPos.z / worldSizeZ;
 
-        // Convert radius to texel space
-        f32 radiusTexelsX = (settings.Radius / worldSizeX) * static_cast<f32>(res);
-        f32 radiusTexelsZ = (settings.Radius / worldSizeZ) * static_cast<f32>(res);
-        f32 radiusTexels = std::max(radiusTexelsX, radiusTexelsZ);
-
-        // Compute pixel bounds
-        f32 centerPixelX = normX * static_cast<f32>(res - 1);
-        f32 centerPixelZ = normZ * static_cast<f32>(res - 1);
-
-        i32 minX = std::max(0, static_cast<i32>(centerPixelX - radiusTexels));
-        i32 maxX = std::min(static_cast<i32>(res - 1), static_cast<i32>(centerPixelX + radiusTexels));
-        i32 minZ = std::max(0, static_cast<i32>(centerPixelZ - radiusTexels));
-        i32 maxZ = std::min(static_cast<i32>(res - 1), static_cast<i32>(centerPixelZ + radiusTexels));
-
-        if (minX > maxX || minZ > maxZ)
+        // Shared with TerrainGPUBrush (issue #716) so the two implementations
+        // cannot drift on which texels a stroke covers.
+        const auto rect = TerrainBrushUtils::ComputeBrushRect(res, normX, normZ, settings.Radius,
+                                                              worldSizeX, worldSizeZ);
+        if (rect.Empty())
             return dirty;
+
+        const i32 minX = static_cast<i32>(rect.X);
+        const i32 maxX = static_cast<i32>(rect.X + rect.Width) - 1;
+        const i32 minZ = static_cast<i32>(rect.Y);
+        const i32 maxZ = static_cast<i32>(rect.Y + rect.Height) - 1;
 
         // Pre-compute target height for Flatten/Level tools
         f32 targetHeight = 0.0f;
@@ -146,10 +141,10 @@ namespace OloEngine
         if (!changed)
             return dirty;
 
-        dirty.X = static_cast<u32>(minX);
-        dirty.Y = static_cast<u32>(minZ);
-        dirty.Width = static_cast<u32>(maxX - minX + 1);
-        dirty.Height = static_cast<u32>(maxZ - minZ + 1);
+        dirty.X = rect.X;
+        dirty.Y = rect.Y;
+        dirty.Width = rect.Width;
+        dirty.Height = rect.Height;
         return dirty;
     }
 

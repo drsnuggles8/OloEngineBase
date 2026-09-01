@@ -1,0 +1,93 @@
+# Material laboratory — Product DIAGNOSTIC capture: AUTO-EXPOSURE convergence
+# (issue #974). Schema: docs/guides/renderer-benchmarks.md
+# "Capture manifest schema (v1)".
+#
+# Same scene and pose as material-lab-golden, but Exposure.Mode Auto: the
+# histogram-metering adaptation loop drives the exposure multiplier, and the
+# warm-up must cover its convergence. The capture is only deterministic
+# because this branch converts the auto-exposure adaptation dt from
+# std::chrono::steady_clock to the mocked Time::GetTime() (see the
+# determinism contract in the guide) — with a stepped mock clock the
+# adaptation integrates identical dt every frame, every run.
+ManifestVersion: 1
+Id: material-lab-exposure
+Product: diagnostic
+Scene: Scenes/Benchmark/MaterialLab.olo
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+Camera:
+  Id: golden
+  Position: [0.0, 9.0, 16.0]
+  YawDegrees: 0.0
+  PitchDegrees: 31.5
+  FovDegrees: 45.0
+  Near: 0.05
+  Far: 300.0
+
+Output:
+  Resolution: [1280, 720]
+  RenderScale: 1.0
+
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: false
+
+Exposure:
+  Mode: Auto
+  # Exposure value is the adaptation's job in Auto mode; no manual value.
+
+Determinism:
+  Seed: 974
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 64
+  PerFeature:
+    TAA: 8
+    IBL: 16
+    Exposure: 64   # histogram-metering adaptation settle at 60 Hz mock dt
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+
+Tolerance:
+  # MEASURED 2026-09-01 (RTX 4090, Debug): two fresh runs produced
+  # byte-identical files — the adaptation dt is mock-clock-driven on this
+  # branch, so both runs integrate identical exposure histories. 0.0 is a
+  # measurement, and it is the acceptance evidence for "auto-exposure
+  # convergence is deterministic".
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: assets/textures/hdr/newport_loft.hdr
+    Origin: LearnOpenGL PBR/IBL sample HDRI (Newport Loft)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/rusted_iron/albedo.png
+    Origin: LearnOpenGL PBR sample texture set (rusted iron)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/rusted_iron/normal.png
+    Origin: LearnOpenGL PBR sample texture set (rusted iron)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/wall/albedo.png
+    Origin: LearnOpenGL PBR sample texture set (wall)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/wall/normal.png
+    Origin: LearnOpenGL PBR sample texture set (wall)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/gold/albedo.png
+    Origin: LearnOpenGL PBR sample texture set (gold)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/gold/normal.png
+    Origin: LearnOpenGL PBR sample texture set (gold)
+    License: unverified — no license file in-repo

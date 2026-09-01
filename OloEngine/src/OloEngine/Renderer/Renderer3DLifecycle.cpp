@@ -18,6 +18,7 @@
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
 #include "OloEngine/Renderer/CloudNoise.h"
 #include "OloEngine/Renderer/CloudShadowMap.h"
@@ -542,9 +543,14 @@ namespace OloEngine
                                   s_Data.Precipitation.MaxParticlesFarField);
         ScreenSpacePrecipitation::Init();
 
-        // Initialize fog temporal state
+        // Initialize the mockable per-frame dt trackers (see
+        // RenderPipeline.cpp's SampleMockableDt). Seeded from the CURRENT
+        // clock — the mock when one is already installed — so the first
+        // frame's dt is 0 rather than a wall-clock-dependent clamp.
         s_Data.FogFrameIndex = 0;
-        s_Data.FogLastTime = std::chrono::steady_clock::now();
+        s_Data.FogPrevTimeSeconds = Time::GetTime();
+        s_Data.AutoExposurePrevTimeSeconds = Time::GetTime();
+        s_Data.WindPrevTimeSeconds = Time::GetTime();
         s_Data.FogTime = 0.0f;
 
         // Initialize Forward+ light culling system
@@ -674,9 +680,11 @@ namespace OloEngine
         // Clear any pending GPU resource commands
         GPUResourceQueue::Clear();
 
-        // Reset fog temporal state
+        // Reset the mockable per-frame dt trackers + fog temporal state
         s_Data.FogFrameIndex = 0;
-        s_Data.FogLastTime = {};
+        s_Data.FogPrevTimeSeconds = 0.0f;
+        s_Data.AutoExposurePrevTimeSeconds = 0.0f;
+        s_Data.WindPrevTimeSeconds = 0.0f;
         s_Data.FogTime = 0.0f;
 
         // Reset cloudscape state + wind-advection accumulators (issue #633)

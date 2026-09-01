@@ -766,3 +766,21 @@ Three things follow:
   frame, because none of them was the cause.
 
 Found on #882 (Drift's per-leg weather).
+
+## A scene's serialized settings blocks do NOT reach the renderer through `SceneSerializer::Deserialize` alone
+
+`PostProcessSettings` / `FogSettings` / `WindSettings` / `Snow*` / `PrecipitationSettings`
+deserialize into members **on the `Scene`**; the copy into `Renderer3D`'s process-globals
+is a separate step that only the editor's scene-open finalizer performs
+(`EditorLayer`: seven `Renderer3D::GetXxxSettings() = newScene->GetXxxSettings()`
+assignments, then quality tiering, then `ApplyRendererSettingsToGraph()`). Anything that
+loads a scene and drives frames *outside* that path — a headless capture, a test that
+deserializes into a fixture scene — must mirror those copies itself, or the scene's
+SSAO / volumetric-fog / wind authoring silently never reaches the GPU. The failure is
+shaped exactly like a missing feature: the frame renders fine, the AO / fog render-graph
+resources are simply never declared, and a capture of `AOBuffer` or `FogColor` reports
+"unknown render-graph resource". Snapshot-and-restore whatever you copy — these are
+process globals, and the next GPU test in the same run inherits them otherwise.
+
+Found on #974 (the benchmark capture entry point; AOBuffer, then FogColor, each failed
+this way once).

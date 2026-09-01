@@ -78,8 +78,28 @@ namespace OloEngine
         {
             return m_SplatmapResolution;
         }
+        // Both accessors sync the CPU mirror from the GPU first if the GPU paint
+        // brush has moved ahead of it (issue #716) — the splatmap twin of
+        // TerrainData's height sync point. Consumers that read this without a
+        // sync (foliage density masks, the auto-material evidence test, save) saw
+        // a pre-stroke splatmap and had no way to tell.
         [[nodiscard]] std::vector<u8>& GetSplatmapData(u32 index);
         [[nodiscard]] const std::vector<u8>& GetSplatmapData(u32 index) const;
+
+        // Declare the GPU splatmaps newer than the CPU mirror. Called by
+        // TerrainGPUBrush::ApplyPaint; the next CPU consumer pays for one readback.
+        void MarkSplatmapsGPUModified()
+        {
+            m_CPUSplatmapsStale = true;
+        }
+
+        // The one splatmap readback left on the authoring path.
+        void SyncSplatmapsFromGPU() const;
+
+        [[nodiscard]] bool AreCPUSplatmapsStale() const
+        {
+            return m_CPUSplatmapsStale;
+        }
         void UploadSplatmapRegion(u32 splatmapIndex, u32 x, u32 y, u32 w, u32 h);
         [[nodiscard]] bool HasCPUSplatmaps() const
         {
@@ -105,8 +125,11 @@ namespace OloEngine
 
         u32 m_LayerResolution = 512; // Resolution of each layer in the texture arrays
 
-        // CPU-side splatmap pixel buffers (RGBA8, row-major)
-        std::array<std::vector<u8>, 2> m_CPUSplatmaps;
+        // CPU-side splatmap pixel buffers (RGBA8, row-major). A MIRROR of the GPU
+        // splatmaps while painting; mutable so SyncSplatmapsFromGPU() can refresh
+        // it from the const read accessor.
+        mutable std::array<std::vector<u8>, 2> m_CPUSplatmaps;
+        mutable bool m_CPUSplatmapsStale = false;
         u32 m_SplatmapResolution = 0;
     };
 

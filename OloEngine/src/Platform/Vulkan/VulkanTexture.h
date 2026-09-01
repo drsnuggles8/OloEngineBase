@@ -88,6 +88,7 @@ namespace OloEngine
         // recorded through VulkanImageInfoRegistry::SetInitialLayout.
         void SetData(void* data, u32 size) override;
         void SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize) override;
+        void RegenerateMips() override;
         void Invalidate(std::string_view path, u32 width, u32 height, const void* data, u32 channels) override;
         // Forwards to the facade's BindTexture, so ShaderResourceRegistry-
         // routed binds resolve on this backend too (they were silently dropped

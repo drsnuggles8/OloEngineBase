@@ -33,11 +33,27 @@ namespace OloEngine
         TerrainErosion();
 
         // Run one iteration of hydraulic erosion on the given terrain.
-        // After dispatch, reads back the GPU heightmap to the CPU buffer unless skipReadback is true.
-        void Apply(TerrainData& terrainData, const ErosionSettings& settings, bool skipReadback = false);
+        //
+        // Dispatch only — NOTHING is read back (issue #716). The former
+        // per-iteration full-heightmap GetData was a GPU->CPU sync in the middle
+        // of an interactive operation, which is what made dragging the iteration
+        // slider unusable: the cost was one whole-map stall per iteration, not one
+        // per settle. The dispatch marks the CPU mirror stale instead
+        // (TerrainData::MarkGPUModified) and the next CPU consumer triggers the
+        // single readback in TerrainData::SyncFromGPU.
+        void Apply(TerrainData& terrainData, const ErosionSettings& settings);
 
-        // Run multiple iterations (convenience wrapper)
+        // Run multiple iterations (convenience wrapper). Also readback-free, so
+        // N iterations cost N dispatches and at most one later sync, rather than N
+        // stalls — the difference between watching erosion converge and waiting
+        // for it.
         void ApplyIterations(TerrainData& terrainData, const ErosionSettings& settings, u32 iterations);
+
+        // Rebuild the heightmap's mip chain after a batch of iterations. Public so
+        // a caller driving Apply() directly (one iteration per frame, as the
+        // editor's continuous mode does) can refresh once when it stops rather than
+        // once per dispatch.
+        static void RegenerateHeightMips(TerrainData& terrainData);
 
         [[nodiscard]] bool IsReady() const;
 

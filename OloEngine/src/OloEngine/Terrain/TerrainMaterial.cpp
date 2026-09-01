@@ -265,6 +265,9 @@ namespace OloEngine
         }
 
         m_SplatmapResolution = resolution;
+        // Initialisation loads the mirror and the GPU textures together, so any
+        // pending GPU-newer flag from a previous material configuration is void.
+        m_CPUSplatmapsStale = false;
         sizet totalPixels = static_cast<sizet>(resolution) * resolution * 4; // RGBA8
 
         for (u32 i = 0; i < 2; ++i)
@@ -330,13 +333,59 @@ namespace OloEngine
     std::vector<u8>& TerrainMaterial::GetSplatmapData(u32 index)
     {
         OLO_CORE_ASSERT(index < 2, "Splatmap index out of bounds");
+        SyncSplatmapsFromGPU();
         return m_CPUSplatmaps[index];
     }
 
     const std::vector<u8>& TerrainMaterial::GetSplatmapData(u32 index) const
     {
         OLO_CORE_ASSERT(index < 2, "Splatmap index out of bounds");
+        SyncSplatmapsFromGPU();
         return m_CPUSplatmaps[index];
+    }
+
+    void TerrainMaterial::SyncSplatmapsFromGPU() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_CPUSplatmapsStale)
+        {
+            return;
+        }
+
+        // Cleared first and unconditionally: every failure below is permanent for
+        // this configuration, and leaving the flag set would retry the same doomed
+        // readback on every subsequent splatmap read.
+        m_CPUSplatmapsStale = false;
+
+        if (m_SplatmapResolution == 0)
+        {
+            return;
+        }
+
+        const sizet expectedBytes = static_cast<sizet>(m_SplatmapResolution) * m_SplatmapResolution * 4;
+        for (u32 i = 0; i < 2; ++i)
+        {
+            if (!m_Splatmaps[i])
+            {
+                continue;
+            }
+
+            std::vector<u8> readback;
+            if (!m_Splatmaps[i]->GetData(readback))
+            {
+                OLO_CORE_ERROR("TerrainMaterial::SyncSplatmapsFromGPU - Failed to read back splatmap {}", i);
+                continue;
+            }
+            if (readback.size() != expectedBytes)
+            {
+                OLO_CORE_ERROR("TerrainMaterial::SyncSplatmapsFromGPU - Splatmap {} readback size mismatch: "
+                               "got {} bytes, expected {}",
+                               i, readback.size(), expectedBytes);
+                continue;
+            }
+            m_CPUSplatmaps[i] = std::move(readback);
+        }
     }
 
     void TerrainMaterial::UploadSplatmapRegion(u32 splatmapIndex, u32 x, u32 y, u32 w, u32 h)
@@ -345,6 +394,10 @@ namespace OloEngine
 
         if (splatmapIndex >= 2 || !m_Splatmaps[splatmapIndex] || m_SplatmapResolution == 0)
             return;
+
+        // The caller reached the mirror through GetSplatmapData(), which synced it
+        // first, so pushing it back puts the two in agreement again.
+        m_CPUSplatmapsStale = false;
 
         u32 res = m_SplatmapResolution;
         x = std::min(x, res - 1);

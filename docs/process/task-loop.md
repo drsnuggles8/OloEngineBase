@@ -356,12 +356,13 @@ Before reporting — these are the steps that get forgotten, which is why docs g
    A non-obvious **engine** gotcha — an MSVC quirk, a missed touch-point, a wrong assumption the
    docs led you to → **`docs/agent-rules/`**. A real failure story gets its own postmortem file;
    an incremental "this will bite you" fact gets appended to the relevant
-   [`notes-*.md`](../agent-rules/README.md) subsystem doc. Link a new file from **both** indexes:
-   one line in `CLAUDE.md` → *Companion guides*, and a row in the failure-mode tables. It ships
-   with the PR, so it survives and it is reviewable.
+   [`notes-*.md`](../agent-rules/README.md) subsystem doc. Link a new file from **both** parts of
+   [agent-rules/README.md](../agent-rules/README.md): one sentence in the subsystem index and one
+   row in the failure-mode tables. Follow its *Adding a doc here* rules: rule first, story second,
+   no metaphor, under about 10 KB. It ships with the PR, so it survives and it is reviewable.
 
-   `CLAUDE.md` gets the one-line pointer only — **never the lesson itself**. It loads into every
-   session and has been cut back from bloat once already.
+   `CLAUDE.md` gets **nothing**. It loads into every session and has been cut back from bloat
+   twice already.
 
    A **machine / tool / CI** fact — a flaky job, a `gh` quirk, something about this box — goes to
    persistent memory, with a one-line entry in `MEMORY.md`.

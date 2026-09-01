@@ -1,0 +1,148 @@
+# Courtyard — regression golden capture (issue #974).
+# Dense architectural / foliage scene: Sponza + 142 point / 12 spot lights,
+# realtime DDGI, SSGI + SSR + SSAO, decal mode matrix, volumetric fog,
+# wind-driven foliage, distant instanced tower ring.
+# Camera convention (EditorCamera): YawDegrees 0 looks -Z, +90 looks +X;
+# positive PitchDegrees looks DOWN.
+ManifestVersion: 1
+Id: courtyard-golden
+Product: golden
+Scene: Scenes/Benchmark/Courtyard.olo
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+Camera:
+  Id: golden
+  # Ground floor at the west end of the atrium, eye height, looking east (+X)
+  # straight down the open atrium: banners and fabric on both galleries, fog
+  # shafts, the lion relief at the far end, the emissive decal glowing on the
+  # floor. Pose chosen from the issue-#974 pose sweep (probe a-atrium-axis) —
+  # the original pose sat against a gallery wall staring at paving.
+  Position: [-9.0, 1.9, 0.0]
+  YawDegrees: 90.0
+  PitchDegrees: -4.0
+  FovDegrees: 60.0
+  Near: 0.05
+  Far: 2500.0
+
+Output:
+  Resolution: [1280, 720]
+  RenderScale: 1.0
+
+# NOTE: TAA is not toggleable here (v1 RendererSettings allowlist is Path /
+# EnableDDGI / DepthPrepassEnabled / OcclusionCullingEnabled /
+# HZBOcclusionCullingEnabled) and is not scene-serialized either — the
+# Warmup.PerFeature TAA entry below documents the intended temporal budget;
+# the live temporal state is the SSGI/SSR resolves + DDGI.
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: true
+  TAAEnabled: true
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 974
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 128
+  PerFeature:
+    TAA: 8
+    SSGI: 16
+    SSR: 16
+    Fog: 16
+    DDGI: 128
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+  - Name: Albedo
+    Source: GBufferAlbedo
+    Format: png
+  - Name: Normals
+    Source: GBufferNormal
+    Format: png
+    Normalize: none
+  - Name: Emissive
+    Source: GBufferEmissive
+    Format: png
+  - Name: Velocity
+    Source: Velocity
+    Format: png
+  - Name: AOBuffer
+    Source: AOBuffer
+    Format: png
+  - Name: SceneDepth
+    Source: SceneDepth
+    Format: png
+    Normalize: auto
+  - Name: SSGIResolved
+    Source: SSGIResolved
+    Format: png
+  - Name: SSRResolved
+    Source: SSRResolved
+    Format: png
+  - Name: FogColor
+    Source: FogColor
+    Format: png
+  - Name: ShadowMapCSMCascade0
+    Source: ShadowMapCSMCascade0
+    Format: png
+    Normalize: auto
+  # Derived AOVs (issue #974): lanes of existing G-Buffer targets / linearized
+  # depth, extracted CPU-side by the capture core.
+  - Name: LinearDepth
+    Source: SceneDepth
+    Format: hdr
+    Derive: linear-depth
+  - Name: Roughness
+    Source: GBufferNormal
+    Format: png
+    Derive: channel-b
+  - Name: Metallic
+    Source: GBufferAlbedo
+    Format: png
+    Derive: channel-a
+
+Tolerance:
+  # MEASURED 2026-09-01 (RTX 4090, Debug, two fresh runs): the geometry-derived
+  # attachments (Albedo/Normals/Velocity/AO/Depth/Emissive/ShadowMap) are
+  # byte-identical; Beauty/FogColor/SSGIResolved/SSRResolved differ by at most
+  # 1 LSB (RMSE 0.0006-0.0038 in 0..255 units) — float-accumulation-order
+  # noise from the clustered light cull's atomicAdd offsets feeding the
+  # temporal resolves (docs/agent-rules/gpu-scan-compaction.md documents the
+  # deliberate non-conversion). 0.05 gives ~12x headroom over the measured
+  # worst case while staying far below any real regression.
+  RepeatRmse: 0.05
+
+Assets:
+  - Path: SandboxProject/Assets/Models/Sponza/Sponza.gltf
+    Origin: Crytek Sponza via KhronosGroup glTF-Sample-Assets (CRYENGINE Marketplace original)
+    License: LicenseRef-CRYENGINE-Agreement
+  - Path: SandboxProject/Assets/Models/Vegetation/pine.obj
+    Origin: generated in-repo by generate_vegetation.py
+    License: repository license (no third-party rights)
+  - Path: SandboxProject/Assets/Models/Vegetation/palm.obj
+    Origin: generated in-repo by generate_vegetation.py
+    License: repository license (no third-party rights)
+  - Path: assets/textures/grass.png
+    Origin: in-repo editor asset; upstream origin not recorded
+    License: unverified (no license file in-repo)
+  - Path: Assets/Textures/Checkerboard.png
+    Origin: in-repo sandbox asset; upstream origin not recorded
+    License: unverified (no license file in-repo)
+  - Path: assets/textures/hdr/newport_loft.hdr
+    Origin: Newport Loft HDR (sIBL Archive / HDR Labs)
+    License: unverified (no license file in-repo)

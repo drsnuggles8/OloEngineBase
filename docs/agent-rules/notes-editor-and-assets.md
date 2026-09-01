@@ -233,3 +233,16 @@ Two more things that bite:
   `VehiclesTest.olo` gives them no yaw correction — but a model authored facing
   -Z (the usual glTF/Blender export) would need one, and then every hinge angle
   copied onto it reads mirrored.
+
+## A targeted `--target OloEditor` build ships without C# scripting if one dependency edge goes
+
+**Rule:** keep the `OloEditor → OloEngine-ScriptCore` / `Sandbox-Scripting` dependency edge in the
+root `CMakeLists.txt`, next to the `OloRuntime` edge and inside the same
+`if(CMAKE_GENERATOR MATCHES "Visual Studio")` block.
+
+`OloEngine-ScriptCore.dll` builds straight into `OloEditor/Resources/Scripts/`. Without the edge the
+DLL is never built, `ScriptEngine::Init` fails to load it, logs
+`[ScriptEngine] OloEngine-ScriptCore assembly unavailable`, and disables C# scripting for the
+session. That is graceful degradation, not a crash, so a verification loop that only checks for a
+rendered window misses it. If you see that log line, check the edge before diagnosing anything else.
+Found by a `/start-work` runtime smoke test, not a tracked issue.

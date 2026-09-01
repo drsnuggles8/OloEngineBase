@@ -809,6 +809,54 @@ namespace OloEngine
         m_IsLoaded = UploadPixels(data, size) || m_IsLoaded;
     }
 
+    void VulkanTexture2D::RegenerateMips()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_MipLevels <= 1u || m_Image == VK_NULL_HANDLE)
+        {
+            return;
+        }
+
+        const VkFilter blitFilter = IsIntegerFormat(m_Specification.Format) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+
+        const bool ok = VulkanOneShot::Submit(
+            "VulkanTexture2D::RegenerateMips",
+            [&](VkCommandBuffer cmd)
+            {
+                // Unlike the upload paths, level 0's producer here is whatever the
+                // CALLER just did to it — a compute imageStore or a transfer copy —
+                // not a staging copy recorded in this command buffer. So the source
+                // scope has to name both possibilities, and level 0's old layout
+                // must be PRESERVED rather than discarded: it holds the only copy of
+                // the data the whole chain is derived from. Passing UNDEFINED here,
+                // as the full-overwrite paths legitimately do, would let the driver
+                // discard the very texels being propagated.
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_GENERAL,
+                                                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                 VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_TRANSFER_READ_BIT, 0u, 1u);
+                // Mips 1..N hold stale content that is about to be overwritten in
+                // full, so discarding them is free and correct.
+                VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                 VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VK_ACCESS_2_TRANSFER_WRITE_BIT, 1u, m_MipLevels - 1u);
+                RecordMipChain(cmd, blitFilter);
+            });
+
+        if (ok)
+        {
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        else
+        {
+            OLO_CORE_ERROR("VulkanTexture2D::RegenerateMips: mip chain submit failed");
+        }
+    }
+
     void VulkanTexture2D::SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize)
     {
         OLO_PROFILE_FUNCTION();

@@ -1,0 +1,95 @@
+#version 450 core
+
+// GPU heightmap sculpt brush (issue #716). One thread per texel of the brush's
+// bounding rect, so the MAIN-THREAD cost of a stroke is one UBO refill plus one
+// dispatch regardless of radius — the issue's "flat frame time vs brush radius"
+// acceptance criterion.
+//
+// Two images, and the second one is not an optimisation: the Smooth tool averages
+// its four neighbours, so every read must see the PRE-stroke field. On the CPU
+// that was a whole-heightmap std::vector copy per apply; here the C++ side copies
+// only the brush rect grown by one texel into a scratch texture
+// (TerrainGPUBrush::m_HeightScratch) and this kernel reads that. Unit 0 is
+// therefore write-only in effect and unit 1 read-only, but neither may be
+// declared `readonly` — see the OLO_HEAP_IMAGE_RW comment in BindlessHeap.glsl.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#include "../include/BindlessHeap.glsl"
+#include "../include/TerrainBrushParams.glsl"
+
+// See Terrain_Erosion.comp: a bindless image is a LOCAL with an initialiser, so
+// it must be declared in every function that names it. This kernel keeps all
+// image traffic inside main() precisely to avoid that repetition.
+#ifndef OLO_BINDLESS
+layout(r32f, binding = 0) coherent uniform image2D u_Heightmap;
+layout(r32f, binding = 1) coherent uniform image2D u_HeightScratch;
+#endif
+
+// Read the pre-stroke height at a heightmap texel out of the scratch region.
+// Coordinates are CLAMPED into the scratch rather than the heightmap: the
+// scratch already covers the rect grown by one, so the clamp only bites at the
+// terrain edge, where duplicating the edge texel is the same boundary
+// convention the rest of the terrain sampling path uses.
+#define SCRATCH_AT(coord, outVal)                                                     \
+    {                                                                                 \
+        ivec2 sc = clamp((coord) - u_SrcRect.xy, ivec2(0), u_SrcRect.zw - ivec2(1));  \
+        outVal = imageLoad(u_HeightScratch, sc).r;                                    \
+    }
+
+void main()
+{
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r32f, OLO_HEAP_IMAGE_RW, image2D, u_Heightmap, 0);
+    OLO_HEAP_IMAGE(r32f, OLO_HEAP_IMAGE_RW, image2D, u_HeightScratch, 1);
+#endif
+
+    ivec2 local = ivec2(gl_GlobalInvocationID.xy);
+    if (local.x >= u_Rect.z || local.y >= u_Rect.w)
+        return;
+
+    ivec2 texel = u_Rect.xy + local;
+    if (texel.x >= u_Resolution || texel.y >= u_Resolution)
+        return;
+
+    float dist = terrainBrushDistance(texel);
+    if (dist > u_Radius)
+        return;
+
+    float weight = terrainBrushFalloff(dist, u_Radius, u_Falloff);
+    float influence = clamp(weight * u_StrengthDt, 0.0, 1.0);
+
+    float h;
+    SCRATCH_AT(texel, h);
+    float result = h;
+
+    if (u_Tool == 0) // Raise
+    {
+        result = h + influence * u_InvHeightScale;
+    }
+    else if (u_Tool == 1) // Lower
+    {
+        result = h - influence * u_InvHeightScale;
+    }
+    else if (u_Tool == 2) // Smooth — 4-neighbour average of the PRE-stroke field
+    {
+        float avg = 0.0;
+        int count = 0;
+        float n;
+        if (texel.x > 0)                  { SCRATCH_AT(texel + ivec2(-1, 0), n); avg += n; ++count; }
+        if (texel.x < u_Resolution - 1)   { SCRATCH_AT(texel + ivec2( 1, 0), n); avg += n; ++count; }
+        if (texel.y > 0)                  { SCRATCH_AT(texel + ivec2(0, -1), n); avg += n; ++count; }
+        if (texel.y < u_Resolution - 1)   { SCRATCH_AT(texel + ivec2(0,  1), n); avg += n; ++count; }
+        if (count > 0)
+        {
+            avg /= float(count);
+            result = h + (avg - h) * influence;
+        }
+    }
+    else // 3 Flatten / 4 Level — both move towards a target captured on press
+    {
+        result = mix(h, u_TargetHeight, influence);
+    }
+
+    imageStore(u_Heightmap, texel, vec4(clamp(result, 0.0, 1.0), 0.0, 0.0, 0.0));
+}
