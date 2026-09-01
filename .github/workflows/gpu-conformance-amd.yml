@@ -437,6 +437,22 @@ jobs:
         if: always()
         run: python3 OloEngine/tests/scripts/perf_trend.py
 
+      # A rebase dispatch REWRITES the AMD baselines on the runner, and a
+      # successful rebase run then uploads nothing -- the diffs artifact below
+      # is `if: failure()`, the runner is ephemeral, and GITHUB_TOKEN is
+      # read-only by design. So the documented bootstrap step "re-run with
+      # --olo-golden-rebase and commit the resulting PNGs" had no way to hand
+      # the PNGs back. Upload them whenever a rebase was explicitly requested.
+      - name: Upload rebaked baselines (rebase dispatch only)
+        if: always() && (inputs.golden_rebase || inputs.perf_rebase)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gpu_amd_rebaked_baselines
+          path: |
+            OloEditor/assets/tests/golden/amd/**/*.png
+            OloEditor/assets/tests/visual/amd/**/*.png
+          if-no-files-found: warn
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
