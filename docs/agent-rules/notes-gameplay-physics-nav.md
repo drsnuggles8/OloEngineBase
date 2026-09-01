@@ -211,3 +211,44 @@ it reuses the already-serialized `FoliageLayer`, so no cross-binding edits.
 > the *instance count*, not pixels, and verify visually in the live editor over MCP. And foliage is
 > correctly masked to grass areas, so from a distance sparse billboards blend into the green terrain
 > *material* — get close before concluding it didn't render.
+
+## 11. The gameplay system scheduler, and EnTT owning groups (issue #453)
+
+**Rule:** a per-tick gameplay system registers in `Scene::GetGameplayScheduler()` (`Scene/Scene.cpp`)
+with `Reads/Writes/After/Before` constraints against the named channel constants
+(`GameplayChannel::k*`), never raw strings. The execution order is derived
+(`Scene/SystemScheduler.{h,cpp}`: Kahn topological sort, registration order as the tie-break;
+duplicate name, dangling reference or cycle throws `SystemSchedulerError` in every build config).
+Declare the real data flow, not a position: a missing edge is invisible in sequential order because
+the tie-break masks it, and becomes a data race under the parallel executor. The seam test
+`SystemSchedulerTest.GameplayScheduleHonoursDocumentedSeams` therefore asserts reachability
+(`SystemScheduler::DependsOn`), never positions.
+
+Two parallelism mechanisms with different audit bars:
+
+1. **The physics shadow.** The ECS-free physics world step (Box2D + Jolt) runs as an engine task
+   between the `PhysicsKick` and `PhysicsFence` nodes (`Scene::KickPhysicsStep` /
+   `FencePhysicsStep`); the ECS-touching phases (contact drain, character/vehicle input, joint
+   break, transform sync) were hoisted into kick/fence on the game thread, see the `JoltScene` phase
+   methods. Systems registered between kick and fence run on the game thread and need no
+   worker-thread audit, only independence from physics and transform state. Current occupants:
+   Dialogue, Quest.
+2. **`.Parallelizable()` worker dispatch.** Only after a thread-safety audit against the other
+   marked systems: no GL/GPU calls, no EnTT structural changes, no `GameplayEventBus` publish, no
+   draws from the seeded game-thread RNG stream (#452). Record it in the audit-table comment at the
+   schedule builder, and extend the `Scene::Scene()` storage pre-warm list with every component type
+   the system's views or groups touch (see
+   [notes-core-and-threading.md §16](notes-core-and-threading.md)). Unmarked systems are join-all
+   barriers; everything joins before the tick returns.
+
+Bisect lever for both: `OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL=1` or
+`SystemScheduler::SetParallelExecutionEnabled(false)`: same systems, same order, one thread. The
+editor Simulate tick keeps the synchronous `Scene::StepPhysics`, which shares the `JoltScene` phases
+and `PostPhysicsSync`, so the two paths cannot drift.
+
+**Owning groups.** The hottest multi-component loops use `registry.group<Owned>(entt::get<Observed>)`
+for packed iteration. EnTT allows a component to be owned by at most one group (`get<>`-observed
+types are unconstrained), so `TransformComponent`, owned by the 2D sprite loop, is borrowed by the
+physics-sync, particle and audio groups. Read and update the ownership-map comment at the top of
+`Scene/Scene.cpp` before adding an owning group: owning an already-owned component is a runtime
+assert, and an owned pool cannot be `.sort()`ed.

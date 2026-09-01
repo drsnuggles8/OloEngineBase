@@ -472,3 +472,19 @@ assume a CI round is spent on TSan alone, because it cannot be reproduced on thi
 platform. Get the report from `gh api repos/<o>/<r>/actions/jobs/<id>/logs` and
 grep `WARNING: ThreadSanitizer` — the `SUMMARY:` line names both conflicting
 accesses by file:line, which is usually enough to fix without reproducing.
+
+## 16. EnTT first-touch from a worker thread is a write
+
+**Rule:** keep `ENTT_USE_ATOMIC` as a PUBLIC compile definition on the `OloEngine` target, and keep
+`Scene::Scene()` pre-creating every storage and group the `Parallelizable` systems touch. When you
+mark another system `Parallelizable()`, add every component type its views or groups use to that
+pre-warm list.
+
+`registry.view<T>()` and `registry.group<…>()` lazily create missing storage, which mutates the
+registry's pool map, and entt's global `type_index` counter is a plain integer unless
+`ENTT_USE_ATOMIC` is defined. Two worker tasks first-touching component types at the same time can
+hand two types the same id and corrupt the type→pool mapping process-wide. It surfaces much later,
+in an unrelated single-threaded test, as entt's `"Unexpected type"` assert. This crashed the full
+suite when #453 went parallel: headless scenes never run `InitAudioRuntime`, so the audio groups'
+first touch happened on a worker. Every TU including `entt.hpp` must agree on the definition, or the
+`ENTT_MAYBE_ATOMIC` inline definitions violate ODR; that is why it is PUBLIC.
