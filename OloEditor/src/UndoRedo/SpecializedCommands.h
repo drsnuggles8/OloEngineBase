@@ -11,6 +11,7 @@
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/Editor/TerrainBrush.h"
+#include "OloEngine/Terrain/Editor/TerrainTextureUndoStack.h"
 #include "OloEngine/Terrain/Voxel/VoxelEdit.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Dialogue/DialogueTypes.h"
@@ -353,6 +354,219 @@ namespace OloEngine
         u32 m_RegionH;
         std::vector<u8> m_OldData;
         std::vector<u8> m_NewData;
+    };
+
+    // =========================================================================
+    // GPU terrain undo (issue #716) — restores a texture region by blit
+    // =========================================================================
+    //
+    // The CPU commands above (TerrainSculptCommand / TerrainPaintCommand) copy a
+    // std::vector region in and out of the CPU mirror. With the brushes GPU-
+    // resident there is no CPU array to copy at stroke time, so these hold two
+    // TerrainTextureUndoStack snapshot ids per target — the state before the
+    // stroke and after it — and undo/redo is a rect blit either way.
+    //
+    // The CPU commands are KEPT, not replaced: they are what a session without a
+    // working brush compute shader (no GL 4.6, a shader that failed to compile)
+    // still records, and the panel picks between the two families by asking
+    // TerrainGPUBrush::IsReady(). Both restore paths end in the same three
+    // follow-ups — mark the mirror stale, rebuild the affected chunks, resync
+    // collision — so an undo during Play leaves the collision body on the surface
+    // the player can see, which is the trap issue #469 fixed for the CPU path.
+    //
+    // A snapshot that has aged out of the bounded ring makes Restore() fail. That
+    // is reported and the command becomes a no-op rather than silently writing
+    // whatever texture happens to still be at that id.
+    class TerrainGPUSculptCommand : public EditorCommand
+    {
+      public:
+        TerrainGPUSculptCommand(Ref<TerrainData> terrainData,
+                                Ref<TerrainChunkManager> chunkManager,
+                                Ref<TerrainTextureUndoStack> undoStack,
+                                f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+                                u32 regionX, u32 regionY, u32 regionW, u32 regionH,
+                                TerrainTextureUndoStack::SnapshotId before,
+                                TerrainTextureUndoStack::SnapshotId after,
+                                WeakRef<Scene> scene = {}, UUID terrainEntity = UUID(0))
+            : m_TerrainData(std::move(terrainData)), m_ChunkManager(std::move(chunkManager)),
+              m_UndoStack(std::move(undoStack)), m_WorldSizeX(worldSizeX), m_WorldSizeZ(worldSizeZ),
+              m_HeightScale(heightScale), m_RegionX(regionX), m_RegionY(regionY), m_RegionW(regionW),
+              m_RegionH(regionH), m_Before(before), m_After(after), m_Scene(std::move(scene)),
+              m_TerrainEntity(terrainEntity)
+        {
+        }
+
+        ~TerrainGPUSculptCommand() override
+        {
+            // Give the ring its VRAM back when this history entry dies — a redo
+            // branch being discarded, or the whole history being cleared.
+            if (m_UndoStack)
+            {
+                m_UndoStack->Release(m_Before);
+                m_UndoStack->Release(m_After);
+            }
+        }
+
+        TerrainGPUSculptCommand(const TerrainGPUSculptCommand&) = delete;
+        TerrainGPUSculptCommand& operator=(const TerrainGPUSculptCommand&) = delete;
+        TerrainGPUSculptCommand(TerrainGPUSculptCommand&&) = delete;
+        TerrainGPUSculptCommand& operator=(TerrainGPUSculptCommand&&) = delete;
+
+        void Execute() override
+        {
+            RestoreSnapshot(m_After);
+        }
+
+        void Undo() override
+        {
+            RestoreSnapshot(m_Before);
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Terrain Sculpt";
+        }
+
+      private:
+        void RestoreSnapshot(TerrainTextureUndoStack::SnapshotId id)
+        {
+            if (!m_TerrainData || !m_UndoStack)
+            {
+                return;
+            }
+
+            if (!m_UndoStack->Restore(id, m_TerrainData->GetGPUHeightmap()))
+            {
+                OLO_CORE_WARN("TerrainGPUSculptCommand: snapshot no longer available - this step "
+                              "has aged out of the bounded undo ring");
+                return;
+            }
+
+            // The GPU heightmap moved; the CPU mirror is now behind it. Marking
+            // rather than syncing is the whole point — a chain of undos costs one
+            // readback at the next CPU consumer, not one per step.
+            m_TerrainData->MarkGPUModified();
+
+            if (m_ChunkManager)
+            {
+                TerrainBrush::DirtyRegion dirty{ m_RegionX, m_RegionY, m_RegionW, m_RegionH };
+                TerrainBrush::RebuildDirtyChunks(*m_ChunkManager, *m_TerrainData, dirty,
+                                                 m_WorldSizeX, m_WorldSizeZ, m_HeightScale);
+            }
+
+            if (Ref<Scene> scene = m_Scene.Lock())
+            {
+                Entity terrainEntity = scene->GetEntityByUUID(m_TerrainEntity);
+                if (terrainEntity)
+                    scene->UpdateTerrainCollisionAfterEdit(terrainEntity, m_RegionX, m_RegionY, m_RegionW, m_RegionH);
+            }
+        }
+
+        Ref<TerrainData> m_TerrainData;
+        Ref<TerrainChunkManager> m_ChunkManager;
+        Ref<TerrainTextureUndoStack> m_UndoStack;
+        f32 m_WorldSizeX;
+        f32 m_WorldSizeZ;
+        f32 m_HeightScale;
+        u32 m_RegionX;
+        u32 m_RegionY;
+        u32 m_RegionW;
+        u32 m_RegionH;
+        TerrainTextureUndoStack::SnapshotId m_Before;
+        TerrainTextureUndoStack::SnapshotId m_After;
+        // Weak for the same reason as TerrainSculptCommand's: an undo history entry
+        // must never keep the whole Scene alive.
+        WeakRef<Scene> m_Scene;
+        UUID m_TerrainEntity;
+    };
+
+    // Splatmap twin of the above. Carries a snapshot pair PER SPLATMAP because the
+    // paint kernel re-normalises across all eight channels, so a stroke on a layer
+    // in splatmap 0 changes splatmap 1 too whenever more than four layers exist —
+    // restoring only the painted one would leave the weights not summing to 1.
+    class TerrainGPUPaintCommand : public EditorCommand
+    {
+      public:
+        TerrainGPUPaintCommand(Ref<TerrainMaterial> material,
+                               Ref<TerrainTextureUndoStack> undoStack,
+                               TerrainTextureUndoStack::SnapshotId before0,
+                               TerrainTextureUndoStack::SnapshotId after0,
+                               TerrainTextureUndoStack::SnapshotId before1,
+                               TerrainTextureUndoStack::SnapshotId after1)
+            : m_Material(std::move(material)), m_UndoStack(std::move(undoStack)),
+              m_Before0(before0), m_After0(after0), m_Before1(before1), m_After1(after1)
+        {
+        }
+
+        ~TerrainGPUPaintCommand() override
+        {
+            if (m_UndoStack)
+            {
+                m_UndoStack->Release(m_Before0);
+                m_UndoStack->Release(m_After0);
+                m_UndoStack->Release(m_Before1);
+                m_UndoStack->Release(m_After1);
+            }
+        }
+
+        TerrainGPUPaintCommand(const TerrainGPUPaintCommand&) = delete;
+        TerrainGPUPaintCommand& operator=(const TerrainGPUPaintCommand&) = delete;
+        TerrainGPUPaintCommand(TerrainGPUPaintCommand&&) = delete;
+        TerrainGPUPaintCommand& operator=(TerrainGPUPaintCommand&&) = delete;
+
+        void Execute() override
+        {
+            RestorePair(m_After0, m_After1);
+        }
+
+        void Undo() override
+        {
+            RestorePair(m_Before0, m_Before1);
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return "Terrain Paint";
+        }
+
+      private:
+        void RestorePair(TerrainTextureUndoStack::SnapshotId id0, TerrainTextureUndoStack::SnapshotId id1)
+        {
+            if (!m_Material || !m_UndoStack)
+            {
+                return;
+            }
+
+            // BOTH or neither, not "any". The paint kernel re-normalises across all
+            // eight channels, so restoring one splatmap and not the other leaves the
+            // weights not summing to 1 and silently reweights every other layer at
+            // those texels. `|| restoredAny` let one success mask the other's
+            // failure and produced exactly that half-restore.
+            //
+            // Evaluated into locals first: && would short-circuit and skip the second
+            // Restore, which is a side-effecting call, not a predicate.
+            const bool restored0 = m_UndoStack->Restore(id0, m_Material->GetSplatmap(0));
+            // id1 is kInvalidSnapshot for a <=4-layer material, where the second
+            // splatmap never participates — that is not a failure of this command.
+            const bool needsSecond = (id1 != TerrainTextureUndoStack::kInvalidSnapshot);
+            const bool restored1 = needsSecond && m_UndoStack->Restore(id1, m_Material->GetSplatmap(1));
+
+            if (!restored0 || (needsSecond && !restored1))
+            {
+                OLO_CORE_WARN("TerrainGPUPaintCommand: snapshot no longer available - this step "
+                              "has aged out of the bounded undo ring");
+                return;
+            }
+
+            m_Material->MarkSplatmapsGPUModified();
+        }
+
+        Ref<TerrainMaterial> m_Material;
+        Ref<TerrainTextureUndoStack> m_UndoStack;
+        TerrainTextureUndoStack::SnapshotId m_Before0;
+        TerrainTextureUndoStack::SnapshotId m_After0;
+        TerrainTextureUndoStack::SnapshotId m_Before1;
+        TerrainTextureUndoStack::SnapshotId m_After1;
     };
 
     // A voxel stroke snapshots only chunks it changed. Unlike a cell-delta

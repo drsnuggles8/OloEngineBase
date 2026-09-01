@@ -223,17 +223,24 @@ namespace OloEngine
 
     f32 TerrainData::GetHeightAt(f32 normalizedX, f32 normalizedZ) const
     {
+        SyncFromGPU();
         return SampleHeight(m_Heights, m_Resolution, normalizedX, normalizedZ);
     }
 
     glm::vec3 TerrainData::GetNormalAt(f32 normalizedX, f32 normalizedZ, f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const
     {
+        SyncFromGPU();
         return SampleNormal(m_Heights, m_Resolution, normalizedX, normalizedZ, worldSizeX, worldSizeZ, heightScale);
     }
 
     void TerrainData::UploadToGPU()
     {
         OLO_PROFILE_FUNCTION();
+
+        // A CPU-side write that reaches the GPU puts the two back in agreement,
+        // so any pending GPU-newer flag is discharged rather than left to trigger
+        // a readback that would undo this upload.
+        m_CPUMirrorStale = false;
 
         if (m_Resolution == 0)
         {
@@ -254,6 +261,11 @@ namespace OloEngine
     void TerrainData::UploadRegionToGPU(u32 x, u32 y, u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
+
+        // The caller reached the CPU mirror through GetHeightData(), which synced
+        // it first, so the mirror is a superset of the GPU state and this partial
+        // upload leaves the two in agreement.
+        m_CPUMirrorStale = false;
 
         if (!m_GPUHeightmap || m_Resolution == 0)
         {
@@ -296,10 +308,51 @@ namespace OloEngine
         m_GPUHeightmap->SubImage(x, y, width, height, regionData.data(), dataSize);
     }
 
+    void TerrainData::SyncFromGPU() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_CPUMirrorStale)
+        {
+            return;
+        }
+
+        // Cleared FIRST and unconditionally. Every early-out below is a case where
+        // the mirror cannot be refreshed at all (no GPU texture, a failed
+        // readback, a size disagreement), and leaving the flag set there would
+        // re-attempt the same doomed readback on every subsequent height query —
+        // turning a one-off failure into a per-frame stall.
+        m_CPUMirrorStale = false;
+
+        if (!m_GPUHeightmap || m_Resolution == 0)
+        {
+            return;
+        }
+
+        std::vector<u8> rawData;
+        if (!m_GPUHeightmap->GetData(rawData))
+        {
+            OLO_CORE_ERROR("TerrainData::SyncFromGPU - Failed to read back the GPU heightmap");
+            return;
+        }
+
+        const sizet expectedBytes = static_cast<sizet>(m_Resolution) * m_Resolution * sizeof(f32);
+        if (rawData.size() != expectedBytes)
+        {
+            OLO_CORE_ERROR("TerrainData::SyncFromGPU - Readback size mismatch: got {} bytes, expected {}",
+                           rawData.size(), expectedBytes);
+            return;
+        }
+
+        m_Heights.resize(static_cast<sizet>(m_Resolution) * m_Resolution);
+        std::memcpy(m_Heights.data(), rawData.data(), rawData.size());
+    }
+
     bool TerrainData::ExportRawR32F(const std::string& path) const
     {
         OLO_PROFILE_FUNCTION();
 
+        SyncFromGPU();
         if (m_Heights.empty() || m_Resolution == 0)
         {
             OLO_CORE_ERROR("TerrainData::ExportRawR32F - No heightmap data to export");
@@ -322,6 +375,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        SyncFromGPU();
         if (m_Heights.empty() || m_Resolution == 0)
         {
             OLO_CORE_ERROR("TerrainData::ExportRawR16 - No heightmap data to export");

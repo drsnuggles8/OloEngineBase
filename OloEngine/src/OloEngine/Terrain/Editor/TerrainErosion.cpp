@@ -22,7 +22,7 @@ namespace OloEngine
         return m_ErosionShader && m_ErosionShader->IsValid();
     }
 
-    void TerrainErosion::Apply(TerrainData& terrainData, const ErosionSettings& settings, bool skipReadback)
+    void TerrainErosion::Apply(TerrainData& terrainData, const ErosionSettings& settings)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -99,7 +99,11 @@ namespace OloEngine
         // Dispatch — one thread per droplet
         u32 groups = (settings.DropletCount + 255) / 256;
         RenderCommand::DispatchCompute(groups, 1, 1);
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
+        // TextureUpdate covers the readback and the undo-snapshot copy that now
+        // follow an erosion pass — before issue #716 the inline GetData was the only
+        // reader and this barrier was already too narrow for it.
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch |
+                                     MemoryBarrierFlags::TextureUpdate);
 
         // Unbind the image. Under the heap there is no bind to clear — the shader
         // reads an OFFSET — so this stages the reserved null IMAGE descriptor
@@ -110,28 +114,27 @@ namespace OloEngine
                                        RHI::Format::R32Float, RHI::HeapSlotLifetime::Persistent);
         HeapBinding::FlushOffsets();
 
-        // Read back GPU heightmap to CPU for chunk rebuilding and serialization
-        if (!skipReadback)
-        {
-            std::vector<u8> rawData;
-            if (!heightmap->GetData(rawData))
-            {
-                OLO_CORE_ERROR("TerrainErosion::Apply - Failed to read back GPU heightmap data");
-                return;
-            }
-
-            auto& heights = terrainData.GetHeightData();
-            if (rawData.size() != heights.size() * sizeof(f32))
-            {
-                OLO_CORE_ERROR("TerrainErosion::Apply - Readback size mismatch: got {} bytes, expected {} bytes",
-                               rawData.size(), heights.size() * sizeof(f32));
-                return;
-            }
-            std::memcpy(heights.data(), rawData.data(), rawData.size());
-        }
+        // No readback (issue #716). The GPU heightmap is now the newer copy; the
+        // next CPU consumer — chunk rebuild, the physics height field, save —
+        // triggers exactly one TerrainData::SyncFromGPU, whether one iteration ran
+        // or a hundred.
+        //
+        // The mip chain is NOT refreshed here: a single erosion iteration is rarely
+        // the last one, and the chain only has to be right before the frame samples
+        // it. ApplyIterations refreshes once for the whole batch; a lone Apply()
+        // caller gets it from RegenerateHeightMips() below.
+        terrainData.MarkGPUModified();
 
         // Advance seed so each iteration produces different droplet positions
         ++m_IterationSeed;
+    }
+
+    void TerrainErosion::RegenerateHeightMips(TerrainData& terrainData)
+    {
+        if (Ref<Texture2D> heightmap = terrainData.GetGPUHeightmap())
+        {
+            heightmap->RegenerateMips();
+        }
     }
 
     void TerrainErosion::ApplyIterations(TerrainData& terrainData, const ErosionSettings& settings, u32 iterations)
@@ -140,7 +143,13 @@ namespace OloEngine
 
         for (u32 i = 0; i < iterations; ++i)
         {
-            Apply(terrainData, settings, i < iterations - 1);
+            Apply(terrainData, settings);
         }
+
+        // Once per batch, not once per iteration — the coarse levels are only read
+        // when the frame is drawn, and rebuilding a 1024^2 chain N times a frame
+        // would be pure waste. Without it, erosion is invisible at distance: the
+        // removed UploadToGPU() used to rebuild the chain as a side effect.
+        RegenerateHeightMips(terrainData);
     }
 } // namespace OloEngine

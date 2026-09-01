@@ -1,0 +1,84 @@
+#version 450 core
+
+// GPU splatmap paint brush (issue #716). One thread per texel of the brush's
+// bounding rect; unlike the sculpt kernel this one needs no scratch copy,
+// because every texel's result depends only on that texel's own eight channels.
+//
+// Both splatmaps are bound unconditionally (TerrainMaterial always allocates the
+// pair) and both are rewritten whenever more than four layers exist, because the
+// re-normalisation below spans all eight channels — writing only the splatmap
+// that owns the painted layer would leave the weights summing to something other
+// than 1 and silently darken or brighten every other layer at that texel.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#include "../include/BindlessHeap.glsl"
+#include "../include/TerrainBrushParams.glsl"
+
+#ifndef OLO_BINDLESS
+layout(rgba8, binding = 0) coherent uniform image2D u_Splatmap0;
+layout(rgba8, binding = 1) coherent uniform image2D u_Splatmap1;
+#endif
+
+// The CPU brush stores u8 and truncates on every assignment. Working in the same
+// 0..255 integer domain here is what keeps the two implementations comparable —
+// a float-domain GPU brush and a u8 CPU brush drift by a whole level per stroke
+// frame and the difference compounds over a drag.
+float toByte(float unorm)
+{
+    return floor(unorm * 255.0 + 0.5);
+}
+
+void main()
+{
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(rgba8, OLO_HEAP_IMAGE_RW, image2D, u_Splatmap0, 0);
+    OLO_HEAP_IMAGE(rgba8, OLO_HEAP_IMAGE_RW, image2D, u_Splatmap1, 1);
+#endif
+
+    ivec2 local = ivec2(gl_GlobalInvocationID.xy);
+    if (local.x >= u_Rect.z || local.y >= u_Rect.w)
+        return;
+
+    ivec2 texel = u_Rect.xy + local;
+    if (texel.x >= u_Resolution || texel.y >= u_Resolution)
+        return;
+
+    float dist = terrainBrushDistance(texel);
+    if (dist > u_Radius)
+        return;
+
+    float weight = terrainBrushFalloff(dist, u_Radius, u_Falloff);
+    float addAmount = weight * u_StrengthDt * 255.0;
+
+    vec4 s0 = imageLoad(u_Splatmap0, texel);
+    vec4 s1 = imageLoad(u_Splatmap1, texel);
+    vec4 b0 = vec4(toByte(s0.r), toByte(s0.g), toByte(s0.b), toByte(s0.a));
+    vec4 b1 = vec4(toByte(s1.r), toByte(s1.g), toByte(s1.b), toByte(s1.a));
+
+    // Deposit into the target channel first, exactly as the CPU brush did, so the
+    // normalisation below sees the post-deposit total.
+    int channel = u_TargetLayer % 4;
+    if (u_TargetLayer < 4)
+        b0[channel] = floor(min(b0[channel] + addAmount, 255.0));
+    else
+        b1[channel] = floor(min(b1[channel] + addAmount, 255.0));
+
+    // Re-normalise every participating channel so the eight weights sum to 255.
+    float total = b0.r + b0.g + b0.b + b0.a;
+    bool useSecond = (u_LayerCount > 4);
+    if (useSecond)
+        total += b1.r + b1.g + b1.b + b1.a;
+
+    if (total > 0.0)
+    {
+        float scale = 255.0 / total;
+        b0 = floor(min(b0 * scale, vec4(255.0)));
+        if (useSecond)
+            b1 = floor(min(b1 * scale, vec4(255.0)));
+    }
+
+    imageStore(u_Splatmap0, texel, b0 / 255.0);
+    if (useSecond)
+        imageStore(u_Splatmap1, texel, b1 / 255.0);
+}

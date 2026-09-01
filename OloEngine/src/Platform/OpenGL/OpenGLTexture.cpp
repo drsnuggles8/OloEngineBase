@@ -915,6 +915,24 @@ namespace OloEngine
         }
     }
 
+    void OpenGLTexture2D::RegenerateMips()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_MipLevels <= 1u || m_RendererID == 0u)
+        {
+            return;
+        }
+
+        glGenerateTextureMipmap(m_RendererID);
+        m_MipsPopulated = true;
+        // Same follow-up SetData does: until a chain exists the sampler is left on
+        // a non-mipped min filter, and leaving it there would sample level 0 for
+        // every footprint — the chain would be correct and unused.
+        glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
+                            SelectMinFilter(IsIntegerFormat(m_Specification.Format), true));
+    }
+
     void OpenGLTexture2D::SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, [[maybe_unused]] u32 dataSize)
     {
         OLO_PROFILE_FUNCTION();

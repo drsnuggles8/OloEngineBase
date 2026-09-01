@@ -64,13 +64,51 @@ namespace OloEngine
         {
             return m_Resolution;
         }
+        // ── The CPU/GPU height sync point (issue #716) ──
+        //
+        // Since the sculpt brush and hydraulic erosion became GPU-resident, the
+        // GPU heightmap — not m_Heights — is the source of truth during
+        // authoring. m_Heights is a MIRROR, refreshed lazily here and nowhere
+        // else, which is what lets the authoring path run without a per-operation
+        // readback while every CPU consumer (physics height field, quadtree
+        // pyramid, chunk rebuild, tile stitching, save/export, height queries)
+        // keeps reading a correct field.
+        //
+        // Both accessors sync, so a consumer cannot silently read a stale mirror:
+        // that failure mode is invisible — the terrain looks right and gameplay
+        // disagrees with it — which is precisely why the sync is here rather than
+        // left to each of the twelve call sites to remember.
         [[nodiscard]] const std::vector<f32>& GetHeightData() const
         {
+            SyncFromGPU();
             return m_Heights;
         }
+        // The non-const form hands out a writable mirror, so the CPU becomes
+        // authoritative again the moment a caller uses it; the caller still owes
+        // the matching UploadToGPU / UploadRegionToGPU, exactly as before.
         [[nodiscard]] std::vector<f32>& GetHeightData()
         {
+            SyncFromGPU();
             return m_Heights;
+        }
+
+        // Declare the GPU copy newer than the CPU mirror. Called by the GPU brush
+        // and by erosion after their dispatches; the next CPU consumer pays for
+        // one readback, and a consumer-free stroke pays for none at all.
+        void MarkGPUModified()
+        {
+            m_CPUMirrorStale = true;
+        }
+
+        // Pull the GPU heightmap back into the CPU mirror if it is stale. This is
+        // the ONE readback left on the terrain authoring path — const because
+        // refreshing a mirror is not a logical mutation, and every read accessor
+        // above needs to be able to call it.
+        void SyncFromGPU() const;
+
+        [[nodiscard]] bool IsCPUMirrorStale() const
+        {
+            return m_CPUMirrorStale;
         }
         [[nodiscard]] Ref<Texture2D> GetGPUHeightmap() const
         {
@@ -100,8 +138,11 @@ namespace OloEngine
         }
 
       private:
-        u32 m_Resolution = 0;          // Heightmap is m_Resolution × m_Resolution
-        std::vector<f32> m_Heights;    // Row-major CPU heightmap [0, 1] range
-        Ref<Texture2D> m_GPUHeightmap; // R32F GPU texture
+        u32 m_Resolution = 0; // Heightmap is m_Resolution × m_Resolution
+        // Mutable because SyncFromGPU() refreshes them from a const read
+        // accessor — see the sync-point comment above.
+        mutable std::vector<f32> m_Heights; // Row-major CPU MIRROR of the heightmap, [0, 1]
+        mutable bool m_CPUMirrorStale = false;
+        Ref<Texture2D> m_GPUHeightmap; // R32F GPU texture — authoritative while authoring
     };
 } // namespace OloEngine
