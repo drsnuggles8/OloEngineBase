@@ -135,12 +135,25 @@ runs:
         # git config is left untouched.
 
         # GitHub-hosted runners ship a bootstrapped vcpkg at VCPKG_INSTALLATION_ROOT.
-        # Self-hosted runners (gpu-conformance-amd) may not, so fall back to a clone
-        # under RUNNER_TEMP. Either way VCPKG_ROOT is what the rest of this action and
-        # the CMake presets read.
+        # Self-hosted runners may not, so fall back to a clone. Either way VCPKG_ROOT
+        # is what the rest of this action and the CMake presets read.
+        #
+        # WHERE that fallback clone lives differs by runner kind, and it matters. On a
+        # hosted runner RUNNER_TEMP is as good as anywhere -- the whole VM is
+        # discarded. On a self-hosted runner RUNNER_TEMP is emptied at the start of
+        # every job, so a clone there is re-fetched from github.com on every single
+        # run: minutes of network per job, forever, for a repository that only
+        # changes when the manifest baseline moves. Put it under the runner user's
+        # cache instead, where it persists and the checkout below is the only work
+        # left to do.
         root="${VCPKG_INSTALLATION_ROOT:-}"
         if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
-          root="${RUNNER_TEMP}/vcpkg"
+          if [ "${{ runner.environment }}" = "github-hosted" ]; then
+            root="${RUNNER_TEMP}/vcpkg"
+          else
+            root="${OLO_VCPKG_PERSISTENT_ROOT:-$HOME/.cache/olo/vcpkg}"
+            mkdir -p "$(dirname "$root")"
+          fi
           if [ ! -d "$root/.git" ]; then
             retry git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
               clone --filter=blob:none https://github.com/microsoft/vcpkg "$root"

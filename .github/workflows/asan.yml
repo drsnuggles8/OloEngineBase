@@ -351,10 +351,30 @@ jobs:
     name: ASan + LSan (Linux/Clang)
     needs: detect-changes
     if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
-    # Pinned to ubuntu-24.04 (noble) because the LLVM apt repo URL below
-    # hardcodes the distro codename. If ubuntu-latest jumps to a newer
-    # release the apt source would 404.
-    runs-on: ubuntu-24.04
+    # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not (#1009).
+    #
+    # The condition is the security boundary and it is the whole of it. This repo is
+    # public, so a fork PR's code must never execute on the box: fork PRs take the
+    # `ubuntu-24.04` arm, which is a throwaway VM. `push` and `schedule` events carry
+    # no `pull_request` object at all, so the left disjunct is what keeps THOSE on
+    # the self-hosted arm -- an expression written only as
+    # `head.repo.full_name == github.repository` evaluates empty there and would
+    # silently push every nightly onto hosted runners.
+    #
+    # Approval-based gating (Settings -> Actions -> "Require approval for all
+    # external contributors", already enabled) stays as belt and braces and is
+    # explicitly NOT the mechanism: approving a fork PR run is what EXECUTES that
+    # fork's code. And never introduce a `pull_request_target` here that checks out
+    # the PR head -- that single pattern defeats this condition entirely.
+    #
+    # The hosted arm stays pinned to ubuntu-24.04 (noble) rather than
+    # ubuntu-latest, because the LLVM apt repo the setup action uses hardcodes the
+    # distro codename; if ubuntu-latest jumped release the apt source would 404.
+    #
+    # `olo-ci`, not `gpu-amd`: the GPU nightly owns its runner exclusively, so a CI
+    # job can never queue in front of it and vice versa -- which is the "a single
+    # runner serialises every job behind the nightly" half of #1009.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -365,39 +385,17 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Free up disk space
-      # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
-      # OloEngine-Tests (instrumented + vendored static libs) can exhaust it
-      # ("No space left on device" during the final link). Reclaim ~20 GB of
-      # preinstalled toolchains this job doesn't use. `|| true` keeps a missing
-      # path from failing the job; the df lines bracket it for diagnostics.
-      run: |
-        df -h /
-        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
-        sudo docker image prune --all --force 2>/dev/null || true
-        df -h /
-
-    - name: Install Clang 19
-      uses: ./.github/actions/setup-llvm-apt
-
-    - name: Install dependencies
-      run: |
-        # The ubuntu-24.04 runner image ships Microsoft apt repos (azure-cli, prod)
-        # that periodically return 403 Forbidden; we never use them (Clang comes from
-        # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
-        # Drop any Microsoft source so a Microsoft-side outage can't break our update.
-        sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
-        sudo apt-get update
-        sudo apt-get install -y \
-          clang-19 lld-19 \
-          libvulkan-dev vulkan-validationlayers \
-          libgl-dev libglu1-mesa-dev \
-          libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
-          libwayland-dev wayland-protocols libxkbcommon-dev \
-          glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools \
-          python3 python3-pip
-        # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
-        python3 -m pip install jinja2==3.1.6
+    # Disk reclamation, Python + jinja2, the Vulkan/shader toolchain and the
+    # compiler, resolved for whichever runner kind this job landed on. The apt
+    # installs only ever run on a GitHub-hosted runner; on the self-hosted box the
+    # action VERIFIES a system-wide provisioning instead, because that box has
+    # neither passwordless sudo nor apt-get and an unconditional `sudo apt-get`
+    # once kept the nightly red for days.
+    - name: Setup Linux build environment
+      id: linux
+      uses: ./.github/actions/setup-linux-build
+      with:
+        cache-name: asan-lsan
 
     # Provisions sccache and wires it to the GitHub Actions cache backend
     # (SCCACHE_GHA_ENABLED above). Must run before Configure so the launcher
@@ -421,6 +419,7 @@ jobs:
     # attempt so every save writes a fresh snapshot; restore-keys warms from the
     # most recent prior one. Key is per-sanitizer.
     - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -448,10 +447,12 @@ jobs:
       run: >
         cmake -S . -B build
         ${{ steps.vcpkg.outputs.toolchain-args }}
+        ${{ steps.linux.outputs.extra-cmake-args }}
+        -DPython_EXECUTABLE=${{ steps.linux.outputs.python-exe }}
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
-        -DCMAKE_CXX_COMPILER=clang++-19
-        -DCMAKE_C_COMPILER=clang-19
+        -DCMAKE_CXX_COMPILER=${{ steps.linux.outputs.cxx }}
+        -DCMAKE_C_COMPILER=${{ steps.linux.outputs.cc }}
         -DCMAKE_BUILD_TYPE=Debug
         -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
         -DOLO_ENABLE_COMPILER_CACHE=ON
@@ -492,7 +493,7 @@ jobs:
     # over the window measured in #1009). Every one of those recompiled everything
     # and banked nothing, so the next run started just as cold.
     - name: Save sccache storage
-      if: always()
+      if: always() && runner.environment == 'github-hosted'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -568,8 +569,10 @@ jobs:
     name: UBSan (Linux/Clang)
     needs: detect-changes
     if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
-    # See asan-lsan-linux above for why this pins the distro codename.
-    runs-on: ubuntu-24.04
+    # Self-hosted when the code is ours, hosted Ubuntu when it is not. See the
+    # asan-lsan-linux job above for the full reasoning -- the condition is the
+    # security boundary, and both of its disjuncts are load-bearing.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -580,39 +583,17 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Free up disk space
-      # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
-      # OloEngine-Tests (instrumented + vendored static libs) can exhaust it
-      # ("No space left on device" during the final link). Reclaim ~20 GB of
-      # preinstalled toolchains this job doesn't use. `|| true` keeps a missing
-      # path from failing the job; the df lines bracket it for diagnostics.
-      run: |
-        df -h /
-        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
-        sudo docker image prune --all --force 2>/dev/null || true
-        df -h /
-
-    - name: Install Clang 19
-      uses: ./.github/actions/setup-llvm-apt
-
-    - name: Install dependencies
-      run: |
-        # The ubuntu-24.04 runner image ships Microsoft apt repos (azure-cli, prod)
-        # that periodically return 403 Forbidden; we never use them (Clang comes from
-        # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
-        # Drop any Microsoft source so a Microsoft-side outage can't break our update.
-        sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
-        sudo apt-get update
-        sudo apt-get install -y \
-          clang-19 lld-19 \
-          libvulkan-dev vulkan-validationlayers \
-          libgl-dev libglu1-mesa-dev \
-          libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
-          libwayland-dev wayland-protocols libxkbcommon-dev \
-          glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools \
-          python3 python3-pip
-        # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
-        python3 -m pip install jinja2==3.1.6
+    # Disk reclamation, Python + jinja2, the Vulkan/shader toolchain and the
+    # compiler, resolved for whichever runner kind this job landed on. The apt
+    # installs only ever run on a GitHub-hosted runner; on the self-hosted box the
+    # action VERIFIES a system-wide provisioning instead, because that box has
+    # neither passwordless sudo nor apt-get and an unconditional `sudo apt-get`
+    # once kept the nightly red for days.
+    - name: Setup Linux build environment
+      id: linux
+      uses: ./.github/actions/setup-linux-build
+      with:
+        cache-name: ubsan
 
     # Provisions sccache before Configure (see asan-lsan-linux for the version-
     # pin rationale and why no generator switch is needed on Linux).
@@ -627,6 +608,7 @@ jobs:
     # attempt so every save writes a fresh snapshot; restore-keys warms from the
     # most recent prior one. Key is per-sanitizer.
     - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -649,10 +631,12 @@ jobs:
       run: >
         cmake -S . -B build
         ${{ steps.vcpkg.outputs.toolchain-args }}
+        ${{ steps.linux.outputs.extra-cmake-args }}
+        -DPython_EXECUTABLE=${{ steps.linux.outputs.python-exe }}
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
-        -DCMAKE_CXX_COMPILER=clang++-19
-        -DCMAKE_C_COMPILER=clang-19
+        -DCMAKE_CXX_COMPILER=${{ steps.linux.outputs.cxx }}
+        -DCMAKE_C_COMPILER=${{ steps.linux.outputs.cc }}
         -DCMAKE_BUILD_TYPE=Debug
         -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
         -DOLO_ENABLE_COMPILER_CACHE=ON
@@ -693,7 +677,7 @@ jobs:
     # over the window measured in #1009). Every one of those recompiled everything
     # and banked nothing, so the next run started just as cold.
     - name: Save sccache storage
-      if: always()
+      if: always() && runner.environment == 'github-hosted'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -779,8 +763,10 @@ jobs:
     # has been observed finishing at 126 minutes, i.e. over this cap. The
     # asymmetry, not the duration, was the bug.
     timeout-minutes: 180
-    # See asan-lsan-linux above for why this pins the distro codename.
-    runs-on: ubuntu-24.04
+    # Self-hosted when the code is ours, hosted Ubuntu when it is not. See the
+    # asan-lsan-linux job above for the full reasoning -- the condition is the
+    # security boundary, and both of its disjuncts are load-bearing.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -791,39 +777,17 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Free up disk space
-      # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
-      # OloEngine-Tests (instrumented + vendored static libs) can exhaust it
-      # ("No space left on device" during the final link). Reclaim ~20 GB of
-      # preinstalled toolchains this job doesn't use. `|| true` keeps a missing
-      # path from failing the job; the df lines bracket it for diagnostics.
-      run: |
-        df -h /
-        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
-        sudo docker image prune --all --force 2>/dev/null || true
-        df -h /
-
-    - name: Install Clang 19
-      uses: ./.github/actions/setup-llvm-apt
-
-    - name: Install dependencies
-      run: |
-        # The ubuntu-24.04 runner image ships Microsoft apt repos (azure-cli, prod)
-        # that periodically return 403 Forbidden; we never use them (Clang comes from
-        # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
-        # Drop any Microsoft source so a Microsoft-side outage can't break our update.
-        sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
-        sudo apt-get update
-        sudo apt-get install -y \
-          clang-19 lld-19 \
-          libvulkan-dev vulkan-validationlayers \
-          libgl-dev libglu1-mesa-dev \
-          libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
-          libwayland-dev wayland-protocols libxkbcommon-dev \
-          glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools \
-          python3 python3-pip
-        # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
-        python3 -m pip install jinja2==3.1.6
+    # Disk reclamation, Python + jinja2, the Vulkan/shader toolchain and the
+    # compiler, resolved for whichever runner kind this job landed on. The apt
+    # installs only ever run on a GitHub-hosted runner; on the self-hosted box the
+    # action VERIFIES a system-wide provisioning instead, because that box has
+    # neither passwordless sudo nor apt-get and an unconditional `sudo apt-get`
+    # once kept the nightly red for days.
+    - name: Setup Linux build environment
+      id: linux
+      uses: ./.github/actions/setup-linux-build
+      with:
+        cache-name: tsan
 
     # Provisions sccache before Configure (see asan-lsan-linux for the version-
     # pin rationale and why no generator switch is needed on Linux).
@@ -842,6 +806,7 @@ jobs:
     # attempt so every save writes a fresh snapshot; restore-keys warms from the
     # most recent prior one. Key is per-sanitizer.
     - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -864,10 +829,12 @@ jobs:
       run: >
         cmake -S . -B build
         ${{ steps.vcpkg.outputs.toolchain-args }}
+        ${{ steps.linux.outputs.extra-cmake-args }}
+        -DPython_EXECUTABLE=${{ steps.linux.outputs.python-exe }}
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
-        -DCMAKE_CXX_COMPILER=clang++-19
-        -DCMAKE_C_COMPILER=clang-19
+        -DCMAKE_CXX_COMPILER=${{ steps.linux.outputs.cxx }}
+        -DCMAKE_C_COMPILER=${{ steps.linux.outputs.cc }}
         -DCMAKE_BUILD_TYPE=Debug
         -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
         -DOLO_ENABLE_COMPILER_CACHE=ON
@@ -906,7 +873,7 @@ jobs:
     # later times out has already banked its build cache — while a cancel during
     # the BUILD step still saves the partial objects via always().
     - name: Save sccache storage
-      if: always()
+      if: always() && runner.environment == 'github-hosted'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}

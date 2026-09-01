@@ -1,0 +1,231 @@
+name: 'Setup Linux build environment'
+description: >
+  Bring a Linux runner -- GitHub-hosted or the self-hosted Rocky box -- to the
+  point where the engine can be configured, and report back which compiler,
+  Python and extra CMake arguments this particular runner needs.
+
+  It exists because #1009 routed the Linux jobs onto a self-hosted runner, and the
+  two runner kinds differ in almost every preparatory step: one has passwordless
+  sudo and apt, the other has neither; one gets its shader toolchain from apt
+  packages, the other from the LunarG SDK at $VULKAN_SDK; one starts empty every
+  run, the other keeps its caches. Rather than fork five jobs into ten, each job
+  calls this once and splices the outputs into its configure line.
+
+  THE CONVENTION THIS FOLLOWS: on a self-hosted runner a workflow step VERIFIES,
+  it never installs. Self-hosted runners are provisioned system-wide, ahead of
+  time (docs/ops/self-hosted-gpu-runner.md); an unconditional `sudo apt-get` once
+  killed the nightly for days because the Rocky box has neither apt-get nor
+  passwordless sudo. The gate is `runner.environment`, not "does apt exist" --
+  that proxy is wrong for a self-hosted Debian host with passwordless sudo, which
+  would silently take the install path and mutate a machine nobody meant to touch.
+
+inputs:
+  free-disk:
+    description: >
+      Reclaim ~20 GB of preinstalled toolchains on a GitHub-hosted runner. The
+      image ships ~14 GB free, which asan.yml records as enough to hit "No space
+      left on device" during the OloEngine-Tests link. Ignored on self-hosted --
+      that box has its own disk and none of these paths.
+    required: false
+    default: 'true'
+  cache-name:
+    description: >
+      Distinguishes this job's persistent compiler cache on the self-hosted runner
+      (e.g. `asan`, `ubsan`, `tsan`). The sanitizer flag is part of every compile
+      command line and therefore part of sccache's hash, so sharing one directory
+      would be CORRECT but wasteful -- each sanitizer would evict the others.
+      Ignored on GitHub-hosted, where SCCACHE_DIR is workspace-local.
+    required: true
+
+outputs:
+  cc:
+    description: 'C compiler to pass as -DCMAKE_C_COMPILER.'
+    value: ${{ steps.toolchain.outputs.cc }}
+  cxx:
+    description: 'C++ compiler to pass as -DCMAKE_CXX_COMPILER.'
+    value: ${{ steps.toolchain.outputs.cxx }}
+  python-exe:
+    description: 'Interpreter to pass as -DPython_EXECUTABLE.'
+    value: ${{ steps.toolchain.outputs.python-exe }}
+  extra-cmake-args:
+    description: >
+      Runner-specific CMake arguments to splice into the configure line -- on
+      self-hosted, the CMAKE_PREFIX_PATH and Vulkan_LIBRARY that point at the
+      LunarG SDK. Empty on GitHub-hosted.
+    value: ${{ steps.toolchain.outputs.extra-cmake-args }}
+
+runs:
+  using: 'composite'
+  steps:
+    # ---------------------------------------------------------------- hosted
+    - name: Free disk space (hosted)
+      if: runner.environment == 'github-hosted' && inputs.free-disk == 'true'
+      shell: bash
+      run: |
+        df -h /
+        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet \
+                    /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
+        sudo docker image prune --all --force 2>/dev/null || true
+        df -h /
+
+    - name: Install Python 3.10 (hosted)
+      id: py
+      if: runner.environment == 'github-hosted'
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: '3.10'
+
+    - name: Python deps (hosted)
+      if: runner.environment == 'github-hosted'
+      shell: bash
+      # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
+      # It is used only by the glad2 GL-loader generator.
+      run: python3 -m pip install jinja2==3.1.6
+
+    - name: Setup Vulkan SDK (hosted)
+      if: runner.environment == 'github-hosted'
+      uses: ./.github/actions/setup-vulkan
+
+    - name: Add LLVM apt repository (hosted)
+      if: runner.environment == 'github-hosted'
+      uses: ./.github/actions/setup-llvm-apt
+
+    - name: Install Linux deps (hosted)
+      if: runner.environment == 'github-hosted'
+      shell: bash
+      run: |
+        # The ubuntu runner image ships Microsoft apt repos (azure-cli, prod) that
+        # periodically return 403 Forbidden; we never use them (Clang comes from
+        # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
+        # Drop any Microsoft source so a Microsoft-side outage cannot break our update.
+        sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
+        sudo apt-get update
+        # One superset list for every Linux job. The jobs' old lists differed only
+        # by libvulkan-dev/vulkan-validationlayers, which cost seconds; a single
+        # list is worth far more than those seconds, because a per-job list is how
+        # one job quietly acquires a dependency the others do not have.
+        sudo apt-get install -y \
+          clang-19 lld-19 \
+          libvulkan-dev vulkan-validationlayers \
+          libgl-dev libglu1-mesa-dev \
+          libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
+          libwayland-dev wayland-protocols libxkbcommon-dev \
+          glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools
+
+    # ----------------------------------------------------------- self-hosted
+    #
+    # VERIFY, never install. Everything below either passes or prints a message
+    # naming the provisioning step that fixes it -- scripts/setup-olo-ci-runners.sh
+    # and docs/ops/self-hosted-gpu-runner.md.
+    - name: Preflight — toolchain (self-hosted)
+      if: runner.environment != 'github-hosted'
+      shell: bash
+      run: |
+        set -euo pipefail
+        missing=0
+        for tool in cmake ninja ccache clang clang++ lld python3 nasm; do
+          if command -v "$tool" >/dev/null 2>&1; then
+            printf '  %-9s %s\n' "$tool" "$(command -v "$tool")"
+          else
+            echo "::error::$tool not found on the runner's PATH"
+            missing=1
+          fi
+        done
+        # Python MODULES count as toolchain too, and checking only binaries is how
+        # this was missed once already: all preflights passed and the build died
+        # four minutes in on ModuleNotFoundError. glad2's generator imports jinja2.
+        if python3 -c 'import jinja2' 2>/dev/null; then
+          printf '  %-9s %s\n' jinja2 "$(python3 -c 'import jinja2,os;print(os.path.dirname(jinja2.__file__))')"
+        else
+          echo "::error::python module 'jinja2' is not importable by $(id -un)"
+          missing=1
+        fi
+        if [ "$missing" -ne 0 ]; then
+          echo "::error::Provision the runner: sudo bash scripts/setup-olo-ci-runners.sh"
+          echo "::error::Everything must be system-wide — not under a 0700 home, and not a"
+          echo "::error::'pip install --user' in someone else's account. See"
+          echo "::error::docs/ops/self-hosted-gpu-runner.md (Host provisioning)."
+          exit 1
+        fi
+        echo "clang: $(clang --version | head -1)"
+
+    - name: Preflight — Vulkan SDK (self-hosted)
+      if: runner.environment != 'github-hosted'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Rocky packages the loader but none of shaderc / glslang / SPIRV-Tools /
+        # SPIRV-Cross, and OloEngine/CMakeLists.txt raises FATAL_ERROR on the first
+        # one missing. The LunarG SDK supplies all four under one prefix.
+        : "${VULKAN_SDK:?VULKAN_SDK is not set — see docs/ops/self-hosted-gpu-runner.md §1b}"
+        test -d "$VULKAN_SDK/include/vulkan"       || { echo "::error::no headers under $VULKAN_SDK"; exit 1; }
+        test -e "$VULKAN_SDK/lib/libshaderc_shared.so" || { echo "::error::no shaderc under $VULKAN_SDK"; exit 1; }
+
+        # The SDK does NOT put the loader in lib/ -- it nests it under
+        # lib/VulkanLoader/lib/. CMAKE_PREFIX_PATH therefore resolves the headers
+        # and the version but not Vulkan_LIBRARY, and configure dies with
+        # "Could NOT find Vulkan (missing: Vulkan_LIBRARY) (found version 1.4.350)"
+        # -- found-but-not-found, which reads like a version problem and is not one.
+        loader=$(find "$VULKAN_SDK" -name 'libvulkan.so' -print -quit 2>/dev/null || true)
+        [ -n "$loader" ] || { echo "::error::no libvulkan.so anywhere under $VULKAN_SDK"; exit 1; }
+        echo "OLO_VULKAN_LIBRARY=$loader" >> "$GITHUB_ENV"
+        echo "Vulkan SDK: $VULKAN_SDK"
+        echo "  loader:   $loader"
+
+    - name: Point the compiler cache at persistent disk (self-hosted)
+      if: runner.environment != 'github-hosted'
+      shell: bash
+      env:
+        OLO_CACHE_NAME: ${{ inputs.cache-name }}
+      run: |
+        set -euo pipefail
+        # SCCACHE_DIR is set at workflow level to a WORKSPACE path, which is wiped
+        # by actions/checkout every run. Override it to a directory that persists,
+        # and turn off the size bound the hosted jobs need: that bound exists only
+        # to keep the uploaded actions/cache entry small, and here nothing is
+        # uploaded. See scripts/setup-olo-ci-runners.sh.
+        dir="$HOME/.cache/olo/sccache/${OLO_CACHE_NAME}"
+        mkdir -p "$dir"
+        {
+          echo "SCCACHE_DIR=$dir"
+          echo "SCCACHE_CACHE_SIZE=20G"
+          echo "CPM_SOURCE_CACHE=$HOME/.cache/olo/cpm"
+        } >> "$GITHUB_ENV"
+        echo "persistent sccache: $dir"
+
+    # ------------------------------------------------------------- both ways
+    - name: Resolve toolchain for this runner
+      id: toolchain
+      shell: bash
+      env:
+        OLO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        OLO_HOSTED_PYTHON: ${{ steps.py.outputs.python-path }}
+      run: |
+        set -euo pipefail
+        if [ "$OLO_RUNNER_ENVIRONMENT" = "github-hosted" ]; then
+          # clang-19 from apt.llvm.org. The engine needs a C++23 STANDARD LIBRARY,
+          # not merely a C++23 compiler: Core/Reflection uses std::forward_like,
+          # which ubuntu-24.04's default libstdc++ does not provide.
+          cc=clang-19; cxx=clang++-19
+          python_exe="$OLO_HOSTED_PYTHON"
+          extra=""
+        else
+          # Rocky 10's system clang is 21, and there is no clang-19 package. The
+          # version skew against the hosted fallback is accepted deliberately
+          # (#1009): its libstdc++ is far newer than ubuntu-24.04's, so the
+          # forward_like problem cannot arise, and a second compiler version is
+          # coverage rather than a defect. The consequence to remember is that a
+          # diagnostic can appear on one runner kind and not the other -- when a
+          # self-hosted job fails and its hosted fallback does not, check the
+          # compiler version before assuming the box is broken.
+          cc=clang; cxx=clang++
+          python_exe="$(command -v python3)"
+          extra="-DCMAKE_PREFIX_PATH=${VULKAN_SDK} -DVulkan_LIBRARY=${OLO_VULKAN_LIBRARY}"
+        fi
+        {
+          echo "cc=$cc"
+          echo "cxx=$cxx"
+          echo "python-exe=$python_exe"
+          echo "extra-cmake-args=$extra"
+        } >> "$GITHUB_OUTPUT"
+        echo "toolchain: $cxx / $python_exe ${extra:+(+ $extra)}"
