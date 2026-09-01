@@ -360,6 +360,67 @@ Two more that are easy to get subtly wrong:
 
 ---
 
+## 5a. When the signal is RGBA and alpha is not a colour
+
+From #903, which moved `PostProcess_CloudscapeResolve.glsl` onto the shared
+kernel — the last hand-rolled resolve in the engine. The pass's signal is RGBA
+and the alpha is TRANSMITTANCE, consumed downstream as `scene * a + rgb`. Three
+things follow, and only the first is obvious.
+
+**A non-colour channel must not enter YCoCg.** The transform exists to give luma
+and chroma separate variance, so the clip box can be tight on brightness and
+loose on hue. A fourth quantity pushed through it acquires a "chroma" that means
+nothing, and the history then gets rejected for having the wrong colour in a
+channel that has no colour. So alpha gets its own 1-D box, gathered in the same
+nine-tap loop.
+
+**In one dimension, the clip and the clamp are the same operation** — and this
+is worth writing down at the call site, because a `clamp()` in a file that just
+removed a componentwise clamp reads as a leftover. §5's failure mode (the
+rejected history lands on a value the neighbourhood never contained) requires at
+least two coupled axes: the clamp moves the point off the segment by treating
+each axis separately, and one axis has no second axis to leave. So
+`OloTemporalClipHistoryScalar` clamps, and that IS `OloTemporalClipToAABB`
+degenerate, pinned by `StochasticSampler.ScalarClipIsTheOneDimensionalCaseOfTheClip`
+rather than asserted in prose.
+
+**The thing actually worth a GPU probe is the GATHER, not the math.** Filling
+two statistics structs from one loop is where this breaks — an alpha moment
+written from the colour accumulator, or the reverse — and every CPU mirror of
+the *functions* those statistics feed still passes on that bug.
+`ShaderUnit_TemporalResolveRGBA.glsl` runs both gathers in one invocation over
+the same texels and emits both results, so the colour path is compared against
+its own pre-existing macro rather than against a re-derived expectation. The two
+signals that separate a crossed accumulator from a working one are a
+neighbourhood with **flat colour and varied alpha** and its mirror image; on
+either of them a crossed gather produces a wrong box and a plausible frame.
+
+**The hard min/max is not redundant next to the variance box, and fp32 is why.**
+`sqrt(E[x^2] - mean^2)` does not return zero on a flat neighbourhood: one ULP of
+cancellation in the subtraction (5.96e-8 at x = 0.6) becomes **2.4e-4** after the
+sqrt, because sqrt has unbounded slope at the origin — measured on the GPU at
+3.2e-4. So the variance box over a uniform patch of sky is ~±4e-4 wide rather
+than degenerate, and it is the intersection with the hard box that closes it. A
+reader tidying `max(MinC, mean - gamma*stddev)` down to `mean - gamma*stddev`
+would be removing the only thing keeping a flat neighbourhood tight. The
+consequence is also the reason to assert on the *resolved value* rather than on
+the statistic: a test that demands `stddev == 0` on a flat channel fails on
+correct code, which is how this was found.
+
+**And one non-obvious non-adoption: the cloudscape deliberately does NOT take
+`OloTemporalMotionFeedback`.** That helper exists because TAA's reprojection is
+least trustworthy exactly where motion is largest — at the silhouettes of moving
+objects, which velocity dilation only half-fixes. A pass with no moving objects
+and no velocity buffer reprojects a camera pan *analytically and correctly*,
+while the signal it accumulates is a jittered raymarch that needs its history
+most while the camera moves. Cutting feedback on motion there trades a ghost the
+pass does not have for noise it does. The general rule: every knob in a shared
+kernel encodes the first caller's failure mode, and adopting the kernel is not
+the same as adopting all of it — say in a comment which parts you declined and
+why, or the next reader will "fix" the omission.
+
+---
+
 ## 6. Adopting the utility in a new pass
 
 `#define OLO_BLUE_NOISE_GLOBAL_SAMPLER` **after** `include/BindlessHeap.glsl`
@@ -393,11 +454,11 @@ the pass's own signal.** SSR and SSGI both composited into the scene colour, so
 their output target was *not* accumulable — temporally blending it would smear the
 base colour too. #706 deliberately stopped short of fixing that and shipped the
 sampler for those two passes alone; **#902 did the structural work**, and §6a
-below is what it cost. `PostProcess_CloudscapeResolve.glsl` remains the obvious
-next adopter of the resolve itself (it was left alone in #706 because its signal
-is RGBA — alpha carries transmittance — and the cloud goldens are unusually
-sensitive, see
-[volumetric-cloud-debugging.md](volumetric-cloud-debugging.md)).
+below is what it cost. **#903 finished the set**:
+`PostProcess_CloudscapeResolve.glsl`, left alone in #706 because its signal is
+RGBA — alpha carries transmittance — now goes through the kernel too, and §5a
+above is what that cost. There is no hand-rolled temporal resolve left in the
+engine.
 
 ---
 

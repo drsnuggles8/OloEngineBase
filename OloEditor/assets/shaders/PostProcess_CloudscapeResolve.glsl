@@ -2,11 +2,16 @@
 // PostProcess_CloudscapeResolve.glsl — cloud temporal accumulation (pass B)
 //
 // Half-resolution: blends this frame's jittered raymarch (pass A) with the
-// reprojected history using a 3x3 neighborhood clamp (the TAA variance-clip
-// idea simplified to min/max — clouds are soft, min/max suffices). History
-// reprojection uses the ray's cloud-layer midpoint as the representative
-// world position (clouds have no depth buffer; the layer midpoint is stable
-// and cheap to recompute here without carrying depth through pass A).
+// reprojected history through the shared kernel in
+// include/TemporalResolve.glsl (issue #903). Until then this pass carried its
+// own resolve — a componentwise RGB min/max clamp and a bare mix() — which was
+// the engine's second implementation of the same four questions and the weaker
+// one: no variance box, and a clamp that can move a rejected history onto a
+// colour the neighbourhood never contained.
+//
+// The one thing that is genuinely this pass's own is that the signal is RGBA
+// and alpha is TRANSMITTANCE, not a colour channel. See the block above
+// OloTemporalResolveRGBA in the header, and the call site below.
 //
 // The graph extracts this pass's output into the history sink each frame
 // (TAA RegisterHistoryTextureSink/ExtractHistoryTexture pattern), so history
@@ -84,18 +89,39 @@ layout(std140, binding = 8) uniform MotionBlurUBO {
     mat4 u_MB_PrevViewProjection; // ABSOLUTE world -> previous clip
 };
 
+// The shared temporal kernel (issue #706, adopted here by #903). This pass used
+// to hand-roll the last three of the resolve's four questions — a componentwise
+// RGB min/max clamp with no variance box, and a bare mix() — which is exactly
+// the second implementation the header exists to remove.
+#include "include/TemporalResolve.glsl"
+
+// The clip box is mean +/- kClipGamma * stddev, intersected with the hard 3x3
+// min/max. 1.25 is the value TAA uses and it transfers for the same reason it
+// works there: the box is built from THIS frame's neighbourhood, so where the
+// raymarch's per-frame step jitter makes the signal noisy the stddev is large
+// and the box opens to admit it, and where the deck is smooth the stddev is
+// small but so is the distance from the history to the mean. It is not a
+// tightness knob applied to a fixed amount of noise.
+const float kClipGamma = 1.25;
+
 void main()
 {
     vec4 current = texture(u_CloudCurrent, v_TexCoord);
-    float blend = clamp(u_CloudMisc.x, 0.0, 0.98);
+    float blend = u_CloudMisc.x;
     if (blend <= 0.0 || u_CloudMisc.w < 0.5)
     {
         o_Cloud = current;
         return;
     }
 
-    // Representative world position: the view ray's cloud-layer midpoint (or
-    // a fixed far distance when the ray misses the layer — sky rotation).
+    // -------------------------------------------------------------------------
+    // 1) WHERE was this pixel last frame?
+    //
+    // Clouds have no depth buffer, so the reprojection anchor is the view ray's
+    // cloud-layer midpoint (or a fixed far distance when the ray misses the
+    // layer — sky rotation). Stable, and cheap to recompute here without
+    // carrying depth through pass A.
+    // -------------------------------------------------------------------------
     vec4 ndc = vec4(v_TexCoord * 2.0 - 1.0, 1.0, 1.0);
     vec4 worldFar = u_InverseViewProjection * ndc;
     worldFar.xyz /= worldFar.w;
@@ -106,14 +132,26 @@ void main()
     vec3 worldMid = cameraPos + rayDir * tMid;
 
     // Reproject into last frame (absolute-world prev VP, camera-relative #429).
-    vec4 prevClip = u_MB_PrevViewProjection * vec4(worldMid, 1.0);
-    if (prevClip.w <= 0.0)
+    bool inFrontOfPrevCamera;
+    vec2 prevUV = OloTemporalReprojectWorldPoint(u_MB_PrevViewProjection, worldMid, inFrontOfPrevCamera);
+    if (!inFrontOfPrevCamera)
     {
         o_Cloud = current;
         return;
     }
-    vec2 prevUV = (prevClip.xy / prevClip.w) * 0.5 + 0.5;
-    if (any(lessThan(prevUV, vec2(0.0))) || any(greaterThan(prevUV, vec2(1.0))))
+
+    // -------------------------------------------------------------------------
+    // 2) Is that history the SAME SURFACE?
+    //
+    // Two rejections, and they are the only two available here. There is no
+    // depth history to feed OloTemporalDepthConfidence: the anchor above is a
+    // point on a fitted layer, not a surface the frame measured, and the pass
+    // carries nothing from last frame but the resolved RGBA. So the disocclusion
+    // half of the kernel is answered by an off-screen test and by the #987
+    // occlusion gate, and a depth-confidence term would need pass A to publish a
+    // depth channel first.
+    // -------------------------------------------------------------------------
+    if (!OloTemporalHistoryUVValid(prevUV))
     {
         o_Cloud = current;
         return;
@@ -123,7 +161,7 @@ void main()
     //
     // The raymarch writes exactly (rgb = 0, a = 1) when the ray never reaches
     // the cloud layer — including when it stops on terrain. The neighbourhood
-    // clamp below cannot protect that case, because it widens nMax with the
+    // clip below cannot protect that case, because it widens the box with the
     // SKY texels next door: at an island's ridge the neighbourhood legitimately
     // contains cloud, so last frame's cloud stays inside the allowed range and
     // is blended onto a texel that is now solid rock. Measured on Drift: zero
@@ -140,23 +178,31 @@ void main()
         return;
     }
 
+    // -------------------------------------------------------------------------
+    // 3) Is that history's VALUE still plausible?   4) How much do I keep?
+    //
+    // Both from the shared kernel. rgb is variance-clipped in YCoCg; alpha is
+    // transmittance and is clipped in its own 1-D space — see "Channels that
+    // are NOT colour" in include/TemporalResolve.glsl for why it must not go
+    // through the colour transform, and why the clamp that implements a 1-D
+    // clip is not the componentwise clamp this pass just stopped doing.
+    //
+    // NO motion-scaled feedback here, deliberately, and this is the one place
+    // the cloudscape does not want what TAA wants. OloTemporalMotionFeedback
+    // exists because TAA's reprojection is least trustworthy exactly where
+    // motion is largest — at the silhouettes of moving objects, which velocity
+    // dilation only half-fixes. This pass has no moving objects and no velocity
+    // buffer: a camera pan reprojects the layer analytically and is *correct*,
+    // while the signal it is accumulating is a jittered raymarch that needs the
+    // history most while the camera moves. Cutting feedback on motion here would
+    // trade a ghost this pass does not have for noise it does.
+    // -------------------------------------------------------------------------
     vec4 history = texture(u_CloudHistory, prevUV);
 
-    // 3x3 neighborhood min/max clamp on the current frame kills ghosting when
-    // the field itself changes (wind, weather transitions).
     vec2 texel = 1.0 / vec2(textureSize(u_CloudCurrent, 0));
-    vec4 nMin = current;
-    vec4 nMax = current;
-    for (int y = -1; y <= 1; ++y)
-    {
-        for (int x = -1; x <= 1; ++x)
-        {
-            vec4 s = texture(u_CloudCurrent, v_TexCoord + vec2(x, y) * texel);
-            nMin = min(nMin, s);
-            nMax = max(nMax, s);
-        }
-    }
-    history = clamp(history, nMin, nMax);
+    OloTemporalStats stats;
+    OloTemporalScalarStats alphaStats;
+    OLO_TEMPORAL_GATHER_3X3_RGBA(u_CloudCurrent, v_TexCoord, texel, stats, alphaStats);
 
-    o_Cloud = mix(current, history, blend);
+    o_Cloud = OloTemporalResolveRGBA(current, history, stats, alphaStats, kClipGamma, blend, 1.0);
 }
