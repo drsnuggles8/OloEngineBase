@@ -1030,6 +1030,10 @@ void main()
             // deferred path is not what closes this bucket.
             { "DeferredLighting_MSAA.glsl",
               "sampler2DMS: no reserved multisample null and no OLO_HEAP_TEX_* form to reach one" },
+            { "GBufferFlagsResolve.glsl",
+              "sampler2DMS: the same missing multisample null as DeferredLighting_MSAA above — this "
+              "pass exists precisely to read the MULTISAMPLE RT2 (issue #996), so it cannot be "
+              "converted before that target has a reserved null" },
 
             // ---- 3. THE HEAP REPLACES THE MECHANISM, NOT THE DECLARATION -----
             // `sampler2D u_Textures[32]` selected by a 32-case switch on a

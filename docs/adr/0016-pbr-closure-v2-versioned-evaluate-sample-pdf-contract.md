@@ -151,13 +151,25 @@ the furnace test asserts, and the reason the tables need no fudge factor.
   one-sample estimator scores as a zero-contribution draw.
 * Terrain, voxel, water, foliage, particles and snow keep their existing
   closures/paths regardless of model — per the issue's out-of-scope list.
-* **The G-Buffer flags lane is not average-safe.** In the resolved-MSAA
-  deferred mode (MSAA > 1 with per-sample lighting off — two non-default,
-  session-local toggles) the resolve averages samples and an averaged bitfield
-  decodes wrongly at silhouettes. The pre-#975 unlit flag had the milder
-  variant of the same defect; the real fix (excluding the lane from the
-  averaged resolve) is deliberately out of this slice. Documented at
-  `oloEncodeGBufferPbrFlags`, the layout's one executable home.
+* ~~**The G-Buffer flags lane is not average-safe.**~~ **Fixed in #996, and no
+  longer a limitation.** It was: in the resolved-MSAA deferred mode (MSAA > 1
+  with per-sample lighting off — two non-default, session-local toggles) the
+  resolve averaged samples, and an averaged bitfield decodes wrongly at
+  silhouettes. `GBuffer::Resolve()` now keeps the average blit for RT2's
+  emissive RGB (which is what leaves a Legacy-only frame byte-identical) and
+  then runs `GBufferFlagsResolve.glsl`, which overwrites the alpha channel
+  alone with `texelFetch` of a **single sample** — the first lit one, so a pixel
+  a real surface covers is never read as unlit — a value some sample wrote, and
+  an exactly-defined fetch on both backends and every vendor, unlike the
+  averaged encoding whose half-way cases included an implementation-defined
+  `round()` tie-break. The same change removed the lane's single-bit model
+  ceiling: it carries the whole `PBRModel` index shifted past the unlit bit and
+  the decode is a plain `>> 1`, so appending a model can no longer truncate to
+  Legacy on the deferred path while Forward shades it correctly. The layout
+  still has exactly one executable home (`oloEncodeGBufferPbrFlags`) and one
+  decode site (`DeferredLightingShared.glsl`); the only remaining bound is
+  exact integer representation in RGBA16F, asserted at `kPBRModelGBufferLaneMax`
+  in `PBRModel.h`.
 * **Asset previews render their own closure regardless of model** —
   `MaterialPreview.glsl` is a standalone closure copy that predates the
   dispatch and does not include PBRCommon; the `MaterialAsset` lane and the

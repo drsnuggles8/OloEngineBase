@@ -22,6 +22,17 @@
 // beat the Legacy sphere's by a wide margin — the lane-dead regression makes
 // the two spheres identical and fails the assertion on that path.
 //
+// SCOPE, and where the rest of the lane is covered (issue #996). This test
+// compares the two paths for the models that EXIST, which is what a scene can
+// author. Two neighbouring properties of the same journey are pinned where they
+// can actually be exercised:
+//   * every ENCODABLE model index (not just the two that exist today) survives
+//     the G-Buffer flags lane un-truncated — GBufferFlagsLaneTest in
+//     PbrPropertyTests.cpp, which drives the production encode/decode helpers
+//     through the real fp16 quantisation;
+//   * the lane survives an MSAA resolve, so a ClosureV2 silhouette is not
+//     misclassified as unlit — GBufferFlagsResolveEvidenceTest.cpp.
+//
 // Evidence PNGs (written before any assertion):
 //   OloEditor/assets/tests/visual/ClosureV2Parity_Forward.png
 //   OloEditor/assets/tests/visual/ClosureV2Parity_Deferred.png

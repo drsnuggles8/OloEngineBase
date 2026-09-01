@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Shader.h"
 
 #include <array>
 
@@ -156,10 +157,23 @@ namespace OloEngine
         GBuffer(u32 width, u32 height, u32 sampleCount);
         void Recreate();
 
+        // Overwrite the resolve target's RT2 ALPHA with the flags ONE sample of
+        // the multisample RT2 wrote, undoing the average blit for the one channel
+        // that is a bitfield rather than radiometry (issue #996). Runs inside
+        // Resolve() so no caller can forget it; a no-op when sampleCount == 1.
+        void ResolveFlagsLane();
+
         u32 m_Width = 0;
         u32 m_Height = 0;
         u32 m_SampleCount = 1;
         Ref<Framebuffer> m_Framebuffer;
         Ref<Framebuffer> m_ResolvedFramebuffer; // null when m_SampleCount == 1
+
+        // GBufferFlagsResolve.glsl — the alpha-only fixup Resolve() runs after
+        // the average blit (issue #996). Created lazily on the first MSAA
+        // resolve and owned by this GBuffer, so a single-sample G-Buffer (and
+        // every headless session that never resolves) compiles nothing.
+        Ref<Shader> m_FlagsResolveShader;
+        bool m_FlagsResolveShaderFailed = false;
     };
 } // namespace OloEngine
