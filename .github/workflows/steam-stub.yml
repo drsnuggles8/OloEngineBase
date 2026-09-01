@@ -214,6 +214,12 @@ jobs:
       # still banks the ports this run just spent ~40 minutes installing.
       - name: Save vcpkg binary cache
         if: always()
+        # A cache save must never fail the job it is attached to. `if: always()`
+        # means this runs on a CANCEL, where the path it is asked to save may not
+        # exist yet -- and actions/cache/save treats a missing path as a validation
+        # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+        # strictly worse outcome than the cold cache this is fixing.
+        continue-on-error: true
         uses: ./.github/actions/save-vcpkg-cache
         with:
           key: ${{ steps.vcpkg.outputs.cache-key }}
@@ -229,6 +235,20 @@ jobs:
       # Resolved ONCE and exported, rather than repeating the find in each test step: two lookups
       # can disagree (a stale binary from an earlier layout still on disk would be picked by one
       # and not the other), and a single failure point is easier to read in the log.
+      # Only meaningful on the self-hosted runner, which has ccache; the hosted arm
+      # has no compiler cache for this job and says so. Printed because a cache that
+      # restores and hits on nothing looks exactly like a working one -- see
+      # docs/agent-rules/ci-cache-that-looks-alive.md.
+      - name: Show compiler cache stats
+        if: always()
+        shell: bash
+        run: |
+          if command -v ccache >/dev/null 2>&1 && [ -n "${CCACHE_DIR:-}" ]; then
+            ccache --show-stats
+          else
+            echo "no compiler cache on this runner (hosted arm)"
+          fi
+
       - name: Locate the test binary
         run: |
           BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)

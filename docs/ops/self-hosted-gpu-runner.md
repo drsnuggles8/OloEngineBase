@@ -264,11 +264,31 @@ The CI jobs added by #1009 use a second set under `.cache/olo/`, created by
 
 | Path | Written by | Notes |
 |---|---|---|
-| `~/.cache/olo/ccache` | ccache | bounded at 30 GiB by the setup script |
-| `~/.cache/olo/sccache/<name>` | sccache, one dir per sanitizer | `setup-linux-build`'s `cache-name` input. The `-fsanitize=` flag is part of every compile command line and so part of sccache's hash — one shared dir would be correct but each sanitizer would evict the others |
-| `~/.cache/olo/vcpkg-binary-cache` | vcpkg (`files` provider) | `setup-vcpkg` prunes archives untouched for 30 days |
-| `~/.cache/olo/vcpkg` | the vcpkg clone itself | **not** `RUNNER_TEMP`: that is emptied at the start of every job, so a clone there is re-fetched from github.com on every run |
-| `~/.cache/olo/cpm` | CPM / FetchContent | |
+| `~/.cache/olo/ccache` | ccache, **shared by every job** | bounded at 30 GiB by the setup script |
+| `~/.cache/olo/vcpkg-binary-cache` | vcpkg (`files` provider), shared | `setup-vcpkg` evicts oldest-first only when it exceeds 20 GiB |
+| `~/.cache/olo/vcpkg-<runner-name>` | the vcpkg clone itself, **per runner** | |
+| `~/.cache/olo/cpm` | CPM / FetchContent, shared | |
+
+Two of those distinctions are load-bearing, and both come from the same fact:
+**two runner instances share one Unix account.**
+
+- **ccache, not sccache.** sccache is a per-*user* daemon, and the first client to
+  start it fixes the server's environment — so a second concurrent job's
+  `SCCACHE_DIR` is silently ignored, which is the exact genre of failure this
+  work exists to remove. ccache is a process per compiler invocation with an
+  on-disk format built for concurrent writers. One shared directory is right:
+  ccache hashes the full command line, so `-fsanitize=address` and
+  `-fsanitize=thread` objects cannot collide, and a single large LRU beats
+  several fixed-size ones. The hosted arm keeps sccache, where a job owns the VM.
+- **The vcpkg clone is per runner.** `setup-vcpkg` does not treat it as read-only
+  — it `git checkout --force --detach`es to the manifest baseline and runs
+  `bootstrap-vcpkg.sh` in it. Two jobs sharing one clone would race on the index
+  lock, on `downloads/`, and (silently, which is worse) on the version database,
+  which one job can swap out from under another's install. `RUNNER_NAME` is
+  unique per instance and stable across runs, so each keeps its own warmth.
+
+The binary *cache* is shared deliberately — the `files` provider writes to a temp
+path and renames, and sharing is the whole point of it.
 
 **Why local disk rather than `actions/cache`, in one line:** an entry on local
 disk has no post-job save step for a cancellation to skip, no ref scoping, and no

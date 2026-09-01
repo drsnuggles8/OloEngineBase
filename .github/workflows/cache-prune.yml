@@ -10,22 +10,36 @@
 # entry is the current one. It can evict the newest 2 GB Windows sccache snapshot
 # to make room for a superseded 786 MB one that some job happened to touch.
 #
-# So the eviction policy has to be ours, and it is simply: for each key prefix,
-# keep the newest entry and delete the rest.
+# So the eviction policy has to be ours, and it is: for each key prefix ON EACH
+# REF, keep the newest entry and delete the rest.
+#
+# THE REF IS PART OF THE GROUPING AND IT IS LOAD-BEARING. GitHub scopes a cache
+# entry to the ref that wrote it: an entry written by a PR run is visible to that
+# PR alone, and only default-branch entries are readable fleet-wide. Group by
+# prefix alone and a PR that happens to save a newer snapshot would delete the
+# `refs/heads/master` entry every other branch restores from -- which is exactly
+# the property the rest of #1009 is built on, undone nightly by its own cleanup.
 #
 # WHAT IT DELIBERATELY DOES NOT DO
 # --------------------------------
-# It never deletes the newest entry for a prefix, whatever its age -- a cache that
-# is merely old is not a cache that is wrong, and deleting the last snapshot of a
-# 40-minute vcpkg install to reclaim quota would cost far more than it saves. A
-# prefix that has genuinely gone away (a renamed key) therefore leaves one orphan
-# behind; one entry per dead prefix is a rounding error against the cap, and the
-# alternative is a rule that can delete a live cache.
+# It never deletes the newest entry for a (ref, prefix), whatever its age -- a
+# cache that is merely old is not a cache that is wrong, and deleting the last
+# snapshot of a 40-minute vcpkg install to reclaim quota would cost far more than
+# it saves. A prefix that has genuinely gone away (a renamed key) therefore leaves
+# one orphan behind; one entry per dead prefix is a rounding error against the
+# cap, and the alternative is a rule that can delete a live cache.
 name: Prune Actions cache
 
 on:
   schedule:
-    - cron: '11 4 * * *' # nightly 04:11 UTC — after every nightly build has saved.
+    # 06:41 UTC — after the two heaviest nightlies have saved (Sanitizers 01:23 and
+    # Windows 01:53, each up to ~3 h). It cannot be after ALL of them: SonarCloud
+    # and the weekly dist-archive can run past 09:00. That is fine and not worth
+    # chasing — this job only ever deletes SUPERSEDED entries, so running before a
+    # nightly has saved simply means that entry is not there yet and is collected
+    # tomorrow instead. Running *never* after a save would be the problem; running
+    # a few hours early is not.
+    - cron: '41 6 * * *'
   workflow_dispatch:
 
 # The only write scope this workflow needs, and it needs it: deleting a cache entry
@@ -62,38 +76,43 @@ jobs:
           # rejects `--slurp` combined with `--jq`. jq is preinstalled on the hosted
           # Ubuntu image.
           gh api --paginate "repos/${GH_REPO}/actions/caches?per_page=100" --slurp \
-            | jq -r '[.[].actions_caches[]] | sort_by(.created_at) | reverse | .[] | [.id, .key, .size_in_bytes] | @tsv' \
+            | jq -r '[.[].actions_caches[]]
+                     | sort_by(.created_at) | reverse
+                     | .[] | [.id, .ref, .key, .size_in_bytes] | @tsv' \
             > /tmp/caches.tsv
 
           # The prefix is the key with its trailing `-<run_id>[-<run_attempt>]`
           # stripped. Keys that carry no run id (the content-addressed FFmpeg and
           # Vulkan SDK entries) collapse to themselves, so each is its own prefix
           # and its single entry is always the newest -- they are never deleted.
-          # Entries arrive newest-first, so the first sighting of a prefix is the
+          # Entries arrive newest-first, so the first sighting of a group is the
           # keeper and every later one is superseded.
           declare -A seen=()
           kept=0
+          deleted=0
           freed=0
-          while IFS=$'\t' read -r id key size; do
+          while IFS=$'\t' read -r id ref key size; do
             [ -n "${id:-}" ] || continue
             prefix=$(printf '%s' "$key" | sed -E 's/-[0-9]{6,}(-[0-9]+)?$//')
-            if [ -z "${seen[$prefix]:-}" ]; then
-              seen[$prefix]=1
+            group="${ref}|${prefix}"
+            if [ -z "${seen[$group]:-}" ]; then
+              seen[$group]=1
               kept=$((kept + 1))
-              printf 'keep    %8s MiB  %s\n' "$((size / 1048576))" "$key"
+              printf 'keep    %6s MiB  %-28s %s\n' "$((size / 1048576))" "$ref" "$key"
               continue
             fi
-            printf 'DELETE  %8s MiB  %s\n' "$((size / 1048576))" "$key"
+            printf 'DELETE  %6s MiB  %-28s %s\n' "$((size / 1048576))" "$ref" "$key"
             # Never let one failed delete abort the sweep: a cache can be evicted by
             # GitHub between the listing and the delete, which 404s.
             if gh api -X DELETE "repos/${GH_REPO}/actions/caches/${id}" >/dev/null 2>&1; then
+              deleted=$((deleted + 1))
               freed=$((freed + size))
             else
               echo "  (already gone)"
             fi
           done < /tmp/caches.tsv
 
-          echo "kept $kept entr(ies) (one per key prefix); freed $((freed / 1048576)) MiB"
+          echo "kept $kept (newest per ref+prefix), deleted $deleted, freed $((freed / 1048576)) MiB"
 
           echo "after:"
           gh api "repos/${GH_REPO}/actions/cache/usage" \

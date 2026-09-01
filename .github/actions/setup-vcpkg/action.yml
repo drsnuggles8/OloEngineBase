@@ -146,12 +146,22 @@ runs:
         # changes when the manifest baseline moves. Put it under the runner user's
         # cache instead, where it persists and the checkout below is the only work
         # left to do.
+        #
+        # PER RUNNER, not per user. Several runner instances share one Unix account
+        # on the self-hosted box (olo-ci-1 and olo-ci-2 both run as gh-runner-olo),
+        # and the next steps do NOT treat this directory as read-only: they
+        # `git checkout --force --detach` it to the manifest baseline and run
+        # bootstrap-vcpkg.sh in it. Two concurrent jobs sharing one clone would race
+        # on the index lock, on $VCPKG_ROOT/downloads, and -- worst, because it is
+        # silent -- on the version database, which one job can swap out from under
+        # another job's install. RUNNER_NAME is unique per instance and stable
+        # across runs, so each gets its own clone and keeps its own warmth.
         root="${VCPKG_INSTALLATION_ROOT:-}"
         if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
           if [ "${{ runner.environment }}" = "github-hosted" ]; then
             root="${RUNNER_TEMP}/vcpkg"
           else
-            root="${OLO_VCPKG_PERSISTENT_ROOT:-$HOME/.cache/olo/vcpkg}"
+            root="${OLO_VCPKG_PERSISTENT_ROOT:-$HOME/.cache/olo/vcpkg-${RUNNER_NAME:-default}}"
             mkdir -p "$(dirname "$root")"
           fi
           if [ ! -d "$root/.git" ]; then
@@ -311,6 +321,11 @@ runs:
         OLO_VCPKG_TRIPLET: ${{ inputs.triplet }}
         OLO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         OLO_VCPKG_CACHE_HASH: ${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}
+        # "true" exactly when this run cannot write the cache service: a
+        # pull_request from a fork, whose GITHUB_TOKEN is read-only. Derived from
+        # the event here rather than from the `read-only` input, because no caller
+        # passes that input and a guard nothing reaches is not a guard.
+        OLO_VCPKG_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       run: |
         set -euo pipefail
 
@@ -358,11 +373,14 @@ runs:
         #
         # Empty means "there is nothing for a save step to do":
         #   * persistent -- the archives are already durable on local disk;
-        #   * read-only  -- a fork PR's GITHUB_TOKEN cannot write the cache service
-        #                   at all, so a save step could only ever log a permission
-        #                   error at the end of every fork PR.
+        #   * a fork PR  -- its GITHUB_TOKEN cannot write the cache service at all,
+        #                   so a save step could only ever log a permission error at
+        #                   the end of every fork PR;
+        #   * read-only  -- the caller asked for restore-only semantics.
         key=""
-        if [ "$persistent" = false ] && [ "$OLO_VCPKG_READ_ONLY" != "true" ]; then
+        if [ "$persistent" = false ] \
+           && [ "$OLO_VCPKG_FORK_PR" != "true" ] \
+           && [ "$OLO_VCPKG_READ_ONLY" != "true" ]; then
           key="vcpkg-${RUNNER_OS}-${OLO_VCPKG_TRIPLET}-${OLO_VCPKG_CACHE_HASH}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
         fi
         echo "save-key=$key" >> "$GITHUB_OUTPUT"
@@ -380,11 +398,35 @@ runs:
         OLO_VCPKG_CACHE_DIR: ${{ steps.cachecfg.outputs.dir }}
       run: |
         set -euo pipefail
-        before=$(du -sh "$OLO_VCPKG_CACHE_DIR" 2>/dev/null | cut -f1 || echo '?')
-        find "$OLO_VCPKG_CACHE_DIR" -type f -name '*.zip' -atime +30 -delete 2>/dev/null || true
+        # SIZE-CAPPED, not age-based, and that is deliberate. The obvious rule --
+        # `find -atime +30 -delete` -- is a trap twice over. It reads access time,
+        # which a `noatime` mount never updates at all (and `relatime` only once a
+        # day), so on the wrong filesystem it silently deletes the LIVE archive set
+        # every 30 days and the next job rebuilds all 116 ports with no error
+        # anywhere. And age is the wrong signal regardless: an archive for a port
+        # that has not changed in a year is old and completely current.
+        #
+        # So: do nothing at all while there is room, and only when the cache exceeds
+        # the cap delete oldest-first until it is back under. Nothing is ever
+        # evicted while there is space, and when there isn't, the cost of a wrong
+        # eviction is one rebuilt port.
+        cap_mib="${OLO_VCPKG_CACHE_CAP_MIB:-20480}"
+        used_mib=$(du -sm "$OLO_VCPKG_CACHE_DIR" 2>/dev/null | cut -f1 || echo 0)
+        echo "persistent vcpkg binary cache: ${used_mib} MiB used, cap ${cap_mib} MiB ($OLO_VCPKG_CACHE_DIR)"
+        if [ "$used_mib" -le "$cap_mib" ]; then
+          echo "  under cap; nothing evicted"
+          exit 0
+        fi
+        # %T@ is mtime: always recorded, unlike atime. For a content-addressed
+        # archive, written-once means mtime IS the age of that ABI hash.
+        over=$(( (used_mib - cap_mib) * 1048576 ))
+        freed=0
+        while IFS=$'\t' read -r _ts size path; do
+          [ "$freed" -lt "$over" ] || break
+          rm -f -- "$path" && freed=$((freed + size))
+        done < <(find "$OLO_VCPKG_CACHE_DIR" -type f -name '*.zip' -printf '%T@\t%s\t%p\n' 2>/dev/null | sort -n)
         find "$OLO_VCPKG_CACHE_DIR" -mindepth 1 -type d -empty -delete 2>/dev/null || true
-        after=$(du -sh "$OLO_VCPKG_CACHE_DIR" 2>/dev/null | cut -f1 || echo '?')
-        echo "persistent vcpkg binary cache: $before -> $after ($OLO_VCPKG_CACHE_DIR)"
+        echo "  evicted $((freed / 1048576)) MiB (oldest first) to get back under the cap"
 
     # Guard against exactly the x-gha class of failure: a provider that this tool
     # build no longer implements is accepted with a warning and silently ignored.

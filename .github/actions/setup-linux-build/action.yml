@@ -30,11 +30,11 @@ inputs:
     default: 'true'
   cache-name:
     description: >
-      Distinguishes this job's persistent compiler cache on the self-hosted runner
-      (e.g. `asan`, `ubsan`, `tsan`). The sanitizer flag is part of every compile
-      command line and therefore part of sccache's hash, so sharing one directory
-      would be CORRECT but wasteful -- each sanitizer would evict the others.
-      Ignored on GitHub-hosted, where SCCACHE_DIR is workspace-local.
+      Names this job in the self-hosted compiler-cache log line. Purely diagnostic:
+      all self-hosted jobs share one ccache directory, which is correct -- ccache
+      hashes the full compile command line, so `-fsanitize=address` and
+      `-fsanitize=thread` objects cannot collide, and one shared LRU is strictly
+      better than several fixed-size ones.
     required: true
 
 outputs:
@@ -179,19 +179,39 @@ runs:
         OLO_CACHE_NAME: ${{ inputs.cache-name }}
       run: |
         set -euo pipefail
-        # SCCACHE_DIR is set at workflow level to a WORKSPACE path, which is wiped
-        # by actions/checkout every run. Override it to a directory that persists,
-        # and turn off the size bound the hosted jobs need: that bound exists only
-        # to keep the uploaded actions/cache entry small, and here nothing is
-        # uploaded. See scripts/setup-olo-ci-runners.sh.
-        dir="$HOME/.cache/olo/sccache/${OLO_CACHE_NAME}"
+        # CCACHE HERE, sccache on the hosted runners, and the difference is not a
+        # preference -- it is the one that works when two jobs share a machine.
+        #
+        # sccache is a per-USER DAEMON. The first client to start it fixes the
+        # server's environment, and every later client on that account is served by
+        # it regardless of what SCCACHE_DIR that client set. Two runner instances
+        # here share one Unix account (olo-ci-1 and olo-ci-2 both run as
+        # gh-runner-olo), so the second job's cache configuration would be silently
+        # ignored -- and "silently ignored cache configuration" is the entire genre
+        # of bug #1009 exists to remove.
+        #
+        # ccache has no daemon. It is a process per compiler invocation that reads
+        # CCACHE_DIR itself, and its on-disk format is designed for concurrent
+        # writers. One shared directory across all self-hosted jobs is right:
+        # ccache hashes the full command line, so -fsanitize=address and
+        # -fsanitize=thread objects cannot collide, and a single large LRU beats
+        # several fixed-size ones. The GPU nightly already uses ccache on this box
+        # for the same reason.
+        #
+        # SCCACHE_DIR is also unset here: it is defined at workflow level to a
+        # WORKSPACE path that actions/checkout wipes every run, and leaving it set
+        # would only invite a stray sccache invocation to write somewhere useless.
+        ccache_bin="$(command -v ccache)"
+        dir="$HOME/.cache/olo/ccache"
         mkdir -p "$dir"
         {
-          echo "SCCACHE_DIR=$dir"
-          echo "SCCACHE_CACHE_SIZE=20G"
+          echo "CCACHE_DIR=$dir"
+          echo "OLO_COMPILER_CACHE_TOOL=$ccache_bin"
           echo "CPM_SOURCE_CACHE=$HOME/.cache/olo/cpm"
         } >> "$GITHUB_ENV"
-        echo "persistent sccache: $dir"
+        echo "persistent ccache for '${OLO_CACHE_NAME}': $dir ($ccache_bin)"
+        CCACHE_DIR="$dir" ccache --max-size=30G >/dev/null
+        CCACHE_DIR="$dir" ccache --show-stats | head -20
 
     # ------------------------------------------------------------- both ways
     - name: Resolve toolchain for this runner
@@ -220,7 +240,14 @@ runs:
           # compiler version before assuming the box is broken.
           cc=clang; cxx=clang++
           python_exe="$(command -v python3)"
-          extra="-DCMAKE_PREFIX_PATH=${VULKAN_SDK} -DVulkan_LIBRARY=${OLO_VULKAN_LIBRARY}"
+          # OLO_ENABLE_COMPILER_CACHE is added HERE rather than at each call site
+          # because it is only correct here: cmake/CompilerCache.cmake reads
+          # OLO_COMPILER_CACHE_TOOL from the environment, which the step above set,
+          # and no hosted job would find ccache. It is a no-op for the sanitizer
+          # jobs, which already pass it -- a repeated -D with the same value is
+          # harmless -- and a real win for vulkan-off and steam-stub, which had no
+          # compiler cache at all and paid a cold full build every run.
+          extra="-DCMAKE_PREFIX_PATH=${VULKAN_SDK} -DVulkan_LIBRARY=${OLO_VULKAN_LIBRARY} -DOLO_ENABLE_COMPILER_CACHE=ON"
         fi
         {
           echo "cc=$cc"

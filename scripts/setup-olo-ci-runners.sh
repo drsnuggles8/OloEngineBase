@@ -85,14 +85,26 @@ dnf install -y \
 # a different trust level (see docs/ops/self-hosted-gpu-runner.md §2).
 # ---------------------------------------------------------------------------
 echo "== caches =="
-for d in ccache vcpkg-binary-cache cpm sccache; do
+for d in ccache vcpkg-binary-cache cpm; do
     install -o "$RUNNER_USER" -g "$RUNNER_USER" -m 755 -d "${RUNNER_HOME}/.cache/olo/${d}"
 done
-# Bound ccache so a runaway cannot fill /home. 30 GiB against 233 GiB free is
-# generous and still bounded.
+# ONE ccache directory shared by every job, not one per sanitizer: ccache hashes
+# the full compile command line, so -fsanitize=address and -fsanitize=thread
+# objects cannot collide, and a single large LRU beats several fixed-size ones.
+#
+# ccache and not sccache, and that is the load-bearing choice once the box has
+# more than one runner: sccache is a per-USER DAEMON whose environment is fixed by
+# whichever client happens to start it, so a second concurrent job's SCCACHE_DIR
+# is silently ignored. ccache is a process per compiler invocation, with an
+# on-disk format built for concurrent writers. See
+# .github/actions/setup-linux-build.
+#
+# 30 GiB against 233 GiB free is generous and still bounded, so a runaway cannot
+# fill /home.
 sudo -u "$RUNNER_USER" env CCACHE_DIR="${RUNNER_HOME}/.cache/olo/ccache" \
     ccache --max-size=30G >/dev/null
-echo "  ${RUNNER_HOME}/.cache/olo/{ccache,vcpkg-binary-cache,cpm,sccache}"
+echo "  ${RUNNER_HOME}/.cache/olo/{ccache,vcpkg-binary-cache,cpm}"
+echo "  (each runner also keeps its own vcpkg clone at .cache/olo/vcpkg-<runner-name>)"
 
 # ---------------------------------------------------------------------------
 # 3. Extra runner instances

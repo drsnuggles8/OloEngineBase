@@ -261,6 +261,12 @@ jobs:
     # still banks the ports this run just spent ~40 minutes installing.
     - name: Save vcpkg binary cache
       if: always()
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
       uses: ./.github/actions/save-vcpkg-cache
       with:
         key: ${{ steps.vcpkg.outputs.cache-key }}
@@ -425,7 +431,11 @@ jobs:
     # the legacy Actions cache API on 2025-04-15, and older sccache builds hit
     # the dead endpoint and fail to start (and, as the compiler launcher, would
     # break every compile). v0.15.0 is the current stable pin — matches Windows.yml.
+    # Hosted only. The self-hosted runner uses ccache instead -- see
+    # .github/actions/setup-linux-build for why a per-user DAEMON is the wrong
+    # shape when two runner instances share one Unix account.
     - name: Setup sccache
+      if: runner.environment == 'github-hosted'
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       with:
         version: "v0.15.0"
@@ -483,6 +493,12 @@ jobs:
     # still banks the ports this run just spent ~40 minutes installing.
     - name: Save vcpkg binary cache
       if: always()
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
       uses: ./.github/actions/save-vcpkg-cache
       with:
         key: ${{ steps.vcpkg.outputs.cache-key }}
@@ -499,9 +515,19 @@ jobs:
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
     # meaning the build step recompiled almost nothing. The delta between a
     # cold and a warm run is the proof this change works.
-    - name: Show sccache stats
+    # The number this whole change is judged on. A cache that restores and hits on
+    # nothing looks exactly like a working one; the hit rate is the only thing that
+    # can tell them apart, so it is printed unconditionally -- see
+    # docs/agent-rules/ci-cache-that-looks-alive.md.
+    - name: Show compiler cache stats
       if: always()
-      run: sccache --show-stats
+      shell: bash
+      run: |
+        if [ "${{ runner.environment }}" = "github-hosted" ]; then
+          sccache --show-stats
+        else
+          ccache --show-stats
+        fi
 
     # Paired with the restore above (#1009). `if: always()` is the point: the
     # combined actions/cache action saves in a POST-JOB step, and post-job steps
@@ -511,6 +537,12 @@ jobs:
     # and banked nothing, so the next run started just as cold.
     - name: Save sccache storage
       if: always() && runner.environment == 'github-hosted'
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -616,7 +648,11 @@ jobs:
 
     # Provisions sccache before Configure (see asan-lsan-linux for the version-
     # pin rationale and why no generator switch is needed on Linux).
+    # Hosted only. The self-hosted runner uses ccache instead -- see
+    # .github/actions/setup-linux-build for why a per-user DAEMON is the wrong
+    # shape when two runner instances share one Unix account.
     - name: Setup sccache
+      if: runner.environment == 'github-hosted'
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       with:
         version: "v0.15.0"
@@ -669,6 +705,12 @@ jobs:
     # still banks the ports this run just spent ~40 minutes installing.
     - name: Save vcpkg binary cache
       if: always()
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
       uses: ./.github/actions/save-vcpkg-cache
       with:
         key: ${{ steps.vcpkg.outputs.cache-key }}
@@ -685,9 +727,19 @@ jobs:
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
     # meaning the build step recompiled almost nothing. The delta between a
     # cold and a warm run is the proof this change works.
-    - name: Show sccache stats
+    # The number this whole change is judged on. A cache that restores and hits on
+    # nothing looks exactly like a working one; the hit rate is the only thing that
+    # can tell them apart, so it is printed unconditionally -- see
+    # docs/agent-rules/ci-cache-that-looks-alive.md.
+    - name: Show compiler cache stats
       if: always()
-      run: sccache --show-stats
+      shell: bash
+      run: |
+        if [ "${{ runner.environment }}" = "github-hosted" ]; then
+          sccache --show-stats
+        else
+          ccache --show-stats
+        fi
 
     # Paired with the restore above (#1009). `if: always()` is the point: the
     # combined actions/cache action saves in a POST-JOB step, and post-job steps
@@ -697,6 +749,12 @@ jobs:
     # and banked nothing, so the next run started just as cold.
     - name: Save sccache storage
       if: always() && runner.environment == 'github-hosted'
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -812,7 +870,11 @@ jobs:
 
     # Provisions sccache before Configure (see asan-lsan-linux for the version-
     # pin rationale and why no generator switch is needed on Linux).
+    # Hosted only. The self-hosted runner uses ccache instead -- see
+    # .github/actions/setup-linux-build for why a per-user DAEMON is the wrong
+    # shape when two runner instances share one Unix account.
     - name: Setup sccache
+      if: runner.environment == 'github-hosted'
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       with:
         version: "v0.15.0"
@@ -869,6 +931,12 @@ jobs:
     # still banks the ports this run just spent ~40 minutes installing.
     - name: Save vcpkg binary cache
       if: always()
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
       uses: ./.github/actions/save-vcpkg-cache
       with:
         key: ${{ steps.vcpkg.outputs.cache-key }}
@@ -885,9 +953,19 @@ jobs:
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
     # meaning the build step recompiled almost nothing. The delta between a
     # cold and a warm run is the proof this change works.
-    - name: Show sccache stats
+    # The number this whole change is judged on. A cache that restores and hits on
+    # nothing looks exactly like a working one; the hit rate is the only thing that
+    # can tell them apart, so it is printed unconditionally -- see
+    # docs/agent-rules/ci-cache-that-looks-alive.md.
+    - name: Show compiler cache stats
       if: always()
-      run: sccache --show-stats
+      shell: bash
+      run: |
+        if [ "${{ runner.environment }}" = "github-hosted" ]; then
+          sccache --show-stats
+        else
+          ccache --show-stats
+        fi
 
     # Deliberately BEFORE the test step (and `if: always()`): the tests don't
     # write compile-cache entries, and saving here means a run whose TEST step
@@ -895,6 +973,12 @@ jobs:
     # the BUILD step still saves the partial objects via always().
     - name: Save sccache storage
       if: always() && runner.environment == 'github-hosted'
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}

@@ -25,6 +25,13 @@ on:
   #
   # The cron therefore has to run to COMPLETION, which is what the
   # `cancel-in-progress` expression below guarantees by excluding non-PR events.
+  #
+  # 3. And it was the per-merge producer of the `ShaderPack` artifact (#908). The
+  #    newest DEFAULT-BRANCH pack is now up to 24 h old rather than minutes. The
+  #    pack is content-hash invalidated, so a stale one is a slow start and never a
+  #    wrong one, and each PR run still uploads a pack for its own commit -- which
+  #    is the one a packager actually wants. Recorded in
+  #    docs/agent-rules/shader-pack-bake.md so it is not rediscovered as a bug.
   pull_request:
     types: [opened, synchronize, reopened]
     paths-ignore:
@@ -225,6 +232,12 @@ jobs:
     # still banks the ports this run just spent ~40 minutes installing.
     - name: Save vcpkg binary cache
       if: always()
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
       uses: ./.github/actions/save-vcpkg-cache
       with:
         key: ${{ steps.vcpkg.outputs.cache-key }}
@@ -262,6 +275,12 @@ jobs:
     # and banked nothing, so the next run started just as cold.
     - name: Save sccache storage
       if: always()
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -275,6 +294,12 @@ jobs:
     # exists' on every warm run.
     - name: Save FFmpeg build
       if: always() && steps.ffcache.outputs.cache-hit != 'true'
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: OloEngine/vendor/ffmpeg-install
@@ -388,7 +413,15 @@ jobs:
           exit 1
         fi
 
-        echo "regex=^(${suites})\.|${always_skip}" >> "$GITHUB_OUTPUT"
+        # `(^|/)` rather than `^`. A value-parameterised gtest case is registered
+        # with ctest as `Prefix/Suite.Case/0`, so a `^Suite\.` anchor does not match
+        # it -- which is precisely why generate_test_catalogue.py emits both
+        # `Suite.*` and `*/Suite.*`. Collapsing those two forms to one suite name is
+        # only safe if the anchor accepts the instantiation prefix too, and neither
+        # guard above can see the difference: the count is identical and the scope
+        # still selects thousands of tests. It just quietly keeps running the
+        # parameterised half of every visual/golden suite.
+        echo "regex=(^|/)(${suites})\.|${always_skip}" >> "$GITHUB_OUTPUT"
         echo "scope=fast subset (L6/L7/L8 excluded)" >> "$GITHUB_OUTPUT"
 
     # GUARD 2, and the important one: assert the scope actually selects tests. A
