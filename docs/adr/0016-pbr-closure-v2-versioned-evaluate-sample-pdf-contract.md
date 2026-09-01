@@ -172,6 +172,24 @@ the furnace test asserts, and the reason the tables need no fudge factor.
 * Changing any v2 formula is a TWO-file edit (GLSL + C++ twin) — same law as
   the Legacy BRDF, enforced by the same parity probe.
 * Regenerating the energy tables (e.g. to widen the grid) is a generator run
-  emitting both files plus the recompute test keeping them honest.
+  emitting both files plus the recompute test keeping them honest. The
+  generator is `tools/OloGgxEnergyTableGen` (issue #998) — build the target,
+  run it from the repository root, and it overwrites `GgxEnergyTables.h` and
+  `include/PBRClosureV2Energy.glsl` in place:
+
+      cmake --build <build-dir> --target OloGgxEnergyTableGen
+      <build-dir>/tools/OloGgxEnergyTableGen/OloGgxEnergyTableGen \
+          --grid 16 --samples 4096 --avg-points 64 --avg-samples 2048
+
+  Those defaults are what the committed tables were baked with, so a clean
+  `git diff` after a default run is the reproduction proof and `--check` is
+  the same comparison without writing. Widening the grid or raising the
+  sample counts is a flag, not an edit. The tool calls the engine's own
+  `SampleGGXVNDFTangent` / `GgxSmithLambda` / `ClosureV2Roughness` out of
+  `ReferenceBRDF.h` rather than re-implementing them, which is why it is a
+  C++ target and not a script: generator-vs-engine estimator drift is
+  structurally impossible, not merely tested for. Until #998 this bullet was
+  aspirational — the tables were marked GENERATED with no generator checked
+  in, and the recipe lived only as prose in the header comment.
 * Flipping any default — engine-wide, per-project, or per-import — is a new
   decision with a golden rebake attached, not a follow-on cleanup.

@@ -1,6 +1,12 @@
 // =============================================================================
-// GGX SINGLE-SCATTER ENERGY-LOSS TABLES — GENERATED, DO NOT HAND-EDIT (issue #975)
+// GGX SINGLE-SCATTER ENERGY-LOSS TABLES — GENERATED, DO NOT HAND-EDIT
 // =============================================================================
+//
+// Emitted by tools/OloGgxEnergyTableGen (issue #998). The command line that
+// reproduces this file, and the reason regeneration is a tool run rather than a
+// prose recipe, live in the REGENERATION block of its C++ twin
+// OloEngine/src/OloEngine/Renderer/PathTracing/GgxEnergyTables.h and in
+// ADR 0016 §6.
 //
 // Data for PBR closure v2's Kulla-Conty multiple-scattering energy compensation
 // (Kulla & Conty, "Revisiting Physically Based Shading at Imageworks", 2017).
@@ -27,9 +33,10 @@
 // compiled the very same array without complaint. Packing cuts the emitted
 // assignment count ~8x, far below the cliff. See glsl-shaders.md §12.
 //
-// Half precision costs at most 2.3e-4 absolute on any entry (audited at
-// generation), an order of magnitude under every consuming tolerance; entries
-// below the compensation gate (lossAvg < 1e-4 returns 0) don't matter at all.
+// Half precision costs at most 2.3e-4 absolute on any entry — the generator
+// audits that bound and refuses to emit a table exceeding it — an order of
+// magnitude under every consuming tolerance; entries below the compensation
+// gate (lossAvg < 1e-4 returns 0) don't matter at all.
 //
 // Conventions (must match the v2 closure on both sides of the parity boundary):
 //   * alpha = clamp(r, MIN_ROUGHNESS, 1)^2 — the v2 perceptual clamp, so each
@@ -45,7 +52,7 @@
 // — the SAME packed words, decoded with glm::unpackHalf2x16, so the two sides
 // evaluate identical quantized values. ClosureV2Test pins both files against
 // the estimator and against each other; the GPU parity probe covers the full
-// compensated closure. Regeneration procedure lives in that header's comment.
+// compensated closure.
 // =============================================================================
 #ifndef PBR_CLOSURE_V2_ENERGY_GLSL
 #define PBR_CLOSURE_V2_ENERGY_GLSL
@@ -56,9 +63,9 @@
 // word = kGgxEnergyLossPacked[i >> 3][(i >> 1) & 3], low/high half by i & 1.
 const uvec4 kGgxEnergyLossPacked[32] = uvec4[32](
     uvec4(0x04c5145bu, 0x00d601aeu, 0x0050007du, 0x00260036u),
-    uvec4(0x0014001bu, 0x000a000eu, 0x00040007u, 0x00010002u),
+    uvec4(0x0014001cu, 0x000a000eu, 0x00040008u, 0x00000002u),
     uvec4(0x1cf6297bu, 0x1154162du, 0x08eb0f80u, 0x048f0689u),
-    uvec4(0x02590342u, 0x013201b1u, 0x008500d1u, 0x00160048u),
+    uvec4(0x02590341u, 0x013201b0u, 0x008500d1u, 0x00160048u),
     uvec4(0x28e52ee5u, 0x1f9f23bfu, 0x1a8f1ca3u, 0x16be18f7u),
     uvec4(0x144a151du, 0x134013c9u, 0x10b112bfu, 0x10221058u),
     uvec4(0x2dc12e29u, 0x27932a83u, 0x22a924cfu, 0x1f6020f0u),
@@ -80,7 +87,7 @@ const uvec4 kGgxEnergyLossPacked[32] = uvec4[32](
     uvec4(0x30622c0eu, 0x333231feu, 0x346a340eu, 0x34e534afu),
     uvec4(0x3529350cu, 0x3549353du, 0x354f354eu, 0x3545354cu),
     uvec4(0x30f12c9au, 0x341032c0u, 0x350a349au, 0x35ae3564u),
-    uvec4(0x361c35ebu, 0x36653644u, 0x3692367eu, 0x36ac36a1u),
+    uvec4(0x361c35ebu, 0x36653645u, 0x3692367eu, 0x36ac36a1u),
     uvec4(0x31932d38u, 0x3494339bu, 0x35b63533u, 0x367f3623u),
     uvec4(0x371236ceu, 0x377e374cu, 0x37cf37aau, 0x380637f0u),
     uvec4(0x32422de5u, 0x35223444u, 0x366a35d5u, 0x375436e8u),

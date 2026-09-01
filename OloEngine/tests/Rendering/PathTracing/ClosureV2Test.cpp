@@ -188,7 +188,9 @@ namespace OloEngine::Tests
                     << "column (mu) = " << col << " (mu = " << muCell << ")\n"
                     << "kGgxEnergyLoss no longer matches what the engine's own VNDF sampler measures.\n"
                     << "Either the table was regenerated with different conventions or one side of the\n"
-                    << "estimator changed — see the regeneration comment in GgxEnergyTables.h.";
+                    << "estimator changed. Rebake with tools/OloGgxEnergyTableGen (issue #998), which\n"
+                    << "calls this same sampler and rewrites both language twins; the REGENERATION\n"
+                    << "block in GgxEnergyTables.h carries the command line.";
             }
         }
     }
