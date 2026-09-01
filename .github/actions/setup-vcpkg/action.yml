@@ -162,7 +162,21 @@ runs:
             root="${RUNNER_TEMP}/vcpkg"
           else
             root="${OLO_VCPKG_PERSISTENT_ROOT:-$HOME/.cache/olo/vcpkg-${RUNNER_NAME:-default}}"
-            mkdir -p "$(dirname "$root")"
+            # Assert the cache root is WRITABLE before handing the path to git.
+            # Without this the failure is `fatal: could not create work tree dir
+            # ...: Permission denied`, repeated four times by the retry loop above
+            # (which exists for network flakes and can do nothing for a permission
+            # problem), and it reads as a git or network fault rather than as the
+            # provisioning fault it is. That is exactly how the first self-hosted
+            # run failed.
+            parent="$(dirname "$root")"
+            if ! mkdir -p "$parent" 2>/dev/null || [ ! -w "$parent" ]; then
+              echo "::error::'$parent' is not writable by $(id -un) on this self-hosted runner."
+              echo "::error::Re-run the provisioning script, which creates and chowns it:"
+              echo "::error::  sudo bash scripts/setup-olo-ci-runners.sh"
+              echo "::error::See docs/ops/self-hosted-gpu-runner.md (Host provisioning, §1c and §6)."
+              exit 1
+            fi
           fi
           if [ ! -d "$root/.git" ]; then
             retry git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \

@@ -300,6 +300,24 @@ overwrite the live cache with an older snapshot of itself.
 
 `rm -rf ~/.cache/olo` is a safe full reset; the next run is simply cold.
 
+> **`install -d` does not chown the parents it creates.** `install -d -o user
+> a/b/c` applies `-o`/`-g`/`-m` to the *final* component only; every intermediate
+> directory it makes along the way is left owned by the invoking user — root — at
+> mode 0755. The runner user can then traverse `~/.cache/olo` and cannot create
+> anything in it, so the pre-made directories work and everything a workflow makes
+> later does not. The first self-hosted run died on exactly that, four minutes in,
+> with three correctly-owned sibling directories in plain sight:
+>
+> ```
+> fatal: could not create work tree dir
+> '/home/gh-runner-olo/.cache/olo/vcpkg-olo-ci-2': Permission denied
+> ```
+>
+> `setup-olo-ci-runners.sh` now creates and chowns `~/.cache` and `~/.cache/olo`
+> explicitly, and `setup-vcpkg` asserts the directory is writable before handing
+> the path to git — otherwise the retry loop (which is there for network flakes)
+> repeats a permission error four times and it reads as a network fault.
+
 ### 1d. Why the interchange formats are switched off
 
 Beyond cost, `OLO_WITH_USD=ON` **cannot complete as a non-root user**: OpenUSD's

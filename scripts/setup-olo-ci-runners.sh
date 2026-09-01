@@ -85,8 +85,28 @@ dnf install -y \
 # a different trust level (see docs/ops/self-hosted-gpu-runner.md §2).
 # ---------------------------------------------------------------------------
 echo "== caches =="
+# THE PARENTS ARE CREATED AND CHOWNED EXPLICITLY, and that is not tidiness.
+# `install -d -o user a/b/c` applies -o/-g/-m to the FINAL component only; the
+# intermediate directories it creates along the way are left owned by the
+# invoking user, i.e. root, mode 0755. The runner user can then traverse
+# ~/.cache/olo but cannot create anything in it -- so the three directories below
+# work and anything the workflow makes later does not. Measured, not theorised:
+# the first self-hosted run died with
+#
+#   fatal: could not create work tree dir
+#   '/home/gh-runner-olo/.cache/olo/vcpkg-olo-ci-2': Permission denied
+#
+# on the per-runner vcpkg clone, four minutes in, with three sibling directories
+# sitting there correctly owned. The chown is separate from the install so
+# re-running this script REPAIRS a tree left behind by the buggy version rather
+# than skipping it as already-present.
+for d in "" "/olo"; do
+    install -o "$RUNNER_USER" -g "$RUNNER_USER" -m 755 -d "${RUNNER_HOME}/.cache${d}"
+    chown "${RUNNER_USER}:${RUNNER_USER}" "${RUNNER_HOME}/.cache${d}"
+done
 for d in ccache vcpkg-binary-cache cpm; do
     install -o "$RUNNER_USER" -g "$RUNNER_USER" -m 755 -d "${RUNNER_HOME}/.cache/olo/${d}"
+    chown -R "${RUNNER_USER}:${RUNNER_USER}" "${RUNNER_HOME}/.cache/olo/${d}"
 done
 # ONE ccache directory shared by every job, not one per sanitizer: ccache hashes
 # the full compile command line, so -fsanitize=address and -fsanitize=thread
