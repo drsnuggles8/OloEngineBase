@@ -208,7 +208,28 @@ namespace OloEngine
         context.SetDepthTest(false);
         context.SetDepthMask(false);
         context.SetBlendState(false);
-        RenderCommand::SetCullFace(RHI::CullMode::Back);
+        // CULLING OFF, like every other fullscreen pass -- and it is not
+        // cosmetic (issue #1002). This pass used to set the cull FACE only,
+        // leaving whatever enable the last geometry pass recorded standing,
+        // and on Vulkan that silently removed the whole draw: the deferred
+        // lighting output reached no render target at all and the viewport
+        // showed the AO buffer over the clear colour.
+        //
+        // The fullscreen triangle writes NDC directly. Every OTHER triangle in
+        // the frame reaches clip space through the Vulkan projection seam,
+        // which NEGATES clip y -- and VulkanPipelineBuilder::FlushDynamicState
+        // maps the recorded GL winding to the SAME VkFrontFace precisely
+        // because that negation and Vulkan's y-down framebuffer compose to
+        // identity for such geometry. An NDC-passthrough triangle gets only
+        // the y-down half of that pair, so its apparent winding is the
+        // OPPOSITE of every projected mesh's: measured 2026-09-01, the shared
+        // fullscreen triangle is front-facing on GL under glFrontFace(GL_CCW)
+        // and back-facing on Vulkan under VK_FRONT_FACE_COUNTER_CLOCKWISE.
+        // Neither backend is wrong; the two conventions simply cannot both be
+        // served by one winding, so a fullscreen draw must not be face-culled
+        // at all. Pinned by the culling-enabled arm of
+        // VulkanPassSuite.DeferredLightingShadesAKnownGBufferAndBlitsEntityIds.
+        RenderCommand::DisableCulling();
 
         const u32 sampleCount = m_GBuffer->GetSampleCount();
         const bool useMSAAShading = m_UseMSAAShading;

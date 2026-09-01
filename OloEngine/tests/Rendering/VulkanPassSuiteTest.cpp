@@ -5716,6 +5716,24 @@ TEST_F(VulkanPassSuite, DeferredLightingShadesAKnownGBufferAndBlitsEntityIds)
     SubmitFrame(
         [&]()
         {
+            // THE PRODUCTION PRECONDITION, and the whole reason this tenant
+            // exists in this shape (issue #1002). A real deferred frame reaches
+            // DeferredLightingPass straight out of the G-buffer geometry pass,
+            // so BACK-FACE CULLING IS ENABLED when the fullscreen lighting
+            // triangle is drawn. This test used to run with the recorded
+            // default (culling off), where the pass's own cull state is inert —
+            // and that one substitution hid the bug completely: the pass set
+            // the cull FACE without disabling culling, and on Vulkan the
+            // NDC-passthrough triangle is BACK-facing (it skips the projection
+            // seam's clip-y negation that FlushDynamicState's no-swap winding
+            // rule is composed against), so the entire lighting draw was culled
+            // and SceneColor kept its clear colour. Recording the enable here
+            // is what makes the lit-band assertions below fail if anything ever
+            // face-culls this draw again.
+            RenderCommand::EnableCulling();
+            RenderCommand::SetCullFace(RHI::CullMode::Back);
+            RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);
+
             // Author the G-buffer content the pass's blits copy: entity RT4
             // -> 42, depth -> 1.0 (float RTs -> 0, unread here).
             gbufferSamplingFB->ClearAllAttachments(glm::vec4(0.0f), 42);
@@ -5728,6 +5746,10 @@ TEST_F(VulkanPassSuite, DeferredLightingShadesAKnownGBufferAndBlitsEntityIds)
                 api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
             }
             graph.Execute();
+            // Put the recorded default back: this state is PROCESS-global, so a
+            // later tenant that never states an opinion would otherwise inherit
+            // the enable recorded above.
+            RenderCommand::DisableCulling();
 
             RHI::Barrier toSampled{};
             toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
