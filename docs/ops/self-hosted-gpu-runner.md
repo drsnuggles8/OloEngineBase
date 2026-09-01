@@ -556,6 +556,7 @@ stable enough to be worth trending — unlike hosted-runner perf data.
 | A Linux CI job queues forever | no `olo-ci` runner is online — `gh api repos/drsnuggles8/OloEngineBase/actions/runners`. There is no automatic hosted fallback for a same-repo PR: the `runs-on` expression chose this box before scheduling |
 | `clang: command not found` on an `olo-ci` job | the CI provisioning was never run — `sudo bash scripts/setup-olo-ci-runners.sh` (§6) |
 | A job fails here and its hosted rerun passes | check the compiler first. This box is clang 21, the hosted arm is clang-19 (§6) |
+| `undefined symbol: std::__stacktrace_impl::_S_current` at link | `libstdc++exp.a` is missing from the GCC install clang selected. Rocky's clang picks **gcc-toolset-15**, which omits it, while the base GCC 14 beside it has it. `OloEngine/CMakeLists.txt` globs the base dirs and links it explicitly — that fallback used to be GNU-only on the (backwards) premise that clang resolves it itself |
 | Cold builds despite the persistent caches | `~/.cache/olo` is owned by the wrong user, or the job took the hosted arm. The setup step logs the resolved cache dir |
 | Preflight: `no /dev/dri/renderD128` | `amdgpu` not loaded, or the runner user lost `render` group |
 | Preflight: `SOFTWARE RENDERER` | Mesa fell back to llvmpipe — check `MESA_LOADER_DRIVER_OVERRIDE`, driver install, and that the *software* EGL device wasn't selected |
