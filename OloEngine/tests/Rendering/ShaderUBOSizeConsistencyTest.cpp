@@ -62,10 +62,13 @@ namespace OloEngine::Tests
 
         // Block names that production shaders use, mapped to their
         // canonical C++ struct size. Aliases are listed explicitly.
-        // 44 = the base 33, plus the five #691 compute blocks, plus
+        // 46 = the base 33, plus the five #691 compute blocks, plus
         // ColorBlindParams (#458), plus PrefixSumParams (#713),
-        // TerrainCullParams (#714), the two DDGI blocks (#707) and
-        // ShadingRateParams (#683) and WaterDisturbanceParams (#967).
+        // TerrainCullParams (#714), the two DDGI blocks (#707),
+        // ShadingRateParams (#683), WaterDisturbanceParams (#967),
+        // the two VSM blocks (#715) and TerrainBrushParams (#716).
+        // Keep this arithmetic in step with the array size — it drifted once
+        // already, reading 44 while the array held 45.
         const std::array<KnownBlock, 46> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },

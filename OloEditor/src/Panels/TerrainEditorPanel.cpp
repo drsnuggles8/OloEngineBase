@@ -383,8 +383,19 @@ namespace OloEngine
         }
     }
 
-    void TerrainEditorPanel::OnFrameTick()
+    void TerrainEditorPanel::OnFrameTick(bool editingAllowed)
     {
+        if (!editingAllowed)
+        {
+            // Not a reason to return early: an in-flight session must still settle,
+            // or its undo entry is never pushed and it keeps the terrain alive.
+            if (m_ErosionSessionActive)
+            {
+                EndContinuousErosionSession();
+            }
+            return;
+        }
+
         UpdateContinuousErosion();
     }
 
@@ -464,19 +475,25 @@ namespace OloEngine
         // The second splatmap only participates above four layers — that is exactly
         // when the paint kernel re-normalises across both, so it is exactly when it
         // needs undoing too.
-        if (m_StrokeMaterial->GetLayerCount() > 4 && m_StrokePreSplat1)
+        const bool needsSplat1 = m_StrokeMaterial->GetLayerCount() > 4 && m_StrokePreSplat1 &&
+                                 m_StrokeMaterial->GetSplatmap(1) != nullptr;
+        if (needsSplat1)
         {
-            if (Ref<Texture2D> splat1 = m_StrokeMaterial->GetSplatmap(1))
-            {
-                before1 = stack.Capture(m_StrokePreSplat1, m_StrokeDirtyX, m_StrokeDirtyY,
-                                        m_StrokeDirtyW, m_StrokeDirtyH);
-                after1 = stack.Capture(splat1, m_StrokeDirtyX, m_StrokeDirtyY,
-                                       m_StrokeDirtyW, m_StrokeDirtyH);
-            }
+            before1 = stack.Capture(m_StrokePreSplat1, m_StrokeDirtyX, m_StrokeDirtyY,
+                                    m_StrokeDirtyW, m_StrokeDirtyH);
+            after1 = stack.Capture(m_StrokeMaterial->GetSplatmap(1), m_StrokeDirtyX, m_StrokeDirtyY,
+                                   m_StrokeDirtyW, m_StrokeDirtyH);
         }
 
+        // ALL FOUR or none. A command holding a complete pair 0 and a broken pair 1
+        // would restore splatmap 0 alone, and since the kernel re-normalises across
+        // all eight channels that leaves the weights not summing to 1 — a partial
+        // undo that silently changes every other layer's contribution at those
+        // texels, which is worse than having no undo entry at all.
         if (before0 == TerrainTextureUndoStack::kInvalidSnapshot ||
-            after0 == TerrainTextureUndoStack::kInvalidSnapshot)
+            after0 == TerrainTextureUndoStack::kInvalidSnapshot ||
+            (needsSplat1 && (before1 == TerrainTextureUndoStack::kInvalidSnapshot ||
+                             after1 == TerrainTextureUndoStack::kInvalidSnapshot)))
         {
             stack.Release(before0);
             stack.Release(after0);
@@ -652,9 +669,18 @@ namespace OloEngine
                 if (m_StrokeDirtyW > 0 && m_StrokeDirtyH > 0)
                 {
                     if (m_EditMode == TerrainEditMode::Sculpt)
+                    {
                         CommitGPUSculptStroke();
+                    }
                     else if (m_EditMode == TerrainEditMode::Paint)
+                    {
                         CommitGPUPaintStroke();
+                    }
+                    else
+                    {
+                        // No additional handling required — Voxel commits in
+                        // OnVoxelUpdate, and the remaining modes take no stroke.
+                    }
                 }
 
                 // Settle work deferred off the per-frame path (issue #716). Both of
@@ -890,7 +916,12 @@ namespace OloEngine
                     }
                 }
 
-                auto dirty = m_StrokeUsesGPU
+                // `useGPU` for THIS terrain, not the stroke's flag: in a multi-terrain
+                // scene m_StrokeUsesGPU was decided by whichever terrain started the
+                // stroke, and a sibling with tessellation off must not be dispatched
+                // to (nor a sibling with it on be brushed on the CPU). m_StrokeUsesGPU
+                // stays authoritative for the settle-time commit, which is per stroke.
+                auto dirty = useGPU
                                  ? m_GPUBrush.ApplySculpt(
                                        *terrain.m_TerrainData, m_SculptSettings, hitPos,
                                        terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale,
@@ -904,14 +935,14 @@ namespace OloEngine
                 {
                     // The GPU brush wrote the texture directly — there is nothing to
                     // upload, and uploading the CPU mirror here would overwrite it.
-                    if (!m_StrokeUsesGPU)
+                    if (!useGPU)
                     {
                         terrain.m_TerrainData->UploadRegionToGPU(dirty.X, dirty.Y, dirty.Width, dirty.Height);
                     }
 
                     // Deferred to stroke settle on the GPU path — see the useGPU
                     // comment above for why that is safe there and not otherwise.
-                    if (!m_StrokeUsesGPU)
+                    if (!useGPU)
                     {
                         TerrainBrush::RebuildDirtyChunks(
                             *terrain.m_ChunkManager, *terrain.m_TerrainData,

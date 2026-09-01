@@ -153,11 +153,18 @@ namespace OloEngine
             return false;
         }
 
-        // The destination may have been recreated at a different resolution since
-        // the snapshot was taken (a terrain regenerated under the undo history).
-        // Blitting the old rect into it would corrupt an unrelated region, so the
-        // step is refused instead.
+        // The destination may have been recreated since the snapshot was taken (a
+        // terrain regenerated under the undo history), at a different resolution OR
+        // in a different format. Either makes the copy wrong — a mismatched extent
+        // corrupts an unrelated region, and glCopyImageSubData requires
+        // format-compatible operands — so the step is refused rather than attempted.
+        // EnsureFullCopy already treats format as part of the match; this is the
+        // same rule on the restore side.
         if (it->X + it->Width > dest->GetWidth() || it->Y + it->Height > dest->GetHeight())
+        {
+            return false;
+        }
+        if (it->Snapshot->GetSpecification().Format != dest->GetSpecification().Format)
         {
             return false;
         }

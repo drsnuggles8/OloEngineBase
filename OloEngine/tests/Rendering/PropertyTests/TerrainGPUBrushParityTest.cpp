@@ -493,8 +493,12 @@ TEST(TerrainGPUPaintBrush, MatchesTheCpuPaintBrushAcrossBothSplatmaps)
 
     const std::vector<u8> gpuSplat0 = gpuMaterial->GetSplatmapData(0);
     const std::vector<u8> gpuSplat1 = gpuMaterial->GetSplatmapData(1);
+    // All four, not just the two pairs: the loop below is bounded by
+    // cpuSplat0.size() and indexes cpuSplat1/gpuSplat1 with the same i, so pairing
+    // the sizes up separately would still let a short splatmap 1 read out of bounds.
     ASSERT_EQ(gpuSplat0.size(), cpuSplat0.size());
     ASSERT_EQ(gpuSplat1.size(), cpuSplat1.size());
+    ASSERT_EQ(cpuSplat1.size(), cpuSplat0.size());
 
     // Tolerance of one level, not zero: both sides quantise to u8 at every
     // assignment, and the GPU reaches those bytes through an RGBA8 unorm image

@@ -65,6 +65,24 @@ namespace OloEngine
             std::string Text;
         };
 
+        // ONE definition of "this line is a comment" and ONE of "this line reads
+        // texels back", shared by every scan below. They were duplicated per scan and
+        // had already drifted: the sync-point scan omitted ReadPixels, so a readback
+        // spelled that way would have been reported by one check and ignored by the
+        // other.
+        [[nodiscard]] bool IsCommentLine(const std::string& line)
+        {
+            const sizet firstNonSpace = line.find_first_not_of(" \t");
+            return firstNonSpace != std::string::npos && line.compare(firstNonSpace, 2, "//") == 0;
+        }
+
+        [[nodiscard]] bool NamesAReadback(const std::string& line)
+        {
+            return line.find("GetData(") != std::string::npos ||
+                   line.find("glGetTexImage") != std::string::npos ||
+                   line.find("ReadPixels") != std::string::npos;
+        }
+
         // Every way a terrain source can pull texels back to the CPU. GetData is the
         // engine-level spelling; glGetTexImage is the raw one that a well-meaning
         // "just this once" fix would reach for and that the RHI boundary would
@@ -81,13 +99,10 @@ namespace OloEngine
 
                 // Skip comments — this file's own prose, and the explanatory comments
                 // in the sources, name these calls constantly.
-                const sizet firstNonSpace = line.find_first_not_of(" \t");
-                if (firstNonSpace != std::string::npos && line.compare(firstNonSpace, 2, "//") == 0)
+                if (IsCommentLine(line))
                     continue;
 
-                if (line.find("GetData(") != std::string::npos ||
-                    line.find("glGetTexImage") != std::string::npos ||
-                    line.find("ReadPixels") != std::string::npos)
+                if (NamesAReadback(line))
                 {
                     hits.push_back(Hit{ path.filename().string(), lineNumber, line });
                 }
@@ -179,13 +194,10 @@ namespace OloEngine
                     currentFunction = line;
                 }
 
-                const sizet firstNonSpace = line.find_first_not_of(" \t");
-                if (firstNonSpace != std::string::npos && line.compare(firstNonSpace, 2, "//") == 0)
+                if (IsCommentLine(line))
                     continue;
 
-                const bool isReadback = line.find("GetData(") != std::string::npos ||
-                                        line.find("glGetTexImage") != std::string::npos;
-                if (!isReadback)
+                if (!NamesAReadback(line))
                     continue;
 
                 bool ok = false;
@@ -226,8 +238,7 @@ namespace OloEngine
         while (std::getline(stream, line))
         {
             ++lineNumber;
-            const sizet firstNonSpace = line.find_first_not_of(" 	");
-            if (firstNonSpace != std::string::npos && line.compare(firstNonSpace, 2, "//") == 0)
+            if (IsCommentLine(line))
                 continue;
 
             EXPECT_EQ(line.find("UploadToGPU("), std::string::npos)

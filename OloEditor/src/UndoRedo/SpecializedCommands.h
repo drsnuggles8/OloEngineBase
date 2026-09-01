@@ -537,16 +537,21 @@ namespace OloEngine
                 return;
             }
 
-            bool restoredAny = m_UndoStack->Restore(id0, m_Material->GetSplatmap(0));
+            // BOTH or neither, not "any". The paint kernel re-normalises across all
+            // eight channels, so restoring one splatmap and not the other leaves the
+            // weights not summing to 1 and silently reweights every other layer at
+            // those texels. `|| restoredAny` let one success mask the other's
+            // failure and produced exactly that half-restore.
+            //
+            // Evaluated into locals first: && would short-circuit and skip the second
+            // Restore, which is a side-effecting call, not a predicate.
+            const bool restored0 = m_UndoStack->Restore(id0, m_Material->GetSplatmap(0));
             // id1 is kInvalidSnapshot for a <=4-layer material, where the second
-            // splatmap never participates; Restore() reports false for it, which is
-            // not a failure of this command.
-            if (id1 != TerrainTextureUndoStack::kInvalidSnapshot)
-            {
-                restoredAny = m_UndoStack->Restore(id1, m_Material->GetSplatmap(1)) || restoredAny;
-            }
+            // splatmap never participates — that is not a failure of this command.
+            const bool needsSecond = (id1 != TerrainTextureUndoStack::kInvalidSnapshot);
+            const bool restored1 = needsSecond && m_UndoStack->Restore(id1, m_Material->GetSplatmap(1));
 
-            if (!restoredAny)
+            if (!restored0 || (needsSecond && !restored1))
             {
                 OLO_CORE_WARN("TerrainGPUPaintCommand: snapshot no longer available - this step "
                               "has aged out of the bounded undo ring");

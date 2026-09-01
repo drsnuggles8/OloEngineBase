@@ -47,13 +47,19 @@ namespace OloEngine
         // anything driven from the panel itself — see OnFrameTick.
         void OnUpdate(f32 deltaTime, const glm::vec3& hitPos, bool hasHit, bool mouseDown);
 
-        // Every frame, regardless of where the mouse is. Continuous erosion lives
-        // here rather than in OnUpdate because OnUpdate is gated on
-        // m_ViewportHovered: the user turns the mode on, drags the rate slider and
-        // unticks the box all with the cursor over the PANEL, so an erosion session
-        // driven from OnUpdate would never step and — worse — never settle, leaving
-        // the undo entry unpushed and the collision body on the old surface.
-        void OnFrameTick();
+        // Every frame, unconditionally — including throttled frames, and including
+        // frames where `editingAllowed` is false. Continuous erosion lives here
+        // rather than in OnUpdate because OnUpdate is gated on m_ViewportHovered:
+        // the user turns the mode on, drags the rate slider and unticks the box all
+        // with the cursor over the PANEL, so an erosion session driven from OnUpdate
+        // would never step and — worse — never settle, leaving the undo entry
+        // unpushed and the collision body on the old surface.
+        //
+        // `editingAllowed` (the panel is shown and the editor is in Edit mode) gates
+        // whether a session may STEP, not whether this is called: an active session
+        // that becomes disallowed — Play pressed, panel closed — is settled here
+        // rather than stranded.
+        void OnFrameTick(bool editingAllowed);
         // Voxel picking supplies the exact grid cell and placement face rather
         // than inferring one from the rendered surface.
         //
@@ -97,9 +103,9 @@ namespace OloEngine
         // the panel because it is pure VRAM: a session that never edits terrain
         // should not pay for it.
         TerrainTextureUndoStack& EnsureUndoStack();
-        // Run one continuous-erosion frame and manage its undo session. Called at
-        // the top of OnUpdate, before the brush-stroke handling, because it is
-        // driven by a checkbox rather than by a viewport hit.
+        // Run one continuous-erosion frame and manage its undo session. Called from
+        // OnFrameTick (not OnUpdate), because OnUpdate only runs while the viewport
+        // is hovered and this is driven by a checkbox on the panel itself.
         void UpdateContinuousErosion();
         // Push the settled stroke's undo command for the GPU path.
         void CommitGPUSculptStroke();

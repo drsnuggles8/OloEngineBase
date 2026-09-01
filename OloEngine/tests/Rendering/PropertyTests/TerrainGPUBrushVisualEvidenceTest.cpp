@@ -210,6 +210,19 @@ namespace OloEngine::Tests
 
         auto& terrain = m_TerrainEntity.GetComponent<TerrainComponent>();
         ASSERT_TRUE(terrain.m_TerrainData) << "the terrain never built a heightmap";
+
+        // Sampled BEFORE the stroke so the guard below can measure the stroke's own
+        // contribution. Asserting the absolute post-stroke height instead would pass
+        // on any procedural terrain that happens to already stand above the
+        // threshold at its centre — i.e. it would stop discriminating exactly when
+        // the seed changes.
+        const sizet kCentreIndex = static_cast<sizet>(kTerrainRes / 2) * kTerrainRes + (kTerrainRes / 2);
+        f32 preStrokeCentreHeight = 0.0f;
+        {
+            const std::vector<f32>& heights = terrain.m_TerrainData->GetHeightData();
+            ASSERT_LT(kCentreIndex, heights.size());
+            preStrokeCentreHeight = heights[kCentreIndex];
+        }
         Ref<Texture2D> heightmap = terrain.m_TerrainData->GetGPUHeightmap();
         ASSERT_TRUE(heightmap);
 
@@ -252,10 +265,10 @@ namespace OloEngine::Tests
         // "the stroke was too small to see", which is how this test first failed.
         {
             const std::vector<f32>& heights = terrain.m_TerrainData->GetHeightData();
-            const sizet centreIndex = static_cast<sizet>(kTerrainRes / 2) * kTerrainRes + (kTerrainRes / 2);
-            ASSERT_LT(centreIndex, heights.size());
-            ASSERT_GT(heights[centreIndex] * kHeightScale, 20.0f)
-                << "the stroke raised the centre by only " << (heights[centreIndex] * kHeightScale)
+            ASSERT_LT(kCentreIndex, heights.size());
+            const f32 raisedWorldUnits = (heights[kCentreIndex] - preStrokeCentreHeight) * kHeightScale;
+            ASSERT_GT(raisedWorldUnits, 20.0f)
+                << "the stroke raised the centre by only " << raisedWorldUnits
                 << " world units — too small to be visible, so the pixel assertions below would be "
                    "measuring nothing";
         }
