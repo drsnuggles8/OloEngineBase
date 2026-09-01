@@ -6983,7 +6983,7 @@ namespace OloEngine
     // subsystem has produced came from two paths that were supposed to agree and quietly did
     // not (issue #629); this one is not going to be the next.
     static void SubmitMeshSourceClassic(const Ref<MeshSource>& meshSource, const glm::mat4& worldTransform,
-                                        const Material* overrideMaterial, i32 entityID,
+                                        const Material* overrideMaterial, i32 entityID, u64 stableEntityId,
                                         const LODGroup* lodGroup, bool meshHasActiveShadows,
                                         const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f))
     {
@@ -6994,6 +6994,7 @@ namespace OloEngine
 
         for (i32 i = 0; i < meshSource->GetSubmeshes().Num(); ++i)
         {
+            Renderer3D::ExtractGPUSceneMesh(stableEntityId, 0, meshSource, static_cast<u32>(i), worldTransform);
             auto submesh = Ref<Mesh>::Create(meshSource, i);
             const Material& material = ResolveSubmeshMaterial(overrideMaterial, meshSource.get(),
                                                               static_cast<u32>(i), GetDefaultMaterial());
@@ -7030,6 +7031,13 @@ namespace OloEngine
         }
     }
 
+    [[nodiscard]] static u64 GetStableGPUSceneEntityId(const entt::registry& registry, entt::entity entity)
+    {
+        return registry.all_of<IDComponent>(entity)
+                   ? static_cast<u64>(registry.get<IDComponent>(entity).ID)
+                   : static_cast<u64>(std::to_underlying(entity));
+    }
+
     void Scene::ProcessScene3DSharedLogic(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix,
                                           const glm::vec3& cameraPosition,
                                           f32 cameraNearClip, f32 cameraFarClip)
@@ -7037,6 +7045,36 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glm::mat4 viewProjection = projectionMatrix * viewMatrix;
+
+        // Explicit unsupported-policy accounting for the foundation slice.
+        // These systems keep their current renderer paths; none disappear
+        // silently from GPU-scene diagnostics while their record formats are
+        // designed in follow-up work.
+        Renderer3D::ReportUnsupportedGPUScene(
+            GPUSceneUnsupportedCategory::Skinned,
+            static_cast<u32>(m_Registry.view<MeshComponent, SkeletonComponent>().size_hint()));
+        Renderer3D::ReportUnsupportedGPUScene(
+            GPUSceneUnsupportedCategory::Terrain,
+            static_cast<u32>(m_Registry.view<TerrainComponent>().size()));
+        Renderer3D::ReportUnsupportedGPUScene(
+            GPUSceneUnsupportedCategory::Foliage,
+            static_cast<u32>(m_Registry.view<FoliageComponent>().size()));
+        Renderer3D::ReportUnsupportedGPUScene(
+            GPUSceneUnsupportedCategory::Particles,
+            static_cast<u32>(m_Registry.view<ParticleSystemComponent>().size()));
+        Renderer3D::ReportUnsupportedGPUScene(
+            GPUSceneUnsupportedCategory::Fluids,
+            static_cast<u32>(m_Registry.view<FluidComponent>().size()));
+        u32 proceduralTerrainCount = 0;
+        for (auto terrainEntity : m_Registry.view<TerrainComponent>())
+        {
+            if (m_Registry.get<TerrainComponent>(terrainEntity).m_ProceduralEnabled)
+            {
+                ++proceduralTerrainCount;
+            }
+        }
+        Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Procedural,
+                                              proceduralTerrainCount);
 
         // The CULLING camera (issue #726). Identical to the matrices above
         // unless the observer camera has frozen it, at which point everything
@@ -9800,6 +9838,7 @@ namespace OloEngine
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(std::to_underlying(entity));
+                const auto stableEntityId = GetStableGPUSceneEntityId(m_Registry, entity);
 
                 // Get LOD group if present and enabled
                 const LODGroup* lodGroup = nullptr;
@@ -9824,7 +9863,7 @@ namespace OloEngine
 
                 // Draw each submesh with entity ID. Shared with the VirtualMeshComponent
                 // fallback path — see SubmitMeshSourceClassic.
-                SubmitMeshSourceClassic(mesh.m_MeshSource, worldTransform, overrideMaterial, entityID, lodGroup,
+                SubmitMeshSourceClassic(mesh.m_MeshSource, worldTransform, overrideMaterial, entityID, stableEntityId, lodGroup,
                                         meshHasActiveShadows, lightmapScaleOffset);
             }
         }
@@ -9838,7 +9877,22 @@ namespace OloEngine
         // on Forward/Forward+ rasterized the clusters into the shadow map while
         // nothing ever drew them, i.e. shadows cast by an invisible caster. Skipping
         // submission also avoids building the DAG for geometry that cannot render.
-        if (Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred)
+        const auto& rendererSettings = Renderer3D::GetRendererSettings();
+        if (rendererSettings.Path != RenderingPath::Deferred)
+        {
+            u32 unsupportedVirtualMeshCount = 0;
+            for (auto entity : m_Registry.view<TransformComponent, VirtualMeshComponent>())
+            {
+                const auto& virtualMesh = m_Registry.get<VirtualMeshComponent>(entity);
+                if (virtualMesh.m_Enabled && static_cast<u64>(virtualMesh.m_MeshSource) != 0)
+                {
+                    ++unsupportedVirtualMeshCount;
+                }
+            }
+            Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Virtualized,
+                                                  unsupportedVirtualMeshCount);
+        }
+        else
         {
             // The master switch (RendererSettings::VirtualGeometryEnabled). When off, this loop
             // still runs — it falls each entity back to the classic mesh path rather than
@@ -9901,6 +9955,7 @@ namespace OloEngine
 
                 const glm::mat4 worldTransform = GetWorldTransform(entity);
                 const i32 entityID = static_cast<i32>(std::to_underlying(entity));
+                const auto stableEntityId = GetStableGPUSceneEntityId(m_Registry, entity);
 
                 // Master switch off (RendererSettings::VirtualGeometryEnabled): draw the very
                 // same MeshSource through the classic mesh path instead of dropping it. Same
@@ -9908,10 +9963,18 @@ namespace OloEngine
                 // difference is the renderer. That is what makes the toggle a usable A/B.
                 if (!virtualGeometryEnabled)
                 {
-                    SubmitMeshSourceClassic(meshSource, worldTransform, overrideMaterial, entityID,
+                    SubmitMeshSourceClassic(meshSource, worldTransform, overrideMaterial, entityID, stableEntityId,
                                             /*lodGroup*/ nullptr,
                                             meshHasActiveShadows && virtualMesh.m_CastShadows);
                     continue;
+                }
+
+                Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Virtualized);
+                const auto swRasterMode = VirtualMeshRegistry::Get().GetSwRasterMode();
+                if (swRasterMode != VirtualSwRasterMode::Disabled &&
+                    rendererSettings.Deferred.MSAASampleCount == 1)
+                {
+                    Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::SoftwareRaster);
                 }
 
                 bool const castsShadow = virtualMesh.m_CastShadows && meshHasActiveShadows;
@@ -10140,6 +10203,7 @@ namespace OloEngine
                                                       : GetDefaultMaterial());
 
                 const u64 ownerKey = static_cast<u64>(std::to_underlying(entity));
+                const auto stableEntityId = GetStableGPUSceneEntityId(m_Registry, entity);
 
                 const bool castsShadow = imc.CastShadows && meshHasActiveShadows &&
                                          material.GetAlphaMode() == AlphaMode::Opaque &&
@@ -10149,6 +10213,13 @@ namespace OloEngine
                 {
                     for (i32 i = 0; i < imc.MeshSource->GetSubmeshes().Num(); ++i)
                     {
+                        OLO_CORE_ASSERT(totalCount <= std::numeric_limits<u32>::max(),
+                                        "GPUScene instance key exceeds its 32-bit instance index");
+                        for (u32 k = 0; k < static_cast<u32>(totalCount); ++k)
+                        {
+                            Renderer3D::ExtractGPUSceneMesh(stableEntityId, k, imc.MeshSource,
+                                                            static_cast<u32>(i), instData[k].Transform);
+                        }
                         auto submesh = Ref<Mesh>::Create(imc.MeshSource, i);
                         auto* packet = Renderer3D::DrawMeshInstanced(
                             submesh,
@@ -10468,6 +10539,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         Renderer3D::BeginScene(camera);
+        Renderer3D::BeginGPUSceneExtraction(static_cast<u64>(m_GPUSceneOwnerToken));
 
         // Time-of-day drive (issue #633): compute the ephemeris and write the
         // directional light BEFORE the sky bake below and the light gather in
@@ -10956,6 +11028,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         Renderer3D::BeginScene(camera, cameraTransform);
+        Renderer3D::BeginGPUSceneExtraction(static_cast<u64>(m_GPUSceneOwnerToken));
 
         // Extract camera parameters from primary SceneCamera (base Camera lacks near/far)
         glm::vec3 cameraPosition = glm::vec3(cameraTransform[3]);

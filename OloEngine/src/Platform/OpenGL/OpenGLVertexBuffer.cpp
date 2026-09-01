@@ -14,6 +14,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferData(m_RendererID, size, nullptr, GL_DYNAMIC_DRAW);
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
@@ -29,6 +30,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferStorage(m_RendererID, size, nullptr, usage);
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
@@ -44,6 +46,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferData(m_RendererID, size, vertices, GL_STATIC_DRAW);
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
@@ -59,6 +62,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferStorage(m_RendererID, size, vertices, usage);
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
@@ -75,6 +79,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferData(m_RendererID, size, data, GL_STATIC_DRAW);
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
@@ -91,6 +96,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferStorage(m_RendererID, size, data, usage);
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
@@ -110,6 +116,7 @@ namespace OloEngine
 
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
+        m_RHIHandle.Reset();
 
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()

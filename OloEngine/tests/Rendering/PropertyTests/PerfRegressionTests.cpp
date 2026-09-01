@@ -51,6 +51,7 @@
 //      3x regression in the cluster cull would have been invisible.
 //   8. Render-graph fence execution for a 32-edge cross-lane plan
 //   9. Production GPU frustum culling with the root-publication path prepared
+//  10. GPU Scene extraction/dirty-range commit for 1,024 ordinary instances
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -75,6 +76,7 @@
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -506,6 +508,65 @@ namespace OloEngine::Tests
             }
         };
     } // namespace
+
+    TEST(PerfRegressionTest, GPUSceneExtraction1024StaysWithinCpuBudget)
+    {
+        constexpr u32 kInstanceCount = 1024u;
+        constexpr u32 kWarmupSamples = 5u;
+        constexpr u32 kMeasureSamples = 20u;
+        constexpr std::string_view kBaselineKey = "gpu_scene_extract_1024";
+
+        GPUScene scene;
+        const GPUSceneGeometryKey geometryKey{ .m_VertexBuffer = 1, .m_IndexBuffer = 2 };
+        const GPUSceneGeometryInput geometry{
+            .m_VertexBuffer = RHI::ResourceHandle{ 1, 1 },
+            .m_IndexBuffer = RHI::ResourceHandle{ 2, 1 },
+            .m_IndexCount = 36,
+            .m_VertexCount = 24,
+        };
+        u32 frameNumber = 0;
+        const auto extractFrame = [&]()
+        {
+            scene.BeginExtraction(1, glm::vec3(0.0f));
+            scene.ExtractGeometry(geometryKey, geometry);
+            for (u32 index = 0; index < kInstanceCount; ++index)
+            {
+                GPUSceneInstanceInput instance;
+                if (index == frameNumber % kInstanceCount)
+                {
+                    instance.m_WorldTransform[3].x = static_cast<f32>(frameNumber + 1u);
+                }
+                scene.ExtractInstance(
+                    GPUSceneInstanceKey{ .m_EntityId = index + 1u, .m_Geometry = geometryKey }, instance);
+            }
+            (void)scene.EndExtraction();
+            ++frameNumber;
+        };
+
+        const auto measure = [&]() -> u64
+        {
+            for (u32 sample = 0; sample < kWarmupSamples; ++sample)
+            {
+                extractFrame();
+            }
+
+            std::array<u64, kMeasureSamples> samples{};
+            for (u32 sample = 0; sample < kMeasureSamples; ++sample)
+            {
+                const auto start = std::chrono::steady_clock::now();
+                extractFrame();
+                samples[sample] = static_cast<u64>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now() - start)
+                        .count());
+            }
+            return *std::min_element(samples.begin(), samples.end());
+        };
+
+        const auto measuredNs = MeasureBenchmarkStableNs(std::string(kBaselineKey), measure);
+        std::cout << "[BENCHMARK] " << kBaselineKey << ": " << measuredNs << " ns/extraction\n";
+        CheckPerfRegression(std::string(kBaselineKey), measuredNs);
+    }
 
     // The production executor allocates/stages one timeline fence per
     // cross-lane dependency and walks each edge at both its signal and wait.

@@ -162,6 +162,9 @@ add_executable(OloEngine-Tests
 		Rendering/GLDebugMessageParseTest.cpp
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
+		Rendering/PropertyTests/GPUScenePropertyTests.cpp
+		Rendering/PropertyTests/GPUSceneLayoutTest.cpp
+		Rendering/PropertyTests/GPUSceneGpuTest.cpp
 		Rendering/LightmapPageEncodingTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp
 		Rendering/GPUReadbackStatsLayoutTest.cpp

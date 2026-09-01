@@ -30,9 +30,11 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/VertexBuffer.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -139,6 +141,26 @@ namespace OloEngine::Tests
         ASSERT_TRUE(uniformHandle.IsValid());
         EXPECT_NE(storageHandle, uniformHandle);
         EXPECT_EQ(NativeOf(uniformHandle), static_cast<u64>(uniform->GetRendererID()));
+
+        f32 vertices[] = { 0.0f, 1.0f, 2.0f };
+        const auto vertex = VertexBuffer::Create(vertices, sizeof(vertices));
+        ASSERT_TRUE(vertex);
+        const auto vertexHandle = vertex->GetRHIHandle();
+        ASSERT_TRUE(vertexHandle.IsValid());
+        EXPECT_EQ(RHI::ResourceRegistry::Get().KindOf(vertexHandle), RHI::ResourceKind::Buffer);
+        EXPECT_EQ(NativeOf(vertexHandle), static_cast<u64>(vertex->GetBufferHandle()));
+        EXPECT_TRUE(glIsBuffer(static_cast<GLuint>(NativeOf(vertexHandle))) == GL_TRUE);
+        EXPECT_EQ(vertex->GetDeviceAddress(), 0u);
+
+        u32 indices[] = { 0u, 1u, 2u };
+        const auto index = IndexBuffer::Create(indices, 3u);
+        ASSERT_TRUE(index);
+        const auto indexHandle = index->GetRHIHandle();
+        ASSERT_TRUE(indexHandle.IsValid());
+        EXPECT_EQ(RHI::ResourceRegistry::Get().KindOf(indexHandle), RHI::ResourceKind::Buffer);
+        EXPECT_EQ(NativeOf(indexHandle), static_cast<u64>(index->GetBufferHandle()));
+        EXPECT_TRUE(glIsBuffer(static_cast<GLuint>(NativeOf(indexHandle))) == GL_TRUE);
+        EXPECT_EQ(index->GetDeviceAddress(), 0u);
     }
 
     // ==========================================================================

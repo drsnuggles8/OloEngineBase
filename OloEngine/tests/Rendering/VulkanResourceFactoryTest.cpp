@@ -232,13 +232,17 @@ TEST_F(VulkanResourceFactory, FactoriesProduceLiveVulkanObjects)
     f32 vertices[] = { 0.f, 1.f, 2.f, 3.f, 4.f, 5.f };
     auto vb = VertexBuffer::Create(vertices, sizeof(vertices));
     ASSERT_NE(vb, nullptr);
-    EXPECT_NE(static_cast<VulkanVertexBuffer*>(vb.Raw())->GetDeviceAddress(), 0u)
+    EXPECT_TRUE(vb->GetRHIHandle().IsValid());
+    EXPECT_NE(vb->GetDeviceAddress(), 0u)
         << "vertex pulling needs a device address";
 
     u32 indices[] = { 0, 1, 2 };
     auto ib = IndexBuffer::Create(indices, 3);
     ASSERT_NE(ib, nullptr);
     EXPECT_EQ(ib->GetCount(), 3u);
+    EXPECT_TRUE(ib->GetRHIHandle().IsValid());
+    EXPECT_NE(ib->GetDeviceAddress(), 0u)
+        << "GPU-scene indexed geometry needs a device address";
     EXPECT_NE(static_cast<VulkanIndexBuffer*>(ib.Raw())->GetVkBuffer(), VK_NULL_HANDLE);
 
     auto vao = VertexArray::Create();

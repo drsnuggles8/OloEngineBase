@@ -416,6 +416,7 @@ namespace OloEngine
         // capacity 1 covers the non-batched path; CommandBucket auto-batching
         // grows it on demand via InstanceBuffer::EnsureCapacity().
         s_Data.ModelInstanceBuffer = Ref<InstanceBuffer>::Create(1);
+        s_Data.SceneGPU.InitializeGPU();
         // GPU per-instance frustum culler — compute shader is lazy-loaded on
         // first cull dispatch so a stripped-down embedded build that doesn't
         // ship the compute shaders can still drive the CPU path.
@@ -584,6 +585,7 @@ namespace OloEngine
         note("RGraph", s_Data.RGraph != nullptr);
         note("MultiLightBuffer", s_Data.MultiLightBuffer != nullptr);
         note("ModelInstanceBuffer", s_Data.ModelInstanceBuffer != nullptr);
+        note("GPUScene", s_Data.SceneGPU.HasGPUResources());
         note("BoneMatricesUBO", s_Data.BoneMatricesUBO != nullptr);
         note("TerrainUBO", s_Data.TerrainUBO != nullptr);
         note("FoliageUBO", s_Data.FoliageUBO != nullptr);
@@ -700,6 +702,8 @@ namespace OloEngine
         s_Data.SharedSceneUBOs.Reset();
         s_Data.MultiLightBuffer.Reset();
         s_Data.ModelInstanceBuffer.Reset();
+        s_Data.SceneGPU.Shutdown();
+        s_Data.GPUSceneExtractionActive = false;
         // The two-phase GPU culler (#431) owns a pool of StorageBuffers / InstanceBuffers.
         // It was created in Init but never released here, so it outlived Shutdown and was
         // destroyed during STATIC destruction at process exit — by which time the Meyer's
@@ -848,6 +852,9 @@ namespace OloEngine
         if (type == AssetType::MeshSource)
         {
             VirtualMeshRegistry::Get().Invalidate(handle);
+            // Buffer identities and ranges can change under the same asset
+            // handle. Retain generations while invalidating every live slot.
+            ResetGPUScene();
         }
 
         // Commands are rebuilt each frame from Material/Mesh objects, so no

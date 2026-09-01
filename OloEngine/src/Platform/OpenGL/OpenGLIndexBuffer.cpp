@@ -15,6 +15,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferData(m_RendererID, count * sizeof(u32), indices, GL_STATIC_DRAW);
         // Track GPU memory allocation
         u32 bufferSize = count * sizeof(u32);
@@ -32,6 +33,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferStorage(m_RendererID, count * sizeof(u32), indices, usage);
         // Track GPU memory allocation
         u32 bufferSize = count * sizeof(u32);
@@ -51,6 +53,7 @@ namespace OloEngine
 
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
+        m_RHIHandle.Reset();
 
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()

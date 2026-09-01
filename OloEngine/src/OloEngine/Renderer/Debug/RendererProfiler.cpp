@@ -135,6 +135,7 @@ namespace OloEngine
         m_CurrentFrame.m_InstancedDrawCalls = 0;
         m_CurrentFrame.m_InstancesRendered = 0;
         m_CurrentFrame.m_InstancesBatched = 0;
+        m_CurrentFrame.m_GPUScene = {};
 
         // Drop last frame's per-call instance breakdown. Recording is opt-in
         // so this is empty most of the time; clearing unconditionally keeps
@@ -404,6 +405,30 @@ namespace OloEngine
             ImGui::Text("Shader Binds: %u", m_CurrentFrame.m_ShaderBinds);
             ImGui::Text("Texture Binds: %u", m_CurrentFrame.m_TextureBinds);
             ImGui::Text("Buffer Binds: %u", m_CurrentFrame.m_BufferBinds);
+            ImGui::SeparatorText("GPU Scene");
+            const auto& gpuScene = m_CurrentFrame.m_GPUScene;
+            ImGui::Text("Extraction: %.3f ms", gpuScene.m_ExtractionTimeMs);
+            ImGui::Text("Upload: %llu bytes", static_cast<unsigned long long>(gpuScene.m_UploadBytes));
+            ImGui::Text("Instances: %u live / %u slots / %u GPU capacity",
+                        gpuScene.m_LiveInstances, gpuScene.m_InstanceSlotCount, gpuScene.m_InstanceBufferCapacity);
+            ImGui::Text("Geometries: %u live / %u slots / %u GPU capacity",
+                        gpuScene.m_LiveGeometries, gpuScene.m_GeometrySlotCount, gpuScene.m_GeometryBufferCapacity);
+            ImGui::Text("Fragmentation: %u instance + %u geometry free; %u + %u retiring; growth events: %u",
+                        gpuScene.m_FreeInstanceSlots, gpuScene.m_FreeGeometrySlots,
+                        gpuScene.m_RetiredInstanceSlots, gpuScene.m_RetiredGeometrySlots,
+                        gpuScene.m_BufferGrowthEvents);
+            ImGui::Text("Unsupported submissions: %u", gpuScene.m_UnsupportedTotal);
+            const auto unsupportedCategoryCount = gpuScene.m_UnsupportedCounts.size();
+            for (sizet category = 0; category < unsupportedCategoryCount; ++category)
+            {
+                const u32 count = gpuScene.m_UnsupportedCounts[category];
+                if (count == 0)
+                {
+                    continue;
+                }
+                const auto reason = static_cast<GPUSceneUnsupportedCategory>(category);
+                ImGui::BulletText("%s: %u", GetGPUSceneUnsupportedCategoryName(reason), count);
+            }
         }
 
         // Quick performance indicators
@@ -954,6 +979,7 @@ namespace OloEngine
         m_InstancedDrawCalls = 0;
         m_InstancesRendered = 0;
         m_InstancesBatched = 0;
+        m_GPUScene = {};
     }
 
     // ProfileScope implementation

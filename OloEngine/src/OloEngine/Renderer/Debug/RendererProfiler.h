@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 #include <imgui.h>
 #include <string>
 #include <vector>
@@ -94,6 +95,7 @@ namespace OloEngine
             u32 m_InstancedDrawCalls = 0;
             u32 m_InstancesRendered = 0;
             u32 m_InstancesBatched = 0;
+            GPUSceneFrameStats m_GPUScene;
 
             void Reset();
         };
@@ -197,6 +199,11 @@ namespace OloEngine
 
         // @brief Set a value metric
         void SetValue(MetricType type, f64 value);
+
+        void SetGPUSceneStats(const GPUSceneFrameStats& stats)
+        {
+            m_CurrentFrame.m_GPUScene = stats;
+        }
 
         // @brief Accumulate CPU time spent blocked on a GPU fence this frame.
         // EndFrame() subtracts the total from m_CPUTime so cpu time reflects

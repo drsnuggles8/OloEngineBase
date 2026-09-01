@@ -100,4 +100,37 @@ namespace
 
         profiler.EndFrame();
     }
+
+    TEST_F(RendererProfilerTimingTest, GPUSceneStatsPublishAndResetAtTheFrameBoundary)
+    {
+        auto& profiler = OloEngine::RendererProfiler::GetInstance();
+        profiler.BeginFrame();
+        profiler.SetGPUSceneStats(OloEngine::GPUSceneFrameStats{
+            .m_LiveInstances = 7,
+            .m_InstanceSlotCount = 9,
+            .m_InstanceBufferCapacity = 16,
+            .m_LiveGeometries = 3,
+            .m_GeometrySlotCount = 4,
+            .m_GeometryBufferCapacity = 8,
+            .m_FreeInstanceSlots = 2,
+            .m_FreeGeometrySlots = 1,
+            .m_BufferGrowthEvents = 2,
+            .m_UnsupportedTotal = 5,
+            .m_UploadBytes = 384,
+            .m_ExtractionTimeMs = 1.25,
+        });
+
+        const auto& published = profiler.GetCurrentFrameData().m_GPUScene;
+        EXPECT_EQ(published.m_LiveInstances, 7u);
+        EXPECT_EQ(published.m_UploadBytes, 384u);
+        EXPECT_DOUBLE_EQ(published.m_ExtractionTimeMs, 1.25);
+        profiler.EndFrame();
+
+        profiler.BeginFrame();
+        const auto& reset = profiler.GetCurrentFrameData().m_GPUScene;
+        EXPECT_EQ(reset.m_LiveInstances, 0u);
+        EXPECT_EQ(reset.m_UploadBytes, 0u)
+            << "a frame without GPU-scene extraction must not retain prior telemetry";
+        profiler.EndFrame();
+    }
 } // namespace

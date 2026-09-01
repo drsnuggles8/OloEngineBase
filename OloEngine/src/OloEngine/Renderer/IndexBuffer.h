@@ -2,6 +2,7 @@
 
 #include <utility>
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 namespace OloEngine
 {
@@ -16,6 +17,9 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] virtual u32 GetCount() const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetBufferHandle() const = 0;
+        [[nodiscard]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
+        // Zero when the active backend does not expose buffer device addresses.
+        [[nodiscard]] virtual u64 GetDeviceAddress() const = 0;
 
         static Ref<IndexBuffer> Create(u32* indices, u32 size);
     };

@@ -299,7 +299,7 @@ namespace OloEngine
         {
             return m_Buffer;
         }
-        [[nodiscard]] VkDeviceAddress GetDeviceAddress() const
+        [[nodiscard]] u64 GetDeviceAddress() const override
         {
             return m_DeviceAddress;
         }
@@ -307,7 +307,7 @@ namespace OloEngine
         {
             return m_Size;
         }
-        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
         {
             return m_RHIHandle.Get();
         }
@@ -358,9 +358,13 @@ namespace OloEngine
         {
             return m_Buffer;
         }
-        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
         {
             return m_RHIHandle.Get();
+        }
+        [[nodiscard]] u64 GetDeviceAddress() const override
+        {
+            return m_DeviceAddress;
         }
 
       private:
@@ -369,6 +373,7 @@ namespace OloEngine
         u32 m_Count = 0;
         VkBuffer m_Buffer = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;
+        VkDeviceAddress m_DeviceAddress = 0;
         RHI::ScopedResourceHandle m_RHIHandle;
     };
 
