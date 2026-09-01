@@ -99,18 +99,28 @@ namespace OloEngine::Tests
             }
         };
 
+        // A float texture for a shader probe to sample. The format and wrap
+        // arguments default to what every caller before issue #903 used
+        // (R32F fed from GL_RED, and the GL default GL_REPEAT this ctor used
+        // to inherit by not setting wrap at all), so adding them changed no
+        // existing call site. Filtering stays NEAREST for every caller: a
+        // probe wants the texel it asked for, not a blend of its neighbours.
         struct ScopedTexture2D
         {
             GLuint m_Id = 0;
 
-            ScopedTexture2D(u32 width, u32 height, const f32* pixels)
+            ScopedTexture2D(u32 width, u32 height, const f32* pixels, GLenum internalFormat = GL_R32F,
+                            GLenum uploadFormat = GL_RED, GLenum wrapMode = GL_REPEAT)
             {
                 ::glCreateTextures(GL_TEXTURE_2D, 1, &m_Id);
-                ::glTextureStorage2D(m_Id, 1, GL_R32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+                ::glTextureStorage2D(m_Id, 1, internalFormat, static_cast<GLsizei>(width),
+                                     static_cast<GLsizei>(height));
                 ::glTextureSubImage2D(m_Id, 0, 0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height),
-                                      GL_RED, GL_FLOAT, pixels);
+                                      uploadFormat, GL_FLOAT, pixels);
                 ::glTextureParameteri(m_Id, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
                 ::glTextureParameteri(m_Id, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                ::glTextureParameteri(m_Id, GL_TEXTURE_WRAP_S, static_cast<GLint>(wrapMode));
+                ::glTextureParameteri(m_Id, GL_TEXTURE_WRAP_T, static_cast<GLint>(wrapMode));
             }
 
             ~ScopedTexture2D()
@@ -899,40 +909,6 @@ namespace OloEngine::Tests
             std::array<f32, 4> AlphaStats{}; // mean, stddev, min, max
         };
 
-        // A 3x3 RGBA32F signal, laid out row-major from the bottom-left texel —
-        // GL's texture origin, so index 4 is the centre the probe samples.
-        struct ScopedTextureRgba32F
-        {
-            GLuint m_Id = 0;
-
-            ScopedTextureRgba32F(u32 width, u32 height, const f32* pixels)
-            {
-                ::glCreateTextures(GL_TEXTURE_2D, 1, &m_Id);
-                ::glTextureStorage2D(m_Id, 1, GL_RGBA32F, static_cast<GLsizei>(width),
-                                     static_cast<GLsizei>(height));
-                ::glTextureSubImage2D(m_Id, 0, 0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height),
-                                      GL_RGBA, GL_FLOAT, pixels);
-                ::glTextureParameteri(m_Id, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-                ::glTextureParameteri(m_Id, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-                ::glTextureParameteri(m_Id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                ::glTextureParameteri(m_Id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            }
-
-            ~ScopedTextureRgba32F()
-            {
-                if (m_Id != 0)
-                    ::glDeleteTextures(1, &m_Id);
-            }
-
-            ScopedTextureRgba32F(const ScopedTextureRgba32F&) = delete;
-            ScopedTextureRgba32F& operator=(const ScopedTextureRgba32F&) = delete;
-
-            operator GLuint() const
-            {
-                return m_Id;
-            }
-        };
-
         // `signal` is 9 RGBA texels; `cases` is one {history, (gamma, feedback,
         // confidence, 0)} pair per invocation.
         std::vector<TemporalRgbaProbeResult> RunTemporalRgbaProbe(
@@ -955,7 +931,11 @@ namespace OloEngine::Tests
             }
 
             const auto outputFloats = results.size() * 12u; // 3 vec4 per case
-            ScopedTextureRgba32F signalTexture(3u, 3u, signalPixels.data());
+            // Row-major from the bottom-left texel (GL's origin), so index 4 is
+            // the centre the probe samples. CLAMP_TO_EDGE is belt-and-braces:
+            // the 3x3 gather stays inside the texture, so nothing wraps anyway.
+            ScopedTexture2D signalTexture(3u, 3u, signalPixels.data(), GL_RGBA32F, GL_RGBA,
+                                          GL_CLAMP_TO_EDGE);
             ScopedBuffer inputBuffer(static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)),
                                      GL_DYNAMIC_STORAGE_BIT);
             ScopedBuffer outputBuffer(static_cast<GLsizeiptr>(outputFloats * sizeof(f32)),
