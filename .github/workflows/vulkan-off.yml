@@ -114,9 +114,26 @@ jobs:
     # fork's code. And never introduce a `pull_request_target` here that checks out
     # the PR head -- that single pattern defeats this condition entirely.
     #
+    #
+    # `vars.OLO_LINUX_SELF_HOSTED` is the kill switch, and it comes FIRST so it can
+    # only ever move a job back to the hosted runner, never onto the box. Two
+    # reasons it exists rather than the condition standing alone:
+    #
+    #   * A `runs-on` naming a label set nobody serves does not fail -- it QUEUES,
+    #     for up to 24 hours. So the YAML must be able to land before the runners
+    #     are registered, or the PR that adds it cannot go green.
+    #   * The blast radius of this change is the whole CI system. Turning the box
+    #     off has to be one API call by whoever is awake, not a revert commit that
+    #     itself needs CI to merge.
+    #
+    # Set it with:
+    #   gh api -X POST repos/drsnuggles8/OloEngineBase/actions/variables     #     -f name=OLO_LINUX_SELF_HOSTED -f value=true
+    # Unset or any value but `true` keeps every Linux job on ubuntu-24.04.
     # `olo-ci`, not `gpu-amd`: the GPU nightly owns its runner exclusively so a CI
     # job can never queue in front of it, and vice versa.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

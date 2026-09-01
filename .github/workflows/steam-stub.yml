@@ -140,7 +140,9 @@ jobs:
     # pull_request at all -- see the `if:` below -- so in practice it always takes
     # the self-hosted arm; the condition is written in full anyway, because the day
     # someone relaxes that `if:` the runner choice must already be safe.)
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     # Not on pull_request — see the trigger rationale at the top of this file. The cheap
     # single-valve-tu guard above still runs on every PR; this full build does not.
     if: github.event_name != 'pull_request'

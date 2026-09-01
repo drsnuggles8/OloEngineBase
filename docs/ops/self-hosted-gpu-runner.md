@@ -456,7 +456,23 @@ runs-on: ${{ (github.event_name != 'pull_request'
 ```
 
 A fork PR takes the `ubuntu-24.04` arm, which is a throwaway VM — fork code never
-reaches this machine. Both halves of the condition are load-bearing: `push` and
+reaches this machine.
+
+`vars.OLO_LINUX_SELF_HOSTED` is the kill switch, and it is deliberately the FIRST
+term so it can only ever move a job back to a hosted runner, never onto the box:
+
+```bash
+# on
+gh api -X POST repos/drsnuggles8/OloEngineBase/actions/variables   -f name=OLO_LINUX_SELF_HOSTED -f value=true
+# off (or just delete the variable)
+gh api -X PATCH repos/drsnuggles8/OloEngineBase/actions/variables/OLO_LINUX_SELF_HOSTED   -f name=OLO_LINUX_SELF_HOSTED -f value=false
+```
+
+It exists for two reasons. A `runs-on` naming a label set nobody serves does not
+fail, it **queues** — for up to 24 hours — so the workflows had to be able to
+land before the runners existed. And the blast radius here is the entire CI
+system: turning the box off should be one API call by whoever is awake, not a
+revert commit that itself needs CI to merge. Both halves of the condition are load-bearing: `push` and
 `schedule` events carry no `pull_request` object at all, so the right-hand
 comparison is empty there, and an expression written with only that half would
 silently push every nightly onto hosted runners.

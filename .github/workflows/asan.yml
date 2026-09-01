@@ -371,10 +371,27 @@ jobs:
     # ubuntu-latest, because the LLVM apt repo the setup action uses hardcodes the
     # distro codename; if ubuntu-latest jumped release the apt source would 404.
     #
+    #
+    # `vars.OLO_LINUX_SELF_HOSTED` is the kill switch, and it comes FIRST so it can
+    # only ever move a job back to the hosted runner, never onto the box. Two
+    # reasons it exists rather than the condition standing alone:
+    #
+    #   * A `runs-on` naming a label set nobody serves does not fail -- it QUEUES,
+    #     for up to 24 hours. So the YAML must be able to land before the runners
+    #     are registered, or the PR that adds it cannot go green.
+    #   * The blast radius of this change is the whole CI system. Turning the box
+    #     off has to be one API call by whoever is awake, not a revert commit that
+    #     itself needs CI to merge.
+    #
+    # Set it with:
+    #   gh api -X POST repos/drsnuggles8/OloEngineBase/actions/variables     #     -f name=OLO_LINUX_SELF_HOSTED -f value=true
+    # Unset or any value but `true` keeps every Linux job on ubuntu-24.04.
     # `olo-ci`, not `gpu-amd`: the GPU nightly owns its runner exclusively, so a CI
     # job can never queue in front of it and vice versa -- which is the "a single
     # runner serialises every job behind the nightly" half of #1009.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -572,7 +589,9 @@ jobs:
     # Self-hosted when the code is ours, hosted Ubuntu when it is not. See the
     # asan-lsan-linux job above for the full reasoning -- the condition is the
     # security boundary, and both of its disjuncts are load-bearing.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -766,7 +785,9 @@ jobs:
     # Self-hosted when the code is ours, hosted Ubuntu when it is not. See the
     # asan-lsan-linux job above for the full reasoning -- the condition is the
     # security boundary, and both of its disjuncts are load-bearing.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
