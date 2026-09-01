@@ -28,6 +28,40 @@ inputs:
       that box has its own disk and none of these paths.
     required: false
     default: 'true'
+  vulkan-sdk:
+    description: >
+      Provision the LunarG Vulkan SDK on a GITHUB-HOSTED runner. Pass 'false' for a
+      job that takes its shader toolchain from apt instead.
+
+      This input exists because unifying the five jobs' setup silently changed what
+      three of them LINK AGAINST. The sanitizer jobs never ran setup-vulkan: they
+      apt-install libspirv-cross-c-shared-dev and find_package picks that up. Adding
+      the SDK put $VULKAN_SDK in the environment, CMake preferred it, and the three
+      Linux sanitizer jobs started linking the SDK's prebuilt spirv-cross instead --
+      which is not sanitizer-instrumented and SEGVs under TSan while destroying its
+      own containers:
+
+        ThreadSanitizer: SEGV on unknown address
+          #5 spirv_cross::Resource::~Resource()
+             …/VULKAN_SDK/include/spirv_cross/spirv_cross.hpp:36
+          #10 ShaderReflectionBinding_AllProductionShaderBindingsMatchCppLayout_Test
+
+      Four shader-reflection tests, on a job that had passed on master eleven hours
+      earlier. The lesson is narrow and worth keeping: a shared setup action makes
+      every job's TOOLCHAIN a shared decision, and "install one more thing" is not a
+      no-op when a build prefers what it finds.
+
+      Ignored on self-hosted, where the SDK is the only source of shaderc / glslang /
+      SPIRV-Cross -- Rocky packages none of them (docs/ops/self-hosted-gpu-runner.md
+      §1b). That is SAFE rather than merely unavoidable, and it was measured rather
+      than hoped: a standalone 20-line probe on the box -- reflect a compute shader
+      with CompilerGLSL, destroy ShaderResources, built `clang++ -fsanitize=thread`
+      against the SDK's libspirv-cross -- prints "destroyed cleanly" and exits 0. So
+      the fault is the HOSTED SDK build (1.4.321.0 + clang-19), not the SDK path.
+      Worth knowing before anyone "fixes" the self-hosted arm by copying this
+      opt-out: the two arms are different for a measured reason.
+    required: false
+    default: 'true'
   cache-name:
     description: >
       Names this job in the self-hosted compiler-cache log line. Purely diagnostic:
@@ -83,7 +117,7 @@ runs:
       run: python3 -m pip install jinja2==3.1.6
 
     - name: Setup Vulkan SDK (hosted)
-      if: runner.environment == 'github-hosted'
+      if: runner.environment == 'github-hosted' && inputs.vulkan-sdk == 'true'
       uses: ./.github/actions/setup-vulkan
 
     - name: Add LLVM apt repository (hosted)

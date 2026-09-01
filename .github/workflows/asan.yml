@@ -418,6 +418,10 @@ jobs:
       id: linux
       uses: ./.github/actions/setup-linux-build
       with:
+        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
+        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
+        # instrumentation. See the input's own comment for the stack.
+        vulkan-sdk: 'false'
         cache-name: asan-lsan
 
     # Provisions sccache and wires it to the GitHub Actions cache backend
@@ -644,6 +648,10 @@ jobs:
       id: linux
       uses: ./.github/actions/setup-linux-build
       with:
+        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
+        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
+        # instrumentation. See the input's own comment for the stack.
+        vulkan-sdk: 'false'
         cache-name: ubsan
 
     # Provisions sccache before Configure (see asan-lsan-linux for the version-
@@ -866,6 +874,10 @@ jobs:
       id: linux
       uses: ./.github/actions/setup-linux-build
       with:
+        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
+        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
+        # instrumentation. See the input's own comment for the stack.
+        vulkan-sdk: 'false'
         cache-name: tsan
 
     # Provisions sccache before Configure (see asan-lsan-linux for the version-
