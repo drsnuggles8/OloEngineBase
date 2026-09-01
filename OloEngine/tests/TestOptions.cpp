@@ -41,7 +41,10 @@ namespace OloEngine::Tests
                 "  --olo-video=<path>             an FFmpeg-decodable file for the decode tests\n"
                 "  --olo-pathtracer-evidence      write the path-tracer reference images\n"
                 "  --olo-mcp-attach-seconds=<n>   MCP discovery-file wait for the attach test\n"
-                "  --olo-bake-shader-pack=<path>  bake a ShaderPack.osp to this path (headless)\n");
+                "  --olo-bake-shader-pack=<path>  bake a ShaderPack.osp to this path (headless)\n"
+                "  --olo-capture-manifest=<path>  run the benchmark capture this manifest describes\n"
+                "  --olo-capture-out=<dir>        override the capture's result directory (a relative\n"
+                "                                 dir resolves against OloEditor/, the capture cwd)\n");
         }
 
         // Returns the value of `--name=value`, or nullopt when `arg` is not that flag.
@@ -171,6 +174,14 @@ namespace OloEngine::Tests
             {
                 s_Options.BakeShaderPackPath = *v;
             }
+            else if (const auto v = ValueOf(arg, "--olo-capture-manifest"))
+            {
+                s_Options.CaptureManifestPath = *v;
+            }
+            else if (const auto v = ValueOf(arg, "--olo-capture-out"))
+            {
+                s_Options.CaptureOutDir = *v;
+            }
             else if (const auto v = ValueOf(arg, "--olo-mcp-attach-seconds"))
             {
                 i32 parsed = 0;
@@ -185,7 +196,8 @@ namespace OloEngine::Tests
             }
             else if (arg == "--olo-golden-vendor" || arg == "--olo-perf-machine" ||
                      arg == "--olo-gl-backend" || arg == "--olo-video" ||
-                     arg == "--olo-mcp-attach-seconds" || arg == "--olo-bake-shader-pack")
+                     arg == "--olo-mcp-attach-seconds" || arg == "--olo-bake-shader-pack" ||
+                     arg == "--olo-capture-manifest" || arg == "--olo-capture-out")
             {
                 // The name is right but the `=value` is missing — say that,
                 // rather than sending someone hunting for a typo.

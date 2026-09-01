@@ -43,6 +43,21 @@ int main(int argc, char** argv)
     // added later that asks IsNonInteractive() as it should. Everything still
     // logs; only the blocking is removed.
     OloEngine::SetNonInteractive(true);
+
+    // `--olo-capture-manifest=` is a TOOL RUN (issue #974): one flag should
+    // give a pure capture invocation, not the whole suite plus a capture.
+    // Setting the flag default BEFORE InitGoogleTest keeps an explicit
+    // `--gtest_filter=` from the command line authoritative — gtest's own
+    // parser overwrites this default when the user passed one. A GTEST_FILTER
+    // environment variable is indistinguishable from the built-in default by
+    // this point (gtest folds it into the flag at static init), so it is
+    // respected explicitly rather than silently clobbered.
+    const bool captureToolRun = !OloEngine::Tests::Options().CaptureManifestPath.empty();
+    if (captureToolRun && std::getenv("GTEST_FILTER") == nullptr)
+    {
+        GTEST_FLAG_SET(filter, "BenchmarkCapture.*");
+    }
+
     ::testing::InitGoogleTest(&argc, argv);
     OloEngine::Tests::TestFailureCapture::RegisterFailureListener();
     // Assert a clean glGetError() state after every test so a test that
@@ -56,6 +71,19 @@ int main(int argc, char** argv)
     // docs/agent-rules/shared-temp-dir-test-isolation.md.
     OloEngine::Tests::RegisterCleanSlateListener();
     const int result = ::RUN_ALL_TESTS();
+
+    // The capture-mode filter above names a test suite by string; a suite
+    // rename would silently turn every capture invocation into a 0-test run
+    // that exits 0 having produced nothing. gtest only applies the filter
+    // inside RUN_ALL_TESTS, so the count is checked after it.
+    if (captureToolRun && ::testing::UnitTest::GetInstance()->test_to_run_count() == 0)
+    {
+        std::fprintf(stderr,
+                     "OloEngine-Tests: --olo-capture-manifest was given but the active gtest filter "
+                     "matched no tests (expected the BenchmarkCapture suite).\n");
+        OloEngine::Renderer::Shutdown();
+        return 2;
+    }
 
     // Tests lazily initialize the renderer (e.g. through Scene rendering) but
     // do not always shut it down. Renderer2D/Renderer3D own GPU-resource-holding

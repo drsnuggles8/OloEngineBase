@@ -21,6 +21,7 @@
 		"MCP/McpShadowCapture.h"
 		"MCP/McpInputInject.h"
 		"MCP/McpToolsAssets.cpp"
+		"MCP/McpToolsBenchmark.cpp"
 		"MCP/McpToolsCamera.cpp"
 		"MCP/McpToolsInput.cpp"
 		"MCP/McpToolsDiagnostics.cpp"

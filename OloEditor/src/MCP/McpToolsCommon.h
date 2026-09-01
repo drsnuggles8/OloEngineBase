@@ -293,12 +293,16 @@ namespace OloEngine::MCP
     // check server.IsCurrentCallCancelled() and abort instead of capturing.
     // Emits notifications/progress as frames advance when the caller opted in
     // via a progressToken (a no-op otherwise).
-    inline bool AwaitRenderedFrames(McpServer& server, u64 baseFrame, int settleFrames)
+    // `deadline` scales for callers waiting through a long declared frame
+    // count (the benchmark warm-up waits 128+ frames, not a 2-3 frame
+    // screenshot settle); the 5 s default is the original screenshot budget.
+    inline bool AwaitRenderedFrames(McpServer& server, u64 baseFrame, int settleFrames,
+                                    std::chrono::milliseconds deadlineBudget = std::chrono::seconds(5))
     {
         if (!server.Context().GetFrameIndex || !server.Context().IsCaptureUnready)
             return true; // older context: best effort, capture immediately
         const u64 targetFrame = baseFrame + static_cast<u64>(settleFrames);
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        const auto deadline = std::chrono::steady_clock::now() + deadlineBudget;
         u64 lastReported = 0;
         while (std::chrono::steady_clock::now() < deadline)
         {
@@ -374,4 +378,5 @@ namespace OloEngine::MCP
     void RegisterCameraTools(McpServer& server);
     void RegisterPhysicsTools(McpServer& server);
     void RegisterInputTools(McpServer& server);
+    void RegisterBenchmarkTools(McpServer& server);
 } // namespace OloEngine::MCP

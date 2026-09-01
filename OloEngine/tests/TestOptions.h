@@ -66,6 +66,14 @@ namespace OloEngine::Tests
         // producer for issue #908 (no GL context; see ShaderPackBakeTest).
         // Empty means "not baking".
         std::string BakeShaderPackPath;
+        // --olo-capture-manifest=<path> : run the benchmark capture described
+        // by this manifest instead of the normal suite — the deterministic
+        // scene/AOV capture entry point for issue #974 (needs a GL 4.6
+        // context; see BenchmarkCaptureTest). Empty means "not capturing".
+        std::string CaptureManifestPath;
+        // --olo-capture-out=<dir> : override the manifest capture's result
+        // directory (default: assets/benchmark/captures/<manifest Id>/).
+        std::string CaptureOutDir;
     };
 
     // Parse and consume the `--olo-*` flags. Call before InitGoogleTest so the
