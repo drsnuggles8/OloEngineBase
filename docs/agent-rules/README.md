@@ -38,6 +38,7 @@ run is **not** evidence.
 | [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | two scenes render skybox-only, one renders perfectly, zero errors — no tenant interleaved two uploads of one SSBO with draws |
 | [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) | every Vulkan draw in the process wrote colour attachment 0 alone for a whole phase — the forward path displays only attachment 0, so the editor looked fine |
 | [substituted-seams-compound.md](substituted-seams-compound.md) | a 300-line decal tenant made THREE substitutions — the dispatch function, the geometry, and the render graph — and each one was hiding a different live bug; no decal had produced a pixel in any real scene, on either path |
+| [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md) | a compute kernel wrote mip 0 and left the chain holding the pre-edit terrain: correct near the camera, stale in the distance, snapping in as you approach. A human tested the editor by hand and reported it working. Parity, undo and close-camera visual tests were all green — and the visual test had been green for the WRONG reason, because every mip was uniformly stale until the first fix made one of them fresh |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | a compaction test that sorts both sides passes identically on `atomicAdd` and on the scan meant to replace it — the *set* was never the broken thing |
 | [variable-rate-compute-shading.md](variable-rate-compute-shading.md) | the shading-rate classifier coarsened the sky and nothing else — every test passed, because a feature that does NOTHING satisfies every "did coarsening damage the image" assertion perfectly. Only the debug heatmap could say *where* it engaged. Plus: a coarsening lattice is a one-pixel step every eight columns, a rounding error in a mean image diff over a million pixels and an obvious grid on screen |
 | [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | every glyph in the engine invisible on AMD, with the font loaded, 189 glyphs packed and 852 quads submitted — bake that and the nightly defends a blank UI forever |
@@ -299,6 +300,7 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) ·
 [cluster-lod-simplification.md](cluster-lod-simplification.md) ·
 [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) ·
+[compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md) ·
 [terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md) ·
 [terrain-virtual-texturing.md](terrain-virtual-texturing.md) ·
 [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) ·

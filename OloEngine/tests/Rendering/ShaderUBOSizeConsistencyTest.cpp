@@ -66,7 +66,7 @@ namespace OloEngine::Tests
         // ColorBlindParams (#458), plus PrefixSumParams (#713),
         // TerrainCullParams (#714), the two DDGI blocks (#707) and
         // ShadingRateParams (#683) and WaterDisturbanceParams (#967).
-        const std::array<KnownBlock, 45> kKnownBlocks = { {
+        const std::array<KnownBlock, 46> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -103,6 +103,7 @@ namespace OloEngine::Tests
             { "WindGenerateParams", sizeof(UBOStructures::WindGenerateUBO) },
             { "SnowComputeParams", sizeof(UBOStructures::SnowComputeUBO) },
             { "TerrainErosionParams", sizeof(UBOStructures::TerrainErosionUBO) },
+            { "TerrainBrushParams", sizeof(UBOStructures::TerrainBrushUBO) },
             { "LightCullingParams", sizeof(UBOStructures::LightCullingUBO) },
             { "VirtualClusterCullParams", sizeof(UBOStructures::VirtualClusterCullUBO) },
             { "VirtualRasterParams", sizeof(UBOStructures::VirtualRasterUBO) },

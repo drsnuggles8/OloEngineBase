@@ -7,6 +7,8 @@
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/Editor/TerrainErosion.h"
+#include "OloEngine/Terrain/Editor/TerrainGPUBrush.h"
+#include "OloEngine/Terrain/Editor/TerrainTextureUndoStack.h"
 #include "../UndoRedo/SpecializedCommands.h"
 
 #include <imgui.h>
@@ -381,6 +383,256 @@ namespace OloEngine
         }
     }
 
+    void TerrainEditorPanel::OnFrameTick()
+    {
+        UpdateContinuousErosion();
+    }
+
+    TerrainTextureUndoStack& TerrainEditorPanel::EnsureUndoStack()
+    {
+        if (!m_UndoStack)
+        {
+            m_UndoStack = Ref<TerrainTextureUndoStack>::Create();
+        }
+        return *m_UndoStack;
+    }
+
+    void TerrainEditorPanel::CommitGPUSculptStroke()
+    {
+        if (!m_CommandHistory || !m_StrokeTerrainData || !m_StrokePreHeight)
+        {
+            return;
+        }
+
+        Ref<Texture2D> heightmap = m_StrokeTerrainData->GetGPUHeightmap();
+        if (!heightmap)
+        {
+            return;
+        }
+
+        TerrainTextureUndoStack& stack = EnsureUndoStack();
+        const auto before = stack.Capture(m_StrokePreHeight, m_StrokeDirtyX, m_StrokeDirtyY,
+                                          m_StrokeDirtyW, m_StrokeDirtyH);
+        const auto after = stack.Capture(heightmap, m_StrokeDirtyX, m_StrokeDirtyY,
+                                         m_StrokeDirtyW, m_StrokeDirtyH);
+
+        // Both halves or neither: a command holding only one of the pair would undo
+        // to nothing or redo to nothing, which is worse than having no undo entry.
+        if (before == TerrainTextureUndoStack::kInvalidSnapshot ||
+            after == TerrainTextureUndoStack::kInvalidSnapshot)
+        {
+            stack.Release(before);
+            stack.Release(after);
+            OLO_CORE_WARN("TerrainEditorPanel: could not snapshot the sculpt stroke — no undo entry recorded");
+            return;
+        }
+
+        Entity strokeEnt = (m_Context && m_StrokeEntity != entt::null)
+                               ? Entity{ m_StrokeEntity, m_Context.get() }
+                               : Entity{};
+        const UUID strokeUUID = strokeEnt ? strokeEnt.GetUUID() : UUID(0);
+
+        m_CommandHistory->PushAlreadyExecuted(
+            std::make_unique<TerrainGPUSculptCommand>(
+                m_StrokeTerrainData, m_StrokeChunkManager, m_UndoStack,
+                m_StrokeWorldSizeX, m_StrokeWorldSizeZ, m_StrokeHeightScale,
+                m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH,
+                before, after, WeakRef<Scene>(m_Context), strokeUUID));
+    }
+
+    void TerrainEditorPanel::CommitGPUPaintStroke()
+    {
+        if (!m_CommandHistory || !m_StrokeMaterial || !m_StrokePreSplat0)
+        {
+            return;
+        }
+
+        Ref<Texture2D> splat0 = m_StrokeMaterial->GetSplatmap(0);
+        if (!splat0)
+        {
+            return;
+        }
+
+        TerrainTextureUndoStack& stack = EnsureUndoStack();
+        const auto before0 = stack.Capture(m_StrokePreSplat0, m_StrokeDirtyX, m_StrokeDirtyY,
+                                           m_StrokeDirtyW, m_StrokeDirtyH);
+        const auto after0 = stack.Capture(splat0, m_StrokeDirtyX, m_StrokeDirtyY,
+                                          m_StrokeDirtyW, m_StrokeDirtyH);
+
+        auto before1 = TerrainTextureUndoStack::kInvalidSnapshot;
+        auto after1 = TerrainTextureUndoStack::kInvalidSnapshot;
+        // The second splatmap only participates above four layers — that is exactly
+        // when the paint kernel re-normalises across both, so it is exactly when it
+        // needs undoing too.
+        if (m_StrokeMaterial->GetLayerCount() > 4 && m_StrokePreSplat1)
+        {
+            if (Ref<Texture2D> splat1 = m_StrokeMaterial->GetSplatmap(1))
+            {
+                before1 = stack.Capture(m_StrokePreSplat1, m_StrokeDirtyX, m_StrokeDirtyY,
+                                        m_StrokeDirtyW, m_StrokeDirtyH);
+                after1 = stack.Capture(splat1, m_StrokeDirtyX, m_StrokeDirtyY,
+                                       m_StrokeDirtyW, m_StrokeDirtyH);
+            }
+        }
+
+        if (before0 == TerrainTextureUndoStack::kInvalidSnapshot ||
+            after0 == TerrainTextureUndoStack::kInvalidSnapshot)
+        {
+            stack.Release(before0);
+            stack.Release(after0);
+            stack.Release(before1);
+            stack.Release(after1);
+            OLO_CORE_WARN("TerrainEditorPanel: could not snapshot the paint stroke — no undo entry recorded");
+            return;
+        }
+
+        m_CommandHistory->PushAlreadyExecuted(
+            std::make_unique<TerrainGPUPaintCommand>(m_StrokeMaterial, m_UndoStack,
+                                                     before0, after0, before1, after1));
+    }
+
+    void TerrainEditorPanel::UpdateContinuousErosion()
+    {
+        // Erosion and the brush modes are mutually exclusive (one m_EditMode), which
+        // is what lets this reuse m_StrokePreHeight as its pre-state parking slot
+        // rather than carrying a second full-map copy.
+        const bool wantRun = m_ErosionContinuous && m_EditMode == TerrainEditMode::Erosion &&
+                             m_Context && m_Erosion.IsReady();
+
+        if (!wantRun)
+        {
+            if (m_ErosionSessionActive)
+            {
+                EndContinuousErosionSession();
+            }
+            return;
+        }
+
+        Ref<TerrainData> data = m_ErosionTerrainData;
+        if (!m_ErosionSessionActive)
+        {
+            // Bind the session to the first terrain with a GPU heightmap and hold it
+            // for the whole session, so toggling the checkbox off restores the same
+            // terrain the iterations went into even if the selection changed.
+            // Same predicate the Apply-Erosion button uses below, so the checkbox and
+            // the button cannot target different entities in a multi-terrain scene.
+            auto terrainView = m_Context->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
+            for (auto entity : terrainView)
+            {
+                auto& terrain = terrainView.get<TerrainComponent>(entity);
+                if (!terrain.m_TerrainData || !terrain.m_ChunkManager)
+                    continue;
+                if (!terrain.m_TerrainData->GetGPUHeightmap())
+                    continue;
+
+                m_ErosionTerrainData = terrain.m_TerrainData;
+                m_ErosionChunkManager = terrain.m_ChunkManager;
+                m_ErosionEntity = entity;
+                m_ErosionWorldSizeX = terrain.m_WorldSizeX;
+                m_ErosionWorldSizeZ = terrain.m_WorldSizeZ;
+                m_ErosionHeightScale = terrain.m_HeightScale;
+                data = terrain.m_TerrainData;
+                break;
+            }
+
+            if (!data)
+            {
+                return;
+            }
+
+            TerrainTextureUndoStack::EnsureFullCopy(m_StrokePreHeight, data->GetGPUHeightmap());
+            m_ErosionSessionActive = true;
+        }
+
+        if (!data)
+        {
+            return;
+        }
+
+        // Dispatch only. No readback, no chunk rebuild, no collision sync per frame:
+        // with GPU-driven LOD the surface is drawn from the heightmap texture, so the
+        // convergence is visible immediately, and the CPU-side consumers are brought
+        // up to date once when the session ends.
+        m_Erosion.ApplyIterations(*data, m_ErosionSettings, m_ErosionIterationsPerFrame);
+    }
+
+    void TerrainEditorPanel::EndContinuousErosionSession()
+    {
+        m_ErosionSessionActive = false;
+
+        Ref<TerrainData> data = m_ErosionTerrainData;
+        m_ErosionTerrainData = nullptr;
+        Ref<TerrainChunkManager> chunkManager = m_ErosionChunkManager;
+        m_ErosionChunkManager = nullptr;
+        const entt::entity erosionEntity = m_ErosionEntity;
+        m_ErosionEntity = entt::null;
+
+        if (!data)
+        {
+            return;
+        }
+
+        SettleErosionEdit(data, chunkManager, erosionEntity, m_ErosionWorldSizeX, m_ErosionWorldSizeZ,
+                          m_ErosionHeightScale, m_StrokePreHeight);
+    }
+
+    void TerrainEditorPanel::SettleErosionEdit(const Ref<TerrainData>& data,
+                                               Ref<TerrainChunkManager> chunkManager,
+                                               entt::entity entity,
+                                               f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+                                               const Ref<Texture2D>& preImage)
+    {
+        const u32 resolution = data->GetResolution();
+        if (resolution == 0)
+        {
+            return;
+        }
+
+        // Erosion rewrites the whole field, so the undo region is the whole map. The
+        // ring's byte budget is what keeps a long erosion session from being an
+        // unbounded VRAM cost — old sessions age out.
+        if (m_CommandHistory && preImage)
+        {
+            TerrainTextureUndoStack& stack = EnsureUndoStack();
+            const auto before = stack.Capture(preImage, 0, 0, resolution, resolution);
+            const auto after = stack.Capture(data->GetGPUHeightmap(), 0, 0, resolution, resolution);
+
+            if (before != TerrainTextureUndoStack::kInvalidSnapshot &&
+                after != TerrainTextureUndoStack::kInvalidSnapshot)
+            {
+                Entity ent = (m_Context && entity != entt::null) ? Entity{ entity, m_Context.get() } : Entity{};
+                const UUID uuid = ent ? ent.GetUUID() : UUID(0);
+                m_CommandHistory->PushAlreadyExecuted(
+                    std::make_unique<TerrainGPUSculptCommand>(
+                        data, chunkManager, m_UndoStack,
+                        worldSizeX, worldSizeZ, heightScale,
+                        0, 0, resolution, resolution, before, after,
+                        WeakRef<Scene>(m_Context), uuid));
+            }
+            else
+            {
+                stack.Release(before);
+                stack.Release(after);
+                OLO_CORE_WARN("TerrainEditorPanel: could not snapshot the erosion pass — no undo entry recorded");
+            }
+        }
+
+        // The CPU-side consumers catch up here, once — this is the single
+        // TerrainData::SyncFromGPU the whole session pays for, however many
+        // iterations ran. NOTE there is deliberately no UploadToGPU: the GPU copy is
+        // the newer one, and pushing the mirror back over it would undo the erosion.
+        if (chunkManager && chunkManager->IsBuilt())
+        {
+            chunkManager->GenerateAllChunks(*data, worldSizeX, worldSizeZ, heightScale);
+        }
+
+        if (m_Context && entity != entt::null)
+        {
+            Entity terrainEnt{ entity, m_Context.get() };
+            m_Context->UpdateTerrainCollisionAfterEdit(terrainEnt, 0, 0, resolution, resolution);
+        }
+    }
+
     void TerrainEditorPanel::OnUpdate(f32 deltaTime, const glm::vec3& hitPos, bool hasHit, bool mouseDown)
     {
         m_BrushWorldPos = hitPos;
@@ -390,7 +642,48 @@ namespace OloEngine
         if (m_StrokeActive && !mouseDown)
         {
             // Finalize stroke and push undo command
-            if (m_CommandHistory && m_StrokeDirtyW > 0 && m_StrokeDirtyH > 0)
+            if (m_StrokeUsesGPU)
+            {
+                // GPU path: undo is a pair of texture-region snapshots rather than a
+                // pair of std::vector regions, so the commit is entirely different
+                // code — see CommitGPUSculptStroke / CommitGPUPaintStroke. Guarded on
+                // the dirty rect for the same reason as the CPU path: a press with no
+                // texel actually touched is not an undo step.
+                if (m_StrokeDirtyW > 0 && m_StrokeDirtyH > 0)
+                {
+                    if (m_EditMode == TerrainEditMode::Sculpt)
+                        CommitGPUSculptStroke();
+                    else if (m_EditMode == TerrainEditMode::Paint)
+                        CommitGPUPaintStroke();
+                }
+
+                // Settle work deferred off the per-frame path (issue #716). Both of
+                // these read the CPU mirror, so this is where the stroke's ONE
+                // readback happens — not one per drag frame.
+                if (m_EditMode == TerrainEditMode::Sculpt && m_StrokeTerrainData &&
+                    m_StrokeDirtyW > 0 && m_StrokeDirtyH > 0)
+                {
+                    if (m_StrokeChunkManager)
+                    {
+                        TerrainBrush::DirtyRegion dirty{ m_StrokeDirtyX, m_StrokeDirtyY,
+                                                         m_StrokeDirtyW, m_StrokeDirtyH };
+                        TerrainBrush::RebuildDirtyChunks(*m_StrokeChunkManager, *m_StrokeTerrainData, dirty,
+                                                         m_StrokeWorldSizeX, m_StrokeWorldSizeZ,
+                                                         m_StrokeHeightScale);
+                    }
+
+                    if (m_Context && m_StrokeEntity != entt::null)
+                    {
+                        Entity strokeEnt{ m_StrokeEntity, m_Context.get() };
+                        if (strokeEnt)
+                        {
+                            m_Context->UpdateTerrainCollisionAfterEdit(
+                                strokeEnt, m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH);
+                        }
+                    }
+                }
+            }
+            else if (m_CommandHistory && m_StrokeDirtyW > 0 && m_StrokeDirtyH > 0)
             {
                 if (m_EditMode == TerrainEditMode::Sculpt && m_StrokeTerrainData)
                 {
@@ -513,6 +806,8 @@ namespace OloEngine
             }
 
             m_StrokeActive = false;
+            m_StrokeUsesGPU = false;
+            m_StrokeTargetHeight = 0.0f;
             m_StrokeDirtyX = m_StrokeDirtyY = m_StrokeDirtyW = m_StrokeDirtyH = 0;
             m_StrokeOldHeights.clear();
             m_StrokeOldSplatmap0.clear();
@@ -539,10 +834,29 @@ namespace OloEngine
 
             if (m_EditMode == TerrainEditMode::Sculpt)
             {
-                // Snapshot full heightmap on stroke start (before any modifications)
-                if (m_CommandHistory && !m_StrokeActive)
+                // Three conditions, and the third is the interesting one. The GPU
+                // sculpt path defers the chunk-mesh rebuild to stroke settle, because
+                // that rebuild reads the CPU mirror and doing it per drag frame would
+                // reinstate exactly the per-operation readback this issue removes. That
+                // is only acceptable while the terrain is DRAWN from the heightmap
+                // texture — i.e. on the GPU-driven LOD path, where the stroke is
+                // visible immediately and the meshes are only wanted by the CPU
+                // fallback. With GPU LOD off the user would see nothing until release,
+                // so that configuration keeps the CPU brush: no better, but no worse
+                // than before, and never a silent regression.
+                const bool useGPU = m_GPUBrush.IsSculptReady() &&
+                                    terrain.m_TerrainData->GetGPUHeightmap() != nullptr &&
+                                    terrain.m_TessellationEnabled &&
+                                    TerrainChunkManager::IsGpuDrivenLODEnabled();
+
+                // Stroke start. No longer gated on m_CommandHistory: an editor with no
+                // undo stack must still set up the stroke (the GPU path reads
+                // m_StrokeUsesGPU and m_StrokeTargetHeight every frame), it just does
+                // not get an undo entry — the same trade the voxel path documents.
+                if (!m_StrokeActive)
                 {
                     m_StrokeActive = true;
+                    m_StrokeUsesGPU = useGPU;
                     m_StrokeTerrainData = terrain.m_TerrainData;
                     m_StrokeChunkManager = terrain.m_ChunkManager;
                     m_StrokeEntity = entity;
@@ -550,23 +864,59 @@ namespace OloEngine
                     m_StrokeWorldSizeZ = terrain.m_WorldSizeZ;
                     m_StrokeHeightScale = terrain.m_HeightScale;
                     m_StrokeDirtyX = m_StrokeDirtyY = m_StrokeDirtyW = m_StrokeDirtyH = 0;
-                    // Full copy of heightmap for old-state extraction at stroke end
-                    m_StrokeOldHeights = terrain.m_TerrainData->GetHeightData();
+                    m_StrokeTargetHeight = 0.0f;
+
+                    if (useGPU)
+                    {
+                        // Flatten and Level converge on the height under the press.
+                        // Sampled ONCE, here: this is a CPU height query, so on the GPU
+                        // path it costs one TerrainData::SyncFromGPU — acceptable per
+                        // stroke, not acceptable per frame, which is why the kernel
+                        // takes it as a uniform instead of re-reading it.
+                        if (m_SculptSettings.Tool == TerrainBrushTool::Flatten ||
+                            m_SculptSettings.Tool == TerrainBrushTool::Level)
+                        {
+                            m_StrokeTargetHeight = terrain.m_TerrainData->GetHeightAt(
+                                hitPos.x / terrain.m_WorldSizeX, hitPos.z / terrain.m_WorldSizeZ);
+                        }
+
+                        TerrainTextureUndoStack::EnsureFullCopy(m_StrokePreHeight,
+                                                                terrain.m_TerrainData->GetGPUHeightmap());
+                    }
+                    else
+                    {
+                        // Full copy of heightmap for old-state extraction at stroke end
+                        m_StrokeOldHeights = terrain.m_TerrainData->GetHeightData();
+                    }
                 }
 
-                auto dirty = TerrainBrush::Apply(
-                    *terrain.m_TerrainData,
-                    m_SculptSettings,
-                    hitPos,
-                    terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale,
-                    deltaTime);
+                auto dirty = m_StrokeUsesGPU
+                                 ? m_GPUBrush.ApplySculpt(
+                                       *terrain.m_TerrainData, m_SculptSettings, hitPos,
+                                       terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale,
+                                       deltaTime, m_StrokeTargetHeight)
+                                 : TerrainBrush::Apply(
+                                       *terrain.m_TerrainData, m_SculptSettings, hitPos,
+                                       terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale,
+                                       deltaTime);
 
                 if (dirty.Width > 0 && dirty.Height > 0)
                 {
-                    terrain.m_TerrainData->UploadRegionToGPU(dirty.X, dirty.Y, dirty.Width, dirty.Height);
-                    TerrainBrush::RebuildDirtyChunks(
-                        *terrain.m_ChunkManager, *terrain.m_TerrainData,
-                        dirty, terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                    // The GPU brush wrote the texture directly — there is nothing to
+                    // upload, and uploading the CPU mirror here would overwrite it.
+                    if (!m_StrokeUsesGPU)
+                    {
+                        terrain.m_TerrainData->UploadRegionToGPU(dirty.X, dirty.Y, dirty.Width, dirty.Height);
+                    }
+
+                    // Deferred to stroke settle on the GPU path — see the useGPU
+                    // comment above for why that is safe there and not otherwise.
+                    if (!m_StrokeUsesGPU)
+                    {
+                        TerrainBrush::RebuildDirtyChunks(
+                            *terrain.m_ChunkManager, *terrain.m_TerrainData,
+                            dirty, terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                    }
 
                     // Expand stroke dirty region
                     if (m_StrokeDirtyW == 0)
@@ -605,36 +955,59 @@ namespace OloEngine
                     terrain.m_Material->InitializeCPUSplatmaps(splatRes);
                 }
 
+                const bool usePaintGPU = m_GPUBrush.IsPaintReady() &&
+                                         terrain.m_Material->GetSplatmap(0) != nullptr &&
+                                         terrain.m_Material->GetSplatmap(1) != nullptr;
+
                 // Snapshot splatmap on stroke start
-                if (m_CommandHistory && !m_StrokeActive)
+                if (!m_StrokeActive)
                 {
                     m_StrokeActive = true;
+                    m_StrokeUsesGPU = usePaintGPU;
                     m_StrokeMaterial = terrain.m_Material;
                     m_StrokeWorldSizeX = terrain.m_WorldSizeX;
                     m_StrokeWorldSizeZ = terrain.m_WorldSizeZ;
                     m_StrokeDirtyX = m_StrokeDirtyY = m_StrokeDirtyW = m_StrokeDirtyH = 0;
-                    // Full copy of splatmap(s) for old-state extraction at stroke end
-                    m_StrokeOldSplatmap0 = terrain.m_Material->GetSplatmapData(0);
-                    if (terrain.m_Material->GetLayerCount() > 4)
+
+                    if (usePaintGPU)
                     {
-                        m_StrokeOldSplatmap1 = terrain.m_Material->GetSplatmapData(1);
+                        TerrainTextureUndoStack::EnsureFullCopy(m_StrokePreSplat0,
+                                                                terrain.m_Material->GetSplatmap(0));
+                        if (terrain.m_Material->GetLayerCount() > 4)
+                        {
+                            TerrainTextureUndoStack::EnsureFullCopy(m_StrokePreSplat1,
+                                                                    terrain.m_Material->GetSplatmap(1));
+                        }
+                    }
+                    else
+                    {
+                        // Full copy of splatmap(s) for old-state extraction at stroke end
+                        m_StrokeOldSplatmap0 = terrain.m_Material->GetSplatmapData(0);
+                        if (terrain.m_Material->GetLayerCount() > 4)
+                        {
+                            m_StrokeOldSplatmap1 = terrain.m_Material->GetSplatmapData(1);
+                        }
                     }
                 }
 
-                auto dirty = TerrainPaintBrush::Apply(
-                    *terrain.m_Material,
-                    m_PaintSettings,
-                    hitPos,
-                    terrain.m_WorldSizeX, terrain.m_WorldSizeZ,
-                    deltaTime);
+                auto dirty = m_StrokeUsesGPU
+                                 ? m_GPUBrush.ApplyPaint(*terrain.m_Material, m_PaintSettings, hitPos,
+                                                         terrain.m_WorldSizeX, terrain.m_WorldSizeZ, deltaTime)
+                                 : TerrainPaintBrush::Apply(*terrain.m_Material, m_PaintSettings, hitPos,
+                                                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ,
+                                                            deltaTime);
 
                 if (dirty.Width > 0 && dirty.Height > 0)
                 {
-                    // Upload both splatmaps (the normalization may affect both)
-                    terrain.m_Material->UploadSplatmapRegion(0, dirty.X, dirty.Y, dirty.Width, dirty.Height);
-                    if (terrain.m_Material->GetLayerCount() > 4)
+                    // Upload both splatmaps (the normalization may affect both). Only on
+                    // the CPU path — the kernel wrote the textures itself.
+                    if (!m_StrokeUsesGPU)
                     {
-                        terrain.m_Material->UploadSplatmapRegion(1, dirty.X, dirty.Y, dirty.Width, dirty.Height);
+                        terrain.m_Material->UploadSplatmapRegion(0, dirty.X, dirty.Y, dirty.Width, dirty.Height);
+                        if (terrain.m_Material->GetLayerCount() > 4)
+                        {
+                            terrain.m_Material->UploadSplatmapRegion(1, dirty.X, dirty.Y, dirty.Width, dirty.Height);
+                        }
                     }
 
                     // Expand stroke dirty region
@@ -786,28 +1159,51 @@ namespace OloEngine
 
                 hasTerrain = true;
 
+                // Continuous mode is the interactive one (issue #716): every frame
+                // runs Iterations/Frame more droplets into the same GPU heightmap and
+                // the surface visibly converges while the slider moves. It is only
+                // affordable because Apply() no longer reads the map back — with the
+                // old per-iteration GetData this was a whole-map GPU->CPU stall per
+                // frame. Undo is grouped per SESSION: one entry when the box is
+                // unticked, not one per frame.
+                ImGui::Checkbox("Continuous", &m_ErosionContinuous);
+                ImGui::SetItemTooltip("Erode every frame so the surface converges live. "
+                                      "Unticking commits one undo entry for the whole session.");
+
+                if (int perFrame = static_cast<int>(m_ErosionIterationsPerFrame);
+                    ImGui::SliderInt("Iterations/Frame", &perFrame, 1, 16))
+                {
+                    m_ErosionIterationsPerFrame = static_cast<u32>(std::max(1, perFrame));
+                }
+                ImGui::SetItemTooltip("Erosion rate while Continuous is on — drag this to watch it converge");
+
+                if (m_ErosionContinuous)
+                {
+                    ImGui::TextDisabled("Eroding... (untick to commit)");
+                }
+
+                ImGui::Separator();
+
+                ImGui::BeginDisabled(m_ErosionContinuous);
                 if (ImGui::Button("Apply Erosion", ImVec2(-1, 30)))
                 {
+                    // Snapshot before the dispatches, so the undo entry the settle
+                    // records has something to go back to.
+                    Ref<Texture2D> preImage;
+                    TerrainTextureUndoStack::EnsureFullCopy(preImage,
+                                                            terrain.m_TerrainData->GetGPUHeightmap());
+
                     m_Erosion.ApplyIterations(*terrain.m_TerrainData, m_ErosionSettings, m_ErosionIterations);
 
-                    // Re-upload full heightmap and rebuild all chunks
-                    terrain.m_TerrainData->UploadToGPU();
-                    if (terrain.m_ChunkManager->IsBuilt())
-                    {
-                        terrain.m_ChunkManager->GenerateAllChunks(
-                            *terrain.m_TerrainData,
-                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
-                    }
-
-                    // Erosion rewrites the whole field, so sync the entire collision region
-                    // when physics is running (issue #469). No-op in edit mode.
-                    if (m_Context)
-                    {
-                        Entity terrainEnt{ entity, m_Context.get() };
-                        const u32 res = terrain.m_TerrainData->GetResolution();
-                        m_Context->UpdateTerrainCollisionAfterEdit(terrainEnt, 0, 0, res, res);
-                    }
+                    // NO UploadToGPU here. It used to re-push the CPU heightmap after
+                    // the readback kept the two in step; now the GPU copy is the newer
+                    // one and pushing the mirror over it would silently undo the whole
+                    // erosion pass. The settle below syncs in the other direction.
+                    SettleErosionEdit(terrain.m_TerrainData, terrain.m_ChunkManager, entity,
+                                      terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale,
+                                      preImage);
                 }
+                ImGui::EndDisabled();
                 break;
             }
 

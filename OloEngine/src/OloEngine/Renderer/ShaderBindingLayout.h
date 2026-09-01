@@ -991,6 +991,53 @@ namespace OloEngine
         static_assert(sizeof(TerrainErosionUBO) == 64,
                       "TerrainErosionUBO std140 size drifted from GLSL expectation (64 B)");
 
+        // @brief GPU terrain brush parameters, uploaded at UBO_TERRAIN_BRUSH
+        // (83). GLSL twin: the TerrainBrushParams block in
+        // include/TerrainBrushParams.glsl, included by both
+        // compute/Terrain_SculptBrush.comp and compute/Terrain_PaintBrush.comp.
+        //
+        // ONE block for both kernels — see the UBO_TERRAIN_BRUSH comment for why
+        // there was no second slot to give the paint kernel. The fields the two
+        // do not share are simply left at their defaults by the kernel that does
+        // not read them: SrcRect / TargetHeight / InvHeightScale / Tool are
+        // sculpt-only, TargetLayer / LayerCount are paint-only.
+        //
+        // Radius is in WORLD units and CenterNorm in normalized terrain coords,
+        // matching TerrainBrush::Apply exactly. Passing a texel-space radius here
+        // would be the space mismatch docs/agent-rules/cpu-gpu-surface-parity.md
+        // is written about: it looks right on a square terrain and silently makes
+        // the brush an ellipse on every other one.
+        struct TerrainBrushUBO
+        {
+            glm::ivec4 Rect;      //  0 — destination rect (x, y, w, h) in texels
+            glm::ivec4 SrcRect;   // 16 — sculpt scratch region (x, y, w, h) in texels
+            glm::vec2 CenterNorm; // 32 — brush centre, normalized terrain coords
+            glm::vec2 WorldSize;  // 40 — terrain world size (X, Z)
+            f32 Radius;           // 48 — brush radius, WORLD units
+            f32 StrengthDt;       // 52 — Strength * deltaTime
+            f32 Falloff;          // 56
+            f32 TargetHeight;     // 60 — Flatten/Level target, normalized height
+            f32 InvHeightScale;   // 64
+            i32 Tool;             // 68 — TerrainBrushTool
+            i32 Resolution;       // 72 — square resolution of the edited target
+            i32 TargetLayer;      // 76 — paint: layer index [0, 8)
+            i32 LayerCount;       // 80 — paint: layers spanned by re-normalisation
+            // Three scalars rather than an ivec3 — see the GLSL twin: std140 would
+            // align an ivec3 to 16 and silently disagree with this struct's 96 bytes.
+            i32 Pad0; // 84
+            i32 Pad1; // 88
+            i32 Pad2; // 92
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(TerrainBrushUBO));
+            }
+        };
+
+        static_assert(sizeof(TerrainBrushUBO) % 16 == 0, "TerrainBrushUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(TerrainBrushUBO) == 96,
+                      "TerrainBrushUBO std140 size drifted from GLSL expectation (96 B)");
+
         // @brief Forward+ / clustered light-culling dispatch parameters,
         // uploaded at UBO_LIGHT_CULLING (68). GLSL twin: the LightCullingParams
         // block in compute/LightCulling.comp. Distinct from ForwardPlusUBO (7),
@@ -2004,6 +2051,18 @@ namespace OloEngine
         static constexpr u32 UBO_VIRTUAL_SHADOW = 81;
         static constexpr u32 UBO_VIRTUAL_SHADOW_DRAW = 82;
 
+        // The LAST uniform-buffer index below MIN_GUARANTEED_BUFFER_BINDINGS
+        // (84), taken by the GPU terrain authoring brushes (issue #716). Both
+        // brush kernels — compute/Terrain_SculptBrush.comp and
+        // compute/Terrain_PaintBrush.comp — share this ONE block rather than
+        // taking a slot each, because after this there are none left: an
+        // addition past here has to either reclaim a retired binding or move the
+        // block to an SSBO, and the static_assert against
+        // MIN_GUARANTEED_BUFFER_BINDINGS below is what turns that into a compile
+        // error instead of a silently unbound block on a conforming driver.
+        // Refilled immediately before each dispatch, per the issue #691 pattern.
+        static constexpr u32 UBO_TERRAIN_BRUSH = 83;
+
         // ONE past the highest engine UBO binding above. Every consumer that
         // needs to size an array over "all UBO bindings" derives it from here
         // instead of naming a hand-picked constant — GLStateGuard's UBO-leak
@@ -2013,7 +2072,7 @@ namespace OloEngine
         // that). A hand-picked name has to be MOVED on every addition; this
         // one only has to be RAISED when a binding exceeds it, which the
         // static_assert below makes a compile error rather than a black frame.
-        static constexpr u32 UBO_BINDING_LIMIT = 83;
+        static constexpr u32 UBO_BINDING_LIMIT = 84;
         static_assert(UBO_WATER_DISTURBANCE < UBO_BINDING_LIMIT &&
                           UBO_AUTO_EXPOSURE < UBO_BINDING_LIMIT && UBO_INSTANCE_CULL < UBO_BINDING_LIMIT &&
                           UBO_REFLECTION_PROBE_CULL < UBO_BINDING_LIMIT &&
@@ -2022,7 +2081,8 @@ namespace OloEngine
                           UBO_COLORBLIND < UBO_BINDING_LIMIT && UBO_PREFIX_SUM < UBO_BINDING_LIMIT &&
                           UBO_TERRAIN_CULL < UBO_BINDING_LIMIT &&
                           UBO_VIRTUAL_SHADOW < UBO_BINDING_LIMIT &&
-                          UBO_VIRTUAL_SHADOW_DRAW < UBO_BINDING_LIMIT,
+                          UBO_VIRTUAL_SHADOW_DRAW < UBO_BINDING_LIMIT &&
+                          UBO_TERRAIN_BRUSH < UBO_BINDING_LIMIT,
                       "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
         // GL 4.6's MINIMUM guarantee for GL_MAX_UNIFORM_BUFFER_BINDINGS — the floor every
         // conforming implementation must meet. It is a COUNT, so it is an EXCLUSIVE upper bound:
@@ -2814,6 +2874,8 @@ namespace OloEngine
                     return name.contains("SnowCompute") || name.contains("snowCompute");
                 case UBO_TERRAIN_EROSION:
                     return name.contains("TerrainErosion") || name.contains("terrainErosion");
+                case UBO_TERRAIN_BRUSH:
+                    return name.contains("TerrainBrush") || name.contains("terrainBrush");
                 case UBO_LIGHT_CULLING:
                     return name.contains("LightCulling") || name.contains("lightCulling");
                 case UBO_VIRTUAL_CLUSTER_CULL:

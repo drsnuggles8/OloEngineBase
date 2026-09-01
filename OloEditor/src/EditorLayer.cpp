@@ -1646,6 +1646,15 @@ namespace OloEngine
                 m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
             }
 
+            // Unconditional: the terrain panel's continuous-erosion session is driven
+            // from the panel's own widgets, so it must keep stepping while the cursor
+            // is over the panel rather than the viewport — and it must be able to
+            // SETTLE there too, which is where its undo entry is pushed.
+            if (m_ShowTerrainEditor)
+            {
+                m_TerrainEditorPanel.OnFrameTick();
+            }
+
             // Terrain editor: raycast from mouse into heightmap and update brush
             if (m_ShowTerrainEditor && m_TerrainEditorPanel.IsActive() && m_ViewportHovered && m_SceneState == SceneState::Edit)
             {
