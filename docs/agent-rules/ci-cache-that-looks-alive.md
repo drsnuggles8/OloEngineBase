@@ -113,6 +113,54 @@ the source changed. Pin the image (`windows-2025`), and put the image name in th
 cache key, so that the next deliberate bump ages the dead entries out instead of
 restoring them forever.
 
+## 3b. The cache can be READ-ONLY, and only one line in one log says so
+
+The three defects above are real and each was worth fixing. None of them was the
+largest one, and the largest one was invisible until a job tried to *write*:
+
+```
+##[warning]Cache reservation failed: You have reached your configured budget,
+your cache is now read only to prevent additional charges.
+Failed to save: Unable to reserve cache with key vcpkg-Linux-…, another job
+may be creating this cache.
+```
+
+GitHub bills Actions cache storage above the included allowance, and a
+configured spending budget of zero does not fail loudly — it flips the whole
+repository's cache to **read only**. Every restore keeps working. Every save
+fails. The job stays green, because a cache save is not allowed to fail a job.
+
+Two things about that message make it hard to find. It is a `warning`, not an
+`error`, so it does not colour a check red or appear in any summary. And the line
+*underneath* it — the one that looks like the failure — says `another job may be
+creating this cache`, which is the action's generic 409 text and sends you
+hunting for a key collision that does not exist. The cause is the line above.
+
+**The measurement that names it in one command**, and the reason this went six
+days unnoticed:
+
+```console
+$ gh api "repos/<owner>/<repo>/actions/caches?per_page=100"     --jq '.actions_caches[]|"\(.created_at)  \(.key)"' | sort -r | head -3
+2026-08-26T08:25:59Z  sccache-tsan-linux-32942319314-1
+2026-08-26T08:10:55Z  vcpkg-Linux-x64-linux-9704e01b…-32942319409
+2026-08-26T08:09:36Z  vcpkg-Linux-x64-linux-9704e01b…-32942319336
+```
+
+**Not one entry written in six days**, across hundreds of runs of a dozen
+workflows. `created_at` is the field that matters; `last_accessed_at` keeps
+ticking forward on every restore and makes a frozen store look busy.
+
+The store sat at 11.6 GB against a 10 GB included allowance, which is what
+tripped the budget. So the *quota* item on the issue's list — the one that reads
+like housekeeping — was in fact the gate on everything else: until the active
+size is back under the allowance (or the budget is raised), no fix to restore/save
+splitting, key design or trigger cadence can be observed at all, because nothing
+can be written.
+
+**The rule: when a cache is not warming, check that it is WRITABLE before
+redesigning anything.** `created_at` on the newest entry answers it, and a
+frozen `created_at` across every prefix at once is not a bug in your keys.
+
 ## 4. LRU eviction cannot tell current from superseded
 
 The repo held 11.6 GB against a 10 GB cap, so GitHub was already evicting. Its
@@ -136,6 +184,7 @@ the restore step succeed" — it always does. The three that matter here:
 | sccache | `sccache --show-stats` → `Cache hits rate` | high, and never exactly 0.00% |
 | vcpkg | `Restored N package(s)` in the configure step | N near the manifest's port count (116) |
 | ccache | `ccache -s` → direct/preprocessed hits | non-zero after the first run |
+| the store itself | `created_at` of the newest entry (above) | today, not six days ago |
 
 A cache is one of the purest instances of the "your instrument is lying to you"
 archetype: it has no wrong-looking failure state. It fails by being slow, and
