@@ -1,0 +1,100 @@
+# Keep the Actions cache under the 10 GB repository cap (#1009 item D).
+#
+# WHY THIS EXISTS
+# ---------------
+# Every cache in this repo is keyed `<prefix>-<run_id>-<run_attempt>` so each run
+# saves a fresh, immutable superset and `restore-keys` warms from the newest prior
+# one. That shape is right, and it accumulates: nothing ever deletes the entry the
+# newest one superseded. Measured on 2026-09-01 the repo held 11.6 GB against a
+# 10 GB cap, so GitHub was already LRU-evicting -- and LRU does not know which
+# entry is the current one. It can evict the newest 2 GB Windows sccache snapshot
+# to make room for a superseded 786 MB one that some job happened to touch.
+#
+# So the eviction policy has to be ours, and it is simply: for each key prefix,
+# keep the newest entry and delete the rest.
+#
+# WHAT IT DELIBERATELY DOES NOT DO
+# --------------------------------
+# It never deletes the newest entry for a prefix, whatever its age -- a cache that
+# is merely old is not a cache that is wrong, and deleting the last snapshot of a
+# 40-minute vcpkg install to reclaim quota would cost far more than it saves. A
+# prefix that has genuinely gone away (a renamed key) therefore leaves one orphan
+# behind; one entry per dead prefix is a rounding error against the cap, and the
+# alternative is a rule that can delete a live cache.
+name: Prune Actions cache
+
+on:
+  schedule:
+    - cron: '11 4 * * *' # nightly 04:11 UTC — after every nightly build has saved.
+  workflow_dispatch:
+
+# The only write scope this workflow needs, and it needs it: deleting a cache entry
+# is `actions: write`. Nothing else is granted.
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: cache-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Delete superseded cache entries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          echo "before:"
+          gh api "repos/${GH_REPO}/actions/cache/usage" \
+            --jq '"  \(.active_caches_count) entries, \(.active_caches_size_in_bytes/1048576|floor) MiB"'
+
+          # `--paginate` on this endpoint returns one JSON object per page, so the
+          # list has to be re-flattened with `--slurp` before it can be sorted as a
+          # whole. Sorting page by page would keep the newest entry PER PAGE.
+          #
+          # jq runs as a separate process rather than through `gh --jq`, because gh
+          # rejects `--slurp` combined with `--jq`. jq is preinstalled on the hosted
+          # Ubuntu image.
+          gh api --paginate "repos/${GH_REPO}/actions/caches?per_page=100" --slurp \
+            | jq -r '[.[].actions_caches[]] | sort_by(.created_at) | reverse | .[] | [.id, .key, .size_in_bytes] | @tsv' \
+            > /tmp/caches.tsv
+
+          # The prefix is the key with its trailing `-<run_id>[-<run_attempt>]`
+          # stripped. Keys that carry no run id (the content-addressed FFmpeg and
+          # Vulkan SDK entries) collapse to themselves, so each is its own prefix
+          # and its single entry is always the newest -- they are never deleted.
+          # Entries arrive newest-first, so the first sighting of a prefix is the
+          # keeper and every later one is superseded.
+          declare -A seen=()
+          kept=0
+          freed=0
+          while IFS=$'\t' read -r id key size; do
+            [ -n "${id:-}" ] || continue
+            prefix=$(printf '%s' "$key" | sed -E 's/-[0-9]{6,}(-[0-9]+)?$//')
+            if [ -z "${seen[$prefix]:-}" ]; then
+              seen[$prefix]=1
+              kept=$((kept + 1))
+              printf 'keep    %8s MiB  %s\n' "$((size / 1048576))" "$key"
+              continue
+            fi
+            printf 'DELETE  %8s MiB  %s\n' "$((size / 1048576))" "$key"
+            # Never let one failed delete abort the sweep: a cache can be evicted by
+            # GitHub between the listing and the delete, which 404s.
+            if gh api -X DELETE "repos/${GH_REPO}/actions/caches/${id}" >/dev/null 2>&1; then
+              freed=$((freed + size))
+            else
+              echo "  (already gone)"
+            fi
+          done < /tmp/caches.tsv
+
+          echo "kept $kept entr(ies) (one per key prefix); freed $((freed / 1048576)) MiB"
+
+          echo "after:"
+          gh api "repos/${GH_REPO}/actions/cache/usage" \
+            --jq '"  \(.active_caches_count) entries, \(.active_caches_size_in_bytes/1048576|floor) MiB"'

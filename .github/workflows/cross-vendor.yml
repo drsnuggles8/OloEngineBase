@@ -3,7 +3,7 @@ name: Cross-Vendor Conformance
 # Layer 9 of the renderer testing pyramid (docs/agent-rules/testing-architecture.md,
 # row "L9 Cross-vendor") — run the Layer 1/3/5/6/8 test
 # suite against a software OpenGL implementation (Mesa3D llvmpipe) on top
-# of the standard windows-latest runner. The hardware GPU on GitHub-hosted
+# of the standard windows-2025 runner. The hardware GPU on GitHub-hosted
 # runners is GPU-of-the-day (often a virtualised Tesla T4 or none at all);
 # for deterministic CI regression detection we prefer llvmpipe, which gives
 # identical output regardless of the underlying host.
@@ -41,7 +41,7 @@ env:
 jobs:
   llvmpipe:
     name: Windows / Mesa llvmpipe (software)
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -80,6 +80,18 @@ jobs:
         # build slice on a nightly cadence (where the shared GHA cache is often
         # cold) is a marginal win for a real complexity cost. Left as a cold build.
         run: cmake -S . -B build -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF ${{ steps.vcpkg.outputs.toolchain-args }}
+
+      # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+      # is the whole point: the combined actions/cache action saves in a POST-JOB
+      # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+      # Placed before the build so a cancellation during the long build/test tail
+      # still banks the ports this run just spent ~40 minutes installing.
+      - name: Save vcpkg binary cache
+        if: always()
+        uses: ./.github/actions/save-vcpkg-cache
+        with:
+          key: ${{ steps.vcpkg.outputs.cache-key }}
+          path: ${{ steps.vcpkg.outputs.cache-path }}
 
       - name: Build tests
         run: cmake --build build --target OloEngine-Tests --config ${{env.BUILD_TYPE}} --parallel

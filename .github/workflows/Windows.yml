@@ -1,18 +1,30 @@
 name: Windows
 on:
-  push:
-    branches: [ master ]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'LICENSE'
-      # Agent tooling and lint/VCS config — none of it is compiled or analysed, so a
-      # change here cannot alter the build or the scan. Without these, a docs-only PR
-      # that also touches a slash command or a lint config pays the full ~137 min
-      # Windows build / ~201 min SonarCloud scan for nothing (PR #788 did exactly that).
-      - '.claude/**'
-      - '.markdownlint-cli2.jsonc'
-      - '.gitignore'
+  # NO `push: [master]` -- deliberately, and replaced by the nightly cron below
+  # (#1009 item E). Two things are going on and the second is the easy one to miss.
+  #
+  # 1. It was mostly a second opinion on identical code. GitHub's `pull_request`
+  #    event builds `refs/pull/N/merge` -- the PR merged into master -- so by the
+  #    time a merge lands, CI has already tested that exact tree. Re-running the
+  #    whole workflow on the push cost ~1,400 runner-min/day across the Windows
+  #    and Sanitizers workflows together, for a result we already had.
+  #
+  #    What it DID still catch is the case where master moved between the PR's
+  #    last run and the merge, so the tested merge commit was stale -- a semantic
+  #    conflict between two PRs neither one's CI could see. The nightly closes
+  #    that within a day instead of at merge time. That is a real, if modest,
+  #    reduction in safety and it is the deliberate half of this trade.
+  #
+  # 2. THE MASTER RUN IS ALSO THE CACHE WARMER, which is why this is a cron and
+  #    not simply a deletion. actions/cache entries created on a PR branch are
+  #    scoped to that PR's ref and are invisible to every other branch; only
+  #    entries created on the DEFAULT branch are readable fleet-wide. All 15
+  #    active cache entries on this repo were `ref=refs/heads/master`. Delete the
+  #    master trigger outright and no PR could ever restore a warm cache again --
+  #    a change that reads as a pure saving and is in fact the opposite.
+  #
+  # The cron therefore has to run to COMPLETION, which is what the
+  # `cancel-in-progress` expression below guarantees by excluding non-PR events.
   pull_request:
     types: [opened, synchronize, reopened]
     paths-ignore:
@@ -27,17 +39,28 @@ on:
       - '.markdownlint-cli2.jsonc'
       - '.gitignore'
 
+  schedule:
+    - cron: '53 1 * * *' # nightly 01:53 UTC — off the on-the-hour surge, and clear
+                         # of the Sanitizers nightly (01:23) and cross-vendor (03:47).
+
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  # PULL REQUESTS ONLY. A cancelled run banks no cache -- `actions/cache/save` runs
+  # `if: always()`, which survives a cancel, but the run still stops mid-build, so
+  # what it banks is a partial snapshot at best. The nightly is this workflow's only
+  # default-branch cache producer (see the trigger note above), so it must never be
+  # cancellable. Under the old expression a `push` run was cancellable too, which is
+  # how the master sccache snapshot came to be six days stale while every PR run
+  # restored it and reported a 0% hit rate.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   BUILD_TYPE: Release
   # sccache uses a LOCAL-DISK cache (SCCACHE_DIR), persisted across runs as a
-  # SINGLE actions/cache entry (see the "Cache sccache storage" step below).
+  # SINGLE actions/cache entry (see the "Restore/Save sccache storage" steps below).
   # We deliberately do NOT use sccache's GitHub Actions cache backend
   # (SCCACHE_GHA_ENABLED): it stores one cache entry PER OBJECT FILE, which
   # flooded the repo's 10 GB Actions-cache cap with 20k+ tiny entries and made
@@ -55,7 +78,17 @@ jobs:
     # The CMake configure and build commands are platform agnostic and should work equally well on Ubuntu or Mac.
     # You can convert this to a matrix build if you need cross-platform coverage.
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-    runs-on: windows-latest
+    #
+    # PINNED to windows-2025 rather than windows-latest (#1009). `windows-latest`
+    # is a rolling alias, and when GitHub rolls it the image's cl.exe changes.
+    # sccache hashes the compiler binary into every cache key, so an image roll
+    # invalidates the ENTIRE sccache in one step -- silently, because the cache
+    # still restores and the build still goes green, just with a 0% hit rate. That
+    # is the measured state of this job: run 33502248619 reported 1516 compile
+    # requests / 0 hits against a snapshot taken six days earlier. A pinned image
+    # makes an image bump a deliberate, reviewable commit that we can pair with the
+    # cache-key bump below.
+    runs-on: windows-2025
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -95,15 +128,15 @@ jobs:
         arch: x64
 
     # OLO_VIDEO_FFMPEG defaults ON, so the engine build compiles FFmpeg from source
-    # (scripts/build-ffmpeg.sh). That needs nasm + a bash + Visual Studio; windows-latest
+    # (scripts/build-ffmpeg.sh). That needs nasm + a bash + Visual Studio; windows-2025
     # has Git-bash + Strawberry Perl (gmake), and we provision nasm here.
     - name: Install nasm
       run: choco install nasm -y --no-progress
 
     # Cache the built FFmpeg so only the first (or post-bump) run pays the ~10-15 min build.
-    - name: Cache FFmpeg build
+    - name: Restore FFmpeg build
       id: ffcache
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: OloEngine/vendor/ffmpeg-install
         key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
@@ -124,16 +157,27 @@ jobs:
         version: "v0.15.0"
 
     # Persist sccache's local-disk cache (SCCACHE_DIR) as a single actions/cache
-    # entry. The key is unique per run (run_id) so the post-job save always
-    # writes a fresh, updated snapshot; restore-keys falls back to the most
-    # recent prior snapshot, so each run starts warm and saves the superset.
-    - name: Cache sccache storage
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    # entry, as an explicit restore + an `if: always()` save further down rather
+    # than the combined action (#1009 -- see the save step for why). The key is
+    # unique per run attempt so each save writes a fresh, updated snapshot;
+    # restore-keys falls back to the most recent prior one, so each run starts
+    # warm and banks the superset.
+    #
+    # The key carries the runner IMAGE (`windows-2025`), not just "windows". A
+    # hosted image roll swaps cl.exe underneath us, and sccache hashes the
+    # compiler binary -- so every entry taken on the old image becomes a
+    # guaranteed miss while still restoring, downloading and occupying quota.
+    # That is exactly what run 33502248619 showed: 1516 compile requests, 0 hits,
+    # against a snapshot taken six days earlier. `runs-on` is pinned to the same
+    # image; when it is bumped, bump this string with it so the dead entries age
+    # out instead of being restored forever.
+    - name: Restore sccache storage
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-windows-release-${{ github.run_id }}
+        key: sccache-windows-2025-release-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
-          sccache-windows-release-
+          sccache-windows-2025-release-
 
     # Third-party dependencies come from the vcpkg manifest (vcpkg.json) since
     # issue #773. Ports are restored from the Actions-backed binary cache; only a
@@ -174,6 +218,18 @@ jobs:
           ${{ steps.vcpkg.outputs.toolchain-args }} \
           $PREFIX_ARG
 
+    # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+    # is the whole point: the combined actions/cache action saves in a POST-JOB
+    # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+    # Placed before the build so a cancellation during the long build/test tail
+    # still banks the ports this run just spent ~40 minutes installing.
+    - name: Save vcpkg binary cache
+      if: always()
+      uses: ./.github/actions/save-vcpkg-cache
+      with:
+        key: ${{ steps.vcpkg.outputs.cache-key }}
+        path: ${{ steps.vcpkg.outputs.cache-path }}
+
     - name: Build with CMake
       # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
@@ -197,6 +253,32 @@ jobs:
     - name: Show sccache stats
       if: always()
       run: sccache --show-stats
+
+    # Paired with the restore above (#1009). `if: always()` is the point: the
+    # combined actions/cache action saves in a POST-JOB step, and post-job steps
+    # do NOT run when a job is cancelled -- which is how most PR runs in this repo
+    # end (`cancel-in-progress`; 17 of 27 Windows and 15 of 24 Sanitizer PR runs
+    # over the window measured in #1009). Every one of those recompiled everything
+    # and banked nothing, so the next run started just as cold.
+    - name: Save sccache storage
+      if: always()
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-windows-2025-release-${{ github.run_id }}-${{ github.run_attempt }}
+
+    # Banked here rather than by the combined actions/cache action's post-job
+    # step, which a CANCELLED job skips (#1009). FFmpeg is a ~10-15 min from-source
+    # build, so a run that built it and was then cancelled during the engine build
+    # made the NEXT run pay for it again. Skipped on a hit: the key is content-
+    # addressed by build-ffmpeg.sh, so re-saving it would only log 'cache already
+    # exists' on every warm run.
+    - name: Save FFmpeg build
+      if: always() && steps.ffcache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: OloEngine/vendor/ffmpeg-install
+        key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
 
     # App-launch smoke test (issue #303). Run each shipped binary with
     # `--smoke-test`: it performs full startup (runtime-DLL load, subsystem init,
@@ -254,6 +336,78 @@ jobs:
         if ($failed) { exit 1 }
         Write-Host 'All shipped binaries passed the launch smoke test.'
 
+    # CTest scope, PR vs nightly (#1009 item G). The full suite is ~6,900 ctest
+    # entries / ~18 min on every PR, and the L6/L7/L8 layers in it -- perf, golden
+    # and visual -- cannot produce a meaningful verdict on this runner anyway: it
+    # has no GL 4.6 context, so those tests SKIP. They are not free while skipping,
+    # because gtest_discover_tests gives every test its own process and so its own
+    # full engine static-init. A PR therefore pays thousands of process launches to
+    # be told "skipped". The nightly and any manual dispatch keep the full suite, so
+    # nothing loses coverage on the default branch.
+    #
+    # The regex is DERIVED from the same catalogue the layer classification lives in
+    # (generate_test_catalogue.py, the tool the pre-commit hook already enforces
+    # against), not hand-listed here -- a hand-listed copy would go stale the first
+    # time someone adds a visual test, and it would go stale silently.
+    #
+    # Both guards below exist because the failure mode of getting this wrong is a
+    # GREEN RUN THAT TESTED NOTHING: an over-broad regex excludes everything and
+    # ctest reports success over zero tests.
+    - name: Choose the CTest scope
+      id: ctestscope
+      shell: bash
+      working-directory: ${{github.workspace}}
+      run: |
+        set -euo pipefail
+        # NetworkIntegrationTest drives a live GameNetworkingSockets client/server
+        # socket; it is excluded by every job in this repo, on every scope.
+        always_skip='^NetworkIntegrationTest\.'
+
+        if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
+          echo "regex=${always_skip}" >> "$GITHUB_OUTPUT"
+          echo "scope=full suite"      >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        suites=$(python OloEngine/tests/scripts/generate_test_catalogue.py \
+                   --gtest-filter --exclude L6,L7,L8 \
+                 | tr ':' '\n' \
+                 | sed -e 's|^-||' -e 's|^\*/||' -e 's|\.\*$||' \
+                 | grep -vx '\*' | grep -v '^$' \
+                 | sort -u | paste -sd'|' -)
+
+        # GUARD 1: the catalogue must have named a plausible number of suites. Zero
+        # means the tool's output shape changed and the regex would exclude nothing
+        # (harmless, just slow); a runaway count means the parse went wrong and the
+        # regex would exclude far too much (a green run that tested nothing).
+        count=$(printf '%s' "$suites" | tr '|' '\n' | grep -c . || true)
+        echo "fast subset excludes $count suite(s)"
+        if [ "$count" -lt 20 ] || [ "$count" -gt 400 ]; then
+          echo "::error::generate_test_catalogue.py named $count L6/L7/L8 suites; expected 20-400."
+          echo "::error::The parse in this step, or the tool's --gtest-filter output shape, has drifted."
+          exit 1
+        fi
+
+        echo "regex=^(${suites})\.|${always_skip}" >> "$GITHUB_OUTPUT"
+        echo "scope=fast subset (L6/L7/L8 excluded)" >> "$GITHUB_OUTPUT"
+
+    # GUARD 2, and the important one: assert the scope actually selects tests. A
+    # regex that matches everything makes `ctest` exit 0 over an empty set, which is
+    # indistinguishable from a passing run in the check list. `ctest -N` enumerates
+    # without executing, so this costs a second.
+    - name: Assert the CTest scope selects a real suite
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      shell: bash
+      run: |
+        set -euo pipefail
+        total=$(ctest -N -C '${{env.BUILD_TYPE}}' --exclude-regex '${{ steps.ctestscope.outputs.regex }}' \
+                | sed -nE 's/^Total Tests: ([0-9]+)$/\1/p' | tail -1)
+        echo "scope: ${{ steps.ctestscope.outputs.scope }} -> ${total:-0} tests"
+        if [ -z "${total:-}" ] || [ "$total" -lt 3000 ]; then
+          echo "::error::CTest scope selected ${total:-0} tests; expected at least 3000."
+          exit 1
+        fi
+
     - name: Run tests with CTest
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # Execute tests defined by the CMake configuration.
@@ -264,9 +418,11 @@ jobs:
       # on a multi-config generator (here Ninja Multi-Config) — without it CTest
       # can't locate the per-config test binaries.
       #
-      # --exclude-regex now skips only one case:
-      #   NetworkIntegrationTest        — drives a live Steam (GameNetworkingSockets)
-      #     client/server socket; excluded on every sanitizer job too.
+      # --exclude-regex comes from the "Choose the CTest scope" step above: the
+      # always-excluded NetworkIntegrationTest (a live GameNetworkingSockets
+      # client/server socket, excluded on every sanitizer job too), plus — on a
+      # pull_request only — the L6/L7/L8 perf/golden/visual layers, which skip on a
+      # GPU-less runner but still pay a process launch each.
       #
       # CancellationTokenTest.MultipleTasks was previously also excluded (issue
       # #359): it intermittently DEADLOCKED under `--parallel` oversubscription —
@@ -292,7 +448,7 @@ jobs:
       # single genuine fault. See the "Parallel-safety contract" in
       # docs/agent-rules/testing-architecture.md §6.3.
       #
-      # --parallel 4 runs up to 4 test processes at once (windows-latest has 4
+      # --parallel 4 runs up to 4 test processes at once (windows-2025 has 4
       # vCPUs). Every test is its own ctest entry (gtest_discover_tests → one
       # OloEngine-Tests.exe per test), so serial execution pays full engine
       # static-init ~3,200x back-to-back; a 4-wide run is a large per-PR
@@ -328,7 +484,7 @@ jobs:
       # `flaky-repro-281.yml` hunt ran the test under the 2-core squeeze for the
       # full step on the hosted runner with zero failures. If a physics test ever
       # flakes here again, reinstate `--repeat until-pass:3` AND reopen #281.
-      run: ctest --parallel 4 --output-on-failure --timeout 120 -C ${{env.BUILD_TYPE}} --exclude-regex '^NetworkIntegrationTest\.'
+      run: ctest --parallel 4 --output-on-failure --timeout 120 -C ${{env.BUILD_TYPE}} --exclude-regex '${{ steps.ctestscope.outputs.regex }}'
 
     - name: Upload test results
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

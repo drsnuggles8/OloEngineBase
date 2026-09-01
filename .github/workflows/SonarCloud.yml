@@ -13,30 +13,40 @@ on:
       - '.claude/**'
       - '.markdownlint-cli2.jsonc'
       - '.gitignore'
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'LICENSE'
-      # Agent tooling and lint/VCS config — none of it is compiled or analysed, so a
-      # change here cannot alter the build or the scan. Without these, a docs-only PR
-      # that also touches a slash command or a lint config pays the full ~137 min
-      # Windows build / ~201 min SonarCloud scan for nothing (PR #788 did exactly that).
-      - '.claude/**'
-      - '.markdownlint-cli2.jsonc'
-      - '.gitignore'
+
+  # NO `pull_request` -- deliberately (#1009 item F). This scan ran on every PR at a
+  # ~131 min median and was CANCELLED on 14 of 26 of them, so most of that time
+  # produced no analysis at all; a scan that is cancelled two thirds of the time is
+  # not a gate, it is a queue. It now runs where its result is durable: on the master
+  # push (which it needs anyway -- the scan compares against the master baseline,
+  # which is why this workflow KEEPS its push trigger where Windows.yml and asan.yml
+  # gave theirs up) plus a nightly.
+  #
+  # What that gives up, stated plainly: a new SonarQube finding no longer blocks the
+  # PR that introduced it. It surfaces on master minutes later instead. No status
+  # check was required on master (verified via the branch-protection API), so this
+  # changes when a finding is seen, not whether. The `/code-review` skill and
+  # docs/agent-rules/sonarqube-review-alignment.md remain the pre-merge path for the
+  # rules that matter.
+  schedule:
+    - cron: '31 2 * * *' # nightly 02:31 UTC — clear of the Windows (01:53) and
+                         # Sanitizers (01:23) nightlies and of cross-vendor (03:47).
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never cancel. Every trigger left on this workflow is a default-branch or manual
+  # run whose whole value is the completed analysis -- and the scan is the ~201 min
+  # long pole, so a cancel throws away more than any other job here. The old
+  # expression cancelled `push` runs too, which is how a merge burst could leave
+  # master with no fresh analysis at all.
+  cancel-in-progress: false
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2025
     env:
       BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
     steps:
@@ -110,6 +120,18 @@ jobs:
           cmake -S . -B build -G "Ninja Multi-Config" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF -DBUILD_TESTS=OFF ${{ steps.vcpkg.outputs.toolchain-args }}
           build-wrapper-win-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build/ --config Release --parallel
 
+      # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+      # is the whole point: the combined actions/cache action saves in a POST-JOB
+      # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+      # Placed before the build so a cancellation during the long build/test tail
+      # still banks the ports this run just spent ~40 minutes installing.
+      - name: Save vcpkg binary cache
+        if: always()
+        uses: ./.github/actions/save-vcpkg-cache
+        with:
+          key: ${{ steps.vcpkg.outputs.cache-key }}
+          path: ${{ steps.vcpkg.outputs.cache-path }}
+
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         env:
@@ -118,13 +140,13 @@ jobs:
           # OOMed ("java.lang.OutOfMemoryError: Java heap space") on a *cold* full scan —
           # the scan cache is invalidated whenever the C++ Extended quality profile
           # changes, which forces a from-scratch re-analysis that exceeds the scanner's
-          # default heap. windows-latest has 16 GB; 6 GB leaves ample headroom for the
+          # default heap. windows-2025 has 16 GB; 6 GB leaves ample headroom for the
           # forked analyzer subprocess. SONAR_SCANNER_JAVA_OPTS is the correct knob for
           # sonar-scanner-cli >= 6.0 (older releases used SONAR_SCANNER_OPTS).
           SONAR_SCANNER_JAVA_OPTS: "-Xmx6g"
         with:
           # sonar.cfamily.threads=4: parallelise the C-family analysis across the
-          # runner's 4 vCPUs (windows-latest). The analyzer is the ~51-min half of
+          # runner's 4 vCPUs (windows-2025). The analyzer is the ~51-min half of
           # this job; threading it is the biggest single scan-time lever. The
           # -Xmx6g heap above has headroom for the parallel workers.
           #

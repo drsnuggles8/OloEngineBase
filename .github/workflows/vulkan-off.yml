@@ -188,6 +188,18 @@ jobs:
           fi
           echo "OK: building the GL-only configuration (backend object code and Vulkan ports both out)."
 
+      # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+      # is the whole point: the combined actions/cache action saves in a POST-JOB
+      # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+      # Placed before the build so a cancellation during the long build/test tail
+      # still banks the ports this run just spent ~40 minutes installing.
+      - name: Save vcpkg binary cache
+        if: always()
+        uses: ./.github/actions/save-vcpkg-cache
+        with:
+          key: ${{ steps.vcpkg.outputs.cache-key }}
+          path: ${{ steps.vcpkg.outputs.cache-path }}
+
       # Capped parallelism, per CLAUDE.md — a bare --parallel forwards the omission to the native
       # tool and takes ITS default, which is wider, not narrower.
       #

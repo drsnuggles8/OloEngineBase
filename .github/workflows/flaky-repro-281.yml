@@ -59,7 +59,7 @@ env:
 
 jobs:
   hunt:
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 110
 
     steps:
@@ -87,9 +87,9 @@ jobs:
     - name: Install nasm
       run: choco install nasm -y --no-progress
 
-    - name: Cache FFmpeg build
+    - name: Restore FFmpeg build
       id: ffcache
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: OloEngine/vendor/ffmpeg-install
         key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
@@ -99,11 +99,11 @@ jobs:
       with:
         version: "v0.15.0"
 
-    - name: Cache sccache storage
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    - name: Restore sccache storage
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-flaky-281-${{ github.run_id }}
+        key: sccache-flaky-281-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           sccache-flaky-281-
 
@@ -139,6 +139,18 @@ jobs:
           ${{ steps.vcpkg.outputs.toolchain-args }} \
           $PREFIX_ARG
 
+    # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+    # is the whole point: the combined actions/cache action saves in a POST-JOB
+    # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+    # Placed before the build so a cancellation during the long build/test tail
+    # still banks the ports this run just spent ~40 minutes installing.
+    - name: Save vcpkg binary cache
+      if: always()
+      uses: ./.github/actions/save-vcpkg-cache
+      with:
+        key: ${{ steps.vcpkg.outputs.cache-key }}
+        path: ${{ steps.vcpkg.outputs.cache-path }}
+
     - name: Build tests
       run: cmake --build "${{github.workspace}}/build" --target OloEngine-Tests --config ${{env.BUILD_TYPE}}
 
@@ -146,7 +158,32 @@ jobs:
       if: always()
       run: sccache --show-stats
 
-    # Locate cdb for the harness's stack capture. windows-latest ships the
+    # Paired with the restore above (#1009). `if: always()` is the point: the
+    # combined actions/cache action saves in a POST-JOB step, and post-job steps do
+    # NOT run when a job is cancelled. This job's whole purpose is to run a flake
+    # hunt up against `timeout-minutes: 110`, so a cancel is its EXPECTED exit —
+    # the combined action banked nothing on any run that actually did its job.
+    - name: Save sccache storage
+      if: always()
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-flaky-281-${{ github.run_id }}-${{ github.run_attempt }}
+
+    # Banked here rather than by the combined actions/cache action's post-job
+    # step, which a CANCELLED job skips (#1009). FFmpeg is a ~10-15 min from-source
+    # build, so a run that built it and was then cancelled during the engine build
+    # made the NEXT run pay for it again. Skipped on a hit: the key is content-
+    # addressed by build-ffmpeg.sh, so re-saving it would only log 'cache already
+    # exists' on every warm run.
+    - name: Save FFmpeg build
+      if: always() && steps.ffcache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: OloEngine/vendor/ffmpeg-install
+        key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+
+    # Locate cdb for the harness's stack capture. windows-2025 ships the
     # Windows SDK Debugging Tools; fall back to installing WinDbg if absent.
     - name: Ensure cdb is available
       id: cdb

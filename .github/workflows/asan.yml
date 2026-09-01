@@ -1,27 +1,56 @@
 name: Sanitizers
 on:
-  push:
-    branches: [master]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'LICENSE'
+  # NO `push: [master]` -- deliberately, and replaced by the nightly cron below
+  # (#1009 item E). Two things are going on and the second is the easy one to miss.
+  #
+  # 1. It was mostly a second opinion on identical code. GitHub's `pull_request`
+  #    event builds `refs/pull/N/merge` -- the PR merged into master -- so by the
+  #    time a merge lands, CI has already tested that exact tree. Re-running the
+  #    whole workflow on the push cost ~1,400 runner-min/day across the Windows
+  #    and Sanitizers workflows together, for a result we already had.
+  #
+  #    What it DID still catch is the case where master moved between the PR's
+  #    last run and the merge, so the tested merge commit was stale -- a semantic
+  #    conflict between two PRs neither one's CI could see. The nightly closes
+  #    that within a day instead of at merge time. That is a real, if modest,
+  #    reduction in safety and it is the deliberate half of this trade.
+  #
+  # 2. THE MASTER RUN IS ALSO THE CACHE WARMER, which is why this is a cron and
+  #    not simply a deletion. actions/cache entries created on a PR branch are
+  #    scoped to that PR's ref and are invisible to every other branch; only
+  #    entries created on the DEFAULT branch are readable fleet-wide. All 15
+  #    active cache entries on this repo were `ref=refs/heads/master`. Delete the
+  #    master trigger outright and no PR could ever restore a warm cache again --
+  #    a change that reads as a pure saving and is in fact the opposite.
+  #
+  # The cron therefore has to run to COMPLETION, which is what the
+  # `cancel-in-progress` expression below guarantees by excluding non-PR events.
   pull_request:
     types: [opened, synchronize, reopened]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
       - 'LICENSE'
+  schedule:
+    - cron: '23 1 * * *' # nightly 01:23 UTC — off the on-the-hour surge, and clear
+                         # of gpu-conformance (00:47) and cross-vendor (03:47).
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  # PULL REQUESTS ONLY. A cancelled run banks no cache -- `actions/cache/save` runs
+  # `if: always()`, which survives a cancel, but the run still stops mid-build, so
+  # what it banks is a partial snapshot at best. The nightly is this workflow's only
+  # default-branch cache producer (see the trigger note above), so it must never be
+  # cancellable. Under the old expression a `push` run was cancellable too, which is
+  # how the master sccache snapshot came to be six days stale while every PR run
+  # restored it and reported a 0% hit rate.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # sccache uses a LOCAL-DISK cache (SCCACHE_DIR), persisted across runs as a
-  # SINGLE actions/cache entry PER JOB (see each job's "Cache sccache storage"
-  # step). We deliberately do NOT use sccache's GitHub Actions cache backend
+  # SINGLE actions/cache entry PER JOB (see each job's "Restore/Save sccache
+  # storage" steps). We deliberately do NOT use sccache's GitHub Actions cache backend
   # (SCCACHE_GHA_ENABLED): it stores one cache entry PER OBJECT FILE, which
   # flooded the repo's 10 GB Actions-cache cap with 20k+ tiny entries and made
   # EVERY write fail (observed write-errors == misses on all four jobs, hit rate
@@ -54,8 +83,14 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
+    # PULL REQUESTS ONLY. paths-filter derives its comparison base from the event
+    # payload; a `schedule` run has neither a PR base nor a push before/after pair,
+    # so it has nothing to diff against. The build jobs' `if` below reads
+    # "not a pull_request OR the filter said native", so a nightly runs everything
+    # unconditionally, which is what a nightly is for.
     - name: Detect changed paths
       id: filter
+      if: github.event_name == 'pull_request'
       uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
       with:
         filters: |
@@ -80,8 +115,8 @@ jobs:
   asan-windows:
     name: ASan (Windows/clang-cl)
     needs: detect-changes
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
-    runs-on: windows-latest
+    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    runs-on: windows-2025
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -219,6 +254,18 @@ jobs:
         Write-Host "clang-cl ASan runtime dir: $rtDir"
         echo "$rtDir" >> $env:GITHUB_PATH
 
+    # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+    # is the whole point: the combined actions/cache action saves in a POST-JOB
+    # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+    # Placed before the build so a cancellation during the long build/test tail
+    # still banks the ports this run just spent ~40 minutes installing.
+    - name: Save vcpkg binary cache
+      if: always()
+      uses: ./.github/actions/save-vcpkg-cache
+      with:
+        key: ${{ steps.vcpkg.outputs.cache-key }}
+        path: ${{ steps.vcpkg.outputs.cache-path }}
+
     - name: Build (Release)
       # --parallel 2 matches the Linux sanitizer jobs: clang-cl under ASan uses several GB per
       # translation unit, and full concurrency exhausts runner memory on the largest instrumented
@@ -263,7 +310,7 @@ jobs:
       # mesh cache are serialized against each other with a ctest RESOURCE_LOCK
       # (OloEngine/tests/CMakeLists.txt). Capped at 2 (not 4) because ASan
       # shadow memory inflates each test process's resident footprint; 2-wide stays
-      # comfortably inside the windows-latest ~16 GB budget.
+      # comfortably inside the windows-2025 ~16 GB budget.
       # The trailing 10 excludes are all tests that trigger a real C++ throw+catch
       # (malformed-input robustness + MCP error handling). clang-cl + ASan miscompiles
       # MSVC-style C++ exception handling — ASan puts redzones on the compiler-emitted
@@ -303,7 +350,7 @@ jobs:
   asan-lsan-linux:
     name: ASan + LSan (Linux/Clang)
     needs: detect-changes
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
     # Pinned to ubuntu-24.04 (noble) because the LLVM apt repo URL below
     # hardcodes the distro codename. If ubuntu-latest jumps to a newer
     # release the apt source would 404.
@@ -368,14 +415,16 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # Persist sccache's local-disk cache as one actions/cache entry (unique key
-    # per run so the post-job save always writes a fresh snapshot; restore-keys
-    # warms from the most recent prior one). Key is per-sanitizer.
-    - name: Cache sccache storage
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    # Persist sccache's local-disk cache as one actions/cache entry, split into an
+    # explicit restore here and an `if: always()` save after the build (#1009 --
+    # see the save step for why the combined action loses it). Unique key per run
+    # attempt so every save writes a fresh snapshot; restore-keys warms from the
+    # most recent prior one. Key is per-sanitizer.
+    - name: Restore sccache storage
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-asan-lsan-linux-${{ github.run_id }}
+        key: sccache-asan-lsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           sccache-asan-lsan-linux-
 
@@ -409,6 +458,18 @@ jobs:
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
 
+    # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+    # is the whole point: the combined actions/cache action saves in a POST-JOB
+    # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+    # Placed before the build so a cancellation during the long build/test tail
+    # still banks the ports this run just spent ~40 minutes installing.
+    - name: Save vcpkg binary cache
+      if: always()
+      uses: ./.github/actions/save-vcpkg-cache
+      with:
+        key: ${{ steps.vcpkg.outputs.cache-key }}
+        path: ${{ steps.vcpkg.outputs.cache-path }}
+
     - name: Build tests
       # Pinned to --parallel 2: higher concurrency has been observed to
       # exhaust runner memory (clang++ under sanitizer instrumentation uses
@@ -423,6 +484,19 @@ jobs:
     - name: Show sccache stats
       if: always()
       run: sccache --show-stats
+
+    # Paired with the restore above (#1009). `if: always()` is the point: the
+    # combined actions/cache action saves in a POST-JOB step, and post-job steps
+    # do NOT run when a job is cancelled -- which is how most PR runs in this repo
+    # end (`cancel-in-progress`; 17 of 27 Windows and 15 of 24 Sanitizer PR runs
+    # over the window measured in #1009). Every one of those recompiled everything
+    # and banked nothing, so the next run started just as cold.
+    - name: Save sccache storage
+      if: always()
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-lsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -493,7 +567,7 @@ jobs:
   ubsan-linux:
     name: UBSan (Linux/Clang)
     needs: detect-changes
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
     # See asan-lsan-linux above for why this pins the distro codename.
     runs-on: ubuntu-24.04
     permissions:
@@ -547,14 +621,16 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # Persist sccache's local-disk cache as one actions/cache entry (unique key
-    # per run so the post-job save always writes a fresh snapshot; restore-keys
-    # warms from the most recent prior one). Key is per-sanitizer.
-    - name: Cache sccache storage
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    # Persist sccache's local-disk cache as one actions/cache entry, split into an
+    # explicit restore here and an `if: always()` save after the build (#1009 --
+    # see the save step for why the combined action loses it). Unique key per run
+    # attempt so every save writes a fresh snapshot; restore-keys warms from the
+    # most recent prior one. Key is per-sanitizer.
+    - name: Restore sccache storage
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-ubsan-linux-${{ github.run_id }}
+        key: sccache-ubsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           sccache-ubsan-linux-
 
@@ -583,6 +659,18 @@ jobs:
         -DOLO_ENABLE_UBSAN=ON
         -DBUILD_TESTS=ON
 
+    # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+    # is the whole point: the combined actions/cache action saves in a POST-JOB
+    # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+    # Placed before the build so a cancellation during the long build/test tail
+    # still banks the ports this run just spent ~40 minutes installing.
+    - name: Save vcpkg binary cache
+      if: always()
+      uses: ./.github/actions/save-vcpkg-cache
+      with:
+        key: ${{ steps.vcpkg.outputs.cache-key }}
+        path: ${{ steps.vcpkg.outputs.cache-path }}
+
     - name: Build tests
       # Pinned to --parallel 2: higher concurrency has been observed to
       # exhaust runner memory (clang++ under sanitizer instrumentation uses
@@ -597,6 +685,19 @@ jobs:
     - name: Show sccache stats
       if: always()
       run: sccache --show-stats
+
+    # Paired with the restore above (#1009). `if: always()` is the point: the
+    # combined actions/cache action saves in a POST-JOB step, and post-job steps
+    # do NOT run when a job is cancelled -- which is how most PR runs in this repo
+    # end (`cancel-in-progress`; 17 of 27 Windows and 15 of 24 Sanitizer PR runs
+    # over the window measured in #1009). Every one of those recompiled everything
+    # and banked nothing, so the next run started just as cold.
+    - name: Save sccache storage
+      if: always()
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-ubsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -654,7 +755,7 @@ jobs:
   tsan-linux:
     name: TSan (Linux/Clang)
     needs: detect-changes
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
     # 180, not 120, not 90: the same cold-cache loop, measured twice.
     #
     # A cold sccache restore (concurrent runs evict each other under the 10 GB
@@ -772,6 +873,18 @@ jobs:
         -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_TSAN=ON
         -DBUILD_TESTS=ON
+
+    # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+    # is the whole point: the combined actions/cache action saves in a POST-JOB
+    # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+    # Placed before the build so a cancellation during the long build/test tail
+    # still banks the ports this run just spent ~40 minutes installing.
+    - name: Save vcpkg binary cache
+      if: always()
+      uses: ./.github/actions/save-vcpkg-cache
+      with:
+        key: ${{ steps.vcpkg.outputs.cache-key }}
+        path: ${{ steps.vcpkg.outputs.cache-path }}
 
     - name: Build tests
       # Pinned to --parallel 2: higher concurrency has been observed to

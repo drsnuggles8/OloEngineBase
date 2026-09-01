@@ -1,0 +1,36 @@
+name: 'Save vcpkg binary cache'
+description: >
+  Bank the vcpkg binary archives that `setup-vcpkg` restored and this job filled in.
+  The other half of the restore/save split described in setup-vcpkg's "Restore vcpkg
+  binary archives" step -- call it in an `if: always()` step so a CANCELLED run still
+  saves, which the combined actions/cache action's post-job save cannot do.
+
+  Place it directly after the CMake configure step: that is the moment the binary
+  cache is complete (vcpkg installs the manifest's ports during configure and nothing
+  later adds to it), and saving there means a run whose BUILD or TEST step is later
+  cancelled has already banked the expensive half.
+
+  A no-op when `key` is empty -- setup-vcpkg emits an empty key on a self-hosted
+  runner (the cache is durable local disk) and on a fork PR (whose token cannot write
+  the cache service at all).
+inputs:
+  key:
+    description: 'The `cache-key` output of the setup-vcpkg step in this job. Empty = nothing to do.'
+    required: true
+  path:
+    description: 'The `cache-path` output of the same setup-vcpkg step.'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Save vcpkg binary archives
+      if: inputs.key != ''
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+
+    - name: Note why the save was skipped
+      if: inputs.key == ''
+      shell: bash
+      run: echo "vcpkg binary cache is not actions/cache-backed for this job (self-hosted or read-only); nothing to save."

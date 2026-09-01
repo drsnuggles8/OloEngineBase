@@ -25,7 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: windows, runner: windows-latest, os: Windows }
+          - { name: windows, runner: windows-2025, os: Windows }
           - { name: linux,   runner: ubuntu-24.04,    os: Linux }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,7 +48,7 @@ jobs:
         uses: ./.github/actions/setup-vulkan
 
       # FFmpeg's from-source build needs nasm on both platforms (gmake/make + a bash
-      # are already present: Strawberry Perl + Git-bash on windows-latest; make + bash
+      # are already present: Strawberry Perl + Git-bash on windows-2025; make + bash
       # on ubuntu). The Linux engine build also needs the usual GL/X/shader dev libs.
       - name: Install nasm (Windows)
         if: matrix.os == 'Windows'
@@ -96,9 +96,9 @@ jobs:
             glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools
 
       # Cache the built FFmpeg so only the first (or post-bump) run pays the build cost.
-      - name: Cache FFmpeg build
+      - name: Restore FFmpeg build
         id: ffcache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: OloEngine/vendor/ffmpeg-install
           key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
@@ -159,6 +159,18 @@ jobs:
             ${{ steps.vcpkg.outputs.toolchain-args }} \
             -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
 
+      # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+      # is the whole point: the combined actions/cache action saves in a POST-JOB
+      # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+      # Placed before the build so a cancellation during the long build/test tail
+      # still banks the ports this run just spent ~40 minutes installing.
+      - name: Save vcpkg binary cache
+        if: always()
+        uses: ./.github/actions/save-vcpkg-cache
+        with:
+          key: ${{ steps.vcpkg.outputs.cache-key }}
+          path: ${{ steps.vcpkg.outputs.cache-path }}
+
       # Both legs build Release, matching the main Windows.yml CI (BUILD_TYPE: Release).
       # The shader libs (shaderc / spirv-cross-{core,glsl}) come from the headless Vulkan
       # SDK installed above, which ships only release (/MD) import libs — no debug (…d.lib)
@@ -173,7 +185,7 @@ jobs:
         if: matrix.os == 'Windows'
         # --config Release: the VS generator is multi-config, so the build type is
         # selected here rather than at configure time.
-        # --parallel 4: windows-latest has 4 cores, so this matches what MSBuild's bare
+        # --parallel 4: windows-2025 has 4 cores, so this matches what MSBuild's bare
         # `/m` already resolved to — no behaviour change, it just stops the workflow from
         # relying on a tool default, per CLAUDE.md ("never acceptable is a bare
         # --parallel"). This leg is not the broken one and is deliberately left otherwise
@@ -204,6 +216,19 @@ jobs:
         # anyway. If a future run does OOM in engine sources, drop to `--parallel 2` (what
         # asan.yml's Linux jobs use) before reaching for a generator change.
         run: cmake --build build --target OloEngine-Tests --parallel 4
+
+      # Banked here rather than by the combined actions/cache action's post-job
+      # step, which a CANCELLED job skips (#1009). FFmpeg is a ~10-15 min from-source
+      # build, so a run that built it and was then cancelled during the engine build
+      # made the NEXT run pay for it again. Skipped on a hit: the key is content-
+      # addressed by build-ffmpeg.sh, so re-saving it would only log 'cache already
+      # exists' on every warm run.
+      - name: Save FFmpeg build
+        if: always() && steps.ffcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: OloEngine/vendor/ffmpeg-install
+          key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
 
       # Fetch a small H.264 MP4 so the FFmpeg decode path runs end-to-end. -f fails on HTTP
       # errors and --retry rides out transient flakes; the existence check surfaces a genuine
