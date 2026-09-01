@@ -825,6 +825,22 @@ namespace OloEngine
         // so an inversion here fails loudly in both directions rather than
         // being masked by the reflection's own handedness reversal.
         //
+        // THE COMPOSITION IS CONDITIONAL ON THE SEAM BEING IN THE PIPELINE, and
+        // that is the half this comment used to leave implicit (issue #1002).
+        // Geometry that writes NDC straight out of the vertex stage -- every
+        // fullscreen triangle -- never meets the projection seam, so it gets
+        // only the framebuffer-y half of the pair and its apparent winding is
+        // the OPPOSITE of a projected mesh's: measured live, the shared
+        // fullscreen triangle is front-facing on GL under CCW and back-facing
+        // here under VK_FRONT_FACE_COUNTER_CLOCKWISE. One winding cannot serve
+        // both conventions and neither rule can move (swapping here is the
+        // inside-out regression described above), so the rule is a CALL-SITE
+        // rule: a fullscreen draw must DISABLE culling, never merely set the
+        // cull face. The paragraph above already noted that every fullscreen
+        // tenant drew with culling off -- DeferredLightingPass was the one that
+        // did not, and its entire draw was silently culled on Vulkan.
+        // See docs/agent-rules/rhi-abstraction-boundary.md §19.
+        //
         // Composed HERE, in the backend's one state-translation point, never at
         // call sites: a pass-local override (PlanarReflection's Clockwise for
         // the mirrored replay) then means exactly what it means on GL.

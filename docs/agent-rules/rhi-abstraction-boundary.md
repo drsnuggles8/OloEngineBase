@@ -3395,3 +3395,90 @@ corroborate either way; and it is one failure at the end of a long local suite,
 which is exactly where a failure gets attributed to whatever you just changed.
 The A/B is cheap and settles it — `git switch --detach <base>`, build, run that
 one test. Do that before either fixing or excusing it.
+
+---
+
+## 19. The no-swap winding rule holds for PROJECTED geometry only (#1002)
+
+`VulkanPipelineBuilder::FlushDynamicState` maps the recorded GL winding to the
+**same** `VkFrontFace` — no swap — and the comment at that call explains why: the
+projection seam negates clip y, Vulkan's framebuffer y already points down where
+GL's window y points up, and the two inversions compose to identity. That
+reasoning is correct, and it is also **conditional**: it needs the seam's
+negation to be in the pipeline at all.
+
+A fullscreen triangle writes NDC straight out of the vertex stage. It never
+touches the projection seam, so it gets **one** inversion, not two — and its
+apparent winding is therefore the *opposite* of every projected mesh's. Measured
+live on 2026-09-01, on the shared `MeshPrimitives::GetFullscreenTriangle()`, with
+`cullMode = BACK` and `frontFace = COUNTER_CLOCKWISE` recorded on both backends:
+
+| backend | the same fullscreen triangle is… |
+|---|---|
+| OpenGL (`glFrontFace(GL_CCW)`) | **front**-facing — it draws |
+| Vulkan (`VK_FRONT_FACE_COUNTER_CLOCKWISE`) | **back**-facing — it is culled |
+
+Neither backend is wrong and neither rule can be changed: swapping the winding in
+`FlushDynamicState` would turn every solid mesh inside-out on Vulkan (that exact
+regression shipped once and is recorded in the same comment), and reversing the
+primitive's index order would fix NDC-passthrough draws while looking harmless
+today only because nothing else culls them. **One winding cannot serve both
+conventions.** So the rule is a call-site rule:
+
+> **A fullscreen (NDC-passthrough) draw must disable face culling, not merely set
+> the cull face.** Setting the face alone leaves the previous pass's *enable*
+> standing, and in a deferred frame the previous pass is the G-buffer geometry
+> pass, which enables it.
+
+### Why it took a rank-#1 bug to find
+
+`DeferredLightingPass` was the only fullscreen pass whose *only* culling call was
+`SetCullFace(Back)` — the face without the enable. On GL that line is inert (the
+triangle is front-facing either way). On Vulkan it deleted the entire deferred
+lighting draw, and the failure had **no** loud symptom to attach to:
+
+* the viewport was not black — it showed the AO buffer over the clear colour,
+  which reads as a plausible if flat shading bug;
+* `OloEngine.log` was clean: no VUID, no dropped-draw counter, no PSO failure.
+  The draw was fully *recorded* — correct scope, correct attachment, correct root
+  data, non-zero vertex-pull address — it simply rasterised nothing;
+* the Vulkan pass-suite tenant for the pass **passed**, because a synthetic frame
+  starts from the recorded default `Culling = false`, where the pass's own cull
+  state is inert. One substituted precondition, the whole bug hidden — the
+  archetype in [substituted-seams-compound.md](substituted-seams-compound.md).
+
+### The instrument that settled it
+
+Reading state was not enough: every dumped field (colour mask, blend, scissor,
+viewport, attachment format, pull address) was *correct*. What separated "the
+write is masked" from "there are no fragments" was recording a
+`vkCmdClearAttachments` of a distinctive colour into the **same scope**, right
+beside the draw:
+
+* the clear colour appeared in the target ⇒ the scope, the attachment and the
+  write path are all fine;
+* the draw's own colour did not ⇒ zero fragments, so look at rasterisation
+  (cull, scissor, winding, degenerate positions), not at the write.
+
+### The rest of the fullscreen family is safe by ORDERING, not by statement
+
+Worth knowing before adding a pass. Most fullscreen passes touch culling not at
+all; they are safe because of where they sit in the 48-pass deferred order:
+
+```
+ScenePass (geometry, culling ON) -> VirtualGeometry -> PlanarReflection ->
+Overdraw[off] -> DeferredGPUOcclusion -> DeferredOpaqueDecal (geometry) ->
+GTAO -> VirtualShadowMapMark -> DeferredLighting[off] -> Particle ->
+SSS[off] -> AOApply[off] -> ... everything downstream inherits "off"
+```
+
+`[off]` marks a pass that states `DisableCulling()`. `DeferredLightingPass` is the
+first fullscreen *draw* after geometry, so it is the one that meets the enable —
+every later one inherits the "off" that it, `SSSPass` and `AOApplyPass` leave
+behind. **A new fullscreen pass inserted between geometry and `AOApplyPass` would
+hit exactly this bug**, so state the disable rather than relying on the position.
+
+That is a two-line, one-rebuild instrument and it is worth reaching for before any
+further state auditing. Then A/B the candidates with env-gated levers in one build
+(`cullMode = NONE`, `frontFace = CLOCKWISE`, forced enable on **both** backends)
+rather than one rebuild per hypothesis.
