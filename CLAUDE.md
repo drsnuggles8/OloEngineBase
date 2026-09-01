@@ -82,6 +82,7 @@ you are in.
 - [configure-time-variable-visibility.md](docs/agent-rules/configure-time-variable-visibility.md) — a CMake variable resolved *below* the `add_subdirectory()` that consumes it, behind a guard that reads "unset" as "nothing to do": correct on every configure but the first.
 - [asset-import-usd-alembic.md](docs/agent-rules/asset-import-usd-alembic.md) — the importer/exporter registry seam, and vendoring OpenUSD / Alembic / MaterialX into a static-everything build.
 - [asset-import-openvdb-volumetric.md](docs/agent-rules/asset-import-openvdb-volumetric.md) — the editor-only-dependency split that keeps OpenVDB out of the shipped runtime, the vcpkg blosc target-name trap, deriving the grid→world transform without hand-transposing OpenVDB's matrix convention, and an enum extension that crashed an exhaustive `switch` five thousand lines from every other touch-point.
+- [ci-cache-that-looks-alive.md](docs/agent-rules/ci-cache-that-looks-alive.md) — a CI cache that restores is not one that works: a post-job save is skipped on a cancel, only default-branch entries are readable fleet-wide, and a rolling runner image is a hash input. Every cache needs a stats line somebody reads.
 - [incremental-build-odr-staleness.md](docs/agent-rules/incremental-build-odr-staleness.md) — when a correct fix's live behavior makes no logical sense, suspect the `dev-cached` incremental build before the code: a struct-layout change to a by-value member with an inline `=default` destructor can link without error while a stale copy of that destructor survives in another TU.
 
 **Renderer**
@@ -173,6 +174,7 @@ you are in.
 **Operations**
 
 - [docs/ops/build.md](docs/ops/build.md) — the full Windows / Linux / WSL build matrix.
+- [docs/ops/self-hosted-gpu-runner.md](docs/ops/self-hosted-gpu-runner.md) — the Rocky box: provisioning, the two runner pools (`gpu-amd` for the nightly, `olo-ci` for the Linux CI jobs), the persistent caches, and the fork-PR gate that keeps untrusted code off it.
 
 ---
 

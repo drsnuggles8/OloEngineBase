@@ -161,6 +161,7 @@ Read before trusting any measurement.
 | [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | GL has no allocator-teardown assertion, so a clean GL close is not evidence of a clean teardown — the same leak was silent there for the backend's whole life |
 | [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md) | a correct fix, re-derived and re-read four times, that a live rebuild-and-relaunch kept "disproving" — the binary, not the source, was the thing lying |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §6 | a compiler-cache hit restored the object but not its dependency file, so 699 of 701 objects had no header deps recorded and a header edit rebuilt nothing — every build green, the whole time, and the better the cache worked the more of the tree was frozen |
+| [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) | every CI cache restored, logged a hit and rebuilt everything anyway — a cache has no wrong-looking failure state, it fails by being SLOW, and slow is what everyone already expects CI to be. 0 hits out of 1516 compiles and 3 of 116 packages restored, green the whole time, for at least six days across three independent defects |
 
 **The counter-move:** measure the noise floor first, and construct a case the instrument *must*
 fail on before trusting a case it passes.
@@ -230,6 +231,12 @@ obvious grep suggests.
   all, two issues after the test scene that exists to set it. `UseImpostor` was worse: **no**
   shipped scene had ever set it. **If a feature's flag appears only in the test written with it,
   it has test coverage and no product coverage.**
+- [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) §2 — the inverse shape: a
+  trigger that was load-bearing for something that is not the build. GitHub scopes a cache
+  entry to the ref that wrote it, so only DEFAULT-BRANCH runs produce an entry other branches
+  can read — all 15 active entries here were `refs/heads/master`. Dropping `push: master` as a
+  redundant second opinion on already-tested code would have deleted the only cache writer in
+  the system. **Before removing a trigger, ask what else that trigger was doing.**
 - [render-pass-published-state.md](render-pass-published-state.md) — `MeshComponent { Primitive: 0 }`
   is `None`: an entity that silently never renders.
 - [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) §5 — a render-graph pass's
@@ -339,6 +346,13 @@ Everything above, plus the docs that are pure reference rather than postmortem.
 [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md) ·
 [mcp-protocol-eras.md](mcp-protocol-eras.md) ·
 [steamworks-platform-integration.md](steamworks-platform-integration.md)
+
+**Build & CI** — [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) ·
+[build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) ·
+[static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md) ·
+[vcpkg-dependency-management.md](vcpkg-dependency-management.md) ·
+[configure-time-variable-visibility.md](configure-time-variable-visibility.md) ·
+[incremental-build-odr-staleness.md](incremental-build-odr-staleness.md)
 
 **Concurrency & memory** —
 [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) ·

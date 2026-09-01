@@ -1,19 +1,30 @@
-# Self-hosted AMD GPU runner
+# Self-hosted Linux runners
 
-Provisioning notes for the runner behind
-[`.github/workflows/gpu-conformance-amd.yml`](../../.github/workflows/gpu-conformance-amd.yml).
+Provisioning notes for the runners behind
+[`.github/workflows/gpu-conformance-amd.yml`](../../.github/workflows/gpu-conformance-amd.yml)
+and the Linux CI jobs in
+[`asan.yml`](../../.github/workflows/asan.yml),
+[`vulkan-off.yml`](../../.github/workflows/vulkan-off.yml) and
+[`steam-stub.yml`](../../.github/workflows/steam-stub.yml).
 
-## Why this runner exists
+**One box, two runner pools, and the labels are the whole separation:**
 
-It is **not** a cost or speed measure. OloEngineBase is a public repository, so
-standard GitHub-hosted runners are free and unlimited, and queue wait is
-negligible (median 7 s). Moving existing jobs here would save nothing — the CI
-critical path is Windows (SonarCloud ~155 min, ASan/clang-cl ~151 min), which a
-Linux box cannot take, and the three Linux sanitizer jobs already finish before
-those.
+| Runner(s) | Labels | Serves |
+|---|---|---|
+| `olo-gpu-amd` | `self-hosted,Linux,X64,gpu-amd` | the nightly GPU conformance run, exclusively |
+| `olo-ci-1`, `olo-ci-2` | `self-hosted,Linux,X64,olo-ci` | the Linux sanitizer / vulkan-off / steam-stub jobs |
 
-The runner exists for the one thing GitHub cannot sell at any price: **a real
-GPU**. Every test gated on `RenderPropertyFixture`'s GL-context check — 97 test
+Neither pool requests the other's label, so a CI job can never queue in front of
+the nightly and the nightly can never starve CI. Do not "tidy" these into one
+label set.
+
+## Why this box exists
+
+### For the GPU nightly — the original reason
+
+The one thing GitHub cannot sell at any price: **a real GPU**.
+
+Every test gated on `RenderPropertyFixture`'s GL-context check — 97 test
 files — currently hits `GTEST_SKIP() << "no usable GL 4.6 context available"` in
 CI. That is the visual, golden and perf third of the renderer pyramid running
 nowhere but a developer's Windows box, in a repository whose own rules say
@@ -22,6 +33,37 @@ rendering changes must be verified against pixels.
 `cross-vendor.yml` substitutes Mesa llvmpipe, but llvmpipe is a *third software
 implementation*, not a second **vendor**. It cannot catch AMD GLSL-compiler or
 driver divergence from the NVIDIA hardware the goldens are baselined on.
+
+### For the Linux CI jobs — added by #1009
+
+**This section previously said the opposite**, and the correction is the point:
+
+> ~~It is not a cost or speed measure… Moving existing jobs here would save
+> nothing — the CI critical path is Windows, and the three Linux sanitizer jobs
+> already finish before those.~~
+
+Measured over 250 runs in a 36-hour window (`gh run list --json`, medians):
+
+| Workflow | trigger | n | median |
+|---|---|---|---|
+| Windows | pull_request | 27 | **159.5 min** |
+| Sanitizers | pull_request | 24 | **154.4 min** |
+
+Five minutes apart is **co-critical**, not "already finish before those". The
+claim was written from an earlier, faster state of the suite and was never
+re-measured.
+
+It is still true that hosted runners are free for a public repo, so this is not a
+cost measure. What the box buys is what an Actions cache structurally cannot:
+
+- **Caches that simply persist.** No upload, no download, no 10 GB repository cap,
+  and — the one that actually bit — no post-job save step for a cancellation to
+  skip. See [ci-cache-that-looks-alive.md](../agent-rules/ci-cache-that-looks-alive.md).
+- **Capacity off the hosted pool**, which the Windows jobs then have to themselves.
+
+**Be honest about what it does NOT buy:** the box is Linux, so it cannot take
+Windows, and Windows is the 159-minute ceiling. Moving Sanitizers here removes a
+co-critical path; it does not move the wall clock on its own.
 
 ## Verified host capability
 
@@ -208,13 +250,35 @@ rather than a CMake stack trace several minutes into configure.
 The workflow wipes the workspace and `actions/checkout` cleans it, so anything
 under it is gone every run — including `OloEngine/vendor/`, where CPM and
 FetchContent place vendor sources. Without caches sited elsewhere, every nightly
-re-downloads and rebuilds the entire vendor set. The workflow points both at the
-runner user's home:
+re-downloads and rebuilds the entire vendor set.
+
+The GPU nightly points its two at the runner user's home:
 
 ```
 CPM_SOURCE_CACHE=/home/gh-runner-olo/.cache/cpm
 CCACHE_DIR=/home/gh-runner-olo/.cache/ccache
 ```
+
+The CI jobs added by #1009 use a second set under `.cache/olo/`, created by
+`scripts/setup-olo-ci-runners.sh`:
+
+| Path | Written by | Notes |
+|---|---|---|
+| `~/.cache/olo/ccache` | ccache | bounded at 30 GiB by the setup script |
+| `~/.cache/olo/sccache/<name>` | sccache, one dir per sanitizer | `setup-linux-build`'s `cache-name` input. The `-fsanitize=` flag is part of every compile command line and so part of sccache's hash — one shared dir would be correct but each sanitizer would evict the others |
+| `~/.cache/olo/vcpkg-binary-cache` | vcpkg (`files` provider) | `setup-vcpkg` prunes archives untouched for 30 days |
+| `~/.cache/olo/vcpkg` | the vcpkg clone itself | **not** `RUNNER_TEMP`: that is emptied at the start of every job, so a clone there is re-fetched from github.com on every run |
+| `~/.cache/olo/cpm` | CPM / FetchContent | |
+
+**Why local disk rather than `actions/cache`, in one line:** an entry on local
+disk has no post-job save step for a cancellation to skip, no ref scoping, and no
+10 GB cap — the three defects in
+[ci-cache-that-looks-alive.md](../agent-rules/ci-cache-that-looks-alive.md). The
+`actions/cache` restore and save steps in those workflows are therefore
+`runner.environment == 'github-hosted'`-gated: on this box a restore would
+overwrite the live cache with an older snapshot of itself.
+
+`rm -rf ~/.cache/olo` is a safe full reset; the next run is simply cold.
 
 ### 1d. Why the interchange formats are switched off
 
@@ -337,19 +401,81 @@ gh api repos/drsnuggles8/OloEngineBase/actions/runners \
   --jq '.runners[]|{name,status,busy,labels:[.labels[].name]}'
 ```
 
+### 6. The CI runner pool (#1009)
+
+The Linux sanitizer, vulkan-off and steam-stub jobs run here too. They need more
+packages than the GPU nightly (which builds with GCC and takes its shader
+toolchain from the LunarG SDK) and their own runner instances. Both are in one
+idempotent script:
+
+```bash
+sudo bash scripts/setup-olo-ci-runners.sh   "$(gh api -X POST repos/drsnuggles8/OloEngineBase/actions/runners/registration-token --jq .token)"
+```
+
+It installs `clang`/`lld`/`compiler-rt`, `mesa-libEGL-devel`, `nasm` and the
+X/Wayland `-devel` set; creates the `~/.cache/olo/*` directories from §1c; and
+registers `olo-ci-1` and `olo-ci-2` with labels `self-hosted,linux,x64,olo-ci`
+under user systemd, exactly like the GPU runner.
+
+**The compiler is clang 21, not clang-19.** Every hosted Linux job pins clang-19
+from apt.llvm.org because ubuntu-24.04's default libstdc++ lacks
+`std::forward_like`. Rocky 10 has no clang-19 package and does not need one — its
+libstdc++ is far newer. The version skew against the hosted fallback is accepted
+deliberately: a second compiler version is coverage. The consequence to remember
+when debugging: **a diagnostic can appear on one runner kind and not the other.**
+If a self-hosted job fails and its hosted fallback passes, check the compiler
+version before concluding the box is broken.
+
+**Why two CI runners and not three.** 31 GiB total. A sanitizer build is the
+heaviest thing that lands here — clang++ takes ~3 GB per instrumented TU, the
+jobs are pinned to `--parallel 2`, and the link is the real spike (which is why
+they use lld). Budget ~9 GiB per concurrent job, reserve ~4 GiB for the OS, and
+27 GiB leaves three concurrent slots — one of which `olo-gpu-amd` already holds.
+The box also hosts `gh-runner-1/2/3` for a private repository, so "normally idle"
+is not "always idle". `CI_RUNNER_COUNT=1` is the lever if memory pressure ever
+shows up; raising it above 2 wants a measurement first.
+
+Note the Linux sanitizer jobs use the **Unix Makefiles** generator, so the root
+`CMakeLists.txt` link job pool (`OLO_LINK_JOBS`) does not apply — it is
+Ninja-only. Their link concurrency is bounded only by `--parallel 2`, i.e. up to
+2 jobs × 2 links on this box. That is the pessimistic worst case behind the
+9 GiB figure above.
+
 ## GitHub-side settings
 
-The workflow is structurally safe — it has no `pull_request` or
+`gpu-conformance-amd.yml` is structurally safe: it has no `pull_request` or
 `pull_request_target` trigger, so a fork PR can never schedule onto this box.
-These are defence in depth:
 
-- **Settings → Actions → General → Fork pull request workflows**: set approval to
-  **"Require approval for all external contributors"**. The default is
-  first-time contributors only, which is not sufficient for a public repo with a
-  self-hosted runner.
-- Keep the runner **repository-scoped**, not org-scoped, so no other repository
-  can target the `gpu-amd` label.
-- Never add a secret to this job. It needs none.
+**The CI jobs added by #1009 DO have a `pull_request` trigger**, so for them the
+boundary is an expression in `runs-on`:
+
+```yaml
+runs-on: ${{ (github.event_name != 'pull_request'
+              || github.event.pull_request.head.repo.full_name == github.repository)
+             && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
+```
+
+A fork PR takes the `ubuntu-24.04` arm, which is a throwaway VM — fork code never
+reaches this machine. Both halves of the condition are load-bearing: `push` and
+`schedule` events carry no `pull_request` object at all, so the right-hand
+comparison is empty there, and an expression written with only that half would
+silently push every nightly onto hosted runners.
+
+Three rules that follow, and none of them is optional:
+
+- **Never introduce a `pull_request_target` that checks out the PR head.** That
+  single pattern defeats the condition entirely, because
+  `pull_request_target` runs with the base repository's permissions.
+- **Approval-based gating is NOT the mechanism.** Approving a fork PR run is
+  precisely what *executes* that fork's code. It stays on as belt and braces:
+  **Settings → Actions → General → Fork pull request workflows** → "Require
+  approval for all external contributors" (the default, first-time contributors
+  only, is not sufficient for a public repo with a self-hosted runner).
+- Keep the runners **repository-scoped**, not org-scoped, so no other repository
+  can target the `gpu-amd` or `olo-ci` labels. (This account is a User, not an
+  org, so runner groups are unavailable anyway — do not go looking for them.)
+
+Never add a secret to these jobs. They need none.
 
 ## Bootstrapping the AMD golden baseline
 
@@ -373,6 +499,10 @@ stable enough to be worth trending — unlike hosted-runner perf data.
 
 | Symptom | Cause |
 |---|---|
+| A Linux CI job queues forever | no `olo-ci` runner is online — `gh api repos/drsnuggles8/OloEngineBase/actions/runners`. There is no automatic hosted fallback for a same-repo PR: the `runs-on` expression chose this box before scheduling |
+| `clang: command not found` on an `olo-ci` job | the CI provisioning was never run — `sudo bash scripts/setup-olo-ci-runners.sh` (§6) |
+| A job fails here and its hosted rerun passes | check the compiler first. This box is clang 21, the hosted arm is clang-19 (§6) |
+| Cold builds despite the persistent caches | `~/.cache/olo` is owned by the wrong user, or the job took the hosted arm. The setup step logs the resolved cache dir |
 | Preflight: `no /dev/dri/renderD128` | `amdgpu` not loaded, or the runner user lost `render` group |
 | Preflight: `SOFTWARE RENDERER` | Mesa fell back to llvmpipe — check `MESA_LOADER_DRIVER_OVERRIDE`, driver install, and that the *software* EGL device wasn't selected |
 | All GPU tests still skip | The EGL harness fallback is missing, or `--olo-gl-backend=egl` is not reaching the process |

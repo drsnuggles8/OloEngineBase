@@ -1,0 +1,161 @@
+# A CI cache that restores is not a CI cache that works
+
+Issue [#1009](https://github.com/drsnuggles8/OloEngineBase/issues/1009).
+
+Every job in this repo restored a cache, logged a hit, and rebuilt everything
+anyway. It had been doing that for at least six days, across three independent
+defects, while every run stayed green and every log line read as success.
+
+**What stayed green:** all of it. A cold cache is not a failure — it is a slow
+success. There is no red, no warning, and no assertion anywhere that a cache
+achieved anything. The only tell is a number nobody was reading.
+
+The measurement, from one representative Windows run (33502248619):
+
+```
+Compile requests   1516
+Cache hits            0
+Cache misses       1516
+Cache hits rate    0.00 %
+```
+
+and, from the same run's configure step:
+
+```
+Restored 3 package(s) from .vcpkg-binary-cache in 139 ms
+Installing 4/116 utfcpp... Building...
+```
+
+Three packages restored out of 116, and zero cache hits out of 1516 compiles.
+Configure took 40 minutes, the build 102. Neither step failed.
+
+---
+
+## 1. A post-job step does not run when the job is cancelled
+
+`actions/cache` — the combined action — saves in a **post-job** step. GitHub
+skips post-job steps when a job is cancelled.
+
+That is a footnote until you look at how runs here actually end. Over the 36-hour
+window #1009 measured, `cancel-in-progress` killed **17 of 27** Windows PR runs
+and **15 of 24** Sanitizer PR runs. An agent pushing a follow-up commit cancels
+the in-flight run; that is normal and desirable. But every one of those runs
+rebuilt the world and banked none of it, so the next run was exactly as cold,
+took exactly as long, and had a correspondingly wider window in which to be
+cancelled itself. The loop is self-reinforcing and it has no visible symptom.
+
+The fix is `actions/cache/restore` + `actions/cache/save` with `if: always()`,
+because `always()` **does** fire on a cancel. Place the save immediately after
+the step that produced the expensive artefact, not at the end of the job: the
+vcpkg save goes after *configure*, so a cancellation anywhere in the build or
+test tail has already banked the 40-minute half.
+
+**This repo already knew.** `asan.yml`'s tsan job had been split this way, with a
+comment explaining exactly this, and nothing else had followed. The evidence that
+it worked was sitting in the cache listing the whole time — one line of
+`gh api repos/<owner>/<repo>/actions/caches`:
+
+```
+sccache-tsan-linux-32942319314-1     2026-09-01   <- restore/save, if: always()
+sccache-asan-lsan-linux-32225872289  2026-08-26   <- combined action
+sccache-windows-release-31571109867  2026-08-26   <- combined action
+```
+
+Same repo, same day, same kind of job. The split one was six days fresher. A
+working example beside a broken one is not a fix; somebody has to notice.
+
+## 2. Only default-branch cache entries are readable fleet-wide
+
+This is the one that inverts an obvious optimisation into a regression.
+
+GitHub scopes a cache entry to the ref that created it. An entry written by a PR
+run is visible to **that PR only**. An entry written on the default branch is
+visible to every branch. So of the 15 active entries in this repo, all 15 were
+`ref=refs/heads/master`, and **every PR in the repo was warming from a master
+run's snapshot**.
+
+The optimisation on the table was "drop `push: master` for Windows and
+Sanitizers — CI already tested the merge commit as the PR, so this is ~1,400
+runner-minutes a day for a second opinion on identical code." That reasoning is
+correct as far as it goes. It also happens to delete the only cache writer in the
+system, which would have made every PR permanently cold — a change that reads as
+a pure saving and is precisely the opposite.
+
+The master trigger was replaced with a **nightly cron** rather than deleted, so
+the warmer survives.
+
+Second-order, and it is what made the snapshots *stale* rather than merely
+infrequent: the concurrency expression was
+
+```yaml
+cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+```
+
+so a burst of merges cancelled the master runs too — combining defect 1 with
+defect 2. The master sccache snapshot was six days old while every PR dutifully
+restored it. `cancel-in-progress` is now `pull_request`-only everywhere a cache
+is written.
+
+**The rule: before removing a trigger, ask what else that trigger was doing.** A
+scheduled build is often load-bearing for something that is not the build.
+
+## 3. A rolling runner image is a hash input
+
+`windows-latest` is an alias. When GitHub rolls it, `cl.exe` changes, and sccache
+hashes the compiler binary into every cache key. So an image roll invalidates the
+entire compiler cache in one step — and it does it *silently*, because the cache
+still restores (the key prefix still matches), still downloads its two gigabytes,
+still occupies its slice of the 10 GB cap, and hits on nothing.
+
+Zero hits out of 1516 is not source churn. A source change cannot invalidate
+every translation unit; if the number is *exactly* zero, something upstream of
+the source changed. Pin the image (`windows-2025`), and put the image name in the
+cache key, so that the next deliberate bump ages the dead entries out instead of
+restoring them forever.
+
+## 4. LRU eviction cannot tell current from superseded
+
+The repo held 11.6 GB against a 10 GB cap, so GitHub was already evicting. Its
+policy is least-recently-used, and LRU has no idea which entry is the live
+snapshot: it will happily evict the newest 2 GB Windows sccache to make room,
+having just seen a superseded 786 MB one get touched by a restore-keys prefix
+match.
+
+If you are over the cap, the eviction policy is already yours whether you wrote
+one or not. `.github/workflows/cache-prune.yml` keeps one entry per key prefix.
+
+---
+
+## The counter-move
+
+**Every cache needs a number in the log, and somebody has to read it.** Not "did
+the restore step succeed" — it always does. The three that matter here:
+
+| Cache | The line | A working value |
+|---|---|---|
+| sccache | `sccache --show-stats` → `Cache hits rate` | high, and never exactly 0.00% |
+| vcpkg | `Restored N package(s)` in the configure step | N near the manifest's port count (116) |
+| ccache | `ccache -s` → direct/preprocessed hits | non-zero after the first run |
+
+A cache is one of the purest instances of the "your instrument is lying to you"
+archetype: it has no wrong-looking failure state. It fails by being slow, and
+slow is what everyone already expects CI to be. When you change anything that
+touches one — the key, the runner image, a trigger, a compiler flag, a toolchain
+version — the acceptance criterion is a **stats line from a real run**, not a
+green check.
+
+And when you are about to conclude a cache is fine because it restored: read
+`gh api repos/<owner>/<repo>/actions/caches` and look at the dates. It costs one
+command, and in this case it would have named two of the three defects on its
+own.
+
+## See also
+
+- [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §6 — the
+  same genre one level down: a ccache hit that restored the object but not its
+  dependency file, so 699 of 701 objects had no header dependencies recorded and
+  a header edit rebuilt nothing. The better the cache worked, the more of the
+  tree was frozen.
+- [docs/ops/self-hosted-gpu-runner.md](../ops/self-hosted-gpu-runner.md) — the
+  structural escape from defects 1, 2 and 4 at once: a cache on local disk has no
+  save step to skip, no ref scoping and no cap.
