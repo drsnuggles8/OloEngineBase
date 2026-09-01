@@ -635,8 +635,7 @@ struct InstanceData {
     vec4 Color;
     int EntityID;
     float Custom;
-    int _instancePad0;
-    int _instancePad1;
+    uvec2 StableID;
     vec4 LightmapScaleOffset;
 };
 layout(std430, binding = 15) readonly buffer InstanceCullOutput {

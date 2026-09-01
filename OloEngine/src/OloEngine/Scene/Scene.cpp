@@ -7050,9 +7050,12 @@ namespace OloEngine
         // These systems keep their current renderer paths; none disappear
         // silently from GPU-scene diagnostics while their record formats are
         // designed in follow-up work.
-        Renderer3D::ReportUnsupportedGPUScene(
-            GPUSceneUnsupportedCategory::Skinned,
-            static_cast<u32>(m_Registry.view<MeshComponent, SkeletonComponent>().size_hint()));
+        u32 skinnedCount = 0;
+        for ([[maybe_unused]] const auto entity : m_Registry.view<MeshComponent, SkeletonComponent>())
+        {
+            ++skinnedCount;
+        }
+        Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Skinned, skinnedCount);
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Terrain,
             static_cast<u32>(m_Registry.view<TerrainComponent>().size()));
@@ -10125,6 +10128,7 @@ namespace OloEngine
                 }
 
                 auto clothMesh = Ref<Mesh>::Create(state.m_RenderMesh, 0);
+                Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Cloth);
                 if (auto* packet = Renderer3D::DrawMesh(clothMesh, glm::mat4(1.0f), clothMaterial, false, clothPickID, nullptr); packet)
                     Renderer3D::SubmitPacket(packet);
             }
@@ -10149,12 +10153,34 @@ namespace OloEngine
                 // (`imc._MergedCache`) and reused frame-to-frame as long as
                 // the inline size, asset handle, and asset's instance count /
                 // data pointer all match the cached fingerprint — saves the
-                // 224 B / instance memcpy for steady-state scatter scenes.
+                // 240 B / instance memcpy for steady-state scatter scenes.
+                auto& cache = imc._MergedCache;
+                const InstanceData* inlineDataPtr = imc.Instances.data();
+                bool stableInputsChanged = cache.InlineSize != imc.Instances.size() ||
+                                           cache.InlineDataPtr != inlineDataPtr;
+                if (stableInputsChanged)
+                {
+                    (void)InstancedMeshComponent::EnsureStableIDs(imc.Instances);
+                    inlineDataPtr = imc.Instances.data();
+                }
+
                 const std::vector<InstanceData>* assetInstances = nullptr;
                 if (imc.PlacementAssetHandle != 0)
                 {
                     if (auto placement = AssetManager::GetAsset<InstancePlacementAsset>(imc.PlacementAssetHandle))
-                        assetInstances = &placement->GetInstances();
+                    {
+                        auto& placementInstances = placement->GetInstances();
+                        const bool assetInputChanged =
+                            cache.PlacementHandle != imc.PlacementAssetHandle ||
+                            cache.AssetSize != placementInstances.size() ||
+                            cache.AssetDataPtr != placementInstances.data();
+                        if (assetInputChanged)
+                        {
+                            (void)InstancedMeshComponent::EnsureStableIDs(placementInstances);
+                            stableInputsChanged = true;
+                        }
+                        assetInstances = &placementInstances;
+                    }
                 }
 
                 const sizet inlineCount = imc.Instances.size();
@@ -10171,12 +10197,18 @@ namespace OloEngine
                     // the submission needs. No copy and no cache involvement.
                     instData = imc.Instances.data();
                     totalCount = inlineCount;
+                    cache.InlineSize = inlineCount;
+                    cache.InlineDataPtr = inlineDataPtr;
+                    cache.PlacementHandle = imc.PlacementAssetHandle;
+                    cache.AssetSize = 0;
+                    cache.AssetDataPtr = nullptr;
                 }
                 else
                 {
-                    auto& cache = imc._MergedCache;
                     const InstanceData* currentAssetDataPtr = assetInstances->data();
-                    const bool cacheValid = cache.InlineSize == inlineCount &&
+                    const bool cacheValid = !stableInputsChanged &&
+                                            cache.InlineSize == inlineCount &&
+                                            cache.InlineDataPtr == inlineDataPtr &&
                                             cache.PlacementHandle == imc.PlacementAssetHandle &&
                                             cache.AssetSize == assetCount &&
                                             cache.AssetDataPtr == currentAssetDataPtr &&
@@ -10188,6 +10220,7 @@ namespace OloEngine
                         cache.Data.insert(cache.Data.end(), imc.Instances.begin(), imc.Instances.end());
                         cache.Data.insert(cache.Data.end(), assetInstances->begin(), assetInstances->end());
                         cache.InlineSize = inlineCount;
+                        cache.InlineDataPtr = inlineDataPtr;
                         cache.PlacementHandle = imc.PlacementAssetHandle;
                         cache.AssetSize = assetCount;
                         cache.AssetDataPtr = currentAssetDataPtr;
@@ -10213,11 +10246,13 @@ namespace OloEngine
                 {
                     for (i32 i = 0; i < imc.MeshSource->GetSubmeshes().Num(); ++i)
                     {
-                        OLO_CORE_ASSERT(totalCount <= std::numeric_limits<u32>::max(),
-                                        "GPUScene instance key exceeds its 32-bit instance index");
-                        for (u32 k = 0; k < static_cast<u32>(totalCount); ++k)
+                        for (sizet k = 0; k < totalCount; ++k)
                         {
-                            Renderer3D::ExtractGPUSceneMesh(stableEntityId, k, imc.MeshSource,
+                            const u64 sourceNamespace = k < inlineCount
+                                                            ? 0
+                                                            : InstancedMeshComponent::AssetStableIDNamespace;
+                            const u64 stableInstanceId = instData[k].StableID | sourceNamespace;
+                            Renderer3D::ExtractGPUSceneMesh(stableEntityId, stableInstanceId, imc.MeshSource,
                                                             static_cast<u32>(i), instData[k].Transform);
                         }
                         auto submesh = Ref<Mesh>::Create(imc.MeshSource, i);
@@ -10307,6 +10342,7 @@ namespace OloEngine
                     }
                 }
 
+                Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::LegacySubmesh);
                 if (auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, worldTransform, material, true, entityID, lodGroup); packet)
                     Renderer3D::SubmitPacket(packet);
 
@@ -10349,6 +10385,7 @@ namespace OloEngine
 
                 // Pass entity ID for mouse picking support
                 const auto modelTransform = GetWorldTransform(entity);
+                Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::LegacyModel);
                 model.m_Model->DrawParallel(modelTransform, overrideMaterial, GetDefaultMaterial(),
                                             static_cast<int>(std::to_underlying(entity)));
 
@@ -10490,6 +10527,7 @@ namespace OloEngine
 
                 i32 entityID = static_cast<i32>(std::to_underlying(entity));
                 glm::mat4 baseTransform = GetWorldTransform(entity);
+                Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Tiles);
 
                 for (u32 z = 0; z < tileComp.Height; ++z)
                 {

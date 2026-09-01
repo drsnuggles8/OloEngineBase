@@ -172,6 +172,10 @@ namespace OloEngine
         Particles,
         Fluids,
         Skinned,
+        LegacyModel,
+        LegacySubmesh,
+        Tiles,
+        Cloth,
         Count,
     };
 
@@ -199,6 +203,14 @@ namespace OloEngine
                 return "Fluids";
             case GPUSceneUnsupportedCategory::Skinned:
                 return "Skinned";
+            case GPUSceneUnsupportedCategory::LegacyModel:
+                return "Legacy model";
+            case GPUSceneUnsupportedCategory::LegacySubmesh:
+                return "Legacy submesh";
+            case GPUSceneUnsupportedCategory::Tiles:
+                return "Tiles";
+            case GPUSceneUnsupportedCategory::Cloth:
+                return "Cloth";
             case GPUSceneUnsupportedCategory::Count:
                 break;
         }
@@ -244,7 +256,7 @@ namespace OloEngine
     {
         u64 m_EntityId = 0;
         GPUSceneGeometryKey m_Geometry;
-        u32 m_InstanceIndex = 0;
+        u64 m_InstanceId = 0;
 
         [[nodiscard]] auto operator<=>(const GPUSceneInstanceKey&) const = default;
     };

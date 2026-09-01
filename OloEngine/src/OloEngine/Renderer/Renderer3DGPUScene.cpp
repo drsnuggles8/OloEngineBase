@@ -13,7 +13,7 @@ namespace OloEngine
         s_Data.GPUSceneExtractionActive = true;
     }
 
-    void Renderer3D::ExtractGPUSceneMesh(u64 stableEntityId, u32 instanceIndex,
+    void Renderer3D::ExtractGPUSceneMesh(u64 stableEntityId, u64 stableInstanceId,
                                          const Ref<MeshSource>& meshSource, u32 submeshIndex,
                                          const glm::mat4& worldTransform, u32 visibilityMask,
                                          u32 flags)
@@ -61,7 +61,7 @@ namespace OloEngine
             GPUSceneInstanceKey{
                 .m_EntityId = stableEntityId,
                 .m_Geometry = geometryKey,
-                .m_InstanceIndex = instanceIndex,
+                .m_InstanceId = stableInstanceId,
             },
             GPUSceneInstanceInput{
                 .m_WorldTransform = worldTransform,

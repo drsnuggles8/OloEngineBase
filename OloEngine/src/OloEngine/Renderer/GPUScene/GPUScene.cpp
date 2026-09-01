@@ -416,11 +416,22 @@ namespace OloEngine
         m_Impl->m_GeometryBuffer->Unbind();
 
         // Fresh storage has undefined contents, including after a renderer
-        // restart. Seed every allocated CPU slot before exposing the buffers.
+        // restart. Seed every allocated CPU slot, including free tombstones,
+        // and keep that intent pending if extraction happens before Upload().
+        const auto instanceRecordCount = static_cast<u32>(m_Impl->m_InstanceRecords.size());
+        for (u32 index = 0; index < instanceRecordCount; ++index)
+        {
+            m_Impl->m_PendingDirtyInstanceSlots.insert(index);
+        }
+        const auto geometryRecordCount = static_cast<u32>(m_Impl->m_GeometryRecords.size());
+        for (u32 index = 0; index < geometryRecordCount; ++index)
+        {
+            m_Impl->m_PendingDirtyGeometrySlots.insert(index);
+        }
         m_Impl->m_LastFrameUpdate.m_InstanceDirtyRanges =
-            FullRange(static_cast<u32>(m_Impl->m_InstanceRecords.size()));
+            CoalesceDirtyRanges(m_Impl->m_PendingDirtyInstanceSlots);
         m_Impl->m_LastFrameUpdate.m_GeometryDirtyRanges =
-            FullRange(static_cast<u32>(m_Impl->m_GeometryRecords.size()));
+            CoalesceDirtyRanges(m_Impl->m_PendingDirtyGeometrySlots);
         m_Impl->m_LastFrameUpdate.m_Stats.m_InstanceBufferCapacity = m_Impl->m_InstanceBufferCapacity;
         m_Impl->m_LastFrameUpdate.m_Stats.m_GeometryBufferCapacity = m_Impl->m_GeometryBufferCapacity;
         m_Impl->m_UploadPending = true;

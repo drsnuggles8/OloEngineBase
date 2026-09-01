@@ -87,6 +87,23 @@ namespace OloEngine::Tests
 
         const GPUSceneGeometryKey firstGeometryKey{ .m_VertexBuffer = 10, .m_IndexBuffer = 20 };
         const GPUSceneInstanceKey firstInstanceKey{ .m_EntityId = 100, .m_Geometry = firstGeometryKey };
+
+        // Retire the second records and upload their tombstones. A subsequent
+        // shutdown only dirties the still-live first records, so InitializeGPU
+        // must explicitly re-seed the already-tombstoned slots as well.
+        scene.BeginExtraction(1, glm::vec3(0.0f));
+        scene.ExtractGeometry(
+            firstGeometryKey,
+            GPUSceneGeometryInput{
+                .m_VertexBuffer = RHI::ResourceHandle{ 10, 1 },
+                .m_IndexBuffer = RHI::ResourceHandle{ 20, 1 },
+                .m_IndexCount = 3,
+                .m_VertexCount = 3,
+            });
+        scene.ExtractInstance(firstInstanceKey, GPUSceneInstanceInput{});
+        (void)scene.EndExtraction();
+        scene.Upload();
+
         const GPUSceneHandle staleInstance = scene.FindInstance(firstInstanceKey);
         scene.Shutdown();
         EXPECT_FALSE(RHI::ResourceRegistry::Get().IsLive(instanceBufferBefore));
@@ -106,7 +123,13 @@ namespace OloEngine::Tests
             });
         scene.ExtractInstance(GPUSceneInstanceKey{ .m_EntityId = 100, .m_Geometry = geometryKey },
                               GPUSceneInstanceInput{});
-        (void)scene.EndExtraction();
+        const GPUSceneFrameUpdate restartedUpdate = scene.EndExtraction();
+
+        ASSERT_EQ(restartedUpdate.m_InstanceDirtyRanges.size(), 1u);
+        EXPECT_EQ(restartedUpdate.m_InstanceDirtyRanges[0], (GPUSceneDirtyRange{ 0, 3 }))
+            << "restart extraction must retain full initialization, including old tombstones";
+        ASSERT_EQ(restartedUpdate.m_GeometryDirtyRanges.size(), 1u);
+        EXPECT_EQ(restartedUpdate.m_GeometryDirtyRanges[0], (GPUSceneDirtyRange{ 0, 3 }));
 
         const GPUSceneHandle restarted = scene.FindInstance(firstInstanceKey);
         EXPECT_NE(restarted.m_Index, staleInstance.m_Index)

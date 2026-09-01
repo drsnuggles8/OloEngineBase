@@ -3482,6 +3482,7 @@ Entities:
         const glm::mat4 expectedTransforms[2] = { makeTransform(1.0f), makeTransform(40.0f) };
         const glm::vec4 expectedColors[2] = { { 0.1f, 0.2f, 0.3f, 0.4f }, { 0.9f, 0.8f, 0.7f, 0.6f } };
         const i32 expectedIDs[2] = { 7, -1 };           // 7 is emitted; -1 is skipped and must default back to -1
+        const u64 expectedStableIDs[2] = { 17, 0 };     // 17 is emitted; 0 remains the unassigned legacy sentinel
         const f32 expectedCustoms[2] = { 2.75f, 0.0f }; // 2.75 is emitted; 0.0 is skipped and must default back to 0
 
         std::string yaml;
@@ -3495,6 +3496,7 @@ Entities:
                 data.Transform = expectedTransforms[inst];
                 data.Color = expectedColors[inst];
                 data.EntityID = expectedIDs[inst];
+                data.StableID = expectedStableIDs[inst];
                 data.Custom = expectedCustoms[inst];
                 imc.Instances.push_back(data);
             }
@@ -3526,6 +3528,7 @@ Entities:
                 EXPECT_NEAR(data.Color[i], expectedColors[inst][i], kFloatEpsilon)
                     << "instance " << inst << " color [" << i << "]";
             EXPECT_EQ(data.EntityID, expectedIDs[inst]) << "instance " << inst << " EntityID";
+            EXPECT_EQ(data.StableID, expectedStableIDs[inst]) << "instance " << inst << " StableID";
             EXPECT_NEAR(data.Custom, expectedCustoms[inst], kFloatEpsilon) << "instance " << inst << " Custom";
         }
     }

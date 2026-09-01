@@ -139,9 +139,13 @@ namespace OloEngine::Tests
         scene.ReportUnsupported(GPUSceneUnsupportedCategory::Virtualized, 2);
         scene.ReportUnsupported(GPUSceneUnsupportedCategory::SoftwareRaster, 2);
         scene.ReportUnsupported(GPUSceneUnsupportedCategory::Skinned, 3);
+        scene.ReportUnsupported(GPUSceneUnsupportedCategory::LegacyModel, 1);
+        scene.ReportUnsupported(GPUSceneUnsupportedCategory::LegacySubmesh, 1);
+        scene.ReportUnsupported(GPUSceneUnsupportedCategory::Tiles, 4);
+        scene.ReportUnsupported(GPUSceneUnsupportedCategory::Cloth, 1);
 
         const GPUSceneFrameUpdate update = scene.EndExtraction();
-        EXPECT_EQ(update.m_Stats.m_UnsupportedTotal, 7u);
+        EXPECT_EQ(update.m_Stats.m_UnsupportedTotal, 14u);
         EXPECT_EQ(update.m_Stats.m_UnsupportedCounts[static_cast<sizet>(
                       GPUSceneUnsupportedCategory::Virtualized)],
                   2u);
@@ -151,8 +155,13 @@ namespace OloEngine::Tests
         EXPECT_EQ(update.m_Stats.m_UnsupportedCounts[static_cast<sizet>(
                       GPUSceneUnsupportedCategory::Skinned)],
                   3u);
+        EXPECT_EQ(update.m_Stats.m_UnsupportedCounts[static_cast<sizet>(
+                      GPUSceneUnsupportedCategory::Tiles)],
+                  4u);
         EXPECT_STREQ(GetGPUSceneUnsupportedCategoryName(GPUSceneUnsupportedCategory::SoftwareRaster),
                      "Software raster");
+        EXPECT_STREQ(GetGPUSceneUnsupportedCategoryName(GPUSceneUnsupportedCategory::LegacyModel),
+                     "Legacy model");
     }
 
     TEST(GPUScene, OwnerChangeInvalidatesTemporalIdentityEvenForTheSameKeys)
@@ -295,6 +304,7 @@ namespace OloEngine::Tests
         const auto initial = extract(0.0f);
         ASSERT_EQ(initial.m_InstanceDirtyRanges.size(), 1u);
         EXPECT_EQ(initial.m_InstanceDirtyRanges[0], (GPUSceneDirtyRange{ 0, 3 }));
+        ASSERT_EQ(initial.m_GeometryDirtyRanges.size(), 1u);
         EXPECT_EQ(initial.m_GeometryDirtyRanges[0], (GPUSceneDirtyRange{ 0, 1 }));
 
         const auto stable = extract(0.0f);

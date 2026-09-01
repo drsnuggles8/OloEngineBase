@@ -247,7 +247,7 @@ namespace OloEngine
         // GPU-scene extraction is owned by the scene/view traversal and
         // committed once before render-graph configuration in EndScene().
         static void BeginGPUSceneExtraction(u64 ownerToken);
-        static void ExtractGPUSceneMesh(u64 stableEntityId, u32 instanceIndex,
+        static void ExtractGPUSceneMesh(u64 stableEntityId, u64 stableInstanceId,
                                         const Ref<MeshSource>& meshSource, u32 submeshIndex,
                                         const glm::mat4& worldTransform,
                                         u32 visibilityMask = std::numeric_limits<u32>::max(),
