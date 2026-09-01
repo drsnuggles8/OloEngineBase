@@ -1,0 +1,613 @@
+Scene: OceanCoast.olo
+# =============================================================================
+# OceanCoast — ocean / coast hero benchmark scene (issue #974).
+#
+# One of the three benchmark scenes behind the manifest-driven capture entry
+# point (docs/guides/renderer-benchmarks.md). This is the water-dominated
+# composition: a JONSWAP three-band FFT ocean to the horizon, one procedural
+# island with a real shoreline, a CC0 Kenney ship as the scale reference, and
+# a fixed golden-hour sun so the specular track crosses the water toward the
+# hero camera. Captured by the three ocean-coast.*.yaml manifests under
+# OloEditor/assets/benchmark/manifests/.
+#
+# DETERMINISM RULES THIS SCENE OBEYS (the manifests supply seed + mock clock):
+#   * No physics actors, no buoyancy, no scripts, no weather director, no
+#     precipitation, no clouds. The ship is a posed static mesh — a Kenney
+#     hull cannot be allowed to drift between two captures of the same
+#     manifest. Everything time-varying (ocean phase, foliage sway, water
+#     normal scroll) reads the engine clock, which the capture core mocks and
+#     steps (Time::SetMockTime), so frame N is the same sea every run.
+#   * Weather: fixed clear conditions, authored directly in the scene-level
+#     Fog/Wind blocks below. Deliberately NO WeatherStateComponent and NO
+#     CloudscapeComponent — WeatherSystem::ApplyBlended would rewrite the fog
+#     and wind blocks every tick, and the cloud raymarch adds a temporal
+#     history plus its own warm-up for a sky this composition does not need.
+#     Clear sky also keeps the sun disk and its glint unoccluded, which is
+#     the point of the frame.
+#   * TimeOfDayComponent is PAUSED at a fixed golden-hour ephemeris time, so
+#     TimeOfDaySystem rewrites the Sun entity to the same direction/colour
+#     every frame. (ProceduralSkyComponent's old LinkSunToDirectionalLight
+#     was retired by issue #633 — the TimeOfDayComponent owns sun driving
+#     now; the Sun entity's authored values are the pre-first-frame
+#     placeholder only.)
+#
+# WHY THE COMPOSITION IS SHAPED LIKE THIS (VehiclesTest.olo's lesson): water
+# is largely a mirror, and over a flat sky gradient it reads as a dark void.
+# Every camera in the manifests therefore keeps reflected CONTENT over the
+# water — the island flank, the ship silhouette, and the low sun's specular
+# track. TimeOfDay NorthOffsetDegrees -60 is Drift's measured value for "the
+# dawn sun sits almost dead ahead of +Z", and every camera looks roughly +Z.
+#
+# ISLAND: shaping parameters are Drift's "Island - Ridgeback" template
+# (Drift.olo, entity 879000000000005) with a new seed (974) and a wider tile
+# (480 m vs 420 m). Base depth (-24) and HeightScale (110) are kept, so the
+# waterline stays at 0.218 of the height range and Ridgeback's measured
+# LayerRules bands stay valid in relative terms. ShapingIslandFalloff 1 is
+# what makes a shoreline instead of a border wall
+# (docs/agent-rules/terrain-tile-meets-ocean.md); the wider tile makes the
+# falloff flank SHALLOWER (atan(110/96) ~ 49 deg) so it stays below the
+# 69 deg cliff line the rock rule opens at — the safe direction under §8 of
+# that doc (a rock rule keyed under the mask's slope claims the whole
+# island).
+# =============================================================================
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  # Bloom on: the sun disk and its water glint are the highlight this scene
+  # exists to photograph.
+  BloomEnabled: true
+  BloomThreshold: 1.1
+  BloomIntensity: 0.25
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  # FXAA in-scene. TAA is NOT scene-serializable (PostProcessSettings has no
+  # TAA key) and manifest v1's RendererSettings whitelist has no TAA field
+  # either — flagged in the manifests; until TAAEnabled is declarable, FXAA
+  # is the anti-aliasing this scene actually gets.
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+FogSettings:
+  # Light warm haze for depth layering — the island flank at ~350 m reads a
+  # step lighter than the ship at ~80 m. Density is kept far below Drift's
+  # storm values because exponential fog is applied by DEPTH and the sky sits
+  # at the far plane (Drift's "uniform veil" lesson): at 0.0003 the horizon
+  # blend is exp(-0.0003 * 2000) ~ 0.55, capped by MaxOpacity 0.4, and the
+  # fog COLOUR is dawn-warm so what does reach the sky reads as golden haze,
+  # not a grey card. Volumetrics/noise/shafts off: fixed cost, no extra
+  # temporal state.
+  Enabled: true
+  Mode: 1
+  Color: [0.75, 0.66, 0.55]
+  Density: 0.0003
+  Start: 420
+  End: 1800
+  HeightFalloff: 0
+  HeightOffset: 0
+  MaxOpacity: 0.4
+  EnableScattering: false
+  RayleighStrength: 0.5
+  MieStrength: 0.003
+  MieDirectionality: 0.76
+  RayleighColor: [0.27, 0.51, 0.83]
+  SunIntensity: 5
+  EnableVolumetric: false
+  EnableNoise: false
+  EnableLightShafts: false
+WindSettings:
+  # A light breeze aligned with the FFT wind (FFTWindDirection below), so the
+  # palm sway and the sea agree about which way the weather points. Wind
+  # phase reads the mocked engine clock, so this stays deterministic.
+  Enabled: true
+  Direction: [0.243, 0, 0.97]
+  Speed: 4
+  GustStrength: 0.15
+  GustFrequency: 0.25
+  TurbulenceIntensity: 0.2
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+Entities:
+  # ── Primary camera ────────────────────────────────────────────────────────
+  # Play mode requires one; posed near the manifests' hero framing so an
+  # editor session opens onto the intended composition. The capture manifests
+  # pose their own EditorCamera and never read this entity.
+  # Camera forward is rot*(0,0,-1); for look direction d:
+  # pitch = asin(d.y), yaw = atan2(-d.x, -d.z)  (VehiclesTest.olo convention).
+  - Entity: 974000003000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [-10, 6, 96]
+      Rotation: [-0.0351, -2.8567, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.1
+        PerspectiveFar: 2500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+
+  # ── Sun ───────────────────────────────────────────────────────────────────
+  # TimeOfDaySystem::Apply REWRITES Direction / Color / Intensity every
+  # rendered frame from the paused ephemeris below (Drift.olo's contract), so
+  # the values here are the pre-first-frame placeholder: the ~10-degree dawn
+  # sun toward +Z that the paused clock resolves to. Shadow tuning is
+  # authored and load-bearing: Drift's bias pair (thin sail geometry), with
+  # the shadow range widened for an island vista instead of a chase camera.
+  - Entity: 974000003000002
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 80, 0]
+      Rotation: [-0.5235988, 0.6108652, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.1, -0.17, -0.98]
+      Color: [1, 0.82, 0.6]
+      Intensity: 3.2
+      CastShadows: true
+      ShadowBias: 0.008
+      ShadowNormalBias: 0.05
+      MaxShadowDistance: 400
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false
+
+  # ── Atmosphere ────────────────────────────────────────────────────────────
+  # Procedural sky + PAUSED time of day. Paused is the whole point: the
+  # ephemeris is evaluated at the same fixed hour every frame, so the sun,
+  # the sky bake and the IBL are identical from warm-up frame 0 to the
+  # capture frame — no rebake ever fires mid-capture.
+  #
+  # TimeOfDayHours 5.8 is interpolated from Drift's measured anchors at this
+  # latitude/day (5.2 h -> +3.7 deg, 6.6 h -> ~20 deg): roughly a +10 deg
+  # sun — golden hour, low enough to lay a long specular track, high enough
+  # to still light the island's west-facing flank. NorthOffsetDegrees -60 is
+  # Drift's swept-and-measured value for "dawn sun almost dead ahead of +Z";
+  # every capture camera looks roughly +Z for exactly that reason. If the
+  # glint lands off-axis at first render, retune NorthOffsetDegrees (the one
+  # art-direction knob), not the cameras.
+  - Entity: 974000003000003
+    TagComponent:
+      Tag: Atmosphere
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ProceduralSkyComponent:
+      # SunDirection is inert while TimeOfDaySystem feeds the bake (Drift's
+      # note). Turbidity 2.6 is the marine value — clean sea horizon.
+      SunDirection: [0.3, 0.7, 0.4]
+      Turbidity: 2.6
+      Exposure: 0.1
+      SunIntensity: 1
+      SunDiskSize: 1.3
+      ShowSunDisk: true
+      EnableSkybox: true
+      EnableIBL: true
+      IBLIntensity: 0.8
+      CubemapResolution: 256
+    TimeOfDayComponent:
+      Enabled: true
+      TimeOfDayHours: 5.8
+      DayOfYear: 172
+      LatitudeDegrees: 34
+      DayLengthMinutes: 30
+      TimeScale: 1
+      # PAUSED — the fixed-golden-hour determinism contract for this scene.
+      Paused: true
+      AdvanceInEditMode: false
+      # 40 was chosen from the issue-#974 sun-azimuth sweep (probes at -150,
+      # -100, -60, 0, 20, 40, 60, 120): it lights the island's camera-facing
+      # flank so the terrain bands read, which beat the backlit sun-disk/glint
+      # composition (a lit island + dark sky trade the sweep made explicit).
+      NorthOffsetDegrees: 40
+      SunIntensityMax: 3.6
+      MoonIntensityMax: 0.22
+      MoonPhase: 0.5
+      SkyExposureDay: 0.1
+      SkyExposureNight: 0.35
+      StarIntensity: 1.2
+      MoonDiskSize: 1.4
+      RebakeQuantumGameMinutes: 20
+
+  # ── Ocean ─────────────────────────────────────────────────────────────────
+  # THE subject. Tessendorf FFT, JONSWAP spectrum, the #969 three-band
+  # cascade preset, fixed seed 974. 1600 m tile centred on the origin so
+  # every manifest camera sees water to the horizon; 640x640 grid keeps
+  # Drift's measured 2.5 m per quad (quad size is the knob, not the count —
+  # coarser aliases the surface and ghosts the refracted hull).
+  #
+  # Texture handles (NormalMap0/1, NoiseTexture, FoamTexture) are 0 on
+  # purpose: WaterComponent references textures by AssetHandle only, and
+  # benchmark scenes may not mint registry handles (renderer-benchmarks.md).
+  # Handle 0 = the renderer's built-in fallbacks, same as WaterShowcase.olo.
+  #
+  # Wake foam/shape OFF: they exist to trail a MOVING hull; the ship here is
+  # static and the wake field is one more accumulation buffer of state this
+  # capture does not want to warm or explain.
+  - Entity: 974000003000004
+    TagComponent:
+      Tag: Ocean
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    WaterComponent:
+      Enabled: true
+      WorldSizeX: 1600
+      WorldSizeZ: 1600
+      GridResolutionX: 640
+      GridResolutionZ: 640
+      # Gerstner block: inert while UseFFT is true, authored anyway so a
+      # manual A/B toggle in the inspector falls back to a comparable sea.
+      WaveAmplitude: 0.2
+      WaveFrequency: 0.55
+      WaveSpeed: 1
+      WaveDir0: [0.25, 1]
+      WaveSteepness0: 0.25
+      WaveDir1: [0.8, 0.6]
+      WaveSteepness1: 0.15
+      WaterColor: [0.09, 0.33, 0.44]
+      DeepColor: [0.015, 0.075, 0.14]
+      Transparency: 0.5
+      # Fresnel F0, not a slider — 0.02 is water's physical value (Drift's
+      # #943 lesson; anything higher owns the whole frame with reflection).
+      Reflectivity: 0.02
+      FresnelPower: 5
+      SpecularIntensity: 1.4
+      # Fine surface detail (per-metre, Drift's values): scrolling normals
+      # well under the FFT wavelengths plus crest foam.
+      NoiseIntensity: 0.65
+      NormalMapTiling: 5
+      NormalMapScrollDir0: [1, 0.3]
+      NormalMapScrollDir1: [-0.3, 1]
+      NormalMapScrollSpeed0: 0.05
+      NormalMapScrollSpeed1: 0.035
+      NormalMap0: 0
+      NormalMap1: 0
+      NoiseTexture: 0
+      FoamTexture: 0
+      FoamHeightStart: 0.5
+      FoamFadeDistance: 0.8
+      FoamTiling: 2
+      FoamBrightness: 1
+      FoamAngleExponent: 2
+      ShorelineFoamPower: 3.5
+      FoamCoverage: 0.12
+      WakeFoamEnabled: false
+      WakeShapeEnabled: false
+      WakeShapeAffectsPhysics: false
+      # Refraction pulled down to Drift's tuned values so the submerged part
+      # of the hull reads as a hull, not a stippled ghost.
+      RefractionDistortion: 0.018
+      RefractionHeightFactor: 0.25
+      DepthSofteningDistance: 1
+      SSSColor: [0.03, 0.35, 0.3]
+      SSSIntensity: 0.3
+      # Both reflection sources on: planar for the island/ship/sky mirror,
+      # SSR (component default, pinned explicitly) for mid-frame detail.
+      PlanarReflectionsEnabled: true
+      PlanarReflectionIntensity: 1
+      PlanarReflectionDistortion: 0.02
+      SSREnabled: true
+      SSRMaxSteps: 64
+      SSRStepSize: 0.1
+      SSRMaxDistance: 50
+      SSRThickness: 0.5
+      # Water tessellation off (Drift measured it amplifying the FFT shading
+      # artifact); the 2.5 m grid carries the swell on its own.
+      TessellationEnabled: false
+      UnderwaterFogColor: [0.04, 0.18, 0.3]
+      UnderwaterFogDensity: 0.09
+      # The diagnostic manifest's submerged camera depends on this.
+      RenderFromBelow: true
+      # ── FFT ocean (the benchmark configuration) ──
+      UseFFT: true
+      FFTResolution: 256
+      FFTPatchSize: 180
+      FFTWindSpeed: 7
+      FFTWindDirection: [0.25, 1]
+      # 2.2 (up from the authored 1.5) after the #974 hero probes: 1.5 read as
+      # glass at the hero distance; 2.2 breaks the mirror with visible swell
+      # while staying a calm golden-hour sea.
+      FFTAmplitude: 2.2
+      FFTChoppiness: 1.3
+      FFTHeightScale: 1
+      FFTSeed: 974
+      FFTUseGpuCompute: true
+      # JONSWAP (FFTSpectrumType 1; 0 = Phillips), long fetch for a mature,
+      # clean-peaked swell. Three-band cascade preset from issue #969
+      # (FFTCascades is discriminated: 1 or 3, nothing between).
+      FFTSpectrumType: 1
+      FFTJonswapGamma: 3.3
+      FFTJonswapFetch: 300000
+      FFTCascades: 3
+
+  # ── Seafloor ──────────────────────────────────────────────────────────────
+  # Visual depth reference (no collider): stops the open sea reading as an
+  # infinite void through the transparency. 2 m BELOW the island tile base
+  # (-24) — the radial falloff drives the tile border down to exactly its
+  # base, and a plane any higher slices the island's underwater flank into a
+  # flat lid (Drift's ordering note). Out-reaches the water tile 1.5x so a
+  # grazing look through the surface never finds the plane's edge.
+  - Entity: 974000003000005
+    TagComponent:
+      Tag: Seafloor
+    TransformComponent:
+      Translation: [0, -26, 0]
+      Rotation: [0, 0, 0]
+      Scale: [2400, 1, 2400]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.29, 0.24]
+      Metallic: 0
+      Roughness: 0.95
+
+  # ── Island - Sentinel ─────────────────────────────────────────────────────
+  # One ridged island dead ahead of the cameras (+Z), its west flank lit by
+  # the low sun. Shape is Drift's Ridgeback template: seed and tile size
+  # changed, everything the LayerRules bands were anchored on kept (base -24
+  # over HeightScale 110 -> waterline at 0.218 of the range; one shared
+  # 69 deg cliff line above the ~49 deg falloff-flank slope). Origin is a
+  # CORNER, not the centre: a 480 m tile centred on (40, ., 430).
+  #
+  # NOTE for the first render: the band edges (0.298 / 0.528) and the 69 deg
+  # threshold are Ridgeback's MEASURED values carried over; seed 974's own
+  # reachable height range and slope distribution should be re-measured from
+  # the GenerateHeightmap log line (height=[...]) and the bands nudged if
+  # the summit layer under-draws (terrain-tile-meets-ocean.md §8).
+  - Entity: 974000003000006
+    TagComponent:
+      Tag: Island - Sentinel
+    TransformComponent:
+      Translation: [-200, -24, 190]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    TerrainComponent:
+      HeightmapPath: ""
+      WorldSizeX: 480
+      WorldSizeZ: 480
+      HeightScale: 110
+      # No physics consumers in this scene — skip collision cooking at load.
+      CollisionEnabled: false
+      ProceduralEnabled: true
+      ProceduralSeed: 974
+      ProceduralResolution: 512
+      ProceduralOctaves: 6
+      ProceduralFrequency: 2.4
+      ProceduralLacunarity: 2
+      ProceduralPersistence: 0.46
+      ShapingRidgeBlend: 0.72
+      ShapingWarpStrength: 0.18
+      ShapingWarpFrequency: 2
+      ShapingTerraceSteps: 0
+      ShapingTerraceSharpness: 0.6
+      ShapingHeightExponent: 1.15
+      # THE shoreline: at strength 1 the radial mask drives every border
+      # texel to the base height 24 m under water, so the coastline is
+      # wherever the masked field crosses y = 0 — not the tile edge.
+      ShapingIslandFalloff: 1
+      ShapingIslandFalloffRadius: 0.3
+      AutoMaterial: true
+      SplatmapGenResolution: 512
+      # Ridgeback's bands: sand to 0.298, scrub to 0.528, heath above; bare
+      # rock only past the shared 69 deg cliff line. One theta for all four
+      # rules — three unrelated slope numbers leave gaps and shadows (§8).
+      LayerRules:
+        - LayerIndex: 0
+          MinHeight: 0
+          MaxHeight: 0.298
+          HeightBlend: 0.077
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 69
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 1
+          MinHeight: 0.298
+          MaxHeight: 0.528
+          HeightBlend: 0.077
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 69
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 2
+          MinHeight: 0
+          MaxHeight: 1
+          HeightBlend: 0
+          MinSlopeDeg: 69
+          MaxSlopeDeg: 90
+          SlopeBlend: 8
+          Strength: 1
+        - LayerIndex: 3
+          MinHeight: 0.528
+          MaxHeight: 1
+          HeightBlend: 0.077
+          MinSlopeDeg: 0
+          MaxSlopeDeg: 69
+          SlopeBlend: 8
+          Strength: 1
+      # GPU LOD quadtree on — the flag scenes forget (§7); an island that
+      # resolves as the camera closes is part of what this benchmark times.
+      TessellationEnabled: true
+      TargetTriangleSize: 10
+      MorphRegion: 0.3
+      StreamingEnabled: false
+      TileDirectory: ""
+      TileFilePattern: tile_%d_%d.raw
+      TileWorldSize: 256
+      TileResolution: 513
+      StreamingLoadRadius: 3
+      StreamingMaxTiles: 25
+      VoxelEnabled: false
+      VoxelSize: 1
+      SplatmapPath0: ""
+      SplatmapPath1: ""
+      # Palette separated by HUE (Drift #942 follow-up): warm haze + ACES
+      # compress lightness-only differences into one mass. Rock is the one
+      # textured layer (the in-repo pbr/wall set) — cliffs are where texture
+      # detail earns its cost; the rest are BaseColor like Drift's islands.
+      Layers:
+        - Name: Sand
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 22
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.8, 0.73, 0.55]
+          Roughness: 0.95
+          Metallic: 0
+        - Name: Grass
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 24
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.26, 0.42, 0.19]
+          Roughness: 0.92
+          Metallic: 0
+        - Name: Rock
+          AlbedoPath: assets/textures/pbr/wall/albedo.png
+          NormalPath: assets/textures/pbr/wall/normal.png
+          ARMPath: assets/textures/pbr/wall/occlusionRoughnessMetallic.png
+          TilingScale: 14
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.4, 0.4, 0.43]
+          Roughness: 0.85
+          Metallic: 0
+        - Name: Heath
+          AlbedoPath: ""
+          NormalPath: ""
+          ARMPath: ""
+          TilingScale: 18
+          HeightBlendSharpness: 4
+          TriplanarSharpness: 8
+          BaseColor: [0.5, 0.31, 0.24]
+          Roughness: 0.8
+          Metallic: 0
+    # Modest foliage: palms on the grass band (impostor cards past 30 m —
+    # from these camera distances most palms render through the octahedral
+    # atlas, which is representative benchmark load), dune grass billboards
+    # on the sand. Templates: Drift's Mesa "Palms" and Ridgeback "Dune
+    # grass" layers.
+    FoliageComponent:
+      Enabled: true
+      Layers:
+        - Name: Palms
+          MeshPath: SandboxProject/Assets/Models/Vegetation/palm.obj
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.014
+          SplatmapChannel: 1
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 30
+          MinScale: 0.9
+          MaxScale: 1.4
+          MinHeight: 7
+          MaxHeight: 13
+          RandomRotation: true
+          ViewDistance: 1100
+          FadeStartDistance: 950
+          WindStrength: 0.16
+          WindSpeed: 0.8
+          BaseColor: [0.28, 0.42, 0.22]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          UseImpostor: true
+          ImpostorStartDistance: 30
+          ImpostorTransitionBand: 18
+          ImpostorFramesPerAxis: 8
+          ImpostorAtlasResolution: 1024
+          ImpostorHemiOctahedral: true
+          Enabled: true
+        - Name: Dune grass
+          MeshPath: ""
+          AlbedoPath: assets/textures/grass.png
+          Density: 0.16
+          SplatmapChannel: 0
+          MinSlopeAngle: 0
+          MaxSlopeAngle: 20
+          MinScale: 0.7
+          MaxScale: 1.3
+          MinHeight: 1
+          MaxHeight: 2.2
+          RandomRotation: true
+          ViewDistance: 200
+          FadeStartDistance: 150
+          WindStrength: 0.5
+          WindSpeed: 1.3
+          BaseColor: [0.62, 0.6, 0.34]
+          Roughness: 0.8
+          AlphaCutoff: 0.5
+          Enabled: true
+
+  # ── Ship (static scale reference) ─────────────────────────────────────────
+  # Kenney ship-small, the hull/sail split Drift made (see
+  # KenneyVehicles/LICENSE.md). DELIBERATELY no Rigidbody / buoyancy / boat
+  # component: a floating body would integrate physics into the pose and no
+  # two captures would frame the same silhouette. Anchored ~50 m off the
+  # island's near shore, on the sun's specular track from the hero camera.
+  #
+  # Pose: world Y -0.5 is Drift's measured visual waterline for this mesh at
+  # scale 0.57 (higher drowns the deck, lower ghosts the hull through the
+  # refraction). Yaw -0.55 rad quarters the hull across the +Z view axis so
+  # no camera sees it axis-aligned; roll 0.09 rad (~5 deg) heels it to
+  # starboard; pitch 0.03 rad trims the bow down a touch. The static heel is
+  # what sells "at anchor in a light swell" without any simulation.
+  - Entity: 974000003000007
+    TagComponent:
+      Tag: Ship Hull
+    TransformComponent:
+      Translation: [14, -0.5, 178]
+      Rotation: [0.03, -0.55, 0.09]
+      Scale: [0.57, 0.57, 0.57]
+    ModelComponent:
+      FilePath: SandboxProject/Assets/Models/KenneyVehicles/ship-small-hull.glb
+      Visible: true
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 974000003000008
+
+  # Sail: child of the hull at the exact offset Drift measured when the sail
+  # was re-origined onto the mast (its local translation is in the ship
+  # model's own coordinates and inherits the hull's 0.57 scale and heel).
+  # Yard angle 0 = squared — reads as a run before the light breeze.
+  - Entity: 974000003000008
+    TagComponent:
+      Tag: Ship Sail
+    TransformComponent:
+      Translation: [0, 3.13852, -0.6333724]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ModelComponent:
+      FilePath: SandboxProject/Assets/Models/KenneyVehicles/ship-small-sail.glb
+      Visible: true
+    RelationshipComponent:
+      ParentHandle: 974000003000007
+      Children: []

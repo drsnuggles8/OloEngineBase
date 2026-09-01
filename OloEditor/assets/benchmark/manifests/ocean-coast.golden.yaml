@@ -1,0 +1,129 @@
+# =============================================================================
+# ocean-coast.golden — CI-stable regression capture of the OceanCoast
+# benchmark scene (issue #974). Modest resolution, Manual exposure, documented
+# repeat tolerance. See docs/guides/renderer-benchmarks.md for the schema.
+#
+# Rendering path: Forward, deliberately. Every existing water scene
+# (WaterTest, WaterShowcase, VehiclesTest, Drift) and both water evidence
+# tests exercise the FFT ocean + transparency + planar-reflection pipeline on
+# the forward path — Drift, the flagship water scene, runs Forward. Declaring
+# Deferred here would make the water hero benchmark the first-ever run of
+# that combination, which is a bring-up task, not a benchmark.
+#
+# TAA: NOT declarable yet — the scene serializer has no PostProcessSettings
+# TAA key and ManifestRendererSettings v1 has no TAA field. The scene ships
+# with FXAA on. When TAAEnabled becomes declarable, add it here plus a
+# "TAA: 8" Warmup.PerFeature entry, and re-measure Tolerance.RepeatRmse.
+# (Velocity is still exported: the forward pipeline gates motion vectors on
+# TAA/MotionBlur, so if the resource is absent at capture time this
+# attachment is expected to fail loudly — resolve it together with the TAA
+# gap rather than deleting the attachment.)
+# =============================================================================
+ManifestVersion: 1
+Id: ocean-coast-golden
+Product: golden
+Scene: Scenes/Benchmark/OceanCoast.olo
+Description: >
+  Establishing three-quarter view from 8 m up: FFT swell in the foreground,
+  the heeled ship mid-frame on the sun's specular track, the island's lit
+  west flank and layered terrain bands behind it, golden-hour sky above.
+  Water fills the lower two thirds so the frame regresses on water shading
+  first.
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+Camera:
+  Id: establishing
+  Position: [-30, 8, 120]
+  # EditorCamera convention: positive yaw swings the view toward +X,
+  # positive pitch tilts DOWN. This pose looks at the ship (14, 1, 178).
+  YawDegrees: 142.8
+  PitchDegrees: 5.5
+  FovDegrees: 60.0
+  Near: 0.1
+  Far: 2500.0
+
+Output:
+  Resolution: [1280, 720]
+  RenderScale: 1.0
+
+RendererSettings:
+  Path: Forward
+  # Forward gates motion vectors on TAA/MotionBlur (SceneRenderPass), so the
+  # Velocity attachment below needs TAA on — which also makes the declared
+  # TAA warm-up real rather than documentation.
+  TAAEnabled: true
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 974
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 128
+  PerFeature:
+    # FFT ocean cascades + water temporal state (spectrum upload, planar
+    # reflection, water SSR history) — the longest pole in this scene.
+    Ocean: 64
+    # Procedural-sky cubemap + IBL bake settles on the first frame (time of
+    # day is paused, so it never rebakes); listed to document that 1 frame
+    # is all it needs.
+    SkyBake: 1
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+    Normalize: none
+  - Name: SceneDepth
+    Source: SceneDepth
+    Format: png
+    Normalize: auto
+  - Name: Velocity
+    Source: Velocity
+    Format: png
+    Normalize: auto
+
+Tolerance:
+  # MEASURED 2026-09-01 (RTX 4090, Debug): two fresh runs produced
+  # byte-identical files for every attachment — FFT ocean, TAA, planar
+  # reflection, terrain and foliage included. 0.0 is a measurement here.
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: SandboxProject/Assets/Models/KenneyVehicles/ship-small-hull.glb
+    Origin: Kenney (kenney.nl), Pirate Kit — hull half of ship-small.glb, see KenneyVehicles/LICENSE.md
+    License: CC0-1.0
+  - Path: SandboxProject/Assets/Models/KenneyVehicles/ship-small-sail.glb
+    Origin: Kenney (kenney.nl), Pirate Kit — sail half of ship-small.glb, see KenneyVehicles/LICENSE.md
+    License: CC0-1.0
+  - Path: SandboxProject/Assets/Models/Vegetation/palm.obj
+    Origin: Generated in-repo by Vegetation/generate_vegetation.py (issue #880)
+    License: BSD-4-Clause (repository license)
+  - Path: OloEditor/assets/textures/grass.png
+    Origin: In-repo editor asset; provenance not recorded
+    License: unverified (no license file in-repo)
+  - Path: OloEditor/assets/textures/pbr/wall/albedo.png
+    Origin: In-repo editor PBR set; provenance not recorded
+    License: unverified (no license file in-repo)
+  - Path: OloEditor/assets/textures/pbr/wall/normal.png
+    Origin: In-repo editor PBR set; provenance not recorded
+    License: unverified (no license file in-repo)
+  - Path: OloEditor/assets/textures/pbr/wall/occlusionRoughnessMetallic.png
+    Origin: In-repo editor PBR set; provenance not recorded
+    License: unverified (no license file in-repo)
+  # NOT listed: OloEditor/SandboxProject/Assets/Textures/Water/*.png — the
+  # WaterComponent references textures by AssetHandle only and this scene
+  # pins all four handles to 0 (renderer built-in fallbacks), so those files
+  # are not referenced by this capture.

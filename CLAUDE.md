@@ -323,6 +323,8 @@ The decision tree, per-layer reference, and anti-patterns all live in [docs/agen
 
 Special rebase modes: `--olo-golden-rebase` for goldens, `--olo-perf-rebase` for perf baselines — only after a deliberate visual change or a hardware/optimisation move.
 
+Benchmark captures (issue #974): `OloEngine-Tests.exe --olo-capture-manifest=<manifest>` runs a deterministic scene/AOV capture from a manifest under `OloEditor/assets/benchmark/manifests/` (the editor MCP twin is `olo_benchmark_capture`, mainly for `--rhi=vulkan`) — schema, determinism model and the golden-vs-hero split live in [docs/guides/renderer-benchmarks.md](docs/guides/renderer-benchmarks.md).
+
 ### Rendering changes MUST be visually verified — unit tests are not enough
 
 A renderer change can pass every CPU/contract test and still look completely broken on screen (transparent water, foam wash, fog flooding the frame, z-fighting, a hard seam at the waterline). **Math/contract tests prove the formula; they do not prove the frame looks right.** So for any change that affects what the screen shows — shaders, render passes, materials, post-processing, culling, blending, a new visual component — do **all** of:
