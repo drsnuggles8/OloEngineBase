@@ -375,8 +375,20 @@ runs:
           echo "VCPKG_BINARY_SOURCES=clear;files,$dir,readwrite" >> "$GITHUB_ENV"
         fi
         # Ports build with their own internal parallelism; leave headroom for the
-        # runner (2 cores on GitHub-hosted, more on self-hosted).
-        echo "VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY:-2}" >> "$GITHUB_ENV"
+        # runner. The comment here used to say "2 on GitHub-hosted, more on
+        # self-hosted" while hard-coding 2 for both -- so the 8C/16T box built its
+        # 116 ports two at a time, exactly as slowly as a 2-core hosted VM.
+        #
+        # 4 on self-hosted, not 8: two runner instances share this machine, so 4
+        # each is its 8 physical cores fully committed and no more. Port builds are
+        # not sanitizer-instrumented, so this is CPU-bound rather than the
+        # memory-bound case the sanitizer build widths are chosen against.
+        if [ "$OLO_RUNNER_ENVIRONMENT" = "github-hosted" ]; then
+          default_concurrency=2
+        else
+          default_concurrency=4
+        fi
+        echo "VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY:-$default_concurrency}" >> "$GITHUB_ENV"
 
         echo "dir=$dir" >> "$GITHUB_OUTPUT"
         echo "persistent=$persistent" >> "$GITHUB_OUTPUT"
