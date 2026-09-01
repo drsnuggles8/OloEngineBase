@@ -500,6 +500,8 @@ option(BUILD_TESTS "Build tests" ON)
 
 # Tools
 add_subdirectory(tools/OloHeaderTool)
+# The GGX energy-table baker (issue #998) — run by hand; its outputs are committed source.
+add_subdirectory(tools/OloGgxEnergyTableGen)
 
 # Main targets built by this project
 add_subdirectory(OloEngine)
