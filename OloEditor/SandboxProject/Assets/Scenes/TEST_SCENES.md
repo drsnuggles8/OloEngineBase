@@ -57,6 +57,17 @@ by the Newport Loft HDR environment + a soft fill directional. Camera at
 - 4 named ref spheres look believably like their material.
 **Fail**: spheres all uniform color (PBR shader broken); banding between adjacent metallic/roughness levels; reference spheres look wrong (e.g. "Gold" not gold).
 
+### [PBRClosureV2Test.olo](PBRClosureV2Test.olo)
+
+**Purpose**: A/B the versioned PBR closure (issue #975) — Legacy vs ClosureV2 on identical materials.
+**Contents**: Two rows of five spheres over one strong sun, no IBL. Front row shades Legacy (default), back row opts into ClosureV2 (`PBRModel: 1`). Left→right: near-mirror metal (r 0.02), rough metal (r 0.9), mid metal (r 0.4), near-mirror dielectric, rough dielectric.
+**Pass**:
+- Front-left near-mirror metal is DARK with no highlight (the Legacy collapse — expected, frozen behaviour); back-left shows a small bright sun highlight (the v2 near-mirror fix).
+- Back rough metal reads visibly brighter than its front twin (Kulla-Conty energy compensation).
+- The rough-dielectric pair (right) looks near-identical front vs back.
+- Works on both Forward and Deferred paths (the model travels the G-Buffer flags lane on Deferred).
+**Fail**: both rows identical everywhere (the model selector is dead); the back row goes black/NaN; the pairs differ on the rough dielectric (compensation leaking where F0 should suppress it).
+
 ### [SponzaDeferred.olo](SponzaDeferred.olo)
 
 **Purpose**: Validate the deferred G-Buffer pipeline on the same Sponza geometry. Pair with SponzaCSM.olo, but expect intentional lighting differences (see below) — this is *not* a pixel-for-pixel A/B.

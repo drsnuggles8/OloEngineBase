@@ -2398,6 +2398,13 @@ namespace OloEngine
                     {
                         mat.SetRoughnessFactor(matNode["Roughness"].as<f32>());
                     }
+                    // Versioned PBR closure (issue #975): a discriminated
+                    // value — out-of-range REJECTS to Legacy, same idiom as
+                    // the MaterialComponent block.
+                    if (const int model = matNode["PBRModel"].as<int>(0); model >= 0 && model < kPBRModelCount)
+                    {
+                        mat.SetPBRModel(static_cast<PBRModel>(model));
+                    }
                     tileComp.Materials.push_back(std::move(mat));
                 }
             }
@@ -2434,6 +2441,13 @@ namespace OloEngine
             if (materialComponent["Roughness"])
             {
                 matc.m_Material.SetRoughnessFactor(materialComponent["Roughness"].as<f32>());
+            }
+            // Versioned PBR closure (issue #975): a discriminated value, so an
+            // out-of-range index REJECTS to the constructor default (Legacy)
+            // rather than saturating to a different valid model.
+            if (const int model = materialComponent["PBRModel"].as<int>(0); model >= 0 && model < kPBRModelCount)
+            {
+                matc.m_Material.SetPBRModel(static_cast<PBRModel>(model));
             }
             if (materialComponent["ShaderGraphHandle"])
             {
@@ -4454,6 +4468,11 @@ namespace OloEngine
                 out << YAML::Key << "AlbedoColor" << YAML::Value << glm::vec3(baseColor.r, baseColor.g, baseColor.b);
                 out << YAML::Key << "Metallic" << YAML::Value << mat.GetMetallicFactor();
                 out << YAML::Key << "Roughness" << YAML::Value << mat.GetRoughnessFactor();
+                // Versioned PBR closure (issue #975) — same omit-Legacy /
+                // reject-on-read idiom as the MaterialComponent block, so
+                // existing scenes stay byte-identical.
+                if (mat.GetPBRModel() != PBRModel::Legacy)
+                    out << YAML::Key << "PBRModel" << YAML::Value << static_cast<int>(mat.GetPBRModel());
                 out << YAML::EndMap;
             }
             out << YAML::EndSeq;
@@ -4478,6 +4497,11 @@ namespace OloEngine
             out << YAML::Key << "AlbedoColor" << YAML::Value << glm::vec3(baseColor.r, baseColor.g, baseColor.b);
             out << YAML::Key << "Metallic" << YAML::Value << matComponent.m_Material.GetMetallicFactor();
             out << YAML::Key << "Roughness" << YAML::Value << matComponent.m_Material.GetRoughnessFactor();
+            // Versioned PBR closure (issue #975). Legacy (0) is omitted so
+            // existing scenes stay byte-identical; the numbering is on disk —
+            // append, never renumber (see PBRModel.h).
+            if (matComponent.m_Material.GetPBRModel() != PBRModel::Legacy)
+                out << YAML::Key << "PBRModel" << YAML::Value << static_cast<int>(matComponent.m_Material.GetPBRModel());
 
             if (matComponent.m_ShaderGraphHandle != 0)
                 out << YAML::Key << "ShaderGraphHandle" << YAML::Value << static_cast<u64>(matComponent.m_ShaderGraphHandle);

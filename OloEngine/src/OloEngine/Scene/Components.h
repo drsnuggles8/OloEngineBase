@@ -2665,6 +2665,12 @@ namespace OloEngine
         OLO_PROPERTY(Name = "Metallic", Type = "float", Get = "comp.m_Material.GetMetallicFactor()", Set = "comp.m_Material.SetMetallicFactor({v})")
         OLO_PROPERTY(Name = "Roughness", Type = "float", Get = "comp.m_Material.GetRoughnessFactor()", Set = "comp.m_Material.SetRoughnessFactor({v})")
         OLO_PROPERTY(Name = "Emissive", Type = "vec4", Get = "comp.m_Material.GetEmissiveFactor()", Set = "comp.m_Material.SetEmissiveFactor({v})")
+        // DELIBERATE C# EXEMPTION: the material's enum-shaped fields —
+        // AlphaMode and the #975 PBRModel closure selector — are not
+        // OLO_PROPERTY-annotated, matching each other. Lua exposes pbrModel
+        // (with range rejection) because Lua is the runtime-tuning surface;
+        // extend the C# surface for both enums together when a C# materials
+        // API grows past the four factors above.
         Material m_Material;
         AssetHandle m_ShaderGraphHandle = 0;
 
@@ -2675,7 +2681,10 @@ namespace OloEngine
         // Manual operator== — Material lacks defaulted ==, AssetHandle/UUID
         // triggers C2666. Compare the PBR factors bit-exactly via Math::BitwiseEqual
         // and the asset handle via u64. Texture references are not compared (they
-        // are loaded from disk and equal if the factors round-trip).
+        // are loaded from disk and equal if the factors round-trip). This is a
+        // hand-maintained PER-FIELD list: a serialized Material field missing
+        // here makes its inspector edits invisible to undo (CLAUDE.md's
+        // copy/equality trap) — PBRModel is in for exactly that reason.
         auto operator==(const MaterialComponent& other) const -> bool
         {
             if (!Math::BitwiseEqual(m_Material.GetBaseColorFactor(), other.m_Material.GetBaseColorFactor()))
@@ -2685,6 +2694,8 @@ namespace OloEngine
             if (!Math::BitwiseEqual(m_Material.GetRoughnessFactor(), other.m_Material.GetRoughnessFactor()))
                 return false;
             if (!Math::BitwiseEqual(m_Material.GetEmissiveFactor(), other.m_Material.GetEmissiveFactor()))
+                return false;
+            if (m_Material.GetPBRModel() != other.m_Material.GetPBRModel())
                 return false;
             return static_cast<u64>(m_ShaderGraphHandle) == static_cast<u64>(other.m_ShaderGraphHandle);
         }

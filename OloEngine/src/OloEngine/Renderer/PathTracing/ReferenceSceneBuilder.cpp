@@ -154,6 +154,9 @@ namespace OloEngine::PathTracing
         // A two-sided raster material shades both faces; mirror that for the
         // emitter side of the reference.
         pending.TwoSidedEmission = material.GetFlag(MaterialFlag::TwoSided);
+        // Carry the versioned closure across (issue #975) — a v2 material must
+        // trace as v2 or the reference silently measures the wrong closure.
+        pending.Model = material.GetPBRModel();
 
         const u32 index = static_cast<u32>(m_Materials.size());
         m_Materials.push_back(pending);

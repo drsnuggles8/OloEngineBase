@@ -42,7 +42,8 @@ namespace OloEngine
           // This is why a hand-written copy constructor is a liability: the class gained two
           // fields and the copy silently kept compiling. Adding a member here means adding it to
           // operator= below as well.
-          m_AlphaMode(other.m_AlphaMode), m_AlphaCutoff(other.m_AlphaCutoff)
+          m_AlphaMode(other.m_AlphaMode), m_AlphaCutoff(other.m_AlphaCutoff),
+          m_PBRModel(other.m_PBRModel)
     {
     }
 
@@ -96,6 +97,7 @@ namespace OloEngine
             // Missing here too — see the copy constructor above (issue #629).
             m_AlphaMode = other.m_AlphaMode;
             m_AlphaCutoff = other.m_AlphaCutoff;
+            m_PBRModel = other.m_PBRModel;
         }
         return *this;
     }

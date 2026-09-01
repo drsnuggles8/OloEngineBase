@@ -81,13 +81,20 @@ vec3 ApplyCascadeDebug(vec3 color, vec3 worldPos)
 // linear HDR color (caller writes it to the output attachment).
 //
 // The `emissiveFlags` parameter carries the emissive colour in .rgb and a
-// material-flags packed float in .a. Currently a single bit is consumed:
-// `emissiveFlags.a > 0.5` marks the fragment as **unlit**, causing this
-// routine to skip all direct + ambient + probe + IBL work and return the
-// raw emissive colour directly. This is the mechanism G-Buffer overlay
-// variants (Skybox_GBuffer, InfiniteGrid_GBuffer, LightCube_GBuffer) use
-// to opt out of PBR shading while still participating in motion-vector
-// + depth writes alongside the rest of the G-Buffer pipeline.
+// material-flags packed float in .a — a small integer, exact in RGBA16F:
+//
+//   bit 0 — **unlit**: skip all direct + ambient + probe + IBL work and
+//           return the raw emissive colour. This is the mechanism G-Buffer
+//           overlay variants (Skybox_GBuffer, InfiniteGrid_GBuffer,
+//           LightCube_GBuffer) use to opt out of PBR shading while still
+//           participating in motion-vector + depth writes. They write a=1.0.
+//   bit 1 — **PBR closure model** (issue #975): 0=Legacy, 1=ClosureV2,
+//           written by every PBR G-Buffer shader through
+//           oloEncodeGBufferPbrFlags (PBRCommon.glsl) — the ONE executable
+//           home for this layout, incl. its single-bit ceiling and its
+//           documented not-average-safe limitation in the resolved-MSAA
+//           deferred mode. Legacy materials still write a=0.0, byte-identical
+//           to before.
 //
 // `bakedGI` is G-Buffer RT5 (issue #865): baked lightmap irradiance E in .rgb
 // and COVERAGE in .a, already un-premultiplied and intensity-scaled by
@@ -102,12 +109,15 @@ vec3 ComputeDeferredLit(
     vec4 emissiveFlags, vec3 worldPos, vec4 bakedGI)
 {
     vec3 emissive = emissiveFlags.rgb;
-    if (emissiveFlags.a > 0.5)
+    int gbFlags = int(round(emissiveFlags.a));
+    if ((gbFlags & 1) != 0)
     {
         // Unlit pass-through — skybox, editor grid, light-cube billboards
         // etc. sit inside the G-Buffer but do not want PBR shading applied.
         return emissive;
     }
+    // PBR closure model selector (issue #975) — see the flag layout above.
+    int pbrModel = (gbFlags >> 1) & 1;
 
     vec3 V = normalize(u_CameraPosition - worldPos);
 
@@ -129,7 +139,7 @@ vec3 ComputeDeferredLit(
     if (fplusActive)
     {
         float fplusViewDepth = -(u_View * vec4(worldPos, 1.0)).z;
-        Lo += fplusEvaluateTileLights(N, V, worldPos, albedo, metallic, roughness, fplusViewDepth);
+        Lo += fplusEvaluateTileLights(N, V, worldPos, albedo, metallic, roughness, fplusViewDepth, pbrModel);
     }
 
     int loopCount = fplusActive ? min(u_DirectionalLightCount, MAX_LIGHTS)
@@ -137,7 +147,7 @@ vec3 ComputeDeferredLit(
     for (int i = 0; i < loopCount; ++i)
     {
         int lightType = int(u_Lights[i].position.w);
-        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, worldPos);
+        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, worldPos, pbrModel);
 
         if (lightType == DIRECTIONAL_LIGHT)
         {

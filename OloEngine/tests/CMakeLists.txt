@@ -138,6 +138,8 @@ add_executable(OloEngine-Tests
 		Rendering/MeshSourceBoundsTest.cpp
 		Rendering/MeshBVHRaycastTest.cpp
 		Rendering/PathTracing/ReferenceBRDFTest.cpp
+		Rendering/PathTracing/ClosureV2Test.cpp
+		Rendering/PathTracing/ClosureV2ConsistencyTest.cpp
 		Rendering/PathTracing/PathTracerFurnaceTest.cpp
 		Rendering/PathTracing/PathTracerCornellBoxTest.cpp
 		Rendering/PathTracing/ReferenceSceneBuilderTest.cpp
@@ -325,6 +327,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/PostProcessPropertyTests.cpp
 		Rendering/PropertyTests/PbrPropertyTests.cpp
 		Rendering/PathTracing/ReferenceBRDFGpuParityTest.cpp
+		Rendering/PathTracing/ClosureV2GpuParityTest.cpp
 		Rendering/PropertyTests/ShaderMathIdentityTests.cpp
 		Rendering/PropertyTests/GLStateGuardTest.cpp
 		Rendering/PropertyTests/RendererValidateTest.cpp
@@ -334,6 +337,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GoldenImageTests.cpp
 		Rendering/PropertyTests/GoldenBaselineAuditTest.cpp
 		Rendering/PropertyTests/SphereAreaLightVisualTest.cpp
+		Rendering/PropertyTests/MaterialLabVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ClosureV2DeferredParityEvidenceTest.cpp
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestSkyBakeTest.cpp

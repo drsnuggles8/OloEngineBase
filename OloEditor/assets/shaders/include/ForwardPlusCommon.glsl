@@ -137,7 +137,7 @@ uvec2 fplusGetTileData(float viewDepth)
 
 vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
                               vec3 albedo, float metallic, float roughness,
-                              float viewDepth)
+                              float viewDepth, int pbrModel)
 {
     uvec2 tileData = fplusGetTileData(viewDepth);
     uint offset = tileData.x;
@@ -201,7 +201,7 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
             }
 #endif
 
-            Lo += cookTorranceBRDF(N, V, L, albedo, metallic, roughness) * radiance;
+            Lo += evaluatePBRClosure(pbrModel, N, V, L, albedo, metallic, roughness) * radiance;
         }
         else if (typeTag == FPLUS_TYPE_TAG_SPHERE_AREA)
         {
@@ -283,11 +283,23 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
             }
 #endif
 
-            Lo += cookTorranceBRDF(N, V, L, albedo, metallic, roughness) * radiance;
+            Lo += evaluatePBRClosure(pbrModel, N, V, L, albedo, metallic, roughness) * radiance;
         }
     }
 
     return Lo;
+}
+
+// Legacy-model convenience overload: call sites with no material model (the
+// terrain shader) keep their existing signature and closure. The sphere-area
+// branch above deliberately stays on the Legacy representative-point
+// evaluator for every model — see PBR CLOSURE V2 in PBRCommon.glsl.
+vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
+                              vec3 albedo, float metallic, float roughness,
+                              float viewDepth)
+{
+    return fplusEvaluateTileLights(N, V, worldPos, albedo, metallic, roughness,
+                                   viewDepth, OLO_PBR_MODEL_LEGACY);
 }
 
 #endif // FORWARD_PLUS_COMMON_GLSL

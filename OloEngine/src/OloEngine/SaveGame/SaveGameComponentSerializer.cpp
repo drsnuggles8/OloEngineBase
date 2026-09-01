@@ -1442,6 +1442,19 @@ namespace OloEngine
             mat.SetOcclusionStrength(occStrength);
             mat.SetEnableIBL(enableIBL);
         }
+
+        // Appended at the end when kSaveGameFormatVersion was bumped 24->25
+        // (issue #975's versioned PBR closure). A save written before v25 stops
+        // here and the model keeps its constructor default (Legacy). On load a
+        // corrupt/out-of-range index REJECTS to Legacy — a discriminated value
+        // must never saturate to a different valid model.
+        if (HasFieldsSince(ar, 25))
+        {
+            auto model = mat.GetPBRModel();
+            ar << model;
+            if (ar.IsLoading())
+                mat.SetPBRModel(std::to_underlying(model) < kPBRModelCount ? model : PBRModel::Legacy);
+        }
         // Texture maps (Ref<>) are runtime-only asset references — not serialized in save game
     }
 
@@ -2989,6 +3002,20 @@ namespace OloEngine
                 c.Materials[i].SetMetallicFactor(metallic);
                 c.Materials[i].SetRoughnessFactor(roughness);
                 c.Materials[i].SetEmissiveFactor(emissive);
+            }
+
+            // Appended when kSaveGameFormatVersion was bumped 24->25 (issue
+            // #975) — the SECOND full-Material save site; missing it here made
+            // a ClosureV2 tile material silently revert to Legacy through
+            // save/load while MaterialComponent round-tripped fine. Same
+            // reject-to-Legacy rule as the MaterialComponent block.
+            if (HasFieldsSince(ar, 25))
+            {
+                auto model = c.Materials[i].GetPBRModel();
+                ar << model;
+                if (ar.IsLoading())
+                    c.Materials[i].SetPBRModel(std::to_underlying(model) < kPBRModelCount ? model
+                                                                                          : PBRModel::Legacy);
             }
         }
     }

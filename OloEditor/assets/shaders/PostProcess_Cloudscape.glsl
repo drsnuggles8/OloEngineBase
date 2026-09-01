@@ -70,6 +70,10 @@ layout(location = 0) out vec4 o_Cloud;
 layout(binding = 19) uniform sampler2D u_DepthTexture;
 #endif
 
+#define OLO_CLOUDSCAPE_DEPTH_TEXTURE u_DepthTexture
+#include "include/CloudscapeDepth.glsl"
+#undef OLO_CLOUDSCAPE_DEPTH_TEXTURE
+
 // Shared 288-byte camera UBO (binding 0) — includes the render origin for
 // camera-relative rendering (#429): cloud math runs in ABSOLUTE world space.
 layout(std140, binding = 0) uniform CameraMatrices {
@@ -135,7 +139,7 @@ void main()
 
 
     // Reconstruct the view ray in absolute world space.
-    float depth = texture(u_DepthTexture, v_TexCoord).r;
+    float depth = cloudConservativeDepth(ivec2(gl_FragCoord.xy));
     vec4 ndc = vec4(v_TexCoord * 2.0 - 1.0, 1.0, 1.0); // far plane for direction
     vec4 worldFar = u_InverseViewProjection * ndc;
     worldFar.xyz /= worldFar.w;
@@ -144,7 +148,7 @@ void main()
 
     // Geometry distance (absolute world) — clouds render behind geometry.
     float geomT = 1.0e12;
-    if (depth < 0.9999)
+    if (cloudDepthContainsGeometry(depth))
     {
         vec4 geomNdc = vec4(v_TexCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
         vec4 geomWorld = u_InverseViewProjection * geomNdc;

@@ -1,0 +1,197 @@
+# PBR closure v2 comparison scene (issue #975).
+# Two rows of spheres over identical materials: the FRONT row (z = 0) shades
+# with the Legacy closure (PBRModel omitted = default), the BACK row (z = -3)
+# opts into ClosureV2 (PBRModel: 1). Left to right:
+#   near-mirror metal (r 0.02, m 1)  — Legacy collapses dark, v2 keeps a mirror lobe
+#   rough metal       (r 0.9,  m 1)  — v2 brighter via Kulla-Conty compensation
+#   mid metal         (r 0.4,  m 1)
+#   near-mirror dielectric (r 0.02, m 0)
+#   rough dielectric  (r 0.9,  m 0)  — the pair that should look near-identical
+# Single strong directional light, no IBL, so the difference on screen is the
+# closure and nothing else.
+Scene: PBRClosureV2Test.olo
+Entities:
+  - Entity: 975000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 3, 9]
+      Rotation: [-0.25, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 975000000000002
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.35, -0.8, -0.45]
+      Color: [1, 0.98, 0.95]
+      Intensity: 3
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+  - Entity: 975000000000003
+    TagComponent:
+      Tag: Ground Plane
+    TransformComponent:
+      Translation: [0, -0.6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [30, 0.1, 30]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.3, 0.3, 0.32]
+      Metallic: 0
+      Roughness: 0.9
+  # ── FRONT row: Legacy (default model) ──
+  - Entity: 975000000000010
+    TagComponent:
+      Tag: Legacy MirrorMetal
+    TransformComponent:
+      Translation: [-6, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.93, 0.9]
+      Metallic: 1
+      Roughness: 0.02
+  - Entity: 975000000000011
+    TagComponent:
+      Tag: Legacy RoughMetal
+    TransformComponent:
+      Translation: [-3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.75, 0.4]
+      Metallic: 1
+      Roughness: 0.9
+  - Entity: 975000000000012
+    TagComponent:
+      Tag: Legacy MidMetal
+    TransformComponent:
+      Translation: [0, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.6, 0.3]
+      Metallic: 1
+      Roughness: 0.4
+  - Entity: 975000000000013
+    TagComponent:
+      Tag: Legacy MirrorDielectric
+    TransformComponent:
+      Translation: [3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.2, 0.5, 0.8]
+      Metallic: 0
+      Roughness: 0.02
+  - Entity: 975000000000014
+    TagComponent:
+      Tag: Legacy RoughDielectric
+    TransformComponent:
+      Translation: [6, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.3, 0.25]
+      Metallic: 0
+      Roughness: 0.9
+  # ── BACK row: ClosureV2 (PBRModel: 1) ──
+  - Entity: 975000000000020
+    TagComponent:
+      Tag: V2 MirrorMetal
+    TransformComponent:
+      Translation: [-6, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.93, 0.9]
+      Metallic: 1
+      Roughness: 0.02
+      PBRModel: 1
+  - Entity: 975000000000021
+    TagComponent:
+      Tag: V2 RoughMetal
+    TransformComponent:
+      Translation: [-3, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.95, 0.75, 0.4]
+      Metallic: 1
+      Roughness: 0.9
+      PBRModel: 1
+  - Entity: 975000000000022
+    TagComponent:
+      Tag: V2 MidMetal
+    TransformComponent:
+      Translation: [0, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.6, 0.3]
+      Metallic: 1
+      Roughness: 0.4
+      PBRModel: 1
+  - Entity: 975000000000023
+    TagComponent:
+      Tag: V2 MirrorDielectric
+    TransformComponent:
+      Translation: [3, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.2, 0.5, 0.8]
+      Metallic: 0
+      Roughness: 0.02
+      PBRModel: 1
+  - Entity: 975000000000024
+    TagComponent:
+      Tag: V2 RoughDielectric
+    TransformComponent:
+      Translation: [6, 0.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.3, 0.25]
+      Metallic: 0
+      Roughness: 0.9
+      PBRModel: 1

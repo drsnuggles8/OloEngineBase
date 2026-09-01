@@ -158,7 +158,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableLightProbes;
     float u_IBLIntensity;
     int u_AlphaMode;        // 0=Opaque, 1=Mask, 2=Blend
-    int _pbrPad2;
+    int u_PBRModel;             // PBRModel selector: 0=Legacy, 1=ClosureV2 (issue #975)
     // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing
@@ -265,7 +265,10 @@ void main()
 
     o_GBufferAlbedo   = vec4(albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
-    o_GBufferEmissive = vec4(emissive, 0.0); // flags reserved
+    // Alpha carries the PBR closure model selector (issue #975): 0=Legacy,
+    // 1=ClosureV2. RGBA16F represents small integers exactly, and the
+    // deferred lighting pass reads it back with a round().
+    o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlags(u_PBRModel)); // flag-lane layout: see oloEncodeGBufferPbrFlags (#975)
     o_GBufferVelocity = velocity;
     o_GBufferEntityID = u_EntityID;
     // vec4(0) whenever the scene kill switch is off, this draw has no atlas

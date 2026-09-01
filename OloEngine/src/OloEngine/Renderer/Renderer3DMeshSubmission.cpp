@@ -207,6 +207,7 @@ namespace OloEngine
         data.enableIBL = material.IsIBLEnabled();
         data.alphaMode = std::to_underlying(material.GetAlphaMode());
         data.alphaCutoff = material.GetAlphaCutoff();
+        data.pbrModel = std::to_underlying(material.GetPBRModel());
 
         // PBR texture renderer IDs.
         data.albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRHIHandle() : RHI::NullResource;

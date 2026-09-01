@@ -3619,6 +3619,22 @@ namespace OloEngine
                                                     if (!IsFiniteVec4(color))
                                                         return;
                                                     mc.m_Material.SetBaseColorFactor(color);
+                                                }),
+                                            // Versioned PBR closure (issue #975): 0=Legacy, 1=ClosureV2.
+                                            // A discriminated value: out-of-range writes are rejected,
+                                            // never saturated to a different valid model.
+                                            "pbrModel",
+                                            sol::property(
+                                                [](const MaterialComponent& mc) -> int
+                                                { return static_cast<int>(mc.m_Material.GetPBRModel()); },
+                                                [](MaterialComponent& mc, int model)
+                                                {
+                                                    if (model < 0 || model >= kPBRModelCount)
+                                                    {
+                                                        OLO_CORE_WARN("[Lua] MaterialComponent.pbrModel rejects {} (valid: 0=Legacy, 1=ClosureV2)", model);
+                                                        return;
+                                                    }
+                                                    mc.m_Material.SetPBRModel(static_cast<PBRModel>(model));
                                                 }));
 
         // --- DirectionalLightComponent ---

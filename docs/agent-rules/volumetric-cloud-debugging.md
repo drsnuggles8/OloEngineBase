@@ -259,3 +259,25 @@ the code found nothing (all four bugs were individually plausible-looking).
 - The editor's viewport camera FOV is 30° — half the usual game FOV. Cloud
   scales tuned "to look right" through it will read twice as large in a
   60° runtime camera.
+
+## A different signature: cloud puffs in front of terrain
+
+Origin: issue #987. PR #986 fixed the original temporal-history ghost: its
+reported view measured zero affected texels in `CloudsRaw` and six added by
+`CloudsResolved`. The residual edge-width puffs left at the silhouette looked
+similar, but a new live probe found them in `CloudsRaw` itself. Two
+depth-classification errors combined there:
+
+1. One cloud invocation represents a 2x2 footprint in the full-resolution
+   scene depth. A filtered or centre sample can select sky even when another
+   pixel in that footprint contains terrain. For conventional depth, fetch
+   all four texels and use their minimum as the conservative occluder; clamp
+   the coordinates so odd-sized viewports duplicate the final row or column.
+2. Sky is the exact clear sentinel `1.0`, not “anything above `0.9999`”. With
+   Drift's 1000 m far plane, valid ridge depth reached about `0.999904`, so a
+   broad epsilon classified the terrain itself as sky.
+
+The decisive probe was a same-view `CloudsRaw` capture plus four exact
+`SceneDepth` texels under one affected half-resolution pixel. Pin both cases
+in an `R32F` shader-unit contract: RGBA8 cannot represent the far-depth values
+that distinguish valid geometry from the clear sentinel.
