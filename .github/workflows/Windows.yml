@@ -398,11 +398,17 @@ jobs:
     - name: Assert the CTest scope selects a real suite
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       shell: bash
+      env:
+        # Through the environment, not spliced into the script body: a `${{ }}`
+        # interpolated into shell source is the githubactions:S7637 shape, and this
+        # one is a ~2.5 KB regex built at runtime.
+        OLO_CTEST_EXCLUDE: ${{ steps.ctestscope.outputs.regex }}
+        OLO_CTEST_SCOPE: ${{ steps.ctestscope.outputs.scope }}
       run: |
         set -euo pipefail
-        total=$(ctest -N -C '${{env.BUILD_TYPE}}' --exclude-regex '${{ steps.ctestscope.outputs.regex }}' \
+        total=$(ctest -N -C "${BUILD_TYPE}" --exclude-regex "$OLO_CTEST_EXCLUDE" \
                 | sed -nE 's/^Total Tests: ([0-9]+)$/\1/p' | tail -1)
-        echo "scope: ${{ steps.ctestscope.outputs.scope }} -> ${total:-0} tests"
+        echo "scope: ${OLO_CTEST_SCOPE} -> ${total:-0} tests"
         if [ -z "${total:-}" ] || [ "$total" -lt 3000 ]; then
           echo "::error::CTest scope selected ${total:-0} tests; expected at least 3000."
           exit 1
@@ -484,7 +490,12 @@ jobs:
       # `flaky-repro-281.yml` hunt ran the test under the 2-core squeeze for the
       # full step on the hosted runner with zero failures. If a physics test ever
       # flakes here again, reinstate `--repeat until-pass:3` AND reopen #281.
-      run: ctest --parallel 4 --output-on-failure --timeout 120 -C ${{env.BUILD_TYPE}} --exclude-regex '${{ steps.ctestscope.outputs.regex }}'
+      env:
+        # Through the environment rather than spliced into the command line -- see
+        # the scope-assertion step above.
+        OLO_CTEST_EXCLUDE: ${{ steps.ctestscope.outputs.regex }}
+      shell: bash
+      run: ctest --parallel 4 --output-on-failure --timeout 120 -C "${BUILD_TYPE}" --exclude-regex "$OLO_CTEST_EXCLUDE"
 
     - name: Upload test results
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
