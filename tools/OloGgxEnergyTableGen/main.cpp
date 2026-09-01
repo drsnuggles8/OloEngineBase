@@ -50,10 +50,28 @@
 //                        [--check] [--stdout]
 //
 // Defaults reproduce the committed tables: --grid 16 --samples 4096
-// --avg-points 64 --avg-samples 2048. Widening the grid is therefore a flag,
-// not an edit. `--check` recomputes and diffs against the files on disk
-// without writing (exit 1 on any difference), which is what a CI guard would
-// call.
+// --avg-points 64 --avg-samples 2048. Raising the sample counts is a flag
+// rather than an edit; changing --grid additionally needs ClosureV2Test's
+// twin-drift pin updated, since it hardcodes the table size, the packed-array
+// lengths and the word counts.
+//
+// WHAT `--check` IS, AND IS NOT
+// -----------------------------
+// It recomputes and diffs against the files on disk without writing, exiting 1
+// on any difference. That is a BYTE-REPRODUCTION check — "are the committed
+// files exactly what THIS build emits?" — and NOT a correctness check. The bake
+// is floating-point, so a different compiler, optimisation level or libm can
+// legitimately move a low bit and fail it; issue #998 hit exactly that, with an
+// f64 estimator and an f32 one disagreeing on 6 of 128 words. So `--check` is a
+// meaningful gate only for the toolchain that baked the tables, and wiring it
+// into CI across heterogeneous runners would produce a flaky red.
+//
+// The toolchain-independent correctness gate already exists and belongs in the
+// test suite, not here: ClosureV2.EnergyTablesMatchTheirOwnEstimator recomputes
+// entries against the engine's own sampler at 2e-3, and
+// ClosureV2.EnergyTablesGlslTwinCarriesTheSameNumbers pins the two files to each
+// other exactly. Adding a tolerance mode here would duplicate the first and
+// blunt this tool's one job.
 // =============================================================================
 
 #include "OloEngine/Renderer/PathTracing/PathSampler.h"
@@ -263,7 +281,7 @@ namespace
     [[nodiscard]] std::string ReproCommand(const Options& o)
     {
         std::ostringstream out;
-        out << "OloGgxEnergyTableGen --grid " << o.Grid << " --samples " << o.Samples << " --avg-points "
+        out << "OloGgxEnergyTableGen[.exe] --grid " << o.Grid << " --samples " << o.Samples << " --avg-points "
             << o.AvgPoints << " --avg-samples " << o.AvgSamples;
         return out.str();
     }
@@ -327,14 +345,22 @@ namespace
                "// REGENERATION IS A TOOL RUN, NOT A RECIPE (ADR 0016 §6):\n"
                "//\n"
                "//   cmake --build <build-dir> --target OloGgxEnergyTableGen\n"
-               "//   <build-dir>/tools/OloGgxEnergyTableGen/"
+               "//   <build-dir>/tools/OloGgxEnergyTableGen/<Config>/"
             << ReproCommand(o)
             << "\n"
                "//\n"
-               "// run from the repository root. It overwrites BOTH files in place, so a clean\n"
-               "// `git diff` afterwards is the reproduction proof; `--check` diffs without\n"
-               "// writing. The flag values above are the ones these tables were baked with, so\n"
-               "// widening the grid or raising the sample counts is a flag rather than an edit.\n"
+               "// run from the repository root. The <Config> segment exists only under\n"
+               "// multi-config generators — both this repo's trees are multi-config, so it is\n"
+               "// Debug/ or Release/ there; drop it for a single-config tree, and drop the\n"
+               "// .exe suffix off Windows.\n"
+               "//\n"
+               "// It overwrites BOTH files in place, so a clean `git diff` afterwards is the\n"
+               "// reproduction proof; `--check` diffs without writing. The flag values above\n"
+               "// are the ones these tables were baked with. Raising the SAMPLE COUNTS is a\n"
+               "// flag rather than an edit; changing --grid is NOT, because ClosureV2Test's\n"
+               "// twin-drift pin hardcodes the table size, the packed-array lengths and the\n"
+               "// word counts — a non-default grid has to update those expectations (or derive\n"
+               "// them from kGgxEnergyTableSize) in the same change, or that pin fails.\n"
                "// The tool calls the engine's own SampleGGXVNDFTangent / GgxSmithLambda /\n"
                "// ClosureV2Roughness out of ReferenceBRDF.h, which is what makes\n"
                "// generator-vs-engine estimator drift structurally impossible. ClosureV2Test\n"
@@ -507,11 +533,20 @@ namespace
         return result.ec == std::errc{} && result.ptr == last && out > 0u;
     }
 
-    // Text-mode write, so the emitted newline matches what `git checkout`
-    // produces on this platform (CRLF under core.autocrlf=true, LF elsewhere).
-    // Writing LF unconditionally would leave a Windows working tree holding two
-    // files git considers identical to HEAD but that differ from every other
-    // checked-out file, which muddies the "clean git diff" reproduction proof.
+    // BOTH streams below are deliberately TEXT mode, and the pairing is what
+    // makes it correct — do not "fix" either one to std::ios::binary.
+    //
+    // The emitted string uses \n throughout. Text mode makes the write match
+    // what `git checkout` produces on this platform (CRLF under
+    // core.autocrlf=true, LF elsewhere), and makes the read collapse that back
+    // to \n, so --check compares like with like. Verified in this repo: the
+    // working-tree file is CRLF while the committed blob is LF.
+    //
+    // Switching to binary breaks the round trip rather than tightening it: the
+    // write would put LF in a Windows working tree that git renders as CRLF
+    // everywhere else, and the read would then hand --check a CRLF string to
+    // compare against an LF expectation — a spurious DIFFERS on every fresh
+    // Windows checkout. Newline translation here is the feature, not a leak.
     [[nodiscard]] bool WriteFile(const std::filesystem::path& path, const std::string& contents)
     {
         std::ofstream file(path);
@@ -539,7 +574,8 @@ namespace
                      "  --repo-root DIR    repository root (default: the current directory)\n"
                      "  --header PATH      override the C++ output path\n"
                      "  --glsl PATH        override the GLSL output path\n"
-                     "  --grid N           table edge length (default 16)\n"
+                     "  --grid N           table edge length (default 16; also needs ClosureV2Test's\n"
+                     "                     twin-drift pin updated, which hardcodes the sizes)\n"
                      "  --samples N        VNDF samples per entry (default 4096)\n"
                      "  --avg-points N     E_avg midpoint quadrature points (default 64)\n"
                      "  --avg-samples N    VNDF samples per quadrature point (default 2048)\n"
@@ -674,6 +710,10 @@ int main(int argc, char** argv)
 
     if (options.Check)
     {
+        // Byte-exact on purpose — see "WHAT `--check` IS, AND IS NOT" at the top
+        // of this file. The comparison is only meaningful for the toolchain that
+        // baked the tables; the toolchain-independent gate is
+        // ClosureV2.EnergyTablesMatchTheirOwnEstimator, at 2e-3.
         int differences = 0;
         const auto compare = [&differences](const std::filesystem::path& path, const std::string& expected)
         {

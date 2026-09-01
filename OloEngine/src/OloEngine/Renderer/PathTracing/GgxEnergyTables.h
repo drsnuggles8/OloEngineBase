@@ -48,12 +48,20 @@
 // REGENERATION IS A TOOL RUN, NOT A RECIPE (ADR 0016 §6):
 //
 //   cmake --build <build-dir> --target OloGgxEnergyTableGen
-//   <build-dir>/tools/OloGgxEnergyTableGen/OloGgxEnergyTableGen --grid 16 --samples 4096 --avg-points 64 --avg-samples 2048
+//   <build-dir>/tools/OloGgxEnergyTableGen/<Config>/OloGgxEnergyTableGen[.exe] --grid 16 --samples 4096 --avg-points 64 --avg-samples 2048
 //
-// run from the repository root. It overwrites BOTH files in place, so a clean
-// `git diff` afterwards is the reproduction proof; `--check` diffs without
-// writing. The flag values above are the ones these tables were baked with, so
-// widening the grid or raising the sample counts is a flag rather than an edit.
+// run from the repository root. The <Config> segment exists only under
+// multi-config generators — both this repo's trees are multi-config, so it is
+// Debug/ or Release/ there; drop it for a single-config tree, and drop the
+// .exe suffix off Windows.
+//
+// It overwrites BOTH files in place, so a clean `git diff` afterwards is the
+// reproduction proof; `--check` diffs without writing. The flag values above
+// are the ones these tables were baked with. Raising the SAMPLE COUNTS is a
+// flag rather than an edit; changing --grid is NOT, because ClosureV2Test's
+// twin-drift pin hardcodes the table size, the packed-array lengths and the
+// word counts — a non-default grid has to update those expectations (or derive
+// them from kGgxEnergyTableSize) in the same change, or that pin fails.
 // The tool calls the engine's own SampleGGXVNDFTangent / GgxSmithLambda /
 // ClosureV2Roughness out of ReferenceBRDF.h, which is what makes
 // generator-vs-engine estimator drift structurally impossible. ClosureV2Test

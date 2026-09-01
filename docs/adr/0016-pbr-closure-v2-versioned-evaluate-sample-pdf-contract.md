@@ -178,13 +178,21 @@ the furnace test asserts, and the reason the tables need no fudge factor.
   `include/PBRClosureV2Energy.glsl` in place:
 
       cmake --build <build-dir> --target OloGgxEnergyTableGen
-      <build-dir>/tools/OloGgxEnergyTableGen/OloGgxEnergyTableGen \
+      <build-dir>/tools/OloGgxEnergyTableGen/<Config>/OloGgxEnergyTableGen[.exe] \
           --grid 16 --samples 4096 --avg-points 64 --avg-samples 2048
+
+  The `<Config>` segment exists only under multi-config generators (both
+  trees here are, so it is `Debug/` or `Release/`); drop it for a
+  single-config tree, and drop `.exe` off Windows.
 
   Those defaults are what the committed tables were baked with, so a clean
   `git diff` after a default run is the reproduction proof and `--check` is
-  the same comparison without writing. Widening the grid or raising the
-  sample counts is a flag, not an edit. The tool calls the engine's own
+  the same comparison without writing — a *byte-reproduction* check, valid
+  only for the toolchain that baked the tables, never a substitute for the
+  recompute pin. Raising the sample counts is a flag, not an edit; changing
+  `--grid` is not purely a flag, because `ClosureV2Test`'s twin-drift pin
+  hardcodes the table size, the packed-array lengths and the word counts and
+  has to move in the same change. The tool calls the engine's own
   `SampleGGXVNDFTangent` / `GgxSmithLambda` / `ClosureV2Roughness` out of
   `ReferenceBRDF.h` rather than re-implementing them, which is why it is a
   C++ target and not a script: generator-vs-engine estimator drift is
