@@ -114,6 +114,32 @@ namespace OloEngine::Tests
             }
         };
 
+        // Mean absolute difference between horizontally ADJACENT luma samples in
+        // a band. Zero on any horizontally uniform image, including one with a
+        // strong vertical gradient -- which is the point. A plain standard
+        // deviation is inflated by the sky's own top-to-bottom gradient, so it
+        // cannot tell "a lit sky with cloud shapes in it" from "a flat fill
+        // with a gradient", and the flat fill is the failure being guarded
+        // against (issue #903 follow-up). Clouds are horizontal structure.
+        [[nodiscard]] f64 HorizontalDetail(const std::vector<u8>& pixels, u32 rowBegin, u32 rowEnd)
+        {
+            const auto luma = [](const u8* px)
+            { return 0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]; };
+
+            f64 total = 0.0;
+            u64 count = 0;
+            for (u32 y = rowBegin; y < rowEnd; ++y)
+            {
+                const u8* row = pixels.data() + static_cast<std::size_t>(y) * kWidth * 4u;
+                for (u32 x = 1; x < kWidth; ++x)
+                {
+                    total += std::abs(luma(row + x * 4) - luma(row + (x - 1) * 4));
+                    ++count;
+                }
+            }
+            return count > 0 ? total / static_cast<f64>(count) : 0.0;
+        }
+
         // Mean RGB over a horizontal band [rowBegin, rowEnd) of a TOP-DOWN
         // RGBA8 buffer.
         [[nodiscard]] BandStats MeanBand(const std::vector<u8>& pixels, u32 rowBegin, u32 rowEnd)
@@ -294,6 +320,25 @@ namespace OloEngine::Tests
                 auto& weather = atmosphere.AddComponent<WeatherStateComponent>();
                 weather.m_TransitionDuration = 0.0f; // captures snap states
 
+                // Fog must not be allowed to erase the sky it is supposed to sit
+                // in front of. The engine's Overcast/Storm presets pair a cloud
+                // deck with a genuinely thick fog (density 0.003 / 0.009), and at
+                // this 4000 m far plane that saturates the distance term for
+                // every sky pixel -- so the deck those same presets author at
+                // 0.75-0.97 coverage was completely invisible in eight of the
+                // twelve matrix cells. Capping the opacity keeps the authored
+                // densities (the matrix still depicts the engine's real weather
+                // states, and fog still thickens the horizon and dims the ground)
+                // while guaranteeing the scene behind it survives.
+                //
+                // Note this is the SECOND scene to work around these defaults:
+                // DriftScenePresets.h lowers the same two densities outright,
+                // with a comment about Storm's 0.0034 "not the engine preset's
+                // 0.009". Two independent scenes overriding the same default is
+                // worth a look at the default itself -- out of scope here.
+                weather.m_PresetOvercast.FogMaxOpacity = 0.7f;
+                weather.m_PresetStorm.FogMaxOpacity = 0.7f;
+
                 auto& clouds = atmosphere.AddComponent<CloudscapeComponent>();
                 // Scales tuned live in the AtmosphereTest editor scene: a low,
                 // thin layer with ~2 km weather features keeps visible cloud
@@ -405,6 +450,7 @@ namespace OloEngine::Tests
 
             // Bands: sky = top 18%, horizon = 38-46%, ground = bottom 25%.
             m_Sky[name] = MeanBand(pixels, 0, kHeight * 18u / 100u);
+            m_SkyDetail[name] = HorizontalDetail(pixels, 0, kHeight * 18u / 100u);
             m_Horizon[name] = MeanBand(pixels, kHeight * 38u / 100u, kHeight * 46u / 100u);
             m_Ground[name] = MeanBand(pixels, kHeight * 75u / 100u, kHeight);
 
@@ -442,6 +488,7 @@ namespace OloEngine::Tests
 
         Entity m_Atmosphere;
         std::map<std::string, BandStats> m_Sky;
+        std::map<std::string, f64> m_SkyDetail;
         std::map<std::string, BandStats> m_Horizon;
         std::map<std::string, BandStats> m_Ground;
 
@@ -521,5 +568,41 @@ namespace OloEngine::Tests
         const f64 dawnWarmth = m_Horizon["DawnClear"].R / std::max(m_Horizon["DawnClear"].B, 1.0);
         const f64 noonWarmth = m_Horizon["NoonClear"].R / std::max(m_Horizon["NoonClear"].B, 1.0);
         EXPECT_GT(dawnWarmth, noonWarmth) << "dawn horizon must be warmer than noon";
+
+        // 5. THE OVERCAST AND STORM SKIES MUST ACTUALLY CONTAIN CLOUD.
+        //
+        // This file's header promises evidence for "the volumetric cloudscape"
+        // across the whole {time} x {weather} matrix, and every cell had a
+        // committed golden, so the matrix read as covered. It was not. Measured
+        // on the pre-fix goldens, the sky band of all EIGHT Overcast/Storm cells
+        // was a flat fill: standard deviation 0.000, range 0, and a mean of
+        // *exactly* 165.00 (Overcast) / 150.00 (Storm) at dawn, noon, dusk AND
+        // night alike. A lit cloud deck cannot be byte-identical at midnight and
+        // midday; that constant was the weather preset's fog colour, which had
+        // replaced the sky outright at these densities and far plane. Disabling
+        // the cloudscape entirely moved those captures' sky band by 0.00% and
+        // max channel 0 -- the goldens could not see the cloud system at all up
+        // there, only its ground lighting (99% of the ground band).
+        //
+        // A golden cannot catch this on its own: it happily pins a flat fill
+        // forever. So the contract is on horizontal DETAIL, which is what a
+        // cloud deck has and a fog wall does not. Post-fix the eight cells
+        // measure 0.21-0.35; the threshold sits an order of magnitude below the
+        // signal and above the 0.000 the fogged frames produced.
+        for (const char* cell : { "DawnOvercast", "NoonOvercast", "DuskOvercast", "NightOvercast",
+                                  "DawnStorm", "NoonStorm", "DuskStorm", "NightStorm" })
+        {
+            EXPECT_GT(m_SkyDetail[cell], 0.02)
+                << "'" << cell << "' sky band has no horizontal structure -- the cloud deck is being "
+                                  "replaced by a flat fill (fog), so this capture is evidence of nothing";
+        }
+
+        // ...and the Clear cells, whose thinner 0.15-coverage deck is the one
+        // regime where a low reading would be legitimate, still clear the bar.
+        for (const char* cell : { "DawnClear", "NoonClear", "DuskClear", "NightClear" })
+        {
+            EXPECT_GT(m_SkyDetail[cell], 0.02)
+                << "'" << cell << "' sky band is featureless";
+        }
     }
 } // namespace OloEngine::Tests
