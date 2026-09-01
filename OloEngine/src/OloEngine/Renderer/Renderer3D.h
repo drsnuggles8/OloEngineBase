@@ -2031,7 +2031,14 @@ namespace OloEngine
             SnowSettings Snow;
             FogSettings Fog;
             u32 FogFrameIndex = 0;
-            std::chrono::steady_clock::time_point FogLastTime{};
+            // Previous Time::GetTime() samples for the mockable per-frame dt
+            // idiom (RenderPipeline.cpp's SampleMockableDt, issue #974) —
+            // members rather than function-local statics so
+            // Renderer3DLifecycle's Init/Shutdown reset them and a renderer
+            // re-init in one process cannot leak a stale sample.
+            f32 FogPrevTimeSeconds = 0.0f;
+            f32 AutoExposurePrevTimeSeconds = 0.0f;
+            f32 WindPrevTimeSeconds = 0.0f;
             f32 FogTime = 0.0f;
             UnderwaterFogState UnderwaterFog{};
             Ref<UniformBuffer> UnderwaterFogBuffer;
