@@ -361,92 +361,6 @@ jobs:
         if ($failed) { exit 1 }
         Write-Host 'All shipped binaries passed the launch smoke test.'
 
-    # CTest scope, PR vs nightly (#1009 item G). The full suite is ~6,900 ctest
-    # entries / ~18 min on every PR, and the L6/L7/L8 layers in it -- perf, golden
-    # and visual -- cannot produce a meaningful verdict on this runner anyway: it
-    # has no GL 4.6 context, so those tests SKIP. They are not free while skipping,
-    # because gtest_discover_tests gives every test its own process and so its own
-    # full engine static-init. A PR therefore pays thousands of process launches to
-    # be told "skipped". The nightly and any manual dispatch keep the full suite, so
-    # nothing loses coverage on the default branch.
-    #
-    # The regex is DERIVED from the same catalogue the layer classification lives in
-    # (generate_test_catalogue.py, the tool the pre-commit hook already enforces
-    # against), not hand-listed here -- a hand-listed copy would go stale the first
-    # time someone adds a visual test, and it would go stale silently.
-    #
-    # Both guards below exist because the failure mode of getting this wrong is a
-    # GREEN RUN THAT TESTED NOTHING: an over-broad regex excludes everything and
-    # ctest reports success over zero tests.
-    - name: Choose the CTest scope
-      id: ctestscope
-      shell: bash
-      working-directory: ${{github.workspace}}
-      run: |
-        set -euo pipefail
-        # NetworkIntegrationTest drives a live GameNetworkingSockets client/server
-        # socket; it is excluded by every job in this repo, on every scope.
-        always_skip='^NetworkIntegrationTest\.'
-
-        if [ "${GITHUB_EVENT_NAME}" != "pull_request" ]; then
-          echo "regex=${always_skip}" >> "$GITHUB_OUTPUT"
-          echo "scope=full suite"      >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-
-        suites=$(python OloEngine/tests/scripts/generate_test_catalogue.py \
-                   --gtest-filter --exclude L6,L7,L8 \
-                 | tr ':' '\n' \
-                 | sed -e 's|^-||' -e 's|^\*/||' -e 's|\.\*$||' \
-                 | grep -vx '\*' | grep -v '^$' \
-                 | sort -u | paste -sd'|' -)
-
-        # GUARD 1: the catalogue must have named a plausible number of suites. Zero
-        # means the tool's output shape changed and the regex would exclude nothing
-        # (harmless, just slow); a runaway count means the parse went wrong and the
-        # regex would exclude far too much (a green run that tested nothing).
-        count=$(printf '%s' "$suites" | tr '|' '\n' | grep -c . || true)
-        echo "fast subset excludes $count suite(s)"
-        if [ "$count" -lt 20 ] || [ "$count" -gt 400 ]; then
-          echo "::error::generate_test_catalogue.py named $count L6/L7/L8 suites; expected 20-400."
-          echo "::error::The parse in this step, or the tool's --gtest-filter output shape, has drifted."
-          exit 1
-        fi
-
-        # `(^|/)` rather than `^`. A value-parameterised gtest case is registered
-        # with ctest as `Prefix/Suite.Case/0`, so a `^Suite\.` anchor does not match
-        # it -- which is precisely why generate_test_catalogue.py emits both
-        # `Suite.*` and `*/Suite.*`. Collapsing those two forms to one suite name is
-        # only safe if the anchor accepts the instantiation prefix too, and neither
-        # guard above can see the difference: the count is identical and the scope
-        # still selects thousands of tests. It just quietly keeps running the
-        # parameterised half of every visual/golden suite.
-        echo "regex=(^|/)(${suites})\.|${always_skip}" >> "$GITHUB_OUTPUT"
-        echo "scope=fast subset (L6/L7/L8 excluded)" >> "$GITHUB_OUTPUT"
-
-    # GUARD 2, and the important one: assert the scope actually selects tests. A
-    # regex that matches everything makes `ctest` exit 0 over an empty set, which is
-    # indistinguishable from a passing run in the check list. `ctest -N` enumerates
-    # without executing, so this costs a second.
-    - name: Assert the CTest scope selects a real suite
-      working-directory: ${{github.workspace}}/build/OloEngine/tests
-      shell: bash
-      env:
-        # Through the environment, not spliced into the script body: a `${{ }}`
-        # interpolated into shell source is the githubactions:S7637 shape, and this
-        # one is a ~2.5 KB regex built at runtime.
-        OLO_CTEST_EXCLUDE: ${{ steps.ctestscope.outputs.regex }}
-        OLO_CTEST_SCOPE: ${{ steps.ctestscope.outputs.scope }}
-      run: |
-        set -euo pipefail
-        total=$(ctest -N -C "${BUILD_TYPE}" --exclude-regex "$OLO_CTEST_EXCLUDE" \
-                | sed -nE 's/^Total Tests: ([0-9]+)$/\1/p' | tail -1)
-        echo "scope: ${OLO_CTEST_SCOPE} -> ${total:-0} tests"
-        if [ -z "${total:-}" ] || [ "$total" -lt 3000 ]; then
-          echo "::error::CTest scope selected ${total:-0} tests; expected at least 3000."
-          exit 1
-        fi
-
     - name: Run tests with CTest
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # Execute tests defined by the CMake configuration.
@@ -457,11 +371,28 @@ jobs:
       # on a multi-config generator (here Ninja Multi-Config) — without it CTest
       # can't locate the per-config test binaries.
       #
-      # --exclude-regex comes from the "Choose the CTest scope" step above: the
-      # always-excluded NetworkIntegrationTest (a live GameNetworkingSockets
-      # client/server socket, excluded on every sanitizer job too), plus — on a
-      # pull_request only — the L6/L7/L8 perf/golden/visual layers, which skip on a
-      # GPU-less runner but still pay a process launch each.
+      # --exclude-regex skips only one case:
+      #   NetworkIntegrationTest        — drives a live Steam (GameNetworkingSockets)
+      #     client/server socket; excluded on every sanitizer job too.
+      #
+      # #1009 item G proposed a PR-only fast subset here (L6/L7/L8 excluded via
+      # generate_test_catalogue.py). It was BUILT, RUN, AND MEASURED, and the
+      # measurement killed it: the filter names 99 suites, which sounds like a
+      # third of the renderer pyramid, and removes 185 of 6,927 ctest entries —
+      # 2.7%. Those cases SKIP on a GPU-less runner in ~0.85 s each, so at
+      # --parallel 4 the saving is about 40 seconds of a 1,321-second step.
+      #
+      # The premise was that the perf/golden/visual layers are a large fraction of
+      # the suite. They are a large fraction of the suite's FILES and a rounding
+      # error in its TEST COUNT. Two extra steps, a 2.5 KB regex built at runtime,
+      # and two guards against a green-run-that-tested-nothing are not worth 40
+      # seconds — especially in a repo whose dominant failure archetype is exactly
+      # that.
+      #
+      # The real lever, if this step is ever worth attacking: it is ~6,900 PROCESS
+      # LAUNCHES, one per test, each paying full engine static-init
+      # (gtest_discover_tests). Cutting the test COUNT by a few percent cannot
+      # move that; batching tests per process would. Out of scope for #1009.
       #
       # CancellationTokenTest.MultipleTasks was previously also excluded (issue
       # #359): it intermittently DEADLOCKED under `--parallel` oversubscription —
@@ -523,12 +454,8 @@ jobs:
       # `flaky-repro-281.yml` hunt ran the test under the 2-core squeeze for the
       # full step on the hosted runner with zero failures. If a physics test ever
       # flakes here again, reinstate `--repeat until-pass:3` AND reopen #281.
-      env:
-        # Through the environment rather than spliced into the command line -- see
-        # the scope-assertion step above.
-        OLO_CTEST_EXCLUDE: ${{ steps.ctestscope.outputs.regex }}
       shell: bash
-      run: ctest --parallel 4 --output-on-failure --timeout 120 -C "${BUILD_TYPE}" --exclude-regex "$OLO_CTEST_EXCLUDE"
+      run: ctest --parallel 4 --output-on-failure --timeout 120 -C "${BUILD_TYPE}" --exclude-regex '^NetworkIntegrationTest\.'
 
     - name: Upload test results
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
