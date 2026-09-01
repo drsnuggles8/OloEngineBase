@@ -56,13 +56,18 @@ it worked was sitting in the cache listing the whole time — one line of
 `gh api repos/<owner>/<repo>/actions/caches`:
 
 ```
-sccache-tsan-linux-32942319314-1     2026-09-01   <- restore/save, if: always()
-sccache-asan-lsan-linux-32225872289  2026-08-26   <- combined action
-sccache-windows-release-31571109867  2026-08-26   <- combined action
+created_at            key
+2026-08-26T08:25:59Z  sccache-tsan-linux-32942319314-1     <- restore/save, if: always()
+2026-08-19T09:01:04Z  sccache-asan-lsan-linux-32225872289  <- combined action
+2026-08-12T09:33:11Z  sccache-windows-release-31571109867  <- combined action
 ```
 
-Same repo, same day, same kind of job. The split one was six days fresher. A
-working example beside a broken one is not a fix; somebody has to notice.
+Same repo, same kind of job, one week and two weeks older respectively. A working
+example beside a broken one is not a fix; somebody has to notice.
+
+Read `created_at`, not `last_accessed_at` — on that field all three look recent,
+because a restore touches an entry without replacing it. Section 3b is the reason
+that distinction turned out to matter far more than it looks here.
 
 ## 2. Only default-branch cache entries are readable fleet-wide
 
@@ -140,7 +145,7 @@ hunting for a key collision that does not exist. The cause is the line above.
 days unnoticed:
 
 ```console
-$ gh api "repos/<owner>/<repo>/actions/caches?per_page=100"     --jq '.actions_caches[]|"\(.created_at)  \(.key)"' | sort -r | head -3
+$ gh api "repos/<owner>/<repo>/actions/caches?per_page=100" \n    --jq '.actions_caches[]|"\(.created_at)  \(.key)"' | sort -r | head -3
 2026-08-26T08:25:59Z  sccache-tsan-linux-32942319314-1
 2026-08-26T08:10:55Z  vcpkg-Linux-x64-linux-9704e01b…-32942319409
 2026-08-26T08:09:36Z  vcpkg-Linux-x64-linux-9704e01b…-32942319336
