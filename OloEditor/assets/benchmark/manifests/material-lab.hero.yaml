@@ -1,0 +1,83 @@
+# Material laboratory — Product HERO capture (issue #974).
+# Schema: docs/guides/renderer-benchmarks.md "Capture manifest schema (v1)".
+# Presentation frame for docs/images/benchmarks/: a three-quarter view over
+# the sweep grid with the patch strip in the foreground. Judged by eyes, no
+# tolerance; re-captured whenever presentation improves.
+ManifestVersion: 1
+Id: material-lab-hero
+Product: hero
+Scene: Scenes/Benchmark/MaterialLab.olo
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+# Three-quarter view: eye at [10.5, 6, 13.5] looking at the grid centre
+# (~[0, 0.5, 0]). PitchDegrees positive-down (EditorCamera::SetPose).
+Camera:
+  Id: hero
+  Position: [10.5, 6.0, 13.5]
+  YawDegrees: -37.9
+  PitchDegrees: 17.8
+  FovDegrees: 50.0
+  Near: 0.05
+  Far: 300.0
+
+Output:
+  Resolution: [2560, 1440]
+  RenderScale: 1.0
+
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: false
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 974
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 32
+  PerFeature:
+    TAA: 8
+    IBL: 16
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+
+Tolerance:
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: assets/textures/hdr/newport_loft.hdr
+    Origin: LearnOpenGL PBR/IBL sample HDRI (Newport Loft)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/rusted_iron/albedo.png
+    Origin: LearnOpenGL PBR sample texture set (rusted iron)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/rusted_iron/normal.png
+    Origin: LearnOpenGL PBR sample texture set (rusted iron)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/wall/albedo.png
+    Origin: LearnOpenGL PBR sample texture set (wall)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/wall/normal.png
+    Origin: LearnOpenGL PBR sample texture set (wall)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/gold/albedo.png
+    Origin: LearnOpenGL PBR sample texture set (gold)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/gold/normal.png
+    Origin: LearnOpenGL PBR sample texture set (gold)
+    License: unverified — no license file in-repo

@@ -2445,6 +2445,76 @@ namespace OloEngine
             {
                 matc.m_Material.SetRoughnessFactor(materialComponent["Roughness"].as<f32>());
             }
+            // Emissive + texture maps (issue #974, the material-lab benchmark
+            // scene): optional, omitted at their defaults, so scenes that
+            // predate them stay byte-identical.
+            if (auto emissiveNode = materialComponent["Emissive"]; emissiveNode)
+            {
+                // 3 or 4 components. The 4th (w) defaults to 0 — the
+                // Material constructor's value — so a plain RGB author
+                // round-trips to the default rather than inventing w=1 (the
+                // save-game serializer and the C# binding carry the full
+                // vec4; scene YAML must not silently disagree with them).
+                glm::vec4 emissive(0.0f);
+                if (emissiveNode.IsSequence() && (emissiveNode.size() == 3 || emissiveNode.size() == 4))
+                {
+                    for (sizet i = 0; i < emissiveNode.size(); ++i)
+                    {
+                        emissive[static_cast<glm::length_t>(i)] = emissiveNode[i].as<f32>(0.0f);
+                    }
+                }
+                for (int i = 0; i < 4; ++i)
+                {
+                    if (!std::isfinite(emissive[i]))
+                    {
+                        emissive = glm::vec4(0.0f);
+                        break;
+                    }
+                }
+                matc.m_Material.SetEmissiveFactor(emissive);
+            }
+            if (materialComponent["AlbedoMapPath"])
+            {
+                if (auto texture = LoadSceneTexture(materialComponent["AlbedoMapPath"].as<std::string>("")))
+                {
+                    matc.m_Material.SetAlbedoMap(texture);
+                }
+            }
+            if (materialComponent["NormalMapPath"])
+            {
+                if (auto texture = LoadSceneTexture(materialComponent["NormalMapPath"].as<std::string>("")))
+                {
+                    matc.m_Material.SetNormalMap(texture);
+                }
+            }
+            if (materialComponent["MetallicRoughnessMapPath"])
+            {
+                if (auto texture =
+                        LoadSceneTexture(materialComponent["MetallicRoughnessMapPath"].as<std::string>("")))
+                {
+                    matc.m_Material.SetMetallicRoughnessMap(texture);
+                }
+            }
+            if (materialComponent["AOMapPath"])
+            {
+                if (auto texture = LoadSceneTexture(materialComponent["AOMapPath"].as<std::string>("")))
+                {
+                    matc.m_Material.SetAOMap(texture);
+                }
+            }
+            if (materialComponent["EmissiveMapPath"])
+            {
+                if (auto texture = LoadSceneTexture(materialComponent["EmissiveMapPath"].as<std::string>("")))
+                {
+                    matc.m_Material.SetEmissiveMap(texture);
+                }
+            }
+            if (materialComponent["NormalScale"])
+            {
+                f32 scale = materialComponent["NormalScale"].as<f32>(1.0f);
+                SanitizeFloat(scale, 0.0f, 16.0f, 1.0f);
+                matc.m_Material.SetNormalScale(scale);
+            }
             // Versioned PBR closure (issue #975): a discriminated value, so an
             // out-of-range index REJECTS to the constructor default (Legacy)
             // rather than saturating to a different valid model.
@@ -4502,6 +4572,42 @@ namespace OloEngine
             out << YAML::Key << "AlbedoColor" << YAML::Value << glm::vec3(baseColor.r, baseColor.g, baseColor.b);
             out << YAML::Key << "Metallic" << YAML::Value << matComponent.m_Material.GetMetallicFactor();
             out << YAML::Key << "Roughness" << YAML::Value << matComponent.m_Material.GetRoughnessFactor();
+            // Emissive + texture maps (issue #974): omitted at their defaults
+            // so pre-existing scenes stay byte-identical. Emissive is written
+            // as the FULL vec4 — the save-game serializer and the C# binding
+            // carry all four components, and scene YAML must not silently
+            // truncate what they preserve.
+            if (auto emissive = matComponent.m_Material.GetEmissiveFactor();
+                std::abs(emissive.r) > 1e-6f || std::abs(emissive.g) > 1e-6f || std::abs(emissive.b) > 1e-6f ||
+                std::abs(emissive.a) > 1e-6f)
+            {
+                out << YAML::Key << "Emissive" << YAML::Value << emissive;
+            }
+            if (auto albedoMap = matComponent.m_Material.GetAlbedoMap(); albedoMap && !albedoMap->GetPath().empty())
+            {
+                out << YAML::Key << "AlbedoMapPath" << YAML::Value << albedoMap->GetPath();
+            }
+            if (auto normalMap = matComponent.m_Material.GetNormalMap(); normalMap && !normalMap->GetPath().empty())
+            {
+                out << YAML::Key << "NormalMapPath" << YAML::Value << normalMap->GetPath();
+            }
+            if (auto mrMap = matComponent.m_Material.GetMetallicRoughnessMap(); mrMap && !mrMap->GetPath().empty())
+            {
+                out << YAML::Key << "MetallicRoughnessMapPath" << YAML::Value << mrMap->GetPath();
+            }
+            if (auto aoMap = matComponent.m_Material.GetAOMap(); aoMap && !aoMap->GetPath().empty())
+            {
+                out << YAML::Key << "AOMapPath" << YAML::Value << aoMap->GetPath();
+            }
+            if (auto emissiveMap = matComponent.m_Material.GetEmissiveMap();
+                emissiveMap && !emissiveMap->GetPath().empty())
+            {
+                out << YAML::Key << "EmissiveMapPath" << YAML::Value << emissiveMap->GetPath();
+            }
+            if (const f32 normalScale = matComponent.m_Material.GetNormalScale(); std::abs(normalScale - 1.0f) > 1e-6f)
+            {
+                out << YAML::Key << "NormalScale" << YAML::Value << normalScale;
+            }
             // Versioned PBR closure (issue #975). Legacy (0) is omitted so
             // existing scenes stay byte-identical; the numbering is on disk —
             // append, never renumber (see PBRModel.h).

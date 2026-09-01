@@ -1,0 +1,90 @@
+# Courtyard — hero capture (issue #974). 4K presentation frame, judged by
+# eyes, committed to docs/images/benchmarks/ — never a regression golden.
+# Camera convention (EditorCamera): YawDegrees 0 looks -Z, +90 looks +X;
+# positive PitchDegrees looks DOWN (negative looks up).
+ManifestVersion: 1
+Id: courtyard-hero
+Product: hero
+Scene: Scenes/Benchmark/Courtyard.olo
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+Camera:
+  Id: hero-dusk
+  # Ground level at the west end, tilted slightly up, staring east straight
+  # into the low sun (sun direction travels -X, so its disk side is +X):
+  # volumetric shafts rake through the colonnade, long column shadows run at
+  # the camera, colored grid lights glow in the vaults, the emissive decal
+  # blooms on the floor, and the garden reads through the far opening.
+  # Same axis as the golden's swept pose (probe a-atrium-axis), pulled back
+  # and slightly tighter for the 4K composition.
+  Position: [-9.6, 1.9, 0.0]
+  YawDegrees: 90.0
+  PitchDegrees: -4.0
+  FovDegrees: 55.0
+  Near: 0.05
+  Far: 2500.0
+
+Output:
+  Resolution: [3840, 2160]
+  RenderScale: 1.0
+
+# NOTE: TAA is not toggleable here (v1 RendererSettings allowlist) and not
+# scene-serialized — see courtyard.golden.yaml.
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: true
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 974
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 128
+  PerFeature:
+    TAA: 8
+    SSGI: 16
+    SSR: 16
+    Fog: 16
+    DDGI: 128
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+
+Tolerance:
+  # Hero frames are judged by eyes; repeatability documented, not gating.
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: SandboxProject/Assets/Models/Sponza/Sponza.gltf
+    Origin: Crytek Sponza via KhronosGroup glTF-Sample-Assets (CRYENGINE Marketplace original)
+    License: LicenseRef-CRYENGINE-Agreement
+  - Path: SandboxProject/Assets/Models/Vegetation/pine.obj
+    Origin: generated in-repo by generate_vegetation.py
+    License: repository license (no third-party rights)
+  - Path: SandboxProject/Assets/Models/Vegetation/palm.obj
+    Origin: generated in-repo by generate_vegetation.py
+    License: repository license (no third-party rights)
+  - Path: assets/textures/grass.png
+    Origin: in-repo editor asset; upstream origin not recorded
+    License: unverified (no license file in-repo)
+  - Path: Assets/Textures/Checkerboard.png
+    Origin: in-repo sandbox asset; upstream origin not recorded
+    License: unverified (no license file in-repo)
+  - Path: assets/textures/hdr/newport_loft.hdr
+    Origin: Newport Loft HDR (sIBL Archive / HDR Labs)
+    License: unverified (no license file in-repo)

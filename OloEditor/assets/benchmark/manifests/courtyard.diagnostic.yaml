@@ -1,0 +1,161 @@
+# Courtyard — diagnostic capture, three camera cuts (issue #974).
+# The v1 schema supports a Cameras: list (BenchmarkManifest.cpp): a later
+# camera is a deterministic camera CUT re-warmed by its own WarmupFrames
+# (histories re-converge over a fixed schedule — same schedule, same result).
+# Camera convention (EditorCamera): YawDegrees 0 looks -Z, +90 looks +X;
+# positive PitchDegrees looks DOWN.
+ManifestVersion: 1
+Id: courtyard-diagnostic
+Product: diagnostic
+Scene: Scenes/Benchmark/Courtyard.olo
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+Cameras:
+  # 1) Disocclusion / temporal-history stress: tucked against the ground-floor
+  #    colonnade on the -Z side, looking west (-X, yaw -78 skews toward the
+  #    atrium centre). A near column clips the frame edge and occludes the
+  #    sun-lit far end, so the SSGI/SSR resolves carry a large disoccluded
+  #    region behind it. Verify the column actually clips the frame on the
+  #    first live render; nudge X if not. First pose pays the full DDGI
+  #    warm-up (inherits Warmup.Frames: 128).
+  # Swept pose (probe c-corner-wide): inside the ground-floor gallery, warm
+  # local-light pools + fog down the corridor, near arches clipping the frame.
+  - Id: atrium-disocclusion
+    Position: [-9.5, 2.2, -3.4]
+    YawDegrees: 68.0
+    PitchDegrees: -2.0
+    FovDegrees: 65.0
+    Near: 0.05
+    Far: 2500.0
+  # 2) Thin geometry + foliage motion: low over the garden terrain looking
+  #    east-southeast into the pine/palm field — alpha-masked grass billboards
+  #    in the foreground, wind sway on every layer, the impostor cross-fade
+  #    band ~30 m ahead. DDGI is world-space and already converged after the
+  #    first pose; 32 frames re-converge the screen-space histories.
+  - Id: garden-foliage
+    Position: [58.0, 4.5, 28.0]
+    YawDegrees: 112.0
+    PitchDegrees: 4.0
+    FovDegrees: 60.0
+    Near: 0.05
+    Far: 2500.0
+    WarmupFrames: 32
+  # 3) Distant geometry in volumetric fog: high above the west end looking
+  #    east (+X) over the Sponza roofline — roof, garden foliage, then the
+  #    instanced tower ring at 420-520 m sunk into fog (FogSettings End: 650).
+  #    Stresses fog integration at depth, distant culling, and cascade
+  #    selection across the whole shadow range.
+  #    Swept pose (probe g-vista2 + the fog retune): west of the courtyard at
+  #    20 m, over the ground fog, so the forest ring and tower silhouettes
+  #    actually read instead of a whiteout.
+  - Id: tower-vista
+    Position: [-70.0, 20.0, 0.0]
+    YawDegrees: 90.0
+    PitchDegrees: 6.0
+    FovDegrees: 60.0
+    Near: 0.05
+    Far: 2500.0
+    WarmupFrames: 32
+
+Output:
+  Resolution: [1280, 720]
+  RenderScale: 1.0
+
+# NOTE: TAA is not toggleable here (v1 RendererSettings allowlist) and not
+# scene-serialized — see courtyard.golden.yaml.
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: true
+  TAAEnabled: true
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 974
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 128
+  PerFeature:
+    TAA: 8
+    SSGI: 16
+    SSR: 16
+    Fog: 16
+    DDGI: 128
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+  - Name: Albedo
+    Source: GBufferAlbedo
+    Format: png
+  - Name: Normals
+    Source: GBufferNormal
+    Format: png
+    Normalize: none
+  - Name: Emissive
+    Source: GBufferEmissive
+    Format: png
+  - Name: Velocity
+    Source: Velocity
+    Format: png
+  - Name: AOBuffer
+    Source: AOBuffer
+    Format: png
+  - Name: SceneDepth
+    Source: SceneDepth
+    Format: png
+    Normalize: auto
+  - Name: SSGIResolved
+    Source: SSGIResolved
+    Format: png
+  - Name: SSRResolved
+    Source: SSRResolved
+    Format: png
+  - Name: FogColor
+    Source: FogColor
+    Format: png
+  - Name: ShadowMapCSMCascade0
+    Source: ShadowMapCSMCascade0
+    Format: png
+    Normalize: auto
+
+Tolerance:
+  # MEASURED 2026-09-01 (RTX 4090, Debug, two fresh runs): the garden-foliage
+  # and tower-vista cuts were byte-identical on every attachment (wind/sway is
+  # fully mock-clock-driven); only the first camera's Beauty/FogColor/
+  # SceneColorHDR carried the same 1-LSB light-cull accumulation-order noise
+  # the golden documents. Same bound as the golden.
+  RepeatRmse: 0.05
+
+Assets:
+  - Path: SandboxProject/Assets/Models/Sponza/Sponza.gltf
+    Origin: Crytek Sponza via KhronosGroup glTF-Sample-Assets (CRYENGINE Marketplace original)
+    License: LicenseRef-CRYENGINE-Agreement
+  - Path: SandboxProject/Assets/Models/Vegetation/pine.obj
+    Origin: generated in-repo by generate_vegetation.py
+    License: repository license (no third-party rights)
+  - Path: SandboxProject/Assets/Models/Vegetation/palm.obj
+    Origin: generated in-repo by generate_vegetation.py
+    License: repository license (no third-party rights)
+  - Path: assets/textures/grass.png
+    Origin: in-repo editor asset; upstream origin not recorded
+    License: unverified (no license file in-repo)
+  - Path: Assets/Textures/Checkerboard.png
+    Origin: in-repo sandbox asset; upstream origin not recorded
+    License: unverified (no license file in-repo)
+  - Path: assets/textures/hdr/newport_loft.hdr
+    Origin: Newport Loft HDR (sIBL Archive / HDR Labs)
+    License: unverified (no license file in-repo)

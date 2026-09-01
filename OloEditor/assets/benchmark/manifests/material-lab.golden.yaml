@@ -1,0 +1,119 @@
+# Material laboratory — Product GOLDEN capture (issue #974).
+# Schema: docs/guides/renderer-benchmarks.md "Capture manifest schema (v1)".
+# Deferred path so the G-Buffer AOVs exist. Manual exposure; the auto-exposure
+# convergence capture is material-lab.exposure.yaml.
+ManifestVersion: 1
+Id: material-lab-golden
+Product: golden
+Scene: Scenes/Benchmark/MaterialLab.olo
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+# Same pose as the scene's own Primary camera (Translation [0, 9, 16],
+# Rotation.x -0.55 rad). PitchDegrees is positive-down, EditorCamera::SetPose
+# convention (the scene TransformComponent spells the same tilt as -0.55).
+Camera:
+  Id: golden
+  Position: [0.0, 9.0, 16.0]
+  YawDegrees: 0.0
+  PitchDegrees: 31.5
+  FovDegrees: 45.0
+  Near: 0.05
+  Far: 300.0
+
+Output:
+  Resolution: [1280, 720]
+  RenderScale: 1.0
+
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: false
+  TAAEnabled: true
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 974
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 32
+  PerFeature:
+    TAA: 8
+    IBL: 16          # equirect -> cubemap convert + irradiance/prefilter bake settle
+    # Exposure: n/a — Manual mode, no adaptation history to converge.
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+  - Name: Albedo
+    Source: GBufferAlbedo
+    Format: png
+  - Name: Normals
+    Source: GBufferNormal
+    Format: png
+  - Name: Velocity
+    Source: Velocity
+    Format: png
+  - Name: AOBuffer
+    Source: AOBuffer
+    Format: png
+  - Name: SceneDepth
+    Source: SceneDepth
+    Format: png
+    Normalize: auto
+  # Derived AOVs (issue #974): lanes of existing targets / transformed depth,
+  # extracted CPU-side by the capture core — no render-graph pass, no
+  # shipping-frame change. Roughness lives in GBufferNormal.z (RT1), metallic
+  # in GBufferAlbedo.a (RT0); linear depth is view-space metres in the .hdr.
+  - Name: LinearDepth
+    Source: SceneDepth
+    Format: hdr
+    Derive: linear-depth
+  - Name: Roughness
+    Source: GBufferNormal
+    Format: png
+    Derive: channel-b
+  - Name: Metallic
+    Source: GBufferAlbedo
+    Format: png
+    Derive: channel-a
+
+Tolerance:
+  # MEASURED 2026-09-01 (RTX 4090, Debug): two fresh runs produced
+  # byte-identical files for all seven attachments. 0.0 is a measurement.
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: assets/textures/hdr/newport_loft.hdr
+    Origin: LearnOpenGL PBR/IBL sample HDRI (Newport Loft)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/rusted_iron/albedo.png
+    Origin: LearnOpenGL PBR sample texture set (rusted iron)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/rusted_iron/normal.png
+    Origin: LearnOpenGL PBR sample texture set (rusted iron)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/wall/albedo.png
+    Origin: LearnOpenGL PBR sample texture set (wall)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/wall/normal.png
+    Origin: LearnOpenGL PBR sample texture set (wall)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/gold/albedo.png
+    Origin: LearnOpenGL PBR sample texture set (gold)
+    License: unverified — no license file in-repo
+  - Path: assets/textures/pbr/gold/normal.png
+    Origin: LearnOpenGL PBR sample texture set (gold)
+    License: unverified — no license file in-repo

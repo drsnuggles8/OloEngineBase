@@ -1,0 +1,105 @@
+# =============================================================================
+# ocean-coast.hero — publication-quality 4K capture of the OceanCoast
+# benchmark scene (issue #974). Judged by eyes, no tolerance gate; the
+# committed frame lands under docs/images/benchmarks/ (never under
+# assets/tests/ — the two products are structurally separated).
+#
+# Composition (settled by the issue-#974 sun-azimuth sweep): camera 4.5 m
+# over the water looking almost dead north (+Z) at the anchored ship with the
+# island rising behind it. The sweep made the trade explicit — a sun-disk/
+# glint-at-the-lens framing leaves the island a black silhouette, while
+# NorthOffsetDegrees 40 lights the island's camera-facing flank so the
+# terrain bands, palms and the warm-lit ship all read; the lit-island
+# composition won. The mirror reflection doubles the island below the
+# waterline; FFTAmplitude 2.2 breaks the mirror with visible swell. A modest
+# 45-degree FOV compresses ship against island so the scale reference works.
+#
+# Rendering path: Forward — same reasoning as ocean-coast.golden (the water
+# pipeline's proven path; Drift runs Forward).
+# =============================================================================
+ManifestVersion: 1
+Id: ocean-coast-hero
+Product: hero
+Scene: Scenes/Benchmark/OceanCoast.olo
+Description: >
+  4K golden-hour hero: ship silhouetted on the sun's specular track, island
+  flank behind, FFT swell to the horizon.
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+Camera:
+  Id: hero
+  Position: [-10, 4.5, 100]
+  # Looks at the ship's mast (14, 3, 178); positive pitch tilts down.
+  YawDegrees: 162.9
+  PitchDegrees: 1.1
+  FovDegrees: 45.0
+  Near: 0.1
+  Far: 2500.0
+
+Output:
+  Resolution: [3840, 2160]
+  RenderScale: 1.0
+
+RendererSettings:
+  Path: Forward
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 974
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 128
+  PerFeature:
+    Ocean: 64
+    SkyBake: 1
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  # Pre-tonemap HDR alongside the beauty so the hero can be regraded without
+  # a recapture.
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+    Normalize: none
+
+Tolerance:
+  # Hero frames are judged by eyes; the run-twice bound still gets measured
+  # and recorded here for the determinism proof (0.0 = hypothesis).
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: SandboxProject/Assets/Models/KenneyVehicles/ship-small-hull.glb
+    Origin: Kenney (kenney.nl), Pirate Kit — hull half of ship-small.glb, see KenneyVehicles/LICENSE.md
+    License: CC0-1.0
+  - Path: SandboxProject/Assets/Models/KenneyVehicles/ship-small-sail.glb
+    Origin: Kenney (kenney.nl), Pirate Kit — sail half of ship-small.glb, see KenneyVehicles/LICENSE.md
+    License: CC0-1.0
+  - Path: SandboxProject/Assets/Models/Vegetation/palm.obj
+    Origin: Generated in-repo by Vegetation/generate_vegetation.py (issue #880)
+    License: BSD-4-Clause (repository license)
+  - Path: OloEditor/assets/textures/grass.png
+    Origin: In-repo editor asset; provenance not recorded
+    License: unverified (no license file in-repo)
+  - Path: OloEditor/assets/textures/pbr/wall/albedo.png
+    Origin: In-repo editor PBR set; provenance not recorded
+    License: unverified (no license file in-repo)
+  - Path: OloEditor/assets/textures/pbr/wall/normal.png
+    Origin: In-repo editor PBR set; provenance not recorded
+    License: unverified (no license file in-repo)
+  - Path: OloEditor/assets/textures/pbr/wall/occlusionRoughnessMetallic.png
+    Origin: In-repo editor PBR set; provenance not recorded
+    License: unverified (no license file in-repo)
+  # Water/*.png textures not listed: the scene pins all four WaterComponent
+  # texture handles to 0 (built-in fallbacks) — see ocean-coast.golden.yaml.

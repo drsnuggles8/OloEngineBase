@@ -160,6 +160,14 @@ docs/agents/
 # OloEngine/tests/scripts/generate_perf_scenes.py.
 OloEditor/SandboxProject/Assets/Scenes/PerfStress/
 
+# Benchmark capture result directories (issue #974). Every run of the
+# `--olo-capture-manifest=` entry point (or the editor MCP front door) writes a
+# self-describing result dir here. The committed products live elsewhere by
+# design — manifests in OloEditor/assets/benchmark/manifests/, hero frames in
+# docs/images/benchmarks/ — so a capture can never silently become a tracked
+# golden. See docs/guides/renderer-benchmarks.md.
+OloEditor/assets/benchmark/captures/
+
 # Binary scene sidecar caches (issue #525). Derived from a scene's `.olo`/`.yaml`
 # on load to skip yaml-cpp on subsequent loads; regenerated automatically and
 # invalidated when the source changes. Never source-of-truth — do not commit.
