@@ -8,6 +8,7 @@
 #include "Rendering/ShaderHarness.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <array>
@@ -405,6 +406,38 @@ namespace
         [[nodiscard]] glm::vec3 Blend(glm::vec3 current, glm::vec3 clampedHistory, float feedback, float confidence)
         {
             return glm::mix(current, clampedHistory, std::clamp(feedback, 0.0f, 0.98f) * std::clamp(confidence, 0.0f, 1.0f));
+        }
+
+        [[nodiscard]] bool HistoryUVValid(glm::vec2 prevUV)
+        {
+            return prevUV.x >= 0.0f && prevUV.y >= 0.0f && prevUV.x <= 1.0f && prevUV.y <= 1.0f;
+        }
+
+        [[nodiscard]] glm::vec2 ReprojectWorldPoint(const glm::mat4& prevViewProjection, glm::vec3 worldPosition,
+                                                    bool& valid)
+        {
+            const glm::vec4 prevClip = prevViewProjection * glm::vec4(worldPosition, 1.0f);
+            valid = prevClip.w > 0.0f;
+            if (!valid)
+                return glm::vec2(-1.0f);
+            return (glm::vec2(prevClip) / prevClip.w) * 0.5f + 0.5f;
+        }
+
+        // Issue #903: the non-colour channel. Alpha is transmittance, so it
+        // gets its own 1-D box instead of a slot in the YCoCg one.
+        struct ScalarStats
+        {
+            float Mean;
+            float StdDev;
+            float MinC;
+            float MaxC;
+        };
+
+        [[nodiscard]] float ClipHistoryScalar(float history, ScalarStats stats, float gamma)
+        {
+            const float boxMin = std::max(stats.MinC, stats.Mean - gamma * stats.StdDev);
+            const float boxMax = std::min(stats.MaxC, stats.Mean + gamma * stats.StdDev);
+            return std::clamp(history, std::min(boxMin, boxMax), std::max(boxMin, boxMax));
         }
 
         [[nodiscard]] float DepthConfidence(float currentViewDepth, float prevViewDepth, float relativeTolerance)
@@ -1081,6 +1114,178 @@ TEST(StochasticSampler, DepthConfidenceIsRelativeNotAbsolute)
 
     EXPECT_FLOAT_EQ(Temporal::DepthConfidence(10.0f, 10.0f, tolerance), 1.0f) << "identical depth must be full confidence";
     EXPECT_FLOAT_EQ(Temporal::DepthConfidence(10.0f, 20.0f, tolerance), 0.0f) << "a doubled depth must be fully rejected";
+}
+
+// =============================================================================
+// Reprojection — the resolve's first question  (issue #903)
+// =============================================================================
+
+// A point BEHIND the previous camera is the case that does not announce itself.
+// Dividing by a negative w mirrors the point back through the origin and lands
+// it somewhere entirely plausible on screen, so the off-screen test downstream
+// passes it and the resolve blends against an unrelated pixel. The helper
+// therefore reports validity AND returns a UV the off-screen test rejects, so a
+// caller who forgets the flag still fails safe.
+TEST(StochasticSampler, ReprojectionReportsPointsBehindThePreviousCamera)
+{
+    // Previous camera at the origin looking down -Z, the GL convention.
+    const glm::mat4 prevViewProjection =
+        glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 10000.0f) *
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+
+    bool valid = true;
+    const glm::vec2 behind = Temporal::ReprojectWorldPoint(prevViewProjection, glm::vec3(0.0f, 0.0f, 50.0f), valid);
+    EXPECT_FALSE(valid) << "a point behind the previous camera was reported as reprojectable";
+    EXPECT_FALSE(Temporal::HistoryUVValid(behind))
+        << "the fail-safe UV was inside the viewport — a caller ignoring `valid` would sample garbage";
+
+    // The control: the mirrored point IN FRONT reprojects to the centre of the
+    // screen, which is exactly the plausible-looking UV the w <= 0 case would
+    // have produced had the guard not been there.
+    const glm::vec2 inFront = Temporal::ReprojectWorldPoint(prevViewProjection, glm::vec3(0.0f, 0.0f, -50.0f), valid);
+    EXPECT_TRUE(valid);
+    EXPECT_TRUE(Temporal::HistoryUVValid(inFront));
+    EXPECT_NEAR(inFront.x, 0.5f, 1e-5f);
+    EXPECT_NEAR(inFront.y, 0.5f, 1e-5f);
+}
+
+// An off-screen reprojection is not "old history", it is a different pixel.
+TEST(StochasticSampler, HistoryUVValidityIsInclusiveOfTheEdges)
+{
+    EXPECT_TRUE(Temporal::HistoryUVValid(glm::vec2(0.0f, 0.0f)));
+    EXPECT_TRUE(Temporal::HistoryUVValid(glm::vec2(1.0f, 1.0f)));
+    EXPECT_TRUE(Temporal::HistoryUVValid(glm::vec2(0.5f, 0.25f)));
+    EXPECT_FALSE(Temporal::HistoryUVValid(glm::vec2(-1e-4f, 0.5f)));
+    EXPECT_FALSE(Temporal::HistoryUVValid(glm::vec2(0.5f, 1.0f + 1e-4f)));
+}
+
+// =============================================================================
+// The scalar (non-colour) channel — issue #903
+// =============================================================================
+
+// The claim the cloudscape resolve's comment rests on: in ONE dimension, the
+// segment clip toward the box centre and the componentwise clamp are the SAME
+// operation. That is why alpha may be clamped without re-introducing the thing
+// the RGB path just stopped doing — the failure mode of a clamp (landing on a
+// value the neighbourhood never contained) needs a second, coupled axis to
+// leave, and one axis has none.
+//
+// Asserted against ClipToAABB itself rather than restated: a box that only
+// binds on x, with the history sitting on the centre in y and z, must come back
+// with exactly clamp(history.x, lo, hi).
+TEST(StochasticSampler, ScalarClipIsTheOneDimensionalCaseOfTheClip)
+{
+    constexpr float lo = 0.2f;
+    constexpr float hi = 0.8f;
+    const glm::vec3 boxMin(lo, -1.0f, -1.0f);
+    const glm::vec3 boxMax(hi, 1.0f, 1.0f);
+    const float centreY = 0.5f * (boxMin.y + boxMax.y);
+    const float centreZ = 0.5f * (boxMin.z + boxMax.z);
+
+    for (float h : { -3.0f, 0.0f, 0.19f, 0.2f, 0.5f, 0.8f, 0.81f, 4.0f })
+    {
+        const glm::vec3 clipped = Temporal::ClipToAABB(glm::vec3(h, centreY, centreZ), boxMin, boxMax);
+        EXPECT_NEAR(clipped.x, std::clamp(h, lo, hi), 1e-5f)
+            << "history " << h << ": the 1-D clip and the 1-D clamp disagreed";
+    }
+}
+
+// The scalar variance box, built exactly as the vec3 one is. Two properties
+// that matter for transmittance specifically: a plausible history is untouched
+// (so a converged deck keeps accumulating), and an implausible one is pulled to
+// the box edge rather than to the current frame (so a single odd texel does not
+// reset the accumulation).
+TEST(StochasticSampler, ScalarClipBoundsHistoryToTheNeighbourhood)
+{
+    // Neighbourhood transmittance around 0.6, spread +/- 0.05.
+    const Temporal::ScalarStats stats{ 0.6f, 0.05f, 0.5f, 0.7f };
+    constexpr float gamma = 1.25f;
+
+    EXPECT_FLOAT_EQ(Temporal::ClipHistoryScalar(0.6f, stats, gamma), 0.6f);
+    EXPECT_FLOAT_EQ(Temporal::ClipHistoryScalar(0.58f, stats, gamma), 0.58f) << "a plausible history was rejected";
+
+    // mean + 1.25*stddev = 0.6625, inside the hard max of 0.7, so that is the
+    // binding edge — the variance box is what rejects, not the hard box.
+    EXPECT_NEAR(Temporal::ClipHistoryScalar(0.95f, stats, gamma), 0.6625f, 1e-5f);
+    EXPECT_NEAR(Temporal::ClipHistoryScalar(0.0f, stats, gamma), 0.5375f, 1e-5f);
+}
+
+// A flat neighbourhood makes mean-gamma*stddev and mean+gamma*stddev collapse
+// onto the mean, and the intersection with the hard box can then cross. The
+// vec3 path re-orders with min/max for exactly this; the scalar path must too,
+// or a uniform patch of sky returns a box with min > max and clamp() is
+// undefined for it.
+TEST(StochasticSampler, ScalarClipSurvivesAFlatNeighbourhood)
+{
+    const Temporal::ScalarStats flat{ 1.0f, 0.0f, 1.0f, 1.0f }; // clear sky: transmittance 1 everywhere
+    EXPECT_FLOAT_EQ(Temporal::ClipHistoryScalar(1.0f, flat, 1.25f), 1.0f);
+    EXPECT_FLOAT_EQ(Temporal::ClipHistoryScalar(0.3f, flat, 1.25f), 1.0f);
+
+    // And the crossing case itself: a hard box that does not contain the mean
+    // cannot be constructed by the gather, but a caller could hand one over.
+    const Temporal::ScalarStats crossed{ 0.9f, 0.4f, 0.1f, 0.2f };
+    const float out = Temporal::ClipHistoryScalar(0.5f, crossed, 1.25f);
+    EXPECT_GE(out, 0.1f);
+    EXPECT_LE(out, 0.4f) << "an inverted box was passed to clamp() unordered";
+}
+
+// The acceptance criterion of #903, as a ratchet rather than a promise: the
+// cloudscape resolve must go through the shared kernel, and must not carry a
+// second implementation of it. Checked on the pass's OWN text — the header it
+// includes legitimately contains all of these tokens.
+TEST(StochasticSampler, CloudscapeResolveUsesTheSharedTemporalKernel)
+{
+    namespace fs = std::filesystem;
+    const auto root = Tests::ShaderHarness::ResolveShaderRoot();
+    ASSERT_FALSE(root.empty());
+
+    const fs::path pass = root / "PostProcess_CloudscapeResolve.glsl";
+    const std::string src = Tests::ShaderHarness::ReadWholeFile(pass);
+    ASSERT_FALSE(src.empty()) << "could not read " << pass.string();
+
+    EXPECT_NE(src.find("#include \"include/TemporalResolve.glsl\""), std::string::npos)
+        << "the cloudscape resolve stopped including the shared kernel";
+    EXPECT_NE(src.find("OloTemporalResolveRGBA("), std::string::npos)
+        << "the cloudscape resolve no longer calls the shared kernel";
+    EXPECT_NE(src.find("OloTemporalReprojectWorldPoint("), std::string::npos)
+        << "the cloudscape resolve went back to reprojecting by hand";
+
+    // Strip comments before looking for the hand-rolled shapes: this file
+    // *describes* the clamp it replaced, and the description must not trip the
+    // check that the code is gone. BOTH comment forms: a //-only stripper
+    // would let a /* */ description of the old code fail this test.
+    std::string code;
+    code.reserve(src.size());
+    for (std::size_t i = 0; i < src.size();)
+    {
+        if (src.compare(i, 2, "//") == 0)
+        {
+            const std::size_t eol = src.find('\n', i);
+            i = (eol == std::string::npos) ? src.size() : eol;
+            continue;
+        }
+        if (src.compare(i, 2, "/*") == 0)
+        {
+            const std::size_t end = src.find("*/", i + 2);
+            i = (end == std::string::npos) ? src.size() : end + 2;
+            continue;
+        }
+        code.push_back(src[i]);
+        ++i;
+    }
+
+    // The needles carry their trailing delimiter on purpose. A bare "nMin"
+    // also matches a future `nMinSteps`, and a bare "mix(current" matches
+    // `mix(currentA, ...)`. A ratchet that fires on innocent code gets
+    // deleted rather than investigated, which costs the guard entirely.
+    EXPECT_EQ(code.find("clamp(history,"), std::string::npos)
+        << "a hand-rolled neighbourhood clamp came back — the shared clip is what this pass migrated to";
+    EXPECT_EQ(code.find("mix(current,"), std::string::npos)
+        << "a hand-rolled feedback blend came back — use OloTemporalBlend / OloTemporalResolveRGBA";
+    EXPECT_EQ(code.find("nMin ="), std::string::npos)
+        << "a hand-rolled 3x3 min/max gather came back — use OLO_TEMPORAL_GATHER_3X3_RGBA";
+    EXPECT_EQ(code.find("prevClip.w"), std::string::npos)
+        << "a hand-rolled perspective divide came back — OloTemporalReprojectWorldPoint owns the w <= 0 guard";
 }
 
 // =============================================================================

@@ -41,6 +41,7 @@
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
+#include <utility>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -98,18 +99,28 @@ namespace OloEngine::Tests
             }
         };
 
+        // A float texture for a shader probe to sample. The format and wrap
+        // arguments default to what every caller before issue #903 used
+        // (R32F fed from GL_RED, and the GL default GL_REPEAT this ctor used
+        // to inherit by not setting wrap at all), so adding them changed no
+        // existing call site. Filtering stays NEAREST for every caller: a
+        // probe wants the texel it asked for, not a blend of its neighbours.
         struct ScopedTexture2D
         {
             GLuint m_Id = 0;
 
-            ScopedTexture2D(u32 width, u32 height, const f32* pixels)
+            ScopedTexture2D(u32 width, u32 height, const f32* pixels, GLenum internalFormat = GL_R32F,
+                            GLenum uploadFormat = GL_RED, GLenum wrapMode = GL_REPEAT)
             {
                 ::glCreateTextures(GL_TEXTURE_2D, 1, &m_Id);
-                ::glTextureStorage2D(m_Id, 1, GL_R32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+                ::glTextureStorage2D(m_Id, 1, internalFormat, static_cast<GLsizei>(width),
+                                     static_cast<GLsizei>(height));
                 ::glTextureSubImage2D(m_Id, 0, 0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height),
-                                      GL_RED, GL_FLOAT, pixels);
+                                      uploadFormat, GL_FLOAT, pixels);
                 ::glTextureParameteri(m_Id, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
                 ::glTextureParameteri(m_Id, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                ::glTextureParameteri(m_Id, GL_TEXTURE_WRAP_S, static_cast<GLint>(wrapMode));
+                ::glTextureParameteri(m_Id, GL_TEXTURE_WRAP_T, static_cast<GLint>(wrapMode));
             }
 
             ~ScopedTexture2D()
@@ -878,4 +889,238 @@ namespace OloEngine::Tests
         // Case 6: linear fog before fogStart → exactly 0 (clamp).
         EXPECT_FLOAT_EQ(output[6], 0.0f) << "Linear fog before fogStart must clamp to 0";
     }
+    // =========================================================================
+    // Temporal resolve, RGBA entry point (issue #903)
+    //
+    // The cloudscape resolve moved onto include/TemporalResolve.glsl, whose
+    // alpha half exists because transmittance is not a colour channel. What is
+    // worth probing on the real GPU is not the arithmetic — the CPU mirror in
+    // StochasticSamplerTest covers that — but OLO_TEMPORAL_GATHER_3X3_RGBA,
+    // which fills TWO statistics structs from ONE nine-tap loop. The way that
+    // breaks is a crossed accumulator, and a mirror of the functions it feeds
+    // would never notice.
+    // =========================================================================
+    namespace
+    {
+        struct TemporalRgbaProbeResult
+        {
+            std::array<f32, 4> Rgba{};       // OloTemporalResolveRGBA
+            std::array<f32, 4> RgbOnly{};    // OloTemporalResolve via the original macro
+            std::array<f32, 4> AlphaStats{}; // mean, stddev, min, max
+        };
+
+        // `signal` is 9 RGBA texels; `cases` is one {history, (gamma, feedback,
+        // confidence, 0)} pair per invocation.
+        std::vector<TemporalRgbaProbeResult> RunTemporalRgbaProbe(
+            const std::array<std::array<f32, 4>, 9>& signal,
+            const std::vector<std::pair<std::array<f32, 4>, std::array<f32, 4>>>& cases)
+        {
+            std::vector<TemporalRgbaProbeResult> results(cases.size());
+
+            std::vector<f32> signalPixels;
+            signalPixels.reserve(9u * 4u);
+            for (const auto& texel : signal)
+                signalPixels.insert(signalPixels.end(), texel.begin(), texel.end());
+
+            std::vector<f32> inputs;
+            inputs.reserve(cases.size() * 8u);
+            for (const auto& [history, params] : cases)
+            {
+                inputs.insert(inputs.end(), history.begin(), history.end());
+                inputs.insert(inputs.end(), params.begin(), params.end());
+            }
+
+            const auto outputFloats = results.size() * 12u; // 3 vec4 per case
+            // Row-major from the bottom-left texel (GL's origin), so index 4 is
+            // the centre the probe samples. CLAMP_TO_EDGE is belt-and-braces:
+            // the 3x3 gather stays inside the texture, so nothing wraps anyway.
+            ScopedTexture2D signalTexture(3u, 3u, signalPixels.data(), GL_RGBA32F, GL_RGBA,
+                                          GL_CLAMP_TO_EDGE);
+            ScopedBuffer inputBuffer(static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)),
+                                     GL_DYNAMIC_STORAGE_BIT);
+            ScopedBuffer outputBuffer(static_cast<GLsizeiptr>(outputFloats * sizeof(f32)),
+                                      GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+            ::glNamedBufferSubData(inputBuffer, 0, static_cast<GLsizeiptr>(inputs.size() * sizeof(f32)),
+                                   inputs.data());
+
+            auto shader = ComputeShader::Create("assets/shaders/tests/ShaderUnit_TemporalResolveRGBA.glsl");
+            if (!shader || !shader->IsValid())
+            {
+                ADD_FAILURE() << "temporal resolve RGBA compute shader failed to compile";
+                return {};
+            }
+
+            shader->Bind();
+            ::glBindTextureUnit(0, signalTexture);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, outputBuffer);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, inputBuffer);
+            ::glDispatchCompute(static_cast<GLuint>(cases.size()), 1, 1);
+            ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+            std::vector<f32> raw(outputFloats);
+            ::glGetNamedBufferSubData(outputBuffer, 0, static_cast<GLsizeiptr>(outputFloats * sizeof(f32)),
+                                      raw.data());
+
+            ::glBindTextureUnit(0, 0);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+            ::glUseProgram(0);
+
+            for (std::size_t i = 0; i < results.size(); ++i)
+            {
+                const f32* base = raw.data() + i * 12u;
+                std::memcpy(results[i].Rgba.data(), base, 4u * sizeof(f32));
+                std::memcpy(results[i].RgbOnly.data(), base + 4u, 4u * sizeof(f32));
+                std::memcpy(results[i].AlphaStats.data(), base + 8u, 4u * sizeof(f32));
+            }
+            return results;
+        }
+
+        // A signal whose COLOUR is uniform and whose ALPHA varies widely. If the
+        // gather ever crosses its accumulators, this is the neighbourhood that
+        // says so loudest: the colour box is degenerate and the alpha box is not.
+        constexpr std::array<std::array<f32, 4>, 9> kFlatColourVariedAlpha = { {
+            { { 0.5f, 0.5f, 0.5f, 0.0f } },
+            { { 0.5f, 0.5f, 0.5f, 0.25f } },
+            { { 0.5f, 0.5f, 0.5f, 0.5f } },
+            { { 0.5f, 0.5f, 0.5f, 0.75f } },
+            { { 0.5f, 0.5f, 0.5f, 1.0f } }, // centre
+            { { 0.5f, 0.5f, 0.5f, 0.75f } },
+            { { 0.5f, 0.5f, 0.5f, 0.5f } },
+            { { 0.5f, 0.5f, 0.5f, 0.25f } },
+            { { 0.5f, 0.5f, 0.5f, 0.0f } },
+        } };
+
+        // The mirror image: alpha uniform, colour varied.
+        constexpr std::array<std::array<f32, 4>, 9> kVariedColourFlatAlpha = { {
+            { { 0.0f, 0.1f, 0.9f, 0.6f } },
+            { { 0.2f, 0.3f, 0.7f, 0.6f } },
+            { { 0.4f, 0.5f, 0.5f, 0.6f } },
+            { { 0.6f, 0.7f, 0.3f, 0.6f } },
+            { { 0.8f, 0.9f, 0.1f, 0.6f } }, // centre
+            { { 0.7f, 0.2f, 0.4f, 0.6f } },
+            { { 0.1f, 0.8f, 0.6f, 0.6f } },
+            { { 0.3f, 0.4f, 0.2f, 0.6f } },
+            { { 0.9f, 0.0f, 0.8f, 0.6f } },
+        } };
+    } // namespace
+
+    // The alpha statistics must come from the alpha channel and nothing else.
+    // Hand-computed for kFlatColourVariedAlpha: the nine alphas are
+    // {0, .25, .5, .75, 1, .75, .5, .25, 0}, mean 4.0/9.
+    TEST(ShaderUnitTemporalResolveTest, AlphaStatisticsComeFromTheAlphaChannel)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const auto results = RunTemporalRgbaProbe(kFlatColourVariedAlpha,
+                                                  { { { { 0.5f, 0.5f, 0.5f, 0.5f } }, { { 1.25f, 0.9f, 1.0f, 0.0f } } } });
+        ASSERT_EQ(results.size(), 1u);
+
+        constexpr f32 kExpectedMean = 4.0f / 9.0f;
+        constexpr f32 kExpectedSecondMoment = (0.0f + 0.0625f + 0.25f + 0.5625f + 1.0f + 0.5625f + 0.25f + 0.0625f + 0.0f) / 9.0f;
+        const f32 expectedStdDev = std::sqrt(kExpectedSecondMoment - kExpectedMean * kExpectedMean);
+
+        EXPECT_NEAR(results[0].AlphaStats[0], kExpectedMean, 1e-5f) << "alpha mean";
+        EXPECT_NEAR(results[0].AlphaStats[1], expectedStdDev, 1e-5f) << "alpha stddev";
+        EXPECT_NEAR(results[0].AlphaStats[2], 0.0f, 1e-5f) << "alpha min";
+        EXPECT_NEAR(results[0].AlphaStats[3], 1.0f, 1e-5f) << "alpha max";
+
+        // And the colour box is degenerate on this signal, so any history colour
+        // resolves to the neighbourhood's single colour — which is also the
+        // current one. If alpha had leaked into the colour accumulators this
+        // would not hold.
+        EXPECT_NEAR(results[0].Rgba[0], 0.5f, 1e-5f);
+        EXPECT_NEAR(results[0].Rgba[1], 0.5f, 1e-5f);
+        EXPECT_NEAR(results[0].Rgba[2], 0.5f, 1e-5f);
+    }
+
+    // The reverse leak: a wide COLOUR spread must not widen the ALPHA box. With
+    // alpha uniform at 0.6 the hard box is [0.6, 0.6], so a history alpha of
+    // 0.05 must be clipped all the way back to 0.6 no matter how much room the
+    // colour channels have.
+    //
+    // Note what the stddev is NOT asserted to be. `sqrt(E[x^2] - mean^2)` on a
+    // FLAT channel does not return zero in fp32: one ULP of cancellation in the
+    // subtraction (5.96e-8 for 0.6) becomes 2.4e-4 once the sqrt is taken,
+    // because sqrt has unbounded slope at the origin. Measured here at 3.2e-4.
+    // So the variance box on a flat neighbourhood is ~+/-4e-4 wide rather than
+    // degenerate, and it is the INTERSECTION with the hard min/max that pins it
+    // back to exactly [0.6, 0.6]. That intersection is load-bearing, not belt
+    // and braces — which is the reason this test asserts the resolved value and
+    // merely bounds the statistic.
+    TEST(ShaderUnitTemporalResolveTest, ColourSpreadDoesNotWidenTheAlphaBox)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const auto results = RunTemporalRgbaProbe(kVariedColourFlatAlpha,
+                                                  { { { { 0.8f, 0.9f, 0.1f, 0.05f } }, { { 1.25f, 0.9f, 1.0f, 0.0f } } } });
+        ASSERT_EQ(results.size(), 1u);
+
+        // Bounded, not zero — see above. A crossed accumulator would put the
+        // COLOUR spread here, which on this signal is order 0.1, three orders
+        // of magnitude above the cancellation floor.
+        EXPECT_LT(results[0].AlphaStats[1], 1.0e-3f)
+            << "a flat alpha channel reported a real spread — the gather is reading the colour accumulator";
+        EXPECT_NEAR(results[0].AlphaStats[2], 0.6f, 1e-5f) << "alpha hard min";
+        EXPECT_NEAR(results[0].AlphaStats[3], 0.6f, 1e-5f) << "alpha hard max";
+
+        // The decisive one: the history alpha lands on the neighbourhood value.
+        EXPECT_NEAR(results[0].Rgba[3], 0.6f, 1e-5f)
+            << "the history alpha was not clipped to its own neighbourhood — the colour box widened it";
+    }
+
+    // The colour path must be bit-for-bit what it was before the RGBA macro
+    // existed. Both gathers run in the same invocation over the same texels, so
+    // any disagreement is the new macro's doing.
+    //
+    // OLO_TEMPORAL_GATHER_3X3 now DELEGATES to the RGBA one, so this is close to
+    // a tautology on the current code and that is the point: it is the guard on
+    // the delegation. The moment someone "optimises" the colour-only path back
+    // into its own loop — the obvious change, since the alpha accumulators look
+    // like waste to a reader who has not checked that they are dead stores —
+    // this test is what says whether the copy still agrees.
+    TEST(ShaderUnitTemporalResolveTest, TheRgbaGatherLeavesTheColourPathUnchanged)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        std::vector<std::pair<std::array<f32, 4>, std::array<f32, 4>>> cases = {
+            { { { 0.8f, 0.9f, 0.1f, 0.6f } }, { { 1.25f, 0.9f, 1.0f, 0.0f } } },   // history == current
+            { { { 5.0f, -2.0f, 3.0f, 0.6f } }, { { 1.25f, 0.9f, 1.0f, 0.0f } } },  // far outside the box
+            { { { 0.35f, 0.55f, 0.45f, 0.6f } }, { { 2.0f, 0.5f, 1.0f, 0.0f } } }, // looser gamma, lower feedback
+        };
+
+        for (const auto& signal : { kVariedColourFlatAlpha, kFlatColourVariedAlpha })
+        {
+            const auto results = RunTemporalRgbaProbe(signal, cases);
+            ASSERT_EQ(results.size(), cases.size());
+            for (std::size_t i = 0; i < results.size(); ++i)
+            {
+                for (std::size_t c = 0; c < 3u; ++c)
+                {
+                    EXPECT_NEAR(results[i].Rgba[c], results[i].RgbOnly[c], 1e-5f)
+                        << "case " << i << ", channel " << c
+                        << ": OLO_TEMPORAL_GATHER_3X3_RGBA disagreed with OLO_TEMPORAL_GATHER_3X3";
+                }
+            }
+        }
+    }
+
+    // Confidence 0 is "there is no history here", and the only correct answer is
+    // the current frame exactly — in all FOUR channels. The vec3 kernel could
+    // not make that promise about alpha; this entry point can, and the
+    // cloudscape's occlusion gate (#987) depends on it.
+    TEST(ShaderUnitTemporalResolveTest, ZeroConfidenceReturnsTheCurrentTexelIncludingAlpha)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const auto results = RunTemporalRgbaProbe(kFlatColourVariedAlpha,
+                                                  { { { { 9.0f, -4.0f, 7.0f, 0.0f } }, { { 1.25f, 0.98f, 0.0f, 0.0f } } } });
+        ASSERT_EQ(results.size(), 1u);
+
+        EXPECT_NEAR(results[0].Rgba[0], 0.5f, 1e-6f);
+        EXPECT_NEAR(results[0].Rgba[1], 0.5f, 1e-6f);
+        EXPECT_NEAR(results[0].Rgba[2], 0.5f, 1e-6f);
+        EXPECT_NEAR(results[0].Rgba[3], 1.0f, 1e-6f) << "alpha ignored confidence";
+    }
+
 } // namespace OloEngine::Tests
