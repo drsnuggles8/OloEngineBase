@@ -1723,9 +1723,38 @@ namespace OloEngine::Tests
             const f32 decodedModel = pixels[idx + 1];
             const f32 unlitBit = pixels[idx + 2];
 
+            // A GPU readback is an external float boundary, so validate before
+            // any of it reaches a cast to integer (cpp-coding-quality §2b):
+            // static_cast / std::lround of NaN or ±inf is undefined behaviour,
+            // and a NaN would otherwise slip silently into the distinctness set
+            // below rather than failing here. A non-finite texel means the draw
+            // or the readback failed, which makes nothing after it measurable.
+            ASSERT_TRUE(std::isfinite(lane) && std::isfinite(decodedModel) && std::isfinite(unlitBit))
+                << "model " << model << ": the probe read back a non-finite texel (lane " << lane
+                << ", decoded " << decodedModel << ", unlit " << unlitBit
+                << ") — the harness draw or its readback failed.";
+
+            // The lane carries `model * 2` (+ the unlit bit), so a value outside
+            // that range is the transport breaking rather than the comparison
+            // below disagreeing — and it is what makes the lround safe.
+            constexpr f32 kLaneMax = static_cast<f32>(2 * kPBRModelGBufferLaneMax + 1);
+            ASSERT_GE(lane, 0.0f) << "model " << model << ": lane value " << lane << " is negative.";
+            ASSERT_LE(lane, kLaneMax)
+                << "model " << model << ": lane value " << lane << " exceeds the " << kLaneMax
+                << " the RGBA16F lane can carry exactly.";
+
+            // Both quantities are exact small integers by construction (the
+            // shader writes them through fp16, which represents every integer
+            // up to 2048 exactly), so the tolerance is a float-comparison
+            // formality rather than slack: 1e-3 is four orders of magnitude
+            // below the 1.0 that separates neighbouring model indices. That
+            // makes this STRICTER than the truncating `static_cast<i32>` it
+            // replaces, which accepted anything in [model, model + 1).
+            constexpr f32 kExactTolerance = 1e-3f;
+
             // The whole point: what goes in comes back out. A truncating lane
             // (the pre-#996 `min(pbrModel, 1)`) fails from model 2 onward.
-            EXPECT_EQ(static_cast<i32>(decodedModel), static_cast<i32>(model))
+            EXPECT_NEAR(decodedModel, static_cast<f32>(model), kExactTolerance)
                 << "model " << model << " did not survive the G-Buffer flags lane"
                 << " (lane value " << lane << ") — it decoded as " << decodedModel
                 << "; a model that truncates here shades a DIFFERENT closure on Deferred"
@@ -1736,12 +1765,13 @@ namespace OloEngine::Tests
             // all: the averaged-resolve defect #996 fixed produced exactly this
             // (a ClosureV2 silhouette decoding UNLIT and returning raw
             // emissive, i.e. a black fringe).
-            EXPECT_EQ(unlitBit, 0.0f)
+            EXPECT_NEAR(unlitBit, 0.0f, kExactTolerance)
                 << "model " << model << " set the unlit bit (lane value " << lane
                 << ") — that pixel would return raw emissive instead of being shaded.";
 
             // Distinctness. Two models sharing a lane value is the same silent
-            // divergence wearing a different hat.
+            // divergence wearing a different hat. Safe to narrow here: the
+            // finiteness and range guards above already ran.
             const i32 laneCode = static_cast<i32>(std::lround(lane));
             EXPECT_TRUE(seenLaneValues.insert(laneCode).second)
                 << "model " << model << " encodes to lane value " << laneCode
