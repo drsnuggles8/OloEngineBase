@@ -796,6 +796,42 @@ ground *behind* the sphere, so something had written depth there without colour.
 
 ---
 
+## 8a. A large `const` array in a shared include is a LINK-time driver bomb, and glslc cannot see it
+
+From issue #975's energy-compensation tables. A `const float kTable[256] = float[256](...)`
+in `include/PBRClosureV2Energy.glsl`, dynamically indexed by a bilinear lookup:
+
+- **glslc validated it clean** on both target envs — the front end is fine with it.
+- **Single-call-site shaders compiled and RENDERED it fine** (the parity probe and the
+  material-lab probe, on the same NVIDIA driver).
+- `PBR_MultiLight{,_Skinned}.glsl` — which inline the lookup at THREE lighting call
+  sites — **failed to LINK at runtime**: `error C5025: lvalue in assignment too complex`,
+  eight times. SPIRV-Cross materialises a dynamically-indexed constant array as a
+  function-local temporary copy, and enough inlined copies in a large fragment shader
+  trip the driver's complexity limit.
+
+And on this engine a runtime link failure is not loud: the scene renders **without that
+material pass** — flat frames, missing geometry, "the halo never appeared" — which is why
+it surfaced as 45 assorted visual-test failures rather than anything naming the shader.
+The one place the actual error appears is the `OloEngine.log` line
+`[OpenGL] Shader linking failed for '...'`; grep for it before chasing pixels.
+
+Rules distilled:
+
+- **Budget shader constant arrays by their EMITTED assignment count, not element count**,
+  and assume every dynamically-indexed constant array is copied once per inlined call
+  site. `POISSON_DISK_16` (16 vec2) is fine; 256 floats × 3 call sites is not.
+- **Pack big tables**: two IEEE halfs per uint, four uints per uvec4 —
+  `PBRClosureV2Energy.glsl` stores 272 table entries in 34 `uvec4` constants, decoded
+  with `unpackHalf2x16`, with the C++ twin decoding the same words so parity is exact.
+  (A UBO or texture is the classic alternative; here the UBO namespace had one slot left
+  and the free texture units collided with the shader's own Vulkan vertex-pull SSBO
+  bindings — the ADR 0011 item-A2 single-set trap. Check both namespaces before assuming
+  a resource slot is the easy way out.)
+- **glslc validation and single-shader GPU tests do not cover the biggest consumer.**
+  A shared-include change is only proven by compiling (or running) the largest shader
+  that includes it — the full-suite visual tests are what caught this one.
+
 ## 9. Display-range vs HDR-linear post-process ordering
 
 Some post-process kernels are written against the **[0,1] display range** and break

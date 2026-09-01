@@ -3438,6 +3438,18 @@ namespace OloEngine
             if (f32 roughness = component.m_Material.GetRoughnessFactor(); ImGui::DragFloat("Roughness", &roughness, 0.01f, 0.0f, 1.0f))
                 component.m_Material.SetRoughnessFactor(roughness);
 
+            // Versioned PBR closure (issue #975): Legacy is the frozen shipping
+            // closure; Closure V2 opts into the corrected one (one geometry
+            // term, near-mirror-safe NDF, energy compensation).
+            {
+                const char* pbrModels[] = { "Legacy", "Closure V2" };
+                if (int pbrModel = static_cast<int>(component.m_Material.GetPBRModel());
+                    ImGui::Combo("PBR Model", &pbrModel, pbrModels, IM_ARRAYSIZE(pbrModels)))
+                {
+                    component.m_Material.SetPBRModel(static_cast<PBRModel>(pbrModel));
+                }
+            }
+
             ImGui::Separator();
 
             // Shader Graph assignment

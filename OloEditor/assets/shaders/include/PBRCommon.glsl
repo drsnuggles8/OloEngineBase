@@ -40,6 +40,39 @@
 #define MAX_ROUGHNESS 1.0
 
 // =============================================================================
+// PBR CLOSURE MODEL SELECTOR (issue #975)
+// =============================================================================
+// Mirrors PBRModel in Renderer/PBRModel.h and the u_PBRModel lane of
+// PBRMaterialProperties (UBO binding 2). Legacy is the default: existing
+// materials keep the exact closure they shipped with, bit for bit; ClosureV2
+// is an explicit per-material opt-in. See PBR CLOSURE V2 below.
+#define OLO_PBR_MODEL_LEGACY 0
+#define OLO_PBR_MODEL_CLOSURE_V2 1
+
+// The G-Buffer RT2 alpha "MaterialFlags" lane, encoded here so its layout has
+// ONE executable home shared by every G-Buffer writer (PBR_GBuffer{,_Skinned},
+// VirtualGBufferFragment, VirtualVisibilityResolve) and one decode
+// (DeferredLightingShared.glsl):
+//
+//   bit 0 — unlit (the overlay shaders write a literal 1.0; PBR writers 0)
+//   bit 1 — PBR closure model. A SINGLE bit: PBRModel.h's numbering is
+//           append-only, so a third model REQUIRES widening this lane in the
+//           same change (the min() below otherwise truncates it to Legacy on
+//           the deferred path only — a silent Forward/Deferred divergence).
+//
+// KNOWN LIMITATION: the lane is not average-safe. In the resolved-MSAA
+// deferred mode (MSAA > 1 with per-sample lighting off — both non-default,
+// session-local toggles) the resolve blit averages samples, and an averaged
+// bitfield decodes wrongly at silhouettes (e.g. ClosureV2 2.0 over Legacy 0.0
+// averages to the unlit code 1.0). The pre-#975 single-flag encoding had the
+// milder variant of the same defect; fixing it means excluding the lane from
+// the averaged resolve, which is deliberately out of this slice.
+float oloEncodeGBufferPbrFlags(int pbrModel)
+{
+    return float(min(pbrModel, OLO_PBR_MODEL_CLOSURE_V2) * 2);
+}
+
+// =============================================================================
 // RENDERING CONSTANTS
 // =============================================================================
 #define GAMMA 2.2
@@ -190,6 +223,10 @@ float distributionGGXAnisotropic(vec3 N, vec3 H, vec3 T, vec3 B, float roughness
 // deliberate exceptions state WHY they differ instead of quietly differing:
 //
 //   distributionGGX                alpha = roughness^2   (a  = alpha, a2 = alpha^2)
+//   distributionGGXUnclamped       alpha = roughness^2   (v2 closure + sampling
+//                                  densities; NO denominator value clamp — the
+//                                  v2 closure clamps ROUGHNESS instead, see the
+//                                  PBR CLOSURE V2 section)
 //   visibilitySmithGGXCorrelated   alpha = roughness^2   (a2 = alpha^2)
 //   ggxSmithLambda / ggxVNDFWeight alpha = roughness^2   (see A NOTE ON ALPHA below)
 //
@@ -722,6 +759,306 @@ vec3 sampleGGXVNDF(vec3 N, vec3 V, float roughness, vec2 Xi)
 }
 
 // =============================================================================
+// PBR CLOSURE V2 (issue #975)
+// =============================================================================
+//
+// A VERSIONED closure. cookTorranceBRDF above is the Legacy model and is
+// frozen: every existing material, scene and golden keeps it bit for bit.
+// ClosureV2 is the explicit opt-in (Material::SetPBRModel, the u_PBRModel UBO
+// lane, ReferenceMaterial::Model) and differs from Legacy in exactly four
+// documented ways:
+//
+//   1. ONE geometry term. The specular lobe is D * V * F with the
+//      height-correlated Smith VISIBILITY term (visibilitySmithGGXCorrelated).
+//      The Schlick-GGX k remap stays reachable only through Legacy.
+//   2. Near-mirror handling clamps ALPHA, not the denominator.
+//      closureV2Roughness floors perceptual roughness at MIN_ROUGHNESS, so
+//      alpha >= MIN_ROUGHNESS^2 and the unclamped NDF is finite everywhere.
+//      The lobe NARROWS and BRIGHTENS toward a mirror as authored roughness
+//      approaches 0, instead of collapsing toward black the way Legacy's
+//      max(denom, EPSILON) makes it (ReferenceBRDF.h's DistributionGGX notes
+//      quantify that collapse).
+//   3. Multiple-scattering energy compensation (Kulla & Conty 2017), driven
+//      by the generated tables in PBRClosureV2Energy.glsl. Reciprocal by
+//      construction, and closes the white furnace exactly for F0 = 1.
+//   4. Because evaluation alpha is clamped and the denominator is not, ONE D
+//      serves Evaluate, Sample and Pdf. The three cannot disagree about the
+//      lobe — the property a path tracer / ReSTIR estimator depends on, and
+//      the reason Legacy needed two Ds (see DistributionGGXSamplingDensity in
+//      ReferenceBRDF.h: a PDF describes the SAMPLER, never the integrand).
+//
+// The Evaluate / Sample / Pdf triple is mirrored in C++ and pinned:
+//   Renderer/PathTracing/ReferenceBRDF.h   — function-for-function twins
+//   Renderer/PathTracing/PBRClosureBSDF.h  — the versioned dispatch the
+//                                            reference path tracer integrates
+//   ReferenceBRDFGpuParityTest (GPU) and the ClosureV2 tests (headless).
+//
+// Deliberate approximations, recorded so they are decisions rather than
+// surprises (each keeps Legacy behaviour on that sub-path, not a regression):
+//   * Sphere-AREA lights shade v2 materials through the Legacy
+//     representative-point evaluator — the Karis normalization rescales D in
+//     a way that has no v2 derivation yet.
+//   * IBL / ambient stays on the split-sum LUT with no multi-scatter term;
+//     energy compensation applies to punctual direct lighting and the CPU
+//     reference tracer in this slice.
+//   * The diffuse split keeps the (1 - F(H)) * (1 - metallic) Lambert term,
+//     documented as THE energy split. F at the half vector is symmetric in
+//     wo/wi, so the v2 closure is reciprocal.
+
+#include "PBRClosureV2Energy.glsl"
+
+// v2 perceptual-roughness clamp — the ONLY roughness guard in the v2 closure.
+// Applied identically before evaluating, sampling and computing the density.
+float closureV2Roughness(float roughness)
+{
+    return clamp(roughness, MIN_ROUGHNESS, MAX_ROUGHNESS);
+}
+
+// The TRUE (unclamped) GGX NDF on a cosine — GLSL twin of ReferenceBRDF.h's
+// DistributionGGXSamplingDensity. alpha = roughness^2 per THE ALPHA LEDGER.
+// The denominator floor is a denormal guard, not a value clamp; with the v2
+// alpha floor it never engages.
+float distributionGGXUnclamped(float NdotH, float roughness)
+{
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float c = max(NdotH, 0.0);
+    float denom = (c * c * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+    return a2 / max(denom, 1.17549435e-38);
+}
+
+// Bilinear lookup into the generated 16x16 single-scatter energy-LOSS table
+// (1 - Ess). Cell-centered grid; clamped at the edges, never extrapolates.
+// `roughness` is the AUTHORED perceptual roughness (the table rows bake the
+// v2 alpha clamp in, so callers pass it un-floored). Entries decode from the
+// half-packed constants in PBRClosureV2Energy.glsl — see that file's header
+// for why the packing itself is load-bearing (NVIDIA C5025 at link).
+float ggxEnergyLoss(float mu, float roughness)
+{
+    float fs = float(OLO_GGX_ENERGY_TABLE_SIZE);
+    float x = clamp(clamp(mu, 0.0, 1.0) * fs - 0.5, 0.0, fs - 1.0);
+    float y = clamp(clamp(roughness, 0.0, 1.0) * fs - 0.5, 0.0, fs - 1.0);
+    int x0 = int(floor(x));
+    int y0 = int(floor(y));
+    int x1 = min(x0 + 1, OLO_GGX_ENERGY_TABLE_SIZE - 1);
+    int y1 = min(y0 + 1, OLO_GGX_ENERGY_TABLE_SIZE - 1);
+    float fx = x - float(x0);
+    float fy = y - float(y0);
+    float v00 = ggxEnergyLossEntry(y0 * OLO_GGX_ENERGY_TABLE_SIZE + x0);
+    float v10 = ggxEnergyLossEntry(y0 * OLO_GGX_ENERGY_TABLE_SIZE + x1);
+    float v01 = ggxEnergyLossEntry(y1 * OLO_GGX_ENERGY_TABLE_SIZE + x0);
+    float v11 = ggxEnergyLossEntry(y1 * OLO_GGX_ENERGY_TABLE_SIZE + x1);
+    return mix(mix(v00, v10, fx), mix(v01, v11, fx), fy);
+}
+
+// Linear lookup of 1 - E_avg(roughness) over the same cell-centered axis.
+float ggxEnergyLossAverage(float roughness)
+{
+    float fs = float(OLO_GGX_ENERGY_TABLE_SIZE);
+    float y = clamp(clamp(roughness, 0.0, 1.0) * fs - 0.5, 0.0, fs - 1.0);
+    int y0 = int(floor(y));
+    int y1 = min(y0 + 1, OLO_GGX_ENERGY_TABLE_SIZE - 1);
+    float fy = y - float(y0);
+    return mix(ggxEnergyLossAvgEntry(y0), ggxEnergyLossAvgEntry(y1), fy);
+}
+
+// Kulla-Conty multiple-scattering compensation lobe:
+//
+//     f_ms = F_ms * (1 - Ess(NdotV)) * (1 - Ess(NdotL)) / (pi * (1 - E_avg))
+//     F_ms = F_avg^2 * E_avg / (1 - F_avg * (1 - E_avg)),  F_avg = F0 + (1-F0)/21
+//
+// Symmetric in NdotV/NdotL, so it preserves reciprocity. With F_avg == 1 the
+// hemispherical integral of f_ms * cos is exactly 1 - Ess(NdotV): the white
+// furnace closes to 1 analytically, which is what the furnace test asserts.
+vec3 closureV2MultiScatter(float NdotV, float NdotL, float roughness, vec3 F0)
+{
+    float lossAvg = ggxEnergyLossAverage(roughness);
+    // Below the table's resolution the lobe is near-mirror and sheds nothing
+    // worth compensating; this also guards the 1/lossAvg denominator.
+    if (lossAvg < 1.0e-4)
+        return vec3(0.0);
+
+    float lossV = ggxEnergyLoss(NdotV, roughness);
+    float lossL = ggxEnergyLoss(NdotL, roughness);
+    float eAvg = 1.0 - lossAvg;
+
+    vec3 fAvg = F0 + (vec3(1.0) - F0) * (1.0 / 21.0);
+    vec3 fresnelMs = fAvg * fAvg * eAvg / (vec3(1.0) - fAvg * lossAvg);
+
+    return fresnelMs * (lossV * lossL) / (PI * lossAvg);
+}
+
+// v2 Evaluate: f(V, L) WITHOUT the cosine term, matching cookTorranceBRDF's
+// convention — callers multiply by NdotL.
+vec3 closureV2Evaluate(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+{
+    float r = closureV2Roughness(roughness);
+    vec3 H = normalize(V + L);
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotH = max(dot(N, H), 0.0);
+
+    vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
+    float D = distributionGGXUnclamped(NdotH, r);
+    float Vis = visibilitySmithGGXCorrelated(N, V, L, r);
+    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+
+    // The energy lookup takes the AUTHORED roughness per its contract — the
+    // table rows bake the v2 clamp in, so row 0 IS the r = 0.04 row and
+    // passing the clamped r here would double-apply the clamp (14% into row 1
+    // for authored r < 0.04). C++ twin agrees (ClosureV2Evaluate).
+    vec3 specular = D * Vis * F + closureV2MultiScatter(NdotV, NdotL, roughness, F0);
+
+    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+    return kD * albedo * INV_PI + specular;
+}
+
+// The versioned dispatch every model-aware call site routes through. Legacy
+// materials take the EXACT cookTorranceBRDF path — the branch is on a
+// per-draw uniform, so existing pixels cannot move.
+vec3 evaluatePBRClosure(int pbrModel, vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+{
+    if (pbrModel == OLO_PBR_MODEL_CLOSURE_V2)
+        return closureV2Evaluate(N, V, L, albedo, metallic, roughness);
+    return cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
+}
+
+// ---------------------------------------------------------------------------
+// v2 Sample / Pdf — the other two thirds of the contract triple. No raster
+// pass calls these yet; they exist so a GPU path tracer / ReSTIR pass
+// inherits a sampler and density that already agree with Evaluate. Coverage
+// is honest about its shape: closureV2Pdf and closureV2Evaluate are
+// parity-tested texel-for-texel against the C++ twins
+// (ClosureV2GpuParityTest); closureV2SampleBRDF is compile-covered through
+// that probe's include and its DENSITY is the pinned closureV2Pdf, but the
+// draw itself runs for the first time in its first consumer — extend the
+// parity probe with a sampled-tuple channel in that PR.
+// ---------------------------------------------------------------------------
+
+// Rec. 709 luminance — twin of ReferenceBRDF.h's Luminance.
+float closureV2Luminance(vec3 c)
+{
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// Lobe selection probability — twin of ReferenceBRDF.h's
+// SpecularLobeProbability (see its comment for why the clamp to [0.1, 0.9]
+// is load-bearing: a zero probability on a lobe that carries energy is the
+// classic silent bias of one-sample mixture estimators).
+float closureV2SpecularProbability(vec3 albedo, float metallic)
+{
+    vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
+    vec3 diffuse = albedo * (1.0 - metallic);
+    float specularWeight = closureV2Luminance(F0);
+    float diffuseWeight = closureV2Luminance(diffuse);
+    float total = specularWeight + diffuseWeight;
+    if (!(total > 0.0))
+        return 0.5;
+    return clamp(specularWeight / total, 0.1, 0.9);
+}
+
+// Cosine-weighted hemisphere sample about N (Malley's method) — twin of
+// ReferenceBRDF.h's CosineSampleHemisphere. Body-identical to
+// StochasticCommon.glsl's OloCosineHemisphere, which this file CANNOT call
+// (StochasticCommon includes PBRCommon, not the reverse); if the shared
+// sampler ever moves to MathCommon.glsl, delete this copy and call it — and
+// keep StochasticCommon's stratification contract in mind (Xi.x drives the
+// radius and must be the stratified component).
+vec3 closureV2CosineSampleHemisphere(vec2 Xi, vec3 N)
+{
+    float r = sqrt(max(Xi.x, 0.0));
+    float phi = TWO_PI * Xi.y;
+    float x = r * cos(phi);
+    float y = r * sin(phi);
+    float z = sqrt(max(0.0, 1.0 - Xi.x));
+
+    vec3 tangent;
+    vec3 bitangent;
+    OrthonormalBasis(N, tangent, bitangent);
+    return normalize(tangent * x + bitangent * y + N * z);
+}
+
+// v2 Pdf: the density of closureV2SampleBRDF below, and nothing else. The
+// specular term is the VNDF density through the reflection Jacobian,
+//     pdf(L) = G1(NdotV) * D(NdotH) / (4 * NdotV),
+// on the SAME clamped-alpha D that Evaluate uses. Directions below the
+// horizon report 0, matching the Legacy BsdfPdf convention.
+float closureV2Pdf(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+{
+    float NdotL = dot(N, L);
+    if (NdotL <= 0.0)
+        return 0.0;
+
+    float r = closureV2Roughness(roughness);
+    float alpha = r * r;
+    float pSpecular = closureV2SpecularProbability(albedo, metallic);
+    float pdfDiffuse = NdotL * INV_PI;
+
+    float pdfSpecular = 0.0;
+    float NdotV = dot(N, V);
+    if (NdotV > 0.0)
+    {
+        vec3 H = normalize(V + L);
+        float NdotH = max(dot(N, H), 0.0);
+        float G1V = 1.0 / (1.0 + ggxSmithLambda(NdotV, alpha));
+        pdfSpecular = G1V * distributionGGXUnclamped(NdotH, r) / (4.0 * NdotV);
+    }
+
+    return pSpecular * pdfSpecular + (1.0 - pSpecular) * pdfDiffuse;
+}
+
+struct ClosureV2Sample
+{
+    vec3 L;       // sampled direction
+    vec3 Value;   // full closureV2Evaluate(V, L); cosine NOT included
+    float Pdf;    // the mixture density; closureV2Pdf(L) returns the same number
+};
+
+// v2 Sample: one-sample mixture over the VNDF specular lobe and the cosine
+// diffuse lobe. Always evaluates the FULL closure and reports the COMBINED
+// density — the standard unbiased one-sample MIS estimator.
+//
+// FAILURE CONVENTION (differs from the C++ twin, on purpose — GLSL has no
+// out-bool ergonomics): a below-horizon draw comes back with Pdf == 0 and
+// Value == vec3(0). The consumer MUST treat Pdf <= 0 as a terminated path
+// and never form Value / Pdf there — 0/0 is NaN, and one NaN in an
+// accumulation buffer spreads through temporal reuse. The C++ twin
+// (BSDF::Sample) expresses the same event as `return false`, so its
+// integrator structurally cannot divide; a GLSL consumer must write the
+// guard itself.
+ClosureV2Sample closureV2SampleBRDF(vec3 N, vec3 V, vec3 albedo, float metallic,
+                                    float roughness, float lobeXi, vec2 Xi)
+{
+    ClosureV2Sample s;
+    float pSpecular = closureV2SpecularProbability(albedo, metallic);
+    if (lobeXi < pSpecular)
+    {
+        // The VNDF sampler is defined only for views ABOVE the surface; a
+        // backfacing shading normal would feed it garbage while closureV2Pdf
+        // reports zero specular density. Terminate via the documented
+        // Pdf <= 0 convention (C++ twin returns false here).
+        if (dot(N, V) <= 0.0)
+        {
+            s.L = vec3(0.0, 0.0, 1.0);
+            s.Value = vec3(0.0);
+            s.Pdf = 0.0;
+            return s;
+        }
+        vec3 H = sampleGGXVNDF(N, V, closureV2Roughness(roughness), Xi);
+        s.L = reflect(-V, H);
+    }
+    else
+    {
+        s.L = closureV2CosineSampleHemisphere(Xi, N);
+    }
+    s.Pdf = closureV2Pdf(N, V, s.L, albedo, metallic, roughness);
+    s.Value = (s.Pdf > 0.0) ? closureV2Evaluate(N, V, s.L, albedo, metallic, roughness)
+                            : vec3(0.0);
+    return s;
+}
+
+// =============================================================================
 // LIGHT DATA STRUCTURE
 // =============================================================================
 
@@ -925,9 +1262,14 @@ vec3 calculateSphereAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, float s
 // MULTI-LIGHT CALCULATION
 // =============================================================================
 
-// Calculate contribution from a single light
+// Calculate contribution from a single light. The pbrModel overload is the
+// real body; the trailing selector routes the punctual-light BRDF through
+// evaluatePBRClosure (Legacy pixels are bit-identical — the Legacy branch IS
+// cookTorranceBRDF). Sphere-area lights deliberately keep the Legacy
+// representative-point evaluator for every model — see PBR CLOSURE V2.
 vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
-                               float metallic, float roughness, vec3 worldPos)
+                               float metallic, float roughness, vec3 worldPos,
+                               int pbrModel)
 {
     int lightType = int(light.position.w);
     vec3 lightColor = light.color.rgb;
@@ -935,7 +1277,7 @@ vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
 
     // Sphere area lights take a dedicated evaluator — the representative-point
     // trick splits the BRDF differently, so we cannot route it through the
-    // common L + cookTorranceBRDF path below.
+    // common L + evaluatePBRClosure path below.
     if (lightType == SPHERE_AREA_LIGHT)
     {
         float sphereRadius = light.spotParams.z;       // Packed by Scene::ProcessScene3DSharedLogic
@@ -979,9 +1321,18 @@ vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
 
     // Calculate BRDF
     vec3 radiance = lightColor * lightIntensity * attenuation;
-    vec3 brdf = cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
+    vec3 brdf = evaluatePBRClosure(pbrModel, N, V, L, albedo, metallic, roughness);
 
     return brdf * radiance * NdotL;
+}
+
+// Legacy-model convenience overload: call sites with no material model (the
+// terrain and voxel shaders) keep their existing signature and closure.
+vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
+                               float metallic, float roughness, vec3 worldPos)
+{
+    return calculateLightContribution(light, N, V, albedo, metallic, roughness, worldPos,
+                                      OLO_PBR_MODEL_LEGACY);
 }
 
 // Enhanced light contribution with better energy conservation

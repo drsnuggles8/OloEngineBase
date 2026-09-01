@@ -765,6 +765,7 @@ namespace OloEngine
                 pbrMaterialData.ApplyGammaCorrection = 1;
                 pbrMaterialData.AlphaCutoff = mat.alphaCutoff;
                 pbrMaterialData.AlphaMode = mat.alphaMode;
+                pbrMaterialData.PBRModel = mat.pbrModel;
                 // Issue #632: this was a hard-coded 0, which made the forward
                 // path's probe-ambient shader code dead. Wire it to the same
                 // master toggle the deferred path uses so Forward+ scenes get

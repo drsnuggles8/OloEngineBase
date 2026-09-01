@@ -188,7 +188,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     int u_EnableLightProbes;    // Enable light probe indirect diffuse
     float u_IBLIntensity;       // Runtime IBL strength multiplier
     int u_AlphaMode;            // 0=Opaque, 1=Mask, 2=Blend
-    int _pbrPad2;
+    int u_PBRModel;             // PBRModel selector: 0=Legacy, 1=ClosureV2 (issue #975)
     // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing
@@ -371,7 +371,7 @@ void main()
     if (fplusActive)
     {
         float fplusViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
-        Lo += fplusEvaluateTileLights(N, V, v_WorldPos, albedo, metallic, roughness, fplusViewDepth);
+        Lo += fplusEvaluateTileLights(N, V, v_WorldPos, albedo, metallic, roughness, fplusViewDepth, u_PBRModel);
     }
 
     // UBO light loop: when Forward+ is active, only evaluate directional lights
@@ -382,7 +382,7 @@ void main()
     {
         int lightType = int(u_Lights[i].position.w);
 
-        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
+        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos, u_PBRModel);
         if (lightType == DIRECTIONAL_LIGHT)
         {
             lightContrib *= cloudShadow;
