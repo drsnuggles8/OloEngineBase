@@ -4,7 +4,7 @@
   "version-string": "0.0.1",
   "description": "OloEngine third-party dependencies (issue #773). Everything that can be resolved from the vcpkg registry lives here; the deliberate exceptions and their reasons are listed in docs/agent-rules/vcpkg-dependency-management.md and OloEngine/vendor/CMakeLists.txt.",
   "homepage": "https://github.com/drsnuggles8/OloEngineBase",
-  "builtin-baseline": "15ba82e5c7bde5a274cd06047664cff308ec1292",
+  "builtin-baseline": "30ef65cad98f08e7197c9a1656fbd871bcb72f2d",
   "dependencies": [
     "assimp",
     "atomic-queue",
