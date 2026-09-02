@@ -43,6 +43,15 @@ name: Vulkan OFF (GL-only build)
 #     change somewhere else can still reach a guarded region. The unfiltered runs catch that with
 #     a bounded blast radius (discovered on the next master/weekly run rather than in review),
 #     which is the same trade steam-stub.yml documents for its stub-build job.
+#
+# REVISITED FOR #1015 (item D) AND KEPT. The job now costs ~28 min on the self-hosted box
+# (1h36m hosted), so "every PR" would cost no PR wall-clock -- the Windows jobs are the critical
+# path at over two hours. It would still cost BOX TIME: the box has two `olo-ci` slots, and
+# #1015 routes the three sanitizer jobs there on every same-repo PR, so an unfiltered run here
+# queues in front of a sanitizer job on every PR that could not have changed this job's answer.
+# The filter names the files where OLO_WITH_VULKAN actually lives; a PR outside them pays nothing
+# and the weekly run still catches the include-graph case. The same reasoning gave steam-stub.yml
+# its own filter in the same change.
 on:
   push:
     branches: [master]

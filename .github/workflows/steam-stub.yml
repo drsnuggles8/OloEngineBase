@@ -38,16 +38,27 @@ name: Steam (stub SDK)
 #                      `steam/` include), so per-PR is exactly the right cadence and it is free.
 #
 #   stub-build       — builds the whole engine + test suite to run ~16 Steam tests, ~30-60 min on
-#                      a hosted runner. Runs on master, weekly, and on demand — NOT on every PR.
+#                      a hosted runner, ~28 min on the self-hosted box. Runs on master, weekly,
+#                      on demand — and on a PR that touches the Steam seam (the `detect-changes`
+#                      job below decides), NOT on every PR.
 #
 # Why that is the right trade for the build job: what it defends against is guarded code ROTTING
 # over months, not "this specific PR broke it". A weekly cadence catches that with a bounded blast
 # radius, while running it per-PR would add ~30-60 min of runner time to every PR in the repo
 # forever — for a feature exactly one machine can exercise for real.
 #
-# The residual risk is honest and small: a PR can merge green and break the Steam path, discovered
-# on the next master run rather than in review. Given the alternative cost, that is the better
-# side of the trade. If Steam grows to something the project actually ships on, revisit.
+# REVISITED FOR #1015 (item D): the job costs ~28 min on the box, so per-PR would add no PR
+# wall-clock (Windows is the critical path at over two hours). It would still spend one of the
+# box's two `olo-ci` slots, which #1015 gives to the sanitizer jobs on every same-repo PR. So the
+# build runs on PRs that touch the files where the Steam path actually lives -- Platform/Steam,
+# its tests, the option plumbing, the CI files -- and stays off the rest, the same shape
+# vulkan-off.yml uses. A fork PR that trips the filter takes the hosted arm (~1h36m), still under
+# the Windows critical path.
+#
+# The residual risk is honest and small: a PR outside the filter can merge green and break the
+# Steam path through the include graph, discovered on the next master/weekly run rather than in
+# review. Given the alternative cost, that is the better side of the trade. If Steam grows to
+# something the project actually ships on, revisit.
 on:
   push:
     branches: [master]
@@ -61,6 +72,9 @@ on:
 # from a repo-level default. Matches asan.yml / reflection-status-check.yml.
 permissions:
   contents: read
+  # dorny/paths-filter falls back to the REST API for PR-base detection when the
+  # shallow clone lacks the base commit; that needs pull-requests: read. Same as asan.yml.
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -70,6 +84,44 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Which PRs get the full stub build (#1015 item D). PULL REQUESTS ONLY: a push or
+  # schedule run has no base to diff against, and stub-build's `if` below reads
+  # "not a pull_request OR the filter matched", so those run unconditionally.
+  # Same mechanism and pinned action as asan.yml's detect-changes.
+  detect-changes:
+    name: Detect Steam-seam changes
+    runs-on: ubuntu-latest
+    outputs:
+      steam: ${{ steps.filter.outputs.steam }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Detect changed paths
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            steam:
+              - '.github/workflows/steam-stub.yml'
+              - '.github/actions/**'
+              # The option plumbing: the root option(), the per-target compile
+              # definitions, the vendor/port block and the manifest.
+              - 'CMakeLists.txt'
+              - 'OloEngine/CMakeLists.txt'
+              - 'OloEngine/src/CMakeLists.txt'
+              - 'OloEditor/src/CMakeLists.txt'
+              - 'OloRuntime/src/CMakeLists.txt'
+              - 'OloServer/src/CMakeLists.txt'
+              - 'cmake/**'
+              - 'vcpkg.json'
+              # The seam itself: the one TU that may include a Valve header, the
+              # stub SDK, and the tests that drive the enabled path.
+              - 'OloEngine/src/Platform/Steam/**'
+              - 'OloEngine/tests/Platform/Steam/**'
+              - 'OloEngine/tests/CMakeLists.txt'
+
   # Cheap, no-build guard on the invariant the whole design rests on: exactly ONE translation
   # unit may include a Valve header. If that spreads, the logic stops being fake-testable and the
   # stub SDK stops being a sufficient stand-in for CI — and both failures are silent until
@@ -136,16 +188,17 @@ jobs:
     # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not (#1009).
     # The condition IS the security boundary -- see vulkan-off.yml for the full
     # reasoning, including why the `github.event_name != 'pull_request'` disjunct
-    # is load-bearing rather than decorative. (This job never runs on a
-    # pull_request at all -- see the `if:` below -- so in practice it always takes
-    # the self-hosted arm; the condition is written in full anyway, because the day
-    # someone relaxes that `if:` the runner choice must already be safe.)
+    # is load-bearing rather than decorative. Since #1015 this job DOES run on a
+    # same-repo pull_request that touches the Steam seam, so the fork boundary in
+    # this expression is live, not decorative.
     runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
-    # Not on pull_request — see the trigger rationale at the top of this file. The cheap
-    # single-valve-tu guard above still runs on every PR; this full build does not.
-    if: github.event_name != 'pull_request'
+    needs: detect-changes
+    # On a pull_request only when the Steam seam changed (the trigger rationale at
+    # the top of this file); unconditionally on push / schedule / dispatch. The cheap
+    # single-valve-tu guard above still runs on every PR regardless.
+    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.steam == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
