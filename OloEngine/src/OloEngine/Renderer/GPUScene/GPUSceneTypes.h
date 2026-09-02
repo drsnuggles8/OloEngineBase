@@ -724,7 +724,13 @@ namespace OloEngine
         record.AlphaMode = input.m_AlphaMode;
         record.ClosureVersion = input.m_ClosureVersion;
 
-        u32 flags = input.m_Flags | GPUSceneMaterialFlagActive;
+        // The map bits and Active are the encoder's: they reflect the supplied
+        // handles, never a bit a caller left in m_Flags.
+        constexpr u32 encoderOwnedFlags = GPUSceneMaterialFlagActive | GPUSceneMaterialFlagAlbedoMap |
+                                          GPUSceneMaterialFlagMetallicRoughnessMap | GPUSceneMaterialFlagNormalMap |
+                                          GPUSceneMaterialFlagOcclusionMap | GPUSceneMaterialFlagEmissiveMap |
+                                          GPUSceneMaterialFlagSpecularMap;
+        u32 flags = (input.m_Flags & ~encoderOwnedFlags) | GPUSceneMaterialFlagActive;
         const auto encodeTexture = [&flags](const GPUSceneTextureRef& texture, u32 presentFlag, u32& index,
                                             u32& textureGeneration, u32& heapOffset)
         {

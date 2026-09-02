@@ -24,10 +24,10 @@ namespace OloEngine::Tests
     {
         GPUScene scene;
         const GPUSceneEnvironmentKey globalKey{}; // owner 0: the renderer's published global IBL
-        GPUSceneEnvironmentInput environment{ .m_Environment = Texture(20, 1, 100),
-                                              .m_Irradiance = Texture(21, 1, 101),
-                                              .m_Prefilter = Texture(22, 3, 102),
-                                              .m_BRDFLut = Texture(23, 1, 103),
+        GPUSceneEnvironmentInput environment{ .m_Environment = TextureRef(20, 1, 100),
+                                              .m_Irradiance = TextureRef(21, 1, 101),
+                                              .m_Prefilter = TextureRef(22, 3, 102),
+                                              .m_BRDFLut = TextureRef(23, 1, 103),
                                               .m_Intensity = 1.0f };
         auto extract = [&]() -> GPUSceneFrameUpdate
         {
@@ -76,10 +76,10 @@ namespace OloEngine::Tests
     {
         GPUScene scene;
         const GPUSceneEnvironmentKey globalKey{};
-        GPUSceneEnvironmentInput environment{ .m_Environment = Texture(20, 1, 100),
-                                              .m_Irradiance = Texture(21, 1, 101),
-                                              .m_Prefilter = Texture(22, 1, 102),
-                                              .m_BRDFLut = Texture(23, 1, 103) };
+        GPUSceneEnvironmentInput environment{ .m_Environment = TextureRef(20, 1, 100),
+                                              .m_Irradiance = TextureRef(21, 1, 101),
+                                              .m_Prefilter = TextureRef(22, 1, 102),
+                                              .m_BRDFLut = TextureRef(23, 1, 103) };
         auto extract = [&](bool published) -> GPUSceneFrameUpdate
         {
             scene.BeginExtraction(1, glm::vec3(0.0f));
@@ -138,8 +138,8 @@ namespace OloEngine::Tests
         const GPUSceneLightKey lightB{ .m_EntityId = 2, .m_Type = kSpot };
         const GPUSceneEnvironmentKey globalKey{};
         GPUSceneMaterialInput material;
-        material.m_Albedo = Texture(5, 1, 7);
-        const GPUSceneEnvironmentInput environment{ .m_Environment = Texture(20, 1, 100) };
+        material.m_Albedo = TextureRef(5, 1, 7);
+        const GPUSceneEnvironmentInput environment{ .m_Environment = TextureRef(20, 1, 100) };
         auto stage = [&]()
         {
             scene.ExtractMaterial(materialA, material);

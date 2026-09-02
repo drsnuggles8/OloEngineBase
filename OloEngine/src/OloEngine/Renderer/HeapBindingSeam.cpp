@@ -164,6 +164,10 @@ namespace OloEngine::HeapBinding
         {
             RHI::ViewDesc viewDesc;
             viewDesc.Resource = texture;
+            // Derived from the sampler exactly as BindTextureOrOffsetImpl does, so
+            // a comparison sampler and a raw-depth sampler of one texture are two
+            // views here as well (see ShadowDepthSampler in the header).
+            viewDesc.DepthCompare = (sampler.Compare != RHI::CompareOp::Never);
             if (const RHI::ViewHandle view =
                     RHI::DescriptorHeap::Get().GetOrCreateView(texture, viewDesc, sampler, lifetime, kind);
                 view.IsValid())

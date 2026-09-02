@@ -29,7 +29,7 @@ namespace OloEngine::Tests::GPUSceneRecordTesting
         return GPUSceneMaterialKey{ .m_Owner = owner, .m_Slot = slot, .m_Source = kImported };
     }
 
-    [[nodiscard]] inline GPUSceneTextureRef Texture(u32 index, u32 generation, u32 heapOffset)
+    [[nodiscard]] inline GPUSceneTextureRef TextureRef(u32 index, u32 generation, u32 heapOffset)
     {
         return GPUSceneTextureRef{ .m_Handle = RHI::ResourceHandle{ index, generation },
                                    .m_HeapOffset = heapOffset };

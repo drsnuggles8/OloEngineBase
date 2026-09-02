@@ -237,8 +237,12 @@ void main()
         // Anti-vacuity: the scanner must see the declarations it exists to catch,
         // in the include that owns them and in the families they alias.
         EXPECT_TRUE(declaresAliasedBinding(gpuSceneInclude));
-        EXPECT_TRUE(declaresAliasedBinding(root / "include" / "ForwardPlusCommon.glsl"));
-        EXPECT_TRUE(declaresAliasedBinding(root / "include" / "InstanceBlock_Vertex.glsl"));
+        for (const char* fixture : { "ForwardPlusCommon.glsl", "InstanceBlock_Vertex.glsl" })
+        {
+            const fs::path path = root / "include" / fixture;
+            ASSERT_TRUE(fs::exists(path)) << "anti-vacuity fixture moved: " << path.generic_string();
+            EXPECT_TRUE(declaresAliasedBinding(path)) << fixture << " no longer declares an aliased binding";
+        }
 
         u32 scanned = 0;
         std::string violations;

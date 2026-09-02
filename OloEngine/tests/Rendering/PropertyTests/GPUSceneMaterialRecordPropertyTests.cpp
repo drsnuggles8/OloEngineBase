@@ -77,7 +77,7 @@ namespace OloEngine::Tests
         const GPUSceneMaterialKey keyC = ImportedMaterial(3);
         const GPUSceneInstanceKey instanceKey{ .m_EntityId = 10, .m_Geometry = kGeometryKey };
         GPUSceneMaterialInput materialB;
-        materialB.m_Albedo = Texture(5, 1, 7);
+        materialB.m_Albedo = TextureRef(5, 1, 7);
 
         auto extract = [&]() -> GPUSceneFrameUpdate
         {
@@ -137,7 +137,7 @@ namespace OloEngine::Tests
 
         // An invalid texture handle encodes as absent whatever heap offset rides
         // with it, so this is not even a dirty record.
-        materialB.m_Normal = Texture(RHI::ResourceHandle::InvalidIndex, 0, 3);
+        materialB.m_Normal = TextureRef(RHI::ResourceHandle::InvalidIndex, 0, 3);
         EXPECT_TRUE(extract().m_MaterialDirtyRanges.empty());
         record = scene.GetMaterialRecord(handleB);
         ASSERT_NE(record, nullptr);
@@ -207,7 +207,7 @@ namespace OloEngine::Tests
         };
         materialB.m_ClosureVersion = 2;
         expectIncompatible("closure version");
-        materialB.m_Albedo = Texture(5, 1, 7);
+        materialB.m_Albedo = TextureRef(5, 1, 7);
         expectIncompatible("albedo texture added");
         materialB.m_Albedo.m_Handle.Generation = 2;
         expectIncompatible("albedo texture re-created (RHI generation only)");
@@ -363,7 +363,7 @@ namespace OloEngine::Tests
         for (sizet lane = 0; lane < kLanes.size(); ++lane)
         {
             SCOPED_TRACE(::testing::Message() << "texture lane " << lane);
-            material.*kLanes[lane] = Texture(textureIndex++, 1, 7);
+            material.*kLanes[lane] = TextureRef(textureIndex++, 1, 7);
             const GPUSceneHandle next = extract();
             EXPECT_EQ(next.m_Index, previous.m_Index) << "a texture swap keeps the slot";
             EXPECT_EQ(next.m_Generation, previous.m_Generation + 1u) << "... and advances the generation";
