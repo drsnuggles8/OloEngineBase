@@ -88,8 +88,19 @@ namespace OloEngine::Tests
     {
         if (!RenderPropertyFixture::IsGpuAvailable())
         {
+            // Same two outcomes as OLO_ENSURE_GPU_OR_SKIP, kept in step with it:
+            // a plain skip, or a failure under --olo-require-gpu so a GPU job
+            // cannot pass by skipping its entire reason for existing.
+            if (RenderPropertyFixture::GpuRequired())
+            {
+                FAIL() << "--olo-require-gpu: RendererAttachedTest could not create a GL 4.6 "
+                          "context, and this run would otherwise skip every renderer-attached "
+                          "test and pass having verified nothing"
+                       << RenderPropertyFixture::GpuUnavailableDetail();
+            }
             GTEST_SKIP() << "RendererAttachedTest: no usable GL 4.6 context available "
-                            "(CI without GPU or headless server).";
+                            "(CI without GPU or headless server)."
+                         << RenderPropertyFixture::GpuUnavailableDetail();
         }
 
         if (!Renderer3D::IsInitialized())

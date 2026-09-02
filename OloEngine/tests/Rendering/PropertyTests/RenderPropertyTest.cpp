@@ -53,11 +53,19 @@ namespace OloEngine::Tests
         //                    rather than a silent backend switch: two backends
         //                    can produce subtly different pixels, and a golden
         //                    baseline must know which one produced it.
+        //   None           — attempt no context at all. Every GPU-gated test
+        //                    then skips exactly as on a GitHub-hosted runner,
+        //                    which is what makes a sanitizer run on the
+        //                    self-hosted GPU box comparable to the hosted run
+        //                    of the same commit (#1015). GpuUnavailableDetail()
+        //                    names the flag in the skip message so the log
+        //                    says "skipped on purpose", not "no hardware".
         enum class GlBackend
         {
             Auto,
             Glfw,
-            Egl
+            Egl,
+            None
         };
 
         GlBackend SelectBackend()
@@ -75,10 +83,12 @@ namespace OloEngine::Tests
                 return GlBackend::Egl;
             if (value == "glfw")
                 return GlBackend::Glfw;
+            if (value == "none")
+                return GlBackend::None;
 
-            // Unrecognised value: fall back to Auto rather than failing hard —
-            // a typo in CI config should degrade to the normal behaviour, and
-            // the GPU tests will report themselves skipped if nothing works.
+            // TestOptions.cpp rejects any other spelling at parse time, so this
+            // is unreachable from the command line; kept as the defensive
+            // default for a value set some other way.
             return GlBackend::Auto;
         }
 
@@ -91,6 +101,9 @@ namespace OloEngine::Tests
         {
             std::once_flag m_InitOnce;
             bool m_Available = false;
+            // Set when --olo-gl-backend=none forbade the attempt, so the skip
+            // message can distinguish "no hardware" from "told not to".
+            bool m_ForcedOff = false;
             GLFWwindow* m_Window = nullptr;
 #if defined(OLO_TESTS_HAVE_EGL)
             EGLDisplay m_EglDisplay = EGL_NO_DISPLAY;
@@ -113,6 +126,12 @@ namespace OloEngine::Tests
                                        return;
 
                                    const GlBackend backend = SelectBackend();
+
+                                   if (backend == GlBackend::None)
+                                   {
+                                       m_ForcedOff = true;
+                                       return;
+                                   }
 
                                    if (backend != GlBackend::Egl && TryInitGlfw())
                                    {
@@ -332,6 +351,19 @@ namespace OloEngine::Tests
         auto& ctx = GpuContext::Get();
         ctx.TryInitOnce();
         return ctx.m_Available;
+    }
+
+    const char* RenderPropertyFixture::GpuUnavailableDetail()
+    {
+        auto& ctx = GpuContext::Get();
+        ctx.TryInitOnce();
+        return ctx.m_ForcedOff ? " (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)"
+                               : "";
+    }
+
+    bool RenderPropertyFixture::GpuRequired()
+    {
+        return OloEngine::Tests::Options().RequireGpu;
     }
 
     // -------------------------------------------------------------------------

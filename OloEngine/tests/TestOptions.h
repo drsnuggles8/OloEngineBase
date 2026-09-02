@@ -47,9 +47,22 @@ namespace OloEngine::Tests
         bool BenchAssert = false;
         // --olo-soundgraph-perf : run the SoundGraph throughput measurement.
         bool SoundGraphPerf = false;
-        // --olo-gl-backend=<egl|glfw> : force the context-creation path. `egl`
-        // is the headless surfaceless route the GPU runners need.
+        // --olo-gl-backend=<egl|glfw|none> : force the context-creation path.
+        // `egl` is the headless surfaceless route the GPU runners need. `none`
+        // creates no context at all, so every GPU-gated test skips exactly as
+        // it does on a GitHub-hosted runner -- the switch that lets a run on
+        // the self-hosted GPU box mean the same thing as the hosted run of the
+        // same commit (issue #1015, stage B). Validated at parse time: a typo
+        // here used to fall back to auto-detection silently, and on a box with
+        // a GPU that is the difference between "tested nothing" and "tested
+        // 200 GL tests under a sanitizer".
         std::string GlBackend;
+        // --olo-require-gpu : turn the GPU gate's skip into a FAILURE. For a
+        // job whose whole purpose is the GPU-gated tests (the nightly
+        // GPU-under-sanitizer baseline, #1015 stage C): without it, a broken
+        // EGL path skips every such test and the run goes green having
+        // verified nothing. Rejected together with `--olo-gl-backend=none`.
+        bool RequireGpu = false;
         // --olo-keep-temp : leave per-test temp directories on disk.
         bool KeepTemp = false;
         // --olo-video=<path> : an FFmpeg-decodable file for the real-decode

@@ -36,7 +36,10 @@ namespace OloEngine::Tests
                 "  --olo-perf-machine=<name>      perf baseline key, overriding the hostname\n"
                 "  --olo-bench-assert             make micro-benchmarks assert their budgets\n"
                 "  --olo-soundgraph-perf          run the SoundGraph throughput measurement\n"
-                "  --olo-gl-backend=<egl|glfw>    force the context-creation path\n"
+                "  --olo-gl-backend=<egl|glfw|none> force the context-creation path; `none` creates no\n"
+                "                                 context, so every GPU-gated test skips (hosted parity)\n"
+                "  --olo-require-gpu              fail, rather than skip, a GPU-gated test when no GL 4.6\n"
+                "                                 context could be created (a GPU job's own guard)\n"
                 "  --olo-keep-temp                leave per-test temp directories on disk\n"
                 "  --olo-video=<path>             an FFmpeg-decodable file for the decode tests\n"
                 "  --olo-pathtracer-evidence      write the path-tracer reference images\n"
@@ -164,7 +167,20 @@ namespace OloEngine::Tests
             }
             else if (const auto v = ValueOf(arg, "--olo-gl-backend"))
             {
+                // Validated here, not at the use site. RenderPropertyTest.cpp
+                // used to read any spelling and fall back to auto-detection,
+                // which on a machine WITH a GPU means a typo'd `--olo-gl-backend=nnoe`
+                // quietly runs every GL-gated test the caller meant to skip
+                // -- the exact silent-switch these flags exist to prevent.
+                if (*v != "egl" && *v != "glfw" && *v != "none" && *v != "auto")
+                {
+                    Fail("--olo-gl-backend must be one of egl, glfw, none, auto", arg);
+                }
                 s_Options.GlBackend = *v;
+            }
+            else if (arg == "--olo-require-gpu")
+            {
+                s_Options.RequireGpu = true;
             }
             else if (const auto v = ValueOf(arg, "--olo-video"))
             {
@@ -210,6 +226,13 @@ namespace OloEngine::Tests
                 // replace.
                 Fail("unknown option", arg);
             }
+        }
+
+        // Both flags together have no sane meaning: one promises no context,
+        // the other demands one, and whichever wins silently is wrong.
+        if (s_Options.RequireGpu && s_Options.GlBackend == "none")
+        {
+            Fail("--olo-require-gpu contradicts --olo-gl-backend=none", "--olo-require-gpu");
         }
 
         for (sizet i = 0; i < kept.size(); ++i)
