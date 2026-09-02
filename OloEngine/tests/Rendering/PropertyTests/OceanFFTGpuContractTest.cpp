@@ -42,7 +42,6 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
-#include <limits>
 #include <random>
 #include <vector>
 
@@ -560,81 +559,4 @@ namespace OloEngine::Tests
         EXPECT_EQ(field->GetCascadeCount(), 1u);
         EXPECT_TRUE(field->GetDisplacementTextureHandle().IsValid());
     }
-    // TEMPORARY (#1015): the AMD flat-ocean trigger is the AMPLITUDE, not the
-    // patch size or the camera.
-    //
-    // DiagPatchAndPoseSweep showed every visual-evidence case landing at a
-    // normal luma spread of 22-26 on the box EXCEPT amplitude 4, which collapses
-    // to 3.7 while amplitude 3 at the identical patch, pose and spectrum is
-    // fine. The CPU side of the amplitude is a single linear multiply into h0,
-    // so a 4/3 increase producing a flat sea means something downstream is not
-    // linear. This reads the displacement texture straight off the field and
-    // reports what is actually in it -- NaN, zero, or clamped are three
-    // different bugs and the rendered frame cannot tell them apart.
-    TEST_F(OceanFFTGpuContractTest, DiagAmplitudeSweepDisplacementStats)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        Ocean::SpectrumParams p{};
-        p.m_Resolution = 128u;
-        p.m_PatchSize = 200.0f;
-        p.m_WindSpeed = 18.0f;
-        p.m_WindDirection = glm::vec2(1.0f, 0.3f);
-        p.m_Choppiness = 1.4f;
-        const f32 time = 12.0f;
-        const u32 N = p.m_Resolution;
-
-        const auto report = [&](const char* mode, f32 amplitude, const std::vector<glm::vec4>& texels)
-        {
-            f64 sumSq = 0.0;
-            f32 lo = std::numeric_limits<f32>::infinity();
-            f32 hi = -std::numeric_limits<f32>::infinity();
-            sizet nans = 0, infs = 0;
-            for (const glm::vec4& t : texels)
-            {
-                for (int ch = 0; ch < 3; ++ch)
-                {
-                    const f32 v = t[ch];
-                    if (std::isnan(v))
-                    {
-                        ++nans;
-                        continue;
-                    }
-                    if (std::isinf(v))
-                    {
-                        ++infs;
-                        continue;
-                    }
-                    lo = std::min(lo, v);
-                    hi = std::max(hi, v);
-                    sumSq += static_cast<f64>(v) * v;
-                }
-            }
-            const f64 rms = texels.empty() ? 0.0 : std::sqrt(sumSq / (static_cast<f64>(texels.size()) * 3.0));
-            GTEST_LOG_(INFO) << "DIAGAMP " << mode << " amp=" << amplitude << " texels=" << texels.size()
-                             << " rms=" << rms << " min=" << lo << " max=" << hi << " nan=" << nans
-                             << " inf=" << infs;
-        };
-
-        // NON-MONOTONIC ON PURPOSE. In the sweep that found this, amplitude 4
-        // was also the LAST case run, so "amplitude 4 is bad" and "the sixth
-        // capture is bad" fit the data equally well. Putting 4 first and
-        // repeating it last separates them: if both 4s collapse it is the
-        // amplitude, if only the late one does it is accumulated GPU state.
-        for (const f32 amplitude : { 4.0f, 1.0f, 6.0f, 3.0f, 3.5f, 4.0f })
-        {
-            p.m_Amplitude = amplitude;
-
-            auto gpuField = Ref<Ocean::OceanFFTField>::Create();
-            gpuField->Update(p, 0.0f, /*uploadToGpu=*/true, /*useGpuCompute=*/true);
-            gpuField->Update(p, time, true, true);
-            report("gpu", amplitude, ReadbackRgba32fArray(gpuField->GetDisplacementTextureID(), N, 1u));
-
-            auto cpuField = Ref<Ocean::OceanFFTField>::Create();
-            cpuField->Update(p, 0.0f, /*uploadToGpu=*/true, /*useGpuCompute=*/false);
-            cpuField->Update(p, time, true, false);
-            report("cpu", amplitude, ReadbackRgba32fArray(cpuField->GetDisplacementTextureID(), N, 1u));
-        }
-    }
-
 } // namespace OloEngine::Tests

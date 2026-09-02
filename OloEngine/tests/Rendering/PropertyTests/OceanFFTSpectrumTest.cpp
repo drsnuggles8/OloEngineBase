@@ -843,3 +843,58 @@ TEST(OceanSpectrum, BandLimitedFieldTracksFullResolutionSurface)
     // almost no energy — the proxy should match to a few % of the wave RMS.
     EXPECT_LT(maxErr, fullRms * 0.1f) << "proxy diverges from the full surface — wrong bins extracted?";
 }
+
+// The spectrum noise must be the SAME SEA on every platform, and this is the
+// test that says so. std::normal_distribution cannot provide that: the standard
+// pins mt19937 bit for bit and leaves each distribution's algorithm to the
+// implementation, so libstdc++ and MSVC's STL turn one seed into two different
+// seas. That is what put the ocean evidence camera underwater on the AMD CI box
+// and above the surface on Windows from identical source (issue #1015), and it
+// makes any cross-vendor image comparison meaningless in principle.
+//
+// The check re-derives the intended Box-Muller here rather than pinning magic
+// constants. Constants would drift by an ULP with libm and say nothing about
+// WHY; an independent reimplementation fails loudly and specifically the moment
+// the engine goes back to a library distribution, which is the actual risk.
+TEST(OceanSpectrumNoise, IsPortableBoxMullerAndNotALibraryDistribution)
+{
+    constexpr u32 kSeed = 1337u;
+    constexpr u32 kResolution = 32u;
+    const auto noise = Ocean::GenerateSpectrumNoise(kSeed, kResolution);
+    ASSERT_EQ(noise.size(), static_cast<sizet>(kResolution) * kResolution);
+
+    std::mt19937 rng(kSeed);
+    const auto uniform01 = [&rng]()
+    {
+        constexpr f32 kInv24 = 1.0f / 16777216.0f;
+        return (static_cast<f32>(rng() >> 8) + 1.0f) * kInv24;
+    };
+    constexpr f32 kTwoPiF = 6.28318530717958647692f;
+    for (sizet i = 0; i < noise.size(); ++i)
+    {
+        const f32 u1 = uniform01();
+        const f32 u2 = uniform01();
+        const f32 radius = std::sqrt(-2.0f * std::log(u1));
+        const f32 theta = kTwoPiF * u2;
+        ASSERT_NEAR(noise[i].x, radius * std::cos(theta), 1e-5f) << "bin " << i;
+        ASSERT_NEAR(noise[i].y, radius * std::sin(theta), 1e-5f) << "bin " << i;
+    }
+
+    // And it must still be a unit Gaussian, so the amplitude normalisation
+    // downstream keeps meaning what it means.
+    f64 sum = 0.0;
+    f64 sumSq = 0.0;
+    for (const glm::vec2& v : noise)
+    {
+        sum += v.x + v.y;
+        sumSq += static_cast<f64>(v.x) * v.x + static_cast<f64>(v.y) * v.y;
+    }
+    const f64 count = static_cast<f64>(noise.size()) * 2.0;
+    const f64 mean = sum / count;
+    const f64 variance = sumSq / count - mean * mean;
+    EXPECT_NEAR(mean, 0.0, 0.05) << "spectrum noise is not zero-mean";
+    EXPECT_NEAR(variance, 1.0, 0.10) << "spectrum noise is not unit-variance";
+
+    // Same seed, same sea -- the contract the generator is written to provide.
+    EXPECT_EQ(noise, Ocean::GenerateSpectrumNoise(kSeed, kResolution));
+}

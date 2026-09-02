@@ -144,14 +144,43 @@ namespace OloEngine::Ocean
 
         std::vector<glm::vec2> noise(static_cast<sizet>(N) * N);
         std::mt19937 rng(seed);
-        std::normal_distribution<f32> gauss(0.0f, 1.0f);
-        // Row-major, two draws per bin, in exactly the order GenerateH0 used to
-        // consume them — that ordering IS the contract, because it is what makes
-        // a given seed reproduce a given sea.
+
+        // BOX-MULLER BY HAND, not std::normal_distribution.
+        //
+        // The engine is the same, but the DISTRIBUTIONS are not: the standard
+        // specifies mt19937 bit for bit and leaves every distribution's
+        // algorithm to the implementation. libstdc++ and MSVC's STL therefore
+        // turn one seed into two different sequences, so "a given seed
+        // reproduces a given sea" -- the contract this function is written to
+        // provide -- held per platform and nowhere else.
+        //
+        // That is not a cosmetic difference. On the AMD CI box the seed 1337 sea
+        // reaches 4.6 m crests where the Windows one reaches 3.4, which put the
+        // ocean visual-evidence camera UNDERWATER on one platform and above the
+        // surface on the other, from identical source (issue #1015). It also
+        // makes any cross-vendor image comparison meaningless in principle,
+        // because the two vendors are not looking at the same ocean.
+        //
+        // Box-Muller over the raw engine output is portable to the last bit of
+        // the uniforms, and to within an ULP of libm after the transcendentals.
+        // The cadence is unchanged -- two draws per bin, row-major -- so a seed
+        // still means one specific sea, now on every platform.
+        const auto uniform01 = [&rng]()
+        {
+            // mt19937 yields 32 bits; the top 24 give an exactly representable
+            // f32 fraction. Shifted to (0, 1] so the log below never sees zero.
+            constexpr f32 kInv24 = 1.0f / 16777216.0f;
+            return (static_cast<f32>(rng() >> 8) + 1.0f) * kInv24;
+        };
+        constexpr f32 kTwoPiF = 6.28318530717958647692f;
         for (glm::vec2& v : noise)
         {
-            v.x = gauss(rng);
-            v.y = gauss(rng);
+            const f32 u1 = uniform01();
+            const f32 u2 = uniform01();
+            const f32 radius = std::sqrt(-2.0f * std::log(u1));
+            const f32 theta = kTwoPiF * u2;
+            v.x = radius * std::cos(theta);
+            v.y = radius * std::sin(theta);
         }
         return noise;
     }

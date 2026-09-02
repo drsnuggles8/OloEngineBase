@@ -450,8 +450,18 @@ namespace OloEngine::Tests
         } scopedMockTime(kCaptureTime);
 
         // Grazing pose so wave shape dominates the frame and the foreground band
-        // can be checked for water opacity.
-        const glm::vec3 pos(0.0f, 3.0f, 42.0f);
+        // can be checked for water opacity -- but ABOVE THE CRESTS, which is the
+        // part this used to get wrong. At amplitude 4 the displacement texture
+        // reaches 3.4 m peaks on the RTX 4090 and 4.6 m on the AMD CI box, and
+        // the camera stood at 3.0 m. Whether the eye was above the surface or
+        // inside a wave was therefore a property of the random sea, and an
+        // underwater frame is a near-uniform fogged blue that no two spectra can
+        // be told apart in: the box read a luma spread of 3.7 where this machine
+        // read 36, on identical source. Seeds 99, 4242 and 20260902 rendered
+        // normally on that same box, which is what a knife edge looks like.
+        // 9 m clears the crests of any realisation this scene can produce, and
+        // at pitch 0.05 the pose is still grazing.
+        const glm::vec3 pos(0.0f, 9.0f, 42.0f);
         const f32 yaw = 0.0f, pitch = 0.05f;
 
         ASSERT_TRUE(static_cast<bool>(m_OceanEntity));
@@ -553,9 +563,28 @@ namespace OloEngine::Tests
             const f64 mean = sum / static_cast<f64>(pixels);
             return std::sqrt(std::max(0.0, sumSq / static_cast<f64>(pixels) - mean * mean));
         };
-        GTEST_LOG_(INFO) << "spectrum frames: Phillips luma spread " << lumaSpread(phillipsFrame)
-                         << ", JONSWAP " << lumaSpread(jonswapFrame)
+        const f64 phillipsSpread = lumaSpread(phillipsFrame);
+        const f64 jonswapSpread = lumaSpread(jonswapFrame);
+        GTEST_LOG_(INFO) << "spectrum frames: Phillips luma spread " << phillipsSpread
+                         << ", JONSWAP " << jonswapSpread
                          << " (a flat, wave-free surface reads near zero)";
+
+        // Assert the relief BEFORE comparing the two frames. Without this the
+        // knife-edge failure above arrives as "Phillips and JONSWAP are nearly
+        // identical", which sends the reader hunting through the spectrum
+        // selector -- the one place that was working. Two frames with no waves
+        // in them are of course alike; say so directly. Observed spreads are
+        // 22-36 with the surface in view and under 5 with the camera submerged,
+        // so 10 separates them with room on both sides.
+        constexpr f64 kMinRelief = 10.0;
+        ASSERT_GT(phillipsSpread, kMinRelief)
+            << "Phillips frame has no wave relief (luma spread " << phillipsSpread
+            << "). The surface is not being displaced, or the camera is inside a wave -- check the "
+               "crest height against the camera height before suspecting the spectrum.";
+        ASSERT_GT(jonswapSpread, kMinRelief)
+            << "JONSWAP frame has no wave relief (luma spread " << jonswapSpread
+            << "). The surface is not being displaced, or the camera is inside a wave -- check the "
+               "crest height against the camera height before suspecting the spectrum.";
 
         const f64 rmse = Rgba8Rmse(phillipsFrame, jonswapFrame);
         EXPECT_GT(rmse, 3.0)
@@ -563,99 +592,4 @@ namespace OloEngine::Tests
             << ") — the spectrum selection is not reaching the rendered surface. Compare "
                "OceanFFT_PhillipsSpectrum.png vs OceanFFT_JonswapSpectrum.png";
     }
-    // TEMPORARY (#1015): which knob flattens the ocean on the AMD box?
-    //
-    // GpuComputeToggleLeavesSurfaceUnchanged renders a full wave field on that
-    // GPU; JonswapSpectrumRendersOpaqueAndDiffersFromPhillips renders a flat
-    // plane. Exactly two things differ between them -- a 200 m patch instead of
-    // 64 m, and a grazing camera instead of a raised one -- so sweep the two
-    // independently and read the luma spread. One dispatch answers it; guessing
-    // costs a 40-minute round trip per guess.
-    TEST_F(OceanFFTVisualEvidenceTest, DiagPatchAndPoseSweep)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        struct ScopedMockTime
-        {
-            explicit ScopedMockTime(f32 t)
-            {
-                Time::SetMockTime(t);
-            }
-            ~ScopedMockTime()
-            {
-                Time::ClearMockTime();
-            }
-        } scopedMockTime(kCaptureTime);
-
-        const auto lumaSpread = [](const std::vector<u8>& frame)
-        {
-            f64 sum = 0.0, sumSq = 0.0;
-            const std::size_t pixels = frame.size() / 4u;
-            for (std::size_t i = 0; i < pixels; ++i)
-            {
-                const f64 luma = 0.2126 * frame[i * 4 + 0] + 0.7152 * frame[i * 4 + 1] + 0.0722 * frame[i * 4 + 2];
-                sum += luma;
-                sumSq += luma * luma;
-            }
-            if (pixels == 0)
-                return 0.0;
-            const f64 mean = sum / static_cast<f64>(pixels);
-            return std::sqrt(std::max(0.0, sumSq / static_cast<f64>(pixels) - mean * mean));
-        };
-
-        ASSERT_TRUE(static_cast<bool>(m_OceanEntity));
-        auto& wc = m_OceanEntity.GetComponent<WaterComponent>();
-
-        struct Case
-        {
-            const char* m_Name;
-            f32 m_Patch;
-            f32 m_Amplitude;
-            glm::vec3 m_Pos;
-            f32 m_Pitch;
-        };
-        const Case cases[] = {
-            { "Diag_P64_Raised", 64.0f, 3.0f, glm::vec3(0.0f, 6.0f, 40.0f), 0.20f },
-            { "Diag_P200_Raised", 200.0f, 3.0f, glm::vec3(0.0f, 6.0f, 40.0f), 0.20f },
-            { "Diag_P64_Grazing", 64.0f, 3.0f, glm::vec3(0.0f, 3.0f, 42.0f), 0.05f },
-            { "Diag_P200_Grazing", 200.0f, 3.0f, glm::vec3(0.0f, 3.0f, 42.0f), 0.05f },
-            { "Diag_P128_Grazing", 128.0f, 3.0f, glm::vec3(0.0f, 3.0f, 42.0f), 0.05f },
-            { "Diag_P200_Grazing_A4", 200.0f, 4.0f, glm::vec3(0.0f, 3.0f, 42.0f), 0.05f },
-        };
-
-        // A different SEED is a different random sea from the same spectrum, so
-        // if the camera at y=3 is merely unlucky about which wave it is standing
-        // in at amplitude 4, some seeds must collapse the frame on THIS GPU too.
-        // That distinguishes "AMD renders the ocean wrong" from "the pose is on
-        // a knife edge and the two platforms draw different lots" without
-        // needing the box at all.
-        for (const u32 seed : { 1337u, 7u, 99u, 4242u, 20260902u })
-        {
-            wc.m_FFTSeed = seed;
-            wc.m_FFTPatchSize = 200.0f;
-            wc.m_FFTAmplitude = 4.0f;
-            wc.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
-            std::vector<u8> frame;
-            Capture("Diag_Seed" + std::to_string(seed), glm::vec3(0.0f, 3.0f, 42.0f), 0.0f, 0.05f, frame);
-            if (::testing::Test::HasFatalFailure())
-                return;
-            GTEST_LOG_(INFO) << "DIAGSEED seed=" << seed << " patch=200 amp=4 camY=3 lumaSpread=" << lumaSpread(frame);
-        }
-        wc.m_FFTSeed = 1337u;
-
-        for (const Case& c : cases)
-        {
-            wc.m_FFTPatchSize = c.m_Patch;
-            wc.m_FFTAmplitude = c.m_Amplitude;
-            wc.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
-            std::vector<u8> frame;
-            Capture(c.m_Name, c.m_Pos, 0.0f, c.m_Pitch, frame);
-            if (::testing::Test::HasFatalFailure())
-                return;
-            GTEST_LOG_(INFO) << "DIAGSWEEP " << c.m_Name << " patch=" << c.m_Patch
-                             << " amp=" << c.m_Amplitude << " camY=" << c.m_Pos.y
-                             << " pitch=" << c.m_Pitch << " lumaSpread=" << lumaSpread(frame);
-        }
-    }
-
 } // namespace OloEngine::Tests
