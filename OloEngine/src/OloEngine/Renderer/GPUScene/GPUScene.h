@@ -37,10 +37,10 @@ namespace OloEngine
         static_assert(Materials < ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS);
         static_assert(Lights < ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS);
         static_assert(Environments < ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS);
-        static_assert(Instances != Geometries && Instances != Materials && Instances != Lights &&
-                      Instances != Environments && Geometries != Materials && Geometries != Lights &&
-                      Geometries != Environments && Materials != Lights && Materials != Environments &&
-                      Lights != Environments);
+        static_assert(Instances != Geometries && Instances != Materials && Instances != Lights);
+        static_assert(Instances != Environments && Geometries != Materials && Geometries != Lights);
+        static_assert(Geometries != Environments && Materials != Lights && Materials != Environments);
+        static_assert(Lights != Environments);
     };
 
     struct GPUSceneCapacities
@@ -125,7 +125,7 @@ namespace OloEngine
         void Reset();
 
       private:
-        struct Impl;
+        class Impl;
         std::unique_ptr<Impl> m_Impl;
     };
 } // namespace OloEngine

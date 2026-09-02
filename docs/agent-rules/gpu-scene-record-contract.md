@@ -82,7 +82,7 @@ material shared by many submeshes is encoded once per frame. Instances carry `Ma
 `MaterialGeneration` of the canonical slot; materials commit before instances. Lights come from
 `Scene::ProcessScene3DSharedLogic` through one `MakeGPUSceneLightInput` per component type, every
 light regardless of `MultiLightUBO::MAX_LIGHTS`. The environment comes from
-`Renderer3D::ExtractGPUSceneGlobalEnvironment` at `EndScene`, read from the published global IBL;
+`Renderer3D::ExtractGPUSceneEnvironment` at `EndScene`, read from the published global IBL;
 no published environment means no record. Every record's comment in `GPUSceneTypes.h` is a field
 inventory, carried and excluded; a new field extends that comment.
 

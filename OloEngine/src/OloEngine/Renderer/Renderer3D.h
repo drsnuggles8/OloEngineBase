@@ -264,14 +264,12 @@ namespace OloEngine
         static void ExtractGPUSceneMesh(u64 stableEntityId, u64 stableInstanceId,
                                         const Ref<MeshSource>& meshSource, u32 submeshIndex,
                                         const glm::mat4& worldTransform,
-                                        const GPUSceneMaterialKey& materialKey,
-                                        u32 visibilityMask = std::numeric_limits<u32>::max(),
-                                        u32 flags = 0);
+                                        const GPUSceneMaterialKey& materialKey);
         static void ExtractGPUSceneLight(const GPUSceneLightKey& key, const GPUSceneLightInput& input);
         // The environment record's home is the renderer's published global IBL
         // (SetGlobalIBL / OverrideGlobalIrradiance / ClearGlobalIBL). EndScene
         // extracts it once per frame, just before the registry commits.
-        static void ExtractGPUSceneGlobalEnvironment();
+        static void ExtractGPUSceneEnvironment();
         static void ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory category, u32 count = 1);
         static void ResetGPUScene();
         [[nodiscard]] static const GPUSceneFrameStats& GetGPUSceneStats();

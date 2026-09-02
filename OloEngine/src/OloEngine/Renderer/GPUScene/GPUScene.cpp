@@ -115,8 +115,9 @@ namespace OloEngine
         // owns its dirty set: every path that changes a record writes
         // m_PendingDirtySlots, and EndExtraction takes the coalesced ranges.
         template<typename Key, typename Input, typename Record>
-        struct RecordTable
+        class RecordTable
         {
+          public:
             struct Slot
             {
                 Key m_Key{};
@@ -175,15 +176,18 @@ namespace OloEngine
 
             void RemoveUnstaged(u64 frameNumber)
             {
-                for (auto it = m_Handles.begin(); it != m_Handles.end();)
+                auto it = m_Handles.begin();
+                while (it != m_Handles.end())
                 {
                     if (m_Staged.contains(it->first))
                     {
                         ++it;
-                        continue;
                     }
-                    Kill(it->second.m_Index, frameNumber);
-                    it = m_Handles.erase(it);
+                    else
+                    {
+                        Kill(it->second.m_Index, frameNumber);
+                        it = m_Handles.erase(it);
+                    }
                 }
             }
 
@@ -251,7 +255,7 @@ namespace OloEngine
             // the rule rejects advances the generation in place before the
             // record is stored.
             template<typename Encode, typename Compatible>
-            void CommitStaged(u64 frameNumber, Encode&& encode, Compatible&& compatible)
+            void CommitStaged(u64 frameNumber, const Encode& encode, const Compatible& compatible)
             {
                 for (const auto& [key, input] : m_Staged)
                 {
@@ -333,8 +337,7 @@ namespace OloEngine
             {
                 std::vector<GPUSceneDirtyRange> grown;
                 const std::vector<GPUSceneDirtyRange>* toUpload = &ranges;
-                const auto required = static_cast<u32>(m_Records.size());
-                if (required > m_BufferCapacity)
+                if (const auto required = static_cast<u32>(m_Records.size()); required > m_BufferCapacity)
                 {
                     m_BufferCapacity = GPUSceneAllocationPolicy::GrowCapacity(m_BufferCapacity, required);
                     m_Buffer->Resize(BytesForRecords<Record>(m_BufferCapacity));
@@ -397,8 +400,9 @@ namespace OloEngine
         };
     } // namespace
 
-    struct GPUScene::Impl
+    class GPUScene::Impl
     {
+      public:
         u64 m_OwnerToken = 0;
         u64 m_FrameNumber = 0;
         bool m_HasOwner = false;
@@ -429,7 +433,7 @@ namespace OloEngine
         // missed by one of them. Only EndExtraction's commit order (materials
         // before the instances that reference them) is spelled out by hand.
         template<typename Function>
-        void ForEachTable(Function&& function)
+        void ForEachTable(const Function& function)
         {
             function(m_Geometries);
             function(m_Instances);
@@ -439,7 +443,7 @@ namespace OloEngine
         }
 
         template<typename Function>
-        void ForEachTable(Function&& function) const
+        void ForEachTable(const Function& function) const
         {
             function(m_Geometries);
             function(m_Instances);

@@ -212,11 +212,12 @@ namespace OloEngine::HeapBinding
     {
         static const RHI::SamplerDesc kSampler = []
         {
+            using enum RHI::AddressMode;
             RHI::SamplerDesc desc;
             desc.Source = RHI::SamplerSource::Explicit;
-            desc.AddressU = RHI::AddressMode::Repeat;
-            desc.AddressV = RHI::AddressMode::Repeat;
-            desc.AddressW = RHI::AddressMode::Repeat;
+            desc.AddressU = Repeat;
+            desc.AddressV = Repeat;
+            desc.AddressW = Repeat;
             return desc;
         }();
         return kSampler;

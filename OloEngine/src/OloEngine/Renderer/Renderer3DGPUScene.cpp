@@ -99,6 +99,23 @@ namespace OloEngine
             input.m_Specular = ResolveRecordTexture2D(material.GetSpecularMap(), heapEnabled);
             return input;
         }
+
+        // The owner half of an Imported material key: the mesh source's asset
+        // handle when the source is an asset (a GPU rebuild keeps it), else the
+        // vertex-buffer identity the geometry key already uses (procedural
+        // sources). Zero when the source has neither: such a source is not
+        // extractable at all (ExtractGPUSceneMesh rejects it) and gets no
+        // record rather than a made-up identity.
+        [[nodiscard]] u64 ImportedMaterialOwner(const Ref<MeshSource>& meshSource)
+        {
+            if (const auto assetId = static_cast<u64>(meshSource->GetHandle()); assetId != 0)
+            {
+                return assetId;
+            }
+            const Ref<VertexBuffer>& vertexBuffer = meshSource->GetVertexBuffer();
+            const RHI::ResourceHandle vertexHandle = vertexBuffer ? vertexBuffer->GetRHIHandle() : RHI::NullResource;
+            return vertexHandle.IsValid() ? RHI::HashKey(vertexHandle) : 0;
+        }
     } // namespace
 
     void Renderer3D::BeginGPUSceneExtraction(u64 ownerToken)
@@ -126,38 +143,16 @@ namespace OloEngine
                 };
             case SubmeshMaterialOrigin::Imported:
             {
-                // The authored identity of an imported material is its mesh
-                // source: the asset handle when the source is an asset (a GPU
-                // rebuild keeps it), else the vertex-buffer identity the geometry
-                // key already uses (procedural sources). A source with no GPU
-                // buffer yet is not extractable at all (ExtractGPUSceneMesh
-                // rejects it) and gets no record rather than a made-up identity.
-                const auto assetId = static_cast<u64>(meshSource->GetHandle());
-                const Ref<VertexBuffer>& vertexBuffer = meshSource->GetVertexBuffer();
-                const RHI::ResourceHandle vertexHandle =
-                    vertexBuffer ? vertexBuffer->GetRHIHandle() : RHI::NullResource;
-                u64 owner = 0;
-                if (assetId != 0)
-                {
-                    owner = assetId;
-                }
-                else if (vertexHandle.IsValid())
-                {
-                    owner = RHI::HashKey(vertexHandle);
-                }
-                else
-                {
-                    return GPUSceneMaterialKey{
-                        .m_Source = std::to_underlying(GPUSceneMaterialSource::Unresolvable),
-                    };
-                }
+                const u64 owner = ImportedMaterialOwner(meshSource);
                 return GPUSceneMaterialKey{
                     .m_Owner = owner,
                     .m_Slot = meshSource->GetSubmeshes()[static_cast<i32>(submeshIndex)].m_MaterialIndex,
-                    .m_Source = std::to_underlying(GPUSceneMaterialSource::Imported),
+                    .m_Source = std::to_underlying(owner != 0 ? GPUSceneMaterialSource::Imported
+                                                              : GPUSceneMaterialSource::Unresolvable),
                 };
             }
             case SubmeshMaterialOrigin::Default:
+            default:
                 break;
         }
         return GPUSceneMaterialKey{
@@ -180,8 +175,7 @@ namespace OloEngine
 
     void Renderer3D::ExtractGPUSceneMesh(u64 stableEntityId, u64 stableInstanceId,
                                          const Ref<MeshSource>& meshSource, u32 submeshIndex,
-                                         const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
-                                         u32 visibilityMask, u32 flags)
+                                         const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey)
     {
         if (!s_Data.GPUSceneExtractionActive || !meshSource || !meshSource->GetVertexArray() || submeshIndex >= static_cast<u32>(meshSource->GetSubmeshes().Num()))
         {
@@ -231,8 +225,6 @@ namespace OloEngine
             GPUSceneInstanceInput{
                 .m_WorldTransform = worldTransform,
                 .m_Material = materialKey,
-                .m_VisibilityMask = visibilityMask,
-                .m_Flags = flags,
             });
     }
 
@@ -245,7 +237,7 @@ namespace OloEngine
         s_Data.SceneGPU.ExtractLight(key, input);
     }
 
-    void Renderer3D::ExtractGPUSceneGlobalEnvironment()
+    void Renderer3D::ExtractGPUSceneEnvironment()
     {
         if (!s_Data.GPUSceneExtractionActive)
         {

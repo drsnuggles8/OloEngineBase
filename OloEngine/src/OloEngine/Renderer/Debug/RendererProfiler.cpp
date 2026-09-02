@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iomanip>
 #include <sstream>
+#include <string_view>
 
 namespace OloEngine
 {
@@ -410,10 +411,11 @@ namespace OloEngine
             ImGui::Text("Extraction: %.3f ms", gpuScene.m_ExtractionTimeMs);
             ImGui::Text("Upload: %llu bytes; growth events: %u",
                         static_cast<unsigned long long>(gpuScene.m_UploadBytes), gpuScene.m_BufferGrowthEvents);
-            const auto kindRow = [](const char* name, const GPUSceneKindStats& kind)
+            const auto kindRow = [](std::string_view name, const GPUSceneKindStats& kind)
             {
-                ImGui::Text("%s: %u live / %u slots / %u GPU capacity; %u free / %u retiring; %llu bytes", name,
-                            kind.m_Live, kind.m_SlotCount, kind.m_BufferCapacity, kind.m_FreeSlots, kind.m_RetiredSlots,
+                ImGui::Text("%.*s: %u live / %u slots / %u GPU capacity; %u free / %u retiring; %llu bytes",
+                            static_cast<int>(name.size()), name.data(), kind.m_Live, kind.m_SlotCount,
+                            kind.m_BufferCapacity, kind.m_FreeSlots, kind.m_RetiredSlots,
                             static_cast<unsigned long long>(kind.m_UploadBytes));
             };
             kindRow("Instances", gpuScene.m_Instances);

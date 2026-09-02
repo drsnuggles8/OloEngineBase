@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <limits>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 // The canonical GPU Scene record contract (issues #991, #992, #993).
@@ -677,7 +678,7 @@ namespace OloEngine
     // render origin when it encodes the record.
     struct GPUSceneLightInput
     {
-        u32 m_Type = static_cast<u32>(GPUSceneLightType::Point);
+        u32 m_Type = std::to_underlying(GPUSceneLightType::Point);
         glm::vec3 m_Position{ 0.0f };
         glm::vec3 m_Direction{ 0.0f, -1.0f, 0.0f };
         glm::vec3 m_Color{ 1.0f };
@@ -810,10 +811,11 @@ namespace OloEngine
         record.DirectionAndRadius = glm::vec4(spot ? SanitizeSpotLightDirection(input.m_Direction) : input.m_Direction,
                                               sphere ? input.m_Radius : 0.0f);
         record.ColorAndIntensity = glm::vec4(input.m_Color, input.m_Intensity);
-        record.ShapeParams = glm::vec4(spot ? SpotConeCosine(input.m_InnerCutoffDegrees) : 0.0f,
-                                       spot ? SpotConeCosine(input.m_OuterCutoffDegrees) : 0.0f,
-                                       (directional || sphere) ? 0.0f : input.m_Attenuation,
-                                       spot ? input.m_SpotFalloff : 0.0f);
+        const f32 innerCosine = spot ? SpotConeCosine(input.m_InnerCutoffDegrees) : 0.0f;
+        const f32 outerCosine = spot ? SpotConeCosine(input.m_OuterCutoffDegrees) : 0.0f;
+        const f32 attenuation = (directional || sphere) ? 0.0f : input.m_Attenuation;
+        const f32 spotFalloff = spot ? input.m_SpotFalloff : 0.0f;
+        record.ShapeParams = glm::vec4(innerCosine, outerCosine, attenuation, spotFalloff);
         record.Type = input.m_Type;
         record.Flags = GPUSceneLightFlagActive | (input.m_CastShadows ? GPUSceneLightFlagCastShadows : 0u);
         record.StableIndex = stableIndex;

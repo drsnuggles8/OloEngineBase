@@ -55,15 +55,16 @@ namespace OloEngine
     [[nodiscard]] inline SubmeshMaterialOrigin ResolveSubmeshMaterialOrigin(const Material* overrideMaterial,
                                                                             const Material* importedMaterial)
     {
+        using enum SubmeshMaterialOrigin;
         if (overrideMaterial != nullptr)
         {
-            return SubmeshMaterialOrigin::Override;
+            return Override;
         }
         if (importedMaterial != nullptr)
         {
-            return SubmeshMaterialOrigin::Imported;
+            return Imported;
         }
-        return SubmeshMaterialOrigin::Default;
+        return Default;
     }
 
     [[nodiscard]] inline SubmeshMaterialOrigin ResolveSubmeshMaterialOrigin(const Material* overrideMaterial,
@@ -86,13 +87,15 @@ namespace OloEngine
         // keeps alive across its use of the result, so the observer is the honest shape.
         const Material* imported =
             meshSource != nullptr ? meshSource->GetImportedMaterialPtrForSubmesh(submeshIndex) : nullptr;
+        using enum SubmeshMaterialOrigin;
         switch (ResolveSubmeshMaterialOrigin(overrideMaterial, imported))
         {
-            case SubmeshMaterialOrigin::Override:
+            case Override:
                 return *overrideMaterial;
-            case SubmeshMaterialOrigin::Imported:
+            case Imported:
                 return *imported;
-            case SubmeshMaterialOrigin::Default:
+            case Default:
+            default:
                 break;
         }
         return defaultMaterial;
