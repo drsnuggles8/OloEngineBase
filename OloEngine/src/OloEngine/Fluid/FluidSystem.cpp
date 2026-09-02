@@ -183,7 +183,24 @@ namespace OloEngine
             OLO_PROFILE_SCOPE("FluidSystem::ExtractBodyProxies");
 
             const glm::vec3 center = (params.BoundsMin + params.BoundsMax) * 0.5f;
-            const glm::vec3 half = (params.BoundsMax - params.BoundsMin) * 0.5f;
+
+            // The query volume is the domain GROWN BY ONE SMOOTHING RADIUS, not
+            // the domain itself. A body resting on the pool floor sits exactly on
+            // the boundary, and whether an exactly-touching box is reported as an
+            // overlap comes down to sub-micrometre penetration against Jolt's
+            // collision tolerance -- so the bodies most in need of buoyancy are
+            // the ones the query is least reliable about. Measured on the AMD CI
+            // box: two boxes at rest on the floor, one penetrating the boundary
+            // by 2.6e-5 and reported, the other by 1e-7 and not, while a query
+            // over twice the volume found both plus the ground (issue #1015).
+            //
+            // A smoothing radius is the right margin because it is the distance
+            // over which a particle influences anything at all: a body further
+            // than that outside the domain cannot be touched by the fluid, and
+            // one within it can. Bodies that only graze the volume still get a
+            // proxy, and the solver decides what force that is worth -- which is
+            // its job, not the query's.
+            const glm::vec3 half = (params.BoundsMax - params.BoundsMin) * 0.5f + glm::vec3(params.SmoothingRadius());
 
             std::vector<SceneQueryHit> hits(static_cast<sizet>(kFluidMaxBodyProxies) * 2);
             const BoxOverlapInfo overlap(center, half);
