@@ -22,6 +22,7 @@
 
 #include "Rendering/PropertyTests/RenderPropertyTest.h"
 #include "TestTempDir.h"
+#include "TestOptions.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -166,13 +167,35 @@ namespace OloEngine::Tests
 
     TEST(GpuGateSwitch, RequireGpuNeverSkips)
     {
-        // The child auto-detects its own context; this process cannot know
-        // whether one is obtainable, because under ctest on the CI box it was
-        // itself launched with --olo-gl-backend=none (IsGpuAvailable() here is
-        // a forced false, not "no hardware"). So the invariant under test is
-        // the one that holds either way: with --olo-require-gpu a gate-site
-        // test RUNS or FAILS, and never skips. Which of the two happened is
-        // read off the child's exit code and then checked for consistency.
+        // NOT WHEN THIS PROCESS WAS TOLD TO LEAVE GL ALONE. --olo-require-gpu
+        // makes the child auto-detect a context, and a child that auto-detects
+        // is not bound by the parent's choice: on a GPU-equipped self-hosted
+        // runner it opens a real context and renders for real. That defeats the
+        // whole point of the sanitizer jobs passing --olo-gl-backend=none, and
+        // it is how this test failed the routed TSan run -- the child hit a data
+        // race in the render path the job had deliberately excluded, died on it,
+        // and wrote no XML, which arrives here as "child wrote no gtest XML"
+        // and reads like a gate bug.
+        //
+        // The one legal way to ask for the gate's behaviour without a context is
+        // --olo-require-gpu with --olo-gl-backend=none, and that pair is
+        // rejected before any test runs -- proved by
+        // RequireGpuWithBackendNoneIsRejectedBeforeAnyTestRuns just below. So
+        // there is nothing left for this case to assert here, and it says so
+        // rather than reaching for a context behind the run's back.
+        if (Options().GlBackend == GlBackend::None)
+        {
+            GTEST_SKIP() << "this run was launched with --olo-gl-backend=none; a --olo-require-gpu "
+                            "child would auto-detect a context and render for real, which is exactly "
+                            "what that flag exists to prevent";
+        }
+
+        // Otherwise the child auto-detects its own context and this process
+        // still cannot know whether one is obtainable. So the invariant under
+        // test is the one that holds either way: with --olo-require-gpu a
+        // gate-site test RUNS or FAILS, and never skips. Which of the two
+        // happened is read off the child's exit code and then checked for
+        // consistency.
         const ChildRun run = RunSelf("gpu-gate-require", "--olo-require-gpu");
         ASSERT_FALSE(run.Xml.empty()) << "child wrote no gtest XML\n"
                                       << run.Output;
