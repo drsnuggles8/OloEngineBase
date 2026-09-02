@@ -527,6 +527,36 @@ namespace OloEngine::Tests
             << "JONSWAP foreground band is not water-blue (R=" << meanR << " G=" << meanG << " B=" << meanB << ")";
 
         // Phillips vs JONSWAP must visibly differ — the selector reaches pixels.
+        //
+        // The per-frame luma spread is logged alongside, because "the two frames
+        // are alike" has two very different causes and the RMSE alone cannot
+        // separate them: two DIFFERENT wave fields that happen to score close,
+        // or two frames with no waves in them at all. On the AMD CI box both
+        // frames render as a flat plane (issue #1015) while GpuCompute in this
+        // same suite renders a full wave field on that GPU, so the question is
+        // what this scene does differently — a 200 m patch and a grazing
+        // camera — not which spectrum was selected. A spread near zero says
+        // there is no surface relief to tell apart.
+        const auto lumaSpread = [](const std::vector<u8>& frame)
+        {
+            f64 sum = 0.0;
+            f64 sumSq = 0.0;
+            const std::size_t pixels = frame.size() / 4u;
+            for (std::size_t i = 0; i < pixels; ++i)
+            {
+                const f64 luma = 0.2126 * frame[i * 4 + 0] + 0.7152 * frame[i * 4 + 1] + 0.0722 * frame[i * 4 + 2];
+                sum += luma;
+                sumSq += luma * luma;
+            }
+            if (pixels == 0)
+                return 0.0;
+            const f64 mean = sum / static_cast<f64>(pixels);
+            return std::sqrt(std::max(0.0, sumSq / static_cast<f64>(pixels) - mean * mean));
+        };
+        GTEST_LOG_(INFO) << "spectrum frames: Phillips luma spread " << lumaSpread(phillipsFrame)
+                         << ", JONSWAP " << lumaSpread(jonswapFrame)
+                         << " (a flat, wave-free surface reads near zero)";
+
         const f64 rmse = Rgba8Rmse(phillipsFrame, jonswapFrame);
         EXPECT_GT(rmse, 3.0)
             << "Phillips and JONSWAP frames are nearly identical (RMSE " << rmse
