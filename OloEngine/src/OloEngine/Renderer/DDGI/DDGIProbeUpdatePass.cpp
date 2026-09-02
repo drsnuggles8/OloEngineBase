@@ -466,13 +466,11 @@ namespace OloEngine
         // directly migrates them VIDEO -> HOST permanently, so one visit to the
         // probe diagnostics would have taxed every DDGI frame for the rest of
         // the session. See StagedBufferReadback.
-        if (m_Records.empty())
+        // Nothing dispatched, or no buffer to read: the counters are zero by
+        // definition, and saying so beats reporting the previous grid's.
+        if (m_Records.empty() || !m_ProbeAuxSSBO)
         {
-            return;
-        }
-
-        if (!m_ProbeAuxSSBO)
-        {
+            m_Stats = ProbeStats{};
             return;
         }
 
@@ -1629,10 +1627,14 @@ namespace OloEngine
         // since issue #1015, so this clears the HEADER only — a ClearData()
         // here would wipe every probe's request history each frame and turn
         // sparsity into "no GI, no error".
+        // A ranged CLEAR, not a SetData of zeros: on the Vulkan backend a CPU
+        // write into a GPU-written buffer mid-frame installs a frame snapshot
+        // as the root address of every later draw (the relight and blend
+        // passes read b_ProbeAux through it), while a clear stays in the
+        // command stream on both backends.
         if (m_ProbeAuxSSBO)
         {
-            const ProbeStats zeroStats{};
-            m_ProbeAuxSSBO->SetData(&zeroStats, kProbeAuxHeaderBytes, 0);
+            m_ProbeAuxSSBO->ClearData(0u, static_cast<u32>(kProbeAuxHeaderBytes));
         }
 
         // 2. Per-probe maintenance: cascade-shift invalidation, camera seed,

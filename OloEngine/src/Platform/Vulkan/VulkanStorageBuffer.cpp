@@ -507,6 +507,73 @@ namespace OloEngine
                               });
     }
 
+    void VulkanStorageBuffer::ClearData(u32 offset, u32 size)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || m_Buffer == VK_NULL_HANDLE || m_Size == 0 || size == 0)
+        {
+            return;
+        }
+        if (static_cast<u64>(offset) + size > m_Size || (offset % 4u) != 0u || (size % 4u) != 0u)
+        {
+            OLO_CORE_ERROR("VulkanStorageBuffer::ClearData: range {}+{} is out of the buffer's {} bytes or not 4-byte "
+                           "aligned -- dropping",
+                           offset, size, m_Size);
+            return;
+        }
+
+        // The same three paths as the whole-buffer clear above, ranged. Rule
+        // 6 and the snapshot rule apply unchanged: a ranged clear still
+        // supersedes any command-ordered snapshot, and mid-frame it must be
+        // ordered inside the frame command buffer.
+        if (!ClaimParallelWriter(m_ParallelWriter, "storage buffer"))
+        {
+            return;
+        }
+        InvalidateSnapshot();
+
+        if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
+        {
+            vk->ClearBufferUInt(m_RHIHandle.Get(), 0u, offset, size);
+            return;
+        }
+
+        if (m_Mapped != nullptr)
+        {
+            std::memset(static_cast<u8*>(m_Mapped) + offset, 0, size);
+            if (m_NeedsFlush)
+            {
+                vmaFlushAllocation(device->GetAllocator(), m_Allocation, offset, size);
+            }
+            return;
+        }
+
+        VulkanOneShot::Submit("VulkanStorageBuffer::ClearData(range)",
+                              [&](VkCommandBuffer cmd)
+                              {
+                                  vkCmdFillBuffer(cmd, m_Buffer, offset, size, 0u);
+
+                                  VkBufferMemoryBarrier2 post{};
+                                  post.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+                                  post.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+                                  post.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                                  post.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                                  post.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+                                  post.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                                  post.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                                  post.buffer = m_Buffer;
+                                  post.offset = offset;
+                                  post.size = size;
+                                  VkDependencyInfo dep{};
+                                  dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                                  dep.bufferMemoryBarrierCount = 1u;
+                                  dep.pBufferMemoryBarriers = &post;
+                                  vkCmdPipelineBarrier2(cmd, &dep);
+                              });
+    }
+
     void VulkanStorageBuffer::Resize(u32 newSize)
     {
         OLO_PROFILE_FUNCTION();

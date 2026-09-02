@@ -60,6 +60,15 @@ namespace OloEngine
         glClearNamedBufferData(m_RendererID, GL_R8, GL_RED, GL_UNSIGNED_BYTE, nullptr);
     }
 
+    void OpenGLStorageBuffer::ClearData(u32 offset, u32 size)
+    {
+        OLO_CORE_ASSERT(static_cast<u64>(offset) + size <= m_Size, "StorageBuffer::ClearData range out of bounds!");
+        OLO_CORE_ASSERT((offset % 4u) == 0u && (size % 4u) == 0u, "StorageBuffer::ClearData range must be 4-byte aligned");
+        if (size == 0u)
+            return;
+        glClearNamedBufferSubData(m_RendererID, GL_R8, offset, size, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+    }
+
     void OpenGLStorageBuffer::Resize(u32 newSize)
     {
         OLO_PROFILE_FUNCTION();

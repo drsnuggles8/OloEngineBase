@@ -711,7 +711,7 @@ namespace OloEngine::Testing
                               Native(dstBuffer, RHI::ResourceKind::Buffer),
                               srcOffsetBytes, dstOffsetBytes, sizeBytes);
         }
-        void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value) override
+        void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value, u64 /*offset*/ = 0, u64 /*size*/ = ~0ull) override
         {
             ClearBufferUInt(Native(buffer, RHI::ResourceKind::Buffer), value);
         }

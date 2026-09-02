@@ -1890,13 +1890,19 @@ namespace OloEngine
                                  static_cast<GLsizeiptr>(sizeBytes));
     }
 
-    void OpenGLRendererAPI::ClearBufferUInt(RHI::ResourceHandle buffer, u32 value)
+    void OpenGLRendererAPI::ClearBufferUInt(RHI::ResourceHandle buffer, u32 value, u64 offset, u64 size)
     {
         OLO_PROFILE_FUNCTION();
 
         const GLuint bufferID = Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer);
         Utils::GLClearProgramGuard programGuard;
-        glClearNamedBufferData(bufferID, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
+        if (offset == 0 && size == ~0ull)
+        {
+            glClearNamedBufferData(bufferID, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
+            return;
+        }
+        glClearNamedBufferSubData(bufferID, GL_R32UI, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size),
+                                  GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
     }
 
     void OpenGLRendererAPI::ClearBufferFloat(RHI::ResourceHandle buffer, f32 value)

@@ -52,7 +52,6 @@
 
 #include <algorithm>
 #include <mutex>
-#include <new>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -62,22 +61,28 @@ namespace OloEngine
     class ShaderRegistry
     {
       public:
-        // NEVER DESTRUCTED, on purpose (the ADR 0004 shape). Shaders unregister
-        // from their destructors, and a shader held by a static -- Renderer3D's
-        // and Renderer2D's `static ShaderLibrary m_ShaderLibrary`, the
-        // fallback shader -- is destroyed during static teardown. A plain
-        // function-local static registry is constructed on the FIRST shader's
-        // constructor, which is after those statics' constant initialisation,
-        // so it is destroyed BEFORE them: the last shaders then walk a freed
-        // unordered_map. UBSan on the AMD CI box reported exactly that from
+        // NEVER DESTRUCTED, on purpose. Shaders unregister from their
+        // destructors. The engine's own shutdown clears the static libraries
+        // (Renderer3D::Shutdown, Renderer2D::Shutdown, the fallback shader)
+        // before static teardown, but a process that plants a shader in
+        // Renderer3D's static ShaderLibrary and never shuts the renderer down
+        // -- AssetPreviewRendererTest's minimal-library fixture is one -- has
+        // that shader destroyed during static teardown. A plain function-local
+        // static registry is constructed on the FIRST shader's constructor,
+        // after those statics' constant initialisation, so it is destroyed
+        // BEFORE them and the last shaders walk a freed unordered_map. The
+        // registry must survive whatever teardown order a host chooses; a
+        // never-freed map does regardless. UBSan on the AMD CI box reported exactly that from
         // AssetPreviewRendererTest (run 33561256256: "downcast of misaligned
         // address 0x000036f1c2f9" in hashtable_policy.h, then "unreachable"
         // in vector::size()). A map that is never freed cannot be walked
-        // freed; the few KB it holds are reclaimed by process exit.
+        // freed; the few KB it holds are reclaimed by process exit. A leaked
+        // heap object rather than ADR 0004's placement-new buffer: that shape
+        // exists because the allocator cannot allocate through itself, and a
+        // registry of unordered_maps has no such constraint.
         static ShaderRegistry& Get()
         {
-            alignas(ShaderRegistry) static u8 s_Storage[sizeof(ShaderRegistry)];
-            static ShaderRegistry* const s_Instance = ::new (static_cast<void*>(s_Storage)) ShaderRegistry();
+            static ShaderRegistry* const s_Instance = new ShaderRegistry();
             return *s_Instance;
         }
 

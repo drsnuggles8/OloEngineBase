@@ -1064,7 +1064,8 @@ namespace OloEngine
         vkCmdPipelineBarrier2(ctx.Cmd, &dep);
     }
 
-    void VulkanRendererAPI::ClearBufferUInt(const RHI::ResourceHandle buffer, const u32 value)
+    void VulkanRendererAPI::ClearBufferUInt(const RHI::ResourceHandle buffer, const u32 value, const u64 offset,
+                                            const u64 size)
     {
         auto& ctx = Ctx();
         if (ctx.Cmd == VK_NULL_HANDLE)
@@ -1091,7 +1092,8 @@ namespace OloEngine
         dep.pMemoryBarriers = &global;
 
         vkCmdPipelineBarrier2(ctx.Cmd, &dep);
-        vkCmdFillBuffer(ctx.Cmd, reinterpret_cast<VkBuffer>(native), 0, VK_WHOLE_SIZE, value);
+        // ~0ull is VK_WHOLE_SIZE, so the default covers the whole buffer.
+        vkCmdFillBuffer(ctx.Cmd, reinterpret_cast<VkBuffer>(native), offset, size == ~0ull ? VK_WHOLE_SIZE : size, value);
         vkCmdPipelineBarrier2(ctx.Cmd, &dep);
     }
 

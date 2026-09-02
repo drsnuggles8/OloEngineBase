@@ -50,6 +50,16 @@ namespace OloEngine
         // Zero-fill the entire buffer on the GPU (no CPU allocation)
         virtual void ClearData() = 0;
 
+        // Zero-fill [offset, offset + size) on the GPU. For a buffer that GPU
+        // kernels write into every frame and that carries a per-frame header
+        // in front of persistent records (DDGI's probe-aux block, #1015):
+        // a SetData of zeros would be a CPU write into a live buffer, which on
+        // the Vulkan backend installs a frame snapshot as the root address for
+        // every later draw (VulkanStorageBuffer.h, rule 6) -- a clear stays in
+        // the GPU command stream on both backends. Offset and size are
+        // multiples of 4 (vkCmdFillBuffer's granularity).
+        virtual void ClearData(u32 offset, u32 size) = 0;
+
         // Resize the buffer (invalidates existing data)
         virtual void Resize(u32 newSize) = 0;
 
