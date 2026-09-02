@@ -511,6 +511,25 @@ namespace OloEngine::Tests
                     // Clamped to 8 bits by the readback, which is fine: this is a
                     // cross-VENDOR comparison of the same buffer, and the question is
                     // binary. Both sides get identical treatment.
+                    // The band mean answers "how much light", never "a picture of
+                    // what". CLAUDE.md's rule for renderer work is to look at the
+                    // pixels, and this is the one buffer nobody has ever seen on AMD.
+                    // gpu-conformance-amd uploads visual/**/*.png in its
+                    // `if: failure()` artifact, and that job fails on #1008 anyway,
+                    // so writing here is how the image gets off the box.
+                    {
+                        const fs::path preDir = fs::path("assets") / "tests" / "visual" / "fog1008";
+                        std::error_code ec;
+                        fs::create_directories(preDir, ec);
+                        if (!ec)
+                        {
+                            const std::string prePath = (preDir / ("PreFog_" + name + ".png")).string();
+                            ::stbi_write_png(prePath.c_str(), static_cast<int>(kWidth),
+                                             static_cast<int>(kHeight), 4, prePixels.data(),
+                                             static_cast<int>(kWidth) * 4);
+                        }
+                    }
+
                     std::cout << "[#1008] " << name
                               << "  pre-fog(CloudsColor) horizon luma=" << preHorizon.Luma()
                               << " rgb=" << preHorizon.R << "," << preHorizon.G << "," << preHorizon.B
