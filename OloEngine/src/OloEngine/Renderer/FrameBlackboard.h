@@ -202,6 +202,10 @@ namespace OloEngine
             // signal accumulable at all — the composited colour is not.
             RGFramebufferHandle SSGISignal;
             RGFramebufferHandle SSGIResolved;
+            RGTextureHandle SSGIMomentsFirst;
+            RGTextureHandle SSGIMomentsSecond;
+            RGTextureHandle SSGIHistoryDiagnostics;
+            RGTextureHandle SSGIReprojectionDiagnostics;
             RGFramebufferHandle SSRSignal;
             RGFramebufferHandle SSRResolved;
         };
@@ -303,10 +307,13 @@ namespace OloEngine
         // -----------------------------------------------------------------------
         struct TemporalHistorySlot
         {
-            RGTextureHandle TAAHistory;    // Previous TAA accumulation buffer
-            RGTextureHandle CloudsHistory; // Previous cloudscape resolve buffer (half-res, issue #633)
-            RGTextureHandle SSGIHistory;   // Previous resolved SSGI signal (issue #902)
-            RGTextureHandle SSRHistory;    // Previous resolved SSR signal (issue #902)
+            RGTextureHandle TAAHistory;         // Previous TAA accumulation buffer
+            RGTextureHandle CloudsHistory;      // Previous cloudscape resolve buffer (half-res, issue #633)
+            RGTextureHandle SSGIHistory;        // Previous resolved SSGI signal (issue #902)
+            RGTextureHandle SSGISurfaceHistory; // Previous normal/roughness surface plane (#976)
+            RGTextureHandle SSGIMomentsFirstHistory;
+            RGTextureHandle SSGIMomentsSecondHistory;
+            RGTextureHandle SSRHistory; // Previous resolved SSR signal (issue #902)
             // (Fog's temporal history moved into VolumetricFogPass's own 3D
             // scatter volume with the froxel fog rework — issue #435.)
         };

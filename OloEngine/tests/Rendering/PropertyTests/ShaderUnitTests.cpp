@@ -1125,6 +1125,49 @@ namespace OloEngine::Tests
         EXPECT_NEAR(results[0].Rgba[3], 1.0f, 1e-6f) << "alpha ignored confidence";
     }
 
+    TEST(ShaderUnitSurfaceHistoryTest, StableIdentityRejectionAndFirstFrameMomentsMatchTheSharedContract)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ProbeOutput
+        {
+            std::array<u32, 4> Reasons{};
+            std::array<f32, 4> First{};
+            std::array<f32, 4> Second{};
+            std::array<f32, 4> Metadata{};
+        };
+
+        ScopedBuffer output(sizeof(ProbeOutput), GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+        auto shader = ComputeShader::Create("assets/shaders/tests/ShaderUnit_SurfaceHistory.glsl");
+        ASSERT_TRUE(shader && shader->IsValid()) << "surface-history contract probe failed to compile";
+        shader->Bind();
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, output.m_Id);
+        ::glDispatchCompute(1, 1, 1);
+        ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+        ProbeOutput result{};
+        ::glGetNamedBufferSubData(output.m_Id, 0, sizeof(result), &result);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+        ::glUseProgram(0);
+
+        constexpr u32 kRejectInstance = 1u << 6u;
+        constexpr u32 kRejectMaterial = 1u << 8u;
+        constexpr u32 kRejectIdentityMissing = 1u << 14u;
+        EXPECT_NE(result.Reasons[0] & kRejectInstance, 0u);
+        EXPECT_NE(result.Reasons[1] & kRejectMaterial, 0u);
+        EXPECT_NE(result.Reasons[2] & kRejectIdentityMissing, 0u);
+        EXPECT_EQ(result.Reasons[3], 0u);
+
+        const std::array<f32, 4> signal{ 0.25f, 0.5f, 0.75f, 1.0f };
+        for (std::size_t channel = 0; channel < signal.size(); ++channel)
+        {
+            EXPECT_FLOAT_EQ(result.First[channel], signal[channel]);
+            EXPECT_FLOAT_EQ(result.Second[channel], signal[channel] * signal[channel]);
+        }
+        EXPECT_FLOAT_EQ(result.Metadata[0], 1.0f);
+        EXPECT_FLOAT_EQ(result.Metadata[1], 0.0f);
+    }
+
     TEST(ShaderUnitDepthAwareClusterTest, TileDepthAndPixelBoundaryHelpersMatchTheirContract)
     {
         OLO_ENSURE_GPU_OR_SKIP();

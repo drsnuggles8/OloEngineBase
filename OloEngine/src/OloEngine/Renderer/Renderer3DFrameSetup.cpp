@@ -1,9 +1,18 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 
 namespace OloEngine
 {
+    void Renderer3D::ObserveTemporalProjection(const glm::mat4& projection)
+    {
+        if (s_Data.HasTemporalProjectionMatrix && !Math::BitwiseEqual(s_Data.TemporalProjectionMatrix, projection))
+            InvalidateTemporalHistories(TemporalHistoryInvalidationCause::ProjectionChanged);
+        s_Data.TemporalProjectionMatrix = projection;
+        s_Data.HasTemporalProjectionMatrix = true;
+    }
+
     void Renderer3D::RefreshCullingCamera()
     {
         // Reconcile with the settings bool FIRST, every frame. The Renderer
@@ -38,8 +47,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        const glm::mat4 projection = camera.GetProjection();
+        ObserveTemporalProjection(projection);
         s_Data.ViewMatrix = camera.GetView();
-        s_Data.ProjectionMatrix = camera.GetProjection();
+        s_Data.ProjectionMatrix = projection;
         s_Data.ViewProjectionMatrix = camera.GetViewProjection();
         s_Data.ViewPos = camera.GetPosition();
         s_Data.CameraNearClip = camera.GetNearClip();
@@ -54,8 +65,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        const glm::mat4 projection = camera.GetProjection();
+        ObserveTemporalProjection(projection);
         s_Data.ViewMatrix = camera.GetViewMatrix();
-        s_Data.ProjectionMatrix = camera.GetProjection();
+        s_Data.ProjectionMatrix = projection;
         s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
         s_Data.ViewPos = camera.GetPosition();
         s_Data.CameraNearClip = camera.GetNearClip();
@@ -70,8 +83,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        const glm::mat4 projection = camera.GetProjection();
+        ObserveTemporalProjection(projection);
         s_Data.ViewMatrix = glm::inverse(transform);
-        s_Data.ProjectionMatrix = camera.GetProjection();
+        s_Data.ProjectionMatrix = projection;
         s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
         s_Data.ViewPos = glm::vec3(transform[3]);
         // Camera base class has no near/far — keep previous values

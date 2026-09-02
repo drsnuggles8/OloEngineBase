@@ -469,15 +469,18 @@ namespace OloEngine
                 if (fovDegrees > 0.0f)
                     m_EditorCamera.SetFOV(fovDegrees);
                 m_EditorCamera.SetPose(eye, yawRadians, pitchRadians);
+                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::CameraCut);
             };
             mcpContext.OrbitCamera = [this](const glm::vec3& target, f32 yawRadians, f32 pitchRadians, f32 distance)
             {
                 m_EditorCamera.Focus(target, distance, yawRadians, pitchRadians);
+                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::CameraCut);
             };
             mcpContext.RestoreCameraPose = [this](const MCP::McpCameraPose& pose)
             {
                 m_EditorCamera.SetFOV(pose.FovDegrees);
                 m_EditorCamera.Focus(pose.FocalPoint, pose.Distance, pose.YawRadians, pose.PitchRadians);
+                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::CameraCut);
             };
             mcpContext.FrameEntity = [this](u64 entityUuid) -> bool
             { return FrameEditorCameraOnEntity(entityUuid); };
@@ -3950,7 +3953,10 @@ namespace OloEngine
         // Shared with the headless MCP test host (McpHeadlessHost) — see
         // SceneCameraFraming.h. Keep the bounds-computation + fit logic there,
         // not here, so the editor and the headless host can't drift apart.
-        return FrameCameraOnEntity(m_ActiveScene, entityUuid, m_EditorCamera);
+        const bool framed = FrameCameraOnEntity(m_ActiveScene, entityUuid, m_EditorCamera);
+        if (framed)
+            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::CameraCut);
+        return framed;
     }
 
     bool EditorLayer::SaveScene()
@@ -4202,6 +4208,7 @@ namespace OloEngine
         m_SceneState = SceneState::Play;
 
         m_ActiveScene = Scene::Copy(m_EditorScene);
+        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
 
         // Validate that the scene has a primary camera before starting runtime
         Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
@@ -4372,6 +4379,7 @@ namespace OloEngine
         m_PickingReadPending = false; // Discard stale PBO data from the old scene
 
         m_ActiveScene = m_EditorScene;
+        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
 
         BindPanelsToScene(m_ActiveScene, &m_CommandHistory);
         m_SaveGamePanel.SetContext(nullptr, nullptr);
@@ -4385,6 +4393,7 @@ namespace OloEngine
         m_HoveredEntity = Entity();
 
         m_EditorScene = scene;
+        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
         m_SceneHierarchyPanel.SetContext(m_EditorScene);
         m_SceneHierarchyPanel.SetCommandHistory(&m_CommandHistory);
         m_AnimationPanel.SetContext(m_EditorScene);

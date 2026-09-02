@@ -37,6 +37,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <span>
@@ -271,6 +272,11 @@ namespace OloEngine
         // extracts it once per frame, just before the registry commits.
         static void ExtractGPUSceneEnvironment();
         static void ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory category, u32 count = 1);
+        // Explicit discontinuity seam for editor/runtime camera teleports and scene
+        // transitions. Resize and render-scale changes are detected by RenderGraph.
+        static u32 InvalidateTemporalHistories(
+            TemporalHistoryInvalidationCause cause,
+            std::optional<TemporalHistoryEffect> effect = std::nullopt);
         static void ResetGPUScene();
         [[nodiscard]] static const GPUSceneFrameStats& GetGPUSceneStats();
         static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true, i32 entityID = -1, const LODGroup* lodGroup = nullptr);
@@ -1588,6 +1594,8 @@ namespace OloEngine
         }
 
       private:
+        static void ObserveTemporalProjection(const glm::mat4& projection);
+
         struct SceneBindingUBOs
         {
             Ref<UniformBuffer> Camera;
@@ -2107,6 +2115,11 @@ namespace OloEngine
             SnowEjectaSettings SnowEjecta;
             PrecipitationSettings Precipitation;
             glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
+            // Unjittered camera projection observed at BeginScene. A bitwise
+            // change is an explicit temporal discontinuity (FOV/projection mode,
+            // near/far plane); per-frame jitter is applied later and excluded.
+            glm::mat4 TemporalProjectionMatrix = glm::mat4(1.0f);
+            bool HasTemporalProjectionMatrix = false;
 
             // TAA projection jitter state (Halton(2,3) sub-pixel sequence).
             // `RenderPipeline::PrepareFrame(...)` rotates CurrJitterUV ->

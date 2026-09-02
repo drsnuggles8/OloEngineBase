@@ -99,6 +99,28 @@ namespace OloEngine::MCP::RenderGraphTopology
         u32 ViewOfParentLayer = 0;
     };
 
+    // Persistent temporal resources are intentionally separate from graph
+    // resources: their backing survives frame-local transient planning.
+    struct HistoryInfo
+    {
+        std::string Name;
+        std::string Effect;
+        std::string Plane;
+        std::string Resolution;
+        std::string Backend;
+        std::string Format;
+        std::string LastInvalidation;
+        u64 View = 0;
+        u32 Width = 0;
+        u32 Height = 0;
+        u32 MipLevels = 1;
+        u32 Samples = 1;
+        u32 LayoutVersion = 1;
+        u32 Generation = 0;
+        bool Valid = false;
+        bool HasTexture = false;
+    };
+
     // The whole-graph snapshot the handler gathers off the live RenderGraph.
     struct Snapshot
     {
@@ -106,6 +128,7 @@ namespace OloEngine::MCP::RenderGraphTopology
         std::vector<std::string> ExecutionOrder;
         std::vector<EdgeInfo> Edges;
         std::vector<ResourceInfo> Resources;
+        std::vector<HistoryInfo> Histories;
         std::string FinalPass;
     };
 
@@ -272,6 +295,31 @@ namespace OloEngine::MCP::RenderGraphTopology
         out["edges"] = std::move(edges);
         out["resourceCount"] = static_cast<u32>(snap.Resources.size());
         out["resources"] = std::move(resources);
+
+        Json histories = Json::array();
+        for (const auto& history : snap.Histories)
+        {
+            histories.push_back(Json{
+                { "name", history.Name },
+                { "effect", history.Effect },
+                { "plane", history.Plane },
+                { "resolution", history.Resolution },
+                { "view", history.View },
+                { "generation", history.Generation },
+                { "valid", history.Valid },
+                { "hasTexture", history.HasTexture },
+                { "lastInvalidation", history.LastInvalidation },
+                { "descriptor", Json{ { "width", history.Width },
+                                      { "height", history.Height },
+                                      { "format", history.Format },
+                                      { "mipLevels", history.MipLevels },
+                                      { "samples", history.Samples },
+                                      { "layoutVersion", history.LayoutVersion },
+                                      { "backend", history.Backend } } },
+            });
+        }
+        out["historyCount"] = static_cast<u32>(snap.Histories.size());
+        out["histories"] = std::move(histories);
         out["note"] = "Live topology of the active render graph for the current rendering path. 'edges' are "
                       "execution-ordering dependencies (from must run before to). 'executionOrder' is the "
                       "topologically-sorted run order. 'culled' passes were unreachable from the final pass "
@@ -284,7 +332,9 @@ namespace OloEngine::MCP::RenderGraphTopology
                       "legitimate there (a Vulkan framebuffer attachment has no native name), so absence "
                       "never means unbacked. Texture views resolve to their parent object (see "
                       "identity.viewOfParentLayer); transient values are only meaningful within one frame. "
-                      "Use format:\"mermaid\" for a flowchart DAG of the pass graph.";
+                      "'histories' reports persistent typed temporal resources separately from transient graph "
+                      "resources, including validity generation and the last invalidation cause. Use "
+                      "format:\"mermaid\" for a flowchart DAG of the pass graph.";
         return out;
     }
 

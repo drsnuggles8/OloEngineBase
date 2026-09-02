@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/PostProcessSettings.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <span>
@@ -36,6 +37,9 @@ namespace OloEngine
         m_SelectedGBufferAlbedoTexture = {};
         m_SelectedVelocityTexture = {};
         m_SelectedHistoryTexture = {};
+        m_SelectedSurfaceHistoryTexture = {};
+        m_SelectedFirstMomentsHistoryTexture = {};
+        m_SelectedSecondMomentsHistoryTexture = {};
         m_SelectedSignalFramebuffer = {};
         m_SelectedResolvedFramebuffer = {};
 
@@ -66,6 +70,11 @@ namespace OloEngine
         m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
         m_SelectedGBufferNormalTexture = blackboard.GBuffer.GBufferNormal;
         m_SelectedGBufferAlbedoTexture = blackboard.GBuffer.GBufferAlbedo;
+        // Preserve the exact packed surface metadata sampled by this resolve.
+        // This must be declared from Setup(): BuildFrameGraph clears and rebuilds
+        // extraction contracts before visiting nodes, so a pre-build declaration
+        // from PopulateBlackboard would be discarded on every cache miss.
+        builder.ExtractHistoryTexture(ResourceNames::SSGISurfaceHistory, m_SelectedGBufferNormalTexture);
 
         // G-Buffer velocity (RT3) drives the resolve's reprojection. SSGI runs
         // before the upscale band, so this is the scene-band velocity, matching
@@ -85,6 +94,24 @@ namespace OloEngine
         {
             m_SelectedHistoryTexture = blackboard.Temporal.SSGIHistory;
             [[maybe_unused]] const auto historyRead = builder.Read(m_SelectedHistoryTexture, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.Temporal.SSGISurfaceHistory.IsValid())
+        {
+            m_SelectedSurfaceHistoryTexture = blackboard.Temporal.SSGISurfaceHistory;
+            [[maybe_unused]] const auto surfaceHistoryRead = builder.Read(
+                m_SelectedSurfaceHistoryTexture, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.Temporal.SSGIMomentsFirstHistory.IsValid())
+        {
+            m_SelectedFirstMomentsHistoryTexture = blackboard.Temporal.SSGIMomentsFirstHistory;
+            [[maybe_unused]] const auto firstMomentsRead = builder.Read(
+                m_SelectedFirstMomentsHistoryTexture, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.Temporal.SSGIMomentsSecondHistory.IsValid())
+        {
+            m_SelectedSecondMomentsHistoryTexture = blackboard.Temporal.SSGIMomentsSecondHistory;
+            [[maybe_unused]] const auto secondMomentsRead = builder.Read(
+                m_SelectedSecondMomentsHistoryTexture, RGReadUsage::ShaderSample);
         }
 
         if (blackboard.Scratch.SSGISignal.IsValid())
@@ -113,6 +140,8 @@ namespace OloEngine
             // composite carries the base colour and accumulating that is the
             // exact failure #902 exists to prevent.
             builder.ExtractHistoryTexture(ResourceNames::SSGIHistory, m_SelectedResolvedFramebuffer);
+            builder.ExtractHistoryTexture(ResourceNames::SSGIMomentsFirstHistory, m_SelectedResolvedFramebuffer, 1u);
+            builder.ExtractHistoryTexture(ResourceNames::SSGIMomentsSecondHistory, m_SelectedResolvedFramebuffer, 2u);
         }
 
         constexpr std::string_view ssgiVersionTag = "SSGIPass";
@@ -178,10 +207,19 @@ namespace OloEngine
 
         RHI::ResourceHandle velocityID{};
         RHI::ResourceHandle historyID{};
+        RHI::ResourceHandle surfaceHistoryID{};
+        RHI::ResourceHandle firstMomentsHistoryID{};
+        RHI::ResourceHandle secondMomentsHistoryID{};
         if (m_SelectedVelocityTexture.IsValid())
             velocityID = context.ResolveTextureHandle(m_SelectedVelocityTexture);
         if (m_SelectedHistoryTexture.IsValid())
             historyID = context.ResolveTextureHandle(m_SelectedHistoryTexture);
+        if (m_SelectedSurfaceHistoryTexture.IsValid())
+            surfaceHistoryID = context.ResolveTextureHandle(m_SelectedSurfaceHistoryTexture);
+        if (m_SelectedFirstMomentsHistoryTexture.IsValid())
+            firstMomentsHistoryID = context.ResolveTextureHandle(m_SelectedFirstMomentsHistoryTexture);
+        if (m_SelectedSecondMomentsHistoryTexture.IsValid())
+            secondMomentsHistoryID = context.ResolveTextureHandle(m_SelectedSecondMomentsHistoryTexture);
 
         if (!m_Enabled)
         {
@@ -246,7 +284,10 @@ namespace OloEngine
             const glm::vec4 temporalParams(
                 feedback,
                 velocityID.IsValid() ? 1.0f : 0.0f,
-                (m_TemporalResolveEnabled && historyID.IsValid()) ? 1.0f : 0.0f,
+                (m_TemporalResolveEnabled && historyID.IsValid() && surfaceHistoryID.IsValid() &&
+                 firstMomentsHistoryID.IsValid() && secondMomentsHistoryID.IsValid())
+                    ? 1.0f
+                    : 0.0f,
                 m_TemporalClipGamma);
             m_SSGIUBO->SetData(&temporalParams, static_cast<u32>(sizeof(glm::vec4)),
                                static_cast<u32>(offsetof(SSGIUBOData, TemporalParams)));
@@ -319,11 +360,26 @@ namespace OloEngine
         }
         setFullscreenState();
 
+        constexpr std::array<u32, 5> resolvedAttachments{ 0u, 1u, 2u, 3u, 4u };
+        RenderCommand::SetDrawBuffers(resolvedAttachments);
+
         m_SSGIResolveShader->Bind();
         context.BindTextureOrHeapOffset(0, signalTextureID, RHI::HeapSlotLifetime::FrameTransient);
         // With no history the shader ignores unit 1 (TemporalParams.z == 0), but
         // it must still be bound to something valid or the sampler dangles.
         context.BindTextureOrHeapOffset(1, historyID.IsValid() ? historyID : signalTextureID,
+                                        historyID.IsValid() ? RHI::HeapSlotLifetime::Persistent
+                                                            : RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(2, surfaceHistoryID.IsValid() ? surfaceHistoryID : gbufferNormalID,
+                                        surfaceHistoryID.IsValid() ? RHI::HeapSlotLifetime::Persistent
+                                                                   : RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(3, firstMomentsHistoryID.IsValid() ? firstMomentsHistoryID : signalTextureID,
+                                        firstMomentsHistoryID.IsValid() ? RHI::HeapSlotLifetime::Persistent
+                                                                        : RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(4, secondMomentsHistoryID.IsValid() ? secondMomentsHistoryID : signalTextureID,
+                                        secondMomentsHistoryID.IsValid() ? RHI::HeapSlotLifetime::Persistent
+                                                                         : RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID,
                                         RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_VELOCITY,
                                         velocityID.IsValid() ? velocityID : signalTextureID,
@@ -374,6 +430,9 @@ namespace OloEngine
         m_SelectedGBufferAlbedoTexture = {};
         m_SelectedVelocityTexture = {};
         m_SelectedHistoryTexture = {};
+        m_SelectedSurfaceHistoryTexture = {};
+        m_SelectedFirstMomentsHistoryTexture = {};
+        m_SelectedSecondMomentsHistoryTexture = {};
         m_SelectedSignalFramebuffer = {};
         m_SelectedResolvedFramebuffer = {};
     }

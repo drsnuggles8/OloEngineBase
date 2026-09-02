@@ -280,8 +280,15 @@ namespace OloEngine
 
     void Renderer3D::ResetGPUScene()
     {
+        InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
         s_Data.SceneGPU.Reset();
         s_Data.GPUSceneExtractionActive = false;
+    }
+
+    u32 Renderer3D::InvalidateTemporalHistories(
+        TemporalHistoryInvalidationCause cause, std::optional<TemporalHistoryEffect> effect)
+    {
+        return s_Data.RGraph ? s_Data.RGraph->InvalidateTemporalHistories(cause, effect) : 0u;
     }
 
     const GPUSceneFrameStats& Renderer3D::GetGPUSceneStats()

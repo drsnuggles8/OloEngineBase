@@ -39,6 +39,44 @@ namespace OloEngine
         // RenderGraphTransientPlanner's canonicalResourceName guard.
         constexpr u32 kMaxVersionAliasDepth = 16u;
 
+        [[nodiscard]] TemporalHistoryBackend CurrentTemporalHistoryBackend()
+        {
+            switch (RendererAPI::GetAPI())
+            {
+                case RendererAPI::API::OpenGL:
+                    return TemporalHistoryBackend::OpenGL;
+                case RendererAPI::API::Vulkan:
+                    return TemporalHistoryBackend::Vulkan;
+                default:
+                    return TemporalHistoryBackend::Unknown;
+            }
+        }
+
+        [[nodiscard]] RGResourceFormat ToRGHistoryFormat(ImageFormat format)
+        {
+            switch (format)
+            {
+                case ImageFormat::R8:
+                    return RGResourceFormat::R8UNorm;
+                case ImageFormat::R32F:
+                    return RGResourceFormat::R32Float;
+                case ImageFormat::RG16F:
+                    return RGResourceFormat::RG16Float;
+                case ImageFormat::RGBA8:
+                    return RGResourceFormat::RGBA8UNorm;
+                case ImageFormat::RGBA16F:
+                    return RGResourceFormat::RGBA16Float;
+                case ImageFormat::RGBA32F:
+                    return RGResourceFormat::RGBA32Float;
+                case ImageFormat::DEPTH24STENCIL8:
+                    return RGResourceFormat::Depth24Stencil8;
+                case ImageFormat::R32I:
+                    return RGResourceFormat::R32Int;
+                default:
+                    return RGResourceFormat::Unknown;
+            }
+        }
+
         template<typename TEntry>
         void SynchronizeGraphEntryLifecycle(Ref<TEntry> entry, const u32 physicalWidth, const u32 physicalHeight, const f32 renderScale)
         {
@@ -391,6 +429,7 @@ namespace OloEngine
             OLO_CORE_TRACE("Shutting down RenderGraph");
 
         m_TransientPool.Clear();
+        m_TemporalHistoryRegistry.Clear();
 
         m_NodeLookup.clear();
         m_Dependencies.clear();
@@ -2179,6 +2218,82 @@ namespace OloEngine
         };
     }
 
+    RenderGraph::TemporalHistoryBinding RenderGraph::AcquireTemporalHistory(
+        const TemporalHistoryKey& key,
+        TemporalHistoryDescriptor descriptor,
+        const TemporalHistoryDependency dependencies,
+        std::string_view debugName)
+    {
+        OLO_CORE_ASSERT(!debugName.empty(), "Typed temporal histories require a stable debug name");
+        descriptor.Backend = CurrentTemporalHistoryBackend();
+        const auto acquired = m_TemporalHistoryRegistry.Acquire(key, descriptor, dependencies, std::string(debugName));
+
+        Ref<Texture2D> texture = m_TemporalHistoryRegistry.GetTexture(acquired.Token);
+        if (!texture)
+        {
+            TextureSpecification specification;
+            specification.Width = descriptor.Width;
+            specification.Height = descriptor.Height;
+            specification.Format = descriptor.Format;
+            specification.GenerateMips = descriptor.MipLevels > 1;
+            specification.MipLevels = descriptor.MipLevels;
+            specification.Samples = descriptor.Samples;
+            texture = Texture2D::Create(specification);
+            if (texture)
+                m_TemporalHistoryRegistry.SetTexture(acquired.Token, texture);
+        }
+
+        if (!texture)
+            return { .Token = acquired.Token };
+
+        m_HistoryTextureSinks[std::string(debugName)] = HistoryTextureSink{
+            .Texture = texture->GetRHIHandle(),
+            .Width = descriptor.Width,
+            .Height = descriptor.Height,
+            .Token = acquired.Token,
+        };
+
+        const bool valid = m_TemporalHistoryRegistry.IsValid(acquired.Token);
+        if (!valid)
+            return { .Token = acquired.Token };
+
+        RGResourceDesc rgDescriptor;
+        rgDescriptor.Kind = RGResourceHandle::Kind::Texture2D;
+        rgDescriptor.Format = ToRGHistoryFormat(descriptor.Format);
+        rgDescriptor.Width = descriptor.Width;
+        rgDescriptor.Height = descriptor.Height;
+        rgDescriptor.MipLevels = descriptor.MipLevels;
+        rgDescriptor.Samples = descriptor.Samples;
+        rgDescriptor.DebugName = std::string(debugName);
+        return {
+            .Token = acquired.Token,
+            .Previous = ImportHistoryHandle(debugName, texture->GetRHIHandle(), rgDescriptor),
+            .Valid = true,
+        };
+    }
+
+    void RenderGraph::ExtractTemporalHistory(TemporalHistoryToken token, RGTextureHandle sourceHandle)
+    {
+        const std::string_view historyResource = m_TemporalHistoryRegistry.GetDebugName(token);
+        if (!historyResource.empty())
+            ExtractHistoryTexture(historyResource, sourceHandle);
+    }
+
+    void RenderGraph::ExtractTemporalHistory(TemporalHistoryToken token,
+                                             RGFramebufferHandle sourceHandle,
+                                             u32 colorAttachmentIndex)
+    {
+        const std::string_view historyResource = m_TemporalHistoryRegistry.GetDebugName(token);
+        if (!historyResource.empty())
+            ExtractHistoryTexture(historyResource, sourceHandle, colorAttachmentIndex);
+    }
+
+    u32 RenderGraph::InvalidateTemporalHistories(TemporalHistoryInvalidationCause cause,
+                                                 std::optional<TemporalHistoryEffect> effect)
+    {
+        return m_TemporalHistoryRegistry.Invalidate(cause, effect);
+    }
+
     void RenderGraph::DeclareHistoryTextureExtraction(std::string_view historyResource,
                                                       std::string_view sourceResource,
                                                       const TemporalHistoryContract::SourceKind kind,
@@ -2329,6 +2444,8 @@ namespace OloEngine
             (void)historyResource;
             if (sink.ValidFlag)
                 *sink.ValidFlag = false;
+            if (sink.Token.IsValid())
+                m_TemporalHistoryRegistry.MarkCopyFailed(sink.Token);
         }
 
         for (const auto& contract : m_TemporalHistoryContracts)
@@ -2387,6 +2504,8 @@ namespace OloEngine
                                             sink.Width, sink.Height);
             if (sink.ValidFlag)
                 *sink.ValidFlag = true;
+            if (sink.Token.IsValid())
+                m_TemporalHistoryRegistry.MarkProduced(sink.Token);
         }
 
         for (const auto& [sinkKey, sink] : m_ExternalTextureSinks)
@@ -3799,6 +3918,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         const bool dimensionsChanged = (width != m_PhysicalWidth) || (height != m_PhysicalHeight);
+        if (dimensionsChanged)
+            m_TemporalHistoryRegistry.Invalidate(TemporalHistoryInvalidationCause::ViewportResized);
         m_PhysicalWidth = width;
         m_PhysicalHeight = height;
 
@@ -3870,6 +3991,8 @@ namespace OloEngine
     void RenderGraph::SetRenderScale(const f32 scale)
     {
         OLO_PROFILE_FUNCTION();
+        const u32 previousRenderWidth = GetRenderWidth();
+        const u32 previousRenderHeight = GetRenderHeight();
         m_RenderScale = glm::clamp(scale, 0.25f, 1.0f);
 
         if (m_PhysicalWidth == 0 || m_PhysicalHeight == 0)
@@ -3877,6 +4000,9 @@ namespace OloEngine
 
         const auto renderW = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalWidth) * m_RenderScale));
         const auto renderH = static_cast<u32>(glm::floor(static_cast<f32>(m_PhysicalHeight) * m_RenderScale));
+
+        if (renderW != previousRenderWidth || renderH != previousRenderHeight)
+            m_TemporalHistoryRegistry.Invalidate(TemporalHistoryInvalidationCause::DynamicResolutionChanged);
 
         for (auto& [name, node] : m_NodeLookup)
         {

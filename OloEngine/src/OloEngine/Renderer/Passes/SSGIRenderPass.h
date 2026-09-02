@@ -124,6 +124,9 @@ namespace OloEngine
         RGTextureHandle m_SelectedGBufferAlbedoTexture{};
         RGTextureHandle m_SelectedVelocityTexture{};
         RGTextureHandle m_SelectedHistoryTexture{};
+        RGTextureHandle m_SelectedSurfaceHistoryTexture{};
+        RGTextureHandle m_SelectedFirstMomentsHistoryTexture{};
+        RGTextureHandle m_SelectedSecondMomentsHistoryTexture{};
         RGFramebufferHandle m_SelectedSignalFramebuffer{};
         RGFramebufferHandle m_SelectedResolvedFramebuffer{};
 

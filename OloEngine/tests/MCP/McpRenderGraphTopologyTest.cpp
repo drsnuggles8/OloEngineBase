@@ -20,6 +20,7 @@ namespace
     using OloEngine::MCP::RenderGraphTopology::BuildJson;
     using OloEngine::MCP::RenderGraphTopology::BuildMermaid;
     using OloEngine::MCP::RenderGraphTopology::EdgeInfo;
+    using OloEngine::MCP::RenderGraphTopology::HistoryInfo;
     using OloEngine::MCP::RenderGraphTopology::PassInfo;
     using OloEngine::MCP::RenderGraphTopology::ResourceInfo;
     using OloEngine::MCP::RenderGraphTopology::Snapshot;
@@ -70,6 +71,22 @@ namespace
         sceneColor.Consumers = {};
         snap.Resources.push_back(std::move(sceneColor));
 
+        snap.Histories.push_back(HistoryInfo{
+            .Name = "SSGI.Signal",
+            .Effect = "SSGI",
+            .Plane = "Signal",
+            .Resolution = "Half",
+            .Backend = "OpenGL",
+            .Format = "RGBA16F",
+            .LastInvalidation = "None",
+            .View = 42,
+            .Width = 640,
+            .Height = 360,
+            .Generation = 3,
+            .Valid = true,
+            .HasTexture = true,
+        });
+
         return snap;
     }
 } // namespace
@@ -82,12 +99,30 @@ TEST(McpRenderGraphTopology, EmptyGraphProducesValidShape)
     EXPECT_EQ(0u, j["passCount"].get<u32>());
     EXPECT_EQ(0u, j["edgeCount"].get<u32>());
     EXPECT_EQ(0u, j["resourceCount"].get<u32>());
+    EXPECT_EQ(0u, j["historyCount"].get<u32>());
     EXPECT_TRUE(j["passes"].is_array());
     EXPECT_TRUE(j["passes"].empty());
     EXPECT_TRUE(j["executionOrder"].is_array());
     EXPECT_TRUE(j["edges"].is_array());
     EXPECT_TRUE(j["resources"].is_array());
+    EXPECT_TRUE(j["histories"].is_array());
     EXPECT_TRUE(j.contains("note"));
+}
+
+TEST(McpRenderGraphTopology, PersistentTemporalHistoriesExposeValidityAndDescriptor)
+{
+    const Json j = BuildJson(MakeSnapshot());
+    ASSERT_EQ(j["historyCount"].get<u32>(), 1u);
+    const Json& history = j["histories"][0];
+    EXPECT_EQ(history["name"], "SSGI.Signal");
+    EXPECT_EQ(history["effect"], "SSGI");
+    EXPECT_EQ(history["plane"], "Signal");
+    EXPECT_EQ(history["generation"].get<u32>(), 3u);
+    EXPECT_TRUE(history["valid"].get<bool>());
+    EXPECT_TRUE(history["hasTexture"].get<bool>());
+    EXPECT_EQ(history["descriptor"]["width"].get<u32>(), 640u);
+    EXPECT_EQ(history["descriptor"]["format"], "RGBA16F");
+    EXPECT_EQ(history["descriptor"]["backend"], "OpenGL");
 }
 
 TEST(McpRenderGraphTopology, PassFlagsAndWorkTypeSerialized)

@@ -368,16 +368,20 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view BrdfLut = "BrdfLut";
 
     // Post-process chain.
-    inline constexpr std::string_view SSSColor = "SSSColor";                                         // Full-resolution SSS output when the blur stage is enabled and ready
-    inline constexpr std::string_view SSSColorTexture = "SSSColorTexture";                           // Color attachment view of SSSColor
-    inline constexpr std::string_view AOApplyColor = "AOApplyColor";                                 // After AO apply (only valid when SSAO or GTAO is enabled)
-    inline constexpr std::string_view AOApplyColorTexture = "AOApplyColorTexture";                   // Color attachment view of AOApplyColor
-    inline constexpr std::string_view SSGIColor = "SSGIColor";                                       // After screen-space GI composite (only valid when SSGI is enabled, deferred path)
-    inline constexpr std::string_view SSGIColorTexture = "SSGIColorTexture";                         // Color attachment view of SSGIColor
-    inline constexpr std::string_view SSRColor = "SSRColor";                                         // After screen-space reflections composite (only valid when SSR is enabled, deferred path)
-    inline constexpr std::string_view SSRColorTexture = "SSRColorTexture";                           // Color attachment view of SSRColor
-    inline constexpr std::string_view SSGISignal = "SSGISignal";                                     // Raw stochastic indirect-diffuse signal, rgb = radiance, a = view depth (SSGI draw A output, issue #902)
-    inline constexpr std::string_view SSGIResolved = "SSGIResolved";                                 // Temporally-resolved SSGI signal (SSGI draw B output; the SSGIHistory source)
+    inline constexpr std::string_view SSSColor = "SSSColor";                       // Full-resolution SSS output when the blur stage is enabled and ready
+    inline constexpr std::string_view SSSColorTexture = "SSSColorTexture";         // Color attachment view of SSSColor
+    inline constexpr std::string_view AOApplyColor = "AOApplyColor";               // After AO apply (only valid when SSAO or GTAO is enabled)
+    inline constexpr std::string_view AOApplyColorTexture = "AOApplyColorTexture"; // Color attachment view of AOApplyColor
+    inline constexpr std::string_view SSGIColor = "SSGIColor";                     // After screen-space GI composite (only valid when SSGI is enabled, deferred path)
+    inline constexpr std::string_view SSGIColorTexture = "SSGIColorTexture";       // Color attachment view of SSGIColor
+    inline constexpr std::string_view SSRColor = "SSRColor";                       // After screen-space reflections composite (only valid when SSR is enabled, deferred path)
+    inline constexpr std::string_view SSRColorTexture = "SSRColorTexture";         // Color attachment view of SSRColor
+    inline constexpr std::string_view SSGISignal = "SSGISignal";                   // Raw stochastic indirect-diffuse signal, rgb = radiance, a = view depth (SSGI draw A output, issue #902)
+    inline constexpr std::string_view SSGIResolved = "SSGIResolved";               // Temporally-resolved SSGI signal (SSGI draw B output; the SSGIHistory source)
+    inline constexpr std::string_view SSGIMomentsFirst = "SSGIMomentsFirst";
+    inline constexpr std::string_view SSGIMomentsSecond = "SSGIMomentsSecond";
+    inline constexpr std::string_view SSGIHistoryDiagnostics = "SSGIHistoryDiagnostics";
+    inline constexpr std::string_view SSGIReprojectionDiagnostics = "SSGIReprojectionDiagnostics";
     inline constexpr std::string_view SSRSignal = "SSRSignal";                                       // Raw stochastic reflection delta, rgb = (reflection - base) * blend, a = view depth (SSR draw A output, issue #902)
     inline constexpr std::string_view SSRResolved = "SSRResolved";                                   // Temporally-resolved SSR signal (SSR draw B output; the SSRHistory source)
     inline constexpr std::string_view ContactShadowColor = "ContactShadowColor";                     // After screen-space contact-shadow composite (only valid when ContactShadow is enabled, deferred path)
@@ -434,10 +438,13 @@ namespace OloEngine::ResourceNames
     // output, consumed by TAA. (The fog's 2D history died with the
     // screen-space raymarch; the froxel fog's temporal accumulation lives in
     // VolumetricFogPass's own 3D scatter volume — issue #435.)
-    inline constexpr std::string_view TAAHistory = "TAAHistory";       // Previous TAA accumulation buffer
-    inline constexpr std::string_view CloudsHistory = "CloudsHistory"; // Previous cloudscape resolve buffer (half-res, issue #633)
-    inline constexpr std::string_view SSGIHistory = "SSGIHistory";     // Previous resolved SSGI signal (issue #902)
-    inline constexpr std::string_view SSRHistory = "SSRHistory";       // Previous resolved SSR signal (issue #902)
+    inline constexpr std::string_view TAAHistory = "TAAHistory";                 // Previous TAA accumulation buffer
+    inline constexpr std::string_view CloudsHistory = "CloudsHistory";           // Previous cloudscape resolve buffer (half-res, issue #633)
+    inline constexpr std::string_view SSGIHistory = "SSGIHistory";               // Previous resolved SSGI signal (issue #902)
+    inline constexpr std::string_view SSGISurfaceHistory = "SSGISurfaceHistory"; // Previous normal/roughness surface plane (#976)
+    inline constexpr std::string_view SSGIMomentsFirstHistory = "SSGIMomentsFirstHistory";
+    inline constexpr std::string_view SSGIMomentsSecondHistory = "SSGIMomentsSecondHistory";
+    inline constexpr std::string_view SSRHistory = "SSRHistory"; // Previous resolved SSR signal (issue #902)
 
     // Weighted-blended OIT accumulation targets (particles and forward
     // transparent decals write these; OITResolvePass reads them and
