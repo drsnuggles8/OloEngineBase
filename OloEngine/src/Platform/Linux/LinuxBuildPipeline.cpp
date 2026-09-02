@@ -41,7 +41,15 @@ namespace OloEngine::BuildPipelinePlatform
                                      std::filesystem::perm_options::add, desktopPermEc);
         if (desktopPermEc)
         {
-            OLO_CORE_WARN("[GameBuild] Failed to mark {} executable: {}", artifacts.DesktopEntryPath.string(), desktopPermEc.message());
+            outError = "Failed to mark desktop entry executable: " + desktopPermEc.message();
+            std::error_code cleanupEc;
+            std::filesystem::remove(artifacts.DesktopEntryPath, cleanupEc);
+            std::filesystem::remove(artifacts.WrapperScriptPath, cleanupEc);
+            if (!artifacts.PackagedIconPath.empty())
+            {
+                std::filesystem::remove(artifacts.PackagedIconPath, cleanupEc);
+            }
+            return false;
         }
 
         desktopPermEc.clear();
@@ -50,7 +58,15 @@ namespace OloEngine::BuildPipelinePlatform
                                      std::filesystem::perm_options::add, desktopPermEc);
         if (desktopPermEc)
         {
-            OLO_CORE_WARN("[GameBuild] Failed to mark {} executable: {}", artifacts.WrapperScriptPath.string(), desktopPermEc.message());
+            outError = "Failed to mark launcher wrapper executable: " + desktopPermEc.message();
+            std::error_code cleanupEc;
+            std::filesystem::remove(artifacts.DesktopEntryPath, cleanupEc);
+            std::filesystem::remove(artifacts.WrapperScriptPath, cleanupEc);
+            if (!artifacts.PackagedIconPath.empty())
+            {
+                std::filesystem::remove(artifacts.PackagedIconPath, cleanupEc);
+            }
+            return false;
         }
 
         OLO_CORE_INFO("[GameBuild] Linux desktop entry written: {}", artifacts.DesktopEntryPath.string());

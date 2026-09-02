@@ -199,6 +199,8 @@ TEST(GameBuildPipelineTest, LinuxLauncherExecutesFromARelocatedPackage)
     ASSERT_EQ(std::system(bootstrap.c_str()), 0);
     EXPECT_TRUE(std::filesystem::exists(movedPackage / "Game.launched"));
     EXPECT_NE(ReadTextFile(movedDesktop).find("Icon=" + movedIcon.string()), std::string::npos);
+    EXPECT_NE(std::filesystem::status(movedDesktop).permissions() & std::filesystem::perms::owner_exec,
+              std::filesystem::perms::none);
 
     if (std::system("command -v desktop-file-validate >/dev/null 2>&1") == 0)
     {

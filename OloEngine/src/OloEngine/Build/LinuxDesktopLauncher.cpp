@@ -198,11 +198,11 @@ namespace OloEngine
                                           "desktop_entry=\"$launcher_dir/" +
                                           EscapeForQuotedExec(desktopEntryPath.filename().string()) + "\"\n"
                                                                                                       "temporary_entry=\"$desktop_entry.tmp\"\n"
-                                                                                                      "if (cat > \"$temporary_entry\" <<'OLO_DESKTOP_ENTRY'\n" +
+                                                                                                      "if desktop_mode=$(stat -c '%a' -- \"$desktop_entry\") && cat > \"$temporary_entry\" <<'OLO_DESKTOP_ENTRY'\n" +
                                           desktopEntry +
                                           "OLO_DESKTOP_ENTRY\n" +
                                           (packagedIconPath.empty() ? std::string{} : "printf 'Icon=%s\\n' \"$launcher_dir/" + EscapeForQuotedExec(std::string(IconDirectoryName) + "/" + packagedIconPath.filename().string()) + "\" >> \"$temporary_entry\"\n") +
-                                          "mv -f -- \"$temporary_entry\" \"$desktop_entry\") 2>/dev/null; then :; fi\n"
+                                          "chmod \"$desktop_mode\" -- \"$temporary_entry\" && mv -f -- \"$temporary_entry\" \"$desktop_entry\") 2>/dev/null; then :; fi\n"
                                           "exec \"$launcher_dir/" +
                                           EscapeForQuotedExec(executablePath.filename().string()) + "\" \"$@\"\n";
         if (!WriteTextFile(wrapperScriptPath, wrapperScript, errorMessage))
