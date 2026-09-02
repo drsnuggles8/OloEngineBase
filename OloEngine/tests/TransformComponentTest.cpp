@@ -267,14 +267,23 @@ TEST(TransformComponentCache, CopyCarriesValidCache)
 
 TEST(TransformComponentCache, OperatorEqualsIgnoresCacheState)
 {
-    TransformComponent primed;
-    primed.Translation = { 1.0f, 2.0f, 3.0f };
-    primed.SetRotationEuler({ 0.1f, 0.2f, 0.3f });
-    (void)primed.GetTransform(); // primed has a valid cache
-
+    // Author the TRS ONCE and copy it, rather than calling SetRotationEuler twice
+    // with the same literal. operator== is bit-exact on the Rotation quat, and two
+    // call sites of glm::quat(vec3) are not guaranteed to produce the same bits:
+    // GCC constant-folds sinf/cosf of literal arguments with MPFR (correctly
+    // rounded) where the call is inlined and calls glibc's libm (not correctly
+    // rounded) where it is not, and the inliner decides per call site. On the
+    // Linux GCC 14.3 Release+LTO CI box the primed site, adjacent to an inlined
+    // GetTransform(), folded while the fresh one did not, and the quats differed
+    // in the last bit. That is a property of the compiler, not of the cache, and
+    // the cache is what this test is about. The copy carries the identical bits;
+    // SetRotation() would not (it renormalises the quat).
     TransformComponent fresh;
     fresh.Translation = { 1.0f, 2.0f, 3.0f };
-    fresh.SetRotationEuler({ 0.1f, 0.2f, 0.3f }); // identical TRS, cache never built
+    fresh.SetRotationEuler({ 0.1f, 0.2f, 0.3f }); // cache never built on `fresh`
+
+    TransformComponent primed = fresh; // identical TRS bits; the cache is copied unbuilt
+    (void)primed.GetTransform();       // primed now has a valid cache, fresh does not
 
     EXPECT_TRUE(primed == fresh) << "equality must depend only on authored TRS, not cache state";
 
