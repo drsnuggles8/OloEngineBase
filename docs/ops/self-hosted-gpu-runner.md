@@ -12,7 +12,14 @@ and the Linux CI jobs in
 | Runner(s) | Labels | Serves |
 |---|---|---|
 | `olo-gpu-amd` | `self-hosted,Linux,X64,gpu-amd` | the nightly GPU conformance run, exclusively |
-| `olo-ci-1`, `olo-ci-2` | `self-hosted,Linux,X64,olo-ci` | the Linux sanitizer / vulkan-off / steam-stub jobs |
+| `olo-ci-1`, `olo-ci-2` | `self-hosted,Linux,X64,olo-ci` | `vulkan-off` and `steam-stub` |
+
+**The Linux SANITIZER jobs deliberately stay on hosted runners** — see the note on
+`asan.yml`'s `runs-on`. Moving them does not relocate a job, it changes what they
+test: clang 21 against gcc-toolset-15's libstdc++ makes UBSan report inside the
+standard library, and a box with a real GPU makes ~200 GL-gated tests execute under
+instrumentation for the first time. Measured 215 failures of 6,909 there against 1
+of 6,940 hosted. Both halves are worth pursuing; neither is a caching change.
 
 Neither pool requests the other's label, so a CI job can never queue in front of
 the nightly and the nightly can never starve CI. Do not "tidy" these into one
@@ -557,6 +564,7 @@ stable enough to be worth trending — unlike hosted-runner perf data.
 | `clang: command not found` on an `olo-ci` job | the CI provisioning was never run — `sudo bash scripts/setup-olo-ci-runners.sh` (§6) |
 | A job fails here and its hosted rerun passes | check the compiler first. This box is clang 21, the hosted arm is clang-19 (§6) |
 | `undefined symbol: std::__stacktrace_impl::_S_current` at link | `libstdc++exp.a` is missing from the GCC install clang selected. Rocky's clang picks **gcc-toolset-15**, which omits it, while the base GCC 14 beside it has it. `OloEngine/CMakeLists.txt` globs the base dirs and links it explicitly — that fallback used to be GNU-only on the (backwards) premise that clang resolves it itself |
+| A job is CANCELLED mid-build with no error | the host rebooted. `dnf-automatic-install.timer` is **enabled**, so unattended updates reboot the box under running jobs — confirmed on 2026-09-02 00:38, which killed two in-flight sanitizer jobs. `last -x reboot` and `journalctl --list-boots` show it. A CI runner that reboots itself mid-job produces failures indistinguishable from flakes; consider `systemctl disable --now dnf-automatic-install.timer` and patching on a schedule the runners are idle for |
 | Cold builds despite the persistent caches | `~/.cache/olo` is owned by the wrong user, or the job took the hosted arm. The setup step logs the resolved cache dir |
 | Preflight: `no /dev/dri/renderD128` | `amdgpu` not loaded, or the runner user lost `render` group |
 | Preflight: `SOFTWARE RENDERER` | Mesa fell back to llvmpipe — check `MESA_LOADER_DRIVER_OVERRIDE`, driver install, and that the *software* EGL device wasn't selected |
