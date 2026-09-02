@@ -51,6 +51,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 ## Renderer
 
+- [incomplete-texture-samples-as-zero.md](incomplete-texture-samples-as-zero.md): set a texture's sampler state at creation; an incomplete texture reads zero on AMD and fine on NVIDIA.
 - [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md): the OpenGL boundary leaks through the include graph, not a `glXxx(` grep; plus the Vulkan epic's lessons.
 - [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md): a CPU buffer write between two recorded draws is last-write-wins on Vulkan.
 - [vulkan-parallel-recording.md](vulkan-parallel-recording.md): a pass forks with `RenderCommand::RecordParallel` and gives every item its own resource objects; per-command-buffer state is per recording context.
@@ -245,6 +246,7 @@ The check passes for a correct implementation and for a broken one.
 |---|---|
 | [live-verification-noise-floor.md](live-verification-noise-floor.md) | A crop check that a mirrored, wrong position scored better on; read tools that answer 200 with a stale frame from an iconified window. |
 | [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | A GPU counter that stopped updating is byte-identical to one that is constant. |
+| [incomplete-texture-samples-as-zero.md](incomplete-texture-samples-as-zero.md) | A sampled zero is a value, not an error: the frame is wrong exactly where the feature is active and right where it is not, on one vendor only. |
 | [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) | A red that recurs every run gets normalised and blinds the suite. |
 | [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) | A `glXxx(` grep is wrong three different ways. |
 | [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) | Capture targets show the editor camera; include-only shader edits do not hot-reload; "darker" passes for every uniform veil. |
