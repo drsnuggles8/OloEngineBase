@@ -46,9 +46,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Renderer/RenderCommand.h"
-#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
-#include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <gtest/gtest.h>
 
@@ -154,56 +152,31 @@ namespace OloEngine::Tests
         class GPUReadbackStatsEvidence : public RendererAttachedTest
         {
           protected:
-            // No entities: this fixture is used purely for its GL context and
-            // initialised Renderer3D. The cull is driven directly.
-            void BuildScene() override {}
-
-            void TearDown() override
+            // A primary camera at the origin looking down -Z: a 60 degree
+            // perspective with the far plane at 50 (the viewport is square), so
+            // the batch's z = -20 half is inside the frustum and its z = +60
+            // half is not. Nothing else is in the scene; the cull is driven
+            // directly by each test.
+            void BuildScene() override
             {
-                // Release the camera UBO while GL is alive. A function-local
-                // `static Ref<UniformBuffer>` here — the obvious way to write it —
-                // outlives Renderer::Shutdown() and shows up in the teardown
-                // report as a surviving GPU allocation, which is exactly the
-                // pattern docs/agent-rules/lazy-static-release-ownership.md is
-                // about. Cheap to get right; noisy to leave wrong, because the
-                // report is the thing that catches the real ones.
-                m_CameraUBO.Reset();
-                RendererAttachedTest::TearDown();
+                EnableRendering(256, 256);
+                Entity camera = GetScene().CreateEntity("Camera");
+                auto& cam = camera.AddComponent<CameraComponent>();
+                cam.Primary = true;
+                cam.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
+                cam.Camera.SetPerspective(glm::radians(60.0f), 0.1f, 50.0f);
             }
 
-            // The camera the cull tests against. GPUFrustumCuller reads
-            // u_ViewProjection out of the shared camera UBO rather than taking it
-            // as an argument, so the test has to supply one — a leftover matrix
-            // from an earlier test would make the survivor split
-            // nondeterministic.
-            void UploadCamera(const glm::mat4& viewProjection)
+            // GPUFrustumCuller culls against Renderer3D::GetCullViewProjectionRelative()
+            // and Renderer3D::GetRenderOrigin(), not against whatever camera UBO
+            // happens to be bound (the observer camera, 50306ae3c, made the
+            // culling camera renderer state). Only a real frame refreshes that
+            // state, so each test runs one before it drives the cull by hand.
+            // The frame's own readback bracket is drained by the test afterwards.
+            void EstablishCullCamera()
             {
-                if (!m_CameraUBO)
-                {
-                    m_CameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(),
-                                                        ShaderBindingLayout::UBO_CAMERA);
-                }
-                UBOStructures::CameraUBO camera{};
-                camera.ViewProjection = viewProjection;
-                camera.View = glm::mat4(1.0f);
-                camera.Projection = viewProjection;
-                camera.Position = glm::vec3(0.0f);
-                camera.PrevViewProjection = viewProjection;
-                m_CameraUBO->SetData(&camera, UBOStructures::CameraUBO::GetSize());
-                m_CameraUBO->Bind();
+                RunFrames(1);
             }
-
-            // The view-projection every test in this file culls against: a 60°
-            // perspective looking down -Z, far plane at 50, so the batch's
-            // z = -20 half is inside and its z = +60 half is not.
-            [[nodiscard]] static glm::mat4 TestViewProjection()
-            {
-                return glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 50.0f) *
-                       glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-            }
-
-          private:
-            Ref<UniformBuffer> m_CameraUBO;
         };
     } // namespace
 
@@ -213,12 +186,11 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
         ASSERT_TRUE(GPUReadbackStats::IsInitialised()) << "Renderer3D::Init did not bring the channel up";
+        EstablishCullCamera();
 
         GPUReadbackStats::SetEnabled(true);
         DrainRing();
         GPUReadbackStats::BeginFrame();
-
-        UploadCamera(TestViewProjection());
 
         auto culler = Ref<GPUFrustumCuller>::Create();
         culler->EnsureInitialised();
@@ -290,6 +262,7 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
         ASSERT_TRUE(GPUReadbackStats::IsInitialised());
+        EstablishCullCamera();
 
         constexpr u32 kSqueezedCapacity = 32;
         static_assert(kSqueezedCapacity < kVisibleInstances, "the cap has to be below the survivor count to truncate");
@@ -297,8 +270,6 @@ namespace OloEngine::Tests
         GPUReadbackStats::SetEnabled(true);
         DrainRing();
         GPUReadbackStats::BeginFrame();
-
-        UploadCamera(TestViewProjection());
 
         auto culler = Ref<GPUFrustumCuller>::Create();
         culler->EnsureInitialised();
@@ -350,6 +321,7 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
         ASSERT_TRUE(GPUReadbackStats::IsInitialised());
+        EstablishCullCamera();
 
         // Drain anything the previous tests left in flight so the assertion
         // below cannot be satisfied by a stale retired frame.
@@ -360,8 +332,6 @@ namespace OloEngine::Tests
             GPUReadbackStats::BeginFrame();
             GPUReadbackStats::EndFrame();
         }
-
-        UploadCamera(TestViewProjection());
 
         GPUReadbackStats::BeginFrame();
         const u64 disabledFrame = GPUReadbackStats::GetFrameIndex();
