@@ -110,7 +110,18 @@ jobs:
       # outside the workspace every nightly re-downloads and re-builds the whole
       # vendor set. Both dirs live in the runner user's home, not the workspace.
       CPM_SOURCE_CACHE: /home/gh-runner-olo/.cache/cpm
-      CCACHE_DIR: /home/gh-runner-olo/.cache/ccache
+      # The provisioned, 30 GiB, shared-by-every-job directory from
+      # scripts/setup-olo-ci-runners.sh -- not the unconfigured ~/.cache/ccache
+      # this job used to point at (5 GiB default). Same Unix account, so the
+      # olo-ci jobs' objects are reachable, though clang's and gcc's never collide.
+      CCACHE_DIR: /home/gh-runner-olo/.cache/olo/ccache
+      # Every engine target uses a precompiled header, and ccache refuses to
+      # cache a PCH-using compile unless sloppiness allows pch_defines and
+      # time_macros (ccache manual, "Precompiled headers"). Without this line the
+      # job's own statistics read "Could not use precompiled header: 1417 / 1417",
+      # i.e. a warm cache that rebuilt everything. The two include_file_* entries
+      # are the manual's recommendation for freshly checked-out trees.
+      CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
 
     steps:
       # A self-hosted runner's workspace PERSISTS between jobs. Even with an
