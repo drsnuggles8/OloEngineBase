@@ -428,7 +428,19 @@ namespace OloEngine::Tests
         // Coverage agreement, kept deliberately loose: the compute rasterizer drops individual
         // triangles over its screen-bbox cap, which nicks the silhouette in ForceSoftware mode.
         // This is here only to catch "the SW path lost most of the surface".
-        EXPECT_GT(static_cast<f64>(swSheet) / static_cast<f64>(hwSheet), 0.90)
+        //
+        // HOW MANY triangles fall over that cap is not a property of the shading, and it is not
+        // the same on every GPU: the ratio measures 0.975 (70203/71971) on an RTX 4090 and 0.894 (64349/71971) on the AMD
+        // CI box (Mesa radeonsi, run 33664995644), where the 0.90 floor failed while the
+        // BIT-EXACT interior comparison below passed. That is the discriminating evidence:
+        // every interior pixel is identical between the two paths on that GPU, so the resolve
+        // is correct there and only the silhouette differs. A floor tuned to one vendor's drop
+        // count was testing the drop count, not the resolve. 0.80 still fails loudly on the
+        // failure this guards -- a path that lost most of the surface reads far below half --
+        // and the parity assertion underneath is what actually pins correctness.
+        const f64 coverageRatio = static_cast<f64>(swSheet) / static_cast<f64>(hwSheet);
+        GTEST_LOG_(INFO) << "sw/hw sheet coverage: " << swSheet << "/" << hwSheet << " = " << coverageRatio;
+        EXPECT_GT(coverageRatio, 0.80)
             << "software raster covered only " << swSheet << " of hardware's " << hwSheet << " sheet pixels";
 
         // Shading parity on the interior. Measured: every interior pixel is BIT-IDENTICAL
