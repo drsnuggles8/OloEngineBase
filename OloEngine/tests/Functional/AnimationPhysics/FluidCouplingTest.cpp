@@ -22,6 +22,7 @@
 #include "../FunctionalTest.h"
 
 #include "OloEngine/Fluid/CPUFluidSolver.h"
+#include "OloEngine/Fluid/FluidSettings.h"
 #include "OloEngine/Fluid/FluidSolverTypes.h"
 #include "OloEngine/Fluid/FluidWorld.h"
 #include "OloEngine/Physics3D/JoltBody.h"
@@ -139,7 +140,7 @@ namespace OloEngine::Functional
             i32 Hits = 0;
             i32 WithEntity = 0;
             i32 Dynamic = 0;
-            i32 WideHits = 0;      // same query, domain doubled
+            i32 WideHits = 0;      // same query, expanded domain doubled again
             std::string HitDetail; // one entry per hit: entity id and position
         };
 
@@ -154,7 +155,20 @@ namespace OloEngine::Functional
 
             const auto& fluid = fluidEntity.GetComponent<FluidComponent>();
             const glm::vec3 center = fluidEntity.GetComponent<TransformComponent>().Translation;
-            const BoxOverlapInfo overlap(center, fluid.m_DomainHalfExtents);
+
+            // THE SAME HALF EXTENTS ExtractBodyProxies USES, derived the same
+            // way -- the domain plus one smoothing radius, not the bare domain.
+            // A probe that queries a different volume from the production path
+            // is not a diagnostic of that path: it would report a body the
+            // solver does see as absent, and send the next reader looking for a
+            // Jolt bug. FluidSystem falls back to a default-constructed
+            // FluidSettings when the entity carries no settings asset, which is
+            // this scene, so this reproduces its params exactly.
+            const FluidSolverParams probeParams =
+                FluidSettings{}.ToSolverParams(center, fluid.m_DomainHalfExtents, glm::vec3(0.0f, -9.81f, 0.0f));
+            const glm::vec3 queryHalf = (probeParams.BoundsMax - probeParams.BoundsMin) * 0.5f +
+                                        glm::vec3(probeParams.SmoothingRadius());
+            const BoxOverlapInfo overlap(center, queryHalf);
 
             std::vector<SceneQueryHit> hits(static_cast<sizet>(kFluidMaxBodyProxies) * 2u);
             probe.Hits = jolt->OverlapBox(overlap, hits.data(), static_cast<i32>(hits.size()));
@@ -178,7 +192,7 @@ namespace OloEngine::Functional
             // The same query over a volume twice the size. If a body inside the
             // real domain is missing here too, the query is not finding it at
             // all; if it appears, the domain's own bounds are the discriminator.
-            const BoxOverlapInfo wide(center, fluid.m_DomainHalfExtents * 2.0f);
+            const BoxOverlapInfo wide(center, queryHalf * 2.0f);
             std::vector<SceneQueryHit> wideHits(static_cast<sizet>(kFluidMaxBodyProxies) * 2u);
             probe.WideHits = jolt->OverlapBox(wide, wideHits.data(), static_cast<i32>(wideHits.size()));
             return probe;

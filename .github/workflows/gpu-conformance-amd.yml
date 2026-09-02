@@ -430,6 +430,12 @@ jobs:
         env:
           # Belt and braces against a silent software fallback mid-run.
           MESA_LOADER_DRIVER_OVERRIDE: radeonsi
+          # Passed as an ENVIRONMENT VARIABLE, never interpolated into the
+          # script. A ${{ }} expansion of a dispatch input is textual
+          # substitution before the shell ever sees it, so a filter
+          # containing shell metacharacters would run as script; read as
+          # $OLO_GTEST_FILTER it is only ever data.
+          OLO_GTEST_FILTER: ${{ inputs.gtest_filter }}
         run: |
           mkdir -p ../test_results
           # NetworkIntegrationTest is excluded by EVERY other job in this repo
@@ -453,6 +459,18 @@ jobs:
           # The two rebase flags come from the manual-dispatch inputs above and are
           # absent entirely on a scheduled run. Absent is unambiguous; the string
           # values this used to pass were not (see TestOptions.h).
+          # gtest splits its filter at the FIRST hyphen: everything before it is
+          # the positive list, everything after it the negative one. Appending
+          # ":-X" to a filter that ALREADY has a negative section therefore adds
+          # no exclusion -- it adds "-X" as a second NEGATIVE PATTERN, which
+          # matches no test name, and NetworkIntegrationTest silently runs. Join
+          # the existing negative list in that case instead of starting one.
+          FILTER="${OLO_GTEST_FILTER:-*}"
+          case "$FILTER" in
+            *-*) FILTER="$FILTER:NetworkIntegrationTest.*" ;;
+            *) FILTER="$FILTER:-NetworkIntegrationTest.*" ;;
+          esac
+          echo "gtest filter: $FILTER"
           ../build/OloEngine/tests/OloEngine-Tests \
             --olo-gl-backend=egl \
             --olo-golden-vendor=amd \
@@ -460,7 +478,7 @@ jobs:
             ${{ inputs.golden_rebase && '--olo-golden-rebase' || '' }} \
             ${{ inputs.perf_rebase && '--olo-perf-rebase' || '' }} \
             --gtest_catch_exceptions=1 \
-            --gtest_filter=${{ inputs.gtest_filter || '*' }}:-NetworkIntegrationTest.* \
+            --gtest_filter="$FILTER" \
             --gtest_output=xml:../test_results/gpu_amd.xml
 
       # ---------------------------------------------------------------------
