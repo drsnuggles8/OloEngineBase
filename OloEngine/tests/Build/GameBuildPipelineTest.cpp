@@ -190,6 +190,7 @@ TEST(GameBuildPipelineTest, LinuxLauncherExecutesFromARelocatedPackage)
     LinuxDesktopLauncherArtifacts artifacts;
     std::string errorMessage;
     ASSERT_TRUE(StageLinuxDesktopLauncher(executable, icon, "Game", artifacts, errorMessage)) << errorMessage;
+    std::filesystem::permissions(artifacts.DesktopEntryPath, std::filesystem::perms::owner_exec, std::filesystem::perm_options::add);
     std::filesystem::permissions(artifacts.WrapperScriptPath, std::filesystem::perms::owner_exec, std::filesystem::perm_options::add);
     std::filesystem::rename(sourcePackage, movedPackage);
 
