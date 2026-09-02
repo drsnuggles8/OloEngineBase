@@ -42,26 +42,49 @@ namespace OloEngine
     /// Same precedence, pulling the imported material out of the MeshSource by submesh index
     /// (which maps through Submesh::m_MaterialIndex). A null meshSource, an out-of-range
     /// index, or a source with no imported materials all fall through to the default.
+    /// Where a submesh's material comes from, in precedence order. The GPU-scene
+    /// material key (Renderer3D::ResolveGPUSceneMaterialKey) is derived from this
+    /// same decision, so the record and the draw cannot disagree about the source.
+    enum class SubmeshMaterialOrigin : u8
+    {
+        Default,
+        Imported,
+        Override,
+    };
+
+    [[nodiscard]] inline SubmeshMaterialOrigin ResolveSubmeshMaterialOrigin(const Material* overrideMaterial,
+                                                                            const MeshSource* meshSource,
+                                                                            u32 submeshIndex)
+    {
+        if (overrideMaterial != nullptr)
+        {
+            return SubmeshMaterialOrigin::Override;
+        }
+        if (meshSource != nullptr && meshSource->GetImportedMaterialPtrForSubmesh(submeshIndex) != nullptr)
+        {
+            return SubmeshMaterialOrigin::Imported;
+        }
+        return SubmeshMaterialOrigin::Default;
+    }
+
     [[nodiscard]] inline const Material& ResolveSubmeshMaterial(const Material* overrideMaterial,
                                                                 const MeshSource* meshSource,
                                                                 u32 submeshIndex,
                                                                 const Material& defaultMaterial)
     {
-        if (overrideMaterial != nullptr)
+        switch (ResolveSubmeshMaterialOrigin(overrideMaterial, meshSource, submeshIndex))
         {
-            return *overrideMaterial;
-        }
-        if (meshSource != nullptr)
-        {
-            // A raw observer into the MeshSource's persistent m_ImportedMaterials — NOT a local
-            // owning Ref. Returning *imported through a local Ref<Material> destroyed at return
-            // was a returned-reference-to-a-just-released-owner pattern (SonarQube "use of memory
-            // after it is freed"); the referent is owned by the MeshSource, which every caller
-            // keeps alive across its use of the result, so the observer is the honest shape.
-            if (const Material* imported = meshSource->GetImportedMaterialPtrForSubmesh(submeshIndex); imported != nullptr)
-            {
-                return *imported;
-            }
+            case SubmeshMaterialOrigin::Override:
+                return *overrideMaterial;
+            case SubmeshMaterialOrigin::Imported:
+                // A raw observer into the MeshSource's persistent m_ImportedMaterials — NOT a local
+                // owning Ref. Returning *imported through a local Ref<Material> destroyed at return
+                // was a returned-reference-to-a-just-released-owner pattern (SonarQube "use of memory
+                // after it is freed"); the referent is owned by the MeshSource, which every caller
+                // keeps alive across its use of the result, so the observer is the honest shape.
+                return *meshSource->GetImportedMaterialPtrForSubmesh(submeshIndex);
+            case SubmeshMaterialOrigin::Default:
+                break;
         }
         return defaultMaterial;
     }

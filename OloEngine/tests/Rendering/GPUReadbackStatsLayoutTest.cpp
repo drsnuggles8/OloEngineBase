@@ -22,6 +22,7 @@
 
 #include "OloEngine/Renderer/Debug/GPUReadbackStatsRegistry.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "Rendering/ShaderHarness.h"
 
 #include <gtest/gtest.h>
 
@@ -212,41 +213,20 @@ TEST(GPUReadbackStatsLayout, NoStatsConsumerAlsoSamplesBinding64)
     const fs::path shaderRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders";
     ASSERT_TRUE(fs::exists(shaderRoot)) << "shader root not found at " << shaderRoot.string();
 
-    // Resolve the transitive include set of one shader. One level of nesting is
-    // enough here and is asserted below: the stats include has no includes of its
-    // own, and DDGICommon.glsl is reached directly by everything that samples it.
-    const auto includesOf = [](const std::string& source)
-    {
-        std::vector<std::string> names;
-        // Custom delimiter: the pattern itself contains `)"`, which would close a
-        // plain R"(...)" literal early.
-        const std::regex pattern{ R"INC(#\s*include\s*"([^"]+)")INC" };
-        for (std::sregex_iterator it{ source.begin(), source.end(), pattern }, end; it != end; ++it)
-        {
-            names.push_back(fs::path{ (*it)[1].str() }.filename().string());
-        }
-        return names;
-    };
-
+    // One level of include nesting is enough here and is asserted below: the
+    // stats include has no includes of its own, and DDGICommon.glsl is reached
+    // directly by everything that samples it. The scanner is the shared one in
+    // ShaderHarness.h, also used by GPUSceneLayoutTest.
     u32 statsConsumers = 0;
     u32 scanned = 0;
-    for (const auto& entry : fs::recursive_directory_iterator(shaderRoot))
+    for (const fs::path& path : OloEngine::Tests::ShaderHarness::EnumerateShaderSources(shaderRoot))
     {
-        if (!entry.is_regular_file())
-            continue;
-        const auto ext = entry.path().extension().string();
-        if (ext != ".comp" && ext != ".glsl" && ext != ".vert" && ext != ".frag" && ext != ".geom")
-            continue;
-
-        std::ifstream f(entry.path(), std::ios::binary);
-        std::ostringstream buf;
-        buf << f.rdbuf();
-        const std::string source = buf.str();
+        const std::string source = OloEngine::Tests::ShaderHarness::ReadWholeFile(path);
         ++scanned;
 
         bool includesStats = false;
         bool includesDDGI = false;
-        for (const auto& name : includesOf(source))
+        for (const auto& name : OloEngine::Tests::ShaderHarness::IncludedFileNames(source))
         {
             includesStats = includesStats || name == "GPUReadbackStats.glsl";
             includesDDGI = includesDDGI || name == "DDGICommon.glsl";
@@ -255,7 +235,7 @@ TEST(GPUReadbackStatsLayout, NoStatsConsumerAlsoSamplesBinding64)
             ++statsConsumers;
 
         EXPECT_FALSE(includesStats && includesDDGI)
-            << entry.path().filename().string()
+            << path.filename().string()
             << " includes BOTH GPUReadbackStats.glsl (SSBO 64) and DDGICommon.glsl (sampler 64). On Vulkan's "
                "single-set model that is a within-shader binding collision. Renumber one side.";
     }

@@ -77,25 +77,6 @@ namespace OloEngine
             return count > 0 ? std::vector<GPUSceneDirtyRange>{ GPUSceneDirtyRange{ 0, count } }
                              : std::vector<GPUSceneDirtyRange>{};
         }
-    } // namespace
-
-    struct GPUScene::Impl
-    {
-        struct GeometrySlot
-        {
-            GPUSceneGeometryKey m_Key;
-            GPUSceneGeometryInput m_Input;
-            u32 m_Generation = 1;
-            bool m_Live = false;
-        };
-
-        struct InstanceSlot
-        {
-            GPUSceneInstanceKey m_Key;
-            GPUSceneInstanceInput m_Input;
-            u32 m_Generation = 1;
-            bool m_Live = false;
-        };
 
         struct RetiredSlot
         {
@@ -103,6 +84,321 @@ namespace OloEngine
             u64 m_ReadyFrame = 0;
         };
 
+        // A dead slot's record: default bytes, the slot's own index where the
+        // record carries one, and the generation the slot advanced to, so a
+        // consumer holding the old handle reads a mismatch rather than stale data.
+        template<typename Record>
+        void MakeTombstone(Record& record, u32 index, u32 generation)
+        {
+            record = Record{};
+            if constexpr (requires { record.StableIndex; })
+            {
+                record.StableIndex = index;
+            }
+            record.Generation = generation;
+        }
+
+        // The compatibility rule of the kinds whose identity never changes in
+        // place (geometries, lights, instances): every edit keeps the slot.
+        struct AlwaysCompatible
+        {
+            template<typename Record>
+            [[nodiscard]] bool operator()(const Record&, const Record&) const
+            {
+                return true;
+            }
+        };
+
+        // One registry per record kind. Every kind shares the allocation,
+        // retirement, dirty-tracking, upload and reset machinery; only the
+        // per-kind encoding differs and is passed into CommitStaged. The table
+        // owns its dirty set: every path that changes a record writes
+        // m_PendingDirtySlots, and EndExtraction takes the coalesced ranges.
+        template<typename Key, typename Input, typename Record>
+        struct RecordTable
+        {
+            struct Slot
+            {
+                Key m_Key{};
+                Input m_Input{};
+                u32 m_Generation = 1;
+                bool m_Live = false;
+            };
+
+            u32 m_Binding = 0;
+            std::map<Key, Input> m_Staged;
+            std::map<Key, GPUSceneHandle> m_Handles;
+            std::vector<Slot> m_Slots;
+            std::vector<Record> m_Records;
+            std::set<u32> m_FreeSlots;
+            std::vector<RetiredSlot> m_RetiredSlots;
+            std::set<u32> m_PendingDirtySlots;
+            Ref<StorageBuffer> m_Buffer;
+            u32 m_BufferCapacity = 0;
+
+            // Frame start: retired slots whose buffered frames completed return
+            // to the free set, and the previous frame's staging is dropped.
+            void BeginFrame(u64 frameNumber)
+            {
+                std::erase_if(m_RetiredSlots,
+                              [this, frameNumber](const RetiredSlot& retired)
+                              {
+                                  if (retired.m_ReadyFrame > frameNumber)
+                                  {
+                                      return false;
+                                  }
+                                  m_FreeSlots.insert(retired.m_Index);
+                                  return true;
+                              });
+                m_Staged.clear();
+            }
+
+            // Kills a slot: tombstone, generation advance, and frame-safe
+            // retirement while the generation is representable. A slot whose
+            // generation is exhausted is never reused, and its tombstone keeps
+            // the exhausted generation: a consumer must test the record's
+            // Active flag as well as its generation.
+            void Kill(u32 index, u64 frameNumber)
+            {
+                auto& slot = m_Slots[index];
+                slot.m_Live = false;
+                if (AdvanceGeneration(slot.m_Generation))
+                {
+                    m_RetiredSlots.push_back(RetiredSlot{
+                        .m_Index = index,
+                        .m_ReadyFrame = GPUSceneAllocationPolicy::RetirementReadyFrame(frameNumber),
+                    });
+                }
+                MakeTombstone(m_Records[index], index, slot.m_Generation);
+                m_PendingDirtySlots.insert(index);
+            }
+
+            void RemoveUnstaged(u64 frameNumber)
+            {
+                for (auto it = m_Handles.begin(); it != m_Handles.end();)
+                {
+                    if (m_Staged.contains(it->first))
+                    {
+                        ++it;
+                        continue;
+                    }
+                    Kill(it->second.m_Index, frameNumber);
+                    it = m_Handles.erase(it);
+                }
+            }
+
+            // Reuse the key's slot, else the lowest free slot, else append.
+            [[nodiscard]] u32 Acquire(const Key& key)
+            {
+                if (const auto existing = m_Handles.find(key); existing != m_Handles.end())
+                {
+                    return existing->second.m_Index;
+                }
+                if (!m_FreeSlots.empty())
+                {
+                    const auto freeIt = m_FreeSlots.begin();
+                    const u32 index = *freeIt;
+                    m_FreeSlots.erase(freeIt);
+                    return index;
+                }
+                const auto index = static_cast<u32>(m_Slots.size());
+                m_Slots.emplace_back();
+                m_Records.emplace_back();
+                return index;
+            }
+
+            // The in-place incompatible edit: the key keeps its slot and the
+            // slot's generation advances, so every handle and every dependent
+            // record (an instance's MaterialGeneration) goes stale at once.
+            // False when the generation is exhausted; the caller then kills the
+            // slot and re-acquires a fresh one for the key.
+            [[nodiscard]] bool AdvanceLiveGeneration(u32 index, const Key& key)
+            {
+                auto& slot = m_Slots[index];
+                if (!AdvanceGeneration(slot.m_Generation))
+                {
+                    return false;
+                }
+                m_Handles[key] = GPUSceneHandle{ index, slot.m_Generation };
+                return true;
+            }
+
+            void Commit(u32 index, const Key& key, const Input& input, const Record& record)
+            {
+                auto& slot = m_Slots[index];
+                const bool wasLive = slot.m_Live;
+                if (!wasLive || !RecordsEqual(m_Records[index], record))
+                {
+                    m_PendingDirtySlots.insert(index);
+                }
+                slot.m_Key = key;
+                slot.m_Input = input;
+                slot.m_Live = true;
+                m_Records[index] = record;
+                // A live slot's handle is already current (AdvanceLiveGeneration
+                // rewrote it if the generation moved); only a fresh slot pays
+                // the map insert, which keeps the per-record frame cost at one
+                // lookup for the steady state.
+                if (!wasLive)
+                {
+                    m_Handles.emplace(key, GPUSceneHandle{ index, slot.m_Generation });
+                }
+            }
+
+            // Commit every staged key in key order. `encode(key, input, index,
+            // slot)` builds the record for the slot the key acquired; `compatible`
+            // decides whether a live slot keeps its generation. A staged edit
+            // the rule rejects advances the generation in place before the
+            // record is stored.
+            template<typename Encode, typename Compatible>
+            void CommitStaged(u64 frameNumber, Encode&& encode, Compatible&& compatible)
+            {
+                for (const auto& [key, input] : m_Staged)
+                {
+                    u32 index = Acquire(key);
+                    Record record = encode(key, input, index, m_Slots[index]);
+                    if (m_Slots[index].m_Live && !compatible(m_Records[index], record))
+                    {
+                        if (AdvanceLiveGeneration(index, key))
+                        {
+                            record.Generation = m_Slots[index].m_Generation;
+                        }
+                        else
+                        {
+                            // Generation exhausted: the slot dies for good and
+                            // the key moves to a fresh slot in this same commit.
+                            Kill(index, frameNumber);
+                            m_Handles.erase(key);
+                            index = Acquire(key);
+                            record = encode(key, input, index, m_Slots[index]);
+                        }
+                    }
+                    Commit(index, key, input, record);
+                }
+            }
+
+            [[nodiscard]] std::vector<GPUSceneDirtyRange> TakeDirtyRanges()
+            {
+                return CoalesceDirtyRanges(std::exchange(m_PendingDirtySlots, {}));
+            }
+
+            [[nodiscard]] std::vector<GPUSceneDirtyRange> PendingDirtyRanges() const
+            {
+                return CoalesceDirtyRanges(m_PendingDirtySlots);
+            }
+
+            [[nodiscard]] GPUSceneHandle Find(const Key& key) const
+            {
+                const auto found = m_Handles.find(key);
+                return found != m_Handles.end() ? found->second : GPUSceneHandle{};
+            }
+
+            [[nodiscard]] bool IsLive(GPUSceneHandle handle) const
+            {
+                if (!handle.IsValid() || handle.m_Index >= m_Slots.size())
+                {
+                    return false;
+                }
+                const auto& slot = m_Slots[handle.m_Index];
+                return slot.m_Live && slot.m_Generation == handle.m_Generation;
+            }
+
+            [[nodiscard]] const Record* Get(GPUSceneHandle handle) const
+            {
+                return IsLive(handle) ? &m_Records[handle.m_Index] : nullptr;
+            }
+
+            void InitializeGPU(u32 capacity)
+            {
+                m_BufferCapacity = std::max(capacity, 1u);
+                m_Buffer = StorageBuffer::Create(BytesForRecords<Record>(m_BufferCapacity), m_Binding,
+                                                 StorageBufferUsage::DynamicDraw);
+                m_Buffer->Unbind();
+
+                // Fresh storage has undefined contents, including after a
+                // renderer restart. Seed every allocated CPU slot, including
+                // free tombstones, and keep that intent pending if extraction
+                // happens before Upload().
+                const auto recordCount = static_cast<u32>(m_Records.size());
+                for (u32 index = 0; index < recordCount; ++index)
+                {
+                    m_PendingDirtySlots.insert(index);
+                }
+            }
+
+            // Growth resizes the buffer in place (the RHI identity survives) and
+            // uploads every record. Resize binds and unbinds the aliased slot,
+            // which is why every consumer of these slots binds per pass.
+            [[nodiscard]] u64 Upload(const std::vector<GPUSceneDirtyRange>& ranges, u32& growthEvents)
+            {
+                std::vector<GPUSceneDirtyRange> grown;
+                const std::vector<GPUSceneDirtyRange>* toUpload = &ranges;
+                const auto required = static_cast<u32>(m_Records.size());
+                if (required > m_BufferCapacity)
+                {
+                    m_BufferCapacity = GPUSceneAllocationPolicy::GrowCapacity(m_BufferCapacity, required);
+                    m_Buffer->Resize(BytesForRecords<Record>(m_BufferCapacity));
+                    m_Buffer->Unbind();
+                    grown = FullRange(required);
+                    toUpload = &grown;
+                    ++growthEvents;
+                }
+
+                u64 uploadBytes = 0;
+                for (const GPUSceneDirtyRange& range : *toUpload)
+                {
+                    OLO_CORE_ASSERT(static_cast<u64>(range.m_FirstIndex) + range.m_Count <= m_Records.size(),
+                                    "GPUScene dirty range exceeds allocated slots");
+                    const u32 sizeBytes = BytesForRecords<Record>(range.m_Count);
+                    const u32 offsetBytes = BytesForRecords<Record>(range.m_FirstIndex);
+                    m_Buffer->SetData(m_Records.data() + range.m_FirstIndex, sizeBytes, offsetBytes);
+                    uploadBytes += sizeBytes;
+                }
+                return uploadBytes;
+            }
+
+            void Shutdown()
+            {
+                if (m_Buffer)
+                {
+                    m_Buffer->Unbind();
+                }
+                m_Buffer.Reset();
+                m_BufferCapacity = 0;
+            }
+
+            void ResetLive(u64 frameNumber)
+            {
+                for (const auto& [key, handle] : m_Handles)
+                {
+                    (void)key;
+                    Kill(handle.m_Index, frameNumber);
+                }
+                m_Handles.clear();
+                m_Staged.clear();
+            }
+
+            [[nodiscard]] RHI::ResourceHandle BufferHandle() const
+            {
+                return m_Buffer ? m_Buffer->GetRHIHandle() : RHI::ResourceHandle{};
+            }
+
+            // Registry counters only; Upload() fills m_UploadBytes afterwards.
+            [[nodiscard]] GPUSceneKindStats Stats() const
+            {
+                return GPUSceneKindStats{
+                    .m_Live = static_cast<u32>(m_Handles.size()),
+                    .m_SlotCount = static_cast<u32>(m_Slots.size()),
+                    .m_BufferCapacity = m_BufferCapacity,
+                    .m_FreeSlots = static_cast<u32>(m_FreeSlots.size()),
+                    .m_RetiredSlots = static_cast<u32>(m_RetiredSlots.size()),
+                };
+            }
+        };
+    } // namespace
+
+    struct GPUScene::Impl
+    {
         u64 m_OwnerToken = 0;
         u64 m_FrameNumber = 0;
         bool m_HasOwner = false;
@@ -110,29 +406,90 @@ namespace OloEngine
         bool m_Extracting = false;
         std::chrono::steady_clock::time_point m_ExtractionStart;
 
-        std::map<GPUSceneGeometryKey, GPUSceneGeometryInput> m_StagedGeometries;
-        std::map<GPUSceneInstanceKey, GPUSceneInstanceInput> m_StagedInstances;
-
-        std::map<GPUSceneGeometryKey, GPUSceneHandle> m_GeometryHandles;
-        std::map<GPUSceneInstanceKey, GPUSceneHandle> m_InstanceHandles;
-        std::vector<GeometrySlot> m_GeometrySlots;
-        std::vector<InstanceSlot> m_InstanceSlots;
-        std::vector<GPUSceneGeometry> m_GeometryRecords;
-        std::vector<GPUSceneInstance> m_InstanceRecords;
-        std::set<u32> m_FreeGeometrySlots;
-        std::set<u32> m_FreeInstanceSlots;
-        std::vector<RetiredSlot> m_RetiredGeometrySlots;
-        std::vector<RetiredSlot> m_RetiredInstanceSlots;
-        std::set<u32> m_PendingDirtyGeometrySlots;
-        std::set<u32> m_PendingDirtyInstanceSlots;
+        RecordTable<GPUSceneGeometryKey, GPUSceneGeometryInput, GPUSceneGeometry> m_Geometries;
+        RecordTable<GPUSceneInstanceKey, GPUSceneInstanceInput, GPUSceneInstance> m_Instances;
+        RecordTable<GPUSceneMaterialKey, GPUSceneMaterialInput, GPUSceneMaterial> m_Materials;
+        RecordTable<GPUSceneLightKey, GPUSceneLightInput, GPUSceneLight> m_Lights;
+        RecordTable<GPUSceneEnvironmentKey, GPUSceneEnvironmentInput, GPUSceneEnvironment> m_Environments;
         std::array<u32, GPUSceneUnsupportedCategoryCount> m_UnsupportedCounts{};
 
-        Ref<StorageBuffer> m_GeometryBuffer;
-        Ref<StorageBuffer> m_InstanceBuffer;
-        u32 m_GeometryBufferCapacity = 0;
-        u32 m_InstanceBufferCapacity = 0;
         bool m_UploadPending = false;
         GPUSceneFrameUpdate m_LastFrameUpdate;
+
+        Impl()
+        {
+            m_Geometries.m_Binding = GPUSceneBindingLayout::Geometries;
+            m_Instances.m_Binding = GPUSceneBindingLayout::Instances;
+            m_Materials.m_Binding = GPUSceneBindingLayout::Materials;
+            m_Lights.m_Binding = GPUSceneBindingLayout::Lights;
+            m_Environments.m_Binding = GPUSceneBindingLayout::Environments;
+        }
+
+        // Every per-kind fan-out goes through here so a sixth kind cannot be
+        // missed by one of them. Only EndExtraction's commit order (materials
+        // before the instances that reference them) is spelled out by hand.
+        template<typename Function>
+        void ForEachTable(Function&& function)
+        {
+            function(m_Geometries);
+            function(m_Instances);
+            function(m_Materials);
+            function(m_Lights);
+            function(m_Environments);
+        }
+
+        template<typename Function>
+        void ForEachTable(Function&& function) const
+        {
+            function(m_Geometries);
+            function(m_Instances);
+            function(m_Materials);
+            function(m_Lights);
+            function(m_Environments);
+        }
+
+        [[nodiscard]] bool HasGPUResources() const
+        {
+            bool all = true;
+            ForEachTable([&all](const auto& table)
+                         { all = all && table.m_Buffer; });
+            return all;
+        }
+
+        // Registry counters. Upload bytes, timing and the unsupported counts
+        // are filled by the caller that knows them.
+        [[nodiscard]] GPUSceneFrameStats BuildStats() const
+        {
+            GPUSceneFrameStats stats{};
+            stats.m_Instances = m_Instances.Stats();
+            stats.m_Geometries = m_Geometries.Stats();
+            stats.m_Materials = m_Materials.Stats();
+            stats.m_Lights = m_Lights.Stats();
+            stats.m_Environments = m_Environments.Stats();
+            return stats;
+        }
+
+        void RefreshCapacityStats()
+        {
+            auto& stats = m_LastFrameUpdate.m_Stats;
+            stats.m_Instances.m_BufferCapacity = m_Instances.m_BufferCapacity;
+            stats.m_Geometries.m_BufferCapacity = m_Geometries.m_BufferCapacity;
+            stats.m_Materials.m_BufferCapacity = m_Materials.m_BufferCapacity;
+            stats.m_Lights.m_BufferCapacity = m_Lights.m_BufferCapacity;
+            stats.m_Environments.m_BufferCapacity = m_Environments.m_BufferCapacity;
+        }
+
+        // Outside a frame (InitializeGPU, Reset) the pending dirty slots are
+        // published as the last frame update without being consumed; the next
+        // EndExtraction takes them together with that frame's edits.
+        void PublishPendingDirtyRanges()
+        {
+            m_LastFrameUpdate.m_InstanceDirtyRanges = m_Instances.PendingDirtyRanges();
+            m_LastFrameUpdate.m_GeometryDirtyRanges = m_Geometries.PendingDirtyRanges();
+            m_LastFrameUpdate.m_MaterialDirtyRanges = m_Materials.PendingDirtyRanges();
+            m_LastFrameUpdate.m_LightDirtyRanges = m_Lights.PendingDirtyRanges();
+            m_LastFrameUpdate.m_EnvironmentDirtyRanges = m_Environments.PendingDirtyRanges();
+        }
     };
 
     GPUScene::GPUScene()
@@ -146,51 +503,58 @@ namespace OloEngine
 
     void GPUScene::BeginExtraction(u64 ownerToken, const glm::vec3& renderOrigin)
     {
-        OLO_CORE_ASSERT(!m_Impl->m_Extracting,
-                        "GPUScene::BeginExtraction called twice before EndExtraction");
-        if (m_Impl->m_HasOwner && m_Impl->m_OwnerToken != ownerToken)
+        auto& impl = *m_Impl;
+        OLO_CORE_ASSERT(!impl.m_Extracting, "GPUScene::BeginExtraction called twice before EndExtraction");
+        if (impl.m_HasOwner && impl.m_OwnerToken != ownerToken)
         {
             Reset();
         }
 
-        ++m_Impl->m_FrameNumber;
-        const auto releaseRetired = [frameNumber = m_Impl->m_FrameNumber](auto& retiredSlots,
-                                                                          auto& freeSlots)
-        {
-            std::erase_if(retiredSlots,
-                          [frameNumber, &freeSlots](const Impl::RetiredSlot& retired)
-                          {
-                              if (retired.m_ReadyFrame > frameNumber)
-                              {
-                                  return false;
-                              }
-                              freeSlots.insert(retired.m_Index);
-                              return true;
-                          });
-        };
-        releaseRetired(m_Impl->m_RetiredGeometrySlots, m_Impl->m_FreeGeometrySlots);
-        releaseRetired(m_Impl->m_RetiredInstanceSlots, m_Impl->m_FreeInstanceSlots);
+        ++impl.m_FrameNumber;
+        impl.ForEachTable([frameNumber = impl.m_FrameNumber](auto& table)
+                          { table.BeginFrame(frameNumber); });
 
-        m_Impl->m_OwnerToken = ownerToken;
-        m_Impl->m_HasOwner = true;
-        m_Impl->m_RenderOrigin = renderOrigin;
-        m_Impl->m_StagedGeometries.clear();
-        m_Impl->m_StagedInstances.clear();
-        m_Impl->m_UnsupportedCounts.fill(0);
-        m_Impl->m_ExtractionStart = std::chrono::steady_clock::now();
-        m_Impl->m_Extracting = true;
+        impl.m_OwnerToken = ownerToken;
+        impl.m_HasOwner = true;
+        impl.m_RenderOrigin = renderOrigin;
+        impl.m_UnsupportedCounts.fill(0);
+        impl.m_ExtractionStart = std::chrono::steady_clock::now();
+        impl.m_Extracting = true;
     }
 
     void GPUScene::ExtractGeometry(const GPUSceneGeometryKey& key, const GPUSceneGeometryInput& input)
     {
         OLO_CORE_ASSERT(m_Impl->m_Extracting, "GPUScene::ExtractGeometry requires BeginExtraction");
-        m_Impl->m_StagedGeometries.insert_or_assign(key, input);
+        m_Impl->m_Geometries.m_Staged.insert_or_assign(key, input);
     }
 
     void GPUScene::ExtractInstance(const GPUSceneInstanceKey& key, const GPUSceneInstanceInput& input)
     {
         OLO_CORE_ASSERT(m_Impl->m_Extracting, "GPUScene::ExtractInstance requires BeginExtraction");
-        m_Impl->m_StagedInstances.insert_or_assign(key, input);
+        m_Impl->m_Instances.m_Staged.insert_or_assign(key, input);
+    }
+
+    void GPUScene::ExtractMaterial(const GPUSceneMaterialKey& key, const GPUSceneMaterialInput& input)
+    {
+        OLO_CORE_ASSERT(m_Impl->m_Extracting, "GPUScene::ExtractMaterial requires BeginExtraction");
+        m_Impl->m_Materials.m_Staged.insert_or_assign(key, input);
+    }
+
+    void GPUScene::ExtractLight(const GPUSceneLightKey& key, const GPUSceneLightInput& input)
+    {
+        OLO_CORE_ASSERT(m_Impl->m_Extracting, "GPUScene::ExtractLight requires BeginExtraction");
+        m_Impl->m_Lights.m_Staged.insert_or_assign(key, input);
+    }
+
+    void GPUScene::ExtractEnvironment(const GPUSceneEnvironmentKey& key, const GPUSceneEnvironmentInput& input)
+    {
+        OLO_CORE_ASSERT(m_Impl->m_Extracting, "GPUScene::ExtractEnvironment requires BeginExtraction");
+        m_Impl->m_Environments.m_Staged.insert_or_assign(key, input);
+    }
+
+    bool GPUScene::IsMaterialStaged(const GPUSceneMaterialKey& key) const
+    {
+        return m_Impl->m_Extracting && m_Impl->m_Materials.m_Staged.contains(key);
     }
 
     void GPUScene::ReportUnsupported(GPUSceneUnsupportedCategory category, u32 count)
@@ -203,302 +567,151 @@ namespace OloEngine
 
     GPUSceneFrameUpdate GPUScene::EndExtraction()
     {
-        OLO_CORE_ASSERT(m_Impl->m_Extracting, "GPUScene::EndExtraction requires BeginExtraction");
+        auto& impl = *m_Impl;
+        OLO_CORE_ASSERT(impl.m_Extracting, "GPUScene::EndExtraction requires BeginExtraction");
 
-        std::set<u32> dirtyGeometrySlots = std::move(m_Impl->m_PendingDirtyGeometrySlots);
-        std::set<u32> dirtyInstanceSlots = std::move(m_Impl->m_PendingDirtyInstanceSlots);
-        m_Impl->m_PendingDirtyGeometrySlots.clear();
-        m_Impl->m_PendingDirtyInstanceSlots.clear();
+        const u64 frameNumber = impl.m_FrameNumber;
+        impl.ForEachTable([frameNumber](auto& table)
+                          { table.RemoveUnstaged(frameNumber); });
 
-        for (auto it = m_Impl->m_GeometryHandles.begin(); it != m_Impl->m_GeometryHandles.end();)
-        {
-            if (m_Impl->m_StagedGeometries.contains(it->first))
+        impl.m_Geometries.CommitStaged(
+            frameNumber,
+            [](const GPUSceneGeometryKey&, const GPUSceneGeometryInput& input, u32, const auto& slot)
             {
-                ++it;
-                continue;
-            }
+                GPUSceneGeometry record{};
+                record.VertexBufferIndex = input.m_VertexBuffer.Index;
+                record.VertexBufferGeneration = input.m_VertexBuffer.Generation;
+                record.IndexBufferIndex = input.m_IndexBuffer.Index;
+                record.IndexBufferGeneration = input.m_IndexBuffer.Generation;
+                record.VertexAddress = input.m_VertexAddress;
+                record.IndexAddress = input.m_IndexAddress;
+                record.VertexFormat = input.m_VertexFormat;
+                record.IndexFormat = input.m_IndexFormat;
+                record.FirstIndex = input.m_FirstIndex;
+                record.IndexCount = input.m_IndexCount;
+                record.BaseVertex = input.m_BaseVertex;
+                record.VertexCount = input.m_VertexCount;
+                record.Generation = slot.m_Generation;
+                record.Flags = input.m_Flags | GPUSceneGeometryFlagActive;
+                return record;
+            },
+            AlwaysCompatible{});
 
-            auto& slot = m_Impl->m_GeometrySlots[it->second.m_Index];
-            slot.m_Live = false;
-            if (AdvanceGeneration(slot.m_Generation))
-            {
-                m_Impl->m_RetiredGeometrySlots.push_back(Impl::RetiredSlot{
-                    .m_Index = it->second.m_Index,
-                    .m_ReadyFrame = GPUSceneAllocationPolicy::RetirementReadyFrame(m_Impl->m_FrameNumber),
-                });
-            }
-            auto& tombstone = m_Impl->m_GeometryRecords[it->second.m_Index];
-            tombstone = GPUSceneGeometry{};
-            tombstone.Generation = slot.m_Generation;
-            dirtyGeometrySlots.insert(it->second.m_Index);
-            it = m_Impl->m_GeometryHandles.erase(it);
-        }
+        // Materials and environments before instances: an instance resolves
+        // its material slot and generation from this frame's commit.
+        impl.m_Materials.CommitStaged(
+            frameNumber,
+            [](const GPUSceneMaterialKey&, const GPUSceneMaterialInput& input, u32 index, const auto& slot)
+            { return EncodeGPUSceneMaterial(input, index, slot.m_Generation); },
+            [](const GPUSceneMaterial& previous, const GPUSceneMaterial& next)
+            { return IsCompatibleGPUSceneMaterialEdit(previous, next); });
 
-        for (const auto& [key, input] : m_Impl->m_StagedGeometries)
-        {
-            u32 index = 0;
-            if (const auto existing = m_Impl->m_GeometryHandles.find(key);
-                existing != m_Impl->m_GeometryHandles.end())
-            {
-                index = existing->second.m_Index;
-            }
-            else if (!m_Impl->m_FreeGeometrySlots.empty())
-            {
-                const auto freeIt = m_Impl->m_FreeGeometrySlots.begin();
-                index = *freeIt;
-                m_Impl->m_FreeGeometrySlots.erase(freeIt);
-            }
-            else
-            {
-                index = static_cast<u32>(m_Impl->m_GeometrySlots.size());
-                m_Impl->m_GeometrySlots.emplace_back();
-                m_Impl->m_GeometryRecords.emplace_back();
-            }
+        impl.m_Lights.CommitStaged(
+            frameNumber,
+            [origin = impl.m_RenderOrigin](const GPUSceneLightKey&, const GPUSceneLightInput& input, u32 index,
+                                           const auto& slot)
+            { return EncodeGPUSceneLight(input, origin, index, slot.m_Generation); },
+            AlwaysCompatible{});
 
-            auto& slot = m_Impl->m_GeometrySlots[index];
-            GPUSceneGeometry record{};
-            record.VertexBufferIndex = input.m_VertexBuffer.Index;
-            record.VertexBufferGeneration = input.m_VertexBuffer.Generation;
-            record.IndexBufferIndex = input.m_IndexBuffer.Index;
-            record.IndexBufferGeneration = input.m_IndexBuffer.Generation;
-            record.VertexAddress = input.m_VertexAddress;
-            record.IndexAddress = input.m_IndexAddress;
-            record.VertexFormat = input.m_VertexFormat;
-            record.IndexFormat = input.m_IndexFormat;
-            record.FirstIndex = input.m_FirstIndex;
-            record.IndexCount = input.m_IndexCount;
-            record.BaseVertex = input.m_BaseVertex;
-            record.VertexCount = input.m_VertexCount;
-            record.Generation = slot.m_Generation;
-            record.Flags = input.m_Flags | GPUSceneGeometryFlagActive;
+        impl.m_Environments.CommitStaged(
+            frameNumber,
+            [](const GPUSceneEnvironmentKey&, const GPUSceneEnvironmentInput& input, u32 index, const auto& slot)
+            { return EncodeGPUSceneEnvironment(input, index, slot.m_Generation); },
+            [](const GPUSceneEnvironment& previous, const GPUSceneEnvironment& next)
+            { return IsCompatibleGPUSceneEnvironmentEdit(previous, next); });
 
-            if (!slot.m_Live || !RecordsEqual(m_Impl->m_GeometryRecords[index], record))
+        impl.m_Instances.CommitStaged(
+            frameNumber,
+            [&impl](const GPUSceneInstanceKey& key, const GPUSceneInstanceInput& input, u32 index, const auto& slot)
             {
-                dirtyGeometrySlots.insert(index);
-            }
-            slot.m_Key = key;
-            slot.m_Input = input;
-            m_Impl->m_GeometryRecords[index] = record;
-            const bool wasLive = slot.m_Live;
-            slot.m_Live = true;
-            if (!wasLive)
-            {
-                m_Impl->m_GeometryHandles.emplace(key, GPUSceneHandle{ index, slot.m_Generation });
-            }
-        }
+                // A live slot's stored input is last frame's transform; a fresh
+                // or reused slot has no history and starts static.
+                const glm::mat4& previousWorldTransform =
+                    slot.m_Live ? slot.m_Input.m_WorldTransform : input.m_WorldTransform;
+                const GPUSceneHandle geometryHandle = impl.m_Geometries.Find(key.m_Geometry);
+                const GPUSceneHandle materialHandle = impl.m_Materials.Find(input.m_Material);
 
-        for (auto it = m_Impl->m_InstanceHandles.begin(); it != m_Impl->m_InstanceHandles.end();)
-        {
-            if (m_Impl->m_StagedInstances.contains(it->first))
-            {
-                ++it;
-                continue;
-            }
+                GPUSceneInstance record{};
+                record.CurrentTransform = EncodeTransform(input.m_WorldTransform, impl.m_RenderOrigin);
+                record.PreviousTransform = EncodeTransform(previousWorldTransform, impl.m_RenderOrigin);
+                record.GeometryIndex = geometryHandle.m_Index;
+                record.GeometryGeneration = geometryHandle.m_Generation;
+                record.MaterialIndex = materialHandle.m_Index;
+                record.MaterialGeneration = materialHandle.m_Generation;
+                record.StableIndex = index;
+                record.VisibilityMask = input.m_VisibilityMask;
+                record.Flags = input.m_Flags | GPUSceneInstanceFlagActive;
+                record.Generation = slot.m_Generation;
+                return record;
+            },
+            AlwaysCompatible{});
 
-            auto& slot = m_Impl->m_InstanceSlots[it->second.m_Index];
-            slot.m_Live = false;
-            if (AdvanceGeneration(slot.m_Generation))
-            {
-                m_Impl->m_RetiredInstanceSlots.push_back(Impl::RetiredSlot{
-                    .m_Index = it->second.m_Index,
-                    .m_ReadyFrame = GPUSceneAllocationPolicy::RetirementReadyFrame(m_Impl->m_FrameNumber),
-                });
-            }
-            auto& tombstone = m_Impl->m_InstanceRecords[it->second.m_Index];
-            tombstone = GPUSceneInstance{};
-            tombstone.StableIndex = it->second.m_Index;
-            tombstone.Generation = slot.m_Generation;
-            dirtyInstanceSlots.insert(it->second.m_Index);
-            it = m_Impl->m_InstanceHandles.erase(it);
-        }
-
-        for (const auto& [key, input] : m_Impl->m_StagedInstances)
-        {
-            u32 index = 0;
-            bool wasLive = false;
-            glm::mat4 previousWorldTransform = input.m_WorldTransform;
-            if (const auto existing = m_Impl->m_InstanceHandles.find(key);
-                existing != m_Impl->m_InstanceHandles.end())
-            {
-                index = existing->second.m_Index;
-                wasLive = true;
-                previousWorldTransform = m_Impl->m_InstanceSlots[index].m_Input.m_WorldTransform;
-            }
-            else if (!m_Impl->m_FreeInstanceSlots.empty())
-            {
-                const auto freeIt = m_Impl->m_FreeInstanceSlots.begin();
-                index = *freeIt;
-                m_Impl->m_FreeInstanceSlots.erase(freeIt);
-            }
-            else
-            {
-                index = static_cast<u32>(m_Impl->m_InstanceSlots.size());
-                m_Impl->m_InstanceSlots.emplace_back();
-                m_Impl->m_InstanceRecords.emplace_back();
-            }
-
-            auto& slot = m_Impl->m_InstanceSlots[index];
-            const auto geometry = m_Impl->m_GeometryHandles.find(key.m_Geometry);
-            const GPUSceneHandle geometryHandle = geometry != m_Impl->m_GeometryHandles.end()
-                                                      ? geometry->second
-                                                      : GPUSceneHandle{};
-
-            GPUSceneInstance record{};
-            record.CurrentTransform = EncodeTransform(input.m_WorldTransform, m_Impl->m_RenderOrigin);
-            record.PreviousTransform = EncodeTransform(previousWorldTransform, m_Impl->m_RenderOrigin);
-            record.GeometryIndex = geometryHandle.m_Index;
-            record.GeometryGeneration = geometryHandle.m_Generation;
-            record.MaterialIndex = input.m_MaterialIndex;
-            record.StableIndex = index;
-            record.VisibilityMask = input.m_VisibilityMask;
-            record.Flags = input.m_Flags | GPUSceneInstanceFlagActive;
-            record.Generation = slot.m_Generation;
-
-            if (!slot.m_Live || !RecordsEqual(m_Impl->m_InstanceRecords[index], record))
-            {
-                dirtyInstanceSlots.insert(index);
-            }
-            slot.m_Key = key;
-            slot.m_Input = input;
-            m_Impl->m_InstanceRecords[index] = record;
-            slot.m_Live = true;
-            if (!wasLive)
-            {
-                m_Impl->m_InstanceHandles.emplace(key, GPUSceneHandle{ index, slot.m_Generation });
-            }
-        }
-
-        m_Impl->m_Extracting = false;
+        impl.m_Extracting = false;
         const auto extractionEnd = std::chrono::steady_clock::now();
         const f64 extractionTimeMs =
-            std::chrono::duration<f64, std::milli>(extractionEnd - m_Impl->m_ExtractionStart).count();
-        const u32 unsupportedTotal = std::accumulate(m_Impl->m_UnsupportedCounts.begin(),
-                                                     m_Impl->m_UnsupportedCounts.end(), 0u);
-        m_Impl->m_LastFrameUpdate = GPUSceneFrameUpdate{
-            .m_InstanceDirtyRanges = CoalesceDirtyRanges(dirtyInstanceSlots),
-            .m_GeometryDirtyRanges = CoalesceDirtyRanges(dirtyGeometrySlots),
-            .m_Stats = {
-                .m_LiveInstances = static_cast<u32>(m_Impl->m_InstanceHandles.size()),
-                .m_InstanceSlotCount = static_cast<u32>(m_Impl->m_InstanceSlots.size()),
-                .m_InstanceBufferCapacity = m_Impl->m_InstanceBufferCapacity,
-                .m_LiveGeometries = static_cast<u32>(m_Impl->m_GeometryHandles.size()),
-                .m_GeometrySlotCount = static_cast<u32>(m_Impl->m_GeometrySlots.size()),
-                .m_GeometryBufferCapacity = m_Impl->m_GeometryBufferCapacity,
-                .m_FreeInstanceSlots = static_cast<u32>(m_Impl->m_FreeInstanceSlots.size()),
-                .m_FreeGeometrySlots = static_cast<u32>(m_Impl->m_FreeGeometrySlots.size()),
-                .m_RetiredInstanceSlots = static_cast<u32>(m_Impl->m_RetiredInstanceSlots.size()),
-                .m_RetiredGeometrySlots = static_cast<u32>(m_Impl->m_RetiredGeometrySlots.size()),
-                .m_UnsupportedTotal = unsupportedTotal,
-                .m_ExtractionTimeMs = extractionTimeMs,
-                .m_UnsupportedCounts = m_Impl->m_UnsupportedCounts,
-            },
+            std::chrono::duration<f64, std::milli>(extractionEnd - impl.m_ExtractionStart).count();
+        const u32 unsupportedTotal =
+            std::accumulate(impl.m_UnsupportedCounts.begin(), impl.m_UnsupportedCounts.end(), 0u);
+
+        GPUSceneFrameStats stats = impl.BuildStats();
+        stats.m_UnsupportedTotal = unsupportedTotal;
+        stats.m_ExtractionTimeMs = extractionTimeMs;
+        stats.m_UnsupportedCounts = impl.m_UnsupportedCounts;
+        impl.m_LastFrameUpdate = GPUSceneFrameUpdate{
+            .m_InstanceDirtyRanges = impl.m_Instances.TakeDirtyRanges(),
+            .m_GeometryDirtyRanges = impl.m_Geometries.TakeDirtyRanges(),
+            .m_MaterialDirtyRanges = impl.m_Materials.TakeDirtyRanges(),
+            .m_LightDirtyRanges = impl.m_Lights.TakeDirtyRanges(),
+            .m_EnvironmentDirtyRanges = impl.m_Environments.TakeDirtyRanges(),
+            .m_Stats = stats,
         };
-        m_Impl->m_UploadPending = true;
-        return m_Impl->m_LastFrameUpdate;
+        impl.m_UploadPending = true;
+        return impl.m_LastFrameUpdate;
     }
 
-    void GPUScene::InitializeGPU(u32 initialInstanceCapacity, u32 initialGeometryCapacity)
+    void GPUScene::InitializeGPU(const GPUSceneCapacities& capacities)
     {
         if (HasGPUResources())
         {
             return;
         }
 
-        m_Impl->m_InstanceBufferCapacity = std::max(initialInstanceCapacity, 1u);
-        m_Impl->m_GeometryBufferCapacity = std::max(initialGeometryCapacity, 1u);
-        m_Impl->m_InstanceBuffer = StorageBuffer::Create(
-            BytesForRecords<GPUSceneInstance>(m_Impl->m_InstanceBufferCapacity),
-            GPUSceneBindingLayout::Instances, StorageBufferUsage::DynamicDraw);
-        m_Impl->m_GeometryBuffer = StorageBuffer::Create(
-            BytesForRecords<GPUSceneGeometry>(m_Impl->m_GeometryBufferCapacity),
-            GPUSceneBindingLayout::Geometries, StorageBufferUsage::DynamicDraw);
-        m_Impl->m_InstanceBuffer->Unbind();
-        m_Impl->m_GeometryBuffer->Unbind();
+        m_Impl->m_Instances.InitializeGPU(capacities.m_Instances);
+        m_Impl->m_Geometries.InitializeGPU(capacities.m_Geometries);
+        m_Impl->m_Materials.InitializeGPU(capacities.m_Materials);
+        m_Impl->m_Lights.InitializeGPU(capacities.m_Lights);
+        m_Impl->m_Environments.InitializeGPU(capacities.m_Environments);
 
-        // Fresh storage has undefined contents, including after a renderer
-        // restart. Seed every allocated CPU slot, including free tombstones,
-        // and keep that intent pending if extraction happens before Upload().
-        const auto instanceRecordCount = static_cast<u32>(m_Impl->m_InstanceRecords.size());
-        for (u32 index = 0; index < instanceRecordCount; ++index)
-        {
-            m_Impl->m_PendingDirtyInstanceSlots.insert(index);
-        }
-        const auto geometryRecordCount = static_cast<u32>(m_Impl->m_GeometryRecords.size());
-        for (u32 index = 0; index < geometryRecordCount; ++index)
-        {
-            m_Impl->m_PendingDirtyGeometrySlots.insert(index);
-        }
-        m_Impl->m_LastFrameUpdate.m_InstanceDirtyRanges =
-            CoalesceDirtyRanges(m_Impl->m_PendingDirtyInstanceSlots);
-        m_Impl->m_LastFrameUpdate.m_GeometryDirtyRanges =
-            CoalesceDirtyRanges(m_Impl->m_PendingDirtyGeometrySlots);
-        m_Impl->m_LastFrameUpdate.m_Stats.m_InstanceBufferCapacity = m_Impl->m_InstanceBufferCapacity;
-        m_Impl->m_LastFrameUpdate.m_Stats.m_GeometryBufferCapacity = m_Impl->m_GeometryBufferCapacity;
+        m_Impl->PublishPendingDirtyRanges();
+        m_Impl->RefreshCapacityStats();
         m_Impl->m_UploadPending = true;
     }
 
     void GPUScene::Upload()
     {
+        auto& impl = *m_Impl;
         OLO_CORE_ASSERT(HasGPUResources(), "GPUScene::Upload requires InitializeGPU");
-        OLO_CORE_ASSERT(!m_Impl->m_Extracting, "GPUScene::Upload cannot run during extraction");
-        if (!HasGPUResources() || !m_Impl->m_UploadPending)
+        OLO_CORE_ASSERT(!impl.m_Extracting, "GPUScene::Upload cannot run during extraction");
+        if (!HasGPUResources() || !impl.m_UploadPending)
         {
             return;
         }
 
-        std::vector<GPUSceneDirtyRange> instanceRanges = m_Impl->m_LastFrameUpdate.m_InstanceDirtyRanges;
-        std::vector<GPUSceneDirtyRange> geometryRanges = m_Impl->m_LastFrameUpdate.m_GeometryDirtyRanges;
+        auto& update = impl.m_LastFrameUpdate;
+        auto& stats = update.m_Stats;
         u32 growthEvents = 0;
-
-        const auto requiredInstances = static_cast<u32>(m_Impl->m_InstanceRecords.size());
-        if (requiredInstances > m_Impl->m_InstanceBufferCapacity)
-        {
-            m_Impl->m_InstanceBufferCapacity =
-                GPUSceneAllocationPolicy::GrowCapacity(m_Impl->m_InstanceBufferCapacity, requiredInstances);
-            m_Impl->m_InstanceBuffer->Resize(BytesForRecords<GPUSceneInstance>(m_Impl->m_InstanceBufferCapacity));
-            m_Impl->m_InstanceBuffer->Unbind();
-            instanceRanges = FullRange(requiredInstances);
-            ++growthEvents;
-        }
-
-        const auto requiredGeometries = static_cast<u32>(m_Impl->m_GeometryRecords.size());
-        if (requiredGeometries > m_Impl->m_GeometryBufferCapacity)
-        {
-            m_Impl->m_GeometryBufferCapacity =
-                GPUSceneAllocationPolicy::GrowCapacity(m_Impl->m_GeometryBufferCapacity, requiredGeometries);
-            m_Impl->m_GeometryBuffer->Resize(BytesForRecords<GPUSceneGeometry>(m_Impl->m_GeometryBufferCapacity));
-            m_Impl->m_GeometryBuffer->Unbind();
-            geometryRanges = FullRange(requiredGeometries);
-            ++growthEvents;
-        }
-
-        u64 uploadBytes = 0;
-        for (const GPUSceneDirtyRange& range : geometryRanges)
-        {
-            OLO_CORE_ASSERT(static_cast<u64>(range.m_FirstIndex) + range.m_Count <= m_Impl->m_GeometryRecords.size(),
-                            "GPUScene geometry dirty range exceeds allocated slots");
-            const u32 sizeBytes = BytesForRecords<GPUSceneGeometry>(range.m_Count);
-            const u32 offsetBytes = BytesForRecords<GPUSceneGeometry>(range.m_FirstIndex);
-            m_Impl->m_GeometryBuffer->SetData(m_Impl->m_GeometryRecords.data() + range.m_FirstIndex,
-                                              sizeBytes, offsetBytes);
-            uploadBytes += sizeBytes;
-        }
-        for (const GPUSceneDirtyRange& range : instanceRanges)
-        {
-            OLO_CORE_ASSERT(static_cast<u64>(range.m_FirstIndex) + range.m_Count <= m_Impl->m_InstanceRecords.size(),
-                            "GPUScene instance dirty range exceeds allocated slots");
-            const u32 sizeBytes = BytesForRecords<GPUSceneInstance>(range.m_Count);
-            const u32 offsetBytes = BytesForRecords<GPUSceneInstance>(range.m_FirstIndex);
-            m_Impl->m_InstanceBuffer->SetData(m_Impl->m_InstanceRecords.data() + range.m_FirstIndex,
-                                              sizeBytes, offsetBytes);
-            uploadBytes += sizeBytes;
-        }
-
-        m_Impl->m_LastFrameUpdate.m_Stats.m_UploadBytes = uploadBytes;
-        m_Impl->m_LastFrameUpdate.m_Stats.m_BufferGrowthEvents = growthEvents;
-        m_Impl->m_LastFrameUpdate.m_Stats.m_InstanceBufferCapacity = m_Impl->m_InstanceBufferCapacity;
-        m_Impl->m_LastFrameUpdate.m_Stats.m_GeometryBufferCapacity = m_Impl->m_GeometryBufferCapacity;
-        m_Impl->m_UploadPending = false;
+        stats.m_Geometries.m_UploadBytes = impl.m_Geometries.Upload(update.m_GeometryDirtyRanges, growthEvents);
+        stats.m_Materials.m_UploadBytes = impl.m_Materials.Upload(update.m_MaterialDirtyRanges, growthEvents);
+        stats.m_Lights.m_UploadBytes = impl.m_Lights.Upload(update.m_LightDirtyRanges, growthEvents);
+        stats.m_Environments.m_UploadBytes =
+            impl.m_Environments.Upload(update.m_EnvironmentDirtyRanges, growthEvents);
+        stats.m_Instances.m_UploadBytes = impl.m_Instances.Upload(update.m_InstanceDirtyRanges, growthEvents);
+        stats.m_UploadBytes = stats.m_Instances.m_UploadBytes + stats.m_Geometries.m_UploadBytes +
+                              stats.m_Materials.m_UploadBytes + stats.m_Lights.m_UploadBytes +
+                              stats.m_Environments.m_UploadBytes;
+        stats.m_BufferGrowthEvents = growthEvents;
+        impl.RefreshCapacityStats();
+        impl.m_UploadPending = false;
     }
 
     void GPUScene::Bind() const
@@ -506,86 +719,123 @@ namespace OloEngine
         OLO_CORE_ASSERT(HasGPUResources(), "GPUScene::Bind requires InitializeGPU");
         if (HasGPUResources())
         {
-            m_Impl->m_GeometryBuffer->Bind();
-            m_Impl->m_InstanceBuffer->Bind();
+            m_Impl->ForEachTable([](const auto& table)
+                                 { table.m_Buffer->Bind(); });
         }
     }
 
     void GPUScene::Shutdown()
     {
         Reset();
-        if (m_Impl->m_GeometryBuffer)
-        {
-            m_Impl->m_GeometryBuffer->Unbind();
-        }
-        if (m_Impl->m_InstanceBuffer)
-        {
-            m_Impl->m_InstanceBuffer->Unbind();
-        }
-        m_Impl->m_GeometryBuffer.Reset();
-        m_Impl->m_InstanceBuffer.Reset();
-        m_Impl->m_GeometryBufferCapacity = 0;
-        m_Impl->m_InstanceBufferCapacity = 0;
-        m_Impl->m_LastFrameUpdate.m_Stats.m_GeometryBufferCapacity = 0;
-        m_Impl->m_LastFrameUpdate.m_Stats.m_InstanceBufferCapacity = 0;
+        m_Impl->ForEachTable([](auto& table)
+                             { table.Shutdown(); });
+        m_Impl->RefreshCapacityStats();
         m_Impl->m_UploadPending = false;
     }
 
     bool GPUScene::HasGPUResources() const
     {
-        return m_Impl->m_InstanceBuffer && m_Impl->m_GeometryBuffer;
+        return m_Impl->HasGPUResources();
     }
 
     RHI::ResourceHandle GPUScene::GetInstanceBufferHandle() const
     {
-        return m_Impl->m_InstanceBuffer ? m_Impl->m_InstanceBuffer->GetRHIHandle() : RHI::ResourceHandle{};
+        return m_Impl->m_Instances.BufferHandle();
     }
 
     RHI::ResourceHandle GPUScene::GetGeometryBufferHandle() const
     {
-        return m_Impl->m_GeometryBuffer ? m_Impl->m_GeometryBuffer->GetRHIHandle() : RHI::ResourceHandle{};
+        return m_Impl->m_Geometries.BufferHandle();
+    }
+
+    RHI::ResourceHandle GPUScene::GetMaterialBufferHandle() const
+    {
+        return m_Impl->m_Materials.BufferHandle();
+    }
+
+    RHI::ResourceHandle GPUScene::GetLightBufferHandle() const
+    {
+        return m_Impl->m_Lights.BufferHandle();
+    }
+
+    RHI::ResourceHandle GPUScene::GetEnvironmentBufferHandle() const
+    {
+        return m_Impl->m_Environments.BufferHandle();
     }
 
     GPUSceneHandle GPUScene::FindGeometry(const GPUSceneGeometryKey& key) const
     {
-        const auto found = m_Impl->m_GeometryHandles.find(key);
-        return found != m_Impl->m_GeometryHandles.end() ? found->second : GPUSceneHandle{};
+        return m_Impl->m_Geometries.Find(key);
     }
 
     GPUSceneHandle GPUScene::FindInstance(const GPUSceneInstanceKey& key) const
     {
-        const auto found = m_Impl->m_InstanceHandles.find(key);
-        return found != m_Impl->m_InstanceHandles.end() ? found->second : GPUSceneHandle{};
+        return m_Impl->m_Instances.Find(key);
+    }
+
+    GPUSceneHandle GPUScene::FindMaterial(const GPUSceneMaterialKey& key) const
+    {
+        return m_Impl->m_Materials.Find(key);
+    }
+
+    GPUSceneHandle GPUScene::FindLight(const GPUSceneLightKey& key) const
+    {
+        return m_Impl->m_Lights.Find(key);
+    }
+
+    GPUSceneHandle GPUScene::FindEnvironment(const GPUSceneEnvironmentKey& key) const
+    {
+        return m_Impl->m_Environments.Find(key);
     }
 
     bool GPUScene::IsGeometryHandleLive(GPUSceneHandle handle) const
     {
-        if (!handle.IsValid() || handle.m_Index >= m_Impl->m_GeometrySlots.size())
-        {
-            return false;
-        }
-        const auto& slot = m_Impl->m_GeometrySlots[handle.m_Index];
-        return slot.m_Live && slot.m_Generation == handle.m_Generation;
+        return m_Impl->m_Geometries.IsLive(handle);
     }
 
     bool GPUScene::IsInstanceHandleLive(GPUSceneHandle handle) const
     {
-        if (!handle.IsValid() || handle.m_Index >= m_Impl->m_InstanceSlots.size())
-        {
-            return false;
-        }
-        const auto& slot = m_Impl->m_InstanceSlots[handle.m_Index];
-        return slot.m_Live && slot.m_Generation == handle.m_Generation;
+        return m_Impl->m_Instances.IsLive(handle);
+    }
+
+    bool GPUScene::IsMaterialHandleLive(GPUSceneHandle handle) const
+    {
+        return m_Impl->m_Materials.IsLive(handle);
+    }
+
+    bool GPUScene::IsLightHandleLive(GPUSceneHandle handle) const
+    {
+        return m_Impl->m_Lights.IsLive(handle);
+    }
+
+    bool GPUScene::IsEnvironmentHandleLive(GPUSceneHandle handle) const
+    {
+        return m_Impl->m_Environments.IsLive(handle);
     }
 
     const GPUSceneGeometry* GPUScene::GetGeometryRecord(GPUSceneHandle handle) const
     {
-        return IsGeometryHandleLive(handle) ? &m_Impl->m_GeometryRecords[handle.m_Index] : nullptr;
+        return m_Impl->m_Geometries.Get(handle);
     }
 
     const GPUSceneInstance* GPUScene::GetInstanceRecord(GPUSceneHandle handle) const
     {
-        return IsInstanceHandleLive(handle) ? &m_Impl->m_InstanceRecords[handle.m_Index] : nullptr;
+        return m_Impl->m_Instances.Get(handle);
+    }
+
+    const GPUSceneMaterial* GPUScene::GetMaterialRecord(GPUSceneHandle handle) const
+    {
+        return m_Impl->m_Materials.Get(handle);
+    }
+
+    const GPUSceneLight* GPUScene::GetLightRecord(GPUSceneHandle handle) const
+    {
+        return m_Impl->m_Lights.Get(handle);
+    }
+
+    const GPUSceneEnvironment* GPUScene::GetEnvironmentRecord(GPUSceneHandle handle) const
+    {
+        return m_Impl->m_Environments.Get(handle);
     }
 
     const GPUSceneFrameUpdate& GPUScene::GetLastFrameUpdate() const
@@ -595,64 +845,17 @@ namespace OloEngine
 
     void GPUScene::Reset()
     {
-        for (const auto& [key, handle] : m_Impl->m_InstanceHandles)
-        {
-            (void)key;
-            auto& slot = m_Impl->m_InstanceSlots[handle.m_Index];
-            slot.m_Live = false;
-            if (AdvanceGeneration(slot.m_Generation))
-            {
-                m_Impl->m_RetiredInstanceSlots.push_back(Impl::RetiredSlot{
-                    .m_Index = handle.m_Index,
-                    .m_ReadyFrame = GPUSceneAllocationPolicy::RetirementReadyFrame(m_Impl->m_FrameNumber),
-                });
-            }
-            auto& tombstone = m_Impl->m_InstanceRecords[handle.m_Index];
-            tombstone = GPUSceneInstance{};
-            tombstone.StableIndex = handle.m_Index;
-            tombstone.Generation = slot.m_Generation;
-            m_Impl->m_PendingDirtyInstanceSlots.insert(handle.m_Index);
-        }
-        for (const auto& [key, handle] : m_Impl->m_GeometryHandles)
-        {
-            (void)key;
-            auto& slot = m_Impl->m_GeometrySlots[handle.m_Index];
-            slot.m_Live = false;
-            if (AdvanceGeneration(slot.m_Generation))
-            {
-                m_Impl->m_RetiredGeometrySlots.push_back(Impl::RetiredSlot{
-                    .m_Index = handle.m_Index,
-                    .m_ReadyFrame = GPUSceneAllocationPolicy::RetirementReadyFrame(m_Impl->m_FrameNumber),
-                });
-            }
-            auto& tombstone = m_Impl->m_GeometryRecords[handle.m_Index];
-            tombstone = GPUSceneGeometry{};
-            tombstone.Generation = slot.m_Generation;
-            m_Impl->m_PendingDirtyGeometrySlots.insert(handle.m_Index);
-        }
+        auto& impl = *m_Impl;
+        impl.ForEachTable([frameNumber = impl.m_FrameNumber](auto& table)
+                          { table.ResetLive(frameNumber); });
 
-        m_Impl->m_OwnerToken = 0;
-        m_Impl->m_HasOwner = false;
-        m_Impl->m_Extracting = false;
-        m_Impl->m_StagedGeometries.clear();
-        m_Impl->m_StagedInstances.clear();
-        m_Impl->m_GeometryHandles.clear();
-        m_Impl->m_InstanceHandles.clear();
-        m_Impl->m_UnsupportedCounts.fill(0);
-        m_Impl->m_LastFrameUpdate = GPUSceneFrameUpdate{
-            .m_InstanceDirtyRanges = CoalesceDirtyRanges(m_Impl->m_PendingDirtyInstanceSlots),
-            .m_GeometryDirtyRanges = CoalesceDirtyRanges(m_Impl->m_PendingDirtyGeometrySlots),
-            .m_Stats = {
-                .m_InstanceSlotCount = static_cast<u32>(m_Impl->m_InstanceSlots.size()),
-                .m_InstanceBufferCapacity = m_Impl->m_InstanceBufferCapacity,
-                .m_GeometrySlotCount = static_cast<u32>(m_Impl->m_GeometrySlots.size()),
-                .m_GeometryBufferCapacity = m_Impl->m_GeometryBufferCapacity,
-                .m_FreeInstanceSlots = static_cast<u32>(m_Impl->m_FreeInstanceSlots.size()),
-                .m_FreeGeometrySlots = static_cast<u32>(m_Impl->m_FreeGeometrySlots.size()),
-                .m_RetiredInstanceSlots = static_cast<u32>(m_Impl->m_RetiredInstanceSlots.size()),
-                .m_RetiredGeometrySlots = static_cast<u32>(m_Impl->m_RetiredGeometrySlots.size()),
-            },
-        };
-        m_Impl->m_UploadPending = true;
+        impl.m_OwnerToken = 0;
+        impl.m_HasOwner = false;
+        impl.m_Extracting = false;
+        impl.m_UnsupportedCounts.fill(0);
+        impl.m_LastFrameUpdate = GPUSceneFrameUpdate{};
+        impl.m_LastFrameUpdate.m_Stats = impl.BuildStats();
+        impl.PublishPendingDirtyRanges();
+        impl.m_UploadPending = true;
     }
 } // namespace OloEngine

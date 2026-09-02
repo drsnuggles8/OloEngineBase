@@ -433,8 +433,8 @@ namespace OloEngine::PathTracing
         // UBO carries. The UBO's w is the light-type tag (2 = spot), which
         // ReferenceLight expresses through Type instead; its w is the
         // "enabled" convention documented on ReferenceLight::SpotParams.
-        refLight.SpotParams = glm::vec4(glm::cos(glm::radians(light.m_InnerCutoff)),
-                                        glm::cos(glm::radians(light.m_OuterCutoff)), 1.0f, 1.0f);
+        refLight.SpotParams = glm::vec4(SpotConeCosine(light.m_InnerCutoff), SpotConeCosine(light.m_OuterCutoff),
+                                        1.0f, 1.0f);
         m_Lights.push_back(refLight);
     }
 

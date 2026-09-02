@@ -582,15 +582,11 @@ namespace OloEngine
         // a clamped LUT), this stops being derivable here and the state must
         // travel with the handle. The symptom would be a subtly wrong image, so
         // change these together with OpenGLTexture2D/Cubemap, never separately.
-        static const RHI::SamplerDesc k2DSampler = []
-        {
-            RHI::SamplerDesc desc;
-            desc.Source = RHI::SamplerSource::Explicit;
-            desc.AddressU = RHI::AddressMode::Repeat;
-            desc.AddressV = RHI::AddressMode::Repeat;
-            desc.AddressW = RHI::AddressMode::Repeat;
-            return desc;
-        }();
+        //
+        // The value lives in HeapBinding::MaterialTexture2DSampler so the GPU-scene
+        // material record (issue #992) mints its persistent descriptors with the
+        // same state and the two cannot drift.
+        const RHI::SamplerDesc& k2DSampler = HeapBinding::MaterialTexture2DSampler();
         // Default: the descriptor inherits the cubemap object's own state
         // (OpenGLTextureCubemap is CLAMP_TO_EDGE) — see AcquireSampledDescriptor.
         static const RHI::SamplerDesc kCubeSampler{};

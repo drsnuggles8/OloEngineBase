@@ -35,4 +35,18 @@ namespace OloEngine
         }
         return dir;
     }
+
+    /**
+     * @brief The ONE spot cone cosine.
+     *
+     * Every consumer of a spot cone (the MultiLight UBO, the Forward+ SSBO,
+     * the canonical GPUSceneLight record and the reference path tracer's
+     * ReferenceLight) takes cos(inner) / cos(outer). They must agree
+     * BIT-FOR-BIT for the same reason SanitizeSpotLightDirection lives here,
+     * so the expression exists once.
+     */
+    [[nodiscard]] inline f32 SpotConeCosine(f32 degrees)
+    {
+        return glm::cos(glm::radians(degrees));
+    }
 } // namespace OloEngine

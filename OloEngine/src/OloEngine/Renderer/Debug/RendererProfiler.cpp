@@ -408,15 +408,19 @@ namespace OloEngine
             ImGui::SeparatorText("GPU Scene");
             const auto& gpuScene = m_CurrentFrame.m_GPUScene;
             ImGui::Text("Extraction: %.3f ms", gpuScene.m_ExtractionTimeMs);
-            ImGui::Text("Upload: %llu bytes", static_cast<unsigned long long>(gpuScene.m_UploadBytes));
-            ImGui::Text("Instances: %u live / %u slots / %u GPU capacity",
-                        gpuScene.m_LiveInstances, gpuScene.m_InstanceSlotCount, gpuScene.m_InstanceBufferCapacity);
-            ImGui::Text("Geometries: %u live / %u slots / %u GPU capacity",
-                        gpuScene.m_LiveGeometries, gpuScene.m_GeometrySlotCount, gpuScene.m_GeometryBufferCapacity);
-            ImGui::Text("Fragmentation: %u instance + %u geometry free; %u + %u retiring; growth events: %u",
-                        gpuScene.m_FreeInstanceSlots, gpuScene.m_FreeGeometrySlots,
-                        gpuScene.m_RetiredInstanceSlots, gpuScene.m_RetiredGeometrySlots,
-                        gpuScene.m_BufferGrowthEvents);
+            ImGui::Text("Upload: %llu bytes; growth events: %u",
+                        static_cast<unsigned long long>(gpuScene.m_UploadBytes), gpuScene.m_BufferGrowthEvents);
+            const auto kindRow = [](const char* name, const GPUSceneKindStats& kind)
+            {
+                ImGui::Text("%s: %u live / %u slots / %u GPU capacity; %u free / %u retiring; %llu bytes", name,
+                            kind.m_Live, kind.m_SlotCount, kind.m_BufferCapacity, kind.m_FreeSlots, kind.m_RetiredSlots,
+                            static_cast<unsigned long long>(kind.m_UploadBytes));
+            };
+            kindRow("Instances", gpuScene.m_Instances);
+            kindRow("Geometries", gpuScene.m_Geometries);
+            kindRow("Materials", gpuScene.m_Materials);
+            kindRow("Lights", gpuScene.m_Lights);
+            kindRow("Environments", gpuScene.m_Environments);
             ImGui::Text("Unsupported submissions: %u", gpuScene.m_UnsupportedTotal);
             const auto unsupportedCategoryCount = gpuScene.m_UnsupportedCounts.size();
             for (sizet category = 0; category < unsupportedCategoryCount; ++category)

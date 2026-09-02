@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <regex>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -65,6 +66,100 @@ namespace OloEngine::Tests::ShaderHarness
         std::ostringstream oss;
         oss << f.rdbuf();
         return oss.str();
+    }
+
+    /// Every shader-like source under `root`, `include/` and `tests/` included:
+    /// the set a binding-collision scan must cover. Sorted for stable output.
+    inline std::vector<fs::path> EnumerateShaderSources(const fs::path& root)
+    {
+        std::vector<fs::path> out;
+        for (const auto& entry : fs::recursive_directory_iterator(root))
+        {
+            if (!entry.is_regular_file())
+                continue;
+            const std::string ext = entry.path().extension().string();
+            if (ext != ".comp" && ext != ".glsl" && ext != ".vert" && ext != ".frag" && ext != ".geom")
+                continue;
+            out.push_back(entry.path());
+        }
+        std::ranges::sort(out);
+        return out;
+    }
+
+    /// The paths, as written, of every `#include "..."` directive in `source`.
+    /// One level, and a commented-out directive counts: the scans that use this
+    /// treat a mention as a use, which errs towards a spurious failure rather
+    /// than a missed collision.
+    inline std::vector<std::string> IncludedPaths(const std::string& source)
+    {
+        static const std::regex kInclude{ R"INC(#\s*include\s*"([^"]+)")INC" };
+        std::vector<std::string> paths;
+        for (std::sregex_iterator it{ source.begin(), source.end(), kInclude }, end; it != end; ++it)
+            paths.push_back((*it)[1].str());
+        return paths;
+    }
+
+    /// The file names named by every `#include "..."` directive in `source`.
+    inline std::vector<std::string> IncludedFileNames(const std::string& source)
+    {
+        std::vector<std::string> names;
+        for (const std::string& path : IncludedPaths(source))
+            names.push_back(fs::path{ path }.filename().string());
+        return names;
+    }
+
+    /// Resolve an include the way the engine's includer does: relative to
+    /// `root` first, then under `root/include/` by file name.
+    inline fs::path ResolveInclude(const fs::path& root, const std::string& includePath)
+    {
+        if (const fs::path direct = root / includePath; fs::exists(direct))
+            return direct.lexically_normal();
+        return (root / "include" / fs::path{ includePath }.filename()).lexically_normal();
+    }
+
+    /// The transitive include closure of `path` (existing files only, `path`
+    /// itself excluded), following `#include "..."` through ResolveInclude.
+    inline std::vector<fs::path> IncludeClosure(const fs::path& root, const fs::path& path)
+    {
+        const fs::path self = path.lexically_normal();
+        std::vector<fs::path> closure;
+        std::vector<fs::path> pending{ self };
+        while (!pending.empty())
+        {
+            const fs::path current = pending.back();
+            pending.pop_back();
+            for (const std::string& include : IncludedPaths(ReadWholeFile(current)))
+            {
+                const fs::path resolved = ResolveInclude(root, include);
+                if (!fs::exists(resolved) || resolved == self)
+                    continue;
+                if (std::ranges::find(closure, resolved) != closure.end())
+                    continue;
+                closure.push_back(resolved);
+                pending.push_back(resolved);
+            }
+        }
+        return closure;
+    }
+
+    /// The binding number of every `layout(... binding = N ...) buffer` block
+    /// declared in `source`. Storage blocks only: samplers, images and uniform
+    /// blocks are ignored.
+    inline std::vector<u32> DeclaredStorageBufferBindings(const std::string& source)
+    {
+        static const std::regex kStorageBlock{
+            R"BLK(layout\s*\(([^)]*)\)\s*(?:(?:readonly|writeonly|coherent|restrict|volatile)\s+)*buffer\b)BLK"
+        };
+        static const std::regex kBinding{ R"BND(binding\s*=\s*(\d+))BND" };
+        std::vector<u32> bindings;
+        for (std::sregex_iterator it{ source.begin(), source.end(), kStorageBlock }, end; it != end; ++it)
+        {
+            const std::string qualifiers = (*it)[1].str();
+            std::smatch binding;
+            if (std::regex_search(qualifiers, binding, kBinding))
+                bindings.push_back(static_cast<u32>(std::stoul(binding[1].str())));
+        }
+        return bindings;
     }
 
     inline shaderc_shader_kind StageFromToken(const std::string& tok)

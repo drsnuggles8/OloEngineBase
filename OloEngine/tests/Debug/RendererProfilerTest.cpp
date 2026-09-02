@@ -105,30 +105,65 @@ namespace
     {
         auto& profiler = OloEngine::RendererProfiler::GetInstance();
         profiler.BeginFrame();
+        // The per-kind upload figures sum to the total: 2 instances, 2
+        // geometries, 3 materials, 2 lights and 1 environment record.
         profiler.SetGPUSceneStats(OloEngine::GPUSceneFrameStats{
-            .m_LiveInstances = 7,
-            .m_InstanceSlotCount = 9,
-            .m_InstanceBufferCapacity = 16,
-            .m_LiveGeometries = 3,
-            .m_GeometrySlotCount = 4,
-            .m_GeometryBufferCapacity = 8,
-            .m_FreeInstanceSlots = 2,
-            .m_FreeGeometrySlots = 1,
+            .m_Instances = { .m_Live = 7, .m_SlotCount = 9, .m_BufferCapacity = 16, .m_FreeSlots = 2, .m_RetiredSlots = 0, .m_UploadBytes = 256 },
+            .m_Geometries = { .m_Live = 3, .m_SlotCount = 4, .m_BufferCapacity = 8, .m_FreeSlots = 1, .m_RetiredSlots = 0, .m_UploadBytes = 128 },
+            .m_Materials = { .m_Live = 3, .m_SlotCount = 5, .m_BufferCapacity = 8, .m_FreeSlots = 1, .m_RetiredSlots = 1, .m_UploadBytes = 528 },
+            .m_Lights = { .m_Live = 2, .m_SlotCount = 3, .m_BufferCapacity = 4, .m_FreeSlots = 1, .m_RetiredSlots = 0, .m_UploadBytes = 160 },
+            .m_Environments = { .m_Live = 1, .m_SlotCount = 1, .m_BufferCapacity = 1, .m_UploadBytes = 64 },
             .m_BufferGrowthEvents = 2,
             .m_UnsupportedTotal = 5,
-            .m_UploadBytes = 384,
+            .m_UploadBytes = 1136,
             .m_ExtractionTimeMs = 1.25,
         });
 
         const auto& published = profiler.GetCurrentFrameData().m_GPUScene;
-        EXPECT_EQ(published.m_LiveInstances, 7u);
-        EXPECT_EQ(published.m_UploadBytes, 384u);
+        EXPECT_EQ(published.m_Instances.m_Live, 7u);
+        EXPECT_EQ(published.m_Instances.m_SlotCount, 9u);
+        EXPECT_EQ(published.m_Instances.m_BufferCapacity, 16u);
+        EXPECT_EQ(published.m_Instances.m_FreeSlots, 2u);
+        EXPECT_EQ(published.m_Instances.m_UploadBytes, 256u);
+        EXPECT_EQ(published.m_Geometries.m_Live, 3u);
+        EXPECT_EQ(published.m_Geometries.m_UploadBytes, 128u);
+        EXPECT_EQ(published.m_Materials.m_Live, 3u);
+        EXPECT_EQ(published.m_Materials.m_SlotCount, 5u);
+        EXPECT_EQ(published.m_Materials.m_BufferCapacity, 8u);
+        EXPECT_EQ(published.m_Materials.m_FreeSlots, 1u);
+        EXPECT_EQ(published.m_Materials.m_RetiredSlots, 1u);
+        EXPECT_EQ(published.m_Materials.m_UploadBytes, 528u);
+        EXPECT_EQ(published.m_Lights.m_Live, 2u);
+        EXPECT_EQ(published.m_Lights.m_SlotCount, 3u);
+        EXPECT_EQ(published.m_Lights.m_BufferCapacity, 4u);
+        EXPECT_EQ(published.m_Lights.m_FreeSlots, 1u);
+        EXPECT_EQ(published.m_Lights.m_UploadBytes, 160u);
+        EXPECT_EQ(published.m_Environments.m_Live, 1u);
+        EXPECT_EQ(published.m_Environments.m_BufferCapacity, 1u);
+        EXPECT_EQ(published.m_Environments.m_UploadBytes, 64u);
+        EXPECT_EQ(published.m_BufferGrowthEvents, 2u);
+        EXPECT_EQ(published.m_UnsupportedTotal, 5u);
+        EXPECT_EQ(published.m_UploadBytes, 1136u);
         EXPECT_DOUBLE_EQ(published.m_ExtractionTimeMs, 1.25);
         profiler.EndFrame();
 
         profiler.BeginFrame();
         const auto& reset = profiler.GetCurrentFrameData().m_GPUScene;
-        EXPECT_EQ(reset.m_LiveInstances, 0u);
+        EXPECT_EQ(reset.m_Instances.m_Live, 0u);
+        EXPECT_EQ(reset.m_Instances.m_UploadBytes, 0u);
+        EXPECT_EQ(reset.m_Geometries.m_Live, 0u);
+        EXPECT_EQ(reset.m_Geometries.m_UploadBytes, 0u);
+        EXPECT_EQ(reset.m_Materials.m_Live, 0u);
+        EXPECT_EQ(reset.m_Materials.m_SlotCount, 0u);
+        EXPECT_EQ(reset.m_Materials.m_BufferCapacity, 0u);
+        EXPECT_EQ(reset.m_Materials.m_FreeSlots, 0u);
+        EXPECT_EQ(reset.m_Materials.m_RetiredSlots, 0u);
+        EXPECT_EQ(reset.m_Materials.m_UploadBytes, 0u);
+        EXPECT_EQ(reset.m_Lights.m_Live, 0u);
+        EXPECT_EQ(reset.m_Lights.m_UploadBytes, 0u);
+        EXPECT_EQ(reset.m_Environments.m_Live, 0u);
+        EXPECT_EQ(reset.m_Environments.m_UploadBytes, 0u);
+        EXPECT_EQ(reset.m_BufferGrowthEvents, 0u);
         EXPECT_EQ(reset.m_UploadBytes, 0u)
             << "a frame without GPU-scene extraction must not retain prior telemetry";
         profiler.EndFrame();

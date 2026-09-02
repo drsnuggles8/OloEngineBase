@@ -215,6 +215,7 @@ namespace OloEngine
         // the raster consumer added by #994 will bind immediately before use.
         if (s_Data.GPUSceneExtractionActive)
         {
+            ExtractGPUSceneGlobalEnvironment();
             (void)s_Data.SceneGPU.EndExtraction();
             s_Data.SceneGPU.Upload();
             RendererProfiler::GetInstance().SetGPUSceneStats(s_Data.SceneGPU.GetLastFrameUpdate().m_Stats);
