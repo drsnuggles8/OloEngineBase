@@ -58,81 +58,12 @@ float cloudHeightGradient(float heightFrac, float cloudType)
     return mix(stratus, cumulus, clamp(cloudType, 0.0, 1.0));
 }
 
-
-// ---------------------------------------------------------------------------
-// Deterministic texture filtering (issue #1008)
-//
-// GL leaves the PRECISION of texture filter weights implementation-defined, and
-// drivers commonly use 8-bit fixed point rather than fp32. That is invisible in
-// most shading, where the sampled value is used proportionally. It is not
-// invisible here: cloudDensity() puts every sample through a threshold chain
-// (smoothstep(0.28, 0.75, ...) then two hard-edged remap() calls), which turns a
-// sub-ULP input difference into a BINARY cloud/no-cloud outcome for that sample.
-// Along a grazing ray the march takes ~48 such samples over 8-18 km, so the flips
-// accumulate into a visible difference; overhead the path is short and they do not.
-//
-// Measured: AMD and NVIDIA converge to horizon-band luma 21 (Overcast) to 81
-// (Storm) apart, each individually stable to 0.2 luma under 8x the samples and 8x
-// the temporal warm-up. Doing the interpolation in fp32 ourselves removes the
-// driver's filter precision from that chain.
-//
-// GL_REPEAT is reproduced explicitly because texelFetch does not wrap.
-// ---------------------------------------------------------------------------
-ivec3 cloudWrap3(ivec3 c, ivec3 size)
-{
-    return ((c % size) + size) % size;
-}
-
-ivec2 cloudWrap2(ivec2 c, ivec2 size)
-{
-    return ((c % size) + size) % size;
-}
-
-vec4 cloudTexture3DDeterministic(sampler3D tex, vec3 uvw)
-{
-    ivec3 size = textureSize(tex, 0);
-    vec3 coord = uvw * vec3(size) - 0.5;
-    vec3 baseF = floor(coord);
-    vec3 f = coord - baseF;
-    ivec3 i0 = ivec3(baseF);
-
-    vec4 c000 = texelFetch(tex, cloudWrap3(i0 + ivec3(0, 0, 0), size), 0);
-    vec4 c100 = texelFetch(tex, cloudWrap3(i0 + ivec3(1, 0, 0), size), 0);
-    vec4 c010 = texelFetch(tex, cloudWrap3(i0 + ivec3(0, 1, 0), size), 0);
-    vec4 c110 = texelFetch(tex, cloudWrap3(i0 + ivec3(1, 1, 0), size), 0);
-    vec4 c001 = texelFetch(tex, cloudWrap3(i0 + ivec3(0, 0, 1), size), 0);
-    vec4 c101 = texelFetch(tex, cloudWrap3(i0 + ivec3(1, 0, 1), size), 0);
-    vec4 c011 = texelFetch(tex, cloudWrap3(i0 + ivec3(0, 1, 1), size), 0);
-    vec4 c111 = texelFetch(tex, cloudWrap3(i0 + ivec3(1, 1, 1), size), 0);
-
-    vec4 c00 = mix(c000, c100, f.x);
-    vec4 c10 = mix(c010, c110, f.x);
-    vec4 c01 = mix(c001, c101, f.x);
-    vec4 c11 = mix(c011, c111, f.x);
-    return mix(mix(c00, c10, f.y), mix(c01, c11, f.y), f.z);
-}
-
-vec4 cloudTexture2DDeterministic(sampler2D tex, vec2 uv)
-{
-    ivec2 size = textureSize(tex, 0);
-    vec2 coord = uv * vec2(size) - 0.5;
-    vec2 baseF = floor(coord);
-    vec2 f = coord - baseF;
-    ivec2 i0 = ivec2(baseF);
-
-    vec4 c00 = texelFetch(tex, cloudWrap2(i0 + ivec2(0, 0), size), 0);
-    vec4 c10 = texelFetch(tex, cloudWrap2(i0 + ivec2(1, 0), size), 0);
-    vec4 c01 = texelFetch(tex, cloudWrap2(i0 + ivec2(0, 1), size), 0);
-    vec4 c11 = texelFetch(tex, cloudWrap2(i0 + ivec2(1, 1), size), 0);
-    return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
-}
-
 // Weather-map sample for a world position (xz tiling over the map extent).
 // R = coverage multiplier, G = cloud type, B = local wetness.
 vec3 cloudWeatherSample(vec3 worldPos)
 {
     vec2 uv = worldPos.xz * u_CloudMap.x;
-    return cloudTexture2DDeterministic(u_CloudWeatherMap, uv).rgb;
+    return texture(u_CloudWeatherMap, uv).rgb;
 }
 
 // Full density evaluation at a world position. `cheap` skips the detail
@@ -170,7 +101,7 @@ float cloudDensity(vec3 worldPos, bool cheap)
     // whole field into [0.65, 0.95] and no coverage threshold could carve
     // holes (found live via a shader probe, issue #633).
     const float kBaseNoiseScale = 1.0 / 4800.0; // one base-noise repeat every ~4.8 km
-    vec4 baseNoise = cloudTexture3DDeterministic(u_CloudBaseNoise, samplePos * kBaseNoiseScale);
+    vec4 baseNoise = texture(u_CloudBaseNoise, samplePos * kBaseNoiseScale);
     float baseFbm = baseNoise.g * 0.625 + baseNoise.b * 0.25 + baseNoise.a * 0.125;
     float baseShape = remap(baseNoise.r, baseFbm * 0.85, 1.0, 0.0, 1.0);
 
@@ -192,7 +123,7 @@ float cloudDensity(vec3 worldPos, bool cheap)
         // Detail erosion: high-frequency Worley eats the cloud edges; inverted
         // near the base for the wispy underside (Nubis detail formula).
         const float kDetailNoiseScale = 1.0 / 900.0;
-        vec3 detail = cloudTexture3DDeterministic(u_CloudDetailNoise, samplePos * kDetailNoiseScale +
+        vec3 detail = texture(u_CloudDetailNoise, samplePos * kDetailNoiseScale +
                                                     vec3(u_CloudWind.w * 0.005)).rgb;
         float detailFbm = detail.r * 0.625 + detail.g * 0.25 + detail.b * 0.125;
         float detailMod = mix(detailFbm, 1.0 - detailFbm, clamp(heightFrac * 5.0, 0.0, 1.0));
