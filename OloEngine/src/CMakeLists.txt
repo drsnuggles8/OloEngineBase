@@ -207,6 +207,8 @@
 		"OloEngine/Build/GameBuildSettings.cpp"
 		"OloEngine/Build/GameBuildPipeline.h"
 		"OloEngine/Build/GameBuildPipeline.cpp"
+		"OloEngine/Build/LinuxDesktopLauncher.h"
+		"OloEngine/Build/LinuxDesktopLauncher.cpp"
 		"OloEngine/Build/BuildPipelinePlatform.h"
 		"OloEngine/Serialization/AssetPackFile.h"
 		"OloEngine/Serialization/FileStream.h"

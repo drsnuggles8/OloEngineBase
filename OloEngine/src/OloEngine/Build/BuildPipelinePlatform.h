@@ -19,8 +19,8 @@ namespace OloEngine::BuildPipelinePlatform
     /// Write a freedesktop.org `.desktop` launcher entry next to `exePath`
     /// (#891) — the Linux arm of icon handling. Linux has no PE-resource slot
     /// to embed an icon into, so instead of the Windows-only nicety silently
-    /// vanishing on Linux, the pipeline emits a standard launcher entry that
-    /// points at the (optional) icon file and marks the executable runnable.
+    /// vanishing on Linux, the pipeline emits a relocatable launcher and stages
+    /// the optional Linux-native icon inside the package.
     /// Returns true on success, populates `outError` on failure.
     /// On platforms without an implementation, returns false and sets an error.
     bool WriteDesktopEntry(const std::filesystem::path& exePath,

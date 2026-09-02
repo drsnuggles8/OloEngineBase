@@ -92,7 +92,8 @@ namespace OloEngine
      *    target platform and C# scripting availability, etc.
      *
      * ## Output Structure (Windows target shown; Linux drops the .exe suffix,
-     * the mono/ and Resources/Scripts/ directories, and adds a .desktop entry)
+     * the mono/ and Resources/Scripts/ directories, and adds a relocatable
+     * .desktop entry plus OloGameLauncher.sh and an optional icons/game-icon.*)
      * ```
      * OutputDirectory/GameName/
      * ├── GameName.exe            (renamed OloRuntime.exe)
@@ -262,8 +263,8 @@ namespace OloEngine
         /**
          * @brief Write a Linux .desktop launcher entry next to the game executable
          *
-         * The Linux arm of icon handling (#891) — replaces the Windows-only
-         * EmbedCustomIcon step. Non-fatal — returns false but lets the build continue.
+         * The Linux arm of icon handling — stages a portable launcher and an
+         * optional PNG/SVG/XPM icon. Non-fatal — returns false but lets the build continue.
          */
         static bool WriteLinuxDesktopEntry(
             const std::filesystem::path& exePath,

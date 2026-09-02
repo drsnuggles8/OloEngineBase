@@ -86,12 +86,12 @@ explicitly so nobody reaches for that shortcut:
 - **The build tree itself** — `vcpkg_installed/`, `CMakeCache.txt`, object files, `.git/`. None of
   these are ever inside `OutputDirectory/GameName/`; called out only because "zip the whole repo"
   is the failure mode this line exists to prevent.
-- **The Linux `.desktop` entry, on the Steam depot specifically.** `WriteLinuxDesktopEntry` (#891)
-  writes one for a plain tarball/itch.io-style distribution where the player manages their own
-  desktop launcher. On Steam, the client owns the launcher (Big Picture / library entry), so a
-  shipped `.desktop` file is redundant, not harmful — it doesn't need a `FileExclusion` entry
-  either, since Steam simply never reads it. Documented so nobody spends time trying to make
-  Steam use it.
+- **The Linux `.desktop` entry, `OloGameLauncher.sh`, and optional `icons/game-icon.*`, on the
+  Steam depot specifically.** These files are **shipped** whenever `GameBuildPipeline` emits
+  them; the Steam upload templates do not exclude them. They are for plain tarball/itch.io-style
+  distribution, where the desktop entry uses `%k` to find the wrapper after the folder moves and
+  the wrapper refreshes `Icon=` from the packaged icon. Steam owns its launcher (Big Picture /
+  library entry), so it does not use these otherwise harmless files.
 
 ### Per-platform depots
 
