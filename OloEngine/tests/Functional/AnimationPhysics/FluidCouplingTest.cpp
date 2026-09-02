@@ -32,6 +32,7 @@
 #include "OloEngine/Scene/Scene.h"
 
 #include <cmath>
+#include <string>
 #include <vector>
 
 namespace OloEngine::Functional
@@ -138,6 +139,8 @@ namespace OloEngine::Functional
             i32 Hits = 0;
             i32 WithEntity = 0;
             i32 Dynamic = 0;
+            i32 WideHits = 0;      // same query, domain doubled
+            std::string HitDetail; // one entry per hit: entity id and position
         };
 
         [[nodiscard]] PoolProbe ProbePoolBodies(Entity fluidEntity)
@@ -158,6 +161,9 @@ namespace OloEngine::Functional
             for (i32 i = 0; i < probe.Hits; ++i)
             {
                 const SceneQueryHit& hit = hits[static_cast<sizet>(i)];
+                probe.HitDetail += " {id=" + std::to_string(static_cast<u64>(hit.m_HitEntity)) + " pos=(" +
+                                   std::to_string(hit.m_Position.x) + "," + std::to_string(hit.m_Position.y) + "," +
+                                   std::to_string(hit.m_Position.z) + ")" + (hit.m_HitBody ? "" : " NO-BODY") + "}";
                 if (!hit.m_HitBody || hit.m_HitEntity == 0)
                 {
                     continue;
@@ -168,6 +174,13 @@ namespace OloEngine::Functional
                     ++probe.Dynamic;
                 }
             }
+
+            // The same query over a volume twice the size. If a body inside the
+            // real domain is missing here too, the query is not finding it at
+            // all; if it appears, the domain's own bounds are the discriminator.
+            const BoxOverlapInfo wide(center, fluid.m_DomainHalfExtents * 2.0f);
+            std::vector<SceneQueryHit> wideHits(static_cast<sizet>(kFluidMaxBodyProxies) * 2u);
+            probe.WideHits = jolt->OverlapBox(wide, wideHits.data(), static_cast<i32>(wideHits.size()));
             return probe;
         }
     };
@@ -210,7 +223,12 @@ namespace OloEngine::Functional
         // meaningful next to the same number from the other platform, and the
         // platform where this passes is the one that never prints it.
         GTEST_LOG_(INFO) << "pool probe: " << probe.Hits << " overlap hits, " << probe.WithEntity
-                         << " with an entity+body, " << probe.Dynamic << " dynamic";
+                         << " with an entity+body, " << probe.Dynamic << " dynamic, " << probe.WideHits
+                         << " in a double-size volume;" << probe.HitDetail
+                         << "  expected the two boxes: light id="
+                         << static_cast<u64>(light.GetComponent<IDComponent>().ID) << " at y=" << Y(light)
+                         << ", dense id=" << static_cast<u64>(dense.GetComponent<IDComponent>().ID)
+                         << " at y=" << Y(dense);
         const auto probeText = [&probe]
         {
             return " [pool probe: " + std::to_string(probe.Hits) + " overlap hits, " +
