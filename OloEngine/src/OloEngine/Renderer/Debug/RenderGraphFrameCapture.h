@@ -63,6 +63,9 @@ namespace OloEngine
             DOFColor,              // Depth-of-field output
             MotionBlurColor,       // Motion-blur output
             TAAColor,              // TAA resolve output
+            CloudsColor,           // Cloudscape composite output -- the sky+deck the fog
+                                   // pass composites OVER, and the only way to ask whether
+                                   // there was anything behind the fog (issue #1008)
             PrecipitationColor,    // Screen-space precipitation output
             FogColor,              // Fog output
             ChromAbColor,          // Chromatic-aberration output

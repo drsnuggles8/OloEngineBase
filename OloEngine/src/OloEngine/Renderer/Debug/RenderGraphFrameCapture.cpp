@@ -49,6 +49,7 @@ namespace OloEngine
                 case S::DOFColor:
                 case S::MotionBlurColor:
                 case S::TAAColor:
+                case S::CloudsColor:
                 case S::PrecipitationColor:
                 case S::FogColor:
                 case S::ChromAbColor:
@@ -141,6 +142,8 @@ namespace OloEngine
                 return "MotionBlurColor";
             case Source::TAAColor:
                 return "TAAColor";
+            case Source::CloudsColor:
+                return "CloudsColor";
             case Source::PrecipitationColor:
                 return "PrecipitationColor";
             case Source::FogColor:
@@ -618,6 +621,12 @@ namespace OloEngine
             captureFB(Source::MotionBlurColor, ResourceNames::MotionBlurColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::MotionBlurColor));
         if (passName == "TAAPass")
             captureFB(Source::TAAColor, ResourceNames::TAAColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::TAAColor));
+        // The cloudscape composite is what FogRenderPass reads as its input whenever a
+        // cloud deck is present (see its ReadFirstValidVersionedInputForPass list), so
+        // this is the PRE-FOG image. Without it there is no way to ask the one question
+        // #1008 turns on: was anything rendered behind the fog at grazing angles?
+        if (passName == "CloudscapePass")
+            captureFB(Source::CloudsColor, ResourceNames::CloudsColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::CloudsColor));
         if (passName == "PrecipitationPass")
             captureFB(Source::PrecipitationColor, ResourceNames::PrecipitationColor, Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PrecipitationColor));
         if (passName == "FogPass")

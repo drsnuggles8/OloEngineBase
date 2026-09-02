@@ -79,6 +79,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <iostream>
 #include <limits>
 #include <map>
 #include <string>
@@ -453,6 +454,77 @@ namespace OloEngine::Tests
             m_SkyDetail[name] = HorizontalDetail(pixels, 0, kHeight * 18u / 100u);
             m_Horizon[name] = MeanBand(pixels, kHeight * 38u / 100u, kHeight * 46u / 100u);
             m_Ground[name] = MeanBand(pixels, kHeight * 75u / 100u, kHeight);
+
+            // ---- issue #1008: what is BEHIND the fog in the horizon band? ----
+            //
+            // The AMD baselines read the uncapped fog colour across that band while
+            // NVIDIA shows sky and cloud through a 0.7-capped fog. With the cap
+            // proven to arrive and hold on AMD hardware (a standalone EGL probe reads
+            // u_FogRayleighColorAndMaxOpacity.a == 0.700000 and clamp() honouring it),
+            // the composite `0.3*background + 0.7*fogColor` can only read as pure fog
+            // if the BACKGROUND already equals the fog colour there.
+            //
+            // FogRenderPass reads the first valid of PrecipitationColor / CloudsColor /
+            // TAAColor / ... as its input, so with a cloud deck present CloudsColor IS
+            // the pre-fog image. Reporting its horizon band next to the composite's is
+            // the measurement that separates the two candidates in #1008:
+            //
+            //   pre-fog band ~= fog colour   -> the sky/atmosphere path is the bug,
+            //                                   the fog pass is innocent
+            //   pre-fog band ~= NVIDIA's     -> the fog composite is the bug
+            //
+            // Diagnostic only: it prints, it never fails. The point is to get one
+            // number off the AMD box, and an assertion here would just be a second
+            // way for #1008 to turn a job red.
+            if (auto preFog = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::CloudsColor))
+            {
+                // FALSIFY THE INSTRUMENT FIRST. Four Overcast cells reported a
+                // pre-fog horizon band identical to the composited one to three
+                // decimals, which is the signature of reading ONE buffer twice --
+                // and render-graph transient aliasing makes that a live hazard here
+                // (docs/agent-rules/render-graph-transient-aliasing.md). If these two
+                // resolve to the same GL texture then every number below is the final
+                // image wearing a pre-fog label.
+                const u32 preTex = preFog->GetColorAttachmentRendererID(0);
+                const u32 postTex = fb->GetColorAttachmentRendererID(0);
+                std::cout << "[#1008-alias] " << name << "  CloudsColor tex=" << preTex
+                          << "  composite tex=" << postTex
+                          << (preTex == postTex ? "  *** SAME TEXTURE — probe is invalid ***" : "  (distinct)")
+                          << std::endl;
+
+                std::vector<u8> prePixels;
+                ReadbackRgba8(preTex, kWidth, kHeight, prePixels);
+                if (prePixels.size() == static_cast<std::size_t>(kWidth) * kHeight * 4u)
+                {
+                    const std::size_t rowBytes = static_cast<std::size_t>(kWidth) * 4u;
+                    std::vector<u8> tmp(rowBytes);
+                    for (u32 y = 0; y < kHeight / 2u; ++y)
+                    {
+                        u8* top = prePixels.data() + static_cast<std::size_t>(y) * rowBytes;
+                        u8* bot = prePixels.data() + static_cast<std::size_t>(kHeight - 1u - y) * rowBytes;
+                        std::memcpy(tmp.data(), top, rowBytes);
+                        std::memcpy(top, bot, rowBytes);
+                        std::memcpy(bot, tmp.data(), rowBytes);
+                    }
+                    const auto preHorizon = MeanBand(prePixels, kHeight * 38u / 100u, kHeight * 46u / 100u);
+                    const auto preSky = MeanBand(prePixels, 0, kHeight * 18u / 100u);
+                    // Clamped to 8 bits by the readback, which is fine: this is a
+                    // cross-VENDOR comparison of the same buffer, and the question is
+                    // binary. Both sides get identical treatment.
+                    std::cout << "[#1008] " << name
+                              << "  pre-fog(CloudsColor) horizon luma=" << preHorizon.Luma()
+                              << " rgb=" << preHorizon.R << "," << preHorizon.G << "," << preHorizon.B
+                              << "  |  pre-fog sky luma=" << preSky.Luma()
+                              << "  |  composited horizon luma=" << m_Horizon[name].Luma()
+                              << std::endl;
+                }
+            }
+            else
+            {
+                std::cout << "[#1008] " << name
+                          << "  pre-fog(CloudsColor) unavailable -- no cloudscape output this frame"
+                          << std::endl;
+            }
 
             const fs::path dir = GoldenBaselineDir();
             const std::string path = (dir / ("Atmosphere_" + name + ".png")).string();
