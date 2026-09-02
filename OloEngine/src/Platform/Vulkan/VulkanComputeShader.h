@@ -31,7 +31,9 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "Platform/Vulkan/VulkanShader.h" // VulkanShaderBinding + the fwd-declared VulkanRootDataLayout
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace OloEngine
@@ -115,6 +117,12 @@ namespace OloEngine
         VkShaderModule m_Module = VK_NULL_HANDLE;
         std::vector<VulkanShaderBinding> m_Bindings;
         std::unique_ptr<VulkanRootDataLayout> m_RootLayout;
+        // The build is lazy and every draw asks for it, so RecordParallel
+        // items race on the first ask (#806): double-checked behind the
+        // flag, built under the mutex. Reload resets both on the render
+        // thread, outside any region.
+        std::atomic<bool> m_RootLayoutBuilt{ false };
+        std::mutex m_RootLayoutMutex;
         RHI::ScopedResourceHandle m_RHIHandle;
 
         inline static VulkanComputeShader* s_CurrentlyBound = nullptr;

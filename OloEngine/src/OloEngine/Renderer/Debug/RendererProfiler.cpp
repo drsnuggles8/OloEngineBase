@@ -3,6 +3,7 @@
 #include "DebugUtils.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -136,6 +137,7 @@ namespace OloEngine
         m_CurrentFrame.m_InstancesRendered = 0;
         m_CurrentFrame.m_InstancesBatched = 0;
         m_CurrentFrame.m_GPUScene = {};
+        m_CurrentFrame.m_ParallelRecording = {};
 
         // Drop last frame's per-call instance breakdown. Recording is opt-in
         // so this is empty most of the time; clearing unconditionally keeps
@@ -155,6 +157,13 @@ namespace OloEngine
         auto frameEndTime = std::chrono::high_resolution_clock::now();
         const f64 wallMs = std::chrono::duration<f64, std::milli>(frameEndTime - m_FrameStartTime).count();
         m_CurrentFrame.m_CPUTime = std::max(0.0, wallMs - m_CurrentFrame.m_GPUWaitTime);
+
+        // Pull the parallel command recorder's frame telemetry (issue #806,
+        // ADR 0011 amendment (91)) now, while every region of this frame has
+        // joined and the backend has not yet reset its counters for the next
+        // frame. Pulled rather than pushed: the backend has no reason to know
+        // the profiler exists. Zeros on a backend that never forks.
+        m_CurrentFrame.m_ParallelRecording = RenderCommand::GetParallelRecordingStats();
 
         // Store frame data in history. FrameTime and any post-frame GPU wait
         // (SwapBuffers etc.) aren't known yet — the next BeginFrame() patches
@@ -208,6 +217,8 @@ namespace OloEngine
 
     void RendererProfiler::IncrementCounter(MetricType type, u32 value)
     {
+        OLO_CORE_ASSERT(!RenderCommand::IsRecordingParallelItem(),
+                        "RendererProfiler::IncrementCounter from a RecordParallel item");
         switch (type)
         {
             case MetricType::DrawCalls:
@@ -428,6 +439,21 @@ namespace OloEngine
                 }
                 const auto reason = static_cast<GPUSceneUnsupportedCategory>(category);
                 ImGui::BulletText("%s: %u", GetGPUSceneUnsupportedCategoryName(reason), count);
+            }
+            ImGui::SeparatorText("Parallel Recording");
+            const auto& parallel = m_CurrentFrame.m_ParallelRecording;
+            ImGui::Text("Regions: %u forked / %u inline", parallel.Regions, parallel.InlineRegions);
+            ImGui::Text("Secondaries executed: %u", parallel.SecondariesExecuted);
+            ImGui::Text("Worker record: %.3f ms summed; region wall: %.3f ms", parallel.WorkerRecordMs, parallel.RegionWallMs);
+            if (parallel.MergeConflicts > 0)
+            {
+                // Two items transitioned one subresource differently
+                // (amendment (91) rule 5): a bug in the pass that forked.
+                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Merge conflicts: %u (bug in the forking pass)", parallel.MergeConflicts);
+            }
+            else
+            {
+                ImGui::Text("Merge conflicts: 0");
             }
         }
 
@@ -980,6 +1006,7 @@ namespace OloEngine
         m_InstancesRendered = 0;
         m_InstancesBatched = 0;
         m_GPUScene = {};
+        m_ParallelRecording = {};
     }
 
     // ProfileScope implementation
@@ -1087,6 +1114,10 @@ namespace OloEngine
                                                u32 instanceCount, const i32* entityIDs, bool fromAutoBatching,
                                                const char* source)
     {
+        // The profiler is one unsynchronised object: an item tallies locally
+        // and publishes after the join (amendment (91) rule 6).
+        OLO_CORE_ASSERT(!RenderCommand::IsRecordingParallelItem(),
+                        "RendererProfiler::RecordInstancedDraw from a RecordParallel item");
         if (!m_RecordInstancedDraws)
             return;
 

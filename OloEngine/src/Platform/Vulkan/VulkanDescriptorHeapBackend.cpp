@@ -4,6 +4,8 @@
 
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 
+#include <shared_mutex>
+
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "Platform/OpenGL/OpenGLDescriptorHeap.h" // the shared kDescriptorHeap* capacities
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
@@ -15,6 +17,7 @@
 #include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <algorithm>
+#include <mutex>
 
 namespace OloEngine
 {
@@ -445,6 +448,19 @@ namespace OloEngine
 
     u32 VulkanDescriptorHeapBackend::GetNullSampledHeapSlot(const VkImageViewType viewType)
     {
+        // Held end to end (#806): the memo lookup, the null-image creation on
+        // a miss and the slot-cache acquire are one step, so two threads
+        // missing on the same view type cannot both create. Lock order: this
+        // mutex, THEN the slot cache's inside AcquireSlot — never the reverse
+        // (header note).
+        {
+            std::shared_lock readLock(m_NullSampledSlotMutex);
+            if (const auto it = m_NullSampledSlots.find(static_cast<u32>(viewType)); it != m_NullSampledSlots.end())
+            {
+                return it->second;
+            }
+        }
+        std::lock_guard<std::shared_mutex> lock(m_NullSampledSlotMutex);
         if (const auto it = m_NullSampledSlots.find(static_cast<u32>(viewType)); it != m_NullSampledSlots.end())
         {
             return it->second;
@@ -482,6 +498,15 @@ namespace OloEngine
         return slot;
     }
 
+    void VulkanDescriptorHeapBackend::WarmNullSampledSlots()
+    {
+        for (const VkImageViewType viewType : { VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_VIEW_TYPE_CUBE, VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+                                                VK_IMAGE_VIEW_TYPE_CUBE_ARRAY, VK_IMAGE_VIEW_TYPE_3D })
+        {
+            (void)GetNullSampledHeapSlot(viewType);
+        }
+    }
+
     void VulkanDescriptorHeapBackend::ReleaseDeviceObjects()
     {
         for (auto& [token, null] : m_NullImages)
@@ -493,8 +518,13 @@ namespace OloEngine
         m_NullStorageTokenByFormat.clear();
         // Slot indices die with the heap (the caller resets the slot cache in
         // the same cascade); the next GetNullSampledHeapSlot re-creates both
-        // the image and the slot against the new heap.
-        m_NullSampledSlots.clear();
+        // the image and the slot against the new heap. The memo is the one
+        // table a recording thread can touch (header note), so its clear
+        // takes the memo lock; the rest of this teardown is render-thread-only.
+        {
+            std::lock_guard<std::shared_mutex> lock(m_NullSampledSlotMutex);
+            m_NullSampledSlots.clear();
+        }
         m_NextNullStorageToken = kFirstNullStorageToken;
     }
 } // namespace OloEngine

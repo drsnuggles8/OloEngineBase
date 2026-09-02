@@ -26,6 +26,7 @@
 #include "Platform/Vulkan/VulkanTexture.h"
 
 #include <functional>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -123,19 +124,12 @@ namespace OloEngine
         // override before falling back to the framebuffer's own depth
         // attachment; the layer number also rides the scope's depth barrier so
         // the layout tracker stays per-layer exact.
-        struct DepthArrayLayerAttachment
-        {
-            VkImage Image = VK_NULL_HANDLE;
-            VkImageView View = VK_NULL_HANDLE;
-            VkFormat Format = VK_FORMAT_UNDEFINED;
-            RHI::ResourceHandle Handle{};
-            u32 Layer = 0;
-            bool Active = false;
-        };
-        [[nodiscard]] const DepthArrayLayerAttachment& GetDepthArrayAttachment() const
-        {
-            return m_DepthArrayAttachment;
-        }
+        // The SELECTION itself (which view, which layer) is recording-context
+        // state on VulkanRendererAPI (#806, amendment (91) rule 4): two
+        // RecordParallel items attach different layers of one array through
+        // this one framebuffer object at the same time. This class keeps only
+        // the per-layer VIEW cache; AttachDepthTextureArrayLayer resolves the
+        // view here and publishes the selection through the API.
 
         [[nodiscard]] Ref<VulkanTexture2D> GetColorAttachmentImage(u32 index) const;
         [[nodiscard]] u32 GetColorAttachmentCount() const
@@ -200,8 +194,9 @@ namespace OloEngine
         u32 m_RenderViewportWidth = 0;
         u32 m_RenderViewportHeight = 0;
 
-        // The selected layer (see GetDepthArrayAttachment) plus the per-layer
-        // view cache that backs it, keyed by (image, layer) — a shadow pass
+        // The per-layer view cache behind AttachDepthTextureArrayLayer (the
+        // selection itself lives on the recording context — see the note above
+        // GetColorAttachmentImage), keyed by (image, layer) — a shadow pass
         // walks the same N cascades every frame, so the views are created once
         // and reused.
         //
@@ -215,7 +210,6 @@ namespace OloEngine
         // vkCmdBeginRendering. ReleaseCachedDepthViewsForImage retires them at
         // the one moment that is correct: the reclaim pass, before the image
         // itself is destroyed.
-        DepthArrayLayerAttachment m_DepthArrayAttachment;
         // True while AttachExternal{Color,Depth}Texture has an attachment
         // installed that this framebuffer does not own. Resize would silently
         // REPLACE the external wiring with fresh internal attachments
@@ -257,6 +251,9 @@ namespace OloEngine
             }
         };
         std::unordered_map<DepthArrayViewKey, VkImageView, DepthArrayViewKeyHash> m_DepthArrayViews;
+        // Items of one RecordParallel region attach layers concurrently; the
+        // cache's find/emplace and the view creation run under this lock.
+        mutable std::mutex m_DepthArrayViewsMutex;
     };
 } // namespace OloEngine
 

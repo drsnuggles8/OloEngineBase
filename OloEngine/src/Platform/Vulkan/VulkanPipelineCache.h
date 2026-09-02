@@ -21,7 +21,13 @@
 // on the class below). This class is the disk blob only; the lazily-recreated
 // pipelines after an invalidation hit it for everything that did not change.
 //
-// Thread-safety: NONE, deliberately — render thread only.
+// Thread-safety (issue #806, ADR 0011 amendment (91) rule 8): no lock of its
+// own, on purpose. Handle() is reached only from VulkanPipelineBuilder's
+// pipeline creation, which runs under the builder's mutex, so the lazy
+// create-and-load here is already serialised; SaveAndDestroy is the render
+// thread's teardown path. A second lock here would only add an ordering rule
+// to get wrong. If Handle() ever gains another caller, that caller must hold
+// the builder's lock or this class needs its own.
 
 #include "OloEngine/Core/Base.h"
 
@@ -45,7 +51,8 @@ namespace OloEngine
         // The native cache for vkCreate*Pipelines calls. Lazily created on
         // first use (loads the disk blob then; requires a live VulkanDevice).
         // VK_NULL_HANDLE when no device is up — passing that to a pipeline
-        // create is legal (it just means "no cache").
+        // create is legal (it just means "no cache"). Caller holds
+        // VulkanPipelineBuilder's mutex (the thread-safety note above).
         [[nodiscard]] VkPipelineCache Handle();
 
         // Serialise to disk (log-and-continue on any failure), then destroy

@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -341,10 +342,13 @@ namespace OloEngine
 
     void VulkanTexture2D::ReleaseImage()
     {
-        if (m_AttachmentView != VK_NULL_HANDLE)
+        // Resource destruction runs on the render thread with no region open
+        // (amendment (91) rule 7), so no GetOrCreateAttachmentView can be
+        // racing this; the exchange just keeps the handle's accesses atomic.
+        if (const VkImageView view = m_AttachmentView.exchange(VK_NULL_HANDLE, std::memory_order_acq_rel);
+            view != VK_NULL_HANDLE)
         {
-            VulkanDeferredReclaim::Get().Enqueue(m_AttachmentView);
-            m_AttachmentView = VK_NULL_HANDLE;
+            VulkanDeferredReclaim::Get().Enqueue(view);
         }
         if (m_Image != VK_NULL_HANDLE || m_Allocation != VK_NULL_HANDLE)
         {
@@ -358,9 +362,19 @@ namespace OloEngine
 
     VkImageView VulkanTexture2D::GetOrCreateAttachmentView()
     {
-        if (m_AttachmentView != VK_NULL_HANDLE)
+        // Double-checked (#806, amendment (91) rule 8): every draw against
+        // this texture asks for the view, possibly from several recording
+        // threads at once, and after the first call the answer is a cached
+        // handle — so the fast path is one acquire load, and only the
+        // creating call takes the lock and re-checks under it.
+        if (const VkImageView cached = m_AttachmentView.load(std::memory_order_acquire); cached != VK_NULL_HANDLE)
         {
-            return m_AttachmentView;
+            return cached;
+        }
+        std::lock_guard<std::mutex> lock(m_AttachmentViewMutex);
+        if (const VkImageView cached = m_AttachmentView.load(std::memory_order_relaxed); cached != VK_NULL_HANDLE)
+        {
+            return cached; // another thread created it while this one waited
         }
         auto* device = VulkanDevice::Get();
         if (device == nullptr || m_Image == VK_NULL_HANDLE)
@@ -390,12 +404,16 @@ namespace OloEngine
         viewInfo.subresourceRange.baseArrayLayer = 0;
         viewInfo.subresourceRange.layerCount = 1;
 
-        if (vkCreateImageView(device->GetDevice(), &viewInfo, nullptr, &m_AttachmentView) != VK_SUCCESS)
+        VkImageView view = VK_NULL_HANDLE;
+        if (vkCreateImageView(device->GetDevice(), &viewInfo, nullptr, &view) != VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanTexture2D: attachment view creation failed");
-            m_AttachmentView = VK_NULL_HANDLE;
+            return VK_NULL_HANDLE;
         }
-        return m_AttachmentView;
+        // Release pairs with the fast path's acquire: a thread that sees the
+        // handle also sees the finished view object behind it.
+        m_AttachmentView.store(view, std::memory_order_release);
+        return view;
     }
 
     void VulkanTexture2D::Resize(u32 width, u32 height)

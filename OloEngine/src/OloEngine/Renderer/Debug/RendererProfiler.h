@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
+#include "OloEngine/Renderer/RendererAPI.h" // ParallelRecordingFrameStats (issue #806)
 #include <imgui.h>
 #include <string>
 #include <vector>
@@ -96,6 +97,10 @@ namespace OloEngine
             u32 m_InstancesRendered = 0;
             u32 m_InstancesBatched = 0;
             GPUSceneFrameStats m_GPUScene;
+            // The parallel command recorder's telemetry for this frame (issue
+            // #806, ADR 0011 amendment (91)). Pulled from the backend once per
+            // frame in EndFrame(); all zero on a backend that never forks.
+            RendererAPI::ParallelRecordingFrameStats m_ParallelRecording;
 
             void Reset();
         };

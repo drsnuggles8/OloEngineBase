@@ -9,11 +9,13 @@
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
+#include "Platform/Vulkan/VulkanRecordingContext.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <algorithm>
 #include <exception>
+#include <mutex>
 #include <unordered_set>
 
 namespace OloEngine
@@ -94,8 +96,10 @@ namespace OloEngine
         if (image == VK_NULL_HANDLE)
             return;
         auto* device = VulkanDevice::Get();
+        auto* vk = VulkanUpload::TryGetVulkanAPI();
         for (auto* framebuffer : LiveFramebuffers())
         {
+            const std::scoped_lock lock(framebuffer->m_DepthArrayViewsMutex);
             auto& cache = framebuffer->m_DepthArrayViews;
             for (auto it = cache.begin(); it != cache.end();)
             {
@@ -113,10 +117,10 @@ namespace OloEngine
                 // in-flight frame can still reference a view of it.
                 if (it->second != VK_NULL_HANDLE && device != nullptr)
                     vkDestroyImageView(device->GetDevice(), it->second, nullptr);
-                // The current selection may name the view being retired; drop
-                // it so a later scope cannot attach a destroyed view.
-                if (framebuffer->m_DepthArrayAttachment.View == it->second)
-                    framebuffer->m_DepthArrayAttachment = DepthArrayLayerAttachment{};
+                // A selection on any recording context may name the view being
+                // retired; drop it so a later scope cannot attach a destroyed view.
+                if (vk != nullptr)
+                    vk->ForgetDepthArrayView(it->second);
                 it = cache.erase(it);
             }
         }
@@ -189,7 +193,6 @@ namespace OloEngine
                     VulkanDeferredReclaim::Get().Enqueue(cachedView);
             }
             m_DepthArrayViews.clear();
-            m_DepthArrayAttachment = DepthArrayLayerAttachment{};
             // Retire the framebuffer identity; the attachment Refs release next
             // and each texture enqueues its image on VulkanDeferredReclaim.
             m_RHIHandle.Reset();
@@ -456,21 +459,27 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // See the DepthArrayLayerAttachment comment in the header: this does
-        // not RE-POINT anything (there is no VkFramebuffer under dynamic
-        // rendering) — it selects the single-layer depth view the NEXT
-        // rendering scope opens against. The scope currently open on this
-        // framebuffer still holds the PREVIOUS layer's view; ending it is the
-        // backend's business, not this setter's, and VulkanRendererAPI does it
-        // by comparing the live scope's recorded selection against this one
-        // (ScopeMatchesCurrentTarget) — the same shape as the "the bound
-        // framebuffer changed" guard in Clear()/ClearDepthOnly(). Without that
-        // comparison every cascade would render into cascade 0's view, which
-        // is exactly the failure the layered-depth tenant pins.
-        auto* device = VulkanDevice::Get();
-        if (device == nullptr)
+        // This does not RE-POINT anything (there is no VkFramebuffer under
+        // dynamic rendering) — it selects the single-layer depth view the NEXT
+        // rendering scope opens against. The selection is published to the
+        // CALLING recording context (#806): a shadow pass's RecordParallel
+        // items each attach their own cascade layer through this one
+        // framebuffer object, and the API compares the live scope's selection
+        // against the context's (ScopeMatchesCurrentTarget) to end a scope
+        // that still holds the previous layer's view. Without that comparison
+        // every cascade would render into cascade 0's view, which is exactly
+        // the failure the layered-depth tenant pins.
+        auto* vk = VulkanUpload::TryGetVulkanAPI();
+        using Selection = VulkanRecordingContext::FramebufferAttachmentSelection::DepthArrayLayer;
+        const auto publish = [&](const Selection& selection)
         {
-            OLO_CORE_ERROR("VulkanFramebuffer::AttachDepthTextureArrayLayer: no live device");
+            if (vk != nullptr)
+                vk->SetFramebufferDepthArraySelection(m_RHIHandle.Get(), selection);
+        };
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || vk == nullptr)
+        {
+            OLO_CORE_ERROR("VulkanFramebuffer::AttachDepthTextureArrayLayer: no live device or Vulkan API");
             return;
         }
 
@@ -478,7 +487,7 @@ namespace OloEngine
         if (native == 0)
         {
             OLO_CORE_ERROR("VulkanFramebuffer::AttachDepthTextureArrayLayer: unresolvable texture-array handle");
-            m_DepthArrayAttachment = DepthArrayLayerAttachment{};
+            publish(Selection{});
             return;
         }
         const auto image = reinterpret_cast<VkImage>(native);
@@ -486,14 +495,14 @@ namespace OloEngine
         if (info == nullptr)
         {
             OLO_CORE_ERROR("VulkanFramebuffer::AttachDepthTextureArrayLayer: image not in the info registry");
-            m_DepthArrayAttachment = DepthArrayLayerAttachment{};
+            publish(Selection{});
             return;
         }
         if (layer >= std::max(info->ArrayLayers, 1u))
         {
             OLO_CORE_ERROR("VulkanFramebuffer::AttachDepthTextureArrayLayer: layer {} >= arrayLayers {}", layer,
                            info->ArrayLayers);
-            m_DepthArrayAttachment = DepthArrayLayerAttachment{};
+            publish(Selection{});
             return;
         }
         if (!info->HasDepth)
@@ -504,7 +513,7 @@ namespace OloEngine
             // choice quietly hides (review finding). Refuse loudly; the
             // alternative is a validation error at submit, far from here.
             OLO_CORE_ERROR("VulkanFramebuffer::AttachDepthTextureArrayLayer: image has no depth aspect");
-            m_DepthArrayAttachment = DepthArrayLayerAttachment{};
+            publish(Selection{});
             return;
         }
 
@@ -516,43 +525,48 @@ namespace OloEngine
         // which purges by image before the image itself is destroyed.
         const DepthArrayViewKey cacheKey{ .Image = image, .Layer = layer };
         VkImageView view = VK_NULL_HANDLE;
-        if (const auto it = m_DepthArrayViews.find(cacheKey); it != m_DepthArrayViews.end())
         {
-            view = it->second;
-        }
-        else
-        {
-            VkImageViewCreateInfo viewInfo{};
-            viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            viewInfo.image = image;
-            // A single-layer view of an array image: 2D, not 2D_ARRAY — a
-            // depth attachment renders into exactly one layer and the
-            // rendering info's layerCount stays 1 (no multiview here).
-            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            viewInfo.format = info->Format;
-            viewInfo.subresourceRange.aspectMask =
-                info->HasDepth ? (VK_IMAGE_ASPECT_DEPTH_BIT | (info->HasStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0u))
-                               : VK_IMAGE_ASPECT_COLOR_BIT;
-            viewInfo.subresourceRange.baseMipLevel = 0;
-            viewInfo.subresourceRange.levelCount = 1;
-            viewInfo.subresourceRange.baseArrayLayer = layer;
-            viewInfo.subresourceRange.layerCount = 1;
-            if (vkCreateImageView(device->GetDevice(), &viewInfo, nullptr, &view) != VK_SUCCESS)
+            const std::scoped_lock lock(m_DepthArrayViewsMutex);
+            if (const auto it = m_DepthArrayViews.find(cacheKey); it != m_DepthArrayViews.end())
             {
-                OLO_CORE_ERROR("VulkanFramebuffer::AttachDepthTextureArrayLayer: view creation failed (layer {})",
-                               layer);
-                m_DepthArrayAttachment = DepthArrayLayerAttachment{};
-                return;
+                view = it->second;
             }
-            m_DepthArrayViews.emplace(cacheKey, view);
+            else
+            {
+                VkImageViewCreateInfo viewInfo{};
+                viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                viewInfo.image = image;
+                // A single-layer view of an array image: 2D, not 2D_ARRAY — a
+                // depth attachment renders into exactly one layer and the
+                // rendering info's layerCount stays 1 (no multiview here).
+                viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+                viewInfo.format = info->Format;
+                viewInfo.subresourceRange.aspectMask =
+                    info->HasDepth ? (VK_IMAGE_ASPECT_DEPTH_BIT | (info->HasStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0u))
+                                   : VK_IMAGE_ASPECT_COLOR_BIT;
+                viewInfo.subresourceRange.baseMipLevel = 0;
+                viewInfo.subresourceRange.levelCount = 1;
+                viewInfo.subresourceRange.baseArrayLayer = layer;
+                viewInfo.subresourceRange.layerCount = 1;
+                if (vkCreateImageView(device->GetDevice(), &viewInfo, nullptr, &view) != VK_SUCCESS)
+                {
+                    OLO_CORE_ERROR("VulkanFramebuffer::AttachDepthTextureArrayLayer: view creation failed (layer {})",
+                                   layer);
+                    publish(Selection{});
+                    return;
+                }
+                m_DepthArrayViews.emplace(cacheKey, view);
+            }
         }
 
-        m_DepthArrayAttachment.Image = image;
-        m_DepthArrayAttachment.View = view;
-        m_DepthArrayAttachment.Format = info->Format;
-        m_DepthArrayAttachment.Handle = textureArray;
-        m_DepthArrayAttachment.Layer = layer;
-        m_DepthArrayAttachment.Active = true;
+        Selection selection;
+        selection.Active = true;
+        selection.Image = image;
+        selection.View = view;
+        selection.Format = info->Format;
+        selection.Handle = textureArray;
+        selection.Layer = layer;
+        publish(selection);
     }
 
     Ref<VulkanTexture2D> VulkanFramebuffer::GetColorAttachmentImage(u32 index) const

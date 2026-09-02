@@ -417,6 +417,11 @@ namespace OloEngine::HeapBinding
 
     void FlushOffsets()
     {
+        // One process-wide table and one UBO: not callable from a
+        // RecordParallel item (amendment (91) rule 6) — a pass that needs it
+        // records that work after the join (ShadowRenderPass's tail).
+        OLO_CORE_ASSERT(!RenderCommand::IsRecordingParallelItem(),
+                        "HeapBinding::FlushOffsets from a RecordParallel item — move the caller to the sequential tail");
         auto& table = OffsetTable();
         if (!RHI::DescriptorHeap::Get().IsEnabled())
         {

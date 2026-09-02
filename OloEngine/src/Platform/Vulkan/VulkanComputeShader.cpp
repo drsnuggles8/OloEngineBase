@@ -6,6 +6,7 @@
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
+#include "Platform/Vulkan/VulkanRecordingContext.h"
 
 // Shared preprocessing, same Platform-to-Platform reuse VulkanShader records.
 #include "Platform/OpenGL/OpenGLShader.h"
@@ -269,6 +270,7 @@ namespace OloEngine
         m_SPIRV = std::move(spirv);
         m_Bindings = std::move(newBindings);
         m_RootLayout.reset();
+        m_RootLayoutBuilt.store(false, std::memory_order_release);
 
         m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram,
                          static_cast<u64>(reinterpret_cast<std::uintptr_t>(m_Module)), RHI::Backend::Vulkan);
@@ -312,11 +314,26 @@ namespace OloEngine
 
     void VulkanComputeShader::Bind() const
     {
+        // Per recording context (#806): a RecordParallel item binds into its
+        // own slot; the process-wide selection is the render thread's.
+        if (VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        {
+            worker->CurrentComputeShader = const_cast<VulkanComputeShader*>(this);
+            return;
+        }
         s_CurrentlyBound = const_cast<VulkanComputeShader*>(this);
     }
 
     void VulkanComputeShader::Unbind() const
     {
+        if (VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        {
+            if (worker->CurrentComputeShader == this)
+            {
+                worker->CurrentComputeShader = nullptr;
+            }
+            return;
+        }
         if (s_CurrentlyBound == this)
         {
             s_CurrentlyBound = nullptr;
@@ -325,14 +342,25 @@ namespace OloEngine
 
     VulkanComputeShader* VulkanComputeShader::GetCurrentlyBound()
     {
+        if (const VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        {
+            return worker->CurrentComputeShader;
+        }
         return s_CurrentlyBound;
     }
 
     const VulkanRootDataLayout& VulkanComputeShader::GetRootDataLayout()
     {
-        if (!m_RootLayout)
+        // Fast path: built and published. The acquire pairs with the release
+        // below so a worker that sees the flag also sees the layout's bytes.
+        if (!m_RootLayoutBuilt.load(std::memory_order_acquire))
         {
-            m_RootLayout = std::make_unique<VulkanRootDataLayout>(VulkanRootDataLayout::Build(m_Bindings));
+            const std::scoped_lock lock(m_RootLayoutMutex);
+            if (!m_RootLayoutBuilt.load(std::memory_order_relaxed))
+            {
+                m_RootLayout = std::make_unique<VulkanRootDataLayout>(VulkanRootDataLayout::Build(m_Bindings));
+                m_RootLayoutBuilt.store(true, std::memory_order_release);
+            }
         }
         return *m_RootLayout;
     }

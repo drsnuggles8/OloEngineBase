@@ -53,6 +53,11 @@ OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",
 OLO_LEVER_TOGGLE(VulkanTraceBuffers, "OLO_VK_TRACE_BUFFERS",
                  "Log every Vulkan vertex/index buffer's device-address range at create time — the currency "
                  "for pairing a GPU fault address back to its buffer.")
+OLO_LEVER_TRISTATE(VulkanParallelRecording, "OLO_VK_PARALLEL_RECORDING",
+                   "Record independent work items (shadow cascades, atlas entries) on task workers into secondary "
+                   "command buffers (#806). \"0\" runs every RecordParallel region inline on the render thread — "
+                   "the one-thread A/B for a frame or validation difference; unset or \"1\" forks wherever the "
+                   "device and the frame allow.")
 OLO_LEVER_TOGGLE(VulkanNoHostImageCopy, "OLO_VULKAN_NO_HOST_IMAGE_COPY",
                  "Force every Vulkan texture upload back onto the staging buffer + one-shot submit path, "
                  "disabling the Vulkan 1.4 host-image-copy route (#809). The host route changes WHEN an "

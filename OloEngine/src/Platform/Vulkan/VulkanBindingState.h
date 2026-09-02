@@ -27,7 +27,10 @@
 // destruction (ClearIfCurrent / ClearBuffer). A stale entry is therefore
 // impossible by construction, matching GL's delete-implies-unbind.
 //
-// Thread-safety: NONE, deliberately — render thread only.
+// Thread-safety (#806): Get() answers the calling thread's WORKER recording
+// context's own mirror while a RecordParallel item runs on it, and the
+// process-wide object otherwise. Each mirror is single-threaded; the seam
+// is the thread-local in VulkanRecordingContext.h.
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
@@ -113,9 +116,15 @@ namespace OloEngine
         // Called from destructors.
         void ClearIfCurrentFramebuffer(const VulkanFramebuffer* framebuffer);
 
-      private:
+        // Constructible: a worker recording context owns one (#806). Copyable
+        // so the fork can seed a worker's mirror from the process-wide one.
         VulkanBindingState() = default;
 
+        // The process-wide mirror, whatever thread asks — the fork's seed
+        // source and the object every non-worker caller means.
+        [[nodiscard]] static VulkanBindingState& Global();
+
+      private:
         std::array<VulkanUniformBuffer*, kMaxBufferBindings> m_UniformBuffers{};
         std::array<VulkanStorageBuffer*, kMaxBufferBindings> m_StorageBuffers{};
         std::array<u32, kMaxTextureSlots> m_TextureHeapSlots{};

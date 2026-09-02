@@ -48,6 +48,20 @@ namespace OloEngine::MCP::PassTimings
         f64 CpuMs = 0.0;
     };
 
+    // The parallel command recorder's frame telemetry (issue #806, ADR 0011
+    // amendment (91)) - a plain mirror of RendererAPI::ParallelRecordingFrameStats
+    // so this header stays engine-free. The handler copies the profiler's
+    // last-completed-frame snapshot in; all zero on a backend that never forks.
+    struct ParallelRecordingStats
+    {
+        u32 Regions = 0;             // RecordParallel calls that forked onto task workers
+        u32 InlineRegions = 0;       // RecordParallel calls that ran inline on the render thread
+        u32 SecondariesExecuted = 0; // secondary command buffers executed into the primary
+        u32 MergeConflicts = 0;      // subresources two items transitioned differently (rule 5): a bug in the forking pass
+        f64 WorkerRecordMs = 0.0;    // sum of per-item recording time across workers
+        f64 RegionWallMs = 0.0;      // sum of fork-to-join wall time on the render thread
+    };
+
     struct FrameTotals
     {
         f64 FrameTimeMs = 0.0;
@@ -58,6 +72,7 @@ namespace OloEngine::MCP::PassTimings
         // resolved yet). GPU results always lag 1-3 frames behind the CPU
         // numbers; transient name mismatches between the two lists are normal.
         u64 GpuResultsAgeFrames = 0;
+        ParallelRecordingStats ParallelRecording;
     };
 
     // Millisecond values are sub-ms for many passes — keep 3 decimals.
@@ -149,6 +164,17 @@ namespace OloEngine::MCP::PassTimings
                            { "cpuMs", Round3(totals.CpuMs) },
                            { "gpuMs", Round3(totals.GpuMs) },
                            { "gpuWaitMs", Round3(totals.GpuWaitMs) } };
+        // Parallel command recorder telemetry (#806). Counters go out as
+        // integers; the two times get the same 3-decimal rounding as every
+        // other ms value here. The block is always present (zeros on a
+        // backend that never forks) so a caller can rely on the key.
+        const ParallelRecordingStats& pr = totals.ParallelRecording;
+        o["parallelRecording"] = Json{ { "regions", pr.Regions },
+                                       { "inlineRegions", pr.InlineRegions },
+                                       { "secondariesExecuted", pr.SecondariesExecuted },
+                                       { "mergeConflicts", pr.MergeConflicts },
+                                       { "workerRecordMs", Round3(pr.WorkerRecordMs) },
+                                       { "regionWallMs", Round3(pr.RegionWallMs) } };
         o["passes"] = std::move(passes);
         o["passGpuTotalMs"] = Round3(passGpuTotal);
         // GPU time inside the frame span but between/outside timed passes

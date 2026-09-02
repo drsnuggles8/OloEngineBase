@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <bit>
+#include <mutex>
+#include <shared_mutex>
 #include <tuple>
 
 namespace OloEngine
@@ -416,6 +418,17 @@ namespace OloEngine
         // Target/blend fields stay zero — compute has neither, and shader
         // keys are process-unique so no graphics key can collide.
 
+        // The hit path shares the lock (#806: every dispatch on every item
+        // comes through here); a miss takes it exclusively, re-checks, and
+        // creates under it so two threads cannot race to build one pipeline.
+        {
+            std::shared_lock readLock(m_Mutex);
+            if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
+            {
+                return it->second;
+            }
+        }
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
         if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
         {
             return it->second;
@@ -526,6 +539,15 @@ namespace OloEngine
             key.BakedBlendHash = blendHash == 0 ? 1 : blendHash;
         }
 
+        // Same two-step lookup as the compute path (#806).
+        {
+            std::shared_lock readLock(m_Mutex);
+            if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
+            {
+                return it->second;
+            }
+        }
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
         if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
         {
             return it->second;
@@ -781,6 +803,7 @@ namespace OloEngine
 
     sizet VulkanPipelineBuilder::InvalidateShader(u64 shaderKey)
     {
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
         sizet count = 0;
         std::erase_if(m_Pipelines, [&](const auto& entry)
                       {
@@ -926,6 +949,7 @@ namespace OloEngine
 
     void VulkanPipelineBuilder::ReleaseAll()
     {
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
         for (const auto& [key, pipeline] : m_Pipelines)
         {
             VulkanDeferredReclaim::Get().Enqueue(pipeline);

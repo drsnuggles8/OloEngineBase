@@ -5,6 +5,7 @@
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanShader.h"
+#include "Platform/Vulkan/VulkanSecondaryCommandPools.h"
 
 #include "OloEngine/Core/DebugLevers.h"
 
@@ -857,6 +858,10 @@ namespace OloEngine
         if (m_Device != VK_NULL_HANDLE)
         {
             vkDeviceWaitIdle(m_Device);
+            // The parallel recorder's per-(slot, worker) pools belong to this
+            // device (#806); every owner — the context, the test fixtures —
+            // reaches this Shutdown, so this is the one release point.
+            VulkanSecondaryCommandPools::Get().ReleaseAll();
             if (m_CommandPool != VK_NULL_HANDLE)
             {
                 vkDestroyCommandPool(m_Device, m_CommandPool, nullptr);

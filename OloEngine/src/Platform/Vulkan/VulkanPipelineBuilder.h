@@ -30,6 +30,17 @@
 // count, and — only when EDS3's blend states are unavailable — the recorded
 // blend state. Dynamic rendering only (VkPipelineRenderingCreateInfo); no
 // VkRenderPass objects exist on this backend.
+//
+// THREAD-SAFETY (issue #806, ADR 0011 amendment (91) rule 8): GetOrCreate*
+// run once per draw / dispatch, from any recording thread. The map lookup
+// AND the creation on a miss happen under m_Mutex — a miss is rare after the
+// first frame, and two threads building the same pipeline would cost more
+// than the wait. InvalidateShader and ReleaseAll take the same lock;
+// FlushDynamicState is static and touches no builder state. Everything a
+// creation reaches — VulkanPipelineCache::Handle, the sampler heap's
+// EnsureCreated (its own lock, always taken INSIDE this one), the resource
+// heap's stride getters — is therefore serialised by this mutex, and
+// VulkanPipelineCache relies on that instead of locking itself.
 
 #include "OloEngine/Core/Base.h"
 
@@ -41,6 +52,8 @@
 #include <volk.h>
 
 #include <array>
+#include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -131,6 +144,7 @@ namespace OloEngine
 
         [[nodiscard]] sizet GetCachedPipelineCount() const
         {
+            std::shared_lock lock(m_Mutex);
             return m_Pipelines.size();
         }
 
@@ -140,6 +154,7 @@ namespace OloEngine
         // The §4 mapping array for one root layout — shared verbatim by the
         // graphics and compute paths so the two cannot drift. Samplers come
         // from the sampler heap (see GetOrCreateGraphics), never embedded.
+        // Called under m_Mutex by both.
         [[nodiscard]] static std::vector<VkDescriptorSetAndBindingMappingEXT>
         BuildBindingMappings(const VulkanRootDataLayout& layout);
 
@@ -165,6 +180,11 @@ namespace OloEngine
             [[nodiscard]] sizet operator()(const Key& key) const;
         };
 
+        // Readers (the per-draw hit path) share; a miss upgrades to exclusive
+        // for the creation, re-checking first. The key is built OUTSIDE the
+        // lock — hashing a root layout per draw under a mutex was the first
+        // contention the #806 measurement found.
+        mutable std::shared_mutex m_Mutex;
         std::unordered_map<Key, VkPipeline, KeyHash> m_Pipelines;
     };
 } // namespace OloEngine

@@ -42,6 +42,7 @@
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 
+#include <atomic>
 #include <unordered_map>
 #include <vector>
 #ifdef OLO_DEBUG
@@ -246,6 +247,7 @@ namespace OloEngine
         u32 m_Binding = 0;
 
         u64 m_DataVersion = 1;
+        std::atomic<u64> m_ParallelWriter{ 0 }; ///< (region << 32 | item) of the last RecordParallel writer.
         u64 m_PushedVersion = 0;
         u64 m_PushedFrameGeneration = ~0ull;
         VkDeviceAddress m_CurrentAddress = 0;

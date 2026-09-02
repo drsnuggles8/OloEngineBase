@@ -110,6 +110,12 @@ namespace OloEngine
         };
         Frame Frames[kFramesInFlight]{};
         u32 FrameIndex = 0;
+        // The frame arena, the deferred reclaim and the parallel recorder's
+        // secondary pools all key their per-slot resets on this count; a
+        // context running more slots than they know would alias two live
+        // frames onto one slot.
+        static_assert(kFramesInFlight == VulkanFrameArena::kFramesInFlight,
+                      "VulkanFrameArena::kFramesInFlight must match the context's frame slot count");
 
         // --- #691 (Stage 1.6b) render seam ---------------------------
         // Each swapchain image published as neutral handle currency for the

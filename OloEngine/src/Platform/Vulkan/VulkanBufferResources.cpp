@@ -4,6 +4,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanBufferResources.h"
+#include "Platform/Vulkan/VulkanRecordingContext.h"
 
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
@@ -423,6 +424,21 @@ namespace OloEngine
 
     void VulkanUniformBuffer::SetData(const UniformData& data)
     {
+        // Amendment (91) rule 6, checked at record time: one writer per object
+        // per region. The stamp packs (region, item); a different item in the
+        // SAME region is the interleaving that renders the wrong bytes.
+        if (const VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        {
+            const u64 stamp = (worker->RegionId << 32u) | worker->ItemIndex;
+            const u64 previous = m_ParallelWriter.exchange(stamp, std::memory_order_relaxed);
+            if (previous != 0u && (previous >> 32u) == worker->RegionId && (previous & 0xFFFFFFFFu) != worker->ItemIndex)
+            {
+                OLO_CORE_ERROR("[RHI/Vulkan] buffer written by RecordParallel items {} and {} in one region — give "
+                               "each item its own object (amendment (91) rule 6)",
+                               static_cast<u32>(previous & 0xFFFFFFFFu), worker->ItemIndex);
+                OLO_CORE_ASSERT(false, "two RecordParallel items wrote one buffer object");
+            }
+        }
         if (data.data == nullptr || data.size == 0)
         {
             return;

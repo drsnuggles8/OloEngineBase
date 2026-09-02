@@ -240,6 +240,10 @@ add_executable(OloEngine-Tests
 		# tables + the image-layout tracker. Headless (no device — fabricated
 		# handles); compiles to a single SKIP when OLO_WITH_VULKAN=OFF.
 		Rendering/VulkanBarrierLoweringTest.cpp
+		# #806: parallel command recording — the layout-overlay merge rule
+		# (pure CPU, fabricated handles) and the device-gated fork/join
+		# (N items into N targets through one vkCmdExecuteCommands).
+		Rendering/VulkanParallelRecordingTest.cpp
 		# #691 Phase 5: the render graph's execution layer on a REAL device —
 		# VMA transients, vkCmdPipelineBarrier2 batches, CommandBucket dispatch
 		# through VulkanRendererAPI, asserted validation-error count == 0.

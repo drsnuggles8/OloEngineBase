@@ -16,6 +16,10 @@
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanGpuFence.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
+#include "Platform/Vulkan/VulkanSecondaryCommandPools.h"
+#include "Platform/Vulkan/VulkanWarnOnce.h"
+#include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Task/ParallelFor.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanComputeShader.h"
 #include "Platform/Vulkan/VulkanSamplerHeap.h"
@@ -27,6 +31,10 @@
 #include <glm/gtc/packing.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <exception>
+#include <chrono>
 #include <array>
 #include <bit>
 #include <cstring>
@@ -124,6 +132,7 @@ namespace OloEngine
 
     void VulkanRendererAPI::UnimplementedStub(const char* entryPoint, StubKind kind) const
     {
+        const std::scoped_lock lock(m_StubMutex);
         ++m_UnimplementedStubHits;
         ++m_StubHitsByKind[static_cast<sizet>(kind)];
         if (m_WarnedStubs.insert(entryPoint).second)
@@ -207,40 +216,29 @@ namespace OloEngine
 
     void VulkanRendererAPI::BeginRecording(const VkCommandBuffer cmd)
     {
-        OLO_CORE_ASSERT(m_Cmd == VK_NULL_HANDLE, "BeginRecording while a recording bracket is already open");
-        m_Cmd = cmd;
-        // Per-recording caches: binds are command-buffer state.
-        m_BoundIndexBuffer = VK_NULL_HANDLE;
-        m_HeapBoundThisRecording = false;
-        m_Scope = RenderingScope{};
-        // Defensive: EndRecording materializes an unconsumed pending clear, so
-        // this should already be empty — but a stale record would carry dead
-        // per-frame pointers (backbuffer view) into this recording.
-        m_PendingClear = PendingClear{};
-        m_ScissorRectSet = false;
-        m_PreparedDrawsThisRecording = 0;
-        m_DroppedDrawsThisRecording = 0;
-        m_GpuWrittenRootDrawsThisRecording = 0;
-        // The GPU-written root hand-off belongs to one attempted draw in one
-        // recording. A rejected indirect draw must not carry its address into
-        // the next command buffer's first draw.
-        m_NextDrawRootDataAddress = 0;
-        m_ConditionallySkippedDrawsThisRecording = 0;
-        // Query state is command-buffer state too: an unbalanced Begin from a
-        // previous recording must not leak into this one.
-        m_ActiveQuery = {};
-        m_ConditionalRenderSkip = false;
+        OLO_CORE_ASSERT(!OnWorkerContext() && !m_InParallelRegion, "BeginRecording from a RecordParallel item");
+        auto& ctx = Ctx();
+        OLO_CORE_ASSERT(ctx.Cmd == VK_NULL_HANDLE, "BeginRecording while a recording bracket is already open");
+        // Everything that is command-buffer state, in one list
+        // (VulkanRecordingContext::ResetForCommandBuffer) — an item context
+        // starts from the same list at every fork.
+        ctx.ResetForCommandBuffer(cmd);
+        // The parallel recorder's tallies are per recording (#806); they stay
+        // readable until the next bracket opens.
+        m_ParallelStats = {};
         m_BackbufferWritten = false;
     }
 
     void VulkanRendererAPI::EndRecording()
     {
-        if (m_ActiveQuery.Pool != VK_NULL_HANDLE)
+        OLO_CORE_ASSERT(!OnWorkerContext() && !m_InParallelRegion, "EndRecording from a RecordParallel item");
+        auto& ctx = Ctx();
+        if (ctx.Query.Pool != VK_NULL_HANDLE)
         {
             // An unbalanced vkCmdBeginQuery makes the whole command buffer
             // invalid at vkEndCommandBuffer — close it loudly instead.
             EndRenderingScope();
-            if (m_ActiveQuery.IsElapsed)
+            if (ctx.Query.IsElapsed)
             {
                 // An elapsed bracket is a TIMESTAMP pair, not a query span:
                 // vkCmdEndQuery on a timestamp pool is invalid usage
@@ -248,9 +246,9 @@ namespace OloEngine
                 // EndQuery does — stamp the end slot and mark the entry
                 // readable, or the pair would block forever under WAIT.
                 OLO_CORE_WARN("[RHI/Vulkan] recording ended with an elapsed-time bracket still open — closing it");
-                vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, m_ActiveQuery.Pool,
-                                     m_ActiveQuery.Index + 1u);
-                if (auto* entry = VulkanQueryRegistry::Get().Lookup(m_ActiveQuery.Handle); entry != nullptr)
+                vkCmdWriteTimestamp2(ctx.Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, ctx.Query.Pool,
+                                     ctx.Query.Index + 1u);
+                if (auto* entry = VulkanQueryRegistry::Get().Lookup(ctx.Query.Handle); entry != nullptr)
                 {
                     entry->Recorded = true;
                 }
@@ -258,9 +256,9 @@ namespace OloEngine
             else
             {
                 OLO_CORE_WARN("[RHI/Vulkan] recording ended with an occlusion query still active — auto-ending it");
-                vkCmdEndQuery(m_Cmd, m_ActiveQuery.Pool, m_ActiveQuery.Index);
+                vkCmdEndQuery(ctx.Cmd, ctx.Query.Pool, ctx.Query.Index);
             }
-            m_ActiveQuery = {};
+            ctx.Query = {};
         }
         EndRenderingScope();
         // An unconsumed pending clear still HAPPENS (GL cleared eagerly at
@@ -274,8 +272,8 @@ namespace OloEngine
         // becomes the images' EXECUTED layout. Until this point a one-shot,
         // which reaches the queue ahead of this buffer, must not believe those
         // transitions have happened; that is issue #800.
-        m_LayoutTracker.CommitRecordedToExecuted();
-        m_Cmd = VK_NULL_HANDLE;
+        ctx.Tracker.CommitRecordedToExecuted();
+        ctx.Cmd = VK_NULL_HANDLE;
         // A backbuffer publication is scoped to ONE recording by construction:
         // the next frame acquires a different image (see FrameBackbuffer).
         m_Backbuffer = FrameBackbuffer{};
@@ -284,21 +282,28 @@ namespace OloEngine
 
     VkCommandBuffer VulkanRendererAPI::SuspendRecordingForFlush()
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        // A secondary cannot be submitted on its own, and the primary cannot
+        // be split while items still record into it (#806, amendment (91)
+        // rule 7): refuse, and the caller takes its previous-frame arm.
+        if (RefuseOnWorker("SuspendRecordingForFlush") || m_InParallelRegion)
         {
             return VK_NULL_HANDLE;
         }
-        if (m_ActiveQuery.Pool != VK_NULL_HANDLE)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
+        {
+            return VK_NULL_HANDLE;
+        }
+        if (ctx.Query.Pool != VK_NULL_HANDLE)
         {
             // A query span cannot cross command buffers — refuse rather than
             // corrupt the recording. (An elapsed-time TIMESTAMP pair could in
             // principle be split across buffers, but its two stamps would then
             // measure across a submit boundary, which is not what the caller
             // asked for; refusing keeps one meaning for both kinds.)
-            static bool s_Warned = false;
-            if (!s_Warned)
+            static std::atomic<bool> s_Warned{ false };
+            if (!s_Warned.exchange(true, std::memory_order_relaxed))
             {
-                s_Warned = true;
                 OLO_CORE_WARN("[RHI/Vulkan] mid-frame flush refused: an occlusion query is open");
             }
             return VK_NULL_HANDLE;
@@ -309,33 +314,36 @@ namespace OloEngine
         // clear-only pass, so materialize it into the segment being detached
         // instead of carrying it into the consumer command buffer.
         MaterializePendingClear();
-        const VkCommandBuffer cmd = m_Cmd;
-        m_Cmd = VK_NULL_HANDLE;
+        const VkCommandBuffer cmd = ctx.Cmd;
+        ctx.Cmd = VK_NULL_HANDLE;
         return cmd;
     }
 
     void VulkanRendererAPI::MarkSuspendedRecordingSubmitted()
     {
-        m_LayoutTracker.CommitRecordedToExecuted();
+        auto& ctx = Ctx();
+        ctx.Tracker.CommitRecordedToExecuted();
     }
 
     void VulkanRendererAPI::ResumeRecordingAfterFlush(const VkCommandBuffer cmd)
     {
-        OLO_CORE_ASSERT(m_Cmd == VK_NULL_HANDLE, "ResumeRecordingAfterFlush while a recording bracket is open");
-        m_Cmd = cmd;
+        auto& ctx = Ctx();
+        OLO_CORE_ASSERT(ctx.Cmd == VK_NULL_HANDLE, "ResumeRecordingAfterFlush while a recording bracket is open");
+        ctx.Cmd = cmd;
         // Only the per-COMMAND-BUFFER caches reset (the new buffer holds no
         // binds); PrepareDraw re-binds pipeline/viewport/scissor per draw, and
-        // frame-scoped state — the backbuffer publication, m_PendingClear,
+        // frame-scoped state — the backbuffer publication, the pending clear,
         // framebuffer selections, draw counters — deliberately survives.
-        m_BoundIndexBuffer = VK_NULL_HANDLE;
-        m_HeapBoundThisRecording = false;
-        m_ScissorRectSet = false;
+        ctx.ForgetCommandBufferBinds();
+        ctx.ScissorRectSet = false;
+        ctx.ScissorRectSet = false;
     }
 
     bool VulkanRendererAPI::RecordStagedImageUpload(VkImage image, u32 mip, u32 baseLayer, u32 width, u32 height,
                                                     const void* data, u64 sizeBytes)
     {
-        if (m_Cmd == VK_NULL_HANDLE || image == VK_NULL_HANDLE || data == nullptr || sizeBytes == 0u)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE || image == VK_NULL_HANDLE || data == nullptr || sizeBytes == 0u)
         {
             return false;
         }
@@ -376,12 +384,12 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
 
         VkBufferImageCopy region{};
         region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, baseLayer, 1u };
         region.imageExtent = { width, height, 1u };
-        vkCmdCopyBufferToImage(m_Cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+        vkCmdCopyBufferToImage(ctx.Cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
 
         // Left in TRANSFER_DST with the tracker in agreement; the bind-time
         // visibility seam transitions to SHADER_READ_ONLY at the next sample.
@@ -395,8 +403,9 @@ namespace OloEngine
 
     void VulkanRendererAPI::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
     {
-        m_Viewport = { x, y, width, height };
-        if (m_Cmd == VK_NULL_HANDLE)
+        auto& ctx = Ctx();
+        ctx.RecordedViewport = { x, y, width, height };
+        if (ctx.Cmd == VK_NULL_HANDLE)
             return;
 
         // Negative-height flip is a pipeline/pass concern; this layer
@@ -412,33 +421,36 @@ namespace OloEngine
         vp.height = static_cast<f32>(height);
         vp.minDepth = 0.0f;
         vp.maxDepth = 1.0f;
-        vkCmdSetViewport(m_Cmd, 0, 1, &vp);
+        vkCmdSetViewport(ctx.Cmd, 0, 1, &vp);
     }
 
     Viewport VulkanRendererAPI::GetViewport() const
     {
-        return m_Viewport;
+        auto& ctx = Ctx();
+        return ctx.RecordedViewport;
     }
 
     void VulkanRendererAPI::SetScissorBox(const i32 x, const i32 y, const u32 width, const u32 height)
     {
+        auto& ctx = Ctx();
         // Recorded; the draw front-end emits the WITH_COUNT form (the
         // pipelines declare VIEWPORT/SCISSOR_WITH_COUNT dynamic state, which
         // the plain setters cannot satisfy).
-        m_ScissorRect = { { x, y }, { width, height } };
-        m_ScissorRectSet = true;
+        ctx.ScissorRect = { { x, y }, { width, height } };
+        ctx.ScissorRectSet = true;
     }
 
     // --- Barriers ----------------------------------------------------------
 
     void VulkanRendererAPI::MemoryBarrier(MemoryBarrierFlags flags)
     {
+        auto& ctx = Ctx();
         // The flags are the GL lowering (ADR 0011 §1.5); on Vulkan a bare
         // MemoryBarrier call has no per-resource truth, so it lowers to one
         // conservative global memory barrier.
         if (flags == MemoryBarrierFlags::None)
             return;
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("MemoryBarrier(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -458,11 +470,12 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.memoryBarrierCount = 1;
         dep.pMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
     }
 
     void VulkanRendererAPI::IssueBarrierBatch(const MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers)
     {
+        auto& ctx = Ctx();
         OLO_PROFILE_FUNCTION();
 
         // The enabled-stage narrowing below depends on the device's feature
@@ -472,7 +485,7 @@ namespace OloEngine
         // cached, so this is a no-op on the steady path.
         CacheDeviceLimits();
 
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             if (flags != MemoryBarrierFlags::None || !barriers.empty())
                 UnimplementedStub("IssueBarrierBatch(outside recording bracket)", StubKind::OutsideRecording);
@@ -536,7 +549,7 @@ namespace OloEngine
             // InitialLayout seeds the tracker's first sight of an uploaded
             // image (SHADER_READ_ONLY after a load-time one-shot) so its
             // first graph transition cannot legally discard the contents.
-            m_LayoutTracker.RegisterImage(image, mipCount, layerCount, info->RegistrationId, info->InitialLayout);
+            ctx.Tracker.RegisterImage(image, mipCount, layerCount, info->RegistrationId, info->InitialLayout);
 
             // The neutral range, clamped into Vk terms once; the tracker then
             // splits it into runs of equal current layout so oldLayout is
@@ -557,7 +570,7 @@ namespace OloEngine
                                         ? VK_REMAINING_ARRAY_LAYERS
                                         : std::max(std::min(barrier.Range.LayerCount, layerCount - queryRange.baseArrayLayer), 1u);
 
-            m_LayoutTracker.ForEachLayoutRun(
+            ctx.Tracker.ForEachLayoutRun(
                 image, queryRange,
                 [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
                 {
@@ -629,8 +642,8 @@ namespace OloEngine
                     imageBarriers.push_back(vkBarrier);
                 });
 
-            m_LayoutTracker.SetLayout(image, queryRange,
-                                      VulkanBarrierLowering::LayoutFor(barrier.After, aspect, barrier.ReadWhileAttached));
+            ctx.Tracker.SetLayout(image, queryRange,
+                                  VulkanBarrierLowering::LayoutFor(barrier.After, aspect, barrier.ReadWhileAttached));
         }
 
         VkMemoryBarrier2 globalBarrier{};
@@ -672,13 +685,14 @@ namespace OloEngine
         dep.bufferMemoryBarrierCount = static_cast<u32>(bufferBarriers.size());
         dep.pBufferMemoryBarriers = bufferBarriers.empty() ? nullptr : bufferBarriers.data();
 
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
     }
 
     bool VulkanRendererAPI::WriteBufferDeviceAddress(const RHI::ResourceHandle destination, const u32 destinationOffset,
                                                      const RHI::ResourceHandle source)
     {
-        if (m_Cmd == VK_NULL_HANDLE || (destinationOffset % sizeof(u32)) != 0u ||
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE || (destinationOffset % sizeof(u32)) != 0u ||
             RHI::ResourceRegistry::Get().KindOf(destination) != RHI::ResourceKind::Buffer ||
             RHI::ResourceRegistry::Get().KindOf(source) != RHI::ResourceKind::Buffer)
         {
@@ -711,7 +725,7 @@ namespace OloEngine
         // The cull compute consumes this one address as input and writes the
         // root ABI itself before its indirect draw is recorded.
         EndRenderingScope();
-        vkCmdUpdateBuffer(m_Cmd, reinterpret_cast<VkBuffer>(destinationNative), destinationOffset,
+        vkCmdUpdateBuffer(ctx.Cmd, reinterpret_cast<VkBuffer>(destinationNative), destinationOffset,
                           sizeof(sourceAddress), &sourceAddress);
         return true;
     }
@@ -752,10 +766,11 @@ namespace OloEngine
                                                 const u32 gpuWrittenStorageBinding,
                                                 const u32 expectedFieldOffsetBytes)
     {
+        auto& ctx = Ctx();
         // Failed selection must not leak an earlier unconsumed hand-off into
         // the next draw. A successful call below republishes the address.
-        m_NextDrawRootDataAddress = 0u;
-        if (m_Cmd == VK_NULL_HANDLE)
+        ctx.NextDrawRootDataAddress = 0u;
+        if (ctx.Cmd == VK_NULL_HANDLE)
             return false;
 
         const auto* rootEntry = VulkanRootObjectRegistry::Get().Lookup(rootData);
@@ -791,7 +806,7 @@ namespace OloEngine
         // keeps the completed struct in GPU command order; no GPU result is
         // read back and no CPU-built replacement is substituted for the
         // compute-written field.
-        AssembleRootData(layout, shader->GetName().c_str(), m_BoundVertexArray,
+        AssembleRootData(layout, shader->GetName().c_str(), ctx.BoundVertexArray,
                          /*commandOrderedBufferReads=*/true);
 
         const u32 gpuFieldEnd = gpuField->Offset + static_cast<u32>(sizeof(VkDeviceAddress));
@@ -801,7 +816,7 @@ namespace OloEngine
         {
             if (size == 0u)
                 return;
-            vkCmdUpdateBuffer(m_Cmd, native, offset, size, m_RootScratch.data() + offset);
+            vkCmdUpdateBuffer(ctx.Cmd, native, offset, size, ctx.RootScratch.data() + offset);
         };
         if (gpuField->Offset > 0u)
             updateRange(0u, gpuField->Offset);
@@ -827,20 +842,21 @@ namespace OloEngine
         dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dependency.bufferMemoryBarrierCount = 1u;
         dependency.pBufferMemoryBarriers = &rootBarrier;
-        vkCmdPipelineBarrier2(m_Cmd, &dependency);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dependency);
 
-        m_NextDrawRootDataAddress = rootAddress;
+        ctx.NextDrawRootDataAddress = rootAddress;
         return true;
     }
 
     bool VulkanRendererAPI::SupportsRenderGraphFenceSubmission() const
     {
+        auto& ctx = Ctx();
         // A bare VulkanRendererAPI in a device-gated fixture has a command
         // buffer but no swapchain/frame owner. It must not stage a fence pair
         // into that fixture's single submit: producer signal and consumer wait
         // would then be the invalid same-submit shape this API exists to avoid.
         const VulkanContext* context = VulkanContext::Get();
-        return m_Cmd != VK_NULL_HANDLE && context != nullptr && context->CanSubmitRenderGraphFenceSegments();
+        return ctx.Cmd != VK_NULL_HANDLE && context != nullptr && context->CanSubmitRenderGraphFenceSegments();
     }
 
     bool VulkanRendererAPI::SubmitRenderGraphFenceSegment()
@@ -854,7 +870,8 @@ namespace OloEngine
 
     void VulkanRendererAPI::ClearTextureFloat(const RHI::ResourceHandle texture, const u32 mipLevel, const glm::vec4& color)
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             // GL's glClearTexImage works at ANY time; load-time callers
             // (DDGIProbeUpdatePass's 1x1 placeholder/black-cubemap Init
@@ -865,9 +882,9 @@ namespace OloEngine
             VulkanOneShot::Submit("ClearTextureFloat(load-time one-shot)",
                                   [&](const VkCommandBuffer cmd)
                                   {
-                                      m_Cmd = cmd;
+                                      ctx.Cmd = cmd;
                                       ClearTextureFloat(texture, mipLevel, color);
-                                      m_Cmd = VK_NULL_HANDLE;
+                                      ctx.Cmd = VK_NULL_HANDLE;
                                   });
             return;
         }
@@ -886,7 +903,7 @@ namespace OloEngine
 
         const auto aspect = AspectFromInfo(*info);
         const u32 mipCount = std::max(info->MipLevels, 1u); // 0-extent guard, see IssueBarrierBatch
-        m_LayoutTracker.RegisterImage(image, mipCount, std::max(info->ArrayLayers, 1u), info->RegistrationId);
+        ctx.Tracker.RegisterImage(image, mipCount, std::max(info->ArrayLayers, 1u), info->RegistrationId);
 
         VkImageSubresourceRange range{};
         range.aspectMask = VulkanBarrierLowering::AspectMaskFor(aspect);
@@ -897,7 +914,7 @@ namespace OloEngine
 
         // Conservative pre-barrier into TRANSFER_DST, exact per layout run.
         std::vector<VkImageMemoryBarrier2> toTransfer;
-        m_LayoutTracker.ForEachLayoutRun(
+        ctx.Tracker.ForEachLayoutRun(
             image, range,
             [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
             {
@@ -919,8 +936,8 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
-        m_LayoutTracker.SetLayout(image, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.Tracker.SetLayout(image, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
         if (aspect == RHI::TextureAspect::Color)
         {
@@ -929,28 +946,29 @@ namespace OloEngine
             clear.float32[1] = color.g;
             clear.float32[2] = color.b;
             clear.float32[3] = color.a;
-            vkCmdClearColorImage(m_Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
+            vkCmdClearColorImage(ctx.Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
         }
         else
         {
             VkClearDepthStencilValue clear{};
             clear.depth = color.r;
             clear.stencil = 0;
-            vkCmdClearDepthStencilImage(m_Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
+            vkCmdClearDepthStencilImage(ctx.Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
         }
     }
 
     void VulkanRendererAPI::ClearTextureUInt(const RHI::ResourceHandle texture, const u32 mipLevel, const u32 value)
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             // Same load-time one-shot fallback as ClearTextureFloat above.
             VulkanOneShot::Submit("ClearTextureUInt(load-time one-shot)",
                                   [&](const VkCommandBuffer cmd)
                                   {
-                                      m_Cmd = cmd;
+                                      ctx.Cmd = cmd;
                                       ClearTextureUInt(texture, mipLevel, value);
-                                      m_Cmd = VK_NULL_HANDLE;
+                                      ctx.Cmd = VK_NULL_HANDLE;
                                   });
             return;
         }
@@ -970,7 +988,7 @@ namespace OloEngine
             return; // a uint clear of a depth image has no meaning
 
         const u32 mipCount = std::max(info->MipLevels, 1u); // 0-extent guard, see IssueBarrierBatch
-        m_LayoutTracker.RegisterImage(image, mipCount, std::max(info->ArrayLayers, 1u), info->RegistrationId);
+        ctx.Tracker.RegisterImage(image, mipCount, std::max(info->ArrayLayers, 1u), info->RegistrationId);
 
         VkImageSubresourceRange range{};
         range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -980,7 +998,7 @@ namespace OloEngine
         range.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
         std::vector<VkImageMemoryBarrier2> toTransfer;
-        m_LayoutTracker.ForEachLayoutRun(
+        ctx.Tracker.ForEachLayoutRun(
             image, range,
             [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
             {
@@ -1002,19 +1020,20 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
-        m_LayoutTracker.SetLayout(image, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.Tracker.SetLayout(image, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
         // Designated init ACTIVATES the union's uint32 member — value-init
         // (`{}`) would activate float32 (the first member) and make these
         // writes inactive-member accesses.
         const VkClearColorValue clear{ .uint32 = { value, value, value, value } };
-        vkCmdClearColorImage(m_Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
+        vkCmdClearColorImage(ctx.Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
     }
 
     void VulkanRendererAPI::ClearBufferFloat(const RHI::ResourceHandle buffer, const f32 value)
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("ClearBufferFloat(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -1040,14 +1059,15 @@ namespace OloEngine
         dep.memoryBarrierCount = 1;
         dep.pMemoryBarriers = &global;
 
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
-        vkCmdFillBuffer(m_Cmd, reinterpret_cast<VkBuffer>(native), 0, VK_WHOLE_SIZE, std::bit_cast<u32>(value));
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        vkCmdFillBuffer(ctx.Cmd, reinterpret_cast<VkBuffer>(native), 0, VK_WHOLE_SIZE, std::bit_cast<u32>(value));
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
     }
 
     void VulkanRendererAPI::ClearBufferUInt(const RHI::ResourceHandle buffer, const u32 value)
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("ClearBufferUInt(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -1070,36 +1090,42 @@ namespace OloEngine
         dep.memoryBarrierCount = 1;
         dep.pMemoryBarriers = &global;
 
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
-        vkCmdFillBuffer(m_Cmd, reinterpret_cast<VkBuffer>(native), 0, VK_WHOLE_SIZE, value);
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        vkCmdFillBuffer(ctx.Cmd, reinterpret_cast<VkBuffer>(native), 0, VK_WHOLE_SIZE, value);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
     }
 
     // --- Debug labels / device queries -------------------------------------
 
     void VulkanRendererAPI::PushDebugGroup(u32 /*id*/, const std::string_view label)
     {
+        auto& ctx = Ctx();
         // vkCmdBeginDebugUtilsLabelEXT is loaded only when the debug-utils
         // extension was enabled (debug builds with the validation layer) —
         // the pointer probe IS the capability check under volk.
-        if (m_Cmd == VK_NULL_HANDLE || vkCmdBeginDebugUtilsLabelEXT == nullptr)
+        if (ctx.Cmd == VK_NULL_HANDLE || vkCmdBeginDebugUtilsLabelEXT == nullptr)
             return;
         const std::string labelStr(label);
         VkDebugUtilsLabelEXT vkLabel{};
         vkLabel.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
         vkLabel.pLabelName = labelStr.c_str();
-        vkCmdBeginDebugUtilsLabelEXT(m_Cmd, &vkLabel);
+        vkCmdBeginDebugUtilsLabelEXT(ctx.Cmd, &vkLabel);
     }
 
     void VulkanRendererAPI::PopDebugGroup()
     {
-        if (m_Cmd == VK_NULL_HANDLE || vkCmdEndDebugUtilsLabelEXT == nullptr)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE || vkCmdEndDebugUtilsLabelEXT == nullptr)
             return;
-        vkCmdEndDebugUtilsLabelEXT(m_Cmd);
+        vkCmdEndDebugUtilsLabelEXT(ctx.Cmd);
     }
 
     void VulkanRendererAPI::WaitForDeviceIdle()
     {
+        if (RefuseOnWorker("WaitForDeviceIdle"))
+        {
+            return;
+        }
         if (auto* device = VulkanDevice::Get())
             vkDeviceWaitIdle(device->GetDevice());
     }
@@ -1153,148 +1179,177 @@ namespace OloEngine
 
     void VulkanRendererAPI::SetClearColor(const glm::vec4& color)
     {
-        m_State.ClearColor = color;
+        auto& ctx = Ctx();
+        ctx.State.ClearColor = color;
     }
     void VulkanRendererAPI::SetClearDepth(const f32 depth)
     {
-        m_State.ClearDepth = depth;
+        auto& ctx = Ctx();
+        ctx.State.ClearDepth = depth;
     }
     void VulkanRendererAPI::SetDepthTest(const bool value)
     {
-        m_State.DepthTest = value;
+        auto& ctx = Ctx();
+        ctx.State.DepthTest = value;
     }
     void VulkanRendererAPI::SetDepthMask(const bool value)
     {
-        m_State.DepthWrite = value;
+        auto& ctx = Ctx();
+        ctx.State.DepthWrite = value;
     }
     void VulkanRendererAPI::SetDepthFunc(const RHI::CompareOp func)
     {
-        m_State.DepthFunc = func;
+        auto& ctx = Ctx();
+        ctx.State.DepthFunc = func;
     }
     void VulkanRendererAPI::SetBlendState(const bool value)
     {
+        auto& ctx = Ctx();
         // Deliberately does NOT touch AttachmentBlend, unlike SetColorMask
         // below. A per-attachment blend opinion OUTRANKS this flag in both
         // directions and is withdrawn only by ResetBlendStateForAttachment —
         // see the rule at the AttachmentBlend declaration. The GL backend
         // re-asserts its standing opinions after glEnable/glDisable(GL_BLEND)
         // so that both backends implement that one rule.
-        m_State.Blend = value;
+        ctx.State.Blend = value;
     }
     void VulkanRendererAPI::SetBlendFunc(const RHI::BlendFactor sfactor, const RHI::BlendFactor dfactor)
     {
-        m_State.BlendSrcRGB = sfactor;
-        m_State.BlendDstRGB = dfactor;
-        m_State.BlendSrcAlpha = sfactor;
-        m_State.BlendDstAlpha = dfactor;
+        auto& ctx = Ctx();
+        ctx.State.BlendSrcRGB = sfactor;
+        ctx.State.BlendDstRGB = dfactor;
+        ctx.State.BlendSrcAlpha = sfactor;
+        ctx.State.BlendDstAlpha = dfactor;
         // glBlendFunc overwrites EVERY buffer's func in GL — the recorded
         // per-attachment funcs must stop diverting (see the struct comment).
-        for (auto& funcOpinion : m_State.AttachmentBlendFunc)
+        for (auto& funcOpinion : ctx.State.AttachmentBlendFunc)
             funcOpinion = VulkanRecordedPipelineState::AttachmentBlendFuncOpinion::Inherit;
     }
     void VulkanRendererAPI::SetBlendFuncSeparate(const RHI::BlendFactor srcRGB, const RHI::BlendFactor dstRGB,
                                                  const RHI::BlendFactor srcAlpha, const RHI::BlendFactor dstAlpha)
     {
-        m_State.BlendSrcRGB = srcRGB;
-        m_State.BlendDstRGB = dstRGB;
-        m_State.BlendSrcAlpha = srcAlpha;
-        m_State.BlendDstAlpha = dstAlpha;
+        auto& ctx = Ctx();
+        ctx.State.BlendSrcRGB = srcRGB;
+        ctx.State.BlendDstRGB = dstRGB;
+        ctx.State.BlendSrcAlpha = srcAlpha;
+        ctx.State.BlendDstAlpha = dstAlpha;
         // Same glBlendFuncSeparate global-overwrite semantics as SetBlendFunc.
-        for (auto& funcOpinion : m_State.AttachmentBlendFunc)
+        for (auto& funcOpinion : ctx.State.AttachmentBlendFunc)
             funcOpinion = VulkanRecordedPipelineState::AttachmentBlendFuncOpinion::Inherit;
     }
     void VulkanRendererAPI::SetBlendEquation(const RHI::BlendOp mode)
     {
-        m_State.BlendEquation = mode;
+        auto& ctx = Ctx();
+        ctx.State.BlendEquation = mode;
     }
     void VulkanRendererAPI::EnableStencilTest()
     {
-        m_State.StencilTest = true;
+        auto& ctx = Ctx();
+        ctx.State.StencilTest = true;
     }
     void VulkanRendererAPI::DisableStencilTest()
     {
-        m_State.StencilTest = false;
+        auto& ctx = Ctx();
+        ctx.State.StencilTest = false;
     }
     bool VulkanRendererAPI::IsStencilTestEnabled() const
     {
-        return m_State.StencilTest;
+        auto& ctx = Ctx();
+        return ctx.State.StencilTest;
     }
     void VulkanRendererAPI::SetStencilFunc(const RHI::CompareOp func, const i32 ref, const u32 mask)
     {
-        m_State.StencilFunc = func;
-        m_State.StencilRef = ref;
-        m_State.StencilReadMask = mask;
+        auto& ctx = Ctx();
+        ctx.State.StencilFunc = func;
+        ctx.State.StencilRef = ref;
+        ctx.State.StencilReadMask = mask;
     }
     void VulkanRendererAPI::SetStencilOp(const RHI::StencilOp sfail, const RHI::StencilOp dpfail, const RHI::StencilOp dppass)
     {
-        m_State.StencilFail = sfail;
-        m_State.StencilDepthFail = dpfail;
-        m_State.StencilPass = dppass;
+        auto& ctx = Ctx();
+        ctx.State.StencilFail = sfail;
+        ctx.State.StencilDepthFail = dpfail;
+        ctx.State.StencilPass = dppass;
     }
     void VulkanRendererAPI::SetStencilMask(const u32 mask)
     {
-        m_State.StencilWriteMask = mask;
+        auto& ctx = Ctx();
+        ctx.State.StencilWriteMask = mask;
     }
     void VulkanRendererAPI::EnableCulling()
     {
-        m_State.Culling = true;
+        auto& ctx = Ctx();
+        ctx.State.Culling = true;
     }
     void VulkanRendererAPI::DisableCulling()
     {
-        m_State.Culling = false;
+        auto& ctx = Ctx();
+        ctx.State.Culling = false;
     }
     void VulkanRendererAPI::FrontCull()
     {
-        m_State.CullFace = RHI::CullMode::Front;
+        auto& ctx = Ctx();
+        ctx.State.CullFace = RHI::CullMode::Front;
     }
     void VulkanRendererAPI::BackCull()
     {
-        m_State.CullFace = RHI::CullMode::Back;
+        auto& ctx = Ctx();
+        ctx.State.CullFace = RHI::CullMode::Back;
     }
     void VulkanRendererAPI::SetCullFace(const RHI::CullMode face)
     {
-        m_State.CullFace = face;
+        auto& ctx = Ctx();
+        ctx.State.CullFace = face;
     }
     void VulkanRendererAPI::SetFrontFace(const RHI::FrontFace face)
     {
-        m_State.FrontFaceWinding = face;
+        auto& ctx = Ctx();
+        ctx.State.FrontFaceWinding = face;
     }
     void VulkanRendererAPI::SetPolygonMode(const RHI::PolygonMode mode)
     {
-        m_State.PolygonMode = mode;
+        auto& ctx = Ctx();
+        ctx.State.PolygonMode = mode;
     }
     void VulkanRendererAPI::SetPolygonOffset(const f32 factor, const f32 units)
     {
-        m_State.PolygonOffsetEnabled = true;
-        m_State.PolygonOffsetFactor = factor;
-        m_State.PolygonOffsetUnits = units;
+        auto& ctx = Ctx();
+        ctx.State.PolygonOffsetEnabled = true;
+        ctx.State.PolygonOffsetFactor = factor;
+        ctx.State.PolygonOffsetUnits = units;
     }
     void VulkanRendererAPI::EnableScissorTest()
     {
-        m_State.ScissorTest = true;
+        auto& ctx = Ctx();
+        ctx.State.ScissorTest = true;
     }
     void VulkanRendererAPI::DisableScissorTest()
     {
-        m_State.ScissorTest = false;
+        auto& ctx = Ctx();
+        ctx.State.ScissorTest = false;
     }
     void VulkanRendererAPI::EnableMultisampling()
     {
-        m_State.Multisampling = true;
+        auto& ctx = Ctx();
+        ctx.State.Multisampling = true;
     }
     void VulkanRendererAPI::DisableMultisampling()
     {
-        m_State.Multisampling = false;
+        auto& ctx = Ctx();
+        ctx.State.Multisampling = false;
     }
     void VulkanRendererAPI::SetLineWidth(const f32 width)
     {
-        m_State.LineWidth = width;
+        auto& ctx = Ctx();
+        ctx.State.LineWidth = width;
     }
     void VulkanRendererAPI::SetColorMask(const bool red, const bool green, const bool blue, const bool alpha)
     {
-        m_State.ColorMask[0] = red;
-        m_State.ColorMask[1] = green;
-        m_State.ColorMask[2] = blue;
-        m_State.ColorMask[3] = alpha;
+        auto& ctx = Ctx();
+        ctx.State.ColorMask[0] = red;
+        ctx.State.ColorMask[1] = green;
+        ctx.State.ColorMask[2] = blue;
+        ctx.State.ColorMask[3] = alpha;
         // glColorMask writes EVERY draw buffer's mask, so it also CLEARS any
         // divergence a previous glColorMaski installed — the same global-
         // overwrite rule SetBlendFunc already honours, and the rule
@@ -1310,40 +1365,45 @@ namespace OloEngine
     void VulkanRendererAPI::SetColorMaskForAttachment(const u32 attachment, const bool red, const bool green,
                                                       const bool blue, const bool alpha)
     {
+        auto& ctx = Ctx();
         if (attachment >= VulkanRecordedPipelineState::kMaxAttachments)
             return;
-        m_State.AttachmentColorMask[attachment] = static_cast<u8>((red ? 1u : 0u) | (green ? 2u : 0u) |
-                                                                  (blue ? 4u : 0u) | (alpha ? 8u : 0u));
+        ctx.State.AttachmentColorMask[attachment] = static_cast<u8>((red ? 1u : 0u) | (green ? 2u : 0u) |
+                                                                    (blue ? 4u : 0u) | (alpha ? 8u : 0u));
     }
     void VulkanRendererAPI::SetBlendStateForAttachment(const u32 attachment, const bool enabled)
     {
+        auto& ctx = Ctx();
         if (attachment >= VulkanRecordedPipelineState::kMaxAttachments)
             return;
         // States an opinion that outranks the global flag until it is
         // withdrawn. `false` is ForceOff, NOT "back to normal" — a pass
         // restoring its state wants ResetBlendStateForAttachment (issue #896).
-        m_State.AttachmentBlend[attachment] = enabled
-                                                  ? VulkanRecordedPipelineState::AttachmentBlendOpinion::ForceOn
-                                                  : VulkanRecordedPipelineState::AttachmentBlendOpinion::ForceOff;
+        ctx.State.AttachmentBlend[attachment] = enabled
+                                                    ? VulkanRecordedPipelineState::AttachmentBlendOpinion::ForceOn
+                                                    : VulkanRecordedPipelineState::AttachmentBlendOpinion::ForceOff;
     }
     void VulkanRendererAPI::ResetBlendStateForAttachment(const u32 attachment)
     {
+        auto& ctx = Ctx();
         if (attachment >= VulkanRecordedPipelineState::kMaxAttachments)
             return;
-        m_State.AttachmentBlend[attachment] = VulkanRecordedPipelineState::AttachmentBlendOpinion::Inherit;
+        ctx.State.AttachmentBlend[attachment] = VulkanRecordedPipelineState::AttachmentBlendOpinion::Inherit;
     }
     void VulkanRendererAPI::SetBlendFuncForAttachment(const u32 attachment, const RHI::BlendFactor src, const RHI::BlendFactor dst)
     {
+        auto& ctx = Ctx();
         if (attachment >= VulkanRecordedPipelineState::kMaxAttachments)
             return;
-        m_State.AttachmentBlendSrc[attachment] = src;
-        m_State.AttachmentBlendDst[attachment] = dst;
+        ctx.State.AttachmentBlendSrc[attachment] = src;
+        ctx.State.AttachmentBlendDst[attachment] = dst;
         // glBlendFunci semantics — diverted until the global setter withdraws it.
-        m_State.AttachmentBlendFunc[attachment] = VulkanRecordedPipelineState::AttachmentBlendFuncOpinion::Diverted;
+        ctx.State.AttachmentBlendFunc[attachment] = VulkanRecordedPipelineState::AttachmentBlendFuncOpinion::Diverted;
     }
     void VulkanRendererAPI::SetPatchVertexCount(const u32 patchVertices)
     {
-        m_State.PatchVertexCount = patchVertices;
+        auto& ctx = Ctx();
+        ctx.State.PatchVertexCount = patchVertices;
     }
 
     // Rendering scope + draw assembly --------------------------
@@ -1373,15 +1433,16 @@ namespace OloEngine
 
     void VulkanRendererAPI::EndRenderingScope()
     {
-        if (!m_Scope.Active)
+        auto& ctx = Ctx();
+        if (!ctx.Scope.Active)
         {
             return;
         }
-        vkCmdEndRendering(m_Cmd);
-        m_Scope.Active = false;
-        m_Scope.DepthArrayView = VK_NULL_HANDLE;
-        m_Scope.TargetIsBackbuffer = false;
-        m_Scope.BackbufferView = VK_NULL_HANDLE;
+        vkCmdEndRendering(ctx.Cmd);
+        ctx.Scope.Active = false;
+        ctx.Scope.DepthArrayView = VK_NULL_HANDLE;
+        ctx.Scope.TargetIsBackbuffer = false;
+        ctx.Scope.BackbufferView = VK_NULL_HANDLE;
         // Pending clears survive the scope END only if never consumed; the
         // next scope begin re-reads them. Target/DrawList stay published.
     }
@@ -1426,26 +1487,33 @@ namespace OloEngine
 
     bool VulkanRendererAPI::ShouldTargetBackbuffer() const
     {
-        return VulkanBindingState::Get().GetCurrentFramebuffer() == nullptr && m_Backbuffer.IsValid();
+        // The swapchain image is the render thread's (amendment (91) rule 7):
+        // an item with nothing bound has no target, and its draw is dropped
+        // with the existing warn-once rather than painting the backbuffer
+        // from a secondary.
+        return !OnWorkerContext() && VulkanBindingState::Get().GetCurrentFramebuffer() == nullptr &&
+               m_Backbuffer.IsValid();
     }
 
     VkExtent2D VulkanRendererAPI::ScopeExtent() const
     {
-        if (!m_Scope.Active)
+        auto& ctx = Ctx();
+        if (!ctx.Scope.Active)
         {
             return { 0u, 0u };
         }
-        if (m_Scope.TargetIsBackbuffer)
+        if (ctx.Scope.TargetIsBackbuffer)
         {
             return { std::max(m_Backbuffer.Width, 1u), std::max(m_Backbuffer.Height, 1u) };
         }
-        const auto& spec = m_Scope.Target->GetSpecification();
+        const auto& spec = ctx.Scope.Target->GetSpecification();
         return { std::max(spec.Width, 1u), std::max(spec.Height, 1u) };
     }
 
     bool VulkanRendererAPI::ScopeMatchesCurrentTarget() const
     {
-        if (!m_Scope.Active)
+        auto& ctx = Ctx();
+        if (!ctx.Scope.Active)
         {
             return false;
         }
@@ -1454,12 +1522,12 @@ namespace OloEngine
         // FrameBackbuffer): "nothing bound" means the DEFAULT framebuffer
         // while a publication is live, so a backbuffer scope must not be
         // confused with the no-target scope that predates the import.
-        if (m_Scope.TargetIsBackbuffer || ShouldTargetBackbuffer())
+        if (ctx.Scope.TargetIsBackbuffer || ShouldTargetBackbuffer())
         {
-            return m_Scope.TargetIsBackbuffer && ShouldTargetBackbuffer() &&
-                   m_Scope.BackbufferView == m_Backbuffer.View;
+            return ctx.Scope.TargetIsBackbuffer && ShouldTargetBackbuffer() &&
+                   ctx.Scope.BackbufferView == m_Backbuffer.View;
         }
-        if (m_Scope.Target != target)
+        if (ctx.Scope.Target != target)
         {
             return false;
         }
@@ -1473,14 +1541,15 @@ namespace OloEngine
         // open across that change and paint every cascade into cascade 0's
         // view — silently, with no validation error (the view is legal, just
         // stale). The selection is part of the scope's identity.
-        const auto& depthArray = target->GetDepthArrayAttachment();
+        const auto depthArray = GetFramebufferDepthArraySelection(target->GetRHIHandle());
         const VkImageView selected = depthArray.Active ? depthArray.View : VK_NULL_HANDLE;
-        return m_Scope.DepthArrayView == selected;
+        return ctx.Scope.DepthArrayView == selected;
     }
 
     bool VulkanRendererAPI::PendingClearMatchesCurrentTarget() const
     {
-        if (!m_PendingClear.Any())
+        auto& ctx = Ctx();
+        if (!ctx.Pending.Any())
         {
             return false;
         }
@@ -1488,12 +1557,12 @@ namespace OloEngine
         // Same identity rules as ScopeMatchesCurrentTarget: the backbuffer
         // publication and the depth-array layer selection are both part of
         // "which target asked".
-        if (m_PendingClear.TargetIsBackbuffer || ShouldTargetBackbuffer())
+        if (ctx.Pending.TargetIsBackbuffer || ShouldTargetBackbuffer())
         {
-            return m_PendingClear.TargetIsBackbuffer && ShouldTargetBackbuffer() &&
-                   m_PendingClear.BackbufferView == m_Backbuffer.View;
+            return ctx.Pending.TargetIsBackbuffer && ShouldTargetBackbuffer() &&
+                   ctx.Pending.BackbufferView == m_Backbuffer.View;
         }
-        if (m_PendingClear.Target != target)
+        if (ctx.Pending.Target != target)
         {
             return false;
         }
@@ -1501,64 +1570,66 @@ namespace OloEngine
         {
             return true;
         }
-        const auto& depthArray = target->GetDepthArrayAttachment();
+        const auto depthArray = GetFramebufferDepthArraySelection(target->GetRHIHandle());
         const VkImageView selected = depthArray.Active ? depthArray.View : VK_NULL_HANDLE;
-        return m_PendingClear.DepthArrayView == selected;
+        return ctx.Pending.DepthArrayView == selected;
     }
 
     void VulkanRendererAPI::RecordPendingClear(const bool color, const bool depth)
     {
+        auto& ctx = Ctx();
         // A pending clear that belongs to a DIFFERENT target must happen
         // before this one is recorded — GL executed it eagerly at its own
         // glClear.
-        if (m_PendingClear.Any() && !PendingClearMatchesCurrentTarget())
+        if (ctx.Pending.Any() && !PendingClearMatchesCurrentTarget())
         {
             MaterializePendingClear();
         }
 
         auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
-        m_PendingClear.Color = m_PendingClear.Color || color;
-        m_PendingClear.Depth = m_PendingClear.Depth || depth;
-        m_PendingClear.Target = target;
-        m_PendingClear.TargetIsBackbuffer = ShouldTargetBackbuffer();
-        m_PendingClear.BackbufferView = m_PendingClear.TargetIsBackbuffer ? m_Backbuffer.View : VK_NULL_HANDLE;
-        m_PendingClear.DepthArrayView = VK_NULL_HANDLE;
-        m_PendingClear.DepthArrayImage = VK_NULL_HANDLE;
-        m_PendingClear.DepthArrayLayer = 0u;
-        m_PendingClear.DepthArrayHandle = {};
+        ctx.Pending.Color = ctx.Pending.Color || color;
+        ctx.Pending.Depth = ctx.Pending.Depth || depth;
+        ctx.Pending.Target = target;
+        ctx.Pending.TargetIsBackbuffer = ShouldTargetBackbuffer();
+        ctx.Pending.BackbufferView = ctx.Pending.TargetIsBackbuffer ? m_Backbuffer.View : VK_NULL_HANDLE;
+        ctx.Pending.DepthArrayView = VK_NULL_HANDLE;
+        ctx.Pending.DepthArrayImage = VK_NULL_HANDLE;
+        ctx.Pending.DepthArrayLayer = 0u;
+        ctx.Pending.DepthArrayHandle = {};
         if (target != nullptr)
         {
-            if (const auto& depthArray = target->GetDepthArrayAttachment(); depthArray.Active)
+            if (const auto depthArray = GetFramebufferDepthArraySelection(target->GetRHIHandle()); depthArray.Active)
             {
-                m_PendingClear.DepthArrayView = depthArray.View;
-                m_PendingClear.DepthArrayImage = depthArray.Image;
-                m_PendingClear.DepthArrayLayer = depthArray.Layer;
-                m_PendingClear.DepthArrayHandle = depthArray.Handle;
+                ctx.Pending.DepthArrayView = depthArray.View;
+                ctx.Pending.DepthArrayImage = depthArray.Image;
+                ctx.Pending.DepthArrayLayer = depthArray.Layer;
+                ctx.Pending.DepthArrayHandle = depthArray.Handle;
             }
         }
         // Values are captured NOW (GL uses the state at glClear time; the
         // scope-open may be many state changes later).
         if (color)
         {
-            m_PendingClear.ClearColor = m_State.ClearColor;
+            ctx.Pending.ClearColor = ctx.State.ClearColor;
         }
         if (depth)
         {
-            m_PendingClear.ClearDepth = m_State.ClearDepth;
+            ctx.Pending.ClearDepth = ctx.State.ClearDepth;
         }
     }
 
     void VulkanRendererAPI::MaterializePendingClear()
     {
-        if (!m_PendingClear.Any() || m_Cmd == VK_NULL_HANDLE)
+        auto& ctx = Ctx();
+        if (!ctx.Pending.Any() || ctx.Cmd == VK_NULL_HANDLE)
         {
-            m_PendingClear = PendingClear{};
+            ctx.Pending = PendingClear{};
             return;
         }
         // Take a copy and drop the record FIRST: ClearTextureFloat below ends
         // the scope and must not observe (or re-enter) the pending state.
-        const PendingClear pending = m_PendingClear;
-        m_PendingClear = PendingClear{};
+        const PendingClear pending = ctx.Pending;
+        ctx.Pending = PendingClear{};
 
         if (pending.TargetIsBackbuffer)
         {
@@ -1607,9 +1678,9 @@ namespace OloEngine
                 if (const auto* info = VulkanImageInfoRegistry::Get().Lookup(pending.DepthArrayImage);
                     info != nullptr)
                 {
-                    m_LayoutTracker.RegisterImage(pending.DepthArrayImage, std::max(info->MipLevels, 1u),
-                                                  std::max(info->ArrayLayers, 1u), info->RegistrationId,
-                                                  info->InitialLayout);
+                    ctx.Tracker.RegisterImage(pending.DepthArrayImage, std::max(info->MipLevels, 1u),
+                                              std::max(info->ArrayLayers, 1u), info->RegistrationId,
+                                              info->InitialLayout);
                     VkImageSubresourceRange range{};
                     range.aspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*info));
                     range.baseMipLevel = 0u;
@@ -1617,7 +1688,7 @@ namespace OloEngine
                     range.baseArrayLayer = pending.DepthArrayLayer;
                     range.layerCount = 1u;
                     std::vector<VkImageMemoryBarrier2> toTransfer;
-                    m_LayoutTracker.ForEachLayoutRun(
+                    ctx.Tracker.ForEachLayoutRun(
                         pending.DepthArrayImage, range,
                         [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
                         {
@@ -1642,13 +1713,13 @@ namespace OloEngine
                     dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
                     dep.pImageMemoryBarriers = toTransfer.data();
-                    vkCmdPipelineBarrier2(m_Cmd, &dep);
-                    m_LayoutTracker.SetLayout(pending.DepthArrayImage, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                    vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+                    ctx.Tracker.SetLayout(pending.DepthArrayImage, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
                     VkClearDepthStencilValue clear{};
                     clear.depth = pending.ClearDepth;
                     clear.stencil = 0u;
-                    vkCmdClearDepthStencilImage(m_Cmd, pending.DepthArrayImage,
+                    vkCmdClearDepthStencilImage(ctx.Cmd, pending.DepthArrayImage,
                                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
                 }
             }
@@ -1662,14 +1733,14 @@ namespace OloEngine
 
     bool VulkanRendererAPI::EnsureRenderingScopeForDraw()
     {
+        auto& ctx = Ctx();
         auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
         const bool backbuffer = ShouldTargetBackbuffer();
         if (target == nullptr && !backbuffer)
         {
-            static bool s_Warned = false;
-            if (!s_Warned)
+            static std::atomic<bool> s_Warned{ false };
+            if (!s_Warned.exchange(true, std::memory_order_relaxed))
             {
-                s_Warned = true;
                 OLO_CORE_WARN("[RHI/Vulkan] draw with no framebuffer published and no backbuffer for this frame "
                               "— dropped");
             }
@@ -1687,12 +1758,12 @@ namespace OloEngine
         // an earlier pass cleared B and left A untouched). Materialize it against its
         // own target first; the folds below then apply only when the pending
         // requester IS this scope's target (#691).
-        if (m_PendingClear.Any() && !PendingClearMatchesCurrentTarget())
+        if (ctx.Pending.Any() && !PendingClearMatchesCurrentTarget())
         {
             MaterializePendingClear();
         }
-        const bool foldColor = m_PendingClear.Color && PendingClearMatchesCurrentTarget();
-        const bool foldDepth = m_PendingClear.Depth && PendingClearMatchesCurrentTarget();
+        const bool foldColor = ctx.Pending.Color && PendingClearMatchesCurrentTarget();
+        const bool foldDepth = ctx.Pending.Depth && PendingClearMatchesCurrentTarget();
 
         if (backbuffer)
         {
@@ -1701,10 +1772,10 @@ namespace OloEngine
             // GL_BACK). Everything else — the pre-scope layout transition,
             // the pending-clear fold into loadOp, the PSO's target
             // description — is the framebuffer path's, verbatim.
-            m_ScopeTargets = VulkanRenderTargetDesc{};
-            m_ScopeTargets.Samples = 1u;
-            m_ScopeTargets.ColorCount = 1u;
-            m_ScopeTargets.ColorFormats[0] = m_Backbuffer.Format;
+            ctx.ScopeTargets = VulkanRenderTargetDesc{};
+            ctx.ScopeTargets.Samples = 1u;
+            ctx.ScopeTargets.ColorCount = 1u;
+            ctx.ScopeTargets.ColorFormats[0] = m_Backbuffer.Format;
 
             RHI::Barrier toAttachment{};
             toAttachment.Resource = m_Backbuffer.Handle;
@@ -1713,7 +1784,7 @@ namespace OloEngine
             toAttachment.Range.BaseLayer = 0u;
             toAttachment.Range.LayerCount = 1u;
             const VkImageSubresourceRange probe{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
-            toAttachment.Before = AccessGuessForLayout(m_LayoutTracker.CurrentLayout(m_Backbuffer.Image, probe));
+            toAttachment.Before = AccessGuessForLayout(ctx.Tracker.CurrentLayout(m_Backbuffer.Image, probe));
             toAttachment.After = RHI::Access::ColorAttachmentWrite;
             IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ &toAttachment, 1 });
 
@@ -1724,8 +1795,8 @@ namespace OloEngine
             colorInfo.loadOp = foldColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
             colorInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             // The values captured at the Clear() request, not the live state.
-            colorInfo.clearValue.color = { { m_PendingClear.ClearColor.r, m_PendingClear.ClearColor.g,
-                                             m_PendingClear.ClearColor.b, m_PendingClear.ClearColor.a } };
+            colorInfo.clearValue.color = { { ctx.Pending.ClearColor.r, ctx.Pending.ClearColor.g,
+                                             ctx.Pending.ClearColor.b, ctx.Pending.ClearColor.a } };
 
             VkRenderingInfo backbufferRendering{};
             backbufferRendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -1735,16 +1806,16 @@ namespace OloEngine
             backbufferRendering.layerCount = 1;
             backbufferRendering.colorAttachmentCount = 1;
             backbufferRendering.pColorAttachments = &colorInfo;
-            vkCmdBeginRendering(m_Cmd, &backbufferRendering);
+            vkCmdBeginRendering(ctx.Cmd, &backbufferRendering);
 
-            m_Scope.Active = true;
-            m_Scope.Target = nullptr;
-            m_Scope.TargetIsBackbuffer = true;
-            m_Scope.BackbufferView = m_Backbuffer.View;
-            m_Scope.DepthArrayView = VK_NULL_HANDLE;
+            ctx.Scope.Active = true;
+            ctx.Scope.Target = nullptr;
+            ctx.Scope.TargetIsBackbuffer = true;
+            ctx.Scope.BackbufferView = m_Backbuffer.View;
+            ctx.Scope.DepthArrayView = VK_NULL_HANDLE;
             // Consumed by the loadOp above (a pending depth against the
             // depthless default framebuffer is GL's silent no-op).
-            m_PendingClear = PendingClear{};
+            ctx.Pending = PendingClear{};
             m_BackbufferWritten = true;
             return true;
         }
@@ -1757,8 +1828,8 @@ namespace OloEngine
         // attachment DrawList[i] (GL's glDrawBuffers semantics). Identity
         // over every color attachment when no selection was recorded.
         std::array<VkRenderingAttachmentInfo, 8> colorInfos{};
-        m_ScopeTargets = VulkanRenderTargetDesc{};
-        m_ScopeTargets.Samples = std::max(spec.Samples, 1u);
+        ctx.ScopeTargets = VulkanRenderTargetDesc{};
+        ctx.ScopeTargets.Samples = std::max(spec.Samples, 1u);
 
         // Attachment transitions collected while building the infos below and
         // recorded through IssueBarrierBatch BEFORE vkCmdBeginRendering: the
@@ -1795,7 +1866,7 @@ namespace OloEngine
                 info.imageView = VK_NULL_HANDLE;
                 info.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
                 info.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
-                m_ScopeTargets.ColorFormats[i] = VK_FORMAT_UNDEFINED;
+                ctx.ScopeTargets.ColorFormats[i] = VK_FORMAT_UNDEFINED;
                 continue;
             }
 
@@ -1810,11 +1881,11 @@ namespace OloEngine
             info.loadOp = foldColor ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
             info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             // The values captured at the Clear() request, not the live state.
-            info.clearValue.color = { { m_PendingClear.ClearColor.r, m_PendingClear.ClearColor.g,
-                                        m_PendingClear.ClearColor.b, m_PendingClear.ClearColor.a } };
+            info.clearValue.color = { { ctx.Pending.ClearColor.r, ctx.Pending.ClearColor.g,
+                                        ctx.Pending.ClearColor.b, ctx.Pending.ClearColor.a } };
 
             const auto* imageInfo = VulkanImageInfoRegistry::Get().Lookup(image->GetVkImage());
-            m_ScopeTargets.ColorFormats[i] = imageInfo != nullptr ? imageInfo->Format : VK_FORMAT_UNDEFINED;
+            ctx.ScopeTargets.ColorFormats[i] = imageInfo != nullptr ? imageInfo->Format : VK_FORMAT_UNDEFINED;
 
             RHI::Barrier toAttachment{};
             toAttachment.Resource = image->GetRHIHandle();
@@ -1823,11 +1894,11 @@ namespace OloEngine
             toAttachment.Range.BaseLayer = 0u;
             toAttachment.Range.LayerCount = 1u;
             const VkImageSubresourceRange probe{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
-            toAttachment.Before = AccessGuessForLayout(m_LayoutTracker.CurrentLayout(image->GetVkImage(), probe));
+            toAttachment.Before = AccessGuessForLayout(ctx.Tracker.CurrentLayout(image->GetVkImage(), probe));
             toAttachment.After = RHI::Access::ColorAttachmentWrite;
             scopeBarriers.push_back(toAttachment);
         }
-        m_ScopeTargets.ColorCount = outputCount;
+        ctx.ScopeTargets.ColorCount = outputCount;
 
         // §4 layered shadow depth: a selected texture-array LAYER wins over the
         // framebuffer's own depth attachment (the GL twin's
@@ -1835,7 +1906,7 @@ namespace OloEngine
         // depth attachment — layout, loadOp folding, the pre-scope transition —
         // is identical; only the view, the format source and the barrier's
         // layer differ.
-        const auto& depthArray = target->GetDepthArrayAttachment();
+        const auto depthArray = GetFramebufferDepthArraySelection(target->GetRHIHandle());
         VkRenderingAttachmentInfo depthInfo{};
         Ref<VulkanTexture2D> depthImage = depthArray.Active ? nullptr : target->GetDepthAttachmentImage();
         const bool hasDepth = depthArray.Active || depthImage != nullptr;
@@ -1853,11 +1924,11 @@ namespace OloEngine
             depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             depthInfo.loadOp = foldDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
             depthInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            depthInfo.clearValue.depthStencil = { m_PendingClear.ClearDepth, 0u };
+            depthInfo.clearValue.depthStencil = { ctx.Pending.ClearDepth, 0u };
 
             const VkImage depthVkImage = depthArray.Active ? depthArray.Image : depthImage->GetVkImage();
             const auto* depthImageInfo = VulkanImageInfoRegistry::Get().Lookup(depthVkImage);
-            m_ScopeTargets.DepthFormat = depthImageInfo != nullptr ? depthImageInfo->Format : VK_FORMAT_UNDEFINED;
+            ctx.ScopeTargets.DepthFormat = depthImageInfo != nullptr ? depthImageInfo->Format : VK_FORMAT_UNDEFINED;
 
             const u32 depthLayer = depthArray.Active ? depthArray.Layer : 0u;
             RHI::Barrier toDepth{};
@@ -1870,7 +1941,7 @@ namespace OloEngine
             // merely echoes into the emitted runs, so DEPTH is safe for the
             // query even on a combined depth-stencil format.
             const VkImageSubresourceRange depthProbe{ VK_IMAGE_ASPECT_DEPTH_BIT, 0u, 1u, depthLayer, 1u };
-            toDepth.Before = AccessGuessForLayout(m_LayoutTracker.CurrentLayout(depthVkImage, depthProbe));
+            toDepth.Before = AccessGuessForLayout(ctx.Tracker.CurrentLayout(depthVkImage, depthProbe));
             toDepth.After = RHI::Access::DepthStencilAttachmentWrite;
             scopeBarriers.push_back(toDepth);
         }
@@ -1892,23 +1963,24 @@ namespace OloEngine
         // Stencil shares the depth attachment when the format carries the
         // aspect; the recorded stencil state is dynamic.
         rendering.pStencilAttachment =
-            (hasDepth && m_ScopeTargets.DepthFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) ? &depthInfo : nullptr;
-        vkCmdBeginRendering(m_Cmd, &rendering);
+            (hasDepth && ctx.ScopeTargets.DepthFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) ? &depthInfo : nullptr;
+        vkCmdBeginRendering(ctx.Cmd, &rendering);
 
-        m_Scope.Active = true;
-        m_Scope.Target = target;
-        m_Scope.TargetIsBackbuffer = false;
-        m_Scope.BackbufferView = VK_NULL_HANDLE;
-        m_Scope.DepthArrayView = depthArray.Active ? depthArray.View : VK_NULL_HANDLE;
+        ctx.Scope.Active = true;
+        ctx.Scope.Target = target;
+        ctx.Scope.TargetIsBackbuffer = false;
+        ctx.Scope.BackbufferView = VK_NULL_HANDLE;
+        ctx.Scope.DepthArrayView = depthArray.Active ? depthArray.View : VK_NULL_HANDLE;
         // The pending clear was consumed by the loadOps above (it matched
         // this target by construction — a mismatch was materialized before
         // the scope opened).
-        m_PendingClear = PendingClear{};
+        ctx.Pending = PendingClear{};
         return true;
     }
 
     bool VulkanRendererAPI::PrepareDraw(const VulkanVertexArray* vao, const VkPrimitiveTopology topology)
     {
+        auto& ctx = Ctx();
         if (!PrepareDrawCommon(vao, /*meshPipeline=*/false))
         {
             return false;
@@ -1917,20 +1989,21 @@ namespace OloEngine
         // draw knows better — later set wins. Lives in this wrapper rather
         // than the common part because a mesh pipeline has no input assembly
         // and setting the topology against one is invalid (issue #813).
-        vkCmdSetPrimitiveTopology(m_Cmd, topology);
+        vkCmdSetPrimitiveTopology(ctx.Cmd, topology);
         return true;
     }
 
     bool VulkanRendererAPI::PrepareDrawCommon(const VulkanVertexArray* vao, const bool meshPipeline)
     {
+        auto& ctx = Ctx();
         // This is deliberately consumed by the next *attempted* draw, even
         // when the attempt later drops. Letting it leak into an unrelated draw
         // after a missing shader/pipeline failure would be worse than dropping
         // the producer's work (and would violate the one-draw hand-off).
-        const VkDeviceAddress gpuWrittenRootData = m_NextDrawRootDataAddress;
-        m_NextDrawRootDataAddress = 0;
+        const VkDeviceAddress gpuWrittenRootData = ctx.NextDrawRootDataAddress;
+        ctx.NextDrawRootDataAddress = 0;
 
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("Draw(outside recording bracket)", StubKind::OutsideRecording);
             return false;
@@ -1939,22 +2012,21 @@ namespace OloEngine
         // Host-side conditional rendering (see BeginConditionalRender): the
         // predicate said "fully occluded last frame", so this draw is skipped
         // by request — counted apart from the failure drops.
-        if (m_ConditionalRenderSkip)
+        if (ctx.ConditionalRenderSkip)
         {
-            ++m_ConditionallySkippedDrawsThisRecording;
+            ++ctx.ConditionallySkippedDraws;
             return false;
         }
 
         auto* shader = VulkanShader::GetCurrentlyBound();
         if (shader == nullptr || shader->GetCompilationStatus() != ShaderCompilationStatus::Ready)
         {
-            static bool s_Warned = false;
-            if (!s_Warned)
+            static std::atomic<bool> s_Warned{ false };
+            if (!s_Warned.exchange(true, std::memory_order_relaxed))
             {
-                s_Warned = true;
                 OLO_CORE_WARN("[RHI/Vulkan] draw with no ready shader bound — dropped");
             }
-            ++m_DroppedDrawsThisRecording;
+            ++ctx.DroppedDraws;
             return false;
         }
 
@@ -1970,43 +2042,42 @@ namespace OloEngine
             // mismatch is a programming error fixed at the first occurrence,
             // and a name-keyed set grows across hot-reload churn for no
             // diagnostic gain (the established warn-once shape in this file).
-            static bool s_WarnedStageMismatch = false;
-            if (!s_WarnedStageMismatch)
+            static std::atomic<bool> s_WarnedStageMismatch{ false };
+            if (!s_WarnedStageMismatch.exchange(true, std::memory_order_relaxed))
             {
-                s_WarnedStageMismatch = true;
                 OLO_CORE_ERROR("[RHI/Vulkan] '{}' {} — draw dropped", shader->GetName(),
                                meshPipeline ? "has no mesh stage but was dispatched via DrawMeshTasks"
                                             : "is a task/mesh shader but was dispatched via a classic draw");
             }
-            ++m_DroppedDrawsThisRecording;
+            ++ctx.DroppedDraws;
             return false;
         }
 
         if (!EnsureRenderingScopeForDraw())
         {
-            ++m_DroppedDrawsThisRecording;
+            ++ctx.DroppedDraws;
             return false;
         }
 
         const auto& layout = shader->GetRootDataLayout();
         const VkPipeline pipeline =
-            VulkanPipelineBuilder::Get().GetOrCreateGraphics(*shader, layout, m_State, m_ScopeTargets);
+            VulkanPipelineBuilder::Get().GetOrCreateGraphics(*shader, layout, ctx.State, ctx.ScopeTargets);
         if (pipeline == VK_NULL_HANDLE)
         {
             // This was the ONE fully silent drop in the chain — a PSO
             // creation failure must name its shader.
-            static std::unordered_set<std::string> s_WarnedPipelines;
-            if (s_WarnedPipelines.insert(shader->GetName()).second)
+            static VulkanWarnOnceSet s_WarnedPipelines; // items may fail concurrently (#806)
+            if (s_WarnedPipelines.Insert(shader->GetName()))
             {
                 OLO_CORE_ERROR("[RHI/Vulkan] graphics pipeline creation failed for '{}' — draw dropped",
                                shader->GetName());
             }
-            ++m_DroppedDrawsThisRecording;
+            ++ctx.DroppedDraws;
             return false;
         }
 
-        vkCmdBindPipeline(m_Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        VulkanPipelineBuilder::FlushDynamicState(m_Cmd, m_State, m_ScopeTargets);
+        vkCmdBindPipeline(ctx.Cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        VulkanPipelineBuilder::FlushDynamicState(ctx.Cmd, ctx.State, ctx.ScopeTargets);
 
         // The pipelines declare VIEWPORT/SCISSOR_WITH_COUNT dynamic state —
         // the plain setters cannot satisfy it, so the draw front-end emits
@@ -2017,11 +2088,11 @@ namespace OloEngine
         // VulkanFramebuffer to ask for a specification).
         const VkExtent2D targetExtent = ScopeExtent();
         VkViewport viewport{};
-        viewport.x = static_cast<f32>(m_Viewport.x);
-        viewport.y = static_cast<f32>(m_Viewport.y);
-        viewport.width = static_cast<f32>(m_Viewport.width != 0 ? m_Viewport.width : targetExtent.width);
-        viewport.height = static_cast<f32>(m_Viewport.height != 0 ? m_Viewport.height : targetExtent.height);
-        if (m_Scope.TargetIsBackbuffer)
+        viewport.x = static_cast<f32>(ctx.RecordedViewport.x);
+        viewport.y = static_cast<f32>(ctx.RecordedViewport.y);
+        viewport.width = static_cast<f32>(ctx.RecordedViewport.width != 0 ? ctx.RecordedViewport.width : targetExtent.width);
+        viewport.height = static_cast<f32>(ctx.RecordedViewport.height != 0 ? ctx.RecordedViewport.height : targetExtent.height);
+        if (ctx.Scope.TargetIsBackbuffer)
         {
             // THE ACQUIRED IMAGE'S EXTENT IS THE AUTHORITY, not the pass's
             // recorded viewport. FinalRenderPass sizes its viewport from the
@@ -2056,21 +2127,21 @@ namespace OloEngine
         }
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
-        vkCmdSetViewportWithCount(m_Cmd, 1, &viewport);
+        vkCmdSetViewportWithCount(ctx.Cmd, 1, &viewport);
 
         // Same authority rule for the scissor: a pass-recorded box sized to
         // the graph's targets would re-introduce the bands the viewport
         // override above removes.
-        VkRect2D scissor = (m_ScissorRectSet && m_State.ScissorTest && !m_Scope.TargetIsBackbuffer)
-                               ? m_ScissorRect
+        VkRect2D scissor = (ctx.ScissorRectSet && ctx.State.ScissorTest && !ctx.Scope.TargetIsBackbuffer)
+                               ? ctx.ScissorRect
                                : VkRect2D{ { 0, 0 }, targetExtent };
-        vkCmdSetScissorWithCount(m_Cmd, 1, &scissor);
+        vkCmdSetScissorWithCount(ctx.Cmd, 1, &scissor);
 
-        if (!m_HeapBoundThisRecording)
+        if (!ctx.HeapBoundThisRecording)
         {
             // Binds BOTH heaps (the sampler heap cascades inside CmdBind).
-            VulkanResourceHeap::Get().CmdBind(m_Cmd);
-            m_HeapBoundThisRecording = true;
+            VulkanResourceHeap::Get().CmdBind(ctx.Cmd);
+            ctx.HeapBoundThisRecording = true;
         }
 
         const bool assembled = gpuWrittenRootData != 0u
@@ -2079,12 +2150,12 @@ namespace OloEngine
                                                              /*commandOrderedBufferReads=*/true);
         if (assembled)
         {
-            ++m_PreparedDrawsThisRecording;
+            ++ctx.PreparedDraws;
             if (gpuWrittenRootData != 0u)
-                ++m_GpuWrittenRootDrawsThisRecording;
+                ++ctx.GpuWrittenRootDraws;
         }
         else
-            ++m_DroppedDrawsThisRecording;
+            ++ctx.DroppedDraws;
         return assembled;
     }
 
@@ -2118,12 +2189,13 @@ namespace OloEngine
     void VulkanRendererAPI::AssembleRootData(const VulkanRootDataLayout& layout, const char* shaderName,
                                              const VulkanVertexArray* vao, const bool commandOrderedBufferReads)
     {
+        auto& ctx = Ctx();
         // Root-struct assembly: one u64 device address per buffer block, one
         // u32 heap slot per image, from the process-global binding state
         // (ADR 0011 §4 — this is the writer half of the mapping contract;
         // the pipeline emitted the reader half from the SAME layout).
         auto& bindingState = VulkanBindingState::Get();
-        m_RootScratch.assign(layout.SizeBytes, 0u);
+        ctx.RootScratch.assign(layout.SizeBytes, 0u);
         for (const auto& field : layout.Fields)
         {
             const auto& binding = field.Binding;
@@ -2188,16 +2260,15 @@ namespace OloEngine
                     // scope bug lost the whole device this way). The null
                     // block makes an unfed binding read deterministic zeros,
                     // matching what this comment always promised.
-                    static std::unordered_set<std::string> s_WarnedBindings;
-                    if (s_WarnedBindings.insert(std::string(shaderName) + ":" + std::to_string(binding.Binding))
-                            .second)
+                    static VulkanWarnOnceSet s_WarnedBindings; // items may fail concurrently (#806)
+                    if (s_WarnedBindings.Insert(std::string(shaderName) + ":" + std::to_string(binding.Binding)))
                     {
                         OLO_CORE_WARN("[RHI/Vulkan] '{}' buffer binding {} has no published occupant — null block",
                                       shaderName, binding.Binding);
                     }
                     address = VulkanFrameArena::Get().GetNullBlockAddress();
                 }
-                std::memcpy(m_RootScratch.data() + field.Offset, &address, sizeof(address));
+                std::memcpy(ctx.RootScratch.data() + field.Offset, &address, sizeof(address));
             }
             else
             {
@@ -2228,8 +2299,8 @@ namespace OloEngine
                         nullSlot =
                             VulkanDescriptorHeapBackend::Get().GetNullSampledHeapSlot(ToNullViewType(binding.ImageDim));
                     }
-                    static std::unordered_set<std::string> s_WarnedSlots;
-                    if (s_WarnedSlots.insert(std::string(shaderName) + ":" + std::to_string(binding.Binding)).second)
+                    static VulkanWarnOnceSet s_WarnedSlots; // items may fail concurrently (#806)
+                    if (s_WarnedSlots.Insert(std::string(shaderName) + ":" + std::to_string(binding.Binding)))
                     {
                         // The sampled fallback is SILENT: reading black from an
                         // unfed optional sampler is the GL contract (GL warns
@@ -2246,14 +2317,14 @@ namespace OloEngine
                     }
                     slot = nullSlot != VulkanResourceHeap::InvalidSlot ? nullSlot : 0u;
                 }
-                std::memcpy(m_RootScratch.data() + field.Offset, &slot, sizeof(slot));
+                std::memcpy(ctx.RootScratch.data() + field.Offset, &slot, sizeof(slot));
                 if (!storageImage)
                 {
                     // The sampler half (#691): the SAMPLER-heap slot
                     // BindTexture staged beside the texture slot. Zero (the
                     // default linear/clamp sampler) when nothing was staged.
                     const u32 samplerSlot = bindingState.GetTextureSamplerSlot(binding.Binding);
-                    std::memcpy(m_RootScratch.data() + field.Offset + VulkanRootDataLayout::kSamplerIndexOffset,
+                    std::memcpy(ctx.RootScratch.data() + field.Offset + VulkanRootDataLayout::kSamplerIndexOffset,
                                 &samplerSlot, sizeof(samplerSlot));
                 }
             }
@@ -2263,8 +2334,9 @@ namespace OloEngine
     bool VulkanRendererAPI::AssembleAndPushRootData(const VulkanRootDataLayout& layout, const char* shaderName,
                                                     const VulkanVertexArray* vao, const bool commandOrderedBufferReads)
     {
+        auto& ctx = Ctx();
         AssembleRootData(layout, shaderName, vao, commandOrderedBufferReads);
-        const auto rootAllocation = VulkanFrameArena::Get().Push(m_RootScratch.data(), m_RootScratch.size(), 16);
+        const auto rootAllocation = VulkanFrameArena::Get().Push(ctx.RootScratch.data(), ctx.RootScratch.size(), 16);
         if (!rootAllocation.IsValid())
         {
             return false; // arena overflow — dropped work, counted by the arena
@@ -2275,31 +2347,32 @@ namespace OloEngine
 
     bool VulkanRendererAPI::PushRootDataAddress(const VkDeviceAddress rootAddress)
     {
-        if (m_Cmd == VK_NULL_HANDLE || rootAddress == 0u)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE || rootAddress == 0u)
             return false;
 
         VkPushDataInfoEXT pushInfo{};
         pushInfo.sType = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
         pushInfo.offset = 0;
         pushInfo.data = { .address = &rootAddress, .size = sizeof(rootAddress) };
-        vkCmdPushDataEXT(m_Cmd, &pushInfo);
+        vkCmdPushDataEXT(ctx.Cmd, &pushInfo);
         return true;
     }
 
     bool VulkanRendererAPI::BindIndexBufferFor(const VulkanVertexArray* vao)
     {
+        auto& ctx = Ctx();
         const auto* indexBuffer = vao != nullptr ? vao->GetVulkanIndexBuffer() : nullptr;
         if (indexBuffer == nullptr || indexBuffer->GetVkBuffer() == VK_NULL_HANDLE)
         {
-            static bool s_Warned = false;
-            if (!s_Warned)
+            static std::atomic<bool> s_Warned{ false };
+            if (!s_Warned.exchange(true, std::memory_order_relaxed))
             {
-                s_Warned = true;
                 OLO_CORE_WARN("[RHI/Vulkan] indexed draw without an index buffer — dropped");
             }
             return false;
         }
-        if (indexBuffer->GetVkBuffer() != m_BoundIndexBuffer)
+        if (indexBuffer->GetVkBuffer() != ctx.BoundIndexBuffer)
         {
             // #809 (maintenance5, core in 1.4): bind the buffer's REAL byte
             // size instead of the implicit whole-buffer bind. The facade's
@@ -2318,13 +2391,13 @@ namespace OloEngine
             if (device != nullptr && device->IsMaintenance5Enabled())
             {
                 const VkDeviceSize sizeBytes = static_cast<VkDeviceSize>(indexBuffer->GetCount()) * sizeof(u32);
-                vkCmdBindIndexBuffer2(m_Cmd, indexBuffer->GetVkBuffer(), 0, sizeBytes, VK_INDEX_TYPE_UINT32);
+                vkCmdBindIndexBuffer2(ctx.Cmd, indexBuffer->GetVkBuffer(), 0, sizeBytes, VK_INDEX_TYPE_UINT32);
             }
             else
             {
-                vkCmdBindIndexBuffer(m_Cmd, indexBuffer->GetVkBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                vkCmdBindIndexBuffer(ctx.Cmd, indexBuffer->GetVkBuffer(), 0, VK_INDEX_TYPE_UINT32);
             }
-            m_BoundIndexBuffer = indexBuffer->GetVkBuffer();
+            ctx.BoundIndexBuffer = indexBuffer->GetVkBuffer();
         }
         return true;
     }
@@ -2333,7 +2406,8 @@ namespace OloEngine
 
     void VulkanRendererAPI::Clear()
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("Clear(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -2346,11 +2420,11 @@ namespace OloEngine
         // — found by #691: every intra-pass consumer sampled
         // its producer's CLEAR). A scope on a stale target ends here and the
         // clear folds into the NEW target's first-draw loadOp.
-        if (m_Scope.Active && !ScopeMatchesCurrentTarget())
+        if (ctx.Scope.Active && !ScopeMatchesCurrentTarget())
         {
             EndRenderingScope();
         }
-        if (!m_Scope.Active)
+        if (!ctx.Scope.Active)
         {
             // Folds into the next scope begin's loadOp (the GL clear-then-
             // draw shape) — recorded against the BOUND target with the LIVE
@@ -2361,23 +2435,23 @@ namespace OloEngine
         // Mid-scope clear: vkCmdClearAttachments against the live scope.
         std::array<VkClearAttachment, 9> clears{};
         u32 clearCount = 0;
-        for (u32 i = 0; i < m_ScopeTargets.ColorCount; ++i)
+        for (u32 i = 0; i < ctx.ScopeTargets.ColorCount; ++i)
         {
-            if (m_ScopeTargets.ColorFormats[i] == VK_FORMAT_UNDEFINED)
+            if (ctx.ScopeTargets.ColorFormats[i] == VK_FORMAT_UNDEFINED)
             {
                 continue;
             }
             auto& clear = clears[clearCount++];
             clear.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             clear.colorAttachment = i;
-            clear.clearValue.color = { { m_State.ClearColor.r, m_State.ClearColor.g, m_State.ClearColor.b,
-                                         m_State.ClearColor.a } };
+            clear.clearValue.color = { { ctx.State.ClearColor.r, ctx.State.ClearColor.g, ctx.State.ClearColor.b,
+                                         ctx.State.ClearColor.a } };
         }
-        if (m_ScopeTargets.DepthFormat != VK_FORMAT_UNDEFINED)
+        if (ctx.ScopeTargets.DepthFormat != VK_FORMAT_UNDEFINED)
         {
             auto& clear = clears[clearCount++];
             clear.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-            clear.clearValue.depthStencil = { m_State.ClearDepth, 0u };
+            clear.clearValue.depthStencil = { ctx.State.ClearDepth, 0u };
         }
         if (clearCount == 0)
         {
@@ -2386,38 +2460,39 @@ namespace OloEngine
         VkClearRect rect{};
         rect.rect = { { 0, 0 }, ScopeExtent() };
         rect.layerCount = 1;
-        vkCmdClearAttachments(m_Cmd, clearCount, clears.data(), 1, &rect);
+        vkCmdClearAttachments(ctx.Cmd, clearCount, clears.data(), 1, &rect);
     }
 
     void VulkanRendererAPI::ClearDepthOnly()
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("ClearDepthOnly(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         // Same stale-scope guard as Clear(): GL clears the BOUND framebuffer,
         // never the lazily-switched previous scope target.
-        if (m_Scope.Active && !ScopeMatchesCurrentTarget())
+        if (ctx.Scope.Active && !ScopeMatchesCurrentTarget())
         {
             EndRenderingScope();
         }
-        if (!m_Scope.Active)
+        if (!ctx.Scope.Active)
         {
             RecordPendingClear(false, true);
             return;
         }
-        if (m_ScopeTargets.DepthFormat == VK_FORMAT_UNDEFINED)
+        if (ctx.ScopeTargets.DepthFormat == VK_FORMAT_UNDEFINED)
         {
             return;
         }
         VkClearAttachment clear{};
         clear.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        clear.clearValue.depthStencil = { m_State.ClearDepth, 0u };
+        clear.clearValue.depthStencil = { ctx.State.ClearDepth, 0u };
         VkClearRect rect{};
         rect.rect = { { 0, 0 }, ScopeExtent() };
         rect.layerCount = 1;
-        vkCmdClearAttachments(m_Cmd, 1, &clear, 1, &rect);
+        vkCmdClearAttachments(ctx.Cmd, 1, &clear, 1, &rect);
     }
 
     void VulkanRendererAPI::ClearColorAndDepth()
@@ -2427,15 +2502,17 @@ namespace OloEngine
 
     void VulkanRendererAPI::DrawArrays(const Ref<VertexArray>& vertexArray, u32 vertexCount)
     {
+        auto& ctx = Ctx();
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
         {
-            vkCmdDraw(m_Cmd, vertexCount, 1, 0, 0);
+            vkCmdDraw(ctx.Cmd, vertexCount, 1, 0, 0);
         }
     }
 
     void VulkanRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount)
     {
+        auto& ctx = Ctx();
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
@@ -2446,27 +2523,29 @@ namespace OloEngine
             // so the whole pass suite silently drew nothing (found by
             // VulkanPassSuiteTest's first full-graph frame).
             const u32 count = indexCount != 0 ? indexCount : vao->GetVulkanIndexBuffer()->GetCount();
-            vkCmdDrawIndexed(m_Cmd, count, 1, 0, 0, 0);
+            vkCmdDrawIndexed(ctx.Cmd, count, 1, 0, 0, 0);
         }
     }
 
     void VulkanRendererAPI::DrawIndexedInstanced(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 instanceCount)
     {
+        auto& ctx = Ctx();
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
             // Same 0 = whole-index-buffer facade contract as DrawIndexed.
             const u32 count = indexCount != 0 ? indexCount : vao->GetVulkanIndexBuffer()->GetCount();
-            vkCmdDrawIndexed(m_Cmd, count, instanceCount, 0, 0, 0);
+            vkCmdDrawIndexed(ctx.Cmd, count, instanceCount, 0, 0, 0);
         }
     }
 
     void VulkanRendererAPI::DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount)
     {
+        auto& ctx = Ctx();
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_LINE_LIST))
         {
-            vkCmdDraw(m_Cmd, vertexCount, 1, 0, 0);
+            vkCmdDraw(ctx.Cmd, vertexCount, 1, 0, 0);
         }
     }
 
@@ -2480,14 +2559,15 @@ namespace OloEngine
     // Raw form) record it here first, exactly as glPatchParameteri would.
     void VulkanRendererAPI::DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 patchVertices)
     {
+        auto& ctx = Ctx();
         if (patchVertices != 0)
-            m_State.PatchVertexCount = patchVertices;
+            ctx.State.PatchVertexCount = patchVertices;
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_PATCH_LIST) && BindIndexBufferFor(vao))
         {
             // Same 0 = whole-index-buffer facade contract as DrawIndexed.
             const u32 count = indexCount != 0 ? indexCount : vao->GetVulkanIndexBuffer()->GetCount();
-            vkCmdDrawIndexed(m_Cmd, count, 1, 0, 0, 0);
+            vkCmdDrawIndexed(ctx.Cmd, count, 1, 0, 0, 0);
         }
     }
 
@@ -2498,6 +2578,7 @@ namespace OloEngine
 
     void VulkanRendererAPI::DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex)
     {
+        auto& ctx = Ctx();
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
         {
@@ -2507,12 +2588,13 @@ namespace OloEngine
         const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
-            vkCmdDrawIndexed(m_Cmd, indexCount, 1, baseIndex, 0, 0);
+            vkCmdDrawIndexed(ctx.Cmd, indexCount, 1, baseIndex, 0, 0);
         }
     }
 
     void VulkanRendererAPI::DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex, u32 instanceCount)
     {
+        auto& ctx = Ctx();
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
         {
@@ -2522,12 +2604,13 @@ namespace OloEngine
         const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
-            vkCmdDrawIndexed(m_Cmd, indexCount, instanceCount, baseIndex, 0, 0);
+            vkCmdDrawIndexed(ctx.Cmd, indexCount, instanceCount, baseIndex, 0, 0);
         }
     }
 
     void VulkanRendererAPI::DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 patchVertices)
     {
+        auto& ctx = Ctx();
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
         {
@@ -2535,11 +2618,11 @@ namespace OloEngine
             return;
         }
         if (patchVertices != 0)
-            m_State.PatchVertexCount = patchVertices;
+            ctx.State.PatchVertexCount = patchVertices;
         const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_PATCH_LIST) && BindIndexBufferFor(vao))
         {
-            vkCmdDrawIndexed(m_Cmd, indexCount, 1, 0, 0, 0);
+            vkCmdDrawIndexed(ctx.Cmd, indexCount, 1, 0, 0, 0);
         }
     }
 
@@ -2579,42 +2662,46 @@ namespace OloEngine
 
     void VulkanRendererAPI::DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
     {
+        auto& ctx = Ctx();
         const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "DrawElementsIndirect(unresolvable indirect buffer)");
         if (indirect == VK_NULL_HANDLE)
             return;
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
-            vkCmdDrawIndexedIndirect(m_Cmd, indirect, 0, 1, 0);
+            vkCmdDrawIndexedIndirect(ctx.Cmd, indirect, 0, 1, 0);
         }
     }
 
     void VulkanRendererAPI::DrawArraysIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
     {
+        auto& ctx = Ctx();
         const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "DrawArraysIndirect(unresolvable indirect buffer)");
         if (indirect == VK_NULL_HANDLE)
             return;
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
         {
-            vkCmdDrawIndirect(m_Cmd, indirect, 0, 1, 0);
+            vkCmdDrawIndirect(ctx.Cmd, indirect, 0, 1, 0);
         }
     }
 
     void VulkanRendererAPI::DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
                                                       RHI::PrimitiveTopology topology)
     {
+        auto& ctx = Ctx();
         const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "DrawBoundElementsIndirect(unresolvable indirect buffer)");
         if (indirect == VK_NULL_HANDLE)
             return;
-        if (PrepareDraw(m_BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(m_BoundVertexArray))
+        if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(ctx.BoundVertexArray))
         {
-            vkCmdDrawIndexedIndirect(m_Cmd, indirect, 0, 1, 0);
+            vkCmdDrawIndexedIndirect(ctx.Cmd, indirect, 0, 1, 0);
         }
     }
 
     void VulkanRendererAPI::MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indirectBuffer, u32 indirectOffsetBytes, RHI::ResourceHandle parameterBuffer, u32 parameterOffsetBytes, u32 maxDrawCount, u32 strideBytes)
     {
+        auto& ctx = Ctx();
         if (maxDrawCount == 0)
             return; // GL twin's early-out: nothing to draw
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
@@ -2638,27 +2725,27 @@ namespace OloEngine
         if (device == nullptr || !device->IsDrawIndirectCountEnabled() ||
             (maxDrawCount > 1 && !device->IsMultiDrawIndirectEnabled()))
         {
-            static bool s_Warned = false;
-            if (!s_Warned)
+            static std::atomic<bool> s_Warned{ false };
+            if (!s_Warned.exchange(true, std::memory_order_relaxed))
             {
-                s_Warned = true;
                 OLO_CORE_ERROR("[RHI/Vulkan] MultiDrawElementsIndirectCountRaw needs drawIndirectCount"
                                "/multiDrawIndirect, which this device did not enable — draw dropped");
             }
-            ++m_DroppedDrawsThisRecording;
+            ++ctx.DroppedDraws;
             return;
         }
 
         const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
-            vkCmdDrawIndexedIndirectCount(m_Cmd, indirect, indirectOffsetBytes, parameter, parameterOffsetBytes,
+            vkCmdDrawIndexedIndirectCount(ctx.Cmd, indirect, indirectOffsetBytes, parameter, parameterOffsetBytes,
                                           maxDrawCount, strideBytes);
         }
     }
 
     void VulkanRendererAPI::DrawMeshTasks(u32 groupsX, u32 groupsY, u32 groupsZ)
     {
+        auto& ctx = Ctx();
         // Facade contract: a zero group count in any dimension is a legal
         // no-op — before every guard, so an empty launch is neither a drop
         // nor a warn (the DispatchComputeIndirect "no survivors cost
@@ -2674,15 +2761,14 @@ namespace OloEngine
         // (the MultiDrawElementsIndirectCountRaw shape).
         if (const auto* device = VulkanDevice::Get(); device == nullptr || !device->IsMeshShaderEnabled())
         {
-            static bool s_Warned = false;
-            if (!s_Warned)
+            static std::atomic<bool> s_Warned{ false };
+            if (!s_Warned.exchange(true, std::memory_order_relaxed))
             {
-                s_Warned = true;
                 OLO_CORE_ERROR("[RHI/Vulkan] DrawMeshTasks needs VK_EXT_mesh_shader (task+mesh), which this "
                                "device did not enable — the capability gate should have routed this away; "
                                "draw dropped");
             }
-            ++m_DroppedDrawsThisRecording;
+            ++ctx.DroppedDraws;
             return;
         }
 
@@ -2693,13 +2779,14 @@ namespace OloEngine
         // block, exactly as compute dispatches do.
         if (PrepareDrawCommon(nullptr, /*meshPipeline=*/true))
         {
-            vkCmdDrawMeshTasksEXT(m_Cmd, groupsX, groupsY, groupsZ);
+            vkCmdDrawMeshTasksEXT(ctx.Cmd, groupsX, groupsY, groupsZ);
         }
     }
 
     void VulkanRendererAPI::DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("DispatchCompute(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -2707,10 +2794,9 @@ namespace OloEngine
         auto* shader = VulkanComputeShader::GetCurrentlyBound();
         if (shader == nullptr || !shader->IsValid())
         {
-            static bool s_Warned = false;
-            if (!s_Warned)
+            static std::atomic<bool> s_Warned{ false };
+            if (!s_Warned.exchange(true, std::memory_order_relaxed))
             {
-                s_Warned = true;
                 OLO_CORE_WARN("[RHI/Vulkan] dispatch with no valid compute shader bound - dropped");
             }
             return;
@@ -2727,24 +2813,25 @@ namespace OloEngine
             return;
         }
 
-        vkCmdBindPipeline(m_Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-        if (!m_HeapBoundThisRecording)
+        vkCmdBindPipeline(ctx.Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+        if (!ctx.HeapBoundThisRecording)
         {
             // Binds BOTH heaps (the sampler heap cascades inside CmdBind).
-            VulkanResourceHeap::Get().CmdBind(m_Cmd);
-            m_HeapBoundThisRecording = true;
+            VulkanResourceHeap::Get().CmdBind(ctx.Cmd);
+            ctx.HeapBoundThisRecording = true;
         }
         if (!AssembleAndPushRootData(layout, shader->GetName().c_str(), nullptr,
                                      /*commandOrderedBufferReads=*/false))
         {
             return;
         }
-        vkCmdDispatch(m_Cmd, std::max(groupsX, 1u), std::max(groupsY, 1u), std::max(groupsZ, 1u));
+        vkCmdDispatch(ctx.Cmd, std::max(groupsX, 1u), std::max(groupsY, 1u), std::max(groupsZ, 1u));
     }
 
     void VulkanRendererAPI::DispatchComputeIndirect(RHI::ResourceHandle argsBuffer, u32 offsetBytes)
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("DispatchComputeIndirect(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -2752,10 +2839,9 @@ namespace OloEngine
         auto* shader = VulkanComputeShader::GetCurrentlyBound();
         if (shader == nullptr || !shader->IsValid())
         {
-            static bool s_Warned = false;
-            if (!s_Warned)
+            static std::atomic<bool> s_Warned{ false };
+            if (!s_Warned.exchange(true, std::memory_order_relaxed))
             {
-                s_Warned = true;
                 OLO_CORE_WARN("[RHI/Vulkan] indirect dispatch with no valid compute shader bound - dropped");
             }
             return;
@@ -2781,18 +2867,18 @@ namespace OloEngine
             return;
         }
 
-        vkCmdBindPipeline(m_Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-        if (!m_HeapBoundThisRecording)
+        vkCmdBindPipeline(ctx.Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+        if (!ctx.HeapBoundThisRecording)
         {
-            VulkanResourceHeap::Get().CmdBind(m_Cmd);
-            m_HeapBoundThisRecording = true;
+            VulkanResourceHeap::Get().CmdBind(ctx.Cmd);
+            ctx.HeapBoundThisRecording = true;
         }
         if (!AssembleAndPushRootData(layout, shader->GetName().c_str(), nullptr,
                                      /*commandOrderedBufferReads=*/false))
         {
             return;
         }
-        vkCmdDispatchIndirect(m_Cmd, args, static_cast<VkDeviceSize>(offsetBytes));
+        vkCmdDispatchIndirect(ctx.Cmd, args, static_cast<VkDeviceSize>(offsetBytes));
     }
 
     void VulkanRendererAPI::SetFrameBackbuffer(const RHI::ResourceHandle handle, const VkImageView view,
@@ -2829,9 +2915,10 @@ namespace OloEngine
 
     void VulkanRendererAPI::ClearFrameBackbuffer()
     {
+        auto& ctx = Ctx();
         // A scope still open against the retiring publication must not survive
         // into the next frame's (different) image.
-        if (m_Scope.Active && m_Scope.TargetIsBackbuffer)
+        if (ctx.Scope.Active && ctx.Scope.TargetIsBackbuffer)
         {
             EndRenderingScope();
         }
@@ -2841,7 +2928,8 @@ namespace OloEngine
 
     bool VulkanRendererAPI::FinalizeBackbufferForPresent(const bool frameRendered)
     {
-        if (m_Cmd == VK_NULL_HANDLE || !m_Backbuffer.IsValid())
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE || !m_Backbuffer.IsValid())
         {
             return false;
         }
@@ -2854,8 +2942,8 @@ namespace OloEngine
         // backbuffer qualifies (#691): the target-blind flag
         // let a leftover FBO-pass clear land on the screen here. A pending
         // clear for another target is materialized by EndRecording.
-        if (frameRendered && !m_BackbufferWritten && m_PendingClear.Color && m_PendingClear.TargetIsBackbuffer &&
-            m_PendingClear.BackbufferView == m_Backbuffer.View)
+        if (frameRendered && !m_BackbufferWritten && ctx.Pending.Color && ctx.Pending.TargetIsBackbuffer &&
+            ctx.Pending.BackbufferView == m_Backbuffer.View)
         {
             VulkanBindingState::Get().SetCurrentFramebuffer(nullptr);
             if (EnsureRenderingScopeForDraw())
@@ -3204,6 +3292,7 @@ namespace OloEngine
     void VulkanRendererAPI::EnsureImageLayoutForDescriptor(VkImage image, VkImageLayout target,
                                                            const VkImageSubresourceRange& range)
     {
+        auto& ctx = Ctx();
         // The bind-time layout seam behind BOTH descriptor routes — see the
         // header note. GL-parity mid-pass visibility (#691): GL
         // makes a just-rendered (or just-copied) image visible to a later
@@ -3232,7 +3321,7 @@ namespace OloEngine
         // target) would otherwise stay UNDEFINED while the descriptor claims
         // otherwise; transitioning it is free — it discards contents that are
         // undefined anyway.
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             return;
         }
@@ -3241,11 +3330,11 @@ namespace OloEngine
         {
             return;
         }
-        m_LayoutTracker.RegisterImage(image, std::max(info->MipLevels, 1u), std::max(info->ArrayLayers, 1u),
-                                      info->RegistrationId, info->InitialLayout);
+        ctx.Tracker.RegisterImage(image, std::max(info->MipLevels, 1u), std::max(info->ArrayLayers, 1u),
+                                  info->RegistrationId, info->InitialLayout);
 
         std::vector<VkImageMemoryBarrier2> barriers;
-        m_LayoutTracker.ForEachLayoutRun(
+        ctx.Tracker.ForEachLayoutRun(
             image, range,
             [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
             {
@@ -3295,10 +3384,10 @@ namespace OloEngine
             dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
             dep.imageMemoryBarrierCount = static_cast<u32>(barriers.size());
             dep.pImageMemoryBarriers = barriers.data();
-            vkCmdPipelineBarrier2(m_Cmd, &dep);
+            vkCmdPipelineBarrier2(ctx.Cmd, &dep);
             for (const auto& b : barriers)
             {
-                m_LayoutTracker.SetLayout(image, b.subresourceRange, target);
+                ctx.Tracker.SetLayout(image, b.subresourceRange, target);
             }
         }
     }
@@ -3307,6 +3396,7 @@ namespace OloEngine
                                                     VkImageLayout newLayout, VkAccessFlags2 dstAccess,
                                                     std::vector<VkImageMemoryBarrier2>& out)
     {
+        auto& ctx = Ctx();
         // The CopyImageSubData / ClearTextureFloat discipline, shared by the
         // blit path: register the image with the tracker (idempotent), emit
         // one exact-oldLayout barrier per layout run — a same-layout run still
@@ -3314,10 +3404,10 @@ namespace OloEngine
         // silently disappears — and advance the tracker.
         if (const auto* info = VulkanImageInfoRegistry::Get().Lookup(image); info != nullptr)
         {
-            m_LayoutTracker.RegisterImage(image, std::max(info->MipLevels, 1u), std::max(info->ArrayLayers, 1u),
-                                          info->RegistrationId, info->InitialLayout);
+            ctx.Tracker.RegisterImage(image, std::max(info->MipLevels, 1u), std::max(info->ArrayLayers, 1u),
+                                      info->RegistrationId, info->InitialLayout);
         }
-        m_LayoutTracker.ForEachLayoutRun(
+        ctx.Tracker.ForEachLayoutRun(
             image, range,
             [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
             {
@@ -3335,17 +3425,18 @@ namespace OloEngine
                 b.subresourceRange = run;
                 out.push_back(b);
             });
-        m_LayoutTracker.SetLayout(image, range, newLayout);
+        ctx.Tracker.SetLayout(image, range, newLayout);
     }
 
     void VulkanRendererAPI::CopyImageSubData(RHI::ResourceHandle src, TextureTargetType /*srcTarget*/, RHI::ResourceHandle dst, TextureTargetType /*dstTarget*/, u32 width, u32 height)
     {
+        auto& ctx = Ctx();
         // The facade contract is glCopyImageSubData's no-offset form: mip 0,
         // origin 0, one layer, width x height texels (GTAO's final AO copy,
         // SSAO's blur copy). Lowered as vkCmdCopyImage with exact-oldLayout
         // transitions into the transfer layouts, per layout run — the
         // ClearTextureFloat shape (#691).
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("CopyImageSubData(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -3370,10 +3461,10 @@ namespace OloEngine
 
         const VkImageAspectFlags srcAspect = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*srcInfo));
         const VkImageAspectFlags dstAspect = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*dstInfo));
-        m_LayoutTracker.RegisterImage(srcImage, std::max(srcInfo->MipLevels, 1u), std::max(srcInfo->ArrayLayers, 1u),
-                                      srcInfo->RegistrationId, srcInfo->InitialLayout);
-        m_LayoutTracker.RegisterImage(dstImage, std::max(dstInfo->MipLevels, 1u), std::max(dstInfo->ArrayLayers, 1u),
-                                      dstInfo->RegistrationId, dstInfo->InitialLayout);
+        ctx.Tracker.RegisterImage(srcImage, std::max(srcInfo->MipLevels, 1u), std::max(srcInfo->ArrayLayers, 1u),
+                                  srcInfo->RegistrationId, srcInfo->InitialLayout);
+        ctx.Tracker.RegisterImage(dstImage, std::max(dstInfo->MipLevels, 1u), std::max(dstInfo->ArrayLayers, 1u),
+                                  dstInfo->RegistrationId, dstInfo->InitialLayout);
 
         VkImageSubresourceRange srcRange{ srcAspect, 0u, 1u, 0u, 1u };
         VkImageSubresourceRange dstRange{ dstAspect, 0u, 1u, 0u, 1u };
@@ -3386,7 +3477,7 @@ namespace OloEngine
         const auto stageTransition = [&](const VkImage image, const VkImageSubresourceRange& range,
                                          const VkImageLayout newLayout, const VkAccessFlags2 dstAccess)
         {
-            m_LayoutTracker.ForEachLayoutRun(
+            ctx.Tracker.ForEachLayoutRun(
                 image, range,
                 [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
                 {
@@ -3404,7 +3495,7 @@ namespace OloEngine
                     b.subresourceRange = run;
                     toTransfer.push_back(b);
                 });
-            m_LayoutTracker.SetLayout(image, range, newLayout);
+            ctx.Tracker.SetLayout(image, range, newLayout);
         };
         stageTransition(srcImage, srcRange, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_2_TRANSFER_READ_BIT);
         stageTransition(dstImage, dstRange, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -3413,13 +3504,13 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
 
         VkImageCopy region{};
         region.srcSubresource = { srcAspect, 0u, 0u, 1u };
         region.dstSubresource = { dstAspect, 0u, 0u, 1u };
         region.extent = { width, height, 1u };
-        vkCmdCopyImage(m_Cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
+        vkCmdCopyImage(ctx.Cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
     }
 
@@ -3438,11 +3529,12 @@ namespace OloEngine
 
     void VulkanRendererAPI::CopyImageSubDataRegion(RHI::ResourceHandle src, TextureTargetType /*srcTarget*/, i32 srcLevel, i32 srcX, i32 srcY, i32 srcZ, RHI::ResourceHandle dst, TextureTargetType /*dstTarget*/, i32 dstLevel, i32 dstX, i32 dstY, i32 dstZ, u32 width, u32 height)
     {
+        auto& ctx = Ctx();
         // Offsets pass through UNSCALED (the facade's block-copy contract,
         // RendererAPI.h): for a mixed compressed/uncompressed pair Vulkan takes
         // the same source-texel extent and dest-texel offsets as GL. Same
         // transition discipline as the no-offset sibling above.
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("CopyImageSubDataRegion(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -3487,10 +3579,10 @@ namespace OloEngine
 
         const VkImageAspectFlags srcAspect = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*srcInfo));
         const VkImageAspectFlags dstAspect = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*dstInfo));
-        m_LayoutTracker.RegisterImage(srcImage, std::max(srcInfo->MipLevels, 1u), std::max(srcInfo->ArrayLayers, 1u),
-                                      srcInfo->RegistrationId, srcInfo->InitialLayout);
-        m_LayoutTracker.RegisterImage(dstImage, std::max(dstInfo->MipLevels, 1u), std::max(dstInfo->ArrayLayers, 1u),
-                                      dstInfo->RegistrationId, dstInfo->InitialLayout);
+        ctx.Tracker.RegisterImage(srcImage, std::max(srcInfo->MipLevels, 1u), std::max(srcInfo->ArrayLayers, 1u),
+                                  srcInfo->RegistrationId, srcInfo->InitialLayout);
+        ctx.Tracker.RegisterImage(dstImage, std::max(dstInfo->MipLevels, 1u), std::max(dstInfo->ArrayLayers, 1u),
+                                  dstInfo->RegistrationId, dstInfo->InitialLayout);
 
         // Same 3D-vs-array split as the copy region below: a 3D image has one
         // array layer, so its barrier range must name layer 0 whatever slice
@@ -3513,7 +3605,7 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
 
         // z means different things per dimensionality, and Vulkan checks it:
         // for a 3D image baseArrayLayer MUST be 0 and the slice is the copy's
@@ -3533,7 +3625,7 @@ namespace OloEngine
         region.srcOffset = { srcX, srcY, srcIsVolume ? srcZ : 0 };
         region.dstOffset = { dstX, dstY, dstIsVolume ? dstZ : 0 };
         region.extent = { width, height, 1u };
-        vkCmdCopyImage(m_Cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
+        vkCmdCopyImage(ctx.Cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
     }
 
@@ -3544,17 +3636,19 @@ namespace OloEngine
 
     VulkanRendererAPI::FramebufferAttachmentSelection* VulkanRendererAPI::FindSelection(RHI::ResourceHandle framebuffer)
     {
+        auto& ctx = Ctx();
         if (!framebuffer.IsValid())
         {
             return nullptr;
         }
-        const auto it = m_FramebufferSelections.find(SelectionKey(framebuffer));
-        return it != m_FramebufferSelections.end() ? &it->second : nullptr;
+        const auto it = ctx.Selections.find(SelectionKey(framebuffer));
+        return it != ctx.Selections.end() ? &it->second : nullptr;
     }
 
     void VulkanRendererAPI::EndScopeIfTargets(RHI::ResourceHandle framebuffer)
     {
-        if (m_Scope.Active && m_Scope.Target != nullptr && m_Scope.Target->GetRHIHandle() == framebuffer)
+        auto& ctx = Ctx();
+        if (ctx.Scope.Active && ctx.Scope.Target != nullptr && ctx.Scope.Target->GetRHIHandle() == framebuffer)
         {
             EndRenderingScope();
         }
@@ -3584,6 +3678,10 @@ namespace OloEngine
 
     RHI::ResourceHandle VulkanRendererAPI::CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture, u32 /*numLayers*/)
     {
+        if (RefuseOnWorker("CreateDepthArrayCompareOffViewHandle"))
+        {
+            return {};
+        }
         // GL builds a second texture VIEW whose sampler state has depth
         // comparison OFF, so PCSS blocker searches can read raw occluder
         // depth. On this backend the equivalent needs no new view OBJECT:
@@ -3663,6 +3761,10 @@ namespace OloEngine
 
     void VulkanRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height, RHI::Format sourceFormat, const void* data)
     {
+        if (RefuseOnWorker("UploadTextureSubImage2D"))
+        {
+            return;
+        }
         // Whole-image form — the offset overload with a zero origin (#691;
         // the shared implementation lives there).
         UploadTextureSubImage2D(texture, 0, 0, width, height, sourceFormat, data);
@@ -3682,14 +3784,20 @@ namespace OloEngine
     // unavailable result renders (never culls).
     void VulkanRendererAPI::BeginConditionalRender(RHI::ResourceHandle query)
     {
+        if (RefuseOnWorker("BeginConditionalRender"))
+        {
+            return;
+        }
+        auto& ctx = Ctx();
         u64 samplesPassed = 0;
         const bool available = ReadQueryResult(query, false, samplesPassed);
-        m_ConditionalRenderSkip = available && samplesPassed == 0u;
+        ctx.ConditionalRenderSkip = available && samplesPassed == 0u;
     }
 
     void VulkanRendererAPI::EndConditionalRender()
     {
-        m_ConditionalRenderSkip = false;
+        auto& ctx = Ctx();
+        ctx.ConditionalRenderSkip = false;
     }
 
     void VulkanRendererAPI::BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
@@ -3736,10 +3844,11 @@ namespace OloEngine
 
     void VulkanRendererAPI::BindVertexArrayRaw(RHI::ResourceHandle vertexArray)
     {
+        auto& ctx = Ctx();
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
-        m_BoundVertexArray = (entry != nullptr && entry->Kind == VulkanRootObjectKind::VertexArray)
-                                 ? static_cast<VulkanVertexArray*>(entry->Object)
-                                 : nullptr;
+        ctx.BoundVertexArray = (entry != nullptr && entry->Kind == VulkanRootObjectKind::VertexArray)
+                                   ? static_cast<VulkanVertexArray*>(entry->Object)
+                                   : nullptr;
     }
 
     // Defined below (after the draw entries); declared here because the
@@ -3770,27 +3879,30 @@ namespace OloEngine
 
     void VulkanRendererAPI::DrawBoundIndexed(RHI::PrimitiveTopology topology, u32 indexCount, RHI::IndexType /*indexType*/, u32 baseIndex)
     {
+        auto& ctx = Ctx();
         // The engine's index format is fixed 32-bit (IndexBuffer.h contract);
         // BindIndexBufferFor binds UINT32 accordingly.
-        if (PrepareDraw(m_BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(m_BoundVertexArray))
+        if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(ctx.BoundVertexArray))
         {
-            vkCmdDrawIndexed(m_Cmd, indexCount, 1, baseIndex, 0, 0);
+            vkCmdDrawIndexed(ctx.Cmd, indexCount, 1, baseIndex, 0, 0);
         }
     }
 
     void VulkanRendererAPI::DrawBoundIndexedInstanced(RHI::PrimitiveTopology topology, u32 indexCount, RHI::IndexType /*indexType*/, u32 baseIndex, u32 instanceCount)
     {
-        if (PrepareDraw(m_BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(m_BoundVertexArray))
+        auto& ctx = Ctx();
+        if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(ctx.BoundVertexArray))
         {
-            vkCmdDrawIndexed(m_Cmd, indexCount, instanceCount, baseIndex, 0, 0);
+            vkCmdDrawIndexed(ctx.Cmd, indexCount, instanceCount, baseIndex, 0, 0);
         }
     }
 
     void VulkanRendererAPI::DrawBoundArrays(RHI::PrimitiveTopology topology, u32 firstVertex, u32 vertexCount)
     {
-        if (PrepareDraw(m_BoundVertexArray, ToVkTopology(topology)))
+        auto& ctx = Ctx();
+        if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)))
         {
-            vkCmdDraw(m_Cmd, vertexCount, 1, firstVertex, 0);
+            vkCmdDraw(ctx.Cmd, vertexCount, 1, firstVertex, 0);
         }
     }
 
@@ -3807,10 +3919,9 @@ namespace OloEngine
             Ref<VulkanTexture2D> resolved = VulkanRawTextureRegistry::Get().Lookup2D(texture);
             if (resolved == nullptr)
             {
-                static bool s_WarnedForeign = false;
-                if (!s_WarnedForeign)
+                static std::atomic<bool> s_WarnedForeign{ false };
+                if (!s_WarnedForeign.exchange(true, std::memory_order_relaxed))
                 {
-                    s_WarnedForeign = true;
                     OLO_CORE_WARN("[RHI/Vulkan] {}: only raw-registry textures (CreateTexture2DHandle) can be "
                                   "attached — attach skipped (warn-once)",
                                   entryPoint);
@@ -3828,10 +3939,9 @@ namespace OloEngine
             {
                 return false;
             }
-            static bool s_WarnedMip = false;
-            if (!s_WarnedMip)
+            static std::atomic<bool> s_WarnedMip{ false };
+            if (!s_WarnedMip.exchange(true, std::memory_order_relaxed))
             {
-                s_WarnedMip = true;
                 OLO_CORE_WARN("[RHI/Vulkan] {}: mip {} attachment is not lowered yet — attach skipped (warn-once)",
                               entryPoint, mipLevel);
             }
@@ -3841,6 +3951,10 @@ namespace OloEngine
 
     void VulkanRendererAPI::AttachFramebufferColorTexture(RHI::ResourceHandle framebuffer, u32 attachmentIndex, RHI::ResourceHandle texture, u32 mipLevel)
     {
+        if (RefuseOnWorker("AttachFramebufferColorTexture"))
+        {
+            return;
+        }
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
@@ -3867,6 +3981,10 @@ namespace OloEngine
 
     void VulkanRendererAPI::AttachFramebufferDepthTexture(RHI::ResourceHandle framebuffer, RHI::ResourceHandle texture, u32 mipLevel)
     {
+        if (RefuseOnWorker("AttachFramebufferDepthTexture"))
+        {
+            return;
+        }
         auto* fb = ResolveFramebufferObject(framebuffer);
         if (fb == nullptr)
         {
@@ -3945,11 +4063,12 @@ namespace OloEngine
 
     void VulkanRendererAPI::SetFramebufferDrawAttachments(RHI::ResourceHandle framebuffer, std::span<const u32> attachmentIndices)
     {
+        auto& ctx = Ctx();
         if (!framebuffer.IsValid())
         {
             return;
         }
-        auto& selection = m_FramebufferSelections[SelectionKey(framebuffer)];
+        auto& selection = ctx.Selections[SelectionKey(framebuffer)];
         const u32 count = std::min<u32>(static_cast<u32>(attachmentIndices.size()),
                                         static_cast<u32>(selection.DrawList.size()));
         bool changed = count != selection.DrawListCount;
@@ -3990,12 +4109,13 @@ namespace OloEngine
 
     void VulkanRendererAPI::SetFramebufferReadAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex)
     {
+        auto& ctx = Ctx();
         if (!framebuffer.IsValid())
         {
             return;
         }
         // Read selection only feeds blits — no scope interaction.
-        m_FramebufferSelections[SelectionKey(framebuffer)].ReadAttachment = attachmentIndex;
+        ctx.Selections[SelectionKey(framebuffer)].ReadAttachment = attachmentIndex;
     }
 
     void VulkanRendererAPI::ClearFramebufferColorAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex, const glm::vec4& color)
@@ -4047,6 +4167,7 @@ namespace OloEngine
 
     void VulkanRendererAPI::BlitFramebuffer(RHI::ResourceHandle srcFramebuffer, RHI::ResourceHandle dstFramebuffer, i32 srcX0, i32 srcY0, i32 srcX1, i32 srcY1, i32 dstX0, i32 dstY0, i32 dstX1, i32 dstY1, RHI::BlitAspect aspect, RHI::Filter /*filter*/)
     {
+        auto& ctx = Ctx();
         // The engine's production blits are 1:1 full-surface copies (depth
         // seeds, entity-ID handoffs, G-buffer resolves), lowered here as
         // vkCmdCopyImage with the CopyImageSubData transition discipline. A
@@ -4054,7 +4175,7 @@ namespace OloEngine
         // no current caller scales, so that arm is a loud warn-once (report,
         // don't guess) rather than silent wrong output. The filter argument
         // is meaningless for a 1:1 copy (Nearest semantics by construction).
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("BlitFramebuffer(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -4077,10 +4198,9 @@ namespace OloEngine
         if (srcX0 != 0 || srcY0 != 0 || dstX0 != 0 || dstY0 != 0 || (dstX1 - dstX0) != width ||
             (dstY1 - dstY0) != height)
         {
-            static bool s_WarnedScaled = false;
-            if (!s_WarnedScaled)
+            static std::atomic<bool> s_WarnedScaled{ false };
+            if (!s_WarnedScaled.exchange(true, std::memory_order_relaxed))
             {
-                s_WarnedScaled = true;
                 OLO_CORE_WARN("[RHI/Vulkan] BlitFramebuffer with offset/scaling rects is not lowered yet "
                               "(src {}x{} at {},{} -> dst {}x{} at {},{}) — blit skipped",
                               width, height, srcX0, srcY0, dstX1 - dstX0, dstY1 - dstY0, dstX0, dstY0);
@@ -4125,13 +4245,13 @@ namespace OloEngine
             dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
             dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
             dep.pImageMemoryBarriers = toTransfer.data();
-            vkCmdPipelineBarrier2(m_Cmd, &dep);
+            vkCmdPipelineBarrier2(ctx.Cmd, &dep);
 
             VkImageCopy region{};
             region.srcSubresource = { aspectMask, 0u, 0u, 1u };
             region.dstSubresource = { aspectMask, 0u, 0u, 1u };
             region.extent = { static_cast<u32>(width), static_cast<u32>(height), 1u };
-            vkCmdCopyImage(m_Cmd, srcVk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstVk,
+            vkCmdCopyImage(ctx.Cmd, srcVk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstVk,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
         };
 
@@ -4179,6 +4299,10 @@ namespace OloEngine
 
     void VulkanRendererAPI::AllocateBufferStorage(RHI::ResourceHandle buffer, u64 sizeBytes, RHI::MemoryResidency residency)
     {
+        if (RefuseOnWorker("AllocateBufferStorage"))
+        {
+            return;
+        }
         // Raw-handle family only (CreateBufferHandle mints these). An
         // object-backed buffer sizes itself; GL's glNamedBufferData shape has
         // no other Vulkan tenant.
@@ -4187,6 +4311,10 @@ namespace OloEngine
 
     void* VulkanRendererAPI::AllocatePersistentUploadStorage(RHI::ResourceHandle /*buffer*/, u64 /*sizeBytes*/)
     {
+        if (RefuseOnWorker("AllocatePersistentUploadStorage"))
+        {
+            return nullptr;
+        }
         UnimplementedStub("AllocatePersistentUploadStorage");
         return nullptr;
     }
@@ -4198,11 +4326,19 @@ namespace OloEngine
 
     void VulkanRendererAPI::UploadBufferSubData(RHI::ResourceHandle /*buffer*/, u64 /*offsetBytes*/, u64 /*sizeBytes*/, const void* /*data*/)
     {
+        if (RefuseOnWorker("UploadBufferSubData"))
+        {
+            return;
+        }
         UnimplementedStub("UploadBufferSubData");
     }
 
     void VulkanRendererAPI::ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest)
     {
+        if (RefuseOnWorker("ReadBufferSubData"))
+        {
+            return;
+        }
         if (dest == nullptr || sizeBytes == 0)
             return;
 
@@ -4246,9 +4382,10 @@ namespace OloEngine
 
     void VulkanRendererAPI::CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer, u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes)
     {
+        auto& ctx = Ctx();
         if (sizeBytes == 0)
             return;
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("CopyBufferSubData(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -4292,7 +4429,7 @@ namespace OloEngine
             dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
             dep.memoryBarrierCount = 1;
             dep.pMemoryBarriers = &barrier;
-            vkCmdPipelineBarrier2(m_Cmd, &dep);
+            vkCmdPipelineBarrier2(ctx.Cmd, &dep);
         };
         globalBarrier(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -4301,7 +4438,7 @@ namespace OloEngine
         region.srcOffset = srcOffsetBytes;
         region.dstOffset = dstOffsetBytes;
         region.size = sizeBytes;
-        vkCmdCopyBuffer(m_Cmd, src, dst, 1, &region);
+        vkCmdCopyBuffer(ctx.Cmd, src, dst, 1, &region);
 
         globalBarrier(VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT,
@@ -4419,6 +4556,10 @@ namespace OloEngine
 
     RHI::ResourceHandle VulkanRendererAPI::CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat)
     {
+        if (RefuseOnWorker("CreateTexture2DHandle"))
+        {
+            return {};
+        }
         const RawTextureFormat mapped = RawFormatToImageFormat(internalFormat);
         if (mapped.Format == ImageFormat::None)
         {
@@ -4456,6 +4597,10 @@ namespace OloEngine
 
     RHI::ResourceHandle VulkanRendererAPI::CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat)
     {
+        if (RefuseOnWorker("CreateTextureCubemapHandle"))
+        {
+            return {};
+        }
         const RawTextureFormat mapped = RawFormatToImageFormat(internalFormat);
         if (mapped.Format == ImageFormat::None)
         {
@@ -4491,6 +4636,10 @@ namespace OloEngine
 
     RHI::ResourceHandle VulkanRendererAPI::CreateFramebufferHandle()
     {
+        if (RefuseOnWorker("CreateFramebufferHandle"))
+        {
+            return {};
+        }
         // A real VulkanFramebuffer with an EMPTY spec: zero attachments until
         // AttachFramebufferColor/DepthTexture installs the raw textures, and
         // a 0x0 extent the first attach adopts. The constructor registers it
@@ -4511,11 +4660,19 @@ namespace OloEngine
 
     RHI::ResourceHandle VulkanRendererAPI::CreateBufferHandle()
     {
+        if (RefuseOnWorker("CreateBufferHandle"))
+        {
+            return {};
+        }
         return VulkanRawBufferRegistry::Get().CreateHandle();
     }
 
     RHI::ResourceHandle VulkanRendererAPI::CreateVertexArrayHandle()
     {
+        if (RefuseOnWorker("CreateVertexArrayHandle"))
+        {
+            return {};
+        }
         // A real (empty) CPU-side aggregate: the identity mint is what the
         // callers need (VirtualMeshRegistry holds the handle; the native-
         // identity test round-trips it), and BindVertexArrayRaw resolves it
@@ -4535,6 +4692,10 @@ namespace OloEngine
 
     void VulkanRendererAPI::DeleteTexture(RHI::ResourceHandle texture)
     {
+        if (RefuseOnWorker("DeleteTexture"))
+        {
+            return;
+        }
         // Kind-guarded like the GL twin — a live handle of the wrong family
         // names someone else's resource.
         if (RHI::ResourceRegistry::Get().KindOf(texture) != RHI::ResourceKind::Texture)
@@ -4573,10 +4734,9 @@ namespace OloEngine
         // Genuinely foreign: an object-owned texture reached the raw-delete
         // entry. Its C++ object owns the destruction; deleting here would
         // double-free. Warn — unlike the alias case this is a caller bug.
-        static bool s_WarnedForeign = false;
-        if (!s_WarnedForeign)
+        static std::atomic<bool> s_WarnedForeign{ false };
+        if (!s_WarnedForeign.exchange(true, std::memory_order_relaxed))
         {
-            s_WarnedForeign = true;
             OLO_CORE_WARN("[RHI/Vulkan] DeleteTexture on an object-owned texture handle — the owner destroys the "
                           "image; ignored (warn-once)");
         }
@@ -4585,17 +4745,34 @@ namespace OloEngine
     void VulkanRendererAPI::NotifyFramebufferDestroyed(const VulkanFramebuffer* framebuffer,
                                                        RHI::ResourceHandle handle)
     {
+        auto& ctx = Ctx();
         EndScopeIfTargets(handle);
-        if (m_PendingClear.Target == framebuffer)
+        // The depth-array selection names a view the dying framebuffer owns
+        // (#806): drop it from every context so no later scope can attach it.
+        if (handle.IsValid())
+        {
+            const u64 key = SelectionKey(handle);
+            m_Main.Selections.erase(key);
+            for (const auto& item : m_Items)
+            {
+                item->Selections.erase(key);
+            }
+        }
+        if (ctx.Pending.Target == framebuffer)
         {
             // Materializing later would dereference the freed object; the
             // clear dies with its target, exactly as GL FBO state does.
-            m_PendingClear = PendingClear{};
+            ctx.Pending = PendingClear{};
         }
     }
 
     void VulkanRendererAPI::DeleteFramebuffer(RHI::ResourceHandle framebuffer)
     {
+        if (RefuseOnWorker("DeleteFramebuffer"))
+        {
+            return;
+        }
+        auto& ctx = Ctx();
         if (RHI::ResourceRegistry::Get().KindOf(framebuffer) != RHI::ResourceKind::Framebuffer)
         {
             return;
@@ -4604,15 +4781,14 @@ namespace OloEngine
         // outside a recording bracket); the stored draw-buffer selection dies
         // with the object like GL's FBO state does.
         EndScopeIfTargets(framebuffer);
-        m_FramebufferSelections.erase(SelectionKey(framebuffer));
+        ctx.Selections.erase(SelectionKey(framebuffer));
         if (VulkanRawFramebufferRegistry::Get().Destroy(framebuffer))
         {
             return;
         }
-        static bool s_WarnedForeign = false;
-        if (!s_WarnedForeign)
+        static std::atomic<bool> s_WarnedForeign{ false };
+        if (!s_WarnedForeign.exchange(true, std::memory_order_relaxed))
         {
-            s_WarnedForeign = true;
             OLO_CORE_WARN("[RHI/Vulkan] DeleteFramebuffer on a non-raw-registry handle (object-owned framebuffer) "
                           "— no-op (warn-once)");
         }
@@ -4620,6 +4796,10 @@ namespace OloEngine
 
     void VulkanRendererAPI::DeleteBuffer(RHI::ResourceHandle buffer)
     {
+        if (RefuseOnWorker("DeleteBuffer"))
+        {
+            return;
+        }
         // Raw-handle family only: object-backed buffers die with their C++
         // object. Kind-guarded like the GL twin — a live handle of the wrong
         // family names someone else's resource.
@@ -4635,6 +4815,11 @@ namespace OloEngine
 
     void VulkanRendererAPI::DeleteVertexArray(RHI::ResourceHandle vertexArray)
     {
+        if (RefuseOnWorker("DeleteVertexArray"))
+        {
+            return;
+        }
+        auto& ctx = Ctx();
         // Raw-handle family only (CreateVertexArrayHandle mints these);
         // object-backed VAOs die with their C++ object. Kind-guarded like
         // DeleteBuffer/DeleteTexture. Also drop the bound-VAO cache if it
@@ -4650,9 +4835,9 @@ namespace OloEngine
             UnimplementedStub("DeleteVertexArray(not a raw-registry vertex array)", StubKind::PreconditionFailure);
             return;
         }
-        if (m_BoundVertexArray == it->second.Raw())
+        if (ctx.BoundVertexArray == it->second.Raw())
         {
-            m_BoundVertexArray = nullptr;
+            ctx.BoundVertexArray = nullptr;
         }
         rawVaos.erase(it);
     }
@@ -4664,6 +4849,11 @@ namespace OloEngine
 
     void VulkanRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset, u32 width, u32 height, RHI::Format sourceFormat, const void* data)
     {
+        if (RefuseOnWorker("UploadTextureSubImage2D"))
+        {
+            return;
+        }
+        auto& ctx = Ctx();
         // #691: the frame-command-buffer staged upload. GL's
         // glTextureSubImage2D is ordered against everything the frame already
         // issued; recording the copy HERE (not a one-shot, which submits
@@ -4811,7 +5001,7 @@ namespace OloEngine
         region.imageOffset = { xOffset, yOffset, 0 };
         region.imageExtent = { width, height, 1u };
 
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             // No recording: the blocking one-shot (the SetFaceDataMip shape).
             // Whole-image transitions keep the tracked layout uniform, and
@@ -4879,9 +5069,9 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
 
-        vkCmdCopyBufferToImage(m_Cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+        vkCmdCopyBufferToImage(ctx.Cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
 
         // Left in TRANSFER_DST with the tracker in agreement — the bind-time
         // visibility seam transitions produced runs to SHADER_READ_ONLY at
@@ -4895,6 +5085,10 @@ namespace OloEngine
 
     void VulkanRendererAPI::UploadTextureSubImage3D(RHI::ResourceHandle /*texture*/, i32 /*xOffset*/, i32 /*yOffset*/, i32 /*zOffset*/, u32 /*width*/, u32 /*height*/, u32 /*depth*/, RHI::Format /*sourceFormat*/, const void* /*data*/)
     {
+        if (RefuseOnWorker("UploadTextureSubImage3D"))
+        {
+            return;
+        }
         // Deliberately not lowered (#691): the engine's ONE caller is
         // OceanFFTGpu's twiddle-index seed, and the ocean FFT chain is not a
         // Vulkan tenant yet. When it becomes one, follow the
@@ -5081,6 +5275,10 @@ namespace OloEngine
 
     bool VulkanRendererAPI::ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel, RHI::Format destFormat, sizet destSizeBytes, void* dest)
     {
+        if (RefuseOnWorker("ReadTextureImage"))
+        {
+            return false;
+        }
         // GL's glGetTextureImage: whole level, dimensions answered by the
         // object. The image-info registry carries the mip-0 extent; a
         // pre-extent registration (Width == 0) cannot size the level, so the
@@ -5102,6 +5300,11 @@ namespace OloEngine
 
     bool VulkanRendererAPI::ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel, i32 x, i32 y, i32 z, u32 width, u32 height, u32 depth, RHI::Format destFormat, sizet destSizeBytes, void* dest)
     {
+        if (RefuseOnWorker("ReadTextureSubImage"))
+        {
+            return false;
+        }
+        auto& ctx = Ctx();
         // glGetTextureSubImage, lowered as a blocking one-shot
         // copy-image-to-buffer plus a CPU-side format conversion (GL's
         // pixel-transfer conversion happens driver-side; vkCmdCopyImageToBuffer
@@ -5162,7 +5365,7 @@ namespace OloEngine
         // PREVIOUS frame's contents — which is precisely what GL's
         // double-buffered PBO entity-pick read returns too.
         bool borrowLayout = false;
-        if (m_Cmd != VK_NULL_HANDLE)
+        if (ctx.Cmd != VK_NULL_HANDLE)
         {
             auto* context = VulkanContext::Get();
             if (context == nullptr || !context->FlushFrameRecordingAndWait())
@@ -5248,7 +5451,7 @@ namespace OloEngine
             // been touched by submitted work and is still UNDEFINED. Barriering
             // from the recorded layout there is what produced one
             // VUID-vkCmdDraw-None-09600 per resize.
-            borrowedLayout = m_LayoutTracker.CurrentExecutedLayout(image, range);
+            borrowedLayout = ctx.Tracker.CurrentExecutedLayout(image, range);
             if (borrowedLayout == VK_IMAGE_LAYOUT_UNDEFINED)
             {
                 vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
@@ -5322,7 +5525,7 @@ namespace OloEngine
                 vkCmdPipelineBarrier2(cmd, &dep);
                 if (!borrowLayout)
                 {
-                    m_LayoutTracker.SetLayout(image, range, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    ctx.Tracker.SetLayout(image, range, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                 }
             });
 
@@ -5513,6 +5716,10 @@ namespace OloEngine
 
     RHI::ResourceHandle VulkanRendererAPI::CreateMatchingTextureHandle(RHI::ResourceHandle source)
     {
+        if (RefuseOnWorker("CreateMatchingTextureHandle"))
+        {
+            return {};
+        }
         // Reproduce the SOURCE's own VkImageCreateInfo — no neutral format
         // vocabulary in the middle (RendererAPI.h explains why). A render-graph
         // target can hold a VkFormat the engine's ImageFormat enum cannot name,
@@ -5626,6 +5833,7 @@ namespace OloEngine
 
     void VulkanRendererAPI::TextureBarrier()
     {
+        auto& ctx = Ctx();
         // glTextureBarrier orders framebuffer writes against texture fetches
         // OF THE SAME TEXTURE (the VirtualGeometryPass phase-2 shape: draw
         // depth, then sample it for the Hi-Z rebuild). The call carries no
@@ -5634,7 +5842,7 @@ namespace OloEngine
         // with it) + one conservative global barrier. Layout transitions stay
         // the callers' IssueBarrierBatch/tracker business — GL's glTextureBarrier
         // has no layout concept either, so no caller expects one here.
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("TextureBarrier(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -5651,7 +5859,7 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.memoryBarrierCount = 1;
         dep.pMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(m_Cmd, &dep);
+        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
     }
 
     // =========================================================================
@@ -5816,17 +6024,30 @@ namespace OloEngine
 
     void VulkanRendererAPI::CreateQueries(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries)
     {
+        if (RefuseOnWorker("CreateQueries"))
+        {
+            return;
+        }
         VulkanQueryRegistry::Get().CreatePool(type, outQueries);
     }
 
     void VulkanRendererAPI::DeleteQueries(std::span<const RHI::ResourceHandle> queries)
     {
+        if (RefuseOnWorker("DeleteQueries"))
+        {
+            return;
+        }
         VulkanQueryRegistry::Get().Destroy(queries);
     }
 
     void VulkanRendererAPI::BeginQuery(RHI::QueryType /*type*/, RHI::ResourceHandle query)
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (RefuseOnWorker("BeginQuery"))
+        {
+            return;
+        }
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("BeginQuery(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -5837,7 +6058,7 @@ namespace OloEngine
             UnimplementedStub("BeginQuery(unresolved query)", StubKind::PreconditionFailure);
             return;
         }
-        if (m_ActiveQuery.Pool != VK_NULL_HANDLE)
+        if (ctx.Query.Pool != VK_NULL_HANDLE)
         {
             // GL keeps one active query per target and errors on nesting; do
             // the same loudly rather than record an illegal command buffer.
@@ -5859,50 +6080,60 @@ namespace OloEngine
             // now; EndQuery stamps Index+1 and only then marks Recorded —
             // reading a pair whose end was never stamped would block forever
             // under WAIT.
-            vkCmdResetQueryPool(m_Cmd, entry->Pool, entry->Index, 2u);
-            vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, entry->Pool, entry->Index);
-            m_ActiveQuery = { .Pool = entry->Pool, .Index = entry->Index, .IsElapsed = true, .Handle = query };
+            vkCmdResetQueryPool(ctx.Cmd, entry->Pool, entry->Index, 2u);
+            vkCmdWriteTimestamp2(ctx.Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, entry->Pool, entry->Index);
+            ctx.Query = { .Pool = entry->Pool, .Index = entry->Index, .IsElapsed = true, .Handle = query };
             return;
         }
-        vkCmdResetQueryPool(m_Cmd, entry->Pool, entry->Index, 1u);
-        vkCmdBeginQuery(m_Cmd, entry->Pool, entry->Index, 0u);
-        m_ActiveQuery = { .Pool = entry->Pool, .Index = entry->Index, .IsElapsed = false, .Handle = query };
+        vkCmdResetQueryPool(ctx.Cmd, entry->Pool, entry->Index, 1u);
+        vkCmdBeginQuery(ctx.Cmd, entry->Pool, entry->Index, 0u);
+        ctx.Query = { .Pool = entry->Pool, .Index = entry->Index, .IsElapsed = false, .Handle = query };
         entry->Recorded = true;
     }
 
     void VulkanRendererAPI::EndQuery(RHI::QueryType /*type*/)
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (RefuseOnWorker("EndQuery"))
+        {
+            return;
+        }
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("EndQuery(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
-        if (m_ActiveQuery.Pool == VK_NULL_HANDLE)
+        if (ctx.Query.Pool == VK_NULL_HANDLE)
         {
             // GL's glEndQuery with nothing active is an error, not a crash.
             return;
         }
         EndRenderingScope();
-        if (m_ActiveQuery.IsElapsed)
+        if (ctx.Query.IsElapsed)
         {
-            vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, m_ActiveQuery.Pool,
-                                 m_ActiveQuery.Index + 1u);
+            vkCmdWriteTimestamp2(ctx.Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, ctx.Query.Pool,
+                                 ctx.Query.Index + 1u);
             // Re-look-up rather than caching the Entry* across the bracket —
             // the registry map can rehash between Begin and End.
-            if (auto* entry = VulkanQueryRegistry::Get().Lookup(m_ActiveQuery.Handle); entry != nullptr)
+            if (auto* entry = VulkanQueryRegistry::Get().Lookup(ctx.Query.Handle); entry != nullptr)
             {
                 entry->Recorded = true;
             }
-            m_ActiveQuery = {};
+            ctx.Query = {};
             return;
         }
-        vkCmdEndQuery(m_Cmd, m_ActiveQuery.Pool, m_ActiveQuery.Index);
-        m_ActiveQuery = {};
+        vkCmdEndQuery(ctx.Cmd, ctx.Query.Pool, ctx.Query.Index);
+        ctx.Query = {};
     }
 
     void VulkanRendererAPI::WriteTimestamp(RHI::ResourceHandle query)
     {
-        if (m_Cmd == VK_NULL_HANDLE)
+        if (RefuseOnWorker("WriteTimestamp"))
+        {
+            return;
+        }
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
         {
             UnimplementedStub("WriteTimestamp(outside recording bracket)", StubKind::OutsideRecording);
             return;
@@ -5923,8 +6154,8 @@ namespace OloEngine
         // 4-slot ring); an unread result that old was already dropped by the
         // owner's own staleness handling, same overwrite semantics as GL.
         EndRenderingScope();
-        vkCmdResetQueryPool(m_Cmd, entry->Pool, entry->Index, 1u);
-        vkCmdWriteTimestamp2(m_Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, entry->Pool, entry->Index);
+        vkCmdResetQueryPool(ctx.Cmd, entry->Pool, entry->Index, 1u);
+        vkCmdWriteTimestamp2(ctx.Cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, entry->Pool, entry->Index);
         entry->Recorded = true;
     }
 
@@ -6050,6 +6281,10 @@ namespace OloEngine
     // the matching delete.
     u64 VulkanRendererAPI::CreateFence()
     {
+        if (RefuseOnWorker("CreateFence"))
+        {
+            return 0u;
+        }
         auto* fence = new VulkanGpuFence(0u);
         if (fence->GetNativeSemaphore() == VK_NULL_HANDLE)
         {
@@ -6087,6 +6322,10 @@ namespace OloEngine
 
     void VulkanRendererAPI::DestroyFence(const u64 fence)
     {
+        if (RefuseOnWorker("DestroyFence"))
+        {
+            return;
+        }
         if (fence == 0u)
         {
             return;
@@ -6099,6 +6338,384 @@ namespace OloEngine
         UnimplementedStub("SetProgramUniformFloat");
     }
 
+    // =====================================================================
+    // Parallel command recording (issue #806, ADR 0011 amendment (91))
+    // =====================================================================
+
+    bool VulkanRendererAPI::RefuseOnWorker(const char* entryPoint) const
+    {
+        if (!OnWorkerContext())
+        {
+            return false;
+        }
+        // Debug: loud at the call site. Otherwise: the warn-once stub path,
+        // so the refusal is counted and named, never silent.
+        OLO_CORE_ASSERT(false, "{} called from a RecordParallel item (amendment (91) rule 7)", entryPoint);
+        UnimplementedStub(entryPoint, StubKind::PreconditionFailure);
+        return true;
+    }
+
+    void VulkanRendererAPI::SetFramebufferDepthArraySelection(
+        const RHI::ResourceHandle framebuffer,
+        const VulkanRecordingContext::FramebufferAttachmentSelection::DepthArrayLayer& selection)
+    {
+        if (!framebuffer.IsValid())
+        {
+            return;
+        }
+        auto& ctx = Ctx();
+        // The next scope must open against the new view: a live scope on
+        // this framebuffer holds the PREVIOUS layer's (ScopeMatchesCurrentTarget
+        // compares selections, so the draw front-end would end it anyway —
+        // ending it here keeps a clear that follows on the correct target).
+        if (ctx.Scope.Active && ctx.Scope.Target != nullptr && ctx.Scope.Target->GetRHIHandle() == framebuffer &&
+            ctx.Scope.DepthArrayView != (selection.Active ? selection.View : VK_NULL_HANDLE))
+        {
+            EndRenderingScope();
+        }
+        ctx.Selections[SelectionKey(framebuffer)].DepthArray = selection;
+    }
+
+    VulkanRecordingContext::FramebufferAttachmentSelection::DepthArrayLayer
+    VulkanRendererAPI::GetFramebufferDepthArraySelection(const RHI::ResourceHandle framebuffer) const
+    {
+        if (!framebuffer.IsValid())
+        {
+            return {};
+        }
+        const auto& ctx = Ctx();
+        const auto it = ctx.Selections.find(SelectionKey(framebuffer));
+        return it != ctx.Selections.end() ? it->second.DepthArray
+                                          : VulkanRecordingContext::FramebufferAttachmentSelection::DepthArrayLayer{};
+    }
+
+    void VulkanRendererAPI::ForgetDepthArrayView(const VkImageView view)
+    {
+        if (view == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        const auto forget = [view](VulkanRecordingContext& context)
+        {
+            for (auto& [key, selection] : context.Selections)
+            {
+                if (selection.DepthArray.View == view)
+                {
+                    selection.DepthArray = {};
+                }
+            }
+        };
+        forget(m_Main);
+        for (const auto& item : m_Items)
+        {
+            forget(*item);
+        }
+    }
+
+    bool VulkanRendererAPI::SupportsParallelRecording() const
+    {
+        if (OnWorkerContext() || m_InParallelRegion)
+        {
+            return false; // no nesting
+        }
+        if (m_Main.Cmd == VK_NULL_HANDLE || VulkanDevice::Get() == nullptr)
+        {
+            return false;
+        }
+        if (Levers::VulkanParallelRecording() == Levers::Tristate::Off)
+        {
+            return false;
+        }
+        // A query span on the primary cannot contain vkCmdExecuteCommands
+        // without occlusion-query inheritance, and a host-side conditional
+        // predicate is per context; both are rare enough to run inline.
+        if (m_Main.Query.Pool != VK_NULL_HANDLE || m_Main.ConditionalRenderSkip)
+        {
+            return false;
+        }
+        // The pools reset on the frame arena's clock (rule 9): no frame, no fork.
+        return VulkanFrameArena::Get().GetFrameGeneration() != 0u;
+    }
+
+    void VulkanRendererAPI::TransitionBoundTargetAttachmentsForFork()
+    {
+        auto& ctx = Ctx();
+        auto* target = VulkanBindingState::Get().GetCurrentFramebuffer();
+        if (target == nullptr || ctx.Cmd == VK_NULL_HANDLE)
+        {
+            return; // nothing bound (the backbuffer is refused on items anyway)
+        }
+        // The same barriers EnsureRenderingScopeForDraw would collect for
+        // this target, recorded on the primary WITHOUT opening a scope, so
+        // every item's own scope-open on the same target is an identity
+        // transition (amendment (91) rule 5).
+        std::vector<RHI::Barrier>& barriers = m_ForkBarriers;
+        barriers.clear();
+        const FramebufferAttachmentSelection* selection = FindSelection(target->GetRHIHandle());
+        const bool identity = selection == nullptr || selection->DrawListCount == 0;
+        const u32 outputCount = identity ? std::min<u32>(target->GetColorAttachmentCount(), 8u)
+                                         : std::min<u32>(selection->DrawListCount, 8u);
+        for (u32 i = 0; i < outputCount; ++i)
+        {
+            const u32 attachmentIndex = identity ? i : selection->DrawList[i];
+            if (attachmentIndex == RHI::NoAttachment || attachmentIndex >= target->GetColorAttachmentCount())
+            {
+                continue;
+            }
+            const Ref<VulkanTexture2D> image = target->GetColorAttachmentImage(attachmentIndex);
+            if (image == nullptr)
+            {
+                continue;
+            }
+            RHI::Barrier toAttachment{};
+            toAttachment.Resource = image->GetRHIHandle();
+            toAttachment.Range.BaseMip = 0u;
+            toAttachment.Range.MipCount = 1u;
+            toAttachment.Range.BaseLayer = 0u;
+            toAttachment.Range.LayerCount = 1u;
+            const VkImageSubresourceRange probe{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+            toAttachment.Before = AccessGuessForLayout(ctx.Tracker.CurrentLayout(image->GetVkImage(), probe));
+            toAttachment.After = RHI::Access::ColorAttachmentWrite;
+            barriers.push_back(toAttachment);
+        }
+        const auto depthArray = GetFramebufferDepthArraySelection(target->GetRHIHandle());
+        const Ref<VulkanTexture2D> depthImage = depthArray.Active ? nullptr : target->GetDepthAttachmentImage();
+        if (depthArray.Active || depthImage != nullptr)
+        {
+            const VkImage depthVkImage = depthArray.Active ? depthArray.Image : depthImage->GetVkImage();
+            const u32 depthLayer = depthArray.Active ? depthArray.Layer : 0u;
+            RHI::Barrier toDepth{};
+            toDepth.Resource = depthArray.Active ? depthArray.Handle : depthImage->GetRHIHandle();
+            toDepth.Range.BaseMip = 0u;
+            toDepth.Range.MipCount = 1u;
+            toDepth.Range.BaseLayer = depthLayer;
+            toDepth.Range.LayerCount = 1u;
+            const VkImageSubresourceRange depthProbe{ VK_IMAGE_ASPECT_DEPTH_BIT, 0u, 1u, depthLayer, 1u };
+            toDepth.Before = AccessGuessForLayout(ctx.Tracker.CurrentLayout(depthVkImage, depthProbe));
+            toDepth.After = RHI::Access::DepthStencilAttachmentWrite;
+            barriers.push_back(toDepth);
+        }
+        if (!barriers.empty())
+        {
+            IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ barriers });
+        }
+    }
+
+    void VulkanRendererAPI::RecordParallelItem(VulkanRecordingContext& item,
+                                               const std::function<void(u32 item)>& body,
+                                               std::exception_ptr& firstFailure, std::mutex& failureMutex)
+    {
+        const auto start = std::chrono::steady_clock::now();
+        {
+            // Everything the body records now resolves to `item`.
+            const ScopedVulkanWorkerContext scope(&item);
+            try
+            {
+                body(item.ItemIndex);
+            }
+            catch (...)
+            {
+                const std::scoped_lock lock(failureMutex);
+                if (!firstFailure)
+                {
+                    firstFailure = std::current_exception();
+                }
+            }
+            // Close the item the way EndRecording closes a frame: the scope,
+            // then a clear nothing consumed.
+            EndRenderingScope();
+            MaterializePendingClear();
+        }
+        if (const VkResult result = vkEndCommandBuffer(item.Cmd); result != VK_SUCCESS)
+        {
+            // The commands are in an unusable buffer; the item's work is lost
+            // for this frame and the log says so. (A driver-level failure —
+            // there is no correct way to re-record half an item.)
+            OLO_CORE_ERROR("[RHI/Vulkan] vkEndCommandBuffer(secondary, item {}) failed (VkResult {}) — item dropped",
+                           item.ItemIndex, static_cast<int>(result));
+            item.Cmd = VK_NULL_HANDLE;
+            return;
+        }
+        item.Recorded = true;
+        item.RecordMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
+    }
+
+    void VulkanRendererAPI::RecordParallel(const u32 itemCount, const std::function<void(u32 item)>& body)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (itemCount == 0u)
+        {
+            return;
+        }
+
+        // --- decide: fork, or the ONE inline path -----------------------------
+        // One item has nothing to overlap with; the predicate covers the
+        // lever, the device, the frame clock and nesting; and every item's
+        // secondary is acquired HERE, on the render thread, so a pool that
+        // cannot hand one out declines the whole region before anything is
+        // seeded — there is exactly one inline semantics (ascending order,
+        // pre-fork state) for the lever, the predicate and a failure alike.
+        bool fork = itemCount >= 2u && SupportsParallelRecording() && VulkanSecondaryCommandPools::Get().SyncToFrame();
+        if (fork)
+        {
+            while (m_Items.size() < itemCount)
+            {
+                m_Items.push_back(CreateScope<VulkanRecordingContext>());
+            }
+            for (u32 index = 0; index < itemCount; ++index)
+            {
+                const VkCommandBuffer cmd = VulkanSecondaryCommandPools::Get().AcquireBegun(index);
+                if (cmd == VK_NULL_HANDLE)
+                {
+                    // Already-begun buffers of earlier items are simply not
+                    // executed; the pool reset returns them on the next sync.
+                    OLO_CORE_WARN("[RHI/Vulkan] RecordParallel: no secondary for item {} of {} — region recorded inline",
+                                  index, itemCount);
+                    fork = false;
+                    break;
+                }
+                m_Items[index]->ResetForCommandBuffer(cmd);
+            }
+        }
+        if (!fork)
+        {
+            ++m_ParallelStats.InlineRegions;
+            for (u32 item = 0; item < itemCount; ++item)
+            {
+                body(item);
+            }
+            return;
+        }
+
+        const auto wallStart = std::chrono::steady_clock::now();
+        auto& main = m_Main;
+        const u64 regionId = ++m_RegionSerial;
+
+        // --- fork: settle the primary, seed the items ----------------------
+        // Items open their own scopes, so the primary's must be closed; the
+        // pending clear the pass requested before the fork must land BEFORE
+        // the items' work (sequential semantics); and the bound target's
+        // attachments go to their attachment layouts now so the items'
+        // scope-opens are identity transitions (rule 5).
+        EndRenderingScope();
+        MaterializePendingClear();
+        TransitionBoundTargetAttachmentsForFork();
+        m_LayoutClaims.Reset();
+        // Two lazy paths every item's draw may take are primed here so no
+        // item ever creates or pushes on a shared object: the null sampled
+        // slots (a miss submits a one-shot, refused on an item) and the
+        // arena push of every UBO bound at the fork (a shared read-only UBO
+        // would otherwise be pushed by N items at once).
+        VulkanDescriptorHeapBackend::Get().WarmNullSampledSlots();
+        for (u32 binding = 0; binding < VulkanBindingState::kMaxBufferBindings; ++binding)
+        {
+            if (VulkanUniformBuffer* ubo = VulkanBindingState::Global().GetUniformBuffer(binding); ubo != nullptr)
+            {
+                (void)ubo->GetRootDataAddress();
+            }
+        }
+
+        for (u32 index = 0; index < itemCount; ++index)
+        {
+            VulkanRecordingContext& item = *m_Items[index];
+            item.ItemIndex = index;
+            item.RegionId = regionId;
+            // Rule 4: an item sees what iteration 0 of the sequential loop saw.
+            item.State = main.State;
+            item.RecordedViewport = main.RecordedViewport;
+            item.ScissorRect = main.ScissorRect;
+            item.ScissorRectSet = main.ScissorRectSet;
+            item.Selections = main.Selections;
+            item.BoundVertexArray = main.BoundVertexArray;
+            item.Binding = VulkanBindingState::Global();
+            item.CurrentShader = VulkanShader::GetCurrentlyBound();
+            item.CurrentComputeShader = VulkanComputeShader::GetCurrentlyBound();
+            item.Tracker.SetReadThroughBase(&main.Tracker, &m_LayoutClaims, index);
+            item.RootScratch.clear();
+        }
+
+        // --- record ---------------------------------------------------------
+        std::exception_ptr firstFailure;
+        std::mutex failureMutex;
+        {
+            // RAII: an exception escaping ParallelFor itself must not leave the
+            // region flag stuck (every later fork and mid-frame flush would
+            // refuse for the rest of the process).
+            const TGuardValue<bool> regionGuard(m_InParallelRegion, true);
+            ParallelFor(
+                "VulkanRendererAPI::RecordParallel", static_cast<i32>(itemCount), /*MinBatchSize=*/1,
+                [&](const i32 itemIndex)
+                { RecordParallelItem(*m_Items[static_cast<sizet>(itemIndex)], body, firstFailure, failureMutex); },
+                EParallelForFlags::None);
+        }
+
+        // --- join: merge layouts in item order, execute in item order --------
+        VulkanImageLayoutTracker::MergeBatch batch;
+        std::vector<VkCommandBuffer>& secondaries = m_JoinSecondaries;
+        secondaries.clear();
+        const VulkanRecordingContext* lastRecorded = nullptr;
+        f64 workerMs = 0.0;
+        u64 arenaAllocations = 0;
+        for (u32 index = 0; index < itemCount; ++index)
+        {
+            VulkanRecordingContext& item = *m_Items[index];
+            arenaAllocations += item.ArenaAllocations;
+            if (!item.Recorded)
+            {
+                item.Tracker.DiscardOverlay();
+                continue;
+            }
+            item.Tracker.MergeOverlayInto(main.Tracker, batch);
+            secondaries.push_back(item.Cmd);
+            main.PreparedDraws += item.PreparedDraws;
+            main.DroppedDraws += item.DroppedDraws;
+            main.GpuWrittenRootDraws += item.GpuWrittenRootDraws;
+            main.ConditionallySkippedDraws += item.ConditionallySkippedDraws;
+            workerMs += item.RecordMs;
+            lastRecorded = &item;
+        }
+        if (!secondaries.empty())
+        {
+            vkCmdExecuteCommands(main.Cmd, static_cast<u32>(secondaries.size()), secondaries.data());
+        }
+        // Command-buffer state is undefined on the primary after
+        // vkCmdExecuteCommands: the per-command-buffer caches must not claim
+        // otherwise (the ResumeRecordingAfterFlush shape).
+        main.ForgetCommandBufferBinds();
+        // GL's sticky framebuffer state after a loop is the LAST iteration's.
+        if (lastRecorded != nullptr)
+        {
+            main.Selections = lastRecorded->Selections;
+        }
+        for (u32 index = 0; index < itemCount; ++index)
+        {
+            m_Items[index]->Tracker.SetReadThroughBase(nullptr);
+        }
+        VulkanFrameArena::Get().AddWorkerAllocations(arenaAllocations);
+
+        ++m_ParallelStats.Regions;
+        m_ParallelStats.SecondariesExecuted += static_cast<u32>(secondaries.size());
+        m_ParallelStats.MergeConflicts += batch.Conflicts;
+        m_ParallelStats.WorkerRecordMs += workerMs;
+        m_ParallelStats.RegionWallMs +=
+            std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - wallStart).count();
+        if (batch.Conflicts != 0u)
+        {
+            // Not warn-once: a conflict is a pass bug, and its frequency is
+            // part of the diagnosis. The record-time claim already named the
+            // two items (VulkanImageLayoutTracker::SetLayout); this is the
+            // backstop count. The secondaries still execute: a stale
+            // oldLayout on one barrier is a validation error and a possible
+            // hazard, dropping the region's work is a certainly broken frame.
+            OLO_CORE_ERROR("[RHI/Vulkan] RecordParallel: {} subresource(s) transitioned non-identically by more "
+                           "than one item — the later item's barrier named a stale oldLayout (amendment (91) rule 5)",
+                           batch.Conflicts);
+        }
+        if (firstFailure)
+        {
+            std::rethrow_exception(firstFailure);
+        }
+    }
 } // namespace OloEngine
 
 #endif // OLO_WITH_VULKAN
