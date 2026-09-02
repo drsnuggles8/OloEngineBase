@@ -238,8 +238,8 @@ void main()
 
     // ---- #1008 probe output (experiment; revert before merge) ----
     o_Cloud = vec4(clamp((tEnd - tStart) / 40000.0, 0.0, 1.0),
-                   depth, // raw conservative scene depth: 1.0 = sky on NVIDIA
-                   clamp(1.0 - transmittance, 0.0, 1.0),
+                   min(geomT, 40000.0) / 40000.0,          // 1.0 = no geometry seen
+                   clamp((1.0 - depth) * 1.0e7, 0.0, 1.0), // one fp32 ULP under 1.0 reads ~0.6
                    0.0);
     return;
 
