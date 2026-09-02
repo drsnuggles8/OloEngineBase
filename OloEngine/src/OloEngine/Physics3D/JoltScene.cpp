@@ -3496,17 +3496,21 @@ namespace OloEngine
                 hitInfo.m_HitEntity = static_cast<UUID>(body.GetUserData());
                 hitInfo.m_Position = JoltUtils::FromJoltVector(body.GetPosition());
 
-                // Get body from our map for reference
+                // Get body from our map for reference. A hit with no entry there
+                // carries no Ref<JoltBody>, and the overlap family's only engine
+                // consumer (FluidSystem::ExtractBodyProxies) discards exactly
+                // those — so returning it would spend one of `maxHits` on a hit
+                // nobody can use and could push a usable body out of a full
+                // result buffer. Leave the slot for the next hit instead.
                 if (auto it = m_Bodies.find(hitInfo.m_HitEntity); it != m_Bodies.end())
                 {
                     hitInfo.m_HitBody = it->second;
+                    ++hitCount;
                 }
                 else
                 {
                     ++droppedUnmapped;
                 }
-
-                ++hitCount;
             }
             else
             {
@@ -3518,10 +3522,10 @@ namespace OloEngine
         // to every caller: the count simply comes back smaller, and the caller
         // cannot tell "nothing was there" from "something was there and we could
         // not read it". FluidSystem::ExtractBodyProxies is the only caller, and
-        // a body it never sees is a body the fluid never lifts -- which is what
-        // FluidCouplingTest.LightBoxFloatsDenseBoxSinks reports on the AMD box,
-        // where the query returns one hit for a volume holding three bodies
-        // (issue #1015). Say so rather than returning a quietly short list.
+        // a body it never sees is a body the fluid never lifts -- which is how
+        // FluidCouplingTest.LightBoxFloatsDenseBoxSinks failed on the AMD box
+        // (issue #1015). Both reasons are dropped deliberately above; say so
+        // rather than returning a quietly short list.
         if (droppedUnlockable != 0 || droppedUnmapped != 0)
         {
             OLO_CORE_WARN("JoltScene::PerformShapeOverlap: narrow phase found {} hit(s), returned {} -- "
