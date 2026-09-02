@@ -783,7 +783,7 @@ void main()
 
             // Ring at outer edge
             float edgeDist = abs(normalizedDist - 1.0);
-            float ring = smoothstep(0.03, 0.0, edgeDist);
+            float ring = 1.0 - smoothstep(0.0, 0.03, edgeDist);
 
             // Fill with falloff visualization
             float fill = weight * 0.15;
