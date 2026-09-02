@@ -623,6 +623,26 @@ namespace OloEngine::Tests
             { "Diag_P200_Grazing_A4", 200.0f, 4.0f, glm::vec3(0.0f, 3.0f, 42.0f), 0.05f },
         };
 
+        // A different SEED is a different random sea from the same spectrum, so
+        // if the camera at y=3 is merely unlucky about which wave it is standing
+        // in at amplitude 4, some seeds must collapse the frame on THIS GPU too.
+        // That distinguishes "AMD renders the ocean wrong" from "the pose is on
+        // a knife edge and the two platforms draw different lots" without
+        // needing the box at all.
+        for (const u32 seed : { 1337u, 7u, 99u, 4242u, 20260902u })
+        {
+            wc.m_FFTSeed = seed;
+            wc.m_FFTPatchSize = 200.0f;
+            wc.m_FFTAmplitude = 4.0f;
+            wc.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+            std::vector<u8> frame;
+            Capture("Diag_Seed" + std::to_string(seed), glm::vec3(0.0f, 3.0f, 42.0f), 0.0f, 0.05f, frame);
+            if (::testing::Test::HasFatalFailure())
+                return;
+            GTEST_LOG_(INFO) << "DIAGSEED seed=" << seed << " patch=200 amp=4 camY=3 lumaSpread=" << lumaSpread(frame);
+        }
+        wc.m_FFTSeed = 1337u;
+
         for (const Case& c : cases)
         {
             wc.m_FFTPatchSize = c.m_Patch;
