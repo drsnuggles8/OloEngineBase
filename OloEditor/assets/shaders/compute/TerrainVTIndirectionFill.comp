@@ -54,7 +54,9 @@ struct VTIndirectionUpdate
 // kernels read the same buffer, so a member added to one is a silent
 // misalignment in the other. C++ twin: VTIndirectionHeader in
 // TerrainVirtualTexture.cpp.
-layout(std430, binding = 81) readonly buffer TerrainVTIndirectionUpdates
+// binding 79 = SSBO_TERRAIN_VT, shared with the feedback and bake buffers
+// and rebound before every use (issue #1015).
+layout(std430, binding = 79) readonly buffer TerrainVTIndirectionUpdates
 {
     uvec4 u_VTUpdateParams; // x = base index, y = count, zw = unused
     uvec4 u_VTFillParams;   // xy = rect origin, zw = rect size, in texels of this mip

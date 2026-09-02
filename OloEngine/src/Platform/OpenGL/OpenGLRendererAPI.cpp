@@ -124,6 +124,29 @@ namespace OloEngine
                             maxCombinedUnits, ShaderBindingLayout::TEX_PRECIPITATION_NOISE);
         }
 
+        // Same check for storage-buffer binding points (issue #1015). The GL
+        // 4.6 minimum is 8, Mesa drivers expose 80 (5 graphics stages x 16),
+        // NVIDIA 96; the engine's SSBO_* constants are pinned below
+        // SSBO_BINDING_LIMIT (80) at compile time. A driver below that turns
+        // every shader declaring a high binding into a compile failure and
+        // every glBindBufferBase on it into GL_INVALID_VALUE — hundreds of
+        // scattered errors whose cause is this one number. Report it ONCE,
+        // here, and keep going: a Release nightly must finish and say so, not
+        // trap.
+        {
+            GLint maxStorageBindings = 0;
+            glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &maxStorageBindings);
+            if (maxStorageBindings > 0 && static_cast<u32>(maxStorageBindings) < ShaderBindingLayout::SSBO_BINDING_LIMIT)
+            {
+                OLO_CORE_ERROR("GPU reports GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS={}, below the engine's "
+                               "SSBO_BINDING_LIMIT ({}); the highest SSBO_* slot is {} (SSBO_HIGHEST_BINDING). Shaders "
+                               "declaring bindings >= {} will fail to compile and their glBindBufferBase calls "
+                               "will raise GL_INVALID_VALUE. See ShaderBindingLayout.h, SSBO_BINDING_LIMIT.",
+                               maxStorageBindings, ShaderBindingLayout::SSBO_BINDING_LIMIT,
+                               ShaderBindingLayout::SSBO_HIGHEST_BINDING, maxStorageBindings);
+            }
+        }
+
         EnableStencilTest();
         SetStencilFunc(RHI::CompareOp::Always, 1, 0xFF);
         SetStencilOp(RHI::StencilOp::Keep, RHI::StencilOp::Keep, RHI::StencilOp::Replace);

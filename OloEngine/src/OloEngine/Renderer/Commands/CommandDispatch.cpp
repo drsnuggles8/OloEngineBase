@@ -2438,7 +2438,7 @@ namespace OloEngine
             HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_VT_CACHE,
                                              cmd->virtualTexture.cacheTextureID, RHI::HeapSlotLifetime::Persistent,
                                              {}, RHI::NullSamplerKind::Texture2DArray);
-            api.BindStorageBuffer(ShaderBindingLayout::SSBO_TERRAIN_VT_FEEDBACK,
+            api.BindStorageBuffer(ShaderBindingLayout::SSBO_TERRAIN_VT,
                                   cmd->virtualTexture.feedbackBufferID);
         }
 

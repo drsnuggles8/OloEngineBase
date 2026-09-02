@@ -248,7 +248,13 @@ namespace OloEngine
             u32 Pad0 = 0;
             u32 Pad1 = 0;
         };
-        static_assert(sizeof(ProbeStats) == 32, "ProbeStats must mirror the DDGIStatsBuffer std430 block");
+        static_assert(sizeof(ProbeStats) == 32, "ProbeStats must mirror the DDGIProbeAuxBuffer std430 header");
+
+        // ProbeStats is the fixed HEADER of the SSBO_DDGI_PROBE_AUX block; the
+        // per-probe records start at this byte offset (issue #1015 folded the
+        // former stats buffer into the front of the aux buffer). The GLSL twin
+        // is the member list before `b_ProbeAux[]` in include/DDGIProbeBuffers.glsl.
+        static constexpr u32 kProbeAuxHeaderBytes = static_cast<u32>(sizeof(ProbeStats));
 
         // The measured "active probe count is a small fraction of the dense
         // grid" number issue #707 asks for. SYNCHRONIZES — diagnostics only.
@@ -354,10 +360,9 @@ namespace OloEngine
         Ref<UniformBuffer> m_PassDataUBO;      // binding 7  (UBO_USER_0) — per-draw/per-dispatch data
         Ref<UniformBuffer> m_CaptureCameraUBO; // binding 0  (UBO_CAMERA) — per-face overwrite, ShadowRenderPass style
 
-        // SSBOs (issue #707)
-        Ref<StorageBuffer> m_ProbeAuxSSBO; // binding 79 — one record per probe
-        Ref<StorageBuffer> m_StatsSSBO;    // binding 80 — per-frame counters
-        // Staging for the two readbacks above. ReadbackProbeDiagnostics is
+        // SSBO (issue #707; one buffer since #1015)
+        Ref<StorageBuffer> m_ProbeAuxSSBO; // SSBO_DDGI_PROBE_AUX (6) — ProbeStats header, then one record per probe
+        // Staging for the two readbacks of that buffer. ReadbackProbeDiagnostics is
         // mutable/const, and these are only touched there. Mutable so the const
         // diagnostic can stage without pretending the pass is logically const.
         mutable StagedBufferReadback m_StatsReadback;

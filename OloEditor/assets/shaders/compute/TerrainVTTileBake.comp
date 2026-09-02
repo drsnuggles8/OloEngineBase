@@ -55,7 +55,9 @@ struct VTBakeRequest
     vec4 UVRect;
 };
 
-layout(std430, binding = 80) readonly buffer TerrainVTBake
+// binding 79 = SSBO_TERRAIN_VT, shared with the feedback and indirection
+// buffers and rebound before every use (issue #1015).
+layout(std430, binding = 79) readonly buffer TerrainVTBake
 {
     uvec4 u_VTBakeConfig0; // x = pagesWide, y = pageTexels, z = borderTexels, w = requestCount
     uvec4 u_VTBakeConfig1; // x = layerCount, y = tileTexels, z = layerResolution, w = unused

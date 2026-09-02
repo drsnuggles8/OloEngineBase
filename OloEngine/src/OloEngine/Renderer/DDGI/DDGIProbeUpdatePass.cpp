@@ -90,8 +90,9 @@ namespace OloEngine
         // shaders.
         using DDGIPassDataUBO = UBOStructures::DDGIPassDataUBO;
 
-        // One record per probe in SSBO_DDGI_PROBE_AUX. Mirrors
-        // DDGIProbeAuxRecord in include/DDGIProbeBuffers.glsl, field for field.
+        // One record per probe in the TAIL of SSBO_DDGI_PROBE_AUX, behind the
+        // kProbeAuxHeaderBytes stats header. Mirrors DDGIProbeAuxRecord in
+        // include/DDGIProbeBuffers.glsl, field for field.
         struct ProbeAuxRecordGPU
         {
             u32 LastRequestFrame;
@@ -206,15 +207,9 @@ namespace OloEngine
         m_CaptureCameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(),
                                                    ShaderBindingLayout::UBO_CAMERA);
 
-        // Stats live for the process; the aux buffer is sized with the probe
-        // grid and therefore created in EnsureResources.
-        m_StatsSSBO = StorageBuffer::Create(static_cast<u32>(sizeof(ProbeStats)),
-                                            ShaderBindingLayout::SSBO_DDGI_STATS,
-                                            StorageBufferUsage::DynamicCopy);
-        if (m_StatsSSBO)
-        {
-            m_StatsSSBO->ClearData();
-        }
+        // The stats header and the per-probe aux records share ONE buffer
+        // (SSBO_DDGI_PROBE_AUX, issue #1015); it is sized with the probe grid
+        // and therefore created in EnsureResources, not here.
 
         if (!m_PlaceholderTexture.IsValid())
         {
@@ -346,8 +341,7 @@ namespace OloEngine
                m_RequestScreenCompute && m_RequestScreenCompute->IsValid() &&
                m_RequestProbeCompute && m_RequestProbeCompute->IsValid() &&
                m_RelocateCompute && m_RelocateCompute->IsValid() &&
-               m_DDGIUBO != nullptr && m_PassDataUBO != nullptr && m_CaptureCameraUBO != nullptr &&
-               m_StatsSSBO != nullptr;
+               m_DDGIUBO != nullptr && m_PassDataUBO != nullptr && m_CaptureCameraUBO != nullptr;
     }
 
     void DDGIProbeUpdatePass::SubmitVolume(const DDGIVolumeDesc& desc)
@@ -477,24 +471,26 @@ namespace OloEngine
             return;
         }
 
-        if (m_StatsSSBO)
+        if (!m_ProbeAuxSSBO)
+        {
+            return;
+        }
+
+        // Two stagings from the one buffer: the 32-byte stats header at offset
+        // 0, then the record tail behind it (issue #1015 folded the former
+        // SSBO_DDGI_STATS into the front of this block).
         {
             ProbeStats stats{};
-            m_StatsReadback.Stage(m_StatsSSBO->GetRHIHandle(), 0, sizeof(ProbeStats));
+            m_StatsReadback.Stage(m_ProbeAuxSSBO->GetRHIHandle(), 0, sizeof(ProbeStats));
             if (m_StatsReadback.Read(&stats, sizeof(ProbeStats)))
             {
                 m_Stats = stats;
             }
         }
 
-        if (!m_ProbeAuxSSBO)
-        {
-            return;
-        }
-
         std::vector<ProbeAuxRecordGPU> aux(m_Records.size());
         const u64 auxBytes = static_cast<u64>(aux.size()) * sizeof(ProbeAuxRecordGPU);
-        m_AuxReadback.Stage(m_ProbeAuxSSBO->GetRHIHandle(), 0, auxBytes);
+        m_AuxReadback.Stage(m_ProbeAuxSSBO->GetRHIHandle(), kProbeAuxHeaderBytes, auxBytes);
         if (!m_AuxReadback.Read(aux.data(), auxBytes))
         {
             return;
@@ -733,8 +729,10 @@ namespace OloEngine
 
         // Per-probe aux buffer (issue #707), zero-initialised: request frame 0
         // means "never requested", state 0 means Uncaptured, flags 0 means
-        // "not captured" — the three defaults the shaders expect.
-        m_ProbeAuxSSBO = StorageBuffer::Create(static_cast<u32>(total * sizeof(ProbeAuxRecordGPU)),
+        // "not captured" — the three defaults the shaders expect. The stats
+        // header (ProbeStats) sits in front of the records since issue #1015;
+        // it is the part Execute clears every frame, the tail is never cleared.
+        m_ProbeAuxSSBO = StorageBuffer::Create(static_cast<u32>(kProbeAuxHeaderBytes + total * sizeof(ProbeAuxRecordGPU)),
                                                ShaderBindingLayout::SSBO_DDGI_PROBE_AUX,
                                                StorageBufferUsage::DynamicCopy);
         if (m_ProbeAuxSSBO)
@@ -917,10 +915,6 @@ namespace OloEngine
         if (m_ProbeAuxSSBO)
         {
             m_ProbeAuxSSBO->Bind();
-        }
-        if (m_StatsSSBO)
-        {
-            m_StatsSSBO->Bind();
         }
     }
 
@@ -1630,11 +1624,15 @@ namespace OloEngine
         // the volume block via include/DDGICommon.glsl.
         UploadVolumeUBO(true);
 
-        // Stats are per frame; the aux buffer's request timestamps are NOT
-        // (they are the sparsity history and must survive).
-        if (m_StatsSSBO)
+        // Stats are per frame; the aux records behind them are NOT (they are
+        // the sparsity history and must survive). Both live in one buffer
+        // since issue #1015, so this clears the HEADER only — a ClearData()
+        // here would wipe every probe's request history each frame and turn
+        // sparsity into "no GI, no error".
+        if (m_ProbeAuxSSBO)
         {
-            m_StatsSSBO->ClearData();
+            const ProbeStats zeroStats{};
+            m_ProbeAuxSSBO->SetData(&zeroStats, kProbeAuxHeaderBytes, 0);
         }
 
         // 2. Per-probe maintenance: cascade-shift invalidation, camera seed,
