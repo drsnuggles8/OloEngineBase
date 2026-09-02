@@ -8,6 +8,8 @@
 #ifndef CLOUDSCAPE_DEPTH_GLSL
 #define CLOUDSCAPE_DEPTH_GLSL
 
+#include "SkyDepth.glsl"
+
 #ifndef OLO_CLOUDSCAPE_DEPTH_TEXTURE
 #error "Define OLO_CLOUDSCAPE_DEPTH_TEXTURE before including CloudscapeDepth.glsl"
 #endif
@@ -33,11 +35,12 @@ float cloudConservativeDepth(ivec2 halfResolutionPixel)
     return depth;
 }
 
-// Conventional scene depth clears sky to exactly 1.0. A broad epsilon drops
-// valid far geometry; Drift's ridge reaches approximately 0.999904.
+// Sky is "within an ULP of 1.0", not "exactly 1.0": on AMD the cleared depth
+// reads 0.99999994 (issue #1008), and `depth < 1.0` clamped every horizon ray
+// at the far plane. SkyDepth.glsl owns the epsilon and the reasoning.
 bool cloudDepthContainsGeometry(float depth)
 {
-    return depth < 1.0;
+    return !oloDepthIsSky(depth);
 }
 
 #endif // CLOUDSCAPE_DEPTH_GLSL
