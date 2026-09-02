@@ -264,15 +264,42 @@ runs:
           python_exe="$OLO_HOSTED_PYTHON"
           extra=""
         else
-          # Rocky 10's system clang is 21, and there is no clang-19 package. The
-          # version skew against the hosted fallback is accepted deliberately
-          # (#1009): its libstdc++ is far newer than ubuntu-24.04's, so the
-          # forward_like problem cannot arise, and a second compiler version is
-          # coverage rather than a defect. The consequence to remember is that a
-          # diagnostic can appear on one runner kind and not the other -- when a
-          # self-hosted job fails and its hosted fallback does not, check the
-          # compiler version before assuming the box is broken.
-          cc=clang; cxx=clang++
+          # THE PINNED TOOLCHAIN, on the box too (#1015 item A). Rocky 10's
+          # system clang is 21 and clang-19 is not in the base repos, but EPEL
+          # (enabled on the box) ships `clang19` / `compiler-rt19` / `lld19` at
+          # the same 19.1.7 the hosted arm gets from apt.llvm.org. It installs
+          # under /usr/lib64/llvm19/bin and stays off PATH, so it is selected by
+          # absolute path here -- and `-fuse-ld=lld` resolves the ld.lld beside
+          # the compiler before it searches PATH, so the linker follows.
+          #
+          # VERIFY, never install (the convention at the top of this file): when
+          # the pin is not provisioned the job WARNS and builds with the system
+          # clang rather than failing. Two reasons that is the right shape:
+          #
+          #   * The version skew was never the cause of anything. #1010 blamed
+          #     "clang 21 against gcc-toolset-15's libstdc++" for two UBSan
+          #     reports inside the standard library; a 200-line probe of
+          #     unordered_map / vector under the exact Sanitizers.cmake flags is
+          #     clean at every optimisation level under BOTH libstdc++ pairings
+          #     (gcc 14 and gcc-toolset-15), and the two reports are a real
+          #     use-after-free in ShaderRegistry teardown that any compiler
+          #     reproduces given a GL context. So the fallback is not a degraded
+          #     gate, it is a second compiler version -- coverage, not a defect.
+          #   * A missing pin must not take the box out: the routing in asan.yml
+          #     sends every same-repo PR's sanitizer jobs here, and a hard
+          #     failure would block every PR on one maintainer running `dnf`.
+          #
+          # The warning is a run-summary annotation, so the state is visible
+          # without opening the log. When a self-hosted job fails and its hosted
+          # twin does not, read the "toolchain:" line below before assuming the
+          # box is broken. Provisioning: docs/ops/self-hosted-linux-toolchain.md.
+          pinned_bin=/usr/lib64/llvm19/bin
+          if [ -x "$pinned_bin/clang++" ] && [ -x "$pinned_bin/clang" ]; then
+            cc="$pinned_bin/clang"; cxx="$pinned_bin/clang++"
+          else
+            cc=clang; cxx=clang++
+            echo "::warning title=pinned clang-19 not provisioned::building with $(command -v clang++) ($(clang++ --version | head -1)). Provision the pin with: sudo dnf install -y clang19 compiler-rt19 lld19 -- see docs/ops/self-hosted-linux-toolchain.md"
+          fi
           python_exe="$(command -v python3)"
           # OLO_ENABLE_COMPILER_CACHE is added HERE rather than at each call site
           # because it is only correct here: cmake/CompilerCache.cmake reads
@@ -289,4 +316,5 @@ runs:
           echo "python-exe=$python_exe"
           echo "extra-cmake-args=$extra"
         } >> "$GITHUB_OUTPUT"
-        echo "toolchain: $cxx / $python_exe ${extra:+(+ $extra)}"
+        # The one line a same-commit hosted/self-hosted comparison reads first.
+        echo "toolchain: $cxx ($("$cxx" --version | head -1)) / $python_exe ${extra:+(+ $extra)}"
