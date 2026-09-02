@@ -22,12 +22,17 @@
 #include "../FunctionalTest.h"
 
 #include "OloEngine/Fluid/CPUFluidSolver.h"
+#include "OloEngine/Fluid/FluidSolverTypes.h"
 #include "OloEngine/Fluid/FluidWorld.h"
+#include "OloEngine/Physics3D/JoltBody.h"
+#include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Physics3D/SceneQueries.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 
 #include <cmath>
+#include <vector>
 
 namespace OloEngine::Functional
 {
@@ -114,6 +119,57 @@ namespace OloEngine::Functional
             }
             return instance->Cpu->GetCount();
         }
+
+        /// The body-proxy query the fluid runs every tick, repeated here so a
+        /// failure says WHICH half of the seam produced nothing (issue #1015).
+        ///
+        /// LightBoxFloatsDenseBoxSinks fails on the self-hosted AMD box (GCC
+        /// 14.3 Release + LTO) and passes on MSVC and clang, Debug and Release,
+        /// with both boxes resting on the ground — i.e. no lift reached them.
+        /// The solver itself is fine there (CPUFluidSolver's own coupling tests
+        /// pass), and this test pins the CPU solver, so the suspect is the
+        /// coupling: JoltScene::OverlapBox over the fluid domain, whose only
+        /// engine caller is FluidSystem::ExtractBodyProxies and which has no
+        /// unit test. If this probe reports the ground plus both boxes, the
+        /// query is not the problem and the next place to look is the impulse
+        /// the solver returns for those proxies; if it reports fewer, it is.
+        struct PoolProbe
+        {
+            i32 Hits = 0;
+            i32 WithEntity = 0;
+            i32 Dynamic = 0;
+        };
+
+        [[nodiscard]] PoolProbe ProbePoolBodies(Entity fluidEntity)
+        {
+            PoolProbe probe;
+            JoltScene* jolt = GetScene().GetPhysicsScene();
+            if (!jolt)
+            {
+                return probe;
+            }
+
+            const auto& fluid = fluidEntity.GetComponent<FluidComponent>();
+            const glm::vec3 center = fluidEntity.GetComponent<TransformComponent>().Translation;
+            const BoxOverlapInfo overlap(center, fluid.m_DomainHalfExtents);
+
+            std::vector<SceneQueryHit> hits(static_cast<sizet>(kFluidMaxBodyProxies) * 2u);
+            probe.Hits = jolt->OverlapBox(overlap, hits.data(), static_cast<i32>(hits.size()));
+            for (i32 i = 0; i < probe.Hits; ++i)
+            {
+                const SceneQueryHit& hit = hits[static_cast<sizet>(i)];
+                if (!hit.m_HitBody || hit.m_HitEntity == 0)
+                {
+                    continue;
+                }
+                ++probe.WithEntity;
+                if (hit.m_HitBody->IsDynamic())
+                {
+                    ++probe.Dynamic;
+                }
+            }
+            return probe;
+        }
     };
 
     TEST_F(FluidCouplingTest, PrefilledPoolSpawnsParticles)
@@ -149,8 +205,16 @@ namespace OloEngine::Functional
         // The dense box must end clearly below the light one — the sign of the
         // coupling, independent of its exact magnitude. (Both would otherwise
         // rest identically on the ground.)
+        const PoolProbe probe = ProbePoolBodies(pool);
+        const auto probeText = [&probe]
+        {
+            return " [pool probe: " + std::to_string(probe.Hits) + " overlap hits, " +
+                   std::to_string(probe.WithEntity) + " with an entity+body, " + std::to_string(probe.Dynamic) +
+                   " dynamic; the ground and both boxes should all be inside the domain]";
+        };
+
         EXPECT_GT(Y(light), Y(dense) + 0.15f)
-            << "light=" << Y(light) << " dense=" << Y(dense);
+            << "light=" << Y(light) << " dense=" << Y(dense) << probeText();
 
         // Absolute sanity: the dense box reached the ground region (rest is
         // centre ~0.2); the light box is held up in the fluid column, clearly
@@ -158,8 +222,8 @@ namespace OloEngine::Functional
         // floats mostly submerged, and the coarse 0.2 m particle resolution
         // costs a little more — so the bound is ground-rest + one box half,
         // not the waterline.
-        EXPECT_LT(Y(dense), 0.4f);
-        EXPECT_GT(Y(light), 0.4f);
+        EXPECT_LT(Y(dense), 0.4f) << probeText();
+        EXPECT_GT(Y(light), 0.4f) << probeText();
         EXPECT_GT(ParticleCount(pool), 200u) << "pool lost its particles";
     }
 
