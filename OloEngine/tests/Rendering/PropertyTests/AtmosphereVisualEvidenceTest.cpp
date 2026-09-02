@@ -61,6 +61,7 @@
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Atmosphere/WeatherSystem.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -263,6 +264,17 @@ namespace OloEngine::Tests
             m_SavedWind = Renderer3D::GetWindSettings();
             m_SavedPrecipitation = Renderer3D::GetPrecipitationSettings();
             m_SavedSnowAccumulation = Renderer3D::GetSnowAccumulationSettings();
+            // The #1008 probe below reads CloudsColor AFTER the frame. CloudsColor is
+            // a transient that dies at the fog pass, so with aliasing on the planner
+            // is free to hand its GL texture to a later pass, and the "pre-fog" read
+            // then returns that pass's output instead. Measured: with aliasing on,
+            // every fogged cell read back the fog composite under the CloudsColor
+            // name; with it off, the same read returned the cloudscape output. The
+            // texture-id check against the FINAL framebuffer cannot catch this
+            // (that one is a different texture either way). Process-wide state:
+            // restored in TearDown.
+            m_SavedDisableAliasing = Levers::DisableTransientAliasing();
+            Levers::SetDisableTransientAliasing(true);
             RendererAttachedTest::SetUp();
         }
 
@@ -274,6 +286,7 @@ namespace OloEngine::Tests
             Renderer3D::GetPrecipitationSettings() = m_SavedPrecipitation;
             Renderer3D::GetSnowAccumulationSettings() = m_SavedSnowAccumulation;
             Renderer3D::SetCloudscapeState(CloudscapeRenderState{});
+            Levers::SetDisableTransientAliasing(m_SavedDisableAliasing);
         }
 
         void BuildScene() override
@@ -480,11 +493,13 @@ namespace OloEngine::Tests
             {
                 // FALSIFY THE INSTRUMENT FIRST. Four Overcast cells reported a
                 // pre-fog horizon band identical to the composited one to three
-                // decimals, which is the signature of reading ONE buffer twice --
-                // and render-graph transient aliasing makes that a live hazard here
-                // (docs/agent-rules/render-graph-transient-aliasing.md). If these two
-                // resolve to the same GL texture then every number below is the final
-                // image wearing a pre-fog label.
+                // decimals, which is the signature of reading ONE buffer twice.
+                // This check catches the direct case (CloudsColor resolving to the
+                // final image). It does NOT catch the case that actually happened:
+                // CloudsColor's transient reused by an intermediate pass after the
+                // fog pass consumed it -- a different texture from the final
+                // framebuffer, holding a post-fog image all the same. That is what
+                // the SetUp lever closes; this check stays as the cheap guard.
                 const u32 preTex = preFog->GetColorAttachmentRendererID(0);
                 const u32 postTex = fb->GetColorAttachmentRendererID(0);
                 std::cout << "[#1008-alias] " << name << "  CloudsColor tex=" << preTex
@@ -583,6 +598,7 @@ namespace OloEngine::Tests
         std::map<std::string, BandStats> m_Horizon;
         std::map<std::string, BandStats> m_Ground;
 
+        bool m_SavedDisableAliasing = false;
         FogSettings m_SavedFog;
         WindSettings m_SavedWind;
         PrecipitationSettings m_SavedPrecipitation;
