@@ -61,6 +61,17 @@ on:
         description: 'Rewrite the perf baselines for this machine'
         type: boolean
         default: false
+      gtest_filter:
+        # Debugging a GPU-ONLY failure is otherwise a 40-minute round trip per
+        # hypothesis: this box is the only machine in the fleet that can
+        # reproduce one, and the full suite is the only thing it knows how to
+        # run. A filtered dispatch turns each hypothesis into a few minutes. The
+        # exclusion below is APPENDED rather than replaced, so a filter can never
+        # re-enable the network tests this job deliberately never runs. Empty
+        # leaves the scheduled behaviour exactly as it was.
+        description: 'gtest filter (e.g. OceanFFTVisualEvidenceTest.*). Empty runs the whole suite.'
+        type: string
+        default: ''
   schedule:
     # 00:47 UTC — roughly 02:00 German local (02:47 CEST / 01:47 CET; GitHub cron
     # is UTC-only and does not follow DST, so it drifts an hour across the year).
@@ -449,7 +460,7 @@ jobs:
             ${{ inputs.golden_rebase && '--olo-golden-rebase' || '' }} \
             ${{ inputs.perf_rebase && '--olo-perf-rebase' || '' }} \
             --gtest_catch_exceptions=1 \
-            --gtest_filter=-NetworkIntegrationTest.* \
+            --gtest_filter=${{ inputs.gtest_filter || '*' }}:-NetworkIntegrationTest.* \
             --gtest_output=xml:../test_results/gpu_amd.xml
 
       # ---------------------------------------------------------------------
