@@ -86,14 +86,6 @@ jobs:
     # run if this workflow file ever executes outside the upstream repository.
     if: github.repository == 'drsnuggles8/OloEngineBase'
     runs-on: [self-hosted, linux, x64, gpu-amd]
-    # Shared with gpu-sanitizers-amd.yml (#1015): both drive the one physical
-    # card from different label sets, so only a group NAMED BY BOTH keeps them
-    # off it simultaneously. Not cancel-in-progress -- the workflow-level group
-    # above already cancels a stale conformance run, and a queued sanitizer arm
-    # must not cancel this one.
-    concurrency:
-      group: olo-amd-gpu-exclusive
-      cancel-in-progress: false
     timeout-minutes: 120
 
     env:

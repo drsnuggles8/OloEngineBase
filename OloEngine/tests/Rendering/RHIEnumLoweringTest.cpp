@@ -350,17 +350,36 @@ TEST(RHIFormatCompleteness, EveryIntegerFormatIsNamedAsOne)
 TEST(RHIFormatCompleteness, NoFilterableFormatIsMistakenForAnInteger)
 {
     // The inverse matters as much: calling a float or normalised format
-    // "integer" would silently force NEAREST on it and lose filtering.
+    // "integer" would silently force NEAREST on it and lose filtering. EVERY
+    // non-integer member of the enum is listed, so a format that is added and
+    // left unclassified fails here rather than escaping the predicate.
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::Unknown));
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::R8UNorm));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RG8UNorm));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RGB8UNorm));
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RGBA8UNorm));
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RGBA8SRGB));
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RG16Float));
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RGBA16Float));
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::R32Float));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RG32Float));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RGB32Float));
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RGBA32Float));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::D24UNormS8UInt));
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::D32Float));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::BC5UNorm));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::BC6HUFloat));
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::BC7UNorm));
-    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::Unknown));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::BC7SRGB));
+
+    // The two lists together must name every enumerator: 6 integer formats
+    // above plus the 18 here, and RGBA32UInt is the last member (the enum's
+    // ordinals are pinned by RHIEnumLoweringTest's static_asserts, and members
+    // may only be appended). If someone appends a format, this count fails and
+    // they have to decide which list it belongs in.
+    static_assert(static_cast<u16>(RHI::Format::RGBA32UInt) + 1 == 24,
+                  "a Format was added: classify it in IsIntegerFormat and list it in one of the two "
+                  "RHIFormatCompleteness tests");
 }
 
 TEST(RHIFormatCompleteness, TheVirtualShadowMapPoolFormatIsAnIntegerFormat)
