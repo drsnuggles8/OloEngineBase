@@ -1318,6 +1318,38 @@ namespace OloEngine
         glDrawBuffers(static_cast<GLsizei>(colorAttachmentCount), allBuffers.data());
     }
 
+    namespace
+    {
+        // Make a freshly created, SINGLE-LEVEL texture complete.
+        //
+        // glTextureStorage2D leaves the sampler state at the GL defaults:
+        // MIN_FILTER = NEAREST_MIPMAP_LINEAR and MAX_LEVEL = 1000. With one
+        // level that is mipmap-INCOMPLETE, and for an integer internal format
+        // the mipmapping (non-NEAREST) filter makes it incomplete a second way.
+        // Sampling an incomplete texture is undefined: NVIDIA returns the data,
+        // Mesa returns zero, for texelFetch as much as for a filtered sample.
+        //
+        // That is not hypothetical. The virtual shadow map's R32UI physical page
+        // pool is created through here and read with texelFetch; on the AMD CI
+        // box every resident page fetched 0, which vsmDecodeDepth reads as an
+        // occluder at depth 0, so the whole floor sampled as shadowed while the
+        // region with no resident page stayed correctly lit (issue #1015). A
+        // standalone probe on that GPU returns 0 with the default state and the
+        // written value with the two calls below. Texture.h records the same
+        // lesson from the text renderer's RG16UI band texture.
+        void MakeSingleLevelTextureComplete(u32 textureID, RHI::Format internalFormat)
+        {
+            // Storage has exactly one level; say so, or the mipmapping default
+            // min filter looks for levels that do not exist.
+            glTextureParameteri(textureID, GL_TEXTURE_MAX_LEVEL, 0);
+            if (RHI::IsIntegerFormat(internalFormat))
+            {
+                glTextureParameteri(textureID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTextureParameteri(textureID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            }
+        }
+    } // namespace
+
     u32 OpenGLRendererAPI::CreateTexture2D(u32 width, u32 height, RHI::Format internalFormat)
     {
         OLO_PROFILE_FUNCTION();
@@ -1326,6 +1358,7 @@ namespace OloEngine
         glCreateTextures(GL_TEXTURE_2D, 1, &textureID);
         glTextureStorage2D(textureID, 1, Utils::ToGLInternalFormat(internalFormat),
                            static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+        MakeSingleLevelTextureComplete(textureID, internalFormat);
         return textureID;
     }
 
@@ -1337,6 +1370,7 @@ namespace OloEngine
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &textureID);
         glTextureStorage2D(textureID, 1, Utils::ToGLInternalFormat(internalFormat),
                            static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+        MakeSingleLevelTextureComplete(textureID, internalFormat);
         return textureID;
     }
 

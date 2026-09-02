@@ -314,3 +314,60 @@ TEST(RHIEnumLowering, ColorAttachmentLoweringHonoursTheNoAttachmentSentinel)
     // "simplified" into attachment 0.
     EXPECT_NE(Utils::ToGLColorAttachment(RHI::NoAttachment), Utils::ToGLColorAttachment(0));
 }
+
+// =============================================================================
+// Integer RHI formats, and why they need naming (issue #1015)
+//
+// A raw RHI texture is created single-level with glTextureStorage2D, which
+// leaves MIN_FILTER at NEAREST_MIPMAP_LINEAR and MAX_LEVEL at 1000 — mipmap-
+// incomplete, and for an INTEGER internal format incomplete a second time,
+// because integer textures must sample NEAREST. An incomplete texture is
+// undefined to sample: NVIDIA hands back the data, Mesa returns zero, for
+// texelFetch as much as for a filtered read.
+//
+// That cost two subsystems already. Texture.h's twin predicate was written when
+// a linear-filtered RG16UI band texture erased every glyph the text renderer
+// drew on AMD; this one was written when the virtual shadow map's R32UI page
+// pool fetched 0 on the AMD CI box, which vsmDecodeDepth reads as an occluder
+// at depth 0, so every resident page shadowed the floor while the region with
+// no resident page stayed correctly lit.
+//
+// OpenGLRendererAPI::CreateTexture2D / CreateTextureCubemap now set MAX_LEVEL = 0
+// always and NEAREST for integer formats. The predicate is what decides, so it
+// is what this pins: a format added to the enum without being classified here
+// is the way the bug comes back.
+// =============================================================================
+TEST(RHIFormatCompleteness, EveryIntegerFormatIsNamedAsOne)
+{
+    EXPECT_TRUE(RHI::IsIntegerFormat(RHI::Format::R8UInt));
+    EXPECT_TRUE(RHI::IsIntegerFormat(RHI::Format::R16UInt));
+    EXPECT_TRUE(RHI::IsIntegerFormat(RHI::Format::RG16UInt));
+    EXPECT_TRUE(RHI::IsIntegerFormat(RHI::Format::R32Int));
+    EXPECT_TRUE(RHI::IsIntegerFormat(RHI::Format::R32UInt));
+    EXPECT_TRUE(RHI::IsIntegerFormat(RHI::Format::RGBA32UInt));
+}
+
+TEST(RHIFormatCompleteness, NoFilterableFormatIsMistakenForAnInteger)
+{
+    // The inverse matters as much: calling a float or normalised format
+    // "integer" would silently force NEAREST on it and lose filtering.
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::R8UNorm));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RGBA8UNorm));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RGBA8SRGB));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RG16Float));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RGBA16Float));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::R32Float));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::RGBA32Float));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::D32Float));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::BC7UNorm));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::Unknown));
+}
+
+TEST(RHIFormatCompleteness, TheVirtualShadowMapPoolFormatIsAnIntegerFormat)
+{
+    // The pool is R32UI because the raster resolves visibility with
+    // imageAtomicMin, which has no float form. If that ever changes to a float
+    // format the NEAREST requirement goes away — and this test should be the
+    // thing that makes someone say so out loud.
+    EXPECT_TRUE(RHI::IsIntegerFormat(RHI::Format::R32UInt));
+}

@@ -249,6 +249,22 @@ namespace OloEngine::RHI
         RGBA32UInt,
     };
 
+    // An INTEGER texture must be sampled with NEAREST, and a single-level one
+    // must not be left on a mipmapping min filter. Get either wrong and the
+    // texture is INCOMPLETE: NVIDIA tolerates it and returns the data anyway,
+    // Mesa follows the spec and every fetch -- texelFetch included -- reads
+    // zero. Texture.h carries the same predicate for the `Texture` class, where
+    // it was learned the hard way (a linear-filtered RG16UI band texture
+    // erased every glyph the text renderer drew, on AMD only); this is the
+    // twin for raw RHI handles, which had no such guard until the virtual
+    // shadow map's R32UI page pool read as all-zero on the AMD CI box and
+    // shadowed every resident page (issue #1015).
+    [[nodiscard("Store this!")]] constexpr bool IsIntegerFormat(Format format) noexcept
+    {
+        return format == Format::R8UInt || format == Format::R16UInt || format == Format::RG16UInt ||
+               format == Format::R32Int || format == Format::R32UInt || format == Format::RGBA32UInt;
+    }
+
     // -------------------------------------------------------------------------
     // What a DIAGNOSTIC needs to know about a live texture's storage format
     // (#810). `Format` above is the vocabulary the engine CREATES textures
