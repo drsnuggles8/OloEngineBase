@@ -1,0 +1,168 @@
+#version 460 core
+
+// Depth-aware Forward+ preparation (issue #722).
+// One 16x16 workgroup owns one screen tile. It reduces the depth-prepass
+// attachment to tile-local min/max positive view depth, a 32-bit occupancy
+// mask, and a 24-bit active froxel-slice mask. Thread zero compacts those
+// active froxels into the suffix of binding 11 while atomically producing the
+// X dimension of the indirect cull dispatch in binding 13.
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+#include "../include/BindlessHeap.glsl"
+#include "../include/DepthAwareClusterCommon.glsl"
+#ifdef OLO_BINDLESS
+#define u_SceneDepth OLO_HEAP_TEX_2D(19)
+#else
+layout(binding = 19) uniform sampler2D u_SceneDepth;
+#endif
+
+layout(std430, binding = 11) buffer LightIndexBuf
+{
+    uint lightIndices[];
+};
+
+layout(std430, binding = 12) buffer LightGridBuf
+{
+    uint gridWords[];
+};
+
+layout(std430, binding = 13) buffer GlobalIndexBuf
+{
+    uint globalIndex;
+    uint dispatchGroupsX;
+    uint dispatchGroupsY;
+    uint dispatchGroupsZ;
+};
+
+layout(std140, binding = 68) uniform LightCullingParams
+{
+    mat4  u_ViewMatrix;
+    mat4  u_InverseProjectionMatrix;
+    uint  u_PointLightCount;
+    uint  u_SpotLightCount;
+    uint  u_SphereAreaLightCount;
+    uint  u_MaxLightsPerCluster;
+    float u_NearPlane;
+    float u_FarPlane;
+    uvec2 u_ScreenSize;
+    uvec4 u_ClusterParams; // xyz = cluster counts, w = active-list word offset
+    uvec4 u_LayoutParams;  // x = depth-metadata word offset
+};
+
+shared uint s_MinDepthBits;
+shared uint s_MaxDepthBits;
+shared uint s_OccupancyMask;
+shared uint s_ActiveSliceMask;
+
+void main()
+{
+    uint localIndex = gl_LocalInvocationIndex;
+    if (localIndex == 0u)
+    {
+        s_MinDepthBits = floatBitsToUint(3.402823466e+38);
+        s_MaxDepthBits = 0u;
+        s_OccupancyMask = 0u;
+        s_ActiveSliceMask = 0u;
+    }
+    barrier();
+
+    uvec2 tile = gl_WorkGroupID.xy;
+    uvec2 tileCounts = u_ClusterParams.xy;
+    uvec2 textureExtent = uvec2(textureSize(u_SceneDepth, 0));
+    uvec2 screenSize = min(u_ScreenSize, textureExtent);
+    uvec2 pixelMin = uvec2(oloTilePixelBoundary(tile.x, tileCounts.x, screenSize.x),
+                           oloTilePixelBoundary(tile.y, tileCounts.y, screenSize.y));
+    uvec2 pixelMax = uvec2(oloTilePixelBoundary(tile.x + 1u, tileCounts.x, screenSize.x),
+                           oloTilePixelBoundary(tile.y + 1u, tileCounts.y, screenSize.y));
+    uvec2 tileExtent = pixelMax - pixelMin;
+    uvec2 localPixelMin = pixelMin + (gl_LocalInvocationID.xy * tileExtent) / gl_WorkGroupSize.xy;
+    uvec2 localPixelMax = pixelMin + ((gl_LocalInvocationID.xy + uvec2(1u)) * tileExtent) / gl_WorkGroupSize.xy;
+
+    float localMinDepth = 3.402823466e+38;
+    float localMaxDepth = 0.0;
+    bool localHasGeometry = false;
+
+    // First traversal: exact tile extrema and active logarithmic slices. Each
+    // invocation reduces its contiguous micro-tile in registers, then performs
+    // only one shared atomic per result instead of one per pixel.
+    uint localActiveSliceMask = 0u;
+    for (uint y = localPixelMin.y; y < localPixelMax.y; ++y)
+    {
+        for (uint x = localPixelMin.x; x < localPixelMax.x; ++x)
+        {
+            float deviceDepth = texelFetch(u_SceneDepth, ivec2(x, y), 0).r;
+            if (deviceDepth >= 1.0)
+                continue;
+
+            float viewDepth = oloReconstructViewDepth(deviceDepth, u_InverseProjectionMatrix);
+            if (isnan(viewDepth) || isinf(viewDepth))
+                continue;
+
+            localMinDepth = min(localMinDepth, viewDepth);
+            localMaxDepth = max(localMaxDepth, viewDepth);
+            localActiveSliceMask |= 1u << oloSliceForViewDepth(
+                viewDepth, u_ClusterParams.z, u_NearPlane, u_FarPlane);
+            localHasGeometry = true;
+        }
+    }
+    if (localHasGeometry)
+    {
+        atomicMin(s_MinDepthBits, floatBitsToUint(localMinDepth));
+        atomicMax(s_MaxDepthBits, floatBitsToUint(localMaxDepth));
+        atomicOr(s_ActiveSliceMask, localActiveSliceMask);
+    }
+    barrier();
+
+    bool tileHasGeometry = s_ActiveSliceMask != 0u;
+    float tileMinDepth = uintBitsToFloat(s_MinDepthBits);
+    float tileMaxDepth = uintBitsToFloat(s_MaxDepthBits);
+    uint localOccupancyMask = 0u;
+    if (tileHasGeometry)
+    {
+        // Second traversal: quantise every geometry pixel against the now-known
+        // tile min/max exactly. A register-local OR is algebraically identical
+        // to one atomicOr per pixel and reduces the shared-atomic traffic to at
+        // most one operation per invocation. The second depth read normally
+        // hits the texture cache populated by the first traversal.
+        for (uint y = localPixelMin.y; y < localPixelMax.y; ++y)
+        {
+            for (uint x = localPixelMin.x; x < localPixelMax.x; ++x)
+            {
+                float deviceDepth = texelFetch(u_SceneDepth, ivec2(x, y), 0).r;
+                if (deviceDepth >= 1.0)
+                    continue;
+
+                float viewDepth = oloReconstructViewDepth(deviceDepth, u_InverseProjectionMatrix);
+                if (isnan(viewDepth) || isinf(viewDepth))
+                    continue;
+                localOccupancyMask |= 1u << oloDepthCell(viewDepth, tileMinDepth, tileMaxDepth);
+            }
+        }
+    }
+    if (localOccupancyMask != 0u)
+        atomicOr(s_OccupancyMask, localOccupancyMask);
+    barrier();
+
+    if (localIndex == 0u)
+    {
+        uint tileIndex = tile.y * tileCounts.x + tile.x;
+        uint metadata = u_LayoutParams.x + tileIndex * 4u;
+        gridWords[metadata + 0u] = tileHasGeometry ? s_MinDepthBits : 0u;
+        gridWords[metadata + 1u] = tileHasGeometry ? s_MaxDepthBits : 0u;
+        gridWords[metadata + 2u] = s_OccupancyMask;
+        gridWords[metadata + 3u] = s_ActiveSliceMask;
+
+        // One active-list entry per occupied logarithmic slice. Atomic tile
+        // ordering is intentionally unspecified; every cluster is independent.
+        for (uint slice = 0u; slice < u_ClusterParams.z; ++slice)
+        {
+            if ((s_ActiveSliceMask & (1u << slice)) == 0u)
+                continue;
+
+            uint activeIndex = atomicAdd(dispatchGroupsX, 1u);
+            uint clusterIndex = (slice * tileCounts.y + tile.y) * tileCounts.x + tile.x;
+            lightIndices[u_ClusterParams.w + activeIndex] = clusterIndex;
+        }
+    }
+}

@@ -347,6 +347,29 @@ TEST(McpRendererSettingsApply, DepthPrepassAutoNoOpWhenAlreadyDerived)
     EXPECT_EQ(result.Data["requested"], "auto");
 }
 
+TEST(McpRendererSettingsApply, DepthAwareCullingLeverIsIndependentOfTheDepthPrepass)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    lever.DepthPrepassEnabled = true;
+    lever.DepthAwareCulling = true;
+
+    const auto result = RS::Apply(RS::Setting::DepthAwareCulling, RS::kDepthAwareCullingOff, pp, rs, lever);
+    ASSERT_TRUE(result.Ok);
+    EXPECT_TRUE(lever.DepthPrepassEnabled) << "algorithm A/B must not change raster state";
+    EXPECT_FALSE(lever.DepthAwareCulling);
+    EXPECT_EQ(result.Data["previousValue"], "on");
+    EXPECT_EQ(result.Data["value"], "off");
+    EXPECT_EQ(result.Data["restoreWith"], "on");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+
+    const auto restored = RS::Apply(RS::Setting::DepthAwareCulling, RS::kDepthAwareCullingOn, pp, rs, lever);
+    ASSERT_TRUE(restored.Ok);
+    EXPECT_TRUE(lever.DepthAwareCulling);
+    EXPECT_TRUE(lever.DepthPrepassEnabled);
+}
+
 TEST(McpRendererSettingsApply, SoftShadowsPcfDisablesPcssAndReportsPrior)
 {
     PostProcessSettings pp;

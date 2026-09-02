@@ -1,0 +1,214 @@
+#version 460 core
+
+#include "../include/DepthAwareClusterCommon.glsl"
+
+// Depth-aware clustered Forward+ culling (issue #722). DepthPrepare.comp
+// compacts visible froxels into the suffix of binding 11 and emits this pass's
+// one-dimensional indirect dispatch. Each workgroup still owns exactly one
+// froxel, but empty logarithmic slices never launch and a tile-local 32-bit
+// occupancy test rejects lights spanning only depth gaps.
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+struct GPUPointLight
+{
+    vec4 PositionAndRadius;
+    vec4 ColorAndIntensity;
+    vec4 ShadowAndAttenuation;
+};
+
+struct GPUSpotLight
+{
+    vec4 PositionAndRadius;
+    vec4 DirectionAndAngle;
+    vec4 ColorAndIntensity;
+    vec4 SpotParams;
+};
+
+struct GPUSphereAreaLight
+{
+    vec4 PositionAndRadius;
+    vec4 ColorAndIntensity;
+    vec4 RangeAndPadding;
+};
+
+layout(std430, binding = 9) readonly buffer PointLightBuf
+{
+    GPUPointLight pointLights[];
+};
+
+layout(std430, binding = 10) readonly buffer SpotLightBuf
+{
+    GPUSpotLight spotLights[];
+};
+
+layout(std430, binding = 11) buffer LightIndexBuf
+{
+    uint lightIndices[];
+};
+
+layout(std430, binding = 12) buffer LightGridBuf
+{
+    uint gridWords[];
+};
+
+layout(std430, binding = 13) buffer GlobalIndexBuf
+{
+    uint globalIndex;
+    uint dispatchGroupsX;
+    uint dispatchGroupsY;
+    uint dispatchGroupsZ;
+};
+
+layout(std430, binding = 18) readonly buffer SphereAreaLightBuf
+{
+    GPUSphereAreaLight sphereAreaLights[];
+};
+
+layout(std140, binding = 68) uniform LightCullingParams
+{
+    mat4  u_ViewMatrix;
+    mat4  u_InverseProjectionMatrix;
+    uint  u_PointLightCount;
+    uint  u_SpotLightCount;
+    uint  u_SphereAreaLightCount;
+    uint  u_MaxLightsPerCluster;
+    float u_NearPlane;
+    float u_FarPlane;
+    uvec2 u_ScreenSize;
+    uvec4 u_ClusterParams; // xyz = cluster counts, w = active-list word offset
+    uvec4 u_LayoutParams;  // x = depth-metadata word offset
+};
+
+#define TYPE_TAG_POINT       (0u << 30)
+#define TYPE_TAG_SPHERE_AREA (1u << 30)
+#define TYPE_TAG_SPOT        (2u << 30)
+
+const uint MAX_SHARED_LIGHTS = 256u;
+shared uint s_ClusterLightCount;
+shared uint s_ClusterLightIndices[MAX_SHARED_LIGHTS];
+shared uint s_GlobalOffset;
+
+vec3 ndcNearToView(vec2 ndc)
+{
+    vec4 view = u_InverseProjectionMatrix * vec4(ndc, -1.0, 1.0);
+    return view.xyz / view.w;
+}
+
+bool sphereInClusterFrustum(vec3 center, float radius,
+                            vec4 planes[4], float nearZ, float farZ)
+{
+    if (center.z + radius < farZ || center.z - radius > nearZ)
+        return false;
+
+    for (int i = 0; i < 4; ++i)
+    {
+        if (dot(planes[i].xyz, center) + planes[i].w < -radius)
+            return false;
+    }
+    return true;
+}
+
+void buildTileFrustumPlanes(vec2 ndcMin, vec2 ndcMax, out vec4 planes[4])
+{
+    vec3 topLeft = ndcNearToView(vec2(ndcMin.x, ndcMax.y));
+    vec3 topRight = ndcNearToView(vec2(ndcMax.x, ndcMax.y));
+    vec3 bottomLeft = ndcNearToView(vec2(ndcMin.x, ndcMin.y));
+    vec3 bottomRight = ndcNearToView(vec2(ndcMax.x, ndcMin.y));
+
+    planes[0] = vec4(normalize(cross(bottomLeft, topLeft)), 0.0);
+    planes[1] = vec4(normalize(cross(topRight, bottomRight)), 0.0);
+    planes[2] = vec4(normalize(cross(bottomRight, bottomLeft)), 0.0);
+    planes[3] = vec4(normalize(cross(topLeft, topRight)), 0.0);
+}
+
+void main()
+{
+    uvec3 clusterCounts = u_ClusterParams.xyz;
+    uint clusterIndex = lightIndices[u_ClusterParams.w + gl_WorkGroupID.x];
+    uint clustersPerSlice = clusterCounts.x * clusterCounts.y;
+    uvec3 clusterID;
+    clusterID.z = clusterIndex / clustersPerSlice;
+    uint tileIndex = clusterIndex - clusterID.z * clustersPerSlice;
+    clusterID.y = tileIndex / clusterCounts.x;
+    clusterID.x = tileIndex - clusterID.y * clusterCounts.x;
+    uint localIndex = gl_LocalInvocationIndex;
+
+    uint metadata = u_LayoutParams.x + tileIndex * 4u;
+    float tileMinDepth = uintBitsToFloat(gridWords[metadata + 0u]);
+    float tileMaxDepth = uintBitsToFloat(gridWords[metadata + 1u]);
+    uint occupancyMask = gridWords[metadata + 2u];
+
+    if (localIndex == 0u)
+        s_ClusterLightCount = 0u;
+    barrier();
+
+    vec2 ndcMin = vec2(clusterID.xy) / vec2(clusterCounts.xy) * 2.0 - 1.0;
+    vec2 ndcMax = vec2(clusterID.xy + uvec2(1u)) / vec2(clusterCounts.xy) * 2.0 - 1.0;
+    vec4 frustumPlanes[4];
+    buildTileFrustumPlanes(ndcMin, ndcMax, frustumPlanes);
+
+    float sliceCount = float(clusterCounts.z);
+    float logFOverN = log2(u_FarPlane / u_NearPlane);
+    float sliceNearDist = u_NearPlane * exp2(logFOverN * (float(clusterID.z) / sliceCount));
+    float sliceFarDist = u_NearPlane * exp2(logFOverN * (float(clusterID.z + 1u) / sliceCount));
+    float nearZ = -sliceNearDist;
+    float farZ = -sliceFarDist;
+
+    uint threadCount = gl_WorkGroupSize.x * gl_WorkGroupSize.y;
+    uint maxLights = min(u_MaxLightsPerCluster, MAX_SHARED_LIGHTS);
+
+    for (uint i = localIndex; i < u_PointLightCount; i += threadCount)
+    {
+        vec3 viewPos = (u_ViewMatrix * vec4(pointLights[i].PositionAndRadius.xyz, 1.0)).xyz;
+        float radius = pointLights[i].PositionAndRadius.w;
+        if (sphereInClusterFrustum(viewPos, radius, frustumPlanes, nearZ, farZ) &&
+            oloSphereIntersectsOccupiedDepth(viewPos.z, radius, tileMinDepth, tileMaxDepth, occupancyMask))
+        {
+            uint slot = atomicAdd(s_ClusterLightCount, 1u);
+            if (slot < maxLights)
+                s_ClusterLightIndices[slot] = i | TYPE_TAG_POINT;
+        }
+    }
+
+    for (uint i = localIndex; i < u_SpotLightCount; i += threadCount)
+    {
+        vec3 viewPos = (u_ViewMatrix * vec4(spotLights[i].PositionAndRadius.xyz, 1.0)).xyz;
+        float radius = spotLights[i].PositionAndRadius.w;
+        if (sphereInClusterFrustum(viewPos, radius, frustumPlanes, nearZ, farZ) &&
+            oloSphereIntersectsOccupiedDepth(viewPos.z, radius, tileMinDepth, tileMaxDepth, occupancyMask))
+        {
+            uint slot = atomicAdd(s_ClusterLightCount, 1u);
+            if (slot < maxLights)
+                s_ClusterLightIndices[slot] = i | TYPE_TAG_SPOT;
+        }
+    }
+
+    for (uint i = localIndex; i < u_SphereAreaLightCount; i += threadCount)
+    {
+        vec3 viewPos = (u_ViewMatrix * vec4(sphereAreaLights[i].PositionAndRadius.xyz, 1.0)).xyz;
+        float radius = sphereAreaLights[i].RangeAndPadding.x;
+        if (sphereInClusterFrustum(viewPos, radius, frustumPlanes, nearZ, farZ) &&
+            oloSphereIntersectsOccupiedDepth(viewPos.z, radius, tileMinDepth, tileMaxDepth, occupancyMask))
+        {
+            uint slot = atomicAdd(s_ClusterLightCount, 1u);
+            if (slot < maxLights)
+                s_ClusterLightIndices[slot] = i | TYPE_TAG_SPHERE_AREA;
+        }
+    }
+    barrier();
+
+    uint count = min(s_ClusterLightCount, maxLights);
+    if (localIndex == 0u)
+        s_GlobalOffset = atomicAdd(globalIndex, count);
+    barrier();
+
+    for (uint i = localIndex; i < count; i += threadCount)
+        lightIndices[s_GlobalOffset + i] = s_ClusterLightIndices[i];
+
+    if (localIndex == 0u)
+    {
+        gridWords[clusterIndex * 2u + 0u] = s_GlobalOffset;
+        gridWords[clusterIndex * 2u + 1u] = count;
+    }
+}

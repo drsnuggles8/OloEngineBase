@@ -72,7 +72,7 @@ layout(std140, binding = 6) uniform ShadowData
 layout(std140, binding = 25) uniform ForwardPlusParams
 {
     uvec4 fplus_Params;       // x = ClusterCountX, y = ClusterCountY, z = Enabled, w = ClusterCountZ
-    vec4  fplus_TileScale;    // xy = clusterCount / screenSize
+    vec4  fplus_TileScale;    // xy = clusterCount / screenSize, zw = exact screen extent
     vec4  fplus_DepthSlicing; // x = sliceScale, y = sliceBias, z = zNear, w = zFar
 };
 

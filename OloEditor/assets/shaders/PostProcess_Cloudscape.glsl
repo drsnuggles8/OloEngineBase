@@ -235,7 +235,7 @@ void main()
     }
 
     // Distance fade: hand the far field to the sky/fog instead of a hard cut.
-    float distanceFade = smoothstep(kMaxMarchDistance, kMaxMarchDistance * 0.6, tStart);
+    float distanceFade = 1.0 - smoothstep(kMaxMarchDistance * 0.6, kMaxMarchDistance, tStart);
     inscatter *= distanceFade;
     transmittance = mix(1.0, transmittance, distanceFade);
 

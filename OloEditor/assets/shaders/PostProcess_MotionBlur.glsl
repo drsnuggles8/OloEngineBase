@@ -43,6 +43,7 @@ void main()
 // below is unchanged between them. Inert without OLO_BINDLESS; the engine only
 // defines it on the raw-GLSL compile route.
 #include "include/BindlessHeap.glsl"
+#include "include/SkyDepth.glsl"
 
 #ifdef OLO_BINDLESS
 #define u_Texture OLO_HEAP_TEX_2D(0)
@@ -130,7 +131,7 @@ void main()
     // the velocity buffer, so reconstruct camera motion there to keep the sky
     // streaking under camera movement just like the legacy camera-only path.
     vec2 velocity;
-    if (u_HasVelocityTexture != 0 && depth < 1.0)
+    if (u_HasVelocityTexture != 0 && !oloDepthIsSky(depth))
         velocity = texture(u_Velocity, v_TexCoord).rg;
     else
         velocity = ReconstructCameraVelocity(v_TexCoord, depth);

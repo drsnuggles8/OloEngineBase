@@ -117,6 +117,141 @@ TEST(ClusteredLightingMath, SliceSpansGrowWithDepth)
 }
 
 // =============================================================================
+// Depth-aware 2.5D occupancy (issue #722)
+// =============================================================================
+
+TEST(ClusteredLightingMath, DepthCellQuantisationCoversTileEndpoints)
+{
+    constexpr f32 tileMinDepth = 2.0f;
+    constexpr f32 tileMaxDepth = 18.0f;
+
+    EXPECT_EQ(CL::DepthCellForViewDepth(tileMinDepth, tileMinDepth, tileMaxDepth), 0u);
+    EXPECT_EQ(CL::DepthCellForViewDepth(tileMaxDepth, tileMinDepth, tileMaxDepth), CL::kDepthCellCount - 1u);
+    // Issue #722 defines the 32 cells over each tile's own reduced min/max.
+    EXPECT_EQ(CL::DepthCellForViewDepth(10.0f, tileMinDepth, tileMaxDepth),
+              CL::kDepthCellCount / 2u);
+}
+
+TEST(ClusteredLightingMath, DepthCellQuantisationClampsAndHandlesFlatTiles)
+{
+    EXPECT_EQ(CL::DepthCellForViewDepth(-100.0f, 2.0f, 18.0f), 0u);
+    EXPECT_EQ(CL::DepthCellForViewDepth(100.0f, 2.0f, 18.0f), CL::kDepthCellCount - 1u);
+    EXPECT_EQ(CL::DepthCellForViewDepth(4.0f, 4.0f, 4.0f), 0u);
+}
+
+TEST(ClusteredLightingMath, DepthRangeMaskIsInclusiveConservativeAndOrderIndependent)
+{
+    constexpr f32 tileMinDepth = 0.0f;
+    constexpr f32 tileMaxDepth = 32.0f; // one view-depth unit per cell
+
+    EXPECT_EQ(CL::DepthCellMaskForViewRange(4.1f, 4.9f, tileMinDepth, tileMaxDepth), 1u << 4u);
+    EXPECT_EQ(CL::DepthCellMaskForViewRange(4.9f, 4.1f, tileMinDepth, tileMaxDepth), 1u << 4u);
+    EXPECT_EQ(CL::DepthCellMaskForViewRange(4.9f, 5.1f, tileMinDepth, tileMaxDepth),
+              (1u << 4u) | (1u << 5u));
+    EXPECT_EQ(CL::DepthCellMaskForViewRange(-10.0f, 64.0f, tileMinDepth, tileMaxDepth),
+              0xFFFFFFFFu);
+    EXPECT_EQ(CL::DepthCellMaskForViewRange(64.0f, 96.0f, tileMinDepth, tileMaxDepth),
+              0u);
+}
+
+TEST(ClusteredLightingMath, OccupancyRejectsDepthGapsWithoutRejectingCoveredRanges)
+{
+    constexpr u32 occupied = (1u << 3u) | (1u << 21u);
+    constexpr f32 tileMinDepth = 0.0f;
+    constexpr f32 tileMaxDepth = 32.0f;
+    EXPECT_TRUE(CL::DepthRangeIntersectsMask(occupied, 3.1f, 3.9f, tileMinDepth, tileMaxDepth));
+    EXPECT_TRUE(CL::DepthRangeIntersectsMask(occupied, 21.1f, 21.9f, tileMinDepth, tileMaxDepth));
+    EXPECT_FALSE(CL::DepthRangeIntersectsMask(occupied, 10.1f, 10.9f, tileMinDepth, tileMaxDepth));
+    EXPECT_FALSE(CL::DepthRangeIntersectsMask(0u, tileMinDepth, tileMaxDepth,
+                                              tileMinDepth, tileMaxDepth));
+}
+
+TEST(ClusteredLightingMath, PrepareTileRangesMatchFragmentOwnershipAtOddResolutions)
+{
+    // 164 catches the float-rounding boundary that used to send pixel 20 to
+    // shading tile 3 while the integer preparation partition owned it as 4.
+    constexpr std::array<u32, 5> screenWidths = { 1u, 31u, 164u, 1366u, 2880u };
+    for (const u32 screenWidth : screenWidths)
+    {
+        u32 previousEnd = 0u;
+        for (u32 tile = 0u; tile < CL::kClusterCountX; ++tile)
+        {
+            const u32 begin = CL::TilePixelBoundary(tile, CL::kClusterCountX, screenWidth);
+            const u32 end = CL::TilePixelBoundary(tile + 1u, CL::kClusterCountX, screenWidth);
+            EXPECT_EQ(begin, previousEnd);
+            for (u32 pixel = begin; pixel < end; ++pixel)
+                EXPECT_EQ(CL::TileForPixelCenter(pixel, CL::kClusterCountX, screenWidth), tile);
+            previousEnd = end;
+        }
+        EXPECT_EQ(previousEnd, screenWidth);
+    }
+}
+
+TEST(ClusteredLightingMath, DepthAwareEligibilityRejectsMissingDepthContributors)
+{
+    CL::DepthAwareFrameInputs inputs;
+    EXPECT_TRUE(CL::CanUseDepthAwareCulling(inputs));
+
+    inputs.HasVolumetricFog = true;
+    EXPECT_FALSE(CL::CanUseDepthAwareCulling(inputs));
+    inputs.HasVolumetricFog = false;
+    inputs.HasVirtualGeometry = true;
+    EXPECT_FALSE(CL::CanUseDepthAwareCulling(inputs));
+    inputs.HasVirtualGeometry = false;
+    inputs.HasBlendedGeometry = true;
+    EXPECT_FALSE(CL::CanUseDepthAwareCulling(inputs));
+}
+
+TEST(ClusteredLightingMath, DeviceDepthReconstructsPerspectiveAndOrthographicEndpoints)
+{
+    const glm::mat4 perspective = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f);
+    const glm::mat4 inversePerspective = glm::inverse(perspective);
+    EXPECT_NEAR(CL::ViewDepthFromDeviceDepth(0.0f, inversePerspective), 0.1f, 1e-5f);
+    EXPECT_NEAR(CL::ViewDepthFromDeviceDepth(1.0f, inversePerspective), 100.0f, 1e-2f);
+
+    const glm::mat4 orthographic = glm::ortho(-5.0f, 5.0f, -3.0f, 3.0f, 0.5f, 20.0f);
+    const glm::mat4 inverseOrthographic = glm::inverse(orthographic);
+    EXPECT_NEAR(CL::ViewDepthFromDeviceDepth(0.0f, inverseOrthographic), 0.5f, 1e-5f);
+    EXPECT_NEAR(CL::ViewDepthFromDeviceDepth(1.0f, inverseOrthographic), 20.0f, 1e-4f);
+}
+
+TEST(ClusteredLightingMath, DepthAwareBufferSuffixesDoNotOverlapShadingData)
+{
+    constexpr u32 tileCount = CL::kClusterCountX * CL::kClusterCountY;
+    constexpr u32 lightCapacity = CL::kTotalClusters * CL::kMaxLightsPerCluster;
+
+    EXPECT_EQ(CL::ActiveClusterListOffsetWords(CL::kTotalClusters, CL::kMaxLightsPerCluster),
+              lightCapacity);
+    EXPECT_EQ(CL::LightIndexStorageWords(CL::kTotalClusters, CL::kMaxLightsPerCluster),
+              lightCapacity + CL::kTotalClusters);
+    EXPECT_EQ(CL::DepthTileMetadataOffsetWords(CL::kTotalClusters), CL::kTotalClusters * 2u);
+    EXPECT_EQ(CL::LightGridStorageWords(CL::kTotalClusters, tileCount),
+              CL::kTotalClusters * 2u + tileCount * CL::kDepthTileMetadataWordCount);
+    EXPECT_EQ(CL::kGlobalCounterAndDispatchWordCount, 4u);
+    EXPECT_EQ(CL::kIndirectDispatchOffsetBytes, sizeof(u32));
+}
+
+TEST(ClusteredLightingMath, ActiveClusterCompactionCountsEmptyTilesAndPreservesIndexOrder)
+{
+    EXPECT_EQ(CL::ActiveSliceCount(0u, CL::kClusterCountZ), 0u);
+    EXPECT_EQ(CL::ActiveSliceCount((1u << 0u) | (1u << 7u) | (1u << 23u), CL::kClusterCountZ), 3u);
+    EXPECT_EQ(CL::ActiveSliceCount(0xFFFFFFFFu, CL::kClusterCountZ), CL::kClusterCountZ);
+
+    constexpr u32 tileX = 11u;
+    constexpr u32 tileY = 5u;
+    constexpr u32 tileIndex = tileY * CL::kClusterCountX + tileX;
+    for (u32 slice = 0u; slice < CL::kClusterCountZ; ++slice)
+    {
+        EXPECT_EQ(CL::ClusterIndexFromTile(tileIndex, slice, CL::kClusterCountX, CL::kClusterCountY),
+                  CL::ClusterIndex(tileX, tileY, slice, CL::kClusterCountX, CL::kClusterCountY));
+    }
+
+    const u32 maximumCompactedEntries =
+        CL::kClusterCountX * CL::kClusterCountY * CL::ActiveSliceCount(0xFFFFFFFFu, CL::kClusterCountZ);
+    EXPECT_EQ(maximumCompactedEntries, CL::kTotalClusters);
+}
+
+// =============================================================================
 // Cluster index ordering
 // =============================================================================
 
@@ -407,20 +542,18 @@ TEST(ClusteredLightingMath, LargeLightSpansMultipleClusters)
 
 TEST(ClusteredLightingMath, TileScaleMapsFragCoordToClusterCoord)
 {
-    // Mirrors ForwardPlusCommon.glsl::fplusClusterIndex's tile computation:
-    // tileCoord = uvec2(gl_FragCoord.xy * TileScale.xy), clamped to counts-1.
-    const f32 screenW = 1920.0f;
-    const f32 screenH = 1080.0f;
-    const glm::vec2 tileScale(static_cast<f32>(CL::kClusterCountX) / screenW,
-                              static_cast<f32>(CL::kClusterCountY) / screenH);
+    // Mirrors ForwardPlusCommon.glsl::fplusClusterIndex's integer pixel-centre
+    // mapping. The UBO now carries the exact extent in TileScale.zw so float
+    // multiplication cannot round a boundary into the preceding tile.
+    constexpr u32 screenW = 1920u;
+    constexpr u32 screenH = 1080u;
 
-    // Pixel (0.5, 0.5) -> tile (0, 0)
-    glm::uvec2 tile(glm::vec2(0.5f, 0.5f) * tileScale);
+    glm::uvec2 tile(CL::TileForPixelCenter(0u, CL::kClusterCountX, screenW),
+                    CL::TileForPixelCenter(0u, CL::kClusterCountY, screenH));
     EXPECT_EQ(tile, glm::uvec2(0, 0));
 
-    // Last pixel -> last tile (after the shader's min() clamp)
-    tile = glm::uvec2(glm::vec2(1919.5f, 1079.5f) * tileScale);
-    tile = glm::min(tile, glm::uvec2(CL::kClusterCountX - 1, CL::kClusterCountY - 1));
+    tile = glm::uvec2(CL::TileForPixelCenter(screenW - 1u, CL::kClusterCountX, screenW),
+                      CL::TileForPixelCenter(screenH - 1u, CL::kClusterCountY, screenH));
     EXPECT_EQ(tile, glm::uvec2(CL::kClusterCountX - 1, CL::kClusterCountY - 1));
 
     // Interior consistency: the pixel at the exact centre of tile (i, j)
@@ -429,9 +562,10 @@ TEST(ClusteredLightingMath, TileScaleMapsFragCoordToClusterCoord)
     {
         for (u32 i = 0; i < CL::kClusterCountX; i += 5)
         {
-            const glm::vec2 pixelCenter((static_cast<f32>(i) + 0.5f) * screenW / CL::kClusterCountX,
-                                        (static_cast<f32>(j) + 0.5f) * screenH / CL::kClusterCountY);
-            const glm::uvec2 mapped(pixelCenter * tileScale);
+            const u32 pixelX = CL::TilePixelBoundary(i, CL::kClusterCountX, screenW);
+            const u32 pixelY = CL::TilePixelBoundary(j, CL::kClusterCountY, screenH);
+            const glm::uvec2 mapped(CL::TileForPixelCenter(pixelX, CL::kClusterCountX, screenW),
+                                    CL::TileForPixelCenter(pixelY, CL::kClusterCountY, screenH));
             EXPECT_EQ(mapped, glm::uvec2(i, j));
         }
     }

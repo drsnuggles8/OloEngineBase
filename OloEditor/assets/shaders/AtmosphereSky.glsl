@@ -204,7 +204,7 @@ float starField(vec3 dir, float rotation, float intensity)
     vec3 starPos = hash3(cell);
     float dist = length(f - starPos);
     float lum = pow(hash1(cell, 3u), 14.0);
-    float star = smoothstep(0.18, 0.0, dist) * lum;
+    float star = (1.0 - smoothstep(0.0, 0.18, dist)) * lum;
     return star * intensity * 60.0;
 }
 

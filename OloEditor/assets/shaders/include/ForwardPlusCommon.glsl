@@ -14,6 +14,8 @@
 #ifndef FORWARD_PLUS_COMMON_GLSL
 #define FORWARD_PLUS_COMMON_GLSL
 
+#include "DepthAwareClusterCommon.glsl"
+
 #ifdef FPLUS_ATLAS_SHADOWS
 // Pulled in HERE rather than left to each includer (issue #703). The shadow
 // sites below call vsmLocalShadow, and a GLSL include cannot see a declaration
@@ -90,7 +92,7 @@ layout(std430, binding = 18) readonly buffer FPlusSphereAreaLightBuf  { FPlusSph
 
 layout(std140, binding = 25) uniform ForwardPlusParams {
     uvec4 fplus_Params;       // x = ClusterCountX, y = ClusterCountY, z = Enabled (0/1), w = ClusterCountZ
-    vec4  fplus_TileScale;    // xy = clusterCount / screenSize, zw = unused
+    vec4  fplus_TileScale;    // xy = clusterCount / screenSize, zw = exact screen extent
     vec4  fplus_DepthSlicing; // x = sliceScale, y = sliceBias, z = zNear, w = zFar
 };
 
@@ -106,8 +108,10 @@ uint fplusClusterIndex(float viewDepth)
     uint countY = fplus_Params.y;
     uint countZ = fplus_Params.w;
 
-    uvec2 tileCoord = uvec2(gl_FragCoord.xy * fplus_TileScale.xy);
-    tileCoord = min(tileCoord, uvec2(countX - 1u, countY - 1u));
+    uvec2 pixel = uvec2(gl_FragCoord.xy);
+    uvec2 screenExtent = uvec2(fplus_TileScale.zw);
+    uvec2 tileCoord = uvec2(oloTileForPixelCenter(pixel.x, countX, screenExtent.x),
+                            oloTileForPixelCenter(pixel.y, countY, screenExtent.y));
 
     float z = max(viewDepth, 0.005);
     int slice = int(floor(log2(z) * fplus_DepthSlicing.x + fplus_DepthSlicing.y));

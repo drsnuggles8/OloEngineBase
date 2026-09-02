@@ -342,4 +342,87 @@ namespace OloEngine::Tests
             }
         }
     }
+
+    TEST_F(ClusteredLightingVisualEvidenceTest, DepthAwareCullingIsImageIdenticalToFixedGridFallback)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct RendererStateGuard
+        {
+            bool m_DepthPrepassEnabled;
+            bool m_DepthAwareCullingEnabled;
+            bool m_TAAEnabled;
+            bool m_AutoExposureEnabled;
+
+            ~RendererStateGuard()
+            {
+                Renderer3D::EnableDepthPrepass(m_DepthPrepassEnabled);
+                Renderer3D::EnableDepthAwareClusterCulling(m_DepthAwareCullingEnabled);
+                auto& postProcess = Renderer3D::GetPostProcessSettings();
+                postProcess.TAAEnabled = m_TAAEnabled;
+                postProcess.AutoExposureEnabled = m_AutoExposureEnabled;
+            }
+        } stateGuard{ Renderer3D::IsDepthPrepassEnabled(),
+                      Renderer3D::IsDepthAwareClusterCullingEnabled(),
+                      Renderer3D::GetPostProcessSettings().TAAEnabled,
+                      Renderer3D::GetPostProcessSettings().AutoExposureEnabled };
+
+        const auto captureDeterministically = [this](const std::string& tag, const glm::vec3& position,
+                                                     f32 yaw, f32 pitch, std::vector<u8>& pixels)
+        {
+            auto& postProcess = Renderer3D::GetPostProcessSettings();
+            postProcess.TAAEnabled = false;
+            postProcess.AutoExposureEnabled = false;
+            Capture(tag, position, yaw, pitch, pixels);
+        };
+
+        struct Pose
+        {
+            const char* Name;
+            glm::vec3 Position;
+            f32 Yaw;
+            f32 Pitch;
+        };
+
+        constexpr std::array poses = {
+            Pose{ "Overhead", { 0.0f, 24.0f, 22.0f }, 0.0f, 0.73f },
+            Pose{ "Grazing", { -16.0f, 4.0f, 20.0f }, -0.67f, 0.14f },
+        };
+
+        for (const Pose& pose : poses)
+        {
+            Renderer3D::EnableDepthPrepass(true);
+            Renderer3D::EnableDepthAwareClusterCulling(true);
+            std::vector<u8> depthAware;
+            captureDeterministically(std::string("DepthAware_") + pose.Name, pose.Position,
+                                     pose.Yaw, pose.Pitch, depthAware);
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            EXPECT_TRUE(Renderer3D::GetForwardPlus().WasLastCullingDepthAware())
+                << pose.Name << " capture did not use the depth-aware compact dispatch";
+
+            // Keep the prepass and all raster state identical; this dedicated
+            // lever changes only the culling algorithm.
+            Renderer3D::EnableDepthAwareClusterCulling(false);
+            std::vector<u8> fixedGrid;
+            captureDeterministically(std::string("FixedGrid_") + pose.Name, pose.Position,
+                                     pose.Yaw, pose.Pitch, fixedGrid);
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            EXPECT_FALSE(Renderer3D::GetForwardPlus().WasLastCullingDepthAware())
+                << pose.Name << " capture did not fall back to the fixed-grid dispatch";
+
+            ASSERT_EQ(depthAware.size(), fixedGrid.size());
+            EXPECT_EQ(depthAware, fixedGrid)
+                << pose.Name
+                << " image changed when depth-aware rejection was disabled; the optimization must not affect lighting";
+        }
+
+        // The actual no-prepass route must also select the fixed-grid fallback.
+        Renderer3D::EnableDepthAwareClusterCulling(true);
+        Renderer3D::EnableDepthPrepass(false);
+        std::vector<u8> noPrepass;
+        captureDeterministically("NoPrepass_Overhead", poses[0].Position, poses[0].Yaw,
+                                 poses[0].Pitch, noPrepass);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        EXPECT_FALSE(Renderer3D::GetForwardPlus().WasLastCullingDepthAware());
+    }
 } // namespace OloEngine::Tests

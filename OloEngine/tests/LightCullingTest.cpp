@@ -41,6 +41,14 @@ TEST(ForwardPlus, ForwardPlusUBOSize)
     EXPECT_EQ(sizeof(UBOStructures::ForwardPlusUBO) % 16, 0u); // std140
 }
 
+TEST(ForwardPlus, LightCullingUBOCarriesDepthAwareDispatchLayout)
+{
+    EXPECT_EQ(sizeof(UBOStructures::LightCullingUBO), 192u);
+    EXPECT_EQ(offsetof(UBOStructures::LightCullingUBO, ScreenSize), 152u);
+    EXPECT_EQ(offsetof(UBOStructures::LightCullingUBO, ClusterParams), 160u);
+    EXPECT_EQ(offsetof(UBOStructures::LightCullingUBO, LayoutParams), 176u);
+}
+
 // =============================================================================
 // LightGridConfig tests (clustered froxel grid, issue #435)
 // =============================================================================
@@ -69,6 +77,17 @@ TEST(ForwardPlus, ClusterGridTotalMatchesDimensions)
     // typical SSBO budgets (kTotalClusters * kMaxLightsPerCluster * 4 B).
     const u64 indexBytes = static_cast<u64>(total) * config.MaxLightsPerCluster * sizeof(u32);
     EXPECT_LT(indexBytes, 64ull * 1024ull * 1024ull);
+}
+
+TEST(ForwardPlus, GridRejectsMoreDepthSlicesThanTheOccupancyMaskCanRepresent)
+{
+    LightGridConfig config;
+    config.ClusterCountZ = ClusteredLighting::kDepthCellCount + 1u;
+
+    LightGrid grid;
+    grid.Initialize(1u, 1u, config);
+
+    EXPECT_FALSE(grid.IsInitialized());
 }
 
 // =============================================================================

@@ -6,10 +6,13 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
@@ -21,6 +24,36 @@ namespace OloEngine
     // Draw slot 0 -> colour attachment 0, nothing else. Hoisted to file
     // scope so the several blit helpers below share one definition.
     static constexpr std::array<u32, 1> kAttachment0Only = { 0u };
+
+    namespace
+    {
+        // Blended mesh fragments deliberately do not write the opaque depth
+        // prepass, so a depth-derived active list cannot prove their froxels
+        // empty. Keep them on the fixed grid rather than silently dropping
+        // local lights from glass/alpha-blended materials.
+        [[nodiscard]] bool HasForwardLitBlendedGeometry(const CommandBucket& bucket)
+        {
+            const FrameDataBuffer& frameData = FrameDataBufferManager::Get();
+            for (const CommandPacket* packet : bucket.GetPackets())
+            {
+                if (!packet)
+                    continue;
+
+                u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
+                if (packet->GetCommandType() == CommandType::DrawMesh)
+                    renderStateIndex = packet->GetCommandData<DrawMeshCommand>()->renderStateIndex;
+                else if (packet->GetCommandType() == CommandType::DrawMeshInstanced)
+                    renderStateIndex = packet->GetCommandData<DrawMeshInstancedCommand>()->renderStateIndex;
+
+                if (renderStateIndex != INVALID_RENDER_STATE_INDEX &&
+                    frameData.GetRenderState(renderStateIndex).blendEnabled)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    } // namespace
 
     SceneRenderPass::SceneRenderPass()
     {
@@ -270,12 +303,12 @@ namespace OloEngine
             OcclusionCuller::GetInstance().FlushQueuedQueries();
         }
 
-        // Clustered Forward+ light culling (issue #435): the froxel cull is
-        // depth-independent (the fixed 3D cluster grid replaces the old
-        // per-tile min/max depth reduction), so it no longer gates on the
-        // depth prepass. Both Forward+ and Deferred (which aliases to
-        // Forward+ for culling in ApplyRendererSettings) consume the same
-        // cluster lists.
+        // Clustered Forward+ light culling. When a single-sample depth prepass
+        // populated the current render target, issue #722 reduces each tile to
+        // min/max + a 32-bit occupancy mask, compacts the active froxels, and
+        // culls only those via an indirect dispatch. With the prepass disabled
+        // (or an unresolved MSAA depth attachment), the original fixed-grid
+        // dispatch remains the correctness-preserving fallback.
         auto& forwardPlus = Renderer3D::GetForwardPlus();
         if (forwardPlus.ShouldUseForwardPlus())
         {
@@ -284,9 +317,26 @@ namespace OloEngine
             // total (it previously ran outside both DepthPrepass and Color) —
             // needed to measure the thread-group swizzle adopted in the shader.
             gpuSubTimers.BeginSubPass("LightCulling");
+            // Deferred virtual geometry is rasterized after ScenePass, so it
+            // is absent from this depth attachment just like blended classic
+            // geometry. Either case requires the conservative fixed grid.
+            const FogSettings& fog = Renderer3D::GetFogSettings();
+            const bool singleSampleDepth = renderFB->GetSpecification().Samples == 1u;
+            const bool depthAwareLeverEnabled = Renderer3D::IsDepthAwareClusterCullingEnabled();
+            const bool inspectDepthContributors = depthPrepass && singleSampleDepth && depthAwareLeverEnabled;
+            const ClusteredLighting::DepthAwareFrameInputs depthAwareInputs{
+                .DepthPrepassAvailable = depthPrepass,
+                .SingleSampleDepth = singleSampleDepth,
+                .LeverEnabled = depthAwareLeverEnabled,
+                .HasBlendedGeometry = inspectDepthContributors && HasForwardLitBlendedGeometry(m_CommandBucket),
+                .HasVirtualGeometry = !VirtualMeshRegistry::Get().GetSubmissions().empty(),
+                .HasVolumetricFog = fog.Enabled && fog.EnableVolumetric,
+            };
             forwardPlus.DispatchCulling(
                 Renderer3D::GetViewMatrix(),
-                Renderer3D::GetProjectionMatrix());
+                Renderer3D::GetProjectionMatrix(),
+                renderFB->GetDepthAttachmentHandle(),
+                depthAwareInputs);
             gpuSubTimers.EndSubPass();
             forwardPlus.BindForShading();
         }

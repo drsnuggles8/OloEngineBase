@@ -110,7 +110,18 @@ jobs:
       # outside the workspace every nightly re-downloads and re-builds the whole
       # vendor set. Both dirs live in the runner user's home, not the workspace.
       CPM_SOURCE_CACHE: /home/gh-runner-olo/.cache/cpm
-      CCACHE_DIR: /home/gh-runner-olo/.cache/ccache
+      # The provisioned, 30 GiB, shared-by-every-job directory from
+      # scripts/setup-olo-ci-runners.sh -- not the unconfigured ~/.cache/ccache
+      # this job used to point at (5 GiB default). Same Unix account, so the
+      # olo-ci jobs' objects are reachable, though clang's and gcc's never collide.
+      CCACHE_DIR: /home/gh-runner-olo/.cache/olo/ccache
+      # Every engine target uses a precompiled header, and ccache refuses to
+      # cache a PCH-using compile unless sloppiness allows pch_defines and
+      # time_macros (ccache manual, "Precompiled headers"). Without this line the
+      # job's own statistics read "Could not use precompiled header: 1417 / 1417",
+      # i.e. a warm cache that rebuilt everything. The two include_file_* entries
+      # are the manual's recommendation for freshly checked-out trees.
+      CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
 
     steps:
       # A self-hosted runner's workspace PERSISTS between jobs. Even with an
@@ -198,6 +209,9 @@ jobs:
             exit 1
           fi
           cmake --version | head -1
+          # Recorded because the statistics format and the availability of
+          # --show-log-stats (used below) both depend on it.
+          ccache --version | head -1
 
       # ---------------------------------------------------------------------
       # Preflight: prove we have a HARDWARE context before spending an hour
@@ -341,6 +355,13 @@ jobs:
           key: ${{ steps.vcpkg.outputs.cache-key }}
           path: ${{ steps.vcpkg.outputs.cache-path }}
 
+      # Per-RUN statistics file, so the statistics step reports THIS build rather
+      # than the counters shared with every other job using CCACHE_DIR. Set in a
+      # step, not in the job env: the `runner` context is not available there, and
+      # $RUNNER_TEMP is only defined once a step is running.
+      - name: Point ccache at a per-run statistics log
+        run: echo "CCACHE_STATSLOG=$RUNNER_TEMP/ccache-stats-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.log" >> "$GITHUB_ENV"
+
       - name: Build tests
         # Width comes from CMAKE_BUILD_PARALLEL_LEVEL in the job env — see the
         # note there for why it must be set explicitly rather than left to the
@@ -359,6 +380,32 @@ jobs:
         # would have the workflow's silently win, leaving the project's
         # setting looking effective while doing nothing.
         run: cmake --build build --target OloEngine-Tests
+
+      # Statistics for THIS build only. The counters in CCACHE_DIR are SHARED --
+      # this box runs the olo-ci runners from the same Unix account and the same
+      # cache directory, and this workflow's concurrency group does not bound
+      # them. `ccache -z` would zero a concurrent job's counters, and `ccache -s`
+      # would report its compiles as ours: the first two runs after the stats step
+      # landed reported 2843 and 1619 "cacheable calls" for a build with 1482
+      # ninja edges, which is how the contamination was noticed.
+      #
+      # CCACHE_STATSLOG records one line per invocation of THIS job's ccache
+      # processes, and --show-log-stats summarises exactly that file (ccache 4.3+).
+      # An older ccache ignores the variable and leaves the file absent, so the
+      # fallback below reports the shared counters and says so rather than
+      # labelling them as this build's.
+      - name: ccache statistics
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -s "${CCACHE_STATSLOG:-}" ]; then
+            ccache --show-log-stats -v
+          else
+            echo "::warning::no CCACHE_STATSLOG (ccache < 4.3?) -- the figures below are the"
+            echo "::warning::SHARED cumulative counters for $CCACHE_DIR and include any other"
+            echo "::warning::job that compiled on this box. They are not this build's."
+            ccache -s -v
+          fi
 
       # ---------------------------------------------------------------------
       # The suite runs from OloEditor/ — OloEditor, OloRuntime and the test

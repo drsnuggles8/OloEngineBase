@@ -42,6 +42,7 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 0) in vec2 v_TexCoord;
 
 #include "include/BindlessHeap.glsl"
+#include "include/SkyDepth.glsl"
 
 // Heap-bindless conversion (issue #691, bucket 1). The BODY below is
 // byte-identical between the two variants — only these declarations move, and
@@ -296,7 +297,7 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv)
     // old flat-plane assumption couldn't tell the surface from the seafloor.
     float surfaceY = u_UnderwaterFlags.y;
     float wDepth = texture(u_WaterSurfaceDepth, uv).r;
-    if (wDepth < 1.0)
+    if (!oloDepthIsSky(wDepth))
     {
         vec4 sNdc = vec4(uv * 2.0 - 1.0, wDepth * 2.0 - 1.0, 1.0);
         vec4 sH = u_UnderwaterInvViewProj * sNdc;

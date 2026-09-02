@@ -73,6 +73,7 @@ namespace OloEngine::MCP::RendererSettings
         Tonemap,           // PostProcessSettings::Tonemap  (tone-map operator)
         RenderPath,        // RendererSettings::Path        (forward / forward+ / deferred)
         DepthPrepass,      // LeverState::DepthPrepassEnabled (Renderer3D live toggle; 'auto' = settings-derived)
+        DepthAwareCulling, // LeverState::DepthAwareCulling (issue #722 algorithm-only A/B lever)
         SoftShadows,       // LeverState::SoftShadows       (ShadowSettings::SoftShadows: PCSS vs PCF)
         HZBOcclusion,      // LeverState::HZBOcclusion      (Renderer3D::EnableHZBOcclusionCulling)
         VirtualShadowMaps, // LeverState::VirtualShadowMaps (ShadowSettings::VSM.Enabled, issue #702)
@@ -90,6 +91,7 @@ namespace OloEngine::MCP::RendererSettings
     {
         bool DepthPrepassEnabled = false; // live effective value (Renderer3D::IsDepthPrepassEnabled)
         bool DepthPrepassAuto = false;    // what 'auto' resolves to (Renderer3D::ComputeSettingsDerivedDepthPrepass)
+        bool DepthAwareCulling = true;    // live Renderer3D::IsDepthAwareClusterCullingEnabled
         bool SoftShadows = false;         // live ShadowSettings::SoftShadows
         bool HZBOcclusion = false;        // live Renderer3D::IsHZBOcclusionCullingEnabled
         // live ShadowSettings::VSM.Enabled (issue #702). Reads back what the
@@ -105,6 +107,9 @@ namespace OloEngine::MCP::RendererSettings
     inline constexpr i32 kDepthPrepassOff = 0;
     inline constexpr i32 kDepthPrepassOn = 1;
     inline constexpr i32 kDepthPrepassAuto = 2;
+
+    inline constexpr i32 kDepthAwareCullingOff = 0;
+    inline constexpr i32 kDepthAwareCullingOn = 1;
 
     inline constexpr i32 kSoftShadowsPcf = 0;
     inline constexpr i32 kSoftShadowsPcss = 1;
@@ -157,6 +162,13 @@ namespace OloEngine::MCP::RendererSettings
         { "auto", kDepthPrepassAuto, "Restore the settings-derived value (on when the user toggle or the Forward+/Deferred path requires it)" },
     } };
 
+    inline constexpr std::array<EnumValue, 2> kDepthAwareCullingValues = { {
+        { "off", kDepthAwareCullingOff,
+          "Fixed-grid clustered culling while leaving the depth prepass and raster state unchanged" },
+        { "on", kDepthAwareCullingOn,
+          "Depth-aware 2.5D occupancy rejection plus active-cluster indirect dispatch when prepass depth is usable" },
+    } };
+
     inline constexpr std::array<EnumValue, 2> kVirtualShadowMapValues = { {
         { "off", kVirtualShadowMapsOff, "Fixed 4-cascade CSM for the directional light" },
         { "on", kVirtualShadowMapsOn,
@@ -194,7 +206,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 8> kSettings = { {
+    inline constexpr std::array<SettingInfo, 9> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -205,8 +217,13 @@ namespace OloEngine::MCP::RendererSettings
         { "depthprepass", Setting::DepthPrepass,
           "Depth-prepass perf lever (Renderer3D live toggle, #316). 'on'/'off' force the live state for this session; "
           "'auto' restores the settings-derived value. Forward+/Deferred derive it ON because their tile culling reads "
-          "the prepass depth — forcing 'off' there is a valid perf experiment but degrades tiled lighting until restored. "
+          "the prepass depth for 2.5D active-cluster compaction. Forcing 'off' is a valid perf A/B: lighting remains "
+          "image-identical through the fixed-grid fallback, while LightCulling GPU time may increase. "
           "A later settings apply (e.g. a renderpath switch) re-derives it." },
+        { "depthawareculling", Setting::DepthAwareCulling,
+          "Clustered-light algorithm A/B lever (issue #722). 'off' keeps the depth prepass and colour-pass raster "
+          "state unchanged but runs the fixed-grid cull; 'on' uses 2.5D depth occupancy and compact indirect "
+          "dispatch when a readable prepass depth exists. Use this lever for pixel and GPU-timing comparisons." },
         { "softshadows", Setting::SoftShadows,
           "Directional-shadow filtering (ShadowSettings.SoftShadows): 'pcss' = contact-hardening soft shadows, 'pcf' = "
           "fixed 3x3 hardware PCF. THE dominant ScenePass perf lever in shadowed scenes (#316: PCSS was ~93% of "
@@ -262,6 +279,8 @@ namespace OloEngine::MCP::RendererSettings
                 return kRenderPathValues;
             case Setting::DepthPrepass:
                 return kDepthPrepassValues;
+            case Setting::DepthAwareCulling:
+                return kDepthAwareCullingValues;
             case Setting::SoftShadows:
                 return kSoftShadowValues;
             case Setting::HZBOcclusion:
@@ -468,6 +487,8 @@ namespace OloEngine::MCP::RendererSettings
             case Setting::DepthPrepass:
                 // Always reads back as off/on — 'auto' is a write-only token.
                 return lever.DepthPrepassEnabled ? kDepthPrepassOn : kDepthPrepassOff;
+            case Setting::DepthAwareCulling:
+                return lever.DepthAwareCulling ? kDepthAwareCullingOn : kDepthAwareCullingOff;
             case Setting::SoftShadows:
                 return lever.SoftShadows ? kSoftShadowsPcss : kSoftShadowsPcf;
             case Setting::HZBOcclusion:
@@ -527,6 +548,9 @@ namespace OloEngine::MCP::RendererSettings
                 break;
             case Setting::DepthPrepass:
                 lever.DepthPrepassEnabled = value == kDepthPrepassOn;
+                break;
+            case Setting::DepthAwareCulling:
+                lever.DepthAwareCulling = value == kDepthAwareCullingOn;
                 break;
             case Setting::SoftShadows:
                 lever.SoftShadows = value == kSoftShadowsPcss;

@@ -64,6 +64,13 @@ function(olo_enable_pch target_name pch_header)
     
     if(OLO_ENABLE_PCH)
         target_precompile_headers(${target_name} PUBLIC ${pch_header})
+        # ccache can only cache a GCC compile that uses a PCH when the compile
+        # carries -fpch-preprocess (ccache manual, "Precompiled headers"); without
+        # it every such compile is "could not use precompiled header" and runs
+        # uncached -- 1417 of 1468 objects on the AMD CI job. Clang needs nothing
+        # here: CMake already emits -include-pch and -fno-pch-timestamp for it.
+        # The flag only changes preprocessor (-E) output, so it is safe to carry.
+        target_compile_options(${target_name} PRIVATE $<$<CXX_COMPILER_ID:GNU>:-fpch-preprocess>)
     endif()
 endfunction()
 
