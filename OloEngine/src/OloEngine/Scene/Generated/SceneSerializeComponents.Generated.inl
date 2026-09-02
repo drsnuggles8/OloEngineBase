@@ -271,11 +271,11 @@ if (entity.HasComponent<DirectionalLightComponent>())
     out << YAML::Key << "Color" << YAML::Value << comp.m_Color;
     out << YAML::Key << "Intensity" << YAML::Value << comp.m_Intensity;
     out << YAML::Key << "CastShadows" << YAML::Value << comp.m_CastShadows;
+    out << YAML::Key << "CascadeDebugVisualization" << YAML::Value << comp.m_CascadeDebugVisualization;
     out << YAML::Key << "ShadowBias" << YAML::Value << comp.m_ShadowBias;
     out << YAML::Key << "ShadowNormalBias" << YAML::Value << comp.m_ShadowNormalBias;
     out << YAML::Key << "MaxShadowDistance" << YAML::Value << comp.m_MaxShadowDistance;
     out << YAML::Key << "CascadeSplitLambda" << YAML::Value << comp.m_CascadeSplitLambda;
-    out << YAML::Key << "CascadeDebugVisualization" << YAML::Value << comp.m_CascadeDebugVisualization;
     out << YAML::EndMap; // DirectionalLightComponent
 }
 
@@ -387,9 +387,9 @@ if (entity.HasComponent<FogVolumeComponent>())
     out << YAML::Key << "FalloffDistance" << YAML::Value << comp.m_FalloffDistance;
     out << YAML::Key << "Priority" << YAML::Value << comp.m_Priority;
     out << YAML::Key << "BlendWeight" << YAML::Value << comp.m_BlendWeight;
-    out << YAML::Key << "DensityVolume" << YAML::Value << static_cast<u64>(comp.m_DensityVolume);
     out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
     out << YAML::Key << "AffectTransparent" << YAML::Value << comp.m_AffectTransparent;
+    out << YAML::Key << "DensityVolume" << YAML::Value << static_cast<u64>(comp.m_DensityVolume);
     out << YAML::EndMap; // FogVolumeComponent
 }
 
@@ -398,37 +398,37 @@ if (entity.HasComponent<FootIKComponent>())
     out << YAML::Key << "FootIKComponent";
     out << YAML::BeginMap; // FootIKComponent
     auto const& comp = entity.GetComponent<FootIKComponent>();
-    out << YAML::Key << "Enabled" << YAML::Value << comp.Enabled;
     out << YAML::Key << "LeftFootBone" << YAML::Value << comp.LeftFootBone;
     out << YAML::Key << "RightFootBone" << YAML::Value << comp.RightFootBone;
     out << YAML::Key << "ChainLength" << YAML::Value << comp.ChainLength;
-    out << YAML::Key << "EnableToeRoll" << YAML::Value << comp.EnableToeRoll;
     out << YAML::Key << "LeftToeBone" << YAML::Value << comp.LeftToeBone;
     out << YAML::Key << "RightToeBone" << YAML::Value << comp.RightToeBone;
     out << YAML::Key << "RaycastUp" << YAML::Value << comp.RaycastUp;
     out << YAML::Key << "RaycastDown" << YAML::Value << comp.RaycastDown;
     out << YAML::Key << "FootHeight" << YAML::Value << comp.FootHeight;
-    out << YAML::Key << "AdjustPelvis" << YAML::Value << comp.AdjustPelvis;
     out << YAML::Key << "PelvisBone" << YAML::Value << comp.PelvisBone;
     out << YAML::Key << "MaxPelvisDrop" << YAML::Value << comp.MaxPelvisDrop;
     out << YAML::Key << "PelvisLerpSpeed" << YAML::Value << comp.PelvisLerpSpeed;
-    out << YAML::Key << "FootLock" << YAML::Value << comp.FootLock;
     out << YAML::Key << "PlantVelocityThreshold" << YAML::Value << comp.PlantVelocityThreshold;
     out << YAML::Key << "PlantLiftThreshold" << YAML::Value << comp.PlantLiftThreshold;
     out << YAML::Key << "UnlockBlendTime" << YAML::Value << comp.UnlockBlendTime;
-    out << YAML::Key << "AlignFootToSlope" << YAML::Value << comp.AlignFootToSlope;
     out << YAML::Key << "MaxSlopeAngle" << YAML::Value << comp.MaxSlopeAngle;
     out << YAML::Key << "Weight" << YAML::Value << comp.Weight;
-    out << YAML::Key << "LeftHandEnabled" << YAML::Value << comp.LeftHandEnabled;
     out << YAML::Key << "LeftHandBone" << YAML::Value << comp.LeftHandBone;
     out << YAML::Key << "LeftHandTarget" << YAML::Value << comp.LeftHandTarget;
     out << YAML::Key << "LeftHandTargetEntity" << YAML::Value << static_cast<u64>(comp.LeftHandTargetEntity);
-    out << YAML::Key << "RightHandEnabled" << YAML::Value << comp.RightHandEnabled;
     out << YAML::Key << "RightHandBone" << YAML::Value << comp.RightHandBone;
     out << YAML::Key << "RightHandTarget" << YAML::Value << comp.RightHandTarget;
     out << YAML::Key << "RightHandTargetEntity" << YAML::Value << static_cast<u64>(comp.RightHandTargetEntity);
     out << YAML::Key << "HandChainLength" << YAML::Value << comp.HandChainLength;
     out << YAML::Key << "HandWeight" << YAML::Value << comp.HandWeight;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.Enabled;
+    out << YAML::Key << "EnableToeRoll" << YAML::Value << comp.EnableToeRoll;
+    out << YAML::Key << "AdjustPelvis" << YAML::Value << comp.AdjustPelvis;
+    out << YAML::Key << "FootLock" << YAML::Value << comp.FootLock;
+    out << YAML::Key << "AlignFootToSlope" << YAML::Value << comp.AlignFootToSlope;
+    out << YAML::Key << "LeftHandEnabled" << YAML::Value << comp.LeftHandEnabled;
+    out << YAML::Key << "RightHandEnabled" << YAML::Value << comp.RightHandEnabled;
     out << YAML::EndMap; // FootIKComponent
 }
 
@@ -980,9 +980,9 @@ if (entity.HasComponent<VirtualMeshComponent>())
     out << YAML::Key << "VirtualMeshComponent";
     out << YAML::BeginMap; // VirtualMeshComponent
     auto const& comp = entity.GetComponent<VirtualMeshComponent>();
-    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
     out << YAML::Key << "MeshSource" << YAML::Value << static_cast<u64>(comp.m_MeshSource);
     out << YAML::Key << "ErrorThresholdPixels" << YAML::Value << comp.m_ErrorThresholdPixels;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
     out << YAML::Key << "CastShadows" << YAML::Value << comp.m_CastShadows;
     out << YAML::EndMap; // VirtualMeshComponent
 }
@@ -1003,7 +1003,6 @@ if (entity.HasComponent<WeatherStateComponent>())
     out << YAML::Key << "CloudDensity" << YAML::Value << comp.m_PresetClear.CloudDensity;
     out << YAML::Key << "CloudTypeBlend" << YAML::Value << comp.m_PresetClear.CloudTypeBlend;
     out << YAML::Key << "CloudWetness" << YAML::Value << comp.m_PresetClear.CloudWetness;
-    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetClear.FogEnabled;
     out << YAML::Key << "FogDensity" << YAML::Value << comp.m_PresetClear.FogDensity;
     out << YAML::Key << "FogColor" << YAML::Value << comp.m_PresetClear.FogColor;
     out << YAML::Key << "FogHeightFalloff" << YAML::Value << comp.m_PresetClear.FogHeightFalloff;
@@ -1011,20 +1010,20 @@ if (entity.HasComponent<WeatherStateComponent>())
     out << YAML::Key << "WindSpeed" << YAML::Value << comp.m_PresetClear.WindSpeed;
     out << YAML::Key << "WindGustStrength" << YAML::Value << comp.m_PresetClear.WindGustStrength;
     out << YAML::Key << "WindTurbulence" << YAML::Value << comp.m_PresetClear.WindTurbulence;
-    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetClear.PrecipitationEnabled;
     out << YAML::Key << "PrecipitationKind" << YAML::Value << static_cast<int>(comp.m_PresetClear.PrecipitationKind);
     out << YAML::Key << "PrecipitationIntensity" << YAML::Value << comp.m_PresetClear.PrecipitationIntensity;
-    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetClear.SnowAccumulationEnabled;
     out << YAML::Key << "SnowAccumulationRate" << YAML::Value << comp.m_PresetClear.SnowAccumulationRate;
     out << YAML::Key << "SunDimming" << YAML::Value << comp.m_PresetClear.SunDimming;
     out << YAML::Key << "WetnessTarget" << YAML::Value << comp.m_PresetClear.WetnessTarget;
+    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetClear.FogEnabled;
+    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetClear.PrecipitationEnabled;
+    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetClear.SnowAccumulationEnabled;
     out << YAML::EndMap;
     out << YAML::Key << "PresetOvercast" << YAML::Value << YAML::BeginMap;
     out << YAML::Key << "CloudCoverage" << YAML::Value << comp.m_PresetOvercast.CloudCoverage;
     out << YAML::Key << "CloudDensity" << YAML::Value << comp.m_PresetOvercast.CloudDensity;
     out << YAML::Key << "CloudTypeBlend" << YAML::Value << comp.m_PresetOvercast.CloudTypeBlend;
     out << YAML::Key << "CloudWetness" << YAML::Value << comp.m_PresetOvercast.CloudWetness;
-    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetOvercast.FogEnabled;
     out << YAML::Key << "FogDensity" << YAML::Value << comp.m_PresetOvercast.FogDensity;
     out << YAML::Key << "FogColor" << YAML::Value << comp.m_PresetOvercast.FogColor;
     out << YAML::Key << "FogHeightFalloff" << YAML::Value << comp.m_PresetOvercast.FogHeightFalloff;
@@ -1032,20 +1031,20 @@ if (entity.HasComponent<WeatherStateComponent>())
     out << YAML::Key << "WindSpeed" << YAML::Value << comp.m_PresetOvercast.WindSpeed;
     out << YAML::Key << "WindGustStrength" << YAML::Value << comp.m_PresetOvercast.WindGustStrength;
     out << YAML::Key << "WindTurbulence" << YAML::Value << comp.m_PresetOvercast.WindTurbulence;
-    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetOvercast.PrecipitationEnabled;
     out << YAML::Key << "PrecipitationKind" << YAML::Value << static_cast<int>(comp.m_PresetOvercast.PrecipitationKind);
     out << YAML::Key << "PrecipitationIntensity" << YAML::Value << comp.m_PresetOvercast.PrecipitationIntensity;
-    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetOvercast.SnowAccumulationEnabled;
     out << YAML::Key << "SnowAccumulationRate" << YAML::Value << comp.m_PresetOvercast.SnowAccumulationRate;
     out << YAML::Key << "SunDimming" << YAML::Value << comp.m_PresetOvercast.SunDimming;
     out << YAML::Key << "WetnessTarget" << YAML::Value << comp.m_PresetOvercast.WetnessTarget;
+    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetOvercast.FogEnabled;
+    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetOvercast.PrecipitationEnabled;
+    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetOvercast.SnowAccumulationEnabled;
     out << YAML::EndMap;
     out << YAML::Key << "PresetRain" << YAML::Value << YAML::BeginMap;
     out << YAML::Key << "CloudCoverage" << YAML::Value << comp.m_PresetRain.CloudCoverage;
     out << YAML::Key << "CloudDensity" << YAML::Value << comp.m_PresetRain.CloudDensity;
     out << YAML::Key << "CloudTypeBlend" << YAML::Value << comp.m_PresetRain.CloudTypeBlend;
     out << YAML::Key << "CloudWetness" << YAML::Value << comp.m_PresetRain.CloudWetness;
-    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetRain.FogEnabled;
     out << YAML::Key << "FogDensity" << YAML::Value << comp.m_PresetRain.FogDensity;
     out << YAML::Key << "FogColor" << YAML::Value << comp.m_PresetRain.FogColor;
     out << YAML::Key << "FogHeightFalloff" << YAML::Value << comp.m_PresetRain.FogHeightFalloff;
@@ -1053,20 +1052,20 @@ if (entity.HasComponent<WeatherStateComponent>())
     out << YAML::Key << "WindSpeed" << YAML::Value << comp.m_PresetRain.WindSpeed;
     out << YAML::Key << "WindGustStrength" << YAML::Value << comp.m_PresetRain.WindGustStrength;
     out << YAML::Key << "WindTurbulence" << YAML::Value << comp.m_PresetRain.WindTurbulence;
-    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetRain.PrecipitationEnabled;
     out << YAML::Key << "PrecipitationKind" << YAML::Value << static_cast<int>(comp.m_PresetRain.PrecipitationKind);
     out << YAML::Key << "PrecipitationIntensity" << YAML::Value << comp.m_PresetRain.PrecipitationIntensity;
-    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetRain.SnowAccumulationEnabled;
     out << YAML::Key << "SnowAccumulationRate" << YAML::Value << comp.m_PresetRain.SnowAccumulationRate;
     out << YAML::Key << "SunDimming" << YAML::Value << comp.m_PresetRain.SunDimming;
     out << YAML::Key << "WetnessTarget" << YAML::Value << comp.m_PresetRain.WetnessTarget;
+    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetRain.FogEnabled;
+    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetRain.PrecipitationEnabled;
+    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetRain.SnowAccumulationEnabled;
     out << YAML::EndMap;
     out << YAML::Key << "PresetStorm" << YAML::Value << YAML::BeginMap;
     out << YAML::Key << "CloudCoverage" << YAML::Value << comp.m_PresetStorm.CloudCoverage;
     out << YAML::Key << "CloudDensity" << YAML::Value << comp.m_PresetStorm.CloudDensity;
     out << YAML::Key << "CloudTypeBlend" << YAML::Value << comp.m_PresetStorm.CloudTypeBlend;
     out << YAML::Key << "CloudWetness" << YAML::Value << comp.m_PresetStorm.CloudWetness;
-    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetStorm.FogEnabled;
     out << YAML::Key << "FogDensity" << YAML::Value << comp.m_PresetStorm.FogDensity;
     out << YAML::Key << "FogColor" << YAML::Value << comp.m_PresetStorm.FogColor;
     out << YAML::Key << "FogHeightFalloff" << YAML::Value << comp.m_PresetStorm.FogHeightFalloff;
@@ -1074,20 +1073,20 @@ if (entity.HasComponent<WeatherStateComponent>())
     out << YAML::Key << "WindSpeed" << YAML::Value << comp.m_PresetStorm.WindSpeed;
     out << YAML::Key << "WindGustStrength" << YAML::Value << comp.m_PresetStorm.WindGustStrength;
     out << YAML::Key << "WindTurbulence" << YAML::Value << comp.m_PresetStorm.WindTurbulence;
-    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetStorm.PrecipitationEnabled;
     out << YAML::Key << "PrecipitationKind" << YAML::Value << static_cast<int>(comp.m_PresetStorm.PrecipitationKind);
     out << YAML::Key << "PrecipitationIntensity" << YAML::Value << comp.m_PresetStorm.PrecipitationIntensity;
-    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetStorm.SnowAccumulationEnabled;
     out << YAML::Key << "SnowAccumulationRate" << YAML::Value << comp.m_PresetStorm.SnowAccumulationRate;
     out << YAML::Key << "SunDimming" << YAML::Value << comp.m_PresetStorm.SunDimming;
     out << YAML::Key << "WetnessTarget" << YAML::Value << comp.m_PresetStorm.WetnessTarget;
+    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetStorm.FogEnabled;
+    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetStorm.PrecipitationEnabled;
+    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetStorm.SnowAccumulationEnabled;
     out << YAML::EndMap;
     out << YAML::Key << "PresetSnow" << YAML::Value << YAML::BeginMap;
     out << YAML::Key << "CloudCoverage" << YAML::Value << comp.m_PresetSnow.CloudCoverage;
     out << YAML::Key << "CloudDensity" << YAML::Value << comp.m_PresetSnow.CloudDensity;
     out << YAML::Key << "CloudTypeBlend" << YAML::Value << comp.m_PresetSnow.CloudTypeBlend;
     out << YAML::Key << "CloudWetness" << YAML::Value << comp.m_PresetSnow.CloudWetness;
-    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetSnow.FogEnabled;
     out << YAML::Key << "FogDensity" << YAML::Value << comp.m_PresetSnow.FogDensity;
     out << YAML::Key << "FogColor" << YAML::Value << comp.m_PresetSnow.FogColor;
     out << YAML::Key << "FogHeightFalloff" << YAML::Value << comp.m_PresetSnow.FogHeightFalloff;
@@ -1095,20 +1094,20 @@ if (entity.HasComponent<WeatherStateComponent>())
     out << YAML::Key << "WindSpeed" << YAML::Value << comp.m_PresetSnow.WindSpeed;
     out << YAML::Key << "WindGustStrength" << YAML::Value << comp.m_PresetSnow.WindGustStrength;
     out << YAML::Key << "WindTurbulence" << YAML::Value << comp.m_PresetSnow.WindTurbulence;
-    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetSnow.PrecipitationEnabled;
     out << YAML::Key << "PrecipitationKind" << YAML::Value << static_cast<int>(comp.m_PresetSnow.PrecipitationKind);
     out << YAML::Key << "PrecipitationIntensity" << YAML::Value << comp.m_PresetSnow.PrecipitationIntensity;
-    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetSnow.SnowAccumulationEnabled;
     out << YAML::Key << "SnowAccumulationRate" << YAML::Value << comp.m_PresetSnow.SnowAccumulationRate;
     out << YAML::Key << "SunDimming" << YAML::Value << comp.m_PresetSnow.SunDimming;
     out << YAML::Key << "WetnessTarget" << YAML::Value << comp.m_PresetSnow.WetnessTarget;
+    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetSnow.FogEnabled;
+    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetSnow.PrecipitationEnabled;
+    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetSnow.SnowAccumulationEnabled;
     out << YAML::EndMap;
     out << YAML::Key << "PresetFogBank" << YAML::Value << YAML::BeginMap;
     out << YAML::Key << "CloudCoverage" << YAML::Value << comp.m_PresetFogBank.CloudCoverage;
     out << YAML::Key << "CloudDensity" << YAML::Value << comp.m_PresetFogBank.CloudDensity;
     out << YAML::Key << "CloudTypeBlend" << YAML::Value << comp.m_PresetFogBank.CloudTypeBlend;
     out << YAML::Key << "CloudWetness" << YAML::Value << comp.m_PresetFogBank.CloudWetness;
-    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetFogBank.FogEnabled;
     out << YAML::Key << "FogDensity" << YAML::Value << comp.m_PresetFogBank.FogDensity;
     out << YAML::Key << "FogColor" << YAML::Value << comp.m_PresetFogBank.FogColor;
     out << YAML::Key << "FogHeightFalloff" << YAML::Value << comp.m_PresetFogBank.FogHeightFalloff;
@@ -1116,13 +1115,14 @@ if (entity.HasComponent<WeatherStateComponent>())
     out << YAML::Key << "WindSpeed" << YAML::Value << comp.m_PresetFogBank.WindSpeed;
     out << YAML::Key << "WindGustStrength" << YAML::Value << comp.m_PresetFogBank.WindGustStrength;
     out << YAML::Key << "WindTurbulence" << YAML::Value << comp.m_PresetFogBank.WindTurbulence;
-    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetFogBank.PrecipitationEnabled;
     out << YAML::Key << "PrecipitationKind" << YAML::Value << static_cast<int>(comp.m_PresetFogBank.PrecipitationKind);
     out << YAML::Key << "PrecipitationIntensity" << YAML::Value << comp.m_PresetFogBank.PrecipitationIntensity;
-    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetFogBank.SnowAccumulationEnabled;
     out << YAML::Key << "SnowAccumulationRate" << YAML::Value << comp.m_PresetFogBank.SnowAccumulationRate;
     out << YAML::Key << "SunDimming" << YAML::Value << comp.m_PresetFogBank.SunDimming;
     out << YAML::Key << "WetnessTarget" << YAML::Value << comp.m_PresetFogBank.WetnessTarget;
+    out << YAML::Key << "FogEnabled" << YAML::Value << comp.m_PresetFogBank.FogEnabled;
+    out << YAML::Key << "PrecipitationEnabled" << YAML::Value << comp.m_PresetFogBank.PrecipitationEnabled;
+    out << YAML::Key << "SnowAccumulationEnabled" << YAML::Value << comp.m_PresetFogBank.SnowAccumulationEnabled;
     out << YAML::EndMap;
     out << YAML::EndMap; // WeatherStateComponent
 }

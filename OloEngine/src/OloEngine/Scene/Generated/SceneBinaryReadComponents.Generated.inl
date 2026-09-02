@@ -315,11 +315,11 @@ case 2327397916u: // DirectionalLightComponent
     if (!SceneBinIO::Read(reader, comp.m_Color)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Intensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_CastShadows)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_CascadeDebugVisualization)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShadowBias)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShadowNormalBias)) return false;
     if (!SceneBinIO::Read(reader, comp.m_MaxShadowDistance)) return false;
     if (!SceneBinIO::Read(reader, comp.m_CascadeSplitLambda)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_CascadeDebugVisualization)) return false;
     break;
 }
 case 858810945u: // DiscoverableComponent
@@ -429,20 +429,18 @@ case 1503688276u: // FogVolumeComponent
     comp.m_Priority = std::clamp(comp.m_Priority, static_cast<i32>(-100), static_cast<i32>(100));
     if (!SceneBinIO::Read(reader, comp.m_BlendWeight)) return false;
     comp.m_BlendWeight = std::clamp(comp.m_BlendWeight, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
-    if (!SceneBinIO::Read(reader, comp.m_DensityVolume)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_AffectTransparent)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_DensityVolume)) return false;
     break;
 }
 case 1414616508u: // FootIKComponent
 {
     auto& comp = deserializedEntity.AddComponent<FootIKComponent>();
-    if (!SceneBinIO::Read(reader, comp.Enabled)) return false;
     if (!SceneBinIO::Read(reader, comp.LeftFootBone)) return false;
     if (!SceneBinIO::Read(reader, comp.RightFootBone)) return false;
     if (!SceneBinIO::Read(reader, comp.ChainLength)) return false;
     comp.ChainLength = std::max(comp.ChainLength, static_cast<u32>(2u));
-    if (!SceneBinIO::Read(reader, comp.EnableToeRoll)) return false;
     if (!SceneBinIO::Read(reader, comp.LeftToeBone)) return false;
     if (!SceneBinIO::Read(reader, comp.RightToeBone)) return false;
     if (!SceneBinIO::Read(reader, comp.RaycastUp)) return false;
@@ -451,29 +449,24 @@ case 1414616508u: // FootIKComponent
     comp.RaycastDown = std::clamp(comp.RaycastDown, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
     if (!SceneBinIO::Read(reader, comp.FootHeight)) return false;
     comp.FootHeight = std::clamp(comp.FootHeight, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
-    if (!SceneBinIO::Read(reader, comp.AdjustPelvis)) return false;
     if (!SceneBinIO::Read(reader, comp.PelvisBone)) return false;
     if (!SceneBinIO::Read(reader, comp.MaxPelvisDrop)) return false;
     comp.MaxPelvisDrop = std::clamp(comp.MaxPelvisDrop, static_cast<f32>(0.0f), static_cast<f32>(2.0f));
     if (!SceneBinIO::Read(reader, comp.PelvisLerpSpeed)) return false;
     comp.PelvisLerpSpeed = std::clamp(comp.PelvisLerpSpeed, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
-    if (!SceneBinIO::Read(reader, comp.FootLock)) return false;
     if (!SceneBinIO::Read(reader, comp.PlantVelocityThreshold)) return false;
     comp.PlantVelocityThreshold = std::clamp(comp.PlantVelocityThreshold, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
     if (!SceneBinIO::Read(reader, comp.PlantLiftThreshold)) return false;
     comp.PlantLiftThreshold = std::clamp(comp.PlantLiftThreshold, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     if (!SceneBinIO::Read(reader, comp.UnlockBlendTime)) return false;
     comp.UnlockBlendTime = std::clamp(comp.UnlockBlendTime, static_cast<f32>(0.01f), static_cast<f32>(2.0f));
-    if (!SceneBinIO::Read(reader, comp.AlignFootToSlope)) return false;
     if (!SceneBinIO::Read(reader, comp.MaxSlopeAngle)) return false;
     comp.MaxSlopeAngle = std::clamp(comp.MaxSlopeAngle, static_cast<f32>(0.0f), static_cast<f32>(90.0f));
     if (!SceneBinIO::Read(reader, comp.Weight)) return false;
     comp.Weight = std::clamp(comp.Weight, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
-    if (!SceneBinIO::Read(reader, comp.LeftHandEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.LeftHandBone)) return false;
     if (!SceneBinIO::Read(reader, comp.LeftHandTarget)) return false;
     if (!SceneBinIO::Read(reader, comp.LeftHandTargetEntity)) return false;
-    if (!SceneBinIO::Read(reader, comp.RightHandEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.RightHandBone)) return false;
     if (!SceneBinIO::Read(reader, comp.RightHandTarget)) return false;
     if (!SceneBinIO::Read(reader, comp.RightHandTargetEntity)) return false;
@@ -481,6 +474,13 @@ case 1414616508u: // FootIKComponent
     comp.HandChainLength = std::max(comp.HandChainLength, static_cast<u32>(2u));
     if (!SceneBinIO::Read(reader, comp.HandWeight)) return false;
     comp.HandWeight = std::clamp(comp.HandWeight, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.Enabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.EnableToeRoll)) return false;
+    if (!SceneBinIO::Read(reader, comp.AdjustPelvis)) return false;
+    if (!SceneBinIO::Read(reader, comp.FootLock)) return false;
+    if (!SceneBinIO::Read(reader, comp.AlignFootToSlope)) return false;
+    if (!SceneBinIO::Read(reader, comp.LeftHandEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.RightHandEnabled)) return false;
     break;
 }
 case 1784713623u: // InstancePortalComponent
@@ -1056,10 +1056,10 @@ case 371155434u: // VehicleComponent
 case 2502968764u: // VirtualMeshComponent
 {
     auto& comp = deserializedEntity.AddComponent<VirtualMeshComponent>();
-    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_MeshSource)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ErrorThresholdPixels)) return false;
     comp.m_ErrorThresholdPixels = std::clamp(comp.m_ErrorThresholdPixels, static_cast<f32>(0.05f), static_cast<f32>(64.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_CastShadows)) return false;
     break;
 }
@@ -1081,7 +1081,6 @@ case 1224072163u: // WeatherStateComponent
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.CloudDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.CloudTypeBlend)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.CloudWetness)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetClear.FogEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.FogDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.FogColor)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.FogHeightFalloff)) return false;
@@ -1089,18 +1088,18 @@ case 1224072163u: // WeatherStateComponent
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.WindSpeed)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.WindGustStrength)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.WindTurbulence)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetClear.PrecipitationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.PrecipitationKind)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.PrecipitationIntensity)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetClear.SnowAccumulationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.SnowAccumulationRate)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.SunDimming)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetClear.WetnessTarget)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetClear.FogEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetClear.PrecipitationEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetClear.SnowAccumulationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.CloudCoverage)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.CloudDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.CloudTypeBlend)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.CloudWetness)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.FogEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.FogDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.FogColor)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.FogHeightFalloff)) return false;
@@ -1108,18 +1107,18 @@ case 1224072163u: // WeatherStateComponent
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.WindSpeed)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.WindGustStrength)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.WindTurbulence)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.PrecipitationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.PrecipitationKind)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.PrecipitationIntensity)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.SnowAccumulationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.SnowAccumulationRate)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.SunDimming)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.WetnessTarget)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.FogEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.PrecipitationEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetOvercast.SnowAccumulationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.CloudCoverage)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.CloudDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.CloudTypeBlend)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.CloudWetness)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetRain.FogEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.FogDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.FogColor)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.FogHeightFalloff)) return false;
@@ -1127,18 +1126,18 @@ case 1224072163u: // WeatherStateComponent
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.WindSpeed)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.WindGustStrength)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.WindTurbulence)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetRain.PrecipitationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.PrecipitationKind)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.PrecipitationIntensity)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetRain.SnowAccumulationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.SnowAccumulationRate)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.SunDimming)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetRain.WetnessTarget)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetRain.FogEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetRain.PrecipitationEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetRain.SnowAccumulationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.CloudCoverage)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.CloudDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.CloudTypeBlend)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.CloudWetness)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetStorm.FogEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.FogDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.FogColor)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.FogHeightFalloff)) return false;
@@ -1146,18 +1145,18 @@ case 1224072163u: // WeatherStateComponent
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.WindSpeed)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.WindGustStrength)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.WindTurbulence)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetStorm.PrecipitationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.PrecipitationKind)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.PrecipitationIntensity)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetStorm.SnowAccumulationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.SnowAccumulationRate)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.SunDimming)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetStorm.WetnessTarget)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetStorm.FogEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetStorm.PrecipitationEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetStorm.SnowAccumulationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.CloudCoverage)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.CloudDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.CloudTypeBlend)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.CloudWetness)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetSnow.FogEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.FogDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.FogColor)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.FogHeightFalloff)) return false;
@@ -1165,18 +1164,18 @@ case 1224072163u: // WeatherStateComponent
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.WindSpeed)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.WindGustStrength)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.WindTurbulence)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetSnow.PrecipitationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.PrecipitationKind)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.PrecipitationIntensity)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetSnow.SnowAccumulationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.SnowAccumulationRate)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.SunDimming)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetSnow.WetnessTarget)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetSnow.FogEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetSnow.PrecipitationEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetSnow.SnowAccumulationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.CloudCoverage)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.CloudDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.CloudTypeBlend)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.CloudWetness)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.FogEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.FogDensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.FogColor)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.FogHeightFalloff)) return false;
@@ -1184,12 +1183,13 @@ case 1224072163u: // WeatherStateComponent
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.WindSpeed)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.WindGustStrength)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.WindTurbulence)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.PrecipitationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.PrecipitationKind)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.PrecipitationIntensity)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.SnowAccumulationEnabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.SnowAccumulationRate)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.SunDimming)) return false;
     if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.WetnessTarget)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.FogEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.PrecipitationEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PresetFogBank.SnowAccumulationEnabled)) return false;
     break;
 }

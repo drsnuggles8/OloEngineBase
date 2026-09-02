@@ -769,6 +769,14 @@ namespace OloEngine
 
         // Collision complexity setting
         bool m_UseComplexAsSimple = false; // If true, use triangle mesh for dynamic bodies
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
+        OLO_SERIALIZE(Skip)
+        u32 Pad2 = 0;
 
         MeshCollider3DComponent() = default;
         MeshCollider3DComponent(const MeshCollider3DComponent&) = default;
@@ -779,6 +787,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(MeshCollider3DComponent) == 56, "MeshCollider3DComponent must have no padding: see BitwiseEqualLayoutTest");
 
     struct ConvexMeshCollider3DComponent
     {
@@ -846,6 +855,10 @@ namespace OloEngine
         bool m_DisableGravity = false;
         bool m_ControlMovementInAir = false;
         bool m_ControlRotationInAir = false;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
 
         CharacterController3DComponent() = default;
         CharacterController3DComponent(const CharacterController3DComponent&) = default;
@@ -855,6 +868,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(CharacterController3DComponent) == 20, "CharacterController3DComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // Two-body constraint types backed by Jolt's constraint library.
     enum class JointType3D
@@ -2730,13 +2744,17 @@ namespace OloEngine
         f32 m_Intensity = 1.0f;
         OLO_PROPERTY()
         bool m_CastShadows = true;
+        bool m_CascadeDebugVisualization = false;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u16 Pad0 = 0;
 
         // Shadow settings
         f32 m_ShadowBias = 0.005f;
         f32 m_ShadowNormalBias = 0.01f;
         f32 m_MaxShadowDistance = 200.0f;
         f32 m_CascadeSplitLambda = 0.5f;
-        bool m_CascadeDebugVisualization = false;
 
         DirectionalLightComponent() = default;
         DirectionalLightComponent(const DirectionalLightComponent&) = default;
@@ -2746,6 +2764,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(DirectionalLightComponent) == 48, "DirectionalLightComponent must have no padding: see BitwiseEqualLayoutTest");
 
     struct PointLightComponent
     {
@@ -2758,6 +2777,12 @@ namespace OloEngine
         f32 m_Attenuation = 2.0f; // Attenuation power
         OLO_PROPERTY()
         bool m_CastShadows = false;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
 
         // Shadow settings
         f32 m_ShadowBias = 0.005f;
@@ -2771,6 +2796,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(PointLightComponent) == 36, "PointLightComponent must have no padding: see BitwiseEqualLayoutTest");
 
     struct SpotLightComponent
     {
@@ -2788,6 +2814,12 @@ namespace OloEngine
         f32 m_Attenuation = 2.0f;
         OLO_PROPERTY()
         bool m_CastShadows = false;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
 
         // Shadow settings
         f32 m_ShadowBias = 0.005f;
@@ -2801,6 +2833,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(SpotLightComponent) == 56, "SpotLightComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // Sphere area light: a light with a physical radius producing soft specular
     // highlights via the Karis 2013 representative-point technique. Diffuse uses
@@ -2823,6 +2856,12 @@ namespace OloEngine
         // m_Radius (PCSS) is a Phase-2 follow-up. Like point/spot shadows, the
         // shadow only applies on the non-Forward+ shading path (<8 active lights).
         bool m_CastShadows = false;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
 
         SphereAreaLightComponent() = default;
         SphereAreaLightComponent(const SphereAreaLightComponent&) = default;
@@ -2832,6 +2871,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(SphereAreaLightComponent) == 28, "SphereAreaLightComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // Environment map component for skybox and IBL
     struct EnvironmentMapComponent
@@ -3097,7 +3137,6 @@ namespace OloEngine
         f32 CloudWetness = 0.0f;   // [0,1] darkens cloud bases (rain-laden look)
 
         // Fog (drives the weather-facing subset of FogSettings)
-        bool FogEnabled = false;
         f32 FogDensity = 0.005f;
         glm::vec3 FogColor = glm::vec3(0.55f, 0.6f, 0.7f);
         f32 FogHeightFalloff = 0.08f;
@@ -3109,23 +3148,31 @@ namespace OloEngine
         f32 WindTurbulence = 0.3f;
 
         // Precipitation (drives the weather-facing subset of PrecipitationSettings)
-        bool PrecipitationEnabled = false;
         WeatherPrecipitationType PrecipitationKind = WeatherPrecipitationType::Rain;
         f32 PrecipitationIntensity = 0.0f; // [0,1]
 
         // Snow accumulation (drives the weather-facing subset of SnowAccumulationSettings)
-        bool SnowAccumulationEnabled = false;
         f32 SnowAccumulationRate = 0.02f; // m/s of settled snow while snowing
 
         // Lighting / surface response
         f32 SunDimming = 0.0f;    // [0,1] extra global sun-intensity dim beyond per-pixel cloud shadow
         f32 WetnessTarget = 0.0f; // [0,1] surface wetness this state drives toward
 
+        // Enable flags. Grouped at the tail so the layout has no alignment holes
+        // (issue #1019): operator== below is a whole-object memcmp and unnamed
+        // padding is unspecified. Serialized by name, so the order is free.
+        bool FogEnabled = false;
+        bool PrecipitationEnabled = false;
+        bool SnowAccumulationEnabled = false;
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+
         auto operator==(const WeatherPreset& other) const -> bool
         {
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(WeatherPreset) == 76, "WeatherPreset must have no padding: see BitwiseEqualLayoutTest");
 
     // Authored defaults for each named weather state. A free function (not a
     // member) so the WeatherPreset/WeatherStateComponent struct bodies stay
@@ -3579,6 +3626,12 @@ namespace OloEngine
         f32 m_Intensity = 1.0f;
         OLO_PROPERTY()
         bool m_Active = true;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
         // Baked L2 SH (9 vec3). The engine PERSISTS this (see SceneSerializer.cpp) rather than
         // rebaking on load, so reflection must serialize it too — reflection emits it as a nested
         // SHCoefficients:{Coefficients:[...]} sub-map (vs the engine's flat sequence), a structural
@@ -3594,6 +3647,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(LightProbeComponent) == 120, "LightProbeComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // Light probe volume for grid-based global illumination
     struct LightProbeVolumeComponent
@@ -5098,6 +5152,12 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_CompactionFactor = 0.5f; // 0=full removal, 1=compact only (no displacement)
         bool m_EmitEjecta = true;      // Emit snow puff particles on deformation
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
 
         SnowDeformerComponent() = default;
         SnowDeformerComponent(const SnowDeformerComponent&) = default;
@@ -5110,6 +5170,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(SnowDeformerComponent) == 20, "SnowDeformerComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // ── Virtualized geometry (Nanite-style cluster LOD DAG, issue #629) ──
 
@@ -5122,14 +5183,15 @@ namespace OloEngine
     /// MeshComponent.
     struct VirtualMeshComponent
     {
-        bool m_Enabled = true;
-
+        // Members ordered 8-byte, 4-byte, 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
         AssetHandle m_MeshSource = 0; // MeshSource asset baked into the cluster DAG
-
         OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 64.0f)
         f32 m_ErrorThresholdPixels = 1.0f; // screen-space error target for the DAG cut
-
+        bool m_Enabled = true;
         bool m_CastShadows = true;
+        OLO_SERIALIZE(Skip)
+        u16 Pad0 = 0;
 
         VirtualMeshComponent() = default;
         VirtualMeshComponent(const VirtualMeshComponent&) = default;
@@ -5142,6 +5204,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(VirtualMeshComponent) == 16, "VirtualMeshComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────
 
@@ -5161,6 +5224,15 @@ namespace OloEngine
     {
         OLO_PROPERTY()
         bool m_Enabled = true;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. Seven bytes: the next member is 8-byte aligned.
+        // See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
+        OLO_SERIALIZE(Skip)
+        u32 Pad2 = 0;
 
         AssetHandle m_Settings = 0; // FluidSettings asset; 0 = engine defaults
 
@@ -5190,6 +5262,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(FluidComponent) == 40, "FluidComponent must have no padding: see BitwiseEqualLayoutTest");
 
     /// Emits fluid particles into the FluidComponent domain that contains the
     /// emitter's world position. Particles spawn on a disc of m_SpreadRadius
@@ -5199,6 +5272,12 @@ namespace OloEngine
     {
         OLO_PROPERTY()
         bool m_Enabled = true;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
 
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 200000.0f)
         OLO_PROPERTY()
@@ -5222,6 +5301,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(FluidEmitterComponent) == 16, "FluidEmitterComponent must have no padding: see BitwiseEqualLayoutTest");
 
     /// Deletes fluid particles inside an axis-aligned box centred on the
     /// entity's world translation (drains, level-exit volumes).
@@ -5229,6 +5309,12 @@ namespace OloEngine
     {
         OLO_PROPERTY()
         bool m_Enabled = true;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
 
         OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 256.0f)
         glm::vec3 m_HalfExtents = { 1.0f, 1.0f, 1.0f };
@@ -5244,6 +5330,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(FluidKillVolumeComponent) == 16, "FluidKillVolumeComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // ── Local Fog Volume ─────────────────────────────────────────────────
 
@@ -5290,14 +5377,17 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_BlendWeight = 1.0f; // 0-1 blend strength
 
+        // Flags. Declared before the 8-byte asset handle so the layout has no
+        // alignment holes (issue #1019): operator== below is a whole-object memcmp.
+        bool m_Enabled = true;
+        bool m_AffectTransparent = false; // Whether to affect transparent objects
+        OLO_SERIALIZE(Skip)
+        u16 Pad0 = 0;
+
         // OpenVDB-imported volume asset (#724, Volume asset type). Only used
         // when m_Shape == FogVolumeShape::Texture3D; 0 = none (renders
         // nothing for this volume even if the shape is set).
         AssetHandle m_DensityVolume = 0;
-
-        // Flags
-        bool m_Enabled = true;
-        bool m_AffectTransparent = false; // Whether to affect transparent objects
 
         FogVolumeComponent() = default;
         FogVolumeComponent(const FogVolumeComponent&) = default;
@@ -5310,6 +5400,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(FogVolumeComponent) == 56, "FogVolumeComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // ── Deferred Decal ───────────────────────────────────────────────────
 
@@ -5818,6 +5909,10 @@ namespace OloEngine
         bool m_ShowHealthBar = true;
         OLO_PROPERTY()
         bool m_ShowManaBar = false;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
         OLO_PROPERTY()
         glm::vec3 m_WorldOffset = { 0.0f, 2.0f, 0.0f };
         OLO_PROPERTY()
@@ -5839,6 +5934,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+    static_assert(sizeof(NameplateComponent) == 76, "NameplateComponent must have no padding: see BitwiseEqualLayoutTest");
 
     template<typename... Component>
     struct ComponentGroup

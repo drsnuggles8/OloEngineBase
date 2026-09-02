@@ -3740,26 +3740,6 @@ static void FluidKillVolumeComponent_SetEnabled(UUID entityID, bool value)
 // FootIKComponent                                                                //
 ///////////////////////////////////////////////////////////////////////////////////////////
 
-static bool FootIKComponent_GetEnabled(UUID entityID)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    return comp.Enabled;
-}
-
-static void FootIKComponent_SetEnabled(UUID entityID, bool value)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    comp.Enabled = value;
-}
-
 static unsigned int FootIKComponent_GetLeftFootBone(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();
@@ -3818,26 +3798,6 @@ static void FootIKComponent_SetChainLength(UUID entityID, unsigned int value)
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<FootIKComponent>();
     comp.ChainLength = value;
-}
-
-static bool FootIKComponent_GetEnableToeRoll(UUID entityID)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    return comp.EnableToeRoll;
-}
-
-static void FootIKComponent_SetEnableToeRoll(UUID entityID, bool value)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    comp.EnableToeRoll = value;
 }
 
 static unsigned int FootIKComponent_GetLeftToeBone(UUID entityID)
@@ -3902,26 +3862,6 @@ static void FootIKComponent_SetFootHeight(UUID entityID, float value)
     comp.FootHeight = value;
 }
 
-static bool FootIKComponent_GetAdjustPelvis(UUID entityID)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    return comp.AdjustPelvis;
-}
-
-static void FootIKComponent_SetAdjustPelvis(UUID entityID, bool value)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    comp.AdjustPelvis = value;
-}
-
 static unsigned int FootIKComponent_GetPelvisBone(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();
@@ -3940,46 +3880,6 @@ static void FootIKComponent_SetPelvisBone(UUID entityID, unsigned int value)
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<FootIKComponent>();
     comp.PelvisBone = value;
-}
-
-static bool FootIKComponent_GetFootLock(UUID entityID)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    return comp.FootLock;
-}
-
-static void FootIKComponent_SetFootLock(UUID entityID, bool value)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    comp.FootLock = value;
-}
-
-static bool FootIKComponent_GetAlignFootToSlope(UUID entityID)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    return comp.AlignFootToSlope;
-}
-
-static void FootIKComponent_SetAlignFootToSlope(UUID entityID, bool value)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    comp.AlignFootToSlope = value;
 }
 
 static float FootIKComponent_GetWeight(UUID entityID)
@@ -4004,26 +3904,6 @@ static void FootIKComponent_SetWeight(UUID entityID, float value)
     comp.Weight = value;
 }
 
-static bool FootIKComponent_GetLeftHandEnabled(UUID entityID)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    return comp.LeftHandEnabled;
-}
-
-static void FootIKComponent_SetLeftHandEnabled(UUID entityID, bool value)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    comp.LeftHandEnabled = value;
-}
-
 static unsigned int FootIKComponent_GetLeftHandBone(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();
@@ -4042,26 +3922,6 @@ static void FootIKComponent_SetLeftHandBone(UUID entityID, unsigned int value)
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<FootIKComponent>();
     comp.LeftHandBone = value;
-}
-
-static bool FootIKComponent_GetRightHandEnabled(UUID entityID)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    return comp.RightHandEnabled;
-}
-
-static void FootIKComponent_SetRightHandEnabled(UUID entityID, bool value)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<FootIKComponent>();
-    comp.RightHandEnabled = value;
 }
 
 static unsigned int FootIKComponent_GetRightHandBone(UUID entityID)
@@ -4124,6 +3984,146 @@ static void FootIKComponent_SetHandWeight(UUID entityID, float value)
         return;
     auto& comp = entity.GetComponent<FootIKComponent>();
     comp.HandWeight = value;
+}
+
+static bool FootIKComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    return comp.Enabled;
+}
+
+static void FootIKComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    comp.Enabled = value;
+}
+
+static bool FootIKComponent_GetEnableToeRoll(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    return comp.EnableToeRoll;
+}
+
+static void FootIKComponent_SetEnableToeRoll(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    comp.EnableToeRoll = value;
+}
+
+static bool FootIKComponent_GetAdjustPelvis(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    return comp.AdjustPelvis;
+}
+
+static void FootIKComponent_SetAdjustPelvis(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    comp.AdjustPelvis = value;
+}
+
+static bool FootIKComponent_GetFootLock(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    return comp.FootLock;
+}
+
+static void FootIKComponent_SetFootLock(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    comp.FootLock = value;
+}
+
+static bool FootIKComponent_GetAlignFootToSlope(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    return comp.AlignFootToSlope;
+}
+
+static void FootIKComponent_SetAlignFootToSlope(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    comp.AlignFootToSlope = value;
+}
+
+static bool FootIKComponent_GetLeftHandEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    return comp.LeftHandEnabled;
+}
+
+static void FootIKComponent_SetLeftHandEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    comp.LeftHandEnabled = value;
+}
+
+static bool FootIKComponent_GetRightHandEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    return comp.RightHandEnabled;
+}
+
+static void FootIKComponent_SetRightHandEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FootIKComponent>();
+    comp.RightHandEnabled = value;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////

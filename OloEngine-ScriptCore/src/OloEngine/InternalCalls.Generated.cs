@@ -751,10 +751,6 @@ namespace OloEngine
 
 		#region FootIKComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool FootIKComponent_GetEnabled(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void FootIKComponent_SetEnabled(ulong entityID, bool value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern uint FootIKComponent_GetLeftFootBone(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void FootIKComponent_SetLeftFootBone(ulong entityID, uint value);
@@ -766,10 +762,6 @@ namespace OloEngine
 		internal static extern uint FootIKComponent_GetChainLength(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void FootIKComponent_SetChainLength(ulong entityID, uint value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool FootIKComponent_GetEnableToeRoll(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void FootIKComponent_SetEnableToeRoll(ulong entityID, bool value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern uint FootIKComponent_GetLeftToeBone(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -783,37 +775,17 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void FootIKComponent_SetFootHeight(ulong entityID, float value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool FootIKComponent_GetAdjustPelvis(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void FootIKComponent_SetAdjustPelvis(ulong entityID, bool value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern uint FootIKComponent_GetPelvisBone(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void FootIKComponent_SetPelvisBone(ulong entityID, uint value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool FootIKComponent_GetFootLock(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void FootIKComponent_SetFootLock(ulong entityID, bool value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool FootIKComponent_GetAlignFootToSlope(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void FootIKComponent_SetAlignFootToSlope(ulong entityID, bool value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float FootIKComponent_GetWeight(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void FootIKComponent_SetWeight(ulong entityID, float value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool FootIKComponent_GetLeftHandEnabled(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void FootIKComponent_SetLeftHandEnabled(ulong entityID, bool value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern uint FootIKComponent_GetLeftHandBone(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void FootIKComponent_SetLeftHandBone(ulong entityID, uint value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool FootIKComponent_GetRightHandEnabled(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void FootIKComponent_SetRightHandEnabled(ulong entityID, bool value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern uint FootIKComponent_GetRightHandBone(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -826,6 +798,34 @@ namespace OloEngine
 		internal static extern float FootIKComponent_GetHandWeight(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void FootIKComponent_SetHandWeight(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetEnableToeRoll(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetEnableToeRoll(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetAdjustPelvis(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetAdjustPelvis(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetFootLock(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetFootLock(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetAlignFootToSlope(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetAlignFootToSlope(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetLeftHandEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetLeftHandEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetRightHandEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetRightHandEnabled(ulong entityID, bool value);
 		#endregion
 
 		#region LightProbeComponent

@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Scene/ComponentReflection.h"
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -10,7 +11,6 @@ namespace OloEngine
     struct IKTargetComponent
     {
         // --- Aim IK ---
-        bool AimIKEnabled = false;
         u32 AimBoneIndex = 0;
         glm::vec3 AimTarget{ 0.0f };
         glm::vec3 AimAxis{ 0.0f, 0.0f, 1.0f };
@@ -26,7 +26,6 @@ namespace OloEngine
         UUID AimTargetEntity = 0;
 
         // --- Limb IK ---
-        bool LimbIKEnabled = false;
         u32 LimbBoneIndex = 0;
         glm::vec3 LimbTarget{ 0.0f };
         u32 LimbChainLength = 2;
@@ -36,17 +35,28 @@ namespace OloEngine
         UUID LimbTargetEntity = 0;
 
         // --- Chain IK (FABRIK full N-bone chain — spines, tails, tentacles) ---
-        bool ChainIKEnabled = false;
         u32 ChainBoneIndex = 0; // tip / end-effector bone of the chain
         glm::vec3 ChainTarget{ 0.0f };
         glm::vec3 ChainPoleVector{ 0.0f }; // world-space bend hint; zero = disabled
         u32 ChainLength = 3;               // number of bones in the chain (>= 2)
         u32 ChainIterations = 10;
         f32 ChainTolerance = 0.001f;
-        f32 ChainWeight = 1.0f;
 
         // Optional entity whose world position overrides ChainTarget each frame.
+        // Declared before ChainWeight so the UUID lands on an 8-byte boundary
+        // without a padding hole (issue #1019).
         UUID ChainTargetEntity = 0;
+        f32 ChainWeight = 1.0f;
+
+        // --- Flags ---
+        // Every bool sits here, after the 4- and 8-byte members, so the layout has
+        // no alignment holes (issue #1019): operator== below is a whole-object
+        // memcmp and unnamed padding is unspecified.
+        bool AimIKEnabled = false;
+        bool LimbIKEnabled = false;
+        bool ChainIKEnabled = false;
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
 
         // Trivially-copyable POD component (UUID is a trivially-copyable u64
         // wrapper). A single whole-struct bitwise compare avoids the per-member
@@ -57,4 +67,5 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, o);
         }
     };
+    static_assert(sizeof(IKTargetComponent) == 160, "IKTargetComponent must have no padding: see BitwiseEqualLayoutTest");
 } // namespace OloEngine

@@ -26,9 +26,6 @@ namespace OloEngine
     // walks up ChainLength bones from each end-effector (ankle → knee → hip).
     struct FootIKComponent
     {
-        OLO_PROPERTY()
-        bool Enabled = true;
-
         // --- Feet ---
         OLO_PROPERTY()
         u32 LeftFootBone = 0;
@@ -39,8 +36,6 @@ namespace OloEngine
         u32 ChainLength = 3; // ankle+knee+hip — 3 chain bones = the two leg segments
 
         // Optional toe bones for the slope counter-roll (see AlignFootToSlope).
-        OLO_PROPERTY()
-        bool EnableToeRoll = false;
         OLO_PROPERTY()
         u32 LeftToeBone = 0;
         OLO_PROPERTY()
@@ -57,8 +52,6 @@ namespace OloEngine
 
         // --- Pelvis adaptation ---
         OLO_PROPERTY()
-        bool AdjustPelvis = true;
-        OLO_PROPERTY()
         u32 PelvisBone = 0;
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 2.0f)
         f32 MaxPelvisDrop = 0.4f; // furthest the hips may lower to reach ground
@@ -66,8 +59,6 @@ namespace OloEngine
         f32 PelvisLerpSpeed = 10.0f; // smoothing rate (1/s) for the pelvis offset
 
         // --- Foot planting (world-lock during stance) ---
-        OLO_PROPERTY()
-        bool FootLock = true;
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
         f32 PlantVelocityThreshold = 0.15f; // world speed (m/s) below which a grounded foot plants
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
@@ -76,8 +67,6 @@ namespace OloEngine
         f32 UnlockBlendTime = 0.12f; // seconds to blend a released foot back to animation
 
         // --- Slope alignment ---
-        OLO_PROPERTY()
-        bool AlignFootToSlope = true;
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 90.0f)
         f32 MaxSlopeAngle = 50.0f; // steeper ground is treated as this angle
 
@@ -87,14 +76,10 @@ namespace OloEngine
 
         // --- Hand IK (props / ledges) ---
         OLO_PROPERTY()
-        bool LeftHandEnabled = false;
-        OLO_PROPERTY()
         u32 LeftHandBone = 0;
         glm::vec3 LeftHandTarget{ 0.0f }; // world-space; overridden per frame by the entity below
         UUID LeftHandTargetEntity = 0;
 
-        OLO_PROPERTY()
-        bool RightHandEnabled = false;
         OLO_PROPERTY()
         u32 RightHandBone = 0;
         glm::vec3 RightHandTarget{ 0.0f };
@@ -107,6 +92,28 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 HandWeight = 1.0f;
 
+        // --- Flags ---
+        // Every bool sits here, after the 4- and 8-byte members, so the layout has
+        // no alignment holes (issue #1019): operator== below is a whole-object
+        // memcmp and unnamed padding is unspecified. The two UUIDs above stay
+        // 8-byte aligned. Inspector order (OLO_PROPERTY scan order) changes only.
+        OLO_PROPERTY()
+        bool Enabled = true;
+        OLO_PROPERTY()
+        bool EnableToeRoll = false;
+        OLO_PROPERTY()
+        bool AdjustPelvis = true;
+        OLO_PROPERTY()
+        bool FootLock = true;
+        OLO_PROPERTY()
+        bool AlignFootToSlope = true;
+        OLO_PROPERTY()
+        bool LeftHandEnabled = false;
+        OLO_PROPERTY()
+        bool RightHandEnabled = false;
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+
         // Trivially-copyable POD component: whole-struct bitwise compare matches
         // the editor's tier-1 memcmp undo (docs/agent-rules/cpp-coding-quality.md §7).
         auto operator==(const FootIKComponent& o) const -> bool
@@ -114,6 +121,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, o);
         }
     };
+    static_assert(sizeof(FootIKComponent) == 128, "FootIKComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // Per-foot runtime adaptation state (ground cache, plant lock, velocity
     // history). Not named *Component — plain nested data.

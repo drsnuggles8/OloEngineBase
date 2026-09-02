@@ -35,6 +35,9 @@ add_executable(OloEngine-Tests
 		PrecipitationSystemTest.cpp
 		CoreUtilitiesTest.cpp
 		MathTest.cpp
+		# Issue #1019: every type compared whole-object through Math::BitwiseEqual
+		# must have no padding bytes.
+		BitwiseEqualLayoutTest.cpp
 		ModelImporterTest.cpp
 		MeshInterchangeTest.cpp
 		VolumeImportTest.cpp

@@ -189,6 +189,10 @@ namespace OloEngine::Ocean
                 return !(*this == o);
             }
         };
+        // H0Key is private, so BitwiseEqualLayoutTest cannot list it; eleven
+        // 4-byte scalars plus a vec2 (52 bytes) leave no padding for the memcmp
+        // above (issue #1019).
+        static_assert(sizeof(H0Key) == 52, "H0Key must have no padding: see BitwiseEqualLayoutTest");
         [[nodiscard]] static H0Key MakeH0Key(const SpectrumParams& p);
 
         /// One band: its own spectrum, its own producer, its own retained CPU

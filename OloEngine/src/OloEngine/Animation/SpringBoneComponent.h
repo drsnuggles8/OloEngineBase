@@ -17,6 +17,12 @@ namespace OloEngine
     {
         OLO_PROPERTY()
         bool Enabled = true;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
+        // no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
         OLO_PROPERTY()
         u32 EndBoneIndex = 0; // chain tip bone (e.g. last tail bone)
         OLO_PROPERTY()
@@ -42,6 +48,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, o);
         }
     };
+    static_assert(sizeof(SpringBoneComponent) == 36, "SpringBoneComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // Runtime-only simulation state for SpringBoneComponent. Created on
     // demand by the Scene's animation update; deliberately NOT serialized

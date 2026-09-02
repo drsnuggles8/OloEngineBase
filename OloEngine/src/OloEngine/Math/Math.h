@@ -22,6 +22,19 @@ namespace OloEngine::Math
     //
     // Equivalent to `std::memcmp(&a, &b, sizeof(T)) == 0` but documents intent
     // and prevents accidental size/type mismatches.
+    //
+    // Padding rule (issue #1019): the memcmp covers every byte of sizeof(T),
+    // padding included, and padding is unspecified after member stores — a
+    // constructor never writes it and an optimiser may re-materialise it
+    // (seen on GCC 14 -O3). So a type compared as a WHOLE object here must
+    // have no padding bytes: order members so alignment leaves no hole and
+    // name any remaining tail bytes as explicit, always-initialised
+    // `OLO_SERIALIZE(Skip) u8 Pad0 = 0;` members. Scalars and glm types are
+    // padding-free already. The static_assert below cannot enforce this
+    // (`std::has_unique_object_representations_v` is false for any type that
+    // holds a float); OloEngine/tests/BitwiseEqualLayoutTest.cpp is the
+    // mechanism — it lists every whole-object caller and fails on a padded
+    // layout. Add a new `BitwiseEqual(*this, other)` type to that list.
     template<typename T>
     [[nodiscard]] inline bool BitwiseEqual(const T& a, const T& b) noexcept
     {

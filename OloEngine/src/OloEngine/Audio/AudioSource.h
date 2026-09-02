@@ -2,6 +2,7 @@
 
 #include <glm/vec3.hpp>
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Scene/ComponentReflection.h"
 #include "OloEngine/Audio/VoiceManager.h"
 
 #include <atomic>
@@ -41,6 +42,10 @@ namespace OloEngine
         bool Looping = false;
 
         bool Spatialization = false;
+        // Explicit padding (issue #1019): AudioSourceColdData::operator== memcmps
+        // this whole struct, so no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
         AttenuationModelType AttenuationModel = AttenuationModelType::Inverse;
         f32 RollOff = 1.0f;
         f32 MinGain = 0.0f;
@@ -63,6 +68,7 @@ namespace OloEngine
         f32 HighPassCutoff = 0.0f; // Normalized [0,1], 0.0 = 20 Hz (bypassed)
         f32 ReverbSend = 0.0f;     // Reverb send level [0,1], 0.0 = no reverb
     };
+    static_assert(sizeof(AudioSourceConfig) == 76, "AudioSourceConfig must have no padding: see BitwiseEqualLayoutTest");
 
     /// A clip-backed voice.
     ///

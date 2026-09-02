@@ -281,11 +281,11 @@ registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "Direction", m_Direc
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "Color", m_Color));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "Intensity", m_Intensity));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CastShadows", m_CastShadows));
+registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CascadeDebugVisualization", m_CascadeDebugVisualization));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "ShadowBias", m_ShadowBias));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "ShadowNormalBias", m_ShadowNormalBias));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "MaxShadowDistance", m_MaxShadowDistance));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CascadeSplitLambda", m_CascadeSplitLambda));
-registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CascadeDebugVisualization", m_CascadeDebugVisualization));
 
 // DiscoverableComponent
 registry.push_back(OLO_GFW_FIELD(DiscoverableComponent, "DisplayName", m_DisplayName));
@@ -339,45 +339,45 @@ registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "Density", m_Density,
 registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "FalloffDistance", m_FalloffDistance, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "Priority", m_Priority, OLO_GFW_BOUND(-100), OLO_GFW_BOUND(100)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "BlendWeight", m_BlendWeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
-registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "DensityVolume", m_DensityVolume));
 registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "AffectTransparent", m_AffectTransparent));
+registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "DensityVolume", m_DensityVolume));
 
 // FoliageComponent
 registry.push_back(OLO_GFW_FIELD(FoliageComponent, "Enabled", m_Enabled));
 
 // FootIKComponent
-registry.push_back(OLO_GFW_FIELD(FootIKComponent, "Enabled", Enabled));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "LeftFootBone", LeftFootBone));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "RightFootBone", RightFootBone));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "ChainLength", ChainLength, OLO_GFW_BOUND(2u), OLO_GFW_NO_BOUND));
-registry.push_back(OLO_GFW_FIELD(FootIKComponent, "EnableToeRoll", EnableToeRoll));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "LeftToeBone", LeftToeBone));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "RightToeBone", RightToeBone));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "RaycastUp", RaycastUp, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "RaycastDown", RaycastDown, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "FootHeight", FootHeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
-registry.push_back(OLO_GFW_FIELD(FootIKComponent, "AdjustPelvis", AdjustPelvis));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "PelvisBone", PelvisBone));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "MaxPelvisDrop", MaxPelvisDrop, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(2.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "PelvisLerpSpeed", PelvisLerpSpeed, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
-registry.push_back(OLO_GFW_FIELD(FootIKComponent, "FootLock", FootLock));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "PlantVelocityThreshold", PlantVelocityThreshold, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "PlantLiftThreshold", PlantLiftThreshold, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "UnlockBlendTime", UnlockBlendTime, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(2.0f)));
-registry.push_back(OLO_GFW_FIELD(FootIKComponent, "AlignFootToSlope", AlignFootToSlope));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "MaxSlopeAngle", MaxSlopeAngle, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(90.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "Weight", Weight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
-registry.push_back(OLO_GFW_FIELD(FootIKComponent, "LeftHandEnabled", LeftHandEnabled));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "LeftHandBone", LeftHandBone));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "LeftHandTarget", LeftHandTarget));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "LeftHandTargetEntity", LeftHandTargetEntity));
-registry.push_back(OLO_GFW_FIELD(FootIKComponent, "RightHandEnabled", RightHandEnabled));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "RightHandBone", RightHandBone));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "RightHandTarget", RightHandTarget));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "RightHandTargetEntity", RightHandTargetEntity));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "HandChainLength", HandChainLength, OLO_GFW_BOUND(2u), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "HandWeight", HandWeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD(FootIKComponent, "Enabled", Enabled));
+registry.push_back(OLO_GFW_FIELD(FootIKComponent, "EnableToeRoll", EnableToeRoll));
+registry.push_back(OLO_GFW_FIELD(FootIKComponent, "AdjustPelvis", AdjustPelvis));
+registry.push_back(OLO_GFW_FIELD(FootIKComponent, "FootLock", FootLock));
+registry.push_back(OLO_GFW_FIELD(FootIKComponent, "AlignFootToSlope", AlignFootToSlope));
+registry.push_back(OLO_GFW_FIELD(FootIKComponent, "LeftHandEnabled", LeftHandEnabled));
+registry.push_back(OLO_GFW_FIELD(FootIKComponent, "RightHandEnabled", RightHandEnabled));
 
 }
 
@@ -387,7 +387,6 @@ static void BuildRegistryChunk5(std::vector<FieldEntry>& registry)
 registry.push_back(OLO_GFW_FIELD(GoapAgentComponent, "Enabled", Enabled));
 
 // IKTargetComponent
-registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimIKEnabled", AimIKEnabled));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimBoneIndex", AimBoneIndex));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimTarget", AimTarget));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimAxis", AimAxis));
@@ -397,21 +396,22 @@ registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimChainLength", AimChainLe
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimChainFactor", AimChainFactor));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimWeight", AimWeight));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimTargetEntity", AimTargetEntity));
-registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "LimbIKEnabled", LimbIKEnabled));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "LimbBoneIndex", LimbBoneIndex));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "LimbTarget", LimbTarget));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "LimbChainLength", LimbChainLength));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "LimbWeight", LimbWeight));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "LimbTargetEntity", LimbTargetEntity));
-registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainIKEnabled", ChainIKEnabled));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainBoneIndex", ChainBoneIndex));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainTarget", ChainTarget));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainPoleVector", ChainPoleVector));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainLength", ChainLength));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainIterations", ChainIterations));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainTolerance", ChainTolerance));
-registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainWeight", ChainWeight));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainTargetEntity", ChainTargetEntity));
+registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainWeight", ChainWeight));
+registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimIKEnabled", AimIKEnabled));
+registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "LimbIKEnabled", LimbIKEnabled));
+registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainIKEnabled", ChainIKEnabled));
 
 // InstancePortalComponent
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "TargetZoneID", TargetZoneID));
@@ -1182,9 +1182,9 @@ registry.push_back(OLO_GFW_FIELD(VideoSurfaceComponent, "Looping", Looping));
 registry.push_back(OLO_GFW_FIELD(VideoSurfaceComponent, "Volume", Volume));
 
 // VirtualMeshComponent
-registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "MeshSource", m_MeshSource));
 registry.push_back(OLO_GFW_FIELD_RANGE(VirtualMeshComponent, "ErrorThresholdPixels", m_ErrorThresholdPixels, OLO_GFW_BOUND(0.05f), OLO_GFW_BOUND(64.0f)));
+registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "CastShadows", m_CastShadows));
 
 // VisualScriptComponent
@@ -1307,7 +1307,6 @@ registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.CloudCovera
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.CloudDensity", m_PresetClear.CloudDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.CloudTypeBlend", m_PresetClear.CloudTypeBlend));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.CloudWetness", m_PresetClear.CloudWetness));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.FogEnabled", m_PresetClear.FogEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.FogDensity", m_PresetClear.FogDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.FogColor", m_PresetClear.FogColor));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.FogHeightFalloff", m_PresetClear.FogHeightFalloff));
@@ -1315,18 +1314,18 @@ registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.FogMaxOpaci
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.WindSpeed", m_PresetClear.WindSpeed));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.WindGustStrength", m_PresetClear.WindGustStrength));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.WindTurbulence", m_PresetClear.WindTurbulence));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.PrecipitationEnabled", m_PresetClear.PrecipitationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.PrecipitationKind", m_PresetClear.PrecipitationKind));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.PrecipitationIntensity", m_PresetClear.PrecipitationIntensity));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.SnowAccumulationEnabled", m_PresetClear.SnowAccumulationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.SnowAccumulationRate", m_PresetClear.SnowAccumulationRate));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.SunDimming", m_PresetClear.SunDimming));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.WetnessTarget", m_PresetClear.WetnessTarget));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.FogEnabled", m_PresetClear.FogEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.PrecipitationEnabled", m_PresetClear.PrecipitationEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetClear.SnowAccumulationEnabled", m_PresetClear.SnowAccumulationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.CloudCoverage", m_PresetOvercast.CloudCoverage));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.CloudDensity", m_PresetOvercast.CloudDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.CloudTypeBlend", m_PresetOvercast.CloudTypeBlend));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.CloudWetness", m_PresetOvercast.CloudWetness));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.FogEnabled", m_PresetOvercast.FogEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.FogDensity", m_PresetOvercast.FogDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.FogColor", m_PresetOvercast.FogColor));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.FogHeightFalloff", m_PresetOvercast.FogHeightFalloff));
@@ -1334,18 +1333,18 @@ registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.FogMaxOp
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.WindSpeed", m_PresetOvercast.WindSpeed));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.WindGustStrength", m_PresetOvercast.WindGustStrength));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.WindTurbulence", m_PresetOvercast.WindTurbulence));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.PrecipitationEnabled", m_PresetOvercast.PrecipitationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.PrecipitationKind", m_PresetOvercast.PrecipitationKind));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.PrecipitationIntensity", m_PresetOvercast.PrecipitationIntensity));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.SnowAccumulationEnabled", m_PresetOvercast.SnowAccumulationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.SnowAccumulationRate", m_PresetOvercast.SnowAccumulationRate));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.SunDimming", m_PresetOvercast.SunDimming));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.WetnessTarget", m_PresetOvercast.WetnessTarget));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.FogEnabled", m_PresetOvercast.FogEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.PrecipitationEnabled", m_PresetOvercast.PrecipitationEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetOvercast.SnowAccumulationEnabled", m_PresetOvercast.SnowAccumulationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.CloudCoverage", m_PresetRain.CloudCoverage));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.CloudDensity", m_PresetRain.CloudDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.CloudTypeBlend", m_PresetRain.CloudTypeBlend));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.CloudWetness", m_PresetRain.CloudWetness));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.FogEnabled", m_PresetRain.FogEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.FogDensity", m_PresetRain.FogDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.FogColor", m_PresetRain.FogColor));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.FogHeightFalloff", m_PresetRain.FogHeightFalloff));
@@ -1353,18 +1352,18 @@ registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.FogMaxOpacit
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.WindSpeed", m_PresetRain.WindSpeed));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.WindGustStrength", m_PresetRain.WindGustStrength));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.WindTurbulence", m_PresetRain.WindTurbulence));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.PrecipitationEnabled", m_PresetRain.PrecipitationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.PrecipitationKind", m_PresetRain.PrecipitationKind));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.PrecipitationIntensity", m_PresetRain.PrecipitationIntensity));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.SnowAccumulationEnabled", m_PresetRain.SnowAccumulationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.SnowAccumulationRate", m_PresetRain.SnowAccumulationRate));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.SunDimming", m_PresetRain.SunDimming));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.WetnessTarget", m_PresetRain.WetnessTarget));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.FogEnabled", m_PresetRain.FogEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.PrecipitationEnabled", m_PresetRain.PrecipitationEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetRain.SnowAccumulationEnabled", m_PresetRain.SnowAccumulationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.CloudCoverage", m_PresetStorm.CloudCoverage));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.CloudDensity", m_PresetStorm.CloudDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.CloudTypeBlend", m_PresetStorm.CloudTypeBlend));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.CloudWetness", m_PresetStorm.CloudWetness));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.FogEnabled", m_PresetStorm.FogEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.FogDensity", m_PresetStorm.FogDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.FogColor", m_PresetStorm.FogColor));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.FogHeightFalloff", m_PresetStorm.FogHeightFalloff));
@@ -1372,18 +1371,18 @@ registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.FogMaxOpaci
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.WindSpeed", m_PresetStorm.WindSpeed));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.WindGustStrength", m_PresetStorm.WindGustStrength));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.WindTurbulence", m_PresetStorm.WindTurbulence));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.PrecipitationEnabled", m_PresetStorm.PrecipitationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.PrecipitationKind", m_PresetStorm.PrecipitationKind));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.PrecipitationIntensity", m_PresetStorm.PrecipitationIntensity));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.SnowAccumulationEnabled", m_PresetStorm.SnowAccumulationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.SnowAccumulationRate", m_PresetStorm.SnowAccumulationRate));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.SunDimming", m_PresetStorm.SunDimming));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.WetnessTarget", m_PresetStorm.WetnessTarget));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.FogEnabled", m_PresetStorm.FogEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.PrecipitationEnabled", m_PresetStorm.PrecipitationEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetStorm.SnowAccumulationEnabled", m_PresetStorm.SnowAccumulationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.CloudCoverage", m_PresetSnow.CloudCoverage));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.CloudDensity", m_PresetSnow.CloudDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.CloudTypeBlend", m_PresetSnow.CloudTypeBlend));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.CloudWetness", m_PresetSnow.CloudWetness));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.FogEnabled", m_PresetSnow.FogEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.FogDensity", m_PresetSnow.FogDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.FogColor", m_PresetSnow.FogColor));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.FogHeightFalloff", m_PresetSnow.FogHeightFalloff));
@@ -1391,18 +1390,18 @@ registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.FogMaxOpacit
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.WindSpeed", m_PresetSnow.WindSpeed));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.WindGustStrength", m_PresetSnow.WindGustStrength));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.WindTurbulence", m_PresetSnow.WindTurbulence));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.PrecipitationEnabled", m_PresetSnow.PrecipitationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.PrecipitationKind", m_PresetSnow.PrecipitationKind));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.PrecipitationIntensity", m_PresetSnow.PrecipitationIntensity));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.SnowAccumulationEnabled", m_PresetSnow.SnowAccumulationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.SnowAccumulationRate", m_PresetSnow.SnowAccumulationRate));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.SunDimming", m_PresetSnow.SunDimming));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.WetnessTarget", m_PresetSnow.WetnessTarget));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.FogEnabled", m_PresetSnow.FogEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.PrecipitationEnabled", m_PresetSnow.PrecipitationEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetSnow.SnowAccumulationEnabled", m_PresetSnow.SnowAccumulationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.CloudCoverage", m_PresetFogBank.CloudCoverage));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.CloudDensity", m_PresetFogBank.CloudDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.CloudTypeBlend", m_PresetFogBank.CloudTypeBlend));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.CloudWetness", m_PresetFogBank.CloudWetness));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.FogEnabled", m_PresetFogBank.FogEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.FogDensity", m_PresetFogBank.FogDensity));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.FogColor", m_PresetFogBank.FogColor));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.FogHeightFalloff", m_PresetFogBank.FogHeightFalloff));
@@ -1410,13 +1409,14 @@ registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.FogMaxOpa
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.WindSpeed", m_PresetFogBank.WindSpeed));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.WindGustStrength", m_PresetFogBank.WindGustStrength));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.WindTurbulence", m_PresetFogBank.WindTurbulence));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.PrecipitationEnabled", m_PresetFogBank.PrecipitationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.PrecipitationKind", m_PresetFogBank.PrecipitationKind));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.PrecipitationIntensity", m_PresetFogBank.PrecipitationIntensity));
-registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.SnowAccumulationEnabled", m_PresetFogBank.SnowAccumulationEnabled));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.SnowAccumulationRate", m_PresetFogBank.SnowAccumulationRate));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.SunDimming", m_PresetFogBank.SunDimming));
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.WetnessTarget", m_PresetFogBank.WetnessTarget));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.FogEnabled", m_PresetFogBank.FogEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.PrecipitationEnabled", m_PresetFogBank.PrecipitationEnabled));
+registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.SnowAccumulationEnabled", m_PresetFogBank.SnowAccumulationEnabled));
 
 }
 
