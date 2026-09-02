@@ -206,6 +206,11 @@ namespace OloEngine::Functional
         // coupling, independent of its exact magnitude. (Both would otherwise
         // rest identically on the ground.)
         const PoolProbe probe = ProbePoolBodies(pool);
+        // Logged unconditionally, not only on failure: the number is only
+        // meaningful next to the same number from the other platform, and the
+        // platform where this passes is the one that never prints it.
+        GTEST_LOG_(INFO) << "pool probe: " << probe.Hits << " overlap hits, " << probe.WithEntity
+                         << " with an entity+body, " << probe.Dynamic << " dynamic";
         const auto probeText = [&probe]
         {
             return " [pool probe: " + std::to_string(probe.Hits) + " overlap hits, " +

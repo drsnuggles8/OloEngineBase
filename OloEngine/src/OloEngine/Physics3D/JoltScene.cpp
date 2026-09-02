@@ -3477,6 +3477,8 @@ namespace OloEngine
 
         // Fill hit results
         i32 hitCount = 0;
+        i32 droppedUnlockable = 0;
+        i32 droppedUnmapped = 0;
         for (const auto& hit : hitCollector.mHits)
         {
             if (hitCount >= maxHits)
@@ -3499,9 +3501,33 @@ namespace OloEngine
                 {
                     hitInfo.m_HitBody = it->second;
                 }
+                else
+                {
+                    ++droppedUnmapped;
+                }
 
                 ++hitCount;
             }
+            else
+            {
+                ++droppedUnlockable;
+            }
+        }
+
+        // A hit the narrow phase found and this loop did not return is invisible
+        // to every caller: the count simply comes back smaller, and the caller
+        // cannot tell "nothing was there" from "something was there and we could
+        // not read it". FluidSystem::ExtractBodyProxies is the only caller, and
+        // a body it never sees is a body the fluid never lifts -- which is what
+        // FluidCouplingTest.LightBoxFloatsDenseBoxSinks reports on the AMD box,
+        // where the query returns one hit for a volume holding three bodies
+        // (issue #1015). Say so rather than returning a quietly short list.
+        if (droppedUnlockable != 0 || droppedUnmapped != 0)
+        {
+            OLO_CORE_WARN("JoltScene::PerformShapeOverlap: narrow phase found {} hit(s), returned {} -- "
+                          "{} could not be locked, {} had no entry in the body map",
+                          static_cast<i32>(hitCollector.mHits.size()), hitCount, droppedUnlockable,
+                          droppedUnmapped);
         }
 
         return hitCount;
