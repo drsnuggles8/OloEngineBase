@@ -131,7 +131,7 @@ namespace OloEngine
         // backend — sampled use goes through descriptor-heap view
         // DESCRIPTIONS). Cached; released with the image (Resize mints a new
         // one). VK_NULL_HANDLE on failure. Safe from several recording
-        // threads at once (#806, amendment (91) rule 8): double-checked —
+        // threads at once (#806, amendment (92) rule 8): double-checked —
         // the fast path reads the cached handle, only the creating call
         // takes m_AttachmentViewMutex.
         [[nodiscard]] VkImageView GetOrCreateAttachmentView();
@@ -190,7 +190,7 @@ namespace OloEngine
         // See GetOrCreateAttachmentView. Atomic so its lock-free fast path is
         // a well-defined read: written under m_AttachmentViewMutex by the
         // creating call, cleared by ReleaseImage (a resource-destruction
-        // path, render thread with no region open — amendment (91) rule 7).
+        // path, render thread with no region open — amendment (92) rule 7).
         std::atomic<VkImageView> m_AttachmentView{ VK_NULL_HANDLE };
         std::mutex m_AttachmentViewMutex; ///< Serialises the creating GetOrCreateAttachmentView.
         // Generation-checked identity for m_Image, kept in lockstep by

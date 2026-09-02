@@ -23,7 +23,7 @@
 // Pure CPU container — no device calls — so it is pinned headlessly by
 // VulkanBarrierLoweringTest with fabricated non-dispatchable handles.
 //
-// OVERLAYS (issue #806, ADR 0011 amendment (91) rule 5). A RecordParallel
+// OVERLAYS (issue #806, ADR 0011 amendment (92) rule 5). A RecordParallel
 // item records on its own context with its own tracker, which is an
 // OVERLAY over the render thread's: reads fall through to the base for any
 // image the item has not written, the first write copies that image's row
@@ -53,7 +53,7 @@ namespace OloEngine
 {
     // One RecordParallel region's record-time claims (#806): the first item
     // that transitions a subresource NON-identically claims it; a second item
-    // doing the same is amendment (91) rule 5's conflict, and this names both
+    // doing the same is amendment (92) rule 5's conflict, and this names both
     // items at the offending SetLayout instead of leaving it to the merge to
     // count. Rare path (a few claims per item), so a mutex is fine.
     class VulkanLayoutClaimTable
@@ -254,7 +254,9 @@ namespace OloEngine
             // CommitRecordedToExecuted).
             std::vector<VkImageLayout> Executed;
             // Overlay rows only (#806): the layouts this row was copied from
-            // the base with, and which subresources this overlay wrote.
+            // the base with, and which subresources this overlay wrote:
+            // 0 untouched, 1 identity writes only, 2 at least one real
+            // transition (what the merge's identity test reads).
             std::vector<VkImageLayout> Original;
             std::vector<u8> Written;
         };

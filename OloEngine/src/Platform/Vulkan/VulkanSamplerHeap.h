@@ -15,7 +15,7 @@
 // every pipeline used to bake, so a binding whose sampler was never
 // staged samples exactly as it did before this heap existed.
 //
-// Thread-safety (issue #806, ADR 0011 amendment (91) rule 8): GetOrCreateSlot
+// Thread-safety (issue #806, ADR 0011 amendment (92) rule 8): GetOrCreateSlot
 // is on the draw path (BindTexture stages a sampler index per draw) and may
 // run from several recording threads at once. It, EnsureCreated and Release
 // serialise on m_Mutex, which covers the hash map, the bump cursor and the

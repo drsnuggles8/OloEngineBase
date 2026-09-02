@@ -998,7 +998,8 @@ the headings below are in their original (occasionally out-of-order) sequence.
 | (88) | Inspector's Vulkan arm discovers from `ResourceRegistry::Snapshot()`; the snapshot clone mints its own identity, so every MCP render tool answers on both backends | live |
 | (89) | Baked-lightmap UV2 rides `SSBO_BONE_PULL` (63) — no third reserved pull number; reuse is a per-shader constraint, not global | live |
 | (90) | A backend-native handle may be PRINTED; only the identity may be DECIDED on. A native 0 is legitimate under Vulkan, so it can confirm backing and never deny it — and the ordering (identity asked first, its storage answer final in both directions) must be repeated at every layer that resolves a resource | live |
-| (91) | A parallel region records one secondary per work item and executes them in item order; per-command-buffer state is a `VulkanRecordingContext` resolved per thread; item tracker overlays merge in item order with an identity-only overlap rule; a resource object has one writer per region | live |
+| (91) | A core-promoted feature is still OFF, still optional in practice, and its layout lists are a driver property (#809) | live |
+| (92) | A parallel region records one secondary per work item and executes them in item order; per-command-buffer state is a `VulkanRecordingContext` resolved per thread; item tracker overlays merge in item order with an identity-only overlap rule; a resource object has one writer per region | live |
 
 Phase 1 said explicitly that "nothing here is load-bearing until Phase 2
 begins," and that if the sweep discovered a decision was wrong the ADR should be

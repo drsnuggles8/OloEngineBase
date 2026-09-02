@@ -2243,7 +2243,7 @@ Narrative, and the gate's test shape:
 
 ## Amendments from issue #806 (2026-09-01) — parallel command recording
 
-### (91) A parallel region records one secondary per work item and executes them in item order; every draw-path fact that was "render thread only" is now "per recording context"
+### (92) A parallel region records one secondary per work item and executes them in item order; every draw-path fact that was "render thread only" is now "per recording context"
 
 The decision, in the order a reader needs it:
 
@@ -2357,7 +2357,7 @@ What this deliberately does not build: replaying a `CommandBucket` on an
 item (the dispatcher's bind cache and the shared material / instance UBOs it
 uploads are per process — rule 6 applied to `Renderer3D` would mean
 per-context copies of its resources), per-pass worker assignment, and async
-compute (#808).
+compute (#808). The phase-2 tracker for the first two is #1013.
 
 Narrative and the checklist for converting a pass:
 [vulkan-parallel-recording.md](../agent-rules/vulkan-parallel-recording.md).

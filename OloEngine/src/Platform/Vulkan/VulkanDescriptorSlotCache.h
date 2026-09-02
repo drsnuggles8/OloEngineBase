@@ -36,7 +36,7 @@
 // frame-transient ring) layers over the same primitive when its machinery
 // buys something real on this backend; the seam is recorded, not abandoned.
 //
-// Thread-safety (issue #806, ADR 0011 amendment (91) rule 8): every public
+// Thread-safety (issue #806, ADR 0011 amendment (92) rule 8): every public
 // entry point holds m_Mutex for its whole body, so AcquireSlot — on every
 // draw's BindTexture path — may run from several recording threads at once.
 // The VulkanResourceHeap calls it makes (AllocateSlot, WriteSampledImage,

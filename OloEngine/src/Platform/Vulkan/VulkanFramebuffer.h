@@ -125,7 +125,7 @@ namespace OloEngine
         // attachment; the layer number also rides the scope's depth barrier so
         // the layout tracker stays per-layer exact.
         // The SELECTION itself (which view, which layer) is recording-context
-        // state on VulkanRendererAPI (#806, amendment (91) rule 4): two
+        // state on VulkanRendererAPI (#806, amendment (92) rule 4): two
         // RecordParallel items attach different layers of one array through
         // this one framebuffer object at the same time. This class keeps only
         // the per-layer VIEW cache; AttachDepthTextureArrayLayer resolves the

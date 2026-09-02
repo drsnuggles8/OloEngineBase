@@ -67,7 +67,7 @@ namespace OloEngine
 
             // A one-shot submits ahead of the frame's primary and advances the
             // executed layouts through a process-wide scope stack — neither is
-            // defined from a RecordParallel item (amendment (91) rule 7).
+            // defined from a RecordParallel item (amendment (92) rule 7).
             if (CurrentVulkanWorkerContext() != nullptr)
             {
                 OLO_CORE_ASSERT(false, "VulkanOneShot::Submit from a RecordParallel item");

@@ -31,7 +31,7 @@
 // FrameDataBuffer sentinel discipline. A dropped draw beats writing past a
 // mapped range.
 //
-// THREAD-SAFETY (issue #806, ADR 0011 amendment (91) rule 8):
+// THREAD-SAFETY (issue #806, ADR 0011 amendment (92) rule 8):
 //   - BeginFrame, ReleaseBuffers and the CREATION of the slot buffers and the
 //     null block run on the render thread, outside a parallel region.
 //     BeginFrame creates both up front so that no draw, on any thread, takes

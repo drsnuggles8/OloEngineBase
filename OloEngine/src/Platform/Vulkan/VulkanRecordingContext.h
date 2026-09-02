@@ -3,7 +3,7 @@
 // =============================================================================
 // VulkanRecordingContext — everything VulkanRendererAPI keeps PER COMMAND
 // BUFFER, extracted so a parallel region can hand each work item its own
-// (issue #806, ADR 0011 amendment (91)).
+// (issue #806, ADR 0011 amendment (92)).
 //
 // The render thread owns one of these (VulkanRendererAPI::m_Main) for the
 // frame's primary command buffer. RecordParallel hands out N more — one per
@@ -28,6 +28,8 @@
 
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
+
+#include <atomic>
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
 
@@ -434,6 +436,17 @@ namespace OloEngine
     // VulkanShader::GetCurrentlyBound() and VulkanRendererAPI::Ctx() all key
     // off this one thread-local.
     [[nodiscard]] VulkanRecordingContext* CurrentVulkanWorkerContext();
+
+    // Amendment (92) rule 6 at record time: one writer per resource object per
+    // region. `stamp` is the object's (region << 32 | item) writer token.
+    // Off a worker context this is always true. On one it claims the token
+    // for the calling item and returns false when a DIFFERENT item of the
+    // same region already holds it — leaving that first writer's token in
+    // place, so every later write from the second item is refused the same
+    // way. The caller must skip its write on false in EVERY build: the
+    // assert inside is compiled out of Release, and a write that went ahead
+    // is exactly the interleaving that renders the wrong bytes.
+    [[nodiscard]] bool ClaimParallelWriter(std::atomic<u64>& stamp, const char* objectKind);
 
     // RAII: make `context` the calling thread's worker context for the
     // scope, restoring whatever was current before (null on every existing

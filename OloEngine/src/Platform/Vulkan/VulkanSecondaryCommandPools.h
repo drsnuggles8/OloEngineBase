@@ -2,7 +2,7 @@
 
 // =============================================================================
 // VulkanSecondaryCommandPools — the command pools behind RecordParallel
-// (issue #806, ADR 0011 amendment (91) rule 9).
+// (issue #806, ADR 0011 amendment (92) rule 9).
 //
 // A VkCommandPool is externally synchronised: recording into a buffer touches
 // its pool, so two threads may never record into buffers of one pool at once.

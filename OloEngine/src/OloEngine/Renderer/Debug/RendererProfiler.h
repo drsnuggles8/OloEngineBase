@@ -98,8 +98,10 @@ namespace OloEngine
             u32 m_InstancesBatched = 0;
             GPUSceneFrameStats m_GPUScene;
             // The parallel command recorder's telemetry for this frame (issue
-            // #806, ADR 0011 amendment (91)). Pulled from the backend once per
-            // frame in EndFrame(); all zero on a backend that never forks.
+            // #806, ADR 0011 amendment (92)). Pulled from the backend once per
+            // frame in EndFrame(). All zero on OpenGL, whose facade default
+            // reports nothing; on Vulkan with OLO_VK_PARALLEL_RECORDING off
+            // only InlineRegions counts.
             RendererAPI::ParallelRecordingFrameStats m_ParallelRecording;
 
             void Reset();

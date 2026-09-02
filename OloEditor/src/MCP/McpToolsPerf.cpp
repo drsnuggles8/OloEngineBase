@@ -566,9 +566,10 @@ namespace OloEngine::MCP
                 "very long/GPU-backlogged frames: true means the GPU fell behind far enough that a timestamp "
                 "slot was dropped rather than resolved, so gpuMs/passes describe an old, possibly "
                 "unrepresentative frame. parallelRecording is the parallel command recorder's telemetry "
-                "for the same frame (issue #806): RecordParallel regions that forked vs ran inline, items "
-                "and secondaries, summed worker record time vs fork-to-join wall time; all zero on a backend "
-                "that never forks. mergeConflicts > 0 means two items transitioned the same subresource "
+                "for the same frame (issue #806): regions (RecordParallel calls that forked) vs inlineRegions, "
+                "secondariesExecuted, workerRecordMs (summed per-item record time) vs regionWallMs "
+                "(fork-to-join wall time); all zero on OpenGL, whose facade default reports nothing; on Vulkan with OLO_VK_PARALLEL_RECORDING off only inlineRegions counts. "
+                "mergeConflicts > 0 means two items transitioned the same subresource "
                 "differently - a bug in the pass that forked, never a driver condition.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
@@ -581,10 +582,10 @@ namespace OloEngine::MCP
                                                                    .Prop("regions", Schema::Int().Min(0).Desc("RecordParallel calls that forked onto task workers this frame."))
                                                                    .Prop("inlineRegions", Schema::Int().Min(0).Desc("RecordParallel calls that ran inline on the render thread (backend unsupported, declined, or fewer than 2 items)."))
                                                                    .Prop("secondariesExecuted", Schema::Int().Min(0).Desc("Secondary command buffers executed into the primary at the join."))
-                                                                   .Prop("mergeConflicts", Schema::Int().Min(0).Desc("Subresources two items transitioned differently (ADR 0011 amendment (91) rule 5). Any non-zero value is a bug in the pass that forked."))
+                                                                   .Prop("mergeConflicts", Schema::Int().Min(0).Desc("Subresources two items transitioned differently (ADR 0011 amendment (92) rule 5). Any non-zero value is a bug in the pass that forked."))
                                                                    .Prop("workerRecordMs", Schema::Number().Desc("Sum of per-item recording time across workers."))
                                                                    .Prop("regionWallMs", Schema::Number().Desc("Sum of fork-to-join wall time on the render thread."))
-                                                                   .Desc("Parallel command recorder telemetry for the same frame as `frame` (issue #806); all zero on a backend that never forks."))
+                                                                   .Desc("Parallel command recorder telemetry for the same frame as `frame` (issue #806); all zero on OpenGL, whose facade default reports nothing; on Vulkan with OLO_VK_PARALLEL_RECORDING off only inlineRegions counts."))
                                     .Prop("passes", Schema::Array(Schema::Object()
                                                                       .Prop("pass", Schema::String())
                                                                       .Prop("gpuMs", Schema::Number())
@@ -597,7 +598,7 @@ namespace OloEngine::MCP
                                     .Prop("unattributedGpuMs", Schema::Number())
                                     .Prop("gpuResultsAgeFrames", Schema::Int().Min(0).Desc("How many frames old the GPU numbers are (results resolve 1-3 frames after issue)."))
                                     .Prop("gpuResultsStale", Schema::Bool().Desc("True when gpuResultsAgeFrames is at or beyond the timer pool's slot count — a slot was dropped rather than resolved, so gpuMs/passes are from a stale frame."))
-                                    .Required({ "frame", "passes", "passGpuTotalMs" });
+                                    .Required({ "frame", "passes", "passGpuTotalMs", "parallelRecording" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfPassTimings;
             server.RegisterTool(std::move(tool));

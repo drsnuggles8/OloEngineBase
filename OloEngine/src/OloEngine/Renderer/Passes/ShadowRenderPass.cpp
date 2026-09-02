@@ -242,7 +242,7 @@ namespace OloEngine
             RenderCommand::FrontCull();
         }
 
-        // ── The two parallel regions below (issue #806, ADR 0011 amendment (91)) ──
+        // ── The two parallel regions below (issue #806, ADR 0011 amendment (92)) ──
         //
         // Each CSM cascade and each atlas entry is one RenderCommand::RecordParallel
         // item. What an item body may touch is decided by rule 6 (one writer per
@@ -355,7 +355,7 @@ namespace OloEngine
                                        // The layer selection and the depth clear are per ITEM,
                                        // not per region: on Vulkan the framebuffer's attachment
                                        // selection and the pending clear live in the recording
-                                       // context (amendment (91) rule 2), and one layer per
+                                       // context (amendment (92) rule 2), and one layer per
                                        // cascade keeps the items' writes disjoint (rule 5).
                                        // Inline, this is the attach / clear / draw sequence the
                                        // sequential loop ran per cascade; RecordShadowRegion adds
@@ -384,7 +384,7 @@ namespace OloEngine
             // region's: every entry is a tile of this one layer, and the fork
             // materialises the pending clear on the primary and pre-transitions
             // the attachment, so the items open their scopes with identity
-            // transitions on a shared target — the case amendment (91) rule 5
+            // transitions on a shared target — the case amendment (92) rule 5
             // was written for.
 
             // Collect the entries that will render — the region's items, in
@@ -488,7 +488,7 @@ namespace OloEngine
                 ShaderBindingLayout::UBO_ANIMATION);
             // Sized HERE, on the render thread: an item may not grow its buffer
             // (StorageBuffer::Resize creates and reclaims GPU memory — amendment
-            // (91) rule 7), so the capacity covers the largest batch any item can
+            // (92) rule 7), so the capacity covers the largest batch any item can
             // upload this frame.
             resources.Instances = Ref<InstanceBuffer>::Create(instanceCapacity);
             m_ItemResources.push_back(std::move(resources));
@@ -564,7 +564,7 @@ namespace OloEngine
         // SSBO_INSTANCE_DATA = 15 (no more shadow-specific UBO at binding 3).
         // It is THIS ITEM's buffer, not Renderer3D::GetModelInstanceBuffer():
         // the engine-wide one is a single object, and an object has one writer
-        // per region (amendment (91) rule 6). Static mesh casters use the
+        // per region (amendment (92) rule 6). Static mesh casters use the
         // auto-batched path below; the helper lambda covers the skinned /
         // terrain / voxel paths where per-caster state (bones, heightmap,
         // terrain UBO) blocks batching.
@@ -698,7 +698,7 @@ namespace OloEngine
                             // mesh lit from the front still casts (issue #650); single-sided casters
                             // keep the pass's front-face cull (peter-panning). Every item starts from
                             // the FrontCull the pass set once up front — the fork seeds each item
-                            // with the render thread's recorded state as of the fork (amendment (91)
+                            // with the render thread's recorded state as of the fork (amendment (92)
                             // rule 4), and inline the state simply carries over — so restore it
                             // whenever we leave a two-sided batch.
                             if (batch.twoSided && !cullingDisabled)
@@ -841,7 +841,7 @@ namespace OloEngine
         // only writer — so the tail re-binds it rather than re-uploading. The
         // bind is not optional: inline, the LAST item's camera UBO is the one at
         // UBO_CAMERA when the region ends; on Vulkan the render thread keeps its
-        // PRE-fork bindings (amendment (91) rule 4). Neither is this item's.
+        // PRE-fork bindings (amendment (92) rule 4). Neither is this item's.
         resources.Camera->Bind();
 
         // ── Terrain patches ──

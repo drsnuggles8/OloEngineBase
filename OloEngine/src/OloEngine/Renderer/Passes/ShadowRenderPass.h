@@ -96,7 +96,7 @@ namespace OloEngine
     // binding the appropriate depth shader for each geometry type.
     // No callbacks, no duplicate entity traversal.
     //
-    // Parallel recording (issue #806, ADR 0011 amendment (91)). The CSM
+    // Parallel recording (issue #806, ADR 0011 amendment (92)). The CSM
     // cascades and the atlas entries are independent depth targets, so each
     // is one item of a RenderCommand::RecordParallel region: on a backend that
     // forks, item i records on a worker into its own command buffer and the
@@ -164,7 +164,7 @@ namespace OloEngine
             SequentialTail // terrain, foliage, virtual geometry — runs on the render thread after the join
         };
 
-        // The GPU objects one item writes (amendment (91) rule 6): created by
+        // The GPU objects one item writes (amendment (92) rule 6): created by
         // EnsureItemResources on the render thread, indexed by item, shared by
         // the CSM region and the atlas region of one Execute (the two regions
         // never overlap, and a write after the join is just the next version).

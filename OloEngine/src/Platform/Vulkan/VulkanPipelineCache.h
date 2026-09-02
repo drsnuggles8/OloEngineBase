@@ -21,7 +21,7 @@
 // on the class below). This class is the disk blob only; the lazily-recreated
 // pipelines after an invalidation hit it for everything that did not change.
 //
-// Thread-safety (issue #806, ADR 0011 amendment (91) rule 8): no lock of its
+// Thread-safety (issue #806, ADR 0011 amendment (92) rule 8): no lock of its
 // own, on purpose. Handle() is reached only from VulkanPipelineBuilder's
 // pipeline creation, which runs under the builder's mutex, so the lazy
 // create-and-load here is already serialised; SaveAndDestroy is the render

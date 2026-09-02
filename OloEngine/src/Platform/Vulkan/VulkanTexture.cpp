@@ -343,7 +343,7 @@ namespace OloEngine
     void VulkanTexture2D::ReleaseImage()
     {
         // Resource destruction runs on the render thread with no region open
-        // (amendment (91) rule 7), so no GetOrCreateAttachmentView can be
+        // (amendment (92) rule 7), so no GetOrCreateAttachmentView can be
         // racing this; the exchange just keeps the handle's accesses atomic.
         if (const VkImageView view = m_AttachmentView.exchange(VK_NULL_HANDLE, std::memory_order_acq_rel);
             view != VK_NULL_HANDLE)
@@ -362,7 +362,7 @@ namespace OloEngine
 
     VkImageView VulkanTexture2D::GetOrCreateAttachmentView()
     {
-        // Double-checked (#806, amendment (91) rule 8): every draw against
+        // Double-checked (#806, amendment (92) rule 8): every draw against
         // this texture asks for the view, possibly from several recording
         // threads at once, and after the first call the answer is a cached
         // handle — so the fast path is one acquire load, and only the

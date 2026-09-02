@@ -422,22 +422,25 @@ namespace OloEngine
         m_Size = requiredSize;
     }
 
+    void VulkanUniformBuffer::SetData(const void* data, u32 size, u32 offset)
+    {
+        // Amendment (92) rule 6, checked at record time and BEFORE the base
+        // overload's shadow write: one writer per object per region. A
+        // refused item skips the whole write in every build.
+        if (!ClaimParallelWriter(m_ParallelWriter, "uniform buffer"))
+        {
+            return;
+        }
+        UniformBuffer::SetData(data, size, offset);
+    }
+
     void VulkanUniformBuffer::SetData(const UniformData& data)
     {
-        // Amendment (91) rule 6, checked at record time: one writer per object
-        // per region. The stamp packs (region, item); a different item in the
-        // SAME region is the interleaving that renders the wrong bytes.
-        if (const VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        // Direct callers bypass the overload above; same claim, same refusal.
+        // A call arriving through it re-claims for the same item, a no-op.
+        if (!ClaimParallelWriter(m_ParallelWriter, "uniform buffer"))
         {
-            const u64 stamp = (worker->RegionId << 32u) | worker->ItemIndex;
-            const u64 previous = m_ParallelWriter.exchange(stamp, std::memory_order_relaxed);
-            if (previous != 0u && (previous >> 32u) == worker->RegionId && (previous & 0xFFFFFFFFu) != worker->ItemIndex)
-            {
-                OLO_CORE_ERROR("[RHI/Vulkan] buffer written by RecordParallel items {} and {} in one region — give "
-                               "each item its own object (amendment (91) rule 6)",
-                               static_cast<u32>(previous & 0xFFFFFFFFu), worker->ItemIndex);
-                OLO_CORE_ASSERT(false, "two RecordParallel items wrote one buffer object");
-            }
+            return;
         }
         if (data.data == nullptr || data.size == 0)
         {

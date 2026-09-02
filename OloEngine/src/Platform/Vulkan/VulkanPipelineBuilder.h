@@ -31,7 +31,7 @@
 // blend state. Dynamic rendering only (VkPipelineRenderingCreateInfo); no
 // VkRenderPass objects exist on this backend.
 //
-// THREAD-SAFETY (issue #806, ADR 0011 amendment (91) rule 8): GetOrCreate*
+// THREAD-SAFETY (issue #806, ADR 0011 amendment (92) rule 8): GetOrCreate*
 // run once per draw / dispatch, from any recording thread. The map lookup
 // AND the creation on a miss happen under m_Mutex — a miss is rare after the
 // first frame, and two threads building the same pipeline would cost more

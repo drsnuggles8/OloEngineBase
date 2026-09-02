@@ -4,7 +4,7 @@
 `RenderCommand::RecordParallel(count, body)` and gives every item its own resource objects.
 Everything the Vulkan backend keeps per command buffer is per *recording context*, resolved
 through a thread-local; everything the backend keeps per process is either read-only inside a
-region or behind a mutex. The contract is ADR 0011 amendment (91); this file is the working
+region or behind a mutex. The contract is ADR 0011 amendment (92); this file is the working
 checklist and the reasons.
 
 Issue #806. First conversion: `ShadowRenderPass` (CSM cascades and shadow-atlas entries).
@@ -129,6 +129,9 @@ without a second call site. With no frame begun a region records inline.
   `Renderer3D` state, and "which passes may run concurrently" is a much larger contract than
   "which cascades of one pass are independent".
 - **Async compute** is #808 and orthogonal.
+
+The phase-2 tracker for the first two, the shadow pass's sequential tail and the remaining
+passes is #1013.
 
 ## Appendix: the two findings that shaped this
 

@@ -120,7 +120,7 @@ namespace OloEngine
         // Command-ordered draw-read snapshot (see GetRootDataAddress).
         // Valid only while m_SnapshotFrameGeneration matches the arena's
         // current frame — arena ranges recycle after kFramesInFlight.
-        std::atomic<u64> m_ParallelWriter{ 0 }; ///< (region << 32 | item) of the last RecordParallel writer (#806).
+        std::atomic<u64> m_ParallelWriter{ 0 }; ///< (region << 32 | item) of the region's first RecordParallel writer (ClaimParallelWriter, #806).
         u64 m_SnapshotFrameGeneration = ~0ull;
         VkDeviceAddress m_SnapshotAddress = 0;
         void* m_SnapshotCpu = nullptr;

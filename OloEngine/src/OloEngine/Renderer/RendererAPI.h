@@ -273,7 +273,7 @@ namespace OloEngine
             return false;
         }
 
-        // --- Parallel command recording (issue #806, ADR 0011 amendment (91)) ---
+        // --- Parallel command recording (issue #806, ADR 0011 amendment (92)) ---
         // RecordParallel runs `body(item)` for every item in [0, itemCount).
         // On a backend that supports it the items record on task workers, in
         // any order, each into its own command buffer, and are executed at
@@ -283,7 +283,7 @@ namespace OloEngine
         // pass never branches on the backend. The contract an item body must
         // honour (one writer per resource object per region, no queries /
         // readbacks / one-shots / backbuffer / resource creation inside an
-        // item) is amendment (91); the checklist for converting a pass is
+        // item) is amendment (92); the checklist for converting a pass is
         // docs/agent-rules/vulkan-parallel-recording.md.
         //
         // SupportsParallelRecording answers whether a RecordParallel call made
@@ -297,7 +297,7 @@ namespace OloEngine
         // True on a thread that is currently recording a RecordParallel item.
         // The backend-neutral layer asserts on it where a process-wide object
         // is written (HeapBinding's offset table, RendererProfiler), turning
-        // amendment (91) rule 6 into a record-time failure instead of a grep.
+        // amendment (92) rule 6 into a record-time failure instead of a grep.
         [[nodiscard]] virtual bool IsRecordingParallelItem() const
         {
             return false;
@@ -316,7 +316,7 @@ namespace OloEngine
             u32 Regions = 0;             ///< RecordParallel calls that forked this frame.
             u32 InlineRegions = 0;       ///< RecordParallel calls that ran inline (unsupported, declined, or item count < 2).
             u32 SecondariesExecuted = 0; ///< Secondary command buffers executed into the primary.
-            u32 MergeConflicts = 0;      ///< Subresources two items transitioned non-identically (amendment (91) rule 5).
+            u32 MergeConflicts = 0;      ///< Subresources two items transitioned non-identically (amendment (92) rule 5).
             f64 WorkerRecordMs = 0.0;    ///< Sum of per-item recording time across workers.
             f64 RegionWallMs = 0.0;      ///< Sum of fork-to-join wall time on the render thread.
         };

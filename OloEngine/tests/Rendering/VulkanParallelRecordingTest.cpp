@@ -1,6 +1,6 @@
 // OLO_TEST_LAYER: plumbing
 //
-// Parallel command recording (issue #806, ADR 0011 amendment (91)).
+// Parallel command recording (issue #806, ADR 0011 amendment (92)).
 //
 // Two halves, the CLAUDE.md rendering-verification rule's first step for a
 // backend change:
@@ -80,6 +80,10 @@ namespace
 {
     using namespace OloEngine;
     using OloEngine::Tests::ProbeVulkanDeviceTestGate;
+    // The facade's own instance, not a local one: VulkanUpload::TryGetVulkanAPI()
+    // resolves RenderCommand's API, so a framebuffer's depth-array selection and
+    // the engine-side IsRecordingParallelItem() asserts reach the API under test.
+    using OloEngine::Tests::ScopedVulkanRenderCommandSelection;
 
     [[nodiscard]] VkImage FakeImage(const u64 value)
     {
@@ -174,7 +178,7 @@ TEST(VulkanParallelRecording, MergeReportsTwoItemsTransitioningOneSubresource)
     item1.SetReadThroughBase(&base);
     // Both items barrier layer 0 from what the pre-fork state said
     // (UNDEFINED) — the second one's oldLayout is a lie once the first has
-    // executed. That is the amendment (91) rule 5 conflict.
+    // executed. That is the amendment (92) rule 5 conflict.
     item0.SetLayout(image, Layer(0), kDepthAttachment);
     item1.SetLayout(image, Layer(0), kTransferDst);
 
@@ -210,6 +214,32 @@ TEST(VulkanParallelRecording, IdentityTransitionsOnASharedSubresourceAreNotAConf
     item1.MergeOverlayInto(base, batch);
     EXPECT_EQ(batch.Conflicts, 0u);
     EXPECT_EQ(batch.SubresourcesMerged, 2u);
+    EXPECT_EQ(base.CurrentLayout(image, Layer(0)), kDepthAttachment);
+}
+
+// An item that transitions a subresource away and back ends where it
+// started, but it RECORDED a real transition. Rule 5 is stated on what each
+// item recorded — the claim table claims the subresource at the first A -> B —
+// so the merge counter must agree: a real writer, not an identity overlap.
+TEST(VulkanParallelRecording, ATransitionPairThatReturnsToTheOriginalLayoutIsStillAConflict)
+{
+    VulkanImageLayoutTracker base;
+    const VkImage image = FakeImage(0x45);
+    base.RegisterImage(image, 1, 1, 1);
+    base.SetLayout(image, Layer(0), kDepthAttachment);
+
+    VulkanImageLayoutTracker item0;
+    VulkanImageLayoutTracker item1;
+    item0.SetReadThroughBase(&base);
+    item1.SetReadThroughBase(&base);
+    item0.SetLayout(image, Layer(0), kTransferDst);     // a real transition ...
+    item0.SetLayout(image, Layer(0), kDepthAttachment); // ... back to the original
+    item1.SetLayout(image, Layer(0), kDepthAttachment); // identity
+
+    VulkanImageLayoutTracker::MergeBatch batch;
+    item0.MergeOverlayInto(base, batch);
+    item1.MergeOverlayInto(base, batch);
+    EXPECT_EQ(batch.Conflicts, 1u) << "A -> B -> A is a real transition, not an identity write";
     EXPECT_EQ(base.CurrentLayout(image, Layer(0)), kDepthAttachment);
 }
 
@@ -350,18 +380,6 @@ TEST(VulkanParallelRecording, FacadeRunsItemsInlineInOrderWithoutBackendSupport)
 
 namespace
 {
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
-
     // The same §5f-shaped pair VulkanDrawPathTest draws with: vertex pulling
     // from the reserved binding 57, a UBO tint at binding 3, a sampled
     // texture at binding 0. A fullscreen triangle covers the viewport.
@@ -422,7 +440,7 @@ void main()
     struct TintedTarget
     {
         Ref<Framebuffer> Target;
-        Ref<UniformBuffer> Tint; ///< One per item — amendment (91) rule 6.
+        Ref<UniformBuffer> Tint; ///< One per item — amendment (92) rule 6.
         std::array<f32, 4> Color{};
     };
 } // namespace
@@ -642,7 +660,7 @@ class VulkanParallelRecordingDevice : public ::testing::Test
 // executes them in item order; every target reads back its own colour.
 TEST_F(VulkanParallelRecordingDevice, ForkRecordsEachItemIntoItsOwnTargetThroughOneExecute)
 {
-    ScopedVulkanApiSelection vulkanApi;
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
     EnsureTaskWorkers();
     VulkanFrameArena::Get().BeginFrame(0);
 
@@ -658,7 +676,7 @@ TEST_F(VulkanParallelRecordingDevice, ForkRecordsEachItemIntoItsOwnTargetThrough
     for (const auto& color : colors)
         targets.push_back(MakeTintedTarget(32, color));
 
-    VulkanRendererAPI api;
+    VulkanRendererAPI& api = renderCommandSelection.Get();
     std::atomic<u32> itemsRun{ 0 };
     std::atomic<u32> itemsOnWorkerContext{ 0 };
     std::mutex threadsMutex;
@@ -718,7 +736,7 @@ TEST_F(VulkanParallelRecordingDevice, ForkRecordsEachItemIntoItsOwnTargetThrough
 // transition — so no conflict, and both halves hold their own tint.
 TEST_F(VulkanParallelRecordingDevice, SharedTargetItemsOpenIdentityScopesWithoutConflict)
 {
-    ScopedVulkanApiSelection vulkanApi;
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
     EnsureTaskWorkers();
     VulkanFrameArena::Get().BeginFrame(0);
 
@@ -731,7 +749,7 @@ TEST_F(VulkanParallelRecordingDevice, SharedTargetItemsOpenIdentityScopesWithout
     auto rightTint = UniformBuffer::Create(16, 3);
     rightTint->SetData(right.data(), sizeof(f32) * 4);
 
-    VulkanRendererAPI api;
+    VulkanRendererAPI& api = renderCommandSelection.Get();
     const std::array<Ref<Framebuffer>, 1> framebuffers = { shared.Target };
     SubmitPassFrame(api, framebuffers,
                     [&]()
@@ -766,7 +784,7 @@ TEST_F(VulkanParallelRecordingDevice, SharedTargetItemsOpenIdentityScopesWithout
 // on the render thread and the frame is unchanged.
 TEST_F(VulkanParallelRecordingDevice, LeverOffRecordsInlineOnTheRenderThread)
 {
-    ScopedVulkanApiSelection vulkanApi;
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
     VulkanFrameArena::Get().BeginFrame(0);
     Levers::SetVulkanParallelRecording(Levers::Tristate::Off);
 
@@ -775,7 +793,7 @@ TEST_F(VulkanParallelRecordingDevice, LeverOffRecordsInlineOnTheRenderThread)
     const std::array<f32, 4> green = { 0.0f, 1.0f, 0.0f, 1.0f };
     TintedTarget target = MakeTintedTarget(16, green);
 
-    VulkanRendererAPI api;
+    VulkanRendererAPI& api = renderCommandSelection.Get();
     u32 itemsRun = 0;
     u32 itemsOnWorker = 0;
     const std::array<Ref<Framebuffer>, 1> framebuffers = { target.Target };
@@ -806,7 +824,7 @@ TEST_F(VulkanParallelRecordingDevice, LeverOffRecordsInlineOnTheRenderThread)
 // once never overlap, and the tallies see every claim.
 TEST_F(VulkanParallelRecordingDevice, FrameArenaClaimsFromSeveralThreadsNeverOverlap)
 {
-    ScopedVulkanApiSelection vulkanApi;
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
     auto& arena = VulkanFrameArena::Get();
     arena.BeginFrame(0);
 

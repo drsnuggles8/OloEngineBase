@@ -2,7 +2,7 @@
 
 // VulkanWarnOnceSet — a thread-safe "have I already warned about this name?"
 // set for the draw path's warn-once diagnostics. Issue #806, ADR 0011
-// amendment (91) rule 8.
+// amendment (92) rule 8.
 //
 // The draw path used to keep these as function-static
 // std::unordered_set<std::string> objects, which was fine while every draw

@@ -176,7 +176,7 @@ TEST(McpPassTimingsTest, EmptyInputsProduceEmptyPassListAndZeroTotals)
 }
 
 // #806: the parallel command recorder's per-frame telemetry (ADR 0011
-// amendment (91)) rides along under "parallelRecording" so a caller can see
+// amendment (92)) rides along under "parallelRecording" so a caller can see
 // whether RecordParallel forked, how much worker time it bought against the
 // fork-to-join wall time, and whether any item pair conflicted on a
 // subresource. Counters pass through unchanged; the two ms values get the same

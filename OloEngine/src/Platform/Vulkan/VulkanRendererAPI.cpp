@@ -283,7 +283,7 @@ namespace OloEngine
     VkCommandBuffer VulkanRendererAPI::SuspendRecordingForFlush()
     {
         // A secondary cannot be submitted on its own, and the primary cannot
-        // be split while items still record into it (#806, amendment (91)
+        // be split while items still record into it (#806, amendment (92)
         // rule 7): refuse, and the caller takes its previous-frame arm.
         if (RefuseOnWorker("SuspendRecordingForFlush") || m_InParallelRegion)
         {
@@ -1487,7 +1487,7 @@ namespace OloEngine
 
     bool VulkanRendererAPI::ShouldTargetBackbuffer() const
     {
-        // The swapchain image is the render thread's (amendment (91) rule 7):
+        // The swapchain image is the render thread's (amendment (92) rule 7):
         // an item with nothing bound has no target, and its draw is dropped
         // with the existing warn-once rather than painting the backbuffer
         // from a secondary.
@@ -6339,7 +6339,7 @@ namespace OloEngine
     }
 
     // =====================================================================
-    // Parallel command recording (issue #806, ADR 0011 amendment (91))
+    // Parallel command recording (issue #806, ADR 0011 amendment (92))
     // =====================================================================
 
     bool VulkanRendererAPI::RefuseOnWorker(const char* entryPoint) const
@@ -6350,7 +6350,7 @@ namespace OloEngine
         }
         // Debug: loud at the call site. Otherwise: the warn-once stub path,
         // so the refusal is counted and named, never silent.
-        OLO_CORE_ASSERT(false, "{} called from a RecordParallel item (amendment (91) rule 7)", entryPoint);
+        OLO_CORE_ASSERT(false, "{} called from a RecordParallel item (amendment (92) rule 7)", entryPoint);
         UnimplementedStub(entryPoint, StubKind::PreconditionFailure);
         return true;
     }
@@ -6448,7 +6448,7 @@ namespace OloEngine
         // The same barriers EnsureRenderingScopeForDraw would collect for
         // this target, recorded on the primary WITHOUT opening a scope, so
         // every item's own scope-open on the same target is an identity
-        // transition (amendment (91) rule 5).
+        // transition (amendment (92) rule 5).
         std::vector<RHI::Barrier>& barriers = m_ForkBarriers;
         barriers.clear();
         const FramebufferAttachmentSelection* selection = FindSelection(target->GetRHIHandle());
@@ -6708,7 +6708,7 @@ namespace OloEngine
             // oldLayout on one barrier is a validation error and a possible
             // hazard, dropping the region's work is a certainly broken frame.
             OLO_CORE_ERROR("[RHI/Vulkan] RecordParallel: {} subresource(s) transitioned non-identically by more "
-                           "than one item — the later item's barrier named a stale oldLayout (amendment (91) rule 5)",
+                           "than one item — the later item's barrier named a stale oldLayout (amendment (92) rule 5)",
                            batch.Conflicts);
         }
         if (firstFailure)

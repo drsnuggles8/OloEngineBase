@@ -245,10 +245,13 @@ namespace OloEngine
             {
                 if (row.Written[i] == 0u)
                     continue;
-                const bool identity = row.Original[i] == row.Layouts[i];
-                // Amendment (91) rule 5: overlap is legal only when every
+                // What the item RECORDED decides, not where it ended: an
+                // A -> B -> A pair is a real writer (it claimed the subresource
+                // at record time), so the merge counter agrees with the claim
+                // table. Amendment (92) rule 5: overlap is legal only when every
                 // writer's transition was an identity — then each item's
                 // barrier named the layout the image really was in.
+                const bool identity = row.Written[i] != 2u;
                 if (mark[i] != 0u && (mark[i] == 2u || !identity))
                     ++batch.Conflicts;
                 mark[i] = identity ? std::max<u8>(mark[i], 1u) : 2u;
@@ -303,8 +306,10 @@ namespace OloEngine
                 const sizet index = static_cast<sizet>(layer) * state.MipCount + mip;
                 if (index < state.Written.size())
                 {
-                    state.Written[index] = 1u;
-                    // Record-time half of amendment (91) rule 5: a non-identity
+                    // 1 = identity write, 2 = a real transition; sticky, so an
+                    // A -> B -> A pair stays a real writer at the merge.
+                    state.Written[index] = std::max<u8>(state.Written[index], state.Original[index] != layout ? 2u : 1u);
+                    // Record-time half of amendment (92) rule 5: a non-identity
                     // transition claims the subresource for this item, and a
                     // second item's claim is reported HERE, with both indices,
                     // where the stale oldLayout is being recorded.
@@ -315,7 +320,7 @@ namespace OloEngine
                         {
                             OLO_CORE_ERROR("[RHI/Vulkan] RecordParallel item {} transitions image {:#x} subresource "
                                            "{} that item {} already transitioned — its barrier names a stale "
-                                           "oldLayout (amendment (91) rule 5)",
+                                           "oldLayout (amendment (92) rule 5)",
                                            m_ItemIndex, reinterpret_cast<std::uintptr_t>(image), index, other);
                             OLO_CORE_ASSERT(false, "two RecordParallel items transitioned one subresource");
                         }

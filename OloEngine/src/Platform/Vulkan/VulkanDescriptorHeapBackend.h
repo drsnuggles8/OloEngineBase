@@ -42,7 +42,7 @@
 // deterministic zeros/black; the images live for the heap's lifetime and are
 // reclaimed with it.
 //
-// Thread-safety (issue #806, ADR 0011 amendment (91) rule 8): one entry
+// Thread-safety (issue #806, ADR 0011 amendment (92) rule 8): one entry
 // point is on the draw path — GetNullSampledHeapSlot, the root-data writer's
 // unfed-binding fallback — and it serialises end to end on
 // m_NullSampledSlotMutex (memo lookup, null-image creation on a miss, the
@@ -164,7 +164,7 @@ namespace OloEngine
       public:
         // Create every view type's null sampled slot now, on the render
         // thread: a miss inside a RecordParallel item would need a one-shot
-        // submit, which is refused there (amendment (91) rule 7). Idempotent.
+        // submit, which is refused there (amendment (92) rule 7). Idempotent.
         void WarmNullSampledSlots();
 
       private:

@@ -460,7 +460,7 @@ namespace OloEngine
         [[nodiscard("Store this!")]] bool SupportsInt64ShaderAtomics() const override;
         [[nodiscard("Store this!")]] bool SupportsMeshShaders() const override;
 
-        // --- Parallel command recording (#806, amendment (91)) ---------------
+        // --- Parallel command recording (#806, amendment (92)) ---------------
         [[nodiscard]] bool SupportsParallelRecording() const override;
         void RecordParallel(u32 itemCount, const std::function<void(u32 item)>& body) override;
         [[nodiscard]] ParallelRecordingFrameStats GetParallelRecordingStats() const override
@@ -484,7 +484,7 @@ namespace OloEngine
         }
         // The depth-array layer selection for `framebuffer` on the current
         // context (Framebuffer::AttachDepthTextureArrayLayer's Vulkan half —
-        // the selection is recording-context state, amendment (91) rule 4).
+        // the selection is recording-context state, amendment (92) rule 4).
         void SetFramebufferDepthArraySelection(RHI::ResourceHandle framebuffer,
                                                const VulkanRecordingContext::FramebufferAttachmentSelection::DepthArrayLayer& selection);
         [[nodiscard]] VulkanRecordingContext::FramebufferAttachmentSelection::DepthArrayLayer
@@ -622,7 +622,7 @@ namespace OloEngine
         // grown on demand (a context never moves: its tracker self-registers).
         std::vector<Scope<VulkanRecordingContext>> m_Items;
         bool m_InParallelRegion = false;
-        u64 m_RegionSerial = 0;                ///< Stamps each region (the buffer writer check, amendment (91) rule 6).
+        u64 m_RegionSerial = 0;                ///< Stamps each region (the buffer writer check, amendment (92) rule 6).
         VulkanLayoutClaimTable m_LayoutClaims; ///< Record-time rule-5 claims for the region in flight.
         // Join scratch, kept for its capacity across regions.
         std::vector<VkCommandBuffer> m_JoinSecondaries;
@@ -646,7 +646,7 @@ namespace OloEngine
             return m_Main;
         }
         // True on a thread running a RecordParallel item. Every entry point
-        // outside amendment (91)'s envelope — creation and destruction,
+        // outside amendment (92)'s envelope — creation and destruction,
         // uploads, readbacks, queries, timestamps, fences, device waits, the
         // mid-frame flush, conditional rendering — opens with RefuseOnWorker.
         [[nodiscard]] static bool OnWorkerContext()
@@ -659,7 +659,7 @@ namespace OloEngine
         // ParallelFor hands the item to.
         void RecordParallelItem(VulkanRecordingContext& item, const std::function<void(u32 item)>& body,
                                 std::exception_ptr& firstFailure, std::mutex& failureMutex);
-        // The fork's attachment pre-transition (amendment (91) rule 5): bring
+        // The fork's attachment pre-transition (amendment (92) rule 5): bring
         // the bound target's colour / depth / selected depth-array layer to
         // their attachment layouts on the primary, so items open their scopes
         // with identity transitions.

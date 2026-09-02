@@ -49,9 +49,11 @@ namespace OloEngine::MCP::PassTimings
     };
 
     // The parallel command recorder's frame telemetry (issue #806, ADR 0011
-    // amendment (91)) - a plain mirror of RendererAPI::ParallelRecordingFrameStats
+    // amendment (92)) - a plain mirror of RendererAPI::ParallelRecordingFrameStats
     // so this header stays engine-free. The handler copies the profiler's
-    // last-completed-frame snapshot in; all zero on a backend that never forks.
+    // last-completed-frame snapshot in. All zero on OpenGL, whose facade
+    // default reports nothing; on Vulkan with OLO_VK_PARALLEL_RECORDING off
+    // only InlineRegions counts (every RecordParallel call ran inline).
     struct ParallelRecordingStats
     {
         u32 Regions = 0;             // RecordParallel calls that forked onto task workers

@@ -167,20 +167,12 @@ namespace OloEngine
     void VulkanStorageBuffer::SetData(const void* data, u32 size, u32 offset)
     {
         OLO_PROFILE_FUNCTION();
-        // Amendment (91) rule 6, checked at record time: one writer per object
-        // per region. The stamp packs (region, item); a different item in the
-        // SAME region is the interleaving that renders the wrong bytes.
-        if (const VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        // Amendment (92) rule 6, checked at record time: one writer per object
+        // per region. A refused item skips the write in every build — the
+        // mapped memcpy and PushSnapshot below are the race.
+        if (!ClaimParallelWriter(m_ParallelWriter, "storage buffer"))
         {
-            const u64 stamp = (worker->RegionId << 32u) | worker->ItemIndex;
-            const u64 previous = m_ParallelWriter.exchange(stamp, std::memory_order_relaxed);
-            if (previous != 0u && (previous >> 32u) == worker->RegionId && (previous & 0xFFFFFFFFu) != worker->ItemIndex)
-            {
-                OLO_CORE_ERROR("[RHI/Vulkan] buffer written by RecordParallel items {} and {} in one region — give "
-                               "each item its own object (amendment (91) rule 6)",
-                               static_cast<u32>(previous & 0xFFFFFFFFu), worker->ItemIndex);
-                OLO_CORE_ASSERT(false, "two RecordParallel items wrote one buffer object");
-            }
+            return;
         }
 
         if (data == nullptr || size == 0)
@@ -511,7 +503,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         // Creates a buffer and enqueues the old one on the reclaim queue —
-        // render-thread work (amendment (91) rule 7). A RecordParallel item
+        // render-thread work (amendment (92) rule 7). A RecordParallel item
         // that outgrows its buffer must have been given the capacity before
         // the fork (ShadowRenderPass::EnsureItemResources).
         if (CurrentVulkanWorkerContext() != nullptr)
