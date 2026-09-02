@@ -818,6 +818,11 @@ namespace OloEngine
         // Depth prepass control
         static void EnableDepthPrepass(bool enable);
         static bool IsDepthPrepassEnabled();
+        // Session-scoped A/B lever for issue #722. Disabling this leaves the
+        // depth prepass itself unchanged and selects the fixed-grid cull, so
+        // image/performance comparisons isolate culling rather than raster state.
+        static void EnableDepthAwareClusterCulling(bool enable);
+        static bool IsDepthAwareClusterCullingEnabled();
         // The depth-prepass value ApplyRendererSettings derives from the current
         // RendererSettings (the "auto" state): the user toggle OR'd with the
         // paths that require the prepass depth for tile culling (Forward+,
@@ -1891,6 +1896,7 @@ namespace OloEngine
             bool FrustumCullingEnabled = true;
             bool DynamicCullingEnabled = true;
             bool DepthPrepassEnabled = false;
+            bool DepthAwareClusterCullingEnabled = true;
             bool OcclusionCullingEnabled = false;
             bool OcclusionResultsAvailable = false;
 

@@ -13,13 +13,15 @@ void main()
 
 layout(location = 0) out vec4 o_Color;
 
+#include "include/DepthAwareClusterCommon.glsl"
+
 // Forward+ cluster grid SSBO (binding 12 = SSBO_FPLUS_LIGHT_GRID)
 layout(std430, binding = 12) readonly buffer FPlusLightGridBuf { uvec2 fplusGrid[]; };
 
 // Forward+ clustered parameters UBO (binding 25)
 layout(std140, binding = 25) uniform ForwardPlusParams {
     uvec4 fplus_Params;       // x = ClusterCountX, y = ClusterCountY, z = Enabled (0/1), w = ClusterCountZ
-    vec4  fplus_TileScale;    // xy = clusterCount / screenSize, zw = unused
+    vec4  fplus_TileScale;    // xy = clusterCount / screenSize, zw = exact screen extent
     vec4  fplus_DepthSlicing; // x = sliceScale, y = sliceBias, z = zNear, w = zFar
 };
 
@@ -48,7 +50,10 @@ void main()
     uint countZ = fplus_Params.w;
 
     vec2 tileCoordF = gl_FragCoord.xy * fplus_TileScale.xy;
-    uvec2 tileCoord = min(uvec2(tileCoordF), uvec2(countX - 1u, countY - 1u));
+    uvec2 pixel = uvec2(gl_FragCoord.xy);
+    uvec2 screenExtent = uvec2(fplus_TileScale.zw);
+    uvec2 tileCoord = uvec2(oloTileForPixelCenter(pixel.x, countX, screenExtent.x),
+                            oloTileForPixelCenter(pixel.y, countY, screenExtent.y));
 
     // A 2D overlay can't show one specific depth slice, so visualize the
     // worst (max) per-cluster light count across the column's Z slices —

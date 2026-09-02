@@ -187,4 +187,47 @@ namespace
         EXPECT_DOUBLE_EQ(j.at("lightIndexList").at("utilization").get<f64>(), 0.5);
         EXPECT_FALSE(j.contains("warning"));
     }
+
+    TEST(McpClusterGridStats, CullingJsonExposesDepthAwareCompactionAndClampsReadback)
+    {
+        const Json depthAware = CullingToJson(true, 320u, 1000u, 73u, 73u, true);
+        EXPECT_EQ(depthAware.at("mode").get<std::string>(), "depthAware2_5D");
+        EXPECT_TRUE(depthAware.at("depthAware").get<bool>());
+        EXPECT_EQ(depthAware.at("activeClusters").get<u32>(), 320u);
+        EXPECT_EQ(depthAware.at("culledClusters").get<u32>(), 680u);
+        EXPECT_DOUBLE_EQ(depthAware.at("activeFraction").get<f64>(), 0.32);
+        EXPECT_EQ(depthAware.at("frameIndex").get<u64>(), 73u);
+        EXPECT_EQ(depthAware.at("sampleAgeFrames").get<u64>(), 0u);
+        EXPECT_FALSE(depthAware.at("stale").get<bool>());
+        EXPECT_TRUE(depthAware.at("counterVerified").get<bool>());
+
+        const Json fixedGrid = CullingToJson(false, 5000u, 1000u, 74u, 78u, true);
+        EXPECT_EQ(fixedGrid.at("mode").get<std::string>(), "fixedGrid");
+        EXPECT_EQ(fixedGrid.at("activeClusters").get<u32>(), 1000u);
+        EXPECT_EQ(fixedGrid.at("culledClusters").get<u32>(), 0u);
+        EXPECT_DOUBLE_EQ(fixedGrid.at("activeFraction").get<f64>(), 1.0);
+        EXPECT_EQ(fixedGrid.at("sampleAgeFrames").get<u64>(), 4u);
+        EXPECT_TRUE(fixedGrid.at("stale").get<bool>());
+
+        const Json invalidOrder = CullingToJson(true, 320u, 1000u, 80u, 79u, true);
+        EXPECT_EQ(invalidOrder.at("sampleAgeFrames").get<u64>(), 0u);
+        EXPECT_TRUE(invalidOrder.at("stale").get<bool>());
+    }
+
+    TEST(McpClusterGridStats, ActiveClusterMetadataIndependentlyCrossChecksIndirectCount)
+    {
+        constexpr u32 metadataOffset = 8u;
+        constexpr u32 tileCount = 3u;
+        std::vector<u32> words(metadataOffset + tileCount * 4u, 0u);
+        words[metadataOffset + 3u] = (1u << 0u) | (1u << 7u);
+        words[metadataOffset + 4u + 3u] = 0u;
+        words[metadataOffset + 8u + 3u] = (1u << 2u) | (1u << 9u) | (1u << 23u);
+
+        const auto count = ActiveClusterCountFromMetadata(words, metadataOffset, tileCount);
+        ASSERT_TRUE(count.has_value());
+        EXPECT_EQ(*count, 5u);
+        EXPECT_FALSE(ActiveClusterCountFromMetadata(
+                         std::span<const u32>(words).first(words.size() - 1u), metadataOffset, tileCount)
+                         .has_value());
+    }
 } // namespace

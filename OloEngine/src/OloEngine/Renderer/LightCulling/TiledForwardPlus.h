@@ -30,8 +30,9 @@ namespace OloEngine
     // compute shader culls lights into a fixed 3D froxel cluster grid
     // (screen tiles × exponential depth slices). Call SetLights() with the
     // scene-gathered light vectors to upload them into SSBOs, then
-    // DispatchCulling() (depth-independent — any point after the light
-    // upload), and BindForShading() before the color pass.
+    // DispatchCulling() after the optional depth prepass, and BindForShading()
+    // before the color pass. A missing depth input selects the fixed-grid
+    // fallback.
     class TiledForwardPlus
     {
       public:
@@ -55,9 +56,12 @@ namespace OloEngine
 
         // Dispatch the clustered light culling compute pass. The camera
         // near/far planes for the depth-slice mapping are extracted from the
-        // projection matrix.
+        // projection matrix. A valid depth-prepass texture enables 2.5D tile
+        // occupancy + active-cluster compaction; otherwise the fixed grid runs.
         void DispatchCulling(const glm::mat4& viewMatrix,
-                             const glm::mat4& projectionMatrix);
+                             const glm::mat4& projectionMatrix,
+                             RHI::ResourceHandle sceneDepth = RHI::NullResource,
+                             bool depthPrepassAvailable = false);
 
         // Bind light grid + light data SSBOs for the forward color pass
         void BindForShading();
@@ -149,6 +153,14 @@ namespace OloEngine
         {
             return m_ActiveThisFrame;
         }
+        [[nodiscard]] bool WasLastCullingDepthAware() const
+        {
+            return m_CullingPass.WasLastDispatchDepthAware();
+        }
+        [[nodiscard]] u64 GetLastCullingFrameIndex() const
+        {
+            return m_LastCullingFrameIndex;
+        }
 
         // Camera clip planes captured by the last DispatchCulling; consumed by
         // BindForShading's UBO upload and by the froxel-fog pass, which
@@ -182,6 +194,7 @@ namespace OloEngine
         bool m_DebugVisualization = false;
         bool m_Initialized = false;
         bool m_ActiveThisFrame = false;
+        u64 m_LastCullingFrameIndex = 0;
 
         LightGridConfig m_GridConfig;
     };

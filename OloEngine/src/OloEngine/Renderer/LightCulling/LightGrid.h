@@ -47,8 +47,9 @@ namespace OloEngine
         void Bind() const;
         void Unbind() const;
 
-        // Reset the atomic counter before each culling dispatch
-        void ResetAtomicCounter();
+        // Reset the light-list counter and seed the indirect dispatch as
+        // { activeGroups=0, 1, 1 } before each culling dispatch.
+        void ResetCountersAndIndirectArgs();
 
         // Clear all (offset, count) pairs in the light grid SSBO
         void ClearLightGrid();
@@ -72,6 +73,23 @@ namespace OloEngine
         [[nodiscard]] u32 GetMaxLightsPerCluster() const
         {
             return m_Config.MaxLightsPerCluster;
+        }
+        [[nodiscard]] u32 GetTileCount() const
+        {
+            return m_Config.ClusterCountX * m_Config.ClusterCountY;
+        }
+        [[nodiscard]] u32 GetLightIndexCapacityWords() const
+        {
+            return ClusteredLighting::ActiveClusterListOffsetWords(GetTotalClusters(),
+                                                                   m_Config.MaxLightsPerCluster);
+        }
+        [[nodiscard]] u32 GetActiveClusterListOffsetWords() const
+        {
+            return GetLightIndexCapacityWords();
+        }
+        [[nodiscard]] u32 GetDepthTileMetadataOffsetWords() const
+        {
+            return ClusteredLighting::DepthTileMetadataOffsetWords(GetTotalClusters());
         }
 
         [[nodiscard]] u32 GetScreenWidth() const
@@ -108,9 +126,9 @@ namespace OloEngine
         u32 m_ScreenWidth = 0;
         u32 m_ScreenHeight = 0;
 
-        Ref<StorageBuffer> m_LightIndexSSBO;  // Flat array of packed light indices
-        Ref<StorageBuffer> m_LightGridSSBO;   // Per-cluster (offset, count) pairs
-        Ref<StorageBuffer> m_GlobalIndexSSBO; // Atomic counter for light list append
+        Ref<StorageBuffer> m_LightIndexSSBO;  // Packed light indices + active-cluster suffix
+        Ref<StorageBuffer> m_LightGridSSBO;   // Grid pairs + per-tile depth metadata suffix
+        Ref<StorageBuffer> m_GlobalIndexSSBO; // Light append counter + indirect uvec3
 
         bool m_Initialized = false;
     };

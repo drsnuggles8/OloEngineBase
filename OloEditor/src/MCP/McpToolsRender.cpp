@@ -2451,6 +2451,7 @@ namespace OloEngine::MCP
                 LeverState lever;
                 lever.DepthPrepassEnabled = Renderer3D::IsDepthPrepassEnabled();
                 lever.DepthPrepassAuto = Renderer3D::ComputeSettingsDerivedDepthPrepass();
+                lever.DepthAwareCulling = Renderer3D::IsDepthAwareClusterCullingEnabled();
                 lever.SoftShadows = Renderer3D::GetShadowMap().GetSettings().SoftShadows;
                 lever.HZBOcclusion = Renderer3D::IsHZBOcclusionCullingEnabled();
                 // The EFFECTIVE value, not the requested one: VirtualShadowMap::Init
@@ -2489,6 +2490,10 @@ namespace OloEngine::MCP
                 if (setting == Setting::DepthPrepass)
                 {
                     Renderer3D::EnableDepthPrepass(lever.DepthPrepassEnabled);
+                }
+                else if (setting == Setting::DepthAwareCulling)
+                {
+                    Renderer3D::EnableDepthAwareClusterCulling(lever.DepthAwareCulling);
                 }
                 else if (setting == Setting::SoftShadows)
                 {
@@ -5176,9 +5181,10 @@ namespace OloEngine::MCP
 
         ToolResult Handle_ClusterGridStats(McpServer& server, const Json& /*args*/)
         {
-            const Json result = server.MarshalRead([]() -> Json
+            const Json result = server.MarshalRead([&server]() -> Json
                                                    {
-                const LightGrid& lightGrid = Renderer3D::GetForwardPlus().GetLightGrid();
+                const auto& forwardPlus = Renderer3D::GetForwardPlus();
+                const LightGrid& lightGrid = forwardPlus.GetLightGrid();
                 if (!lightGrid.IsInitialized())
                     return Json{ { "__error", "The clustered light grid is not initialized (no frame rendered yet)." } };
 
@@ -5188,27 +5194,45 @@ namespace OloEngine::MCP
                 dims.CountZ = lightGrid.GetClusterCountZ();
                 dims.MaxLightsPerCluster = lightGrid.GetMaxLightsPerCluster();
 
-                // Two u32 per cluster: (offset, count), in LightCulling.comp's
-                // clusterIndex = (z * countY + y) * countX + x order.
                 const u32 totalClusters = dims.TotalClusters();
-                std::vector<u32> gridPairs(static_cast<std::size_t>(totalClusters) * 2u, 0u);
-                const auto gridBytes = static_cast<u32>(gridPairs.size() * sizeof(u32));
-                if (!ReadStorageBufferStaged(lightGrid.GetLightGridSSBO(), gridBytes, gridPairs.data()))
+                const u32 tileCount = lightGrid.GetTileCount();
+                const u32 gridStorageWords = ClusteredLighting::LightGridStorageWords(totalClusters, tileCount);
+                std::vector<u32> gridWords(gridStorageWords, 0u);
+                const auto gridBytes = static_cast<u32>(gridWords.size() * sizeof(u32));
+                if (!ReadStorageBufferStaged(lightGrid.GetLightGridSSBO(), gridBytes, gridWords.data()))
                     return Json{ { "__error", "Failed to read back the light-grid SSBO." } };
 
-                u32 globalIndexCount = 0;
-                (void)ReadStorageBufferStaged(lightGrid.GetGlobalIndexSSBO(), static_cast<u32>(sizeof(u32)),
-                                              &globalIndexCount);
+                std::array<u32, ClusteredLighting::kGlobalCounterAndDispatchWordCount> counters{};
+                if (!ReadStorageBufferStaged(lightGrid.GetGlobalIndexSSBO(), static_cast<u32>(sizeof(counters)),
+                                             counters.data()))
+                {
+                    return Json{ { "__error", "Failed to read back the clustered-culling counters." } };
+                }
+                const u32 globalIndexCount = counters[0];
 
-                const u32 lightIndexCapacity = lightGrid.GetLightIndexSSBO()
-                                                   ? lightGrid.GetLightIndexSSBO()->GetSize() / static_cast<u32>(sizeof(u32))
-                                                   : 0u;
+                const u32 lightIndexCapacity = lightGrid.GetLightIndexCapacityWords();
 
-                const ClusterGrid::Stats stats = ClusterGrid::Compute(std::span<const u32>(gridPairs), dims);
+                // Two u32 per cluster: (offset, count), followed by the
+                // depth-aware per-tile metadata used to cross-check the
+                // independently written indirect active-cluster count.
+                const std::span<const u32> gridPairs(gridWords.data(), static_cast<std::size_t>(totalClusters) * 2u);
+                const ClusterGrid::Stats stats = ClusterGrid::Compute(gridPairs, dims);
                 Json j = ClusterGrid::ToJson(stats, dims, globalIndexCount, lightIndexCapacity);
                 j["renderingPath"] = RenderingPathName(Renderer3D::GetRendererSettings().Path);
                 j["screen"] = Json{ { "width", lightGrid.GetScreenWidth() },
                                     { "height", lightGrid.GetScreenHeight() } };
+                const bool depthAware = forwardPlus.WasLastCullingDepthAware();
+                const auto activeFromMetadata = ClusterGrid::ActiveClusterCountFromMetadata(
+                    gridWords, lightGrid.GetDepthTileMetadataOffsetWords(), tileCount);
+                if (depthAware && (!activeFromMetadata || *activeFromMetadata != counters[1]))
+                {
+                    return Json{ { "__error", "Depth-aware active-cluster counter failed its independent metadata cross-check." } };
+                }
+                const u64 producerFrameIndex = forwardPlus.GetLastCullingFrameIndex();
+                const u64 currentFrameIndex = GPUReadbackStats::GetFrameIndex();
+                j["culling"] = ClusterGrid::CullingToJson(depthAware, counters[1], totalClusters,
+                                                          producerFrameIndex, currentFrameIndex,
+                                                          !depthAware || activeFromMetadata.has_value());
                 if (Renderer3D::GetRendererSettings().Path == RenderingPath::Forward)
                     j["note"] = "The plain Forward path does not run the clustered cull, so the grid holds whatever "
                                 "the last Forward+/Deferred frame left in it (or zeroes).";
@@ -7205,7 +7229,9 @@ namespace OloEngine::MCP
                 "extra lights, so a light in that froxel just stops lighting). Also reports the light "
                 "index list's used slots vs capacity. Use it to verify the cull is assigning lights at "
                 "all, to find the depth slices that are hot, and to catch a scene that has quietly "
-                "exceeded the per-cluster budget. The plain Forward path does not run the cull.";
+                "exceeded the per-cluster budget. 'culling' reports whether depth-aware 2.5D compaction "
+                "or the fixed-grid fallback ran, plus active/culled cluster counts. The plain Forward "
+                "path does not run the cull.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("grid", Schema::Object()
@@ -7250,10 +7276,21 @@ namespace OloEngine::MCP
                                     .Prop("screen", Schema::Object()
                                                         .Prop("width", Schema::Int().Min(0))
                                                         .Prop("height", Schema::Int().Min(0)))
+                                    .Prop("culling", Schema::Object()
+                                                         .Prop("mode", Schema::String())
+                                                         .Prop("depthAware", Schema::Bool())
+                                                         .Prop("activeClusters", Schema::Int().Min(0))
+                                                         .Prop("culledClusters", Schema::Int().Min(0))
+                                                         .Prop("activeFraction", Schema::Number())
+                                                         .Prop("frameIndex", Schema::Int().Min(0).Desc("Engine render frame that produced the retained culling buffers."))
+                                                         .Prop("sampleAgeFrames", Schema::Int().Min(0))
+                                                         .Prop("stale", Schema::Bool())
+                                                         .Prop("counterVerified", Schema::Bool()))
                                     .Prop("note", Schema::String().Desc("Plain-Forward staleness caveat; omitted otherwise."))
                                     .Required({ "grid", "clustersSampled", "totalAssignedIndices", "emptyClusters", "overflowClusters",
                                                 "maxLightsInAnyCluster", "meanLightsPerCluster", "meanLightsPerNonEmptyCluster",
-                                                "busiestCluster", "perSlice", "histogram", "lightIndexList", "renderingPath", "screen" });
+                                                "busiestCluster", "perSlice", "histogram", "lightIndexList", "renderingPath", "screen",
+                                                "culling" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ClusterGridStats;
             server.RegisterTool(std::move(tool));

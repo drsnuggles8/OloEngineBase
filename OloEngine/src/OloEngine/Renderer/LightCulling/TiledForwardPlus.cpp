@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -43,6 +44,7 @@ namespace OloEngine
         m_LightBuffer.Shutdown();
         m_CullingPass.Shutdown();
         m_ActiveThisFrame = false;
+        m_LastCullingFrameIndex = 0;
         m_Initialized = false;
     }
 
@@ -106,7 +108,9 @@ namespace OloEngine
     }
 
     void TiledForwardPlus::DispatchCulling(const glm::mat4& viewMatrix,
-                                           const glm::mat4& projectionMatrix)
+                                           const glm::mat4& projectionMatrix,
+                                           RHI::ResourceHandle sceneDepth,
+                                           bool depthPrepassAvailable)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -127,9 +131,13 @@ namespace OloEngine
         // near origin.
         const glm::mat4 viewRelative = MakeViewRelative(viewMatrix, Renderer3D::GetRenderOrigin());
 
+        // Stamp the CPU-side owner of the buffers before dispatch. MCP reads
+        // can then distinguish an unchanged result from a stale retained grid.
+        m_LastCullingFrameIndex = GPUReadbackStats::GetFrameIndex();
         m_CullingPass.Dispatch(m_LightGrid, m_LightBuffer,
                                viewRelative, projectionMatrix,
-                               m_NearPlane, m_FarPlane);
+                               m_NearPlane, m_FarPlane,
+                               sceneDepth, depthPrepassAvailable);
     }
 
     void TiledForwardPlus::BindForShading()
@@ -161,7 +169,7 @@ namespace OloEngine
             uboData.TileScale = glm::vec4(
                 screenW > 0.0f ? static_cast<f32>(m_LightGrid.GetClusterCountX()) / screenW : 0.0f,
                 screenH > 0.0f ? static_cast<f32>(m_LightGrid.GetClusterCountY()) / screenH : 0.0f,
-                0.0f, 0.0f);
+                screenW, screenH);
             uboData.DepthSlicing = glm::vec4(slicing.Scale, slicing.Bias, m_NearPlane, m_FarPlane);
             m_ForwardPlusUBO->SetData(&uboData, sizeof(uboData));
             m_ForwardPlusUBO->Bind();

@@ -84,7 +84,9 @@ layout(std140, binding = 68) uniform LightCullingParams
     uint  u_MaxLightsPerCluster;     // 140
     float u_NearPlane;               // 144 — camera near (positive distance)
     float u_FarPlane;                // 148 — camera far  (positive distance)
-    vec2  _lightCullPad0;            // 152
+    uvec2 u_ScreenSize;              // 152 — depth texture extent (fallback unused)
+    uvec4 u_ClusterParams;           // 160 — xyz counts, w active-list offset (fallback unused)
+    uvec4 u_LayoutParams;            // 176 — x metadata offset, yzw reserved (fallback unused)
 };
 
 // ---------------------------------------------------------------------------

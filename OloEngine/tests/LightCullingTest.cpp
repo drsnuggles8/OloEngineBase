@@ -41,6 +41,14 @@ TEST(ForwardPlus, ForwardPlusUBOSize)
     EXPECT_EQ(sizeof(UBOStructures::ForwardPlusUBO) % 16, 0u); // std140
 }
 
+TEST(ForwardPlus, LightCullingUBOCarriesDepthAwareDispatchLayout)
+{
+    EXPECT_EQ(sizeof(UBOStructures::LightCullingUBO), 192u);
+    EXPECT_EQ(offsetof(UBOStructures::LightCullingUBO, ScreenSize), 152u);
+    EXPECT_EQ(offsetof(UBOStructures::LightCullingUBO, ClusterParams), 160u);
+    EXPECT_EQ(offsetof(UBOStructures::LightCullingUBO, LayoutParams), 176u);
+}
+
 // =============================================================================
 // LightGridConfig tests (clustered froxel grid, issue #435)
 // =============================================================================
