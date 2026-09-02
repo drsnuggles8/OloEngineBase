@@ -64,7 +64,10 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a non-PR run. Only a DEFAULT-BRANCH run writes a cache entry other
+  # branches can read, so cancelling one leaves every later run cold — see #1009 and
+  # the note on Windows.yml's concurrency block.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Cheap, no-build guard on the invariant the whole design rests on: exactly ONE translation
@@ -130,7 +133,16 @@ jobs:
 
   stub-build:
     name: Build + test OLO_WITH_STEAM=ON (stub SDK)
-    runs-on: ubuntu-24.04
+    # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not (#1009).
+    # The condition IS the security boundary -- see vulkan-off.yml for the full
+    # reasoning, including why the `github.event_name != 'pull_request'` disjunct
+    # is load-bearing rather than decorative. (This job never runs on a
+    # pull_request at all -- see the `if:` below -- so in practice it always takes
+    # the self-hosted arm; the condition is written in full anyway, because the day
+    # someone relaxes that `if:` the runner choice must already be safe.)
+    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     # Not on pull_request — see the trigger rationale at the top of this file. The cheap
     # single-valve-tu guard above still runs on every PR; this full build does not.
     if: github.event_name != 'pull_request'
@@ -139,50 +151,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Python 3.10
-        id: py
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # Python, the Vulkan shader toolchain and the compiler, resolved for whichever
+      # runner kind this landed on. The jinja2 pin, the apt-repo scrub and the
+      # clang/libstdc++ reasoning that used to be spelled out here all live in that
+      # action now -- they were identical in four workflows and drifted twice.
+      - name: Setup Linux build environment
+        id: linux
+        uses: ./.github/actions/setup-linux-build
         with:
-          python-version: '3.10'
-      # Version-pinned deliberately (SonarCloud githubactions:S8544, "dependencies without locking
-      # resolved versions"). Every other workflow here installs jinja2 unpinned and is grandfathered
-      # in as existing code; the gate only holds NEW code to it, so this job is the first that has
-      # to comply — and pinning a build-tool dependency is the right answer regardless, since an
-      # unpinned install lets a compromised or merely broken release change what CI runs.
-      #
-      # jinja2 is used only by the glad2 GL-loader generator. 3.1.6 is the current 3.1.x; bump it
-      # deliberately rather than floating.
-      #
-      # The separate `pip install --upgrade pip` the other workflows run is dropped rather than
-      # pinned: actions/setup-python already provides a current pip, so it bought nothing and was
-      # itself a second unpinned install.
-      - name: Python deps (OloHeaderTool)
-        run: python -m pip install jinja2==3.1.6
-
-      - name: Setup Vulkan SDK
-        uses: ./.github/actions/setup-vulkan
-
-      # The engine needs a C++23 STANDARD LIBRARY, not just a C++23 compiler: Core/Reflection
-      # uses std::forward_like, which ubuntu-24.04's default GCC/libstdc++ does not provide
-      # ("error: 'forward_like' is not a member of 'std'"). Every other Linux job in this repo
-      # pins clang-19 from apt.llvm.org for the same reason — see asan.yml.
-      - name: Add LLVM apt repository
-        uses: ./.github/actions/setup-llvm-apt
-
-      - name: Install Linux deps
-        run: |
-          # The ubuntu runner image ships Microsoft apt repos (azure-cli, prod) that
-          # periodically return 403 Forbidden; we never use them (Clang comes from
-          # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
-          # Drop any Microsoft source so a Microsoft-side outage can't break our update.
-          sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
-          sudo apt-get update
-          sudo apt-get install -y \
-            clang-19 lld-19 \
-            libgl-dev libglu1-mesa-dev \
-            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
-            libwayland-dev wayland-protocols libxkbcommon-dev \
-            glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools
+          cache-name: steam-stub
 
       - name: Setup vcpkg
         id: vcpkg
@@ -195,21 +172,24 @@ jobs:
       # runner. The heavy optional subsystems are off: this job's question is "does the Steam
       # path still compile, link and behave", not "does the whole engine still work", which the
       # main Windows/Linux workflows already answer.
-      # clang-19 + lld to match every other Linux job here: the default toolchain's libstdc++
-      # lacks C++23 library pieces this engine uses, and the default linker can OOM a hosted
-      # runner while linking the full static engine.
+      # The compiler comes from the setup step above rather than being named here: it is
+      # clang-19 from apt.llvm.org on a hosted runner (ubuntu-24.04's default libstdc++
+      # lacks C++23 library pieces this engine uses) and the system clang on the
+      # self-hosted box. lld either way — the default linker can OOM a hosted runner
+      # while linking the full static engine.
       - name: Configure (Steam ON, stub SDK)
         run: |
           cmake -S . -B build \
             -DOLO_WITH_STEAM_STUB_SDK=ON \
             -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
             -DOLO_VIDEO_FFMPEG=OFF \
-            -DCMAKE_CXX_COMPILER=clang++-19 \
-            -DCMAKE_C_COMPILER=clang-19 \
+            -DCMAKE_CXX_COMPILER=${{ steps.linux.outputs.cxx }} \
+            -DCMAKE_C_COMPILER=${{ steps.linux.outputs.cc }} \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
             ${{ steps.vcpkg.outputs.toolchain-args }} \
-            -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+            ${{ steps.linux.outputs.extra-cmake-args }} \
+            -DPython_EXECUTABLE="${{ steps.linux.outputs.python-exe }}"
 
       # Fail loudly if the option plumbing did not actually take. Without this the job could pass
       # green while quietly building OLO_WITH_STEAM=0 — which would make the whole workflow a
@@ -227,6 +207,24 @@ jobs:
           fi
           echo "OK: building OLO_WITH_STEAM=ON against the stub SDK."
 
+      # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+      # is the whole point: the combined actions/cache action saves in a POST-JOB
+      # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+      # Placed before the build so a cancellation during the long build/test tail
+      # still banks the ports this run just spent ~40 minutes installing.
+      - name: Save vcpkg binary cache
+        if: always()
+        # A cache save must never fail the job it is attached to. `if: always()`
+        # means this runs on a CANCEL, where the path it is asked to save may not
+        # exist yet -- and actions/cache/save treats a missing path as a validation
+        # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+        # strictly worse outcome than the cold cache this is fixing.
+        continue-on-error: true
+        uses: ./.github/actions/save-vcpkg-cache
+        with:
+          key: ${{ steps.vcpkg.outputs.cache-key }}
+          path: ${{ steps.vcpkg.outputs.cache-path }}
+
       # Capped parallelism, per CLAUDE.md — a bare --parallel forwards the omission to the native
       # tool and takes its default (cores + 2 for Ninja), which is wider, not narrower.
       - name: Build tests
@@ -237,6 +235,20 @@ jobs:
       # Resolved ONCE and exported, rather than repeating the find in each test step: two lookups
       # can disagree (a stale binary from an earlier layout still on disk would be picked by one
       # and not the other), and a single failure point is easier to read in the log.
+      # Only meaningful on the self-hosted runner, which has ccache; the hosted arm
+      # has no compiler cache for this job and says so. Printed because a cache that
+      # restores and hits on nothing looks exactly like a working one -- see
+      # docs/agent-rules/ci-cache-that-looks-alive.md.
+      - name: Show compiler cache stats
+        if: always()
+        shell: bash
+        run: |
+          if command -v ccache >/dev/null 2>&1 && [ -n "${CCACHE_DIR:-}" ]; then
+            ccache --show-stats
+          else
+            echo "no compiler cache on this runner (hosted arm)"
+          fi
+
       - name: Locate the test binary
         run: |
           BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)

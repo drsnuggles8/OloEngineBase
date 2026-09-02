@@ -323,6 +323,24 @@ jobs:
           -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
           -DOLO_LINK_JOBS=1
 
+      # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+      # is the whole point: the combined actions/cache action saves in a POST-JOB
+      # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+      # Placed before the build so a cancellation during the long build/test tail
+      # still banks the ports this run just spent ~40 minutes installing.
+      - name: Save vcpkg binary cache
+        if: always()
+        # A cache save must never fail the job it is attached to. `if: always()`
+        # means this runs on a CANCEL, where the path it is asked to save may not
+        # exist yet -- and actions/cache/save treats a missing path as a validation
+        # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+        # strictly worse outcome than the cold cache this is fixing.
+        continue-on-error: true
+        uses: ./.github/actions/save-vcpkg-cache
+        with:
+          key: ${{ steps.vcpkg.outputs.cache-key }}
+          path: ${{ steps.vcpkg.outputs.cache-path }}
+
       - name: Build tests
         # Width comes from CMAKE_BUILD_PARALLEL_LEVEL in the job env — see the
         # note there for why it must be set explicitly rather than left to the

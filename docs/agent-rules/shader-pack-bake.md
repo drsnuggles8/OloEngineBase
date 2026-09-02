@@ -71,6 +71,19 @@ own `--olo-bake-shader-pack=<path>` mode (see `TestOptions.h`) runs just the
 `ShaderPackBakeTest.BakeWhenRequested` case via `--gtest_filter`, then the
 result is uploaded as a `ShaderPack` build artifact.
 
+**Cadence changed in #1009.** That workflow no longer runs on `push: master` --
+it runs per-PR and on a nightly cron. So the newest *default-branch* pack can be
+up to 24 h behind master rather than minutes, and a merge no longer produces one
+at all. Two consequences for anyone packaging a game:
+
+- The freshest pack for a given commit is that commit's own **PR run**, not a
+  master run. `gh run list --workflow=Windows.yml --branch <branch>` finds it.
+- If you need a pack for master *now*, dispatch the workflow
+  (`gh workflow run Windows.yml --ref master`) rather than waiting for the cron.
+
+The pack is content-hash invalidated, so a stale one is a slow start, never a
+wrong one -- which is why this was an acceptable trade rather than a blocker.
+
 ## Consumption
 
 `Renderer2D::Init()` / `Renderer3D::Init()` call
