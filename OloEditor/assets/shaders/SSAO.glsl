@@ -63,6 +63,7 @@ layout(location = 0) in vec2 v_TexCoord;
 // OLO_BINDLESS, and the engine only ever defines it on the raw-GLSL compile
 // route (glslang rejects GL_ARB_bindless_texture when generating SPIR-V).
 #include "include/BindlessHeap.glsl"
+#include "include/SkyDepth.glsl"
 
 #ifdef OLO_BINDLESS
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)   // TEX_POSTPROCESS_DEPTH
@@ -139,7 +140,7 @@ void main()
     float depth = texture(u_DepthTexture, v_TexCoord).r;
 
     // Skip skybox / far plane — no surface to occlude.
-    if (depth >= 1.0)
+    if (oloDepthIsSky(depth))
     {
         o_Color = vec4(1.0, 0.0, 0.0, 1.0);
         return;
@@ -198,7 +199,7 @@ void main()
             continue;
 
         float sampleDepth = texture(u_DepthTexture, sampleUV).r;
-        if (sampleDepth >= 1.0)
+        if (oloDepthIsSky(sampleDepth))
             continue; // sky tap — unoccluded
 
         vec3 samplePos = reconstructViewPos(sampleUV, sampleDepth);
