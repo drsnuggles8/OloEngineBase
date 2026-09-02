@@ -30,10 +30,12 @@
 
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
+#include "Platform/Vulkan/VulkanRecordingContext.h"
 
 #include <volk.h>
 
 #include <array>
+#include <mutex>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -45,151 +47,6 @@ namespace OloEngine
     class VulkanFramebuffer;
     class VulkanVertexArray;
     struct VulkanRootDataLayout;
-
-    // The render-target half of a thin PSO's baked state (attachment
-    // formats + sample count). Lives HERE beside VulkanRecordedPipelineState
-    // — both are recorded state VulkanPipelineBuilder consumes, and the
-    // builder's header includes this one (declaring it there would cycle).
-    struct VulkanRenderTargetDesc
-    {
-        u32 ColorCount = 0;
-        std::array<VkFormat, 8> ColorFormats{};
-        VkFormat DepthFormat = VK_FORMAT_UNDEFINED;
-        u32 Samples = 1;
-    };
-
-    // Pipeline-key state recorded from the facade's state-setter entry
-    // points. Vulkan bakes nearly all of this into the VkPipeline, so
-    // this backend RECORDS it for pipeline-key derivation instead of
-    // stubbing the setters — a state packet is a real dispatch, not a
-    // loss (the execution test pins that state packets never touch
-    // the stub counter).
-    struct VulkanRecordedPipelineState
-    {
-        static constexpr u32 kMaxAttachments = 8;
-
-        glm::vec4 ClearColor{ 0.0f };
-        f32 ClearDepth = 1.0f;
-        bool DepthTest = true;
-        bool DepthWrite = true;
-        RHI::CompareOp DepthFunc = RHI::CompareOp::Less;
-        bool Blend = false;
-        RHI::BlendFactor BlendSrcRGB = RHI::BlendFactor::One;
-        RHI::BlendFactor BlendDstRGB = RHI::BlendFactor::Zero;
-        RHI::BlendFactor BlendSrcAlpha = RHI::BlendFactor::One;
-        RHI::BlendFactor BlendDstAlpha = RHI::BlendFactor::Zero;
-        RHI::BlendOp BlendEquation = RHI::BlendOp::Add;
-        bool StencilTest = false;
-        RHI::CompareOp StencilFunc = RHI::CompareOp::Always;
-        i32 StencilRef = 0;
-        u32 StencilReadMask = 0xFFFFFFFFu;
-        u32 StencilWriteMask = 0xFFFFFFFFu;
-        RHI::StencilOp StencilFail = RHI::StencilOp::Keep;
-        RHI::StencilOp StencilDepthFail = RHI::StencilOp::Keep;
-        RHI::StencilOp StencilPass = RHI::StencilOp::Keep;
-        bool Culling = false;
-        RHI::CullMode CullFace = RHI::CullMode::Back;
-        RHI::FrontFace FrontFaceWinding = RHI::FrontFace::CounterClockwise;
-        RHI::PolygonMode PolygonMode = RHI::PolygonMode::Fill;
-        bool PolygonOffsetEnabled = false;
-        f32 PolygonOffsetFactor = 0.0f;
-        f32 PolygonOffsetUnits = 0.0f;
-        bool ScissorTest = false;
-        bool Multisampling = true;
-        f32 LineWidth = 1.0f;
-        bool ColorMask[4] = { true, true, true, true };
-        u32 PatchVertexCount = 3;
-
-        // THE COLOUR MASK AND THE BLEND ENABLE COMPOSE DIFFERENTLY HERE, on
-        // purpose -- do not "make them consistent" without re-reading this.
-        //
-        // AttachmentColorMask is the lowering's ONLY input: SetColorMask
-        // overwrites every entry (glColorMask is defined as glColorMaski for
-        // every draw buffer) and an indexed call then diverges one. It has to
-        // work that way because CommandDispatch::ApplyRenderState only ever
-        // DISABLES the attachments a command names and relies on the global
-        // call to have re-enabled the rest. Before that fill existed, a
-        // narrowing indexed call was permanent for the PROCESS, and one
-        // Renderer3D::DrawLine killed every G-Buffer attachment above 0 --
-        // issue #823.
-        //
-        // AttachmentBlend does NOT work that way. It is a TRI-STATE per
-        // attachment and it OUTRANKS the global `Blend`, in BOTH directions:
-        //
-        //   Inherit  -- no pass has an opinion; the attachment follows `Blend`.
-        //   ForceOn  -- blend this attachment even if `Blend` is false.
-        //   ForceOff -- do not blend it even if `Blend` is true.
-        //
-        // so SetBlendState writes `Blend` and leaves this array alone, and only
-        // SetBlendStateForAttachment / ResetBlendStateForAttachment move it.
-        // GL's global glEnable(GL_BLEND) would flatten the array instead; the
-        // GL backend re-asserts the standing opinions on top of the global call
-        // so both backends implement THIS rule rather than two different ones
-        // (OpenGLRendererAPI::ReassertAttachmentBlendOpinions).
-        //
-        // Both arms are load-bearing and each was a bug once:
-        //
-        //   ForceOn  -- DecalRenderPass enables RT2 per-attachment for an
-        //               Emissive decal whose PODRenderState carries
-        //               blendEnabled=false, and the additive One/One
-        //               accumulation depends on that enable surviving the
-        //               global disable ApplyPODRenderState then issues. The
-        //               naive "match GL, let the global win" version was
-        //               written during #823 and reverted because it deleted
-        //               exactly this. Pinned by the Emissive arm of
-        //               VulkanPassSuite.DecalGBufferModeMatrixMasksItsTargetRenderTargets.
-        //   ForceOff -- OITResolveRenderPass disables RT1 (entity ID, an
-        //               integer target) and RT2 (view normals) per attachment
-        //               while compositing. Under the OR this array used to be,
-        //               those two calls were no-ops the moment anything had
-        //               enabled blending globally, so the pass silently did not
-        //               get the disables it asked for -- issue #896. Pinned by
-        //               VulkanDrawPath.PerAttachmentBlendOpinionOutranksTheGlobalEnable.
-        //
-        // THE PRICE, and it is the #823 archetype pointing the other way: an
-        // opinion left behind outlives the pass that stated it, for the rest of
-        // the process. A pass that turns an attachment on or off MUST call
-        // ResetBlendStateForAttachment before it returns -- restoring by
-        // passing `false` to the setter is NOT a withdrawal, it is a ForceOff
-        // that would kill blending on that attachment permanently.
-        enum class AttachmentBlendOpinion : u8
-        {
-            Inherit = 0,
-            ForceOff,
-            ForceOn,
-        };
-        AttachmentBlendOpinion AttachmentBlend[kMaxAttachments] = {};
-        RHI::BlendFactor AttachmentBlendSrc[kMaxAttachments] = {};
-        RHI::BlendFactor AttachmentBlendDst[kMaxAttachments] = {};
-        // The same "did a pass state an opinion for attachment i" idea, one arm
-        // narrower -- the FUNC has no on/off, only diverted or inherited, so
-        // Inherit/Diverted is the whole state space.
-        //
-        // GL parity (#691, found by the OITResolve tenant):
-        // glEnablei(GL_BLEND, i) alone does NOT give buffer i its own blend
-        // func -- the GLOBAL glBlendFunc applies until glBlendFunci names the
-        // buffer. A pass that per-attachment-ENABLES but sets only the global
-        // func (OITResolve) must therefore blend with the global factors, not
-        // the never-written per-attachment defaults (Zero/Zero).
-        // SetBlendFuncForAttachment diverts buffer i; the global
-        // SetBlendFunc/SetBlendFuncSeparate withdraw every divert (glBlendFunc
-        // overwrites every buffer's func in GL). AttachmentBlendSrc/Dst are
-        // meaningful only where this says Diverted.
-        //
-        // Note the asymmetry with AttachmentBlend directly above: the global
-        // func setter DOES flatten this array while the global enable does not
-        // flatten that one. That is not an oversight -- no caller wants a
-        // surviving per-attachment FUNC (the passes here always re-state theirs
-        // next to the enable), and the global-flatten is what makes a missed
-        // withdrawal self-healing for the one of the pair where it can be.
-        enum class AttachmentBlendFuncOpinion : u8
-        {
-            Inherit = 0,
-            Diverted,
-        };
-        AttachmentBlendFuncOpinion AttachmentBlendFunc[kMaxAttachments] = {};
-        u8 AttachmentColorMask[kMaxAttachments] = { 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF, 0xF };
-    };
 
     // -------------------------------------------------------------------------
     // VulkanQueryRegistry — the object-less occlusion-query family behind the
@@ -284,7 +141,7 @@ namespace OloEngine
         void EndRecording();
         [[nodiscard]] VkCommandBuffer CurrentCommandBuffer() const
         {
-            return m_Cmd;
+            return Ctx().Cmd;
         }
 
         // --- Mid-frame flush (#691) --------------------------------
@@ -320,7 +177,7 @@ namespace OloEngine
                                                    const void* data, u64 sizeBytes);
         [[nodiscard]] VulkanImageLayoutTracker& LayoutTracker()
         {
-            return m_LayoutTracker;
+            return Ctx().Tracker;
         }
 
         // --- The default framebuffer (#691, Final pass) -----------
@@ -414,22 +271,22 @@ namespace OloEngine
         // named failure. Reset by BeginRecording.
         [[nodiscard]] u32 GetPreparedDrawsThisRecording() const
         {
-            return m_PreparedDrawsThisRecording;
+            return m_Main.PreparedDraws;
         }
         [[nodiscard]] u32 GetDroppedDrawsThisRecording() const
         {
-            return m_DroppedDrawsThisRecording;
+            return m_Main.DroppedDraws;
         }
         [[nodiscard]] u32 GetGpuWrittenRootDrawsThisRecording() const
         {
-            return m_GpuWrittenRootDrawsThisRecording;
+            return m_Main.GpuWrittenRootDraws;
         }
         // Draws the host-side conditional-render predicate skipped. Kept apart
         // from the dropped counter on purpose: a conditional skip is the
         // requested behaviour, a drop is a failure.
         [[nodiscard]] u32 GetConditionallySkippedDrawsThisRecording() const
         {
-            return m_ConditionallySkippedDrawsThisRecording;
+            return m_Main.ConditionallySkippedDraws;
         }
 
         // --- RendererAPI ---------------------------------------------------
@@ -603,76 +460,48 @@ namespace OloEngine
         [[nodiscard("Store this!")]] bool SupportsInt64ShaderAtomics() const override;
         [[nodiscard("Store this!")]] bool SupportsMeshShaders() const override;
 
+        // --- Parallel command recording (#806, amendment (92)) ---------------
+        [[nodiscard]] bool SupportsParallelRecording() const override;
+        void RecordParallel(u32 itemCount, const std::function<void(u32 item)>& body) override;
+        [[nodiscard]] ParallelRecordingFrameStats GetParallelRecordingStats() const override
+        {
+            return m_ParallelStats;
+        }
+        // The context the calling thread records on (main, or a running
+        // item's). Backend-internal: the ImGui overlay and the texture
+        // upload paths read the current command buffer through it.
+        [[nodiscard]] const VulkanRecordingContext& CurrentRecordingContext() const
+        {
+            return Ctx();
+        }
+        [[nodiscard]] bool IsInParallelRegion() const
+        {
+            return m_InParallelRegion;
+        }
+        [[nodiscard]] bool IsRecordingParallelItem() const override
+        {
+            return OnWorkerContext();
+        }
+        // The depth-array layer selection for `framebuffer` on the current
+        // context (Framebuffer::AttachDepthTextureArrayLayer's Vulkan half —
+        // the selection is recording-context state, amendment (92) rule 4).
+        void SetFramebufferDepthArraySelection(RHI::ResourceHandle framebuffer,
+                                               const VulkanRecordingContext::FramebufferAttachmentSelection::DepthArrayLayer& selection);
+        [[nodiscard]] VulkanRecordingContext::FramebufferAttachmentSelection::DepthArrayLayer
+        GetFramebufferDepthArraySelection(RHI::ResourceHandle framebuffer) const;
+        // A cached per-layer view is being destroyed: no context may keep
+        // selecting it.
+        void ForgetDepthArrayView(VkImageView view);
+
       private:
         // Const: several facade getters are const-qualified and still must
         // count their stub hit (nothing may fall through silently).
         void UnimplementedStub(const char* entryPoint, StubKind kind = StubKind::DeferredFeature) const;
 
-        // Lazy dynamic-rendering scope + draw assembly ----------
-        //
-        // GL passes freely interleave framebuffer binds, state calls, clears,
-        // draws, barriers and copies; Vulkan forbids most non-draw commands
-        // inside a vkCmdBeginRendering scope. The scope is therefore LAZY:
-        // vkCmdBeginRendering is deferred to the first draw against the
-        // currently-published framebuffer (VulkanBindingState), Clear()
-        // before that folds into the attachments' loadOp, and any barrier /
-        // clear-resource / copy / dispatch / target-change ENDS the scope
-        // (the next draw resumes with LOAD_OP_LOAD). This is what lets
-        // unmodified GL-shaped pass bodies record legal Vulkan.
-        struct RenderingScope
-        {
-            bool Active = false;
-            VulkanFramebuffer* Target = nullptr; ///< The scope's framebuffer (null iff TargetIsBackbuffer).
-            /// The scope renders into the published swapchain image rather
-            /// than a VulkanFramebuffer (see FrameBackbuffer). BackbufferView
-            /// is part of the scope's identity for the same reason
-            /// DepthArrayView is: the publication changes per frame.
-            bool TargetIsBackbuffer = false;
-            VkImageView BackbufferView = VK_NULL_HANDLE;
-            /// The per-layer depth view this scope was opened with, or
-            /// VK_NULL_HANDLE when the target's OWN depth attachment was used
-            /// (#691 §4). A shadow pass walks N cascades against ONE
-            /// framebuffer object, so "same Target" is NOT enough to reuse the
-            /// scope — see ScopeMatchesCurrentTarget.
-            VkImageView DepthArrayView = VK_NULL_HANDLE;
-        };
+        // Per-command-buffer state lives in VulkanRecordingContext (#806).
+        using RenderingScope = VulkanRecordingContext::RenderingScope;
 
-        // A clear requested while no scope was open, waiting to fold into the
-        // next scope-open's loadOp (#691). GL clears the BOUND
-        // framebuffer eagerly, so the request must remember WHO asked:
-        // The old target-blind bool pair meant `Bind(A); Clear(); Bind(B);
-        // Draw()` cleared B and left A untouched, and a clear whose target
-        // never drew again (a shadow-atlas entry culled to zero draws)
-        // survived into the NEXT pass as that pass's loadOp — a pass that
-        // intended LOAD lost its whole depth buffer. The identity is the
-        // ScopeMatchesCurrentTarget triple, and the clear VALUES are captured
-        // at request time (GL uses the state at glClear time, not at first
-        // draw). A pending clear that stops matching the bound target is
-        // MATERIALIZED as an eager transfer clear (MaterializePendingClear)
-        // — exactly what GL did all along.
-        struct PendingClear
-        {
-            bool Color = false;
-            bool Depth = false;
-            VulkanFramebuffer* Target = nullptr;
-            bool TargetIsBackbuffer = false;
-            VkImageView BackbufferView = VK_NULL_HANDLE;
-            VkImageView DepthArrayView = VK_NULL_HANDLE;
-            // Materialization needs the depth-array selection AS OF the
-            // request — the pass may re-attach a different layer before the
-            // pending is flushed (the CSM cascade walk), and the view alone
-            // cannot recover image/layer.
-            VkImage DepthArrayImage = VK_NULL_HANDLE;
-            u32 DepthArrayLayer = 0;
-            RHI::ResourceHandle DepthArrayHandle{};
-            glm::vec4 ClearColor{ 0.0f };
-            f32 ClearDepth = 1.0f;
-
-            [[nodiscard]] bool Any() const
-            {
-                return Color || Depth;
-            }
-        };
+        using PendingClear = VulkanRecordingContext::PendingClear;
 
         /// True when the live scope still describes what a draw/clear would
         /// target right now: same framebuffer AND same depth-array layer
@@ -702,26 +531,7 @@ namespace OloEngine
         /// published backbuffer's extent. {0,0} when no scope is open.
         [[nodiscard]] VkExtent2D ScopeExtent() const;
 
-        // GL's glNamedFramebufferDrawBuffers / ReadBuffer are PER-FRAMEBUFFER
-        // PERSISTENT state, and both the bound form (SetDrawBuffers) and the
-        // raw-handle form (SetFramebufferDrawAttachments) mutate the SAME
-        // state on GL — so this backend models one map, keyed by the FB's
-        // RHI handle, that both forms write (#691; replaces
-        // the earlier scope-transient DrawList, which forgot the selection on
-        // every target switch and could not express the raw form at all).
-        // The scope build consumes DrawList at vkCmdBeginRendering; blits
-        // consume ReadAttachment (src) and DrawList (dst fan-out).
-        // Entries for destroyed framebuffers linger harmlessly: the key packs
-        // the generation, so a recycled FB index gets a fresh entry.
-        struct FramebufferAttachmentSelection
-        {
-            // DrawList[i] = attachment index feeding fragment output location
-            // i (RHI::NoAttachment → UNUSED). Count 0 = identity over every
-            // color attachment (the engine-FB creation default on GL).
-            std::array<u32, 8> DrawList{};
-            u32 DrawListCount = 0;
-            u32 ReadAttachment = 0; ///< glNamedFramebufferReadBuffer's selection.
-        };
+        using FramebufferAttachmentSelection = VulkanRecordingContext::FramebufferAttachmentSelection;
 
         // End the scope if active (barriers/copies/dispatches are illegal
         // inside a rendering instance).
@@ -802,51 +612,68 @@ namespace OloEngine
         void NotifyFramebufferDestroyed(const VulkanFramebuffer* framebuffer, RHI::ResourceHandle handle);
 
       private:
-        RenderingScope m_Scope;
-        PendingClear m_PendingClear;      ///< At most one outstanding clear request (see PendingClear).
+        // The render thread's recording context (#806): every per-command-
+        // buffer fact the API used to keep as a member. Ctx() below picks
+        // between this and the worker context of a running RecordParallel
+        // item, so member functions never name m_Main directly except for
+        // the frame bracket itself.
+        VulkanRecordingContext m_Main;
+        // Item contexts of the parallel recorder, reused across regions and
+        // grown on demand (a context never moves: its tracker self-registers).
+        std::vector<Scope<VulkanRecordingContext>> m_Items;
+        bool m_InParallelRegion = false;
+        u64 m_RegionSerial = 0;                ///< Stamps each region (the buffer writer check, amendment (92) rule 6).
+        VulkanLayoutClaimTable m_LayoutClaims; ///< Record-time rule-5 claims for the region in flight.
+        // Join scratch, kept for its capacity across regions.
+        std::vector<VkCommandBuffer> m_JoinSecondaries;
+        std::vector<RHI::Barrier> m_ForkBarriers;
+        // Accumulates over one recording; reset at the NEXT BeginRecording, so
+        // RendererProfiler::EndFrame (inside the frame callback, after every
+        // region joined) and a test reading after EndRecording both see this
+        // frame's numbers.
+        ParallelRecordingFrameStats m_ParallelStats{};
+
+        [[nodiscard]] VulkanRecordingContext& Ctx()
+        {
+            if (VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+                return *worker;
+            return m_Main;
+        }
+        [[nodiscard]] const VulkanRecordingContext& Ctx() const
+        {
+            if (const VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+                return *worker;
+            return m_Main;
+        }
+        // True on a thread running a RecordParallel item. Every entry point
+        // outside amendment (92)'s envelope — creation and destruction,
+        // uploads, readbacks, queries, timestamps, fences, device waits, the
+        // mid-frame flush, conditional rendering — opens with RefuseOnWorker.
+        [[nodiscard]] static bool OnWorkerContext()
+        {
+            return CurrentVulkanWorkerContext() != nullptr;
+        }
+        // Debug: assert; otherwise warn-once. Returns true when refused.
+        [[nodiscard]] bool RefuseOnWorker(const char* entryPoint) const;
+        // The per-item half of RecordParallel: runs on whichever thread
+        // ParallelFor hands the item to.
+        void RecordParallelItem(VulkanRecordingContext& item, const std::function<void(u32 item)>& body,
+                                std::exception_ptr& firstFailure, std::mutex& failureMutex);
+        // The fork's attachment pre-transition (amendment (92) rule 5): bring
+        // the bound target's colour / depth / selected depth-array layer to
+        // their attachment layouts on the primary, so items open their scopes
+        // with identity transitions.
+        void TransitionBoundTargetAttachmentsForFork();
+
         FrameBackbuffer m_Backbuffer;     ///< Live only inside a frame-callback recording.
         bool m_BackbufferWritten = false; ///< A backbuffer scope opened this recording.
-        std::unordered_map<u64, FramebufferAttachmentSelection> m_FramebufferSelections;
         // CreateDepthArrayCompareOffViewHandle's per-image cache (see the
         // definition for the lifetime contract).
         std::unordered_map<u64, RHI::ResourceHandle> m_CompareOffViewHandles;
-        VulkanRenderTargetDesc m_ScopeTargets; ///< Valid while m_Scope.Active.
-        VkBuffer m_BoundIndexBuffer = VK_NULL_HANDLE;
-        bool m_HeapBoundThisRecording = false;
-        u32 m_PreparedDrawsThisRecording = 0;
-        u32 m_DroppedDrawsThisRecording = 0;
-        u32 m_GpuWrittenRootDrawsThisRecording = 0;
-        VulkanVertexArray* m_BoundVertexArray = nullptr; ///< BindVertexArrayRaw's publication.
-        std::vector<u8> m_RootScratch;
-        VkDeviceAddress m_NextDrawRootDataAddress = 0;
-        // Recorded scissor box (the WITH_COUNT dynamic state is emitted by
-        // the draw front-end, not by the setter — see SetScissorBox).
-        VkRect2D m_ScissorRect{};
-        bool m_ScissorRectSet = false;
-        // The occlusion query BeginQuery opened (GL keeps one per target;
-        // EndQuery carries no handle, so the pair is tracked here).
-        struct ActiveQuery
-        {
-            VkQueryPool Pool = VK_NULL_HANDLE;
-            u32 Index = 0;
-            // TimeElapsed brackets stamp a second timestamp at Index+1 on
-            // EndQuery; the handle re-Looks-up the entry there (never a cached
-            // Entry* — the registry map can rehash between Begin and End).
-            bool IsElapsed = false;
-            RHI::ResourceHandle Handle{};
-        };
-        ActiveQuery m_ActiveQuery{};
-        // Host-side conditional-render predicate: true between
-        // BeginConditionalRender(occluded query) and EndConditionalRender, and
-        // every draw in that window is skipped (see BeginConditionalRender for
-        // why the predicate is evaluated on the host, not in a VK_EXT buffer).
-        bool m_ConditionalRenderSkip = false;
-        u32 m_ConditionallySkippedDrawsThisRecording = 0;
 
-        VkCommandBuffer m_Cmd = VK_NULL_HANDLE;
-        VulkanImageLayoutTracker m_LayoutTracker;
-        Viewport m_Viewport{};
-
+        // Stub bookkeeping may be touched from RecordParallel workers (a
+        // refused entry point counts as a stub hit), hence the mutex.
+        mutable std::mutex m_StubMutex;
         mutable u64 m_UnimplementedStubHits = 0;
         mutable std::array<u64, static_cast<sizet>(StubKind::Count)> m_StubHitsByKind{};
         mutable std::unordered_set<std::string> m_WarnedStubs;

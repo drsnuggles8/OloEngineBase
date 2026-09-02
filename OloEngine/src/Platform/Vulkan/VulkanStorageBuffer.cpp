@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanStorageBuffer.h"
+#include "Platform/Vulkan/VulkanRecordingContext.h"
 
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "Platform/Vulkan/VulkanBindingState.h"
@@ -15,6 +16,7 @@
 #include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <stdexcept>
 
@@ -165,6 +167,13 @@ namespace OloEngine
     void VulkanStorageBuffer::SetData(const void* data, u32 size, u32 offset)
     {
         OLO_PROFILE_FUNCTION();
+        // Amendment (92) rule 6, checked at record time: one writer per object
+        // per region. A refused item skips the write in every build — the
+        // mapped memcpy and PushSnapshot below are the race.
+        if (!ClaimParallelWriter(m_ParallelWriter, "storage buffer"))
+        {
+            return;
+        }
 
         if (data == nullptr || size == 0)
         {
@@ -241,10 +250,9 @@ namespace OloEngine
         const void* prefixSource = liveSnapshot ? m_SnapshotCpu : m_Mapped;
         if (offset > 0 && prefixSource == nullptr)
         {
-            static bool s_WarnedPrefix = false;
-            if (!s_WarnedPrefix)
+            static std::atomic<bool> s_WarnedPrefix{ false };
+            if (!s_WarnedPrefix.exchange(true, std::memory_order_relaxed))
             {
-                s_WarnedPrefix = true;
                 OLO_CORE_WARN("[RHI/Vulkan] VulkanStorageBuffer::SetData(offset {}) on a staged buffer with no "
                               "live snapshot — draw reads fall back to last-write-wins ordering (warn-once)",
                               offset);
@@ -257,10 +265,9 @@ namespace OloEngine
         const auto allocation = arena.Allocate(newBytes, 16);
         if (!allocation.IsValid())
         {
-            static bool s_WarnedOverflow = false;
-            if (!s_WarnedOverflow)
+            static std::atomic<bool> s_WarnedOverflow{ false };
+            if (!s_WarnedOverflow.exchange(true, std::memory_order_relaxed))
             {
-                s_WarnedOverflow = true;
                 OLO_CORE_WARN("[RHI/Vulkan] VulkanStorageBuffer snapshot dropped — frame arena overflow "
                               "({} bytes); draw reads fall back to last-write-wins ordering (warn-once)",
                               newBytes);
@@ -352,10 +359,9 @@ namespace OloEngine
             auto* context = VulkanContext::Get();
             if (context == nullptr || !context->FlushFrameRecordingAndWait())
             {
-                static bool s_Warned = false;
-                if (!s_Warned)
+                static std::atomic<bool> s_Warned{ false };
+                if (!s_Warned.exchange(true, std::memory_order_relaxed))
                 {
-                    s_Warned = true;
                     OLO_CORE_WARN("[Vulkan] mid-frame StorageBuffer::GetData without a frame flush — the "
                                   "readback may return the previous frame's contents");
                 }
@@ -435,6 +441,14 @@ namespace OloEngine
             return;
         }
 
+        // Rule 6 covers a clear as much as a SetData: it rewrites the snapshot
+        // fields and the buffer, so a second item of the region is refused here
+        // too, in every build.
+        if (!ClaimParallelWriter(m_ParallelWriter, "storage buffer"))
+        {
+            return;
+        }
+
         // A clear supersedes any command-ordered snapshot: draws recorded
         // after it must observe zeros (persistent buffer), not the pre-clear
         // snapshot bytes. No-op for the GPU-written tenants below, which
@@ -496,6 +510,18 @@ namespace OloEngine
     void VulkanStorageBuffer::Resize(u32 newSize)
     {
         OLO_PROFILE_FUNCTION();
+        // Creates a buffer and enqueues the old one on the reclaim queue —
+        // render-thread work (amendment (92) rule 7). A RecordParallel item
+        // that outgrows its buffer must have been given the capacity before
+        // the fork (ShadowRenderPass::EnsureItemResources).
+        if (CurrentVulkanWorkerContext() != nullptr)
+        {
+            OLO_CORE_ERROR("[RHI/Vulkan] StorageBuffer::Resize({} B) from a RecordParallel item — refused; size the "
+                           "item's buffer before the fork",
+                           newSize);
+            OLO_CORE_ASSERT(false, "StorageBuffer::Resize from a RecordParallel item");
+            return;
+        }
 
         if (newSize == m_Size && m_Buffer != VK_NULL_HANDLE)
         {

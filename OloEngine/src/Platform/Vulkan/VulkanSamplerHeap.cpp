@@ -3,9 +3,12 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanSamplerHeap.h"
+
+#include <shared_mutex>
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <bit>
+#include <mutex>
 
 namespace OloEngine
 {
@@ -64,6 +67,12 @@ namespace OloEngine
     }
 
     bool VulkanSamplerHeap::EnsureCreated()
+    {
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
+        return EnsureCreatedLocked();
+    }
+
+    bool VulkanSamplerHeap::EnsureCreatedLocked()
     {
         // Device liveness FIRST — the VulkanResourceHeap rule: cached state
         // must never outrank "is there a device, and is it mine?".
@@ -161,7 +170,7 @@ namespace OloEngine
         if (!WriteSampler(DefaultSlot, defaultInfo))
         {
             OLO_CORE_ERROR("VulkanSamplerHeap: default sampler write failed — releasing");
-            Release();
+            ReleaseLocked();
             return false;
         }
         m_SlotByHash.emplace(HashSamplerInfo(defaultInfo), DefaultSlot);
@@ -174,11 +183,26 @@ namespace OloEngine
 
     u32 VulkanSamplerHeap::GetOrCreateSlot(const VkSamplerCreateInfo& info)
     {
-        if (!EnsureCreated())
+        // Hash outside any lock. The hit path — every BindTexture on every
+        // item (#806) — only shares the lock; a miss takes it exclusively so
+        // the lookup, the bump and the descriptor write are one step and two
+        // threads asking for the same new state cannot both take a slot.
+        const u64 hash = HashSamplerInfo(info);
+        {
+            std::shared_lock readLock(m_Mutex);
+            if (m_Buffer != VK_NULL_HANDLE)
+            {
+                if (const auto it = m_SlotByHash.find(hash); it != m_SlotByHash.end())
+                {
+                    return it->second;
+                }
+            }
+        }
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
+        if (!EnsureCreatedLocked())
         {
             return DefaultSlot;
         }
-        const u64 hash = HashSamplerInfo(info);
         if (const auto it = m_SlotByHash.find(hash); it != m_SlotByHash.end())
         {
             return it->second;
@@ -233,6 +257,10 @@ namespace OloEngine
 
     void VulkanSamplerHeap::CmdBind(VkCommandBuffer cmd)
     {
+        // The creation half is the only mutation this can trigger, and
+        // EnsureCreated takes the lock for it. The fields read below are set
+        // once at creation and cleared only by Release (a render-thread
+        // teardown path), so they need no lock — the header's contract.
         if (!EnsureCreated() || cmd == VK_NULL_HANDLE)
         {
             return;
@@ -246,6 +274,12 @@ namespace OloEngine
     }
 
     void VulkanSamplerHeap::Release()
+    {
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
+        ReleaseLocked();
+    }
+
+    void VulkanSamplerHeap::ReleaseLocked()
     {
         if (m_Buffer != VK_NULL_HANDLE || m_Allocation != VK_NULL_HANDLE)
         {

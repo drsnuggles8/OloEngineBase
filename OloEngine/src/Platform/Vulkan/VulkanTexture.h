@@ -25,6 +25,8 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/Texture.h"
 
+#include <atomic>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -128,7 +130,10 @@ namespace OloEngine
         // attachment use (the ONE place view objects still exist on this
         // backend — sampled use goes through descriptor-heap view
         // DESCRIPTIONS). Cached; released with the image (Resize mints a new
-        // one). VK_NULL_HANDLE on failure.
+        // one). VK_NULL_HANDLE on failure. Safe from several recording
+        // threads at once (#806, amendment (92) rule 8): double-checked —
+        // the fast path reads the cached handle, only the creating call
+        // takes m_AttachmentViewMutex.
         [[nodiscard]] VkImageView GetOrCreateAttachmentView();
 
         // #809: how many uploads have completed through the host-image-copy
@@ -182,7 +187,12 @@ namespace OloEngine
 
         VkImage m_Image = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;
-        VkImageView m_AttachmentView = VK_NULL_HANDLE; ///< See GetOrCreateAttachmentView.
+        // See GetOrCreateAttachmentView. Atomic so its lock-free fast path is
+        // a well-defined read: written under m_AttachmentViewMutex by the
+        // creating call, cleared by ReleaseImage (a resource-destruction
+        // path, render thread with no region open — amendment (92) rule 7).
+        std::atomic<VkImageView> m_AttachmentView{ VK_NULL_HANDLE };
+        std::mutex m_AttachmentViewMutex; ///< Serialises the creating GetOrCreateAttachmentView.
         // Generation-checked identity for m_Image, kept in lockstep by
         // m_RHIHandle.Sync at every site that assigns the native handle —
         // same pattern as the GL twin (issue #691).

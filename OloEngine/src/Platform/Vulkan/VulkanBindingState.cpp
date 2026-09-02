@@ -4,12 +4,23 @@
 
 #include "Platform/Vulkan/VulkanBindingState.h"
 
+#include "Platform/Vulkan/VulkanRecordingContext.h"
+
 namespace OloEngine
 {
-    VulkanBindingState& VulkanBindingState::Get()
+    VulkanBindingState& VulkanBindingState::Global()
     {
         static auto* s_Instance = new VulkanBindingState(); // deliberately leaked
         return *s_Instance;
+    }
+
+    VulkanBindingState& VulkanBindingState::Get()
+    {
+        if (VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        {
+            return worker->Binding;
+        }
+        return Global();
     }
 
     void VulkanBindingState::EnsureTextureSlotsInitialised()

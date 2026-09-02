@@ -17,6 +17,7 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
+#include <algorithm>
 #include <cstdio>
 
 namespace OloEngine
@@ -241,6 +242,54 @@ namespace OloEngine
             RenderCommand::FrontCull();
         }
 
+        // ── The two parallel regions below (issue #806, ADR 0011 amendment (92)) ──
+        //
+        // Each CSM cascade and each atlas entry is one RenderCommand::RecordParallel
+        // item. What an item body may touch is decided by rule 6 (one writer per
+        // resource object per region) and rule 7 (no resource creation, queries or
+        // readbacks on an item context): the objects an item writes come from the
+        // pass's own per-item pool (EnsureItemResources, grown HERE on the render
+        // thread), and the casters that write process-wide objects record after
+        // the join — RenderCascadeOrFace's SequentialTail. On a backend that does
+        // not fork the items run inline in ascending order, which is the loop this
+        // pass always ran; the only reordering is that tail, and depth-only
+        // rendering does not care which caster of a target drew first.
+        //
+        // RendererProfiler::GetInstance() is a plain singleton, so an item never
+        // calls it: the "recording" bit is read once here, each item tallies its
+        // own draws, and ReplayProfilerTallies hands them over after the join in
+        // item order — the same records in the same order the sequential loop
+        // produced.
+        const bool recordingInstancedDraws = RendererProfiler::GetInstance().IsRecordingInstancedDraws();
+
+        // The largest upload any item can make: one batch holds at most every
+        // static caster, and the per-caster uploads (skinned, voxel) hold one.
+        const u32 itemInstanceCapacity = std::max<u32>(64u, static_cast<u32>(m_MeshCasters.size()));
+
+        // Whether the sequential tail has anything to record. Terrain and foliage
+        // draw when their lists are non-empty; the virtual-geometry question is the
+        // one VirtualGeometryShadow::RenderCascade itself asks before it records a
+        // command, so a false answer here skips nothing that would have rendered.
+        const bool hasSequentialCasters = !m_TerrainCasters.empty() ||
+                                          !m_FoliageCasters.empty() ||
+                                          AnyVirtualShadowCaster();
+
+        // Resolved per region, not once up front, so a frame makes exactly the
+        // library lookups it made before (a VSM frame with no atlas entries made
+        // none, and the skinned lookup only ever ran with skinned casters present).
+        // See ShadowCasterShaders for why an item does not do this itself.
+        ShadowCasterShaders casterShaders;
+        const auto resolveCasterShaders = [this, &casterShaders]()
+        {
+            casterShaders.Mesh = Renderer3D::GetShaderLibrary().Get("ShadowDepth");
+            if (!m_SkinnedCasters.empty())
+            {
+                casterShaders.Skinned = Renderer3D::GetShaderLibrary().Get("ShadowDepthSkinned");
+            }
+            casterShaders.Voxel = Renderer3D::GetVoxelDepthShader();
+            casterShaders.VoxelQuad = Renderer3D::GetVoxelGreedyDepthShader();
+        };
+
         // Render CSM cascades (skipped entirely when VSM owns the directional light)
         if (const auto& csmArray = m_ShadowMap->GetCSMTextureArray(); csmArray && !useVirtualShadowMap)
         {
@@ -250,6 +299,10 @@ namespace OloEngine
                               ShadowMap::MAX_CSM_CASCADES, resolution, m_ShadowFramebuffer->GetRHIHandle(), csmArray->GetRHIHandle());
                 m_LoggedOnce = true;
             }
+
+            // Collect the cascades that will render this frame — the region's
+            // items, in cascade order — before any of them records.
+            m_ActiveViews.clear();
             for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
             {
                 const glm::mat4& lightVP = m_ShadowMap->GetCSMMatrix(cascade);
@@ -291,10 +344,26 @@ namespace OloEngine
                         continue; // No work for this cascade — skip all GL state changes
                 }
 
-                m_ShadowFramebuffer->AttachDepthTextureArrayLayer(csmArray->GetRHIHandle(), cascade);
-                RenderCommand::ClearDepthOnly();
+                m_ActiveViews.push_back({ cascade, lightVP, cascadeFrustum });
+            }
 
-                RenderCascadeOrFace(lightVP, ShadowPassType::CSM, cascade, &cascadeFrustum);
+            if (!m_ActiveViews.empty())
+            {
+                resolveCasterShaders();
+                RecordShadowRegion(ShadowPassType::CSM, casterShaders, recordingInstancedDraws, hasSequentialCasters, itemInstanceCapacity, [&](const ActiveShadowView& view)
+                                   {
+                                       // The layer selection and the depth clear are per ITEM,
+                                       // not per region: on Vulkan the framebuffer's attachment
+                                       // selection and the pending clear live in the recording
+                                       // context (amendment (92) rule 2), and one layer per
+                                       // cascade keeps the items' writes disjoint (rule 5).
+                                       // Inline, this is the attach / clear / draw sequence the
+                                       // sequential loop ran per cascade; RecordShadowRegion adds
+                                       // the clear only in the item half, and the tail re-selects
+                                       // the layer through this same call without clearing.
+                                       m_ShadowFramebuffer->AttachDepthTextureArrayLayer(csmArray->GetRHIHandle(),
+                                                                                         view.Index); },
+                                   /*clearPerItem=*/true);
             }
         }
 
@@ -311,19 +380,37 @@ namespace OloEngine
             // off so the whole-atlas clear can't be clipped by leaked state.
             RenderCommand::DisableScissorTest();
             RenderCommand::ClearDepthOnly();
+            // The attach and the clear stay BEFORE the fork, unlike the CSM
+            // region's: every entry is a tile of this one layer, and the fork
+            // materialises the pending clear on the primary and pre-transitions
+            // the attachment, so the items open their scopes with identity
+            // transitions on a shared target — the case amendment (92) rule 5
+            // was written for.
 
+            // Collect the entries that will render — the region's items, in
+            // entry order. An entry without a tile is skipped, as before.
+            m_ActiveViews.clear();
             const u32 entryCount = m_ShadowMap->GetAtlasEntryCount();
             for (u32 entry = 0; entry < entryCount; ++entry)
             {
-                const auto& rect = m_ShadowMap->GetAtlasEntryRect(entry);
-                if (rect.Size == 0)
+                if (m_ShadowMap->GetAtlasEntryRect(entry).Size == 0)
                     continue;
 
-                RenderCommand::SetViewport(rect.X, rect.Y, rect.Size, rect.Size);
-
                 const glm::mat4& lightVP = m_ShadowMap->GetAtlasEntryMatrix(entry);
-                const Frustum entryFrustum(lightVP);
-                RenderCascadeOrFace(lightVP, ShadowPassType::Atlas, entry, &entryFrustum);
+                m_ActiveViews.push_back({ entry, lightVP, Frustum(lightVP) });
+            }
+
+            if (!m_ActiveViews.empty())
+            {
+                resolveCasterShaders();
+                RecordShadowRegion(ShadowPassType::Atlas, casterShaders, recordingInstancedDraws, hasSequentialCasters, itemInstanceCapacity, [&](const ActiveShadowView& view)
+                                   {
+                                       // The viewport is per item: the fork seeds every item with
+                                       // the full-atlas viewport the prologue set (rule 4) and the
+                                       // item narrows it to its own tile.
+                                       const auto& rect = m_ShadowMap->GetAtlasEntryRect(view.Index);
+                                       RenderCommand::SetViewport(rect.X, rect.Y, rect.Size, rect.Size); },
+                                   /*clearPerItem=*/false);
             }
         }
 
@@ -343,12 +430,127 @@ namespace OloEngine
         m_FoliageCasters.clear();
     }
 
-    void ShadowRenderPass::RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
-                                               const Frustum* cullFrustum) const
+    void ShadowRenderPass::RecordShadowRegion(const ShadowPassType type, const ShadowCasterShaders& shaders,
+                                              const bool recordingInstancedDraws, const bool hasSequentialCasters,
+                                              const u32 instanceCapacity,
+                                              const std::function<void(const ActiveShadowView&)>& selectTarget,
+                                              const bool clearPerItem)
+    {
+        const auto activeCount = static_cast<u32>(m_ActiveViews.size());
+        EnsureItemResources(activeCount, instanceCapacity);
+
+        const auto recordItem = [&](const u32 item)
+        {
+            const ActiveShadowView& view = m_ActiveViews[item];
+            selectTarget(view);
+            if (clearPerItem)
+            {
+                RenderCommand::ClearDepthOnly();
+            }
+            RenderCascadeOrFace(view.LightVP, type, view.Index, &view.CullFrustum, ShadowCasterHalf::ParallelSafe,
+                                shaders, m_ItemResources[item], recordingInstancedDraws ? &m_ItemTallies[item] : nullptr);
+        };
+        RenderCommand::RecordParallel(activeCount, recordItem);
+        ReplayProfilerTallies(type, recordingInstancedDraws);
+
+        if (!hasSequentialCasters)
+        {
+            return;
+        }
+        for (u32 item = 0; item < activeCount; ++item)
+        {
+            const ActiveShadowView& view = m_ActiveViews[item];
+            // Re-select the target; NO clear. The region cleared it and drew
+            // the item-safe casters into it, and depth-only rendering is
+            // order-independent, so the tail landing after them paints the
+            // same map.
+            selectTarget(view);
+            RenderCascadeOrFace(view.LightVP, type, view.Index, &view.CullFrustum, ShadowCasterHalf::SequentialTail,
+                                shaders, m_ItemResources[item], nullptr);
+        }
+    }
+
+    void ShadowRenderPass::EnsureItemResources(u32 count, u32 instanceCapacity)
     {
         OLO_PROFILE_FUNCTION();
 
-        auto& shadowMap = Renderer3D::GetShadowMap();
+        // Same sizes and binding points as the UBOs ShadowMap::Init creates for
+        // the (now VSM-only) shared pair; the instance buffer takes its default
+        // capacity and grows on the first oversized batch like the engine-wide one.
+        while (m_ItemResources.size() < count)
+        {
+            ItemResources resources;
+            resources.Camera = UniformBuffer::Create(
+                ShaderBindingLayout::CameraUBO::GetSize(),
+                ShaderBindingLayout::UBO_CAMERA);
+            resources.Animation = UniformBuffer::Create(
+                ShaderBindingLayout::AnimationUBO::GetSize(),
+                ShaderBindingLayout::UBO_ANIMATION);
+            // Sized HERE, on the render thread: an item may not grow its buffer
+            // (StorageBuffer::Resize creates and reclaims GPU memory — amendment
+            // (92) rule 7), so the capacity covers the largest batch any item can
+            // upload this frame.
+            resources.Instances = Ref<InstanceBuffer>::Create(instanceCapacity);
+            m_ItemResources.push_back(std::move(resources));
+        }
+        for (u32 item = 0; item < count; ++item)
+        {
+            // Grown on the render thread when this frame's casters outnumber
+            // an earlier frame's (the buffer keeps its capacity across frames).
+            m_ItemResources[item].Instances->EnsureCapacity(instanceCapacity);
+        }
+        if (m_ItemTallies.size() < m_ItemResources.size())
+        {
+            m_ItemTallies.resize(m_ItemResources.size());
+        }
+    }
+
+    void ShadowRenderPass::ReplayProfilerTallies(ShadowPassType type, bool recording)
+    {
+        if (!recording)
+            return;
+
+        OLO_PROFILE_FUNCTION();
+
+        auto& profiler = RendererProfiler::GetInstance();
+        // The source label tags every shadow batch with the cascade / entry index
+        // so the profiler's "Instanced Draws" tab can show e.g. "Shadow CSM
+        // cascade 1" — making it obvious which shadow target a batched draw is
+        // filling in.
+        const char* kind = (type == ShadowPassType::CSM) ? "CSM cascade" : "Atlas entry";
+        const auto itemCount = m_ActiveViews.size();
+        for (sizet item = 0; item < itemCount; ++item)
+        {
+            auto& tally = m_ItemTallies[item];
+            if (tally.InstancedDraws.empty())
+                continue;
+
+            char sourceLabel[64];
+            std::snprintf(sourceLabel, sizeof(sourceLabel), "Shadow %s %u", kind, m_ActiveViews[item].Index);
+            for (const auto& draw : tally.InstancedDraws)
+            {
+                // EntityIDs intentionally null — shadow casters carry raw VAOs +
+                // transforms, not entity refs, so per-instance picking isn't
+                // meaningful here.
+                profiler.RecordInstancedDraw(
+                    /*meshHandle=*/0,
+                    draw.VertexArrayIndex,
+                    draw.IndexCount,
+                    draw.InstanceCount,
+                    /*entityIDs=*/nullptr,
+                    /*fromAutoBatching=*/true,
+                    sourceLabel);
+            }
+            tally.InstancedDraws.clear();
+        }
+    }
+
+    void ShadowRenderPass::RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
+                                               const Frustum* cullFrustum, ShadowCasterHalf half,
+                                               const ShadowCasterShaders& shaders, ItemResources& resources,
+                                               ItemProfilerTally* tally) const
+    {
+        OLO_PROFILE_FUNCTION();
 
         // Camera-relative (issue #429): render the shadow map in the same
         // render-relative space as the main pass. lightVP is world-space; shift
@@ -358,45 +560,15 @@ namespace OloEngine
         const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
         const glm::mat4 lightVPRel = MakeViewProjectionRelative(lightVP, renderOrigin);
 
-        // Upload light VP to the shadow camera UBO (binding 0).
-        // A8 seam, rasterizer flavour: caster vertex stages feed this to
-        // gl_Position, so the shadow map renders y-flipped/z-[0,1] on Vulkan —
-        // its depth CONTENTS stay GL-identical (the z half's whole point).
-        // The SAMPLING matrices (ShadowMap::UploadUBO) are the shader-
-        // reconstruction side of the same contract and carry the row flip that
-        // matches what this pass stores — both halves must move together.
-        auto cameraUBOData = ShaderBindingLayout::CameraUBO{};
-        cameraUBOData.ViewProjection = RHI::AdjustProjectionForBackend(lightVPRel);
-        cameraUBOData.View = glm::mat4(1.0f);
-        cameraUBOData.Projection = RHI::AdjustProjectionForBackend(lightVPRel);
-        // Caster shaders that reconstruct an absolute world position from the
-        // relative one (terrain snow-height displacement in Terrain_Depth.glsl:
-        // worldP = (u_Model*pos).xyz + u_RenderOrigin) need the real origin here;
-        // left at its 0 default the snow clip-region UV falls outside the map far
-        // from origin and the displaced caster geometry no longer matches the lit
-        // surface, detaching the shadow. No-op near origin (issue #429).
-        cameraUBOData.RenderOrigin = renderOrigin;
-        // Every target — CSM cascades and atlas entries alike — renders
-        // standard projective depth now (the old linear-distance point-cubemap
-        // path died with the shadow atlas, issue #435), so no light position /
-        // far plane needs to ride the camera UBO.
-        cameraUBOData.Position = glm::vec3(0.0f);
-        cameraUBOData.Pad0 = 0.0f;
-        // Reconstruction flavour of the same matrix (#691) — no known
-        // caster shader reads it under this camera, but the member must never
-        // be a zero/identity mismatch with Projection on any writer.
-        cameraUBOData.ProjectionForReconstruction = RHI::AdjustProjectionForShaderReconstruction(lightVPRel);
-
-        auto& cameraUBO = shadowMap.GetShadowCameraUBO();
-        cameraUBO->SetData(&cameraUBOData, ShaderBindingLayout::CameraUBO::GetSize());
-        cameraUBO->Bind();
-
-        // Shadow shaders read transforms from the engine-wide InstanceBuffer
-        // at SSBO_INSTANCE_DATA = 15 (no more shadow-specific UBO at binding 3).
-        // Static mesh casters use the auto-batched path below; the helper lambda
-        // covers skinned / terrain / voxel paths where per-caster state (bones,
-        // heightmap, terrain UBO) blocks batching.
-        auto instanceBuffer = Renderer3D::GetModelInstanceBuffer();
+        // Shadow shaders read transforms from an InstanceBuffer at
+        // SSBO_INSTANCE_DATA = 15 (no more shadow-specific UBO at binding 3).
+        // It is THIS ITEM's buffer, not Renderer3D::GetModelInstanceBuffer():
+        // the engine-wide one is a single object, and an object has one writer
+        // per region (amendment (92) rule 6). Static mesh casters use the
+        // auto-batched path below; the helper lambda covers the skinned /
+        // terrain / voxel paths where per-caster state (bones, heightmap,
+        // terrain UBO) blocks batching.
+        Ref<InstanceBuffer>& instanceBuffer = resources.Instances;
         auto uploadShadowModelUBO = [&instanceBuffer, &renderOrigin](const glm::mat4& worldTransform)
         {
             if (!instanceBuffer)
@@ -412,159 +584,265 @@ namespace OloEngine
             instanceBuffer->Bind();
         };
 
-        // ── Static meshes (auto-batched by shared VAO + index range) ──
+        if (half == ShadowCasterHalf::ParallelSafe)
         {
-            auto shadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepth");
-            if (shadowShader && !m_MeshCasters.empty())
+            // ════════════════════════════════════════════════════════════════
+            // Parallel-safe half: everything here may run as a RecordParallel
+            // item. It writes only this item's resources, reads the caster
+            // lists, the frame's bone matrices and the shaders resolved on the
+            // render thread, and reaches the backend through RenderCommand
+            // alone. No singleton with mutable state is called from here.
+            // ════════════════════════════════════════════════════════════════
+            if (tally)
             {
-                // Casters sharing (drawVao, indexCount, baseIndex) all read the
-                // same submesh range, so they can collapse into a single
-                // glDrawElementsInstanced. The shadow VS reads
-                // instances[gl_InstanceIndex].Transform from the SSBO.
-                struct ShadowMeshBatch
+                tally->InstancedDraws.clear();
+            }
+
+            // Upload light VP to this item's shadow camera UBO (binding 0).
+            // A8 seam, rasterizer flavour: caster vertex stages feed this to
+            // gl_Position, so the shadow map renders y-flipped/z-[0,1] on Vulkan —
+            // its depth CONTENTS stay GL-identical (the z half's whole point).
+            // The SAMPLING matrices (ShadowMap::UploadUBO) are the shader-
+            // reconstruction side of the same contract and carry the row flip that
+            // matches what this pass stores — both halves must move together.
+            auto cameraUBOData = ShaderBindingLayout::CameraUBO{};
+            cameraUBOData.ViewProjection = RHI::AdjustProjectionForBackend(lightVPRel);
+            cameraUBOData.View = glm::mat4(1.0f);
+            cameraUBOData.Projection = RHI::AdjustProjectionForBackend(lightVPRel);
+            // Caster shaders that reconstruct an absolute world position from the
+            // relative one (terrain snow-height displacement in Terrain_Depth.glsl:
+            // worldP = (u_Model*pos).xyz + u_RenderOrigin) need the real origin here;
+            // left at its 0 default the snow clip-region UV falls outside the map far
+            // from origin and the displaced caster geometry no longer matches the lit
+            // surface, detaching the shadow. No-op near origin (issue #429).
+            cameraUBOData.RenderOrigin = renderOrigin;
+            // Every target — CSM cascades and atlas entries alike — renders
+            // standard projective depth now (the old linear-distance point-cubemap
+            // path died with the shadow atlas, issue #435), so no light position /
+            // far plane needs to ride the camera UBO.
+            cameraUBOData.Position = glm::vec3(0.0f);
+            cameraUBOData.Pad0 = 0.0f;
+            // Reconstruction flavour of the same matrix (#691) — no known
+            // caster shader reads it under this camera, but the member must never
+            // be a zero/identity mismatch with Projection on any writer.
+            cameraUBOData.ProjectionForReconstruction = RHI::AdjustProjectionForShaderReconstruction(lightVPRel);
+
+            Ref<UniformBuffer>& cameraUBO = resources.Camera;
+            cameraUBO->SetData(&cameraUBOData, ShaderBindingLayout::CameraUBO::GetSize());
+            cameraUBO->Bind();
+
+            // ── Static meshes (auto-batched by shared VAO + index range) ──
+            {
+                const Ref<Shader>& shadowShader = shaders.Mesh;
+                if (shadowShader && !m_MeshCasters.empty())
                 {
-                    RHI::ResourceHandle drawVao;
-                    u32 indexCount;
-                    u32 baseIndex;
-                    bool twoSided; // rendered with culling disabled instead of front-cull (issue #650)
-                    std::vector<InstanceData> instances;
-                };
-                thread_local std::vector<ShadowMeshBatch> batches;
-                batches.clear();
-
-                for (const auto& caster : m_MeshCasters)
-                {
-                    if (cullFrustum && ShouldCull(caster.WorldBounds, *cullFrustum))
-                        continue;
-
-                    RHI::ResourceHandle const drawVao = caster.shadowVaoID.IsValid() ? caster.shadowVaoID : caster.vaoID;
-                    const glm::mat4 relTransform = MakeModelRelative(caster.transform, renderOrigin);
-                    InstanceData inst;
-                    inst.Transform = relTransform;
-                    inst.Normal = glm::mat4(1.0f);
-                    inst.PrevTransform = relTransform;
-                    inst.EntityID = -1;
-
-                    // twoSided is part of the batch key: single- and two-sided casters need
-                    // different cull state at draw time, so they must not share an instanced draw.
-                    auto it = std::ranges::find_if(batches,
-                                                   [&](const ShadowMeshBatch& b)
-                                                   { return b.drawVao == drawVao && b.indexCount == caster.indexCount &&
-                                                            b.baseIndex == caster.baseIndex && b.twoSided == caster.twoSided; });
-                    if (it == batches.end())
+                    // Casters sharing (drawVao, indexCount, baseIndex) all read the
+                    // same submesh range, so they can collapse into a single
+                    // glDrawElementsInstanced. The shadow VS reads
+                    // instances[gl_InstanceIndex].Transform from the SSBO.
+                    struct ShadowMeshBatch
                     {
-                        batches.push_back({ drawVao, caster.indexCount, caster.baseIndex, caster.twoSided, { inst } });
-                    }
-                    else
-                    {
-                        it->instances.push_back(inst);
-                    }
-                }
+                        RHI::ResourceHandle drawVao;
+                        u32 indexCount;
+                        u32 baseIndex;
+                        bool twoSided; // rendered with culling disabled instead of front-cull (issue #650)
+                        std::vector<InstanceData> instances;
+                    };
+                    // thread_local, which is what makes it per ITEM when the region
+                    // forks: a worker owns its own list, and inline there is one thread.
+                    thread_local std::vector<ShadowMeshBatch> batches;
+                    batches.clear();
 
-                if (!batches.empty())
-                {
-                    shadowShader->Bind();
-                    // Build the source label once per pass. We tag every
-                    // shadow batch with the cascade / light index so the
-                    // profiler's "Instanced Draws" tab can show e.g.
-                    // "Shadow CSM cascade 1" — making it obvious which
-                    // shadow target a given batched draw is filling in.
-                    auto& profiler = RendererProfiler::GetInstance();
-                    const bool recording = profiler.IsRecordingInstancedDraws();
-                    char sourceLabel[64];
-                    if (recording)
+                    for (const auto& caster : m_MeshCasters)
                     {
-                        const char* kind = (type == ShadowPassType::CSM) ? "CSM cascade" : "Atlas entry";
-                        std::snprintf(sourceLabel, sizeof(sourceLabel), "Shadow %s %u", kind, layerOrLight);
-                    }
-                    bool cullingDisabled = false; // track so we only touch GL state on a change
-                    for (const auto& batch : batches)
-                    {
-                        // Two-sided casters render with culling DISABLED so a single-sided planar
-                        // mesh lit from the front still casts (issue #650); single-sided casters
-                        // keep the pass's front-face cull (peter-panning). The pass set FrontCull
-                        // once up front, so restore it whenever we leave a two-sided batch.
-                        if (batch.twoSided && !cullingDisabled)
+                        if (cullFrustum && ShouldCull(caster.WorldBounds, *cullFrustum))
+                            continue;
+
+                        RHI::ResourceHandle const drawVao = caster.shadowVaoID.IsValid() ? caster.shadowVaoID : caster.vaoID;
+                        const glm::mat4 relTransform = MakeModelRelative(caster.transform, renderOrigin);
+                        InstanceData inst;
+                        inst.Transform = relTransform;
+                        inst.Normal = glm::mat4(1.0f);
+                        inst.PrevTransform = relTransform;
+                        inst.EntityID = -1;
+
+                        // twoSided is part of the batch key: single- and two-sided casters need
+                        // different cull state at draw time, so they must not share an instanced draw.
+                        auto it = std::ranges::find_if(batches,
+                                                       [&](const ShadowMeshBatch& b)
+                                                       { return b.drawVao == drawVao && b.indexCount == caster.indexCount &&
+                                                                b.baseIndex == caster.baseIndex && b.twoSided == caster.twoSided; });
+                        if (it == batches.end())
                         {
-                            RenderCommand::DisableCulling();
-                            cullingDisabled = true;
+                            batches.push_back({ drawVao, caster.indexCount, caster.baseIndex, caster.twoSided, { inst } });
                         }
-                        else if (!batch.twoSided && cullingDisabled)
+                        else
+                        {
+                            it->instances.push_back(inst);
+                        }
+                    }
+
+                    if (!batches.empty())
+                    {
+                        shadowShader->Bind();
+                        // Profiler records are TALLIED here and handed to
+                        // RendererProfiler after the join (ReplayProfilerTallies),
+                        // which also builds the per-target source label — the
+                        // profiler is a singleton an item must not call. A null
+                        // tally means the profiler is not recording, the same
+                        // "cheap when off" gate the direct call had.
+                        bool cullingDisabled = false; // track so we only touch GL state on a change
+                        for (const auto& batch : batches)
+                        {
+                            // Two-sided casters render with culling DISABLED so a single-sided planar
+                            // mesh lit from the front still casts (issue #650); single-sided casters
+                            // keep the pass's front-face cull (peter-panning). Every item starts from
+                            // the FrontCull the pass set once up front — the fork seeds each item
+                            // with the render thread's recorded state as of the fork (amendment (92)
+                            // rule 4), and inline the state simply carries over — so restore it
+                            // whenever we leave a two-sided batch.
+                            if (batch.twoSided && !cullingDisabled)
+                            {
+                                RenderCommand::DisableCulling();
+                                cullingDisabled = true;
+                            }
+                            else if (!batch.twoSided && cullingDisabled)
+                            {
+                                RenderCommand::EnableCulling();
+                                RenderCommand::FrontCull();
+                                cullingDisabled = false;
+                            }
+
+                            if (instanceBuffer)
+                            {
+                                instanceBuffer->Upload(std::span<const InstanceData>(batch.instances.data(),
+                                                                                     batch.instances.size()));
+                                instanceBuffer->Bind();
+                            }
+                            // Single-instance groups still go through the instanced
+                            // call — gl_InstanceIndex is 0 either way and the
+                            // driver handles count==1 cheaply.
+                            RenderCommand::DrawIndexedInstancedRaw(batch.drawVao, batch.indexCount, batch.baseIndex,
+                                                                   static_cast<u32>(batch.instances.size()));
+                            if (tally)
+                            {
+                                tally->InstancedDraws.push_back({ batch.drawVao.Index,
+                                                                  batch.indexCount,
+                                                                  static_cast<u32>(batch.instances.size()) });
+                            }
+                        }
+
+                        // Restore the pass's front-face cull if a two-sided batch left culling
+                        // disabled — the skinned / voxel casters below in this item rely on the
+                        // FrontCull state the pass set once at the top. The sequential tail does
+                        // not depend on this restore: after the join the render thread keeps its
+                        // pre-fork cull state (rule 4), and inline this restore is what carries
+                        // FrontCull over to it.
+                        if (cullingDisabled)
                         {
                             RenderCommand::EnableCulling();
                             RenderCommand::FrontCull();
-                            cullingDisabled = false;
                         }
-
-                        if (instanceBuffer)
-                        {
-                            instanceBuffer->Upload(std::span<const InstanceData>(batch.instances.data(),
-                                                                                 batch.instances.size()));
-                            instanceBuffer->Bind();
-                        }
-                        // Single-instance groups still go through the instanced
-                        // call — gl_InstanceIndex is 0 either way and the
-                        // driver handles count==1 cheaply.
-                        RenderCommand::DrawIndexedInstancedRaw(batch.drawVao, batch.indexCount, batch.baseIndex,
-                                                               static_cast<u32>(batch.instances.size()));
-                        if (recording)
-                        {
-                            // EntityIDs intentionally null — shadow casters
-                            // carry raw VAOs + transforms, not entity refs,
-                            // so per-instance picking isn't meaningful here.
-                            profiler.RecordInstancedDraw(
-                                /*meshHandle=*/0,
-                                batch.drawVao.Index,
-                                batch.indexCount,
-                                static_cast<u32>(batch.instances.size()),
-                                /*entityIDs=*/nullptr,
-                                /*fromAutoBatching=*/true,
-                                sourceLabel);
-                        }
-                    }
-
-                    // Restore the pass's front-face cull if a two-sided batch left culling
-                    // disabled — the skinned / terrain / foliage / voxel casters below all rely on
-                    // the FrontCull state the pass set once at the top.
-                    if (cullingDisabled)
-                    {
-                        RenderCommand::EnableCulling();
-                        RenderCommand::FrontCull();
                     }
                 }
             }
-        }
 
-        // ── Skinned meshes ──
-        if (!m_SkinnedCasters.empty())
-        {
-            Ref<Shader> skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthSkinned");
-            if (skinnedShadowShader)
+            // ── Skinned meshes ──
+            if (!m_SkinnedCasters.empty())
             {
-                skinnedShadowShader->Bind();
-                auto& animUBO = shadowMap.GetShadowAnimationUBO();
-                animUBO->Bind();
-
-                for (const auto& caster : m_SkinnedCasters)
+                const Ref<Shader>& skinnedShadowShader = shaders.Skinned;
+                if (skinnedShadowShader)
                 {
-                    if (cullFrustum && ShouldCull(caster.WorldBounds, *cullFrustum))
-                        continue;
-                    uploadShadowModelUBO(caster.transform);
+                    skinnedShadowShader->Bind();
+                    // This item's animation UBO, for the same reason as the instance
+                    // buffer: the bones of every skinned caster of this target go
+                    // through one object, and that object must be this item's alone.
+                    Ref<UniformBuffer>& animUBO = resources.Animation;
+                    animUBO->Bind();
 
-                    if (caster.boneCount > 0)
+                    for (const auto& caster : m_SkinnedCasters)
                     {
-                        const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(caster.boneBufferOffset);
-                        if (boneMatrices)
-                        {
-                            auto count = std::min(caster.boneCount, static_cast<u32>(ShaderBindingLayout::AnimationUBO::MAX_BONES));
-                            animUBO->SetData(boneMatrices, count * sizeof(glm::mat4));
-                        }
-                    }
+                        if (cullFrustum && ShouldCull(caster.WorldBounds, *cullFrustum))
+                            continue;
+                        uploadShadowModelUBO(caster.transform);
 
-                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount, caster.baseIndex);
+                        if (caster.boneCount > 0)
+                        {
+                            // A read of the frame's bone array, filled before the graph
+                            // executes; nothing writes it while a region is open.
+                            const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(caster.boneBufferOffset);
+                            if (boneMatrices)
+                            {
+                                auto count = std::min(caster.boneCount, static_cast<u32>(ShaderBindingLayout::AnimationUBO::MAX_BONES));
+                                animUBO->SetData(boneMatrices, count * sizeof(glm::mat4));
+                            }
+                        }
+
+                        RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount, caster.baseIndex);
+                    }
                 }
             }
+
+            // ── Voxel meshes ──
+            // Two depth shaders: the marching-cubes triangle soup and the packed-
+            // quad instanced path (issue #727). Casters are interleaved in one list,
+            // so bind lazily and only when the shader actually changes.
+            if (!m_VoxelCasters.empty())
+            {
+                const Ref<Shader>& voxelDepthShader = shaders.Voxel;
+                const Ref<Shader>& voxelQuadDepthShader = shaders.VoxelQuad;
+                const Shader* boundDepthShader = nullptr;
+
+                for (const auto& caster : m_VoxelCasters)
+                {
+                    const Ref<Shader>& depthShader = (caster.instanceCount > 0) ? voxelQuadDepthShader : voxelDepthShader;
+                    if (!depthShader)
+                    {
+                        continue;
+                    }
+                    if (depthShader.get() != boundDepthShader)
+                    {
+                        depthShader->Bind();
+                        boundDepthShader = depthShader.get();
+                    }
+
+                    uploadShadowModelUBO(caster.transform);
+                    if (caster.instanceCount > 0)
+                    {
+                        RenderCommand::DrawIndexedInstancedRaw(caster.vaoID, caster.indexCount, 0, caster.instanceCount);
+                    }
+                    else
+                    {
+                        RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
+                    }
+                }
+            }
+
+            return;
         }
+
+        // ════════════════════════════════════════════════════════════════════
+        // Sequential tail: runs on the render thread after the join, once per
+        // cascade / entry, with the target's layer (CSM) or tile viewport (atlas)
+        // re-selected by the caller. Each category here writes an object the
+        // pass cannot own per item:
+        //   * terrain — HeapBinding's offset table is ONE process-wide object
+        //     (BindTextureOrOffset + FlushOffsets per caster), and
+        //     Renderer3D::GetTerrainUBO() is the renderer's single terrain UBO;
+        //   * foliage — FoliageRenderer::RenderShadows writes the renderer's own
+        //     shared UBO and instance buffer;
+        //   * virtual geometry — VirtualGeometryShadow::RenderCascade dispatches
+        //     compute through file statics and the shared cluster registry.
+        // ════════════════════════════════════════════════════════════════════
+
+        // The parallel-safe half of THIS item uploaded the light VP into
+        // resources.Camera, and nothing has written that object since — the
+        // region gave it one writer, and after the join the render thread is the
+        // only writer — so the tail re-binds it rather than re-uploading. The
+        // bind is not optional: inline, the LAST item's camera UBO is the one at
+        // UBO_CAMERA when the region ends; on Vulkan the render thread keeps its
+        // PRE-fork bindings (amendment (92) rule 4). Neither is this item's.
+        resources.Camera->Bind();
 
         // ── Terrain patches ──
         if (!m_TerrainCasters.empty())
@@ -610,41 +888,6 @@ namespace OloEngine
             }
         }
 
-        // ── Voxel meshes ──
-        // Two depth shaders: the marching-cubes triangle soup and the packed-
-        // quad instanced path (issue #727). Casters are interleaved in one list,
-        // so bind lazily and only when the shader actually changes.
-        if (!m_VoxelCasters.empty())
-        {
-            auto voxelDepthShader = Renderer3D::GetVoxelDepthShader();
-            auto voxelQuadDepthShader = Renderer3D::GetVoxelGreedyDepthShader();
-            const Shader* boundDepthShader = nullptr;
-
-            for (const auto& caster : m_VoxelCasters)
-            {
-                const Ref<Shader>& depthShader = (caster.instanceCount > 0) ? voxelQuadDepthShader : voxelDepthShader;
-                if (!depthShader)
-                {
-                    continue;
-                }
-                if (depthShader.get() != boundDepthShader)
-                {
-                    depthShader->Bind();
-                    boundDepthShader = depthShader.get();
-                }
-
-                uploadShadowModelUBO(caster.transform);
-                if (caster.instanceCount > 0)
-                {
-                    RenderCommand::DrawIndexedInstancedRaw(caster.vaoID, caster.indexCount, 0, caster.instanceCount);
-                }
-                else
-                {
-                    RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount);
-                }
-            }
-        }
-
         // ── Foliage ──
         for (const auto& caster : m_FoliageCasters)
         {
@@ -662,10 +905,11 @@ namespace OloEngine
         // cube faces). Runs its own cluster cull against this view's light VP,
         // then replays the compacted segments with the depth-only virtual-mesh
         // shader into the current target + viewport (the caller already set the
-        // atlas tile viewport). Reads the shadow camera UBO uploaded above. The
+        // atlas tile viewport). Reads the shadow camera UBO bound above. The
         // ortho-style error scale is only approximate for the atlas' perspective
         // VPs, but the DAG cut is watertight at any threshold, so shadows stay
         // crack-free; a distance-accurate perspective error scale is a refinement.
+        auto& shadowMap = Renderer3D::GetShadowMap();
         u32 const shadowViewResolution = (type == ShadowPassType::CSM)
                                              ? shadowMap.GetResolution()
                                              : shadowMap.GetAtlasEntryRect(layerOrLight).Size;
@@ -760,6 +1004,12 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         m_WarnedOnce = false;
         m_LoggedOnce = false;
+        // The per-item pool is GPU resources of the same generation as the
+        // framebuffer being rebuilt below; drop it with the framebuffer and let
+        // the next Execute recreate what it needs (render thread, before the fork).
+        m_ItemResources.clear();
+        m_ItemTallies.clear();
+        m_ActiveViews.clear();
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
         {
             Init(m_FramebufferSpec);

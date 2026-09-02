@@ -36,11 +36,22 @@
 // frame-transient ring) layers over the same primitive when its machinery
 // buys something real on this backend; the seam is recorded, not abandoned.
 //
-// Thread-safety: NONE, deliberately — render thread only.
+// Thread-safety (issue #806, ADR 0011 amendment (92) rule 8): every public
+// entry point holds m_Mutex for its whole body, so AcquireSlot — on every
+// draw's BindTexture path — may run from several recording threads at once.
+// The VulkanResourceHeap calls it makes (AllocateSlot, WriteSampledImage,
+// WriteStorageImage) and the poison write on release
+// (VulkanDescriptorHeapBackend::WriteNullAt) therefore run UNDER this lock:
+// none of them has a lock of its own, and none may call back into this
+// cache. Lock order against the backend: its null-slot memo mutex is taken
+// FIRST (GetNullSampledHeapSlot -> AcquireSlot), this one second, never the
+// reverse — which is why WriteNullAt takes no lock over there.
 // =============================================================================
 
 #include "Platform/Vulkan/VulkanDevice.h"
 
+#include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -70,10 +81,12 @@ namespace OloEngine
         // Diagnostic/test affordances.
         [[nodiscard]] sizet GetCachedSlotCount() const
         {
+            std::shared_lock lock(m_Mutex);
             return m_SlotByKey.size();
         }
         [[nodiscard]] sizet GetFreeSlotCount() const
         {
+            std::shared_lock lock(m_Mutex);
             return m_FreeSlots.size();
         }
 
@@ -89,6 +102,7 @@ namespace OloEngine
             VkDescriptorType Type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
         };
 
+        mutable std::shared_mutex m_Mutex; ///< Shared on the hit path, exclusive on a miss and for release/reset. ///< Guards everything below (see the thread-safety note).
         std::unordered_map<u64, SlotEntry> m_SlotByKey;
         std::unordered_map<VkImage, std::vector<u64>> m_KeysByImage;
         std::vector<u32> m_FreeSlots;

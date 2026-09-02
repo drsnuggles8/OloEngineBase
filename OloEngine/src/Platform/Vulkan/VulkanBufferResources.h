@@ -42,6 +42,7 @@
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 
+#include <atomic>
 #include <unordered_map>
 #include <vector>
 #ifdef OLO_DEBUG
@@ -204,6 +205,10 @@ namespace OloEngine
         ~VulkanUniformBuffer() override;
 
         void SetData(const UniformData& data) override;
+        // The base convenience overload writes m_LocalData BEFORE it reaches
+        // SetData(UniformData), so the rule-6 writer claim has to happen here,
+        // ahead of that shadow write (#806).
+        void SetData(const void* data, u32 size, u32 offset = 0) override;
 
         // No driver bind — the address travels in root data. What Bind()
         // MEANS here is GL's glBindBufferBase semantics: publish this buffer
@@ -246,6 +251,7 @@ namespace OloEngine
         u32 m_Binding = 0;
 
         u64 m_DataVersion = 1;
+        std::atomic<u64> m_ParallelWriter{ 0 }; ///< (region << 32 | item) of the region's first RecordParallel writer (ClaimParallelWriter).
         u64 m_PushedVersion = 0;
         u64 m_PushedFrameGeneration = ~0ull;
         VkDeviceAddress m_CurrentAddress = 0;

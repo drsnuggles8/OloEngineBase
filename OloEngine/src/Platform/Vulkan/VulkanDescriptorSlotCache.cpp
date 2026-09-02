@@ -7,6 +7,10 @@
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 
+#include <shared_mutex>
+
+#include <mutex>
+
 namespace OloEngine
 {
     VulkanDescriptorSlotCache& VulkanDescriptorSlotCache::Get()
@@ -53,7 +57,19 @@ namespace OloEngine
             return VulkanResourceHeap::InvalidSlot;
         }
 
+        // Hash outside any lock; the hit path (every BindTexture on every
+        // item, #806) only shares the lock. A miss takes it exclusively and
+        // re-checks, so the free-list pop / heap bump / descriptor write stay
+        // one step and two threads missing on one key cannot both allocate.
         const u64 key = HashKey(image, viewInfo, type, layout);
+        {
+            std::shared_lock readLock(m_Mutex);
+            if (const auto it = m_SlotByKey.find(key); it != m_SlotByKey.end())
+            {
+                return it->second.Slot;
+            }
+        }
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
         if (const auto it = m_SlotByKey.find(key); it != m_SlotByKey.end())
         {
             return it->second.Slot;
@@ -90,6 +106,8 @@ namespace OloEngine
 
     void VulkanDescriptorSlotCache::ReleaseSlotsForImage(VkImage image)
     {
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
+
         const auto it = m_KeysByImage.find(image);
         if (it == m_KeysByImage.end())
         {
@@ -103,6 +121,8 @@ namespace OloEngine
                 // backend's 1x1 black null image): a stale root-data index
                 // into this slot now reads deterministic black instead of the
                 // dead image's descriptor — never a driver hang.
+                // Runs under m_Mutex; WriteNullAt takes no lock of its own
+                // (the lock-order note in the header).
                 (void)VulkanDescriptorHeapBackend::Get().WriteNullAt(slotIt->second.Slot, slotIt->second.Type);
                 m_FreeSlots.push_back(slotIt->second.Slot);
                 m_SlotByKey.erase(slotIt);
@@ -113,6 +133,7 @@ namespace OloEngine
 
     void VulkanDescriptorSlotCache::Reset()
     {
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
         m_SlotByKey.clear();
         m_KeysByImage.clear();
         m_FreeSlots.clear();

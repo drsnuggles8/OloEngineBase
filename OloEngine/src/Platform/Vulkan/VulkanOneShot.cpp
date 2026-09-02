@@ -5,6 +5,7 @@
 #include "Platform/Vulkan/VulkanOneShot.h"
 
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
+#include "Platform/Vulkan/VulkanRecordingContext.h"
 
 #include <cstring>
 
@@ -63,6 +64,16 @@ namespace OloEngine
                 return false;
             }
 #endif
+
+            // A one-shot submits ahead of the frame's primary and advances the
+            // executed layouts through a process-wide scope stack — neither is
+            // defined from a RecordParallel item (amendment (92) rule 7).
+            if (CurrentVulkanWorkerContext() != nullptr)
+            {
+                OLO_CORE_ASSERT(false, "VulkanOneShot::Submit from a RecordParallel item");
+                OLO_CORE_ERROR("VulkanOneShot::Submit({}): refused on a parallel-recording worker context", what);
+                return false;
+            }
 
             auto* device = VulkanDevice::Get();
             if (device == nullptr)

@@ -3,17 +3,20 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/Frustum.h"
+#include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
+#include <functional>
 #include <glm/glm.hpp>
 #include <vector>
 
 namespace OloEngine
 {
     class FoliageRenderer;
-    class Frustum;
     class Shader;
 
     // Indicates which shadow target is being rendered in the current invocation
@@ -92,6 +95,32 @@ namespace OloEngine
     // traversal loop. Execute() iterates the caster lists per cascade/face,
     // binding the appropriate depth shader for each geometry type.
     // No callbacks, no duplicate entity traversal.
+    //
+    // Parallel recording (issue #806, ADR 0011 amendment (92)). The CSM
+    // cascades and the atlas entries are independent depth targets, so each
+    // is one item of a RenderCommand::RecordParallel region: on a backend that
+    // forks, item i records on a worker into its own command buffer and the
+    // items execute in ascending order at the fork point; everywhere else the
+    // items run inline, in order, on the calling thread — the command stream
+    // is the same either way. Two consequences shape this class:
+    //
+    //   * ONE WRITER PER RESOURCE OBJECT PER REGION (rule 6). A UBO or an
+    //     instance buffer versions its bytes per object, so two items writing
+    //     one object would interleave. The pass therefore owns a camera UBO, an
+    //     animation UBO and an instance buffer PER ITEM (ItemResources), created
+    //     on the render thread before the fork — never inside an item (rule 7).
+    //   * NOT EVERY CASTER IS ITEM-SAFE. Terrain (HeapBinding's one process-wide
+    //     offset table, the shared terrain UBO), foliage (the FoliageRenderer's
+    //     own shared buffers) and virtual geometry (compute dispatches, file
+    //     statics) write objects the pass does not own per item. They record
+    //     AFTER the join, sequentially, per cascade / entry — the
+    //     ShadowCasterHalf::SequentialTail of RenderCascadeOrFace. Depth-only
+    //     rendering is order-independent, so drawing them after the item-safe
+    //     casters paints the same map.
+    //
+    // RendererProfiler is a plain singleton, so an item never touches it: each
+    // item tallies its auto-batched draws (ItemProfilerTally) and the pass
+    // replays them into the profiler after the join, in item order.
     class ShadowRenderPass : public RenderGraphNode
     {
       public:
@@ -128,6 +157,62 @@ namespace OloEngine
         void AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 
       private:
+        // Which half of a cascade / entry RenderCascadeOrFace records (issue #806).
+        enum class ShadowCasterHalf : u8
+        {
+            ParallelSafe,  // static mesh batches, skinned casters, voxel casters — runs as a RecordParallel item
+            SequentialTail // terrain, foliage, virtual geometry — runs on the render thread after the join
+        };
+
+        // The GPU objects one item writes (amendment (92) rule 6): created by
+        // EnsureItemResources on the render thread, indexed by item, shared by
+        // the CSM region and the atlas region of one Execute (the two regions
+        // never overlap, and a write after the join is just the next version).
+        struct ItemResources
+        {
+            Ref<UniformBuffer> Camera;     // ShaderBindingLayout::UBO_CAMERA — this item's light VP
+            Ref<UniformBuffer> Animation;  // ShaderBindingLayout::UBO_ANIMATION — bones of the skinned caster in flight
+            Ref<InstanceBuffer> Instances; // SSBO_INSTANCE_DATA — the transforms of the batch / caster in flight
+        };
+
+        // One auto-batched shadow draw, as RendererProfiler::RecordInstancedDraw
+        // wants it. Not the profiler's own record type: that one carries a
+        // std::string label and an entity-id vector the shadow path never fills.
+        struct ShadowInstancedDrawRecord
+        {
+            u32 VertexArrayIndex = 0;
+            u32 IndexCount = 0;
+            u32 InstanceCount = 0;
+        };
+
+        // What one item would have told the profiler. A vector, not a fixed
+        // array, because there is one record per distinct submesh in the item.
+        struct ItemProfilerTally
+        {
+            std::vector<ShadowInstancedDrawRecord> InstancedDraws;
+        };
+
+        // The shaders the parallel-safe half binds, resolved on the render
+        // thread before the fork. ShaderLibrary::Get is a non-const map
+        // operator[] (it inserts on a miss), so an item must not call it.
+        struct ShadowCasterShaders
+        {
+            Ref<Shader> Mesh;      // "ShadowDepth"
+            Ref<Shader> Skinned;   // "ShadowDepthSkinned" — null when there are no skinned casters
+            Ref<Shader> Voxel;     // Renderer3D::GetVoxelDepthShader()
+            Ref<Shader> VoxelQuad; // Renderer3D::GetVoxelGreedyDepthShader()
+        };
+
+        // One cascade or atlas entry that will actually render this frame —
+        // the survivors of the skip logic in Execute — with what its item body
+        // needs, so the body reads and never recomputes.
+        struct ActiveShadowView
+        {
+            u32 Index = 0; // cascade index (CSM) or atlas entry index (Atlas)
+            glm::mat4 LightVP = glm::mat4(1.0f);
+            Frustum CullFrustum;
+        };
+
         // Returns true if caster has valid bounds AND those bounds fail the frustum test.
         // Casters with NoBounds always pass (are included).
         [[nodiscard]] static bool ShouldCull(const BoundingBox& worldBounds, const Frustum& frustum);
@@ -140,8 +225,37 @@ namespace OloEngine
         // casters were virtual meshes was skipped outright and Nanite geometry cast no shadow.
         [[nodiscard]] static bool AnyVirtualShadowCaster();
 
+        // Records one half (see ShadowCasterHalf) of one cascade / atlas entry
+        // into the currently selected target + viewport. `resources` are this
+        // item's objects; `tally` is where the parallel-safe half puts its
+        // profiler records (null = the profiler is not recording). The
+        // sequential tail only re-binds the camera UBO the parallel-safe half
+        // of the SAME item uploaded, so the two halves must run for the same
+        // (lightVP, resources) pair, parallel-safe half first.
         void RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
-                                 const Frustum* cullFrustum = nullptr) const;
+                                 const Frustum* cullFrustum, ShadowCasterHalf half,
+                                 const ShadowCasterShaders& shaders, ItemResources& resources,
+                                 ItemProfilerTally* tally) const;
+
+        // Grow the per-item pool to `count` entries. Render thread, before the
+        // fork: rule 7 refuses resource creation on an item context.
+        void EnsureItemResources(u32 count, u32 instanceCapacity);
+        // The fork / replay / tail protocol shared by the CSM and atlas
+        // regions: record the parallel-safe half of every view in
+        // m_ActiveViews as a RecordParallel item (after `selectTarget`), hand
+        // the profiler tallies over in item order, then — when any sequential
+        // caster exists — walk the same views on the render thread for the
+        // tail, re-selecting the target each time. `selectTarget` is the only
+        // thing the two regions do differently (a layer + clear per cascade,
+        // a viewport per atlas entry).
+        void RecordShadowRegion(ShadowPassType type, const ShadowCasterShaders& shaders, bool recordingInstancedDraws,
+                                bool hasSequentialCasters, u32 instanceCapacity,
+                                const std::function<void(const ActiveShadowView&)>& selectTarget,
+                                bool clearPerItem);
+
+        // Hand the items' tallies to RendererProfiler in item order, then clear
+        // them. Render thread, after the join.
+        void ReplayProfilerTallies(ShadowPassType type, bool recording);
 
         ShadowMap* m_ShadowMap = nullptr;
         Ref<Framebuffer> m_ShadowFramebuffer; // Depth-only FBO for shadow rendering
@@ -152,6 +266,13 @@ namespace OloEngine
         std::vector<ShadowTerrainCaster> m_TerrainCasters;
         std::vector<ShadowVoxelCaster> m_VoxelCasters;
         std::vector<ShadowFoliageCaster> m_FoliageCasters;
+
+        // Per-item state of the parallel regions (issue #806). Grown lazily to
+        // the largest region seen; never resized while a region is open, so
+        // item i touches element i and nothing else.
+        std::vector<ItemResources> m_ItemResources;
+        std::vector<ItemProfilerTally> m_ItemTallies;
+        std::vector<ActiveShadowView> m_ActiveViews; // the current region's items, in item order
 
         bool m_WarnedOnce = false;
         bool m_LoggedOnce = false;

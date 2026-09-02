@@ -42,12 +42,26 @@
 // deterministic zeros/black; the images live for the heap's lifetime and are
 // reclaimed with it.
 //
-// Thread-safety: NONE, deliberately — render thread only.
+// Thread-safety (issue #806, ADR 0011 amendment (92) rule 8): one entry
+// point is on the draw path — GetNullSampledHeapSlot, the root-data writer's
+// unfed-binding fallback — and it serialises end to end on
+// m_NullSampledSlotMutex (memo lookup, null-image creation on a miss, the
+// slot-cache acquire, memo insert). LOCK ORDER: that mutex is taken BEFORE
+// VulkanDescriptorSlotCache's (AcquireSlot is called while holding it), never
+// after. WriteNullAt is the slot cache's call INTO this backend under the
+// cache's own lock and deliberately takes no lock here — taking the memo
+// mutex there would invert the order. Every other mutator (AcquireDescriptor,
+// ReleaseDescriptor, UploadSlots, WriteNullAt, ReleaseDeviceObjects) is a
+// resource-creation / engine-heap-flush / teardown path that rule 7 keeps on
+// the render thread outside a region, so m_Staged and the null-image table
+// are only READ (EnsureNullImage's hit path) while a region is open.
 // =============================================================================
 
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 
+#include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 
 namespace OloEngine
@@ -80,7 +94,9 @@ namespace OloEngine
         // Write the null descriptor of `type` at an arbitrary heap slot —
         // the poison/prefill primitive the slot cache and the install path
         // share (a freed or never-written slot must read deterministic
-        // black). Creates the null images on first use.
+        // black). Creates the null images on first use. Takes NO lock: the
+        // slot cache calls it while holding its own mutex (lock-order note
+        // above).
         bool WriteNullAt(u32 slot, VkDescriptorType type);
 
         // Heap slot of the 1x1 black null SAMPLED image for `viewType` — the
@@ -88,7 +104,8 @@ namespace OloEngine
         // leaked the first-registered texture into every unfed sampler).
         // Acquired through VulkanDescriptorSlotCache so the slot dies with
         // the heap; the image is reclaimed by ReleaseDeviceObjects like the
-        // token nulls. VulkanResourceHeap::InvalidSlot on failure.
+        // token nulls. VulkanResourceHeap::InvalidSlot on failure. Safe from
+        // several recording threads at once (m_NullSampledSlotMutex).
         [[nodiscard]] u32 GetNullSampledHeapSlot(VkImageViewType viewType);
 
         // Enqueue every null image for deferred reclaim and forget the
@@ -140,7 +157,18 @@ namespace OloEngine
         std::unordered_map<u64, Staged> m_Staged;
         std::unordered_map<u64, NullImage> m_NullImages;         ///< token -> owned image
         std::unordered_map<u32, u64> m_NullStorageTokenByFormat; ///< VkFormat -> token
-        std::unordered_map<u32, u32> m_NullSampledSlots;         ///< VkImageViewType -> acquired heap slot
+        // The draw-path memo and its lock (thread-safety note above). Taken
+        // BEFORE the slot cache's mutex, never after.
+        std::shared_mutex m_NullSampledSlotMutex; ///< Shared on the memo hit, exclusive to create.
+
+      public:
+        // Create every view type's null sampled slot now, on the render
+        // thread: a miss inside a RecordParallel item would need a one-shot
+        // submit, which is refused there (amendment (92) rule 7). Idempotent.
+        void WarmNullSampledSlots();
+
+      private:
+        std::unordered_map<u32, u32> m_NullSampledSlots; ///< VkImageViewType -> acquired heap slot
         u64 m_NextNullStorageToken = kFirstNullStorageToken;
         u64 m_NextToken = kFirstDynamicToken;
     };

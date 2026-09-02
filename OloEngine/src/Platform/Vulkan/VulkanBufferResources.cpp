@@ -4,6 +4,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanBufferResources.h"
+#include "Platform/Vulkan/VulkanRecordingContext.h"
 
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
@@ -421,8 +422,26 @@ namespace OloEngine
         m_Size = requiredSize;
     }
 
+    void VulkanUniformBuffer::SetData(const void* data, u32 size, u32 offset)
+    {
+        // Amendment (92) rule 6, checked at record time and BEFORE the base
+        // overload's shadow write: one writer per object per region. A
+        // refused item skips the whole write in every build.
+        if (!ClaimParallelWriter(m_ParallelWriter, "uniform buffer"))
+        {
+            return;
+        }
+        UniformBuffer::SetData(data, size, offset);
+    }
+
     void VulkanUniformBuffer::SetData(const UniformData& data)
     {
+        // Direct callers bypass the overload above; same claim, same refusal.
+        // A call arriving through it re-claims for the same item, a no-op.
+        if (!ClaimParallelWriter(m_ParallelWriter, "uniform buffer"))
+        {
+            return;
+        }
         if (data.data == nullptr || data.size == 0)
         {
             return;

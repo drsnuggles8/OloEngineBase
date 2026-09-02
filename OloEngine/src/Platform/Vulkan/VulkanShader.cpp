@@ -3,6 +3,8 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanShader.h"
+
+#include "Platform/Vulkan/VulkanRecordingContext.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
@@ -488,6 +490,7 @@ namespace OloEngine
         // The bindings just changed hands: any cached root layout describes
         // the OLD reflection and must rebuild on next use (#691).
         m_RootLayout.reset();
+        m_RootLayoutBuilt.store(false, std::memory_order_release);
 
         // Identity: minted once, survives Reload (amendment (12) — the
         // reverse-index key and every cached reference stay valid while the
@@ -512,9 +515,16 @@ namespace OloEngine
 
     const VulkanRootDataLayout& VulkanShader::GetRootDataLayout()
     {
-        if (!m_RootLayout)
+        // Fast path: built and published. The acquire pairs with the release
+        // below so a worker that sees the flag also sees the layout's bytes.
+        if (!m_RootLayoutBuilt.load(std::memory_order_acquire))
         {
-            m_RootLayout = std::make_unique<VulkanRootDataLayout>(VulkanRootDataLayout::Build(m_Bindings));
+            const std::scoped_lock lock(m_RootLayoutMutex);
+            if (!m_RootLayoutBuilt.load(std::memory_order_relaxed))
+            {
+                m_RootLayout = std::make_unique<VulkanRootDataLayout>(VulkanRootDataLayout::Build(m_Bindings));
+                m_RootLayoutBuilt.store(true, std::memory_order_release);
+            }
         }
         return *m_RootLayout;
     }
@@ -632,7 +642,17 @@ namespace OloEngine
     {
         // No program object to bind — the pipeline binds at draw time. Record
         // the selection for the draw-time pipeline lookup.
-        s_CurrentlyBound = const_cast<VulkanShader*>(this);
+        // A RecordParallel item binds into ITS context's slot (#806): the
+        // draw-time lookup on that worker reads the same slot, and the
+        // process-wide selection stays what the render thread last bound.
+        if (VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        {
+            worker->CurrentShader = const_cast<VulkanShader*>(this);
+        }
+        else
+        {
+            s_CurrentlyBound = const_cast<VulkanShader*>(this);
+        }
         // The heap-binding seam forks on the PROCESS-GLOBAL bindless flag
         // (Shader::IsBoundProgramBindless), which every GL bind sets for its
         // program. OLO_BINDLESS never travels the Vulkan route, so a Vulkan
@@ -641,6 +661,14 @@ namespace OloEngine
         // HeapBinding::BindTextureOrOffset fallbacks inside shared pass bodies
         // (ParticleBatchRenderer, FoliageRenderer, VirtualGeometryPass) route
         // into the offset path with no heap staged (#691).
+        // Both flags are process-wide plain bools read by the heap-binding
+        // seam, which is not reachable from an item (rule 6) — so an item
+        // leaves them to the render thread rather than racing N writes of
+        // `false` against each other.
+        if (CurrentVulkanWorkerContext() != nullptr)
+        {
+            return;
+        }
         SetBoundProgramBindless(false);
         // Its SIBLING flag has the identical stale-across-backends hazard
         // (#691): OLO_MATERIAL_HEAP_READER programs exist only on the
@@ -653,18 +681,33 @@ namespace OloEngine
 
     void VulkanShader::Unbind() const
     {
-        if (s_CurrentlyBound == this)
+        if (VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        {
+            if (worker->CurrentShader == this)
+            {
+                worker->CurrentShader = nullptr;
+            }
+        }
+        else if (s_CurrentlyBound == this)
         {
             s_CurrentlyBound = nullptr;
         }
         // Match OpenGLShader::Unbind: no program means neither flag can be
-        // true (#691, the stale-flag pair).
+        // true (#691, the stale-flag pair). Render thread only, as in Bind.
+        if (CurrentVulkanWorkerContext() != nullptr)
+        {
+            return;
+        }
         SetBoundProgramBindless(false);
         SetBoundProgramMaterialOffsets(false);
     }
 
     VulkanShader* VulkanShader::GetCurrentlyBound()
     {
+        if (const VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        {
+            return worker->CurrentShader;
+        }
         return s_CurrentlyBound;
     }
 

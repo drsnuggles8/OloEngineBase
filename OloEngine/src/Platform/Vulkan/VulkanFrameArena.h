@@ -31,8 +31,21 @@
 // FrameDataBuffer sentinel discipline. A dropped draw beats writing past a
 // mapped range.
 //
-// Thread-safety: NONE, deliberately — render thread only, like the rest of
-// the backend.
+// THREAD-SAFETY (issue #806, ADR 0011 amendment (92) rule 8):
+//   - BeginFrame, ReleaseBuffers and the CREATION of the slot buffers and the
+//     null block run on the render thread, outside a parallel region.
+//     BeginFrame creates both up front so that no draw, on any thread, takes
+//     a creation path; the lazy fallbacks left in Allocate and
+//     GetNullBlockAddress serve callers that never begin a frame (tests) and
+//     assert that no worker context is current.
+//   - Allocate, Push and FlushWrite run from any thread, concurrently: a
+//     claim is one compare-exchange over the current slot's cursor, so two
+//     threads never receive overlapping ranges, and each thread writes only
+//     the range it claimed. The counters are relaxed atomics.
+//   - Reads of the slot index, the generation and the used-bytes stat are
+//     valid only OUTSIDE BeginFrame: BeginFrame rewrites them with plain
+//     stores. A region forks after BeginFrame and joins before the next one,
+//     so the fork/join is what orders those stores against a worker's reads.
 
 #include "OloEngine/Core/Base.h"
 
@@ -43,6 +56,7 @@
 #include "Platform/Vulkan/VulkanDevice.h"
 
 #include <array>
+#include <atomic>
 
 namespace OloEngine
 {
@@ -62,23 +76,40 @@ namespace OloEngine
     {
       public:
         // Process-wide instance, deliberately leaked (see
-        // VulkanImageInfoRegistry::Get for the rationale). Buffers are created
-        // lazily on first Allocate (a live VulkanDevice is required then, not
-        // at static init).
+        // VulkanImageInfoRegistry::Get for the rationale). BeginFrame creates
+        // the buffers; a caller that never begins a frame gets them lazily on
+        // its first Allocate (a live VulkanDevice is required then, not at
+        // static init). The atomic members make the class non-copyable, which
+        // a leaked singleton never needed to be.
         [[nodiscard]] static VulkanFrameArena& Get();
 
-        // Reset a slot's cursor. Caller guarantees the GPU is done with that
-        // slot (the frame loop's fence wait, or device idle in tests).
+        // Reset a slot's cursor, after making sure the slot buffers and the
+        // null block exist (so no draw, on any thread, takes a creation path
+        // afterwards). Caller guarantees the GPU is done with that slot (the
+        // frame loop's fence wait, or device idle in tests). Render thread
+        // only.
         void BeginFrame(u32 frameSlot);
 
         // Bump-allocate from the current slot. Alignment must be a power of
         // two; 16 is std430-safe for any root struct the model produces.
+        // Callable from any thread concurrently — the claim is atomic (see
+        // the thread-safety block above).
         [[nodiscard]] VulkanFrameArenaAllocation Allocate(u64 sizeBytes, u64 alignment = 16);
 
         // Convenience: allocate + memcpy + return (and flush when the
         // placement is non-coherent). The common "one root struct per draw"
         // shape.
         [[nodiscard]] VulkanFrameArenaAllocation Push(const void* data, u64 sizeBytes, u64 alignment = 16);
+
+        // Fold a worker context's per-block allocation count into the frame
+        // tally (the join calls this once per item; the worker path itself
+        // touches no shared counter).
+        void AddWorkerAllocations(u64 count);
+
+        // Worker contexts claim this much from the shared cursor at a time
+        // and bump inside it (VulkanRecordingContext::ArenaBlock). Requests
+        // larger than half of it go to the shared cursor directly.
+        static constexpr u64 kWorkerBlockBytes = 64ull * 1024;
 
         // Make host writes visible to the GPU on a non-coherent placement
         // (no-op on coherent memory). Push() calls it itself; a caller that
@@ -88,7 +119,8 @@ namespace OloEngine
 
         // Enqueue every slot buffer for deferred reclaim and forget them —
         // shutdown / device-teardown path (test TearDown, context shutdown).
-        // The arena becomes lazily re-creatable afterwards.
+        // The arena becomes lazily re-creatable afterwards. Render thread
+        // only.
         void ReleaseBuffers();
 
         // --- Stats (diagnostic/test affordances) -----------------------------
@@ -99,11 +131,11 @@ namespace OloEngine
         }
         [[nodiscard]] u64 GetAllocationCountThisFrame() const
         {
-            return m_AllocationsThisFrame;
+            return m_AllocationsThisFrame.load(std::memory_order_relaxed);
         }
         [[nodiscard]] u64 GetOverflowCount() const
         {
-            return m_OverflowCount;
+            return m_OverflowCount.load(std::memory_order_relaxed);
         }
         [[nodiscard]] u32 GetCurrentSlot() const
         {
@@ -133,6 +165,9 @@ namespace OloEngine
         // 0 when no device is up (the caller's draw is already doomed then).
         // In-bounds contract only: an SSBO runtime array indexed past
         // kNullBlockBytes still faults — shaders guard their counts.
+        // The block is created by BeginFrame; the lazy creation left here is
+        // for callers that never begin a frame and is render-thread-only
+        // (see the thread-safety block).
         [[nodiscard]] VkDeviceAddress GetNullBlockAddress();
 
         // Matches VulkanContextData::kFramesInFlight / VulkanDeferredReclaim.
@@ -151,8 +186,12 @@ namespace OloEngine
         VulkanFrameArena() = default;
 
         // Creates all slot buffers; requires a live VulkanDevice. Returns
-        // false (warn-once) when none is up.
+        // false (warn-once) when none is up. No-op once created.
         [[nodiscard]] bool EnsureBuffers();
+        // Creates the zero-filled null block (see GetNullBlockAddress);
+        // requires a live VulkanDevice. False when none is up or creation
+        // failed (logged). No-op once created.
+        [[nodiscard]] bool EnsureNullBlock();
 
         struct Slot
         {
@@ -160,21 +199,25 @@ namespace OloEngine
             VmaAllocation Allocation = VK_NULL_HANDLE;
             void* Mapped = nullptr;
             VkDeviceAddress BaseAddress = 0;
-            u64 Cursor = 0;
-            bool NeedsFlush = false; ///< Placement lacks HOST_COHERENT.
+            std::atomic<u64> Cursor{ 0 }; ///< Claimed by compare-exchange (Allocate); rewound by BeginFrame.
+            bool NeedsFlush = false;      ///< Placement lacks HOST_COHERENT.
+
+            // The atomic makes the struct non-assignable, so ReleaseBuffers
+            // clears it field by field through this.
+            void Reset();
         };
 
         std::array<Slot, kFramesInFlight> m_Slots{};
-        // The zero-filled fallback block (see GetNullBlockAddress). Created
-        // lazily alongside first use, released with the slots.
+        // The zero-filled fallback block (see GetNullBlockAddress). Created by
+        // BeginFrame (lazily on first ask otherwise), released with the slots.
         VkBuffer m_NullBlockBuffer = VK_NULL_HANDLE;
         VmaAllocation m_NullBlockAllocation = VK_NULL_HANDLE;
         VkDeviceAddress m_NullBlockAddress = 0;
         u32 m_CurrentSlot = 0;
         u64 m_FrameGeneration = 0;
-        u64 m_AllocationsThisFrame = 0;
-        u64 m_OverflowCount = 0;
-        bool m_OverflowWarned = false;
+        std::atomic<u64> m_AllocationsThisFrame{ 0 };
+        std::atomic<u64> m_OverflowCount{ 0 };
+        std::atomic<bool> m_OverflowWarned{ false };
     };
 } // namespace OloEngine
 

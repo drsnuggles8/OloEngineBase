@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <glm/glm.hpp>
+#include <functional>
 #include <span>
 #include <string_view>
 
@@ -270,6 +271,58 @@ namespace OloEngine
         [[nodiscard]] virtual bool SubmitRenderGraphFenceSegment()
         {
             return false;
+        }
+
+        // --- Parallel command recording (issue #806, ADR 0011 amendment (92)) ---
+        // RecordParallel runs `body(item)` for every item in [0, itemCount).
+        // On a backend that supports it the items record on task workers, in
+        // any order, each into its own command buffer, and are executed at
+        // this point of the command stream in ASCENDING item order; on every
+        // other backend they run inline on the calling thread, in ascending
+        // order. The observable command stream is the same either way, so a
+        // pass never branches on the backend. The contract an item body must
+        // honour (one writer per resource object per region, no queries /
+        // readbacks / one-shots / backbuffer / resource creation inside an
+        // item) is amendment (92); the checklist for converting a pass is
+        // docs/agent-rules/vulkan-parallel-recording.md.
+        //
+        // SupportsParallelRecording answers whether a RecordParallel call made
+        // NOW would fork (device up, a recording live, a frame begun, the
+        // lever not off). It is a diagnostic and a scheduling hint, never a
+        // precondition: RecordParallel is correct in every state.
+        [[nodiscard]] virtual bool SupportsParallelRecording() const
+        {
+            return false;
+        }
+        // True on a thread that is currently recording a RecordParallel item.
+        // The backend-neutral layer asserts on it where a process-wide object
+        // is written (HeapBinding's offset table, RendererProfiler), turning
+        // amendment (92) rule 6 into a record-time failure instead of a grep.
+        [[nodiscard]] virtual bool IsRecordingParallelItem() const
+        {
+            return false;
+        }
+        virtual void RecordParallel(u32 itemCount, const std::function<void(u32 item)>& body)
+        {
+            for (u32 item = 0; item < itemCount; ++item)
+            {
+                body(item);
+            }
+        }
+        // Frame-level telemetry for the parallel recorder, reset per frame by
+        // the backend's frame bracket. Zeros on backends that never fork.
+        struct ParallelRecordingFrameStats
+        {
+            u32 Regions = 0;             ///< RecordParallel calls that forked this frame.
+            u32 InlineRegions = 0;       ///< RecordParallel calls that ran inline (unsupported, declined, or item count < 2).
+            u32 SecondariesExecuted = 0; ///< Secondary command buffers executed into the primary.
+            u32 MergeConflicts = 0;      ///< Subresources two items transitioned non-identically (amendment (92) rule 5).
+            f64 WorkerRecordMs = 0.0;    ///< Sum of per-item recording time across workers.
+            f64 RegionWallMs = 0.0;      ///< Sum of fork-to-join wall time on the render thread.
+        };
+        [[nodiscard]] virtual ParallelRecordingFrameStats GetParallelRecordingStats() const
+        {
+            return {};
         }
 
         // New methods for render graph

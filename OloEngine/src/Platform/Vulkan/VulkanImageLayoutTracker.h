@@ -22,6 +22,20 @@
 //
 // Pure CPU container — no device calls — so it is pinned headlessly by
 // VulkanBarrierLoweringTest with fabricated non-dispatchable handles.
+//
+// OVERLAYS (issue #806, ADR 0011 amendment (92) rule 5). A RecordParallel
+// item records on its own context with its own tracker, which is an
+// OVERLAY over the render thread's: reads fall through to the base for any
+// image the item has not written, the first write copies that image's row
+// in, and every write is remembered per subresource. At the join the
+// overlays merge into the base in item order, subresource by subresource,
+// writing only what each item wrote. The base is frozen for the whole
+// region (the render thread is inside the join), so concurrent reads of it
+// from several overlays are safe. Two items may write the same subresource
+// only when every such write is an identity transition (the layout the row
+// was copied with == the layout written) — otherwise the later item's
+// barrier named an oldLayout the earlier item already changed, and the
+// merge reports a conflict. Pinned by VulkanParallelRecordingTest.
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
@@ -31,11 +45,46 @@
 #include <volk.h>
 
 #include <functional>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
 namespace OloEngine
 {
+    // One RecordParallel region's record-time claims (#806): the first item
+    // that transitions a subresource NON-identically claims it; a second item
+    // doing the same is amendment (92) rule 5's conflict, and this names both
+    // items at the offending SetLayout instead of leaving it to the merge to
+    // count. Rare path (a few claims per item), so a mutex is fine.
+    class VulkanLayoutClaimTable
+    {
+      public:
+        static constexpr u32 kNone = 0xFFFFFFFFu;
+        void Reset();
+        // Returns kNone when `item` now holds (or already held) the claim, or
+        // the index of the OTHER item that holds it.
+        [[nodiscard]] u32 Claim(VkImage image, sizet subresource, u32 item);
+
+      private:
+        struct Key
+        {
+            VkImage Image = VK_NULL_HANDLE;
+            sizet Subresource = 0;
+            [[nodiscard]] auto operator==(const Key&) const -> bool = default;
+        };
+        struct KeyHash
+        {
+            [[nodiscard]] sizet operator()(const Key& key) const noexcept
+            {
+                sizet hash = std::hash<VkImage>{}(key.Image);
+                hash ^= std::hash<sizet>{}(key.Subresource) + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
+                return hash;
+            }
+        };
+        std::mutex m_Mutex;
+        std::unordered_map<Key, u32, KeyHash> m_Claims;
+    };
+
     class VulkanImageLayoutTracker
     {
       public:
@@ -80,6 +129,43 @@ namespace OloEngine
         static void ForgetImageEverywhere(VkImage image);
 
         void Reset();
+
+        // ---- Overlays (issue #806) ----------------------------------------
+        // Turn this tracker into an overlay over `base` (nullptr restores a
+        // plain tracker). The base must outlive the overlay and must not be
+        // mutated while the overlay is live (the fork/join contract). With a
+        // claim table, every non-identity write is claimed for `itemIndex` as
+        // it happens (see VulkanLayoutClaimTable).
+        void SetReadThroughBase(const VulkanImageLayoutTracker* base, VulkanLayoutClaimTable* claims = nullptr,
+                                u32 itemIndex = 0);
+        [[nodiscard]] bool IsOverlay() const
+        {
+            return m_Base != nullptr;
+        }
+        // One join's worth of merge bookkeeping: which subresources earlier
+        // items wrote, and whether identically. Create one per join, pass it
+        // to every MergeOverlayInto in item order, read Conflicts afterwards.
+        struct MergeBatch
+        {
+            // Per image, per subresource index: 0 = untouched, 1 = written as
+            // an identity transition, 2 = written as a real transition.
+            std::unordered_map<VkImage, std::vector<u8>> Written;
+            u32 Conflicts = 0;
+            u32 SubresourcesMerged = 0;
+        };
+        // Copy every subresource this overlay wrote into `base` (its own
+        // base, normally), report overlaps through `batch`, and drop the
+        // overlay's local rows. Executed layouts are untouched — the base's
+        // CommitRecordedToExecuted at EndRecording covers the items' work
+        // exactly as it covers the render thread's.
+        void MergeOverlayInto(VulkanImageLayoutTracker& base, MergeBatch& batch);
+        // Drop the overlay's local rows without merging (an item that never
+        // recorded, or a declined fork).
+        void DiscardOverlay();
+        [[nodiscard]] sizet GetOverlayRowCount() const
+        {
+            return m_Images.size();
+        }
 
         // ---- Recorded vs EXECUTED layout (issue #800) --------------------
         // SetLayout below advances the RECORDED layout: what the command
@@ -167,7 +253,17 @@ namespace OloEngine
             // Same indexing; the layout after all SUBMITTED work (see
             // CommitRecordedToExecuted).
             std::vector<VkImageLayout> Executed;
+            // Overlay rows only (#806): the layouts this row was copied from
+            // the base with, and which subresources this overlay wrote:
+            // 0 untouched, 1 identity writes only, 2 at least one real
+            // transition (what the merge's identity test reads).
+            std::vector<VkImageLayout> Original;
+            std::vector<u8> Written;
         };
+
+        // Overlay support: copy `image`'s row from the base into m_Images (no
+        // op when the base has no such row). Returns the local row or null.
+        ImageState* CopyRowFromBase(VkImage image);
 
         // Clamp an open (VK_REMAINING_*) range against the image's extents.
         struct ResolvedRange
@@ -180,6 +276,9 @@ namespace OloEngine
         [[nodiscard]] static ResolvedRange Resolve(const ImageState& state, const VkImageSubresourceRange& range);
 
         std::unordered_map<VkImage, ImageState> m_Images;
+        const VulkanImageLayoutTracker* m_Base = nullptr;
+        VulkanLayoutClaimTable* m_Claims = nullptr;
+        u32 m_ItemIndex = 0;
     };
 } // namespace OloEngine
 

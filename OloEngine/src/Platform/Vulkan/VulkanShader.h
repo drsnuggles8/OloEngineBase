@@ -37,7 +37,9 @@
 #include <volk.h>
 
 #include <filesystem>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -224,6 +226,12 @@ namespace OloEngine
         // rebuild replaces m_Bindings. unique_ptr of a forward-declared type
         // — the out-of-line dtor already exists.
         std::unique_ptr<VulkanRootDataLayout> m_RootLayout;
+        // The build is lazy and every draw asks for it, so RecordParallel
+        // items race on the first ask (#806): double-checked behind the
+        // flag, built under the mutex. Reload resets both on the render
+        // thread, outside any region.
+        std::atomic<bool> m_RootLayoutBuilt{ false };
+        std::mutex m_RootLayoutMutex;
         RHI::ScopedResourceHandle m_RHIHandle;
         ShaderCompilationStatus m_Status = ShaderCompilationStatus::Pending;
         bool m_IsDeferredCapable = false;

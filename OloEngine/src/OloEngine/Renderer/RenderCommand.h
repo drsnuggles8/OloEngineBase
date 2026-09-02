@@ -383,6 +383,33 @@ namespace OloEngine
             return s_RendererAPI && s_RendererAPI->SubmitRenderGraphFenceSegment();
         }
 
+        // Parallel command recording (issue #806) — see RendererAPI::RecordParallel.
+        [[nodiscard]] static bool SupportsParallelRecording()
+        {
+            return s_RendererAPI && s_RendererAPI->SupportsParallelRecording();
+        }
+        [[nodiscard]] static bool IsRecordingParallelItem()
+        {
+            return s_RendererAPI && s_RendererAPI->IsRecordingParallelItem();
+        }
+        static void RecordParallel(const u32 itemCount, const std::function<void(u32 item)>& body)
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->RecordParallel(itemCount, body);
+                return;
+            }
+            for (u32 item = 0; item < itemCount; ++item)
+            {
+                body(item);
+            }
+        }
+        [[nodiscard]] static RendererAPI::ParallelRecordingFrameStats GetParallelRecordingStats()
+        {
+            return s_RendererAPI ? s_RendererAPI->GetParallelRecordingStats()
+                                 : RendererAPI::ParallelRecordingFrameStats{};
+        }
+
         // Per-attachment blend control. Tri-state: see the declaration in
         // RendererAPI.h -- an attachment a pass turned on or off keeps that
         // opinion until ResetBlendStateForAttachment withdraws it, so every

@@ -2240,3 +2240,124 @@ construction, so a different element count is necessarily a different buffer.
 
 Narrative, and the gate's test shape:
 [rhi-abstraction-boundary.md](../agent-rules/rhi-abstraction-boundary.md) §17.
+
+## Amendments from issue #806 (2026-09-01) — parallel command recording
+
+### (92) A parallel region records one secondary per work item and executes them in item order; every draw-path fact that was "render thread only" is now "per recording context"
+
+The decision, in the order a reader needs it:
+
+1. **The grain is a fork/join INSIDE a pass, not a pass per worker.**
+   `RenderCommand::RecordParallel(count, body)` runs `body(item)` for each
+   item. On a backend that supports it the items record on task workers, in
+   any order, into their own command buffers; on every other backend they
+   run inline on the calling thread in ascending order. The facade contract
+   is identical either way, so a pass never branches on the backend. The
+   graph executor stays a sequential walk: passes share `Renderer3D` state,
+   and "which passes may run concurrently" is a much larger contract than
+   "which cascades of one pass are independent".
+2. **One item, one `VulkanRecordingContext`, one secondary command buffer.**
+   Everything `VulkanRendererAPI` used to keep per command buffer — the
+   buffer, the lazy rendering scope, the pending clear, the bind caches,
+   the recorded pipeline state, viewport/scissor, the framebuffer
+   selections, the draw tallies — lives in the context, and so do two
+   things that were process-global on the single-threaded backend: the
+   bind-point mirror (`VulkanBindingState`) and the currently bound program.
+   The render thread's context is the main one; a worker's is the item's.
+   Every entry point resolves the current context through a thread-local,
+   so nothing on the draw path passes a context parameter. Draw-path
+   allocations stay off shared cache lines: an item bump-allocates its root
+   data inside a 64 KiB block claimed once from the frame arena's cursor, and
+   the get-or-create caches hash outside their lock and share it on a hit.
+3. **Items execute in item order at the fork point.** The join records one
+   `vkCmdExecuteCommands` with the items' secondaries in ascending item
+   order, so the primary's command stream is exactly what the inline path
+   produces. Secondaries execute OUTSIDE a render pass instance: each item
+   opens and closes its own dynamic-rendering scopes and may record
+   barriers, clears and copies.
+4. **The fork seeds, the join adopts.** Each item inherits the render
+   thread's recorded state as of the fork (what iteration 0 of the
+   sequential loop saw): pipeline state, viewport, scissor, bound
+   framebuffer / buffers / textures / program, framebuffer selections. After
+   the join the render thread keeps its pre-fork recorded state, resets its
+   per-command-buffer caches (heap bind, index buffer, emitted scissor —
+   command-buffer state is undefined after `vkCmdExecuteCommands`), sums the
+   items' draw tallies, and adopts the LAST item's framebuffer selections
+   (GL's sticky attachment state after a loop).
+5. **Layout tracking: per-item overlays merged in item order, one loud
+   rule.** An item's tracker reads through to the render thread's tracker
+   (frozen during the region) and copies an image's row on the item's first
+   write to it. The join merges only the subresources an item wrote, item
+   by item. Two items may write the same subresource only when every such
+   write is an identity transition (old layout == new layout); any other
+   overlap is a conflict, because the later item's `oldLayout` was computed
+   against the pre-fork state, not the earlier item's result. It is caught
+   twice: at record time, where an item's non-identity write claims the
+   subresource for the region and a second item's claim asserts with both
+   item indices at the offending call, and at the join, where the merge
+   counts it into the frame stats and logs it every frame. The secondaries
+   still execute — dropping a region's work is a certainly broken frame, a
+   stale barrier is a validation error. To make shared targets legal, the fork first
+   transitions the bound target's attachments (colour, depth, or the
+   selected depth-array layer) to their attachment layouts on the primary,
+   so items rendering into one target open their scopes with identity
+   transitions. That is what lets the shadow atlas (tiles of one layer)
+   record in parallel; cascades (one layer each) are disjoint by
+   construction.
+6. **A resource object has one writer per region.** `UniformBuffer::SetData`
+   and `StorageBuffer::SetData` / `InstanceBuffer::Upload` version their
+   bytes per OBJECT (amendments (78), (80)), not per context, so an object
+   written from two items interleaves. A pass that writes such an object per
+   item owns one object per item, sized before the fork (growing a buffer
+   creates and reclaims GPU memory, which rule 7 refuses on an item) — the
+   shadow pass keeps a camera UBO, an animation UBO and an instance buffer
+   per cascade / atlas entry. The rule is checked at record time: a Vulkan
+   buffer object stamps `(region, item)` on every write and asserts when a
+   second item writes it in the same region. Process-wide writers on the
+   backend-neutral side (`HeapBinding::FlushOffsets`, the profiler's
+   counters) assert on `RenderCommand::IsRecordingParallelItem()`; the
+   terrain, foliage and virtual-geometry casters record after the join.
+   Objects an item only READS are primed at the fork (every UBO bound at
+   the fork is pushed once on the render thread, the null sampled slots are
+   created), so an item's draw never takes a shared lazy path.
+7. **Outside the envelope, refused on an item context:** queries and
+   conditional rendering, timestamps, readbacks and mid-frame flushes
+   (`SuspendRecordingForFlush` returns null, so the readback takes its
+   previous-frame arm), one-shot submits, targeting the backbuffer, fences,
+   device waits, uploads, and resource creation or destruction — every such
+   `VulkanRendererAPI` entry point opens with `RefuseOnWorker`. Each refusal
+   is an assert in Debug and a warn-once drop otherwise, never a silent
+   fall-through.
+8. **Process-wide caches on the draw path take a mutex; the frame arena's
+   cursor is a lock-free claim.** Descriptor slot cache, sampler heap,
+   pipeline builder, the descriptor-heap null-slot memo, a framebuffer's
+   depth-layer view cache and a texture's attachment view are all
+   get-or-create maps whose miss path is rare after the first frame; the
+   arena is touched once per draw and claims with an atomic compare-exchange
+   over one shared cursor per slot. Registries (image info, root objects,
+   raw buffers) are read-only inside a region by rule 7.
+9. **The frame owner resets the pools, and the fork acquires every secondary
+   before it forks.** Secondaries come from one `VkCommandPool` per (frame
+   slot, ITEM): the render thread begins all N buffers before any worker
+   runs, and whichever worker records an item is the only thread that ever
+   touches that item's pool. A pool that cannot hand out a buffer declines
+   the whole region before it is seeded, so the lever, the predicate and a
+   failure share exactly one inline path. A slot's pools reset when the
+   frame arena's generation advances, because `VulkanFrameArena::BeginFrame`
+   runs only after the frame fence proved that slot's submissions retired.
+   With no frame begun (an arena generation of 0) a region runs inline.
+10. **The capability is one predicate.** `RendererAPI::SupportsParallelRecording()`
+    defaults to false; Vulkan answers true when a device is up, a main
+    recording is live, no region is open, a frame has begun, and the
+    `OLO_VK_PARALLEL_RECORDING` lever is not off. `RecordParallel` is correct
+    in every state on every backend; the predicate only says whether it
+    will fork.
+
+What this deliberately does not build: replaying a `CommandBucket` on an
+item (the dispatcher's bind cache and the shared material / instance UBOs it
+uploads are per process — rule 6 applied to `Renderer3D` would mean
+per-context copies of its resources), per-pass worker assignment, and async
+compute (#808). The phase-2 tracker for the first two is #1013.
+
+Narrative and the checklist for converting a pass:
+[vulkan-parallel-recording.md](../agent-rules/vulkan-parallel-recording.md).

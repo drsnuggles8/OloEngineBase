@@ -15,7 +15,15 @@
 // every pipeline used to bake, so a binding whose sampler was never
 // staged samples exactly as it did before this heap existed.
 //
-// Thread-safety: NONE, deliberately — render thread only.
+// Thread-safety (issue #806, ADR 0011 amendment (92) rule 8): GetOrCreateSlot
+// is on the draw path (BindTexture stages a sampler index per draw) and may
+// run from several recording threads at once. It, EnsureCreated and Release
+// serialise on m_Mutex, which covers the hash map, the bump cursor and the
+// descriptor writes into the mapped heap. CmdBind locks only its lazy
+// creation (through EnsureCreated) and then reads the heap's address and
+// sizes lock-free: they are written once at creation and cleared only by
+// Release, a render-thread teardown path. The stride / offset getters are the
+// same kind of read-after-creation and take no lock.
 
 #include "OloEngine/Core/Base.h"
 
@@ -23,6 +31,8 @@
 
 #include "Platform/Vulkan/VulkanDevice.h"
 
+#include <mutex>
+#include <shared_mutex>
 #include <unordered_map>
 
 namespace OloEngine
@@ -34,7 +44,7 @@ namespace OloEngine
 
         // Lazily creates the heap buffer and writes the default sampler into
         // slot 0 (requires a live VulkanDevice). False when no device is up
-        // or creation failed.
+        // or creation failed. Takes m_Mutex.
         [[nodiscard]] bool EnsureCreated();
 
         // Get-or-create the slot whose descriptor realises `info`. Dedup is
@@ -42,7 +52,7 @@ namespace OloEngine
         // absent heap, exhausted slots, a failed WRITE for a new state —
         // returns DefaultSlot (draws then sample linear/clamp — the pre-heap
         // behaviour), so callers can store the result directly and never
-        // leak InvalidSlot into root data.
+        // leak InvalidSlot into root data. Takes m_Mutex for its whole body.
         [[nodiscard]] u32 GetOrCreateSlot(const VkSamplerCreateInfo& info);
 
         static constexpr u32 DefaultSlot = 0u;
@@ -73,16 +83,24 @@ namespace OloEngine
         // Diagnostic/test affordance.
         [[nodiscard]] sizet GetLiveSlotCount() const
         {
+            std::shared_lock lock(m_Mutex);
             return m_SlotByHash.size();
         }
 
         // Teardown (device idle): enqueue the buffer for reclaim, forget
-        // state; lazily re-creatable.
+        // state; lazily re-creatable. Takes m_Mutex.
         void Release();
 
       private:
         VulkanSamplerHeap() = default;
 
+        // The bodies behind EnsureCreated / Release, for callers that already
+        // hold m_Mutex (GetOrCreateSlot, and the default-sampler failure arm
+        // inside creation itself).
+        [[nodiscard]] bool EnsureCreatedLocked();
+        void ReleaseLocked();
+
+        // Caller holds m_Mutex.
         [[nodiscard]] bool WriteSampler(u32 slot, const VkSamplerCreateInfo& info);
 
         // Distinct sampler states in the engine number in the dozens (§4f's
@@ -90,6 +108,7 @@ namespace OloEngine
         // ~8 KiB of heap.
         static constexpr u32 kSlotCapacity = 256;
 
+        mutable std::shared_mutex m_Mutex; ///< See the thread-safety note at the top of this header.
         VkBuffer m_Buffer = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;
         void* m_Mapped = nullptr;
