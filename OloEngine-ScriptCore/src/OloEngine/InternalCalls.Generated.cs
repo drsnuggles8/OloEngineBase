@@ -1294,6 +1294,21 @@ namespace OloEngine
 		internal static extern void PhysicsJoint3DComponent_SetPathMaxFrictionForce(ulong entityID, float value);
 		#endregion
 
+		#region PlayerRespawnComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRespawnComponent_GetSpawnPoint(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRespawnComponent_SetSpawnPoint(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRespawnComponent_GetSpawnYawDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRespawnComponent_SetSpawnYawDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRespawnComponent_GetRespawnDelay(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRespawnComponent_SetRespawnDelay(ulong entityID, float value);
+		#endregion
+
 		#region PlayerRigComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float PlayerRigComponent_GetLookSensitivity(ulong entityID);
@@ -2376,6 +2391,29 @@ namespace OloEngine
 		internal static extern bool VisualScriptComponent_GetEnabled(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void VisualScriptComponent_SetEnabled(ulong entityID, bool value);
+		#endregion
+
+		#region WeaponComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string WeaponComponent_GetWeaponItemID(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void WeaponComponent_SetWeaponItemID(ulong entityID, string value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void WeaponComponent_GetMuzzleOffset(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void WeaponComponent_SetMuzzleOffset(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool WeaponComponent_GetUseDeviceInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void WeaponComponent_SetUseDeviceInput(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool WeaponComponent_GetFireInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void WeaponComponent_SetFireInput(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool WeaponComponent_GetReloadInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void WeaponComponent_SetReloadInput(ulong entityID, bool value);
 		#endregion
 
 		#region WeatherStateComponent

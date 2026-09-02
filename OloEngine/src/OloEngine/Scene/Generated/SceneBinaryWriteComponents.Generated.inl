@@ -490,6 +490,15 @@ if (entity.HasComponent<PerceptibleComponent>())
     SceneBinIO::Write(out, comp.IsPerceptible);
 }
 
+if (entity.HasComponent<PlayerRespawnComponent>())
+{
+    SceneBinIO::WriteU32(out, 2307422275u); // PlayerRespawnComponent
+    auto const& comp = entity.GetComponent<PlayerRespawnComponent>();
+    SceneBinIO::Write(out, comp.m_SpawnPoint);
+    SceneBinIO::Write(out, comp.m_SpawnYawDeg);
+    SceneBinIO::Write(out, comp.m_RespawnDelay);
+}
+
 if (entity.HasComponent<PlayerRigComponent>())
 {
     SceneBinIO::WriteU32(out, 3041720013u); // PlayerRigComponent
@@ -854,6 +863,15 @@ if (entity.HasComponent<VirtualMeshComponent>())
     SceneBinIO::Write(out, comp.m_MeshSource);
     SceneBinIO::Write(out, comp.m_ErrorThresholdPixels);
     SceneBinIO::Write(out, comp.m_CastShadows);
+}
+
+if (entity.HasComponent<WeaponComponent>())
+{
+    SceneBinIO::WriteU32(out, 1559439708u); // WeaponComponent
+    auto const& comp = entity.GetComponent<WeaponComponent>();
+    SceneBinIO::Write(out, comp.m_WeaponItemID);
+    SceneBinIO::Write(out, comp.m_MuzzleOffset);
+    SceneBinIO::Write(out, comp.m_UseDeviceInput);
 }
 
 if (entity.HasComponent<WeatherStateComponent>())

@@ -6538,6 +6538,77 @@ static void PhysicsJoint3DComponent_SetPathMaxFrictionForce(UUID entityID, float
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// PlayerRespawnComponent                                                         //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static void PlayerRespawnComponent_GetSpawnPoint(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRespawnComponent>();
+    *outValue = comp.m_SpawnPoint;
+}
+
+static void PlayerRespawnComponent_SetSpawnPoint(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRespawnComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_SpawnPoint = *value;
+}
+
+static float PlayerRespawnComponent_GetSpawnYawDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRespawnComponent>();
+    return comp.m_SpawnYawDeg;
+}
+
+static void PlayerRespawnComponent_SetSpawnYawDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PlayerRespawnComponent>();
+    comp.m_SpawnYawDeg = value;
+}
+
+static float PlayerRespawnComponent_GetRespawnDelay(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRespawnComponent>();
+    return comp.m_RespawnDelay;
+}
+
+static void PlayerRespawnComponent_SetRespawnDelay(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PlayerRespawnComponent>();
+    comp.m_RespawnDelay = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // PlayerRigComponent                                                             //
 ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -11873,6 +11944,115 @@ static void VisualScriptComponent_SetEnabled(UUID entityID, bool value)
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<VisualScriptComponent>();
     comp.m_Enabled = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// WeaponComponent                                                                //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static MonoString* WeaponComponent_GetWeaponItemID(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeaponComponent>();
+    return ScriptEngine::CreateString(comp.m_WeaponItemID.c_str());
+}
+
+static void WeaponComponent_SetWeaponItemID(UUID entityID, MonoString* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!value)
+        return;
+    auto& comp = entity.GetComponent<WeaponComponent>();
+    comp.m_WeaponItemID = Utils::MonoStringToString(value);
+}
+
+static void WeaponComponent_GetMuzzleOffset(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeaponComponent>();
+    *outValue = comp.m_MuzzleOffset;
+}
+
+static void WeaponComponent_SetMuzzleOffset(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeaponComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_MuzzleOffset = *value;
+}
+
+static bool WeaponComponent_GetUseDeviceInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeaponComponent>();
+    return comp.m_UseDeviceInput;
+}
+
+static void WeaponComponent_SetUseDeviceInput(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeaponComponent>();
+    comp.m_UseDeviceInput = value;
+}
+
+static bool WeaponComponent_GetFireInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeaponComponent>();
+    return comp.m_FireInput;
+}
+
+static void WeaponComponent_SetFireInput(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeaponComponent>();
+    comp.m_FireInput = value;
+}
+
+static bool WeaponComponent_GetReloadInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeaponComponent>();
+    return comp.m_ReloadInput;
+}
+
+static void WeaponComponent_SetReloadInput(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeaponComponent>();
+    comp.m_ReloadInput = value;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////

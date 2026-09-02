@@ -129,12 +129,14 @@
 #include "OloEngine/Gameplay/Discovery/DiscoverySystem.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
 #include "OloEngine/Gameplay/Progression/ProgressionSystem.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestDialogueBridge.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
+#include "OloEngine/Gameplay/Combat/CombatSystem.h"
 #include "OloEngine/Gameplay/GameplayEventBus.h"
 #include "OloEngine/Gameplay/PlayerRig/PlayerRigComponents.h"
 #include "OloEngine/Gameplay/PlayerRig/PlayerRigSystem.h"
@@ -1436,6 +1438,18 @@ namespace OloEngine
     void Scene::OnRuntimeStart()
     {
         m_IsRunning = true;
+
+        // Item definitions are runtime data, not an editor-only cache. Loading
+        // them at the shared Scene entry point covers Editor Play, OloRuntime,
+        // and OloServer with the same authored weapon definitions.
+        if (Project::GetActive())
+        {
+            const auto itemsDirectory = Project::GetAssetFileSystemPath("Items");
+            if (std::filesystem::exists(itemsDirectory))
+            {
+                ItemDatabase::LoadFromDirectory(itemsDirectory.string());
+            }
+        }
 
         // Drop any wake foam and hull history left by a previous scene or a
         // previous run (issue #967). The disturbance field is WORLD-anchored
@@ -3313,6 +3327,16 @@ namespace OloEngine
                 .Reads(kPhysicsInFlight)
                 .Writes(kLocalTransforms);
 
+            // Weapon traces and projectile sweeps must observe this tick's
+            // completed physics world. Combat may also move or create
+            // projectile transforms, so its local-transform write orders world
+            // propagation after those changes. Structural registry changes
+            // keep this system on the game thread.
+            sched.AddSystem("Combat", [](Scene& s, Timestep ts)
+                            { s.UpdateCombat(ts); })
+                .ReadsWrites(kLocalTransforms)
+                .After("PhysicsFence");
+
             // Compose world matrices once every local-transform mover has run;
             // publishes WorldTransforms for post-tick consumers (rendering, #499).
             sched.AddSystem("PropagateTransforms", [](Scene& s, Timestep)
@@ -4075,6 +4099,11 @@ namespace OloEngine
     {
         // Update gameplay ability system (abilities, effects, cooldowns)
         GameplayAbilitySystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateCombat(Timestep ts)
+    {
+        CombatSystem::OnUpdate(this, GetPhysicsScene(), ts.GetSeconds());
     }
 
     void Scene::UpdateAudio(Timestep ts)

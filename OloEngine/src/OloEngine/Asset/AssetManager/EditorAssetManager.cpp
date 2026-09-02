@@ -5,6 +5,7 @@
 #include "OloEngine/Asset/AssetExtensions.h"
 #include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Localization/LocalizationManager.h"
+#include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Core/Ref.h"
@@ -1222,6 +1223,24 @@ namespace OloEngine
         const bool isPresenceEvent = (change_type == filewatch::Event::added) ||
                                      (change_type == filewatch::Event::modified) ||
                                      (change_type == filewatch::Event::renamed_new);
+
+        // .oloitem files are typed gameplay definitions rather than Asset
+        // instances, but they still participate in the editor's project
+        // watcher. Rebuild the small registry for adds, edits, renames, and
+        // removals so the next shot sees the new tuning without restarting.
+        if (filePath.extension() == ".oloitem")
+        {
+            const auto itemsDirectory = Project::GetAssetFileSystemPath("Items");
+            if (std::filesystem::exists(itemsDirectory))
+            {
+                ItemDatabase::LoadFromDirectory(itemsDirectory.string());
+            }
+            else
+            {
+                ItemDatabase::Clear();
+            }
+            return;
+        }
         if (!isPresenceEvent)
             return;
 

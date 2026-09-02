@@ -5,6 +5,8 @@
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
+#include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Gameplay/Abilities/Tags/GameplayTag.h"
 #include "OloEngine/Gameplay/PlayerRig/PlayerRigComponents.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Physics3D/JoltCharacterController.h"
@@ -300,6 +302,25 @@ namespace OloEngine
         {
             auto& transform = view.get<TransformComponent>(entity);
             auto& rig = view.get<PlayerRigComponent>(entity);
+            Entity owner{ entity, scene };
+
+            if (owner.HasComponent<AbilityComponent>() &&
+                owner.GetComponent<AbilityComponent>().OwnedTags.HasTagExact(GameplayTag("State.Dead")))
+            {
+                rig.m_MoveInput = glm::vec2(0.0f);
+                rig.m_LookInput = glm::vec2(0.0f);
+                rig.m_SprintInput = false;
+                rig.m_JumpInput = false;
+                rig.m_PlanarSpeed = 0.0f;
+                if (physics != nullptr)
+                {
+                    if (Ref<JoltCharacterController> controller = physics->GetCharacterController(owner))
+                    {
+                        controller->SetLinearVelocity(glm::vec3(0.0f));
+                    }
+                }
+                continue;
+            }
 
             if (rig.m_UseDeviceInput)
             {
@@ -342,7 +363,6 @@ namespace OloEngine
             const f32 sprint = rig.m_SprintInput ? std::max(1.0f, rig.m_SprintMultiplier) : 1.0f;
             const f32 groundSpeed = std::max(0.0f, rig.m_WalkSpeed) * sprint * magnitude;
 
-            Entity owner{ entity, scene };
             // Non-const Ref: Ref<T>::operator-> propagates constness, so a
             // `const Ref` here would make every setter call below ill-formed.
             Ref<JoltCharacterController> controller =

@@ -37,6 +37,7 @@
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Combat/CombatComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
@@ -349,6 +350,8 @@ namespace OloEngine
             REGISTER_COMPONENT(BoidObstacleComponent),
             REGISTER_COMPONENT(PlayerRigComponent),
             REGISTER_COMPONENT(CameraRigComponent),
+            REGISTER_COMPONENT(WeaponComponent),
+            REGISTER_COMPONENT(PlayerRespawnComponent),
             REGISTER_COMPONENT(AbilityComponent),
             REGISTER_COMPONENT(DialogueComponent),
             REGISTER_COMPONENT(VisualScriptComponent),
@@ -4057,6 +4060,25 @@ namespace OloEngine
             // be silently discarded, so expose them read-only.
             "planarSpeed", sol::readonly(&PlayerRigComponent::m_PlanarSpeed),
             "grounded", sol::readonly(&PlayerRigComponent::m_Grounded));
+
+        // --- FPS combat components (issue #436) ---
+        lua.new_usertype<WeaponComponent>(
+            "WeaponComponent",
+            "weaponItemID", &WeaponComponent::m_WeaponItemID,
+            "muzzleOffset", &WeaponComponent::m_MuzzleOffset,
+            "useDeviceInput", &WeaponComponent::m_UseDeviceInput,
+            "fire", &WeaponComponent::m_FireInput,
+            "reload", &WeaponComponent::m_ReloadInput);
+
+        lua.new_usertype<PlayerRespawnComponent>(
+            "PlayerRespawnComponent",
+            "spawnPoint", &PlayerRespawnComponent::m_SpawnPoint,
+            "spawnYaw", sol::property([](const PlayerRespawnComponent& c)
+                                      { return c.m_SpawnYawDeg; }, [](PlayerRespawnComponent& c, f32 value)
+                                      { c.m_SpawnYawDeg = std::isfinite(value) ? value : 0.0f; }),
+            "respawnDelay", sol::property([](const PlayerRespawnComponent& c)
+                                          { return c.m_RespawnDelay; }, [](PlayerRespawnComponent& c, f32 value)
+                                          { c.m_RespawnDelay = std::isfinite(value) ? std::clamp(value, 0.0f, 3600.0f) : 3.0f; }));
 
         // --- CameraRigComponent (issue #645) ---
         // m_BoomLength == 0 is first person; anything above it is a

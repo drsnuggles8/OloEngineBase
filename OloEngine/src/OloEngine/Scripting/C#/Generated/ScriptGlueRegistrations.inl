@@ -662,6 +662,14 @@ OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_SetPathMaxMotorForce);
 OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_GetPathMaxFrictionForce);
 OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_SetPathMaxFrictionForce);
 
+// PlayerRespawnComponent
+OLO_ADD_INTERNAL_CALL(PlayerRespawnComponent_GetSpawnPoint);
+OLO_ADD_INTERNAL_CALL(PlayerRespawnComponent_SetSpawnPoint);
+OLO_ADD_INTERNAL_CALL(PlayerRespawnComponent_GetSpawnYawDeg);
+OLO_ADD_INTERNAL_CALL(PlayerRespawnComponent_SetSpawnYawDeg);
+OLO_ADD_INTERNAL_CALL(PlayerRespawnComponent_GetRespawnDelay);
+OLO_ADD_INTERNAL_CALL(PlayerRespawnComponent_SetRespawnDelay);
+
 // PlayerRigComponent
 OLO_ADD_INTERNAL_CALL(PlayerRigComponent_GetLookSensitivity);
 OLO_ADD_INTERNAL_CALL(PlayerRigComponent_SetLookSensitivity);
@@ -1223,6 +1231,18 @@ OLO_ADD_INTERNAL_CALL(VisualScriptComponent_GetGraph);
 OLO_ADD_INTERNAL_CALL(VisualScriptComponent_SetGraph);
 OLO_ADD_INTERNAL_CALL(VisualScriptComponent_GetEnabled);
 OLO_ADD_INTERNAL_CALL(VisualScriptComponent_SetEnabled);
+
+// WeaponComponent
+OLO_ADD_INTERNAL_CALL(WeaponComponent_GetWeaponItemID);
+OLO_ADD_INTERNAL_CALL(WeaponComponent_SetWeaponItemID);
+OLO_ADD_INTERNAL_CALL(WeaponComponent_GetMuzzleOffset);
+OLO_ADD_INTERNAL_CALL(WeaponComponent_SetMuzzleOffset);
+OLO_ADD_INTERNAL_CALL(WeaponComponent_GetUseDeviceInput);
+OLO_ADD_INTERNAL_CALL(WeaponComponent_SetUseDeviceInput);
+OLO_ADD_INTERNAL_CALL(WeaponComponent_GetFireInput);
+OLO_ADD_INTERNAL_CALL(WeaponComponent_SetFireInput);
+OLO_ADD_INTERNAL_CALL(WeaponComponent_GetReloadInput);
+OLO_ADD_INTERNAL_CALL(WeaponComponent_SetReloadInput);
 
 // WeatherStateComponent
 OLO_ADD_INTERNAL_CALL(WeatherStateComponent_GetEnabled);

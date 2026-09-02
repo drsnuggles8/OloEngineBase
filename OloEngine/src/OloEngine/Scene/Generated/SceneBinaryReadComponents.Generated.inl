@@ -617,6 +617,15 @@ case 1430454779u: // PerceptibleComponent
     if (!SceneBinIO::Read(reader, comp.IsPerceptible)) return false;
     break;
 }
+case 2307422275u: // PlayerRespawnComponent
+{
+    auto& comp = deserializedEntity.AddComponent<PlayerRespawnComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_SpawnPoint)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_SpawnYawDeg)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_RespawnDelay)) return false;
+    comp.m_RespawnDelay = std::clamp(comp.m_RespawnDelay, static_cast<f32>(0.0f), static_cast<f32>(3600.0f));
+    break;
+}
 case 3041720013u: // PlayerRigComponent
 {
     auto& comp = deserializedEntity.AddComponent<PlayerRigComponent>();
@@ -1061,6 +1070,14 @@ case 2502968764u: // VirtualMeshComponent
     if (!SceneBinIO::Read(reader, comp.m_ErrorThresholdPixels)) return false;
     comp.m_ErrorThresholdPixels = std::clamp(comp.m_ErrorThresholdPixels, static_cast<f32>(0.05f), static_cast<f32>(64.0f));
     if (!SceneBinIO::Read(reader, comp.m_CastShadows)) return false;
+    break;
+}
+case 1559439708u: // WeaponComponent
+{
+    auto& comp = deserializedEntity.AddComponent<WeaponComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_WeaponItemID)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_MuzzleOffset)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_UseDeviceInput)) return false;
     break;
 }
 case 1224072163u: // WeatherStateComponent

@@ -660,6 +660,7 @@ add_executable(OloEngine-Tests
 		Gameplay/ActiveEffectsCleanupTest.cpp
 		Gameplay/ProgressionSystemTest.cpp
 		Gameplay/PlayerRigTest.cpp
+		Gameplay/WeaponStateTest.cpp
 		# Content Browser Tests
 		ContentBrowser/DirectoryTreeTest.cpp
 		ContentBrowser/ContentBrowserItemTest.cpp
@@ -1037,6 +1038,7 @@ add_executable(OloEngine-Tests
 		Functional/SaveGame/AbilityComponentRoundTripTest.cpp
 		Functional/Dialogue/DialogueTextRevealsOverTicksTest.cpp
 		Functional/Gameplay/DamageKillsEntityAndFlipsDeathTagTest.cpp
+		Functional/Gameplay/WeaponImpactUsesGameplayDamageTest.cpp
 		Functional/Gameplay/DestructibleDebrisTest.cpp
 		Functional/Gameplay/QuestObjectiveCompletionAdvancesStageTest.cpp
 		Functional/Gameplay/PeriodicDamageEffectTicksHealthDownTest.cpp

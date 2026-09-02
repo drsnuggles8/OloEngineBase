@@ -1581,6 +1581,17 @@
 		"OloEngine/Gameplay/PlayerRig/PlayerRigSystem.h"
 		"OloEngine/Gameplay/PlayerRig/PlayerRigSystem.cpp"
 
+		"OloEngine/Gameplay/Combat/WeaponState.h"
+		"OloEngine/Gameplay/Combat/WeaponState.cpp"
+		"OloEngine/Gameplay/Combat/WeaponDefinition.h"
+		"OloEngine/Gameplay/Combat/WeaponDamage.h"
+		"OloEngine/Gameplay/Combat/WeaponDamage.cpp"
+		"OloEngine/Gameplay/Combat/CombatSystem.h"
+		"OloEngine/Gameplay/Combat/CombatSystem.cpp"
+		"OloEngine/Gameplay/Combat/ProjectileState.h"
+		"OloEngine/Gameplay/Combat/ProjectileState.cpp"
+		"OloEngine/Gameplay/Combat/CombatComponents.h"
+
 		"OloEngine/Navigation/NavMeshSettings.h"
 		"OloEngine/Navigation/NavMesh.h"
 		"OloEngine/Navigation/NavMesh.cpp"
