@@ -118,9 +118,9 @@ namespace OloEngine::Tests
         // static_assert over every SSBO_* and by
         // ShaderBindingLayout.SSBOSlotsFitTheMesaCeiling -- so the number here
         // can only ever move within 0..79. Nothing above 79 is legal any more.
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_TERRAIN_VT;
-        static_assert(kHighestKnownSSBOBinding < ShaderBindingLayout::SSBO_BINDING_LIMIT,
-                      "the reflection ceiling must sit below the Mesa SSBO binding cap (issue #1015)");
+        // Derived, not hand-pointed: the header's own max over every SSBO_*,
+        // so a family that moves the top slot cannot leave this stale.
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_HIGHEST_BINDING;
 
         struct BindingFailure
         {

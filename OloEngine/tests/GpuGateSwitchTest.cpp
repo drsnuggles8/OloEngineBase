@@ -164,27 +164,30 @@ namespace OloEngine::Tests
         EXPECT_EQ(CountMessagesContaining(run.Xml, "--olo-gl-backend=none"), 2u) << run.Xml;
     }
 
-    TEST(GpuGateSwitch, RequireGpuTurnsAMissingContextIntoAFailure)
+    TEST(GpuGateSwitch, RequireGpuNeverSkips)
     {
+        // The child auto-detects its own context; this process cannot know
+        // whether one is obtainable, because under ctest on the CI box it was
+        // itself launched with --olo-gl-backend=none (IsGpuAvailable() here is
+        // a forced false, not "no hardware"). So the invariant under test is
+        // the one that holds either way: with --olo-require-gpu a gate-site
+        // test RUNS or FAILS, and never skips. Which of the two happened is
+        // read off the child's exit code and then checked for consistency.
         const ChildRun run = RunSelf("gpu-gate-require", "--olo-require-gpu");
         ASSERT_FALSE(run.Xml.empty()) << "child wrote no gtest XML\n"
                                       << run.Output;
         EXPECT_EQ(Count(run.Xml, "<testcase "), 2u) << run.Xml;
+        EXPECT_EQ(Count(run.Xml, "<skipped "), 0u) << run.Xml;
 
-        if (RenderPropertyFixture::IsGpuAvailable())
+        if (run.ExitCode == 0)
         {
-            // A context exists here, so the child gets one too: the flag must
-            // change nothing and both tests run for real.
-            EXPECT_EQ(run.ExitCode, 0) << run.Output;
-            EXPECT_EQ(Count(run.Xml, "<skipped "), 0u) << run.Xml;
+            // A context existed: both tests ran for real and passed.
             EXPECT_EQ(Count(run.Xml, "<failure "), 0u) << run.Xml;
         }
         else
         {
-            // No context (a GitHub-hosted runner): the skip must become a
-            // failure at both sites, naming the flag that asked for it.
-            EXPECT_NE(run.ExitCode, 0) << run.Output;
-            EXPECT_EQ(Count(run.Xml, "<skipped "), 0u) << run.Xml;
+            // No context (a GitHub-hosted runner): both gate sites turned
+            // their skip into a failure that names the flag.
             EXPECT_EQ(Count(run.Xml, "<failure "), 2u) << run.Xml;
             EXPECT_EQ(CountMessagesContaining(run.Xml, "--olo-require-gpu"), 2u) << run.Xml;
         }

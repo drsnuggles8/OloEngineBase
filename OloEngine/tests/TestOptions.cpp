@@ -172,11 +172,16 @@ namespace OloEngine::Tests
                 // which on a machine WITH a GPU means a typo'd `--olo-gl-backend=nnoe`
                 // quietly runs every GL-gated test the caller meant to skip
                 // -- the exact silent-switch these flags exist to prevent.
-                if (*v != "egl" && *v != "glfw" && *v != "none" && *v != "auto")
-                {
+                if (*v == "egl")
+                    s_Options.GlBackend = GlBackend::Egl;
+                else if (*v == "glfw")
+                    s_Options.GlBackend = GlBackend::Glfw;
+                else if (*v == "none")
+                    s_Options.GlBackend = GlBackend::None;
+                else if (*v == "auto")
+                    s_Options.GlBackend = GlBackend::Auto;
+                else
                     Fail("--olo-gl-backend must be one of egl, glfw, none, auto", arg);
-                }
-                s_Options.GlBackend = *v;
             }
             else if (arg == "--olo-require-gpu")
             {
@@ -230,7 +235,7 @@ namespace OloEngine::Tests
 
         // Both flags together have no sane meaning: one promises no context,
         // the other demands one, and whichever wins silently is wrong.
-        if (s_Options.RequireGpu && s_Options.GlBackend == "none")
+        if (s_Options.RequireGpu && s_Options.GlBackend == GlBackend::None)
         {
             Fail("--olo-require-gpu contradicts --olo-gl-backend=none", "--olo-require-gpu");
         }

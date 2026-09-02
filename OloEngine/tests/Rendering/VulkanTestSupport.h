@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
+#include "../TestOptions.h"
 
 #include <volk.h>
 #include <GLFW/glfw3.h>
@@ -65,6 +66,16 @@ namespace OloEngine::Tests
     // entry points after the instance probe so the real bring-up starts cleanly.
     [[nodiscard]] inline VulkanDeviceTestGateResult ProbeVulkanDeviceTestGate()
     {
+        // `--olo-gl-backend=none` is the suite's "this run tests no GPU"
+        // contract (#1015): the sanitizer jobs pass it on the self-hosted box so
+        // a run there means what the hosted run means. A Vulkan device is a GPU
+        // too, and the box's Mesa may well satisfy this gate, so honour the
+        // flag here as well rather than letting the Vulkan suites become the
+        // one place the box still tests hardware the hosted arm does not.
+        if (OloEngine::Tests::Options().GlBackend == OloEngine::Tests::GlBackend::None)
+            return { false, "No GPU / GL 4.5+ context available in this environment (GL backend pinned to "
+                            "'none' by --olo-gl-backend=none; the Vulkan gate honours it too)." };
+
         if (volkInitialize() != VK_SUCCESS)
             return { false, "No Vulkan loader on this machine." };
 

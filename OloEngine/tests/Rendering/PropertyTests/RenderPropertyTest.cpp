@@ -41,55 +41,11 @@ namespace OloEngine::Tests
 {
     namespace
     {
-        // Which windowing/context path to use for the shared GL context, via
-        // the --olo-gl-backend flag.
-        //
-        //   Auto (default) — prefer GLFW, the context a developer gets locally;
-        //                    fall back to EGL when GLFW cannot reach a display
-        //                    server, i.e. a headless Linux box that still has a
-        //                    perfectly usable GPU.
-        //   Glfw / Egl     — pin one path. Headless CI pins `egl` so that a
-        //                    missing display server is a deterministic choice
-        //                    rather than a silent backend switch: two backends
-        //                    can produce subtly different pixels, and a golden
-        //                    baseline must know which one produced it.
-        //   None           — attempt no context at all. Every GPU-gated test
-        //                    then skips exactly as on a GitHub-hosted runner,
-        //                    which is what makes a sanitizer run on the
-        //                    self-hosted GPU box comparable to the hosted run
-        //                    of the same commit (#1015). GpuUnavailableDetail()
-        //                    names the flag in the skip message so the log
-        //                    says "skipped on purpose", not "no hardware".
-        enum class GlBackend
-        {
-            Auto,
-            Glfw,
-            Egl,
-            None
-        };
-
+        // The backend comes pre-parsed from --olo-gl-backend (TestOptions.h
+        // documents the four values); this is the one place it is read.
         GlBackend SelectBackend()
         {
-            const std::string& raw = OloEngine::Tests::Options().GlBackend;
-            if (raw.empty())
-                return GlBackend::Auto;
-
-            std::string value(raw);
-            std::transform(value.begin(), value.end(), value.begin(),
-                           [](unsigned char c)
-                           { return static_cast<char>(std::tolower(c)); });
-
-            if (value == "egl")
-                return GlBackend::Egl;
-            if (value == "glfw")
-                return GlBackend::Glfw;
-            if (value == "none")
-                return GlBackend::None;
-
-            // TestOptions.cpp rejects any other spelling at parse time, so this
-            // is unreachable from the command line; kept as the defensive
-            // default for a value set some other way.
-            return GlBackend::Auto;
+            return OloEngine::Tests::Options().GlBackend;
         }
 
         // ---------------------------------------------------------------
