@@ -122,9 +122,6 @@ jobs:
       # i.e. a warm cache that rebuilt everything. The two include_file_* entries
       # are the manual's recommendation for freshly checked-out trees.
       CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
-      # Per-RUN statistics file, so the statistics step can report this build
-      # rather than the shared counters in CCACHE_DIR (see that step).
-      CCACHE_STATSLOG: ${{ runner.temp }}/ccache-stats-${{ github.run_id }}-${{ github.run_attempt }}.log
 
     steps:
       # A self-hosted runner's workspace PERSISTS between jobs. Even with an
@@ -357,6 +354,13 @@ jobs:
         with:
           key: ${{ steps.vcpkg.outputs.cache-key }}
           path: ${{ steps.vcpkg.outputs.cache-path }}
+
+      # Per-RUN statistics file, so the statistics step reports THIS build rather
+      # than the counters shared with every other job using CCACHE_DIR. Set in a
+      # step, not in the job env: the `runner` context is not available there, and
+      # $RUNNER_TEMP is only defined once a step is running.
+      - name: Point ccache at a per-run statistics log
+        run: echo "CCACHE_STATSLOG=$RUNNER_TEMP/ccache-stats-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.log" >> "$GITHUB_ENV"
 
       - name: Build tests
         # Width comes from CMAKE_BUILD_PARALLEL_LEVEL in the job env — see the
