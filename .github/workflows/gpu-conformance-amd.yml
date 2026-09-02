@@ -122,6 +122,9 @@ jobs:
       # i.e. a warm cache that rebuilt everything. The two include_file_* entries
       # are the manual's recommendation for freshly checked-out trees.
       CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+      # Per-RUN statistics file, so the statistics step can report this build
+      # rather than the shared counters in CCACHE_DIR (see that step).
+      CCACHE_STATSLOG: ${{ runner.temp }}/ccache-stats-${{ github.run_id }}-${{ github.run_attempt }}.log
 
     steps:
       # A self-hosted runner's workspace PERSISTS between jobs. Even with an
@@ -209,6 +212,9 @@ jobs:
             exit 1
           fi
           cmake --version | head -1
+          # Recorded because the statistics format and the availability of
+          # --show-log-stats (used below) both depend on it.
+          ccache --version | head -1
 
       # ---------------------------------------------------------------------
       # Preflight: prove we have a HARDWARE context before spending an hour
@@ -352,13 +358,6 @@ jobs:
           key: ${{ steps.vcpkg.outputs.cache-key }}
           path: ${{ steps.vcpkg.outputs.cache-path }}
 
-      # ccache statistics for THIS build only: -z zeroes the counters, -s -v after
-      # the build prints hits/misses and the per-reason miss breakdown. The
-      # AMD job was rebuilding all 1482 objects on a shader-only change and the
-      # log had no way to say why.
-      - name: Reset ccache statistics
-        run: ccache -z
-
       - name: Build tests
         # Width comes from CMAKE_BUILD_PARALLEL_LEVEL in the job env — see the
         # note there for why it must be set explicitly rather than left to the
@@ -378,9 +377,31 @@ jobs:
         # setting looking effective while doing nothing.
         run: cmake --build build --target OloEngine-Tests
 
+      # Statistics for THIS build only. The counters in CCACHE_DIR are SHARED --
+      # this box runs the olo-ci runners from the same Unix account and the same
+      # cache directory, and this workflow's concurrency group does not bound
+      # them. `ccache -z` would zero a concurrent job's counters, and `ccache -s`
+      # would report its compiles as ours: the first two runs after the stats step
+      # landed reported 2843 and 1619 "cacheable calls" for a build with 1482
+      # ninja edges, which is how the contamination was noticed.
+      #
+      # CCACHE_STATSLOG records one line per invocation of THIS job's ccache
+      # processes, and --show-log-stats summarises exactly that file (ccache 4.3+).
+      # An older ccache ignores the variable and leaves the file absent, so the
+      # fallback below reports the shared counters and says so rather than
+      # labelling them as this build's.
       - name: ccache statistics
         if: always()
-        run: ccache -s -v
+        run: |
+          set -euo pipefail
+          if [ -s "${CCACHE_STATSLOG:-}" ]; then
+            ccache --show-log-stats -v
+          else
+            echo "::warning::no CCACHE_STATSLOG (ccache < 4.3?) -- the figures below are the"
+            echo "::warning::SHARED cumulative counters for $CCACHE_DIR and include any other"
+            echo "::warning::job that compiled on this box. They are not this build's."
+            ccache -s -v
+          fi
 
       # ---------------------------------------------------------------------
       # The suite runs from OloEditor/ — OloEditor, OloRuntime and the test

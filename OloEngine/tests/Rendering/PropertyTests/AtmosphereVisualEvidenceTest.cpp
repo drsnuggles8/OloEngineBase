@@ -489,7 +489,35 @@ namespace OloEngine::Tests
             // Diagnostic only: it prints, it never fails. The point is to get one
             // number off the AMD box, and an assertion here would just be a second
             // way for #1008 to turn a job red.
-            if (auto preFog = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::CloudsColor))
+            // Mirror FogRenderPass's OWN input selection order, which is
+            // PrecipitationColor first and CloudsColor second (see its
+            // ReadFirstValidVersionedInputForPass list). The Storm preset enables
+            // rain, so for the four Storm cells the buffer the fog pass actually
+            // reads is PrecipitationColor -- the cloud composite plus the
+            // precipitation overlay. Resolving only CloudsColor labelled those
+            // cells' numbers "pre-fog" while reading a buffer one pass upstream of
+            // the real fog input. Clear and Overcast author no precipitation, so
+            // for them the two are the same buffer and nothing changes.
+            //
+            // Resolving PrecipitationColor is NOT enough to prefer it: the resource
+            // exists in the graph from the first cell that enables rain onward, and
+            // resolves happily for every later cell -- but PrecipitationPass returns
+            // early when precipitation is off, so the buffer is then BLACK. Taking it
+            // unconditionally reported horizon luma 0 for the nine cells that author
+            // no precipitation. Gate on the live renderer setting that actually drives
+            // the pass, which is the same thing FogRenderPass's "first VALID input"
+            // resolves to at graph-build time.
+            const bool precipitationRan = Renderer3D::GetPrecipitationSettings().Enabled;
+            const char* preFogName = precipitationRan ? "PrecipitationColor" : "CloudsColor";
+            auto preFog = precipitationRan
+                              ? Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PrecipitationColor)
+                              : Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::CloudsColor);
+            if (!preFog)
+            {
+                preFogName = "CloudsColor";
+                preFog = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::CloudsColor);
+            }
+            if (preFog)
             {
                 // FALSIFY THE INSTRUMENT FIRST. Four Overcast cells reported a
                 // pre-fog horizon band identical to the composited one to three
@@ -502,7 +530,7 @@ namespace OloEngine::Tests
                 // the SetUp lever closes; this check stays as the cheap guard.
                 const u32 preTex = preFog->GetColorAttachmentRendererID(0);
                 const u32 postTex = fb->GetColorAttachmentRendererID(0);
-                std::cout << "[#1008-alias] " << name << "  CloudsColor tex=" << preTex
+                std::cout << "[#1008-alias] " << name << "  " << preFogName << " tex=" << preTex
                           << "  composite tex=" << postTex
                           << (preTex == postTex ? "  *** SAME TEXTURE — probe is invalid ***" : "  (distinct)")
                           << std::endl;
@@ -546,7 +574,7 @@ namespace OloEngine::Tests
                     }
 
                     std::cout << "[#1008] " << name
-                              << "  pre-fog(CloudsColor) horizon luma=" << preHorizon.Luma()
+                              << "  pre-fog(" << preFogName << ") horizon luma=" << preHorizon.Luma()
                               << " rgb=" << preHorizon.R << "," << preHorizon.G << "," << preHorizon.B
                               << "  |  pre-fog sky luma=" << preSky.Luma()
                               << "  |  composited horizon luma=" << m_Horizon[name].Luma()
@@ -556,7 +584,7 @@ namespace OloEngine::Tests
             else
             {
                 std::cout << "[#1008] " << name
-                          << "  pre-fog(CloudsColor) unavailable -- no cloudscape output this frame"
+                          << "  pre-fog unavailable -- neither PrecipitationColor nor CloudsColor this frame"
                           << std::endl;
             }
 

@@ -11,7 +11,9 @@ while every cache counter looked healthy.
 ccache does not cache a compile that uses a PCH unless `CCACHE_SLOPPINESS` contains
 `pch_defines,time_macros`, and GCC additionally needs `-fpch-preprocess` on the compile
 (ccache manual, *Precompiled headers*; clang needs nothing beyond what CMake emits). Every
-engine target here uses a PCH, so on the AMD job the statistics read:
+engine target here uses a PCH, so on the AMD job (ccache 4.x on Rocky 9; record the version
+with the numbers, the output format and the flags below both depend on it) the statistics
+read:
 
 ```
 Cacheable calls:                      51 / 1468 ( 3.47%)
@@ -19,10 +21,15 @@ Uncacheable calls:                  1417 / 1468 (96.53%)
   Could not use precompiled header: 1417 / 1417 (100.0%)
 ```
 
-The 51 that hit were the vendor and test objects without a PCH, which is also why #1009
-measured a ~46 % per-run hit rate on the olo-ci runners and called it a working cache.
-The job printed no statistics, so nothing said so. Fix: `CCACHE_SLOPPINESS` in both
-self-hosted setups, `-fpch-preprocess` for GCC in `olo_enable_pch`.
+**"Cacheable" is not "hit".** It is the count of invocations ccache was willing to consider
+at all; hits and misses are a separate breakdown *within* it. Here only 51 of 1468 compiles
+were even eligible, and the other 1417 went straight to the compiler. Those 51 were the
+vendor and test objects, which have no PCH. That is also why #1009 measured a ~46 % per-run
+hit rate on the olo-ci runners and called it a working cache: the rate was over the eligible
+subset, not over the build.
+
+Fix: `CCACHE_SLOPPINESS` in both self-hosted setups, `-fpch-preprocess` for GCC in
+`olo_enable_pch`.
 
 ## 2. A per-commit macro on every translation unit
 
@@ -33,12 +40,26 @@ CI run and on every local reconfigure. Only `BuildInfo.cpp` reads them; they are
 per-source property on that file. Anything that embeds a hash, a date or a counter must
 be scoped to the one file that consumes it.
 
+## 3. The counters are shared, so per-build statistics need a stats log
+
+`CCACHE_DIR` on this box is deliberately shared by every job (one Unix account, one LRU).
+The counters inside it are shared too. `ccache -z` before a build therefore zeroes a
+*concurrent* job's counters, and `ccache -s` after it reports that job's compiles as yours.
+The first two runs with a statistics step reported 2843 and 1619 "cacheable calls" for a
+build with 1482 ninja edges, which is how this was noticed: a count above the edge count,
+and two different counts for the same build.
+
+Set `CCACHE_STATSLOG` to a per-run path and report it with `ccache --show-log-stats -v`
+(ccache 4.3+). That summarises only the invocations this job made. Never `ccache -z` in a
+shared directory.
+
 ## How to tell
 
 - The build step takes compile time on a change that touched no C++ (24 of the AMD
   job's 31 minutes for a shader edit).
 - The cache is small relative to its limit after weeks of runs.
 - The hit rate is steady at a fraction that matches "everything without a PCH".
+- A "cacheable calls" count that exceeds the build's compile count, or differs between two runs of the same build: the counters are being shared with another job.
 
 Related: [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) for the Actions
 cache side of the same lesson.
