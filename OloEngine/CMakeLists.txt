@@ -550,19 +550,56 @@ else()
 	check_linker_flag(CXX "-lstdc++exp" OLO_HAVE_LIBSTDCXXEXP)
 	if(OLO_HAVE_LIBSTDCXXEXP)
 		target_link_libraries(OloEngine stdc++exp)
-	elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+	else()
 		# Some GCC toolchains ship <stacktrace> but NOT libstdc++exp on the default
 		# library search path — notably the RHEL/Rocky gcc-toolset-N SCL packages
 		# (e.g. gcc-toolset-15), which omit libstdc++exp.a even though a compatible
 		# copy exists under the base GCC install. Without it the OpenGLDebug.cpp
 		# std::stacktrace call is undefined at every executable link. Search the
-		# base GCC lib dirs and add the newest match explicitly. (Clang here already
-		# resolves -lstdc++exp via its selected GCC install, so the check above
-		# passes and this branch is GNU-only.)
+		# base GCC lib dirs and add the newest match explicitly.
+		#
+		# THIS BRANCH USED TO BE `elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")`, on
+		# the stated premise that "Clang already resolves -lstdc++exp via its
+		# selected GCC install, so the check above passes". On Rocky 10 that premise
+		# is exactly backwards, and it cost a 68-minute CI run to find out (#1009):
+		#
+		#   $ clang++ -v … | grep 'Selected GCC installation'
+		#   Selected GCC installation: /opt/rh/gcc-toolset-15/…/x86_64-redhat-linux/15
+		#   $ clang++ -lstdc++exp t.cc
+		#   ld: cannot find -lstdc++exp: No such file or directory
+		#
+		# Clang's selected GCC install IS the toolset — i.e. the one install that
+		# omits the archive — while the base GCC 14 next to it has it. So Clang is
+		# not the case that needs no help; it is the case most likely to need it.
+		# Gating on the compiler was guessing at the cause of a missing library;
+		# `check_linker_flag` already measured it, and its answer is the only
+		# condition this branch should read.
+		#
+		# The cross-version link (a base-GCC-14 archive against a toolset-15
+		# libstdc++) was verified on that host rather than assumed: a std::stacktrace
+		# program built with clang++ 21 and `-L/usr/lib/gcc/x86_64-redhat-linux/14`
+		# links and prints a correct frame count.
+		# Only libstdc++ needs this at all — libc++ gates <stacktrace> out, so
+		# nothing references the symbols and there is nothing to link. Widening the
+		# branch from GNU-only to all compilers would otherwise hand every libc++
+		# build a warning about a library it has no use for, and a warning that is
+		# noise on a supported configuration trains people to ignore the one that
+		# isn't.
+		include(CheckCXXSourceCompiles)
+		check_cxx_source_compiles("
+			#include <version>
+			#ifndef __GLIBCXX__
+			#error not libstdc++
+			#endif
+			int main() { return 0; }
+		" OLO_STDLIB_IS_LIBSTDCXX)
+
 		file(GLOB _olo_stdcxxexp_candidates
 			/usr/lib/gcc/*/*/libstdc++exp.a
 			/usr/lib64/gcc/*/*/libstdc++exp.a)
-		if(_olo_stdcxxexp_candidates)
+		if(NOT OLO_STDLIB_IS_LIBSTDCXX)
+			message(STATUS "libstdc++exp not needed: this toolchain is not libstdc++.")
+		elseif(_olo_stdcxxexp_candidates)
 			list(SORT _olo_stdcxxexp_candidates COMPARE NATURAL ORDER DESCENDING)
 			list(GET _olo_stdcxxexp_candidates 0 _olo_stdcxxexp_lib)
 			get_filename_component(_olo_stdcxxexp_dir "${_olo_stdcxxexp_lib}" DIRECTORY)

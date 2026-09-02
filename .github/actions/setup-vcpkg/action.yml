@@ -16,6 +16,16 @@ outputs:
   toolchain-args:
     description: 'CMake arguments selecting the vcpkg toolchain, triplet and overlays'
     value: ${{ steps.emit.outputs.toolchain-args }}
+  cache-key:
+    description: >
+      The actions/cache key this run should SAVE the binary cache under, or the empty
+      string when there is nothing to save (a self-hosted runner keeps the cache on
+      local disk; a fork PR cannot write caches). Feed it to
+      .github/actions/save-vcpkg-cache in an `if: always()` step -- see that action.
+    value: ${{ steps.cachecfg.outputs.save-key }}
+  cache-path:
+    description: 'Directory holding the vcpkg binary archives (the path to save).'
+    value: ${{ steps.cachecfg.outputs.dir }}
 runs:
   using: 'composite'
   steps:
@@ -125,12 +135,49 @@ runs:
         # git config is left untouched.
 
         # GitHub-hosted runners ship a bootstrapped vcpkg at VCPKG_INSTALLATION_ROOT.
-        # Self-hosted runners (gpu-conformance-amd) may not, so fall back to a clone
-        # under RUNNER_TEMP. Either way VCPKG_ROOT is what the rest of this action and
-        # the CMake presets read.
+        # Self-hosted runners may not, so fall back to a clone. Either way VCPKG_ROOT
+        # is what the rest of this action and the CMake presets read.
+        #
+        # WHERE that fallback clone lives differs by runner kind, and it matters. On a
+        # hosted runner RUNNER_TEMP is as good as anywhere -- the whole VM is
+        # discarded. On a self-hosted runner RUNNER_TEMP is emptied at the start of
+        # every job, so a clone there is re-fetched from github.com on every single
+        # run: minutes of network per job, forever, for a repository that only
+        # changes when the manifest baseline moves. Put it under the runner user's
+        # cache instead, where it persists and the checkout below is the only work
+        # left to do.
+        #
+        # PER RUNNER, not per user. Several runner instances share one Unix account
+        # on the self-hosted box (olo-ci-1 and olo-ci-2 both run as gh-runner-olo),
+        # and the next steps do NOT treat this directory as read-only: they
+        # `git checkout --force --detach` it to the manifest baseline and run
+        # bootstrap-vcpkg.sh in it. Two concurrent jobs sharing one clone would race
+        # on the index lock, on $VCPKG_ROOT/downloads, and -- worst, because it is
+        # silent -- on the version database, which one job can swap out from under
+        # another job's install. RUNNER_NAME is unique per instance and stable
+        # across runs, so each gets its own clone and keeps its own warmth.
         root="${VCPKG_INSTALLATION_ROOT:-}"
         if [ -z "$root" ] || [ ! -d "$root/.git" ]; then
-          root="${RUNNER_TEMP}/vcpkg"
+          if [ "${{ runner.environment }}" = "github-hosted" ]; then
+            root="${RUNNER_TEMP}/vcpkg"
+          else
+            root="${OLO_VCPKG_PERSISTENT_ROOT:-$HOME/.cache/olo/vcpkg-${RUNNER_NAME:-default}}"
+            # Assert the cache root is WRITABLE before handing the path to git.
+            # Without this the failure is `fatal: could not create work tree dir
+            # ...: Permission denied`, repeated four times by the retry loop above
+            # (which exists for network flakes and can do nothing for a permission
+            # problem), and it reads as a git or network fault rather than as the
+            # provisioning fault it is. That is exactly how the first self-hosted
+            # run failed.
+            parent="$(dirname "$root")"
+            if ! mkdir -p "$parent" 2>/dev/null || [ ! -w "$parent" ]; then
+              echo "::error::'$parent' is not writable by $(id -un) on this self-hosted runner."
+              echo "::error::Re-run the provisioning script, which creates and chowns it:"
+              echo "::error::  sudo bash scripts/setup-olo-ci-runners.sh"
+              echo "::error::See docs/ops/self-hosted-gpu-runner.md (Host provisioning, §1c and §6)."
+              exit 1
+            fi
+          fi
           if [ ! -d "$root/.git" ]; then
             retry git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 \
               clone --filter=blob:none https://github.com/microsoft/vcpkg "$root"
@@ -277,22 +324,151 @@ runs:
     # the 10 GB cache cap becomes the binding constraint — see the note on
     # SCCACHE_DIR in Windows.yml.
     - name: Configure the vcpkg binary cache
+      id: cachecfg
       shell: bash
+      env:
+        # Read the workflow expressions through the environment rather than
+        # splicing them into the script body. A `${{ }}` interpolated straight
+        # into shell source is the githubactions:S7637 injection shape, and
+        # `inputs.triplet` is caller-controlled text.
+        OLO_VCPKG_READ_ONLY: ${{ inputs.read-only }}
+        OLO_VCPKG_TRIPLET: ${{ inputs.triplet }}
+        OLO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        OLO_VCPKG_CACHE_HASH: ${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}
+        # "true" exactly when this run cannot write the cache service: a
+        # pull_request from a fork, whose GITHUB_TOKEN is read-only. Derived from
+        # the event here rather than from the `read-only` input, because no caller
+        # passes that input and a guard nothing reaches is not a guard.
+        OLO_VCPKG_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       run: |
         set -euo pipefail
-        # Backslashes -> forward slashes, same reason as the toolchain args below:
-        # this value is written to GITHUB_ENV and read back by later bash steps.
-        dir="${GITHUB_WORKSPACE//\\//}/.vcpkg-binary-cache"
+
+        # WHERE THE ARCHIVES LIVE, and it differs by runner kind on purpose.
+        #
+        # GitHub-hosted: inside the workspace, round-tripped through actions/cache.
+        #   The workspace dies with the VM, so the cache service is the only way an
+        #   archive outlives the run -- at the cost of an upload, a download, and a
+        #   slice of the repo's single 10 GB cache cap.
+        #
+        # Self-hosted: a directory in the runner user's home that simply persists.
+        #   No upload, no download, no cap, and -- the part that matters most --
+        #   no post-job save step for a cancellation to skip. 60%+ of this repo's
+        #   PR runs are cancelled by cancel-in-progress (#1009), and a cancelled
+        #   run banks nothing through actions/cache. On local disk there is nothing
+        #   to bank: vcpkg wrote the archive the moment it built the port.
+        #
+        # The workspace path keeps its backslash->forward-slash normalisation for
+        # the same reason as the toolchain args below (this value goes into
+        # GITHUB_ENV and is read back by later bash steps).
+        if [ "$OLO_RUNNER_ENVIRONMENT" = "github-hosted" ]; then
+          dir="${GITHUB_WORKSPACE//\\//}/.vcpkg-binary-cache"
+          persistent=false
+        else
+          dir="${OLO_VCPKG_PERSISTENT_CACHE_DIR:-$HOME/.cache/olo/vcpkg-binary-cache}"
+          persistent=true
+        fi
         mkdir -p "$dir"
         echo "VCPKG_DEFAULT_BINARY_CACHE=$dir" >> "$GITHUB_ENV"
-        if [ "${{ inputs.read-only }}" = "true" ]; then
+        if [ "$OLO_VCPKG_READ_ONLY" = "true" ]; then
           echo "VCPKG_BINARY_SOURCES=clear;files,$dir,read" >> "$GITHUB_ENV"
         else
           echo "VCPKG_BINARY_SOURCES=clear;files,$dir,readwrite" >> "$GITHUB_ENV"
         fi
         # Ports build with their own internal parallelism; leave headroom for the
-        # runner (2 cores on GitHub-hosted, more on self-hosted).
-        echo "VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY:-2}" >> "$GITHUB_ENV"
+        # runner. The comment here used to say "2 on GitHub-hosted, more on
+        # self-hosted" while hard-coding 2 for both -- so the 8C/16T box built its
+        # 116 ports two at a time, exactly as slowly as a 2-core hosted VM.
+        #
+        # 4 on self-hosted, not 8: two runner instances share this machine, so 4
+        # each is its 8 physical cores fully committed and no more. Port builds are
+        # not sanitizer-instrumented, so this is CPU-bound rather than the
+        # memory-bound case the sanitizer build widths are chosen against.
+        if [ "$OLO_RUNNER_ENVIRONMENT" = "github-hosted" ]; then
+          default_concurrency=2
+        else
+          default_concurrency=4
+        fi
+        echo "VCPKG_MAX_CONCURRENCY=${VCPKG_MAX_CONCURRENCY:-$default_concurrency}" >> "$GITHUB_ENV"
+
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+        echo "persistent=$persistent" >> "$GITHUB_OUTPUT"
+
+        # The key the CALLER saves under. Emitted here, not spelled out at eleven
+        # call sites, so a save key can never drift from the restore key it is
+        # supposed to pair with.
+        #
+        # Empty means "there is nothing for a save step to do":
+        #   * persistent -- the archives are already durable on local disk;
+        #   * a fork PR  -- its GITHUB_TOKEN cannot write the cache service at all,
+        #                   so a save step could only ever log a permission error at
+        #                   the end of every fork PR;
+        #   * read-only  -- the caller asked for restore-only semantics.
+        key=""
+        if [ "$persistent" = false ] \
+           && [ "$OLO_VCPKG_FORK_PR" != "true" ] \
+           && [ "$OLO_VCPKG_READ_ONLY" != "true" ]; then
+          key="vcpkg-${RUNNER_OS}-${OLO_VCPKG_TRIPLET}-${OLO_VCPKG_CACHE_HASH}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        fi
+        echo "save-key=$key" >> "$GITHUB_OUTPUT"
+        echo "vcpkg binary cache: dir=$dir persistent=$persistent save-key=${key:-<none>}"
+
+    # NOT PRUNED BY DEFAULT, and that is the safe direction.
+    #
+    # Both self-hosted runners share this one directory, and vcpkg's `files`
+    # provider restores an archive as "does <abi>.zip exist?" followed by
+    # "decompress <abi>.zip". Deleting between those two steps is not an error
+    # anywhere: vcpkg treats the restore as unavailable and rebuilds the port. So a
+    # prune running on olo-ci-1 can silently cost olo-ci-2 a from-source build, with
+    # no failure and no log line saying why -- the precise shape of #1009 itself.
+    # Serialising it properly would need a lock the vcpkg install ALSO takes, and
+    # that install happens in the caller's configure step, outside this action.
+    #
+    # An unsafe bound is worse than no bound, and no bound is not urgent: the cache
+    # is ~330 MiB against 233 GiB free on /home. So the eviction is opt-in. Set
+    # OLO_VCPKG_CACHE_PRUNE=1 to run it, ideally when no other job is active.
+    #
+    # Size-capped rather than age-based when it does run. `find -atime +30` is a trap
+    # twice over: a `noatime` mount never updates access time, so on the wrong
+    # filesystem it deletes the LIVE archive set every 30 days and the next job
+    # rebuilds every port with no error; and age is the wrong signal anyway, since an
+    # archive for a port that has not changed in a year is old and entirely current.
+    - name: Prune the persistent binary cache (self-hosted, opt-in)
+      if: steps.cachecfg.outputs.persistent == 'true' && env.OLO_VCPKG_CACHE_PRUNE == '1'
+      shell: bash
+      env:
+        OLO_VCPKG_CACHE_DIR: ${{ steps.cachecfg.outputs.dir }}
+      run: |
+        set -euo pipefail
+        cap_mib="${OLO_VCPKG_CACHE_CAP_MIB:-20480}"
+        used_mib=$(du -sm "$OLO_VCPKG_CACHE_DIR" 2>/dev/null | cut -f1 || echo 0)
+        echo "persistent vcpkg binary cache: ${used_mib} MiB used, cap ${cap_mib} MiB ($OLO_VCPKG_CACHE_DIR)"
+        if [ "$used_mib" -le "$cap_mib" ]; then
+          echo "  under cap; nothing evicted"
+          exit 0
+        fi
+        over=$(( (used_mib - cap_mib) * 1048576 ))
+        freed=0
+        # Space-separated rather than tab: a vcpkg archive path is
+        # <two hex chars>/<abi hash>.zip, so it can never contain a space, and
+        # avoiding the escape keeps this readable inside a YAML block scalar.
+        # %T@ is mtime -- always recorded, unlike atime.
+        while read -r _ts size path; do
+          [ "$freed" -lt "$over" ] || break
+          rm -f -- "$path" && freed=$((freed + size))
+        done < <(find "$OLO_VCPKG_CACHE_DIR" -type f -name '*.zip' -printf '%T@ %s %p\n' 2>/dev/null | sort -n)
+        find "$OLO_VCPKG_CACHE_DIR" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+        echo "  evicted $((freed / 1048576)) MiB (oldest first) to get back under the cap"
+
+    # Report the size unconditionally, so the directory cannot grow unnoticed just
+    # because nothing prunes it.
+    - name: Report the persistent binary cache size (self-hosted)
+      if: steps.cachecfg.outputs.persistent == 'true'
+      shell: bash
+      env:
+        OLO_VCPKG_CACHE_DIR: ${{ steps.cachecfg.outputs.dir }}
+      run: |
+        set -euo pipefail
+        echo "persistent vcpkg binary cache: $(du -sh "$OLO_VCPKG_CACHE_DIR" 2>/dev/null | cut -f1) ($OLO_VCPKG_CACHE_DIR)"
 
     # Guard against exactly the x-gha class of failure: a provider that this tool
     # build no longer implements is accepted with a warning and silently ignored.
@@ -311,15 +487,31 @@ runs:
         fi
         echo "binary-cache provider 'files' supported; VCPKG_BINARY_SOURCES=$VCPKG_BINARY_SOURCES"
 
+    # RESTORE ONLY. The combined actions/cache action saves in a POST-JOB step, and
+    # post-job steps do not run when a job is CANCELLED -- which is the normal exit
+    # for this repo: `cancel-in-progress` killed 17 of 27 Windows PR runs and 15 of
+    # 24 Sanitizer PR runs over the 36 h window measured in #1009. Every one of
+    # those rebuilt ~113 of 116 ports and then banked nothing, so the next run was
+    # exactly as cold. The paired save lives in the CALLER as an
+    # `if: always()` step (.github/actions/save-vcpkg-cache), because `always()`
+    # does fire on a cancel. asan.yml's tsan job proved the pattern before this
+    # change: its restore/save sccache entry was 6 days newer than every
+    # combined-action one in the same cache list.
+    #
     # Key on the inputs that change the ABI of every package: the manifest, the
-    # triplets and the overlay ports. run_id makes each run save a fresh superset
-    # (actions/cache entries are immutable), and restore-keys falls back to the
-    # newest prior snapshot — the same shape as the sccache caches in Windows.yml.
-    - name: Cache vcpkg binary archives
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    # triplets and the overlay ports. run_id + run_attempt make each attempt save a
+    # fresh superset (actions/cache entries are immutable), and restore-keys falls
+    # back to the newest prior snapshot.
+    #
+    # Skipped entirely on self-hosted runners: there the cache directory is durable
+    # local disk, so a restore would only overwrite the live cache with an older
+    # snapshot of itself.
+    - name: Restore vcpkg binary archives
+      if: steps.cachecfg.outputs.persistent != 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
-        key: vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-${{ github.run_id }}
+        key: vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-
           vcpkg-${{ runner.os }}-${{ inputs.triplet }}-

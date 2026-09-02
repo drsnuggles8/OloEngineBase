@@ -32,7 +32,7 @@ jobs:
     # errors. Splitting the matrix gives each link line exactly one of the
     # runtime libs, and we keep both axes of sanitiser coverage.
     name: Fuzz smoke (${{ matrix.sanitizer }})
-    runs-on: windows-latest
+    runs-on: windows-2025
     strategy:
       fail-fast: false  # asan failing doesn't cancel ubsan and vice versa
       matrix:
@@ -66,7 +66,7 @@ jobs:
       - name: Install LLVM (pinned)
         # Pin the LLVM toolchain version explicitly instead of relying on
         # whatever `clang-cl` happens to be preinstalled in `C:\Program
-        # Files\LLVM\` on the current `windows-latest` runner image. This
+        # Files\LLVM\` on the current `windows-2025` runner image. This
         # protects the fuzz pipeline from silent breakage when GitHub updates
         # the image (LLVM 19 had two bugs we hit — see below — and any future
         # version jump on the image could re-surface similar issues without
@@ -167,6 +167,24 @@ jobs:
           #   slow whole-program link for no benefit. Dropping it also keeps every
           #   object a pure function of its TU (cacheable, though nothing caches
           #   it here). Mirrors Windows.yml.
+
+      # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+      # is the whole point: the combined actions/cache action saves in a POST-JOB
+      # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+      # Placed before the build so a cancellation during the long build/test tail
+      # still banks the ports this run just spent ~40 minutes installing.
+      - name: Save vcpkg binary cache
+        if: always()
+        # A cache save must never fail the job it is attached to. `if: always()`
+        # means this runs on a CANCEL, where the path it is asked to save may not
+        # exist yet -- and actions/cache/save treats a missing path as a validation
+        # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+        # strictly worse outcome than the cold cache this is fixing.
+        continue-on-error: true
+        uses: ./.github/actions/save-vcpkg-cache
+        with:
+          key: ${{ steps.vcpkg.outputs.cache-key }}
+          path: ${{ steps.vcpkg.outputs.cache-path }}
 
       - name: Build fuzzers
         # OloEngine + fuzz harnesses are sanitised (see cmake/Fuzzing.cmake);

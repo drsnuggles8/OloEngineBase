@@ -90,54 +90,63 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  # Never cancel a `push` run. Only a DEFAULT-BRANCH run writes a cache entry other
+  # branches can read, so cancelling one leaves every later run cold — see #1009 and
+  # the note on Windows.yml's concurrency block.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-vulkan-off:
     name: Configure + build OLO_WITH_VULKAN=OFF
-    # Linux deliberately, for the same reason steam-stub.yml uses it: hosted Linux minutes bill at
-    # 1x against Windows' 2x, and nothing about this configuration is Windows-specific — the
-    # option, the guards and the SKIP branches are all platform-agnostic.
-    runs-on: ubuntu-24.04
+    # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not (#1009).
+    #
+    # The condition is the security boundary and it is the whole of it. This repo
+    # is public, so a fork PR's code must never execute on the box: fork PRs take
+    # the `ubuntu-24.04` arm, which is a throwaway VM. `push` and `schedule` events
+    # carry no `pull_request` object at all, so the left disjunct is what keeps
+    # THOSE on the self-hosted arm -- an expression written only as
+    # `head.repo.full_name == github.repository` evaluates empty there and would
+    # silently push every nightly onto hosted runners.
+    #
+    # Approval-based gating (Settings -> Actions -> "Require approval for all
+    # external contributors", already enabled) stays as belt and braces and is
+    # explicitly NOT the mechanism: approving a fork PR run is what EXECUTES that
+    # fork's code. And never introduce a `pull_request_target` here that checks out
+    # the PR head -- that single pattern defeats this condition entirely.
+    #
+    #
+    # `vars.OLO_LINUX_SELF_HOSTED` is the kill switch, and it comes FIRST so it can
+    # only ever move a job back to the hosted runner, never onto the box. Two
+    # reasons it exists rather than the condition standing alone:
+    #
+    #   * A `runs-on` naming a label set nobody serves does not fail -- it QUEUES,
+    #     for up to 24 hours. So the YAML must be able to land before the runners
+    #     are registered, or the PR that adds it cannot go green.
+    #   * The blast radius of this change is the whole CI system. Turning the box
+    #     off has to be one API call by whoever is awake, not a revert commit that
+    #     itself needs CI to merge.
+    #
+    # Set it with:
+    #   gh api -X POST repos/drsnuggles8/OloEngineBase/actions/variables     #     -f name=OLO_LINUX_SELF_HOSTED -f value=true
+    # Unset or any value but `true` keeps every Linux job on ubuntu-24.04.
+    # `olo-ci`, not `gpu-amd`: the GPU nightly owns its runner exclusively so a CI
+    # job can never queue in front of it, and vice versa.
+    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Install Python 3.10
-        id: py
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # Python, the Vulkan shader toolchain and the compiler, resolved for whichever
+      # runner kind this landed on. The Vulkan SDK is needed even though the Vulkan
+      # BACKEND is off — see the note at the top of this file.
+      - name: Setup Linux build environment
+        id: linux
+        uses: ./.github/actions/setup-linux-build
         with:
-          python-version: '3.10'
-
-      # Pinned (SonarCloud githubactions:S8544). jinja2 is used only by the glad2 GL-loader
-      # generator; bump it deliberately rather than floating. Same treatment as steam-stub.yml.
-      - name: Python deps (OloHeaderTool)
-        run: python -m pip install jinja2==3.1.6
-
-      # Installed even though the Vulkan BACKEND is off — see the note at the top of this file.
-      - name: Setup Vulkan SDK
-        uses: ./.github/actions/setup-vulkan
-
-      # The engine needs a C++23 STANDARD LIBRARY, not just a C++23 compiler: Core/Reflection uses
-      # std::forward_like, which ubuntu-24.04's default libstdc++ does not provide. Every Linux
-      # job in this repo pins clang-19 from apt.llvm.org for that reason — see asan.yml.
-      - name: Add LLVM apt repository
-        uses: ./.github/actions/setup-llvm-apt
-
-      - name: Install Linux deps
-        run: |
-          # The ubuntu runner image ships Microsoft apt repos (azure-cli, prod) that periodically
-          # return 403 Forbidden; we never use them, and `apt-get update` fails hard on any single
-          # repo error. Drop them so a Microsoft-side outage cannot break our update.
-          sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
-          sudo apt-get update
-          sudo apt-get install -y \
-            clang-19 lld-19 \
-            libgl-dev libglu1-mesa-dev \
-            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
-            libwayland-dev wayland-protocols libxkbcommon-dev \
-            glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools
+          cache-name: vulkan-off
 
       - name: Setup vcpkg
         id: vcpkg
@@ -155,12 +164,13 @@ jobs:
             -DOLO_WITH_VULKAN=OFF \
             -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
             -DOLO_VIDEO_FFMPEG=OFF \
-            -DCMAKE_CXX_COMPILER=clang++-19 \
-            -DCMAKE_C_COMPILER=clang-19 \
+            -DCMAKE_CXX_COMPILER=${{ steps.linux.outputs.cxx }} \
+            -DCMAKE_C_COMPILER=${{ steps.linux.outputs.cc }} \
             -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
             ${{ steps.vcpkg.outputs.toolchain-args }} \
-            -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+            ${{ steps.linux.outputs.extra-cmake-args }} \
+            -DPython_EXECUTABLE="${{ steps.linux.outputs.python-exe }}"
 
       # Fail loudly if the option plumbing did not take. Without this the job could pass green
       # while quietly building the default ON path — which would make the whole workflow a
@@ -188,6 +198,24 @@ jobs:
           fi
           echo "OK: building the GL-only configuration (backend object code and Vulkan ports both out)."
 
+      # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+      # is the whole point: the combined actions/cache action saves in a POST-JOB
+      # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+      # Placed before the build so a cancellation during the long build/test tail
+      # still banks the ports this run just spent ~40 minutes installing.
+      - name: Save vcpkg binary cache
+        if: always()
+        # A cache save must never fail the job it is attached to. `if: always()`
+        # means this runs on a CANCEL, where the path it is asked to save may not
+        # exist yet -- and actions/cache/save treats a missing path as a validation
+        # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+        # strictly worse outcome than the cold cache this is fixing.
+        continue-on-error: true
+        uses: ./.github/actions/save-vcpkg-cache
+        with:
+          key: ${{ steps.vcpkg.outputs.cache-key }}
+          path: ${{ steps.vcpkg.outputs.cache-path }}
+
       # Capped parallelism, per CLAUDE.md — a bare --parallel forwards the omission to the native
       # tool and takes ITS default, which is wider, not narrower.
       #
@@ -201,6 +229,20 @@ jobs:
 
       # Resolved once and exported rather than re-found per step: two lookups can disagree, and a
       # single failure point is easier to read in the log. Same as steam-stub.yml.
+      # Only meaningful on the self-hosted runner, which has ccache; the hosted arm
+      # has no compiler cache for this job and says so. Printed because a cache that
+      # restores and hits on nothing looks exactly like a working one -- see
+      # docs/agent-rules/ci-cache-that-looks-alive.md.
+      - name: Show compiler cache stats
+        if: always()
+        shell: bash
+        run: |
+          if command -v ccache >/dev/null 2>&1 && [ -n "${CCACHE_DIR:-}" ]; then
+            ccache --show-stats
+          else
+            echo "no compiler cache on this runner (hosted arm)"
+          fi
+
       - name: Locate the test binary
         run: |
           BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)

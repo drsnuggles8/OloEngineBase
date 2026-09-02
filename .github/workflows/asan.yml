@@ -1,27 +1,56 @@
 name: Sanitizers
 on:
-  push:
-    branches: [master]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
-      - 'LICENSE'
+  # NO `push: [master]` -- deliberately, and replaced by the nightly cron below
+  # (#1009 item E). Two things are going on and the second is the easy one to miss.
+  #
+  # 1. It was mostly a second opinion on identical code. GitHub's `pull_request`
+  #    event builds `refs/pull/N/merge` -- the PR merged into master -- so by the
+  #    time a merge lands, CI has already tested that exact tree. Re-running the
+  #    whole workflow on the push cost ~1,400 runner-min/day across the Windows
+  #    and Sanitizers workflows together, for a result we already had.
+  #
+  #    What it DID still catch is the case where master moved between the PR's
+  #    last run and the merge, so the tested merge commit was stale -- a semantic
+  #    conflict between two PRs neither one's CI could see. The nightly closes
+  #    that within a day instead of at merge time. That is a real, if modest,
+  #    reduction in safety and it is the deliberate half of this trade.
+  #
+  # 2. THE MASTER RUN IS ALSO THE CACHE WARMER, which is why this is a cron and
+  #    not simply a deletion. actions/cache entries created on a PR branch are
+  #    scoped to that PR's ref and are invisible to every other branch; only
+  #    entries created on the DEFAULT branch are readable fleet-wide. All 15
+  #    active cache entries on this repo were `ref=refs/heads/master`. Delete the
+  #    master trigger outright and no PR could ever restore a warm cache again --
+  #    a change that reads as a pure saving and is in fact the opposite.
+  #
+  # The cron therefore has to run to COMPLETION, which is what the
+  # `cancel-in-progress` expression below guarantees by excluding non-PR events.
   pull_request:
     types: [opened, synchronize, reopened]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
       - 'LICENSE'
+  schedule:
+    - cron: '23 1 * * *' # nightly 01:23 UTC — off the on-the-hour surge, and clear
+                         # of gpu-conformance (00:47) and cross-vendor (03:47).
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  # PULL REQUESTS ONLY. A cancelled run banks no cache -- `actions/cache/save` runs
+  # `if: always()`, which survives a cancel, but the run still stops mid-build, so
+  # what it banks is a partial snapshot at best. The nightly is this workflow's only
+  # default-branch cache producer (see the trigger note above), so it must never be
+  # cancellable. Under the old expression a `push` run was cancellable too, which is
+  # how the master sccache snapshot came to be six days stale while every PR run
+  # restored it and reported a 0% hit rate.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # sccache uses a LOCAL-DISK cache (SCCACHE_DIR), persisted across runs as a
-  # SINGLE actions/cache entry PER JOB (see each job's "Cache sccache storage"
-  # step). We deliberately do NOT use sccache's GitHub Actions cache backend
+  # SINGLE actions/cache entry PER JOB (see each job's "Restore/Save sccache
+  # storage" steps). We deliberately do NOT use sccache's GitHub Actions cache backend
   # (SCCACHE_GHA_ENABLED): it stores one cache entry PER OBJECT FILE, which
   # flooded the repo's 10 GB Actions-cache cap with 20k+ tiny entries and made
   # EVERY write fail (observed write-errors == misses on all four jobs, hit rate
@@ -54,8 +83,14 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
+    # PULL REQUESTS ONLY. paths-filter derives its comparison base from the event
+    # payload; a `schedule` run has neither a PR base nor a push before/after pair,
+    # so it has nothing to diff against. The build jobs' `if` below reads
+    # "not a pull_request OR the filter said native", so a nightly runs everything
+    # unconditionally, which is what a nightly is for.
     - name: Detect changed paths
       id: filter
+      if: github.event_name == 'pull_request'
       uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
       with:
         filters: |
@@ -80,8 +115,8 @@ jobs:
   asan-windows:
     name: ASan (Windows/clang-cl)
     needs: detect-changes
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
-    runs-on: windows-latest
+    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    runs-on: windows-2025
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -219,6 +254,24 @@ jobs:
         Write-Host "clang-cl ASan runtime dir: $rtDir"
         echo "$rtDir" >> $env:GITHUB_PATH
 
+    # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+    # is the whole point: the combined actions/cache action saves in a POST-JOB
+    # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+    # Placed before the build so a cancellation during the long build/test tail
+    # still banks the ports this run just spent ~40 minutes installing.
+    - name: Save vcpkg binary cache
+      if: always()
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
+      uses: ./.github/actions/save-vcpkg-cache
+      with:
+        key: ${{ steps.vcpkg.outputs.cache-key }}
+        path: ${{ steps.vcpkg.outputs.cache-path }}
+
     - name: Build (Release)
       # --parallel 2 matches the Linux sanitizer jobs: clang-cl under ASan uses several GB per
       # translation unit, and full concurrency exhausts runner memory on the largest instrumented
@@ -263,7 +316,7 @@ jobs:
       # mesh cache are serialized against each other with a ctest RESOURCE_LOCK
       # (OloEngine/tests/CMakeLists.txt). Capped at 2 (not 4) because ASan
       # shadow memory inflates each test process's resident footprint; 2-wide stays
-      # comfortably inside the windows-latest ~16 GB budget.
+      # comfortably inside the windows-2025 ~16 GB budget.
       # The trailing 10 excludes are all tests that trigger a real C++ throw+catch
       # (malformed-input robustness + MCP error handling). clang-cl + ASan miscompiles
       # MSVC-style C++ exception handling — ASan puts redzones on the compiler-emitted
@@ -303,10 +356,34 @@ jobs:
   asan-lsan-linux:
     name: ASan + LSan (Linux/Clang)
     needs: detect-changes
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
-    # Pinned to ubuntu-24.04 (noble) because the LLVM apt repo URL below
-    # hardcodes the distro codename. If ubuntu-latest jumps to a newer
-    # release the apt source would 404.
+    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    # HOSTED, not the self-hosted box -- and #1009 tried the box first, so this is a
+    # measurement rather than a default.
+    #
+    # Routing these three there does not move a job, it CHANGES WHAT THEY TEST, in
+    # two ways that compound:
+    #
+    #   1. The box's toolchain is clang 21 against gcc-toolset-15's libstdc++, not
+    #      the pinned clang-19. UBSan then reports inside the standard library --
+    #      "downcast of misaligned address 0x000036f1c2f9 ... requires 8 byte
+    #      alignment" in hashtable_policy.h, "execution reached an unreachable
+    #      program point" in stl_vector.h. A six-byte pointer is garbage, so those
+    #      are the toolchain pairing, not engine UB.
+    #   2. The box HAS A GPU. Every test gated on a GL 4.6 context skips on a hosted
+    #      runner and RUNS there -- so ~200 visual/golden tests execute under a
+    #      sanitizer for the first time ever.
+    #
+    # Together: 215 failed of 6,909, 212 of them SIGTRAP, against 1 of 6,940 on the
+    # hosted arm (run 33561256256). The second point is genuinely valuable coverage
+    # and the first is a real question about the pairing -- both are their own piece
+    # of work, with their own baseline to establish, and neither is a caching change.
+    #
+    # vulkan-off and steam-stub DO run on the box: they build and assert, they do not
+    # run a GPU-gated suite under instrumentation, and vulkan-off went 1h36m -> 28m
+    # there. The split is by what a job does, not by convenience.
+    #
+    # Pinned to ubuntu-24.04 (noble) because the LLVM apt repo URL hardcodes the
+    # distro codename; if ubuntu-latest jumped release the apt source would 404.
     runs-on: ubuntu-24.04
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
@@ -318,39 +395,21 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Free up disk space
-      # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
-      # OloEngine-Tests (instrumented + vendored static libs) can exhaust it
-      # ("No space left on device" during the final link). Reclaim ~20 GB of
-      # preinstalled toolchains this job doesn't use. `|| true` keeps a missing
-      # path from failing the job; the df lines bracket it for diagnostics.
-      run: |
-        df -h /
-        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
-        sudo docker image prune --all --force 2>/dev/null || true
-        df -h /
-
-    - name: Install Clang 19
-      uses: ./.github/actions/setup-llvm-apt
-
-    - name: Install dependencies
-      run: |
-        # The ubuntu-24.04 runner image ships Microsoft apt repos (azure-cli, prod)
-        # that periodically return 403 Forbidden; we never use them (Clang comes from
-        # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
-        # Drop any Microsoft source so a Microsoft-side outage can't break our update.
-        sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
-        sudo apt-get update
-        sudo apt-get install -y \
-          clang-19 lld-19 \
-          libvulkan-dev vulkan-validationlayers \
-          libgl-dev libglu1-mesa-dev \
-          libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
-          libwayland-dev wayland-protocols libxkbcommon-dev \
-          glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools \
-          python3 python3-pip
-        # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
-        python3 -m pip install jinja2==3.1.6
+    # Disk reclamation, Python + jinja2, the Vulkan/shader toolchain and the
+    # compiler, resolved for whichever runner kind this job landed on. The apt
+    # installs only ever run on a GitHub-hosted runner; on the self-hosted box the
+    # action VERIFIES a system-wide provisioning instead, because that box has
+    # neither passwordless sudo nor apt-get and an unconditional `sudo apt-get`
+    # once kept the nightly red for days.
+    - name: Setup Linux build environment
+      id: linux
+      uses: ./.github/actions/setup-linux-build
+      with:
+        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
+        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
+        # instrumentation. See the input's own comment for the stack.
+        vulkan-sdk: 'false'
+        cache-name: asan-lsan
 
     # Provisions sccache and wires it to the GitHub Actions cache backend
     # (SCCACHE_GHA_ENABLED above). Must run before Configure so the launcher
@@ -363,19 +422,26 @@ jobs:
     # the legacy Actions cache API on 2025-04-15, and older sccache builds hit
     # the dead endpoint and fail to start (and, as the compiler launcher, would
     # break every compile). v0.15.0 is the current stable pin — matches Windows.yml.
+    # Hosted only. The self-hosted runner uses ccache instead -- see
+    # .github/actions/setup-linux-build for why a per-user DAEMON is the wrong
+    # shape when two runner instances share one Unix account.
     - name: Setup sccache
+      if: runner.environment == 'github-hosted'
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       with:
         version: "v0.15.0"
 
-    # Persist sccache's local-disk cache as one actions/cache entry (unique key
-    # per run so the post-job save always writes a fresh snapshot; restore-keys
-    # warms from the most recent prior one). Key is per-sanitizer.
-    - name: Cache sccache storage
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    # Persist sccache's local-disk cache as one actions/cache entry, split into an
+    # explicit restore here and an `if: always()` save after the build (#1009 --
+    # see the save step for why the combined action loses it). Unique key per run
+    # attempt so every save writes a fresh snapshot; restore-keys warms from the
+    # most recent prior one. Key is per-sanitizer.
+    - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-asan-lsan-linux-${{ github.run_id }}
+        key: sccache-asan-lsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           sccache-asan-lsan-linux-
 
@@ -399,15 +465,35 @@ jobs:
       run: >
         cmake -S . -B build
         ${{ steps.vcpkg.outputs.toolchain-args }}
+        ${{ steps.linux.outputs.extra-cmake-args }}
+        -DPython_EXECUTABLE=${{ steps.linux.outputs.python-exe }}
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
-        -DCMAKE_CXX_COMPILER=clang++-19
-        -DCMAKE_C_COMPILER=clang-19
+        -DCMAKE_CXX_COMPILER=${{ steps.linux.outputs.cxx }}
+        -DCMAKE_C_COMPILER=${{ steps.linux.outputs.cc }}
         -DCMAKE_BUILD_TYPE=Debug
         -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
         -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
+
+    # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+    # is the whole point: the combined actions/cache action saves in a POST-JOB
+    # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+    # Placed before the build so a cancellation during the long build/test tail
+    # still banks the ports this run just spent ~40 minutes installing.
+    - name: Save vcpkg binary cache
+      if: always()
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
+      uses: ./.github/actions/save-vcpkg-cache
+      with:
+        key: ${{ steps.vcpkg.outputs.cache-key }}
+        path: ${{ steps.vcpkg.outputs.cache-path }}
 
     - name: Build tests
       # Pinned to --parallel 2: higher concurrency has been observed to
@@ -420,9 +506,38 @@ jobs:
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
     # meaning the build step recompiled almost nothing. The delta between a
     # cold and a warm run is the proof this change works.
-    - name: Show sccache stats
+    # The number this whole change is judged on. A cache that restores and hits on
+    # nothing looks exactly like a working one; the hit rate is the only thing that
+    # can tell them apart, so it is printed unconditionally -- see
+    # docs/agent-rules/ci-cache-that-looks-alive.md.
+    - name: Show compiler cache stats
       if: always()
-      run: sccache --show-stats
+      shell: bash
+      run: |
+        if [ "${{ runner.environment }}" = "github-hosted" ]; then
+          sccache --show-stats
+        else
+          ccache --show-stats
+        fi
+
+    # Paired with the restore above (#1009). `if: always()` is the point: the
+    # combined actions/cache action saves in a POST-JOB step, and post-job steps
+    # do NOT run when a job is cancelled -- which is how most PR runs in this repo
+    # end (`cancel-in-progress`; 17 of 27 Windows and 15 of 24 Sanitizer PR runs
+    # over the window measured in #1009). Every one of those recompiled everything
+    # and banked nothing, so the next run started just as cold.
+    - name: Save sccache storage
+      if: always() && runner.environment == 'github-hosted'
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-lsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -493,8 +608,34 @@ jobs:
   ubsan-linux:
     name: UBSan (Linux/Clang)
     needs: detect-changes
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
-    # See asan-lsan-linux above for why this pins the distro codename.
+    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    # HOSTED, not the self-hosted box -- and #1009 tried the box first, so this is a
+    # measurement rather than a default.
+    #
+    # Routing these three there does not move a job, it CHANGES WHAT THEY TEST, in
+    # two ways that compound:
+    #
+    #   1. The box's toolchain is clang 21 against gcc-toolset-15's libstdc++, not
+    #      the pinned clang-19. UBSan then reports inside the standard library --
+    #      "downcast of misaligned address 0x000036f1c2f9 ... requires 8 byte
+    #      alignment" in hashtable_policy.h, "execution reached an unreachable
+    #      program point" in stl_vector.h. A six-byte pointer is garbage, so those
+    #      are the toolchain pairing, not engine UB.
+    #   2. The box HAS A GPU. Every test gated on a GL 4.6 context skips on a hosted
+    #      runner and RUNS there -- so ~200 visual/golden tests execute under a
+    #      sanitizer for the first time ever.
+    #
+    # Together: 215 failed of 6,909, 212 of them SIGTRAP, against 1 of 6,940 on the
+    # hosted arm (run 33561256256). The second point is genuinely valuable coverage
+    # and the first is a real question about the pairing -- both are their own piece
+    # of work, with their own baseline to establish, and neither is a caching change.
+    #
+    # vulkan-off and steam-stub DO run on the box: they build and assert, they do not
+    # run a GPU-gated suite under instrumentation, and vulkan-off went 1h36m -> 28m
+    # there. The split is by what a job does, not by convenience.
+    #
+    # Pinned to ubuntu-24.04 (noble) because the LLVM apt repo URL hardcodes the
+    # distro codename; if ubuntu-latest jumped release the apt source would 404.
     runs-on: ubuntu-24.04
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
@@ -506,55 +647,44 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Free up disk space
-      # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
-      # OloEngine-Tests (instrumented + vendored static libs) can exhaust it
-      # ("No space left on device" during the final link). Reclaim ~20 GB of
-      # preinstalled toolchains this job doesn't use. `|| true` keeps a missing
-      # path from failing the job; the df lines bracket it for diagnostics.
-      run: |
-        df -h /
-        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
-        sudo docker image prune --all --force 2>/dev/null || true
-        df -h /
-
-    - name: Install Clang 19
-      uses: ./.github/actions/setup-llvm-apt
-
-    - name: Install dependencies
-      run: |
-        # The ubuntu-24.04 runner image ships Microsoft apt repos (azure-cli, prod)
-        # that periodically return 403 Forbidden; we never use them (Clang comes from
-        # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
-        # Drop any Microsoft source so a Microsoft-side outage can't break our update.
-        sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
-        sudo apt-get update
-        sudo apt-get install -y \
-          clang-19 lld-19 \
-          libvulkan-dev vulkan-validationlayers \
-          libgl-dev libglu1-mesa-dev \
-          libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
-          libwayland-dev wayland-protocols libxkbcommon-dev \
-          glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools \
-          python3 python3-pip
-        # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
-        python3 -m pip install jinja2==3.1.6
+    # Disk reclamation, Python + jinja2, the Vulkan/shader toolchain and the
+    # compiler, resolved for whichever runner kind this job landed on. The apt
+    # installs only ever run on a GitHub-hosted runner; on the self-hosted box the
+    # action VERIFIES a system-wide provisioning instead, because that box has
+    # neither passwordless sudo nor apt-get and an unconditional `sudo apt-get`
+    # once kept the nightly red for days.
+    - name: Setup Linux build environment
+      id: linux
+      uses: ./.github/actions/setup-linux-build
+      with:
+        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
+        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
+        # instrumentation. See the input's own comment for the stack.
+        vulkan-sdk: 'false'
+        cache-name: ubsan
 
     # Provisions sccache before Configure (see asan-lsan-linux for the version-
     # pin rationale and why no generator switch is needed on Linux).
+    # Hosted only. The self-hosted runner uses ccache instead -- see
+    # .github/actions/setup-linux-build for why a per-user DAEMON is the wrong
+    # shape when two runner instances share one Unix account.
     - name: Setup sccache
+      if: runner.environment == 'github-hosted'
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       with:
         version: "v0.15.0"
 
-    # Persist sccache's local-disk cache as one actions/cache entry (unique key
-    # per run so the post-job save always writes a fresh snapshot; restore-keys
-    # warms from the most recent prior one). Key is per-sanitizer.
-    - name: Cache sccache storage
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    # Persist sccache's local-disk cache as one actions/cache entry, split into an
+    # explicit restore here and an `if: always()` save after the build (#1009 --
+    # see the save step for why the combined action loses it). Unique key per run
+    # attempt so every save writes a fresh snapshot; restore-keys warms from the
+    # most recent prior one. Key is per-sanitizer.
+    - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-ubsan-linux-${{ github.run_id }}
+        key: sccache-ubsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           sccache-ubsan-linux-
 
@@ -573,15 +703,35 @@ jobs:
       run: >
         cmake -S . -B build
         ${{ steps.vcpkg.outputs.toolchain-args }}
+        ${{ steps.linux.outputs.extra-cmake-args }}
+        -DPython_EXECUTABLE=${{ steps.linux.outputs.python-exe }}
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
-        -DCMAKE_CXX_COMPILER=clang++-19
-        -DCMAKE_C_COMPILER=clang-19
+        -DCMAKE_CXX_COMPILER=${{ steps.linux.outputs.cxx }}
+        -DCMAKE_C_COMPILER=${{ steps.linux.outputs.cc }}
         -DCMAKE_BUILD_TYPE=Debug
         -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
         -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_UBSAN=ON
         -DBUILD_TESTS=ON
+
+    # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+    # is the whole point: the combined actions/cache action saves in a POST-JOB
+    # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+    # Placed before the build so a cancellation during the long build/test tail
+    # still banks the ports this run just spent ~40 minutes installing.
+    - name: Save vcpkg binary cache
+      if: always()
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
+      uses: ./.github/actions/save-vcpkg-cache
+      with:
+        key: ${{ steps.vcpkg.outputs.cache-key }}
+        path: ${{ steps.vcpkg.outputs.cache-path }}
 
     - name: Build tests
       # Pinned to --parallel 2: higher concurrency has been observed to
@@ -594,9 +744,38 @@ jobs:
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
     # meaning the build step recompiled almost nothing. The delta between a
     # cold and a warm run is the proof this change works.
-    - name: Show sccache stats
+    # The number this whole change is judged on. A cache that restores and hits on
+    # nothing looks exactly like a working one; the hit rate is the only thing that
+    # can tell them apart, so it is printed unconditionally -- see
+    # docs/agent-rules/ci-cache-that-looks-alive.md.
+    - name: Show compiler cache stats
       if: always()
-      run: sccache --show-stats
+      shell: bash
+      run: |
+        if [ "${{ runner.environment }}" = "github-hosted" ]; then
+          sccache --show-stats
+        else
+          ccache --show-stats
+        fi
+
+    # Paired with the restore above (#1009). `if: always()` is the point: the
+    # combined actions/cache action saves in a POST-JOB step, and post-job steps
+    # do NOT run when a job is cancelled -- which is how most PR runs in this repo
+    # end (`cancel-in-progress`; 17 of 27 Windows and 15 of 24 Sanitizer PR runs
+    # over the window measured in #1009). Every one of those recompiled everything
+    # and banked nothing, so the next run started just as cold.
+    - name: Save sccache storage
+      if: always() && runner.environment == 'github-hosted'
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-ubsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -654,7 +833,7 @@ jobs:
   tsan-linux:
     name: TSan (Linux/Clang)
     needs: detect-changes
-    if: ${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
     # 180, not 120, not 90: the same cold-cache loop, measured twice.
     #
     # A cold sccache restore (concurrent runs evict each other under the 10 GB
@@ -678,7 +857,33 @@ jobs:
     # has been observed finishing at 126 minutes, i.e. over this cap. The
     # asymmetry, not the duration, was the bug.
     timeout-minutes: 180
-    # See asan-lsan-linux above for why this pins the distro codename.
+    # HOSTED, not the self-hosted box -- and #1009 tried the box first, so this is a
+    # measurement rather than a default.
+    #
+    # Routing these three there does not move a job, it CHANGES WHAT THEY TEST, in
+    # two ways that compound:
+    #
+    #   1. The box's toolchain is clang 21 against gcc-toolset-15's libstdc++, not
+    #      the pinned clang-19. UBSan then reports inside the standard library --
+    #      "downcast of misaligned address 0x000036f1c2f9 ... requires 8 byte
+    #      alignment" in hashtable_policy.h, "execution reached an unreachable
+    #      program point" in stl_vector.h. A six-byte pointer is garbage, so those
+    #      are the toolchain pairing, not engine UB.
+    #   2. The box HAS A GPU. Every test gated on a GL 4.6 context skips on a hosted
+    #      runner and RUNS there -- so ~200 visual/golden tests execute under a
+    #      sanitizer for the first time ever.
+    #
+    # Together: 215 failed of 6,909, 212 of them SIGTRAP, against 1 of 6,940 on the
+    # hosted arm (run 33561256256). The second point is genuinely valuable coverage
+    # and the first is a real question about the pairing -- both are their own piece
+    # of work, with their own baseline to establish, and neither is a caching change.
+    #
+    # vulkan-off and steam-stub DO run on the box: they build and assert, they do not
+    # run a GPU-gated suite under instrumentation, and vulkan-off went 1h36m -> 28m
+    # there. The split is by what a job does, not by convenience.
+    #
+    # Pinned to ubuntu-24.04 (noble) because the LLVM apt repo URL hardcodes the
+    # distro codename; if ubuntu-latest jumped release the apt source would 404.
     runs-on: ubuntu-24.04
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
@@ -690,43 +895,29 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Free up disk space
-      # GitHub-hosted runners ship ~14 GB free; a sanitizer Debug link of
-      # OloEngine-Tests (instrumented + vendored static libs) can exhaust it
-      # ("No space left on device" during the final link). Reclaim ~20 GB of
-      # preinstalled toolchains this job doesn't use. `|| true` keeps a missing
-      # path from failing the job; the df lines bracket it for diagnostics.
-      run: |
-        df -h /
-        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
-        sudo docker image prune --all --force 2>/dev/null || true
-        df -h /
-
-    - name: Install Clang 19
-      uses: ./.github/actions/setup-llvm-apt
-
-    - name: Install dependencies
-      run: |
-        # The ubuntu-24.04 runner image ships Microsoft apt repos (azure-cli, prod)
-        # that periodically return 403 Forbidden; we never use them (Clang comes from
-        # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
-        # Drop any Microsoft source so a Microsoft-side outage can't break our update.
-        sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
-        sudo apt-get update
-        sudo apt-get install -y \
-          clang-19 lld-19 \
-          libvulkan-dev vulkan-validationlayers \
-          libgl-dev libglu1-mesa-dev \
-          libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
-          libwayland-dev wayland-protocols libxkbcommon-dev \
-          glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools \
-          python3 python3-pip
-        # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
-        python3 -m pip install jinja2==3.1.6
+    # Disk reclamation, Python + jinja2, the Vulkan/shader toolchain and the
+    # compiler, resolved for whichever runner kind this job landed on. The apt
+    # installs only ever run on a GitHub-hosted runner; on the self-hosted box the
+    # action VERIFIES a system-wide provisioning instead, because that box has
+    # neither passwordless sudo nor apt-get and an unconditional `sudo apt-get`
+    # once kept the nightly red for days.
+    - name: Setup Linux build environment
+      id: linux
+      uses: ./.github/actions/setup-linux-build
+      with:
+        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
+        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
+        # instrumentation. See the input's own comment for the stack.
+        vulkan-sdk: 'false'
+        cache-name: tsan
 
     # Provisions sccache before Configure (see asan-lsan-linux for the version-
     # pin rationale and why no generator switch is needed on Linux).
+    # Hosted only. The self-hosted runner uses ccache instead -- see
+    # .github/actions/setup-linux-build for why a per-user DAEMON is the wrong
+    # shape when two runner instances share one Unix account.
     - name: Setup sccache
+      if: runner.environment == 'github-hosted'
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       with:
         version: "v0.15.0"
@@ -741,6 +932,7 @@ jobs:
     # attempt so every save writes a fresh snapshot; restore-keys warms from the
     # most recent prior one. Key is per-sanitizer.
     - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -763,15 +955,35 @@ jobs:
       run: >
         cmake -S . -B build
         ${{ steps.vcpkg.outputs.toolchain-args }}
+        ${{ steps.linux.outputs.extra-cmake-args }}
+        -DPython_EXECUTABLE=${{ steps.linux.outputs.python-exe }}
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
-        -DCMAKE_CXX_COMPILER=clang++-19
-        -DCMAKE_C_COMPILER=clang-19
+        -DCMAKE_CXX_COMPILER=${{ steps.linux.outputs.cxx }}
+        -DCMAKE_C_COMPILER=${{ steps.linux.outputs.cc }}
         -DCMAKE_BUILD_TYPE=Debug
         -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
         -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_TSAN=ON
         -DBUILD_TESTS=ON
+
+    # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+    # is the whole point: the combined actions/cache action saves in a POST-JOB
+    # step, which a CANCELLED job skips -- and most PR runs here are cancelled.
+    # Placed before the build so a cancellation during the long build/test tail
+    # still banks the ports this run just spent ~40 minutes installing.
+    - name: Save vcpkg binary cache
+      if: always()
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
+      uses: ./.github/actions/save-vcpkg-cache
+      with:
+        key: ${{ steps.vcpkg.outputs.cache-key }}
+        path: ${{ steps.vcpkg.outputs.cache-path }}
 
     - name: Build tests
       # Pinned to --parallel 2: higher concurrency has been observed to
@@ -784,16 +996,32 @@ jobs:
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
     # meaning the build step recompiled almost nothing. The delta between a
     # cold and a warm run is the proof this change works.
-    - name: Show sccache stats
+    # The number this whole change is judged on. A cache that restores and hits on
+    # nothing looks exactly like a working one; the hit rate is the only thing that
+    # can tell them apart, so it is printed unconditionally -- see
+    # docs/agent-rules/ci-cache-that-looks-alive.md.
+    - name: Show compiler cache stats
       if: always()
-      run: sccache --show-stats
+      shell: bash
+      run: |
+        if [ "${{ runner.environment }}" = "github-hosted" ]; then
+          sccache --show-stats
+        else
+          ccache --show-stats
+        fi
 
     # Deliberately BEFORE the test step (and `if: always()`): the tests don't
     # write compile-cache entries, and saving here means a run whose TEST step
     # later times out has already banked its build cache — while a cancel during
     # the BUILD step still saves the partial objects via always().
     - name: Save sccache storage
-      if: always()
+      if: always() && runner.environment == 'github-hosted'
+      # A cache save must never fail the job it is attached to. `if: always()`
+      # means this runs on a CANCEL, where the path it is asked to save may not
+      # exist yet -- and actions/cache/save treats a missing path as a validation
+      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
+      # strictly worse outcome than the cold cache this is fixing.
+      continue-on-error: true
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
