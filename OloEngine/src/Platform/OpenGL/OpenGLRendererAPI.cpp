@@ -1901,7 +1901,25 @@ namespace OloEngine
             glClearNamedBufferData(bufferID, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
             return;
         }
-        glClearNamedBufferSubData(bufferID, GL_R32UI, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size),
+        // `~0ull` means "to the end of the buffer" (it is VK_WHOLE_SIZE on the
+        // Vulkan twin). GL has no such sentinel, and casting it straight to
+        // GLsizeiptr would hand glClearNamedBufferSubData a negative size, so
+        // resolve the remaining length from the buffer itself.
+        GLsizeiptr clearSize = 0;
+        if (size == ~0ull)
+        {
+            GLint64 bufferBytes = 0;
+            glGetNamedBufferParameteri64v(bufferID, GL_BUFFER_SIZE, &bufferBytes);
+            const GLint64 remaining = bufferBytes - static_cast<GLint64>(offset);
+            if (remaining <= 0)
+                return;
+            clearSize = static_cast<GLsizeiptr>(remaining);
+        }
+        else
+        {
+            clearSize = static_cast<GLsizeiptr>(size);
+        }
+        glClearNamedBufferSubData(bufferID, GL_R32UI, static_cast<GLintptr>(offset), clearSize,
                                   GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
     }
 

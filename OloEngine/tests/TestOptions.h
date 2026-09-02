@@ -68,7 +68,8 @@ namespace OloEngine::Tests
         bool BenchAssert = false;
         // --olo-soundgraph-perf : run the SoundGraph throughput measurement.
         bool SoundGraphPerf = false;
-        // --olo-gl-backend=<egl|glfw|none> : force the context-creation path.
+        // --olo-gl-backend=<egl|glfw|none|auto> : force the context-creation
+        // path. `auto` is the default and is also accepted explicitly.
         // `egl` is the headless surfaceless route the GPU runners need. `none`
         // creates no context at all, so every GPU-gated test skips exactly as
         // it does on a GitHub-hosted runner -- the switch that lets a run on

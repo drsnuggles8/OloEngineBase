@@ -246,13 +246,17 @@ runs:
           echo "CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime"
           echo "OLO_COMPILER_CACHE_TOOL=$ccache_bin"
           echo "CPM_SOURCE_CACHE=$HOME/.cache/olo/cpm"
-          # The compile CWD is part of ccache's hash by default (hash_dir) for
-          # a -g build, and it differs between the two runner slots' _work
-          # trees and between the Makefiles generator (compiles from
-          # build/<subdir>) and the Ninja one (compiles from build/). Without
-          # this, olo-ci-1 never hits olo-ci-2's objects and the GPU nightly
-          # never hits the PR jobs', so "one shared LRU" was three cold ones.
-          echo "CCACHE_NOHASHDIR=1"
+          # NOT setting CCACHE_NOHASHDIR, deliberately. The compile CWD is part
+          # of ccache's hash by default (hash_dir) for a `-g` build, and it
+          # differs between the two runner slots' _work trees, so olo-ci-1
+          # never reuses olo-ci-2's objects and the cache is colder than it
+          # looks. Turning hash_dir off would share them -- and would serve an
+          # object whose DWARF still names the OTHER slot's directory, which is
+          # exactly the debug info a sanitizer report symbolises. These jobs
+          # exist to produce readable ASan/UBSan/TSan stacks, so a warmer cache
+          # is not worth a stack that points at a path this job never used.
+          # The way to have both is `-ffile-prefix-map` on every compile so the
+          # recorded path is slot-independent; do that first, then this is safe.
         } >> "$GITHUB_ENV"
         echo "persistent ccache for '${OLO_CACHE_NAME}': $dir ($ccache_bin)"
         CCACHE_DIR="$dir" ccache --max-size=30G >/dev/null

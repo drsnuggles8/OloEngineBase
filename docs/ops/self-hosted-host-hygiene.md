@@ -25,6 +25,14 @@ ExecCondition=/bin/sh -c '! pgrep -x Runner.Worker >/dev/null'
 busy slot is skipped and `Persistent=true` retries at the next one. It is not scoped to the
 `gh-runner-olo` user on purpose: `gh-runner-1/2/3` serve another repository on this host.
 
+**It narrows the window, it does not close it.** The condition is evaluated once, before the
+update runs. A job picked up while `dnf` is working is not seen, and a kernel update's
+`shutdown -r +5` will still land on it. To make a planned update safe, take the pool out of
+rotation first — stop the `Runner.Listener` processes, or mark the runners offline through the
+GitHub API — and restore it afterwards. That stays a manual procedure on purpose: a drop-in
+that stops listeners and then fails, or a reboot between the stop and the restore, leaves the
+pool quietly offline, which is worse than the collision it was meant to prevent.
+
 **What the timer did NOT do:** reboot the box at 2026-09-02 00:39 under two sanitizer jobs.
 That claim is in commit `b704e7810`, issue #1015 and the Troubleshooting row of the runner
 doc, and the journal contradicts it: `dnf-automatic-install.service` ran at 09-01 06:27 and

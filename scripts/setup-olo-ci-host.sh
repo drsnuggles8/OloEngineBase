@@ -24,6 +24,18 @@
 #      restricted to one user on purpose: gh-runner-1/2/3 serve another
 #      repository on this host and their jobs deserve the same protection.
 #
+#      WHAT THIS DOES NOT CLOSE: the check runs once, before the update. A job
+#      that starts while dnf is working is not seen, and if that update pulls a
+#      kernel the `shutdown -r +5` still lands on it. The condition turns a
+#      nightly collision into a rare one; it does not make the window zero.
+#      Closing it needs the pool taken OUT OF ROTATION for the maintenance
+#      window -- stop the Runner.Listener processes, or set the runners offline
+#      through the GitHub API -- and restored afterwards. That is a deliberate
+#      maintenance procedure, not something to bolt onto a timer: a listener
+#      stopped by a drop-in that then fails, or a reboot that lands between the
+#      stop and the restore, leaves the pool silently offline, which is a worse
+#      failure than the one being fixed. Do it by hand when a big update is due.
+#
 #   3. The GPU must not runtime-suspend between test processes. amdgpu's
 #      runtime power management (power/control=auto) puts the idle card into
 #      BACO and wakes it on the next open; every GPU test process after an idle

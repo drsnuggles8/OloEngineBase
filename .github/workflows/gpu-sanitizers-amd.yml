@@ -118,6 +118,18 @@ jobs:
     # run if this workflow file ever executes outside the upstream repository.
     if: github.repository == 'drsnuggles8/OloEngineBase'
     runs-on: [self-hosted, linux, x64, olo-ci]
+    # THE ONE GPU, shared with gpu-conformance-amd.yml. The label sets are
+    # different (olo-ci vs gpu-amd) so GitHub would happily run both at once,
+    # and the workflow-level group above only serialises this workflow against
+    # itself. A job-level group both workflows name makes the card exclusive
+    # for real; `cancel-in-progress: false` because neither run may kill the
+    # other -- a cancelled conformance run leaves no baseline and a cancelled
+    # sanitizer arm leaves none either. The three matrix arms share the group
+    # too, so they take the GPU one at a time, which is what the runtime-PM
+    # history in docs/ops/self-hosted-host-hygiene.md asks for.
+    concurrency:
+      group: olo-amd-gpu-exclusive
+      cancel-in-progress: false
     # 240, measured, not rounded: a COLD instrumented build on the box was ~60
     # min (asan.yml's arms on the same runner, 33561256256) and its test phase
     # ~50 min at 2-wide with the GPU tests skipping. Here they run, and a GPU

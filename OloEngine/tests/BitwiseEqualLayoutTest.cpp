@@ -62,8 +62,15 @@ namespace
         std::memset(zeroBuf, 0x00, sizeof(T));
         std::memset(onesBuf, 0xFF, sizeof(T));
 
-        T* a = ::new (static_cast<void*>(zeroBuf)) T();
-        T* b = ::new (static_cast<void*>(onesBuf)) T();
+        // DEFAULT-initialised, no parentheses. `T()` would VALUE-initialise,
+        // and for a class whose default constructor is implicitly defined
+        // (which every component here is -- they use default member
+        // initialisers, not a written ctor) value-initialisation zero-fills
+        // the whole object first, padding included. That would erase the very
+        // bytes this probe exists to catch and the test would pass for a
+        // padded type.
+        T* a = ::new (static_cast<void*>(zeroBuf)) T;
+        T* b = ::new (static_cast<void*>(onesBuf)) T;
         const bool equal = BitwiseEqual(*a, *b);
         a->~T();
         b->~T();

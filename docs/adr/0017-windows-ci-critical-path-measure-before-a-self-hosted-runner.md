@@ -5,7 +5,10 @@ the Windows workflow the PR critical path (159 min median over 250 runs) and #10
 the cache fixes meant to bring it down. This ADR records what the runs since then show, why
 no Windows runner is built now, and what would make the question worth reopening. The numbers
 below come from the Actions REST API (`runs`, `jobs`, per-job step timings) for 273 completed
-runs between 2026-08-18 and 2026-09-02; the #1015 PR body carries the per-job table.
+runs between 2026-08-18 and 2026-09-02. The table below lists the PULL-REQUEST rows only, which
+is what the critical-path question is about; the remaining 62 are `push` runs of the same two
+workflows (Windows 30, Sanitizers 28, medians 171 and 170), and they are what the nightly
+cache-warming argument rests on.
 
 ---
 
@@ -50,8 +53,12 @@ one branch and blocked by the store.
    reported success and deleted nothing, because the 3.1 GB that mattered were two entries
    scoped to `refs/pull/1010/merge`, a merged PR's ref that no run can read again and that the
    prune does not consider. Deleting those two by hand brought the listed total from 10.98 to
-   8.66 GB. The prune now deletes every entry on a closed PR's ref (this PR). Then collect
-   at least ten completed post-nightly PR runs and recompute the table above the same way. The question is
+   8.66 GB. The prune now deletes every entry on a closed PR's ref (this PR). That is the
+   store brought back UNDER the cap; it is not yet proof that writes resume, which needs one
+   observed successful cache save followed by a PR run restoring a
+   `sccache-windows-2025-release-*` entry written on `master`. Until both appear in a log, treat
+   the precondition as unmet. Then collect at least ten completed post-nightly PR runs and
+   recompute the table above the same way. The question is
    reopened only if the warm Windows median is still the ceiling by a margin that a runner
    would close.
 3. **If a Windows runner is ever built, it is a separate machine or VM, not the interactive

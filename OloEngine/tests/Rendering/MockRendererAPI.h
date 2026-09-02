@@ -711,9 +711,9 @@ namespace OloEngine::Testing
                               Native(dstBuffer, RHI::ResourceKind::Buffer),
                               srcOffsetBytes, dstOffsetBytes, sizeBytes);
         }
-        void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value, u64 /*offset*/ = 0, u64 /*size*/ = ~0ull) override
+        void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value, u64 offset = 0, u64 size = ~0ull) override
         {
-            ClearBufferUInt(Native(buffer, RHI::ResourceKind::Buffer), value);
+            ClearBufferUInt(Native(buffer, RHI::ResourceKind::Buffer), value, offset, size);
         }
         void ClearBufferFloat(RHI::ResourceHandle buffer, f32 value) override
         {
@@ -1130,9 +1130,18 @@ namespace OloEngine::Testing
         {
             Record("CopyBufferSubData");
         }
-        void ClearBufferUInt(u32 /*bufferID*/, u32 /*value*/)
+        // The RANGE is recorded, not dropped: a ranged clear (a per-frame
+        // header in front of persistent GPU-written records) and a whole-buffer
+        // clear are different calls, and a test that cannot tell them apart
+        // cannot pin which one a pass made.
+        void ClearBufferUInt(u32 /*bufferID*/, u32 /*value*/, u64 offset = 0, u64 size = ~0ull)
         {
-            Record("ClearBufferUInt");
+            if (offset == 0 && size == ~0ull)
+            {
+                Record("ClearBufferUInt");
+                return;
+            }
+            Record("ClearBufferUInt(" + std::to_string(offset) + "," + std::to_string(size) + ")");
         }
         void ClearBufferFloat(u32 /*bufferID*/, f32 /*value*/)
         {
