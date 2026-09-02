@@ -412,30 +412,33 @@ runs:
         echo "save-key=$key" >> "$GITHUB_OUTPUT"
         echo "vcpkg binary cache: dir=$dir persistent=$persistent save-key=${key:-<none>}"
 
-    # Keep the persistent cache from growing without bound. vcpkg archives are
-    # content-addressed by ABI hash, so a superseded one is never read again and is
-    # also never deleted -- every baseline bump strands the entire previous set.
-    # -atime +30 is comfortably longer than the interval between bumps, so nothing
-    # a live build still wants can be evicted.
-    - name: Prune the persistent binary cache (self-hosted)
-      if: steps.cachecfg.outputs.persistent == 'true'
+    # NOT PRUNED BY DEFAULT, and that is the safe direction.
+    #
+    # Both self-hosted runners share this one directory, and vcpkg's `files`
+    # provider restores an archive as "does <abi>.zip exist?" followed by
+    # "decompress <abi>.zip". Deleting between those two steps is not an error
+    # anywhere: vcpkg treats the restore as unavailable and rebuilds the port. So a
+    # prune running on olo-ci-1 can silently cost olo-ci-2 a from-source build, with
+    # no failure and no log line saying why -- the precise shape of #1009 itself.
+    # Serialising it properly would need a lock the vcpkg install ALSO takes, and
+    # that install happens in the caller's configure step, outside this action.
+    #
+    # An unsafe bound is worse than no bound, and no bound is not urgent: the cache
+    # is ~330 MiB against 233 GiB free on /home. So the eviction is opt-in. Set
+    # OLO_VCPKG_CACHE_PRUNE=1 to run it, ideally when no other job is active.
+    #
+    # Size-capped rather than age-based when it does run. `find -atime +30` is a trap
+    # twice over: a `noatime` mount never updates access time, so on the wrong
+    # filesystem it deletes the LIVE archive set every 30 days and the next job
+    # rebuilds every port with no error; and age is the wrong signal anyway, since an
+    # archive for a port that has not changed in a year is old and entirely current.
+    - name: Prune the persistent binary cache (self-hosted, opt-in)
+      if: steps.cachecfg.outputs.persistent == 'true' && env.OLO_VCPKG_CACHE_PRUNE == '1'
       shell: bash
       env:
         OLO_VCPKG_CACHE_DIR: ${{ steps.cachecfg.outputs.dir }}
       run: |
         set -euo pipefail
-        # SIZE-CAPPED, not age-based, and that is deliberate. The obvious rule --
-        # `find -atime +30 -delete` -- is a trap twice over. It reads access time,
-        # which a `noatime` mount never updates at all (and `relatime` only once a
-        # day), so on the wrong filesystem it silently deletes the LIVE archive set
-        # every 30 days and the next job rebuilds all 116 ports with no error
-        # anywhere. And age is the wrong signal regardless: an archive for a port
-        # that has not changed in a year is old and completely current.
-        #
-        # So: do nothing at all while there is room, and only when the cache exceeds
-        # the cap delete oldest-first until it is back under. Nothing is ever
-        # evicted while there is space, and when there isn't, the cost of a wrong
-        # eviction is one rebuilt port.
         cap_mib="${OLO_VCPKG_CACHE_CAP_MIB:-20480}"
         used_mib=$(du -sm "$OLO_VCPKG_CACHE_DIR" 2>/dev/null | cut -f1 || echo 0)
         echo "persistent vcpkg binary cache: ${used_mib} MiB used, cap ${cap_mib} MiB ($OLO_VCPKG_CACHE_DIR)"
@@ -443,16 +446,29 @@ runs:
           echo "  under cap; nothing evicted"
           exit 0
         fi
-        # %T@ is mtime: always recorded, unlike atime. For a content-addressed
-        # archive, written-once means mtime IS the age of that ABI hash.
         over=$(( (used_mib - cap_mib) * 1048576 ))
         freed=0
-        while IFS=$'\t' read -r _ts size path; do
+        # Space-separated rather than tab: a vcpkg archive path is
+        # <two hex chars>/<abi hash>.zip, so it can never contain a space, and
+        # avoiding the escape keeps this readable inside a YAML block scalar.
+        # %T@ is mtime -- always recorded, unlike atime.
+        while read -r _ts size path; do
           [ "$freed" -lt "$over" ] || break
           rm -f -- "$path" && freed=$((freed + size))
-        done < <(find "$OLO_VCPKG_CACHE_DIR" -type f -name '*.zip' -printf '%T@\t%s\t%p\n' 2>/dev/null | sort -n)
+        done < <(find "$OLO_VCPKG_CACHE_DIR" -type f -name '*.zip' -printf '%T@ %s %p\n' 2>/dev/null | sort -n)
         find "$OLO_VCPKG_CACHE_DIR" -mindepth 1 -type d -empty -delete 2>/dev/null || true
         echo "  evicted $((freed / 1048576)) MiB (oldest first) to get back under the cap"
+
+    # Report the size unconditionally, so the directory cannot grow unnoticed just
+    # because nothing prunes it.
+    - name: Report the persistent binary cache size (self-hosted)
+      if: steps.cachecfg.outputs.persistent == 'true'
+      shell: bash
+      env:
+        OLO_VCPKG_CACHE_DIR: ${{ steps.cachecfg.outputs.dir }}
+      run: |
+        set -euo pipefail
+        echo "persistent vcpkg binary cache: $(du -sh "$OLO_VCPKG_CACHE_DIR" 2>/dev/null | cut -f1) ($OLO_VCPKG_CACHE_DIR)"
 
     # Guard against exactly the x-gha class of failure: a provider that this tool
     # build no longer implements is accepted with a warning and silently ignored.

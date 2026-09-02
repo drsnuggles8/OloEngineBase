@@ -272,7 +272,7 @@ The CI jobs added by #1009 use a second set under `.cache/olo/`, created by
 | Path | Written by | Notes |
 |---|---|---|
 | `~/.cache/olo/ccache` | ccache, **shared by every job** | bounded at 30 GiB by the setup script |
-| `~/.cache/olo/vcpkg-binary-cache` | vcpkg (`files` provider), shared | `setup-vcpkg` evicts oldest-first only when it exceeds 20 GiB |
+| `~/.cache/olo/vcpkg-binary-cache` | vcpkg (`files` provider), shared | **not pruned by default** — see below |
 | `~/.cache/olo/vcpkg-<runner-name>` | the vcpkg clone itself, **per runner** | |
 | `~/.cache/olo/cpm` | CPM / FetchContent, shared | |
 
@@ -295,7 +295,20 @@ Two of those distinctions are load-bearing, and both come from the same fact:
   unique per instance and stable across runs, so each keeps its own warmth.
 
 The binary *cache* is shared deliberately — the `files` provider writes to a temp
-path and renames, and sharing is the whole point of it.
+path and renames, so concurrent WRITES are safe and sharing is the whole point.
+
+Concurrent **deletes** are not, which is why nothing prunes that directory
+automatically. A restore is "does `<abi>.zip` exist?" followed by "decompress
+`<abi>.zip`"; deleting between the two is not an error anywhere — vcpkg treats the
+restore as unavailable and rebuilds the port. A prune on `olo-ci-1` would silently
+cost `olo-ci-2` a from-source build with no failure and no log line saying why.
+Serialising it properly needs a lock the vcpkg install also takes, and that install
+runs in the caller's configure step, outside `setup-vcpkg`.
+
+An unsafe bound is worse than no bound, and no bound is not urgent here (~330 MiB
+against 233 GiB free), so eviction is opt-in: set `OLO_VCPKG_CACHE_PRUNE=1` when no
+other job is active. The size is printed on every run regardless, so the directory
+cannot grow unnoticed.
 
 **Why local disk rather than `actions/cache`, in one line:** an entry on local
 disk has no post-job save step for a cancellation to skip, no ref scoping, and no

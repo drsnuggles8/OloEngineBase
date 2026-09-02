@@ -102,12 +102,21 @@ echo "== caches =="
 # than skipping it as already-present.
 for d in "" "/olo"; do
     install -o "$RUNNER_USER" -g "$RUNNER_USER" -m 755 -d "${RUNNER_HOME}/.cache${d}"
-    chown "${RUNNER_USER}:${RUNNER_USER}" "${RUNNER_HOME}/.cache${d}"
 done
 for d in ccache vcpkg-binary-cache cpm; do
     install -o "$RUNNER_USER" -g "$RUNNER_USER" -m 755 -d "${RUNNER_HOME}/.cache/olo/${d}"
-    chown -R "${RUNNER_USER}:${RUNNER_USER}" "${RUNNER_HOME}/.cache/olo/${d}"
 done
+# Then chown the WHOLE tree, not the directories this script happens to name.
+# setup-vcpkg creates one more per runner at run time -- .cache/olo/vcpkg-<runner
+# name>, the per-instance clone -- and it skips cloning when .git already exists.
+# So a clone left with the wrong owner is never re-created; it just keeps failing
+# at checkout or bootstrap. Naming the three directories here would repair exactly
+# the ones that were never the problem.
+#
+# Recursive is deliberate despite the size (ccache can hold 30 GiB of small
+# files, so this can take a minute): provisioning runs rarely, and a
+# wrong-ownership cache is a hard failure, not a slow one.
+chown -R "${RUNNER_USER}:${RUNNER_USER}" "${RUNNER_HOME}/.cache"
 # ONE ccache directory shared by every job, not one per sanitizer: ccache hashes
 # the full compile command line, so -fsanitize=address and -fsanitize=thread
 # objects cannot collide, and a single large LRU beats several fixed-size ones.
