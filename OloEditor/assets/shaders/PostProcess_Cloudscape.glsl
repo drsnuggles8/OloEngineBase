@@ -164,7 +164,7 @@ void main()
 
     if (tEnd <= tStart + 1.0)
     {
-        o_Cloud = vec4(0.0, 0.0, 0.0, 1.0);
+        o_Cloud = vec4(1.0, 0.0, 1.0, 0.0); // #1008 probe: no march = magenta
         return;
     }
 
@@ -186,6 +186,7 @@ void main()
 
     vec3 inscatter = vec3(0.0);
     float transmittance = 1.0;
+    int hitCount = 0; // #1008 probe
 
     for (int i = 0; i < steps; ++i)
     {
@@ -193,6 +194,7 @@ void main()
         float density = cloudDensity(samplePos, false);
         if (density > 1.0e-4)
         {
+            ++hitCount; // #1008 probe
             float extinction = density * kExtinction;
             float stepTrans = exp(-extinction * stepLen);
 
@@ -233,6 +235,13 @@ void main()
         }
         t += stepLen;
     }
+
+    // ---- #1008 probe output (experiment; revert before merge) ----
+    o_Cloud = vec4(clamp((tEnd - tStart) / 40000.0, 0.0, 1.0),
+                   depth, // raw conservative scene depth: 1.0 = sky on NVIDIA
+                   clamp(1.0 - transmittance, 0.0, 1.0),
+                   0.0);
+    return;
 
     // Distance fade: hand the far field to the sky/fog instead of a hard cut.
     float distanceFade = 1.0 - smoothstep(kMaxMarchDistance * 0.6, kMaxMarchDistance, tStart);
