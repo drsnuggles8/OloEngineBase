@@ -347,7 +347,7 @@ namespace OloEngine::Tests
                 clouds.m_LayerBottom = 700.0f;
                 clouds.m_LayerTop = 1600.0f;
                 clouds.m_WeatherMapScaleKm = 8.0f;
-                clouds.m_MaxSteps = 256;       // #1008 A/B, restore to 48
+                clouds.m_MaxSteps = 48;
                 clouds.m_TemporalBlend = 0.5f; // few warm-up frames per capture
 
                 m_Atmosphere = atmosphere;
@@ -408,7 +408,7 @@ namespace OloEngine::Tests
 
             // Several ticks: the sky rebake happens on the first, the cloud
             // temporal accumulation settles over the rest.
-            RunEditorFrames(camera, 32);
+            RunEditorFrames(camera, 4);
 
             auto resolveComposite = []
             {
@@ -507,18 +507,6 @@ namespace OloEngine::Tests
                         std::memcpy(bot, tmp.data(), rowBytes);
                     }
                     const auto preHorizon = MeanBand(prePixels, kHeight * 38u / 100u, kHeight * 46u / 100u);
-                    // Mean ALPHA over the same band. The cloudscape writes its
-                    // transmittance there, so this separates "AMD draws less cloud"
-                    // from "AMD draws the same cloud, dimmer" -- two different bugs
-                    // that the luma alone cannot tell apart.
-                    double preAlpha = 0.0;
-                    {
-                        const u32 r0 = kHeight * 38u / 100u, r1 = kHeight * 46u / 100u;
-                        for (u32 y = r0; y < r1; ++y)
-                            for (u32 x = 0; x < kWidth; ++x)
-                                preAlpha += prePixels[(static_cast<std::size_t>(y) * kWidth + x) * 4u + 3u];
-                        preAlpha /= static_cast<double>((r1 - r0) * kWidth);
-                    }
                     const auto preSky = MeanBand(prePixels, 0, kHeight * 18u / 100u);
                     // Clamped to 8 bits by the readback, which is fine: this is a
                     // cross-VENDOR comparison of the same buffer, and the question is
@@ -546,7 +534,6 @@ namespace OloEngine::Tests
                               << "  pre-fog(CloudsColor) horizon luma=" << preHorizon.Luma()
                               << " rgb=" << preHorizon.R << "," << preHorizon.G << "," << preHorizon.B
                               << "  |  pre-fog sky luma=" << preSky.Luma()
-                              << "  alpha=" << preAlpha
                               << "  |  composited horizon luma=" << m_Horizon[name].Luma()
                               << std::endl;
                 }
