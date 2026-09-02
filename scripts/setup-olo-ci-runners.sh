@@ -45,12 +45,18 @@ fi
 #
 #   clang / lld / compiler-rt   the sanitizer jobs are clang-only, and
 #                               -fsanitize=address|undefined|thread needs the
-#                               compiler-rt runtimes. Rocky 10 ships clang 21;
-#                               the hosted jobs pin clang-19. That version skew
-#                               is accepted deliberately (#1009) -- it is extra
-#                               compiler coverage, not a defect -- but it does
-#                               mean a diagnostic can appear here and not on the
-#                               hosted fallback.
+#                               compiler-rt runtimes. Rocky 10 ships clang 21.
+#   clang19 / lld19 /           the PIN (#1015): the same 19.1.7 the hosted
+#   compiler-rt19               jobs get from apt.llvm.org, from EPEL, under
+#                               /usr/lib64/llvm19/bin. setup-linux-build selects
+#                               it by absolute path when present and warns
+#                               (then builds with clang 21) when not, so the
+#                               system clang stays as the fallback and as a
+#                               second compiler version for local builds.
+#                               docs/ops/self-hosted-linux-toolchain.md.
+#                               setup-olo-ci-host.sh installs the same three
+#                               packages on their own for a box that is
+#                               already provisioned.
 #   mesa-libEGL-devel           GLFW compiles its EGL backend unconditionally.
 #   nasm                        FFmpeg's from-source build. Cheap to install and
 #                               it removes a whole class of "why did this job
@@ -64,6 +70,7 @@ fi
 echo "== packages =="
 dnf install -y \
     clang clang-tools-extra lld compiler-rt libomp libomp-devel \
+    clang19 compiler-rt19 lld19 \
     mesa-libEGL-devel libglvnd-devel \
     libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libXext-devel \
     wayland-devel wayland-protocols-devel libxkbcommon-devel \

@@ -44,7 +44,9 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # ---------------------------------------------------------------- 1. clang-19
-if [ -x /usr/lib64/llvm19/bin/clang++ ]; then
+# All three or none: setup-linux-build selects the compiler by path and relies
+# on ld.lld and the sanitizer runtimes sitting beside it.
+if [ -x /usr/lib64/llvm19/bin/clang++ ] && [ -x /usr/lib64/llvm19/bin/ld.lld ]    && ls /usr/lib64/llvm19/lib/clang/19/lib/*/libclang_rt.asan*.a >/dev/null 2>&1; then
   echo "clang-19 already provisioned: $(/usr/lib64/llvm19/bin/clang++ --version | head -1)"
 else
   dnf install -y clang19 compiler-rt19 lld19
@@ -53,32 +55,44 @@ fi
 test -x /usr/lib64/llvm19/bin/ld.lld || { echo "lld19 did not install ld.lld beside clang-19" >&2; exit 1; }
 
 # ------------------------------------------- 2. no reboot under a running job
+# Idempotent for real: write to a temp file and only install + reload when the
+# content differs, so a re-run on a live host reloads nothing.
 dropin=/etc/systemd/system/dnf-automatic-install.service.d/idle-runners.conf
-install -d -m 0755 "$(dirname "$dropin")"
-cat > "$dropin" <<'EOF'
+tmp=$(mktemp)
+cat > "$tmp" <<'EOF'
 # Skip this update slot while any GitHub Actions job is executing on this host
 # (issue #1015 item E). Runner.Worker exists only for the duration of a job.
 # The timer is Persistent=true, so a skipped slot is retried at the next one.
 [Service]
 ExecCondition=/bin/sh -c '! pgrep -x Runner.Worker >/dev/null'
 EOF
-systemctl daemon-reload
+if ! cmp -s "$tmp" "$dropin" 2>/dev/null; then
+  install -d -m 0755 "$(dirname "$dropin")"
+  install -m 0644 "$tmp" "$dropin"
+  systemctl daemon-reload
+fi
+rm -f "$tmp"
 systemctl cat dnf-automatic-install.service | grep -q 'ExecCondition=' \
   || { echo "drop-in did not take: systemctl cat dnf-automatic-install.service" >&2; exit 1; }
 echo "dnf-automatic-install.service now skips a slot while a runner job is executing"
 
 # ------------------------------------------ 3. GPU stays awake (no runtime PM)
 rule=/etc/udev/rules.d/90-olo-amdgpu-no-runpm.rules
-cat > "$rule" <<'EOF'
+tmp=$(mktemp)
+cat > "$tmp" <<'EOF'
 # Keep the AMD GPU out of runtime suspend (issue #1015 item E): a failed
 # resume from BACO rebooted the host under running CI jobs on 2026-09-02.
 ACTION=="add|change", SUBSYSTEM=="pci", DRIVER=="amdgpu", ATTR{power/control}="on"
 EOF
-udevadm control --reload-rules
+if ! cmp -s "$tmp" "$rule" 2>/dev/null; then
+  install -m 0644 "$tmp" "$rule"
+  udevadm control --reload-rules
+fi
+rm -f "$tmp"
 gpus=0
 for dev in /sys/bus/pci/drivers/amdgpu/0000:*; do
   [ -e "$dev/power/control" ] || continue
-  echo on > "$dev/power/control"
+  [ "$(cat "$dev/power/control")" = on ] || echo on > "$dev/power/control"
   gpus=$((gpus + 1))
   echo "amdgpu $(basename "$dev"): power/control=$(cat "$dev/power/control") runtime_status=$(cat "$dev/power/runtime_status")"
 done

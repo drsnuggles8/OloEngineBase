@@ -389,8 +389,12 @@ jobs:
     #   2. The box's compiler was clang 21 against gcc-toolset-15's libstdc++,
     #      not the pinned clang-19, and UBSan reported inside the standard
     #      library. setup-linux-build now resolves the pinned toolchain on the
-    #      self-hosted arm as well and fails the job, naming the provisioning
-    #      step, when it is not there -- see its "Resolve toolchain" step.
+    #      self-hosted arm as well; when it is not provisioned it WARNS (a
+    #      run-summary annotation naming the dnf command) and builds with the
+    #      system clang 21 rather than failing -- see its "Resolve toolchain"
+    #      step for why a missing pin must not take the box out. Read the
+    #      "toolchain:" line of a self-hosted job before comparing it with a
+    #      hosted one.
     #
     # The acceptance test for this routing is a same-commit A/B: dispatch the
     # workflow once normally and once with `force_hosted: true`, then compare
@@ -525,11 +529,16 @@ jobs:
         path: ${{ steps.vcpkg.outputs.cache-path }}
 
     - name: Build tests
-      # Pinned to --parallel 2: higher concurrency has been observed to
-      # exhaust runner memory (clang++ under sanitizer instrumentation uses
-      # ~3 GB per translation unit), causing `The hosted runner lost
-      # communication with the server` failures.
-      run: cmake --build build --target OloEngine-Tests --parallel 2
+      # Pinned to --parallel 2 on the hosted arm: higher concurrency has been
+      # observed to exhaust runner memory (clang++ under sanitizer
+      # instrumentation uses ~3 GB per translation unit), causing `The hosted
+      # runner lost communication with the server` failures. 4 on the
+      # self-hosted box (16 threads, 31 GiB, a persistent ccache): two of these
+      # jobs run there at once, and 4 + 4 compiles is ~24 GB peak. The same
+      # width is used for ctest below -- with --olo-gl-backend=none the test
+      # phase is CPU-only there, and the box has the memory for four
+      # instrumented processes per job.
+      run: cmake --build build --target OloEngine-Tests --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }}
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
@@ -615,7 +624,7 @@ jobs:
       # a *compile-time* constraint (~3 GB per TU under clang+sanitizer) and does NOT
       # transfer to the test phase — don't "reconcile" the two numbers; they bound
       # different resources (peak compiler RSS vs. peak instrumented-test RSS).
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
         LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt
@@ -749,7 +758,7 @@ jobs:
       # exhaust runner memory (clang++ under sanitizer instrumentation uses
       # ~3 GB per translation unit), causing `The hosted runner lost
       # communication with the server` failures.
-      run: cmake --build build --target OloEngine-Tests --parallel 2
+      run: cmake --build build --target OloEngine-Tests --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }}
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
@@ -823,7 +832,7 @@ jobs:
       # UBSan now enables only the curated eight checks rather than the whole
       # `undefined` group, so vptr is no longer asked of `-fno-rtti` vendor code.
       # This exclusion covers the remaining, genuinely-GNS-side gap. See #636.
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
@@ -983,7 +992,7 @@ jobs:
       # exhaust runner memory (clang++ under sanitizer instrumentation uses
       # ~3 GB per translation unit), causing `The hosted runner lost
       # communication with the server` failures.
-      run: cmake --build build --target OloEngine-Tests --parallel 2
+      run: cmake --build build --target OloEngine-Tests --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }}
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
@@ -1072,7 +1081,7 @@ jobs:
       # ThreadState and its first intercepted malloc faults inside TSan's own
       # allocator — a bare SIGSEGV with no report. OloEngine/vendor/CMakeLists.txt
       # now filters that definition off the imported target; see the comment there.
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
       env:
         # suppressions: vendored-code races we accept rather than patch — see
         # the rationale comments in tsan.txt (currently: Jolt's assert-build

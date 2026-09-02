@@ -246,6 +246,13 @@ runs:
           echo "CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime"
           echo "OLO_COMPILER_CACHE_TOOL=$ccache_bin"
           echo "CPM_SOURCE_CACHE=$HOME/.cache/olo/cpm"
+          # The compile CWD is part of ccache's hash by default (hash_dir) for
+          # a -g build, and it differs between the two runner slots' _work
+          # trees and between the Makefiles generator (compiles from
+          # build/<subdir>) and the Ninja one (compiles from build/). Without
+          # this, olo-ci-1 never hits olo-ci-2's objects and the GPU nightly
+          # never hits the PR jobs', so "one shared LRU" was three cold ones.
+          echo "CCACHE_NOHASHDIR=1"
         } >> "$GITHUB_ENV"
         echo "persistent ccache for '${OLO_CACHE_NAME}': $dir ($ccache_bin)"
         CCACHE_DIR="$dir" ccache --max-size=30G >/dev/null
@@ -297,12 +304,26 @@ runs:
           # without opening the log. When a self-hosted job fails and its hosted
           # twin does not, read the "toolchain:" line below before assuming the
           # box is broken. Provisioning: docs/ops/self-hosted-linux-toolchain.md.
+          # All three packages or none: a clang19 without compiler-rt19 would
+          # configure fine and fail every sanitizer LINK on "cannot find
+          # libclang_rt.asan.a", where the system clang would have worked. The
+          # runtime dir is asked of the compiler itself, so the check follows
+          # whatever layout the package uses.
           pinned_bin=/usr/lib64/llvm19/bin
-          if [ -x "$pinned_bin/clang++" ] && [ -x "$pinned_bin/clang" ]; then
+          pinned_ok=0
+          if [ -x "$pinned_bin/clang++" ] && [ -x "$pinned_bin/clang" ] && [ -x "$pinned_bin/ld.lld" ]; then
+            rt_dir=$("$pinned_bin/clang++" -print-runtime-dir 2>/dev/null || true)
+            if [ -n "$rt_dir" ] && ls "$rt_dir"/libclang_rt.asan*.a >/dev/null 2>&1 \
+               && ls "$rt_dir"/libclang_rt.tsan*.a >/dev/null 2>&1 \
+               && ls "$rt_dir"/libclang_rt.ubsan*.a >/dev/null 2>&1; then
+              pinned_ok=1
+            fi
+          fi
+          if [ "$pinned_ok" -eq 1 ]; then
             cc="$pinned_bin/clang"; cxx="$pinned_bin/clang++"
           else
             cc=clang; cxx=clang++
-            echo "::warning title=pinned clang-19 not provisioned::building with $(command -v clang++) ($(clang++ --version | head -1)). Provision the pin with: sudo dnf install -y clang19 compiler-rt19 lld19 -- see docs/ops/self-hosted-linux-toolchain.md"
+            echo "::warning title=pinned clang-19 not provisioned::building with $(command -v clang++) ($(clang++ --version | head -1)). Provision the pin (compiler, linker AND sanitizer runtimes) with: sudo dnf install -y clang19 compiler-rt19 lld19 -- see docs/ops/self-hosted-linux-toolchain.md"
           fi
           python_exe="$(command -v python3)"
           # OLO_ENABLE_COMPILER_CACHE is added HERE rather than at each call site

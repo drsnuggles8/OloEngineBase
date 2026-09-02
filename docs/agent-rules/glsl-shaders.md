@@ -644,7 +644,10 @@ set here). The rules, in decreasing order of how often you'll need them:
 layout(std430, binding = N) buffer BufferName { ... };
 ```
 
-Slots 0–8 are reserved (particles, foliage instances, light probes, snow deformers, indirect draw).
+Slots 0–8 are claimed (particles, DDGI probe aux at 6, light probes, snow deformers, indirect draw),
+and every slot must stay below `ShaderBindingLayout::SSBO_BINDING_LIMIT` (80, Mesa's cap; see
+[ssbo-binding-cap-is-80-on-mesa.md](ssbo-binding-cap-is-80-on-mesa.md)). The C++ constant is the
+authority for which slot is whose.
 
 ---
 

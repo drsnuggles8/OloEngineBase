@@ -36,11 +36,13 @@ leak:libssl
 # Mesa radeonsi (the self-hosted AMD box, gpu-sanitizers-amd.yml). The driver
 # lives in libgallium-*.so, not in a library named after it, and allocates
 # process-lifetime state (screen, winsys, LLVM/ACO compiler pools, the amdgpu
-# device handle) that it never frees. A leak whose ALLOCATING frame is inside
-# the driver module is the driver's and is suppressed here; an engine-side GL
-# leak (a texture or buffer the engine created and never deleted) still
-# reports, because its allocating frame is in the engine, not in the driver.
-# libGLX / libEGL above cover the loader; these cover what it loads.
+# device handle) that it never frees. NOTE what `leak:<pattern>` matches: ANY
+# frame of the allocation stack. So this also suppresses an engine-side GL
+# object the engine created and never deleted -- its allocation happens inside
+# the driver, with the engine's glCreateTextures caller above it. LSan cannot
+# tell those apart; engine GL-object lifetime is the RendererShutdownTest
+# family's job (a census at Renderer::Shutdown), not LSan's. libGLX / libEGL
+# above cover the loader; these cover what it loads.
 leak:radeonsi
 leak:libgallium
 leak:amdgpu

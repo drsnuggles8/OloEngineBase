@@ -386,26 +386,6 @@ jobs:
           -DOLO_LINK_JOBS=1
           "-DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=egl;--olo-require-gpu;--olo-golden-vendor=amd"
 
-      # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
-      # is the whole point: the combined actions/cache action saves in a POST-JOB
-      # step, which a CANCELLED job skips. Placed before the build so a
-      # cancellation during the long build/test tail still banks the ports.
-      # On this self-hosted runner setup-vcpkg reports an empty key (the cache
-      # lives on local disk) and the action is a no-op -- kept so the step list
-      # matches the twins and keeps working if the routing ever changes.
-      - name: Save vcpkg binary cache
-        if: always()
-        # A cache save must never fail the job it is attached to. `if: always()`
-        # means this runs on a CANCEL, where the path it is asked to save may not
-        # exist yet -- and actions/cache/save treats a missing path as a validation
-        # error, not a no-op. Turning a cancelled run into a FAILED one would be a
-        # strictly worse outcome than the cold cache this is fixing.
-        continue-on-error: true
-        uses: ./.github/actions/save-vcpkg-cache
-        with:
-          key: ${{ steps.vcpkg.outputs.cache-key }}
-          path: ${{ steps.vcpkg.outputs.cache-path }}
-
       - name: Build tests
         # --parallel 4, where the twin pins 2. The twin's 2 is sized for a
         # 4-vCPU / 16 GB hosted VM (clang++ under sanitizer instrumentation uses
@@ -584,13 +564,18 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gpu_${{ matrix.sanitizer }}_amd_golden_diffs
+          # Only what this run produced: the actual/diff pairs and the AMD
+          # evidence set. The full visual tree is ~450 tracked PNGs (188 MB)
+          # that the repo already holds; three red arms a night uploading it
+          # would be ~50 GB of artifact storage at the default retention.
           path: |
             OloEditor/assets/tests/golden/*.actual.png
             OloEditor/assets/tests/golden/*.diff.png
             OloEditor/assets/tests/golden/amd/*.actual.png
             OloEditor/assets/tests/golden/amd/*.diff.png
-            OloEditor/assets/tests/visual/**/*.png
+            OloEditor/assets/tests/visual/amd/**/*.png
           if-no-files-found: ignore
+          retention-days: 14
 
       # Build trees for this engine are tens of GB and the box is shared with
       # other runners; don't let a month of nightlies fill the disk.

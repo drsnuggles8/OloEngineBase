@@ -114,13 +114,23 @@ jobs:
               - 'OloEditor/src/CMakeLists.txt'
               - 'OloRuntime/src/CMakeLists.txt'
               - 'OloServer/src/CMakeLists.txt'
+              - 'OloEngine/vendor/CMakeLists.txt'
               - 'cmake/**'
+              - 'CMakePresets.json'
               - 'vcpkg.json'
               # The seam itself: the one TU that may include a Valve header, the
               # stub SDK, and the tests that drive the enabled path.
               - 'OloEngine/src/Platform/Steam/**'
               - 'OloEngine/tests/Platform/Steam/**'
               - 'OloEngine/tests/CMakeLists.txt'
+              # The seam's consumers outside Platform/Steam: the Lua bindings,
+              # the cloud-save mirror, Steam Input routing and the application
+              # bring-up all call into the backend and are exercised only by
+              # the enabled build. (`git grep -l SteamManager` is the check.)
+              - 'OloEngine/src/OloEngine/Scripting/Lua/LuaScriptGlue.cpp'
+              - 'OloEngine/src/OloEngine/SaveGame/**'
+              - 'OloEngine/src/OloEngine/Core/InputActionManager.*'
+              - 'OloEngine/src/OloEngine/Core/Application.cpp'
 
   # Cheap, no-build guard on the invariant the whole design rests on: exactly ONE translation
   # unit may include a Valve header. If that spreads, the logic stops being fake-testable and the
