@@ -341,6 +341,13 @@ jobs:
           key: ${{ steps.vcpkg.outputs.cache-key }}
           path: ${{ steps.vcpkg.outputs.cache-path }}
 
+      # ccache statistics for THIS build only: -z zeroes the counters, -s -v after
+      # the build prints hits/misses and the per-reason miss breakdown. The
+      # AMD job was rebuilding all 1482 objects on a shader-only change and the
+      # log had no way to say why.
+      - name: Reset ccache statistics
+        run: ccache -z
+
       - name: Build tests
         # Width comes from CMAKE_BUILD_PARALLEL_LEVEL in the job env — see the
         # note there for why it must be set explicitly rather than left to the
@@ -359,6 +366,10 @@ jobs:
         # would have the workflow's silently win, leaving the project's
         # setting looking effective while doing nothing.
         run: cmake --build build --target OloEngine-Tests
+
+      - name: ccache statistics
+        if: always()
+        run: ccache -s -v
 
       # ---------------------------------------------------------------------
       # The suite runs from OloEditor/ — OloEditor, OloRuntime and the test
