@@ -106,11 +106,25 @@ target_compile_definitions(OloEngine PRIVATE
 						IMGUI_DEFINE_MATH_OPERATORS
 						YAML_CPP_STATIC_DEFINE
 						OLO_ENGINE_VERSION="${CMAKE_PROJECT_VERSION}"
-						OLO_BUILD_GIT_HASH="${OLO_BUILD_GIT_HASH}"
-						OLO_BUILD_GIT_DESCRIBE="${OLO_BUILD_GIT_DESCRIBE}"
-						OLO_BUILD_GIT_DIRTY=${OLO_BUILD_GIT_DIRTY}
-						OLO_BUILD_TIMESTAMP="${OLO_BUILD_TIMESTAMP}"
 )
+# Build identity (git hash / describe / dirty / configure timestamp) is read by
+# exactly one TU, BuildInfo.cpp, so it is defined for exactly that TU. As a
+# target-wide definition it was part of EVERY engine TU's command line, and the
+# hash changes with every commit and the timestamp with every configure -- so
+# ccache/sccache missed every engine object on every CI run and on every local
+# reconfigure (24 of the AMD job's 31 minutes were a rebuild with nothing but a
+# shader changed). A per-source COMPILE_DEFINITIONS property also takes the file
+# out of the unity batch, which is what keeps the hash out of the batch's
+# command line. OLO_ENGINE_VERSION stays target-wide: Application.cpp reads it
+# too, and it only changes with a version bump.
+# DIRECTORY src: the OloEngine targets are created in src/, and a source
+# property is only visible in the directory scope it is set in.
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/OloEngine/Core/BuildInfo.cpp
+    DIRECTORY src
+    PROPERTIES
+    COMPILE_DEFINITIONS "OLO_BUILD_GIT_HASH=\"${OLO_BUILD_GIT_HASH}\";OLO_BUILD_GIT_DESCRIBE=\"${OLO_BUILD_GIT_DESCRIBE}\";OLO_BUILD_GIT_DIRTY=${OLO_BUILD_GIT_DIRTY};OLO_BUILD_TIMESTAMP=\"${OLO_BUILD_TIMESTAMP}\""
+)
+
 # EnTT's type_index family counter is a plain integer unless ENTT_USE_ATOMIC is
 # defined; gameplay systems marked Parallelizable (issue #453) first-touch
 # component types from worker tasks, and a racing non-atomic counter can hand two
@@ -669,10 +683,6 @@ foreach(_olo_part IN LISTS OLO_ENGINE_LIBRARY_PARTS)
 							IMGUI_DEFINE_MATH_OPERATORS
 							YAML_CPP_STATIC_DEFINE
 							OLO_ENGINE_VERSION="${CMAKE_PROJECT_VERSION}"
-							OLO_BUILD_GIT_HASH="${OLO_BUILD_GIT_HASH}"
-							OLO_BUILD_GIT_DESCRIBE="${OLO_BUILD_GIT_DESCRIBE}"
-							OLO_BUILD_GIT_DIRTY=${OLO_BUILD_GIT_DIRTY}
-							OLO_BUILD_TIMESTAMP="${OLO_BUILD_TIMESTAMP}"
 	)
 
 	if(OLO_ENABLE_UNITY_BUILD)

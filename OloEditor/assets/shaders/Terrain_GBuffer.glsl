@@ -601,7 +601,7 @@ void main()
             vec3 brushColor = u_BrushParams.z < 0.5 ? vec3(0.0, 0.8, 1.0) : vec3(0.2, 1.0, 0.3);
 
             float edgeDist = abs(normalizedDist - 1.0);
-            float ring = smoothstep(0.03, 0.0, edgeDist);
+            float ring = 1.0 - smoothstep(0.0, 0.03, edgeDist);
 
             float fill = weight * 0.15;
             albedo = mix(albedo, brushColor, fill + ring * 0.6);

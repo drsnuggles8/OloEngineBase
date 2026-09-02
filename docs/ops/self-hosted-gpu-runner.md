@@ -263,11 +263,17 @@ The GPU nightly points its two at the runner user's home:
 
 ```
 CPM_SOURCE_CACHE=/home/gh-runner-olo/.cache/cpm
-CCACHE_DIR=/home/gh-runner-olo/.cache/ccache
+CCACHE_DIR=/home/gh-runner-olo/.cache/olo/ccache
+CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime
 ```
 
-The CI jobs added by #1009 use a second set under `.cache/olo/`, created by
-`scripts/setup-olo-ci-runners.sh`:
+`CCACHE_SLOPPINESS` is not optional: every engine target uses a precompiled
+header and ccache will not cache a PCH-using compile without it. The GPU job ran
+for weeks with a warm cache directory and a 100 % uncacheable build
+([compiler-cache-uncacheable-compiles.md](../agent-rules/compiler-cache-uncacheable-compiles.md)).
+
+The `.cache/olo/` set is created by `scripts/setup-olo-ci-runners.sh` and shared
+with the CI jobs added by #1009:
 
 | Path | Written by | Notes |
 |---|---|---|

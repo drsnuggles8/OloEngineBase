@@ -61,6 +61,7 @@
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Atmosphere/WeatherSystem.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -79,6 +80,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <iostream>
 #include <limits>
 #include <map>
 #include <string>
@@ -262,6 +264,17 @@ namespace OloEngine::Tests
             m_SavedWind = Renderer3D::GetWindSettings();
             m_SavedPrecipitation = Renderer3D::GetPrecipitationSettings();
             m_SavedSnowAccumulation = Renderer3D::GetSnowAccumulationSettings();
+            // The #1008 probe below reads CloudsColor AFTER the frame. CloudsColor is
+            // a transient that dies at the fog pass, so with aliasing on the planner
+            // is free to hand its GL texture to a later pass, and the "pre-fog" read
+            // then returns that pass's output instead. Measured: with aliasing on,
+            // every fogged cell read back the fog composite under the CloudsColor
+            // name; with it off, the same read returned the cloudscape output. The
+            // texture-id check against the FINAL framebuffer cannot catch this
+            // (that one is a different texture either way). Process-wide state:
+            // restored in TearDown.
+            m_SavedDisableAliasing = Levers::DisableTransientAliasing();
+            Levers::SetDisableTransientAliasing(true);
             RendererAttachedTest::SetUp();
         }
 
@@ -273,6 +286,7 @@ namespace OloEngine::Tests
             Renderer3D::GetPrecipitationSettings() = m_SavedPrecipitation;
             Renderer3D::GetSnowAccumulationSettings() = m_SavedSnowAccumulation;
             Renderer3D::SetCloudscapeState(CloudscapeRenderState{});
+            Levers::SetDisableTransientAliasing(m_SavedDisableAliasing);
         }
 
         void BuildScene() override
@@ -454,6 +468,126 @@ namespace OloEngine::Tests
             m_Horizon[name] = MeanBand(pixels, kHeight * 38u / 100u, kHeight * 46u / 100u);
             m_Ground[name] = MeanBand(pixels, kHeight * 75u / 100u, kHeight);
 
+            // ---- issue #1008: what is BEHIND the fog in the horizon band? ----
+            //
+            // The AMD baselines read the uncapped fog colour across that band while
+            // NVIDIA shows sky and cloud through a 0.7-capped fog. With the cap
+            // proven to arrive and hold on AMD hardware (a standalone EGL probe reads
+            // u_FogRayleighColorAndMaxOpacity.a == 0.700000 and clamp() honouring it),
+            // the composite `0.3*background + 0.7*fogColor` can only read as pure fog
+            // if the BACKGROUND already equals the fog colour there.
+            //
+            // FogRenderPass reads the first valid of PrecipitationColor / CloudsColor /
+            // TAAColor / ... as its input, so with a cloud deck present CloudsColor IS
+            // the pre-fog image. Reporting its horizon band next to the composite's is
+            // the measurement that separates the two candidates in #1008:
+            //
+            //   pre-fog band ~= fog colour   -> the sky/atmosphere path is the bug,
+            //                                   the fog pass is innocent
+            //   pre-fog band ~= NVIDIA's     -> the fog composite is the bug
+            //
+            // Diagnostic only: it prints, it never fails. The point is to get one
+            // number off the AMD box, and an assertion here would just be a second
+            // way for #1008 to turn a job red.
+            // Mirror FogRenderPass's OWN input selection order, which is
+            // PrecipitationColor first and CloudsColor second (see its
+            // ReadFirstValidVersionedInputForPass list). The Storm preset enables
+            // rain, so for the four Storm cells the buffer the fog pass actually
+            // reads is PrecipitationColor -- the cloud composite plus the
+            // precipitation overlay. Resolving only CloudsColor labelled those
+            // cells' numbers "pre-fog" while reading a buffer one pass upstream of
+            // the real fog input. Clear and Overcast author no precipitation, so
+            // for them the two are the same buffer and nothing changes.
+            //
+            // Resolving PrecipitationColor is NOT enough to prefer it: the resource
+            // exists in the graph from the first cell that enables rain onward, and
+            // resolves happily for every later cell -- but PrecipitationPass returns
+            // early when precipitation is off, so the buffer is then BLACK. Taking it
+            // unconditionally reported horizon luma 0 for the nine cells that author
+            // no precipitation. Gate on the live renderer setting that actually drives
+            // the pass, which is the same thing FogRenderPass's "first VALID input"
+            // resolves to at graph-build time.
+            const bool precipitationRan = Renderer3D::GetPrecipitationSettings().Enabled;
+            const char* preFogName = precipitationRan ? "PrecipitationColor" : "CloudsColor";
+            auto preFog = precipitationRan
+                              ? Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::PrecipitationColor)
+                              : Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::CloudsColor);
+            if (!preFog)
+            {
+                preFogName = "CloudsColor";
+                preFog = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::CloudsColor);
+            }
+            if (preFog)
+            {
+                // FALSIFY THE INSTRUMENT FIRST. Four Overcast cells reported a
+                // pre-fog horizon band identical to the composited one to three
+                // decimals, which is the signature of reading ONE buffer twice.
+                // This check catches the direct case (CloudsColor resolving to the
+                // final image). It does NOT catch the case that actually happened:
+                // CloudsColor's transient reused by an intermediate pass after the
+                // fog pass consumed it -- a different texture from the final
+                // framebuffer, holding a post-fog image all the same. That is what
+                // the SetUp lever closes; this check stays as the cheap guard.
+                const u32 preTex = preFog->GetColorAttachmentRendererID(0);
+                const u32 postTex = fb->GetColorAttachmentRendererID(0);
+                std::cout << "[#1008-alias] " << name << "  " << preFogName << " tex=" << preTex
+                          << "  composite tex=" << postTex
+                          << (preTex == postTex ? "  *** SAME TEXTURE — probe is invalid ***" : "  (distinct)")
+                          << std::endl;
+
+                std::vector<u8> prePixels;
+                ReadbackRgba8(preTex, kWidth, kHeight, prePixels);
+                if (prePixels.size() == static_cast<std::size_t>(kWidth) * kHeight * 4u)
+                {
+                    const std::size_t rowBytes = static_cast<std::size_t>(kWidth) * 4u;
+                    std::vector<u8> tmp(rowBytes);
+                    for (u32 y = 0; y < kHeight / 2u; ++y)
+                    {
+                        u8* top = prePixels.data() + static_cast<std::size_t>(y) * rowBytes;
+                        u8* bot = prePixels.data() + static_cast<std::size_t>(kHeight - 1u - y) * rowBytes;
+                        std::memcpy(tmp.data(), top, rowBytes);
+                        std::memcpy(top, bot, rowBytes);
+                        std::memcpy(bot, tmp.data(), rowBytes);
+                    }
+                    const auto preHorizon = MeanBand(prePixels, kHeight * 38u / 100u, kHeight * 46u / 100u);
+                    const auto preSky = MeanBand(prePixels, 0, kHeight * 18u / 100u);
+                    // Clamped to 8 bits by the readback, which is fine: this is a
+                    // cross-VENDOR comparison of the same buffer, and the question is
+                    // binary. Both sides get identical treatment.
+                    // The band mean answers "how much light", never "a picture of
+                    // what". CLAUDE.md's rule for renderer work is to look at the
+                    // pixels, and this is the one buffer nobody has ever seen on AMD.
+                    // gpu-conformance-amd uploads visual/**/*.png in its
+                    // `if: failure()` artifact, and that job fails on #1008 anyway,
+                    // so writing here is how the image gets off the box.
+                    {
+                        const fs::path preDir = fs::path("assets") / "tests" / "visual" / "fog1008";
+                        std::error_code ec;
+                        fs::create_directories(preDir, ec);
+                        if (!ec)
+                        {
+                            const std::string prePath = (preDir / ("PreFog_" + name + ".png")).string();
+                            ::stbi_write_png(prePath.c_str(), static_cast<int>(kWidth),
+                                             static_cast<int>(kHeight), 4, prePixels.data(),
+                                             static_cast<int>(kWidth) * 4);
+                        }
+                    }
+
+                    std::cout << "[#1008] " << name
+                              << "  pre-fog(" << preFogName << ") horizon luma=" << preHorizon.Luma()
+                              << " rgb=" << preHorizon.R << "," << preHorizon.G << "," << preHorizon.B
+                              << "  |  pre-fog sky luma=" << preSky.Luma()
+                              << "  |  composited horizon luma=" << m_Horizon[name].Luma()
+                              << std::endl;
+                }
+            }
+            else
+            {
+                std::cout << "[#1008] " << name
+                          << "  pre-fog unavailable -- neither PrecipitationColor nor CloudsColor this frame"
+                          << std::endl;
+            }
+
             const fs::path dir = GoldenBaselineDir();
             const std::string path = (dir / ("Atmosphere_" + name + ".png")).string();
 
@@ -492,6 +626,7 @@ namespace OloEngine::Tests
         std::map<std::string, BandStats> m_Horizon;
         std::map<std::string, BandStats> m_Ground;
 
+        bool m_SavedDisableAliasing = false;
         FogSettings m_SavedFog;
         WindSettings m_SavedWind;
         PrecipitationSettings m_SavedPrecipitation;

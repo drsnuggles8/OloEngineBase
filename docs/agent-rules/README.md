@@ -45,6 +45,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md): when a correct fix makes no sense live, suspect a stale incremental object before the code.
 - [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md): a CI cache that restores is not
   one that works.
+- [compiler-cache-uncacheable-compiles.md](compiler-cache-uncacheable-compiles.md): print the cache statistics after every CI build and read the uncacheable line; a PCH without `CCACHE_SLOPPINESS` and a per-commit macro each made every engine object a miss.
 - [shader-pack-bake.md](shader-pack-bake.md): the CI-baked `.osp` pack, its content-hash invalidation, and why a fresh worktree does not fetch it.
 - [steamworks-platform-integration.md](steamworks-platform-integration.md): the SDK is developer-supplied, CI builds a stub, and exactly one TU may include a Valve header.
 
@@ -256,6 +257,7 @@ The check passes for a correct implementation and for a broken one.
 | [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | GL has no allocator-teardown assertion, so a clean GL close proves nothing about teardown. |
 | [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md) | A correct fix that a live rebuild kept "disproving"; the binary was stale, not the source. |
 | [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) | A cache has no wrong-looking failure state: it fails by being slow. Every save in the repo had been refused for six days and every run stayed green. |
+| [compiler-cache-uncacheable-compiles.md](compiler-cache-uncacheable-compiles.md) | The build step takes compile time on a shader-only change while the cache directory is warm. A PCH-using compile is uncacheable without `CCACHE_SLOPPINESS`; a per-commit macro on every TU misses every run. |
 
 **The counter-move:** measure the noise floor first, and construct a case the instrument must fail
 on before trusting a case it passes.

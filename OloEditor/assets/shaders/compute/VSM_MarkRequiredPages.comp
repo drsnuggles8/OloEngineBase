@@ -29,6 +29,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 // GPU readback-stats channel (issue #721). The request ring below is one of the
 // two capacity-bearing appends this engine had that truncated in silence.
 #include "../include/GPUReadbackStats.glsl"
+#include "../include/SkyDepth.glsl"
 
 // TEX_POSTPROCESS_DEPTH — this frame's scene depth, bound by the mark pass.
 layout(binding = 19) uniform sampler2D u_VSMSceneDepth;
@@ -159,7 +160,7 @@ void main()
         return;
 
     float depth = texelFetch(u_VSMSceneDepth, pix, 0).r;
-    if (depth >= 1.0)
+    if (oloDepthIsSky(depth))
         return; // sky — nothing to receive a shadow
 
     vec2 uv = (vec2(pix) + vec2(0.5)) / vec2(u_VSMParams3.xy);

@@ -240,6 +240,10 @@ runs:
         mkdir -p "$dir"
         {
           echo "CCACHE_DIR=$dir"
+          # PCH-using compiles are uncacheable without this (ccache manual,
+          # "Precompiled headers"); every engine target uses one. See
+          # docs/agent-rules/compiler-cache-uncacheable-compiles.md.
+          echo "CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime"
           echo "OLO_COMPILER_CACHE_TOOL=$ccache_bin"
           echo "CPM_SOURCE_CACHE=$HOME/.cache/olo/cpm"
         } >> "$GITHUB_ENV"
