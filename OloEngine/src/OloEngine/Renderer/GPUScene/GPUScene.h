@@ -7,20 +7,57 @@
 
 namespace OloEngine
 {
-    // The GL 4.6 SSBO namespace is already full. GPU Scene deliberately aliases
-    // two pass-local legacy instance slots and is bound only immediately before
-    // a consumer; #994 will own that pass integration. It is never a global
-    // sticky binding.
+    // The GL 4.6 SSBO namespace is full (ShaderBindingLayout.h, SSBO_GPU_STATS).
+    // GPU Scene therefore aliases pass-local slots and is bound only
+    // immediately before a consumer; it is never a global sticky binding.
+    //
+    //   Instances / Geometries / Materials: the GPU instance cull's trio
+    //     (SSBO_INSTANCE_DATA / _CULL_INPUT / _DRAW_INDIRECT = 15 / 16 / 17).
+    //     #1003 took the first two; the material record takes the third.
+    //   Lights / Environments: the Forward+ per-type light buffers
+    //     (SSBO_FPLUS_POINT_LIGHTS / _SPOT_LIGHTS = 9 / 10). The raster
+    //     migration (#994) routes the clustered evaluator through the canonical
+    //     light record and retires the per-type buffers, so the canonical
+    //     buffers inherit their numbers rather than claiming new ones.
+    //
+    // Consequence, pinned by GPUSceneLayoutTest over every shader's include
+    // closure: a shader that reaches GPUScene.glsl may not declare, itself or
+    // through another include, a storage block at any of these five numbers
+    // until #994 retires the aliased declarations. Buffer growth rebinds and
+    // unbinds the slot inside EndScene, so every consumer binds per pass.
     struct GPUSceneBindingLayout
     {
         static constexpr u32 Instances = ShaderBindingLayout::SSBO_INSTANCE_DATA;
         static constexpr u32 Geometries = ShaderBindingLayout::SSBO_INSTANCE_CULL_INPUT;
+        static constexpr u32 Materials = ShaderBindingLayout::SSBO_INSTANCE_DRAW_INDIRECT;
+        static constexpr u32 Lights = ShaderBindingLayout::SSBO_FPLUS_POINT_LIGHTS;
+        static constexpr u32 Environments = ShaderBindingLayout::SSBO_FPLUS_SPOT_LIGHTS;
         static_assert(Instances < ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS);
         static_assert(Geometries < ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS);
+        static_assert(Materials < ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS);
+        static_assert(Lights < ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS);
+        static_assert(Environments < ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS);
+        static_assert(Instances != Geometries && Instances != Materials && Instances != Lights);
+        static_assert(Instances != Environments && Geometries != Materials && Geometries != Lights);
+        static_assert(Geometries != Environments && Materials != Lights && Materials != Environments);
+        static_assert(Lights != Environments);
+    };
+
+    struct GPUSceneCapacities
+    {
+        u32 m_Instances = 64;
+        u32 m_Geometries = 64;
+        u32 m_Materials = 64;
+        u32 m_Lights = 64;
+        // A reset retires the global slot for two frames, so the replacement
+        // appends; four slots keep a scene reload from growing (and rebinding)
+        // the aliased buffer.
+        u32 m_Environments = 4;
     };
 
     // CPU authority for stable GPU-scene identities. Extraction is staged and
     // committed in key order so registry iteration order cannot affect slots.
+    // Identity and generation rules: GPUSceneTypes.h, top of file.
     class GPUScene
     {
       public:
@@ -35,13 +72,22 @@ namespace OloEngine
         void BeginExtraction(u64 ownerToken, const glm::vec3& renderOrigin);
         void ExtractGeometry(const GPUSceneGeometryKey& key, const GPUSceneGeometryInput& input);
         void ExtractInstance(const GPUSceneInstanceKey& key, const GPUSceneInstanceInput& input);
+        // Materials commit before instances, so an instance staged with a
+        // material key resolves the canonical slot in the same frame.
+        void ExtractMaterial(const GPUSceneMaterialKey& key, const GPUSceneMaterialInput& input);
+        void ExtractLight(const GPUSceneLightKey& key, const GPUSceneLightInput& input);
+        void ExtractEnvironment(const GPUSceneEnvironmentKey& key, const GPUSceneEnvironmentInput& input);
+        // True once a material key was staged this frame. The renderer uses it
+        // to visit each material once per frame although every submesh that
+        // uses it is submitted separately.
+        [[nodiscard]] bool IsMaterialStaged(const GPUSceneMaterialKey& key) const;
         void ReportUnsupported(GPUSceneUnsupportedCategory category, u32 count = 1);
         [[nodiscard]] GPUSceneFrameUpdate EndExtraction();
 
         // GPU resources are explicit so CPU-only tools/tests can use the
         // registry without a renderer context. Resize preserves the RHI
         // object identity and the backend retires old storage frame-safely.
-        void InitializeGPU(u32 initialInstanceCapacity = 64, u32 initialGeometryCapacity = 64);
+        void InitializeGPU(const GPUSceneCapacities& capacities = {});
         void Upload();
         // Pass-local aliases: call immediately before the consuming dispatch or
         // draw. Allocation/growth releases the aliases before pass setup.
@@ -50,22 +96,36 @@ namespace OloEngine
         [[nodiscard]] bool HasGPUResources() const;
         [[nodiscard]] RHI::ResourceHandle GetInstanceBufferHandle() const;
         [[nodiscard]] RHI::ResourceHandle GetGeometryBufferHandle() const;
+        [[nodiscard]] RHI::ResourceHandle GetMaterialBufferHandle() const;
+        [[nodiscard]] RHI::ResourceHandle GetLightBufferHandle() const;
+        [[nodiscard]] RHI::ResourceHandle GetEnvironmentBufferHandle() const;
 
         [[nodiscard]] GPUSceneHandle FindGeometry(const GPUSceneGeometryKey& key) const;
         [[nodiscard]] GPUSceneHandle FindInstance(const GPUSceneInstanceKey& key) const;
+        [[nodiscard]] GPUSceneHandle FindMaterial(const GPUSceneMaterialKey& key) const;
+        [[nodiscard]] GPUSceneHandle FindLight(const GPUSceneLightKey& key) const;
+        [[nodiscard]] GPUSceneHandle FindEnvironment(const GPUSceneEnvironmentKey& key) const;
         [[nodiscard]] bool IsGeometryHandleLive(GPUSceneHandle handle) const;
         [[nodiscard]] bool IsInstanceHandleLive(GPUSceneHandle handle) const;
+        [[nodiscard]] bool IsMaterialHandleLive(GPUSceneHandle handle) const;
+        [[nodiscard]] bool IsLightHandleLive(GPUSceneHandle handle) const;
+        [[nodiscard]] bool IsEnvironmentHandleLive(GPUSceneHandle handle) const;
         [[nodiscard]] const GPUSceneGeometry* GetGeometryRecord(GPUSceneHandle handle) const;
         [[nodiscard]] const GPUSceneInstance* GetInstanceRecord(GPUSceneHandle handle) const;
+        [[nodiscard]] const GPUSceneMaterial* GetMaterialRecord(GPUSceneHandle handle) const;
+        [[nodiscard]] const GPUSceneLight* GetLightRecord(GPUSceneHandle handle) const;
+        [[nodiscard]] const GPUSceneEnvironment* GetEnvironmentRecord(GPUSceneHandle handle) const;
         [[nodiscard]] const GPUSceneFrameUpdate& GetLastFrameUpdate() const;
 
         // Invalidates every live handle while retaining slot generations. This
         // is safe for scene reloads and renderer restarts: stale handles cannot
         // become valid merely because allocation starts again at slot zero.
+        // Every record is tombstoned, which also drops every resolved texture
+        // heap offset; the next extraction re-resolves them.
         void Reset();
 
       private:
-        struct Impl;
+        class Impl;
         std::unique_ptr<Impl> m_Impl;
     };
 } // namespace OloEngine

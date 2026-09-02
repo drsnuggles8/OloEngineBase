@@ -37,6 +37,7 @@ else) — a local reviewer must not raise them inside the listed scopes:
 | `cpp:S1067` ≤3 conditional operators | `OloEngine/src/OloEngine/Scene/**` | ECS `HasComponent<>()` predicate chains / serializer dispatch are intrinsically long; naming each sub-predicate just restates it. |
 | `cpp:S963` parenthesize macro params | `OloEngine/src/OloEngine/Scene/Prefab.cpp` | X-macro pastes component types into `<CompType>` template-arg lists where the grammar forbids parentheses. |
 | `cpp:S1244` float `==` | `Scene/Components.h`, `Renderer/Commands/RenderCommand.h` | Defaulted/field-wise **bit-exact** equality is the intended change-detection (undo-redo / render-command dedup) semantics — **only in these two files**; real float-`==` bugs elsewhere stay flagged. |
+| `cpp:S986` / `cpp:M23_224` `offsetof`, `cpp:S1820` field count | `Renderer/GPUScene/GPUSceneTypes.h` | The `static_assert(offsetof(...))` lines are the C++ half of the std430 record contract, on types asserted standard-layout; a 32-field GPU-mirror struct mirrors two UBOs one lane per field by design. |
 
 CPD (copy-paste) is excluded on `OloEngine/tests/**` — the scaffold-uniform math/visual
 test harness is structurally same by design, not copy-paste rot. **Don't propose

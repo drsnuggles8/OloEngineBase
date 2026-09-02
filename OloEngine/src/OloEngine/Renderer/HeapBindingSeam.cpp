@@ -151,6 +151,33 @@ namespace OloEngine::HeapBinding
         }
     } // namespace
 
+    namespace
+    {
+        // The shared body of the two Resolve*TextureOffset entry points; they
+        // differ only in their gate. Fetched at the point of USE, never stored
+        // (ADR 0011 §1.2). A dead resource or an exhausted heap yields an
+        // invalid offset, which tells the caller to keep binding through the
+        // slot path.
+        auto ResolveOffsetImpl(const RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler,
+                               const RHI::HeapSlotLifetime lifetime, const RHI::NullSamplerKind kind)
+            -> RHI::HeapOffset
+        {
+            RHI::ViewDesc viewDesc;
+            viewDesc.Resource = texture;
+            // Derived from the sampler exactly as BindTextureOrOffsetImpl does, so
+            // a comparison sampler and a raw-depth sampler of one texture are two
+            // views here as well (see ShadowDepthSampler in the header).
+            viewDesc.DepthCompare = (sampler.Compare != RHI::CompareOp::Never);
+            if (const RHI::ViewHandle view =
+                    RHI::DescriptorHeap::Get().GetOrCreateView(texture, viewDesc, sampler, lifetime, kind);
+                view.IsValid())
+            {
+                return RHI::OffsetOf(view);
+            }
+            return {};
+        }
+    } // namespace
+
     auto ResolveTextureOffset(const RHI::ResourceHandle texture, const RHI::HeapSlotLifetime lifetime,
                               const RHI::SamplerDesc& sampler, const RHI::NullSamplerKind kind) -> RHI::HeapOffset
     {
@@ -158,29 +185,42 @@ namespace OloEngine::HeapBinding
         {
             return {};
         }
-
-        RHI::ViewDesc viewDesc;
-        viewDesc.Resource = texture;
-
-        if (const RHI::ViewHandle view =
-                RHI::DescriptorHeap::Get().GetOrCreateView(texture, viewDesc, sampler, lifetime, kind);
-            view.IsValid())
-        {
-            // Fetched at the point of USE, never stored — ADR 0011 §1.2. The
-            // caller writes it straight into the material UBO it is about to
-            // upload, so it never outlives the draw it was minted for.
-            return RHI::OffsetOf(view);
-        }
-
-        // A dead resource or an exhausted heap. An invalid offset tells the caller
-        // to keep binding, which is the same fallback every other entry point
-        // here takes — the material simply renders through the slot path.
-        return {};
+        return ResolveOffsetImpl(texture, sampler, lifetime, kind);
     }
 
     auto WritesOffsetsForBoundProgram() -> bool
     {
         return HeapPathIsLive();
+    }
+
+    auto ResolveRecordTextureOffset(const RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler,
+                                    const RHI::NullSamplerKind kind) -> RHI::HeapOffset
+    {
+        // Enablement alone, not the program in flight: a record is built for a
+        // consumer that is not bound yet. Note the consequence on GL with the
+        // heap enabled: every extracted material texture becomes resident, not
+        // only the drawn ones, the same immutability the draw path imposes on
+        // the textures it mints.
+        if (!texture.IsValid() || !RHI::DescriptorHeap::Get().IsEnabled())
+        {
+            return {};
+        }
+        return ResolveOffsetImpl(texture, sampler, RHI::HeapSlotLifetime::Persistent, kind);
+    }
+
+    auto MaterialTexture2DSampler() -> const RHI::SamplerDesc&
+    {
+        static const RHI::SamplerDesc kSampler = []
+        {
+            using enum RHI::AddressMode;
+            RHI::SamplerDesc desc;
+            desc.Source = RHI::SamplerSource::Explicit;
+            desc.AddressU = Repeat;
+            desc.AddressV = Repeat;
+            desc.AddressW = Repeat;
+            return desc;
+        }();
+        return kSampler;
     }
 
     namespace

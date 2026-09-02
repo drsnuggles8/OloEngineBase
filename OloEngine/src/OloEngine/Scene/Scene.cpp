@@ -22,6 +22,7 @@
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/GPUScene/GPUSceneLightAdapter.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/CameraRelative.h"
@@ -6994,10 +6995,16 @@ namespace OloEngine
 
         for (i32 i = 0; i < meshSource->GetSubmeshes().Num(); ++i)
         {
-            Renderer3D::ExtractGPUSceneMesh(stableEntityId, 0, meshSource, static_cast<u32>(i), worldTransform);
             auto submesh = Ref<Mesh>::Create(meshSource, i);
             const Material& material = ResolveSubmeshMaterial(overrideMaterial, meshSource.get(),
                                                               static_cast<u32>(i), GetDefaultMaterial());
+            // Canonical material record (issue #992): visited once per key per
+            // frame; the instance record points at its slot.
+            const GPUSceneMaterialKey materialKey = Renderer3D::ResolveGPUSceneMaterialKey(
+                overrideMaterial, stableEntityId, meshSource, static_cast<u32>(i));
+            Renderer3D::ExtractGPUSceneMaterial(materialKey, material);
+            Renderer3D::ExtractGPUSceneMesh(stableEntityId, 0, meshSource, static_cast<u32>(i), worldTransform,
+                                            materialKey);
 
             if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, material, true, entityID, lodGroup); packet)
             {
@@ -7036,6 +7043,70 @@ namespace OloEngine
         return registry.all_of<IDComponent>(entity)
                    ? static_cast<u64>(registry.get<IDComponent>(entity).ID)
                    : static_cast<u64>(std::to_underlying(entity));
+    }
+
+    // Component -> canonical light input (issue #993): the one place each light
+    // type's authored fields are read. The registry and the raster adapter
+    // (through EncodeGPUSceneLight) both start from these.
+    [[nodiscard]] static GPUSceneLightInput MakeGPUSceneLightInput(const DirectionalLightComponent& light)
+    {
+        GPUSceneLightInput input;
+        input.m_Type = std::to_underlying(GPUSceneLightType::Directional);
+        input.m_Direction = light.m_Direction;
+        input.m_Color = light.m_Color;
+        input.m_Intensity = light.m_Intensity;
+        input.m_CastShadows = light.m_CastShadows;
+        return input;
+    }
+
+    [[nodiscard]] static GPUSceneLightInput MakeGPUSceneLightInput(const glm::vec3& position,
+                                                                   const PointLightComponent& light)
+    {
+        GPUSceneLightInput input;
+        input.m_Type = std::to_underlying(GPUSceneLightType::Point);
+        input.m_Position = position;
+        input.m_Color = light.m_Color;
+        input.m_Intensity = light.m_Intensity;
+        input.m_Range = light.m_Range;
+        input.m_Attenuation = light.m_Attenuation;
+        input.m_CastShadows = light.m_CastShadows;
+        return input;
+    }
+
+    [[nodiscard]] static GPUSceneLightInput MakeGPUSceneLightInput(const glm::vec3& position,
+                                                                   const SpotLightComponent& light)
+    {
+        GPUSceneLightInput input;
+        input.m_Type = std::to_underlying(GPUSceneLightType::Spot);
+        input.m_Position = position;
+        // Sanitised through the shared helper so the bake's ReferenceSceneBuilder
+        // stays bit-identical to this packing (LightCommon.h); not normalised.
+        input.m_Direction = SanitizeSpotLightDirection(light.m_Direction);
+        input.m_Color = light.m_Color;
+        input.m_Intensity = light.m_Intensity;
+        input.m_Range = light.m_Range;
+        input.m_InnerCutoffDegrees = light.m_InnerCutoff;
+        input.m_OuterCutoffDegrees = light.m_OuterCutoff;
+        input.m_Attenuation = light.m_Attenuation;
+        // The component has no falloff exponent; 1.0 is the constant the raster
+        // packing always wrote into SpotParams.z (calculateSpotIntensity).
+        input.m_SpotFalloff = 1.0f;
+        input.m_CastShadows = light.m_CastShadows;
+        return input;
+    }
+
+    [[nodiscard]] static GPUSceneLightInput MakeGPUSceneLightInput(const glm::vec3& position,
+                                                                   const SphereAreaLightComponent& light)
+    {
+        GPUSceneLightInput input;
+        input.m_Type = std::to_underlying(GPUSceneLightType::SphereArea);
+        input.m_Position = position;
+        input.m_Color = light.m_Color;
+        input.m_Intensity = light.m_Intensity;
+        input.m_Range = light.m_Range;
+        input.m_Radius = light.m_Radius;
+        input.m_CastShadows = light.m_CastShadows;
+        return input;
     }
 
     void Scene::ProcessScene3DSharedLogic(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix,
@@ -7096,23 +7167,36 @@ namespace OloEngine
             UBOStructures::MultiLightUBO multiLightData{};
             i32 lightIndex = 0;
 
+            // Canonical light record first (issue #993): the registry gets the
+            // authored input, and every raster entry below is derived from the
+            // encoded record through GPUSceneLightAdapter, so the two cannot
+            // disagree about a field. A zero render origin here: the two raster
+            // upload sites shift positions themselves.
+            const auto extractCanonicalLight = [this](entt::entity entity, const GPUSceneLightInput& input)
+            {
+                Renderer3D::ExtractGPUSceneLight(
+                    GPUSceneLightKey{ .m_EntityId = GetStableGPUSceneEntityId(m_Registry, entity),
+                                      .m_Type = input.m_Type },
+                    input);
+                return EncodeGPUSceneLight(input, glm::vec3(0.0f));
+            };
+
             // Collect directional lights
             auto dirLightView = m_Registry.view<TransformComponent, DirectionalLightComponent>();
             for (auto entity : dirLightView)
             {
-                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
-                {
-                    break;
-                }
-
                 const auto& [transform, dirLight] = dirLightView.get<TransformComponent, DirectionalLightComponent>(entity);
 
-                auto& data = multiLightData.Lights[lightIndex];
-                data.Position = glm::vec4(dirLight.m_Direction, 0.0f);   // w=0 for directional
-                data.Direction = glm::vec4(dirLight.m_Direction, -1.0f); // w=-1 = no shadow index
-                data.Color = glm::vec4(dirLight.m_Color, dirLight.m_Intensity);
-                data.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-                data.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f); // type = DIRECTIONAL_LIGHT = 0
+                // Every light reaches the registry, cap or no cap; only the UBO
+                // entry below is limited to MAX_LIGHTS.
+                const GPUSceneLight canonical = extractCanonicalLight(entity, MakeGPUSceneLightInput(dirLight));
+
+                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
+                {
+                    continue;
+                }
+
+                multiLightData.Lights[lightIndex] = GPUSceneLightAdapter::ToMultiLightData(canonical);
 
                 // The first directional light drives the camera view position
                 // (used by shading/specular) and the directional CSM shadow setup.
@@ -7187,25 +7271,21 @@ namespace OloEngine
             {
                 const auto& [transform, pointLight] = pointLightView.get<TransformComponent, PointLightComponent>(entity);
 
-                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update).
-                // ShadowAndAttenuation.x = -1 (no atlas entry) until the atlas
-                // allocation below patches the winners; .y carries the quadratic
-                // attenuation coefficient so the clustered path matches the
-                // MultiLightUBO falloff exactly.
-                fpPointLights.push_back({ glm::vec4(transform.Translation, pointLight.m_Range),
-                                          glm::vec4(pointLight.m_Color, pointLight.m_Intensity),
-                                          glm::vec4(-1.0f, pointLight.m_Attenuation, 0.0f, 0.0f) });
+                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update;
+                // ShadowAndAttenuation.x = -1 until the shadow allocation below
+                // patches the winners, .y carries the quadratic attenuation so the
+                // clustered path matches the MultiLightUBO falloff exactly) and the
+                // MultiLightUBO entry (shared mixed-type array, capped at MAX_LIGHTS),
+                // both derived from the record.
+                const GPUSceneLight canonical =
+                    extractCanonicalLight(entity, MakeGPUSceneLightInput(transform.Translation, pointLight));
 
-                // MultiLightUBO entry (shared mixed-type array, capped at MAX_LIGHTS)
+                fpPointLights.push_back(GPUSceneLightAdapter::ToForwardPlusPoint(canonical));
+
                 const bool inUbo = lightIndex < static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
                 if (inUbo)
                 {
-                    auto& data = multiLightData.Lights[lightIndex];
-                    data.Position = glm::vec4(transform.Translation, 1.0f); // w=1 for point
-                    data.Color = glm::vec4(pointLight.m_Color, pointLight.m_Intensity);
-                    data.AttenuationParams = glm::vec4(1.0f, 0.0f, pointLight.m_Attenuation, pointLight.m_Range);
-                    data.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);  // type = POINT_LIGHT = 1
-                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, -1.0f); // w = atlas base entry, patched below
+                    multiLightData.Lights[lightIndex] = GPUSceneLightAdapter::ToMultiLightData(canonical);
                 }
 
                 if (pointLight.m_CastShadows)
@@ -7236,31 +7316,20 @@ namespace OloEngine
                 // MultiLight UBO, and the spot-shadow projection below —
                 // via the shared helper so the bake's ReferenceSceneBuilder
                 // stays bit-identical to this packing (LightCommon.h).
-                const glm::vec3 spotDir = SanitizeSpotLightDirection(spotLight.m_Direction);
+                const GPUSceneLightInput lightInput = MakeGPUSceneLightInput(transform.Translation, spotLight);
+                const glm::vec3 spotDir = lightInput.m_Direction;
 
-                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update).
-                // SpotParams.z = -1 (no atlas entry) until the atlas
-                // allocation below patches the winners.
-                fpSpotLights.push_back({ glm::vec4(transform.Translation, spotLight.m_Range),
-                                         glm::vec4(glm::normalize(spotDir), glm::cos(glm::radians(spotLight.m_OuterCutoff))),
-                                         glm::vec4(spotLight.m_Color, spotLight.m_Intensity),
-                                         glm::vec4(glm::cos(glm::radians(spotLight.m_InnerCutoff)), spotLight.m_Attenuation, -1.0f, 0.0f) });
+                // Forward+ entry (capacity clamped in LightCullingBuffer::Update,
+                // SpotParams.z = -1 until the shadow allocation patches the winners)
+                // and the MultiLightUBO entry, both derived from the record.
+                const GPUSceneLight canonical = extractCanonicalLight(entity, lightInput);
 
-                // MultiLightUBO entry (shared mixed-type array, capped at MAX_LIGHTS)
+                fpSpotLights.push_back(GPUSceneLightAdapter::ToForwardPlusSpot(canonical));
+
                 const bool inUbo = lightIndex < static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
                 if (inUbo)
                 {
-                    auto& data = multiLightData.Lights[lightIndex];
-                    data.Position = glm::vec4(transform.Translation, 2.0f); // w=2 for spot
-                    data.Color = glm::vec4(spotLight.m_Color, spotLight.m_Intensity);
-                    data.AttenuationParams = glm::vec4(1.0f, 0.0f, spotLight.m_Attenuation, spotLight.m_Range);
-                    data.SpotParams = glm::vec4(
-                        glm::cos(glm::radians(spotLight.m_InnerCutoff)),
-                        glm::cos(glm::radians(spotLight.m_OuterCutoff)),
-                        1.0f,
-                        2.0f // type = SPOT_LIGHT = 2
-                    );
-                    data.Direction = glm::vec4(spotDir, -1.0f); // w = atlas base entry, patched below
+                    multiLightData.Lights[lightIndex] = GPUSceneLightAdapter::ToMultiLightData(canonical);
                 }
 
                 if (spotLight.m_CastShadows)
@@ -7291,22 +7360,18 @@ namespace OloEngine
             {
                 const auto& [transform, areaLight] = sphereAreaLightView.get<TransformComponent, SphereAreaLightComponent>(entity);
 
-                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update).
-                // RangeAndPadding.y = -1 (no atlas entry) until patched below.
-                fpSphereAreaLights.push_back({ glm::vec4(transform.Translation, areaLight.m_Radius),
-                                               glm::vec4(areaLight.m_Color, areaLight.m_Intensity),
-                                               glm::vec4(areaLight.m_Range, -1.0f, 0.0f, 0.0f) });
+                // Forward+ entry (capacity clamped in LightCullingBuffer::Update,
+                // RangeAndPadding.y = -1 until patched below) and the MultiLightUBO
+                // entry, both derived from the record.
+                const GPUSceneLight canonical =
+                    extractCanonicalLight(entity, MakeGPUSceneLightInput(transform.Translation, areaLight));
 
-                // MultiLightUBO entry (shared mixed-type array, capped at MAX_LIGHTS)
+                fpSphereAreaLights.push_back(GPUSceneLightAdapter::ToForwardPlusSphereArea(canonical));
+
                 const bool inUbo = lightIndex < static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
                 if (inUbo)
                 {
-                    auto& data = multiLightData.Lights[lightIndex];
-                    data.Position = glm::vec4(transform.Translation, 3.0f); // w=3 for sphere area
-                    data.Color = glm::vec4(areaLight.m_Color, areaLight.m_Intensity);
-                    data.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, areaLight.m_Range);
-                    data.SpotParams = glm::vec4(0.0f, 0.0f, areaLight.m_Radius, 3.0f); // type = SPHERE_AREA_LIGHT = 3
-                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, -1.0f);              // w = atlas base entry, patched below
+                    multiLightData.Lights[lightIndex] = GPUSceneLightAdapter::ToMultiLightData(canonical);
                 }
 
                 // Sphere area lights cast hard shadows by treating the emitter
@@ -10229,14 +10294,24 @@ namespace OloEngine
                     totalCount = cache.Data.size();
                 }
 
-                const Material& material = imc.OverrideMaterial
-                                               ? *imc.OverrideMaterial.Raw()
-                                               : (m_Registry.all_of<MaterialComponent>(entity)
-                                                      ? m_Registry.get<MaterialComponent>(entity).m_Material
-                                                      : GetDefaultMaterial());
+                // One decision for the draw AND the canonical material record
+                // (issue #992): the instanced path never consults the imported
+                // materials. The override lane tells the two override sources
+                // apart, since one entity can carry both.
+                const Material* overrideMaterial =
+                    imc.OverrideMaterial ? imc.OverrideMaterial.Raw()
+                                         : (m_Registry.all_of<MaterialComponent>(entity)
+                                                ? &m_Registry.get<MaterialComponent>(entity).m_Material
+                                                : nullptr);
+                const auto overrideLane = imc.OverrideMaterial ? GPUSceneMaterialOverrideLane::InstancedMesh
+                                                               : GPUSceneMaterialOverrideLane::MaterialComponent;
+                const Material& material = overrideMaterial ? *overrideMaterial : GetDefaultMaterial();
 
                 const u64 ownerKey = static_cast<u64>(std::to_underlying(entity));
                 const auto stableEntityId = GetStableGPUSceneEntityId(m_Registry, entity);
+                const GPUSceneMaterialKey materialKey = Renderer3D::ResolveGPUSceneMaterialKey(
+                    overrideMaterial, stableEntityId, nullptr, 0, overrideLane);
+                Renderer3D::ExtractGPUSceneMaterial(materialKey, material);
 
                 const bool castsShadow = imc.CastShadows && meshHasActiveShadows &&
                                          material.GetAlphaMode() == AlphaMode::Opaque &&
@@ -10253,7 +10328,8 @@ namespace OloEngine
                                                             : InstancedMeshComponent::AssetStableIDNamespace;
                             const u64 stableInstanceId = instData[k].StableID | sourceNamespace;
                             Renderer3D::ExtractGPUSceneMesh(stableEntityId, stableInstanceId, imc.MeshSource,
-                                                            static_cast<u32>(i), instData[k].Transform);
+                                                            static_cast<u32>(i), instData[k].Transform,
+                                                            materialKey);
                         }
                         auto submesh = Ref<Mesh>::Create(imc.MeshSource, i);
                         auto* packet = Renderer3D::DrawMeshInstanced(

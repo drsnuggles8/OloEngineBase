@@ -71,7 +71,7 @@ namespace OloEngine::Tests
 
         const GPUSceneHandle beforeRetirementCompletes = scene.FindInstance(key5);
         EXPECT_NE(beforeRetirementCompletes.m_Index, first.m_Index);
-        EXPECT_EQ(scene.GetLastFrameUpdate().m_Stats.m_RetiredInstanceSlots, 1u);
+        EXPECT_EQ(scene.GetLastFrameUpdate().m_Stats.m_Instances.m_RetiredSlots, 1u);
         EXPECT_FALSE(scene.IsInstanceHandleLive(first));
 
         scene.BeginExtraction(1, glm::vec3(0.0f));
@@ -331,8 +331,8 @@ namespace OloEngine::Tests
         const GPUSceneHandle reusedGeometry = scene.FindGeometry(geometryKey);
         EXPECT_NE(reusedInstance.m_Index, staleInstance.m_Index);
         EXPECT_NE(reusedGeometry.m_Index, staleGeometry.m_Index);
-        EXPECT_EQ(afterReset.m_Stats.m_RetiredInstanceSlots, 3u);
-        EXPECT_EQ(afterReset.m_Stats.m_RetiredGeometrySlots, 1u);
+        EXPECT_EQ(afterReset.m_Stats.m_Instances.m_RetiredSlots, 3u);
+        EXPECT_EQ(afterReset.m_Stats.m_Geometries.m_RetiredSlots, 1u);
         ASSERT_EQ(afterReset.m_InstanceDirtyRanges.size(), 1u);
         EXPECT_EQ(afterReset.m_InstanceDirtyRanges[0], (GPUSceneDirtyRange{ 0, 6 }));
         ASSERT_EQ(afterReset.m_GeometryDirtyRanges.size(), 1u);

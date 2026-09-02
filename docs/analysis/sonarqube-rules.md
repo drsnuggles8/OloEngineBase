@@ -467,6 +467,25 @@ specifically to flip this at runtime, so making it `const` would delete the func
 
 ---
 
+## 12. `cpp:S986` / `cpp:M23_224` / `cpp:S1820` — the GPU Scene record header (#992/#993)
+
+`gpumirror_s986`, `gpumirror_m23224`, `gpumirror_s1820` in `sonar-project.properties`, all
+scoped to `OloEngine/src/OloEngine/Renderer/GPUScene/GPUSceneTypes.h`.
+
+The header is the C++ half of the std430 GPU Scene record contract. Every record carries a
+`static_assert` block for size, alignment, standard layout, trivial copyability and the
+`offsetof` of each lane boundary; the GLSL half is pinned by
+`GPUSceneLayoutTest.ShaderStorageLayoutsMatchCppRecords` through SPIRV-Cross. The two
+`offsetof` rules guard against `offsetof` on a non-standard-layout type, which the
+standard-layout assertion two lines above each use rules out; removing the pins would remove
+the one compile-time check that fails when a C++ lane moves alone. On the first #992/#993 scan
+the 26 pin lines carried 52 CRITICAL issues (S986 at 20 min each, M23_224 at 1 h each), about
+35 of the 49 hours of computed debt on new code, and that alone put the Maintainability
+Rating on new code at B. `S1820` fires on `GPUSceneMaterial` (32 fields), which mirrors
+`PBRMaterialUBO` + `MaterialUBO` one lane per field on purpose; splitting it would create a
+second struct to keep in parity. Same shape as `lever_s1820` above: the count is the contract,
+not a smell.
+
 ## High-volume rules — deactivated in the C++ Extended profile ✅
 
 A full-corpus facet query (≈31,800 open issues) surfaced four MISRA / stylistic rules fighting idiomatic modern C++ that dwarfed every other finding (≈6,800 issues between them — roughly a fifth of the raw count, ≈21%). All four are now **deactivated** in the C++ Extended Quality Profile (SonarCloud UI, 2026-06-27), so they no longer fire:

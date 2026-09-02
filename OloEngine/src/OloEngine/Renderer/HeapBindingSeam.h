@@ -192,4 +192,30 @@ namespace OloEngine::HeapBinding
     // HeapOffset::Invalid for an out-of-range index. Reads the CPU scratch, not
     // the GPU buffer, so it answers "what would the next flush publish".
     [[nodiscard]] auto StagedOffsetAt(u32 tableIndex) -> RHI::HeapOffset;
+
+    // GPU-scene records (issues #992, #993): resolve a material or environment
+    // texture to a PERSISTENT heap offset for a consumer that is not bound yet.
+    //
+    // Every other entry point here forks on the program IN FLIGHT, which is the
+    // right question for a draw and a meaningless one for a record built during
+    // scene extraction: no consumer is bound, and the one that will read the
+    // record (#994's raster path, a future ray-query pass) is not the program
+    // that happens to be current. So this forks on heap enablement alone. It
+    // returns HeapOffset::Invalid (GPUSceneHeapOffsetUnresolved) when the heap
+    // is not enabled (GL without OLO_RHI_BINDLESS) or the resource is dead, and
+    // the record then says "bind through the slot path". Persistent lifetime,
+    // so the offset is stable across frames and a re-resolve after a registry
+    // reset lands on the same descriptor.
+    [[nodiscard]] auto ResolveRecordTextureOffset(RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler = {},
+                                                  RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D)
+        -> RHI::HeapOffset;
+
+    // The sampler state every material 2D texture descriptor is minted with:
+    // explicit REPEAT addressing over the backend's uniform LINEAR /
+    // LINEAR_MIPMAP_LINEAR filters. One definition, read by the per-draw
+    // material UBO (CommandDispatch's WriteMaterialHeapOffsets) and by the
+    // GPU-scene material record, so the two cannot mint the same texture with
+    // two sampler states. Cubemaps use the default SamplerDesc{} (the object's
+    // own CLAMP_TO_EDGE state).
+    [[nodiscard]] auto MaterialTexture2DSampler() -> const RHI::SamplerDesc&;
 } // namespace OloEngine::HeapBinding

@@ -64,3 +64,10 @@ the helper it mirrors.
    4300 green tests missed. If a band-mean contract passes while the whole-image
    diff is large, the divergence lives in geometry the bands don't sample
    (edges, grazing angles) — chase it before accepting.
+
+Since #993 the authored light is read once, into the canonical `GPUSceneLight` record
+(`EncodeGPUSceneLight`), and `MultiLightData` and the three Forward+ structs are derived from that
+record through `GPUSceneLightAdapter`. A new light field therefore goes into the record and the
+adapter, never into the raster packing alone; rule 2's field audit now lives in the record's
+inventory comment in `GPUSceneTypes.h`. The identity, layout and binding rules for the record are in
+[gpu-scene-record-contract.md](gpu-scene-record-contract.md).
