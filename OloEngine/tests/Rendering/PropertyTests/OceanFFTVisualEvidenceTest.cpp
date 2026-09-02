@@ -563,4 +563,79 @@ namespace OloEngine::Tests
             << ") — the spectrum selection is not reaching the rendered surface. Compare "
                "OceanFFT_PhillipsSpectrum.png vs OceanFFT_JonswapSpectrum.png";
     }
+    // TEMPORARY (#1015): which knob flattens the ocean on the AMD box?
+    //
+    // GpuComputeToggleLeavesSurfaceUnchanged renders a full wave field on that
+    // GPU; JonswapSpectrumRendersOpaqueAndDiffersFromPhillips renders a flat
+    // plane. Exactly two things differ between them -- a 200 m patch instead of
+    // 64 m, and a grazing camera instead of a raised one -- so sweep the two
+    // independently and read the luma spread. One dispatch answers it; guessing
+    // costs a 40-minute round trip per guess.
+    TEST_F(OceanFFTVisualEvidenceTest, DiagPatchAndPoseSweep)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        const auto lumaSpread = [](const std::vector<u8>& frame)
+        {
+            f64 sum = 0.0, sumSq = 0.0;
+            const std::size_t pixels = frame.size() / 4u;
+            for (std::size_t i = 0; i < pixels; ++i)
+            {
+                const f64 luma = 0.2126 * frame[i * 4 + 0] + 0.7152 * frame[i * 4 + 1] + 0.0722 * frame[i * 4 + 2];
+                sum += luma;
+                sumSq += luma * luma;
+            }
+            if (pixels == 0)
+                return 0.0;
+            const f64 mean = sum / static_cast<f64>(pixels);
+            return std::sqrt(std::max(0.0, sumSq / static_cast<f64>(pixels) - mean * mean));
+        };
+
+        ASSERT_TRUE(static_cast<bool>(m_OceanEntity));
+        auto& wc = m_OceanEntity.GetComponent<WaterComponent>();
+
+        struct Case
+        {
+            const char* m_Name;
+            f32 m_Patch;
+            f32 m_Amplitude;
+            glm::vec3 m_Pos;
+            f32 m_Pitch;
+        };
+        const Case cases[] = {
+            { "Diag_P64_Raised", 64.0f, 3.0f, glm::vec3(0.0f, 6.0f, 40.0f), 0.20f },
+            { "Diag_P200_Raised", 200.0f, 3.0f, glm::vec3(0.0f, 6.0f, 40.0f), 0.20f },
+            { "Diag_P64_Grazing", 64.0f, 3.0f, glm::vec3(0.0f, 3.0f, 42.0f), 0.05f },
+            { "Diag_P200_Grazing", 200.0f, 3.0f, glm::vec3(0.0f, 3.0f, 42.0f), 0.05f },
+            { "Diag_P128_Grazing", 128.0f, 3.0f, glm::vec3(0.0f, 3.0f, 42.0f), 0.05f },
+            { "Diag_P200_Grazing_A4", 200.0f, 4.0f, glm::vec3(0.0f, 3.0f, 42.0f), 0.05f },
+        };
+
+        for (const Case& c : cases)
+        {
+            wc.m_FFTPatchSize = c.m_Patch;
+            wc.m_FFTAmplitude = c.m_Amplitude;
+            wc.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
+            std::vector<u8> frame;
+            Capture(c.m_Name, c.m_Pos, 0.0f, c.m_Pitch, frame);
+            if (::testing::Test::HasFatalFailure())
+                return;
+            GTEST_LOG_(INFO) << "DIAGSWEEP " << c.m_Name << " patch=" << c.m_Patch
+                             << " amp=" << c.m_Amplitude << " camY=" << c.m_Pos.y
+                             << " pitch=" << c.m_Pitch << " lumaSpread=" << lumaSpread(frame);
+        }
+    }
+
 } // namespace OloEngine::Tests

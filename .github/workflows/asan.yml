@@ -46,7 +46,13 @@ on:
         default: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # The `force_hosted` input is PART OF THE KEY, not decoration. The parity A/B
+  # dispatches this workflow TWICE on one commit, once each way, and a group that
+  # ignores the input puts both arms in the same bucket -- where GitHub keeps at
+  # most one PENDING run and silently cancels the other. The first attempt at the
+  # A/B lost its routed arm exactly this way and looked like an infrastructure
+  # flake. Keyed on the input, the two arms are independent runs.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.inputs.force_hosted || 'default' }}
   # PULL REQUESTS ONLY. A cancelled run banks no cache -- `actions/cache/save` runs
   # `if: always()`, which survives a cancel, but the run still stops mid-build, so
   # what it banks is a partial snapshot at best. The nightly is this workflow's only
