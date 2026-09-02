@@ -47,6 +47,8 @@ on:
 permissions:
   actions: write
   contents: read
+  # To ask whether a `refs/pull/N/merge` entry's PR is still open (see the sweep).
+  pull-requests: read
 
 concurrency:
   group: cache-prune
@@ -87,6 +89,27 @@ jobs:
           # and its single entry is always the newest -- they are never deleted.
           # Entries arrive newest-first, so the first sighting of a group is the
           # keeper and every later one is superseded.
+          # A PR ref's entries die with the PR (#1015). "Newest per ref" keeps one
+          # entry per prefix on `refs/pull/N/merge` FOREVER, and nothing can ever
+          # read it once the PR is merged or closed: 3.1 GB of the 10 GB cap was two
+          # such entries from the merged #1010 on 2026-09-02, and with the store at
+          # 10.98 GB every save in the repo was being refused while this job
+          # reported "kept N, deleted 0". So a closed PR's entries are deleted
+          # before the newest-per-group rule sees them. PR state is looked up once
+          # per PR number; an open PR keeps its newest entries exactly as before.
+          declare -A pr_closed=()
+          pr_is_closed() {
+            local n="$1"
+            if [ -z "${pr_closed[$n]:-}" ]; then
+              local state
+              state=$(gh api "repos/${GH_REPO}/pulls/${n}" --jq .state 2>/dev/null || echo unknown)
+              # Unknown (a deleted PR, an API hiccup) is treated as OPEN: the
+              # conservative side, since deleting a live PR's cache costs a cold run.
+              if [ "$state" = "closed" ]; then pr_closed[$n]=yes; else pr_closed[$n]=no; fi
+            fi
+            [ "${pr_closed[$n]}" = yes ]
+          }
+
           declare -A seen=()
           kept=0
           deleted=0
@@ -95,13 +118,21 @@ jobs:
             [ -n "${id:-}" ] || continue
             prefix=$(printf '%s' "$key" | sed -E 's/-[0-9]{6,}(-[0-9]+)?$//')
             group="${ref}|${prefix}"
-            if [ -z "${seen[$group]:-}" ]; then
+            closed_pr=0
+            if [[ "$ref" =~ ^refs/pull/([0-9]+)/merge$ ]] && pr_is_closed "${BASH_REMATCH[1]}"; then
+              closed_pr=1
+            fi
+            if [ "$closed_pr" -eq 0 ] && [ -z "${seen[$group]:-}" ]; then
               seen[$group]=1
               kept=$((kept + 1))
               printf 'keep    %6s MiB  %-28s %s\n' "$((size / 1048576))" "$ref" "$key"
               continue
             fi
-            printf 'DELETE  %6s MiB  %-28s %s\n' "$((size / 1048576))" "$ref" "$key"
+            if [ "$closed_pr" -eq 1 ]; then
+              printf 'DELETE  %6s MiB  %-28s %s  (PR closed)\n' "$((size / 1048576))" "$ref" "$key"
+            else
+              printf 'DELETE  %6s MiB  %-28s %s\n' "$((size / 1048576))" "$ref" "$key"
+            fi
             # Never let one failed delete abort the sweep: a cache can be evicted by
             # GitHub between the listing and the delete, which 404s.
             if gh api -X DELETE "repos/${GH_REPO}/actions/caches/${id}" >/dev/null 2>&1; then
