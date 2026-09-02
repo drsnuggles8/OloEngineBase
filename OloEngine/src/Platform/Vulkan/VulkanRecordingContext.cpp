@@ -28,7 +28,12 @@ namespace OloEngine
         {
             return true;
         }
-        const u64 mine = (worker->RegionId << 32u) | worker->ItemIndex;
+        // The token's region half is 32 bits wide, so the serial is folded
+        // into 1..2^32-1 (never 0, the unowned sentinel) and compared at that
+        // width — a full-u64 comparison would silently stop matching once
+        // the serial passed 2^32.
+        const u64 region = (worker->RegionId % 0xFFFFFFFFull) + 1ull;
+        const u64 mine = (region << 32u) | worker->ItemIndex;
         u64 previous = stamp.load(std::memory_order_relaxed);
         for (;;)
         {
@@ -36,7 +41,7 @@ namespace OloEngine
             {
                 return true;
             }
-            if (previous != 0u && (previous >> 32u) == worker->RegionId)
+            if (previous != 0u && (previous >> 32u) == region)
             {
                 // Another item of THIS region wrote the object first. Its
                 // token stays; this item is refused, now and on every retry.

@@ -441,6 +441,14 @@ namespace OloEngine
             return;
         }
 
+        // Rule 6 covers a clear as much as a SetData: it rewrites the snapshot
+        // fields and the buffer, so a second item of the region is refused here
+        // too, in every build.
+        if (!ClaimParallelWriter(m_ParallelWriter, "storage buffer"))
+        {
+            return;
+        }
+
         // A clear supersedes any command-ordered snapshot: draws recorded
         // after it must observe zeros (persistent buffer), not the pre-clear
         // snapshot bytes. No-op for the GPU-written tenants below, which

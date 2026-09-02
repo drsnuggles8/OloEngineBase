@@ -219,8 +219,9 @@ TEST(VulkanParallelRecording, IdentityTransitionsOnASharedSubresourceAreNotAConf
 
 // An item that transitions a subresource away and back ends where it
 // started, but it RECORDED a real transition. Rule 5 is stated on what each
-// item recorded — the claim table claims the subresource at the first A -> B —
-// so the merge counter must agree: a real writer, not an identity overlap.
+// item recorded, so the merge counts it as a real writer, not an identity
+// overlap. (The record-time claim table only reports two REAL claimants, so
+// it stays silent for this pair; the merge is the backstop that sees it.)
 TEST(VulkanParallelRecording, ATransitionPairThatReturnsToTheOriginalLayoutIsStillAConflict)
 {
     VulkanImageLayoutTracker base;

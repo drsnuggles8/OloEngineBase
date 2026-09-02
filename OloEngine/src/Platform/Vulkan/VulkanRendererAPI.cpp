@@ -6707,8 +6707,9 @@ namespace OloEngine
             // backstop count. The secondaries still execute: a stale
             // oldLayout on one barrier is a validation error and a possible
             // hazard, dropping the region's work is a certainly broken frame.
-            OLO_CORE_ERROR("[RHI/Vulkan] RecordParallel: {} subresource(s) transitioned non-identically by more "
-                           "than one item — the later item's barrier named a stale oldLayout (amendment (92) rule 5)",
+            OLO_CORE_ERROR("[RHI/Vulkan] RecordParallel: {} subresource(s) written by more than one item with at least "
+                           "one real transition among the writes — a barrier may have named a stale oldLayout "
+                           "(amendment (92) rule 5)",
                            batch.Conflicts);
         }
         if (firstFailure)
