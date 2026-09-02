@@ -24,7 +24,9 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -82,6 +84,45 @@ namespace OloEngine::MCP::ClusterGrid
         };
         std::vector<Bucket> Histogram;
     };
+
+    // Observable contract for issue #722. The GPU counter may be stale or
+    // corrupt on a failed readback, so clamp before subtracting to keep the
+    // diagnostic truthful and underflow-free.
+    [[nodiscard]] inline std::optional<u32> ActiveClusterCountFromMetadata(
+        std::span<const u32> gridWords, u32 metadataOffset, u32 tileCount)
+    {
+        constexpr u32 wordsPerTile = 4u;
+        const std::size_t required = static_cast<std::size_t>(metadataOffset) +
+                                     static_cast<std::size_t>(tileCount) * wordsPerTile;
+        if (gridWords.size() < required)
+            return std::nullopt;
+
+        u32 activeClusters = 0u;
+        for (u32 tile = 0u; tile < tileCount; ++tile)
+            activeClusters += std::popcount(gridWords[metadataOffset + tile * wordsPerTile + 3u]);
+        return activeClusters;
+    }
+
+    [[nodiscard]] inline Json CullingToJson(bool depthAware, u32 activeClusters, u32 totalClusters,
+                                            u64 producerFrameIndex, u64 currentFrameIndex,
+                                            bool counterVerified)
+    {
+        const u32 clampedActive = depthAware ? std::min(activeClusters, totalClusters) : totalClusters;
+        const u64 ageFrames = currentFrameIndex >= producerFrameIndex
+                                  ? currentFrameIndex - producerFrameIndex
+                                  : 0u;
+        return Json{ { "mode", depthAware ? "depthAware2_5D" : "fixedGrid" },
+                     { "depthAware", depthAware },
+                     { "activeClusters", clampedActive },
+                     { "culledClusters", totalClusters - clampedActive },
+                     { "frameIndex", producerFrameIndex },
+                     { "sampleAgeFrames", ageFrames },
+                     { "stale", producerFrameIndex == 0u || producerFrameIndex != currentFrameIndex },
+                     { "counterVerified", counterVerified },
+                     { "activeFraction", totalClusters > 0u
+                                             ? static_cast<f64>(clampedActive) / static_cast<f64>(totalClusters)
+                                             : 0.0 } };
+    }
 
     // The bucket edges of the count histogram: exact 0, exact 1, then doubling
     // bands up to the cap. Chosen so "mostly empty", "a handful", and "at the

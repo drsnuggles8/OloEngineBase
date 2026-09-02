@@ -454,6 +454,16 @@ namespace OloEngine
         return s_Data.DepthPrepassEnabled;
     }
 
+    void Renderer3D::EnableDepthAwareClusterCulling(bool enable)
+    {
+        s_Data.DepthAwareClusterCullingEnabled = enable;
+    }
+
+    bool Renderer3D::IsDepthAwareClusterCullingEnabled()
+    {
+        return s_Data.DepthAwareClusterCullingEnabled;
+    }
+
     bool Renderer3D::ComputeSettingsDerivedDepthPrepass()
     {
         // Forward+ compute culling requires the depth pre-pass.

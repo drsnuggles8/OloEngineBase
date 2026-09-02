@@ -43,11 +43,34 @@ namespace OloEngine
         // per-cluster counts run well below the old per-tile counts.
         inline constexpr u32 kMaxLightsPerCluster = 128;
 
+        // Per-tile 2.5D occupancy resolution. One u32 mask keeps the depth
+        // representation compact and makes the GPU overlap test a single AND.
+        inline constexpr u32 kDepthCellCount = 32;
+        inline constexpr u32 kDepthTileMetadataWordCount = 4;
+        inline constexpr u32 kGlobalCounterAndDispatchWordCount = 4;
+        inline constexpr u32 kIndirectDispatchOffsetBytes = sizeof(u32);
+
         struct DepthSliceParams
         {
             f32 Scale = 0.0f;
             f32 Bias = 0.0f;
         };
+
+        struct DepthAwareFrameInputs
+        {
+            bool DepthPrepassAvailable = true;
+            bool SingleSampleDepth = true;
+            bool LeverEnabled = true;
+            bool HasBlendedGeometry = false;
+            bool HasVirtualGeometry = false;
+            bool HasVolumetricFog = false;
+        };
+
+        [[nodiscard]] inline bool CanUseDepthAwareCulling(const DepthAwareFrameInputs& inputs)
+        {
+            return inputs.DepthPrepassAvailable && inputs.SingleSampleDepth && inputs.LeverEnabled &&
+                   !inputs.HasBlendedGeometry && !inputs.HasVirtualGeometry && !inputs.HasVolumetricFog;
+        }
 
         // Guard rails for degenerate camera planes: slicing needs 0 < near < far.
         inline constexpr f32 kMinNearPlane = 0.01f;
@@ -86,6 +109,140 @@ namespace OloEngine
         inline u32 ClusterIndex(u32 tileX, u32 tileY, u32 slice, u32 countX, u32 countY)
         {
             return (slice * countY + tileY) * countX + tileX;
+        }
+
+        // DepthPrepare.comp stores one bit per active logarithmic slice for a
+        // tile, then appends the corresponding flat cluster indices. These
+        // helpers pin the compact-list count and ordering without a GPU.
+        inline u32 ActiveSliceCount(u32 activeSliceMask, u32 sliceCount)
+        {
+            if (sliceCount == 0u)
+                return 0u;
+            if (sliceCount < 32u)
+                activeSliceMask &= (1u << sliceCount) - 1u;
+
+            u32 count = 0u;
+            while (activeSliceMask != 0u)
+            {
+                activeSliceMask &= activeSliceMask - 1u;
+                ++count;
+            }
+            return count;
+        }
+
+        inline u32 ClusterIndexFromTile(u32 tileIndex, u32 slice, u32 countX, u32 countY)
+        {
+            return slice * countX * countY + tileIndex;
+        }
+
+        // Quantise a positive view depth into 32 linear cells over a tile's
+        // reduced min/max. The maximum maps to the final cell instead of
+        // overflowing to cell 32.
+        inline u32 DepthCellForViewDepth(f32 viewDepth, f32 tileMinDepth, f32 tileMaxDepth)
+        {
+            if (!std::isfinite(viewDepth) || !std::isfinite(tileMinDepth) || !std::isfinite(tileMaxDepth))
+                return 0u;
+
+            const f32 span = tileMaxDepth - tileMinDepth;
+            if (span <= 1e-6f)
+                return 0u;
+            const f32 normalised = std::clamp((viewDepth - tileMinDepth) / span, 0.0f, 1.0f);
+            return std::min(static_cast<u32>(normalised * static_cast<f32>(kDepthCellCount)),
+                            kDepthCellCount - 1u);
+        }
+
+        // Conservative bit coverage for a light's positive view-depth span.
+        // Reversed endpoints are accepted because callers naturally derive
+        // them from view-space sphere bounds where sign ordering is easy to
+        // invert. A range outside the tile cannot intersect its occupancy.
+        inline u32 DepthCellMaskForViewRange(f32 rangeDepthA, f32 rangeDepthB,
+                                             f32 tileMinDepth, f32 tileMaxDepth)
+        {
+            if (!std::isfinite(rangeDepthA) || !std::isfinite(rangeDepthB) ||
+                !std::isfinite(tileMinDepth) || !std::isfinite(tileMaxDepth) ||
+                tileMaxDepth < tileMinDepth)
+            {
+                return 0u;
+            }
+
+            const f32 rangeMin = std::min(rangeDepthA, rangeDepthB);
+            const f32 rangeMax = std::max(rangeDepthA, rangeDepthB);
+            if (rangeMax < tileMinDepth || rangeMin > tileMaxDepth)
+                return 0u;
+            if (tileMaxDepth - tileMinDepth <= 1e-6f)
+                return 1u;
+
+            const u32 firstCell = DepthCellForViewDepth(std::max(rangeMin, tileMinDepth),
+                                                        tileMinDepth, tileMaxDepth);
+            const u32 lastCell = DepthCellForViewDepth(std::min(rangeMax, tileMaxDepth),
+                                                       tileMinDepth, tileMaxDepth);
+            const u32 cellCount = lastCell - firstCell + 1u;
+            if (cellCount >= kDepthCellCount)
+                return 0xFFFFFFFFu;
+
+            return ((1u << cellCount) - 1u) << firstCell;
+        }
+
+        inline bool DepthRangeIntersectsMask(u32 occupancyMask,
+                                             f32 rangeDepthA, f32 rangeDepthB,
+                                             f32 tileMinDepth, f32 tileMaxDepth)
+        {
+            return (occupancyMask & DepthCellMaskForViewRange(rangeDepthA, rangeDepthB,
+                                                              tileMinDepth, tileMaxDepth)) != 0u;
+        }
+
+        // Inverse of the fragment-side floor((pixel + 0.5) * tileCount /
+        // screenExtent). Using this boundary in DepthPrepare.comp makes its
+        // depth ownership exact at non-divisible viewport dimensions.
+        inline u32 TilePixelBoundary(u32 boundary, u32 tileCount, u32 screenExtent)
+        {
+            if (boundary == 0u || tileCount == 0u)
+                return 0u;
+            const u64 numerator = 2ull * boundary * screenExtent + tileCount - 1u;
+            return static_cast<u32>(numerator / (2ull * tileCount));
+        }
+
+        inline u32 TileForPixelCenter(u32 pixel, u32 tileCount, u32 screenExtent)
+        {
+            if (tileCount == 0u || screenExtent == 0u)
+                return 0u;
+            const u64 numerator = (2ull * pixel + 1ull) * tileCount;
+            return std::min(static_cast<u32>(numerator / (2ull * screenExtent)), tileCount - 1u);
+        }
+
+        // Reconstruct positive view depth from a GL-shaped device-depth value.
+        // Runtime callers upload RHI::AdjustedInverseForShaderReconstruction,
+        // so this same arithmetic consumes row-correct depth on both backends.
+        inline f32 ViewDepthFromDeviceDepth(f32 deviceDepth, const glm::mat4& inverseProjection)
+        {
+            const f32 depth = std::clamp(deviceDepth, 0.0f, 1.0f);
+            const glm::vec4 view = inverseProjection * glm::vec4(0.0f, 0.0f, depth * 2.0f - 1.0f, 1.0f);
+            if (!std::isfinite(view.z) || !std::isfinite(view.w) || std::abs(view.w) <= 1e-12f)
+                return 0.0f;
+            return std::max(-view.z / view.w, 0.0f);
+        }
+
+        // The shading-visible arrays stay at the front of their established
+        // bindings. Depth-aware scratch data occupies suffixes so no new SSBO
+        // binding is needed (the engine-wide namespace is already full).
+        inline constexpr u32 ActiveClusterListOffsetWords(u32 totalClusters, u32 maxLightsPerCluster)
+        {
+            return totalClusters * maxLightsPerCluster;
+        }
+
+        inline constexpr u32 LightIndexStorageWords(u32 totalClusters, u32 maxLightsPerCluster)
+        {
+            return ActiveClusterListOffsetWords(totalClusters, maxLightsPerCluster) + totalClusters;
+        }
+
+        inline constexpr u32 DepthTileMetadataOffsetWords(u32 totalClusters)
+        {
+            return totalClusters * 2u;
+        }
+
+        inline constexpr u32 LightGridStorageWords(u32 totalClusters, u32 tileCount)
+        {
+            return DepthTileMetadataOffsetWords(totalClusters) + tileCount * kDepthTileMetadataWordCount;
         }
 
         // Extract the near/far clip planes from an OpenGL-convention

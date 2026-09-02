@@ -1053,7 +1053,9 @@ namespace OloEngine
             u32 MaxLightsPerCluster;           // 140
             f32 NearPlane;                     // 144 — positive distance
             f32 FarPlane;                      // 148 — positive distance
-            glm::vec2 Pad0;                    // 152
+            glm::uvec2 ScreenSize;             // 152 — depth texture extent
+            glm::uvec4 ClusterParams;          // 160 — xyz counts, w active-list word offset
+            glm::uvec4 LayoutParams;           // 176 — x depth-metadata word offset, yzw reserved
 
             static constexpr u32 GetSize()
             {
@@ -1062,8 +1064,8 @@ namespace OloEngine
         };
 
         static_assert(sizeof(LightCullingUBO) % 16 == 0, "LightCullingUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(LightCullingUBO) == 160,
-                      "LightCullingUBO std140 size drifted from GLSL expectation (160 B)");
+        static_assert(sizeof(LightCullingUBO) == 192,
+                      "LightCullingUBO std140 size drifted from GLSL expectation (192 B)");
 
         // @brief Virtualized-geometry cluster-cull parameters, uploaded at
         // UBO_VIRTUAL_CLUSTER_CULL (69). GLSL twin: the VirtualClusterCullParams
@@ -1520,7 +1522,7 @@ namespace OloEngine
         struct ForwardPlusUBO
         {
             glm::uvec4 Params;      // x = ClusterCountX, y = ClusterCountY, z = Enabled (0/1), w = ClusterCountZ
-            glm::vec4 TileScale;    // xy = clusterCount / screenSize (cluster coord per pixel), zw = unused
+            glm::vec4 TileScale;    // xy = clusterCount / screenSize, zw = exact screen extent
             glm::vec4 DepthSlicing; // x = sliceScale, y = sliceBias, z = zNear, w = zFar
 
             static constexpr u32 GetSize()
@@ -3381,7 +3383,7 @@ layout(std140, binding = 23) uniform WaterParams {
             return R"(
 layout(std140, binding = 25) uniform ForwardPlusParams {
     uvec4 fplus_Params;       // x = ClusterCountX, y = ClusterCountY, z = Enabled (0/1), w = ClusterCountZ
-    vec4  fplus_TileScale;    // xy = clusterCount / screenSize, zw = unused
+    vec4  fplus_TileScale;    // xy = clusterCount / screenSize, zw = exact screen extent
     vec4  fplus_DepthSlicing; // x = sliceScale, y = sliceBias, z = zNear, w = zFar
 };)";
         }

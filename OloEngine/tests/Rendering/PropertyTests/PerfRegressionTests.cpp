@@ -52,6 +52,7 @@
 //   8. Render-graph fence execution for a 32-edge cross-lane plan
 //   9. Production GPU frustum culling with the root-publication path prepared
 //  10. GPU Scene extraction/dirty-range commit for 1,024 ordinary instances
+//  11. Depth-aware clustered-light culling against the fixed-grid control
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -2047,6 +2048,201 @@ namespace OloEngine::Tests
                          "machine idle before drawing any conclusion."
                       << std::endl;
         }
+    }
+
+    // =========================================================================
+    // Depth-aware clustered-light culling (#722)
+    //
+    // This is a relative A/B because the feature's claim is that compacting the
+    // occupied depth cells is cheaper than dispatching every cluster. The two
+    // modes are interleaved so slow GPU-clock drift is shared between them. The
+    // depth-aware minimum also has an absolute L6 baseline, catching regressions
+    // in the preparation pass that a healthy-looking relative ratio could hide.
+    // =========================================================================
+
+    class DepthAwareClusterPerf : public RendererAttachedTest
+    {
+      protected:
+        static constexpr u32 kWidth = 1600;
+        static constexpr u32 kHeight = 900;
+        static constexpr u32 kRounds = 4;
+        static constexpr u32 kWarmFrames = 5;
+        static constexpr u32 kSampleFrames = 5;
+
+        void BuildScene() override
+        {
+            Scene& scene = GetScene();
+            EnableRendering(kWidth, kHeight);
+
+            auto& settings = Renderer3D::GetRendererSettings();
+            settings.Path = RenderingPath::ForwardPlus;
+            settings.ShowGrid = false;
+            settings.ShowLightGizmos = false;
+            settings.ShowWorldAxisHelper = false;
+            settings.ShowCameraFrustums = false;
+            Renderer3D::ApplyRendererSettings();
+            Renderer3D::EnableDepthPrepass(true);
+
+            const Ref<Mesh> plane = MeshPrimitives::CreatePlane();
+            const Ref<Mesh> cube = MeshPrimitives::CreateCube();
+            ASSERT_TRUE(plane && cube);
+
+            auto addMesh = [&scene](const char* name, const Ref<Mesh>& mesh,
+                                    const glm::vec3& position, const glm::vec3& scale)
+            {
+                Entity entity = scene.CreateEntity(name);
+                auto& transform = entity.GetComponent<TransformComponent>();
+                transform.Translation = position;
+                transform.Scale = scale;
+                auto& component = entity.AddComponent<MeshComponent>();
+                component.m_MeshSource = mesh->GetMeshSource();
+                auto& material = entity.AddComponent<MaterialComponent>();
+                material.m_Material.SetBaseColorFactor(glm::vec4(0.55f, 0.57f, 0.6f, 1.0f));
+                material.m_Material.SetRoughnessFactor(0.8f);
+            };
+
+            addMesh("Floor", plane, { 0.0f, 0.0f, -18.0f }, { 70.0f, 1.0f, 70.0f });
+            for (u32 row = 0; row < 6; ++row)
+            {
+                for (u32 col = 0; col < 10; ++col)
+                {
+                    const f32 x = (static_cast<f32>(col) - 4.5f) * 5.0f;
+                    const f32 z = -static_cast<f32>(row) * 7.0f;
+                    const f32 height = 1.0f + static_cast<f32>((row * 3u + col * 5u) % 7u);
+                    addMesh("DepthOccluder", cube, { x, height, z }, { 1.8f, height, 1.8f });
+                }
+            }
+
+            // Fill the supported local-light budget. Alternating height/range
+            // makes each screen tile contain several separated depth islands.
+            for (u32 i = 0; i < 256; ++i)
+            {
+                const u32 col = i % 16u;
+                const u32 row = i / 16u;
+                Entity light = scene.CreateEntity("PointLight");
+                light.GetComponent<TransformComponent>().Translation = {
+                    (static_cast<f32>(col) - 7.5f) * 3.2f,
+                    2.5f + static_cast<f32>((col + row) % 5u) * 2.0f,
+                    4.0f - static_cast<f32>(row) * 3.2f,
+                };
+                auto& point = light.AddComponent<PointLightComponent>();
+                point.m_Color = { 0.7f + 0.3f * static_cast<f32>(col & 1u),
+                                  0.7f + 0.3f * static_cast<f32>(row & 1u), 0.9f };
+                point.m_Intensity = 8.0f;
+                point.m_Range = 8.0f + static_cast<f32>((col + 2u * row) % 5u);
+            }
+        }
+
+        [[nodiscard]] static EditorCamera MakeCamera()
+        {
+            EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight),
+                                0.05f, 1000.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.SetPose({ 0.0f, 24.0f, 38.0f }, 0.0f, 0.46f);
+            return camera;
+        }
+
+        void SampleBlock(EditorCamera& camera, bool depthAware, std::vector<f64>& samples)
+        {
+            Renderer3D::EnableDepthAwareClusterCulling(depthAware);
+            RunEditorFrames(camera, kWarmFrames);
+
+            EXPECT_EQ(Renderer3D::GetForwardPlus().WasLastCullingDepthAware(), depthAware)
+                << "the A/B lever did not select the requested clustered-culling path";
+
+            for (u32 i = 0; i < kSampleFrames; ++i)
+            {
+                RunEditorFrames(camera, 1);
+                for (const auto& timing : GPUPassTimerPool::GetInstance().GetLastPassTimingsCopy())
+                {
+                    if (timing.Name == "ScenePass/LightCulling" && timing.GpuMs > 0.0)
+                    {
+                        samples.push_back(timing.GpuMs);
+                        break;
+                    }
+                }
+            }
+        }
+
+        [[nodiscard]] static f64 Median(std::vector<f64> samples)
+        {
+            if (samples.empty())
+                return 0.0;
+            std::ranges::sort(samples);
+            const sizet middle = samples.size() / 2u;
+            if ((samples.size() & 1u) != 0u)
+                return samples[middle];
+            return 0.5 * (samples[middle - 1u] + samples[middle]);
+        }
+    };
+
+    TEST_F(DepthAwareClusterPerf, InterleavedGpuTimeStaysWithinBudget)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const bool depthAwareCullingWasEnabled = Renderer3D::IsDepthAwareClusterCullingEnabled();
+        struct DepthAwareCullingGuard
+        {
+            bool m_Restore;
+            ~DepthAwareCullingGuard()
+            {
+                Renderer3D::EnableDepthAwareClusterCulling(m_Restore);
+            }
+        } depthAwareCullingGuard{ depthAwareCullingWasEnabled };
+
+        EditorCamera camera = MakeCamera();
+        Renderer3D::EnableDepthAwareClusterCulling(false);
+        RunEditorFrames(camera, 10); // shader compilation and transient allocation
+
+        std::vector<f64> fixedSamples;
+        std::vector<f64> depthAwareSamples;
+        fixedSamples.reserve(kRounds * kSampleFrames);
+        depthAwareSamples.reserve(kRounds * kSampleFrames);
+        for (u32 round = 0; round < kRounds; ++round)
+        {
+            SampleBlock(camera, false, fixedSamples);
+            SampleBlock(camera, true, depthAwareSamples);
+        }
+
+        ASSERT_EQ(fixedSamples.size(), kRounds * kSampleFrames);
+        ASSERT_EQ(depthAwareSamples.size(), kRounds * kSampleFrames);
+
+        const f64 fixedMedianMs = Median(fixedSamples);
+        const f64 depthAwareMedianMs = Median(depthAwareSamples);
+        const f64 savedPercent = fixedMedianMs > 0.0
+                                     ? 100.0 * (fixedMedianMs - depthAwareMedianMs) / fixedMedianMs
+                                     : 0.0;
+        std::cout << "[depth-aware cluster culling @ " << kWidth << 'x' << kHeight << "]\n"
+                  << "  fixed grid median : " << fixedMedianMs << " ms\n"
+                  << "  depth-aware median: " << depthAwareMedianMs << " ms\n"
+                  << "  saved             : " << savedPercent << "%\n"
+                  << "  samples/mode      : " << depthAwareSamples.size() << std::endl;
+
+        ::testing::Test::RecordProperty("fixed_grid_median_ms", std::to_string(fixedMedianMs));
+        ::testing::Test::RecordProperty("depth_aware_median_ms", std::to_string(depthAwareMedianMs));
+        ::testing::Test::RecordProperty("depth_aware_saved_percent", std::to_string(savedPercent));
+
+        constexpr std::string_view kBaselineKey = "depth_aware_cluster_cull_1600x900";
+        static_assert(kRounds * kSampleFrames == 20u);
+        const f64 depthAwareMinimumMs = *std::ranges::min_element(depthAwareSamples);
+        const u64 firstDepthAwareNs = static_cast<u64>(std::llround(depthAwareMinimumMs * 1.0e6));
+        bool returnInterleavedMeasurement = true;
+        const u64 stableDepthAwareNs = MeasureBenchmarkStableNs(std::string(kBaselineKey), [&]()
+                                                                {
+            if (std::exchange(returnInterleavedMeasurement, false))
+                return firstDepthAwareNs;
+
+            // Retry only when the first result crosses the shared L6 warning
+            // band. Keep the retry depth-aware-only: the relative A/B above is
+            // already protected from drift by interleaving its two modes.
+            std::vector<f64> retrySamples;
+            retrySamples.reserve(kRounds * kSampleFrames);
+            for (u32 round = 0; round < kRounds; ++round)
+                SampleBlock(camera, true, retrySamples);
+            if (retrySamples.empty())
+                return std::numeric_limits<u64>::max();
+            return static_cast<u64>(std::llround(*std::ranges::min_element(retrySamples) * 1.0e6)); });
+        CheckPerfRegression(std::string(kBaselineKey), stableDepthAwareNs);
     }
 
 } // namespace OloEngine::Tests

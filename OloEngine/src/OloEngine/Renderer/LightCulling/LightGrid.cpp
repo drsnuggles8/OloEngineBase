@@ -10,6 +10,7 @@ namespace OloEngine
 
         if (screenWidth == 0 || screenHeight == 0 ||
             config.ClusterCountX == 0 || config.ClusterCountY == 0 || config.ClusterCountZ == 0 ||
+            config.ClusterCountZ > ClusteredLighting::kDepthCellCount ||
             config.MaxLightsPerCluster == 0)
         {
             OLO_CORE_ERROR("LightGrid::Initialize: Invalid parameters ({}x{}, clusters {}x{}x{}, {} lights/cluster)",
@@ -86,14 +87,19 @@ namespace OloEngine
             m_GlobalIndexSSBO->Unbind();
     }
 
-    void LightGrid::ResetAtomicCounter()
+    void LightGrid::ResetCountersAndIndirectArgs()
     {
         OLO_PROFILE_FUNCTION();
 
         if (m_GlobalIndexSSBO)
         {
-            u32 zero = 0;
-            m_GlobalIndexSSBO->SetData(&zero, sizeof(u32));
+            // Word zero is the light-index append counter. Words 1..3 are a
+            // DispatchIndirectCommand populated by DepthPrepare.comp; Y/Z
+            // remain one while X counts compacted active clusters.
+            constexpr std::array<u32, ClusteredLighting::kGlobalCounterAndDispatchWordCount> seed = {
+                0u, 0u, 1u, 1u
+            };
+            m_GlobalIndexSSBO->SetData(seed.data(), static_cast<u32>(sizeof(seed)));
         }
     }
 
@@ -111,15 +117,21 @@ namespace OloEngine
 
         const u32 totalClusters = GetTotalClusters();
 
-        // Light index list: worst case each cluster is full.
-        const u32 lightIndexCapacity = totalClusters * m_Config.MaxLightsPerCluster;
-        const u32 lightIndexBufferSize = lightIndexCapacity * sizeof(u32);
+        // The established shading prefix remains worst-case cluster capacity;
+        // one u32 per cluster is appended for the compact active-cluster list.
+        const u32 lightIndexStorageWords =
+            ClusteredLighting::LightIndexStorageWords(totalClusters, m_Config.MaxLightsPerCluster);
+        const u32 lightIndexBufferSize = lightIndexStorageWords * sizeof(u32);
 
-        // Light grid: 2 u32s per cluster (offset, count)
-        const u32 lightGridBufferSize = totalClusters * 2 * sizeof(u32);
+        // The established (offset,count) prefix is followed by four words per
+        // screen tile: min depth, max depth, occupancy, active-slice mask.
+        const u32 lightGridStorageWords =
+            ClusteredLighting::LightGridStorageWords(totalClusters, GetTileCount());
+        const u32 lightGridBufferSize = lightGridStorageWords * sizeof(u32);
 
-        // Global atomic counter: single u32
-        const u32 globalIndexBufferSize = sizeof(u32);
+        // Light-list append counter followed by an indirect uvec3 dispatch.
+        const u32 globalIndexBufferSize =
+            ClusteredLighting::kGlobalCounterAndDispatchWordCount * sizeof(u32);
 
         m_LightIndexSSBO = StorageBuffer::Create(
             lightIndexBufferSize, ShaderBindingLayout::SSBO_FPLUS_LIGHT_INDICES,

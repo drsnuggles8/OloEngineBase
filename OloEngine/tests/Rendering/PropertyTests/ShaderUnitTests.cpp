@@ -23,6 +23,7 @@
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
+#include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
@@ -37,6 +38,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -1121,6 +1123,45 @@ namespace OloEngine::Tests
         EXPECT_NEAR(results[0].Rgba[1], 0.5f, 1e-6f);
         EXPECT_NEAR(results[0].Rgba[2], 0.5f, 1e-6f);
         EXPECT_NEAR(results[0].Rgba[3], 1.0f, 1e-6f) << "alpha ignored confidence";
+    }
+
+    TEST(ShaderUnitDepthAwareClusterTest, TileDepthAndPixelBoundaryHelpersMatchTheirContract)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kOutputCount = 9u;
+        ScopedBuffer output(kOutputCount * sizeof(u32), GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+        auto shader = ComputeShader::Create("assets/shaders/tests/ShaderUnit_DepthAwareCluster.glsl");
+        ASSERT_TRUE(shader && shader->IsValid()) << "depth-aware cluster probe failed to compile";
+
+        shader->Bind();
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, output.m_Id);
+        ::glDispatchCompute(1, 1, 1);
+        ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+        std::array<u32, kOutputCount> values{};
+        ::glGetNamedBufferSubData(output.m_Id, 0, sizeof(values), values.data());
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+        shader->Unbind();
+
+        // Expected values are derived from the CPU mirror in
+        // ClusteredLighting.h, not duplicated magic constants.
+        EXPECT_EQ(values[0], ClusteredLighting::DepthCellForViewDepth(2.0f, 2.0f, 18.0f));
+        EXPECT_EQ(values[1], ClusteredLighting::DepthCellForViewDepth(10.0f, 2.0f, 18.0f));
+        EXPECT_EQ(values[2], ClusteredLighting::DepthCellForViewDepth(18.0f, 2.0f, 18.0f));
+        EXPECT_EQ(values[3], ClusteredLighting::DepthCellMaskForViewRange(4.9f, 5.1f, 0.0f, 32.0f));
+        EXPECT_EQ(values[4], ClusteredLighting::TilePixelBoundary(1u, 32u, 1366u));
+        EXPECT_EQ(values[5], ClusteredLighting::TileForPixelCenter(20u, 32u, 164u));
+        const glm::mat4 identityProjection{ 1.0f };
+        EXPECT_EQ(values[6], std::bit_cast<u32>(
+                                 ClusteredLighting::ViewDepthFromDeviceDepth(0.25f, identityProjection)));
+        const auto slicing = ClusteredLighting::ComputeDepthSliceParams(24u, 0.1f, 1000.0f);
+        EXPECT_EQ(values[7], ClusteredLighting::SliceForViewDepth(0.1f, slicing, 24u));
+        constexpr f32 sphereCenterZ = -5.0f;
+        constexpr f32 sphereRadius = 0.25f;
+        const bool sphereIntersects = ClusteredLighting::DepthRangeIntersectsMask(
+            1u << 5u, -sphereCenterZ - sphereRadius, -sphereCenterZ + sphereRadius, 0.0f, 32.0f);
+        EXPECT_EQ(values[8], static_cast<u32>(sphereIntersects));
     }
 
 } // namespace OloEngine::Tests
