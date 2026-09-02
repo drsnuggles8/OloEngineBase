@@ -63,7 +63,7 @@ namespace OloEngine
                                     f32 nearPlane,
                                     f32 farPlane,
                                     RHI::ResourceHandle sceneDepth,
-                                    bool depthPrepassAvailable)
+                                    const ClusteredLighting::DepthAwareFrameInputs& depthAwareInputs)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -79,7 +79,8 @@ namespace OloEngine
             return;
         }
 
-        const bool useDepthAware = depthPrepassAvailable && sceneDepth.IsValid() &&
+        const bool useDepthAware = ClusteredLighting::CanUseDepthAwareCulling(depthAwareInputs) &&
+                                   sceneDepth.IsValid() &&
                                    m_DepthPrepareShader && m_DepthPrepareShader->IsValid() &&
                                    m_DepthAwareCullingShader && m_DepthAwareCullingShader->IsValid();
         m_LastDispatchDepthAware = useDepthAware;

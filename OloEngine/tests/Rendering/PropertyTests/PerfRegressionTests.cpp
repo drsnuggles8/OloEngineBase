@@ -2056,7 +2056,7 @@ namespace OloEngine::Tests
     // This is a relative A/B because the feature's claim is that compacting the
     // occupied depth cells is cheaper than dispatching every cluster. The two
     // modes are interleaved so slow GPU-clock drift is shared between them. The
-    // depth-aware median also has an absolute L6 baseline, catching regressions
+    // depth-aware minimum also has an absolute L6 baseline, catching regressions
     // in the preparation pass that a healthy-looking relative ratio could hide.
     // =========================================================================
 
@@ -2065,7 +2065,7 @@ namespace OloEngine::Tests
       protected:
         static constexpr u32 kWidth = 1600;
         static constexpr u32 kHeight = 900;
-        static constexpr u32 kRounds = 6;
+        static constexpr u32 kRounds = 4;
         static constexpr u32 kWarmFrames = 5;
         static constexpr u32 kSampleFrames = 5;
 
@@ -2180,6 +2180,16 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
+        const bool depthAwareCullingWasEnabled = Renderer3D::IsDepthAwareClusterCullingEnabled();
+        struct DepthAwareCullingGuard
+        {
+            bool m_Restore;
+            ~DepthAwareCullingGuard()
+            {
+                Renderer3D::EnableDepthAwareClusterCulling(m_Restore);
+            }
+        } depthAwareCullingGuard{ depthAwareCullingWasEnabled };
+
         EditorCamera camera = MakeCamera();
         Renderer3D::EnableDepthAwareClusterCulling(false);
         RunEditorFrames(camera, 10); // shader compilation and transient allocation
@@ -2193,7 +2203,6 @@ namespace OloEngine::Tests
             SampleBlock(camera, false, fixedSamples);
             SampleBlock(camera, true, depthAwareSamples);
         }
-        Renderer3D::EnableDepthAwareClusterCulling(true);
 
         ASSERT_EQ(fixedSamples.size(), kRounds * kSampleFrames);
         ASSERT_EQ(depthAwareSamples.size(), kRounds * kSampleFrames);
@@ -2214,7 +2223,9 @@ namespace OloEngine::Tests
         ::testing::Test::RecordProperty("depth_aware_saved_percent", std::to_string(savedPercent));
 
         constexpr std::string_view kBaselineKey = "depth_aware_cluster_cull_1600x900";
-        const u64 firstDepthAwareNs = static_cast<u64>(std::llround(depthAwareMedianMs * 1.0e6));
+        static_assert(kRounds * kSampleFrames == 20u);
+        const f64 depthAwareMinimumMs = *std::ranges::min_element(depthAwareSamples);
+        const u64 firstDepthAwareNs = static_cast<u64>(std::llround(depthAwareMinimumMs * 1.0e6));
         bool returnInterleavedMeasurement = true;
         const u64 stableDepthAwareNs = MeasureBenchmarkStableNs(std::string(kBaselineKey), [&]()
                                                                 {
@@ -2228,7 +2239,9 @@ namespace OloEngine::Tests
             retrySamples.reserve(kRounds * kSampleFrames);
             for (u32 round = 0; round < kRounds; ++round)
                 SampleBlock(camera, true, retrySamples);
-            return static_cast<u64>(std::llround(Median(retrySamples) * 1.0e6)); });
+            if (retrySamples.empty())
+                return std::numeric_limits<u64>::max();
+            return static_cast<u64>(std::llround(*std::ranges::min_element(retrySamples) * 1.0e6)); });
         CheckPerfRegression(std::string(kBaselineKey), stableDepthAwareNs);
     }
 

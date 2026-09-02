@@ -5224,15 +5224,25 @@ namespace OloEngine::MCP
                 const bool depthAware = forwardPlus.WasLastCullingDepthAware();
                 const auto activeFromMetadata = ClusterGrid::ActiveClusterCountFromMetadata(
                     gridWords, lightGrid.GetDepthTileMetadataOffsetWords(), tileCount);
-                if (depthAware && (!activeFromMetadata || *activeFromMetadata != counters[1]))
-                {
-                    return Json{ { "__error", "Depth-aware active-cluster counter failed its independent metadata cross-check." } };
-                }
+                const bool counterVerified = depthAware && activeFromMetadata.has_value() &&
+                                             *activeFromMetadata == counters[1];
                 const u64 producerFrameIndex = forwardPlus.GetLastCullingFrameIndex();
                 const u64 currentFrameIndex = GPUReadbackStats::GetFrameIndex();
-                j["culling"] = ClusterGrid::CullingToJson(depthAware, counters[1], totalClusters,
-                                                          producerFrameIndex, currentFrameIndex,
-                                                          !depthAware || activeFromMetadata.has_value());
+                Json culling = ClusterGrid::CullingToJson(depthAware, counters[1], totalClusters,
+                                                          producerFrameIndex, currentFrameIndex, counterVerified);
+                if (depthAware)
+                {
+                    culling["indirectActiveClusters"] = counters[1];
+                    if (activeFromMetadata)
+                        culling["metadataActiveClusters"] = *activeFromMetadata;
+                    if (!counterVerified)
+                    {
+                        culling["counterVerificationError"] = activeFromMetadata
+                                                                   ? "Indirect and metadata active-cluster counts differ."
+                                                                   : "Depth-tile metadata was unavailable for the cross-check.";
+                    }
+                }
+                j["culling"] = std::move(culling);
                 if (Renderer3D::GetRendererSettings().Path == RenderingPath::Forward)
                     j["note"] = "The plain Forward path does not run the clustered cull, so the grid holds whatever "
                                 "the last Forward+/Deferred frame left in it (or zeroes).";
@@ -7285,7 +7295,10 @@ namespace OloEngine::MCP
                                                          .Prop("frameIndex", Schema::Int().Min(0).Desc("Engine render frame that produced the retained culling buffers."))
                                                          .Prop("sampleAgeFrames", Schema::Int().Min(0))
                                                          .Prop("stale", Schema::Bool())
-                                                         .Prop("counterVerified", Schema::Bool()))
+                                                         .Prop("counterVerified", Schema::Bool())
+                                                         .Prop("indirectActiveClusters", Schema::Int().Min(0))
+                                                         .Prop("metadataActiveClusters", Schema::Int().Min(0))
+                                                         .Prop("counterVerificationError", Schema::String()))
                                     .Prop("note", Schema::String().Desc("Plain-Forward staleness caveat; omitted otherwise."))
                                     .Required({ "grid", "clustersSampled", "totalAssignedIndices", "emptyClusters", "overflowClusters",
                                                 "maxLightsInAnyCluster", "meanLightsPerCluster", "meanLightsPerNonEmptyCluster",

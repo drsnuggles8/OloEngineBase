@@ -79,6 +79,17 @@ TEST(ForwardPlus, ClusterGridTotalMatchesDimensions)
     EXPECT_LT(indexBytes, 64ull * 1024ull * 1024ull);
 }
 
+TEST(ForwardPlus, GridRejectsMoreDepthSlicesThanTheOccupancyMaskCanRepresent)
+{
+    LightGridConfig config;
+    config.ClusterCountZ = ClusteredLighting::kDepthCellCount + 1u;
+
+    LightGrid grid;
+    grid.Initialize(1u, 1u, config);
+
+    EXPECT_FALSE(grid.IsInitialized());
+}
+
 // =============================================================================
 // Binding constants tests (no conflicts)
 // =============================================================================

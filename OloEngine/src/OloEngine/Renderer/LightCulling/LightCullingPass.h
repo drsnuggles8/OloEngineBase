@@ -41,7 +41,7 @@ namespace OloEngine
                       f32 nearPlane,
                       f32 farPlane,
                       RHI::ResourceHandle sceneDepth,
-                      bool depthPrepassAvailable);
+                      const ClusteredLighting::DepthAwareFrameInputs& depthAwareInputs);
 
         [[nodiscard]] bool IsValid() const;
         [[nodiscard]] bool WasLastDispatchDepthAware() const

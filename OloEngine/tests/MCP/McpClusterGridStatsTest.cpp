@@ -201,13 +201,17 @@ namespace
         EXPECT_FALSE(depthAware.at("stale").get<bool>());
         EXPECT_TRUE(depthAware.at("counterVerified").get<bool>());
 
-        const Json fixedGrid = CullingToJson(false, 5000u, 1000u, 74u, 78u, true);
+        const Json fixedGrid = CullingToJson(false, 5000u, 1000u, 74u, 78u, false);
         EXPECT_EQ(fixedGrid.at("mode").get<std::string>(), "fixedGrid");
         EXPECT_EQ(fixedGrid.at("activeClusters").get<u32>(), 1000u);
         EXPECT_EQ(fixedGrid.at("culledClusters").get<u32>(), 0u);
         EXPECT_DOUBLE_EQ(fixedGrid.at("activeFraction").get<f64>(), 1.0);
         EXPECT_EQ(fixedGrid.at("sampleAgeFrames").get<u64>(), 4u);
         EXPECT_TRUE(fixedGrid.at("stale").get<bool>());
+        EXPECT_FALSE(fixedGrid.at("counterVerified").get<bool>());
+
+        const Json mismatch = CullingToJson(true, 320u, 1000u, 79u, 79u, false);
+        EXPECT_FALSE(mismatch.at("counterVerified").get<bool>());
 
         const Json invalidOrder = CullingToJson(true, 320u, 1000u, 80u, 79u, true);
         EXPECT_EQ(invalidOrder.at("sampleAgeFrames").get<u64>(), 0u);

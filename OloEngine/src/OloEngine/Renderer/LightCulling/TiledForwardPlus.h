@@ -60,8 +60,8 @@ namespace OloEngine
         // occupancy + active-cluster compaction; otherwise the fixed grid runs.
         void DispatchCulling(const glm::mat4& viewMatrix,
                              const glm::mat4& projectionMatrix,
-                             RHI::ResourceHandle sceneDepth = RHI::NullResource,
-                             bool depthPrepassAvailable = false);
+                             RHI::ResourceHandle sceneDepth,
+                             const ClusteredLighting::DepthAwareFrameInputs& depthAwareInputs);
 
         // Bind light grid + light data SSBOs for the forward color pass
         void BindForShading();

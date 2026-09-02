@@ -110,7 +110,7 @@ namespace OloEngine
     void TiledForwardPlus::DispatchCulling(const glm::mat4& viewMatrix,
                                            const glm::mat4& projectionMatrix,
                                            RHI::ResourceHandle sceneDepth,
-                                           bool depthPrepassAvailable)
+                                           const ClusteredLighting::DepthAwareFrameInputs& depthAwareInputs)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -137,7 +137,7 @@ namespace OloEngine
         m_CullingPass.Dispatch(m_LightGrid, m_LightBuffer,
                                viewRelative, projectionMatrix,
                                m_NearPlane, m_FarPlane,
-                               sceneDepth, depthPrepassAvailable);
+                               sceneDepth, depthAwareInputs);
     }
 
     void TiledForwardPlus::BindForShading()

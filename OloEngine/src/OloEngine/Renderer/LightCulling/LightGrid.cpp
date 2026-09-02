@@ -10,6 +10,7 @@ namespace OloEngine
 
         if (screenWidth == 0 || screenHeight == 0 ||
             config.ClusterCountX == 0 || config.ClusterCountY == 0 || config.ClusterCountZ == 0 ||
+            config.ClusterCountZ > ClusteredLighting::kDepthCellCount ||
             config.MaxLightsPerCluster == 0)
         {
             OLO_CORE_ERROR("LightGrid::Initialize: Invalid parameters ({}x{}, clusters {}x{}x{}, {} lights/cluster)",

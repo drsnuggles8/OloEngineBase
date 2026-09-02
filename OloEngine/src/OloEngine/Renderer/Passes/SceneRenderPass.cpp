@@ -321,20 +321,22 @@ namespace OloEngine
             // is absent from this depth attachment just like blended classic
             // geometry. Either case requires the conservative fixed grid.
             const FogSettings& fog = Renderer3D::GetFogSettings();
+            const bool singleSampleDepth = renderFB->GetSpecification().Samples == 1u;
+            const bool depthAwareLeverEnabled = Renderer3D::IsDepthAwareClusterCullingEnabled();
+            const bool inspectDepthContributors = depthPrepass && singleSampleDepth && depthAwareLeverEnabled;
             const ClusteredLighting::DepthAwareFrameInputs depthAwareInputs{
                 .DepthPrepassAvailable = depthPrepass,
-                .SingleSampleDepth = renderFB->GetSpecification().Samples == 1u,
-                .LeverEnabled = Renderer3D::IsDepthAwareClusterCullingEnabled(),
-                .HasBlendedGeometry = HasForwardLitBlendedGeometry(m_CommandBucket),
+                .SingleSampleDepth = singleSampleDepth,
+                .LeverEnabled = depthAwareLeverEnabled,
+                .HasBlendedGeometry = inspectDepthContributors && HasForwardLitBlendedGeometry(m_CommandBucket),
                 .HasVirtualGeometry = !VirtualMeshRegistry::Get().GetSubmissions().empty(),
                 .HasVolumetricFog = fog.Enabled && fog.EnableVolumetric,
             };
-            const bool depthAwareAvailable = ClusteredLighting::CanUseDepthAwareCulling(depthAwareInputs);
             forwardPlus.DispatchCulling(
                 Renderer3D::GetViewMatrix(),
                 Renderer3D::GetProjectionMatrix(),
-                depthAwareAvailable ? renderFB->GetDepthAttachmentHandle() : RHI::NullResource,
-                depthAwareAvailable);
+                renderFB->GetDepthAttachmentHandle(),
+                depthAwareInputs);
             gpuSubTimers.EndSubPass();
             forwardPlus.BindForShading();
         }
