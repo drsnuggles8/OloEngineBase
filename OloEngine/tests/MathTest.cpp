@@ -6,6 +6,7 @@
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <type_traits>
 
 // =============================================================================
 // MathTest — contracts for the OloEngine::Math namespace helpers.
@@ -97,56 +98,62 @@ namespace
     TEST(MathBitwiseEqualTest, IntegerTypesAlsoWork)
     {
         // The helper isn't float-only — any trivially-copyable type can use
-        // it, which is convenient when a struct mixes scalars and bools.
+        // it, including structs of scalars (see the padding rule below).
         EXPECT_TRUE(BitwiseEqual(42, 42));
         EXPECT_FALSE(BitwiseEqual(42, 43));
 
-        // A struct with implicit padding after the trailing bool.
-        struct Trivial
+        // Structs. `BitwiseEqual` is `memcmp` over `sizeof(T)`, so it compares
+        // every byte of the object representation, PADDING included, and the
+        // language leaves padding bytes unspecified. No initialisation idiom
+        // pins them: the first version of this case copy-constructed `b` from
+        // `a` and failed under GCC, whose implicit copy is member-wise and skips
+        // the padding; the second version value-initialised both objects
+        // (`Trivial a = Trivial();`, which does zero the whole representation)
+        // and then assigned the members, and failed under GCC 14 -O3, which
+        // scalarises the value-initialised local and re-materialises it with
+        // fresh garbage in bytes 9-11 when the address is finally taken for the
+        // memcmp. Both are conforming: after a member store the padding is
+        // unspecified again, whatever it held before.
+        //
+        // The rule for callers therefore is: `BitwiseEqual` on a struct is only
+        // deterministic when the struct has no padding, and the type system can
+        // check that. `std::has_unique_object_representations_v<T>` is exactly
+        // the predicate, and it is what the two layouts below differ in. (A
+        // padded type still compares equal when both operands come from ONE
+        // memcpy'd source, but that is the caller's guarantee, not the helper's.)
+        struct Padded
         {
             f32 m_X;
             i32 m_Y;
             bool m_Z;
         };
-        static_assert(sizeof(Trivial) > sizeof(f32) + sizeof(i32) + sizeof(bool),
-                      "this case only exercises anything while Trivial actually has padding");
+        static_assert(sizeof(Padded) > sizeof(f32) + sizeof(i32) + sizeof(bool),
+                      "Padded must actually carry padding for the static_assert below to say anything");
+        static_assert(!std::has_unique_object_representations_v<Padded>,
+                      "a padded struct has no unique object representation, so BitwiseEqual on it is not deterministic");
 
-        // `BitwiseEqual` is `memcmp` over `sizeof(T)`, so it compares PADDING
-        // bytes as well as members — and the language does not guarantee that
-        // copying an object reproduces them. This case previously wrote
-        // `const Trivial a{ 1.0f, 7, true }; Trivial b = a;` and asserted the
-        // two compared equal. That holds on MSVC and Clang, which copy the
-        // whole object representation, but GCC's implicit copy constructor
-        // copies member-wise and leaves the destination's padding as whatever
-        // was on the stack — so every member matched and only bytes 9-11
-        // differed. It went unnoticed until the suite first ran under GCC.
-        //
-        // Value-initialisation zero-initializes the whole object
-        // representation, padding included, so initialising both objects that
-        // way and assigning members gives a deterministic comparison. This is
-        // exactly the "zero-init for predictable equality" rule the helper's
-        // callers must follow.
-        //
-        // The spelling matters, and `Trivial a{}` is NOT it. `Trivial` is an
-        // aggregate, and for an aggregate the empty-brace form performs
-        // AGGREGATE initialization — each member is initialized from `{}`,
-        // which says nothing about the bytes between them. `Trivial()` is a
-        // value-initialized prvalue, and since C++17's guaranteed elision it
-        // initializes `a` directly with no intervening copy, so the padding
-        // guarantee actually reaches the object being compared.
-        Trivial a = Trivial();
-        a.m_X = 1.0f;
-        a.m_Y = 7;
-        a.m_Z = true;
+        // Integer members only: for a float member Clang answers
+        // has_unique_object_representations = false (NaN payloads) where GCC
+        // and MSVC answer true, and this assert must not depend on which
+        // compiler is asked. Float bit patterns are covered by the cases above.
+        struct Packed
+        {
+            i32 m_X;
+            i32 m_Y;
+            u32 m_Z; // a bool here would reintroduce three padding bytes
+        };
+        static_assert(sizeof(Packed) == sizeof(i32) + sizeof(i32) + sizeof(u32), "Packed must have no padding");
+        static_assert(std::has_unique_object_representations_v<Packed>,
+                      "Packed is the kind of layout BitwiseEqual is deterministic for");
 
-        Trivial b = Trivial();
-        b.m_X = 1.0f;
-        b.m_Y = 7;
-        b.m_Z = true;
-
+        Packed a{ -3, 7, 1u };
+        Packed b{ -3, 7, 1u };
         EXPECT_TRUE(BitwiseEqual(a, b));
         b.m_Y = 8;
         EXPECT_FALSE(BitwiseEqual(a, b));
+        b.m_Y = 7;
+        b.m_Z = 0u;
+        EXPECT_FALSE(BitwiseEqual(a, b)) << "the trailing member takes part in the comparison";
     }
 
     // =========================================================================
