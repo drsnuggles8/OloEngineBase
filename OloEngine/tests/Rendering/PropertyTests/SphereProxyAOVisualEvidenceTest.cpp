@@ -280,7 +280,11 @@ namespace OloEngine::Tests
             pp.SphereProxyAOStrength = 1.0f;
             pp.SphereProxyAOMaxProxies = 64;
             pp.SphereProxyAOMaxRadius = 25.0f;
-            pp.SphereProxyAOInfluenceScale = 12.0f;
+            // Production defaults. The scene has one occluder, so neither the
+            // ceiling nor the influence window binds at the receiver, and the
+            // assertions below measure the integral itself.
+            pp.SphereProxyAOInfluenceScale = 4.0f;
+            pp.SphereProxyAOMaxOcclusion = 1.0f;
             pp.SphereProxyAODebugView = debugProxyTermOnly;
 
             Renderer3D::ApplyRendererSettings();

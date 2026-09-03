@@ -1610,10 +1610,10 @@ namespace OloEngine
             i32 ProxyCount = 0; // Live entries in Proxies below
             i32 DebugView = 0;  // 1 = write the proxy term alone, not the product
 
-            f32 Strength = 1.0f;              // Blend of the proxy term into the AO buffer
-            f32 DepthLinearizeA = 0.0f;       // proj[2][2]
-            f32 DepthLinearizeB = 0.0f;       // proj[3][2]
-            f32 InfluenceRadiusScale = 12.0f; // Tile-binning cutoff, in proxy radii
+            f32 Strength = 1.0f;             // Blend of the proxy term into the AO buffer
+            f32 DepthLinearizeA = 0.0f;      // proj[2][2]
+            f32 DepthLinearizeB = 0.0f;      // proj[3][2]
+            f32 InfluenceRadiusScale = 4.0f; // Binning + windowing cutoff, in proxy radii
 
             // World-to-view for the bound normals; identity when they are already
             // view space (the forward path) — same contract as GTAOUBO::ViewMatrix.
@@ -1624,12 +1624,17 @@ namespace OloEngine
             // OLO_SPA_MAX_PROXIES and the two must agree.
             std::array<glm::vec4, 128> Proxies{};
 
+            // APPENDED AFTER the array, not inserted before it: every field above
+            // has an offset the shader's block layout depends on, and Proxies is
+            // 2 KB of it. x = the accumulated-occlusion ceiling, yzw reserved.
+            glm::vec4 CombineParams{ 1.0f, 0.0f, 0.0f, 0.0f };
+
             static constexpr u32 GetSize()
             {
                 return sizeof(SphereProxyAOUBO);
             }
         };
-        static_assert(SphereProxyAOUBO::GetSize() == 2160u,
+        static_assert(SphereProxyAOUBO::GetSize() == 2176u,
                       "SphereProxyAOUBO must stay std140-compatible with SphereProxyAO.comp's "
                       "SphereProxyAOParams block");
 

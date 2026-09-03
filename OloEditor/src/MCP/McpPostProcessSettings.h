@@ -278,6 +278,9 @@ namespace OloEngine::MCP::PostProcess
                    "Drop occluders whose fitted proxy sphere is larger than this (the ground/terrain filter)."),
         OLO_PP_NUM(SphereProxyAOInfluenceScale, "ao", FieldType::Float, 1.0, 64.0,
                    "Tile-binning cutoff, in proxy radii."),
+        OLO_PP_NUM(SphereProxyAOMaxOcclusion, "ao", FieldType::Float, 0.0, 1.0,
+                   "Ceiling on the occlusion the whole proxy set may produce at one pixel; bounds "
+                   "double counting where proxies overlap. 1.0 = the raw product."),
         OLO_PP_BOOL(SphereProxyAODebugView, "ao",
                     "Write the sphere-proxy term alone into the AO buffer instead of the product with GTAO."),
 

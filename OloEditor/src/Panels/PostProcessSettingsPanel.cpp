@@ -143,6 +143,7 @@ namespace OloEngine
             AppendChange(changes, "SphereProxyAOMaxProxies", before.SphereProxyAOMaxProxies, after.SphereProxyAOMaxProxies);
             AppendChange(changes, "SphereProxyAOMaxRadius", before.SphereProxyAOMaxRadius, after.SphereProxyAOMaxRadius);
             AppendChange(changes, "SphereProxyAOInfluenceScale", before.SphereProxyAOInfluenceScale, after.SphereProxyAOInfluenceScale);
+            AppendChange(changes, "SphereProxyAOMaxOcclusion", before.SphereProxyAOMaxOcclusion, after.SphereProxyAOMaxOcclusion);
             AppendChange(changes, "SphereProxyAODebugView", before.SphereProxyAODebugView, after.SphereProxyAODebugView);
 
             AppendChange(changes, "VRCSEnabled", before.VRCSEnabled, after.VRCSEnabled);
@@ -824,6 +825,7 @@ namespace OloEngine
                         // silently truncate a value the other two accept.
                         ImGui::DragFloat("Max Proxy Radius##SPA", &settings.SphereProxyAOMaxRadius, 0.5f, 0.0f, 1000.0f, "%.1f");
                         ImGui::DragFloat("Influence Scale##SPA", &settings.SphereProxyAOInfluenceScale, 0.1f, 1.0f, 64.0f, "%.1f");
+                        ImGui::DragFloat("Max Occlusion##SPA", &settings.SphereProxyAOMaxOcclusion, 0.01f, 0.0f, 1.0f, "%.2f");
                         ImGui::Checkbox("Show Proxy Term Only##SPA", &settings.SphereProxyAODebugView);
                     }
 

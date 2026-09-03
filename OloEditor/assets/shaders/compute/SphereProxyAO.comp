@@ -30,6 +30,8 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 #define OLO_SPA_PI          3.14159265358979
 // Mirrors SphereProxyAO::kSelfOcclusionFadeWidth.
 #define OLO_SPA_SELF_FADE   0.15
+// Mirrors SphereProxyAO::InfluenceWindow's kRampStart.
+#define OLO_SPA_WINDOW_START 0.6
 
 // Mirrors ShaderBindingLayout::UBOStructures::SphereProxyAOUBO. Binding 64 is a
 // uniform-buffer slot; the same number is TEX_DDGI_VISIBILITY in the sampler
@@ -61,6 +63,10 @@ layout(std140, binding = 64) uniform SphereProxyAOParams
     // camera-relative shift has to happen in the one place that still knows the
     // render origin.
     vec4 u_Proxies[OLO_SPA_MAX_PROXIES];
+
+    // x = the accumulated-occlusion ceiling, yzw reserved. After the array, for
+    // the reason the C++ mirror gives.
+    vec4 u_CombineParams;
 };
 
 #include "../include/BindlessHeap.glsl"
@@ -193,15 +199,38 @@ float SelfOcclusionFade(float centreDistance, float radius)
     return t * t * (3.0 - 2.0 * t);
 }
 
-// The proxy's contribution at a receiver: the integral, faded. Mirrors
+// Window a proxy's contribution to zero at its influence radius.
+//
+// TEXTUAL MIRROR of SphereProxyAO::InfluenceWindow. The tile binning is a HARD
+// test at this same radius, so without the window a proxy just past the
+// threshold is in one tile's list and absent from its neighbour's — visible as
+// 16x16 tile seams as soon as the cutoff is tight. Windowing makes whatever the
+// binning drops already worth nothing, which is what lets the cutoff be tight
+// enough to stop dozens of ~1% contributors compounding.
+float InfluenceWindow(float centreDistance, float radius, float influenceScale)
+{
+    float influence = radius * max(influenceScale, 1.0);
+    if (!(influence > 0.0))
+        return 0.0;
+    float t = clamp((centreDistance / influence - OLO_SPA_WINDOW_START) / (1.0 - OLO_SPA_WINDOW_START), 0.0, 1.0);
+    return 1.0 - t * t * (3.0 - 2.0 * t);
+}
+
+// The proxy's contribution at a receiver: the integral, windowed. Mirrors
 // SphereProxyAO::ProxyOcclusion.
-float ProxyOcclusion(vec3 position, vec3 normal, vec4 sphere)
+float ProxyOcclusion(vec3 position, vec3 normal, vec4 sphere, float influenceScale)
 {
     vec3 toCentre = sphere.xyz - position;
-    float fade = SelfOcclusionFade(sqrt(dot(toCentre, toCentre)), sphere.w);
+    float dist = sqrt(dot(toCentre, toCentre));
+
+    float fade = SelfOcclusionFade(dist, sphere.w);
     if (!(fade > 0.0))
         return 0.0;
-    return SphereOcclusion(position, normal, sphere) * fade;
+    float window = InfluenceWindow(dist, sphere.w, influenceScale);
+    if (!(window > 0.0))
+        return 0.0;
+
+    return SphereOcclusion(position, normal, sphere) * fade * window;
 }
 
 // Squared distance from a point to an axis-aligned box.
@@ -341,9 +370,15 @@ void main()
         {
             if ((s_TileProxyMask[i >> 5u] & (1u << (i & 31u))) == 0u)
                 continue;
-            visibility *= 1.0 - ProxyOcclusion(viewPos, normal, u_Proxies[i]);
+            visibility *= 1.0 - ProxyOcclusion(viewPos, normal, u_Proxies[i], u_InfluenceRadiusScale);
         }
-        visibility = clamp(visibility, 0.0, 1.0);
+        // Bound the double counting. The product treats every proxy as an
+        // independent occluder, which is right when they do not overlap and
+        // increasingly wrong when they do; in dense geometry it compounds to
+        // near zero. Clamping the accumulated OCCLUSION (not each proxy's) keeps
+        // a lone occluder's answer exactly as the integral computed it.
+        float maxOcclusion = clamp(u_CombineParams.x, 0.0, 1.0);
+        visibility = clamp(visibility, 1.0 - maxOcclusion, 1.0);
     }
 
     float proxyTerm = mix(1.0, visibility, clamp(u_Strength, 0.0, 1.0));

@@ -257,10 +257,34 @@ namespace OloEngine
         // ground plane sits under every receiver in the scene and tints the whole
         // frame, and that large-scale occlusion is already the shadow map's job.
         f32 SphereProxyAOMaxRadius = 25.0f;
-        // Tile-binning cutoff in proxy radii. A proxy contributes at most
-        // 1/scale^2, so 12 admits everything above ~0.7% occlusion and drops the
-        // rest before they reach a pixel.
-        f32 SphereProxyAOInfluenceScale = 12.0f;
+        // Cutoff in proxy radii: both the tile-binning test and the radius at
+        // which a proxy's occlusion is windowed to zero.
+        //
+        // A proxy contributes at most 1/scale^2, so this is a floor on what is
+        // worth evaluating — but its real job is bounding how MANY proxies reach
+        // one pixel. The first default here was 12 (admitting everything above
+        // ~0.7%), which in Sponza put dozens of negligible contributors into
+        // every tile; combined as independent occluders they compounded and the
+        // term saturated to near-black across the whole atrium. 4 admits >= 6%
+        // and produces a term that discriminates — bright open floor, dark
+        // arcades — with no visible tile seams, because InfluenceWindow takes the
+        // contribution smoothly to zero at exactly this radius.
+        f32 SphereProxyAOInfluenceScale = 4.0f;
+        // Ceiling on the occlusion the WHOLE proxy set may produce at one pixel.
+        //
+        // Not a taste knob — a bound on double counting. Proxies are combined as
+        // independent occluders (the product of their visibilities), which is the
+        // right rule for occluders that do not overlap and increasingly wrong for
+        // ones that do. In dense architecture — a Sponza arcade, where a receiver
+        // has columns, arches and a ceiling all within influence — the product
+        // compounds to near zero and the frame goes black. A coarse sphere also
+        // over-covers the object it stands for, so the error is one-directional.
+        // Defaults to 1.0 — the raw product — because the compounding this was
+        // added for is fixed at its source by the influence cutoff and window
+        // above, and a ceiling that binds at the default would flatten enclosed
+        // spaces to a constant instead of shading them. It stays as a bound for
+        // a scene dense enough to need one.
+        f32 SphereProxyAOMaxOcclusion = 1.0f;
         // Write the proxy term alone into the AO buffer instead of the product,
         // so a capture shows what this pass contributes rather than what GTAO
         // already had.
@@ -667,7 +691,8 @@ namespace OloEngine
         // Three different maxima would mean a value one surface accepts is
         // silently truncated the first time another touches it.
         s.SphereProxyAOMaxRadius = std::clamp(finite(s.SphereProxyAOMaxRadius, 25.0f), 0.0f, 1000.0f);
-        s.SphereProxyAOInfluenceScale = std::clamp(finite(s.SphereProxyAOInfluenceScale, 12.0f), 1.0f, 64.0f);
+        s.SphereProxyAOInfluenceScale = std::clamp(finite(s.SphereProxyAOInfluenceScale, 4.0f), 1.0f, 64.0f);
+        s.SphereProxyAOMaxOcclusion = std::clamp(finite(s.SphereProxyAOMaxOcclusion, 1.0f), 0.0f, 1.0f);
         s.SphereProxyAOMaxProxies = std::clamp(s.SphereProxyAOMaxProxies, 0, 128);
     }
 

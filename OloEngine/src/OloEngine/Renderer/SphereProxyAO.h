@@ -179,19 +179,53 @@ namespace OloEngine
             return t * t * (3.0f - 2.0f * t); // smoothstep
         }
 
-        // @brief The proxy's contribution at a receiver: the integral, faded.
+        // @brief Window a proxy's contribution to zero at its influence radius.
+        //
+        // The tile binning includes a proxy when it is within `influenceScale`
+        // radii of the tile's bounds, and that is a HARD test — a proxy one texel
+        // past the threshold is in one tile's list and absent from its
+        // neighbour's. Without this window that discontinuity is visible as 16x16
+        // tile seams the moment the cutoff is tight enough to matter (measured at
+        // influenceScale 2.5 on Sponza: clear blocking around the far wall).
+        //
+        // Windowing the OCCLUSION to zero at the same radius makes the seam
+        // structurally impossible rather than merely small: whatever the binning
+        // drops was already contributing nothing. That in turn is what lets the
+        // cutoff be tightened, which is what stops dozens of ~1% contributors
+        // compounding through the visibility product.
+        //
+        // The ramp starts at 60% of the influence radius: far enough out that the
+        // near-field term — the part this feature exists for — is untouched.
+        [[nodiscard]] inline f32 InfluenceWindow(f32 centreDistance, f32 radius, f32 influenceScale)
+        {
+            const f32 influence = radius * std::max(influenceScale, 1.0f);
+            if (!(influence > 0.0f))
+                return 0.0f;
+            constexpr f32 kRampStart = 0.6f;
+            const f32 t = (centreDistance / influence - kRampStart) / (1.0f - kRampStart);
+            const f32 clamped = std::clamp(t, 0.0f, 1.0f);
+            return 1.0f - clamped * clamped * (3.0f - 2.0f * clamped); // 1 - smoothstep
+        }
+
+        // @brief The proxy's contribution at a receiver: the integral, windowed.
         //
         // What the shader accumulates, and what the pass means by "occlusion
         // from this proxy". Kept separate from SphereOcclusion so the integral
-        // stays pinnable against exact geometry.
+        // stays pinnable against exact configurations.
         [[nodiscard]] inline f32 ProxyOcclusion(const glm::vec3& position, const glm::vec3& normal,
-                                                const glm::vec4& sphere)
+                                                const glm::vec4& sphere, f32 influenceScale)
         {
             const glm::vec3 toCentre = glm::vec3(sphere) - position;
-            const f32 fade = SelfOcclusionFade(std::sqrt(glm::dot(toCentre, toCentre)), sphere.w);
+            const f32 distance = std::sqrt(glm::dot(toCentre, toCentre));
+
+            const f32 fade = SelfOcclusionFade(distance, sphere.w);
             if (!(fade > 0.0f))
                 return 0.0f;
-            return SphereOcclusion(position, normal, sphere) * fade;
+            const f32 window = InfluenceWindow(distance, sphere.w, influenceScale);
+            if (!(window > 0.0f))
+                return 0.0f;
+
+            return SphereOcclusion(position, normal, sphere) * fade * window;
         }
 
         // @brief Fit up to `kMaxSpheresPerBounds` proxy spheres inside a world AABB.

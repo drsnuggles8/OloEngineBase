@@ -215,6 +215,7 @@ namespace OloEngine
         m_GPUData.DepthLinearizeA = m_Projection[2][2];
         m_GPUData.DepthLinearizeB = m_Projection[3][2];
         m_GPUData.InfluenceRadiusScale = m_Settings.SphereProxyAOInfluenceScale;
+        m_GPUData.CombineParams.x = std::clamp(m_Settings.SphereProxyAOMaxOcclusion, 0.0f, 1.0f);
 
         // Identity when the bound normals are already view space; applying the
         // view rotation a second time would take every normal out of the

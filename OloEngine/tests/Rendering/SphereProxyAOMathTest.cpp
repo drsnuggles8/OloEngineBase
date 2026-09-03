@@ -44,6 +44,10 @@ namespace
     // receiver at the origin with an up normal.
     const glm::vec3 kOrigin{ 0.0f, 0.0f, 0.0f };
     const glm::vec3 kUp{ 0.0f, 1.0f, 0.0f };
+
+    // Wide enough that InfluenceWindow is 1 everywhere these near-field cases
+    // reach, so they measure the integral and the self-occlusion fade only.
+    constexpr f32 kWideInfluence = 64.0f;
 } // namespace
 
 // -----------------------------------------------------------------------------
@@ -248,18 +252,19 @@ TEST(SphereProxyAOMathTest, ProxyDoesNotOccludeItsOwnObjectSurface)
     for (const f32 lateral : { 0.0f, 1.0f, 2.0f })
     {
         const glm::vec3 facePoint{ lateral, 0.0f, 3.0f };
-        EXPECT_FLOAT_EQ(SphereProxyAO::ProxyOcclusion(facePoint, faceNormal, proxy), 0.0f)
+        EXPECT_FLOAT_EQ(SphereProxyAO::ProxyOcclusion(facePoint, faceNormal, proxy, kWideInfluence), 0.0f)
             << "lateral = " << lateral;
     }
     // ~0.012 at the extreme corner, where the surface genuinely IS outside this
     // oversized sphere and the raw integral genuinely is small but non-zero. The
     // bar is "far below anything visible as a disc", not zero; the disc that
     // motivated the fade read ~0.25.
-    EXPECT_LT(SphereProxyAO::ProxyOcclusion(glm::vec3(2.9f, 0.0f, 3.0f), faceNormal, proxy), 0.02f);
+    EXPECT_LT(SphereProxyAO::ProxyOcclusion(glm::vec3(2.9f, 0.0f, 3.0f), faceNormal, proxy, kWideInfluence), 0.02f);
 
-    // Far enough out, the fade is inert and the term is the raw integral again.
+    // Far enough out, both the fade and the window are inert and the term is
+    // the raw integral again.
     const glm::vec3 farReceiver{ 0.0f, 8.0f, 0.0f };
-    EXPECT_FLOAT_EQ(SphereProxyAO::ProxyOcclusion(farReceiver, kUp, proxy),
+    EXPECT_FLOAT_EQ(SphereProxyAO::ProxyOcclusion(farReceiver, kUp, proxy, kWideInfluence),
                     SphereProxyAO::SphereOcclusion(farReceiver, kUp, proxy));
 }
 
@@ -268,13 +273,59 @@ TEST(SphereProxyAOMathTest, ProxyOcclusionIsContinuousAcrossTheProxySurface)
     // The ramp's whole job: crossing the proxy's surface must not step.
     constexpr f32 radius = 3.0f;
     const glm::vec4 proxy{ 0.0f, 0.0f, 0.0f, radius };
-    f32 previous = SphereProxyAO::ProxyOcclusion(glm::vec3(0.0f, radius * 0.9f, 0.0f), kUp, proxy);
+    f32 previous = SphereProxyAO::ProxyOcclusion(glm::vec3(0.0f, radius * 0.9f, 0.0f), kUp, proxy, kWideInfluence);
     for (i32 step = 0; step <= 60; ++step)
     {
         const f32 distance = radius * (0.9f + 0.02f * static_cast<f32>(step));
-        const f32 value = SphereProxyAO::ProxyOcclusion(glm::vec3(0.0f, distance, 0.0f), kUp, proxy);
+        const f32 value = SphereProxyAO::ProxyOcclusion(glm::vec3(0.0f, distance, 0.0f), kUp, proxy, kWideInfluence);
         EXPECT_LT(std::abs(value - previous), 0.06f) << "distance = " << distance;
         previous = value;
+    }
+}
+
+TEST(SphereProxyAOMathTest, InfluenceWindowReachesZeroAtTheBinningCutoff)
+{
+    // The property that makes the tile seam impossible: at the influence radius
+    // — exactly where the binning stops including the proxy — the contribution
+    // is already zero, so dropping it changes nothing.
+    constexpr f32 radius = 3.0f;
+    constexpr f32 scale = 4.0f;
+    const f32 influence = radius * scale;
+
+    EXPECT_FLOAT_EQ(SphereProxyAO::InfluenceWindow(influence, radius, scale), 0.0f);
+    EXPECT_FLOAT_EQ(SphereProxyAO::InfluenceWindow(influence * 1.5f, radius, scale), 0.0f);
+
+    // Untouched across the near field this feature exists for.
+    EXPECT_FLOAT_EQ(SphereProxyAO::InfluenceWindow(0.0f, radius, scale), 1.0f);
+    EXPECT_FLOAT_EQ(SphereProxyAO::InfluenceWindow(influence * 0.5f, radius, scale), 1.0f);
+
+    // Monotone and bounded in between, so it cannot introduce a band of its own.
+    f32 previous = 2.0f;
+    for (i32 step = 0; step <= 40; ++step)
+    {
+        const f32 distance = influence * (0.5f + 0.0125f * static_cast<f32>(step));
+        const f32 value = SphereProxyAO::InfluenceWindow(distance, radius, scale);
+        EXPECT_GE(value, 0.0f);
+        EXPECT_LE(value, 1.0f);
+        EXPECT_LE(value, previous + 1e-6f) << "distance = " << distance;
+        previous = value;
+    }
+
+    EXPECT_FLOAT_EQ(SphereProxyAO::InfluenceWindow(1.0f, 0.0f, scale), 0.0f);
+}
+
+TEST(SphereProxyAOMathTest, ProxyContributionVanishesAtTheCutoffForEveryScale)
+{
+    // Asserted through ProxyOcclusion, not just the window, because it is the
+    // ACCUMULATED term the binning drops — and it must vanish for whatever
+    // influence scale the settings carry, not only the default.
+    const glm::vec4 proxy{ 0.0f, 0.0f, 0.0f, 2.0f };
+    for (const f32 scale : { 1.5f, 4.0f, 12.0f, 64.0f })
+    {
+        const f32 cutoff = proxy.w * scale;
+        const glm::vec3 receiver{ 0.0f, cutoff, 0.0f };
+        EXPECT_FLOAT_EQ(SphereProxyAO::ProxyOcclusion(receiver, kUp, proxy, scale), 0.0f)
+            << "scale = " << scale;
     }
 }
 
@@ -453,6 +504,8 @@ TEST(SphereProxyAOMathTest, ShaderAgreesWithTheCPUOnTheProxyArrayLengthAndBindin
     EXPECT_NE(source.find("#define OLO_SPA_MAX_PROXIES " + std::to_string(SphereProxyAO::kMaxProxies)),
               std::string::npos)
         << "SphereProxyAO.comp's OLO_SPA_MAX_PROXIES must equal SphereProxyAO::kMaxProxies";
+    EXPECT_NE(source.find("#define OLO_SPA_WINDOW_START 0.6"), std::string::npos)
+        << "SphereProxyAO.comp's OLO_SPA_WINDOW_START must equal InfluenceWindow's kRampStart";
     EXPECT_NE(source.find("#define OLO_SPA_SELF_FADE   0.15"), std::string::npos)
         << "SphereProxyAO.comp's OLO_SPA_SELF_FADE must equal SphereProxyAO::kSelfOcclusionFadeWidth "
         << "(currently " << SphereProxyAO::kSelfOcclusionFadeWidth << ")";
@@ -492,6 +545,7 @@ TEST(SphereProxyAOMathTest, UBOMirrorsTheShaderBlockLayout)
     EXPECT_EQ(offsetof(UBO, Strength), 32u);
     EXPECT_EQ(offsetof(UBO, ViewMatrix), 48u);
     EXPECT_EQ(offsetof(UBO, Proxies), 112u);
-    EXPECT_EQ(UBO::GetSize(), 112u + 16u * SphereProxyAO::kMaxProxies);
+    EXPECT_EQ(offsetof(UBO, CombineParams), 112u + 16u * SphereProxyAO::kMaxProxies);
+    EXPECT_EQ(UBO::GetSize(), 128u + 16u * SphereProxyAO::kMaxProxies);
     EXPECT_EQ(std::tuple_size_v<decltype(UBO::Proxies)>, SphereProxyAO::kMaxProxies);
 }

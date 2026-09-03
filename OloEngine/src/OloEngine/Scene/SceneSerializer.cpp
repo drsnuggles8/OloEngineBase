@@ -6395,6 +6395,7 @@ namespace OloEngine
             out << YAML::Key << "SphereProxyAOMaxProxies" << YAML::Value << pp.SphereProxyAOMaxProxies;
             out << YAML::Key << "SphereProxyAOMaxRadius" << YAML::Value << pp.SphereProxyAOMaxRadius;
             out << YAML::Key << "SphereProxyAOInfluenceScale" << YAML::Value << pp.SphereProxyAOInfluenceScale;
+            out << YAML::Key << "SphereProxyAOMaxOcclusion" << YAML::Value << pp.SphereProxyAOMaxOcclusion;
             out << YAML::Key << "SphereProxyAODebugView" << YAML::Value << pp.SphereProxyAODebugView;
             out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
             out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
@@ -6611,6 +6612,7 @@ namespace OloEngine
             TrySet(pp.SphereProxyAOMaxProxies, ppNode["SphereProxyAOMaxProxies"]);
             TrySet(pp.SphereProxyAOMaxRadius, ppNode["SphereProxyAOMaxRadius"]);
             TrySet(pp.SphereProxyAOInfluenceScale, ppNode["SphereProxyAOInfluenceScale"]);
+            TrySet(pp.SphereProxyAOMaxOcclusion, ppNode["SphereProxyAOMaxOcclusion"]);
             TrySet(pp.SphereProxyAODebugView, ppNode["SphereProxyAODebugView"]);
             TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
             TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
@@ -7002,6 +7004,7 @@ namespace OloEngine
             out << YAML::Key << "SphereProxyAOMaxProxies" << YAML::Value << pp.SphereProxyAOMaxProxies;
             out << YAML::Key << "SphereProxyAOMaxRadius" << YAML::Value << pp.SphereProxyAOMaxRadius;
             out << YAML::Key << "SphereProxyAOInfluenceScale" << YAML::Value << pp.SphereProxyAOInfluenceScale;
+            out << YAML::Key << "SphereProxyAOMaxOcclusion" << YAML::Value << pp.SphereProxyAOMaxOcclusion;
             out << YAML::Key << "SphereProxyAODebugView" << YAML::Value << pp.SphereProxyAODebugView;
             out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
             out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
