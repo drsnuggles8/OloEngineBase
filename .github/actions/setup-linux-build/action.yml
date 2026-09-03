@@ -360,17 +360,37 @@ runs:
           # uses them; every other tool in the tarball resolves cleanly.
 
           # VERIFY, never install (the convention at the top of this file). What
-          # is checked is the SANITIZER RUNTIMES of whichever compiler was chosen
-          # above, not its version: a clang without compiler-rt configures fine
-          # and fails every sanitizer LINK on "cannot find libclang_rt.asan.a".
-          # The runtime dir is asked of the compiler itself, so the check follows
-          # the tarball's layout and the distro's alike.
-          #
-          # A missing runtime warns rather than fails, for the same reason the
-          # pin does: asan.yml routes every same-repo PR's sanitizer jobs here.
-          rt_dir=$("$cxx" -print-runtime-dir 2>/dev/null || true)
-          if [ -z "$rt_dir" ]              || ! ls "$rt_dir"/libclang_rt.asan*.a >/dev/null 2>&1              || ! ls "$rt_dir"/libclang_rt.tsan*.a >/dev/null 2>&1              || ! ls "$rt_dir"/libclang_rt.ubsan*.a >/dev/null 2>&1; then
-            echo "::warning title=sanitizer runtimes missing::$cxx ($("$cxx" --version | head -1)) has no complete compiler-rt at '${rt_dir:-<unknown>}'. Every sanitizer link will fail. Fix with: sudo bash scripts/setup-olo-ci-host.sh (it installs compiler-rt + lld for the system clang and re-checks the pinned one) -- see docs/ops/self-hosted-linux-toolchain.md"
+          # is checked is the SANITIZER RUNTIMES of whichever compiler the ladder
+          # above chose, not its version: a clang without compiler-rt configures
+          # fine and fails every sanitizer LINK on "cannot find
+          # libclang_rt.asan.a". The runtime dir is asked of the compiler itself,
+          # so the check follows the tarball's layout and the distro's alike.
+          olo_runtimes_complete() {
+            local rt
+            rt=$("$1" -print-runtime-dir 2>/dev/null || true)
+            [ -n "$rt" ] || return 1
+            ls "$rt"/libclang_rt.asan*.a  >/dev/null 2>&1 || return 1
+            ls "$rt"/libclang_rt.tsan*.a  >/dev/null 2>&1 || return 1
+            ls "$rt"/libclang_rt.ubsan*.a >/dev/null 2>&1 || return 1
+          }
+          if ! olo_runtimes_complete "$cxx"; then
+            # THE PIN IS WORTH NOTHING IF EVERY SANITIZER LINK FAILS, so an
+            # incomplete compiler-rt drops one more rung down the same ladder --
+            # but only onto a compiler that actually has the runtimes, since
+            # falling back to a second broken one would trade version parity for
+            # nothing. Version parity is the thing this job is FOR; a build that
+            # links is the thing it needs first.
+            if [ "$cxx" != "clang++" ] && olo_runtimes_complete clang++; then
+              echo "::warning title=pinned clang has no complete compiler-rt::$cxx has no complete asan/tsan/ubsan runtime set at '$("$cxx" -print-runtime-dir 2>/dev/null || echo '<unknown>')', so every sanitizer link through it would fail. Falling back to $(command -v clang++) ($(clang++ --version | head -1)), which does have them -- a DIFFERENT major from the hosted arm. Re-provision with: sudo bash scripts/setup-olo-ci-host.sh -- see docs/ops/self-hosted-linux-toolchain.md"
+              cc=clang
+              cxx=clang++
+            else
+              # Nothing left to fall back to. Warn and carry on rather than fail,
+              # for the same reason the pin does: asan.yml routes every same-repo
+              # PR's sanitizer jobs here, and the linker's own error names the
+              # missing archive a few minutes later.
+              echo "::warning title=sanitizer runtimes missing::$cxx ($("$cxx" --version | head -1)) has no complete compiler-rt at '$("$cxx" -print-runtime-dir 2>/dev/null || echo '<unknown>')'. Every sanitizer link will fail. Fix with: sudo bash scripts/setup-olo-ci-host.sh (it installs compiler-rt + lld for the system clang and re-checks the pinned one) -- see docs/ops/self-hosted-linux-toolchain.md"
+            fi
           fi
           python_exe="$(command -v python3)"
           # OLO_ENABLE_COMPILER_CACHE is added HERE rather than at each call site

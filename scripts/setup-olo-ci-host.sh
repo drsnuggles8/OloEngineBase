@@ -164,6 +164,13 @@ llvm_tarball=$llvm_dirname.tar.xz
 llvm_url=https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvm_version/$llvm_tarball
 llvm_sha256=18da30f77f475688a18f7704d23f9f155ae007ed9922dbed6850a9419d9fec8c
 
+# A run that died between the rename-aside and the cleanup below left the old
+# tree here: 12 GB that no later run counts, removes, or even classifies right
+# -- the orphan scan further down would call it "an older LLVM prefix", which it
+# is not. Clear it FIRST, before the disk estimate and before either branch, so
+# neither the already-provisioned path nor the install path can inherit it.
+rm -rf "$llvm_prefix.replaced"
+
 if [ -x "$llvm_prefix/bin/clang++" ] && [ "$("$llvm_prefix/bin/clang++" -dumpversion 2>/dev/null || true)" = "$llvm_version" ]; then
   echo "clang-23 already provisioned: $llvm_prefix ($("$llvm_prefix/bin/clang++" --version | head -1))"
 else
@@ -200,7 +207,6 @@ else
   test -x "$work/$llvm_dirname/bin/clang++" || { echo "$llvm_tarball did not contain $llvm_dirname/bin/clang++" >&2; exit 1; }
   chmod -R a+rX "$work/$llvm_dirname"
   if [ -e "$llvm_prefix" ]; then
-    rm -rf "$llvm_prefix.replaced"
     mv "$llvm_prefix" "$llvm_prefix.replaced"
   fi
   mv "$work/$llvm_dirname" "$llvm_prefix"

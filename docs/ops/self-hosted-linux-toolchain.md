@@ -29,16 +29,28 @@ before bisecting anything it reports.
    path to be executable **and** to report major 23 before it uses it, and
    `setup-olo-ci-host.sh` re-verifies on every run -- compiler-rt complete, and a C++23 program
    with `std::stacktrace` actually linking and running under each of asan/ubsan/tsan.
-4. **A missing or wrong pin warns and carries on.** It falls back to the system clang with a
-   `::warning` naming `scripts/setup-olo-ci-host.sh`. It must not fail: `asan.yml` routes every
-   same-repo PR's sanitizer jobs here, and a hard failure would block all of them on one
-   maintainer running one script. Read that warning as *"this job is no longer comparable with
-   its hosted twin"*, not as *"this job is broken"*.
-5. **What the action verifies is the sanitizer runtimes, not just the version.** A clang without
-   `compiler-rt` configures fine and fails every sanitizer LINK on `cannot find
-   libclang_rt.asan.a`. The runtime directory is asked of the chosen compiler itself
-   (`clang++ -print-runtime-dir`), so the check follows the tarball's layout and the distro's
-   alike.
+4. **It is a ladder, and every rung warns and carries on.** Four things are checked in order,
+   and any one of them failing falls back to the system clang with a `::warning` naming
+   `scripts/setup-olo-ci-host.sh`:
+
+   | Rung | Fails when |
+   |---|---|
+   | the prefix is executable | nothing provisioned it |
+   | it reports major 23 | a bump landed in the action before it landed on the box |
+   | its `ld.lld --version` runs | unpacked without the ICU symlink swap (next section) |
+   | its compiler-rt is complete | `asan`/`tsan`/`ubsan` archives are not all beside it |
+
+   The last one falls back **only if the system clang's runtimes are complete** — trading
+   version parity for a second compiler that also cannot link would buy nothing. Version parity
+   is what this job is *for*; a build that links is what it needs first.
+
+   It must not FAIL: `asan.yml` routes every same-repo PR's sanitizer jobs here, and a hard
+   failure would block all of them on one maintainer running one script. Read the warning as
+   *"this job is no longer comparable with its hosted twin"*, not as *"this job is broken"*.
+5. **The runtime check asks the compiler, not the distro.** A clang without `compiler-rt`
+   configures fine and fails every sanitizer LINK on `cannot find libclang_rt.asan.a`. The
+   directory comes from `clang++ -print-runtime-dir`, so the check follows the tarball's layout
+   and the distro's alike.
 6. **Every configure log still starts with one line**, `toolchain: <compiler> (<version>) /
    <python>`. Read it before anything else when a self-hosted job fails and its hosted twin does
    not -- it names an absolute path under `/opt` when the pin is in effect, and a bare `clang++`
@@ -113,15 +125,14 @@ the compiler is no longer on the list of explanations.
   hunts the base GCC lib dirs. That fallback still earns its place -- the system clang remains
   the warn-down path.
 - `std::forward_like` (the reason the hosted arm needs a non-default libstdc++) compiles against
-  libstdc++ 14 and 15 alike, so it was never the box's problem.
+  libstdc++ 14 and 15 alike, so it was never the box's problem. `libc++` is not installed
+  system-wide and nothing here uses it.
 - The tarball is ~2 GB compressed and ~12 GB unpacked; `/` on this box is 70 GB with ~59 GB free
   before the install.
-- LLVM publishes no `SHA256SUMS`, but it does publish a sigstore bundle
+- LLVM publishes no `SHA256SUMS`. It does publish a sigstore bundle
   (`LLVM-23.1.0-Linux-X64.tar.xz.jsonl`) whose SLSA in-toto statement carries the artifact
-  digest. That attested value is the checksum pinned in `setup-olo-ci-host.sh`, and it matches a
-  `sha256sum` of the file as downloaded on the box.
-- `libc++` is not installed system-wide; `-stdlib=libc++` against the system clang fails at
-  `<cstdint>`. The tarball ships its own, unused here.
+  digest; that attested value is what `setup-olo-ci-host.sh` pins, and it matches a `sha256sum`
+  of the download.
 - **The first self-hosted run after a compiler change is cold.** ccache keys on the compiler, so
   changing it invalidates the whole persistent cache; expect one slow round. The vcpkg binary
   cache is *not* affected -- the Linux jobs use the stock `x64-linux` triplet, whose ports are
