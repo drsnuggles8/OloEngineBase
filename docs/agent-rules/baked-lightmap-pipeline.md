@@ -188,12 +188,18 @@ its acceptance criteria live there. Read the issue before re-deriving the design
   `if` guard around the pull. See ADR 0011 amendment (89) for the full incident and the invariant
   that would break the binding-reuse (a future draw needing bones AND a lightmap UV2 stream at
   once).
-- **VirtualGeometry / InstancedMeshComponent / ModelComponent receivers (#867)**: only the classic
-  `MeshComponent` path samples the lightmap in v1. Each breaks the `UUID → one region` model
-  differently. Note the trap recorded there: wiring only the VirtualGeometry *fallback* path
-  (`virtualGeometryEnabled == false`, which re-routes through `SubmitMeshSourceClassic`) would
-  make baked GI appear and disappear with the VG master switch, destroying that toggle's value as
-  an A/B. Both sides sample it or neither does.
+- **InstancedMeshComponent / ModelComponent receivers (#867) — DONE.** The region identity
+  generalised from `UUID → one region` to `(UUID, sub-key) → one region`, and one shared gather
+  (`Scene/SceneLightmapGather.h`) now feeds the bake, the reference world, the self-healing
+  re-unwrap and the bake key. Rules and the per-receiver sub-key table:
+  [lightmap-receiver-identity.md](lightmap-receiver-identity.md).
+- **VirtualGeometry receiver (#867) — cook side done, sampling blocked on a GPU binding.** UV2
+  survives cluster building and the LOD simplifier; what is missing is a second per-vertex buffer,
+  and the SSBO namespace is full (see [ssbo-binding-cap-is-80-on-mesa.md](ssbo-binding-cap-is-80-on-mesa.md)).
+  Nothing samples on EITHER side of the master switch, and that is the point: wiring only the
+  *fallback* path (`virtualGeometryEnabled == false`, which re-routes through
+  `SubmitMeshSourceClassic`) would make baked GI appear and disappear with the VG master switch,
+  destroying that toggle's value as an A/B. Both sides sample it or neither does.
 - **Multi-page atlas (#868) — DONE.** The bake packs across pages before it degrades anything, the
   runtime uploads a `Texture2DArray` layer per page, and the `Page != 0` rejection is gone. See §8
   for the encoding, the budget policy and what replaced that guard.
