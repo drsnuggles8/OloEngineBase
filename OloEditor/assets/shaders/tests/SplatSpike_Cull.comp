@@ -1,0 +1,162 @@
+// =============================================================================
+// SplatSpike_Cull.comp
+//
+// The GPU half of the Gaussian-splat per-view ordering pass (issue #1038).
+// One thread per padded slot: alpha reject, near-plane reject, conservative
+// frustum cull, projected-extent LOD, then write the survivor's sort key and
+// payload in place and bump the indirect draw's instance count.
+//
+// This is a textual mirror of GaussianSplatView.cpp::BuildViewOrdering's
+// per-splat body, and GaussianSplatGpuOrderingParityTest asserts the two agree
+// exactly, stat for stat and index for index. Change one, change the other --
+// cpu-gpu-surface-parity.md.
+//
+// MARK IN PLACE, DO NOT COMPACT. A culled splat writes the maximum key rather
+// than being removed, so the sort array stays a fixed power of two and its
+// length never depends on a count the CPU would have to read back. The
+// alternative -- an atomic append -- makes the array smaller when culling is
+// aggressive and costs a readback (or an indirect dispatch) to know how much to
+// sort. For a cloud whose splats are mostly on screen, which is the case this
+// exists to make fast, the two do the same amount of work.
+//
+// The key is the COMPLEMENT of the view depth's bit pattern, so an ascending
+// sort yields far-to-near. Ties break on the payload, which is the unique cloud
+// index, so the ordering is a TOTAL order: exactly one output permutation
+// satisfies it and the result is bit-identical to the CPU's stable sort without
+// the GPU sort itself having to be stable.
+// =============================================================================
+
+#version 460 core
+
+layout(local_size_x = 256) in;
+
+struct SplatRecord
+{
+    float PosX;
+    float PosY;
+    float PosZ;
+    uint ColorOpacity;
+    uint CovXXXY;
+    uint CovXZYY;
+    uint CovYZZZ;
+    uint Pad0;
+};
+
+layout(std430, binding = 0) readonly buffer SplatBuffer
+{
+    SplatRecord b_Splats[];
+};
+
+// Payload permuted alongside b_Keys: the index into b_Splats. This is the same
+// buffer the draw reads as its order buffer.
+layout(std430, binding = 1) buffer SplatOrderBuffer
+{
+    uint b_Order[];
+};
+
+layout(std430, binding = 2) buffer SplatKeyBuffer
+{
+    uint b_Keys[];
+};
+
+// Mirrors GaussianSplat::ViewStats past its Total field, so the parity test can
+// compare the whole struct instead of just the survivor count.
+//   [0] Drawn  [1] BehindNearPlane  [2] FrustumCulled  [3] TooSmall  [4] TooFaint
+layout(std430, binding = 3) buffer SplatStatsBuffer
+{
+    uint b_Stats[];
+};
+
+// glDrawArraysIndirect: { count, instanceCount, first, baseInstance }.
+layout(std430, binding = 4) buffer SplatIndirectBuffer
+{
+    uint b_Indirect[];
+};
+
+layout(std140, binding = 7) uniform SplatCullUniforms
+{
+    mat4 u_View;
+    mat4 u_Projection;
+    vec4 u_ViewportFocal; // xy = viewport pixels, zw = focal length in pixels
+    vec4 u_Planes[6];     // world-space frustum planes, xyz = normal, w = distance
+    vec4 u_CullParams;    // y = near clip, z = min screen extent px, w = min alpha
+    uvec4 u_Counts;       // x = splat count, y = padded power-of-two capacity
+};
+
+const uint kInvalid = 0xFFFFFFFFu;
+
+void Reject(uint slot, uint statSlot)
+{
+    b_Keys[slot] = kInvalid;
+    b_Order[slot] = kInvalid;
+    atomicAdd(b_Stats[statSlot], 1u);
+}
+
+void main()
+{
+    uint slot = gl_GlobalInvocationID.x;
+    if (slot >= u_Counts.y)
+        return;
+
+    // Pad slots past the cloud. They must be the MAXIMUM key so they sort
+    // behind every real entry; a zero pad would sort in front of the whole
+    // cloud and the draw would render nothing.
+    if (slot >= u_Counts.x)
+    {
+        b_Keys[slot] = kInvalid;
+        b_Order[slot] = kInvalid;
+        return;
+    }
+
+    SplatRecord splat = b_Splats[slot];
+
+    float alpha = float((splat.ColorOpacity >> 24) & 0xFFu) / 255.0;
+    if (alpha < u_CullParams.w)
+    {
+        Reject(slot, 4u);
+        return;
+    }
+
+    vec3 worldPos = vec3(splat.PosX, splat.PosY, splat.PosZ);
+
+    // Third row of the view matrix, negated: the expression the CPU pass hoists
+    // out of its loop.
+    vec3 forward = vec3(-u_View[0][2], -u_View[1][2], -u_View[2][2]);
+    // Written out rather than dot(), and summed left to right, so the
+    // association matches GaussianSplatView.cpp term for term. The parity test
+    // compares sort keys bitwise, and a different association is a one-ULP
+    // difference that reorders two splats at the same depth.
+    float depth = ((forward.x * worldPos.x + forward.y * worldPos.y) + forward.z * worldPos.z) - u_View[3][2];
+
+    vec2 covA = unpackHalf2x16(splat.CovXXXY);
+    vec2 covB = unpackHalf2x16(splat.CovXZYY);
+    vec2 covC = unpackHalf2x16(splat.CovYZZZ);
+    float sigma = sqrt(max(covA.x + covB.y + covC.y, 0.0));
+    float radius = 3.0 * sigma;
+
+    if (depth - radius < u_CullParams.y)
+    {
+        Reject(slot, 1u);
+        return;
+    }
+
+    for (int p = 0; p < 6; ++p)
+    {
+        if (dot(u_Planes[p].xyz, worldPos) + u_Planes[p].w < -radius)
+        {
+            Reject(slot, 2u);
+            return;
+        }
+    }
+
+    if (3.0 * sigma * u_ViewportFocal.w / depth < u_CullParams.z)
+    {
+        Reject(slot, 3u);
+        return;
+    }
+
+    b_Keys[slot] = ~floatBitsToUint(depth);
+    b_Order[slot] = slot;
+    atomicAdd(b_Stats[0], 1u);
+    atomicAdd(b_Indirect[1], 1u);
+}

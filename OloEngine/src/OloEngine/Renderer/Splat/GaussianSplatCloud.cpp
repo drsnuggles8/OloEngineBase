@@ -201,6 +201,31 @@ namespace OloEngine::GaussianSplat
         m_MaxRadius = 0.0f;
     }
 
+    void SplatCloud::Adopt(std::vector<GpuSplat>&& splats)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        Clear();
+        m_Splats = std::move(splats);
+        if (m_Splats.empty())
+            return;
+
+        glm::vec3 lo(std::numeric_limits<f32>::max());
+        glm::vec3 hi(std::numeric_limits<f32>::lowest());
+        f32 maxRadius = 0.0f;
+        for (const GpuSplat& splat : m_Splats)
+        {
+            lo = glm::min(lo, splat.Position);
+            hi = glm::max(hi, splat.Position);
+
+            const std::array<f32, 6> sigma = UnpackCovariance(splat.CovXXXY, splat.CovXZYY, splat.CovYZZZ);
+            const f32 trace = sigma[0] + sigma[3] + sigma[5];
+            maxRadius = std::max(maxRadius, 3.0f * std::sqrt(std::max(trace, 0.0f)));
+        }
+        m_Bounds = BoundingBox(lo, hi);
+        m_MaxRadius = maxRadius;
+    }
+
     void SplatCloud::Build(std::span<const glm::vec3> positions,
                            std::span<const glm::vec3> shDc,
                            std::span<const f32> logitOpacity,

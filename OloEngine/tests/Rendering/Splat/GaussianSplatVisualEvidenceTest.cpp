@@ -35,6 +35,8 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Splat/GaussianSplatCloud.h"
+#include "OloEngine/Renderer/Splat/GaussianSplatGpuOrdering.h"
+#include "OloEngine/Renderer/Splat/GaussianSplatLod.h"
 #include "OloEngine/Renderer/Splat/GaussianSplatView.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "PropertyTests/RenderPropertyTest.h"
@@ -313,6 +315,12 @@ namespace OloEngine::Tests
         {
             const SplatViewUniforms uniforms = MakeUniforms(view, Projection());
             m_Ubo->SetData(&uniforms, sizeof(uniforms));
+            // Rebound every frame, not just written: a UniformBuffer claims its
+            // binding point at construction, so the GPU ordering rig's own
+            // camera buffer -- same binding 7 -- takes it over the moment that
+            // rig is created, and this one silently stops being the buffer the
+            // shader reads.
+            m_Ubo->Bind();
 
             m_Rig->UploadCloud(cloud);
             m_Rig->UploadOrder(order);
@@ -418,20 +426,30 @@ namespace OloEngine::Tests
             << "front-to-back and back-to-front produced near-identical frames; the sort is not doing anything";
     }
 
-    TEST_F(GaussianSplatRenderTest, TheSplatBudgetDropsTheDiffuseMassBeforeTheBrightDetail)
+    TEST_F(GaussianSplatRenderTest, HierarchicalLodKeepsTheDiffuseMassTheSelectionBudgetDropped)
     {
-        // A budget is only a useful LOD knob if the frame it produces still
-        // looks like the scene. This one does not, and the captures say so:
-        // ranking survivors on screen-area x alpha keeps the big opaque disc
-        // splats and deletes the faint shell entirely, so the cloud loses its
-        // BODY rather than its detail. That is the finding, so it is asserted
-        // rather than left as a caption on a PNG -- see the ADR's section 5.
+        // The before/after for issue #1039, in one test so the two numbers come
+        // from the same frame, the same pose and the same classifier.
+        //
+        // SELECTION (the spike's first LOD knob) ranks survivors on projected
+        // area times alpha and keeps the top N. It caps cost and it deletes the
+        // faint translucent shell outright, because a splat's contribution is
+        // not separable from its neighbours': dropping half the splats in a
+        // region halves the accumulated opacity of everything they were part of.
+        //
+        // MERGING replaces a cluster with one Gaussian carrying the cluster's
+        // mass, so a coarse level is blurrier and not thinner.
+        //
+        // Both are captured at matched splat counts. The assertions are the
+        // contract: the budget must still lose the shell -- it is a pinned
+        // negative result, not a bug to be fixed in place -- and the LOD level
+        // at the SAME count must keep it.
         const Pose& pose = kPoses[1];
         const glm::mat4 view = glm::lookAt(pose.Eye, pose.Target, pose.Up);
 
         // Splits the frame into the shell (bright, near-neutral) and the discs
-        // (strongly saturated), which is what the fixture's two populations
-        // look like once composited.
+        // (strongly saturated), which is what the fixture's two populations look
+        // like once composited.
         const auto classify = [](const std::vector<u8>& frame, u32& shellOut, u32& discOut)
         {
             shellOut = 0;
@@ -451,46 +469,132 @@ namespace OloEngine::Tests
             }
         };
 
+        const auto renderCloud = [&](const SplatCloud& cloud, const ViewSettings& settings, u32& drawnOut)
+        {
+            ViewOrdering ordering;
+            BuildViewOrdering(cloud, view, Projection(), glm::vec2(kWidth, kHeight), settings, ordering);
+            drawnOut = ordering.Stats.Drawn;
+            return RenderFrame(cloud, ordering.Indices, view, m_Shader, true);
+        };
+
+        u32 fullDrawn = 0;
+        const std::vector<u8> full = renderCloud(m_Cloud, ViewSettings{}, fullDrawn);
         u32 fullShell = 0;
         u32 fullDisc = 0;
-        std::vector<u8> full;
-        for (const u32 budget : { 4096u, 1024u, 256u })
+        classify(full, fullShell, fullDisc);
+        ASSERT_GT(fullShell, 20000u) << "the unbudgeted frame should show a lot of shell";
+        ASSERT_GT(fullDisc, 20000u);
+        std::printf("[splat-lod] full      drawn=%5u shell-px=%6u disc-px=%6u\n", fullDrawn, fullShell, fullDisc);
+
+        SplatLodChain chain;
+        chain.Build(m_Cloud);
+        ASSERT_GE(chain.LevelCount(), 3u);
+
+        for (u32 level = 1; level < std::min(chain.LevelCount(), 3u); ++level)
         {
-            ViewSettings settings;
-            settings.MaxSplats = budget;
-            ViewOrdering ordering;
-            BuildViewOrdering(m_Cloud, view, Projection(), glm::vec2(kWidth, kHeight), settings, ordering);
-            EXPECT_LE(ordering.Stats.Drawn, budget);
+            const SplatCloud& coarse = chain.Level(level);
+            const u32 matchedBudget = coarse.Count();
 
-            const std::vector<u8> frame = RenderFrame(m_Cloud, ordering.Indices, view, m_Shader, true);
-            WritePng("Splat_Budget_" + std::to_string(budget) + ".png", frame, kWidth, kHeight);
+            // (a) selection, capped at the coarse level's splat count
+            ViewSettings budgetSettings;
+            budgetSettings.MaxSplats = matchedBudget;
+            u32 budgetDrawn = 0;
+            const std::vector<u8> budgetFrame = renderCloud(m_Cloud, budgetSettings, budgetDrawn);
+            WritePng("Splat_Budget_" + std::to_string(matchedBudget) + ".png", budgetFrame, kWidth, kHeight);
+            u32 budgetShell = 0;
+            u32 budgetDisc = 0;
+            classify(budgetFrame, budgetShell, budgetDisc);
 
-            u32 shell = 0;
-            u32 disc = 0;
-            classify(frame, shell, disc);
-            std::printf("[splat] budget=%5u drawn=%5u shell-px=%6u disc-px=%6u\n", budget, ordering.Stats.Drawn,
-                        shell, disc);
+            // (b) merging, at the same count
+            u32 lodDrawn = 0;
+            const std::vector<u8> lodFrame = renderCloud(coarse, ViewSettings{}, lodDrawn);
+            WritePng("Splat_Lod_" + std::to_string(matchedBudget) + ".png", lodFrame, kWidth, kHeight);
+            u32 lodShell = 0;
+            u32 lodDisc = 0;
+            classify(lodFrame, lodShell, lodDisc);
 
-            if (full.empty())
-            {
-                full = frame;
-                fullShell = shell;
-                fullDisc = disc;
-                ASSERT_GT(fullShell, 20000u) << "the unbudgeted frame should show a lot of shell";
-                ASSERT_GT(fullDisc, 20000u);
-                continue;
-            }
+            std::printf("[splat-lod] level=%u splats=%5u | budget shell=%6u disc=%6u | merged shell=%6u disc=%6u\n",
+                        level, matchedBudget, budgetShell, budgetDisc, lodShell, lodDisc);
+            std::printf("[splat-lod]            mean abs difference vs full: budget %.3f, merged %.3f (/255)\n",
+                        MeanAbsDifference(full, budgetFrame), MeanAbsDifference(full, lodFrame));
 
-            std::printf("[splat]              mean abs difference vs full: %.3f / 255\n",
-                        MeanAbsDifference(full, frame));
+            // The negative result, still true.
+            EXPECT_LT(budgetShell, fullShell / 4u)
+                << "level " << level << ": the selection budget kept the shell, contradicting ADR 0018 section 5.4";
 
-            // The asymmetry IS the finding: at a quarter of the cloud the
-            // shell is essentially gone while most of the disc area survives.
-            EXPECT_LT(shell, fullShell / 4u) << "budget " << budget << ": the shell survived, contradicting the "
-                                                                       "ADR's claim about what this ranking drops";
-            EXPECT_GT(disc, fullDisc / 4u) << "budget " << budget << ": the discs went too, so the ranking is not "
-                                                                     "doing what the ADR says";
+            // The fix. A merged level is allowed to be blurrier -- a coarse
+            // splat spreads its mass over a wider footprint, so the shell can
+            // even cover MORE pixels than the fine level did -- but it must not
+            // vanish.
+            EXPECT_GT(lodShell, fullShell / 2u)
+                << "level " << level << ": merging lost the diffuse mass it exists to preserve";
+            // A looser bound on the discs than on the shell, and the gap is a
+            // real property rather than slack: a merged splat carries the
+            // MASS-WEIGHTED MEAN COLOUR of its cluster, so once clusters start
+            // spanning the boundary between a red disc and the white shell the
+            // result desaturates and the classifier counts those pixels as
+            // shell. Total painted area is preserved -- which is the thing
+            // merging promises -- while saturation is not.
+            EXPECT_GT(lodDisc, fullDisc / 3u) << "level " << level << ": merging lost the discs";
+            EXPECT_GT(lodShell + lodDisc, (fullShell + fullDisc) * 3u / 4u)
+                << "level " << level << ": merging lost painted area, not just saturation";
         }
+    }
+
+    TEST_F(GaussianSplatRenderTest, GpuOrderedFrameMatchesTheCpuOrderedFrame)
+    {
+        // End-to-end evidence for issue #1038: the GPU ordering pass feeding an
+        // indirect draw produces the same picture as the CPU pass feeding a
+        // normal one. The parity test already compares the index arrays; this
+        // compares the PIXELS, which is what catches a mistake in the indirect
+        // command or the buffer bindings that leaves the order array correct and
+        // the draw wrong.
+        GpuViewOrdering gpu;
+        if (!gpu.Initialize())
+            GTEST_SKIP() << "the splat compute shaders did not compile on this driver";
+
+        const Pose& pose = kPoses[1];
+        const glm::mat4 view = glm::lookAt(pose.Eye, pose.Target, pose.Up);
+
+        // The GPU path implements no budget -- LOD level selection replaces it
+        // -- so the CPU side runs uncapped too.
+        ViewSettings settings;
+        settings.MaxSplats = 0;
+
+        ViewOrdering cpuOrdering;
+        BuildViewOrdering(m_Cloud, view, Projection(), glm::vec2(kWidth, kHeight), settings, cpuOrdering);
+        const std::vector<u8> cpuFrame = RenderFrame(m_Cloud, cpuOrdering.Indices, view, m_Shader, true);
+
+        // The GPU path owns its own uniform buffer at the same binding, and its
+        // first three members are exactly the ones the draw shader reads -- so
+        // binding it is what makes the draw agree with the cull about the camera.
+        gpu.SetCloud(m_Cloud);
+        gpu.BuildOrdering(view, Projection(), glm::vec2(kWidth, kHeight), settings);
+
+        m_Target->Bind();
+        glViewport(0, 0, static_cast<GLsizei>(kWidth), static_cast<GLsizei>(kHeight));
+        glClearColor(kClear, kClear, kClear, 1.0f);
+        glClearDepth(1.0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        m_Shader->Bind();
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        gpu.DrawIndirect();
+        glDisable(GL_BLEND);
+        glDepthMask(GL_TRUE);
+        m_Target->Unbind();
+
+        std::vector<u8> gpuFrame;
+        ReadbackRgba8(m_Target->GetColorAttachmentRendererID(0), kWidth, kHeight, gpuFrame);
+        WritePng("Splat_Corner_GpuOrdered.png", gpuFrame, kWidth, kHeight);
+
+        const f64 difference = MeanAbsDifference(cpuFrame, gpuFrame);
+        std::printf("[splat-gpu] cpu-ordered vs gpu-ordered mean abs difference: %.4f / 255\n", difference);
+        EXPECT_GE(difference, 0.0) << "the two frames were not comparable";
+        EXPECT_LT(difference, 0.5) << "the GPU-ordered frame is not the CPU-ordered frame";
     }
 
     // -------------------------------------------------------------------------

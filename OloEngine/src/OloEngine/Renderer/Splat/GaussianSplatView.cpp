@@ -208,7 +208,12 @@ namespace OloEngine::GaussianSplat
                 continue;
             }
 
-            const f32 depth = glm::dot(forward, splat.Position) + forwardOffset;
+            // Written out rather than glm::dot, summed left to right: this
+            // expression is mirrored term for term in SplatSpike_Cull.comp and
+            // the GPU parity test compares the resulting sort keys bitwise.
+            const f32 depth =
+                ((forward.x * splat.Position.x + forward.y * splat.Position.y) + forward.z * splat.Position.z) +
+                forwardOffset;
             const f32 sigma = ConservativeSigma(splat);
             const f32 radius = 3.0f * sigma;
 

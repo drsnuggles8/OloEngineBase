@@ -261,7 +261,7 @@ warning and renders as nothing, because a mesh with no faces has no draw.
 
 Found during the #971 splat viability spike, whose importer therefore stays out of the asset
 registry entirely — see
-[ADR 0018](../adr/0018-gaussian-splats-are-an-offline-import-not-a-runtime-asset-type.md). The
+[ADR 0018](../adr/0018-gaussian-splats-gpu-ordering-and-merge-lod.md). The
 general shape applies to any format with a shared container extension: `.ply`, `.json`, `.bin`,
 `.dat`. If both meanings must coexist, the discriminator has to be file CONTENT (for splat PLYs, an
 `f_dc_0` property in the vertex element), not the extension.

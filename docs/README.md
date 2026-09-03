@@ -86,7 +86,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [adr/0012-adopt-the-ue-container-library-for-engine-owned-data.md](adr/0012-adopt-the-ue-container-library-for-engine-owned-data.md) — adopt the UE container library for engine-owned data; close the half-adopted state by growing usage.
 - [adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md](adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md) — destructible objects swap in pre-authored debris assets; no runtime mesh fracture.
 - [adr/0017-windows-ci-critical-path-measure-before-a-self-hosted-runner.md](adr/0017-windows-ci-critical-path-measure-before-a-self-hosted-runner.md) — the Windows CI critical path is measured on a writable cache before any self-hosted Windows runner is built, and never on the interactive workstation.
-- [adr/0018-gaussian-splats-are-an-offline-import-not-a-runtime-asset-type.md](adr/0018-gaussian-splats-are-an-offline-import-not-a-runtime-asset-type.md) — Gaussian splats stay an offline import behind a prototype renderer; they do not become a runtime asset type until the per-view sort moves off the CPU.
+- [adr/0018-gaussian-splats-gpu-ordering-and-merge-lod.md](adr/0018-gaussian-splats-gpu-ordering-and-merge-lod.md) — Gaussian splats order per view on the GPU and coarsen by merging; a CPU sort and a selection budget are both dead ends.
 
 ## bug-investigations/ — postmortems & deep-dives
 

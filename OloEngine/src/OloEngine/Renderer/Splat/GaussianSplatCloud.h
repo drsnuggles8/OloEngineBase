@@ -15,7 +15,7 @@ namespace OloEngine::GaussianSplat
 {
     // 3D Gaussian-splat cloud: the CPU-side asset representation and its PLY
     // importer (issue #971, a viability spike -- read
-    // docs/adr/0018-gaussian-splats-are-an-offline-import-not-a-runtime-asset-type.md
+    // docs/adr/0018-gaussian-splats-gpu-ordering-and-merge-lod.md
     // before extending any of this).
     //
     // The source format is the one the INRIA "3D Gaussian Splatting for
@@ -133,6 +133,12 @@ namespace OloEngine::GaussianSplat
                    std::span<const f32> logitOpacity,
                    std::span<const glm::vec3> logScale,
                    std::span<const glm::vec4> rotationWXYZ);
+
+        // Takes ownership of ready-made records and recomputes the bounds and
+        // the largest radius from them. This is how a merged LOD level becomes
+        // a cloud (issue #1039): its splats are already packed, so pushing them
+        // back through Build would decode and re-encode every one.
+        void Adopt(std::vector<GpuSplat>&& splats);
 
         void Clear();
 
