@@ -236,10 +236,10 @@ jobs:
       # path still compile, link and behave", not "does the whole engine still work", which the
       # main Windows/Linux workflows already answer.
       # The compiler comes from the setup step above rather than being named here: it is
-      # clang-23 from apt.llvm.org on a hosted runner (ubuntu-24.04's default libstdc++
-      # lacks C++23 library pieces this engine uses) and the system clang on the
-      # self-hosted box. lld either way — the default linker can OOM a hosted runner
-      # while linking the full static engine.
+      # clang-23 either way: from apt.llvm.org on a hosted runner (ubuntu-24.04's default
+      # libstdc++ lacks C++23 library pieces this engine uses) and from the pinned LLVM
+      # tarball at /opt/llvm-23.1.0 on the self-hosted box (#1036). lld either way too —
+      # the default linker can OOM a hosted runner while linking the full static engine.
       - name: Configure (Steam ON, stub SDK)
         run: |
           cmake -S . -B build \

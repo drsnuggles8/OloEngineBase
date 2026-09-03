@@ -414,15 +414,17 @@ jobs:
     #      a separate scheduled job with its own baseline (gpu-sanitizers-amd.yml).
     #   2. The box's compiler was clang 21 against gcc-toolset-15's libstdc++,
     #      not the hosted arm's clang, and UBSan reported inside the standard
-    #      library. That difference is now permanent and deliberate:
-    #      setup-linux-build uses the system clang and clang++ unconditionally on
-    #      the self-hosted arm -- there is no version pin to resolve, because
-    #      hosted is on clang-23 and Rocky 10's EPEL tops out at clang20. What it
-    #      verifies instead is compiler-rt: an incomplete set of asan/tsan/ubsan
-    #      runtimes WARNS (a run-summary annotation naming the dnf command)
-    #      rather than failing, since a hard failure would block every same-repo
-    #      PR. Read the "toolchain:" line of a self-hosted job before comparing
-    #      it with a hosted one -- the two arms run different compilers.
+    #      library. Both arms now build with clang-23 (#1036): hosted from
+    #      apt.llvm.org, the box from an LLVM release tarball pinned by absolute
+    #      path at /opt/llvm-23.1.0, since Rocky 10's EPEL tops out at clang20
+    #      and no package can match. setup-linux-build ASSERTS that pin -- present,
+    #      executable, reporting major 23 -- and warns down to the system clang
+    #      rather than failing when it is not, because a hard failure would block
+    #      every same-repo PR's sanitizer jobs. It also verifies compiler-rt for
+    #      whichever compiler it chose: an incomplete asan/tsan/ubsan set WARNS
+    #      too. Read the "toolchain:" line of a self-hosted job before comparing
+    #      it with a hosted one -- it names the absolute path when the pin is in
+    #      effect, and a bare clang++ when it fell back.
     #
     # The acceptance test for this routing is a same-commit A/B: dispatch the
     # workflow once normally and once with `force_hosted: true`, then compare
@@ -520,8 +522,11 @@ jobs:
       # memory at once and can exceed the 16 GB on hosted runners — the OOM
       # reaper then kills the runner agent mid-link ("The runner has received
       # a shutdown signal", gmake "Terminated", partial output deleted). lld
-      # (installed above, version-matched via clang's own bin dir) links the
-      # same binary in a fraction of the memory and time.
+      # links the same binary in a fraction of the memory and time. It is
+      # version-matched via clang's own bin dir on the hosted arm; on the box it
+      # is deliberately NOT -- the pinned clang-23 tarball's ld.lld needs ICU 70
+      # and Rocky 10 has ICU 74, so setup-olo-ci-host.sh points that name at the
+      # system LLD 21 (docs/ops/self-hosted-linux-toolchain.md).
       run: >
         cmake -S . -B build
         ${{ steps.vcpkg.outputs.toolchain-args }}

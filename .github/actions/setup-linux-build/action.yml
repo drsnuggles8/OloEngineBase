@@ -279,48 +279,98 @@ runs:
           python_exe="$OLO_HOSTED_PYTHON"
           extra=""
         else
-          # NO VERSION PIN ON THE BOX -- it uses Rocky 10's system clang, and that
-          # is now a deliberate choice rather than a fallback.
+          # A PINNED clang-23 AT AN ABSOLUTE PATH, with the system clang as a
+          # warn-and-carry-on fallback. Both halves are load-bearing.
           #
-          # This used to pin clang-19 by absolute path at /usr/lib64/llvm19/bin,
-          # matching the version the hosted arm got from apt.llvm.org. Two things
-          # ended that:
+          # THE PIN (#1036). The hosted arm builds with clang-23 from
+          # apt.llvm.org. The box now has the same major, from the official LLVM
+          # release tarball unpacked at /opt/llvm-23.1.0 by
+          # scripts/setup-olo-ci-host.sh. Rocky 10 packages no clang above 21
+          # (EPEL tops out at clang20), so a PACKAGE pin is impossible -- the
+          # earlier note here said that made the skew permanent, and it does not:
+          # LLVM also publishes prebuilt tarballs. The prefix is versioned and
+          # deliberately NOT on the system PATH, so everything else on this host
+          # -- including another repository's runners, which share it -- keeps
+          # Rocky's clang 21 as its default.
           #
-          #   * The pin was never actually provisioned. /usr/lib64/llvm19 does not
-          #     exist on the box (only llvm21), so every self-hosted sanitizer run
-          #     was already taking the warn-and-fall-back path below. The pin was a
-          #     comment describing a machine state that was not true.
-          #   * The hosted arm has moved to clang-23, and Rocky 10 cannot follow.
-          #     EPEL tops out at clang20 (20.1.8); there is no clang22 or clang23
-          #     package. Pinning a version the distro does not ship just recreates
-          #     the same unprovisioned pin one number higher.
+          # Why it is worth a 12 GB install: asan.yml routes every same-repo PR's
+          # sanitizer jobs here and the hosted arm is the tiebreaker when one goes
+          # red and the other does not. While the two ran different compilers,
+          # "or it's the compiler" was a standing explanation for any
+          # self-hosted-only failure that nobody could cheaply rule out. This
+          # removes that confound. It does NOT fix a known bug: #1010's 215
+          # failures were never the compiler's fault, and the evidence for that
+          # is kept in docs/ops/self-hosted-linux-toolchain.md.
           #
-          # So the box uses what it has: clang 21.1.8 from the base repos, with
-          # compiler-rt-21 and lld-21 installed, which carry the asan / tsan / ubsan
-          # runtimes this job needs (verified on the box, not assumed).
-          #
-          # The version skew against the hosted arm is coverage, not a defect --
-          # that argument predates this change and still holds. #1010 blamed
-          # "clang 21 against gcc-toolset-15's libstdc++" for two UBSan reports
-          # inside the standard library; a 200-line probe of unordered_map / vector
-          # under the exact Sanitizers.cmake flags is clean at every optimisation
-          # level under BOTH libstdc++ pairings (gcc 14 and gcc-toolset-15), and the
-          # two reports are a real use-after-free in ShaderRegistry teardown that any
-          # compiler reproduces given a GL context.
-          #
-          # VERIFY, never install (the convention at the top of this file). What is
-          # checked is the SANITIZER RUNTIMES, not the version: a clang without
-          # compiler-rt configures fine and fails every sanitizer LINK on "cannot
-          # find libclang_rt.asan.a". The runtime dir is asked of the compiler
-          # itself, so the check follows whatever layout the distro uses.
-          #
-          # A missing runtime warns rather than fails: asan.yml routes every
-          # same-repo PR's sanitizer jobs here, and a hard failure would block every
-          # PR on one maintainer running `dnf`.
+          # THE FALLBACK. A pin naming a path nothing provisioned is exactly how
+          # the previous clang-19 pin failed: /usr/lib64/llvm19 never existed on
+          # the box, so every self-hosted sanitizer run silently took the fallback
+          # for as long as the pin stood. So this pin is ASSERTED rather than
+          # assumed -- present, executable, and reporting the major it claims --
+          # and each way of missing prints a ::warning naming the script that
+          # fixes it. It must never FAIL: every same-repo PR's sanitizer jobs land
+          # here, and a hard failure would block all of them on one maintainer
+          # running one script.
+          llvm_prefix=/opt/llvm-23.1.0
+          llvm_major=23
           cc=clang; cxx=clang++
+          if [ ! -x "$llvm_prefix/bin/clang++" ]; then
+            echo "::warning title=clang-${llvm_major} pin not provisioned::No executable at ${llvm_prefix}/bin/clang++. Falling back to $(command -v clang++) ($(clang++ --version | head -1)), which is a DIFFERENT major from the hosted arm — a red job here is then not comparable with its hosted twin. Provision with: sudo bash scripts/setup-olo-ci-host.sh — see docs/ops/self-hosted-linux-toolchain.md"
+          else
+            pinned_version=$("$llvm_prefix/bin/clang++" -dumpversion 2>/dev/null || true)
+            case "$pinned_version" in
+              "$llvm_major".*)
+                # The LINKER beside it has to run too, and asserting the compiler
+                # alone would miss the one way this prefix is known to be
+                # half-working: the tarball ships an ld.lld that needs ICU 70, so
+                # a prefix unpacked without the swap below CONFIGURES fine and
+                # then hard-fails every -fuse-ld=lld link on "unable to execute
+                # command". That is precisely the outcome this ladder exists to
+                # turn into a warning, so check it here rather than discover it
+                # forty minutes into the build.
+                if "$llvm_prefix/bin/ld.lld" --version >/dev/null 2>&1; then
+                  cc="$llvm_prefix/bin/clang"
+                  cxx="$llvm_prefix/bin/clang++"
+                else
+                  echo "::warning title=clang-${llvm_major} pin has an unusable ld.lld::${llvm_prefix}/bin/ld.lld does not run, so every -fuse-ld=lld link through this prefix would fail. The bundled one needs ICU 70 and this box has ICU 74; setup-olo-ci-host.sh points that name at the system /usr/bin/ld.lld. Falling back to $(command -v clang++). Re-provision with: sudo bash scripts/setup-olo-ci-host.sh"
+                fi
+                ;;
+              *)
+                echo "::warning title=clang-${llvm_major} pin reports the wrong version::${llvm_prefix}/bin/clang++ reports '${pinned_version:-<none>}', not ${llvm_major}.x. Falling back to $(command -v clang++). Re-provision with: sudo bash scripts/setup-olo-ci-host.sh"
+                ;;
+            esac
+          fi
+
+          # WHAT IS DELIBERATELY NOT PINNED: ld.lld. Every Linux configure line
+          # here passes -fuse-ld=lld, and clang resolves ld.lld from its OWN bin
+          # directory before PATH -- but the tarball's copy does not run on Rocky
+          # 10 at all. It is linked against libicui18n / libicuuc / libicudata
+          # .so.70, the ICU of the Ubuntu the release is built on, and this box
+          # has ICU 74:
+          #     ld.lld: error while loading shared libraries: libicui18n.so.70
+          # which surfaces as `clang++: error: unable to execute command` at the
+          # first link, not at configure. setup-olo-ci-host.sh therefore replaces
+          # $prefix/bin/ld.lld with a symlink to the system /usr/bin/ld.lld, so
+          # -fuse-ld=lld keeps working unchanged at every call site. The residual
+          # skew against the hosted arm is now the LINKER only (LLD 21 driving
+          # clang 23 objects), not the compiler; ASan, TSan and UBSan each link,
+          # run, fire and symbolise correctly through it (measured on the box
+          # before the pin landed). `lld`, `lld-link`, `ld64.lld`, `wasm-ld` and
+          # `llvm-mt` beside it are the same ICU-broken binary and nothing here
+          # uses them; every other tool in the tarball resolves cleanly.
+
+          # VERIFY, never install (the convention at the top of this file). What
+          # is checked is the SANITIZER RUNTIMES of whichever compiler was chosen
+          # above, not its version: a clang without compiler-rt configures fine
+          # and fails every sanitizer LINK on "cannot find libclang_rt.asan.a".
+          # The runtime dir is asked of the compiler itself, so the check follows
+          # the tarball's layout and the distro's alike.
+          #
+          # A missing runtime warns rather than fails, for the same reason the
+          # pin does: asan.yml routes every same-repo PR's sanitizer jobs here.
           rt_dir=$("$cxx" -print-runtime-dir 2>/dev/null || true)
           if [ -z "$rt_dir" ]              || ! ls "$rt_dir"/libclang_rt.asan*.a >/dev/null 2>&1              || ! ls "$rt_dir"/libclang_rt.tsan*.a >/dev/null 2>&1              || ! ls "$rt_dir"/libclang_rt.ubsan*.a >/dev/null 2>&1; then
-            echo "::warning title=sanitizer runtimes missing::$(command -v clang++) ($(clang++ --version | head -1)) has no complete compiler-rt at '${rt_dir:-<unknown>}'. Every sanitizer link will fail. Install with: sudo dnf install -y compiler-rt lld -- see docs/ops/self-hosted-linux-toolchain.md"
+            echo "::warning title=sanitizer runtimes missing::$cxx ($("$cxx" --version | head -1)) has no complete compiler-rt at '${rt_dir:-<unknown>}'. Every sanitizer link will fail. Fix with: sudo bash scripts/setup-olo-ci-host.sh (it installs compiler-rt + lld for the system clang and re-checks the pinned one) -- see docs/ops/self-hosted-linux-toolchain.md"
           fi
           python_exe="$(command -v python3)"
           # OLO_ENABLE_COMPILER_CACHE is added HERE rather than at each call site
