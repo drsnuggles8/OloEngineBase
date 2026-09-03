@@ -205,20 +205,73 @@ jobs:
     #                   __FrameHandler3::CxxCallCatchBlock, exit 1
     #   clang 23.1.0 -> caught, exit 0
     #
-    # (Which major first fixed it was not bisected; 22.x is untested.) This step must
-    # come AFTER msvc-dev-cmd, which puts the VS-bundled LLVM on PATH -- the action
-    # prepends its own, so ordering is what makes the pin win.
+    # (Which major first fixed it was not bisected; 22.x is untested.)
     #
     # Same action and pinning approach as fuzz.yml. It exports LLVM_PATH at the
-    # install root (binaries under $LLVM_PATH/bin) and caches the download.
-    # The "Add clang-cl ASan runtime to PATH" step below needs no change: it asks
-    # `clang-cl -print-runtime-dir` of whichever clang-cl PATH resolves to, so it
-    # follows this pin automatically.
+    # install root, with the binaries under $LLVM_PATH/bin, and caches the download.
+    #
+    # PATH ORDER IS NOT ENOUGH, and the first attempt at this proved it. That
+    # version relied on the action prepending its bin to PATH after msvc-dev-cmd,
+    # and asserted "ordering is what makes the pin win". The step went green
+    # ("Using cached LLVM and Clang 23.1.0..."), and CMake then reported
+    #
+    #   -- The CXX compiler identification is Clang 20.1.8 with MSVC-like command-line
+    #   -- Check for working CXX compiler: C:/Program Files/LLVM/bin/clang-cl.exe
+    #
+    # i.e. the windows-2025 image's preinstalled LLVM, not the pin. The nine
+    # exception-handling tests then failed exactly as they do on clang 20, which
+    # read as "23.1.0 does not fix #497" and was really "the pin was never used".
+    #
+    # So the pin is bound by ABSOLUTE PATH below, not by PATH order, and the next
+    # step FAILS THE JOB if the resolved clang-cl is not the pinned major. Without
+    # that assertion this failure mode is invisible: a green install step, a
+    # successful build, and a wrong compiler.
     - name: Install LLVM (pinned)
       uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
       with:
         version: "23.1.0"
         cached: true
+
+    # Resolve the pinned toolchain to absolute paths and PROVE it is the pinned one.
+    # Every tool comes from the same install root: mixing a clang-cl 23 front end
+    # with the image's lld-link 20 is exactly the sort of skew this job exists to
+    # keep out. cmake/ClangCLToolchain.cmake names all three by bare filename, which
+    # is what let PATH decide last time; the absolute paths exported here override
+    # it, because a -D cache entry already exists by the time its `set(... CACHE ...)`
+    # runs.
+    - name: Resolve and verify the pinned clang-cl
+      id: llvm
+      shell: pwsh
+      run: |
+        $expected = '23'
+        $bin = Join-Path "$env:LLVM_PATH" 'bin'
+        $clangcl = Join-Path $bin 'clang-cl.exe'
+        if (-not (Test-Path $clangcl)) {
+          Write-Host "::error::no clang-cl.exe under LLVM_PATH ('$env:LLVM_PATH')"
+          if (Test-Path $bin) { Get-ChildItem $bin -Filter '*.exe' | Select-Object -First 20 -ExpandProperty Name }
+          exit 1
+        }
+        $verLine = (& $clangcl --version | Select-Object -First 1)
+        Write-Host "resolved: $clangcl"
+        Write-Host "version : $verLine"
+        if ($verLine -notmatch 'clang version (\d+)\.') {
+          Write-Host "::error::could not parse a version out of '$verLine'"
+          exit 1
+        }
+        $major = $Matches[1]
+        if ($major -ne $expected) {
+          Write-Host "::error::pinned LLVM $expected requested, but $clangcl reports major $major. The pin did not take effect; do not trust this job's result."
+          exit 1
+        }
+        # Forward slashes: CMake treats a backslash in a -D value as an escape.
+        # .Replace() and not -replace: the latter takes a REGEX, where a lone
+        # backslash is a parse error rather than a literal.
+        "OLO_CLANG_CL=$($clangcl.Replace('\','/'))"                          >> $env:GITHUB_ENV
+        "OLO_LLD_LINK=$((Join-Path $bin 'lld-link.exe').Replace('\','/'))"   >> $env:GITHUB_ENV
+        "OLO_LLVM_RC=$((Join-Path $bin 'llvm-rc.exe').Replace('\','/'))"    >> $env:GITHUB_ENV
+        # Belt and braces: later steps that call bare `clang-cl` (the ASan runtime
+        # lookup below) then resolve the same binary.
+        $bin >> $env:GITHUB_PATH
 
     # NOTE: this job deliberately does NOT use sccache (unlike the Linux sanitizer jobs).
     # The Windows sccache server reliably crashes — "sccache: error: failed to execute
@@ -265,6 +318,10 @@ jobs:
         -G "Ninja Multi-Config"
         ${{ steps.vcpkg.outputs.toolchain-args }}
         "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/ClangCLToolchain.cmake"
+        "-DCMAKE_C_COMPILER=${{ env.OLO_CLANG_CL }}"
+        "-DCMAKE_CXX_COMPILER=${{ env.OLO_CLANG_CL }}"
+        "-DCMAKE_LINKER=${{ env.OLO_LLD_LINK }}"
+        "-DCMAKE_RC_COMPILER=${{ env.OLO_LLVM_RC }}"
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DOLO_ENABLE_LTO=OFF
