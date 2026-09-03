@@ -3,6 +3,10 @@
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Math/Math.h"
+// For SphereProxyAO::kMaxProxies. Taken rather than repeated: the proxy budget
+// is the length of the UBO's fixed proxy array, so a literal here could admit
+// more proxies than the block can carry.
+#include "OloEngine/Renderer/SphereProxyAO.h"
 #include <glm/glm.hpp>
 
 #include <algorithm>
@@ -693,7 +697,8 @@ namespace OloEngine
         s.SphereProxyAOMaxRadius = std::clamp(finite(s.SphereProxyAOMaxRadius, 25.0f), 0.0f, 1000.0f);
         s.SphereProxyAOInfluenceScale = std::clamp(finite(s.SphereProxyAOInfluenceScale, 4.0f), 1.0f, 64.0f);
         s.SphereProxyAOMaxOcclusion = std::clamp(finite(s.SphereProxyAOMaxOcclusion, 1.0f), 0.0f, 1.0f);
-        s.SphereProxyAOMaxProxies = std::clamp(s.SphereProxyAOMaxProxies, 0, 128);
+        s.SphereProxyAOMaxProxies =
+            std::clamp(s.SphereProxyAOMaxProxies, 0, static_cast<i32>(SphereProxyAO::kMaxProxies));
     }
 
     // GPU-side UBO layout for FSR1 EASU upscale constants (std140, binding 45).

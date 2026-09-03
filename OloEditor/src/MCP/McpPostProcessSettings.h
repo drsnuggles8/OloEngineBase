@@ -54,6 +54,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/SphereProxyAO.h"
 
 #include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
@@ -272,8 +273,9 @@ namespace OloEngine::MCP::PostProcess
                     "Occludes with proxies that are off-screen or behind the camera."),
         OLO_PP_NUM(SphereProxyAOStrength, "ao", FieldType::Float, 0.0, 1.0,
                    "How much of the sphere-proxy term reaches the AO buffer."),
-        OLO_PP_NUM(SphereProxyAOMaxProxies, "ao", FieldType::Int, 0.0, 128.0,
-                   "Per-frame proxy budget; 128 is the UBO array length and a hard ceiling."),
+        OLO_PP_NUM(SphereProxyAOMaxProxies, "ao", FieldType::Int, 0.0,
+                   static_cast<f64>(SphereProxyAO::kMaxProxies),
+                   "Per-frame proxy budget; the UBO array length is a hard ceiling."),
         OLO_PP_NUM(SphereProxyAOMaxRadius, "ao", FieldType::Float, 0.0, 1000.0,
                    "Drop occluders whose fitted proxy sphere is larger than this (the ground/terrain filter)."),
         OLO_PP_NUM(SphereProxyAOInfluenceScale, "ao", FieldType::Float, 1.0, 64.0,

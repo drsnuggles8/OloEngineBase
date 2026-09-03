@@ -3,6 +3,7 @@
 #include "SettingsChangeLog.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/SphereProxyAO.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "../UndoRedo/SpecializedCommands.h"
@@ -819,7 +820,8 @@ namespace OloEngine
                     if (settings.SphereProxyAOEnabled)
                     {
                         ImGui::DragFloat("Strength##SPA", &settings.SphereProxyAOStrength, 0.01f, 0.0f, 1.0f, "%.2f");
-                        ImGui::SliderInt("Max Proxies##SPA", &settings.SphereProxyAOMaxProxies, 0, 128);
+                        ImGui::SliderInt("Max Proxies##SPA", &settings.SphereProxyAOMaxProxies, 0,
+                                         static_cast<i32>(SphereProxyAO::kMaxProxies));
                         // Ranges match SanitizeSphereProxyAO and the MCP field
                         // registry exactly — a narrower drag range here would
                         // silently truncate a value the other two accept.
