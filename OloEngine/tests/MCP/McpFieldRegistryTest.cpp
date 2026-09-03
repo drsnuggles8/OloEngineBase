@@ -142,13 +142,45 @@ TEST(McpFieldRegistry, KeepsEveryPreviouslyHandWrittenField)
     EXPECT_GT(GFW::EditableComponents().size(), 50u);
 }
 
-// TransformComponent::Rotation is a private euler/quat pair behind setters — the
-// field scan never collects a non-public member, so it stays unwritable (rather
-// than the generator emitting `&TransformComponent::Rotation`, which would not
-// even compile).
-TEST(McpFieldRegistry, DoesNotExposeNonPublicFields)
+// TransformComponent keeps its Euler/quaternion pair private so writes cannot
+// desynchronise them. Its existing OLO_PROPERTY accessor pair is therefore
+// emitted through MakeSetterField rather than a private member pointer.
+TEST(McpFieldRegistry, TransformRotationAccessorRoundTripsAndUndoes)
 {
-    EXPECT_FALSE(RegistryHas("TransformComponent", "Rotation"));
+    EXPECT_TRUE(RegistryHas("TransformComponent", "Rotation"));
+
+    Fixture f;
+    const glm::vec3 requested{ 0.25f, -0.5f, 0.75f };
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid,
+                                   "TransformComponent", "Rotation",
+                                   Json::array({ requested.x, requested.y, requested.z }));
+
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_EQ(result.Data["type"], "vec3");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+    EXPECT_TRUE(result.Data["undoable"].get<bool>());
+
+    const auto& transform = f.TheEntity.GetComponent<OloEngine::TransformComponent>();
+    const glm::vec3 appliedEuler = transform.GetRotationEuler();
+    EXPECT_NEAR(appliedEuler.x, requested.x, 1e-6f);
+    EXPECT_NEAR(appliedEuler.y, requested.y, 1e-6f);
+    EXPECT_NEAR(appliedEuler.z, requested.z, 1e-6f);
+    const glm::quat expectedRotation{ requested };
+    EXPECT_NEAR(transform.GetRotation().w, expectedRotation.w, 1e-6f);
+    EXPECT_NEAR(transform.GetRotation().x, expectedRotation.x, 1e-6f);
+    EXPECT_NEAR(transform.GetRotation().y, expectedRotation.y, 1e-6f);
+    EXPECT_NEAR(transform.GetRotation().z, expectedRotation.z, 1e-6f);
+
+    ASSERT_TRUE(f.History.CanUndo());
+    f.History.Undo();
+    const auto& undone = f.TheEntity.GetComponent<OloEngine::TransformComponent>();
+    EXPECT_NEAR(undone.GetRotationEuler().x, 0.0f, 1e-6f);
+    EXPECT_NEAR(undone.GetRotationEuler().y, 0.0f, 1e-6f);
+    EXPECT_NEAR(undone.GetRotationEuler().z, 0.0f, 1e-6f);
+    EXPECT_NEAR(undone.GetRotation().w, 1.0f, 1e-6f);
+    EXPECT_NEAR(undone.GetRotation().x, 0.0f, 1e-6f);
+    EXPECT_NEAR(undone.GetRotation().y, 0.0f, 1e-6f);
+    EXPECT_NEAR(undone.GetRotation().z, 0.0f, 1e-6f);
 }
 
 // ---- 2. runtime-only components / fields stay unwritable ---------------------

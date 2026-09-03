@@ -26,6 +26,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -217,6 +218,28 @@ namespace OloEngine::MCP
             return std::nullopt;
         }
 
+        // `minLength` / `maxLength` for string-valued tool arguments.
+        std::optional<std::string> CheckStringConstraints(const Json& schema, const Json& value,
+                                                          const std::string& label)
+        {
+            if (!value.is_string())
+                return std::nullopt;
+
+            // nlohmann validates UTF-8 while parsing; counting non-continuation
+            // bytes therefore yields JSON Schema's Unicode code-point length.
+            const std::string& text = value.get_ref<const std::string&>();
+            const auto length = static_cast<std::int64_t>(std::ranges::count_if(
+                text, [](char byte)
+                { return (static_cast<unsigned char>(byte) & 0xC0u) != 0x80u; }));
+            if (const auto it = schema.find("minLength");
+                it != schema.end() && it->is_number_integer() && length < it->get<std::int64_t>())
+                return FieldSubject(label) + " must have at least " + it->dump() + " characters";
+            if (const auto it = schema.find("maxLength");
+                it != schema.end() && it->is_number_integer() && length > it->get<std::int64_t>())
+                return FieldSubject(label) + " must have at most " + it->dump() + " characters";
+            return std::nullopt;
+        }
+
         // `required` + `additionalProperties` + per-property recursion.
         std::optional<std::string> CheckObjectConstraints(const Json& schema, const Json& value,
                                                           const std::string& label)
@@ -301,6 +324,8 @@ namespace OloEngine::MCP
                 return err;
             if (auto err = CheckNumericBounds(schema, value, label))
                 return err;
+            if (auto err = CheckStringConstraints(schema, value, label))
+                return err;
             if (auto err = CheckObjectConstraints(schema, value, label))
                 return err;
             return CheckArrayConstraints(schema, value, label);
@@ -324,9 +349,9 @@ namespace OloEngine::MCP
         // progress is emitted from the handler thread by design.)
         struct ActiveCallScope
         {
-            Json ProgressToken;                            // null => caller didn't opt in
-            std::shared_ptr<std::atomic<bool>> CancelFlag; // shared with the in-flight registry
-            f64 LastProgress = 0.0;                        // monotonicity guard
+            Json ProgressToken;                                    // null => caller didn't opt in
+            std::shared_ptr<std::atomic<bool>> CancelFlag;         // shared with the in-flight registry
+            f64 LastProgress = std::numeric_limits<f64>::lowest(); // monotonicity guard
         };
         thread_local ActiveCallScope* t_ActiveCall = nullptr;
         thread_local const McpServer::NotificationSink* t_ActiveSink = nullptr;
@@ -1806,10 +1831,13 @@ namespace OloEngine::MCP
         if (scope == nullptr || scope->ProgressToken.is_null() || sink == nullptr || !(*sink))
             return; // caller didn't opt in, or the transport has nowhere to put it.
 
-        // The spec requires progress to increase with each notification; clamp a
-        // misbehaving emitter forward rather than sending a non-monotonic value.
+        if (!std::isfinite(progress) || !std::isfinite(total))
+            return;
+
+        // The spec requires progress to increase with each notification. Drop a
+        // duplicate/regression instead of inventing a value that may exceed total.
         if (progress <= scope->LastProgress)
-            progress = scope->LastProgress + 1.0;
+            return;
         scope->LastProgress = progress;
 
         Json params{ { "progressToken", scope->ProgressToken }, { "progress", progress } };

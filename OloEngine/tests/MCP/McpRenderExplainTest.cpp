@@ -16,6 +16,7 @@
 
 namespace
 {
+    using OloEngine::MCP::RenderExplain::DecalUsesModeSpecificTexture;
     using OloEngine::MCP::RenderExplain::EntityRenderFacts;
     using OloEngine::MCP::RenderExplain::ExplainWhyNotVisible;
     using OloEngine::MCP::RenderExplain::WhyNotVisibleInput;
@@ -48,6 +49,28 @@ namespace
         e.BoundsKnown = true;
         e.BehindCamera = false;
         e.InFrustum = true;
+        return in;
+    }
+
+    WhyNotVisibleInput MakeVisibleDecal()
+    {
+        WhyNotVisibleInput in = MakeVisible();
+        EntityRenderFacts& e = in.Entity;
+        e.RenderableKind = "DecalComponent";
+        e.IsDecal = true;
+        e.RenderingPath = "Deferred";
+        e.DecalMode = "albedo";
+        e.DecalTextureRequired = true;
+        e.DecalTexturePresent = true;
+        e.DecalTextureSlot = "AlbedoTexture";
+        e.ReceiverIntersectionKnown = true;
+        e.ReceiverIntersectsProjection = true;
+        e.SubmissionKnown = true;
+        e.Submitted = true;
+        e.DrawIssuedKnown = true;
+        e.DrawIssued = true;
+        e.FragmentResultKnown = true;
+        e.FragmentsSurvived = true;
         return in;
     }
 
@@ -128,6 +151,117 @@ TEST(McpRenderExplain, GeometryNotRequiredSkipsTheGeometryGate)
     EXPECT_NE("geometry_missing", v.ReasonCode);
     EXPECT_EQ("should_be_visible", v.ReasonCode);
     EXPECT_TRUE(v.RenderableConfigOk);
+}
+
+TEST(McpRenderExplain, DecalIsAFirstClassRenderable)
+{
+    const WhyNotVisibleVerdict v = ExplainWhyNotVisible(MakeVisibleDecal());
+    EXPECT_EQ("should_be_visible", v.ReasonCode);
+    EXPECT_TRUE(v.RenderableConfigOk);
+    EXPECT_TRUE(v.Visible);
+    EXPECT_TRUE(HasCheckContaining(v, "renderable component (DecalComponent)"));
+    EXPECT_TRUE(HasCheckContaining(v, "scene submitted this decal"));
+    EXPECT_TRUE(HasCheckContaining(v, "decal render pass issued the draw"));
+    EXPECT_TRUE(HasCheckContaining(v, "decal fragment survived"));
+}
+
+TEST(McpRenderExplain, DecalNotSubmittedIsDistinctFromNotRenderable)
+{
+    WhyNotVisibleInput in = MakeVisibleDecal();
+    in.Entity.Submitted = false;
+    const WhyNotVisibleVerdict v = ExplainWhyNotVisible(in);
+    EXPECT_EQ("not_submitted", v.ReasonCode);
+    EXPECT_NE("not_renderable", v.ReasonCode);
+    EXPECT_TRUE(HasCheckContaining(v, "did not submit this decal"));
+}
+
+TEST(McpRenderExplain, DecalWithoutAReceivingSurfaceReportsProjectionFailure)
+{
+    WhyNotVisibleInput in = MakeVisibleDecal();
+    in.Entity.ReceiverIntersectsProjection = false;
+    const WhyNotVisibleVerdict v = ExplainWhyNotVisible(in);
+    EXPECT_EQ("decal_no_receiver", v.ReasonCode);
+    EXPECT_TRUE(HasCheckContaining(v, "projection box contains no receiving surface"));
+}
+
+TEST(McpRenderExplain, DecalMissingItsModeTextureIsNotGeometryMissing)
+{
+    WhyNotVisibleInput in = MakeVisibleDecal();
+    in.Entity.DecalMode = "normal";
+    in.Entity.DecalTextureSlot = "NormalTexture";
+    in.Entity.DecalTexturePresent = false;
+    const WhyNotVisibleVerdict v = ExplainWhyNotVisible(in);
+    EXPECT_EQ("decal_texture_missing", v.ReasonCode);
+    EXPECT_NE(std::string::npos, v.Summary.find("NormalTexture"));
+}
+
+TEST(McpRenderExplain, ForwardAndTransparentDecalsIgnoreModeSpecificTextureSlots)
+{
+    EXPECT_FALSE(DecalUsesModeSpecificTexture("Forward", false));
+    EXPECT_FALSE(DecalUsesModeSpecificTexture("Forward+", false));
+    EXPECT_FALSE(DecalUsesModeSpecificTexture("Deferred", true));
+    EXPECT_TRUE(DecalUsesModeSpecificTexture("Deferred", false));
+}
+
+TEST(McpRenderExplain, SubmittedDecalCanFailToIssueItsDraw)
+{
+    WhyNotVisibleInput in = MakeVisibleDecal();
+    in.Entity.DrawIssued = false;
+    const WhyNotVisibleVerdict v = ExplainWhyNotVisible(in);
+    EXPECT_EQ("draw_not_issued", v.ReasonCode);
+    EXPECT_TRUE(v.RenderableConfigOk);
+    EXPECT_TRUE(HasCheckContaining(v, "did not issue a draw"));
+}
+
+TEST(McpRenderExplain, IssuedDecalWithZeroFragmentsIsReportedExactly)
+{
+    WhyNotVisibleInput in = MakeVisibleDecal();
+    in.Entity.FragmentsSurvived = false;
+    const WhyNotVisibleVerdict v = ExplainWhyNotVisible(in);
+    EXPECT_EQ("zero_fragments", v.ReasonCode);
+    EXPECT_TRUE(v.RenderableConfigOk);
+    EXPECT_FALSE(v.Visible);
+    EXPECT_TRUE(HasCheckContaining(v, "zero surviving fragments"));
+    EXPECT_NE(std::string::npos, v.Summary.find("draw was issued"));
+}
+
+TEST(McpRenderExplain, DecalObservationFailuresDoNotPreemptDegenerateScale)
+{
+    WhyNotVisibleInput in = MakeVisibleDecal();
+    in.Entity.ScaleDegenerate = true;
+    in.Entity.Submitted = false;
+    in.Entity.ReceiverIntersectsProjection = false;
+    in.Entity.DrawIssued = false;
+    in.Entity.FragmentsSurvived = false;
+    const WhyNotVisibleVerdict v = ExplainWhyNotVisible(in);
+    EXPECT_EQ("degenerate_scale", v.ReasonCode);
+}
+
+TEST(McpRenderExplain, DecalObservationFailuresDoNotPreemptOutsideFrustum)
+{
+    WhyNotVisibleInput in = MakeVisibleDecal();
+    in.Entity.InFrustum = false;
+    in.Entity.Submitted = false;
+    in.Entity.ReceiverIntersectsProjection = false;
+    in.Entity.DrawIssued = false;
+    in.Entity.FragmentsSurvived = false;
+    const WhyNotVisibleVerdict v = ExplainWhyNotVisible(in);
+    EXPECT_EQ("outside_frustum", v.ReasonCode);
+}
+
+TEST(McpRenderExplain, UnknownDecalObservationsRemainWarningsNotFalseFailures)
+{
+    WhyNotVisibleInput in = MakeVisibleDecal();
+    in.Entity.SubmissionKnown = false;
+    in.Entity.ReceiverIntersectionKnown = false;
+    in.Entity.DrawIssuedKnown = false;
+    in.Entity.FragmentResultKnown = false;
+    const WhyNotVisibleVerdict v = ExplainWhyNotVisible(in);
+    EXPECT_EQ("should_be_visible", v.ReasonCode);
+    EXPECT_TRUE(HasCheckContaining(v, "submission was not observed"));
+    EXPECT_TRUE(HasCheckContaining(v, "intersection was not observed"));
+    EXPECT_TRUE(HasCheckContaining(v, "draw issuance was not observed"));
+    EXPECT_TRUE(HasCheckContaining(v, "fragments were not observed"));
 }
 
 TEST(McpRenderExplain, ComponentHidden)

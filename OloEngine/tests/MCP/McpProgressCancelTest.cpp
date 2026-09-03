@@ -25,6 +25,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <thread>
 #include <vector>
@@ -85,6 +86,21 @@ namespace
                 return ToolResult::Text("done");
             };
             m_Server.RegisterTool(std::move(slow));
+
+            ToolDef nonMonotonic;
+            nonMonotonic.Name = "fake_non_monotonic";
+            nonMonotonic.Description = "Emits duplicate and regressing progress values.";
+            nonMonotonic.Handler = [](McpServer& server, const Json&) -> ToolResult
+            {
+                server.EmitProgress(0.25, 1.0, "first");
+                server.EmitProgress(0.25, 1.0, "duplicate");
+                server.EmitProgress(0.20, 1.0, "regression");
+                server.EmitProgress(std::numeric_limits<double>::quiet_NaN(), 1.0, "not finite");
+                server.EmitProgress(0.40, std::numeric_limits<double>::infinity(), "invalid total");
+                server.EmitProgress(0.50, 1.0, "second");
+                return ToolResult::Text("done");
+            };
+            m_Server.RegisterTool(std::move(nonMonotonic));
         }
 
         McpServer m_Server;
@@ -133,6 +149,20 @@ namespace
         ASSERT_FALSE(notifications.empty());
         EXPECT_TRUE(notifications.front()["params"]["progressToken"].is_number_integer());
         EXPECT_EQ(notifications.front()["params"]["progressToken"], 42);
+    }
+
+    TEST_F(McpProgressCancelTest, DuplicateAndRegressingProgressIsDropped)
+    {
+        std::vector<Json> notifications;
+        const auto framed = m_Server.ProcessRequestBody(
+            MakeCallRequest(8, "fake_non_monotonic", "tok-monotonic").dump(),
+            [&notifications](const Json& n)
+            { notifications.push_back(n); });
+
+        ASSERT_TRUE(framed.Body.contains("result"));
+        ASSERT_EQ(notifications.size(), 2u);
+        EXPECT_EQ(notifications[0]["params"]["progress"], 0.25);
+        EXPECT_EQ(notifications[1]["params"]["progress"], 0.50);
     }
 
     TEST_F(McpProgressCancelTest, NoTokenMeansNoNotificationsAndEmitIsANoOp)

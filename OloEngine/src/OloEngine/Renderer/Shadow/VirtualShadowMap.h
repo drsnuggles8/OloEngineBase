@@ -464,8 +464,10 @@ namespace OloEngine
         // over a range that differs per light.
         f32 LocalDepthBiasMeters = 0.02f;
 
-        // 0 = off, 1 = clip level tint, 2 = page address, 3 = pages drawn this
-        // frame. Consumed by the lit pass through GlobalsUBO::Params2.y.
+        // 0 = off, 1 = clip level tint, 2 = page address, 3 = residency,
+        // 4 = shadow test, 5 = stored depth, 6 = receiver depth,
+        // 7 = final shadow factor. Consumed by the lit pass through
+        // GlobalsUBO::Params2.y.
         i32 DebugMode = 0;
 
         auto operator==(const VirtualShadowMapSettings&) const -> bool = default;
@@ -752,6 +754,12 @@ namespace OloEngine
         {
             return m_Statistics;
         }
+        // False until the first previous-frame counter block has actually
+        // returned. Zero counters after that point are a valid idle sample.
+        [[nodiscard]] bool HasStatistics() const
+        {
+            return m_HasStatistics;
+        }
 
         // Render-graph resource name of the physical pool, so
         // olo_render_list_targets / olo_render_capture_target can reach it.
@@ -1033,6 +1041,7 @@ namespace OloEngine
 
         u32 m_StatsWriteIndex = 0;
         VSM::Statistics m_Statistics{};
+        bool m_HasStatistics = false;
         bool m_LoggedRasterIncomplete = false;
         bool m_LoggedDrawBudgetExhausted = false;
         bool m_LoggedCasterBudgetExhausted = false;

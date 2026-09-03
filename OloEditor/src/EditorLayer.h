@@ -51,6 +51,10 @@
 namespace OloEngine
 {
     // (MCP::McpServer and the input-injection payload structs come from MCP/McpServer.h.)
+    namespace MCP::EditorPanels
+    {
+        enum class PanelId : u32;
+    }
 
     class AssetLoadedEvent;
     class AssetReloadedEvent;
@@ -163,6 +167,7 @@ namespace OloEngine
         // OnUpdate) consumes the result mailbox on the game thread — asset
         // save, scene settings update, runtime re-resolve.
         void BakeLightmaps();
+        [[nodiscard]] MCP::LightmapBake::Snapshot LightmapBakeFromMcp(const MCP::LightmapBake::Request& request, bool start);
         void ProcessLightmapBakeCompletion();
 
         // Build status and progress queries
@@ -228,6 +233,7 @@ namespace OloEngine
         // and a synchronous readback is not.
         TerrainPickState TerrainRaycastGPU(const glm::vec2& mousePos, const glm::vec2& viewportSize,
                                            glm::vec3& outHitPos, bool& outHit) const;
+        MCP::TerrainPick::Snapshot TerrainPickFromMcp(const MCP::TerrainPick::Request& request, bool submit) const;
 
         // The pre-#717 path: march the CPU-side heightmap mirror in 1-unit
         // steps and bisect. Still the fallback, and still the reference the GPU
@@ -246,6 +252,10 @@ namespace OloEngine
         // raycast entry points are const — submitting a ray is a query from the
         // caller's point of view.
         mutable u32 m_TerrainPickRayId = 0;
+        mutable u32 m_McpTerrainPickRayId = 0;
+        mutable MCP::TerrainPick::Request m_McpTerrainPickInput;
+        mutable MCP::TerrainPick::WorldRay m_McpTerrainPickWorldRay;
+        mutable glm::mat4 m_McpTerrainPickTerrainTransform{ 1.0f };
 
         // Unproject a viewport mouse position into a world-space picking ray
         // (normalized direction, unbounded TMax). False when the viewport is
@@ -303,6 +313,13 @@ namespace OloEngine
         // active scene. Main-thread-only (EnTT registry + ImGui panel selection
         // state), called from inside a MarshalRead job.
         [[nodiscard]] MCP::McpSelectEntityResult SelectEntityInEditor(u64 entityUuid, bool clear);
+
+        [[nodiscard]] std::vector<MCP::McpEditorPanelState> GetMcpEditorPanels() const;
+        [[nodiscard]] MCP::McpEditorPanelSetResult SetMcpEditorPanel(const std::string& panel, bool open);
+        [[nodiscard]] MCP::McpEditorDebugDrawState GetMcpEditorDebugDrawState() const;
+        [[nodiscard]] MCP::McpEditorDebugDrawSetResult SetMcpEditorDebugDraw(const std::string& category, bool enabled);
+        [[nodiscard]] bool& McpPanelVisibility(MCP::EditorPanels::PanelId panel);
+        [[nodiscard]] const bool& McpPanelVisibility(MCP::EditorPanels::PanelId panel) const;
 
       private:
         OloEngine::OrthographicCameraController m_CameraController;
@@ -370,6 +387,9 @@ namespace OloEngine
         // silently attached to whatever is active at completion.
         Ref<Scene> m_LightmapBakeScene;
         std::filesystem::path m_LightmapBakeScenePath;
+        u64 m_McpLightmapBakeSequence = 0;
+        bool m_McpLightmapSaveRequested = false;
+        MCP::LightmapBake::Snapshot m_McpLightmapBakeSnapshot;
 
         enum class SceneState
         {

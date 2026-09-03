@@ -27,10 +27,16 @@
 #include "OloEngine/Core/Base.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine::MCP::RenderExplain
 {
+    [[nodiscard]] inline bool DecalUsesModeSpecificTexture(std::string_view renderingPath, bool transparent)
+    {
+        return renderingPath == "Deferred" && !transparent;
+    }
+
     // The render-relevant facts about one entity, gathered from the live scene and
     // renderer on the main thread. Everything camera/bounds-derived is computed by
     // the handler so this header stays free of glm and the renderer.
@@ -45,6 +51,27 @@ namespace OloEngine::MCP::RenderExplain
         // human label of the primary one (empty when none).
         bool HasRenderable = false;
         std::string RenderableKind;
+
+        // Decals need a few observations that ordinary geometry does not. They
+        // project a cube and may issue a perfectly valid draw whose fragments
+        // all discard because no receiving surface lies inside the projection,
+        // the selected texture is unavailable, or the depth/angle tests reject
+        // every sample. Each `*Known` bit keeps "not observed" distinct from a
+        // legitimate false value.
+        bool IsDecal = false;
+        std::string RenderingPath; // Deferred / Forward / Forward+
+        std::string DecalMode;     // albedo / normal / rma / emissive
+        bool DecalTextureRequired = false;
+        bool DecalTexturePresent = true;
+        std::string DecalTextureSlot;
+        bool ReceiverIntersectionKnown = false;
+        bool ReceiverIntersectsProjection = false;
+        bool SubmissionKnown = false;
+        bool Submitted = false;
+        bool DrawIssuedKnown = false;
+        bool DrawIssued = false;
+        bool FragmentResultKnown = false;
+        bool FragmentsSurvived = false;
 
         // Geometry asset presence for the primary renderable. GeometryRequired is
         // false for renderables that need no asset (sprite/circle/text always draw
@@ -107,8 +134,10 @@ namespace OloEngine::MCP::RenderExplain
     {
         // Machine-readable primary reason. One of:
         //   no_scene, entity_missing, not_renderable, geometry_missing,
-        //   component_hidden, degenerate_scale, shader_compile_error,
-        //   behind_camera, outside_frustum, should_be_visible.
+        //   decal_no_receiver, decal_texture_missing, component_hidden,
+        //   degenerate_scale, shader_compile_error, not_submitted,
+        //   draw_not_issued, zero_fragments, behind_camera, outside_frustum,
+        //   should_be_visible.
         std::string ReasonCode;
         // One-line human explanation of the primary reason.
         std::string Summary;
@@ -130,9 +159,10 @@ namespace OloEngine::MCP::RenderExplain
     // Map the gathered facts to a verdict. A deterministic cascade from the most
     // fundamental precondition (scene loaded / entity exists / is renderable) down
     // through the configuration gates (geometry asset, visibility flag, scale,
-    // shader compile) and finally the camera-relative checks (behind camera /
-    // frustum). Stops and reports the first blocker, so ReasonCode is always the
-    // *root* cause rather than a downstream symptom.
+    // shader compile) and camera-relative checks (behind camera / frustum). Pass
+    // telemetry is considered only after those upstream causes are cleared. Stops
+    // and reports the first blocker, so ReasonCode is always the *root* cause
+    // rather than a downstream symptom.
     [[nodiscard]] inline WhyNotVisibleVerdict ExplainWhyNotVisible(const WhyNotVisibleInput& in)
     {
         WhyNotVisibleVerdict verdict;
@@ -162,11 +192,34 @@ namespace OloEngine::MCP::RenderExplain
             checks.push_back("[fail] the entity has no renderable component");
             verdict.ReasonCode = "not_renderable";
             verdict.Summary = "The entity has no renderable component (no MeshComponent / ModelComponent / "
-                              "SpriteRendererComponent / CircleRendererComponent / TextComponent / InstancedMeshComponent), "
+                              "SpriteRendererComponent / CircleRendererComponent / TextComponent / InstancedMeshComponent / "
+                              "DecalComponent), "
                               "so the scene never submits it for drawing. Add the renderable component you expect it to have.";
             return verdict;
         }
         checks.push_back(std::string("[ok] the entity has a renderable component (") + e.RenderableKind + ")");
+
+        if (e.IsDecal)
+        {
+            if (e.RenderingPath.empty())
+                checks.push_back("[warn] the active rendering path was not observed for this decal");
+            else
+                checks.push_back(std::string("[ok] decal route evaluated for the ") + e.RenderingPath + " rendering path");
+
+            if (e.DecalTextureRequired && !e.DecalTexturePresent)
+            {
+                checks.push_back(std::string("[fail] the decal's required texture slot is unavailable") +
+                                 (e.DecalTextureSlot.empty() ? std::string() : std::string(" (") + e.DecalTextureSlot + ")"));
+                verdict.ReasonCode = "decal_texture_missing";
+                verdict.Summary = "The decal's active mode requires a resolved texture" +
+                                  (e.DecalTextureSlot.empty() ? std::string() : std::string(" in ") + e.DecalTextureSlot) +
+                                  ", but that slot is unavailable; its samples cannot produce a visible decal.";
+                return verdict;
+            }
+            if (e.DecalTextureRequired)
+                checks.push_back(std::string("[ok] the decal's required texture is available") +
+                                 (e.DecalTextureSlot.empty() ? std::string() : std::string(" (") + e.DecalTextureSlot + ")"));
+        }
 
         if (e.GeometryRequired && !e.GeometryPresent)
         {
@@ -249,6 +302,60 @@ namespace OloEngine::MCP::RenderExplain
         else
         {
             checks.push_back("[warn] camera-relative checks skipped (editor camera pose or entity bounds unavailable)");
+        }
+
+        if (e.IsDecal)
+        {
+            if (e.SubmissionKnown && !e.Submitted)
+            {
+                checks.push_back("[fail] the scene did not submit this decal to the renderer");
+                verdict.ReasonCode = "not_submitted";
+                verdict.Summary = "The entity has a DecalComponent, but the scene did not submit it to the renderer this frame.";
+                return verdict;
+            }
+            if (e.SubmissionKnown)
+                checks.push_back("[ok] the scene submitted this decal to the renderer");
+            else
+                checks.push_back("[warn] per-entity decal submission was not observed");
+
+            if (e.ReceiverIntersectionKnown && !e.ReceiverIntersectsProjection)
+            {
+                checks.push_back("[fail] the decal projection box contains no receiving surface");
+                verdict.ReasonCode = "decal_no_receiver";
+                verdict.Summary = "The DecalComponent is configured, but its projection box does not intersect any visible "
+                                  "scene geometry. Move or resize the decal so a receiving surface lies inside the box.";
+                return verdict;
+            }
+            if (e.ReceiverIntersectionKnown)
+                checks.push_back("[ok] the decal projection box intersects receiving geometry");
+            else
+                checks.push_back("[warn] decal projection-box intersection was not observed");
+
+            if (e.DrawIssuedKnown && !e.DrawIssued)
+            {
+                checks.push_back("[fail] the submitted decal did not issue a draw");
+                verdict.ReasonCode = "draw_not_issued";
+                verdict.Summary = "The scene submitted this decal, but its render pass did not issue the draw this frame.";
+                return verdict;
+            }
+            if (e.DrawIssuedKnown)
+                checks.push_back("[ok] the decal render pass issued the draw");
+            else
+                checks.push_back("[warn] per-entity decal draw issuance was not observed");
+
+            if (e.FragmentResultKnown && !e.FragmentsSurvived)
+            {
+                checks.push_back("[fail] the decal draw produced zero surviving fragments");
+                verdict.ReasonCode = "zero_fragments";
+                verdict.Summary = "The decal was submitted and its draw was issued, but zero fragments survived. Check the "
+                                  "projection volume, receiving depth/normal, fade and texture alpha rather than adding a "
+                                  "renderable component.";
+                return verdict;
+            }
+            if (e.FragmentResultKnown)
+                checks.push_back("[ok] at least one decal fragment survived");
+            else
+                checks.push_back("[warn] surviving decal fragments were not observed");
         }
 
         // Everything observable checks out.

@@ -2612,17 +2612,19 @@ namespace OloEngine
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
-        // Upload decal UBO
-        if (auto decalUBO = Renderer3D::GetDecalUBO(); decalUBO)
+        const auto uploadDecalData = [&](const glm::vec4& params)
         {
+            auto decalUBO = Renderer3D::GetDecalUBO();
+            if (!decalUBO)
+                return;
             ShaderBindingLayout::DecalUBO decalData{};
             decalData.InverseDecalTransform = cmd->inverseDecalTransform;
             decalData.InverseViewProjection = cmd->inverseViewProjection;
             decalData.DecalColor = cmd->decalColor;
-            decalData.DecalParams = cmd->decalParams;
+            decalData.DecalParams = params;
             decalUBO->SetData(&decalData, ShaderBindingLayout::DecalUBO::GetSize());
             api.BindUniformBuffer(ShaderBindingLayout::UBO_DECAL, decalUBO->GetRHIHandle());
-        }
+        };
 
         // Bind albedo texture (with redundancy check)
         if (cmd->albedoTextureID.IsValid())
@@ -2663,7 +2665,31 @@ namespace OloEngine
         // Bind VAO (cached) and draw decal cube
         BindVAOIfNeeded(cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
+
+        // When olo_render_why_not_visible has armed this entity, issue one
+        // colour-write-free diagnostic draw. DecalParams.z makes every decal
+        // shader return immediately after the projection-volume test, before
+        // texture sampling or alpha/fade discards. Its query therefore answers
+        // the separate question "does scene depth reconstruct inside the box?"
+        // without changing the rendered frame.
+        const bool receiverQuery = Renderer3D::BeginDecalReceiverIntersectionQuery(cmd->entityID);
+        if (receiverQuery)
+        {
+            glm::vec4 diagnosticParams = cmd->decalParams;
+            diagnosticParams.z = 1.0f;
+            uploadDecalData(diagnosticParams);
+            api.SetColorMask(false, false, false, false);
+            api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
+            Renderer3D::EndDecalReceiverIntersectionQuery();
+            InvalidateRenderStateCache();
+            ApplyPODRenderState(cmd->renderStateIndex, api);
+        }
+
+        uploadDecalData(cmd->decalParams);
+        const bool visibilityQuery = Renderer3D::BeginDecalVisibilityQuery(cmd->entityID);
         api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
+        if (visibilityQuery)
+            Renderer3D::EndDecalVisibilityQuery();
         ++s_Data.Stats.DrawCalls;
     }
 

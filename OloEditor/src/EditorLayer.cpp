@@ -9,6 +9,8 @@
 #include "MCP/McpServer.h"
 #include "MCP/McpServerPanel.h"
 #include "MCP/McpTools.h"
+#include "MCP/McpEditorPanels.h"
+#include "MCP/McpEditorDebugDraw.h"
 #include "OloEngine/Renderer/Preview/AssetPreviewRenderer.h"
 #include "OloEngine/Core/SyntheticInput.h"
 
@@ -17,6 +19,8 @@
 #include <GLFW/glfw3.h>
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -590,8 +594,8 @@ namespace OloEngine
                                  std::to_string(result.EntityCount) + " entities).";
                 return result;
             };
-            // olo_scene_play / olo_scene_stop (#316): toggle Play mode — the
-            // same OnScenePlay / OnSceneStop the editor's Play/Stop buttons drive.
+            // olo_scene_play / olo_scene_simulate / olo_scene_stop: select the
+            // same scene mode as the editor's Play / Simulate / Stop buttons.
             // Idempotent: a redundant call reports changed:false. Entering Play can
             // fail when the scene has no primary camera (OnScenePlay reverts to Edit),
             // reported as ok:false. Main-thread-only (mutates scene state / runs the
@@ -600,6 +604,7 @@ namespace OloEngine
             {
                 MCP::McpScenePlayResult result;
                 result.Available = true;
+                const SceneState priorState = m_SceneState;
 
                 if (play)
                 {
@@ -617,7 +622,7 @@ namespace OloEngine
                         const bool nowPlaying = m_SceneState == SceneState::Play;
                         result.Ok = nowPlaying;
                         result.Playing = nowPlaying;
-                        result.Changed = nowPlaying;
+                        result.Changed = m_SceneState != priorState;
                         result.Message = nowPlaying
                                              ? "Entered Play mode."
                                              : "Could not enter Play mode: the scene has no primary CameraComponent "
@@ -631,16 +636,43 @@ namespace OloEngine
                         OnSceneStop();
                         result.Ok = true;
                         result.Changed = true;
-                        result.Message = "Stopped Play mode; restored the authored scene.";
+                        result.Message = "Stopped Play/Simulate mode; restored the authored scene.";
                     }
                     else
                     {
                         result.Ok = true;
                         result.Message = "Already stopped (Edit mode).";
                     }
-                    result.Playing = false;
                 }
 
+                result.Playing = m_SceneState == SceneState::Play;
+                result.Simulating = m_SceneState == SceneState::Simulate;
+                result.Mode = result.Playing ? "play" : (result.Simulating ? "simulate" : "edit");
+                result.SceneName = m_ActiveScene ? m_ActiveScene->GetName() : std::string{};
+                return result;
+            };
+            mcpContext.SetSceneSimulateState = [this]() -> MCP::McpScenePlayResult
+            {
+                MCP::McpScenePlayResult result;
+                result.Available = true;
+
+                if (m_SceneState == SceneState::Simulate)
+                {
+                    result.Ok = true;
+                    result.Message = "Already in Simulate mode.";
+                }
+                else
+                {
+                    OnSceneSimulate();
+                    result.Ok = m_SceneState == SceneState::Simulate;
+                    result.Changed = result.Ok;
+                    result.Message = result.Ok ? "Entered Simulate mode."
+                                               : "Could not enter Simulate mode (see the engine log).";
+                }
+
+                result.Playing = m_SceneState == SceneState::Play;
+                result.Simulating = m_SceneState == SceneState::Simulate;
+                result.Mode = result.Playing ? "play" : (result.Simulating ? "simulate" : "edit");
                 result.SceneName = m_ActiveScene ? m_ActiveScene->GetName() : std::string{};
                 return result;
             };
@@ -670,6 +702,18 @@ namespace OloEngine
             // about to read or inject can work" instead of quietly succeeding.
             mcpContext.GetEditorLiveness = [this]() -> MCP::McpEditorLiveness
             { return GetMcpEditorLiveness(); };
+            mcpContext.GetEditorPanels = [this]() -> std::vector<MCP::McpEditorPanelState>
+            { return GetMcpEditorPanels(); };
+            mcpContext.SetEditorPanel = [this](const std::string& panel, bool open) -> MCP::McpEditorPanelSetResult
+            { return SetMcpEditorPanel(panel, open); };
+            mcpContext.GetEditorDebugDrawState = [this]() -> MCP::McpEditorDebugDrawState
+            { return GetMcpEditorDebugDrawState(); };
+            mcpContext.SetEditorDebugDraw = [this](const std::string& category, bool enabled) -> MCP::McpEditorDebugDrawSetResult
+            { return SetMcpEditorDebugDraw(category, enabled); };
+            mcpContext.TerrainPick = [this](const MCP::TerrainPick::Request& request, bool submit) -> MCP::TerrainPick::Snapshot
+            { return TerrainPickFromMcp(request, submit); };
+            mcpContext.LightmapBake = [this](const MCP::LightmapBake::Request& request, bool start) -> MCP::LightmapBake::Snapshot
+            { return LightmapBakeFromMcp(request, start); };
 
             m_McpServer = CreateScope<MCP::McpServer>(std::move(mcpContext));
             MCP::RegisterBuiltinTools(*m_McpServer);
@@ -1339,6 +1383,161 @@ namespace OloEngine
         return result;
     }
 
+    bool& EditorLayer::McpPanelVisibility(MCP::EditorPanels::PanelId panel)
+    {
+        using PanelMember = bool EditorLayer::*;
+        static constexpr std::array<PanelMember, static_cast<sizet>(MCP::EditorPanels::PanelId::Count)> kPanelMembers{
+            &EditorLayer::m_ShowShaderDebugger,
+            &EditorLayer::m_ShowGPUResourceInspector,
+            &EditorLayer::m_ShowCommandBucketInspector,
+            &EditorLayer::m_ShowRendererProfiler,
+            &EditorLayer::m_ShowRenderGraphDebugger,
+            &EditorLayer::m_ShowAssetPackBuilder,
+            &EditorLayer::m_ShowBuildGame,
+            &EditorLayer::m_ShowInstanceScatterBrush,
+            &EditorLayer::m_ShowSkillTreeEditor,
+            &EditorLayer::m_ShowCinematicTimeline,
+            &EditorLayer::m_ShowConsolePanel,
+            &EditorLayer::m_ShowStatistics,
+            &EditorLayer::m_ShowAnimationPanel,
+            &EditorLayer::m_ShowPostProcessSettings,
+            &EditorLayer::m_ShowRendererSettings,
+            &EditorLayer::m_ShowTerrainEditor,
+            &EditorLayer::m_ShowStreamingPanel,
+            &EditorLayer::m_ShowInputSettings,
+            &EditorLayer::m_ShowNetworkDebug,
+            &EditorLayer::m_ShowThreadInspector,
+            &EditorLayer::m_ShowDialogueEditor,
+            &EditorLayer::m_ShowNavMeshPanel,
+            &EditorLayer::m_ShowBehaviorTreeEditor,
+            &EditorLayer::m_ShowFSMEditor,
+            &EditorLayer::m_ShowShaderGraphEditor,
+            &EditorLayer::m_ShowVisualScriptEditor,
+            &EditorLayer::m_ShowSoundGraphEditor,
+            &EditorLayer::m_ShowAnimationGraphEditor,
+            &EditorLayer::m_ShowSaveGamePanel,
+            &EditorLayer::m_ShowLocalizationPanel,
+            &EditorLayer::m_ShowGamepadDebug,
+            &EditorLayer::m_ShowShaderEditor,
+            &EditorLayer::m_ShowAudioEventsPanel,
+            &EditorLayer::m_ShowMcpPanel,
+        };
+        static_assert(std::ranges::none_of(kPanelMembers, [](PanelMember member)
+                                           { return member == nullptr; }),
+                      "Every MCP panel id must map to a valid EditorLayer member.");
+
+        const sizet index = static_cast<sizet>(panel);
+        OLO_CORE_ASSERT(index < kPanelMembers.size(), "Invalid MCP editor panel id: {}", static_cast<u32>(panel));
+        return this->*kPanelMembers[index < kPanelMembers.size() ? index : kPanelMembers.size() - 1];
+    }
+
+    const bool& EditorLayer::McpPanelVisibility(MCP::EditorPanels::PanelId panel) const
+    {
+        return const_cast<EditorLayer*>(this)->McpPanelVisibility(panel);
+    }
+
+    std::vector<MCP::McpEditorPanelState> EditorLayer::GetMcpEditorPanels() const
+    {
+        std::vector<MCP::McpEditorPanelState> panels;
+        panels.reserve(MCP::EditorPanels::kPanels.size());
+        for (const auto& descriptor : MCP::EditorPanels::kPanels)
+        {
+            panels.push_back(MCP::McpEditorPanelState{
+                std::string(descriptor.Name),
+                std::string(descriptor.Title),
+                McpPanelVisibility(descriptor.Id),
+            });
+        }
+        return panels;
+    }
+
+    MCP::McpEditorPanelSetResult EditorLayer::SetMcpEditorPanel(const std::string& panel, bool open)
+    {
+        MCP::McpEditorPanelSetResult result;
+        result.Available = true;
+        const auto* descriptor = MCP::EditorPanels::Find(panel);
+        if (descriptor == nullptr)
+        {
+            result.Message = "Unknown editor panel '" + panel + "'. Call olo_editor_panel_list for valid names.";
+            return result;
+        }
+
+        bool& visible = McpPanelVisibility(descriptor->Id);
+        result.Changed = visible != open;
+        visible = open;
+        result.Ok = true;
+        result.Panel = { std::string(descriptor->Name), std::string(descriptor->Title), visible };
+        result.Message = result.Changed
+                             ? std::string(open ? "Opened " : "Closed ") + std::string(descriptor->Title) + "."
+                             : std::string(descriptor->Title) + (open ? " is already open." : " is already closed.");
+        return result;
+    }
+
+    MCP::McpEditorDebugDrawState EditorLayer::GetMcpEditorDebugDrawState() const
+    {
+        const auto& settings = Renderer3D::GetRendererSettings();
+        return MCP::McpEditorDebugDrawState{
+            settings.EditorDebugDrawsEnabled,
+            settings.ShowGrid,
+            settings.ShowPhysicsColliders,
+            settings.ShowLightGizmos,
+            settings.ShowWorldAxisHelper,
+            settings.ShowCameraFrustums,
+            settings.ShowBoundingBoxes,
+            settings.ShowSelectionOutline,
+            settings.ShowComponentGizmos,
+        };
+    }
+
+    MCP::McpEditorDebugDrawSetResult EditorLayer::SetMcpEditorDebugDraw(const std::string& category, bool enabled)
+    {
+        MCP::McpEditorDebugDrawSetResult result;
+        result.Available = true;
+        const std::string_view canonical = MCP::EditorDebugDraw::CanonicalCategory(category);
+        if (canonical.empty())
+        {
+            result.Message = "Unknown editor debug-draw category '" + category + "'.";
+            return result;
+        }
+
+        auto& settings = Renderer3D::GetRendererSettings();
+        bool* value = nullptr;
+        if (canonical == "all")
+            value = &settings.EditorDebugDrawsEnabled;
+        else if (canonical == "grid")
+            value = &settings.ShowGrid;
+        else if (canonical == "physics_colliders")
+            value = &settings.ShowPhysicsColliders;
+        else if (canonical == "light_gizmos")
+            value = &settings.ShowLightGizmos;
+        else if (canonical == "world_axis")
+            value = &settings.ShowWorldAxisHelper;
+        else if (canonical == "camera_frustums")
+            value = &settings.ShowCameraFrustums;
+        else if (canonical == "bounding_boxes")
+            value = &settings.ShowBoundingBoxes;
+        else if (canonical == "selection_outline")
+            value = &settings.ShowSelectionOutline;
+        else if (canonical == "component_gizmos")
+            value = &settings.ShowComponentGizmos;
+
+        OLO_CORE_ASSERT(value != nullptr, "Unhandled MCP debug-draw category: {}", canonical);
+        const MCP::McpEditorDebugDrawState before = GetMcpEditorDebugDrawState();
+        *value = enabled;
+        // Enabling an individual category must make it visible even after a prior
+        // `all:false`; disabling one leaves the master untouched.
+        if (canonical != "all" && enabled)
+            settings.EditorDebugDrawsEnabled = true;
+
+        result.Ok = true;
+        result.Category = canonical;
+        result.Enabled = enabled;
+        result.State = GetMcpEditorDebugDrawState();
+        result.Changed = result.State != before;
+        result.Message = result.Changed ? "Editor debug-draw state updated." : "Editor debug-draw state was already requested.";
+        return result;
+    }
+
     void EditorLayer::OnUpdate(Timestep const ts)
     {
         OLO_PROFILE_FUNCTION();
@@ -1465,7 +1664,9 @@ namespace OloEngine
         }
 
         // Feed selected entity IDs to the selection outline pass (editor-only, 3D Edit mode)
-        if (m_Is3DMode && m_SceneState == SceneState::Edit)
+        const auto& editorDebug = Renderer3D::GetRendererSettings();
+        if (m_Is3DMode && m_SceneState == SceneState::Edit &&
+            editorDebug.EditorDebugDrawsEnabled && editorDebug.ShowSelectionOutline)
         {
             auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
             std::vector<i32> ids;
@@ -3344,6 +3545,7 @@ namespace OloEngine
 
     void EditorLayer::OnOverlayRender() const
     {
+        const auto& editorDebug = Renderer3D::GetRendererSettings();
         if (m_SceneState == SceneState::Play)
         {
             Entity camera = m_ActiveScene->GetPrimaryCameraEntity();
@@ -3359,7 +3561,8 @@ namespace OloEngine
         }
 
         // Entity outline
-        if (const auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities(); !selectedEntities.empty())
+        if (const auto& selectedEntities = m_SceneHierarchyPanel.GetSelectedEntities();
+            editorDebug.EditorDebugDrawsEnabled && editorDebug.ShowSelectionOutline && !selectedEntities.empty())
         {
             Renderer2D::SetLineWidth(4.0f);
 
@@ -3404,7 +3607,7 @@ namespace OloEngine
             }
         }
 
-        if (Renderer3D::GetRendererSettings().ShowPhysicsColliders)
+        if (editorDebug.EditorDebugDrawsEnabled && editorDebug.ShowPhysicsColliders)
         {
             if (const f64 epsilon = 1e-5; std::abs(Renderer2D::GetLineWidth() - -2.0f) > static_cast<f32>(epsilon))
             {
@@ -4750,6 +4953,117 @@ namespace OloEngine
         return TerrainPickState::Answered;
     }
 
+    MCP::TerrainPick::Snapshot EditorLayer::TerrainPickFromMcp(const MCP::TerrainPick::Request& request, bool submit) const
+    {
+        MCP::TerrainPick::Snapshot snapshot;
+        snapshot.Input = submit ? request : m_McpTerrainPickInput;
+        snapshot.RayId = m_McpTerrainPickRayId;
+
+        if (!IsGpuTerrainPickingEnabled() || !m_ActiveScene)
+        {
+            snapshot.UnavailableReason = "GPU terrain picking is disabled or no scene is active.";
+            return snapshot;
+        }
+
+        Entity terrainEntity;
+        auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent, TerrainComponent>();
+        if (auto it = view.begin(); it != view.end())
+            terrainEntity = Entity(*it, m_ActiveScene.get());
+        if (!terrainEntity)
+        {
+            snapshot.UnavailableReason = "The active scene contains no terrain entity.";
+            return snapshot;
+        }
+
+        auto& terrain = terrainEntity.GetComponent<TerrainComponent>();
+        const auto& transform = terrainEntity.GetComponent<TransformComponent>();
+        if (!terrain.m_ChunkManager || !terrain.m_ChunkManager->IsBuilt() ||
+            !terrain.m_ChunkManager->GetGPUQuadtree() || !terrain.m_ChunkManager->GetGPUQuadtree()->IsBuilt())
+        {
+            snapshot.UnavailableReason = "The terrain GPU quadtree is not built.";
+            return snapshot;
+        }
+        auto& picker = terrain.m_ChunkManager->GetOrCreateGPUPicker();
+        if (!picker)
+        {
+            snapshot.UnavailableReason = "The terrain GPU picker could not be created.";
+            return snapshot;
+        }
+
+        if (submit)
+        {
+            Ray worldRay;
+            f32 maxDistance = request.Ray.MaxDistance;
+            if (request.Source == MCP::TerrainPick::RaySource::WorldRay)
+            {
+                worldRay = Ray(request.Ray.Origin, request.Ray.Direction);
+            }
+            else
+            {
+                glm::vec2 viewportSize = request.Source == MCP::TerrainPick::RaySource::ViewportPixel
+                                             ? glm::vec2(request.ViewportDimensions)
+                                             : m_ViewportSize;
+                glm::vec2 coordinate = request.Source == MCP::TerrainPick::RaySource::ViewportPixel
+                                           ? request.Coordinate
+                                           : request.Coordinate * viewportSize;
+                if (!BuildMouseRay(coordinate, viewportSize, worldRay))
+                {
+                    snapshot.UnavailableReason = "The editor camera or viewport could not produce a finite ray.";
+                    return snapshot;
+                }
+                maxDistance = 2000.0f;
+            }
+
+            const glm::mat4 model = transform.GetTransform();
+            const glm::mat4 inverseModel = glm::inverse(model);
+            const glm::vec3 localOrigin = glm::vec3(inverseModel * glm::vec4(worldRay.Origin, 1.0f));
+            const glm::vec3 localDirection = glm::vec3(inverseModel * glm::vec4(worldRay.Direction, 0.0f));
+            const f32 localUnitsPerWorldUnit = glm::length(localDirection);
+            if (!Math::IsFinite(localOrigin) || !Math::IsFinite(localDirection) || localUnitsPerWorldUnit <= 1.0e-6f)
+            {
+                snapshot.UnavailableReason = "The terrain transform produced a degenerate local-space ray.";
+                return snapshot;
+            }
+
+            TerrainGPUPicker::RayRequest gpuRequest;
+            gpuRequest.OriginLocal = localOrigin;
+            gpuRequest.DirectionLocal = localDirection;
+            gpuRequest.MaxDistance = maxDistance * localUnitsPerWorldUnit;
+            gpuRequest.RayId = ++m_TerrainPickRayId;
+            if (!picker->SubmitRay(gpuRequest))
+            {
+                snapshot.UnavailableReason = "The terrain GPU picker rejected the ray.";
+                return snapshot;
+            }
+
+            m_McpTerrainPickRayId = gpuRequest.RayId;
+            m_McpTerrainPickInput = request;
+            m_McpTerrainPickWorldRay = { worldRay.Origin, worldRay.Direction, maxDistance };
+            m_McpTerrainPickTerrainTransform = model;
+            snapshot.Input = request;
+            snapshot.RayId = gpuRequest.RayId;
+        }
+
+        snapshot.ResolvedWorldRay = m_McpTerrainPickWorldRay;
+        const auto& result = picker->GetLatest();
+        if (!result.Valid || result.RayId != m_McpTerrainPickRayId)
+        {
+            snapshot.State = MCP::TerrainPick::Status::Pending;
+            return snapshot;
+        }
+
+        snapshot.State = MCP::TerrainPick::Status::Answered;
+        snapshot.Hit = result.Hit;
+        snapshot.LatencyFrames = result.Latency;
+        snapshot.OverflowFlags = result.OverflowFlags;
+        if (result.Hit)
+        {
+            snapshot.LocalHit = result.PositionLocal;
+            snapshot.WorldHit = glm::vec3(m_McpTerrainPickTerrainTransform * glm::vec4(result.PositionLocal, 1.0f));
+        }
+        return snapshot;
+    }
+
     bool EditorLayer::TerrainRaycast(const glm::vec2& mousePos, const glm::vec2& viewportSize, glm::vec3& outHitPos) const
     {
         OLO_PROFILE_FUNCTION();
@@ -5520,6 +5834,54 @@ namespace OloEngine
             bakeDone->set_value(); }, Tasks::ETaskPriority::BackgroundNormal);
     }
 
+    MCP::LightmapBake::Snapshot EditorLayer::LightmapBakeFromMcp(const MCP::LightmapBake::Request& request, bool start)
+    {
+        if (start)
+        {
+            if (m_LightmapBakeInProgress.load())
+            {
+                MCP::LightmapBake::Snapshot rejected;
+                rejected.OperationId = MCP::LightmapBake::MakeOperationId(++m_McpLightmapBakeSequence);
+                rejected.State = MCP::LightmapBake::Status::Failed;
+                rejected.Error = "A lightmap bake is already in progress; poll operation '" +
+                                 m_McpLightmapBakeSnapshot.OperationId + "' instead.";
+                return rejected;
+            }
+
+            m_McpLightmapBakeSnapshot = {};
+            m_McpLightmapBakeSnapshot.OperationId = MCP::LightmapBake::MakeOperationId(++m_McpLightmapBakeSequence);
+            m_McpLightmapBakeSnapshot.State = MCP::LightmapBake::Status::Queued;
+            m_McpLightmapSaveRequested = request.Save;
+            if (m_SceneState != SceneState::Edit || !m_ActiveScene)
+            {
+                m_McpLightmapBakeSnapshot.State = MCP::LightmapBake::Status::Failed;
+                m_McpLightmapBakeSnapshot.Error = "Lightmap baking requires an active scene in Edit mode.";
+                return m_McpLightmapBakeSnapshot;
+            }
+
+            BakeLightmaps();
+            if (!m_LightmapBakeInProgress.load())
+            {
+                m_McpLightmapBakeSnapshot.State = MCP::LightmapBake::Status::Failed;
+                m_McpLightmapBakeSnapshot.Error = "The lightmap bake could not start; check the engine log for preparation details.";
+                return m_McpLightmapBakeSnapshot;
+            }
+            m_McpLightmapBakeSnapshot.State = MCP::LightmapBake::Status::Running;
+        }
+        else if (request.OperationId != m_McpLightmapBakeSnapshot.OperationId)
+        {
+            MCP::LightmapBake::Snapshot missing;
+            missing.OperationId = request.OperationId;
+            missing.State = MCP::LightmapBake::Status::Failed;
+            missing.Error = "Unknown lightmap bake operation id.";
+            return missing;
+        }
+
+        if (m_McpLightmapBakeSnapshot.State == MCP::LightmapBake::Status::Running)
+            m_McpLightmapBakeSnapshot.Progress = m_LightmapBakeProgress.load();
+        return m_McpLightmapBakeSnapshot;
+    }
+
     void EditorLayer::ProcessLightmapBakeCompletion()
     {
         LightmapBakeResult result;
@@ -5543,9 +5905,18 @@ namespace OloEngine
         const std::filesystem::path bakedScenePath = m_LightmapBakeScenePath;
         m_LightmapBakeScene = nullptr;
         m_LightmapBakeScenePath.clear();
+        const bool mcpBake = !m_McpLightmapBakeSnapshot.OperationId.empty() &&
+                             m_McpLightmapBakeSnapshot.State == MCP::LightmapBake::Status::Running;
 
         if (!result.Success)
         {
+            if (!m_McpLightmapBakeSnapshot.OperationId.empty() &&
+                m_McpLightmapBakeSnapshot.State == MCP::LightmapBake::Status::Running)
+            {
+                m_McpLightmapBakeSnapshot.State = MCP::LightmapBake::Status::Failed;
+                m_McpLightmapBakeSnapshot.Progress = m_LightmapBakeProgress.load();
+                m_McpLightmapBakeSnapshot.Error = result.Error;
+            }
             OLO_CORE_ERROR("Lightmap bake failed: {}", result.Error);
             return;
         }
@@ -5560,6 +5931,11 @@ namespace OloEngine
         }
         if (!editorAssetManager)
         {
+            if (mcpBake)
+            {
+                m_McpLightmapBakeSnapshot.State = MCP::LightmapBake::Status::Failed;
+                m_McpLightmapBakeSnapshot.Error = "No editor asset manager is active; the bake result was discarded.";
+            }
             OLO_CORE_ERROR("Lightmap bake finished but no editor asset manager is active — result discarded");
             return;
         }
@@ -5591,6 +5967,11 @@ namespace OloEngine
             std::move(result.Asset->GetEntries()));
         if (!stored)
         {
+            if (mcpBake)
+            {
+                m_McpLightmapBakeSnapshot.State = MCP::LightmapBake::Status::Failed;
+                m_McpLightmapBakeSnapshot.Error = "The baked lightmap asset could not be stored.";
+            }
             OLO_CORE_ERROR("Lightmap bake finished but the asset could not be stored at {}", assetPath.string());
             return;
         }
@@ -5603,11 +5984,29 @@ namespace OloEngine
         }
         if (bakedScene != m_EditorScene)
         {
+            if (mcpBake)
+            {
+                m_McpLightmapBakeSnapshot.State = MCP::LightmapBake::Status::Failed;
+                m_McpLightmapBakeSnapshot.Error = "The baked scene is no longer the open authored scene; the asset was saved but not attached.";
+            }
             OLO_CORE_WARN("Lightmap bake completed for scene '{}', which is no longer the open scene — the .olmap "
                           "was saved, but the open scene was not touched. Reopen '{}' and re-bake (or assign {} "
                           "manually) to use it.",
                           sceneName, sceneName, assetPath.string());
             return;
+        }
+
+        bool saved = false;
+        if (mcpBake && m_McpLightmapSaveRequested && !m_EditorScenePath.empty())
+            saved = SaveScene();
+        if (mcpBake)
+        {
+            m_McpLightmapBakeSnapshot.State = MCP::LightmapBake::Status::Succeeded;
+            m_McpLightmapBakeSnapshot.Progress = 1.0;
+            m_McpLightmapBakeSnapshot.Error.clear();
+            m_McpLightmapBakeSnapshot.CompletedResult = MCP::LightmapBake::Result{
+                result.BakedEntityCount, result.SkippedEntityCount, m_McpLightmapSaveRequested, saved
+            };
         }
 
         OLO_CORE_INFO("Lightmap bake complete: {} entities baked, {} skipped — saved to {} (save the scene to keep the reference)",

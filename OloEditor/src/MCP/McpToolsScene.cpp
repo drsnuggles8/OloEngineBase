@@ -2,10 +2,12 @@
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpGenericFieldWrite.h"
+#include "MCP/McpReflectionProbeBake.h"
 #include "MCP/McpSceneControl.h"
 #include "MCP/McpSchedulerGraph.h"
 #include "MCP/McpSelectEntity.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
@@ -361,29 +363,47 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
-        // ---- olo_scene_play / olo_scene_stop (main-marshaled; PROJECT WRITE) ---
-        // Toggle Play mode over MCP — the consented-write, fully-reversible play/stop
-        // switch (issue #316). Wraps the editor's OnScenePlay / OnSceneStop
-        // (the same path the editor's Play / Stop toolbar buttons drive) through the
-        // SetScenePlayState hook. Gated at dispatch by the "Allow writes" session
+        // ---- olo_scene_play / simulate / stop (main-marshaled; PROJECT WRITE) --
+        // Select scene mode over MCP through the same paths as the editor toolbar.
+        // Gated at dispatch by the "Allow writes" session
         // toggle (ToolDef::ProjectWrite): entering Play copies the scene and executes
         // the user's game scripts, so it crosses the read-only line — but it is
         // transient (stopping restores the authored scene, exactly like the editor).
         // olo_scene_summary reports `isPlaying`, so an agent can confirm the
         // transition took. The transition runs inside the MarshalRead job (main
         // thread), since it mutates scene state.
-        ToolResult Handle_ScenePlayState(McpServer& server, bool play)
+        enum class SceneModeRequest : u8
+        {
+            Edit,
+            Play,
+            Simulate
+        };
+
+        ToolResult Handle_ScenePlayState(McpServer& server, SceneModeRequest request)
         {
             using namespace SceneControl;
 
-            if (!server.Context().SetScenePlayState)
-                return ToolResult::Error("Play-mode control is not available in this editor build.");
+            const bool available = request == SceneModeRequest::Simulate
+                                       ? static_cast<bool>(server.Context().SetSceneSimulateState)
+                                       : static_cast<bool>(server.Context().SetScenePlayState);
+            if (!available)
+                return ToolResult::Error("Scene-mode control is not available in this editor build.");
 
-            const Json result = server.MarshalRead([&server, play]() -> Json
+            const Json result = server.MarshalRead([&server, request]() -> Json
                                                    {
-                if (!server.Context().SetScenePlayState)
-                    return Json{ { "__error", "Play-mode control is not available in this editor build." } };
-                const McpScenePlayResult r = server.Context().SetScenePlayState(play);
+                McpScenePlayResult r;
+                if (request == SceneModeRequest::Simulate)
+                {
+                    if (!server.Context().SetSceneSimulateState)
+                        return Json{ { "__error", "Scene-mode control is not available in this editor build." } };
+                    r = server.Context().SetSceneSimulateState();
+                }
+                else
+                {
+                    if (!server.Context().SetScenePlayState)
+                        return Json{ { "__error", "Scene-mode control is not available in this editor build." } };
+                    r = server.Context().SetScenePlayState(request == SceneModeRequest::Play);
+                }
                 return ToJson(r); },
                                                    kSceneControlTimeout);
 
@@ -425,12 +445,79 @@ namespace OloEngine::MCP
 
         ToolResult Handle_ScenePlay(McpServer& server, const Json&)
         {
-            return Handle_ScenePlayState(server, /*play*/ true);
+            return Handle_ScenePlayState(server, SceneModeRequest::Play);
+        }
+
+        ToolResult Handle_SceneSimulate(McpServer& server, const Json&)
+        {
+            return Handle_ScenePlayState(server, SceneModeRequest::Simulate);
         }
 
         ToolResult Handle_SceneStop(McpServer& server, const Json&)
         {
-            return Handle_ScenePlayState(server, /*play*/ false);
+            return Handle_ScenePlayState(server, SceneModeRequest::Edit);
+        }
+
+        Json BakeNamedReflectionProbe(McpServer& server, const std::string& entityName)
+        {
+            Ref<Scene> scene = server.Context().GetActiveScene
+                                   ? server.Context().GetActiveScene()
+                                   : nullptr;
+            if (!scene)
+                return Json{ { "__error", "No active scene." } };
+
+            Entity probeEntity;
+            u32 matchCount = 0;
+            auto view = scene->GetAllEntitiesWith<TagComponent>();
+            for (const auto handle : view)
+            {
+                if (view.get<TagComponent>(handle).Tag != entityName)
+                    continue;
+                ++matchCount;
+                probeEntity = Entity{ handle, scene.get() };
+            }
+
+            if (matchCount == 0)
+                return Json{ { "__error", "No entity named '" + entityName + "' exists in the active scene." } };
+            if (matchCount > 1)
+            {
+                return Json{ { "__error", "Entity name '" + entityName + "' is ambiguous (" +
+                                              std::to_string(matchCount) +
+                                              " exact matches); reflection-probe entity names must be unique." } };
+            }
+            if (!probeEntity.HasComponent<ReflectionProbeComponent>())
+                return Json{ { "__error", "Entity '" + entityName + "' has no ReflectionProbeComponent." } };
+            if (!probeEntity.HasComponent<TransformComponent>())
+                return Json{ { "__error", "Entity '" + entityName + "' has no TransformComponent." } };
+
+            auto& probe = probeEntity.GetComponent<ReflectionProbeComponent>();
+            const glm::vec3 position = probeEntity.GetComponent<TransformComponent>().Translation;
+            const bool baked = ReflectionProbeBaker::BakeProbe(scene, position, probe);
+            return ReflectionProbeBake::Result(
+                entityName, baked,
+                baked ? "Baked reflection probe '" + entityName + "'."
+                      : "Reflection probe bake failed for '" + entityName + "' (see the engine log).");
+        }
+
+        // ---- olo_reflection_probe_bake (main-marshaled; PROJECT WRITE) --------
+        // The bake renders the live scene six times and replaces the component's
+        // in-memory EnvironmentMap, so entity resolution and the complete bake run
+        // on the game thread. Names are exact and must be unique: silently choosing
+        // the first duplicate would bake the wrong probe while reporting success.
+        ToolResult Handle_ReflectionProbeBake(McpServer& server, const Json& args)
+        {
+            std::string entityName;
+            if (const auto error = ReflectionProbeBake::ParseEntityName(args, entityName))
+                return ToolResult::Error(*error);
+
+            const Json result = server.MarshalRead(
+                [&server, entityName]() -> Json
+                { return BakeNamedReflectionProbe(server, entityName); },
+                kSceneControlTimeout);
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_editor_select_entity (main-marshaled; PROJECT WRITE) ----------
@@ -752,16 +839,29 @@ namespace OloEngine::MCP
                 "WRITE tool: it is refused unless 'Allow writes' is enabled in the editor's MCP Server panel (off by "
                 "default).";
             tool.InputSchema = SceneControl::PlayStopInputSchema();
-            tool.OutputSchema = Schema::Object()
-                                    .Prop("available", Schema::Bool().Desc("False when this editor build has no play-mode hook."))
-                                    .Prop("ok", Schema::Bool().Desc("Editor is in the requested mode afterwards; entering Play can fail (e.g. no primary camera), then ok:false."))
-                                    .Prop("playing", Schema::Bool().Desc("Play state after the call."))
-                                    .Prop("changed", Schema::Bool().Desc("True only when this call actually transitioned (a no-op is changed:false)."))
-                                    .Prop("sceneName", Schema::String())
-                                    .Prop("message", Schema::String().Desc("Human-readable outcome detail."))
-                                    .Required({ "available", "ok", "playing", "changed", "sceneName", "message" });
+            tool.OutputSchema = SceneControl::SceneStateOutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_ScenePlay;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_scene_simulate";
+            tool.Toolset = "scene";
+            tool.Title = "Enter Simulate mode";
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Enter Simulate mode — run physics and simulation while keeping the editor camera, the same as the "
+                "editor's Simulate button. Already simulating is a no-op (changed:false); calling from Play stops "
+                "Play first. The authored scene is restored by olo_scene_stop. Reports playing, simulating, and the "
+                "exact resulting mode. This is a WRITE tool: it is refused unless 'Allow writes' is enabled in the "
+                "editor's MCP Server panel (off by default).";
+            tool.InputSchema = SceneControl::PlayStopInputSchema();
+            tool.OutputSchema = SceneControl::SceneStateOutputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SceneSimulate;
             server.RegisterTool(std::move(tool));
         }
 
@@ -784,16 +884,36 @@ namespace OloEngine::MCP
             tool.InputSchema = SceneControl::PlayStopInputSchema();
             // Same shape as olo_scene_play — both registrations mirror the shared
             // Handle_ScenePlayState / SceneControl::ToJson(McpScenePlayResult) payload.
-            tool.OutputSchema = Schema::Object()
-                                    .Prop("available", Schema::Bool().Desc("False when this editor build has no play-mode hook."))
-                                    .Prop("ok", Schema::Bool().Desc("Editor is in the requested mode afterwards."))
-                                    .Prop("playing", Schema::Bool().Desc("Play state after the call."))
-                                    .Prop("changed", Schema::Bool().Desc("True only when this call actually transitioned (a no-op is changed:false)."))
-                                    .Prop("sceneName", Schema::String())
-                                    .Prop("message", Schema::String().Desc("Human-readable outcome detail."))
-                                    .Required({ "available", "ok", "playing", "changed", "sceneName", "message" });
+            tool.OutputSchema = SceneControl::SceneStateOutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneStop;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_reflection_probe_bake";
+            tool.Toolset = "scene";
+            tool.Title = "Bake reflection probe";
+            tool.ProjectWrite = true;
+            // Re-baking replaces the prior in-memory environment and depends on the
+            // scene's current rendered state, so it is neither idempotent nor undoable.
+            tool.Annotations = DestructiveMutatingAnnotations();
+            tool.Description =
+                "Bake the uniquely named reflection-probe entity from its Transform position using the editor's "
+                "real ReflectionProbeBaker path. The entity name is an exact, case-sensitive TagComponent match; "
+                "duplicate exact names are refused rather than choosing one. Requires ReflectionProbeComponent "
+                "and TransformComponent. The synchronous bake replaces the probe's prior in-memory environment "
+                "and is not undoable. This is a WRITE tool: it is refused unless 'Allow writes' is enabled in the "
+                "editor's MCP Server panel (off by default).";
+            tool.InputSchema = ReflectionProbeBake::InputSchema();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("entity", Schema::String().Desc("Exact name of the baked probe entity."))
+                                    .Prop("baked", Schema::Bool().Desc("Whether the bake produced a usable environment map."))
+                                    .Prop("message", Schema::String().Desc("Human-readable bake outcome."))
+                                    .Required({ "entity", "baked", "message" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_ReflectionProbeBake;
             server.RegisterTool(std::move(tool));
         }
 

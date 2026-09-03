@@ -547,7 +547,39 @@ namespace OloEngine::MCP::PostProcess
         std::string Error;
         Json Data;
         bool RequiresRendererApply = false;
+        bool RequiresRenderGraphRebuild = false;
     };
+
+    // These fields change the resources or pass declarations produced by the
+    // already-registered graph nodes. The live renderer fingerprints them too,
+    // but MCP writes explicitly invalidate both caches so a successful setter
+    // can never be reported while an old graph remains in use.
+    [[nodiscard]] inline bool IsRenderGraphTopologyField(std::string_view token)
+    {
+        constexpr std::array kFields = {
+            std::string_view{ "ActiveAOTechnique" },
+            std::string_view{ "SSAOEnabled" },
+            std::string_view{ "GTAOEnabled" },
+            std::string_view{ "VRCSEnabled" },
+            std::string_view{ "VRCSGTAO" },
+            std::string_view{ "BloomEnabled" },
+            std::string_view{ "VignetteEnabled" },
+            std::string_view{ "ChromaticAberrationEnabled" },
+            std::string_view{ "FXAAEnabled" },
+            std::string_view{ "ColorGradingEnabled" },
+            std::string_view{ "DOFEnabled" },
+            std::string_view{ "MotionBlurEnabled" },
+            std::string_view{ "TAAEnabled" },
+            std::string_view{ "CASEnabled" },
+            std::string_view{ "SSREnabled" },
+            std::string_view{ "SSGIEnabled" },
+            std::string_view{ "ContactShadowEnabled" },
+            std::string_view{ "OverdrawDebugView" },
+            std::string_view{ "FogEnabled" },
+            std::string_view{ "FogEnableVolumetric" },
+        };
+        return std::ranges::find(kFields, token) != kFields.end();
+    }
 
     // Coerce and apply one `value` onto `field`, mutating the live PODs and
     // reporting the prior value so the change can be restored by setting it back.
@@ -659,6 +691,7 @@ namespace OloEngine::MCP::PostProcess
         const Json applied = ValueJson(field, pp, fog);
         result.Ok = true;
         result.RequiresRendererApply = field.RequiresRendererApply && applied != previous;
+        result.RequiresRenderGraphRebuild = IsRenderGraphTopologyField(field.Token) && applied != previous;
         result.Data = Json{
             { "field", std::string(field.Token) },
             { "group", std::string(field.Group) },
@@ -717,7 +750,7 @@ namespace OloEngine::MCP::PostProcess
             j["min"] = field.Min;
             j["max"] = field.Max;
         }
-        if (field.RequiresRendererApply)
+        if (IsRenderGraphTopologyField(field.Token))
             j["rebuildsRenderGraph"] = true;
         return j;
     }

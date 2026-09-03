@@ -25,6 +25,7 @@
 		"MCP/McpToolsCamera.cpp"
 		"MCP/McpToolsInput.cpp"
 		"MCP/McpToolsDiagnostics.cpp"
+		"MCP/McpToolsEditor.cpp"
 		"MCP/McpToolsPerf.cpp"
 		"MCP/McpToolsPhysics.cpp"
 		"MCP/McpToolsRender.cpp"

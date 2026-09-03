@@ -5,7 +5,7 @@
 // McpSceneControlTest — unit test (headless, no GL, no live editor, no scene).
 //
 // Pins the consented MCP scene-control write tools olo_scene_open / olo_scene_play /
-// olo_scene_stop (issue #316): the scriptable scene switch + play-mode toggle.
+// olo_scene_simulate / olo_scene_stop: scriptable scene and runtime-mode control.
 // Two seams, the same shape as McpReloadScriptTest / McpConsentedWriteTest:
 //
 //   1. The dispatch seam (McpServer.cpp, compiled into the test binary): a tool
@@ -57,7 +57,7 @@ namespace
     }
 
     // Fixture: an McpServer whose tools are fake olo_scene_open / olo_scene_play /
-    // olo_scene_stop, each wired through the SAME schema + ToJson the real handlers
+    // olo_scene_simulate / olo_scene_stop, each wired through the SAME schema + ToJson the real handlers
     // use, but with the scene ACTIONS replaced by test-owned closures that record
     // their invocations and return canned results — so the dispatch gate, schema
     // enforcement, and result shaping are exercised without a live scene / game
@@ -103,6 +103,19 @@ namespace
             }
             {
                 ToolDef tool;
+                tool.Name = "olo_scene_simulate";
+                tool.Description = "Enter Simulate mode (fake; test wiring).";
+                tool.ProjectWrite = true;
+                tool.InputSchema = SceneControl::PlayStopInputSchema();
+                tool.Handler = [this](McpServer&, const Json&) -> ToolResult
+                {
+                    ++m_SimulateCount;
+                    return ToolResult::Text(SceneControl::ToJson(m_FakeSimulateResult).dump());
+                };
+                m_Server.RegisterTool(std::move(tool));
+            }
+            {
+                ToolDef tool;
                 tool.Name = "olo_scene_stop";
                 tool.Description = "Stop Play mode (fake; test wiring).";
                 tool.ProjectWrite = true;
@@ -118,9 +131,11 @@ namespace
 
         McpSceneOpenResult m_FakeOpenResult;
         McpScenePlayResult m_FakePlayResult;
+        McpScenePlayResult m_FakeSimulateResult;
         McpScenePlayResult m_FakeStopResult;
         int m_OpenCount = 0;
         int m_PlayCount = 0;
+        int m_SimulateCount = 0;
         int m_StopCount = 0;
         std::string m_LastOpenPath;
         McpServer m_Server; // declared last → destroyed first (its handlers ref members)
@@ -144,7 +159,11 @@ TEST_F(McpSceneControlTest, GateOffRejectsAllAndDoesNotInvoke)
     ASSERT_TRUE(playResp.contains("error"));
     EXPECT_EQ(m_PlayCount, 0);
 
-    const Json stopResp = m_Server.HandleMessage(MakeCallRequest(3, "olo_scene_stop", Json::object()));
+    const Json simulateResp = m_Server.HandleMessage(MakeCallRequest(3, "olo_scene_simulate", Json::object()));
+    ASSERT_TRUE(simulateResp.contains("error"));
+    EXPECT_EQ(m_SimulateCount, 0);
+
+    const Json stopResp = m_Server.HandleMessage(MakeCallRequest(4, "olo_scene_stop", Json::object()));
     ASSERT_TRUE(stopResp.contains("error"));
     EXPECT_EQ(m_StopCount, 0);
 }
@@ -184,23 +203,51 @@ TEST_F(McpSceneControlTest, GateOnPlayStopInvokeAndReturnResult)
     m_FakePlayResult.Available = true;
     m_FakePlayResult.Ok = true;
     m_FakePlayResult.Playing = true;
+    m_FakePlayResult.Mode = "play";
     m_FakePlayResult.Changed = true;
     const Json playResp = m_Server.HandleMessage(MakeCallRequest(5, "olo_scene_play", Json::object()));
     ASSERT_TRUE(playResp.contains("result"));
     EXPECT_EQ(m_PlayCount, 1);
     const Json playPayload = Json::parse(playResp["result"]["content"][0]["text"].get<std::string>());
     EXPECT_TRUE(playPayload["playing"].get<bool>());
+    EXPECT_FALSE(playPayload["simulating"].get<bool>());
+    EXPECT_EQ(playPayload["mode"], "play");
     EXPECT_TRUE(playPayload["changed"].get<bool>());
 
     m_FakeStopResult.Available = true;
     m_FakeStopResult.Ok = true;
     m_FakeStopResult.Playing = false;
+    m_FakeStopResult.Mode = "edit";
     m_FakeStopResult.Changed = true;
     const Json stopResp = m_Server.HandleMessage(MakeCallRequest(6, "olo_scene_stop", Json::object()));
     ASSERT_TRUE(stopResp.contains("result"));
     EXPECT_EQ(m_StopCount, 1);
     const Json stopPayload = Json::parse(stopResp["result"]["content"][0]["text"].get<std::string>());
     EXPECT_FALSE(stopPayload["playing"].get<bool>());
+    EXPECT_FALSE(stopPayload["simulating"].get<bool>());
+    EXPECT_EQ(stopPayload["mode"], "edit");
+}
+
+TEST_F(McpSceneControlTest, GateOnSimulateInvokesAndReportsExactMode)
+{
+    m_Server.SetAllowWrites(true);
+    m_FakeSimulateResult.Available = true;
+    m_FakeSimulateResult.Ok = true;
+    m_FakeSimulateResult.Simulating = true;
+    m_FakeSimulateResult.Changed = true;
+    m_FakeSimulateResult.Mode = "simulate";
+    m_FakeSimulateResult.Message = "Entered Simulate mode.";
+
+    const Json resp = m_Server.HandleMessage(MakeCallRequest(7, "olo_scene_simulate", Json::object()));
+
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_FALSE(resp["result"]["isError"]);
+    EXPECT_EQ(m_SimulateCount, 1);
+    const Json payload = Json::parse(resp["result"]["content"][0]["text"].get<std::string>());
+    EXPECT_FALSE(payload["playing"].get<bool>());
+    EXPECT_TRUE(payload["simulating"].get<bool>());
+    EXPECT_EQ(payload["mode"], "simulate");
+    EXPECT_TRUE(payload["changed"].get<bool>());
 }
 
 // Entering Play when the scene has no primary camera is a clean result — the call
@@ -290,6 +337,7 @@ TEST(McpSceneControlShaping, PlayToJsonCarriesEveryField)
     r.Available = true;
     r.Ok = true;
     r.Playing = true;
+    r.Mode = "play";
     r.Changed = true;
     r.SceneName = "A";
     r.Message = "Entered Play mode.";
@@ -298,8 +346,25 @@ TEST(McpSceneControlShaping, PlayToJsonCarriesEveryField)
     EXPECT_TRUE(j["available"].get<bool>());
     EXPECT_TRUE(j["ok"].get<bool>());
     EXPECT_TRUE(j["playing"].get<bool>());
+    EXPECT_FALSE(j["simulating"].get<bool>());
+    EXPECT_EQ(j["mode"], "play");
     EXPECT_TRUE(j["changed"].get<bool>());
     EXPECT_EQ(j["sceneName"], "A");
+}
+
+TEST(McpSceneControlShaping, SimulateToJsonCarriesExactMode)
+{
+    McpScenePlayResult r;
+    r.Available = true;
+    r.Ok = true;
+    r.Simulating = true;
+    r.Changed = true;
+    r.Mode = "simulate";
+
+    const Json j = SceneControl::ToJson(r);
+    EXPECT_FALSE(j["playing"].get<bool>());
+    EXPECT_TRUE(j["simulating"].get<bool>());
+    EXPECT_EQ(j["mode"], "simulate");
 }
 
 TEST(McpSceneControlShaping, OpenInputSchemaRequiresPath)
