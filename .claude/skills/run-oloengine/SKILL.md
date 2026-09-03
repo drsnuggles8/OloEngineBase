@@ -6,7 +6,7 @@ description: Build, run, and screenshot the OloEngine apps on Windows — the Ol
 OloEngine is a native C++23 / OpenGL 4.6 desktop engine. The headline binary,
 **OloEditor**, is a GLFW + ImGui window — there is no DOM and no Playwright
 handle, so it is driven through the Win32 window manager by
-[driver.ps1](.claude/skills/run-oloengine/driver.ps1): it launches the process
+[driver.ps1](driver.ps1): it launches the process
 with the correct working directory, waits for the top-level window, and captures
 the window's own surface with `PrintWindow` (works even when the editor is **not**
 the focused/top-most window — which it usually isn't, since a background process
@@ -208,7 +208,7 @@ Notes:
   MCP panel still works for a manually started server (default port 7345, legacy
   `%TEMP%\oloengine-mcp.json` discovery file) — `attach` only adds the per-worktree path.
 - To verify the full round-trip without depending on session tool surfacing, run
-  [mcp-smoke-test.ps1](.claude/skills/run-oloengine/mcp-smoke-test.ps1) (set
+  [mcp-smoke-test.ps1](mcp-smoke-test.ps1) (set
   `$env:OLO_MCP_DISCOVERY_FILE` to the per-worktree path first, or pass `-DiscoveryPath`).
 
 ## Run the server (headless)

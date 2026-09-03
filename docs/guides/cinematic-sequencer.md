@@ -9,7 +9,7 @@ every runtime tick.
 This document covers **what shipped** (a complete, tested runtime +
 serialization slice with a component inspector) and **what's deliberately
 deferred**. It is not a duplicate of the source comments — read the headers
-under [`OloEngine/src/OloEngine/Cinematic/`](../OloEngine/src/OloEngine/Cinematic/)
+under [`OloEngine/src/OloEngine/Cinematic/`](../../OloEngine/src/OloEngine/Cinematic/)
 for the per-type contracts.
 
 ---
@@ -19,8 +19,8 @@ for the per-type contracts.
 A self-contained demo ships under the SandboxProject (colored sprites + a
 camera, **no mesh/material assets required**):
 
-- Sequence: [`Assets/Cinematics/IntroSequence.olocine`](../OloEditor/SandboxProject/Assets/Cinematics/IntroSequence.olocine)
-- Scene: [`Assets/Scenes/CinematicDemo.olo`](../OloEditor/SandboxProject/Assets/Scenes/CinematicDemo.olo)
+- Sequence: [`Assets/Cinematics/IntroSequence.olocine`](../../OloEditor/SandboxProject/Assets/Cinematics/IntroSequence.olocine)
+- Scene: [`Assets/Scenes/CinematicDemo.olo`](../../OloEditor/SandboxProject/Assets/Scenes/CinematicDemo.olo)
 
 Steps (run `OloEditor`, working dir `OloEditor/`):
 
@@ -139,7 +139,7 @@ with `std::isfinite`.
 
 ## Editor timeline panel — **shipped**
 
-[`CinematicTimelinePanel`](../OloEditor/src/Panels/CinematicTimelinePanel.h) is the
+[`CinematicTimelinePanel`](../../OloEditor/src/Panels/CinematicTimelinePanel.h) is the
 authoring surface on top of the runtime. Open a `.olocine` by double-clicking it in
 the Content Browser, or via **Edit in Timeline** on the `CinematicComponent`
 inspector (alongside the existing assign / Loop / PlayOnStart / speed / Scrub
@@ -171,7 +171,7 @@ What it does:
 All key mutations route through the pure, unit-tested `OloEngine::CinematicEdit`
 helpers (insert-sorted / move-and-resort / remove), so the sort-by-time invariant
 that playback depends on is enforced in one place
-([`CinematicEditTest`](../OloEngine/tests/Cinematic/CinematicEditTest.cpp)). The
+([`CinematicEditTest`](../../OloEngine/tests/Cinematic/CinematicEditTest.cpp)). The
 panel itself is editor UI and isn't auto-tested.
 
 ### Bezier tangents — **shipped**

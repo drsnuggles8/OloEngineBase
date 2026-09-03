@@ -47,7 +47,7 @@ Detects `std::memcmp` (or equivalents) used to compare objects whose type is not
 
 ### Why it's a false positive here
 
-The 21 hits are *all* at the single helper `Math::BitwiseEqual`, called from the editor's `DrawComponent<T>` undo/redo machinery documented in [CLAUDE.md](../CLAUDE.md#editor-undoredo-for-components). The pattern is:
+The 21 hits are *all* at the single helper `Math::BitwiseEqual`, called from the editor's `DrawComponent<T>` undo/redo machinery documented in [CLAUDE.md](../../CLAUDE.md#editor-undoredo-for-components). The pattern is:
 
 ```cpp
 // In Math/Math.h
@@ -123,7 +123,7 @@ Boolean expressions with more than three `&&` / `||` operators. Intent: such exp
 
 ### Why this codebase is different
 
-The ECS layer iterates the `AllComponents` tuple (see [CLAUDE.md cross-binding check](../CLAUDE.md#definition-of-done---before-you-hand-back-to-the-user)) and the serializer dispatches per component type. Both inevitably produce expressions like:
+The ECS layer iterates the `AllComponents` tuple (see [CLAUDE.md cross-binding check](../../CLAUDE.md#definition-of-done---before-you-hand-back-to-the-user)) and the serializer dispatches per component type. Both inevitably produce expressions like:
 
 ```cpp
 if (entity.HasComponent<TransformComponent>() &&
@@ -250,7 +250,7 @@ and added `ComponentRoundTrip.InstancedMeshComponentInstancesSurviveYAMLRoundTri
 to pin the previously-uncovered per-instance Transform/Color round-trip.
 
 While in that code, the same load path was found to be **missing the engine's
-mandatory `std::isfinite` validation** ([cpp-coding-quality §2](agent-rules/cpp-coding-quality.md)):
+mandatory `std::isfinite` validation** ([cpp-coding-quality §2](../agent-rules/cpp-coding-quality.md)):
 every other deserializer sanitizes floats via `SanitizeFloat`, but the instance
 Transform/Color/Custom reads did not — so a NaN/Inf in a corrupt or hand-edited
 scene would flow straight into the instance SSBO (and through
@@ -273,7 +273,7 @@ deref guard isn't worth an inline `// NOSONAR` in save-game code). Left untouche
 
 **Hits triaged:** ~18 (RELIABILITY). Split between intentional exact-comparison and one genuine fix.
 
-This rule restates the project's own [cpp-coding-quality §2](agent-rules/cpp-coding-quality.md) (no `==`/`!=` on floats). Most hits, though, are the *bit-exact* case §2a explicitly carves out — change detection, where any difference (including a one-ULP edit) must register:
+This rule restates the project's own [cpp-coding-quality §2](../agent-rules/cpp-coding-quality.md) (no `==`/`!=` on floats). Most hits, though, are the *bit-exact* case §2a explicitly carves out — change detection, where any difference (including a one-ULP edit) must register:
 
 - **`Scene/Components.h` (9 hits)** — each is a `operator==(const T&) const -> bool = default;`, the documented undo/redo change-detection hook (CLAUDE.md "Editor undo/redo for components"). Defaulted member-wise float equality *is* the intended bit-exact semantics; hand-rolling epsilon comparisons would defeat the `= default` pattern. **Scoped out** in `sonar-project.properties` (`cmp_s1244_components`), narrowed to `Components.h` so real float `==` bugs elsewhere in `Scene/**` stay flagged.
 - **`Renderer/Commands/RenderCommand.h:155` (7 hits)** — `PODMaterialData::operator==`, a deliberate field-wise exact comparison for render-command change detection / dedup (it intentionally avoids `memcmp` due to padding — see the comment). Exact equality is correct; epsilon would wrongly merge distinct materials. **Scoped out** (`cmp_s1244_rendercmd`).
@@ -288,9 +288,9 @@ atomics and the `S5000`/`S3519` analyzer FPs) surfaced a set of small, genuine,
 mechanical fixes — all applied in code:
 
 - **`cpp:S867`** ("operand should have type `bool`") — implicit conversions in `&&`/`!`.
-  Fixed to explicit comparisons: `GetExitCodeThread(...) != 0` ([RunnableThread.cpp](../OloEngine/src/OloEngine/HAL/RunnableThread.cpp), Windows `BOOL` is `int`), `ref == 0` ([NavMeshQuery.cpp](../OloEngine/src/OloEngine/Navigation/NavMeshQuery.cpp), `dtPolyRef` is an integer handle), `(mask & bit) != 0u` ([JoltCharacterController.cpp](../OloEngine/src/OloEngine/Physics3D/JoltCharacterController.cpp)), and `source != nullptr && *source != '\0'` ([RendererProfiler.cpp](../OloEngine/src/OloEngine/Renderer/Debug/RendererProfiler.cpp), a `const char*`).
+  Fixed to explicit comparisons: `GetExitCodeThread(...) != 0` ([RunnableThread.cpp](../../OloEngine/src/OloEngine/HAL/RunnableThread.cpp), Windows `BOOL` is `int`), `ref == 0` ([NavMeshQuery.cpp](../../OloEngine/src/OloEngine/Navigation/NavMeshQuery.cpp), `dtPolyRef` is an integer handle), `(mask & bit) != 0u` ([JoltCharacterController.cpp](../../OloEngine/src/OloEngine/Physics3D/JoltCharacterController.cpp)), and `source != nullptr && *source != '\0'` ([RendererProfiler.cpp](../../OloEngine/src/OloEngine/Renderer/Debug/RendererProfiler.cpp), a `const char*`).
 - **`cpp:S853`** ("explicit cast on the result of `~`") — the `AssetFlag` bit ops in
-  [AssetTypes.h](../OloEngine/src/OloEngine/Asset/AssetTypes.h) / [Asset.h](../OloEngine/src/OloEngine/Asset/Asset.h): `~` integer-promotes its `u16` operand to `int`, so the high bits it sets were being narrowed implicitly. Added an explicit cast back to the underlying type.
+  [AssetTypes.h](../../OloEngine/src/OloEngine/Asset/AssetTypes.h) / [Asset.h](../../OloEngine/src/OloEngine/Asset/Asset.h): `~` integer-promotes its `u16` operand to `int`, so the high bits it sets were being narrowed implicitly. Added an explicit cast back to the underlying type.
 - **`cpp:S2193`** ("float loop counter") — the SoundGraph editor grid-line loops accumulated `x += gridStep` in a `f32` counter, drifting over many lines. Rewrote with an `int` index and `pos = start + i*step`.
 
 Triaged as **not-a-fix** (left in place, reasoning recorded):
@@ -319,7 +319,7 @@ struct QuestRewards
 };
 ```
 
-`auto operator==(...) const -> bool = default;` is the **sanctioned house idiom** — [CLAUDE.md §"Editor undo/redo for components"](../CLAUDE.md) and [cpp-coding-quality §7](agent-rules/cpp-coding-quality.md) require it so `SceneHierarchyPanel::DrawComponent<T>` can opt a non-trivially-copyable component into undo via `std::equality_comparable<T>`. The two "compliant" fixes the rule suggests both make the code worse:
+`auto operator==(...) const -> bool = default;` is the **sanctioned house idiom** — [CLAUDE.md §"Editor undo/redo for components"](../../CLAUDE.md) and [cpp-coding-quality §7](../agent-rules/cpp-coding-quality.md) require it so `SceneHierarchyPanel::DrawComponent<T>` can opt a non-trivially-copyable component into undo via `std::equality_comparable<T>`. The two "compliant" fixes the rule suggests both make the code worse:
 
 - **Remove the member function** — impossible; the comparison is load-bearing for undo / round-trip tests.
 - **Change `struct`→`class`** — flips default access (needs `public:` everywhere), and for the `*Component` structs it risks aggregate-initialisation and must stay a `struct` for the OloHeaderTool `struct *Component` scan to keep generating the `AllComponents` tuple / SaveGame lists.
@@ -528,6 +528,6 @@ SonarCloud ships C++ architecture support upstream.
 ## Open items
 
 - Full-corpus histogram (≈31,800 open issues) obtained via the SonarCloud `facets=rules` API. The four high-volume rules above (≈6,800 issues, ≈21% of the raw count) are now **deactivated** in the C++ Extended profile — done in the SonarCloud UI (not as a `**/*` properties scope), where project-wide deactivation stays reviewable.
-- `cpp:S6004` (if/switch init-statement, 835 hits) was swept and fixed in bulk — it aligns with the project's own [coding standard §1](agent-rules/cpp-coding-quality.md) rather than being a false positive.
+- `cpp:S6004` (if/switch init-statement, 835 hits) was swept and fixed in bulk — it aligns with the project's own [coding standard §1](../agent-rules/cpp-coding-quality.md) rather than being a false positive.
 - ✅ The recommended path-scopes (`fp_s5000` / `ecs_s1067` / `xmacro_s963`, plus the pre-existing `tst_*`) are now applied in `sonar-project.properties`. Re-run the quality-gate check to confirm the false-positive concentration in `Math.h`, `Scene/**`, `Prefab.cpp`, and `tests/**` has dropped.
 - Coverage is reported as **0%** in SonarCloud despite an extensive GoogleTest suite. The CI scan isn't picking up coverage XML — separate problem from rule tuning, but worth fixing for the maintainability dashboard to make sense.

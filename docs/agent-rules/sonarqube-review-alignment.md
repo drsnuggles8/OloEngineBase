@@ -6,7 +6,7 @@ deliberately suppress, use the same thresholds, and pre-empt the high-severity r
 slow cloud scan (~1.5–2 h) would otherwise catch first.
 
 The authoritative *rationale* for every suppression lives in
-[../sonarqube-rule-suggestions.md](../sonarqube-rule-suggestions.md); the path-scoped
+[../analysis/sonarqube-rules.md](../analysis/sonarqube-rules.md); the path-scoped
 exclusions are enforced in [`sonar-project.properties`](../../sonar-project.properties).
 This file is the **operational digest** for a reviewer.
 
@@ -115,7 +115,7 @@ before assuming a finding is new.
 3. Actively look for §3 classes in changed C/C++ (especially C-interop, file/network I/O,
    manual buffer/pointer work). Pin genuine ones with a code fix.
 4. For anything ambiguous, the rationale and prior triage are in
-   [../sonarqube-rule-suggestions.md](../sonarqube-rule-suggestions.md).
+   [../analysis/sonarqube-rules.md](../analysis/sonarqube-rules.md).
 
 ---
 

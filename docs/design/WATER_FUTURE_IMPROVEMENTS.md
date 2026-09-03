@@ -20,22 +20,22 @@ toggle (`m_UseFFT`); the Gerstner path stays the default for comparison /
 fallback. Shipped:
 
 - ✅ **Phillips spectrum + dispersion + inverse-FFT math (CPU reference).**
-  [`OceanSpectrum`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanSpectrum.h)
+  [`OceanSpectrum`](../../OloEngine/src/OloEngine/Renderer/Ocean/OceanSpectrum.h)
   builds the frequency-domain heightfield $\tilde{h}_0(\mathbf{k})$, time-evolves
   it with $\omega=\sqrt{g\lVert k\rVert}$ (the $\tilde h_0(k)e^{i\omega t} +
   \tilde h_0^*(-k)e^{-i\omega t}$ Hermitian construction), and inverse-FFTs to a
   spatial tile of height + choppy horizontal displacement + analytic normals +
   Jacobian (folding → foam). A small radix-2 Cooley-Tukey FFT lives in
-  [`OceanFFT`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanFFT.h). Pinned by
+  [`OceanFFT`](../../OloEngine/src/OloEngine/Renderer/Ocean/OceanFFT.h). Pinned by
   `OceanFFTSpectrumTest` (FFT round-trip / Parseval, spectrum shape, Hermitian
   reality, determinism, Jacobian folding).
 - ✅ **Runtime field provider.**
-  [`OceanFFTField`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanFFTField.h)
+  [`OceanFFTField`](../../OloEngine/src/OloEngine/Renderer/Ocean/OceanFFTField.h)
   evaluates the field each tick and uploads it to two `RGBA32F` textures
   (displacement `dx,h,dz` + foam; normal + Jacobian) the water shader samples,
   RMS-normalised so `m_FFTAmplitude` maps to a predictable metre-scale wave
   height. A CPU copy is retained for physics/buoyancy sampling with no readback.
-- ✅ **Shader integration.** [`Water.glsl`](../OloEditor/assets/shaders/Water.glsl)
+- ✅ **Shader integration.** [`Water.glsl`](../../OloEditor/assets/shaders/Water.glsl)
   samples the FFT displacement/normal textures in the vertex + tessellation-eval
   stages (and Jacobian foam in the fragment stage) when `u_FFTParams.x > 0.5`,
   instead of summing Gerstner waves. New textures at bindings 50/51; `FFTParams`
@@ -45,7 +45,7 @@ fallback. Shipped:
 - ✅ **Editor / scene / save-game / Lua wiring** for the FFT params on
   `WaterComponent`.
 - ✅ **GPU compute butterfly port (§1.2)** — the default field producer.
-  [`OceanFFTGpu`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanFFTGpu.h)
+  [`OceanFFTGpu`](../../OloEngine/src/OloEngine/Renderer/Ocean/OceanFFTGpu.h)
   generates the field entirely on the GPU behind the same two-texture
   interface (§6.4's transition path): `Ocean_SpectrumEvolve.comp` time-evolves
   the CPU-generated h0(k) into 8 complex spectra packed two-per-texel in a
@@ -67,7 +67,7 @@ fallback. Shipped:
   / `m_FFTJonswapFetch`, editor/scene/save-game wired). Because the base
   heightfield $\tilde h_0(\mathbf k)$ is CPU-generated (the GPU only evolves it),
   the new spectrum lives entirely in
-  [`OceanSpectrum`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanSpectrum.h)
+  [`OceanSpectrum`](../../OloEngine/src/OloEngine/Renderer/Ocean/OceanSpectrum.h)
   (`JonswapSpectrum` + a `SpectrumEnergy` dispatch `GenerateH0` routes through)
   — no shader change. Defaults to Phillips so existing scenes are unchanged.
   Pinned by `OceanFFTSpectrumTest` (γ peak enhancement, fetch→peak-frequency
@@ -185,7 +185,7 @@ dominant swell with suppressed high-frequency tail — closer to the look of
 Atlantic / Pacific seas.
 
 `JonswapSpectrum`
-([`OceanSpectrum.cpp`](../OloEngine/src/OloEngine/Renderer/Ocean/OceanSpectrum.cpp))
+([`OceanSpectrum.cpp`](../../OloEngine/src/OloEngine/Renderer/Ocean/OceanSpectrum.cpp))
 evaluates this 1-D frequency spectrum at $\omega=\sqrt{g\lVert k\rVert}$, derives
 the peak frequency $\omega_p = 22\,(g^2/(VF))^{1/3}$ from wind speed $V$
 (`m_FFTWindSpeed`) and fetch $F$ (`m_FFTJonswapFetch`), uses $\sigma=0.07/0.09$
@@ -251,9 +251,9 @@ Pinned by `SRGBTextureSupportTest.cpp`.
 ### 3.2 Atmospheric Scattering / Sky Integration — **Preetham shipped**
 
 `ProceduralSkyComponent` (see
-[`ProceduralSky.h`](../OloEngine/src/OloEngine/Renderer/ProceduralSky.h))
+[`ProceduralSky.h`](../../OloEngine/src/OloEngine/Renderer/ProceduralSky.h))
 bakes a Preetham 1999 analytic daylight sky into a cubemap via
-[`ProceduralSky.glsl`](../OloEditor/assets/shaders/ProceduralSky.glsl) and
+[`ProceduralSky.glsl`](../../OloEditor/assets/shaders/ProceduralSky.glsl) and
 feeds it through the existing `EnvironmentMap` IBL pipeline. Because the
 output is the same cubemap + irradiance / prefilter / BRDF set that the
 file-based environment map produces, water reflections, IBL ambient, and
@@ -318,12 +318,12 @@ tessellation; rough areas (wave crests) get maximum.
 ### 4.3 GPU Tessellation with Hull Shader Culling — **shipped**
 
 Frustum culling in the TCS lands in
-[`Water.glsl`](../OloEditor/assets/shaders/Water.glsl) — patches whose
+[`Water.glsl`](../../OloEditor/assets/shaders/Water.glsl) — patches whose
 displacement-inflated AABB lies entirely outside any of the six view-frustum
 planes are skipped by setting `gl_TessLevelOuter[*]` to 0. The displacement
 margin is derived in-shader from the per-frame wave parameters so wave crests
 at the edges of off-screen patches don't pop into view. CPU mirror tests in
-[`WaterRenderingTest.cpp`](../OloEngine/tests/Rendering/WaterRenderingTest.cpp)
+[`WaterRenderingTest.cpp`](../../OloEngine/tests/Rendering/WaterRenderingTest.cpp)
 pin the math against the actual Gerstner amplitudes.
 
 Back-face culling for water is **not** added: the water plane is double-sided
@@ -336,13 +336,13 @@ up through the surface. Frustum culling is the cleaner standalone win.
 
 ### 5.1 Buoyancy System — **shipped (CPU)**
 
-A `BuoyancyComponent` ([`Components.h`](../OloEngine/src/OloEngine/Scene/Components.h))
+A `BuoyancyComponent` ([`Components.h`](../../OloEngine/src/OloEngine/Scene/Components.h))
 on any dynamic `Rigidbody3DComponent` makes it float on a `WaterComponent`
-surface. [`BuoyancySystem`](../OloEngine/src/OloEngine/Physics3D/BuoyancySystem.cpp)
+surface. [`BuoyancySystem`](../../OloEngine/src/OloEngine/Physics3D/BuoyancySystem.cpp)
 runs each physics tick (before `JoltScene::Simulate`) and:
 
 - Samples the wave height at the eight corner probes of a configurable
-  buoyancy box via [`WaterSurface`](../OloEngine/src/OloEngine/Renderer/WaterSurface.h)
+  buoyancy box via [`WaterSurface`](../../OloEngine/src/OloEngine/Renderer/WaterSurface.h)
   — a **1:1 CPU mirror of `WaterCommon.glsl :: sumGerstnerWaves`**, so a body
   tracks the *rendered* crest (it reads `Time::GetTime()`, the same clock the
   water shader is fed). `WaterSurface::SampleHeight` inverts the horizontal
@@ -492,7 +492,7 @@ nothing above water):
 - ✅ **Procedural pattern (no texture asset).** A two-octave web of wavy ridge
   lines (the union of two drifting sine fields) sampled at the fragment's
   world-space XZ, animated by the wave clock. Mirrored on the CPU in
-  [`UnderwaterCaustics.h`](../OloEngine/src/OloEngine/Renderer/UnderwaterCaustics.h)
+  [`UnderwaterCaustics.h`](../../OloEngine/src/OloEngine/Renderer/UnderwaterCaustics.h)
   (`CausticPattern`) and pinned by `WaterRenderingTest`.
 - ✅ **Projected onto upward-facing surfaces.** The geometric normal is
   reconstructed in-pass from screen-space derivatives of the depth-reconstructed
@@ -505,8 +505,8 @@ nothing above water):
   `m_CausticsSpeed` / `m_CausticsMaxDepth` / `m_CausticsColor`; serialized,
   save-game + Lua + editor-UI wired), uploaded to UBO binding 37
   (`UnderwaterFogUBOData`) from
-  [`Scene.cpp`](../OloEngine/src/OloEngine/Scene/Scene.cpp) ~L4357, applied in
-  [`PostProcess_ToneMap.glsl`](../OloEditor/assets/shaders/PostProcess_ToneMap.glsl)
+  [`Scene.cpp`](../../OloEngine/src/OloEngine/Scene/Scene.cpp) ~L4357, applied in
+  [`PostProcess_ToneMap.glsl`](../../OloEditor/assets/shaders/PostProcess_ToneMap.glsl)
   (`underwaterCausticPattern`). Visual evidence: `UnderwaterFx_Caustics_On.png`
   vs `UnderwaterFx_Caustics_Off.png` (`UnderwaterCausticsVisualTest`).
 
@@ -521,10 +521,10 @@ When the camera goes below the water surface:
   wavy water surface rather than a flat plane. Driven by `WaterComponent`'s
   `m_UnderwaterFogColor` / `m_UnderwaterFogDensity` (serialized, save-game + Lua
   wired), uploaded to UBO binding 37 (`UnderwaterFogUBOData`) from
-  `Scene::OnUpdateRuntime` ([`Scene.cpp`](../OloEngine/src/OloEngine/Scene/Scene.cpp) ~L4357),
-  applied in [`PostProcess_ToneMap.glsl`](../OloEditor/assets/shaders/PostProcess_ToneMap.glsl)
+  `Scene::OnUpdateRuntime` ([`Scene.cpp`](../../OloEngine/src/OloEngine/Scene/Scene.cpp) ~L4357),
+  applied in [`PostProcess_ToneMap.glsl`](../../OloEditor/assets/shaders/PostProcess_ToneMap.glsl)
   (`applyUnderwaterFog`). The math is mirrored on the CPU in
-  [`UnderwaterFog.h`](../OloEngine/src/OloEngine/Renderer/UnderwaterFog.h) and
+  [`UnderwaterFog.h`](../../OloEngine/src/OloEngine/Renderer/UnderwaterFog.h) and
   pinned by `UnderwaterFogMathTest` / `WaterRenderingTest`.
 - ✅ **Apply chromatic distortion to simulate light refraction — shipped
   (`feature/underwater-caustics-refraction`).** When submerged, the tone-map pass
@@ -536,13 +536,13 @@ When the camera goes below the water surface:
   (`m_UnderwaterRefractionStrength` / `m_UnderwaterRefractionScale` /
   `m_UnderwaterRefractionSpeed` / `m_UnderwaterChromaticStrength`), mirrored on
   the CPU in
-  [`UnderwaterCaustics.h`](../OloEngine/src/OloEngine/Renderer/UnderwaterCaustics.h)
+  [`UnderwaterCaustics.h`](../../OloEngine/src/OloEngine/Renderer/UnderwaterCaustics.h)
   (`RefractionOffset`) and applied in
-  [`PostProcess_ToneMap.glsl`](../OloEditor/assets/shaders/PostProcess_ToneMap.glsl)
+  [`PostProcess_ToneMap.glsl`](../../OloEditor/assets/shaders/PostProcess_ToneMap.glsl)
   (`underwaterRefractionOffset`). Visual evidence: `UnderwaterFx_Refraction_On.png`
   vs `UnderwaterFx_Refraction_Off.png` (`UnderwaterCausticsVisualTest`).
 - ✅ **Render the water surface from below with inverted normals — shipped (PR #259).**
-  [`Water.glsl`](../OloEditor/assets/shaders/Water.glsl) branches on
+  [`Water.glsl`](../../OloEditor/assets/shaders/Water.glsl) branches on
   `gl_FrontFacing` (~L666–L755): the underside gets a cheap, stable tinted
   shading path with a soft cubemap rim at grazing angles, and the grazing-angle
   "see-through" artefact was fixed. Visual evidence: `Water_Submerged.png`,

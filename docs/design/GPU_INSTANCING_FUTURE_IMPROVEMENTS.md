@@ -68,7 +68,7 @@ meaningfully drives them — `LODTest.cpp` is the only consumer. The
 ## §8 — Per-Instance Skinned Mesh Batching
 
 **Current**: the `isAnimatedMesh` skip at
-[`CommandBucket.cpp:602`](../OloEngine/src/OloEngine/Renderer/Commands/CommandBucket.cpp)
+[`CommandBucket.cpp:602`](../../OloEngine/src/OloEngine/Renderer/Commands/CommandBucket.cpp)
 intentionally blocks animated draws from auto-batching. Each animated
 entity uploads its own 100-bone palette to `UBO_ANIMATION`.
 

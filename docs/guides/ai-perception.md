@@ -7,11 +7,11 @@ physics line-of-sight check.
 
 | Piece | Where | Role |
 |-------|-------|------|
-| `PerceptionComponent` | [`AI/AIComponents.h`](../OloEngine/src/OloEngine/AI/AIComponents.h) | the "eyes" — a sight cone on an entity |
-| `PerceptibleComponent` | [`AI/AIComponents.h`](../OloEngine/src/OloEngine/AI/AIComponents.h) | a stimulus marker — "this entity can be seen" |
-| `PerceptionSystem` | [`AI/Perception/PerceptionSystem.{h,cpp}`](../OloEngine/src/OloEngine/AI/Perception/PerceptionSystem.h) | the per-tick sensor pass |
-| `PerceptionMath::IsInSightCone` | [`AI/Perception/PerceptionMath.h`](../OloEngine/src/OloEngine/AI/Perception/PerceptionMath.h) | the pure range + FOV predicate |
-| `BTCanSeeTarget` | [`AI/BehaviorTree/BTPerceptionNodes.h`](../OloEngine/src/OloEngine/AI/BehaviorTree/BTPerceptionNodes.h) | behaviour-tree condition/guard |
+| `PerceptionComponent` | [`AI/AIComponents.h`](../../OloEngine/src/OloEngine/AI/AIComponents.h) | the "eyes" — a sight cone on an entity |
+| `PerceptibleComponent` | [`AI/AIComponents.h`](../../OloEngine/src/OloEngine/AI/AIComponents.h) | a stimulus marker — "this entity can be seen" |
+| `PerceptionSystem` | [`AI/Perception/PerceptionSystem.{h,cpp}`](../../OloEngine/src/OloEngine/AI/Perception/PerceptionSystem.h) | the per-tick sensor pass |
+| `PerceptionMath::IsInSightCone` | [`AI/Perception/PerceptionMath.h`](../../OloEngine/src/OloEngine/AI/Perception/PerceptionMath.h) | the pure range + FOV predicate |
+| `BTCanSeeTarget` | [`AI/BehaviorTree/BTPerceptionNodes.h`](../../OloEngine/src/OloEngine/AI/BehaviorTree/BTPerceptionNodes.h) | behaviour-tree condition/guard |
 
 `PerceptionSystem::OnUpdate` runs from `Scene::OnUpdateRuntime` **immediately
 before `AISystem::OnUpdate`**, so the behaviour tree / FSM / GOAP tick consumes
@@ -44,7 +44,7 @@ that marker doubles as the candidate set and the team filter:
 A target is **in the cone** iff it is within `SightRange` of the eye AND the
 angle between the look direction (the entity's local **-Z**, engine forward
 convention) and the direction to the target is at most `FovDegrees / 2`. This is
-[`PerceptionMath::IsInSightCone`](../OloEngine/src/OloEngine/AI/Perception/PerceptionMath.h),
+[`PerceptionMath::IsInSightCone`](../../OloEngine/src/OloEngine/AI/Perception/PerceptionMath.h),
 a pure header function shared by the system and its unit tests:
 
 ```cpp
@@ -74,7 +74,7 @@ Each tick `PerceptionSystem` writes the runtime result onto the
 It also **mirrors** the result into whichever AI blackboards the entity carries
 (`BehaviorTreeComponent` / `StateMachineComponent` / `GoapAgentComponent`) under
 the keys in
-[`PerceptionKeys`](../OloEngine/src/OloEngine/AI/Perception/PerceptionSystem.h):
+[`PerceptionKeys`](../../OloEngine/src/OloEngine/AI/Perception/PerceptionSystem.h):
 `Perception.CanSeeTarget` (bool), `Perception.Target` (UUID),
 `Perception.LastKnownPosition` (vec3). FSM transition predicates, GOAP sensors
 and Lua scripts read those.
@@ -100,14 +100,14 @@ end
 
 ## Tests
 
-- [`PerceptionMathTest.cpp`](../OloEngine/tests/AI/PerceptionMathTest.cpp) —
+- [`PerceptionMathTest.cpp`](../../OloEngine/tests/AI/PerceptionMathTest.cpp) —
   unit test pinning the range + FOV cone predicate (boundaries, behind,
   narrow/full FOV, eye offset).
-- [`PerceptionDetectsTargetViaSceneTickTest.cpp`](../OloEngine/tests/Functional/AI/PerceptionDetectsTargetViaSceneTickTest.cpp)
+- [`PerceptionDetectsTargetViaSceneTickTest.cpp`](../../OloEngine/tests/Functional/AI/PerceptionDetectsTargetViaSceneTickTest.cpp)
   — Functional test driving real `Scene::OnUpdateRuntime`: in-cone, out-of-range,
   behind, team filter, cloak, last-known-position memory, and a `BTCanSeeTarget`
   tree reacting.
-- [`PerceptionLineOfSightBlockedByWallViaSceneTickTest.cpp`](../OloEngine/tests/Functional/AI/PerceptionLineOfSightBlockedByWallViaSceneTickTest.cpp)
+- [`PerceptionLineOfSightBlockedByWallViaSceneTickTest.cpp`](../../OloEngine/tests/Functional/AI/PerceptionLineOfSightBlockedByWallViaSceneTickTest.cpp)
   — Functional test of the perception↔Physics3D LOS seam (a wall blocks sight;
   disabling `RequireLineOfSight` on the same geometry restores it).
 

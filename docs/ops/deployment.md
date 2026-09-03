@@ -182,7 +182,7 @@ OloServer.exe --config server.yaml > server.log 2>&1
 ## Future Platform Support (Linux)
 
 > **Warning:** The engine **does not currently support Linux**.
-> [`OloEngine/src/OloEngine/Core/PlatformDetection.h`](../OloEngine/src/OloEngine/Core/PlatformDetection.h)
+> [`OloEngine/src/OloEngine/Core/PlatformDetection.h`](../../OloEngine/src/OloEngine/Core/PlatformDetection.h)
 > will produce a compile error on non-Windows platforms. The Docker, systemd and
 > related sections below are provided as a reference for when Linux support is added.
 >

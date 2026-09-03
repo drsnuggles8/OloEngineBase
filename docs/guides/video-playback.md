@@ -7,17 +7,17 @@ surfaces (TV screens, billboards, security-camera feeds).
 ## Decode backends — pl_mpeg (default) + FFmpeg (optional)
 
 `VideoDecoder` dispatches by file extension to one of two pluggable backends behind its pImpl
-([IVideoDecoderBackend](../OloEngine/src/OloEngine/Video/VideoDecoderBackend.h)):
+([IVideoDecoderBackend](../../OloEngine/src/OloEngine/Video/VideoDecoderBackend.h)):
 
-- **pl_mpeg** ([PlMpegBackend.cpp](../OloEngine/src/OloEngine/Video/PlMpegBackend.cpp)) — MPEG-1
+- **pl_mpeg** ([PlMpegBackend.cpp](../../OloEngine/src/OloEngine/Video/PlMpegBackend.cpp)) — MPEG-1
   video + MP2 audio for `.mpg` / `.mpeg` / `.m1v`. A single-file, public-domain decoder
   ([pl_mpeg](https://github.com/phoboslab/pl_mpeg)) vendored via `FetchContent` with *zero*
   external dependencies. Always available; the implementation is compiled once in
-  [PlMpeg.cpp](../OloEngine/src/OloEngine/Video/PlMpeg.cpp).
-- **FFmpeg/libav** ([FFmpegBackend.cpp](../OloEngine/src/OloEngine/Video/FFmpegBackend.cpp)) —
+  [PlMpeg.cpp](../../OloEngine/src/OloEngine/Video/PlMpeg.cpp).
+- **FFmpeg/libav** ([FFmpegBackend.cpp](../../OloEngine/src/OloEngine/Video/FFmpegBackend.cpp)) —
   everything else (H.264/HEVC/VP9/MPEG-4 in MP4/MOV/MKV/AVI, AAC/MP3/AC3 audio). Built **from
-  source** (like every other dependency) by [cmake/ffmpeg.cmake](../cmake/ffmpeg.cmake), which
-  runs [scripts/build-ffmpeg.sh](../scripts/build-ffmpeg.sh) under an `ExternalProject`.
+  source** (like every other dependency) by [cmake/ffmpeg.cmake](../../cmake/ffmpeg.cmake), which
+  runs [scripts/build-ffmpeg.sh](../../scripts/build-ffmpeg.sh) under an `ExternalProject`.
   **On by default**; opt out with `-DOLO_VIDEO_FFMPEG=OFF` (then only the pl_mpeg/MPEG-1 path is
   available). Building FFmpeg from source needs `nasm` + a bash (+ Visual Studio on Windows).
   `FFmpegBackend.cpp` is guarded by `OLO_VIDEO_FFMPEG`, and the runtime libs (DLLs/`.so`) are
@@ -25,7 +25,7 @@ surfaces (TV screens, billboards, security-camera feeds).
 
 The build is decode-only (no encoders/muxers/programs/network) and converts to RGBA8
 (swscale) and interleaved-stereo float (swresample) — the formats the rest of the pipeline
-expects. [scripts/build-ffmpeg.sh](../scripts/build-ffmpeg.sh) is **cross-platform**:
+expects. [scripts/build-ffmpeg.sh](../../scripts/build-ffmpeg.sh) is **cross-platform**:
 
 - **Windows** — builds with `--toolchain=msvc` so the import libs link natively into the
   MSVC engine. Locates Visual Studio via `vswhere`, imports the MSVC env into the MINGW
@@ -45,7 +45,7 @@ from source — it provisions `nasm` and **caches** `vendor/ffmpeg-install` (onl
 run pays the ~10-15 min build). The specialised analysis jobs (ASan/UBSan, fuzz, CodeQL,
 SonarCloud, cross-vendor) explicitly opt **out** with `-DOLO_VIDEO_FFMPEG=OFF`, since a
 from-source FFmpeg build is irrelevant overhead for them. A dedicated workflow —
-[.github/workflows/video-ffmpeg.yml](../.github/workflows/video-ffmpeg.yml) — builds with FFmpeg
+[.github/workflows/video-ffmpeg.yml](../../.github/workflows/video-ffmpeg.yml) — builds with FFmpeg
 on for **both** `windows-latest` and `ubuntu-24.04` and runs the decode test against a fetched
 sample MP4. Both from-source builds are verified: the Windows path end-to-end (build → backend
 compile → link → decode a 1080p H.264 MP4); the Linux path producing the FFmpeg `.so`s.
@@ -72,7 +72,7 @@ To convert media to MPEG-1 for the dependency-free path: `ffmpeg -i input.mp4 -c
   only advances the clock, picks the newest ready frame, and uploads it. This satisfies the
   "no main-thread decode stalls" acceptance criterion.
 - **Audio + A/V sync:** when the file has an audio track, the decode thread also feeds a
-  [VideoAudioStream](../OloEngine/src/OloEngine/Video/VideoAudioStream.cpp) — a custom
+  [VideoAudioStream](../../OloEngine/src/OloEngine/Video/VideoAudioStream.cpp) — a custom
   `ma_data_source` over a lock-free `ma_pcm_rb`, attached to the engine's shared `ma_engine`.
   The audio playback position (frames the audio thread has actually consumed) becomes the
   **master clock**, and video frames are presented against it so picture locks to sound. With
@@ -118,7 +118,7 @@ supplied via `--olo-video=<path.mpg>` and otherwise `GTEST_SKIP`s cleanly.
   the scene + UI) draws the active fullscreen player's texture as a letterboxed quad with an
   opaque black backdrop, via the already-verified `UIRenderer::DrawRect` screen-space path. The
   composite output is what the runtime and editor viewport show. Verified by a pixel-readback
-  evidence test ([VideoOverlayVisualEvidenceTest.cpp](../OloEngine/tests/Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp),
+  evidence test ([VideoOverlayVisualEvidenceTest.cpp](../../OloEngine/tests/Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp),
   PNG → `OloEditor/assets/tests/visual/VideoOverlay_VisualEvidence.png`): centre = frame,
   letterbox bars = black.
 - **World-space:** `VideoSystem` binds the decoded texture to the entity material's albedo each
