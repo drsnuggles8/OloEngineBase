@@ -427,6 +427,9 @@ namespace OloEngine
         slot.InputBuffer->Bind();    // 16 — full input
         slot.OutputBuffer->Bind();   // 15 — phase-1 survivors
         slot.IndirectBuffer->Bind(); // 17 — phase-1 indirect
+        // Slot 17 is shared with the GPU Scene material table (#994): tell the
+        // dispatcher its cached "materials are bound" answer is stale.
+        CommandDispatch::InvalidateGPUSceneMaterialBinding();
         RenderCommand::BindStorageBuffer(kRejectedBinding, slot.RejectedBuffer->GetRHIHandle());
         RenderCommand::BindStorageBuffer(kRejectedCountBinding, slot.RejectedCounter->GetRHIHandle());
 

@@ -18,6 +18,7 @@
 
 #include <gtest/gtest.h>
 
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
@@ -68,13 +69,20 @@ namespace OloEngine::Tests
             return scene.GetInstanceRecord(scene.FindInstance(key));
         }
 
+        // Bit-exact, component by component. `!=` would be wrong twice over: it is
+        // the float comparison CLAUDE.md forbids, and it reads -0.0f as equal to
+        // 0.0f — so a transform lane whose sign flipped would pass a test whose
+        // whole point is that decode reproduces the encode BITWISE.
+        // Math::BitwiseEqual is the canonical bit-exact predicate (Math.h); it is
+        // applied per component rather than to the whole mat4 because the
+        // failure message names the lane that moved.
         [[nodiscard]] ::testing::AssertionResult MatricesEqual(const glm::mat4& actual, const glm::mat4& expected)
         {
             for (int column = 0; column < 4; ++column)
             {
                 for (int row = 0; row < 4; ++row)
                 {
-                    if (actual[column][row] != expected[column][row])
+                    if (!Math::BitwiseEqual(actual[column][row], expected[column][row]))
                     {
                         return ::testing::AssertionFailure()
                                << "matrices differ at [" << column << "][" << row << "]: " << actual[column][row]
