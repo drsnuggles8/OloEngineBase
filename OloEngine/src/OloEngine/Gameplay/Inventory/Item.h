@@ -1,7 +1,9 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Gameplay/Combat/WeaponDefinition.h"
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -47,6 +49,9 @@ namespace OloEngine
 
         bool IsQuestItem = false;
         bool IsConsumable = false;
+
+        // Present only for items which can drive the combat weapon runtime.
+        std::optional<WeaponDefinition> Weapon;
 
         // Attribute modifiers when equipped (attribute name, value)
         std::vector<std::pair<std::string, f32>> AttributeModifiers;

@@ -724,6 +724,11 @@ registry.push_back(OLO_GFW_FIELD(PhysicsJoint3DComponent, "PathMaxFrictionForce"
 
 static void BuildRegistryChunk9(std::vector<FieldEntry>& registry)
 {
+// PlayerRespawnComponent
+registry.push_back(OLO_GFW_FIELD(PlayerRespawnComponent, "SpawnPoint", m_SpawnPoint));
+registry.push_back(OLO_GFW_FIELD(PlayerRespawnComponent, "SpawnYawDeg", m_SpawnYawDeg));
+registry.push_back(OLO_GFW_FIELD_RANGE(PlayerRespawnComponent, "RespawnDelay", m_RespawnDelay, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(3600.0f)));
+
 // PlayerRigComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(PlayerRigComponent, "LookSensitivity", m_LookSensitivity, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
 registry.push_back(OLO_GFW_FIELD(PlayerRigComponent, "InvertLookY", m_InvertLookY));
@@ -781,6 +786,10 @@ registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "ClassID", ClassID));
 // QuestGiverComponent
 registry.push_back(OLO_GFW_FIELD(QuestGiverComponent, "QuestMarkerIcon", QuestMarkerIcon));
 
+}
+
+static void BuildRegistryChunk10(std::vector<FieldEntry>& registry)
+{
 // RagdollComponent
 registry.push_back(OLO_GFW_FIELD(RagdollComponent, "SkeletonEntity", m_SkeletonEntity));
 registry.push_back(OLO_GFW_FIELD(RagdollComponent, "Enabled", m_Enabled));
@@ -789,10 +798,6 @@ registry.push_back(OLO_GFW_FIELD(RagdollComponent, "BoneRadius", m_BoneRadius));
 registry.push_back(OLO_GFW_FIELD(RagdollComponent, "SwingLimitDeg", m_SwingLimitDeg));
 registry.push_back(OLO_GFW_FIELD(RagdollComponent, "TwistLimitDeg", m_TwistLimitDeg));
 
-}
-
-static void BuildRegistryChunk10(std::vector<FieldEntry>& registry)
-{
 // ReflectionProbeComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "InfluenceRadius", m_InfluenceRadius, OLO_GFW_BOUND(0.01f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "BlendDistance", m_BlendDistance, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
@@ -855,6 +860,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "FalloffExponent",
 registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "CompactionFactor", m_CompactionFactor, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 registry.push_back(OLO_GFW_FIELD(SnowDeformerComponent, "EmitEjecta", m_EmitEjecta));
 
+}
+
+static void BuildRegistryChunk11(std::vector<FieldEntry>& registry)
+{
 // SphereAreaLightComponent
 registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "Color", m_Color));
 registry.push_back(OLO_GFW_FIELD_RANGE(SphereAreaLightComponent, "Intensity", m_Intensity, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
@@ -862,10 +871,6 @@ registry.push_back(OLO_GFW_FIELD_RANGE(SphereAreaLightComponent, "Radius", m_Rad
 registry.push_back(OLO_GFW_FIELD_RANGE(SphereAreaLightComponent, "Range", m_Range, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "CastShadows", m_CastShadows));
 
-}
-
-static void BuildRegistryChunk11(std::vector<FieldEntry>& registry)
-{
 // SphereCollider3DComponent
 registry.push_back(OLO_GFW_FIELD(SphereCollider3DComponent, "Radius", m_Radius));
 registry.push_back(OLO_GFW_FIELD(SphereCollider3DComponent, "Offset", m_Offset));
@@ -923,6 +928,10 @@ registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "ActivationMode", Act
 registry.push_back(OLO_GFW_FIELD_RANGE(StreamingVolumeComponent, "LoadRadius", LoadRadius, OLO_GFW_BOUND(1.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "UnloadRadius", UnloadRadius));
 
+}
+
+static void BuildRegistryChunk12(std::vector<FieldEntry>& registry)
+{
 // SubmeshComponent
 registry.push_back(OLO_GFW_FIELD(SubmeshComponent, "SubmeshIndex", m_SubmeshIndex));
 registry.push_back(OLO_GFW_FIELD(SubmeshComponent, "Visible", m_Visible));
@@ -981,7 +990,7 @@ registry.push_back(OLO_GFW_FIELD_RANGE(TerrainComponent, "VoxelMesher", m_VoxelM
 
 }
 
-static void BuildRegistryChunk12(std::vector<FieldEntry>& registry)
+static void BuildRegistryChunk13(std::vector<FieldEntry>& registry)
 {
 // TextComponent
 registry.push_back(OLO_GFW_FIELD(TextComponent, "TextString", TextString));
@@ -1057,7 +1066,7 @@ registry.push_back(OLO_GFW_FIELD(UIDropdownComponent, "Interactable", m_Interact
 
 }
 
-static void BuildRegistryChunk13(std::vector<FieldEntry>& registry)
+static void BuildRegistryChunk14(std::vector<FieldEntry>& registry)
 {
 // UIGridLayoutComponent
 registry.push_back(OLO_GFW_FIELD(UIGridLayoutComponent, "CellSize", m_CellSize));
@@ -1131,7 +1140,7 @@ registry.push_back(OLO_GFW_FIELD(UITextComponent, "LineSpacing", m_LineSpacing))
 
 }
 
-static void BuildRegistryChunk14(std::vector<FieldEntry>& registry)
+static void BuildRegistryChunk15(std::vector<FieldEntry>& registry)
 {
 // UIToggleComponent
 registry.push_back(OLO_GFW_FIELD(UIToggleComponent, "IsOn", m_IsOn));
@@ -1294,8 +1303,13 @@ registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "WakeShapeFlattenStrength
 
 }
 
-static void BuildRegistryChunk15(std::vector<FieldEntry>& registry)
+static void BuildRegistryChunk16(std::vector<FieldEntry>& registry)
 {
+// WeaponComponent
+registry.push_back(OLO_GFW_FIELD(WeaponComponent, "WeaponItemID", m_WeaponItemID));
+registry.push_back(OLO_GFW_FIELD(WeaponComponent, "MuzzleOffset", m_MuzzleOffset));
+registry.push_back(OLO_GFW_FIELD(WeaponComponent, "UseDeviceInput", m_UseDeviceInput));
+
 // WeatherStateComponent
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD_RANGE(WeatherStateComponent, "CurrentState", m_CurrentState, OLO_GFW_BOUND(0), OLO_GFW_BOUND(5)));
@@ -1420,7 +1434,7 @@ registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.SnowAccum
 
 }
 
-static void BuildRegistryChunk16(std::vector<FieldEntry>& registry)
+static void BuildRegistryChunk17(std::vector<FieldEntry>& registry)
 {
 // AudioSourceComponent (OLO_PROPERTY setter-based — private cold-data fields)
 registry.push_back(MakeSetterField<AudioSourceComponent, float>(
@@ -1594,4 +1608,5 @@ static void BuildRegistryChunks(std::vector<FieldEntry>& registry)
     BuildRegistryChunk14(registry);
     BuildRegistryChunk15(registry);
     BuildRegistryChunk16(registry);
+    BuildRegistryChunk17(registry);
 }

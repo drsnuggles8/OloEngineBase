@@ -51,6 +51,7 @@
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
 #include "OloEngine/Gameplay/PlayerRig/PlayerRigComponents.h"
+#include "OloEngine/Gameplay/Combat/CombatComponents.h"
 #include "OloEngine/Cinematic/CinematicComponent.h"
 #include "OloEngine/Scene/ComponentReflection.h"
 

@@ -106,4 +106,36 @@ namespace
         ASSERT_EQ(def->AttributeModifiers.size(), 1u);
         EXPECT_FLOAT_EQ(def->AttributeModifiers[0].second, -10.0f);
     }
+
+    TEST_F(ItemDatabaseFloatValidationTest, WeaponDefinitionLoadsFromItemAsset)
+    {
+        WriteItem("rifle.oloitem",
+                  "ItemDefinition:\n"
+                  "  ItemID: rifle\n"
+                  "  Category: Weapon\n"
+                  "  Weapon:\n"
+                  "    Delivery: Hitscan\n"
+                  "    Damage: 24.0\n"
+                  "    Range: 120.0\n"
+                  "    RoundsPerMinute: 600.0\n"
+                  "    MagazineSize: 30\n"
+                  "    ReserveAmmo: 90\n"
+                  "    ReloadSeconds: 1.8\n"
+                  "    RecoilPitch: 1.25\n"
+                  "    RecoilYaw: 0.4\n"
+                  "    FalloffStart: 50.0\n"
+                  "    FalloffEnd: 100.0\n"
+                  "    MinimumDamageMultiplier: 0.5\n");
+
+        const auto* item = ItemDatabase::Get("rifle");
+        ASSERT_NE(item, nullptr);
+        ASSERT_TRUE(item->Weapon.has_value());
+        EXPECT_EQ(item->Weapon->Delivery, WeaponDelivery::Hitscan);
+        EXPECT_FLOAT_EQ(item->Weapon->Damage, 24.0f);
+        EXPECT_FLOAT_EQ(item->Weapon->Range, 120.0f);
+        EXPECT_EQ(item->Weapon->MagazineSize, 30u);
+        EXPECT_EQ(item->Weapon->ReserveAmmo, 90u);
+        EXPECT_FLOAT_EQ(item->Weapon->ReloadSeconds, 1.8f);
+        EXPECT_FLOAT_EQ(item->Weapon->MinimumDamageMultiplier, 0.5f);
+    }
 } // namespace

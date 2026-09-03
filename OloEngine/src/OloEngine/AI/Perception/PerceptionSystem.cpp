@@ -95,6 +95,20 @@ namespace OloEngine
         }
     } // namespace
 
+    void PerceptionSystem::ReportAlert(Entity perceiver, const glm::vec3& position)
+    {
+        if (!perceiver || !perceiver.HasComponent<PerceptionComponent>())
+        {
+            return;
+        }
+
+        auto& perception = perceiver.GetComponent<PerceptionComponent>();
+        perception.LastKnownPosition = position;
+        perception.HasLastKnownPosition = true;
+        perception.TimeSinceLastSeen = 0.0f;
+        PublishToAIBlackboards(perceiver, perception);
+    }
+
     void PerceptionSystem::OnUpdate(Scene* scene, f32 dt)
     {
         OLO_PROFILE_FUNCTION();

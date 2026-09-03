@@ -21,6 +21,7 @@
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Gameplay/Combat/CombatComponents.h"
 #include "OloEngine/Gameplay/Progression/ExperienceCurve.h"
 #include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
 #include "OloEngine/Scripting/Lua/LuaScriptGlue.h"
@@ -161,6 +162,50 @@ TEST_F(LuaBindingTest, TransformComponent_RotationRoundTrip)
     EXPECT_NEAR(euler.x, 0.1f, 1e-5f);
     EXPECT_NEAR(euler.y, 0.2f, 1e-5f);
     EXPECT_NEAR(euler.z, 0.3f, 1e-5f);
+}
+
+TEST_F(LuaBindingTest, WeaponComponent_MuzzleOffsetRejectsNonFiniteVector)
+{
+    WeaponComponent weapon;
+    weapon.m_MuzzleOffset = { 1.0f, 2.0f, 3.0f };
+    lua["weapon"] = &weapon;
+
+    lua.script("weapon.muzzleOffset = vec3.new(4.0, 5.0, 6.0)");
+    EXPECT_FLOAT_EQ(weapon.m_MuzzleOffset.x, 4.0f);
+    EXPECT_FLOAT_EQ(weapon.m_MuzzleOffset.y, 5.0f);
+    EXPECT_FLOAT_EQ(weapon.m_MuzzleOffset.z, 6.0f);
+
+    lua.script("weapon.muzzleOffset = vec3.new(1.0/0.0, 8.0, 9.0)");
+    EXPECT_FLOAT_EQ(weapon.m_MuzzleOffset.x, 4.0f);
+    EXPECT_FLOAT_EQ(weapon.m_MuzzleOffset.y, 5.0f);
+    EXPECT_FLOAT_EQ(weapon.m_MuzzleOffset.z, 6.0f);
+
+    auto result = lua.script("return weapon.muzzleOffset.x, weapon.muzzleOffset.y, weapon.muzzleOffset.z");
+    EXPECT_FLOAT_EQ(result.get<f32>(0), 4.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(1), 5.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(2), 6.0f);
+}
+
+TEST_F(LuaBindingTest, PlayerRespawnComponent_SpawnPointRejectsNonFiniteVector)
+{
+    PlayerRespawnComponent respawn;
+    respawn.m_SpawnPoint = { 1.0f, 2.0f, 3.0f };
+    lua["respawn"] = &respawn;
+
+    lua.script("respawn.spawnPoint = vec3.new(4.0, 5.0, 6.0)");
+    EXPECT_FLOAT_EQ(respawn.m_SpawnPoint.x, 4.0f);
+    EXPECT_FLOAT_EQ(respawn.m_SpawnPoint.y, 5.0f);
+    EXPECT_FLOAT_EQ(respawn.m_SpawnPoint.z, 6.0f);
+
+    lua.script("respawn.spawnPoint = vec3.new(7.0, 0.0/0.0, 9.0)");
+    EXPECT_FLOAT_EQ(respawn.m_SpawnPoint.x, 4.0f);
+    EXPECT_FLOAT_EQ(respawn.m_SpawnPoint.y, 5.0f);
+    EXPECT_FLOAT_EQ(respawn.m_SpawnPoint.z, 6.0f);
+
+    auto result = lua.script("return respawn.spawnPoint.x, respawn.spawnPoint.y, respawn.spawnPoint.z");
+    EXPECT_FLOAT_EQ(result.get<f32>(0), 4.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(1), 5.0f);
+    EXPECT_FLOAT_EQ(result.get<f32>(2), 6.0f);
 }
 
 // =============================================================================

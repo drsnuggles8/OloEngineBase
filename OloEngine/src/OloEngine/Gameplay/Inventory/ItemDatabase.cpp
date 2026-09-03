@@ -4,8 +4,10 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <limits>
 #include <string_view>
 
 namespace OloEngine
@@ -23,6 +25,30 @@ namespace OloEngine
                 return fallback;
             }
             return value;
+        }
+
+        [[nodiscard]] f32 ReadNonNegative(const YAML::Node& node, const char* field, f32 fallback, const std::string& itemId)
+        {
+            const f32 value = SanitizeFinite(node[field].as<f32>(fallback), fallback, field, itemId);
+            if (value >= 0.0f)
+            {
+                return value;
+            }
+
+            OLO_CORE_WARN("[ItemDatabase] Item '{}' has negative {} ({}); using {}", itemId, field, value, fallback);
+            return fallback;
+        }
+
+        [[nodiscard]] u32 ReadAmmoCount(const YAML::Node& node, const char* field, u32 fallback, const std::string& itemId)
+        {
+            const i64 value = node[field].as<i64>(fallback);
+            if (value >= 0 && static_cast<u64>(value) <= std::numeric_limits<u32>::max())
+            {
+                return static_cast<u32>(value);
+            }
+
+            OLO_CORE_WARN("[ItemDatabase] Item '{}' has invalid {} ({}); using {}", itemId, field, value, fallback);
+            return fallback;
         }
     } // namespace
 
@@ -82,6 +108,32 @@ namespace OloEngine
 
                     def.IsQuestItem = itemNode["IsQuestItem"].as<bool>(false);
                     def.IsConsumable = itemNode["IsConsumable"].as<bool>(false);
+
+                    if (const auto weaponNode = itemNode["Weapon"]; weaponNode && weaponNode.IsMap())
+                    {
+                        WeaponDefinition weapon;
+                        weapon.Delivery = WeaponDeliveryFromString(weaponNode["Delivery"].as<std::string>("Hitscan"));
+                        weapon.Damage = ReadNonNegative(weaponNode, "Damage", weapon.Damage, def.ItemID);
+                        weapon.Range = ReadNonNegative(weaponNode, "Range", weapon.Range, def.ItemID);
+                        weapon.RoundsPerMinute = ReadNonNegative(weaponNode, "RoundsPerMinute", weapon.RoundsPerMinute, def.ItemID);
+                        weapon.MagazineSize = ReadAmmoCount(weaponNode, "MagazineSize", weapon.MagazineSize, def.ItemID);
+                        weapon.ReserveAmmo = ReadAmmoCount(weaponNode, "ReserveAmmo", weapon.ReserveAmmo, def.ItemID);
+                        weapon.ReloadSeconds = ReadNonNegative(weaponNode, "ReloadSeconds", weapon.ReloadSeconds, def.ItemID);
+                        weapon.RecoilPitch = ReadNonNegative(weaponNode, "RecoilPitch", weapon.RecoilPitch, def.ItemID);
+                        weapon.RecoilYaw = ReadNonNegative(weaponNode, "RecoilYaw", weapon.RecoilYaw, def.ItemID);
+                        weapon.FalloffStart = ReadNonNegative(weaponNode, "FalloffStart", weapon.FalloffStart, def.ItemID);
+                        weapon.FalloffEnd = ReadNonNegative(weaponNode, "FalloffEnd", weapon.FalloffEnd, def.ItemID);
+                        weapon.MinimumDamageMultiplier = std::clamp(
+                            ReadNonNegative(weaponNode, "MinimumDamageMultiplier", weapon.MinimumDamageMultiplier, def.ItemID), 0.0f, 1.0f);
+                        weapon.ProjectileSpeed = ReadNonNegative(weaponNode, "ProjectileSpeed", weapon.ProjectileSpeed, def.ItemID);
+                        weapon.ProjectileRadius = ReadNonNegative(weaponNode, "ProjectileRadius", weapon.ProjectileRadius, def.ItemID);
+                        weapon.ProjectileLifetime = ReadNonNegative(weaponNode, "ProjectileLifetime", weapon.ProjectileLifetime, def.ItemID);
+                        weapon.DamageType = weaponNode["DamageType"].as<std::string>(weapon.DamageType);
+                        weapon.MuzzleAudioTrigger = weaponNode["MuzzleAudioTrigger"].as<std::string>("");
+                        weapon.ImpactAudioTrigger = weaponNode["ImpactAudioTrigger"].as<std::string>("");
+                        weapon.HitReactionTrigger = weaponNode["HitReactionTrigger"].as<std::string>(weapon.HitReactionTrigger);
+                        def.Weapon = std::move(weapon);
+                    }
 
                     if (auto modifiers = itemNode["AttributeModifiers"]; modifiers && modifiers.IsSequence())
                     {

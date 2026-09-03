@@ -636,6 +636,16 @@ if (auto node = entity["PerceptibleComponent"]; node)
     comp.IsPerceptible = node["IsPerceptible"].as<bool>(comp.IsPerceptible);
 }
 
+if (auto node = entity["PlayerRespawnComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<PlayerRespawnComponent>();
+    comp.m_SpawnPoint = node["SpawnPoint"].as<glm::vec3>(comp.m_SpawnPoint);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SpawnYawDeg"], v))
+        comp.m_SpawnYawDeg = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RespawnDelay"], v))
+        comp.m_RespawnDelay = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(3600.0f));
+}
+
 if (auto node = entity["PlayerRigComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<PlayerRigComponent>();
@@ -1062,6 +1072,14 @@ if (auto node = entity["VirtualMeshComponent"]; node)
         comp.m_ErrorThresholdPixels = std::clamp(v, static_cast<f32>(0.05f), static_cast<f32>(64.0f));
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
     comp.m_CastShadows = node["CastShadows"].as<bool>(comp.m_CastShadows);
+}
+
+if (auto node = entity["WeaponComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<WeaponComponent>();
+    comp.m_WeaponItemID = node["WeaponItemID"].as<std::string>(comp.m_WeaponItemID);
+    comp.m_MuzzleOffset = node["MuzzleOffset"].as<glm::vec3>(comp.m_MuzzleOffset);
+    comp.m_UseDeviceInput = node["UseDeviceInput"].as<bool>(comp.m_UseDeviceInput);
 }
 
 if (auto node = entity["WeatherStateComponent"]; node)

@@ -2,8 +2,11 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <glm/glm.hpp>
+
 namespace OloEngine
 {
+    class Entity;
     class Scene;
 
     // Well-known AI Blackboard keys the PerceptionSystem writes each tick into
@@ -30,5 +33,6 @@ namespace OloEngine
     {
       public:
         static void OnUpdate(Scene* scene, f32 dt);
+        static void ReportAlert(Entity perceiver, const glm::vec3& position);
     };
 } // namespace OloEngine
