@@ -128,6 +128,8 @@ namespace OloEngine::Tests
             "FootIKStateComponent",
             "LocomotionStateComponent",
             "WorldTransformComponent",
+            "ProjectileComponent",
+            "ImpactDecalComponent",
         };
 
         // Mirror of tools/OloHeaderTool/main.cpp::kComponentsCustomOnAdd — the

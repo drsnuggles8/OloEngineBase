@@ -115,6 +115,7 @@ namespace OloEngine::Tests
                 base / "Gameplay" / "Abilities" / "AbilityComponents.h",
                 base / "Gameplay" / "Progression" / "ProgressionComponents.h",
                 base / "Gameplay" / "PlayerRig" / "PlayerRigComponents.h",
+                base / "Gameplay" / "Combat" / "CombatComponents.h",
                 base / "Scene" / "Streaming" / "StreamingVolumeComponent.h",
                 base / "AI" / "AIComponents.h",
                 base / "Networking" / "NetworkIdentityComponent.h",
@@ -213,6 +214,8 @@ namespace OloEngine::Tests
             "FootIKStateComponent",         // Foot-IK adaptation state (plant locks, pelvis smoothing, ground cache); FootIKComponent.h documents it as deliberately out of the tuple (adaptation restarts fresh on scene copy, issue #631).
             "LocomotionStateComponent",     // Locomotion controller state (gait, smoothing, stride-warp base speeds); LocomotionComponent.h documents it as deliberately out of the tuple (restarts from idle on scene copy, issue #631).
             "WorldTransformComponent",      // Composed parent-chain world matrix; rebuilt every tick by Scene::PropagateWorldTransforms() (issue #499), never copied/serialized.
+            "ProjectileComponent",          // Runtime-only flight snapshot; spawned/destroyed by CombatSystem and never copied with authored scenes.
+            "ImpactDecalComponent",         // Runtime-only presentation lifetime for transient weapon-hit decals.
         };
 
         std::vector<std::string> missing;

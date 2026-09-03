@@ -31,9 +31,11 @@
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Gameplay/Combat/CombatComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/SphericalHarmonics.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/SceneCamera.h"
@@ -4462,6 +4464,42 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, WeaponComponent& c)
+    {
+        ar << c.m_WeaponItemID;
+        ar << c.m_MuzzleOffset.x << c.m_MuzzleOffset.y << c.m_MuzzleOffset.z;
+        ar << c.m_UseDeviceInput;
+        if (ar.IsLoading())
+        {
+            if (!Math::IsFinite(c.m_MuzzleOffset))
+            {
+                c.m_MuzzleOffset = glm::vec3(0.0f);
+            }
+            c.m_FireInput = false;
+            c.m_ReloadInput = false;
+            c.m_State = WeaponState{};
+            c.m_LoadedItemID.clear();
+            c.m_Initialized = false;
+            c.m_ReloadKeyWasDown = false;
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, PlayerRespawnComponent& c)
+    {
+        ar << c.m_SpawnPoint.x << c.m_SpawnPoint.y << c.m_SpawnPoint.z;
+        ar << c.m_SpawnYawDeg << c.m_RespawnDelay;
+        if (ar.IsLoading())
+        {
+            if (!std::isfinite(c.m_SpawnYawDeg))
+                c.m_SpawnYawDeg = 0.0f;
+            if (!std::isfinite(c.m_RespawnDelay))
+                c.m_RespawnDelay = 3.0f;
+            c.m_RespawnDelay = std::clamp(c.m_RespawnDelay, 0.0f, 3600.0f);
+            c.m_TimeRemaining = 0.0f;
+            c.m_DeathObserved = false;
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, PlayerRigComponent& c)
     {
         ar << c.m_LookSensitivity << c.m_InvertLookY;
@@ -4708,6 +4746,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(QuestGiverComponent);
         REGISTER_SAVE_COMPONENT(AbilityComponent);
         REGISTER_SAVE_COMPONENT(ProgressionComponent);
+        REGISTER_SAVE_COMPONENT(WeaponComponent);
+        REGISTER_SAVE_COMPONENT(PlayerRespawnComponent);
         REGISTER_SAVE_COMPONENT(PlayerRigComponent);
         REGISTER_SAVE_COMPONENT(CameraRigComponent);
 

@@ -2024,6 +2024,31 @@ namespace OloEngine
 		}
 	}
 
+	public partial class PlayerRespawnComponent : Component
+	{
+		public Vector3 SpawnPoint
+		{
+			get
+			{
+				InternalCalls.PlayerRespawnComponent_GetSpawnPoint(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.PlayerRespawnComponent_SetSpawnPoint(Entity.ID, ref value);
+		}
+
+		public float SpawnYawDeg
+		{
+			get => InternalCalls.PlayerRespawnComponent_GetSpawnYawDeg(Entity.ID);
+			set => InternalCalls.PlayerRespawnComponent_SetSpawnYawDeg(Entity.ID, value);
+		}
+
+		public float RespawnDelay
+		{
+			get => InternalCalls.PlayerRespawnComponent_GetRespawnDelay(Entity.ID);
+			set => InternalCalls.PlayerRespawnComponent_SetRespawnDelay(Entity.ID, value);
+		}
+	}
+
 	public partial class PlayerRigComponent : Component
 	{
 		public float LookSensitivity
@@ -3731,6 +3756,43 @@ namespace OloEngine
 		{
 			get => InternalCalls.VisualScriptComponent_GetEnabled(Entity.ID);
 			set => InternalCalls.VisualScriptComponent_SetEnabled(Entity.ID, value);
+		}
+	}
+
+	public partial class WeaponComponent : Component
+	{
+		public string WeaponItemID
+		{
+			get => InternalCalls.WeaponComponent_GetWeaponItemID(Entity.ID);
+			set => InternalCalls.WeaponComponent_SetWeaponItemID(Entity.ID, value);
+		}
+
+		public Vector3 MuzzleOffset
+		{
+			get
+			{
+				InternalCalls.WeaponComponent_GetMuzzleOffset(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.WeaponComponent_SetMuzzleOffset(Entity.ID, ref value);
+		}
+
+		public bool UseDeviceInput
+		{
+			get => InternalCalls.WeaponComponent_GetUseDeviceInput(Entity.ID);
+			set => InternalCalls.WeaponComponent_SetUseDeviceInput(Entity.ID, value);
+		}
+
+		public bool FireInput
+		{
+			get => InternalCalls.WeaponComponent_GetFireInput(Entity.ID);
+			set => InternalCalls.WeaponComponent_SetFireInput(Entity.ID, value);
+		}
+
+		public bool ReloadInput
+		{
+			get => InternalCalls.WeaponComponent_GetReloadInput(Entity.ID);
+			set => InternalCalls.WeaponComponent_SetReloadInput(Entity.ID, value);
 		}
 	}
 

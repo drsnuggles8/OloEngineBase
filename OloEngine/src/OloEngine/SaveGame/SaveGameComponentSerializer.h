@@ -137,6 +137,8 @@ namespace OloEngine
     struct QuestGiverComponent;
     struct AbilityComponent;
     struct ProgressionComponent;
+    struct WeaponComponent;
+    struct PlayerRespawnComponent;
     struct PlayerRigComponent;
     struct CameraRigComponent;
 
@@ -273,6 +275,8 @@ namespace OloEngine
         static void Serialize(FArchive& ar, QuestGiverComponent& c);
         static void Serialize(FArchive& ar, AbilityComponent& c);
         static void Serialize(FArchive& ar, ProgressionComponent& c);
+        static void Serialize(FArchive& ar, WeaponComponent& c);
+        static void Serialize(FArchive& ar, PlayerRespawnComponent& c);
         static void Serialize(FArchive& ar, PlayerRigComponent& c);
         static void Serialize(FArchive& ar, CameraRigComponent& c);
 

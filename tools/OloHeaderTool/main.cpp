@@ -1060,6 +1060,9 @@ static const std::set<std::string> kComponentsNotInTuple = {
     "FootIKStateComponent",
     "LocomotionStateComponent",
     "WorldTransformComponent",
+    // Runtime projectile flight snapshot; spawned and destroyed during play.
+    "ProjectileComponent",
+    "ImpactDecalComponent",
 };
 
 // Components intentionally kept OUT of the save-game capture/restore lists
@@ -1095,6 +1098,9 @@ static const std::set<std::string> kComponentsNotInSaveGame = {
     // saved mid-explosion would restore orphaned chunks). DestructibleComponent,
     // by contrast, HAS a serializer and is NOT in this set.
     "DebrisComponent",
+    // Runtime projectile and impact-decal entities are transient.
+    "ProjectileComponent",
+    "ImpactDecalComponent",
 };
 
 // Components whose Scene::OnComponentAdded<T> specialization is HAND-WRITTEN in
@@ -3738,6 +3744,8 @@ static const std::set<std::string> kComponentsNotMcpEditable = {
     "RetargetingStateComponent",
     "FootIKStateComponent",
     "LocomotionStateComponent",
+    "ProjectileComponent",
+    "ImpactDecalComponent",
 };
 
 // Ranges the SceneSerializer's HAND-WRITTEN deserialize enforces but which are

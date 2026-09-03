@@ -98,6 +98,7 @@ namespace OloEngine::Tests
                 root / "Gameplay" / "Abilities" / "AbilityComponents.h",
                 root / "Gameplay" / "Progression" / "ProgressionComponents.h",
                 root / "Gameplay" / "PlayerRig" / "PlayerRigComponents.h",
+                root / "Gameplay" / "Combat" / "CombatComponents.h",
                 root / "Scene" / "Streaming" / "StreamingVolumeComponent.h",
                 root / "AI" / "AIComponents.h",
                 root / "Networking" / "NetworkIdentityComponent.h",
@@ -167,7 +168,9 @@ namespace OloEngine::Tests
             "NoiseAnimationStateComponent", // Per-tick noise-animation phase/offset state; recomputed each tick, not authored.
             "PhaseComponent",               // Animation phase runtime state; recomputed each tick.
             "FootIKStateComponent",         // Foot-IK adaptation state (plant locks, pelvis smoothing, per-tick ground cache); recomputed at runtime, never authored (issue #631).
+            "ImpactDecalComponent",         // Transient weapon-impact presentation lifetime; spawned and destroyed by CombatSystem.
             "LocomotionStateComponent",     // Locomotion controller state (gait, smoothing, stride-warp base speeds); recomputed at runtime, never authored (issue #631).
+            "ProjectileComponent",          // Runtime-only weapon flight snapshot; spawned and destroyed by CombatSystem.
             "RetargetingStateComponent",    // Live-retargeting bake cache (baked clips + last-baked settings); rebuilt lazily at runtime, never authored (issue #631).
             "SpringBoneStateComponent",     // Per-tick spring-bone simulation state (velocity, current position); recomputed each tick.
             "UIResolvedRectComponent",      // Layout-resolved UI rect; computed each tick by the UI system.

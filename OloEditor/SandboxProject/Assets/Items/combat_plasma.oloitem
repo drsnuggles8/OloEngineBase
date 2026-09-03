@@ -1,0 +1,29 @@
+ItemDefinition:
+  ItemID: combat_plasma
+  DisplayName: Plasma Caster
+  Description: Slow visible projectile weapon used by the FPS combat demo bot.
+  Category: Weapon
+  Rarity: Uncommon
+  MaxStackSize: 1
+  Weight: 4.5
+  Weapon:
+    Delivery: Projectile
+    Damage: 35
+    Range: 60
+    RoundsPerMinute: 90
+    MagazineSize: 8
+    ReserveAmmo: 32
+    ReloadSeconds: 2.4
+    RecoilPitch: 1.2
+    RecoilYaw: 0.25
+    FalloffStart: 30
+    FalloffEnd: 60
+    MinimumDamageMultiplier: 0.6
+    ProjectileSpeed: 12
+    ProjectileRadius: 0.18
+    ProjectileLifetime: 5
+    DamageType: Damage.Energy
+    MuzzleAudioTrigger: Weapon.Plasma.Fire
+    ImpactAudioTrigger: Weapon.Plasma.Impact
+    HitReactionTrigger: HitReaction
+  Tags: [weapon, plasma, projectile]

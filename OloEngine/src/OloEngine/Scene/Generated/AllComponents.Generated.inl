@@ -82,6 +82,7 @@ using AllComponents = ComponentGroup<
     PerceptionComponent,
     PhaseComponent,
     PhysicsJoint3DComponent,
+    PlayerRespawnComponent,
     PlayerRigComponent,
     PointLightComponent,
     PrefabComponent,
@@ -135,4 +136,5 @@ using AllComponents = ComponentGroup<
     VirtualMeshComponent,
     VisualScriptComponent,
     WaterComponent,
+    WeaponComponent,
     WeatherStateComponent>;

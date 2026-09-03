@@ -294,6 +294,7 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         "Quest",
         "Progression",
         "PhysicsFence",
+        "Combat",
         "PropagateTransforms",
         "Navigation",
         "SpatialIndex",

@@ -1097,6 +1097,7 @@ namespace OloEngine
         void UpdateQuest(Timestep ts);         // quest timers / conditions
         void UpdateProgression(Timestep ts);   // XP/level resolution + point grants (issue #635)
         void UpdateAbilities(Timestep ts);     // gameplay ability system
+        void UpdateCombat(Timestep ts);        // weapon input, traces, and projectiles (post-physics)
         void UpdateAudio(Timestep ts);         // listener/source pose sync + events
         // Particle update is split by GPU usage (issue #576): the CPU partition
         // is worker-dispatchable (Parallelizable), the GPU partition stays on the

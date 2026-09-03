@@ -577,6 +577,17 @@ if (entity.HasComponent<PerceptibleComponent>())
     out << YAML::EndMap; // PerceptibleComponent
 }
 
+if (entity.HasComponent<PlayerRespawnComponent>())
+{
+    out << YAML::Key << "PlayerRespawnComponent";
+    out << YAML::BeginMap; // PlayerRespawnComponent
+    auto const& comp = entity.GetComponent<PlayerRespawnComponent>();
+    out << YAML::Key << "SpawnPoint" << YAML::Value << comp.m_SpawnPoint;
+    out << YAML::Key << "SpawnYawDeg" << YAML::Value << comp.m_SpawnYawDeg;
+    out << YAML::Key << "RespawnDelay" << YAML::Value << comp.m_RespawnDelay;
+    out << YAML::EndMap; // PlayerRespawnComponent
+}
+
 if (entity.HasComponent<PlayerRigComponent>())
 {
     out << YAML::Key << "PlayerRigComponent";
@@ -985,6 +996,17 @@ if (entity.HasComponent<VirtualMeshComponent>())
     out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
     out << YAML::Key << "CastShadows" << YAML::Value << comp.m_CastShadows;
     out << YAML::EndMap; // VirtualMeshComponent
+}
+
+if (entity.HasComponent<WeaponComponent>())
+{
+    out << YAML::Key << "WeaponComponent";
+    out << YAML::BeginMap; // WeaponComponent
+    auto const& comp = entity.GetComponent<WeaponComponent>();
+    out << YAML::Key << "WeaponItemID" << YAML::Value << comp.m_WeaponItemID;
+    out << YAML::Key << "MuzzleOffset" << YAML::Value << comp.m_MuzzleOffset;
+    out << YAML::Key << "UseDeviceInput" << YAML::Value << comp.m_UseDeviceInput;
+    out << YAML::EndMap; // WeaponComponent
 }
 
 if (entity.HasComponent<WeatherStateComponent>())

@@ -1,0 +1,26 @@
+ItemDefinition:
+  ItemID: combat_rifle
+  DisplayName: Combat Rifle
+  Description: Automatic hitscan rifle used by the FPS combat demo.
+  Category: Weapon
+  Rarity: Common
+  MaxStackSize: 1
+  Weight: 3.2
+  Weapon:
+    Delivery: Hitscan
+    Damage: 24
+    Range: 80
+    RoundsPerMinute: 600
+    MagazineSize: 30
+    ReserveAmmo: 90
+    ReloadSeconds: 1.8
+    RecoilPitch: 0.8
+    RecoilYaw: 0.18
+    FalloffStart: 25
+    FalloffEnd: 70
+    MinimumDamageMultiplier: 0.45
+    DamageType: Damage.Ballistic
+    MuzzleAudioTrigger: Weapon.Rifle.Fire
+    ImpactAudioTrigger: Weapon.Ballistic.Impact
+    HitReactionTrigger: HitReaction
+  Tags: [weapon, rifle, hitscan]
