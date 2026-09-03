@@ -54,7 +54,7 @@ namespace
             LastSphere = sphereInfo;
             WasCast = true;
             outHit = Hit;
-            return Hit.HasHit();
+            return Hit.HasHit() && Hit.m_Distance <= sphereInfo.m_MaxDistance;
         }
         bool CastCapsule(const CapsuleCastInfo&, SceneQueryHit&) override
         {
@@ -189,6 +189,35 @@ TEST_F(WeaponImpactUsesGameplayDamageTest, ProjectileSweepAppliesImpactExactlyOn
     EXPECT_FLOAT_EQ(m_Target.GetComponent<AbilityComponent>().Attributes.GetCurrentValue("Health"), 38.0f);
 }
 
+TEST_F(WeaponImpactUsesGameplayDamageTest, ProjectileCannotHitBeyondItsRemainingLifetime)
+{
+    WeaponDefinition definition;
+    definition.Delivery = WeaponDelivery::Projectile;
+    definition.Damage = 12.0f;
+    definition.Range = 100.0f;
+    definition.FalloffStart = 100.0f;
+    definition.FalloffEnd = 100.0f;
+    definition.ProjectileSpeed = 20.0f;
+    definition.ProjectileRadius = 0.1f;
+    definition.ProjectileLifetime = 0.05f;
+
+    SingleHitSceneQueries queries;
+    queries.Hit.m_HitEntity = m_Target.GetUUID();
+    queries.Hit.m_Distance = 1.5f;
+    queries.Hit.m_Position = { 0.0f, 0.0f, -1.5f };
+
+    ProjectileState projectile = ProjectileState::Launch(
+        m_Shooter.GetUUID(), definition, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f });
+
+    EXPECT_FALSE(CombatSystem::AdvanceProjectile(&GetScene(), queries, projectile, 0.1f));
+    EXPECT_FALSE(projectile.Active);
+    EXPECT_FLOAT_EQ(queries.LastSphere.m_MaxDistance, 1.0f);
+    EXPECT_FLOAT_EQ(projectile.Position.x, 0.0f);
+    EXPECT_FLOAT_EQ(projectile.Position.y, 0.0f);
+    EXPECT_FLOAT_EQ(projectile.Position.z, -1.0f);
+    EXPECT_FLOAT_EQ(m_Target.GetComponent<AbilityComponent>().Attributes.GetCurrentValue("Health"), 50.0f);
+}
+
 TEST_F(WeaponImpactUsesGameplayDamageTest, WeaponComponentConsumesExternalFireIntent)
 {
     ItemDatabase::Clear();
@@ -218,6 +247,70 @@ TEST_F(WeaponImpactUsesGameplayDamageTest, WeaponComponentConsumesExternalFireIn
     const auto& updated = m_Shooter.GetComponent<WeaponComponent>();
     EXPECT_EQ(updated.m_State.GetMagazineAmmo(), 29u);
     EXPECT_FLOAT_EQ(m_Target.GetComponent<AbilityComponent>().Attributes.GetCurrentValue("Health"), 40.0f);
+    ItemDatabase::Clear();
+}
+
+TEST_F(WeaponImpactUsesGameplayDamageTest, HeldFirePreservesCadenceAcrossVariableTimesteps)
+{
+    ItemDatabase::Clear();
+    ItemDefinition item;
+    item.ItemID = "cadence_rifle";
+    item.Category = ItemCategory::Weapon;
+    item.Weapon = WeaponDefinition{};
+    item.Weapon->RoundsPerMinute = 600.0f;
+    item.Weapon->MagazineSize = 30;
+    ItemDatabase::Register(item);
+
+    WeaponComponent weapon;
+    weapon.m_WeaponItemID = item.ItemID;
+    weapon.m_UseDeviceInput = false;
+    weapon.m_FireInput = true;
+    m_Shooter.AddComponent<WeaponComponent>(weapon);
+
+    SingleHitSceneQueries queries;
+    CombatSystem::OnUpdate(&GetScene(), &queries, 0.31f);
+    const u32 coarseShots = m_Shooter.GetComponent<WeaponComponent>().m_State.GetShotsFired();
+
+    auto& reset = m_Shooter.GetComponent<WeaponComponent>();
+    reset.m_State = WeaponState::Loaded(*item.Weapon);
+    reset.m_LoadedItemID = item.ItemID;
+    reset.m_Initialized = true;
+    CombatSystem::OnUpdate(&GetScene(), &queries, 0.1f);
+    CombatSystem::OnUpdate(&GetScene(), &queries, 0.1f);
+    CombatSystem::OnUpdate(&GetScene(), &queries, 0.11f);
+    const u32 fineShots = reset.m_State.GetShotsFired();
+
+    EXPECT_EQ(coarseShots, 4u);
+    EXPECT_EQ(fineShots, coarseShots);
+    ItemDatabase::Clear();
+}
+
+TEST_F(WeaponImpactUsesGameplayDamageTest, HeldFireCatchUpIsBoundedAndRetainsOverdueCadence)
+{
+    ItemDatabase::Clear();
+    ItemDefinition item;
+    item.ItemID = "bounded_cadence_rifle";
+    item.Category = ItemCategory::Weapon;
+    item.Weapon = WeaponDefinition{};
+    item.Weapon->RoundsPerMinute = 600.0f;
+    item.Weapon->MagazineSize = 100;
+    ItemDatabase::Register(item);
+
+    WeaponComponent weapon;
+    weapon.m_WeaponItemID = item.ItemID;
+    weapon.m_UseDeviceInput = false;
+    weapon.m_FireInput = true;
+    m_Shooter.AddComponent<WeaponComponent>(weapon);
+
+    SingleHitSceneQueries queries;
+    CombatSystem::OnUpdate(&GetScene(), &queries, 10.0f);
+    const u32 firstUpdateShots = m_Shooter.GetComponent<WeaponComponent>().m_State.GetShotsFired();
+    CombatSystem::OnUpdate(&GetScene(), &queries, 0.0f);
+    const u32 secondUpdateShots = m_Shooter.GetComponent<WeaponComponent>().m_State.GetShotsFired();
+
+    EXPECT_GT(firstUpdateShots, 1u);
+    EXPECT_LT(firstUpdateShots, item.Weapon->MagazineSize);
+    EXPECT_GT(secondUpdateShots, firstUpdateShots);
     ItemDatabase::Clear();
 }
 

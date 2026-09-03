@@ -40,6 +40,7 @@
 #include "OloEngine/Gameplay/Combat/CombatComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
 #include "OloEngine/Gameplay/Quest/QuestDatabase.h"
@@ -4065,14 +4066,18 @@ namespace OloEngine
         lua.new_usertype<WeaponComponent>(
             "WeaponComponent",
             "weaponItemID", &WeaponComponent::m_WeaponItemID,
-            "muzzleOffset", &WeaponComponent::m_MuzzleOffset,
+            "muzzleOffset", sol::property([](const WeaponComponent& c)
+                                          { return c.m_MuzzleOffset; }, [](WeaponComponent& c, const glm::vec3& value)
+                                          { if (Math::IsFinite(value)) c.m_MuzzleOffset = value; }),
             "useDeviceInput", &WeaponComponent::m_UseDeviceInput,
             "fire", &WeaponComponent::m_FireInput,
             "reload", &WeaponComponent::m_ReloadInput);
 
         lua.new_usertype<PlayerRespawnComponent>(
             "PlayerRespawnComponent",
-            "spawnPoint", &PlayerRespawnComponent::m_SpawnPoint,
+            "spawnPoint", sol::property([](const PlayerRespawnComponent& c)
+                                        { return c.m_SpawnPoint; }, [](PlayerRespawnComponent& c, const glm::vec3& value)
+                                        { if (Math::IsFinite(value)) c.m_SpawnPoint = value; }),
             "spawnYaw", sol::property([](const PlayerRespawnComponent& c)
                                       { return c.m_SpawnYawDeg; }, [](PlayerRespawnComponent& c, f32 value)
                                       { c.m_SpawnYawDeg = std::isfinite(value) ? value : 0.0f; }),

@@ -35,6 +35,7 @@
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/SphericalHarmonics.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/SceneCamera.h"
@@ -4470,6 +4471,10 @@ namespace OloEngine
         ar << c.m_UseDeviceInput;
         if (ar.IsLoading())
         {
+            if (!Math::IsFinite(c.m_MuzzleOffset))
+            {
+                c.m_MuzzleOffset = glm::vec3(0.0f);
+            }
             c.m_FireInput = false;
             c.m_ReloadInput = false;
             c.m_State = WeaponState{};

@@ -5,6 +5,12 @@
 
 #include "OloEngine/Gameplay/Combat/WeaponState.h"
 #include "OloEngine/Gameplay/Combat/WeaponDamage.h"
+#include "OloEngine/Gameplay/Combat/CombatComponents.h"
+#include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
+#include "OloEngine/Serialization/Archive.h"
+
+#include <limits>
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -48,6 +54,57 @@ namespace OloEngine::Tests
         EXPECT_EQ(state.GetMagazineAmmo(), 5);
         EXPECT_EQ(state.GetReserveAmmo(), 1);
         EXPECT_EQ(state.TryFire(definition), WeaponFireResult::Fired);
+    }
+
+    TEST(WeaponState, ElapsedCadenceDebtRemainsAvailableForCatchUpShots)
+    {
+        WeaponDefinition definition;
+        definition.MagazineSize = 4;
+        definition.RoundsPerMinute = 600.0f;
+
+        WeaponState state = WeaponState::Loaded(definition);
+        ASSERT_EQ(state.TryFire(definition), WeaponFireResult::Fired);
+        state.Advance(definition, 0.25f, true);
+
+        EXPECT_EQ(state.TryFire(definition), WeaponFireResult::Fired);
+        EXPECT_EQ(state.TryFire(definition), WeaponFireResult::Fired);
+        EXPECT_EQ(state.TryFire(definition), WeaponFireResult::CadenceBlocked);
+        EXPECT_EQ(state.GetShotsFired(), 3u);
+    }
+
+    TEST(WeaponState, IdleTimeDoesNotCreateCadenceDebt)
+    {
+        WeaponDefinition definition;
+        definition.MagazineSize = 3;
+        definition.RoundsPerMinute = 600.0f;
+
+        WeaponState state = WeaponState::Loaded(definition);
+        state.Advance(definition, 1.0f);
+
+        EXPECT_EQ(state.TryFire(definition), WeaponFireResult::Fired);
+        EXPECT_EQ(state.TryFire(definition), WeaponFireResult::CadenceBlocked);
+    }
+
+    TEST(WeaponComponentSaveLoadSanitize, NonFiniteMuzzleOffsetFallsBackToZero)
+    {
+        WeaponComponent seed;
+        seed.m_MuzzleOffset = { 1.0f, std::numeric_limits<f32>::quiet_NaN(), 3.0f };
+
+        std::vector<u8> buffer;
+        FMemoryWriter writer(buffer);
+        writer.ArIsSaveGame = true;
+        SaveGameComponentSerializer::Serialize(writer, seed);
+
+        WeaponComponent loaded;
+        FMemoryReader reader(buffer);
+        reader.ArIsSaveGame = true;
+        SaveGameComponentSerializer::Serialize(reader, loaded);
+
+        ASSERT_FALSE(reader.IsError());
+        EXPECT_TRUE(reader.AtEnd());
+        EXPECT_FLOAT_EQ(loaded.m_MuzzleOffset.x, 0.0f);
+        EXPECT_FLOAT_EQ(loaded.m_MuzzleOffset.y, 0.0f);
+        EXPECT_FLOAT_EQ(loaded.m_MuzzleOffset.z, 0.0f);
     }
 
     TEST(WeaponDamage, FalloffInterpolatesAndClampsAtTheAuthoredDistances)

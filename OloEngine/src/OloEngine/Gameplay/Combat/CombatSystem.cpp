@@ -34,6 +34,11 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        constexpr u32 kMaxCatchUpShotsPerUpdate = 32;
+    }
+
     f32 CombatSystem::ApplyWeaponImpact(Scene* scene, Entity source, const WeaponDefinition& definition, const SceneQueryHit& hit)
     {
         if (scene == nullptr || !source || !hit.HasHit())
@@ -143,8 +148,12 @@ namespace OloEngine
         const auto& definition = projectile.Definition;
         const f32 speed = std::isfinite(definition.ProjectileSpeed) ? std::max(0.0f, definition.ProjectileSpeed) : 0.0f;
         const f32 range = std::isfinite(definition.Range) ? std::max(0.0f, definition.Range) : 0.0f;
+        const f32 remainingLifetime = std::isfinite(projectile.LifetimeRemaining)
+                                          ? std::max(0.0f, projectile.LifetimeRemaining)
+                                          : 0.0f;
+        const f32 stepSeconds = std::min(deltaSeconds, remainingLifetime);
         const f32 remainingRange = std::max(0.0f, range - projectile.DistanceTraveled);
-        const f32 stepDistance = std::min(speed * deltaSeconds, remainingRange);
+        const f32 stepDistance = std::min(speed * stepSeconds, remainingRange);
         if (stepDistance <= 0.0f)
         {
             projectile.Active = false;
@@ -167,7 +176,7 @@ namespace OloEngine
 
         projectile.Position += projectile.Direction * stepDistance;
         projectile.DistanceTraveled += stepDistance;
-        projectile.LifetimeRemaining -= deltaSeconds;
+        projectile.LifetimeRemaining -= stepSeconds;
         if (!std::isfinite(projectile.LifetimeRemaining) || projectile.LifetimeRemaining <= 0.0f ||
             projectile.DistanceTraveled >= range)
         {
@@ -305,8 +314,6 @@ namespace OloEngine
                 weapon.m_LoadedItemID = weapon.m_WeaponItemID;
                 weapon.m_Initialized = true;
             }
-            weapon.m_State.Advance(definition, deltaSeconds);
-
             if (weapon.m_UseDeviceInput)
             {
                 weapon.m_FireInput = Input::IsMouseButtonPressed(Mouse::ButtonLeft);
@@ -315,12 +322,15 @@ namespace OloEngine
                 weapon.m_ReloadKeyWasDown = reloadDown;
             }
 
+            const bool canProcessFire = weapon.m_FireInput && queries != nullptr;
+            weapon.m_State.Advance(definition, deltaSeconds, canProcessFire);
+
             if (weapon.m_ReloadInput)
             {
                 (void)weapon.m_State.BeginReload(definition);
                 weapon.m_ReloadInput = false;
             }
-            if (!weapon.m_FireInput || queries == nullptr || weapon.m_State.TryFire(definition) != WeaponFireResult::Fired)
+            if (!canProcessFire)
             {
                 continue;
             }
@@ -328,29 +338,37 @@ namespace OloEngine
             auto& transform = owner.GetComponent<TransformComponent>();
             const glm::quat ownerRotation = transform.GetRotation();
             const glm::vec3 origin = transform.Translation + ownerRotation * weapon.m_MuzzleOffset;
-            glm::vec3 direction = ownerRotation * glm::vec3(0.0f, 0.0f, -1.0f);
-            if (owner.HasComponent<PlayerRigComponent>())
+            for (u32 shotsProcessed = 0; shotsProcessed < kMaxCatchUpShotsPerUpdate; ++shotsProcessed)
             {
-                auto& rig = owner.GetComponent<PlayerRigComponent>();
-                direction = PlayerRigSystem::LookRotation(rig.m_YawDeg, rig.m_PitchDeg) * glm::vec3(0.0f, 0.0f, -1.0f);
-                const f32 minPitch = std::min(rig.m_MinPitchDeg, rig.m_MaxPitchDeg);
-                const f32 maxPitch = std::max(rig.m_MinPitchDeg, rig.m_MaxPitchDeg);
-                rig.m_PitchDeg = std::clamp(rig.m_PitchDeg + definition.RecoilPitch, minPitch, maxPitch);
-                const f32 yawKick = (weapon.m_State.GetShotsFired() & 1u) != 0u ? definition.RecoilYaw : -definition.RecoilYaw;
-                rig.m_YawDeg = PlayerRigSystem::WrapDegrees(rig.m_YawDeg + yawKick);
-            }
+                if (weapon.m_State.TryFire(definition) != WeaponFireResult::Fired)
+                {
+                    break;
+                }
 
-            if (definition.Delivery == WeaponDelivery::Hitscan)
-            {
-                hitscanRequests.push_back({ owner.GetUUID(), definition, origin, direction });
-            }
-            else
-            {
-                launches.push_back({ ProjectileState::Launch(owner.GetUUID(), definition, origin, direction) });
-            }
-            if (!definition.MuzzleAudioTrigger.empty())
-            {
-                (void)Audio::AudioPlayback::PostTriggerByName(definition.MuzzleAudioTrigger, static_cast<u64>(owner.GetUUID()));
+                glm::vec3 direction = ownerRotation * glm::vec3(0.0f, 0.0f, -1.0f);
+                if (owner.HasComponent<PlayerRigComponent>())
+                {
+                    auto& rig = owner.GetComponent<PlayerRigComponent>();
+                    direction = PlayerRigSystem::LookRotation(rig.m_YawDeg, rig.m_PitchDeg) * glm::vec3(0.0f, 0.0f, -1.0f);
+                    const f32 minPitch = std::min(rig.m_MinPitchDeg, rig.m_MaxPitchDeg);
+                    const f32 maxPitch = std::max(rig.m_MinPitchDeg, rig.m_MaxPitchDeg);
+                    rig.m_PitchDeg = std::clamp(rig.m_PitchDeg + definition.RecoilPitch, minPitch, maxPitch);
+                    const f32 yawKick = (weapon.m_State.GetShotsFired() & 1u) != 0u ? definition.RecoilYaw : -definition.RecoilYaw;
+                    rig.m_YawDeg = PlayerRigSystem::WrapDegrees(rig.m_YawDeg + yawKick);
+                }
+
+                if (definition.Delivery == WeaponDelivery::Hitscan)
+                {
+                    hitscanRequests.push_back({ owner.GetUUID(), definition, origin, direction });
+                }
+                else
+                {
+                    launches.push_back({ ProjectileState::Launch(owner.GetUUID(), definition, origin, direction) });
+                }
+                if (!definition.MuzzleAudioTrigger.empty())
+                {
+                    (void)Audio::AudioPlayback::PostTriggerByName(definition.MuzzleAudioTrigger, static_cast<u64>(owner.GetUUID()));
+                }
             }
         }
 

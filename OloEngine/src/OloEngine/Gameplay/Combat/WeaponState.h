@@ -29,7 +29,7 @@ namespace OloEngine
 
         [[nodiscard]] WeaponFireResult TryFire(const WeaponDefinition& definition);
         [[nodiscard]] WeaponReloadResult BeginReload(const WeaponDefinition& definition);
-        void Advance(const WeaponDefinition& definition, f32 deltaSeconds);
+        void Advance(const WeaponDefinition& definition, f32 deltaSeconds, bool fireHeld = false);
 
         [[nodiscard]] u32 GetMagazineAmmo() const
         {

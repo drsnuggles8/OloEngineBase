@@ -45,7 +45,7 @@ namespace OloEngine
 
         --m_MagazineAmmo;
         ++m_ShotsFired;
-        m_CadenceRemaining = SecondsPerRound(definition);
+        m_CadenceRemaining += SecondsPerRound(definition);
         return WeaponFireResult::Fired;
     }
 
@@ -71,14 +71,18 @@ namespace OloEngine
         return WeaponReloadResult::Started;
     }
 
-    void WeaponState::Advance(const WeaponDefinition& definition, f32 deltaSeconds)
+    void WeaponState::Advance(const WeaponDefinition& definition, f32 deltaSeconds, bool fireHeld)
     {
         if (!std::isfinite(deltaSeconds) || deltaSeconds <= 0.0f)
         {
             return;
         }
 
-        m_CadenceRemaining = std::max(0.0f, m_CadenceRemaining - deltaSeconds);
+        m_CadenceRemaining -= deltaSeconds;
+        if (!fireHeld || m_IsReloading)
+        {
+            m_CadenceRemaining = std::max(0.0f, m_CadenceRemaining);
+        }
 
         if (!m_IsReloading)
         {
