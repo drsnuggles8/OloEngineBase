@@ -620,6 +620,14 @@ namespace OloEngine
         fplus.SetDebugVisualization(settings.ForwardPlusDebugHeatmap);
     }
 
+    void Renderer3D::RequestRenderGraphRebuild()
+    {
+        if (s_Data.Pipeline)
+            s_Data.Pipeline->InvalidateBlackboardCache();
+        if (s_Data.RGraph)
+            s_Data.RGraph->InvalidateBuildFrameGraphCache();
+    }
+
     bool Renderer3D::IsVisibleInFrustum(const Ref<Mesh>& mesh, const glm::mat4& transform)
     {
         if (!s_Data.FrustumCullingEnabled)

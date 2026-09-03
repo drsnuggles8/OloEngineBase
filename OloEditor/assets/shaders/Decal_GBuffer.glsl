@@ -94,6 +94,9 @@ void main()
     if (abs(localPos.x) > 0.5 || abs(localPos.y) > 0.5 || abs(localPos.z) > 0.5)
         discard;
 
+    if (u_DecalParams.z > 0.5)
+        return;
+
     // Use XZ as UV (remap [-0.5, 0.5] -> [0, 1]).
     vec2 decalUV = localPos.xz + 0.5;
 

@@ -233,6 +233,7 @@ TEST(McpRendererSettingsApply, SetsUpscaleAndReportsPrior)
     EXPECT_EQ(result.Data["value"], "balanced");
     EXPECT_TRUE(result.Data["changed"].get<bool>());
     EXPECT_FALSE(result.PathChanged); // not a render-path write
+    EXPECT_TRUE(result.RequiresRenderGraphRebuild);
 }
 
 TEST(McpRendererSettingsApply, SetsTonemap)
@@ -257,6 +258,8 @@ TEST(McpRendererSettingsApply, RenderPathChangeFlagsRebuild)
     ASSERT_TRUE(result.Ok);
     EXPECT_EQ(rs.Path, RenderingPath::Deferred);
     EXPECT_TRUE(result.PathChanged);
+    EXPECT_TRUE(result.RequiresRendererApply);
+    EXPECT_TRUE(result.RequiresRenderGraphRebuild);
     EXPECT_EQ(result.Data["previousValue"], "forward");
     EXPECT_EQ(result.Data["value"], "deferred");
 }
@@ -272,6 +275,45 @@ TEST(McpRendererSettingsApply, NoOpWhenValueUnchanged)
     ASSERT_TRUE(result.Ok);
     EXPECT_FALSE(result.Data["changed"].get<bool>());
     EXPECT_FALSE(result.PathChanged);
+    EXPECT_FALSE(result.RequiresRendererApply);
+    EXPECT_FALSE(result.RequiresRenderGraphRebuild);
+}
+
+TEST(McpRendererSettingsApply, DeferredMSAAAndPerSampleLightingRequestRebuild)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+
+    const auto msaa = RS::Apply(RS::Setting::MSAA, 4, pp, rs, lever);
+    ASSERT_TRUE(msaa.Ok);
+    EXPECT_EQ(rs.Deferred.MSAASampleCount, 4u);
+    EXPECT_TRUE(msaa.RequiresRendererApply);
+    EXPECT_TRUE(msaa.RequiresRenderGraphRebuild);
+    EXPECT_EQ(msaa.Data["value"], "4");
+
+    rs.Deferred.PerSampleLighting = false;
+    const auto perSample = RS::Apply(RS::Setting::PerSampleLighting, RS::kPerSampleLightingOn, pp, rs, lever);
+    ASSERT_TRUE(perSample.Ok);
+    EXPECT_TRUE(rs.Deferred.PerSampleLighting);
+    EXPECT_FALSE(perSample.RequiresRendererApply);
+    EXPECT_TRUE(perSample.RequiresRenderGraphRebuild);
+}
+
+TEST(McpRendererSettingsApply, VSMDebugSelectsEveryDiagnosticViewWithoutRebuild)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    for (i32 mode = 0; mode <= 7; ++mode)
+    {
+        const auto result = RS::Apply(RS::Setting::VSMDebug, mode, pp, rs, lever);
+        ASSERT_TRUE(result.Ok) << mode;
+        EXPECT_EQ(lever.VSMDebugMode, mode);
+        EXPECT_FALSE(result.RequiresRendererApply);
+        EXPECT_FALSE(result.RequiresRenderGraphRebuild);
+    }
+    EXPECT_EQ(RS::ValueToken(RS::Setting::VSMDebug, 7), "shadowfactor");
 }
 
 // Apply is a public seam callable independently of ParseArgs, so it must reject an

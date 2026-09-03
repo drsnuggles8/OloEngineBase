@@ -108,6 +108,16 @@ namespace OloEngine
 
         if (auto* streamNode = s_Data.Pipeline->GetRenderStreamNode(stream))
         {
+            if (stream == RenderStreamType::Decal && packet->GetCommandType() == CommandType::DrawDecal)
+            {
+                const auto* command = packet->GetCommandData<DrawDecalCommand>();
+                auto& active = s_Data.DecalVisibilityFrames[s_Data.DecalVisibilityWriteBuffer];
+                if (command && command->entityID == s_Data.DecalVisibilityTarget &&
+                    active.EntityID == command->entityID)
+                {
+                    active.Submitted = true;
+                }
+            }
             streamNode->SubmitPacket(packet);
             return;
         }

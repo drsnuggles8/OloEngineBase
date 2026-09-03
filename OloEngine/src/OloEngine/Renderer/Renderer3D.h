@@ -205,6 +205,17 @@ namespace OloEngine
             }
         };
 
+        struct DecalVisibilityObservation
+        {
+            bool HasSample = false;
+            bool Submitted = false;
+            bool DrawIssued = false;
+            bool ReceiverIntersectionKnown = false;
+            bool ReceiverIntersectsProjection = false;
+            bool FragmentResultKnown = false;
+            bool FragmentsSurvived = false;
+        };
+
       public:
         // @param loadingWindow  Optional window used to draw the shader loading
         //                       progress bar. Pass nullptr for headless init
@@ -934,6 +945,11 @@ namespace OloEngine
             return s_Data.Settings;
         }
         static void ApplyRendererSettings();
+        // Force the next frame to repopulate the render blackboard and rerun
+        // every pass Setup callback even when its computed fingerprint matches
+        // the previous frame. Call this after an external settings write changes
+        // which per-frame resources or passes are declared.
+        static void RequestRenderGraphRebuild();
 
         // Statistics and debug methods
         static Statistics& GetStats();
@@ -1543,6 +1559,19 @@ namespace OloEngine
 
         static void SubmitRenderStreamPacket(RenderStreamType stream, CommandPacket* packet);
 
+        // Arms a one-entity decal diagnostic and returns the most recently
+        // completed sample for that entity. Receiver intersection and final
+        // fragment survival use separate double-buffered ANY_SAMPLES_PASSED
+        // queries around a texture-independent diagnostic draw and the real draw.
+        [[nodiscard]] static DecalVisibilityObservation ObserveDecalVisibility(i32 entityID);
+
+        // Command-dispatch hooks for the targeted diagnostic above. They are
+        // no-ops unless an MCP caller has armed this exact entity.
+        [[nodiscard]] static bool BeginDecalReceiverIntersectionQuery(i32 entityID);
+        static void EndDecalReceiverIntersectionQuery();
+        [[nodiscard]] static bool BeginDecalVisibilityQuery(i32 entityID);
+        static void EndDecalVisibilityQuery();
+
         template<typename T>
         static CommandPacket* CreateDrawCall()
         {
@@ -1694,6 +1723,7 @@ namespace OloEngine
         // G-Buffer slots.
         static bool IsDeferredCapableShader(const Ref<Shader>& shader);
         static auto GetRenderStreamNode(RenderStreamType stream) -> CommandBufferRenderPass*;
+        static void AdvanceDecalVisibilityFrame();
         static auto ValidateDrawMeshResources(const char* context, RHI::ResourceHandle vertexArray,
                                               RHI::ResourceHandle shader) -> bool;
 
@@ -2061,6 +2091,23 @@ namespace OloEngine
             Ref<Shader> DecalGBufferEmissiveShader;
             Ref<Mesh> DecalCubeMesh;
             Ref<Texture2D> WhiteTexture; // 1x1 fallback for untextured decals
+
+            struct DecalVisibilityFrame
+            {
+                i32 EntityID = -1;
+                bool Submitted = false;
+                bool DrawIssued = false;
+                bool ReceiverQueryIssued = false;
+                bool QueryIssued = false;
+            };
+            i32 DecalVisibilityTarget = -1;
+            u32 DecalVisibilityWriteBuffer = 0;
+            bool DecalVisibilityQueriesInitialized = false;
+            std::array<RHI::ResourceHandle, 2> DecalReceiverIntersectionQueries{};
+            std::array<RHI::ResourceHandle, 2> DecalVisibilityQueries{};
+            std::array<DecalVisibilityFrame, 2> DecalVisibilityFrames{};
+            DecalVisibilityObservation LastDecalVisibilityObservation{};
+            i32 LastDecalVisibilityEntity = -1;
 
             // Volumetric cloudscape / atmosphere per-frame state (issue #633).
             // Cloudscape: scene-published snapshot (see SetCloudscapeState).

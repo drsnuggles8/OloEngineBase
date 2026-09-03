@@ -490,7 +490,8 @@ namespace OloEngine::MCP
             // that nudges the user's viewport; destroys nothing.
             tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
             tool.Description =
-                "Capture the editor's 3D viewport as a PNG image so you can SEE the rendered frame — "
+                "Capture the editor's 3D viewport only as a PNG image so you can SEE the rendered frame — "
+                "it never includes ImGui panels; use a run-oloengine full-window screenshot for panel evidence. "
                 "decisive for visual problems ('my material looks wrong', 'I can't see my object'). "
                 "Returns an image content block (downscaled to maxWidth, default 1024). Optionally pose "
                 "the camera for this capture only via 'camera' (explicit position + target/yaw/pitch) or "

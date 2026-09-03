@@ -4043,6 +4043,7 @@ static void EmitMcpFieldsRecursive(std::ostream& out, const std::string& compone
 // MorphTargetSet is bound at runtime.
 static const std::set<std::string> kOloPropertySetterMcpComponents = {
     "AudioSourceComponent",
+    "TransformComponent",
 };
 
 // The C++ type MakeSetterField<C, F> should use for a PropType from the OLO_PROPERTY
@@ -4142,7 +4143,7 @@ static std::size_t EmitMcpSetterFields(McpChunkWriter& writer, const std::vector
         }
         if (emitted == before)
             continue;
-        writer.AddBlock("// " + comp.name + " (OLO_PROPERTY setter-based — private cold-data fields)\n" +
+        writer.AddBlock("// " + comp.name + " (OLO_PROPERTY setter-based — private authored fields)\n" +
                             body.str() + "\n",
                         emitted - before);
     }

@@ -46,6 +46,7 @@ namespace OloEngine
     void Renderer3D::BeginScene(const PerspectiveCamera& camera)
     {
         OLO_PROFILE_FUNCTION();
+        AdvanceDecalVisibilityFrame();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
@@ -64,6 +65,7 @@ namespace OloEngine
     void Renderer3D::BeginScene(const EditorCamera& camera)
     {
         OLO_PROFILE_FUNCTION();
+        AdvanceDecalVisibilityFrame();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
@@ -82,6 +84,7 @@ namespace OloEngine
     void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& transform)
     {
         OLO_PROFILE_FUNCTION();
+        AdvanceDecalVisibilityFrame();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);

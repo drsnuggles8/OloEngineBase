@@ -216,6 +216,11 @@ namespace OloEngine
         bool OITEnabled = false;
 
         // --- Debug overlays ---
+        // Editor-only master switch. Kept process-global with the other renderer
+        // debug settings so it survives Edit/Play/Simulate scene copies. Disabling
+        // it suppresses every editor-authored viewport overlay, including component
+        // gizmos that have no individual RendererSettings toggle.
+        bool EditorDebugDrawsEnabled = true;
         bool WireframeOverlay = false;
         bool ShowGrid = true;
         bool ShowPhysicsColliders = false;
@@ -230,6 +235,11 @@ namespace OloEngine
         // world space (axis-aligned to world axes, not the entity transform) so the box
         // is the same one used for frustum culling, not a per-instance OBB.
         bool ShowBoundingBoxes = false;
+        // Selection outline is populated by EditorLayer rather than Scene, but is
+        // part of the same clean-capture contract as the world-space gizmos.
+        bool ShowSelectionOutline = true;
+        // Audio, fog, streaming-volume and probe-volume authoring gizmos.
+        bool ShowComponentGizmos = true;
         // Visualise the per-object screen-space velocity buffer in Forward
         // and Forward+ paths. Ignored in Deferred (which has its own
         // G-Buffer velocity debug channel — DeferredSettings::DebugChannel

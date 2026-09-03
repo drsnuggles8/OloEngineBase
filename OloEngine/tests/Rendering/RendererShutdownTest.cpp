@@ -397,8 +397,10 @@ namespace OloEngine::Tests
         std::vector<std::string> notReleased;
         for (const std::string& member : members)
         {
-            // Accept either `s_Data.Member.Reset()` or `s_Data.Member->Shutdown()`/`.Shutdown()`.
-            const std::string pattern = "s_Data\\." + member + "(\\.Reset\\(\\)|->Shutdown\\(\\)|\\.Shutdown\\(\\))";
+            // Accept Ref/object release calls and RHI query-array deletion.
+            const std::string pattern =
+                "(s_Data\\." + member + "(\\.Reset\\(\\)|->Shutdown\\(\\)|\\.Shutdown\\(\\))|" +
+                "RenderCommand::DeleteQueries\\(s_Data\\." + member + "\\))";
             const std::regex releaseRe(pattern);
             if (!std::regex_search(shutdownBody, releaseRe))
             {

@@ -1422,7 +1422,7 @@ registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.SnowAccum
 
 static void BuildRegistryChunk16(std::vector<FieldEntry>& registry)
 {
-// AudioSourceComponent (OLO_PROPERTY setter-based — private cold-data fields)
+// AudioSourceComponent (OLO_PROPERTY setter-based — private authored fields)
 registry.push_back(MakeSetterField<AudioSourceComponent, float>(
     "AudioSourceComponent", "Volume",
     [](const AudioSourceComponent& comp) -> float { return (comp.GetConfig().VolumeMultiplier); },
@@ -1571,6 +1571,15 @@ registry.push_back(MakeSetterField<AudioSourceComponent, AssetHandle>(
     [](AudioSourceComponent& comp, const AssetHandle& v)
     {
         comp.SetSoundConfigHandle(AssetHandle(v));
+    }));
+
+// TransformComponent (OLO_PROPERTY setter-based — private authored fields)
+registry.push_back(MakeSetterField<TransformComponent, glm::vec3>(
+    "TransformComponent", "Rotation",
+    [](const TransformComponent& comp) -> glm::vec3 { return (comp.GetRotationEuler()); },
+    [](TransformComponent& comp, const glm::vec3& v)
+    {
+        comp.SetRotationEuler(v);
     }));
 
 }

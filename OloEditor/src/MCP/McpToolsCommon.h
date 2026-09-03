@@ -379,4 +379,5 @@ namespace OloEngine::MCP
     void RegisterPhysicsTools(McpServer& server);
     void RegisterInputTools(McpServer& server);
     void RegisterBenchmarkTools(McpServer& server);
+    void RegisterEditorTools(McpServer& server);
 } // namespace OloEngine::MCP

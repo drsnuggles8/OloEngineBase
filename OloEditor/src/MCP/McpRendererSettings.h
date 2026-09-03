@@ -72,11 +72,14 @@ namespace OloEngine::MCP::RendererSettings
         Upscale,           // PostProcessSettings::Upscale  (FSR1 spatial-upscale quality preset)
         Tonemap,           // PostProcessSettings::Tonemap  (tone-map operator)
         RenderPath,        // RendererSettings::Path        (forward / forward+ / deferred)
+        MSAA,              // RendererSettings::Deferred.MSAASampleCount
+        PerSampleLighting, // RendererSettings::Deferred.PerSampleLighting
         DepthPrepass,      // LeverState::DepthPrepassEnabled (Renderer3D live toggle; 'auto' = settings-derived)
         DepthAwareCulling, // LeverState::DepthAwareCulling (issue #722 algorithm-only A/B lever)
         SoftShadows,       // LeverState::SoftShadows       (ShadowSettings::SoftShadows: PCSS vs PCF)
         HZBOcclusion,      // LeverState::HZBOcclusion      (Renderer3D::EnableHZBOcclusionCulling)
         VirtualShadowMaps, // LeverState::VirtualShadowMaps (ShadowSettings::VSM.Enabled, issue #702)
+        VSMDebug,          // LeverState::VSMDebugMode (VirtualShadowMapSettings::DebugMode)
         DDGICascades,      // RendererSettings::DDGICascadesEnabled (issue #707)
     };
 
@@ -99,6 +102,7 @@ namespace OloEngine::MCP::RendererSettings
         // clears the flag when it cannot come up, so a request that silently
         // fell back to CSM shows as 'off' here rather than as 'on'.
         bool VirtualShadowMaps = false;
+        i32 VSMDebugMode = 0;
     };
 
     // Engine integers of the depthprepass tri-token. 'off'/'on' mirror the live
@@ -122,6 +126,9 @@ namespace OloEngine::MCP::RendererSettings
 
     inline constexpr i32 kDDGICascadesOff = 0;
     inline constexpr i32 kDDGICascadesOn = 1;
+
+    inline constexpr i32 kPerSampleLightingOff = 0;
+    inline constexpr i32 kPerSampleLightingOn = 1;
 
     // One allowed value of an enum-valued setting: the stable, user-facing token the
     // agent passes, the underlying engine enum integer, and a human description.
@@ -156,6 +163,18 @@ namespace OloEngine::MCP::RendererSettings
         { "deferred", static_cast<i32>(RenderingPath::Deferred), "G-buffer + tiled deferred lighting (enables SSR/SSGI)" },
     } };
 
+    inline constexpr std::array<EnumValue, 4> kMSAAValues = { {
+        { "1", 1, "No multisampling" },
+        { "2", 2, "2x MSAA" },
+        { "4", 4, "4x MSAA" },
+        { "8", 8, "8x MSAA" },
+    } };
+
+    inline constexpr std::array<EnumValue, 2> kPerSampleLightingValues = { {
+        { "off", kPerSampleLightingOff, "Resolve the G-buffer before deferred lighting" },
+        { "on", kPerSampleLightingOn, "Evaluate deferred lighting independently for every MSAA sample" },
+    } };
+
     inline constexpr std::array<EnumValue, 3> kDepthPrepassValues = { {
         { "off", kDepthPrepassOff, "Force the depth prepass off for this session (single geometry pass; full overdraw cost)" },
         { "on", kDepthPrepassOn, "Force the depth prepass on for this session (depth-only pass first, then color with GL_EQUAL)" },
@@ -175,6 +194,17 @@ namespace OloEngine::MCP::RendererSettings
           "Sparse page-table Virtual Shadow Maps (issue #702). Covers static + skinned MESH casters only; terrain, "
           "foliage, voxel and virtualized-geometry casters still need CSM, so a scene relying on those renders them "
           "unshadowed" },
+    } };
+
+    inline constexpr std::array<EnumValue, 8> kVSMDebugValues = { {
+        { "off", 0, "Normal shadowed rendering" },
+        { "cliplevel", 1, "Tint by selected virtual clip level" },
+        { "pageaddress", 2, "Visualize virtual page addresses" },
+        { "residency", 3, "Visualize physical-page residency" },
+        { "shadowtest", 4, "Visualize the shadow comparison result" },
+        { "storeddepth", 5, "Visualize stored physical-page depth" },
+        { "receiverdepth", 6, "Visualize receiver depth" },
+        { "shadowfactor", 7, "Visualize the final shadow factor seen by lighting" },
     } };
 
     inline constexpr std::array<EnumValue, 2> kDDGICascadeValues = { {
@@ -206,7 +236,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 9> kSettings = { {
+    inline constexpr std::array<SettingInfo, 12> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -214,6 +244,10 @@ namespace OloEngine::MCP::RendererSettings
         { "renderpath", Setting::RenderPath,
           "High-level rendering path (RendererSettings.Path). Switching rebuilds the render-graph topology; Deferred is "
           "required for SSR / SSGI." },
+        { "msaa", Setting::MSAA,
+          "Deferred G-buffer multisample count (1|2|4|8). The requested value is clamped to the driver cap." },
+        { "persamplelighting", Setting::PerSampleLighting,
+          "Evaluate deferred lighting independently for every MSAA sample instead of lighting a resolved G-buffer." },
         { "depthprepass", Setting::DepthPrepass,
           "Depth-prepass perf lever (Renderer3D live toggle, #316). 'on'/'off' force the live state for this session; "
           "'auto' restores the settings-derived value. Forward+/Deferred derive it ON because their tile culling reads "
@@ -234,6 +268,8 @@ namespace OloEngine::MCP::RendererSettings
           "voxel and virtualized-geometry casters still render through CSM, so enabling it in a scene that relies on "
           "those leaves them unshadowed. Reads back the EFFECTIVE value — a request that failed to initialise reports "
           "'off'." },
+        { "vsmdebug", Setting::VSMDebug,
+          "Virtual Shadow Map diagnostic view: clip level, page address, residency, comparison and depth stages." },
         { "ddgicascades", Setting::DDGICascades,
           "Camera-centred realtime-GI probe cascades (RendererSettings.DDGICascadesEnabled, issue #707). Off by "
           "default: turning it on gives realtime GI to every scene without an authored probe volume. Gated by "
@@ -277,6 +313,10 @@ namespace OloEngine::MCP::RendererSettings
                 return kTonemapValues;
             case Setting::RenderPath:
                 return kRenderPathValues;
+            case Setting::MSAA:
+                return kMSAAValues;
+            case Setting::PerSampleLighting:
+                return kPerSampleLightingValues;
             case Setting::DepthPrepass:
                 return kDepthPrepassValues;
             case Setting::DepthAwareCulling:
@@ -287,6 +327,8 @@ namespace OloEngine::MCP::RendererSettings
                 return kHZBOcclusionValues;
             case Setting::VirtualShadowMaps:
                 return kVirtualShadowMapValues;
+            case Setting::VSMDebug:
+                return kVSMDebugValues;
             case Setting::DDGICascades:
                 return kDDGICascadeValues;
         }
@@ -467,6 +509,8 @@ namespace OloEngine::MCP::RendererSettings
         std::string Error;
         Json Data;
         bool PathChanged = false;
+        bool RequiresRendererApply = false;
+        bool RequiresRenderGraphRebuild = false;
     };
 
     // Read the current engine-enum integer of `setting` from the live settings. The
@@ -484,6 +528,10 @@ namespace OloEngine::MCP::RendererSettings
                 return static_cast<i32>(pp.Tonemap);
             case Setting::RenderPath:
                 return static_cast<i32>(rs.Path);
+            case Setting::MSAA:
+                return static_cast<i32>(rs.Deferred.MSAASampleCount);
+            case Setting::PerSampleLighting:
+                return rs.Deferred.PerSampleLighting ? kPerSampleLightingOn : kPerSampleLightingOff;
             case Setting::DepthPrepass:
                 // Always reads back as off/on — 'auto' is a write-only token.
                 return lever.DepthPrepassEnabled ? kDepthPrepassOn : kDepthPrepassOff;
@@ -495,6 +543,8 @@ namespace OloEngine::MCP::RendererSettings
                 return lever.HZBOcclusion ? kHZBOcclusionOn : kHZBOcclusionOff;
             case Setting::VirtualShadowMaps:
                 return lever.VirtualShadowMaps ? kVirtualShadowMapsOn : kVirtualShadowMapsOff;
+            case Setting::VSMDebug:
+                return lever.VSMDebugMode;
             case Setting::DDGICascades:
                 return rs.DDGICascadesEnabled ? kDDGICascadesOn : kDDGICascadesOff;
         }
@@ -546,6 +596,12 @@ namespace OloEngine::MCP::RendererSettings
             case Setting::RenderPath:
                 rs.Path = static_cast<RenderingPath>(static_cast<u8>(value));
                 break;
+            case Setting::MSAA:
+                rs.Deferred.MSAASampleCount = static_cast<u32>(value);
+                break;
+            case Setting::PerSampleLighting:
+                rs.Deferred.PerSampleLighting = value == kPerSampleLightingOn;
+                break;
             case Setting::DepthPrepass:
                 lever.DepthPrepassEnabled = value == kDepthPrepassOn;
                 break;
@@ -564,11 +620,18 @@ namespace OloEngine::MCP::RendererSettings
             case Setting::VirtualShadowMaps:
                 lever.VirtualShadowMaps = value == kVirtualShadowMapsOn;
                 break;
+            case Setting::VSMDebug:
+                lever.VSMDebugMode = value;
+                break;
         }
 
         const bool changed = previous != value;
         if (setting == Setting::RenderPath)
             result.PathChanged = changed;
+        result.RequiresRendererApply = changed && (setting == Setting::RenderPath || setting == Setting::MSAA);
+        result.RequiresRenderGraphRebuild = changed &&
+                                            (setting == Setting::Upscale || setting == Setting::RenderPath || setting == Setting::MSAA ||
+                                             setting == Setting::PerSampleLighting || setting == Setting::DDGICascades);
 
         result.Ok = true;
         result.Data = Json{

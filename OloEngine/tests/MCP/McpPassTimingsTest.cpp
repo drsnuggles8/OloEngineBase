@@ -83,6 +83,25 @@ TEST(McpPassTimingsTest, AppendsCpuOnlyPassesWithZeroGpu)
     EXPECT_DOUBLE_EQ(o["passes"][1]["cpuMs"].get<double>(), 0.3);
 }
 
+TEST(McpPassTimingsTest, SSGIRemainsASeparateTopLevelTimingRow)
+{
+    const std::vector<GpuPassEntry> gpu = {
+        { "SSGIPass", 0.43 },
+        { "DeferredLightingPass", 1.25 },
+    };
+    const std::vector<CpuPassEntry> cpu = {
+        { "SSGIPass", 0.08 },
+        { "DeferredLightingPass", 0.11 },
+    };
+
+    const Json o = BuildPassTimings(gpu, cpu, MakeTotals());
+    ASSERT_EQ(o["passes"].size(), 2u);
+    EXPECT_EQ(o["passes"][0]["pass"], "SSGIPass");
+    EXPECT_DOUBLE_EQ(o["passes"][0]["gpuMs"].get<double>(), 0.43);
+    EXPECT_EQ(o["passes"][1]["pass"], "DeferredLightingPass");
+    EXPECT_DOUBLE_EQ(o["passes"][1]["gpuMs"].get<double>(), 1.25);
+}
+
 TEST(McpPassTimingsTest, DuplicatePassNamesJoinPositionally)
 {
     // Two passes with the same name (e.g. a pass that runs twice): each GPU

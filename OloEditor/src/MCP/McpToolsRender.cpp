@@ -6,6 +6,7 @@
 #include "MCP/McpPostProcessSettings.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpClusterGridStats.h"
+#include "MCP/McpDDGIProbeStats.h"
 #include "MCP/McpFrameBreakdown.h"
 #include "MCP/McpFroxelFogProbe.h"
 #include "MCP/McpGpuReadbackStats.h"
@@ -14,10 +15,12 @@
 #include "MCP/McpRenderGraphTopology.h"
 #include "MCP/McpRenderOverrides.h"
 #include "MCP/McpRenderProbePixel.h"
+#include "MCP/McpRenderLODStats.h"
 #include "MCP/McpRenderTargetStats.h"
 #include "MCP/McpRenderValidate.h"
 #include "MCP/McpRendererSettings.h"
 #include "MCP/McpShadowCapture.h"
+#include "MCP/McpVirtualShadowMapStats.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Atmosphere/Ephemeris.h"
 #include "OloEngine/Atmosphere/WeatherSystem.h"
@@ -33,6 +36,7 @@
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
@@ -2630,6 +2634,7 @@ namespace OloEngine::MCP
                 // clears its own Enabled flag when it cannot come up, so a request
                 // that fell back to CSM must not read back as 'on' (issue #702).
                 lever.VirtualShadowMaps = Renderer3D::GetShadowMap().IsVirtualShadowMapActive();
+                lever.VSMDebugMode = Renderer3D::GetShadowMap().GetSettings().VSM.DebugMode;
                 return lever;
             };
 
@@ -2655,8 +2660,17 @@ namespace OloEngine::MCP
                     return Json{ { "__error", applied.Error } };
                 // A render-path switch changes the registered pass list, so the
                 // render-graph topology must be rebuilt for the new value to render.
-                if (applied.PathChanged)
+                if (applied.RequiresRendererApply)
                     Renderer3D::ApplyRendererSettings();
+                if (setting == Setting::MSAA)
+                {
+                    const std::string effective =
+                        ValueToken(setting, static_cast<i32>(rs.Deferred.MSAASampleCount));
+                    applied.Data["changed"] = applied.Data.value("previousValue", std::string{}) != effective;
+                    applied.Data["value"] = effective;
+                    if (effective != ValueToken(setting, value))
+                        applied.Data["note"] = "requested MSAA sample count exceeded the driver cap; reporting the effective value";
+                }
                 // Push mutated lever fields back to the renderer — Apply only wrote
                 // the POD snapshot (the header stays renderer-free).
                 if (setting == Setting::DepthPrepass)
@@ -2701,6 +2715,12 @@ namespace OloEngine::MCP
                                                "OloEngine.log); reporting the effective state";
                     }
                 }
+                else if (setting == Setting::VSMDebug)
+                {
+                    ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+                    shadow.VSM.DebugMode = lever.VSMDebugMode;
+                    Renderer3D::GetShadowMap().SetSettings(shadow);
+                }
                 else if (setting == Setting::HZBOcclusion)
                 {
                     // Turning it OFF also invalidates the retained pyramid, so a
@@ -2713,6 +2733,8 @@ namespace OloEngine::MCP
                     // The remaining settings (upscale / tonemap / renderpath) live
                     // entirely in the settings structs Apply already wrote.
                 }
+                if (applied.RequiresRenderGraphRebuild)
+                    Renderer3D::RequestRenderGraphRebuild();
                 return applied.Data; });
 
             if (result.is_object() && result.contains("__error"))
@@ -2831,6 +2853,8 @@ namespace OloEngine::MCP
                 // at all (issue #533) — the same reason a renderpath switch does it.
                 if (applied.RequiresRendererApply)
                     Renderer3D::ApplyRendererSettings();
+                if (applied.RequiresRenderGraphRebuild)
+                    Renderer3D::RequestRenderGraphRebuild();
                 return applied.Data; });
 
             if (result.is_object() && result.contains("__error"))
@@ -3165,8 +3189,8 @@ namespace OloEngine::MCP
             if (!ParseUuid(args["entity"], id))
                 return ToolResult::Error("Invalid 'entity': expected a UUID as a string or number.");
 
-            Json result = server.MarshalRead([&server, id]() -> Json
-                                             {
+            const auto gather = [&server, id]() -> Json
+            {
                 Json j;
                 const Ref<Scene> scene = server.Context().GetActiveScene
                                              ? server.Context().GetActiveScene()
@@ -3365,6 +3389,70 @@ namespace OloEngine::MCP
                             f.GeometryRequired = false;
                             f.GeometryPresent = true;
                         }
+                        else if (entity.HasComponent<DecalComponent>())
+                        {
+                            f.HasRenderable = true;
+                            f.RenderableKind = "DecalComponent";
+                            f.IsDecal = true;
+                            f.GeometryRequired = false;
+                            f.GeometryPresent = true;
+                            const RenderingPath renderingPath = Renderer3D::GetRendererSettings().Path;
+                            f.RenderingPath = RenderingPathName(renderingPath);
+                            const auto& decal = entity.GetComponent<DecalComponent>();
+                            switch (decal.m_Mode)
+                            {
+                                case DecalMode::Normal:
+                                    f.DecalMode = "normal";
+                                    f.DecalTextureRequired = true;
+                                    f.DecalTexturePresent = static_cast<bool>(decal.m_NormalTexture);
+                                    f.DecalTextureSlot = "normal";
+                                    break;
+                                case DecalMode::RMA:
+                                    f.DecalMode = "rma";
+                                    f.DecalTextureRequired = true;
+                                    f.DecalTexturePresent = static_cast<bool>(decal.m_RMATexture);
+                                    f.DecalTextureSlot = "roughnessMetallicAO";
+                                    break;
+                                case DecalMode::Emissive:
+                                    f.DecalMode = "emissive";
+                                    f.DecalTextureRequired = true;
+                                    f.DecalTexturePresent = static_cast<bool>(decal.m_EmissiveTexture);
+                                    f.DecalTextureSlot = "emissive";
+                                    break;
+                                case DecalMode::Albedo:
+                                default:
+                                    f.DecalMode = "albedo";
+                                    // Albedo intentionally falls back to the renderer's white texture.
+                                    f.DecalTextureRequired = false;
+                                    f.DecalTexturePresent = true;
+                                    break;
+                            }
+
+                            // Forward and Forward+ route every authored mode
+                            // through the transparent albedo-overlay shader.
+                            // Normal/RMA/emissive slots are not consulted there.
+                            if (!RenderExplain::DecalUsesModeSpecificTexture(f.RenderingPath, decal.m_Transparent))
+                            {
+                                f.DecalTextureRequired = false;
+                                f.DecalTexturePresent = true;
+                                f.DecalTextureSlot.clear();
+                            }
+
+                            const i32 entityHandle = static_cast<i32>(static_cast<entt::entity>(entity));
+                            const Renderer3D::DecalVisibilityObservation observation =
+                                Renderer3D::ObserveDecalVisibility(entityHandle);
+                            f.SubmissionKnown = observation.HasSample;
+                            f.Submitted = observation.Submitted;
+                            f.DrawIssuedKnown = observation.HasSample;
+                            f.DrawIssued = observation.DrawIssued;
+                            f.ReceiverIntersectionKnown = observation.ReceiverIntersectionKnown;
+                            f.ReceiverIntersectsProjection = observation.ReceiverIntersectsProjection;
+                            f.FragmentResultKnown = observation.FragmentResultKnown;
+                            f.FragmentsSurvived = observation.FragmentsSurvived;
+
+                            const glm::vec3 safeSize = glm::max(decal.m_Size, glm::vec3(1.0e-4f));
+                            setBoundsFromLocal(BoundingSphere(glm::vec3(0.0f), 0.5f * glm::length(safeSize)));
+                        }
                         else if (entity.HasComponent<EnvironmentMapComponent>())
                         {
                             // The skybox background. It is gated on m_EnableSkybox
@@ -3443,6 +3531,23 @@ namespace OloEngine::MCP
                 facts["boundsKnown"] = f.BoundsKnown;
                 facts["behindCamera"] = f.BehindCamera;
                 facts["inFrustum"] = f.InFrustum;
+                facts["isDecal"] = f.IsDecal;
+                if (f.IsDecal)
+                {
+                    facts["renderingPath"] = f.RenderingPath;
+                    facts["decalMode"] = f.DecalMode;
+                    facts["decalTextureRequired"] = f.DecalTextureRequired;
+                    facts["decalTexturePresent"] = f.DecalTexturePresent;
+                    facts["decalTextureSlot"] = f.DecalTextureSlot;
+                    facts["receiverIntersectionKnown"] = f.ReceiverIntersectionKnown;
+                    facts["receiverIntersectsProjection"] = f.ReceiverIntersectsProjection;
+                    facts["submissionKnown"] = f.SubmissionKnown;
+                    facts["submitted"] = f.Submitted;
+                    facts["drawIssuedKnown"] = f.DrawIssuedKnown;
+                    facts["drawIssued"] = f.DrawIssued;
+                    facts["fragmentResultKnown"] = f.FragmentResultKnown;
+                    facts["fragmentsSurvived"] = f.FragmentsSurvived;
+                }
 
                 j["entity"] = UuidToString(UUID(id));
                 j["reasonCode"] = verdict.ReasonCode;
@@ -3455,7 +3560,20 @@ namespace OloEngine::MCP
                 j["cameraKnown"] = in.CameraKnown;
                 j["anyShaderHasErrors"] = in.AnyShaderHasErrors;
                 j["shaderErrorCount"] = in.ShaderErrorCount;
-                return j; });
+                return j;
+            };
+
+            Json result = server.MarshalRead(gather);
+            if (result.value("facts", Json::object()).value("isDecal", false) &&
+                !result.value("facts", Json::object()).value("submissionKnown", false) &&
+                server.Context().GetFrameIndex)
+            {
+                const u64 baseFrame = server.MarshalRead([&server]() -> Json
+                                                         { return Json(server.Context().GetFrameIndex()); })
+                                          .get<u64>();
+                (void)AwaitRenderedFrames(server, baseFrame, 2, std::chrono::seconds(8));
+                result = server.MarshalRead(gather);
+            }
 
             return ToolResult::Structured(result);
         }
@@ -3846,6 +3964,7 @@ namespace OloEngine::MCP
                 in.Albedo = ProbeTexel(*graph, std::string(ResourceNames::GBufferAlbedo), x, y, gbufferRequest);
                 in.Normal = ProbeTexel(*graph, std::string(ResourceNames::GBufferNormal), x, y, gbufferRequest);
                 in.Emissive = ProbeTexel(*graph, std::string(ResourceNames::GBufferEmissive), x, y, gbufferRequest);
+                in.BakedGI = ProbeTexel(*graph, std::string(ResourceNames::GBufferBakedGI), x, y, gbufferRequest);
                 in.Velocity = ProbeTexel(*graph, std::string(ResourceNames::Velocity), x, y, gbufferRequest);
                 in.EntityId = ProbeTexel(*graph, std::string(ResourceNames::SceneEntityID), x, y, gbufferRequest);
                 in.Depth = ProbeTexel(*graph, std::string(ResourceNames::SceneDepth), x, y, gbufferRequest);
@@ -5867,6 +5986,136 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        Json BuildVirtualShadowMapStatsReport()
+        {
+            VirtualShadowMapStats::Snapshot snapshot;
+            snapshot.State.Available = Renderer3D::HasInitialized();
+            snapshot.State.Freshness = StatsSnapshot::FreshnessModel::PreviousFrame;
+            if (!snapshot.State.Available)
+                return VirtualShadowMapStats::BuildReport(snapshot);
+
+            const auto& vsm = Renderer3D::GetShadowMap().GetVirtualShadowMap();
+            snapshot.State.Enabled = vsm.IsActive();
+            snapshot.State.HasData = vsm.HasStatistics();
+            if (!snapshot.State.Enabled || !snapshot.State.HasData)
+                return VirtualShadowMapStats::BuildReport(snapshot);
+
+            snapshot.State.SampleAgeFrames = 1;
+            snapshot.PhysicalResolution = vsm.GetPhysicalResolution();
+            snapshot.PageSize = VSM::kPageSize;
+            const u64 pagesWide = snapshot.PhysicalResolution / snapshot.PageSize;
+            snapshot.PhysicalPageCount = pagesWide * pagesWide;
+            snapshot.VRAMBytes = vsm.GetVRAMBytes();
+
+            const VSM::Statistics& stats = vsm.GetStatistics();
+            snapshot.PagesRequested = stats.PagesRequested;
+            snapshot.PagesAllocated = stats.PagesAllocated;
+            snapshot.PagesFailed = stats.PagesFailed;
+            snapshot.PagesDrawn = stats.PagesDrawn;
+            snapshot.PagesResident = stats.PagesResident;
+            snapshot.PagesFreed = stats.PagesFreed;
+            snapshot.DrawInstances = stats.DrawInstances;
+            snapshot.CullOverflows = stats.CullOverflows;
+            snapshot.LocalPagesResident = stats.LocalPagesResident;
+            snapshot.LocalPagesDrawn = stats.LocalPagesDrawn;
+            return VirtualShadowMapStats::BuildReport(snapshot);
+        }
+
+        ToolResult Handle_VirtualShadowMapStats(McpServer& server, const Json& /*args*/)
+        {
+            const Json result = server.MarshalRead([]() -> Json
+                                                   { return BuildVirtualShadowMapStatsReport(); });
+
+            return ToolResult::Structured(result);
+        }
+
+        Json BuildRenderLODStatsReport()
+        {
+            RenderLODStats::Snapshot snapshot;
+            snapshot.State.Available = Renderer3D::HasInitialized();
+            snapshot.State.Enabled = snapshot.State.Available;
+            snapshot.State.HasData = snapshot.State.Available;
+            snapshot.State.Freshness = StatsSnapshot::FreshnessModel::SessionCumulative;
+            if (!snapshot.State.HasData)
+                return RenderLODStats::BuildReport(snapshot);
+
+            const Renderer3D::Statistics& stats = Renderer3D::GetStats();
+            snapshot.LODSwitches = stats.LODSwitches;
+            snapshot.ObjectsPerLODLevel = stats.ObjectsPerLODLevel;
+            return RenderLODStats::BuildReport(snapshot);
+        }
+
+        ToolResult Handle_RenderLODStats(McpServer& server, const Json& /*args*/)
+        {
+            const Json result = server.MarshalRead([]() -> Json
+                                                   { return BuildRenderLODStatsReport(); });
+
+            return ToolResult::Structured(result);
+        }
+
+        Json BuildDDGIProbeStatsReport()
+        {
+            DDGIProbeStats::Snapshot snapshot;
+            snapshot.State.Freshness = StatsSnapshot::FreshnessModel::CurrentBlockingReadback;
+
+            DDGIProbeUpdatePass* pass = Renderer3D::HasInitialized() ? Renderer3D::GetDDGIPass() : nullptr;
+            snapshot.State.Available = pass != nullptr;
+            if (pass == nullptr)
+                return DDGIProbeStats::BuildReport(snapshot);
+
+            snapshot.State.Enabled = Renderer3D::GetRendererSettings().EnableDDGI;
+            snapshot.State.HasData = snapshot.State.Enabled && pass->RanThisFrame();
+            if (!snapshot.State.HasData)
+                return DDGIProbeStats::BuildReport(snapshot);
+
+            // GetProbeStats performs the diagnostics readback and refreshes
+            // the GPU-owned fields in GetProbeRecords(). Call it exactly once.
+            const DDGIProbeUpdatePass::ProbeStats stats = pass->GetProbeStats();
+            snapshot.State.SampleAgeFrames = 0;
+            snapshot.TotalProbes = static_cast<u32>(std::max(pass->GetTotalProbeCount(), 0));
+            snapshot.LiveProbes = stats.LiveProbes;
+            snapshot.ActiveProbes = stats.ActiveProbes;
+            snapshot.RelitProbes = stats.RelitProbes;
+            snapshot.CapturedProbes = stats.CapturedProbes;
+            snapshot.BlendedProbes = stats.BlendedProbes;
+            snapshot.UncapturedLive = stats.UncapturedLive;
+
+            f64 bounceWeightSum = 0.0;
+            i64 bounceHitCount = 0;
+            for (const DDGIProbeUpdatePass::ProbeRecord& record : pass->GetProbeRecords())
+            {
+                if (record.State != DDGI::ProbeState::Active)
+                    continue;
+                bounceWeightSum += static_cast<f64>(record.BounceWeightSum);
+                bounceHitCount += static_cast<i64>(record.BounceHitCount);
+            }
+            if (bounceHitCount > 0)
+                snapshot.BounceCoverage = static_cast<f32>(bounceWeightSum / static_cast<f64>(bounceHitCount));
+
+            const auto& cascades = pass->GetCascades();
+            const i32 cascadeCount = std::clamp(pass->GetCascadeCount(), 0, static_cast<i32>(cascades.size()));
+            snapshot.Cascades.reserve(static_cast<sizet>(cascadeCount));
+            for (i32 level = 0; level < cascadeCount; ++level)
+            {
+                const DDGI::CascadeGrid& cascade = cascades[static_cast<sizet>(level)];
+                snapshot.Cascades.push_back(DDGIProbeStats::Cascade{
+                    .Origin = { cascade.Origin.x, cascade.Origin.y, cascade.Origin.z },
+                    .Spacing = { cascade.Spacing.x, cascade.Spacing.y, cascade.Spacing.z },
+                    .LatticeMin = { cascade.LatticeMin.x, cascade.LatticeMin.y, cascade.LatticeMin.z },
+                    .Dimensions = { cascade.Dims.x, cascade.Dims.y, cascade.Dims.z },
+                });
+            }
+            return DDGIProbeStats::BuildReport(snapshot);
+        }
+
+        ToolResult Handle_DDGIProbeStats(McpServer& server, const Json& /*args*/)
+        {
+            const Json result = server.MarshalRead([]() -> Json
+                                                   { return BuildDDGIProbeStatsReport(); });
+
+            return ToolResult::Structured(result);
+        }
+
     } // namespace
 
     void RegisterRenderTools(McpServer& server)
@@ -6856,7 +7105,9 @@ namespace OloEngine::MCP
                 "Deferred is required for SSR/SSGI), plus the two big perf levers (#316): 'depthprepass' (off|on|auto — "
                 "forces the live depth-prepass state; 'auto' restores the settings-derived value; Forward+/Deferred "
                 "derive it on for tile culling) and 'softshadows' (pcf|pcss — PCSS is the dominant ScenePass cost in "
-                "shadowed scenes; A/B it in one call instead of editing shader source). Call with NO arguments to list "
+                "shadowed scenes; A/B it in one call instead of editing shader source). Also exposes 'msaa' (1|2|4|8), "
+                "'persamplelighting', 'depthawareculling', 'virtualshadowmaps', 'vsmdebug' (off plus six diagnostic views), "
+                "'ddgicascades', and 'hzbocclusion'. Topology-affecting changes rebuild the render graph. Call with NO arguments to list "
                 "every setting with its current value and allowed values. The change is session-global and ephemeral (a "
                 "scene reload restores it); the response reports 'previousValue' so you can restore by calling again "
                 "with that token — this is restore-prior-value, NOT an undo-stack entry (unlike olo_entity_set_field). "
@@ -6900,9 +7151,11 @@ namespace OloEngine::MCP
                 "Explain why an entity is NOT visible on screen — the rendering counterpart of "
                 "olo_physics_why_no_collision ('why can't I see my mesh?'). Given an entity UUID, it checks, in "
                 "order: a scene is loaded, the entity exists, it has a renderable component (Mesh/Model/Sprite/"
-                "Circle/Text/InstancedMesh/...), its geometry asset is present, its visibility flag is on, its "
+                "Circle/Text/InstancedMesh/Decal/...), its geometry asset is present, its visibility flag is on, its "
                 "transform scale is non-degenerate, its material's shader compiled, and (against the editor "
-                "camera) it is in front of the camera and inside the view frustum. Returns the root-cause "
+                "camera) it is in front of the camera and inside the view frustum. Decals additionally report their "
+                "rendering route, required texture, per-entity submission/draw status, and whether any fragments "
+                "survived the real draw. Returns the root-cause "
                 "reasonCode, a human summary, the ordered checks, and the raw facts. Note: per-frame occlusion "
                 "(HZB) and LOD culling are not queryable from the editor and are reported as not-observable.";
             tool.InputSchema = Schema::Object()
@@ -6913,7 +7166,9 @@ namespace OloEngine::MCP
                                     .Prop("entity", Schema::String().Desc("Echoed entity UUID."))
                                     .Prop("reasonCode", Schema::String()
                                                             .Enum({ "no_scene", "entity_missing", "not_renderable", "geometry_missing",
-                                                                    "component_hidden", "degenerate_scale", "shader_compile_error",
+                                                                    "decal_no_receiver", "decal_texture_missing", "component_hidden",
+                                                                    "degenerate_scale", "shader_compile_error", "not_submitted",
+                                                                    "draw_not_issued", "zero_fragments",
                                                                     "behind_camera", "outside_frustum", "should_be_visible" })
                                                             .Desc("Machine-readable root cause."))
                                     .Prop("summary", Schema::String())
@@ -6937,6 +7192,20 @@ namespace OloEngine::MCP
                                                        .Prop("boundsKnown", Schema::Bool())
                                                        .Prop("behindCamera", Schema::Bool())
                                                        .Prop("inFrustum", Schema::Bool())
+                                                       .Prop("isDecal", Schema::Bool())
+                                                       .Prop("renderingPath", Schema::String())
+                                                       .Prop("decalMode", Schema::String())
+                                                       .Prop("decalTextureRequired", Schema::Bool())
+                                                       .Prop("decalTexturePresent", Schema::Bool())
+                                                       .Prop("decalTextureSlot", Schema::String())
+                                                       .Prop("receiverIntersectionKnown", Schema::Bool())
+                                                       .Prop("receiverIntersectsProjection", Schema::Bool())
+                                                       .Prop("submissionKnown", Schema::Bool())
+                                                       .Prop("submitted", Schema::Bool())
+                                                       .Prop("drawIssuedKnown", Schema::Bool())
+                                                       .Prop("drawIssued", Schema::Bool())
+                                                       .Prop("fragmentResultKnown", Schema::Bool())
+                                                       .Prop("fragmentsSurvived", Schema::Bool())
                                                        .Desc("The raw gathered facts the verdict cascade ran on."))
                                     .Prop("sceneLoaded", Schema::Bool())
                                     .Prop("cameraKnown", Schema::Bool())
@@ -6965,7 +7234,7 @@ namespace OloEngine::MCP
                 "viewport pixel coordinates (top-left origin, same as olo_screenshot), it decodes every "
                 "G-Buffer channel for that pixel: albedo.rgb, metallic, the world-space NORMAL (the "
                 "octahedral RT1.xy pair decoded exactly as the shaders do), roughness, ao, emissive.rgb, "
-                "the screen-space velocity vector, the integer entityID, the raw device depth PLUS its "
+                "bakedGI irradiance/coverage, the screen-space velocity vector, the integer entityID, the raw device depth PLUS its "
                 "linearized view-space distance, and the final post-tonemap colour actually presented. "
                 "Reach for it whenever the frame 'looks wrong' but you cannot tell WHICH channel is "
                 "wrong — a picture shows a normal map is bluish, this says the normal is (0,0,1) when "
@@ -7500,6 +7769,135 @@ namespace OloEngine::MCP
                                                 "culling" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ClusterGridStats;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_virtual_shadow_map_stats";
+            tool.Toolset = "render";
+            tool.Title = "Virtual shadow-map statistics";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Return the virtual shadow map's cached previous-frame counters, physical page-pool dimensions, "
+                "and owned VRAM bytes. The availability/freshness envelope distinguishes an unavailable renderer, "
+                "a disabled VSM, and counters that have not completed their first non-blocking readback from a valid "
+                "idle sample whose values are legitimately zero.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("availability", Schema::Object()
+                                                              .Prop("available", Schema::Bool())
+                                                              .Prop("enabled", Schema::Bool())
+                                                              .Prop("hasData", Schema::Bool())
+                                                              .Prop("status", Schema::String().Enum({ "unavailable", "disabled", "noData", "ready" }))
+                                                              .Required({ "available", "enabled", "hasData", "status" }))
+                                    .Prop("freshness", Schema::Object()
+                                                           .Prop("model", Schema::String().Enum({ "previousFrame" }))
+                                                           .Prop("stale", Schema::Bool())
+                                                           .Prop("sampleAgeFrames", Schema::Raw(Json{ { "type", Json::array({ "integer", "null" }) }, { "minimum", 0 } }))
+                                                           .Required({ "model", "stale", "sampleAgeFrames" }))
+                                    .Prop("physicalPool", Schema::Object()
+                                                              .Prop("resolution", Schema::Int().Min(0))
+                                                              .Prop("pageSize", Schema::Int().Min(1))
+                                                              .Prop("pageCount", Schema::Int().Min(0))
+                                                              .Required({ "resolution", "pageSize", "pageCount" }))
+                                    .Prop("vramBytes", Schema::Int().Min(0))
+                                    .Prop("statistics", Schema::Object()
+                                                            .Prop("pagesRequested", Schema::Int().Min(0))
+                                                            .Prop("pagesAllocated", Schema::Int().Min(0))
+                                                            .Prop("pagesFailed", Schema::Int().Min(0))
+                                                            .Prop("pagesDrawn", Schema::Int().Min(0))
+                                                            .Prop("pagesResident", Schema::Int().Min(0))
+                                                            .Prop("pagesFreed", Schema::Int().Min(0))
+                                                            .Prop("drawInstances", Schema::Int().Min(0))
+                                                            .Prop("cullOverflows", Schema::Int().Min(0))
+                                                            .Prop("localPagesResident", Schema::Int().Min(0))
+                                                            .Prop("localPagesDrawn", Schema::Int().Min(0))
+                                                            .Required({ "pagesRequested", "pagesAllocated", "pagesFailed", "pagesDrawn",
+                                                                        "pagesResident", "pagesFreed", "drawInstances", "cullOverflows",
+                                                                        "localPagesResident", "localPagesDrawn" }))
+                                    .Required({ "availability", "freshness" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_VirtualShadowMapStats;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_lod_stats";
+            tool.Toolset = "render";
+            tool.Title = "Renderer LOD statistics";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Return Renderer3D's classic-mesh LOD-switch count and per-LOD object histogram. These counters are "
+                "session-cumulative since renderer initialization (or an explicit internal ResetStats), not a single "
+                "frame; zero switches and an empty or zero-filled histogram are legitimate data.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("availability", Schema::Object()
+                                                              .Prop("available", Schema::Bool())
+                                                              .Prop("enabled", Schema::Bool())
+                                                              .Prop("hasData", Schema::Bool())
+                                                              .Prop("status", Schema::String().Enum({ "unavailable", "disabled", "noData", "ready" }))
+                                                              .Required({ "available", "enabled", "hasData", "status" }))
+                                    .Prop("freshness", Schema::Object()
+                                                           .Prop("model", Schema::String().Enum({ "sessionCumulative" }))
+                                                           .Prop("stale", Schema::Bool())
+                                                           .Prop("sampleAgeFrames", Schema::Raw(Json{ { "type", Json::array({ "integer", "null" }) }, { "minimum", 0 } }))
+                                                           .Required({ "model", "stale", "sampleAgeFrames" }))
+                                    .Prop("lodSwitches", Schema::Int().Min(0))
+                                    .Prop("objectsPerLODLevel", Schema::Array(Schema::Int().Min(0)))
+                                    .Required({ "availability", "freshness" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderLODStats;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_ddgi_probe_stats";
+            tool.Toolset = "render";
+            tool.Title = "DDGI probe statistics";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Synchronously read the DDGI probe diagnostics once and return probe lifecycle counters, measured "
+                "active-probe bounce coverage, and each active cascade's lattice. The availability/freshness envelope "
+                "makes a missing pass or a pass that did not run this frame explicit; bounceCoverage is null when no "
+                "active probe recorded a bounce hit, while a numeric zero is a legitimate measurement.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("availability", Schema::Object()
+                                                              .Prop("available", Schema::Bool())
+                                                              .Prop("enabled", Schema::Bool())
+                                                              .Prop("hasData", Schema::Bool())
+                                                              .Prop("status", Schema::String().Enum({ "unavailable", "disabled", "noData", "ready" }))
+                                                              .Required({ "available", "enabled", "hasData", "status" }))
+                                    .Prop("freshness", Schema::Object()
+                                                           .Prop("model", Schema::String().Enum({ "currentBlockingReadback" }))
+                                                           .Prop("stale", Schema::Bool())
+                                                           .Prop("sampleAgeFrames", Schema::Raw(Json{ { "type", Json::array({ "integer", "null" }) }, { "minimum", 0 } }))
+                                                           .Required({ "model", "stale", "sampleAgeFrames" }))
+                                    .Prop("totalProbes", Schema::Int().Min(0))
+                                    .Prop("statistics", Schema::Object()
+                                                            .Prop("liveProbes", Schema::Int().Min(0))
+                                                            .Prop("activeProbes", Schema::Int().Min(0))
+                                                            .Prop("relitProbes", Schema::Int().Min(0))
+                                                            .Prop("capturedProbes", Schema::Int().Min(0))
+                                                            .Prop("blendedProbes", Schema::Int().Min(0))
+                                                            .Prop("uncapturedLive", Schema::Int().Min(0))
+                                                            .Required({ "liveProbes", "activeProbes", "relitProbes", "capturedProbes",
+                                                                        "blendedProbes", "uncapturedLive" }))
+                                    .Prop("bounceCoverage", Schema::Raw(Json{ { "type", Json::array({ "number", "null" }) } }))
+                                    .Prop("cascades", Schema::Array(Schema::Object()
+                                                                        .Prop("level", Schema::Int().Min(0))
+                                                                        .Prop("origin", Schema::Vec3("World position of lattice coordinate (0,0,0)."))
+                                                                        .Prop("spacing", Schema::Vec3("Per-axis probe spacing."))
+                                                                        .Prop("latticeMin", Schema::Array(Schema::Int()).MinItems(3).MaxItems(3))
+                                                                        .Prop("dimensions", Schema::Array(Schema::Int()).MinItems(3).MaxItems(3))
+                                                                        .Required({ "level", "origin", "spacing", "latticeMin", "dimensions" })))
+                                    .Required({ "availability", "freshness" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_DDGIProbeStats;
             server.RegisterTool(std::move(tool));
         }
 

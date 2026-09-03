@@ -2,7 +2,8 @@
 
 // Shared, editor-side schema + result shaping for the consented MCP scene-control
 // write tools (issue #316): `olo_scene_open` (open/switch the active scene),
-// `olo_scene_play` and `olo_scene_stop` (toggle Play mode). Together they give an
+// `olo_scene_play`, `olo_scene_simulate`, and `olo_scene_stop` (select the editor's
+// runtime mode). Together they give an
 // agent scriptable control over which scene is loaded and whether the runtime is
 // simulating — the "scriptable repro setup" the read-only server couldn't drive
 // (previously a manual Sandbox.oloproj StartScene edit + editor relaunch per scene,
@@ -12,7 +13,7 @@
 // and toggling Play touch the EnTT registry / renderer / runtime, which a unit test
 // must not invoke. So they are routed through the EditorMcpContext hooks
 // (OpenSceneFromMcp / SetScenePlayState): the editor wires them to its Open Scene /
-// OnScenePlay / OnSceneStop paths, a headless host leaves them null ("not
+// OnScenePlay / OnSceneSimulate / OnSceneStop paths, a headless host leaves them null ("not
 // available"), and a test injects a fake. What stays here, header-only and
 // engine-free, is the bit the tests pin: the tools' inputSchema, the pure
 // scene-path validation (extension + traversal guard), and the result -> JSON
@@ -103,12 +104,26 @@ namespace OloEngine::MCP::SceneControl
             .NoAdditional();
     }
 
-    // inputSchema for olo_scene_play / olo_scene_stop: no arguments (the transition
+    // inputSchema for olo_scene_play / olo_scene_simulate / olo_scene_stop: no arguments (the transition
     // direction is fixed by which tool you call, mirroring the editor's Play / Stop
     // buttons).
     [[nodiscard]] inline Json PlayStopInputSchema()
     {
         return Schema::EmptyObject();
+    }
+
+    [[nodiscard]] inline Json SceneStateOutputSchema()
+    {
+        return Schema::Object()
+            .Prop("available", Schema::Bool().Desc("False when this editor build has no scene-mode hook."))
+            .Prop("ok", Schema::Bool().Desc("Editor is in the requested mode afterwards."))
+            .Prop("playing", Schema::Bool().Desc("True only in Play mode."))
+            .Prop("simulating", Schema::Bool().Desc("True only in Simulate mode."))
+            .Prop("mode", Schema::String().Enum({ "edit", "play", "simulate" }).Desc("Scene mode after the call."))
+            .Prop("changed", Schema::Bool().Desc("True only when this call actually transitioned (a no-op is changed:false)."))
+            .Prop("sceneName", Schema::String())
+            .Prop("message", Schema::String().Desc("Human-readable outcome detail."))
+            .Required({ "available", "ok", "playing", "simulating", "mode", "changed", "sceneName", "message" });
     }
 
     // Result shaping. Each mirrors the hook's outcome struct into the JSON an agent
@@ -131,6 +146,8 @@ namespace OloEngine::MCP::SceneControl
             { "available", result.Available },
             { "ok", result.Ok },
             { "playing", result.Playing },
+            { "simulating", result.Simulating },
+            { "mode", result.Mode },
             { "changed", result.Changed },
             { "sceneName", result.SceneName },
             { "message", result.Message },

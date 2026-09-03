@@ -10576,7 +10576,9 @@ namespace OloEngine
                 }
 
                 // Draw skeleton visualization if enabled
-                if (m_SkeletonVisualization.ShowSkeleton && skeleton.m_Skeleton)
+                if (Renderer3D::GetRendererSettings().EditorDebugDrawsEnabled &&
+                    Renderer3D::GetRendererSettings().ShowComponentGizmos &&
+                    m_SkeletonVisualization.ShowSkeleton && skeleton.m_Skeleton)
                 {
                     Renderer3D::DrawSkeleton(
                         *skeleton.m_Skeleton,
@@ -10673,19 +10675,22 @@ namespace OloEngine
             camera.GetNearClip(),
             camera.GetFarClip());
 
-        if (m_ShowGrid)
+        const auto& editorDebug = Renderer3D::GetRendererSettings();
+        const bool editorDebugEnabled = editorDebug.EditorDebugDrawsEnabled;
+
+        if (editorDebugEnabled && editorDebug.ShowGrid && m_ShowGrid)
         {
             Renderer3D::DrawInfiniteGrid(m_GridSpacing);
         }
 
         // Draw world axis helper at origin
-        if (m_ShowWorldAxisHelper)
+        if (editorDebugEnabled && editorDebug.ShowWorldAxisHelper && m_ShowWorldAxisHelper)
         {
             Renderer3D::DrawWorldAxisHelper(3.0f);
         }
 
         // Draw light visualization gizmos
-        if (m_ShowLightGizmos)
+        if (editorDebugEnabled && editorDebug.ShowLightGizmos && m_ShowLightGizmos)
         {
             {
                 auto view = m_Registry.view<TransformComponent, DirectionalLightComponent>();
@@ -10779,6 +10784,7 @@ namespace OloEngine
         }
 
         // Draw audio source gizmos
+        if (editorDebugEnabled && editorDebug.ShowComponentGizmos)
         {
             auto view = m_Registry.view<TransformComponent, AudioSourceComponent>();
             for (auto entity : view)
@@ -10799,6 +10805,7 @@ namespace OloEngine
         }
 
         // Draw fog volume gizmos
+        if (editorDebugEnabled && editorDebug.ShowComponentGizmos)
         {
             auto view = m_Registry.view<TransformComponent, FogVolumeComponent>();
             for (auto entity : view)
@@ -10838,6 +10845,7 @@ namespace OloEngine
         }
 
         // Draw streaming volume gizmos (sphere radius indicators)
+        if (editorDebugEnabled && editorDebug.ShowComponentGizmos)
         {
             auto view = m_Registry.view<TransformComponent, StreamingVolumeComponent>();
             for (auto entity : view)
@@ -10855,6 +10863,7 @@ namespace OloEngine
         }
 
         // Draw light probe volume gizmos (wireframe box around probe grid bounds)
+        if (editorDebugEnabled && editorDebug.ShowComponentGizmos)
         {
             auto view = m_Registry.view<LightProbeVolumeComponent>();
             for (auto entity : view)
@@ -10979,7 +10988,7 @@ namespace OloEngine
         }
 
         // Draw camera frustum gizmos for scene cameras (only in editor mode)
-        if (m_ShowCameraFrustums)
+        if (editorDebugEnabled && editorDebug.ShowCameraFrustums && m_ShowCameraFrustums)
         {
             auto view = m_Registry.view<TransformComponent, CameraComponent>();
             for (auto entity : view)
@@ -11036,7 +11045,7 @@ namespace OloEngine
         // same editor setting as the 2D collider overlay: large trigger
         // volumes otherwise collapse to isolated pixels at distance and leak
         // into ordinary scene captures even when collider visualization is off.
-        if (Renderer3D::GetRendererSettings().ShowPhysicsColliders)
+        if (editorDebugEnabled && editorDebug.ShowPhysicsColliders)
         {
             // Box colliders
             auto boxView = m_Registry.view<TransformComponent, BoxCollider3DComponent>();
@@ -11071,7 +11080,7 @@ namespace OloEngine
         // Draw world-space AABB gizmos around mesh entities. Same box the
         // frustum culler uses, so a missing wireframe here means the entity
         // also fails the visibility test.
-        if (Renderer3D::GetRendererSettings().ShowBoundingBoxes)
+        if (editorDebugEnabled && editorDebug.ShowBoundingBoxes)
         {
             const glm::vec3 bboxColor(0.3f, 0.9f, 1.0f);
             const glm::quat noRotation(1.0f, 0.0f, 0.0f, 0.0f);

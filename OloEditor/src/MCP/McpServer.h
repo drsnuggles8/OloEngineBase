@@ -26,6 +26,8 @@
 // the main (game) thread at a frame boundary via MarshalRead() ("main-marshaled").
 
 #include "MCP/McpCaptureRegion.h"
+#include "MCP/McpLightmapBake.h"
+#include "MCP/McpTerrainPick.h"
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Scene/Scene.h"
@@ -420,13 +422,17 @@ namespace OloEngine::MCP
     // editor. `Ok` is true when the editor is in the requested mode afterwards;
     // `Changed` is true only when this call actually transitioned (entering Play can
     // fail — e.g. no primary camera — leaving the editor in Edit with Ok:false).
-    // `Playing` is the resulting play state; `SceneName` is the active scene.
+    // `Playing` / `Simulating` identify the resulting runtime mode; `Mode` is the
+    // corresponding stable token ("edit", "play", or "simulate"). `SceneName`
+    // is the active scene.
     struct McpScenePlayResult
     {
         bool Available = false;
         bool Ok = false;
         bool Playing = false;
+        bool Simulating = false;
         bool Changed = false;
+        std::string Mode = "edit";
         std::string SceneName;
         std::string Message;
     };
@@ -623,6 +629,48 @@ namespace OloEngine::MCP
         bool CaptureUnready = false; // throttle-skipped, or mid viewport-resize transient
     };
 
+    struct McpEditorPanelState
+    {
+        std::string Name;
+        std::string Title;
+        bool Open = false;
+    };
+
+    struct McpEditorPanelSetResult
+    {
+        bool Available = false;
+        bool Ok = false;
+        bool Changed = false;
+        McpEditorPanelState Panel;
+        std::string Message;
+    };
+
+    struct McpEditorDebugDrawState
+    {
+        bool All = true;
+        bool Grid = true;
+        bool PhysicsColliders = false;
+        bool LightGizmos = true;
+        bool WorldAxis = true;
+        bool CameraFrustums = true;
+        bool BoundingBoxes = false;
+        bool SelectionOutline = true;
+        bool ComponentGizmos = true;
+
+        bool operator==(const McpEditorDebugDrawState&) const = default;
+    };
+
+    struct McpEditorDebugDrawSetResult
+    {
+        bool Available = false;
+        bool Ok = false;
+        bool Changed = false;
+        std::string Category;
+        bool Enabled = false;
+        McpEditorDebugDrawState State;
+        std::string Message;
+    };
+
     // Editor state the main-marshaled tools read. EditorLayer fills these in; the
     // std::function bodies are ONLY safe to call on the main (game) thread, i.e.
     // from inside a MarshalRead() job.
@@ -677,6 +725,18 @@ namespace OloEngine::MCP
         // report nothing about liveness rather than guessing.
         std::function<McpEditorLiveness()> GetEditorLiveness;
 
+        // Editor-only UI/viewport state. Both setters are session mutations and
+        // are therefore exposed through ProjectWrite tools; the callbacks are
+        // main-thread-only like the camera and selection hooks above.
+        std::function<std::vector<McpEditorPanelState>()> GetEditorPanels;
+        std::function<McpEditorPanelSetResult(const std::string& panel, bool open)> SetEditorPanel;
+        std::function<McpEditorDebugDrawState()> GetEditorDebugDrawState;
+        std::function<McpEditorDebugDrawSetResult(const std::string& category, bool enabled)> SetEditorDebugDraw;
+        // Submit/poll the editor's asynchronous TerrainGPUPicker. `submit` is
+        // true once, then false while the MCP worker waits for matching RayId.
+        std::function<TerrainPick::Snapshot(const TerrainPick::Request& request, bool submit)> TerrainPick;
+        std::function<LightmapBake::Snapshot(const LightmapBake::Request& request, bool start)> LightmapBake;
+
         // ---- Consented, undoable project writes (issue #306) ------------
         // The editor's undo/redo stack, so a write tool can apply its mutation as a
         // single undoable command (a Ctrl-Z). Main-thread-only, like the readers
@@ -716,6 +776,12 @@ namespace OloEngine::MCP
         // project-write tool (entering Play executes the user's game scripts). Null
         // in a headless host with no editor.
         std::function<McpScenePlayResult(bool play)> SetScenePlayState;
+
+        // Enter Simulate mode — the physics/runtime-with-editor-camera sibling of
+        // Play. Idempotent when already simulating; when called from Play the
+        // editor follows its normal toolbar path (stop Play, then simulate).
+        // Main-thread-only and consent-gated by olo_scene_simulate.
+        std::function<McpScenePlayResult()> SetSceneSimulateState;
 
         // Select / clear the Scene Hierarchy panel's selection — the "make the
         // Properties inspector draw entity X" write (issue #607). `clear` true

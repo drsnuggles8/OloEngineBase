@@ -286,6 +286,7 @@ namespace OloEngine
                 stats->ClearData();
         }
         m_Statistics = {};
+        m_HasStatistics = false;
 
         // The layer pool goes with the pages it addresses. Keeping the slot map
         // across a reset would hand a light back a layer whose page-table entries
@@ -2039,6 +2040,7 @@ namespace OloEngine
         if (m_StatsReadback.Read(&readback, sizeof(VSM::Statistics)))
         {
             m_Statistics = readback;
+            m_HasStatistics = true;
         }
     }
 } // namespace OloEngine

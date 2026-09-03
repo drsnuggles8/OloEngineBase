@@ -596,6 +596,8 @@ namespace OloEngine
         note("TerrainUBO", s_Data.TerrainUBO != nullptr);
         note("FoliageUBO", s_Data.FoliageUBO != nullptr);
         note("WaterUBO", s_Data.WaterUBO != nullptr);
+        note("DecalReceiverIntersectionQueries", s_Data.DecalReceiverIntersectionQueries[0].IsValid());
+        note("DecalVisibilityQueries", s_Data.DecalVisibilityQueries[0].IsValid());
         // Reflection-probe cubemap arrays + UBO + cluster-mask SSBO (#705).
         note("ReflectionProbeArray", s_Data.ReflectionProbes.IsInitialized());
 
@@ -611,6 +613,19 @@ namespace OloEngine
         m_ShaderLibrary.FlushPendingShaders();
 
         ParticleBatchRenderer::Shutdown();
+
+        if (s_Data.DecalVisibilityQueriesInitialized)
+        {
+            RenderCommand::DeleteQueries(s_Data.DecalReceiverIntersectionQueries);
+            s_Data.DecalReceiverIntersectionQueries = {};
+            RenderCommand::DeleteQueries(s_Data.DecalVisibilityQueries);
+            s_Data.DecalVisibilityQueries = {};
+            s_Data.DecalVisibilityFrames = {};
+            s_Data.DecalVisibilityQueriesInitialized = false;
+            s_Data.DecalVisibilityTarget = -1;
+            s_Data.LastDecalVisibilityEntity = -1;
+            s_Data.LastDecalVisibilityObservation = {};
+        }
 
         // Shutdown occlusion culling systems
         OcclusionCuller::GetInstance().Shutdown();

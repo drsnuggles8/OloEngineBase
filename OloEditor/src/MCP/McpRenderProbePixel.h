@@ -258,6 +258,7 @@ namespace OloEngine::MCP::ProbePixel
         TexelSample Emissive;   // RT2 RGBA16F — emissive.rgb + flags.a
         TexelSample Velocity;   // RT3 RG16F   — screen-space motion vector
         TexelSample EntityId;   // RT4 R32I    — picking id
+        TexelSample BakedGI;    // RT5 RGBA16F — baked irradiance.rgb + coverage.a
         TexelSample Depth;      // depth attachment
         TexelSample FinalColor; // the post-tonemap chain output actually presented
     };
@@ -413,6 +414,22 @@ namespace OloEngine::MCP::ProbePixel
             note("entityID");
         }
 
+        // RT5 — baked lightmap irradiance + chart coverage. Keeping coverage
+        // beside irradiance distinguishes "no baked chart here" from a valid
+        // chart whose indirect illumination is genuinely black.
+        if (in.BakedGI.Available && in.BakedGI.Channels >= 4)
+        {
+            Json bakedGI = Detail::Present(in.BakedGI, "rgba", Detail::Vec(in.BakedGI.F.data(), 4));
+            bakedGI["irradiance"] = Detail::Vec(in.BakedGI.F.data(), 3);
+            bakedGI["coverage"] = in.BakedGI.F[3];
+            channels["bakedGI"] = std::move(bakedGI);
+        }
+        else
+        {
+            channels["bakedGI"] = Detail::Missing(in.BakedGI, "GBufferBakedGI (RT5) is not available on this rendering path.");
+            note("bakedGI");
+        }
+
         // Depth — raw device value plus the linearized view-space distance.
         if (in.Depth.Available && in.Depth.Channels >= 1)
         {
@@ -455,6 +472,7 @@ namespace OloEngine::MCP::ProbePixel
         raw["GBufferEmissive"] = RawSampleJson(in.Emissive);
         raw["Velocity"] = RawSampleJson(in.Velocity);
         raw["EntityID"] = RawSampleJson(in.EntityId);
+        raw["GBufferBakedGI"] = RawSampleJson(in.BakedGI);
         raw["Depth"] = RawSampleJson(in.Depth);
         raw["FinalColor"] = RawSampleJson(in.FinalColor);
 

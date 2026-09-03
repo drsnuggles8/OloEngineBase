@@ -695,6 +695,7 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsBenchmark.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsCamera.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsDiagnostics.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsEditor.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsInput.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPerf.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPhysics.cpp
@@ -775,6 +776,12 @@ add_executable(OloEngine-Tests
 		# empty cluster counts) behind olo_cluster_grid_stats (#607). Header-only
 		# (MCP/McpClusterGridStats.h), no extra editor TU pulled in.
 		MCP/McpClusterGridStatsTest.cpp
+		# Pure availability/freshness + JSON shaping behind the VSM, classic-mesh
+		# LOD and DDGI probe-stat diagnostics (#607). Header-only MCP cores; no
+		# renderer or editor TU is pulled into these tests.
+		MCP/McpVirtualShadowMapStatsTest.cpp
+		MCP/McpRenderLODStatsTest.cpp
+		MCP/McpDDGIProbeStatsTest.cpp
 		# Pure froxel <-> world mapping (the shaders' exponential z-slice
 		# distribution + view-ray secant scaling) behind olo_froxel_fog_probe (#607,
 		# relates to #435). Header-only (MCP/McpFroxelFogProbe.h), no extra editor TU.
@@ -800,6 +807,13 @@ add_executable(OloEngine-Tests
 		# A/B that could not be driven from an agent session at all). Header-only
 		# (MCP/McpPostProcessSettings.h), no extra editor TU pulled in.
 		MCP/McpPostProcessSettingsTest.cpp
+		# Process-global accessibility settings schema / strict parsing / engine
+		# sanitization behind olo_accessibility_get / _set (#607). Header-only
+		# editor seam; no McpTools or EditorLayer TU is pulled in.
+		MCP/McpAccessibilityTest.cpp
+		# Pure request validation and pending/hit/miss/overflow result shaping
+		# behind olo_terrain_pick (#607); editor camera and GPU dispatch stay out.
+		MCP/McpTerrainPickTest.cpp
 		# Unified diagnostics event ring buffer behind olo_events_tail (#306 item B).
 		# Header-only engine facility (Debug/DiagnosticsEventLog.h, compiled into
 		# OloEngine), so no extra editor TU is pulled in.
@@ -930,6 +944,13 @@ add_executable(OloEngine-Tests
 		# EnTT registry / runtime in the editor), so the test injects fakes and never
 		# touches a scene. Header-only on the editor side, so no extra editor TU.
 		MCP/McpSceneControlTest.cpp
+		# Shared schema/parser/result contract for olo_reflection_probe_bake.
+		MCP/McpReflectionProbeBakeTest.cpp
+		# Pure request/status/result contract for async or blocking lightmap bakes.
+		MCP/McpLightmapBakeTest.cpp
+		# Editor panel visibility and clean viewport-overlay controls (#607).
+		MCP/McpEditorPanelsTest.cpp
+		MCP/McpEditorDebugDrawTest.cpp
 		# Consented MCP WRITE tool: olo_editor_select_entity (#607) — select/clear
 		# the Scene Hierarchy panel's selection so the Properties inspector draws a
 		# given entity's components (unblocks screenshot verification of the whole

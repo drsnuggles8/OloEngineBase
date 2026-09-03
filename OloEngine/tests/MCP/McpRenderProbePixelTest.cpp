@@ -171,6 +171,7 @@ namespace
         in.Normal = MakeFloatSample("GBufferNormal", "RGBA16F", 4, encoded.x, encoded.y, 0.35f, 0.9f);
         in.Emissive = MakeFloatSample("GBufferEmissive", "RGBA16F", 4, 2.0f, 0.0f, 0.0f, 0.0f);
         in.Velocity = MakeFloatSample("Velocity", "RG16F", 2, 0.01f, -0.02f);
+        in.BakedGI = MakeFloatSample("GBufferBakedGI", "RGBA16F", 4, 0.15f, 0.25f, 0.35f, 1.0f);
         in.Depth = MakeFloatSample("SceneDepth", "DEPTH32F", 1, 0.5f);
         in.FinalColor = MakeFloatSample("ToneMapColorTexture", "RGBA8", 4, 0.4f, 0.1f, 0.05f, 1.0f);
 
@@ -206,6 +207,15 @@ namespace
         EXPECT_NEAR(channels.at("emissive").at("value")[0].get<f32>(), 2.0f, 1e-6f);
         EXPECT_NEAR(channels.at("velocity").at("value")[1].get<f32>(), -0.02f, 1e-6f);
 
+        const Json& bakedGI = channels.at("bakedGI");
+        EXPECT_TRUE(bakedGI.at("available").get<bool>());
+        EXPECT_NEAR(bakedGI.at("irradiance")[0].get<f32>(), 0.15f, 1e-6f);
+        EXPECT_NEAR(bakedGI.at("irradiance")[1].get<f32>(), 0.25f, 1e-6f);
+        EXPECT_NEAR(bakedGI.at("irradiance")[2].get<f32>(), 0.35f, 1e-6f);
+        EXPECT_NEAR(bakedGI.at("coverage").get<f32>(), 1.0f, 1e-6f);
+        EXPECT_EQ(bakedGI.at("source").get<std::string>(), "GBufferBakedGI.rgba");
+        EXPECT_EQ(j.at("raw").at("GBufferBakedGI").at("value").size(), 4u);
+
         // Integer, not float — an entity id compared against a scene UUID must be exact.
         EXPECT_EQ(channels.at("entityID").at("value").get<i32>(), 42);
 
@@ -232,6 +242,7 @@ namespace
         in.Emissive = MakeMissingSample("GBufferEmissive", "no GPU backing this frame");
         in.Velocity = MakeMissingSample("Velocity", "no GPU backing this frame");
         in.EntityId = MakeMissingSample("SceneEntityID", "no GPU backing this frame");
+        in.BakedGI = MakeMissingSample("GBufferBakedGI", "no GPU backing this frame");
         in.Depth = MakeFloatSample("SceneDepth", "DEPTH32F", 1, 0.9f); // forward still has depth
         in.FinalColor = MakeFloatSample("SceneColorTexture", "RGBA16F", 4, 0.2f, 0.2f, 0.2f, 1.0f);
 
@@ -242,6 +253,7 @@ namespace
         EXPECT_EQ(channels.at("albedo").at("reason").get<std::string>(), "no GPU backing this frame");
         EXPECT_FALSE(channels.at("normal").at("available").get<bool>());
         EXPECT_FALSE(channels.at("entityID").at("available").get<bool>());
+        EXPECT_FALSE(channels.at("bakedGI").at("available").get<bool>());
 
         // Depth and the final colour survive on every path.
         EXPECT_TRUE(channels.at("depth").at("available").get<bool>());
@@ -250,6 +262,7 @@ namespace
         const auto missing = j.at("unavailableChannels").get<std::vector<std::string>>();
         EXPECT_NE(std::find(missing.begin(), missing.end(), "albedo"), missing.end());
         EXPECT_NE(std::find(missing.begin(), missing.end(), "roughness"), missing.end());
+        EXPECT_NE(std::find(missing.begin(), missing.end(), "bakedGI"), missing.end());
         EXPECT_EQ(std::find(missing.begin(), missing.end(), "depth"), missing.end());
 
         // The note must name the actual remedy, not just state the problem.

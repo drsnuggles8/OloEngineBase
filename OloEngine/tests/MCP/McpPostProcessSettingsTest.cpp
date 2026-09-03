@@ -240,11 +240,13 @@ TEST(McpPostProcessSettings, EnumRoundTripsByTokenAndFlagsRendererApply)
     // Without this flag the handler never calls Renderer3D::ApplyRendererSettings,
     // the AO pass is not re-registered, and the write renders as a no-op (#533).
     EXPECT_TRUE(toGtao.RequiresRendererApply);
+    EXPECT_TRUE(toGtao.RequiresRenderGraphRebuild);
 
     // Writing the same value again is not a change, so no rebuild is requested.
     const PP::ApplyResult again = ApplyToken("ActiveAOTechnique", Json("GTAO"), pp, fog);
     ASSERT_TRUE(again.Ok);
     EXPECT_FALSE(again.RequiresRendererApply);
+    EXPECT_FALSE(again.RequiresRenderGraphRebuild);
     EXPECT_EQ(again.Data["changed"], Json(false));
 
     // An unknown token is refused and lists the valid ones.
@@ -254,6 +256,22 @@ TEST(McpPostProcessSettings, EnumRoundTripsByTokenAndFlagsRendererApply)
     EXPECT_FALSE(bad.Ok);
     EXPECT_NE(bad.Error.find("gtao"), std::string::npos);
     EXPECT_EQ(pp.ActiveAOTechnique, AOTechnique::GTAO);
+}
+
+TEST(McpPostProcessSettings, TopologyWritesRequestRebuildButValueWritesDoNot)
+{
+    PostProcessSettings pp;
+    FogSettings fog;
+
+    const PP::ApplyResult topology = ApplyToken("SSGIEnabled", Json(true), pp, fog);
+    ASSERT_TRUE(topology.Ok);
+    EXPECT_TRUE(topology.RequiresRenderGraphRebuild);
+    EXPECT_FALSE(topology.RequiresRendererApply);
+
+    const PP::ApplyResult valueOnly = ApplyToken("SSGIIntensity", Json(2.0), pp, fog);
+    ASSERT_TRUE(valueOnly.Ok);
+    EXPECT_FALSE(valueOnly.RequiresRenderGraphRebuild);
+    EXPECT_FALSE(valueOnly.RequiresRendererApply);
 }
 
 TEST(McpPostProcessSettings, FogFieldsReachTheFogStructAndAcceptVec3)
