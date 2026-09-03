@@ -3,13 +3,15 @@
 # never perform (issue #1015). Companion to setup-olo-ci-runners.sh, which
 # provisions the runner pool; this one owns the two things that pool did not:
 #
-#   1. The pinned compiler. The hosted Linux jobs build with clang-19 from
-#      apt.llvm.org; Rocky 10's base repos stop at clang 21, but EPEL ships
-#      clang19 / compiler-rt19 / lld19 at the same 19.1.7. setup-linux-build
-#      selects /usr/lib64/llvm19/bin when it exists and WARNS (then builds with
-#      the system clang) when it does not -- so this step flips a warning, not a
-#      failure. docs/ops/self-hosted-linux-toolchain.md says why the pin is
-#      optional rather than required.
+#   1. The sanitizer runtimes for the system compiler. The box builds with
+#      Rocky 10's own clang (21.1.8) -- there is no version pin any more, because
+#      the hosted arm is on clang-23 and EPEL tops out at clang20, so no pin can
+#      match. What the box DOES need is compiler-rt and lld beside that clang:
+#      without compiler-rt every sanitizer link fails on "cannot find
+#      libclang_rt.asan.a". setup-linux-build VERIFIES the runtimes and WARNS
+#      (then builds anyway) when they are absent, so this step flips a warning,
+#      not a failure. docs/ops/self-hosted-linux-toolchain.md says why the
+#      version skew against the hosted arm is fine.
 #
 #   2. Unattended updates that reboot under a running job.
 #      dnf-automatic-install.timer (06:00 local + up to 60 min) applies updates
@@ -55,16 +57,23 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-# ---------------------------------------------------------------- 1. clang-19
-# All three or none: setup-linux-build selects the compiler by path and relies
-# on ld.lld and the sanitizer runtimes sitting beside it.
-if [ -x /usr/lib64/llvm19/bin/clang++ ] && [ -x /usr/lib64/llvm19/bin/ld.lld ]    && ls /usr/lib64/llvm19/lib/clang/19/lib/*/libclang_rt.asan*.a >/dev/null 2>&1; then
-  echo "clang-19 already provisioned: $(/usr/lib64/llvm19/bin/clang++ --version | head -1)"
+# ------------------------------------------------- 1. sanitizer runtimes + lld
+# Asked of the compiler itself rather than hardcoded: the runtime directory
+# layout is the distro's business, and it moves between clang majors.
+rt_dir=$(clang++ -print-runtime-dir 2>/dev/null || true)
+if [ -n "$rt_dir" ]    && ls "$rt_dir"/libclang_rt.asan*.a >/dev/null 2>&1    && ls "$rt_dir"/libclang_rt.tsan*.a >/dev/null 2>&1    && ls "$rt_dir"/libclang_rt.ubsan*.a >/dev/null 2>&1    && command -v ld.lld >/dev/null 2>&1; then
+  echo "sanitizer toolchain already provisioned: $(clang++ --version | head -1)"
 else
-  dnf install -y clang19 compiler-rt19 lld19
-  echo "clang-19 provisioned: $(/usr/lib64/llvm19/bin/clang++ --version | head -1)"
+  dnf install -y clang compiler-rt lld
+  rt_dir=$(clang++ -print-runtime-dir 2>/dev/null || true)
+  echo "sanitizer toolchain provisioned: $(clang++ --version | head -1)"
 fi
-test -x /usr/lib64/llvm19/bin/ld.lld || { echo "lld19 did not install ld.lld beside clang-19" >&2; exit 1; }
+# All three runtimes or none: a compiler-rt missing tsan configures fine and
+# fails only the TSan job's link, hours later and in a job nobody was watching.
+for san in asan tsan ubsan; do
+  ls "$rt_dir"/libclang_rt.$san*.a >/dev/null 2>&1     || { echo "compiler-rt did not install libclang_rt.$san beside clang++ (looked in '${rt_dir:-<unknown>}')" >&2; exit 1; }
+done
+command -v ld.lld >/dev/null 2>&1 || { echo "lld did not install ld.lld" >&2; exit 1; }
 
 # ------------------------------------------- 2. no reboot under a running job
 # Idempotent for real: write to a temp file and only install + reload when the
@@ -113,7 +122,8 @@ done
 # ------------------------------------------------------------------- report
 echo
 echo "state:"
-echo "  clang-19:  /usr/lib64/llvm19/bin/clang++ -> $(/usr/lib64/llvm19/bin/clang++ --version | head -1)"
+echo "  clang:     $(command -v clang++) -> $(clang++ --version | head -1)"
+echo "  runtimes:  $(clang++ -print-runtime-dir 2>/dev/null || echo '<unknown>')"
 echo "  timer:     $(systemctl list-timers dnf-automatic-install.timer --no-pager | sed -n 2p)"
 echo "  condition: $(grep ExecCondition "$dropin")"
 echo "  gpu:       $(for dev in /sys/bus/pci/drivers/amdgpu/0000:*; do printf '%s control=%s status=%s ' "$(basename "$dev")" "$(cat "$dev/power/control")" "$(cat "$dev/power/runtime_status")"; done)"

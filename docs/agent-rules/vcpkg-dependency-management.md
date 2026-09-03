@@ -335,13 +335,13 @@ It does not have to be. Ubuntu 24.04 under WSL2 matches the runner image, and th
 `tsan-linux` job reproduces locally in one pass:
 
 ```bash
-sudo apt-get install -y clang-19 lld-19 ninja-build autoconf-archive gdb   # + the job's dep list
+sudo apt-get install -y clang-23 lld-23 ninja-build autoconf-archive gdb   # + the job's dep list
 git clone https://github.com/microsoft/vcpkg ~/vcpkg        # NOT --depth 1: the manifest
 ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics                  # baseline commit must be present
 cmake -S . -B build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
   -DVCPKG_TARGET_TRIPLET=x64-linux \
-  -DCMAKE_CXX_COMPILER=clang++-19 -DCMAKE_C_COMPILER=clang-19 \
+  -DCMAKE_CXX_COMPILER=clang++-23 -DCMAKE_C_COMPILER=clang-23 \
   -DCMAKE_BUILD_TYPE=Debug -DOLO_ENABLE_TSAN=ON -DBUILD_TESTS=ON \
   -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
   "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -lstdc++exp"

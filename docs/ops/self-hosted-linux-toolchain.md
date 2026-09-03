@@ -1,4 +1,4 @@
-# Self-hosted Linux runners: the compiler is provisioned, selected by absolute path, and never installed by a job
+# Self-hosted Linux runners: the box builds with its system clang, and a job verifies but never installs
 
 Issue [#1015](https://github.com/drsnuggles8/OloEngineBase/issues/1015), item A. Applies to
 every job that calls [`setup-linux-build`](../../.github/actions/setup-linux-build/action.yml)
@@ -7,24 +7,32 @@ GPU-under-sanitizer nightly.
 
 ## The rule
 
-1. The hosted arm builds with clang-19 from apt.llvm.org (19.1.7). The self-hosted arm builds
-   with the same major version when the box has it: EPEL's `clang19` / `compiler-rt19` /
-   `lld19` install under `/usr/lib64/llvm19/bin`, off `PATH`, and the action selects them by
-   absolute path. `-fuse-ld=lld` resolves the `ld.lld` beside the compiler before it searches
-   `PATH`, so the linker follows without a second setting.
-2. When the pin is missing, the action prints a `::warning` annotation naming the install
-   command and builds with the system clang (21 on Rocky 10). It does not fail. A self-hosted
-   step verifies and never installs (the convention at the top of the action), and a hard
-   failure here would block every same-repo PR's sanitizer jobs on one maintainer running
-   `dnf`.
-3. Every configure log starts with one line, `toolchain: <compiler> (<version>) / <python>`.
+1. The hosted arm builds with **clang-23** from apt.llvm.org. The self-hosted arm builds with
+   **Rocky 10's system clang** (21.1.8, with `compiler-rt-21` and `lld-21`). The two arms are
+   deliberately different versions -- see the next section -- and there is no version pin on
+   the box any more.
+2. The box cannot follow the hosted arm. EPEL on Rocky 10 tops out at `clang20` (20.1.8);
+   there is no `clang22` or `clang23` package. Pinning a version the distro does not ship only
+   recreates the unprovisioned pin this rule replaced: the previous `clang-19` pin named
+   `/usr/lib64/llvm19/bin`, which **did not exist on the box** -- every self-hosted sanitizer
+   run had already been taking the fallback path, silently, for as long as the pin stood.
+3. What the action verifies is the **sanitizer runtimes, not the version**. A clang without
+   `compiler-rt` configures fine and fails every sanitizer LINK on `cannot find
+   libclang_rt.asan.a`. The runtime directory is asked of the compiler itself
+   (`clang++ -print-runtime-dir`), so the check follows whatever layout the distro uses.
+4. A missing runtime prints a `::warning` annotation naming the install command and carries
+   on. It does not fail. A self-hosted step verifies and never installs (the convention at the
+   top of the action), and a hard failure here would block every same-repo PR's sanitizer jobs
+   on one maintainer running `dnf`.
+5. Every configure log starts with one line, `toolchain: <compiler> (<version>) / <python>`.
    When a self-hosted job fails and its hosted twin does not, read that line before reading
-   anything else.
+   anything else -- the two arms run different compilers by design.
 
-Install the pin with `sudo bash scripts/setup-olo-ci-host.sh` (see
+Provision the runtimes with `sudo dnf install -y compiler-rt lld`, or run
+`sudo bash scripts/setup-olo-ci-host.sh` (see
 [self-hosted-host-hygiene.md](self-hosted-host-hygiene.md)).
 
-## Why the pin is optional: the version skew was never the cause
+## Why the version skew is fine: it was never the cause
 
 #1010 measured the sanitizer jobs on the box, saw 215 failures against 1 hosted, and blamed
 half of them on "clang 21 against gcc-toolset-15's libstdc++": two UBSan reports inside the

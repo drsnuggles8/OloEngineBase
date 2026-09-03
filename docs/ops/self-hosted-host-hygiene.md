@@ -76,11 +76,21 @@ Memory is the other shared budget: an instrumented compile is ~3 GB per translat
 an instrumented `OloEngine-Tests` link several more, so every self-hosted build caps its
 parallelism and sets `OLO_LINK_JOBS=1`; two sanitizer jobs at once already use most of the box.
 
-## 4. The compiler is pinned by provisioning, verified by the workflow
+## 4. The sanitizer runtimes are provisioned, verified by the workflow
 
 See [self-hosted-linux-toolchain.md](self-hosted-linux-toolchain.md). The short version: the
-job warns and builds with the system clang 21 until `clang19` from EPEL is installed, and the
-warning is the only thing the install changes.
+box builds with its system clang 21 (hosted is on clang-23, deliberately), and there is no
+version pin to provision.
+
+The two missing-piece outcomes are NOT the same, which matters when you read a red job:
+
+- **`lld` missing — the job FAILS.** `lld` is in the "Preflight — toolchain" step's required
+  binary list, alongside `cmake`, `ninja`, `ccache`, `clang`, `clang++`, `python3` and `nasm`.
+  A missing one is an `::error` and `exit 1` before anything is configured.
+- **`compiler-rt` missing — the job WARNS and carries on.** The runtime check in "Resolve
+  toolchain" emits a `::warning` naming the `dnf` command. The build then fails later at the
+  first sanitizer link (`cannot find libclang_rt.asan.a`), so nothing is silently skipped —
+  the warning just tells you why, several minutes earlier than the linker would.
 
 ## Root steps, once
 
@@ -88,6 +98,7 @@ warning is the only thing the install changes.
 sudo bash scripts/setup-olo-ci-host.sh
 ```
 
-Idempotent. Installs the pinned compiler, the update-timer drop-in and the GPU runtime-PM
-rule, then prints the resulting state. Nothing in any workflow installs or changes host state; a self-hosted step
+Idempotent. Installs the sanitizer runtimes and `lld` for the system clang, the update-timer
+drop-in and the GPU runtime-PM rule, then prints the resulting state. It installs no pinned
+compiler -- there is no version pin any more. Nothing in any workflow installs or changes host state; a self-hosted step
 verifies and names this script when it finds something missing.
