@@ -245,10 +245,10 @@ with numbers rather than re-litigate the format.
 
 Filed and scored separately, because an unscored follow-up is invisible to the picker:
 
-- **GPU per-view splat ordering** — move the cull, the LOD test, key generation and the sort into
+- **[#1038](https://github.com/drsnuggles8/OloEngineBase/issues/1038) GPU per-view splat ordering** — move the cull, the LOD test, key generation and the sort into
   compute and drive the draw indirectly. This is the gate in §5.2, and `GPUPrefixSum` (#713) already
   supplies the scan a GPU radix sort needs.
-- **Hierarchical splat LOD by merging** — an offline build step producing coarse levels whose splats
+- **[#1039](https://github.com/drsnuggles8/OloEngineBase/issues/1039) Hierarchical splat LOD by merging** — an offline build step producing coarse levels whose splats
   integrate to roughly the same radiance, replacing the selection budget that §5.4 shows does not
   degrade gracefully.
 
