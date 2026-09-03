@@ -22,8 +22,15 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO ValveSoftware/GameNetworkingSockets
-    REF "2cb93a06350bb065db53abdb0d87cf297e0bfd34" # v1.6.0
-    SHA512 c2deaa3aab42cd840dd13560ca4da40faa375ab846ea15af38d55eb7acc48cfe8cbdbe0c76b9c3484d26f9e1163e36ac1eb73a317e5c19cefe60d0b861d19e06
+    # POST-RELEASE MASTER SNAPSHOT, on purpose. v1.6.0 (2026-06-03) is still the
+    # latest tag, and it predates the fix for the stack-buffer-overflow that
+    # GameNetworkingSockets_Init's service thread trips under AddressSanitizer:
+    # ValveSoftware/GameNetworkingSockets#418, fixed by PR #420 (merged to master
+    # 2026-08-24). Without that fix, NetworkManager::Init has to skip the live
+    # init under ASan and the networking suites lose their sanitizer coverage.
+    # Move back to a tag as soon as one ships that contains #420.
+    REF "a424b7db649438acafb60c99cae6667587c42732" # master @ 2026-08-26, 17 commits after PR #420
+    SHA512 a4a9abe49d1ee638926c180ff88c59329a3df749a6ba9a59efba4b719857f802941ae8eabb07fd88ea2138718a5721ecc1ebc61f2dafacc2a026e1374546e1b5
     HEAD_REF master
 )
 
