@@ -822,3 +822,33 @@ drain it in `ConfigurePassesForFrame` (which runs in `EndScene`, after traversal
 graph executes).
 
 Found on #710 (analytic sphere-proxy ambient occlusion).
+
+## A one-occluder test scene cannot see an accumulation bug
+
+If a term sums or multiplies a per-object contribution, the scene that proves it correct for ONE
+object proves nothing about ten. Build the contract scene for the integral and look at a dense real
+scene — Sponza, a Drift island — in the live editor before believing the defaults.
+
+Concretely, on #710: 23 green tests and five inspected evidence PNGs, all from a scene with a single
+cube, said the analytic sphere-proxy AO term was right. It was — for one occluder. Open Sponza and
+the same defaults saturated the entire atrium to near-black, because proxies combine as independent
+occluders (the product of their visibilities) and dozens of them were reaching every pixel.
+
+Two rules came out of it, and the second is the one that generalises:
+
+- **A binning cutoff must match the range over which the contribution is non-zero.** #710 binned a
+  proxy while it could still contribute `1/12² ≈ 0.7%`. Individually negligible, collectively fatal:
+  the product compounds. Set the cutoff from what can still matter, not from what is cheap to test.
+- **Where a cull is a HARD test, window the quantity to zero at the same threshold.** Tightening the
+  cutoff alone just swaps artefacts — the tile test is binary, so a proxy one texel past it is in
+  one tile's list and absent from its neighbour's, and 16×16 tile seams appear the moment the cutoff
+  gets tight enough to matter. Fading the contribution to zero at exactly the cull radius makes the
+  seam structurally impossible instead of merely small, because whatever the cull drops was already
+  worth nothing. That is what lets the cutoff be tight.
+
+And a ceiling on the accumulated result is not a substitute for either. Capping #710's total
+occlusion at 0.6 removed the black but replaced it with a flat constant across every enclosed space
+— the saturation moved, it did not go away. Fix the accumulation, then keep the ceiling as a bound
+for scenes that still need one.
+
+Found on #710 (analytic sphere-proxy ambient occlusion).
