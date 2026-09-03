@@ -226,11 +226,29 @@ jobs:
     # step FAILS THE JOB if the resolved clang-cl is not the pinned major. Without
     # that assertion this failure mode is invisible: a green install step, a
     # successful build, and a wrong compiler.
+    #
+    # TWO INPUTS THAT LOOK HARMLESS AND ARE NOT, both learned from a run that
+    # installed nothing and said it had:
+    #
+    #   * `cached: true` does NOT mean "cache this download". Per the action's
+    #     README it means "the binaries WERE cached" -- it tells the action to
+    #     SKIP downloading because you restored them yourself with actions/cache.
+    #     Neither this job nor fuzz.yml ever had such a restore step, so the
+    #     install was a no-op that printed "Using cached LLVM and Clang 23.1.0..."
+    #     and installed nothing. The README also says caching is not recommended:
+    #     it is usually slower than just downloading.
+    #   * `directory` defaults to C:\Program Files\LLVM on Windows -- the exact
+    #     path the runner image's own LLVM occupies. So a no-op install leaves
+    #     LLVM_PATH pointing at the image's compiler, and every later step
+    #     resolves that instead of the pin, with nothing anywhere saying so.
+    #
+    # Hence: no `cached`, and an explicit directory that the image does not use,
+    # so a failed install cannot silently look like a successful one.
     - name: Install LLVM (pinned)
       uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
       with:
         version: "23.1.0"
-        cached: true
+        directory: ${{ runner.temp }}/llvm-pinned
 
     # Resolve the pinned toolchain to absolute paths and PROVE it is the pinned one.
     # Every tool comes from the same install root: mixing a clang-cl 23 front end

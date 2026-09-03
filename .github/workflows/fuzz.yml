@@ -82,9 +82,21 @@ jobs:
         # both.
         #
         # `KyleMayes/install-llvm-action` exports `LLVM_PATH` pointing at the
-        # install root (so binaries live at `$LLVM_PATH/bin`) and caches the
-        # download via actions/cache. Pinned to an exact release so we don't
-        # drift with the action's "latest N.x" interpretation.
+        # install root (so binaries live at `$LLVM_PATH/bin`). Pinned to an exact
+        # release so we don't drift with the action's "latest N.x" interpretation.
+        #
+        # THIS STEP USED TO INSTALL NOTHING. It passed `cached: true`, which does
+        # not mean "cache this download" -- the action's README defines it as "the
+        # binaries WERE cached", i.e. skip downloading because the caller restored
+        # them with actions/cache. This job has no such restore step, so the action
+        # skipped the download, printed "Using cached LLVM and Clang <version>...",
+        # and left LLVM_PATH at its Windows default of C:\Program Files\LLVM --
+        # which is where the runner IMAGE's LLVM already lives. The job therefore
+        # fuzzed with the image's compiler while reporting a pinned one, and the
+        # two matched by coincidence (the image shipped 20.1.8, the old pin here).
+        # `directory` is set below so a broken install can never masquerade as the
+        # image's working one again. See asan.yml's Install LLVM step for the run
+        # that exposed this.
         #
         # Moved 20.1.8 -> 23.1.0 alongside the Windows ASan job's new pin, so the
         # two Windows clang-cl jobs share one toolchain version rather than
@@ -94,7 +106,7 @@ jobs:
         uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
         with:
           version: "23.1.0"
-          cached: true
+          directory: ${{ runner.temp }}/llvm-pinned
 
       # NOTE: this job deliberately does NOT use sccache (unlike Windows.yml).
       # The Windows sccache server reliably crashes — "sccache: error: failed to
