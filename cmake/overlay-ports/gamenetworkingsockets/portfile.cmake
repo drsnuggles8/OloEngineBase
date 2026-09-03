@@ -22,15 +22,22 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO ValveSoftware/GameNetworkingSockets
-    # POST-RELEASE MASTER SNAPSHOT, on purpose. v1.6.0 (2026-06-03) is still the
-    # latest tag, and it predates the fix for the stack-buffer-overflow that
+    # POST-RELEASE COMMIT, on purpose, and it is PR #420's MERGE COMMIT rather
+    # than a later master snapshot. v1.6.0 (2026-06-03) is still the latest tag
+    # and predates the fix for the stack-buffer-overflow that
     # GameNetworkingSockets_Init's service thread trips under AddressSanitizer:
     # ValveSoftware/GameNetworkingSockets#418, fixed by PR #420 (merged to master
     # 2026-08-24). Without that fix, NetworkManager::Init has to skip the live
     # init under ASan and the networking suites lose their sanitizer coverage.
-    # Move back to a tag as soon as one ships that contains #420.
-    REF "a424b7db649438acafb60c99cae6667587c42732" # master @ 2026-08-26, 17 commits after PR #420
-    SHA512 a4a9abe49d1ee638926c180ff88c59329a3df749a6ba9a59efba4b719857f802941ae8eabb07fd88ea2138718a5721ecc1ebc61f2dafacc2a026e1374546e1b5
+    #
+    # Pinning the merge commit and not master's head is the smaller step: it is
+    # the first commit that contains the fix and nothing else we need. An earlier
+    # revision of this port pinned master@2026-08-26, which carried 17 further
+    # commits (an iOS build port, a mingw cmsg fix, CI changes) that this engine
+    # has no use for and would have to vet. Move to a TAG as soon as one ships
+    # containing #420.
+    REF "3b542769a68cd535d41e74af3898becc444940c9" # PR #420 merge commit, 2026-08-24
+    SHA512 983dbd53c74fecd083a4fc6784609f3aeed7072dade2c194d610cb4c9f144057a7162929dced47e31fc65d506f96a9a1e1d7d9a485641907b555ca93b9aafaef
     HEAD_REF master
 )
 
