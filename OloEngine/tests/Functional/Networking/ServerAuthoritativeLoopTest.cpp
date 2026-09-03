@@ -30,7 +30,6 @@
 
 #include <gtest/gtest.h>
 
-#include "OloEngine/Memory/Platform.h" // OLO_ASAN_ENABLED
 #include "OloEngine/Networking/Core/ClientReplicationDriver.h"
 #include "OloEngine/Networking/Core/NetworkMessage.h"
 #include "OloEngine/Networking/Core/ServerReplicationDriver.h"
@@ -109,13 +108,6 @@ class ServerAuthoritativeLoopTest : public ::testing::Test
   protected:
     void SetUp() override
     {
-#if OLO_ASAN_ENABLED
-        // GameNetworkingSockets_Init trips a stack-buffer-overflow inside vendored
-        // GNS under MSVC ASan (issue #317), exactly as NetworkManager::Init works
-        // around. Skip rather than fail: the transport-free networking tests still
-        // run under the sanitizer.
-        GTEST_SKIP() << "Live GNS sockets are unavailable under AddressSanitizer (issue #317)";
-#else
         SteamDatagramErrMsg errMsg;
         ASSERT_TRUE(GameNetworkingSockets_Init(nullptr, errMsg)) << errMsg;
 
@@ -160,18 +152,15 @@ class ServerAuthoritativeLoopTest : public ::testing::Test
         // how many ticks the harness happened to run.
         m_ClientDrivers[0].GetPrediction().SetSmoothingRate(1.0f);
         m_ClientDrivers[1].GetPrediction().SetSmoothingRate(1.0f);
-#endif
     }
 
     void TearDown() override
     {
-#if !OLO_ASAN_ENABLED
         // Clear the RPC registry FIRST. The RPC tests register handlers capturing
         // test-body locals by reference, and GoogleTest destroys those locals when
         // TestBody returns — before TearDown runs. If closing a transport below
         // drained a queued RPC, the dispatcher would invoke a handler over destroyed
-        // references. (The fixture skips under ASan, so the sanitizer cannot catch
-        // that for us.)
+        // references.
         RpcRegistry::Clear();
 
         for (auto& client : m_Clients)
@@ -193,7 +182,6 @@ class ServerAuthoritativeLoopTest : public ::testing::Test
         // Give the OS a moment to release the listen socket before the next test
         // in this binary binds the same port.
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-#endif
     }
 
     static void OnStatusChanged(SteamNetConnectionStatusChangedCallback_t* info)

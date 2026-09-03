@@ -300,16 +300,34 @@ jobs:
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      # The SteamNetworkingSockets service thread tripped a stack-buffer-overflow
-      # under MSVC ASan during thread bootstrap (a 48-byte read from a 24-byte
-      # `info` stack object inside vendored GNS code on the GNS-spawned thread;
-      # Release ICF folding misreported the frames as `SteamNetworkingSockets_*` /
-      # `pugi::xpath_*`). That is now fixed at the source: NetworkManager::Init
-      # skips the live GameNetworkingSockets_Init under ASan (OLO_ASAN_ENABLED),
-      # so every suite that merely constructs/uses NetworkManager runs clean.
-      # (Upstream GNS bug: ValveSoftware/GameNetworkingSockets#418.) The gate is
-      # keyed on OLO_ASAN_ENABLED, not the compiler, so it applies identically
-      # now that this job builds with clang-cl ASan instead of MSVC cl.exe ASan.
+      # The SteamNetworkingSockets service thread used to trip a stack-buffer-overflow
+      # under ASan during thread bootstrap (a 48-byte read from a 24-byte `info`
+      # stack object inside vendored GNS code on the GNS-spawned thread; Release ICF
+      # folding misreported the frames as `SteamNetworkingSockets_*` /
+      # `pugi::xpath_*`). It was worked around by skipping the live
+      # GameNetworkingSockets_Init under OLO_ASAN_ENABLED, which bought a green job
+      # at the cost of never sanitizing the transport.
+      #
+      # FIXED UPSTREAM: ValveSoftware/GameNetworkingSockets#418, by PR #420 (merged
+      # to master 2026-08-24). The overlay port now pins a post-1.6.0 master
+      # snapshot carrying it (cmake/overlay-ports/gamenetworkingsockets/portfile.cmake
+      # — v1.6.0 is still the newest tag and predates the fix), and both the
+      # NetworkManager::Init gate and ServerAuthoritativeLoopTest's GTEST_SKIP are
+      # gone, so the live init runs here and ServerAuthoritativeLoopTest's 17 cases
+      # execute instead of skipping.
+      #
+      # BE PRECISE ABOUT WHAT THAT COVERS. GNS is a vcpkg port built with cl.exe and
+      # no sanitizer flags -- see the triplet note on the vcpkg step above, "vcpkg
+      # ports are NOT sanitizer-instrumented", which is deliberate. So ASan
+      # instruments the engine and the test process, NOT GNS internals: allocations
+      # and interceptors crossing the boundary are covered, stack and global redzones
+      # inside GNS are not. What this change buys is sanitizer coverage of OloEngine's
+      # own networking code against a LIVE transport -- NetworkManager init/shutdown,
+      # NetworkThread, dispatch, replication -- all of which previously never executed
+      # under ASan at all. It does not re-arm detection of #418-class faults inside
+      # GNS; that would need an instrumented GNS build, which this job explicitly does
+      # not want. If these tests regress, the fix is to move the pin, not to bring the
+      # gate back.
       #
       # The Task* and Shader* suites were excluded here on a since-disproven "the
       # task system starts the Steam service thread" theory — they never touched
@@ -317,8 +335,10 @@ jobs:
       # ASan, so they are no longer excluded. See issue #317.
       #
       # Remaining exclusions match the Linux ASan job exactly:
-      #   NetworkIntegrationTest — drives a live client/server socket, which the
-      #     ASan GNS gate intentionally disables; excluded on every sanitizer job.
+      #   NetworkIntegrationTest — needs real client/server socket plumbing that CI
+      #     environments do not provide; excluded on EVERY job in this repo, the
+      #     non-sanitizer ones included (Windows.yml, gpu-conformance-amd.yml). Not
+      #     related to the removed ASan gate, and not something the GNS pin changes.
       #   WorkerRestartTest — a tight 100-iteration worker-pool teardown/recreate
       #     stress test that exceeds the 120 s timeout under sanitizer
       #     instrumentation; excluded on every sanitizer job.

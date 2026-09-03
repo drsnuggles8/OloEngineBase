@@ -101,6 +101,8 @@
         "resumable": "cpp",
         "numbers": "cpp"
     },
+    "cmake.configureOnOpen": false,
+    "cmake.configureOnEdit": false,
     "dotnet.defaultSolution": "disable",
     "sonarlint.connectedMode.project": {
         "connectionId": "drsnuggles8",

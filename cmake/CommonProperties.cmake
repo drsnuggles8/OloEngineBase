@@ -35,13 +35,48 @@ function(olo_set_debugger_directory target_name)
     endif()
 endfunction()
 
+# Ask the toolchain ONCE whether it supports IPO/LTO, and cache the answer.
+#
+# check_ipo_supported() is not a cheap predicate: every call generates a small
+# `_CMakeLTOTest-<lang>` project under the current binary dir and runs a full
+# nested CMake configure + compile + link on it. olo_enable_lto() is called per
+# target -- OloEngine, every engine part in the loop, and every app through
+# olo_configure_app() -- so an unguarded call meant ~25 nested configures per
+# configure of this repo, all recomputing the same toolchain-wide answer.
+#
+# That was not just slow. A nested configure writes into the shared build tree,
+# so it is exactly what a SECOND concurrent CMake configure of the same build
+# directory corrupts: the observed failure is two bare
+# "CMake Error: This should not have happened..." lines followed by
+# "CheckIPOSupported.cmake:197 (try_compile): Failed to configure test project
+# build system". The configure lock in the top-level CMakeLists.txt is the real
+# defence against that; caching here shrinks the window by ~25x and takes a
+# large bite out of configure time either way.
+#
+# CACHE INTERNAL, so the answer survives a re-configure of the same tree. That
+# is the right lifetime: the answer is a property of the toolchain, and changing
+# the compiler under an existing build tree is not supported here anyway (it
+# needs a fresh tree -- see docs/agent-rules/build-trees-and-windows-asan.md).
+function(olo_check_lto_support out_var out_output)
+    if(NOT DEFINED OLO_LTO_SUPPORTED)
+        check_ipo_supported(RESULT _olo_lto_supported OUTPUT _olo_lto_output)
+        set(OLO_LTO_SUPPORTED "${_olo_lto_supported}" CACHE INTERNAL
+            "Whether the toolchain supports IPO/LTO (check_ipo_supported, run once per build tree)")
+        set(OLO_LTO_SUPPORT_OUTPUT "${_olo_lto_output}" CACHE INTERNAL
+            "check_ipo_supported() diagnostic output, kept for the 'not supported' warning")
+        message(STATUS "IPO/LTO supported by this toolchain: ${OLO_LTO_SUPPORTED}")
+    endif()
+    set(${out_var} "${OLO_LTO_SUPPORTED}" PARENT_SCOPE)
+    set(${out_output} "${OLO_LTO_SUPPORT_OUTPUT}" PARENT_SCOPE)
+endfunction()
+
 # Apply Link Time Optimization if supported and enabled (Release/Dist only)
 function(olo_enable_lto target_name)
     if(NOT DEFINED OLO_ENABLE_LTO)
         set(OLO_ENABLE_LTO ON)
     endif()
-    
-    check_ipo_supported(RESULT LTO_SUPPORT OUTPUT output)
+
+    olo_check_lto_support(LTO_SUPPORT output)
     if(OLO_ENABLE_LTO AND LTO_SUPPORT)
         message(STATUS "Enabled Link-Time Optimization (LTO) for ${target_name} (Release/Dist only)")
         # Only enable LTO for Release and Dist — it dramatically slows Debug builds

@@ -15,6 +15,54 @@ if(POLICY CMP0194)
 endif()
 
 # --------------------------------------------------------------------------
+# One configure at a time per build tree.
+#
+# Two CMake configures running against the same binary directory corrupt each
+# other. They share CMakeFiles/, and the throwaway projects that try_compile()
+# and check_ipo_supported() generate under it get deleted mid-flight by the
+# other process. The symptom names neither concurrency nor the real culprit --
+# it is two bare
+#
+#   CMake Error: This should not have happened. If you see this message, you are
+#   probably using a broken CMakeLists.txt file or a problematic release of CMake
+#
+# lines followed by whichever check lost the race, observed against build-cached
+# as "CheckIPOSupported.cmake:197 (try_compile): Failed to configure test project
+# build system". That reads like an LTO or toolchain bug and is neither; the same
+# configure had succeeded four minutes earlier. It reproduces deterministically
+# by starting a second `cmake -S <src> -B <same-bin>` two seconds into the first.
+#
+# The overlap is easy to hit without meaning to: VS Code's CMake Tools extension
+# configures on open and on every save of a CMake file (both now off in
+# .vscode/settings.json), so an editor-triggered configure can land on top of one
+# a terminal or an agent session already started. The build mutex in
+# .claude/skills/run-oloengine/build-lock.ps1 does not cover this -- it serialises
+# builds, and its guard deliberately classifies `cmake` without `--build` as
+# cheap. Cheap it is; concurrency-safe it is not.
+#
+# GUARD PROCESS releases the lock when this cmake process exits, including on a
+# fatal error. Nested try_compile cmake processes never read this file, so there
+# is no self-deadlock. A queued configure waits rather than failing outright,
+# because it is usually a legitimate re-configure that will produce the right
+# answer a moment later; the timeout only fires if the holder has wedged.
+file(LOCK "${CMAKE_BINARY_DIR}/olo-configure.lock"
+     GUARD PROCESS
+     TIMEOUT 600
+     RESULT_VARIABLE OLO_CONFIGURE_LOCK_RESULT)
+if(NOT OLO_CONFIGURE_LOCK_RESULT STREQUAL "0")
+    message(FATAL_ERROR
+        "Timed out waiting for another CMake configure to finish in "
+        "${CMAKE_BINARY_DIR}.
+"
+        "Concurrent configures of one build tree corrupt each other, so this one "
+        "stopped instead of racing. Wait for the other configure to finish (VS Code "
+        "CMake Tools, another terminal, another agent session), or delete "
+        "${CMAKE_BINARY_DIR}/olo-configure.lock if nothing is running.
+"
+        "Lock error: ${OLO_CONFIGURE_LOCK_RESULT}")
+endif()
+
+# --------------------------------------------------------------------------
 # vcpkg manifest features (issue #773).
 #
 # MUST be set BEFORE project() — vcpkg's toolchain file runs the manifest
@@ -140,6 +188,44 @@ if(NOT DEFINED VCPKG_TOOLCHAIN)
         "-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake yourself.\n"
         "Setup instructions: docs/ops/build.md.")
 endif()
+
+# The second vcpkg trap, and this one is silent. Visual Studio's developer
+# environment sets VCPKG_ROOT to the copy bundled inside the VS install, and
+# VS Code's CMake Tools applies that environment on top of the process
+# environment BEFORE expanding the presets -- so the presets'
+# `"toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"` can
+# resolve to <VS>/VC/vcpkg even though VCPKG_ROOT is your own clone in every
+# shell you can inspect. Observed here as a configure invoked with
+# -DCMAKE_TOOLCHAIN_FILE=".../Microsoft Visual Studio/18/Community/VC/vcpkg/..."
+# while VCPKG_ROOT was D:cpkg.
+#
+# Not fatal: that copy is a real bootstrapped vcpkg and will build. It is a
+# WARNING because the consequences are quiet rather than absent -- it is a
+# different registry clone, it does not have vcpkg.json's builtin-baseline
+# commit locally (so it re-fetches the registry from HEAD), and it keeps its own
+# downloads/, diverging from every other worktree on this machine. An existing
+# build tree is unaffected either way: CMAKE_TOOLCHAIN_FILE is only honoured on
+# the FIRST configure, so a tree already pinned to the right vcpkg stays pinned.
+set(_olo_vs_vcpkg_re "[Mm]icrosoft [Vv]isual [Ss]tudio.*[/\]VC[/\]vcpkg")
+if(CMAKE_TOOLCHAIN_FILE MATCHES "${_olo_vs_vcpkg_re}" OR "$ENV{VCPKG_ROOT}" MATCHES "${_olo_vs_vcpkg_re}")
+    message(WARNING
+        "vcpkg is being resolved from the copy bundled with Visual Studio, not from a "
+        "vcpkg clone you control:
+"
+        "  CMAKE_TOOLCHAIN_FILE = ${CMAKE_TOOLCHAIN_FILE}
+"
+        "  VCPKG_ROOT (env)     = $ENV{VCPKG_ROOT}
+"
+        "This happens when the Visual Studio developer environment overrides VCPKG_ROOT "
+        "-- VS Code's CMake Tools applies it before expanding the presets. The build will "
+        "work, but it uses a separate registry clone that lacks vcpkg.json's "
+        "builtin-baseline and re-fetches the registry from HEAD, and it does not share "
+        "downloads/ with the other worktrees on this machine.
+"
+        "Set VCPKG_ROOT so it survives the VS environment (see docs/ops/build.md), or pass "
+        "-DCMAKE_TOOLCHAIN_FILE=<your vcpkg>/scripts/buildsystems/vcpkg.cmake explicitly.")
+endif()
+unset(_olo_vs_vcpkg_re)
 
 # Build optimization options
 option(OLO_ENABLE_LTO "Enable Link Time Optimization" ON)
