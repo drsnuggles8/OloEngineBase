@@ -189,6 +189,44 @@ if(NOT DEFINED VCPKG_TOOLCHAIN)
         "Setup instructions: docs/ops/build.md.")
 endif()
 
+# The second vcpkg trap, and this one is silent. Visual Studio's developer
+# environment sets VCPKG_ROOT to the copy bundled inside the VS install, and
+# VS Code's CMake Tools applies that environment on top of the process
+# environment BEFORE expanding the presets -- so the presets'
+# `"toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"` can
+# resolve to <VS>/VC/vcpkg even though VCPKG_ROOT is your own clone in every
+# shell you can inspect. Observed here as a configure invoked with
+# -DCMAKE_TOOLCHAIN_FILE=".../Microsoft Visual Studio/18/Community/VC/vcpkg/..."
+# while VCPKG_ROOT was D:cpkg.
+#
+# Not fatal: that copy is a real bootstrapped vcpkg and will build. It is a
+# WARNING because the consequences are quiet rather than absent -- it is a
+# different registry clone, it does not have vcpkg.json's builtin-baseline
+# commit locally (so it re-fetches the registry from HEAD), and it keeps its own
+# downloads/, diverging from every other worktree on this machine. An existing
+# build tree is unaffected either way: CMAKE_TOOLCHAIN_FILE is only honoured on
+# the FIRST configure, so a tree already pinned to the right vcpkg stays pinned.
+set(_olo_vs_vcpkg_re "[Mm]icrosoft [Vv]isual [Ss]tudio.*[/\]VC[/\]vcpkg")
+if(CMAKE_TOOLCHAIN_FILE MATCHES "${_olo_vs_vcpkg_re}" OR "$ENV{VCPKG_ROOT}" MATCHES "${_olo_vs_vcpkg_re}")
+    message(WARNING
+        "vcpkg is being resolved from the copy bundled with Visual Studio, not from a "
+        "vcpkg clone you control:
+"
+        "  CMAKE_TOOLCHAIN_FILE = ${CMAKE_TOOLCHAIN_FILE}
+"
+        "  VCPKG_ROOT (env)     = $ENV{VCPKG_ROOT}
+"
+        "This happens when the Visual Studio developer environment overrides VCPKG_ROOT "
+        "-- VS Code's CMake Tools applies it before expanding the presets. The build will "
+        "work, but it uses a separate registry clone that lacks vcpkg.json's "
+        "builtin-baseline and re-fetches the registry from HEAD, and it does not share "
+        "downloads/ with the other worktrees on this machine.
+"
+        "Set VCPKG_ROOT so it survives the VS environment (see docs/ops/build.md), or pass "
+        "-DCMAKE_TOOLCHAIN_FILE=<your vcpkg>/scripts/buildsystems/vcpkg.cmake explicitly.")
+endif()
+unset(_olo_vs_vcpkg_re)
+
 # Build optimization options
 option(OLO_ENABLE_LTO "Enable Link Time Optimization" ON)
 option(OLO_ENABLE_PCH "Enable Precompiled Headers" ON)
