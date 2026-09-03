@@ -5,7 +5,7 @@
 // math (Renderer/Ocean/OceanFFT.{h,cpp} + OceanSpectrum.{h,cpp}).
 //
 // These pin the *reference* spectrum + inverse-FFT pipeline that the GPU
-// butterfly compute port (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1.2) is validated
+// butterfly compute port (docs/design/water-ocean.md §1.2) is validated
 // against, and that the physics/buoyancy sampler can read without a GPU
 // readback. The discipline mirrors WaterSurfaceSamplerTest's CPU/GPU mirror:
 // nail the math on the CPU so the GPU copy can't silently drift.
@@ -228,7 +228,7 @@ TEST(OceanSpectrum, DispersionMonotonicAndDeepWater)
 }
 
 // ---------------------------------------------------------------------------
-// JONSWAP spectrum shape (WATER_FUTURE_IMPROVEMENTS.md §1.4)
+// JONSWAP spectrum shape (water-ocean.md §1.4)
 //
 // JONSWAP is the fetch-limited sharpened-peak alternative to Phillips. These
 // pin the defining properties: the γ^r peak enhancement, the fetch→peak-
@@ -751,7 +751,7 @@ TEST(OceanFFTField, JonswapProducesValidMetreScaleFieldAndDiffersFromPhillips)
 
 // ---------------------------------------------------------------------------
 // ExtractBandLimitedH0 — the low-res CPU physics proxy used while the GPU
-// compute butterfly owns the rendered field (WATER_FUTURE_IMPROVEMENTS.md
+// compute butterfly owns the rendered field (water-ocean.md
 // §1.2). The proxy must be the SAME ocean (same wave vectors, same phases),
 // just band-limited — not a statistically-different re-roll.
 // ---------------------------------------------------------------------------

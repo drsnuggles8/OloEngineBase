@@ -9,7 +9,7 @@
 //   * SampleHeight/SampleDisplacement — a 1:1 CPU port of
 //     WaterCommon.glsl :: sumGerstnerWaves (the analytic Gerstner ocean).
 //   * SampleHeightFFT — reads the OceanFFTField band-limited CPU proxy for the
-//     Tessendorf FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §5.1), mapped exactly
+//     Tessendorf FFT ocean (water-ocean.md §5.1), mapped exactly
 //     the way Water.glsl's FFT path maps it (planeHeight + disp.y * heightScale).
 // These pin the shared invariants — flatness, plane-height linearity, the
 // Gerstner displacement bound (shared with the renderer's frustum-cull margin),
@@ -236,7 +236,7 @@ TEST(WaterSurfaceSampler, HeightInversionLandsOverTheQueryColumn)
 }
 
 // ---------------------------------------------------------------------------
-// FFT ocean sampling (WATER_FUTURE_IMPROVEMENTS.md §5.1).
+// FFT ocean sampling (water-ocean.md §5.1).
 //
 // When a WaterComponent renders the Tessendorf FFT ocean, BuoyancySystem reads
 // WaterSurface::SampleHeightFFT instead of the Gerstner SampleHeight, so a

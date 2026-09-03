@@ -72,7 +72,7 @@ namespace OloEngine
 
         // Underwater fog UBO (Renderer3D-owned, binding 36). Bound during
         // Execute so the tone-map shader's underwater stage can read the
-        // camera-below-water tint parameters. See WATER_FUTURE_IMPROVEMENTS.md §7.2.
+        // camera-below-water tint parameters. See water-ocean.md §7.2.
         void SetUnderwaterFogUBO(const Ref<UniformBuffer>& ubo) noexcept
         {
             m_UnderwaterFogUBO = ubo;

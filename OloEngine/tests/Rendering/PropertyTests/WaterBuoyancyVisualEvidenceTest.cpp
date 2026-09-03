@@ -1,7 +1,7 @@
 // =============================================================================
 // WaterBuoyancyVisualEvidenceTest.cpp
 //
-// Visual evidence (PNG) for the buoyancy system (WATER_FUTURE_IMPROVEMENTS.md
+// Visual evidence (PNG) for the buoyancy system (water-ocean.md
 // §5.1) inside a REAL rendered water scene. A dynamic cube with a
 // BuoyancyComponent is dropped above a WaterComponent ocean and the FULL
 // Scene::OnUpdateRuntime -> Renderer3D pipeline is driven for enough frames that

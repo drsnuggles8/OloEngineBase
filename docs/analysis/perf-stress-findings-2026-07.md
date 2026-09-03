@@ -10,6 +10,11 @@ entered Play via `OLO_EDITOR_AUTOPLAY=1`; a per-scene **workload probe**
 several axes initially measured "great" numbers because the workload silently
 wasn't engaged (see Harness lessons).
 
+> **DISCHARGED — every finding below was filed and is now closed** (#519, #522,
+> #523, #524, #525; verified 2026-09-03). This is kept as a dated measurement
+> baseline, not as a task list. Numbers are from 2026-07-03 on an RTX 4090 in
+> Dist at 1920x1080; re-measure before comparing against them.
+
 ## Results
 
 `load s` = editor launch → MCP ready (includes scene deserialize; baseline ≈2 s).

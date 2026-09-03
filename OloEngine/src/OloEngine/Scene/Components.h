@@ -4760,7 +4760,7 @@ namespace OloEngine
         f32 m_TessMinDistance = 10.0f;
         f32 m_TessMaxDistance = 200.0f;
 
-        // Underwater rendering (WATER_FUTURE_IMPROVEMENTS.md §7.2)
+        // Underwater rendering (water-ocean.md §7.2)
         // Applied as a screen-space exponential color shift when the camera
         // sits below the water plane. Density is a per-metre absorption
         // coefficient; the depth-fade math mirrors UnderwaterFog::Apply()
@@ -4808,7 +4808,7 @@ namespace OloEngine
 
         bool m_RenderFromBelow = true; // Allow the water plane to be visible from below
 
-        // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1 — Tessendorf spectral ocean).
+        // FFT ocean (water-ocean.md §1 — Tessendorf spectral ocean).
         // When enabled, the surface samples a GPU displacement/normal field derived
         // from an ocean spectrum (OceanFFTField) instead of summing Gerstner waves.
         // The Gerstner path stays available (toggle off) for comparison/fallback.
@@ -4840,7 +4840,7 @@ namespace OloEngine
         // sets it. Values other than 1 are treated as the three-band preset.
         u32 m_FFTCascades = 1;
 
-        // Spectrum selection (WATER_FUTURE_IMPROVEMENTS.md §1.4). Phillips is the
+        // Spectrum selection (water-ocean.md §1.4). Phillips is the
         // classic Tessendorf spectrum; JONSWAP gives a sharper fetch-limited peak
         // (Atlantic/Pacific swell). Defaults to Phillips so existing scenes look
         // unchanged. Gamma/fetch only affect the JONSWAP path.
@@ -5115,7 +5115,7 @@ namespace OloEngine
     // m_ProbeExtents, applies an upward force per submerged probe (which yields a
     // self-righting torque because the forces act at the corners), and damps
     // bobbing/rocking with submerged linear + angular drag. See
-    // docs/design/WATER_FUTURE_IMPROVEMENTS.md §5.1.
+    // docs/design/water-ocean.md §5.1.
     //
     // Trivially copyable on purpose: the editor's DrawComponent undo path uses a
     // byte-wise memcmp for trivially-copyable components, so no operator== is

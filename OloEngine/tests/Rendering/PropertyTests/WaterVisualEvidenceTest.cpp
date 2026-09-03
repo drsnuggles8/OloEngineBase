@@ -2,7 +2,7 @@
 // WaterVisualEvidenceTest.cpp
 //
 // Visual evidence (PNG) for the water surface + underwater rendering
-// (WATER_FUTURE_IMPROVEMENTS.md §7.2). Renders a water scene (ocean + seafloor
+// (water-ocean.md §7.2). Renders a water scene (ocean + seafloor
 // + a submerged cube + a pillar breaking the surface + skybox) through the FULL
 // Renderer3D pipeline from several camera poses and writes each frame to
 //   OloEditor/assets/tests/visual/Water_<pose>.png

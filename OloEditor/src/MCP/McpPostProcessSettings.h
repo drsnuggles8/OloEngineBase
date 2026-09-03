@@ -54,6 +54,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/SphereProxyAO.h"
 
 #include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
@@ -263,6 +264,27 @@ namespace OloEngine::MCP::PostProcess
         OLO_PP_NUM(GTAODenoisePasses, "ao", FieldType::Int, 0.0, 16.0, "GTAO bilateral blur pass count."),
         OLO_PP_NUM(GTAODenoiseBeta, "ao", FieldType::Float, 0.0, 16.0, "GTAO denoise edge sensitivity."),
         OLO_PP_BOOL(GTAODebugView, "ao", "Show the raw GTAO buffer instead of the composite."),
+
+        // ---- analytic sphere-proxy AO (issue #710) ----------------------------
+        // The off-screen-occluder term. Needs ActiveAOTechnique = gtao AND
+        // GTAOEnabled: it multiplies into GTAO's full-resolution AO buffer.
+        OLO_PP_BOOL(SphereProxyAOEnabled, "ao",
+                    "Run the analytic sphere-proxy AO pass (also needs ActiveAOTechnique = gtao). "
+                    "Occludes with proxies that are off-screen or behind the camera."),
+        OLO_PP_NUM(SphereProxyAOStrength, "ao", FieldType::Float, 0.0, 1.0,
+                   "How much of the sphere-proxy term reaches the AO buffer."),
+        OLO_PP_NUM(SphereProxyAOMaxProxies, "ao", FieldType::Int, 0.0,
+                   static_cast<f64>(SphereProxyAO::kMaxProxies),
+                   "Per-frame proxy budget; the UBO array length is a hard ceiling."),
+        OLO_PP_NUM(SphereProxyAOMaxRadius, "ao", FieldType::Float, 0.0, 1000.0,
+                   "Drop occluders whose fitted proxy sphere is larger than this (the ground/terrain filter)."),
+        OLO_PP_NUM(SphereProxyAOInfluenceScale, "ao", FieldType::Float, 1.0, 64.0,
+                   "Tile-binning cutoff, in proxy radii."),
+        OLO_PP_NUM(SphereProxyAOMaxOcclusion, "ao", FieldType::Float, 0.0, 1.0,
+                   "Ceiling on the occlusion the whole proxy set may produce at one pixel; bounds "
+                   "double counting where proxies overlap. 1.0 = the raw product."),
+        OLO_PP_BOOL(SphereProxyAODebugView, "ao",
+                    "Write the sphere-proxy term alone into the AO buffer instead of the product with GTAO."),
 
         // ---- variable rate compute shading (issue #683) ------------------------
         // Two gates: VRCSEnabled is the global kill switch (off = the classifier

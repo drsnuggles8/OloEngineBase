@@ -18,16 +18,16 @@ automatically exploit it — no graph to rewire.
 
 All of `AI/GOAP/` is engine-agnostic and has no GPU/scene dependency, so it is
 exercised entirely by CPU unit tests
-([`OloEngine/tests/AI/GoapTest.cpp`](../OloEngine/tests/AI/GoapTest.cpp)) plus
+([`OloEngine/tests/AI/GoapTest.cpp`](../../OloEngine/tests/AI/GoapTest.cpp)) plus
 two Functional tests driven through a real `Scene::OnUpdateRuntime`:
-[`GoapAgentPlansViaSceneTickTest.cpp`](../OloEngine/tests/Functional/AI/GoapAgentPlansViaSceneTickTest.cpp)
+[`GoapAgentPlansViaSceneTickTest.cpp`](../../OloEngine/tests/Functional/AI/GoapAgentPlansViaSceneTickTest.cpp)
 (a C++-built agent) and
-[`GoapAuthoredFromLuaViaSceneTickTest.cpp`](../OloEngine/tests/Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp)
+[`GoapAuthoredFromLuaViaSceneTickTest.cpp`](../../OloEngine/tests/Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp)
 (an agent authored from Lua).
 
 ## World state
 
-[`GoapWorldState`](../OloEngine/src/OloEngine/AI/GOAP/GoapWorldState.h) is a set
+[`GoapWorldState`](../../OloEngine/src/OloEngine/AI/GOAP/GoapWorldState.h) is a set
 of symbolic facts — `key → bool | i32`. Facts are **discrete on purpose**: A*
 needs a finite, hashable, equality-comparable state, so continuous quantities
 must be discretised by your sensors first (expose ammo as the i32 `"AmmoCount"`
@@ -44,14 +44,14 @@ bool ok = s.Satisfies(conditions); // every fact in `conditions` matches here
 
 ## Actions and goals
 
-A [`GoapAction`](../OloEngine/src/OloEngine/AI/GOAP/GoapAction.h) is split into a
+A [`GoapAction`](../../OloEngine/src/OloEngine/AI/GOAP/GoapAction.h) is split into a
 *planning* half (pure data: `Name`, `Cost`, `Preconditions`, `Effects`) and an
 optional *execution* half (closures the agent drives: `IsUsable`, `OnEnter`,
 `Perform`). The planner only ever reads the data half. An action with no
 closures is an instantaneous symbolic operator that succeeds the moment it is
 reached.
 
-A [`GoapGoal`](../OloEngine/src/OloEngine/AI/GOAP/GoapGoal.h) is a `DesiredState`
+A [`GoapGoal`](../../OloEngine/src/OloEngine/AI/GOAP/GoapGoal.h) is a `DesiredState`
 (partial world state), a `Priority`, and an optional `IsValid` relevance gate.
 
 ```cpp
@@ -65,7 +65,7 @@ chop.Perform = [entity](f32 dt) { /* play anim, return Running/Success/Failure *
 
 ## Planner
 
-[`GoapPlanner::Plan`](../OloEngine/src/OloEngine/AI/GOAP/GoapPlanner.h) runs
+[`GoapPlanner::Plan`](../../OloEngine/src/OloEngine/AI/GOAP/GoapPlanner.h) runs
 **forward A\*** over world states: from the start state it applies the effects
 of any action whose preconditions (and `IsUsable` gate) hold, until a state
 satisfies the goal, then walks the parent chain into an ordered `GoapPlan`.
@@ -81,7 +81,7 @@ satisfies the goal, then walks the parent chain into an ordered `GoapPlan`.
 
 ## Agent
 
-[`GoapAgent`](../OloEngine/src/OloEngine/AI/GOAP/GoapAgent.h) is the runtime
+[`GoapAgent`](../../OloEngine/src/OloEngine/AI/GOAP/GoapAgent.h) is the runtime
 brain: a pool of actions, a prioritised goal list, and the agent's world state.
 Each `Update(dt)` it:
 
@@ -99,7 +99,7 @@ through the action closures and the sensor.
 ## ECS integration
 
 Attach a
-[`GoapAgentComponent`](../OloEngine/src/OloEngine/AI/AIComponents.h) (add it from
+[`GoapAgentComponent`](../../OloEngine/src/OloEngine/AI/AIComponents.h) (add it from
 the editor's *Add Component ▸ GOAP Agent*) and `AISystem::OnUpdate` (called from
 `Scene::OnUpdateRuntime`) ticks its `RuntimeAgent` every frame while `Enabled`.
 Like `BehaviorTreeComponent`, the runtime brain (actions/goals/world state) is
@@ -145,14 +145,14 @@ Other component methods: `SetWorldFactInt`, `Invalidate()` (force a replan),
 
 ### Playable sample
 
-[`SandboxProject/Assets/Scenes/GoapAgentTest.olo`](../OloEditor/SandboxProject/Assets/Scenes/GoapAgentTest.olo)
-drives [`LuaGoapHungryNPC.lua`](../OloEditor/SandboxProject/Assets/Scripts/LuaScripts/LuaGoapHungryNPC.lua):
+[`SandboxProject/Assets/Scenes/GoapAgentTest.olo`](../../OloEditor/SandboxProject/Assets/Scenes/GoapAgentTest.olo)
+drives [`LuaGoapHungryNPC.lua`](../../OloEditor/SandboxProject/Assets/Scripts/LuaScripts/LuaGoapHungryNPC.lua):
 a small 3D arena (perspective camera, sun + skybox IBL, a ground plane). Open it
 in OloEditor and press Play — the green **cube** NPC gets hungry on a timer,
 plans `GoToFood → Eat`, walks across the floor to the yellow **sphere** and eats
 it (which relocates the food, so it re-plans a fresh path). Movement is on the
 X/Z plane. The Lua authoring path is regression-covered by
-[`GoapAuthoredFromLuaViaSceneTickTest`](../OloEngine/tests/Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp).
+[`GoapAuthoredFromLuaViaSceneTickTest`](../../OloEngine/tests/Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp).
 
 ## References
 

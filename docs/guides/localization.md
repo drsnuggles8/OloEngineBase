@@ -4,7 +4,7 @@ OloEngine's localization layer covers the spectrum from "swap UI strings"
 through "render mixed-script text" — all driven by a small set of YAML
 files under `assets/localization/`.
 
-> **Architecture:** see [agent-rules/testing-architecture.md](agent-rules/testing-architecture.md)
+> **Architecture:** see [agent-rules/testing-architecture.md](../agent-rules/testing-architecture.md)
 > for how the localization tests fit the engine's two test axes. This doc
 > is the user-facing reference for shipping a localized game.
 
@@ -64,7 +64,7 @@ strings:
 ```
 
 Every metadata field is optional except `locale` and `strings`. Sensible
-defaults are documented in [LocaleDefinition.h](../OloEngine/src/OloEngine/Localization/LocaleDefinition.h).
+defaults are documented in [LocaleDefinition.h](../../OloEngine/src/OloEngine/Localization/LocaleDefinition.h).
 
 ---
 
@@ -83,7 +83,7 @@ Disambiguation: if any `|`-separated segment contains `=`, the token is
 parsed as a labelled `select`; otherwise it's positional (plurals / gender).
 
 **Plural rules** map a numeric value to a form-list index per CLDR
-conventions. The supported rules (see [LocaleDefinition.h](../OloEngine/src/OloEngine/Localization/LocaleDefinition.h)):
+conventions. The supported rules (see [LocaleDefinition.h](../../OloEngine/src/OloEngine/Localization/LocaleDefinition.h)):
 
 | Rule          | Forms                          | Languages              |
 |---------------|--------------------------------|------------------------|
@@ -103,7 +103,7 @@ as plural.
 
 ## C++ API surface
 
-All of this is in [LocalizationManager.h](../OloEngine/src/OloEngine/Localization/LocalizationManager.h). The hot path is
+All of this is in [LocalizationManager.h](../../OloEngine/src/OloEngine/Localization/LocalizationManager.h). The hot path is
 `Get` / `Format` — everything else is editor or shipping support.
 
 ```cpp
@@ -169,7 +169,7 @@ LocalizationManager::ResolveLocalizedAssetPath(basePath, localeCode={})
     LocalizationKey: ui.main_menu.play
 ```
 
-[LocalizationSystem::UpdateLocalizedText](../OloEngine/src/OloEngine/Localization/LocalizationSystem.cpp) runs each tick (cheap O(1) check; only
+[LocalizationSystem::UpdateLocalizedText](../../OloEngine/src/OloEngine/Localization/LocalizationSystem.cpp) runs each tick (cheap O(1) check; only
 walks entities when the manager generation has bumped). On change, it
 rewrites the entity's `TextComponent.TextString` and, if the locale
 declares a font, swaps `TextComponent.FontAsset` to the locale's primary
@@ -266,7 +266,7 @@ quotes / newlines inside cell content. UTF-8 BOM tolerated.
 
 ### Editor
 
-`Window → Localization` opens [LocalizationPanel](../OloEditor/src/Panels/LocalizationPanel.cpp). It provides:
+`Window → Localization` opens [LocalizationPanel](../../OloEditor/src/Panels/LocalizationPanel.cpp). It provides:
 
 - Active-locale dropdown
 - Source-locale dropdown (the reference for missing-key highlighting)
@@ -294,7 +294,7 @@ tick. No restart required.
 
 ### Pseudo-localization
 
-[GeneratePseudoLocale](../OloEngine/src/OloEngine/Localization/LocalizationManager.cpp) snapshots the source locale, wraps every value with
+[GeneratePseudoLocale](../../OloEngine/src/OloEngine/Localization/LocalizationManager.cpp) snapshots the source locale, wraps every value with
 `[!! Ḧëļļö !!]` markers, and substitutes ASCII letters with Latin-Extended
 diacritics. Parameter tokens (`{name}`, `{count:a|b}`) pass through verbatim
 so formatting still works.
@@ -320,14 +320,14 @@ in an internal set. The Reports tab shows the live list; the
 
 ### Parameter-drift lint
 
-[LocalizationLint::RunParameterDriftLint](../OloEngine/src/OloEngine/Localization/LocalizationLint.cpp) extracts the `{name}` token set
+[LocalizationLint::RunParameterDriftLint](../../OloEngine/src/OloEngine/Localization/LocalizationLint.cpp) extracts the `{name}` token set
 from each translation and diffs against the source locale. Translators
 who drop `{target}` or accidentally add `{n}` show up immediately. The
 panel's Reports tab surfaces the findings.
 
 ### Max-length lint
 
-[LocalizationLint::RunMaxLengthLint](../OloEngine/src/OloEngine/Localization/LocalizationLint.cpp) walks every key the source locale
+[LocalizationLint::RunMaxLengthLint](../../OloEngine/src/OloEngine/Localization/LocalizationLint.cpp) walks every key the source locale
 declares a `max_length` for, measures the corresponding translation in
 **Unicode codepoints** (not bytes), and reports overflows.
 

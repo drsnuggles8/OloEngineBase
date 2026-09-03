@@ -38,8 +38,7 @@ namespace OloEngine
     // @brief World-space closest-hit raycaster over a scene's mesh entities,
     // backed by lazily built, cached per-mesh BoundingVolumeHierarchy trees.
     //
-    // This is the editor-tool raycast the BVH was built for (see
-    // docs/design/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1.2): the instance scatter
+    // This is the editor-tool raycast the BVH was built for: the instance scatter
     // brush queries it every frame to place instances on mesh surfaces, and any
     // future tool that needs "what mesh does this ray hit" (gizmo snapping,
     // click-to-select on mesh backings) can share the same instance and cache.

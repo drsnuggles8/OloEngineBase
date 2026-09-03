@@ -1388,7 +1388,7 @@ namespace OloEngine
         }
 
         // Underwater fog — runtime state for the camera-below-water pass
-        // (WATER_FUTURE_IMPROVEMENTS.md §7.2). Populated each frame by the
+        // (water-ocean.md §7.2). Populated each frame by the
         // scene's water update loop; consumed by `UnderwaterFogRenderPass`.
         static void SetUnderwaterFogState(const UnderwaterFogState& state)
         {
@@ -1486,7 +1486,7 @@ namespace OloEngine
             glm::vec4 sssColor = glm::vec4(0.0f);
             glm::vec4 ssrParams = glm::vec4(0.0f);
             glm::vec4 tessParams = glm::vec4(0.0f);
-            // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1): x = CASCADE COUNT,
+            // FFT ocean (water-ocean.md §1): x = CASCADE COUNT,
             // y = 1/L0 (the broad tile), z = heightScale, w = horizontalScale.
             // x is a count, not a boolean: 0 = Gerstner (no FFT), 1 = the
             // single-cascade field, 3 = the band-limited preset (issue #969).
@@ -2081,6 +2081,22 @@ namespace OloEngine
             // Auxiliary mesh-caster sink (issue #705) — see SetAuxCasterSink.
             // Non-owning; null except while a bake path is collecting.
             std::vector<DDGIMeshCaster>* AuxCasterSink = nullptr;
+
+            // Sphere-proxy AO occluder collection (issue #710). Armed for the
+            // frame by RenderPipeline::PrepareFrame when the proxy pass is on,
+            // filled through AddDDGICaster during scene traversal, and drained
+            // in ConfigurePassesForFrame.
+            //
+            // It rides the DDGI caster funnel rather than the shadow-caster one
+            // for the reason SubmitDDGICasterIfCollecting states about itself:
+            // DDGI casters are deliberately NOT gated on the shadow toggle,
+            // because geometry has to occlude whether or not an artist asked it
+            // for a shadow. Sphere-proxy AO needs exactly that guarantee, and it
+            // needs the other property both lists share — neither is
+            // view-frustum culled, and a proxy that vanished with its object
+            // would defeat the whole feature.
+            bool AOProxyCollecting = false;
+            std::vector<BoundingBox> AOProxyBounds;
 
             // True once Init() has allocated the renderer's one-shot singletons
             // (FrameDataBufferManager, FrameResourceManager, command dispatch, …).

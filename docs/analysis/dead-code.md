@@ -15,6 +15,16 @@ Generated on branch `refactor/dead-code-loc-reduction`, based on master
 
 ---
 
+> **CLOSED — no outstanding work.** Verified against the tree 2026-09-03: every
+> ✅-removed item is gone and every 🟡-KEPT item is still present, so the verdicts
+> below all hold. Nothing here is a pending task — the remaining entries are
+> *deliberate keeps*, and this document survives to record WHY (so `LinkedList.h`
+> being unused-but-present is not re-litigated every time someone greps for dead
+> code). The pass-3 summary under-counted its own removals; corrected below.
+>
+> Test counts quoted below are from the era of the analysis (2,766 tests); the
+> suite is now ~7,100.
+
 ## Status (as of pass 3)
 
 **Removed so far — ≈ 5,200 LOC** (build green, full suite 2766/2766):
@@ -194,10 +204,11 @@ together in pass 2 — which also eliminated the ODR hazard with the live
 - 🔵 UE-ported redundant: ~3,525 LOC — ✅ **~3,167 removed** (allocator island +
   ContainersFwd; WordMutex now live); **remaining: `Containers/Queue.h` 341 +
   `Memory/PlatformMemory.h` 17**.
-- 🔵 UE-ported speculative: ~2,600 LOC — ✅ `LocalWorkQueue.h` 285 removed;
-  **remaining ~2,338**: LinkedList 783, Async/QueuedThreadPool 620, ThreadManager
-  363, Algo trio 245, MemStackUtility 147, the 3 Threading mutex/lock variants 171,
-  LockFreeList `#if 0` ~9.
+- 🔵 UE-ported speculative: ~2,600 LOC — ✅ **~1,109 removed** across passes 2-3
+  (`LocalWorkQueue.h` 285, `Async/QueuedThreadPool` 620, the 3 Threading
+  mutex/lock variants 171, the `LockFreeList` `#if 0` block ~9). **Remaining
+  ~1,538, all deliberate 🟡 KEEPs**: LinkedList 783, ThreadManager 363, Algo trio
+  245, MemStackUtility 147.
 - 🟡 Keep / finish-wire: ~432 LOC (do **not** delete).
 
 ---

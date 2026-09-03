@@ -1040,4 +1040,3 @@ ADRs (rationale for the two-axis split):
 - [`docs/adr/0002-headless-tick-default-for-functional-tests.md`](adr/0002-headless-tick-default-for-functional-tests.md)
 - [`docs/adr/0003-functional-tests-mount-editor-asset-root.md`](adr/0003-functional-tests-mount-editor-asset-root.md)
 
-Glossary of testing-specific terms: [`CONTEXT.md`](../CONTEXT.md).

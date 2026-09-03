@@ -2,9 +2,9 @@
 
 Applying an `AnimationClip` authored for one skeleton onto a *differently-rigged*
 skeleton (bone remapping / rig retargeting). Code lives in
-[OloEngine/src/OloEngine/Animation/Retargeting/](../OloEngine/src/OloEngine/Animation/Retargeting/);
+[OloEngine/src/OloEngine/Animation/Retargeting/](../../OloEngine/src/OloEngine/Animation/Retargeting/);
 the CPU contract test is
-[OloEngine/tests/Animation/AnimationRetargetTest.cpp](../OloEngine/tests/Animation/AnimationRetargetTest.cpp).
+[OloEngine/tests/Animation/AnimationRetargetTest.cpp](../../OloEngine/tests/Animation/AnimationRetargetTest.cpp).
 
 ## What ships in the first slice
 
@@ -41,11 +41,11 @@ Name matching cannot relate bones whose names share nothing — 3ds Max biped
 joint but normalize to three different strings. The humanoid-role layer bridges
 them by anatomy instead of name:
 
-- **`HumanoidBone`** ([HumanoidBone.h](../OloEngine/src/OloEngine/Animation/Retargeting/HumanoidBone.h))
+- **`HumanoidBone`** ([HumanoidBone.h](../../OloEngine/src/OloEngine/Animation/Retargeting/HumanoidBone.h))
   — a canonical role enum (Hips, Spine, Chest, Neck, Head, and the L/R arm and leg
   chains down to a single toe joint), modeled on Unity's `HumanBodyBones` / UE's
   humanoid rig. Pragmatic, not exhaustive: no individual fingers, eyes, or jaw.
-- **`HumanoidBoneMap`** ([HumanoidBoneMap.h](../OloEngine/src/OloEngine/Animation/Retargeting/HumanoidBoneMap.h))
+- **`HumanoidBoneMap`** ([HumanoidBoneMap.h](../../OloEngine/src/OloEngine/Animation/Retargeting/HumanoidBoneMap.h))
   — one skeleton's bone→role assignment. `AutoDetect` fills it heuristically from
   the bone names, recognizing the four common conventions (Mixamo, Unreal, 3ds Max
   Biped, Blender/Rigify): it tokenizes each name (stripping rig prefixes, splitting

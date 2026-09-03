@@ -23,7 +23,7 @@ scope** here — this is terrain.
 
 ## Module
 
-[`OloEngine/Terrain/TerrainGenerator.{h,cpp}`](../OloEngine/src/OloEngine/Terrain/TerrainGenerator.h)
+[`OloEngine/Terrain/TerrainGenerator.{h,cpp}`](../../OloEngine/src/OloEngine/Terrain/TerrainGenerator.h)
 — a stateless utility. The math helpers are pure CPU (unit-tested, no GL); the
 two entry points additionally touch the GPU.
 
@@ -57,7 +57,7 @@ it has spare sediment capacity and deposits when it's over capacity (the
 Sebastian-Lague / "Interactive erosion" droplet model). The physics knobs in
 `ErosionParams` mirror the GPU editor brush's `ErosionSettings` one-for-one — the
 **difference is determinism**: the editor brush
-([`TerrainErosion`](../OloEngine/src/OloEngine/Terrain/Editor/TerrainErosion.h)) is a
+([`TerrainErosion`](../../OloEngine/src/OloEngine/Terrain/Editor/TerrainErosion.h)) is a
 compute shader whose one-thread-per-droplet writes race, so it's non-reproducible;
 the generation post-pass runs droplets *sequentially* on the CPU so the same
 `(Seed, ErosionIterations)` always yields a bit-identical field (the same
@@ -151,11 +151,11 @@ is the convenience preset (`MakeFoliageLayersFromRules(MakeDefaultRules())`).
 
 ## Wiring
 
-- **Component** — [`TerrainComponent`](../OloEngine/src/OloEngine/Scene/Components.h)
+- **Component** — [`TerrainComponent`](../../OloEngine/src/OloEngine/Scene/Components.h)
   gains `m_HeightShaping`, `m_AutoMaterial`, `m_LayerRules`,
   `m_SplatmapGenResolution`, `m_ProceduralErosionIterations` (all serialized) and
   a runtime `m_AutoSplatNeedsRebuild` flag.
-- **Runtime** — [`Scene::ProcessScene3DSharedLogic`](../OloEngine/src/OloEngine/Scene/Scene.cpp)
+- **Runtime** — [`Scene::ProcessScene3DSharedLogic`](../../OloEngine/src/OloEngine/Scene/Scene.cpp)
   routes the procedural path through `TerrainGenerator::GenerateHeightmap`, and
   after the material's texture arrays are built, regenerates the splatmap via
   `GenerateSplatmap` whenever the height field or the rules change. Runs on both
@@ -166,7 +166,7 @@ is the convenience preset (`MakeFoliageLayersFromRules(MakeDefaultRules())`).
   `ProceduralErosionIterations` (`kSaveGameFormatVersion`); older saves are
   rejected by the header check rather than misread.
 - **Editor** — the Terrain inspector
-  ([`SceneHierarchyPanel`](../OloEditor/src/Panels/SceneHierarchyPanel.cpp)) adds
+  ([`SceneHierarchyPanel`](../../OloEditor/src/Panels/SceneHierarchyPanel.cpp)) adds
   the shaping sliders under *Procedural Generation* and an *Auto-Material*
   section with an "Apply Default Biome Preset" button, an editable rule list and
   "Generate Splatmap Now". Height-shaping edits apply on **Regenerate** (the
@@ -224,7 +224,7 @@ rebuild happens once, on the next render tick. (Just flipping `m_NeedsRebuild`
 would *not* work — the rebuild only regenerates the height field when
 `m_TerrainData` is null, which is exactly what `Regenerate()` resets.)
 
-C# ([`TerrainController.cs`](../OloEditor/SandboxProject/Assets/Scripts/Source/TerrainController.cs)):
+C# ([`TerrainController.cs`](../../OloEditor/SandboxProject/Assets/Scripts/Source/TerrainController.cs)):
 
 ```csharp
 var terrain = GetComponent<TerrainComponent>();
@@ -235,7 +235,7 @@ terrain.HeightScale = 120.0f;
 terrain.Regenerate();                        // rebuild on the next tick
 ```
 
-Lua ([`LuaTerrainController.lua`](../OloEditor/SandboxProject/Assets/Scripts/LuaScripts/LuaTerrainController.lua)):
+Lua ([`LuaTerrainController.lua`](../../OloEditor/SandboxProject/Assets/Scripts/LuaScripts/LuaTerrainController.lua)):
 
 ```lua
 local terrain = entity_utils.get_component(entityID, "TerrainComponent")
@@ -250,7 +250,7 @@ Lua setters validate finiteness / sane ranges (mirroring the `WaterComponent`
 usertype); the C# setters inherit the generated `std::isfinite` guard on floats.
 
 A ready-made demo scene,
-[`ScriptedTerrainDemo.olo`](../OloEditor/SandboxProject/Assets/Scenes/ScriptedTerrainDemo.olo),
+[`ScriptedTerrainDemo.olo`](../../OloEditor/SandboxProject/Assets/Scenes/ScriptedTerrainDemo.olo),
 wires both scripts onto two side-by-side procedural terrains (left = Lua, right =
 C#); each picks a fresh seed on start and regenerates on the **R** key.
 
@@ -259,7 +259,7 @@ C#); each picks a fresh seed on start and regenerates on the **R** key.
 ## Tests
 
 - **CPU contracts** —
-  [`TerrainGeneratorTest.cpp`](../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp)
+  [`TerrainGeneratorTest.cpp`](../../OloEngine/tests/Terrain/TerrainGeneratorTest.cpp)
   (`unit`, runs in CI): determinism, [0,1]/finite range under every shaping
   knob, seed sensitivity, terrace endpoints/monotonicity/plateaus, rule band
   membership + slope selection, weight normalization, the no-match → layer 0
@@ -269,7 +269,7 @@ C#); each picks a fresh seed on start and regenerates on the **R** key.
   standalone `ApplyErosion` guards (seed sensitivity, no-op on 0 iterations or a
   mismatched buffer).
 - **Visual evidence** —
-  [`TerrainGenerationEvidenceTest.cpp`](../OloEngine/tests/Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp)
+  [`TerrainGenerationEvidenceTest.cpp`](../../OloEngine/tests/Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp)
   (`L8`): renders a generated, auto-materialed terrain through the full editor
   pipeline from an oblique + top-down pose and asserts framing-independent
   *banding* contracts (many distinct colour buckets + a wide luminance spread) —
@@ -277,7 +277,7 @@ C#); each picks a fresh seed on start and regenerates on the **R** key.
   a flat single layer. Writes PNGs to `OloEditor/assets/tests/visual/` under
   `--olo-golden-rebase`. SKIPs cleanly without a GL 4.6 context.
 - **Script-driven regeneration** —
-  [`LuaDrivesTerrainRegenerationTest.cpp`](../OloEngine/tests/Functional/Scripting/LuaDrivesTerrainRegenerationTest.cpp)
+  [`LuaDrivesTerrainRegenerationTest.cpp`](../../OloEngine/tests/Functional/Scripting/LuaDrivesTerrainRegenerationTest.cpp)
   (`Functional`, runs in CI): drives a real `Scene::OnUpdateRuntime` tick where a
   Lua script sets `seed` + `octaves` through the usertype and calls `regenerate()`,
   then asserts the params round-tripped, `regenerate()` dropped the cached

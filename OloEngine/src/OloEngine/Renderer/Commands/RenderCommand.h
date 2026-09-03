@@ -1088,7 +1088,7 @@ namespace OloEngine
         RHI::ResourceHandle normalMap1ID{};
         RHI::ResourceHandle noiseTextureID{};
         RHI::ResourceHandle foamTextureID{};
-        // FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1)
+        // FFT ocean cascade textures (water-ocean.md §1)
         RHI::ResourceHandle fftDisplacementID{}; // rgb = (dx, height, dz), a = foam
         RHI::ResourceHandle fftDerivativesID{};  // rgb = normal, a = jacobian
 

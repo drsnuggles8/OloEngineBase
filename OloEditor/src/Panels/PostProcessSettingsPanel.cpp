@@ -3,6 +3,7 @@
 #include "SettingsChangeLog.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/SphereProxyAO.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "../UndoRedo/SpecializedCommands.h"
@@ -137,6 +138,14 @@ namespace OloEngine
             AppendChange(changes, "GTAODenoiseEnabled", before.GTAODenoiseEnabled, after.GTAODenoiseEnabled);
             AppendChange(changes, "GTAODenoisePasses", before.GTAODenoisePasses, after.GTAODenoisePasses);
             AppendChange(changes, "GTAODebugView", before.GTAODebugView, after.GTAODebugView);
+
+            AppendChange(changes, "SphereProxyAOEnabled", before.SphereProxyAOEnabled, after.SphereProxyAOEnabled);
+            AppendChange(changes, "SphereProxyAOStrength", before.SphereProxyAOStrength, after.SphereProxyAOStrength);
+            AppendChange(changes, "SphereProxyAOMaxProxies", before.SphereProxyAOMaxProxies, after.SphereProxyAOMaxProxies);
+            AppendChange(changes, "SphereProxyAOMaxRadius", before.SphereProxyAOMaxRadius, after.SphereProxyAOMaxRadius);
+            AppendChange(changes, "SphereProxyAOInfluenceScale", before.SphereProxyAOInfluenceScale, after.SphereProxyAOInfluenceScale);
+            AppendChange(changes, "SphereProxyAOMaxOcclusion", before.SphereProxyAOMaxOcclusion, after.SphereProxyAOMaxOcclusion);
+            AppendChange(changes, "SphereProxyAODebugView", before.SphereProxyAODebugView, after.SphereProxyAODebugView);
 
             AppendChange(changes, "VRCSEnabled", before.VRCSEnabled, after.VRCSEnabled);
             AppendChange(changes, "VRCSGTAO", before.VRCSGTAO, after.VRCSGTAO);
@@ -802,6 +811,25 @@ namespace OloEngine
                     }
 
                     ImGui::Checkbox("Show AO Only##GTAO", &settings.GTAODebugView);
+
+                    // Analytic sphere-proxy AO (issue #710). Nested under GTAO
+                    // because it multiplies into GTAO's AO buffer and does
+                    // nothing without it — the pass declines under SSAO.
+                    ImGui::Separator();
+                    ImGui::Checkbox("Sphere Proxy AO##SPA", &settings.SphereProxyAOEnabled);
+                    if (settings.SphereProxyAOEnabled)
+                    {
+                        ImGui::DragFloat("Strength##SPA", &settings.SphereProxyAOStrength, 0.01f, 0.0f, 1.0f, "%.2f");
+                        ImGui::SliderInt("Max Proxies##SPA", &settings.SphereProxyAOMaxProxies, 0,
+                                         static_cast<i32>(SphereProxyAO::kMaxProxies));
+                        // Ranges match SanitizeSphereProxyAO and the MCP field
+                        // registry exactly — a narrower drag range here would
+                        // silently truncate a value the other two accept.
+                        ImGui::DragFloat("Max Proxy Radius##SPA", &settings.SphereProxyAOMaxRadius, 0.5f, 0.0f, 1000.0f, "%.1f");
+                        ImGui::DragFloat("Influence Scale##SPA", &settings.SphereProxyAOInfluenceScale, 0.1f, 1.0f, 64.0f, "%.1f");
+                        ImGui::DragFloat("Max Occlusion##SPA", &settings.SphereProxyAOMaxOcclusion, 0.01f, 0.0f, 1.0f, "%.2f");
+                        ImGui::Checkbox("Show Proxy Term Only##SPA", &settings.SphereProxyAODebugView);
+                    }
 
                     // Variable Rate Compute Shading (issue #683). Lives under
                     // GTAO because GTAO is currently its only consumer; the

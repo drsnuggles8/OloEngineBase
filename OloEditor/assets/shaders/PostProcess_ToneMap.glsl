@@ -119,7 +119,7 @@ layout(std140, binding = 7) uniform PostProcessUBO
 // per-pixel water-volume fog: each pixel's view ray is fogged by the length of
 // its segment that passes below the water plane, so the waterline is handled
 // per pixel (underwater half fogged, above-water half clear) rather than as a
-// whole-screen toggle. Flags.x < 0.5 disables it. See WATER_FUTURE_IMPROVEMENTS.md §7.2.
+// whole-screen toggle. Flags.x < 0.5 disables it. See water-ocean.md §7.2.
 layout(std140, binding = 37) uniform UnderwaterFogBlock
 {
     vec4 u_UnderwaterColorAndDensity; // rgb = fog colour, a = per-metre density

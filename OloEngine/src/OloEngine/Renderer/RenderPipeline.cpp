@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+
+#include <span>
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Upscaling/TemporalUpscalePolicy.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
@@ -207,6 +209,23 @@ namespace OloEngine
         // the CPUTime metric reflects actual CPU work.
         auto& profiler = RendererProfiler::GetInstance();
         profiler.BeginFrame();
+
+        // Arm sphere-proxy AO occluder collection for the frame (issue #710).
+        // HERE, not in ConfigurePassesForFrame: this runs at BeginScene, and the
+        // bounds are gathered during the scene traversal that follows.
+        //
+        // Gated on the same three conditions the pass's own enable gate uses, and
+        // NOT on SphereProxyAOEnabled alone, because arming this is not free:
+        // Renderer3D::IsDDGICollectingCasters then answers yes, and Scene.cpp
+        // builds a full DDGIMeshCaster — transform, material, albedo handle,
+        // transformed AABB — for every static opaque submesh in the scene. Paying
+        // that to fill a list the GTAO gate will discard is the kind of cost that
+        // shows up as "the renderer got slower when I ticked a box that did
+        // nothing". All three inputs are known at BeginScene.
+        data.AOProxyCollecting = data.PostProcess.SphereProxyAOEnabled &&
+                                 data.PostProcess.GTAOEnabled &&
+                                 data.ActiveGraphAOTechnique == AOTechnique::GTAO;
+        data.AOProxyBounds.clear();
 
         // Process any pending GPU resource creation commands from async loaders.
         GPUResourceQueue::ProcessAll();
@@ -836,6 +855,41 @@ namespace OloEngine
                 data.PostProcessGPU.SSAO->SetData(&data.PostProcessGPU.SSAOData, SSAOUBOData::GetSize());
                 data.PostProcessGPU.SSAO->Bind();
             }
+        }
+        // Analytic sphere-proxy AO (issue #710). Configured HERE, in the
+        // per-frame hook, and not in the pass's own Setup(): Setup is
+        // fingerprint-cached and does not re-run every frame, so a proxy list
+        // gathered there would freeze at whatever the first frame saw. The
+        // caster lists it reads are alive exactly now — submission has finished
+        // and ShadowRenderPass::Execute (which clears them) has not run yet.
+        if (SceneCompositePasses.SphereProxyAO)
+        {
+            auto& proxyPass = *SceneCompositePasses.SphereProxyAO;
+            // The GRAPH's technique, like every other AO gate here (#771): the
+            // pass reads and writes AOBuffer, which only exists when the
+            // technique the graph was BUILT for has a producer registered.
+            const bool gtaoActive = data.ActiveGraphAOTechnique == AOTechnique::GTAO && data.PostProcess.GTAOEnabled;
+            const bool proxyEnabled = data.PostProcess.SphereProxyAOEnabled && gtaoActive &&
+                                      proxyPass.IsReadyForExecution();
+
+            if (data.PostProcess.SphereProxyAOEnabled && !gtaoActive)
+            {
+                if (static u32 s_TechniqueWarnings = 0; s_TechniqueWarnings++ < 3)
+                {
+                    OLO_CORE_WARN("SphereProxyAOPass: enabled but the active AO technique is not GTAO; "
+                                  "the proxy term needs GTAO's full-resolution R8 AO buffer and is skipped.");
+                }
+            }
+
+            proxyPass.SetEnabled(proxyEnabled);
+            proxyPass.SetSettings(data.PostProcess);
+            proxyPass.SetProjectionMatrix(data.ProjectionMatrix);
+            proxyPass.SetViewMatrix(data.ViewMatrix, Renderer3D::GetRenderOrigin());
+            proxyPass.SetViewPosition(data.ViewPos);
+
+            proxyPass.SetProxySourceBounds(proxyEnabled ? std::span<const BoundingBox>(data.AOProxyBounds)
+                                                        : std::span<const BoundingBox>{});
+            data.AOProxyCollecting = false;
         }
         if (PostProcessPasses.SSS)
         {
@@ -2118,6 +2172,7 @@ namespace OloEngine
         HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.ActiveAOTechnique)));
         HashBool(h, data.PostProcess.SSAOEnabled);
         HashBool(h, data.PostProcess.GTAOEnabled);
+        HashBool(h, data.PostProcess.SphereProxyAOEnabled);
         HashBool(h, data.PostProcess.SSGIEnabled);
         // VRCS (issue #683). GTAORenderPass::Setup branches on both gates —
         // with VRCS on it declares a Read edge on the TAA history for the
@@ -2305,6 +2360,7 @@ namespace OloEngine
         HashPassState(h, SceneCompositePasses.DeferredGPUOcclusion);
         HashPassState(h, SceneCompositePasses.SSAO);
         HashPassState(h, SceneCompositePasses.GTAO);
+        HashPassState(h, SceneCompositePasses.SphereProxyAO);
         HashPassState(h, SceneCompositePasses.Particle);
         HashPassState(h, SceneCompositePasses.OITPrepare);
         HashPassState(h, SceneCompositePasses.OITResolve);
@@ -2413,6 +2469,8 @@ namespace OloEngine
                         pipeline.SceneCompositePasses.SSAO->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.SceneCompositePasses.GTAO)
                         pipeline.SceneCompositePasses.GTAO->ResizeFramebuffer(sceneW, sceneH);
+                    if (pipeline.SceneCompositePasses.SphereProxyAO)
+                        pipeline.SceneCompositePasses.SphereProxyAO->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.RenderStreamPasses.FluidIntermediates)
                         pipeline.RenderStreamPasses.FluidIntermediates->ResizeFramebuffer(sceneW, sceneH);
 
@@ -4034,6 +4092,7 @@ namespace OloEngine
         inputs.Passes.Decal = RenderStreamPasses.Decal.Raw();
         inputs.Passes.SSAO = SceneCompositePasses.SSAO.Raw();
         inputs.Passes.GTAO = SceneCompositePasses.GTAO.Raw();
+        inputs.Passes.SphereProxyAO = SceneCompositePasses.SphereProxyAO.Raw();
         inputs.Passes.Particle = SceneCompositePasses.Particle.Raw();
         inputs.Passes.OITPrepare = SceneCompositePasses.OITPrepare.Raw();
         inputs.Passes.OITResolve = SceneCompositePasses.OITResolve.Raw();
@@ -4201,6 +4260,12 @@ namespace OloEngine
         SceneCompositePasses.GTAO->Init(scenePassSpec);
         // Input binding deferred to per-frame handoff in EndScene().
         SceneCompositePasses.GTAO->SetGTAOUBO(data.PostProcessGPU.GTAO, &data.PostProcessGPU.GTAOData);
+
+        SceneCompositePasses.SphereProxyAO = Ref<SphereProxyAORenderPass>::Create();
+        SceneCompositePasses.SphereProxyAO->SetName("SphereProxyAOPass");
+        SceneCompositePasses.SphereProxyAO->Init(scenePassSpec);
+        // Proxy bounds, matrices and the enable gate are all per-frame handoff
+        // in ConfigurePassesForFrame().
 
         SceneCompositePasses.OITPrepare = Ref<OITPrepareRenderPass>::Create();
         SceneCompositePasses.OITPrepare->SetName("OITPreparePass");

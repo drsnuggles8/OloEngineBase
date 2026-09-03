@@ -230,7 +230,7 @@ kano: table-stakes
 blocked_by: []
 blocks: []
 ```
-<sub>Rated per [issue-scoring](../docs/process/issue-scoring.md) · score = confidence × (capability + craft + stability + decay) / effort, derived by the picker.</sub>
+<sub>Rated per [issue-scoring](../../docs/process/issue-scoring.md) · score = confidence × (capability + craft + stability + decay) / effort, derived by the picker.</sub>
 ````
 
 The fenced ` ```olo-score ` info-string is the parse delimiter: visible and

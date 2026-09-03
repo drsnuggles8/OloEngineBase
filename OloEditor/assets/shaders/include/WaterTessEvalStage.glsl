@@ -92,7 +92,7 @@ vec4 waterWakeFetch(int index)
     return u_WakeHulls[index];
 }
 
-// FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1).
+// FFT ocean cascade textures (water-ocean.md §1).
 #include "BindlessHeap.glsl"
 // ARRAYS since issue #969: one layer per cascade band, so the three-band preset
 // costs the same two engine texture slots the single-cascade field did. A scene

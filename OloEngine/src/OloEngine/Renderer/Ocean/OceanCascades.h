@@ -10,7 +10,7 @@ namespace OloEngine::Ocean
 {
     // =========================================================================
     // The fixed three-band cascade preset (issue #969,
-    // docs/design/WATER_FUTURE_IMPROVEMENTS.md §1.3).
+    // docs/design/water-ocean.md §1.3).
     //
     // A single FFT tile has to be one thing at once: big enough for the swell
     // that carries the horizon, and fine enough for the chop under the bow. It

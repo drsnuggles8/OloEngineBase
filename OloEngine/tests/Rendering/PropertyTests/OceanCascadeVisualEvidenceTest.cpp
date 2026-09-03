@@ -3,7 +3,7 @@
 // OceanCascadeVisualEvidenceTest.cpp
 //
 // Visual evidence (PNG) for the band-limited three-cascade FFT ocean preset
-// (issue #969; WATER_FUTURE_IMPROVEMENTS.md §1.3), captured at the NEAR, MID
+// (issue #969; water-ocean.md §1.3), captured at the NEAR, MID
 // and HORIZON distances the issue's acceptance criteria name, on a sea built
 // from Drift's authored water settings.
 //

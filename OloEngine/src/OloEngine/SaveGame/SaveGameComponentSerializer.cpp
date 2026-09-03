@@ -2403,7 +2403,7 @@ namespace OloEngine
             ar << c.m_GodRayDappleFloor << c.m_GodRaySunFalloff;
         }
 
-        // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1) was appended last (after the
+        // FFT ocean (water-ocean.md §1) was appended last (after the
         // god-ray block). Same trailing-AtEnd() probe: archives written before this
         // addition end after god rays (or caustics), so fall back to defaults.
         auto loadFFTDefaults = [](WaterComponent& w)

@@ -39,7 +39,7 @@ TEST(WaterRendering, WaterUBOSizeStable)
     // 102 x glm::vec4 = 102 x 16 = 1632 bytes:
     //   21  the scalar params (18 until #967 appended WakeFieldParams /
     //       WakeFieldParams2 for the boat-wake foam field; FFTParams was the one
-    //       before that, WATER_FUTURE_IMPROVEMENTS.md §1; FFTCascadeParams the
+    //       before that, water-ocean.md §1; FFTCascadeParams the
     //       one after, for #969's band-limited cascades),
     //   +1  WakeShapeParams and
     //   +80 WakeHulls[WaterWake::kHullVec4Count] for the #968 wake SHAPE.
@@ -315,7 +315,7 @@ TEST(WaterRendering, WaterComponentDefaults)
     EXPECT_FLOAT_EQ(wc.m_TessMinDistance, 10.0f);
     EXPECT_FLOAT_EQ(wc.m_TessMaxDistance, 200.0f);
 
-    // Underwater fog defaults (WATER_FUTURE_IMPROVEMENTS.md §7.2)
+    // Underwater fog defaults (water-ocean.md §7.2)
     EXPECT_FLOAT_EQ(wc.m_UnderwaterFogColor.r, 0.05f);
     EXPECT_FLOAT_EQ(wc.m_UnderwaterFogColor.g, 0.15f);
     EXPECT_FLOAT_EQ(wc.m_UnderwaterFogColor.b, 0.25f);
@@ -731,7 +731,7 @@ TEST(WaterRendering, TessParamsCarryFrustumCullFlag)
 }
 
 // =============================================================================
-// Underwater fog (WATER_FUTURE_IMPROVEMENTS.md §7.2)
+// Underwater fog (water-ocean.md §7.2)
 // =============================================================================
 
 TEST(WaterRendering, UnderwaterFogUBOAlignment)
@@ -834,7 +834,7 @@ TEST(WaterRendering, UnderwaterFogStateDefaultsInactive)
 }
 
 // =============================================================================
-// Submerged refraction distortion (WATER_FUTURE_IMPROVEMENTS.md §7.2 bullet 2)
+// Submerged refraction distortion (water-ocean.md §7.2 bullet 2)
 //
 // CPU mirror of underwaterRefractionOffset in PostProcess_ToneMap.glsl. Pins the
 // contract the shader relies on: the wobble never exceeds its (hard-capped)
@@ -904,7 +904,7 @@ TEST(WaterRendering, RefractionOffsetSurvivesNonFiniteInput)
 }
 
 // =============================================================================
-// Caustics (WATER_FUTURE_IMPROVEMENTS.md §7.1)
+// Caustics (water-ocean.md §7.1)
 //
 // CPU mirror of underwaterCausticPattern / underwaterCausticDepthFade in
 // PostProcess_ToneMap.glsl. Pins the pattern's [0,1] range + animation and the
@@ -980,7 +980,7 @@ TEST(WaterRendering, CausticDepthFadeMonotonicBetween)
 }
 
 // =============================================================================
-// Volumetric light shafts / god rays (WATER_FUTURE_IMPROVEMENTS.md §3.3)
+// Volumetric light shafts / god rays (water-ocean.md §3.3)
 //
 // The shader's occlusion radial blur accumulates decay^i for the open steps and
 // divides by the sum of all decay^i, giving a bounded [0,1] openness. That sum is
@@ -1093,7 +1093,7 @@ TEST(WaterRendering, GodRaySunScreenUVRejectsDegenerateSunDir)
 }
 
 // =============================================================================
-// Waterline behaviour (WATER_FUTURE_IMPROVEMENTS.md §7.2)
+// Waterline behaviour (water-ocean.md §7.2)
 //
 // These pin the two pieces of logic that decide what the water looks like as
 // the camera moves through the surface and views it from the side — the exact

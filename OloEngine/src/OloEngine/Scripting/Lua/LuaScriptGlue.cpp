@@ -1229,7 +1229,7 @@ namespace OloEngine
                                                                            { return w.m_GodRaySunFalloff; }, [](WaterComponent& w, f32 v)
                                                                            { if (std::isfinite(v) && v >= 1.0f && v <= 64.0f) w.m_GodRaySunFalloff = v; }),
                                          "renderFromBelow", &WaterComponent::m_RenderFromBelow,
-                                         // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1)
+                                         // FFT ocean (water-ocean.md §1)
                                          "useFFT", &WaterComponent::m_UseFFT,
                                          "fftPatchSize", sol::property([](const WaterComponent& w)
                                                                        { return w.m_FFTPatchSize; }, [](WaterComponent& w, f32 v)

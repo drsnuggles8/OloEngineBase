@@ -18,7 +18,7 @@ namespace OloEngine::Ocean
 {
     // =========================================================================
     // Runtime owner of the Tessendorf FFT ocean cascades
-    // (docs/design/WATER_FUTURE_IMPROVEMENTS.md §1, issue #969 for §1.3).
+    // (docs/design/water-ocean.md §1, issue #969 for §1.3).
     //
     // Each tick it produces two GPU texture ARRAYS the water shader samples
     // instead of summing Gerstner waves, one layer per cascade band:
