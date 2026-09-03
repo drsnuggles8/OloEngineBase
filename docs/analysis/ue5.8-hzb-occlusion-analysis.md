@@ -5,6 +5,12 @@
 > ground OloEngine's own two-phase HZB occlusion work (issue #431). All paths/line
 > numbers are UE 5.8.
 
+> **REFERENCE, not a backlog.** Issue #431 (the work this grounded) is closed and
+> the conformance checklist in section 7 grades 17/17 against the UE 5.8 standard,
+> with the single remaining divergence (#10, no HZB priming on camera cuts) argued
+> there as moot for our two-phase design rather than a gap. Verified 2026-09-03.
+> Kept for the UE architecture notes, which are the durable value.
+
 ## 0. TL;DR
 
 "Two-phase GPU-driven Hi-Z" is accurate, but UE 5.8 does not have *one* HZB
