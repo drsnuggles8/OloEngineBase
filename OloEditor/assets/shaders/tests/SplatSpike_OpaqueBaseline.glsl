@@ -9,8 +9,15 @@
 //
 // That is the comparison the spike needs. Timing splats against an unrelated
 // PBR mesh would measure the shader complexity difference; timing them against
-// this measures exactly what the SPLAT REPRESENTATION costs over conventional
-// opaque geometry covering the same pixels.
+// this measures exactly what BLENDING AND THE PER-FRAGMENT GAUSSIAN cost over
+// conventional opaque geometry covering the same pixels.
+//
+// It reads the SAME order buffer, deliberately. An earlier version indexed
+// b_Splats directly to make the point that opaque geometry needs no sort, and
+// that quietly made the control draw a PREFIX of the cloud rather than the
+// culled survivors -- a different set, covering a different area, which is not
+// a control at all. What the sort costs is measured on the CPU (ADR 0018 5.2);
+// this pass exists only to hold the rasterised set constant.
 // =============================================================================
 
 #type vertex
@@ -33,6 +40,11 @@ layout(std430, binding = 0) readonly buffer SplatBuffer
     SplatRecord b_Splats[];
 };
 
+layout(std430, binding = 1) readonly buffer SplatOrderBuffer
+{
+    uint b_Order[];
+};
+
 layout(std140, binding = 7) uniform SplatViewUniforms
 {
     mat4 u_View;
@@ -46,10 +58,8 @@ const vec2 kCorners[4] = vec2[4](vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1
 
 void main()
 {
-    // Indexed directly, NOT through a sorted order buffer: not needing one is
-    // half of what makes opaque geometry cheaper, so the control must not pay
-    // for it.
-    SplatRecord splat = b_Splats[uint(gl_InstanceIndex)];
+    // Same indirection as the splat path, so both rasterise the identical set.
+    SplatRecord splat = b_Splats[b_Order[uint(gl_InstanceIndex)]];
 
     vec3 viewPos = (u_View * vec4(splat.PosX, splat.PosY, splat.PosZ, 1.0)).xyz;
     float depth = max(-viewPos.z, 1e-4);

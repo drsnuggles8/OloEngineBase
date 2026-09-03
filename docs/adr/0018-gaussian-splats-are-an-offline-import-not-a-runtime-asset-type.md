@@ -178,18 +178,21 @@ GPU work), reported as the **minimum of four interleaved samples** per configura
 that matter and both come from a real mismeasurement here: A-then-B drifts far enough on this box to
 invert a comparison, and a first run reported 10.3 ms where a later run reported 4.3 ms for the
 identical draw, because the GPU had not reached its clock state. The control is
-`SplatSpike_OpaqueBaseline.glsl`: the same instance count, the same quads at the same screen
-positions and sizes, but depth-tested and opaque instead of sorted and blended.
+`SplatSpike_OpaqueBaseline.glsl`: it reads the same records through the same order buffer, so both
+passes rasterise the identical set of quads at the identical screen positions and sizes, and then it
+does none of the things that make a splat a splat — no per-fragment Gaussian, no blending,
+depth-tested and depth-writing. The difference is therefore blending plus the Gaussian and nothing
+else; what the *sort* costs is the CPU measurement in §5.2, not this one.
 
 | splats drawn | splat pass | opaque control | ratio |
 |---:|---:|---:|---:|
-| 4,066 | 0.025 ms | 0.010 ms | 2.5× |
-| 99,208 | 0.752 ms | 0.417 ms | 1.8× |
-| 496,002 | 6.285 ms | 3.480 ms | 1.8× |
+| 4,066 | 0.123 ms | 0.056 ms | 2.2× |
+| 99,208 | 0.945 ms | 0.546 ms | 1.7× |
+| 496,002 | 6.000 ms | 3.416 ms | 1.8× |
 
-The absolute times move by up to 2× between runs with GPU clock state; the **ratio** held at 1.8× at
-both large sizes across three separate runs, so that is the number to trust. **Blending plus the
-per-fragment Gaussian costs about 1.8× an equivalent opaque pass** — affordable. What is not
+The absolute times move by up to 2× between runs with GPU clock state; the **ratio** stayed between
+1.7× and 1.8× at both large sizes across four separate runs, so that is the number to trust.
+**Blending plus the per-fragment Gaussian costs about 1.8× an equivalent opaque pass** — affordable. What is not
 affordable is what both columns share: at 500 k splats the cloud covers the 1280×720 frame roughly
 160 times over, and 6 ms of GPU time buys one 500 k-splat cloud and nothing else. Splat cost is
 overdraw cost, and overdraw *grows* as the camera approaches — the opposite of a mesh, whose cost

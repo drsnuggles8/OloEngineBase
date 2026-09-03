@@ -59,11 +59,16 @@ namespace OloEngine::GaussianSplat
     {
         // Only reached for strictly positive depths (the near-plane test runs
         // first), where the IEEE-754 bit pattern is monotonically increasing in
-        // the value. A negative or NaN depth would break that, so it is mapped
-        // to 0 -- the far end of the descending order, which draws first and
-        // therefore cannot occlude a real splat.
+        // the value.
+        //
+        // A negative or NaN depth breaks that monotonicity, so it is mapped to
+        // the LARGEST key. In a descending sort the largest key sorts first,
+        // which is the FAR end -- drawn first, so a degenerate splat is painted
+        // over by every real one instead of painting over all of them. Mapping
+        // it to 0 would do the opposite: 0 is the near end, drawn last, on top
+        // of the whole frame.
         if (!(viewDepth > 0.0f))
-            return 0u;
+            return 0xFFFFFFFFu;
         return std::bit_cast<u32>(viewDepth);
     }
 

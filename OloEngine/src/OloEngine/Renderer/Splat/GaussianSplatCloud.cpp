@@ -36,6 +36,12 @@ namespace OloEngine::GaussianSplat
             return 0; // includes `list`, which this reader does not support
         }
 
+        // Largest value the IEEE half format can represent. Lives here rather
+        // than inside PackCovariance because a constexpr local is odr-used by
+        // std::clamp's by-reference parameters and cannot be implicitly
+        // captured by a capture-less lambda.
+        constexpr f32 kHalfMax = 65504.0f;
+
         struct PlyProperty
         {
             std::string Name;
@@ -151,9 +157,18 @@ namespace OloEngine::GaussianSplat
 
     void PackCovariance(const std::array<f32, 6>& sigma, u32& covXXXY, u32& covXZYY, u32& covYZZZ)
     {
-        covXXXY = glm::packHalf2x16(glm::vec2(sigma[0], sigma[1]));
-        covXZYY = glm::packHalf2x16(glm::vec2(sigma[2], sigma[3]));
-        covYZZZ = glm::packHalf2x16(glm::vec2(sigma[4], sigma[5]));
+        // CLAMPED TO THE HALF RANGE, not merely converted. glm::packHalf2x16
+        // maps anything above 65504 to +inf, and an infinite covariance term
+        // makes ConservativeSigma infinite, which makes `depth - radius` -inf,
+        // which drops the splat from every camera with nothing logged. 65504 is
+        // a sigma of about 256 world units -- far past any real splat, so a
+        // value that hits the clamp was already nonsense; the clamp only
+        // decides whether it is nonsense that still draws.
+        const auto clampTerm = [](f32 v)
+        { return std::clamp(v, -kHalfMax, kHalfMax); };
+        covXXXY = glm::packHalf2x16(glm::vec2(clampTerm(sigma[0]), clampTerm(sigma[1])));
+        covXZYY = glm::packHalf2x16(glm::vec2(clampTerm(sigma[2]), clampTerm(sigma[3])));
+        covYZZZ = glm::packHalf2x16(glm::vec2(clampTerm(sigma[4]), clampTerm(sigma[5])));
     }
 
     auto UnpackCovariance(u32 covXXXY, u32 covXZYY, u32 covYZZZ) -> std::array<f32, 6>
@@ -195,11 +210,20 @@ namespace OloEngine::GaussianSplat
         OLO_PROFILE_FUNCTION();
 
         const sizet count = positions.size();
-        OLO_CORE_ASSERT(shDc.size() == count && logitOpacity.size() == count && logScale.size() == count &&
-                            rotationWXYZ.size() == count,
-                        "GaussianSplat::SplatCloud::Build: parallel arrays must be the same length");
 
         Clear();
+
+        // The assert names the bug for a debug build; the early return is what
+        // makes a Release build safe, because OLO_CORE_ASSERT compiles out
+        // entirely outside OLO_DEBUG and the loop below would then read past
+        // the end of whichever span was short.
+        if (shDc.size() != count || logitOpacity.size() != count || logScale.size() != count ||
+            rotationWXYZ.size() != count)
+        {
+            OLO_CORE_ASSERT(false, "GaussianSplat::SplatCloud::Build: parallel arrays must be the same length");
+            return;
+        }
+
         m_Splats.resize(count);
 
         glm::vec3 lo(std::numeric_limits<f32>::max());
@@ -389,6 +413,32 @@ namespace OloEngine::GaussianSplat
         }
 
         // ---- payload --------------------------------------------------------
+        // THE COUNT IS CHECKED AGAINST THE FILE BEFORE ANYTHING IS ALLOCATED.
+        // `element vertex` is untrusted input: a 250-byte file that declares
+        // 4294967295 vertices would otherwise reserve ~240 GB here and die on
+        // std::bad_alloc, three lines before the truncation check that exists
+        // to report exactly that. An importer that throws where it promised to
+        // return an error is not degrading gracefully.
+        //
+        // The bound differs per format because the minimum bytes per record
+        // does: `stride` exactly for binary, and for ASCII at least one
+        // character plus a separator per column.
+        {
+            const sizet remaining = bytes.size() - cursor;
+            // ASCII needs at least one character and one separator per column,
+            // less the separator the last column does not have. `props` cannot
+            // be empty here (the required-property check above would have
+            // failed), but the guard keeps the subtraction from wrapping if
+            // that ever stops being true.
+            const sizet asciiMinimum = props.empty() ? 1 : (2 * props.size() - 1);
+            const sizet minimumBytesPerVertex = binaryLittleEndian ? stride : asciiMinimum;
+            const sizet maximumPossible = (minimumBytesPerVertex > 0) ? (remaining / minimumBytesPerVertex) : 0;
+            if (static_cast<sizet>(vertexCount) > maximumPossible)
+                return fail("truncated: header promises " + std::to_string(vertexCount) +
+                            " vertices, but the remaining " + std::to_string(remaining) +
+                            " bytes can hold at most " + std::to_string(maximumPossible));
+        }
+
         std::vector<glm::vec3> positions(vertexCount);
         std::vector<glm::vec3> shDc(vertexCount);
         std::vector<f32> opacity(vertexCount);

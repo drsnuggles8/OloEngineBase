@@ -15,7 +15,7 @@ namespace OloEngine::GaussianSplat
 {
     // 3D Gaussian-splat cloud: the CPU-side asset representation and its PLY
     // importer (issue #971, a viability spike -- read
-    // docs/adr/0018-gaussian-splats-are-an-offline-import-not-a-runtime-format.md
+    // docs/adr/0018-gaussian-splats-are-an-offline-import-not-a-runtime-asset-type.md
     // before extending any of this).
     //
     // The source format is the one the INRIA "3D Gaussian Splatting for

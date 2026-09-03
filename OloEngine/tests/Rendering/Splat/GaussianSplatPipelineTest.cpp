@@ -264,12 +264,37 @@ namespace OloEngine::Tests
             const std::array<f32, 6> back = UnpackCovariance(a, b, c);
 
             ASSERT_TRUE(std::isfinite(back[0])) << "sigma = " << testCase.Sigma;
+            ASSERT_TRUE(std::isfinite(ConservativeSigma(GpuSplat{ glm::vec3(0.0f), 0u, a, b, c, 0u })))
+                << "sigma = " << testCase.Sigma;
             ASSERT_GT(back[0], 0.0f) << "sigma = " << testCase.Sigma << " underflowed to zero";
             const f32 recovered = std::sqrt(back[0]);
             const f32 relative = std::abs(recovered - testCase.Sigma) / testCase.Sigma;
             EXPECT_LE(relative, testCase.ToleranceOnSigma)
                 << "sigma = " << testCase.Sigma << " came back as " << recovered;
         }
+    }
+
+    TEST(GaussianSplatPacking, AnAbsurdlyLargeSplatClampsInsteadOfBecomingInfinite)
+    {
+        // sqrt(65504) is a sigma of about 256 world units, above which the
+        // covariance term overflows the half range. Unclamped it becomes +inf,
+        // ConservativeSigma returns inf, `depth - radius` is -inf, and the
+        // splat is dropped by EVERY camera with nothing logged anywhere -- the
+        // worst kind of failure: silent, total and invisible to a screenshot.
+        const std::array<f32, 6> cov =
+            CovarianceFromScaleRotation(glm::log(glm::vec3(5000.0f)), glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
+        EXPECT_TRUE(std::isfinite(cov[0])) << "the covariance itself should still be finite in f32";
+
+        u32 a = 0;
+        u32 b = 0;
+        u32 c = 0;
+        PackCovariance(cov, a, b, c);
+        for (const f32 term : UnpackCovariance(a, b, c))
+            EXPECT_TRUE(std::isfinite(term));
+
+        const GpuSplat splat{ glm::vec3(0.0f), 0u, a, b, c, 0u };
+        EXPECT_TRUE(std::isfinite(ConservativeSigma(splat)));
+        EXPECT_GT(ConservativeSigma(splat), 0.0f);
     }
 
     // -------------------------------------------------------------------------
@@ -401,6 +426,23 @@ namespace OloEngine::Tests
             std::string header = "ply\nformat ascii 1.0\nelement camera 1\nproperty float cx\nelement vertex 1\n";
             expectFailure({ header.begin(), header.end() }, "precedes 'vertex'");
         }
+        {
+            // A LYING COUNT MUST NOT BE BELIEVED FAR ENOUGH TO ALLOCATE ON.
+            // 4294967295 vertices at 56 bytes each is 240 GB; sizing the
+            // per-property arrays from the header before checking the file
+            // length would throw std::bad_alloc where the contract promises a
+            // LoadResult. A test that only shortened the payload by a few bytes
+            // would not have caught it -- the allocation has to be the thing
+            // that would blow up.
+            PlyBuilder liar = PlyBuilder::Minimal();
+            std::vector<u8> bytes = liar.Build();
+            const std::string header(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            const sizet pos = header.find("element vertex 1");
+            ASSERT_NE(pos, std::string::npos);
+            std::string patched = header;
+            patched.replace(pos, std::string("element vertex 1").size(), "element vertex 4294967295");
+            expectFailure({ patched.begin(), patched.end() }, "truncated");
+        }
     }
 
     TEST(GaussianSplatImport, ToleratesExtraPropertiesAndReordering)
@@ -441,9 +483,14 @@ namespace OloEngine::Tests
             previous = depth;
             previousKey = key;
         }
-        // A non-positive or NaN depth must sort to the far end, never crash.
-        EXPECT_EQ(DepthSortKey(-1.0f), 0u);
-        EXPECT_EQ(DepthSortKey(std::numeric_limits<f32>::quiet_NaN()), 0u);
+        // A non-positive or NaN depth sorts to the FAR end of the descending
+        // order (the largest key), so a degenerate splat is drawn first and
+        // painted over. Key 0 would be the near end and would paint over the
+        // whole frame instead.
+        EXPECT_EQ(DepthSortKey(-1.0f), 0xFFFFFFFFu);
+        EXPECT_EQ(DepthSortKey(0.0f), 0xFFFFFFFFu);
+        EXPECT_EQ(DepthSortKey(std::numeric_limits<f32>::quiet_NaN()), 0xFFFFFFFFu);
+        EXPECT_LT(DepthSortKey(1e30f), 0xFFFFFFFFu) << "a real depth must never collide with the sentinel";
     }
 
     TEST(GaussianSplatOrdering, RadixSortMatchesAStableStdSort)

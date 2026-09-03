@@ -71,6 +71,10 @@ namespace OloEngine::GaussianSplat
     // depth. For strictly positive floats that pattern is monotonic in the
     // value, so an integer radix sort over it is an EXACT float sort -- no
     // quantisation, no bucket-boundary ties, and no need to pick a depth range.
+    //
+    // A non-positive or NaN depth maps to 0xFFFFFFFF, the FAR end of the
+    // descending order, so a degenerate splat is drawn first and painted over
+    // rather than painting over the frame.
     [[nodiscard]] auto DepthSortKey(f32 viewDepth) -> u32;
 
     // Builds the draw order for `cloud` seen through `view`/`projection` at
