@@ -37,6 +37,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 ## Build and dependencies
 
 - [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md): never build msvc and clangcl trees together; caches, link bounds, memory, the local ASan recipe.
+- [concurrent-cmake-configure.md](concurrent-cmake-configure.md): one configure at a time per build tree; the error blames your CMakeLists.txt and LTO instead.
 - [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md): a .lib cannot exceed 4 GiB, and `LNK1248` under-reports the overshoot.
 - [vcpkg-dependency-management.md](vcpkg-dependency-management.md): read before adding, bumping or removing a dependency; the CRT triplet mismatch is heap corruption.
 - [configure-time-variable-visibility.md](configure-time-variable-visibility.md): a CMake variable must be set before the `add_subdirectory()` that reads it.
@@ -200,6 +201,7 @@ The same fact written in more than one place, with nothing enforcing agreement.
 | [runtime-scene-switching.md](runtime-scene-switching.md) | The build pipeline and the runtime must agree on an asset layout. |
 | [audio-voice-budget.md](audio-voice-budget.md) | One config field costs four edits, one of them silent. |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | Two build trees writing the same generated files. |
+| [concurrent-cmake-configure.md](concurrent-cmake-configure.md) | Two configures sharing one `CMakeFiles/`; the nested `try_compile` that loses reports the error. |
 | [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | Four subsystems hold world-space state outside the rebased set. |
 | [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | The packed-quad layout lives in `VoxelQuad.h` and `VoxelQuadUnpack.glsl`, and a mismatch compiles. |
 | [destructible-debris.md](destructible-debris.md) | Two unrelated physics layer numberings; `SetCollisionLayer(Debris)` never reaches Jolt's `DEBRIS`. |

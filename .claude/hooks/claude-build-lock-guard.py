@@ -72,7 +72,14 @@ _STATEMENT = r"(?:^|[;|(){}\n]\s*|&+\s*[\"']?\s*|(?:-Command|-c)\s+[\"']?\s*)"
 _PATH = r"(?:[A-Za-z]:)?(?:[\w.\-]*[\\/])*"
 
 # `cmake` alone is not enough -- `cmake --preset msvc` only configures, and
-# configuring is cheap.
+# configuring is cheap. That stays true: a configure will not OOM the box, which
+# is what this mutex exists to prevent. It is NOT the same as saying concurrent
+# configures are safe -- two configures against one binary directory corrupt each
+# other's try_compile scratch projects. That is guarded on the CMake side, by the
+# file(LOCK) at the top of CMakeLists.txt, because it also has to cover configures
+# this hook never sees (VS Code's CMake Tools, Visual Studio, a plain shell). Do
+# not "fix" it by adding bare `cmake` here; see
+# docs/agent-rules/concurrent-cmake-configure.md.
 BUILD_PATTERNS = (
     (
         "cmake --build",

@@ -15,6 +15,54 @@ if(POLICY CMP0194)
 endif()
 
 # --------------------------------------------------------------------------
+# One configure at a time per build tree.
+#
+# Two CMake configures running against the same binary directory corrupt each
+# other. They share CMakeFiles/, and the throwaway projects that try_compile()
+# and check_ipo_supported() generate under it get deleted mid-flight by the
+# other process. The symptom names neither concurrency nor the real culprit --
+# it is two bare
+#
+#   CMake Error: This should not have happened. If you see this message, you are
+#   probably using a broken CMakeLists.txt file or a problematic release of CMake
+#
+# lines followed by whichever check lost the race, observed against build-cached
+# as "CheckIPOSupported.cmake:197 (try_compile): Failed to configure test project
+# build system". That reads like an LTO or toolchain bug and is neither; the same
+# configure had succeeded four minutes earlier. It reproduces deterministically
+# by starting a second `cmake -S <src> -B <same-bin>` two seconds into the first.
+#
+# The overlap is easy to hit without meaning to: VS Code's CMake Tools extension
+# configures on open and on every save of a CMake file (both now off in
+# .vscode/settings.json), so an editor-triggered configure can land on top of one
+# a terminal or an agent session already started. The build mutex in
+# .claude/skills/run-oloengine/build-lock.ps1 does not cover this -- it serialises
+# builds, and its guard deliberately classifies `cmake` without `--build` as
+# cheap. Cheap it is; concurrency-safe it is not.
+#
+# GUARD PROCESS releases the lock when this cmake process exits, including on a
+# fatal error. Nested try_compile cmake processes never read this file, so there
+# is no self-deadlock. A queued configure waits rather than failing outright,
+# because it is usually a legitimate re-configure that will produce the right
+# answer a moment later; the timeout only fires if the holder has wedged.
+file(LOCK "${CMAKE_BINARY_DIR}/olo-configure.lock"
+     GUARD PROCESS
+     TIMEOUT 600
+     RESULT_VARIABLE OLO_CONFIGURE_LOCK_RESULT)
+if(NOT OLO_CONFIGURE_LOCK_RESULT STREQUAL "0")
+    message(FATAL_ERROR
+        "Timed out waiting for another CMake configure to finish in "
+        "${CMAKE_BINARY_DIR}.
+"
+        "Concurrent configures of one build tree corrupt each other, so this one "
+        "stopped instead of racing. Wait for the other configure to finish (VS Code "
+        "CMake Tools, another terminal, another agent session), or delete "
+        "${CMAKE_BINARY_DIR}/olo-configure.lock if nothing is running.
+"
+        "Lock error: ${OLO_CONFIGURE_LOCK_RESULT}")
+endif()
+
+# --------------------------------------------------------------------------
 # vcpkg manifest features (issue #773).
 #
 # MUST be set BEFORE project() — vcpkg's toolchain file runs the manifest
