@@ -413,7 +413,7 @@ jobs:
     #      hardware the runner happens to have. GPU coverage under a sanitizer is
     #      a separate scheduled job with its own baseline (gpu-sanitizers-amd.yml).
     #   2. The box's compiler was clang 21 against gcc-toolset-15's libstdc++,
-    #      not the pinned clang-19, and UBSan reported inside the standard
+    #      not the hosted arm's pinned clang, and UBSan reported inside the standard
     #      library. setup-linux-build now resolves the pinned toolchain on the
     #      self-hosted arm as well; when it is not provisioned it WARNS (a
     #      run-summary annotation naming the dnf command) and builds with the

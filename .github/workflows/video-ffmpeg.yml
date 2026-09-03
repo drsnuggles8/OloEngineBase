@@ -71,7 +71,7 @@ jobs:
       # The engine needs a C++23 STANDARD LIBRARY, not just a C++23 compiler:
       # Core/Reflection/MemberList.h uses std::forward_like, which ubuntu-24.04's default
       # GCC/libstdc++ does not provide ("error: 'forward_like' is not a member of 'std'").
-      # Every other Linux job in this repo pins clang-19 from apt.llvm.org for the same
+      # Every other Linux job in this repo pins clang-23 from apt.llvm.org for the same
       # reason — see asan.yml and steam-stub.yml. Without this, fixing the OOM below only
       # moves the failure (issue #796, root cause 2).
       - name: Add LLVM apt repository (Linux)
@@ -89,7 +89,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             nasm \
-            clang-19 lld-19 \
+            clang-23 lld-23 \
             libgl-dev libglu1-mesa-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
             libwayland-dev wayland-protocols libxkbcommon-dev \
@@ -127,7 +127,7 @@ jobs:
           # multi-config (build type comes from --config at build time) and MSVC is
           # already the right compiler there.
           #
-          # -DCMAKE_{C,CXX}_COMPILER=clang-19/clang++-19: see the LLVM apt step above —
+          # -DCMAKE_{C,CXX}_COMPILER=clang-23/clang++-23: see the LLVM apt step above —
           #   the default GCC/libstdc++ lacks std::forward_like.
           # -DCMAKE_BUILD_TYPE=Release: Unix Makefiles is SINGLE-config, so the build
           #   type must be set here. The build step's `--config Release` was silently
@@ -145,8 +145,8 @@ jobs:
           TOOLCHAIN_ARGS=()
           if [ "${{ matrix.os }}" = "Linux" ]; then
             TOOLCHAIN_ARGS=(
-              -DCMAKE_C_COMPILER=clang-19
-              -DCMAKE_CXX_COMPILER=clang++-19
+              -DCMAKE_C_COMPILER=clang-23
+              -DCMAKE_CXX_COMPILER=clang++-23
               -DCMAKE_BUILD_TYPE=Release
               -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
               -DOLO_ENABLE_LTO=OFF

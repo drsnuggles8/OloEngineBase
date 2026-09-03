@@ -19,7 +19,11 @@ inputs:
   version:
     description: 'LLVM major version to register (the apt component and the sources.list filename).'
     required: false
-    default: '19'
+    # 23 since the LLVM 23.1.0 move. apt.llvm.org publishes an llvm-toolchain-noble-23
+    # suite carrying clang-23 / lld-23 / libc++-23-dev; verified against its
+    # binary-amd64 Packages index before the bump, because a version with no suite
+    # here fails as an apt 404 several steps later rather than at this one.
+    default: '23'
   distro:
     description: 'Ubuntu codename of the apt.llvm.org tree to use. Must match the runner image.'
     required: false

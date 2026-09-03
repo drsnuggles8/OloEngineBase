@@ -76,11 +76,11 @@ Memory is the other shared budget: an instrumented compile is ~3 GB per translat
 an instrumented `OloEngine-Tests` link several more, so every self-hosted build caps its
 parallelism and sets `OLO_LINK_JOBS=1`; two sanitizer jobs at once already use most of the box.
 
-## 4. The compiler is pinned by provisioning, verified by the workflow
+## 4. The sanitizer runtimes are provisioned, verified by the workflow
 
 See [self-hosted-linux-toolchain.md](self-hosted-linux-toolchain.md). The short version: the
-job warns and builds with the system clang 21 until `clang19` from EPEL is installed, and the
-warning is the only thing the install changes.
+box builds with its system clang 21 (hosted is on clang-23, deliberately), and the job warns
+until `compiler-rt` and `lld` are installed beside it. There is no version pin to provision.
 
 ## Root steps, once
 

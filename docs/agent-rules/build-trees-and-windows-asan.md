@@ -672,12 +672,12 @@ Two things follow, and the first one cost this repo ten weeks of red CI.
    throttling `LuaScriptGlue.cpp` / `McpFieldRegistry.cpp`. Pick the number
    against evidence rather than against the pools you think are protecting you.
    The proven-green reference points on `ubuntu-24.04` are `steam-stub.yml`
-   (`--parallel 4`, `OloEngine-Tests`, Debug, clang-19 + lld) and `asan.yml`'s
+   (`--parallel 4`, `OloEngine-Tests`, Debug, clang-23 + lld) and `asan.yml`'s
    sanitizer jobs (`--parallel 2`, where each TU costs ~3 GB).
 
 **When you add a Linux CI job, copy `steam-stub.yml`, not a Windows job.** It
 carries the whole set in one place: `uses: ./.github/actions/setup-llvm-apt` plus
-`clang-19 lld-19` in the apt list (the default libstdc++ lacks
+`clang-23 lld-23` in the apt list (the default libstdc++ lacks
 `std::forward_like`, which `Core/Reflection/MemberList.h` uses),
 `-DCMAKE_{C,CXX}_COMPILER=clang(++)-19`, `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld`
 (BFD `ld` can exceed a 16 GB runner on this link), `CMAKE_BUILD_TYPE` at configure
