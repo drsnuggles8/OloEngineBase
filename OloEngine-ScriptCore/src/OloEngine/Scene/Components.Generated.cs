@@ -1125,12 +1125,6 @@ namespace OloEngine
 
 	public partial class FootIKComponent : Component
 	{
-		public bool Enabled
-		{
-			get => InternalCalls.FootIKComponent_GetEnabled(Entity.ID);
-			set => InternalCalls.FootIKComponent_SetEnabled(Entity.ID, value);
-		}
-
 		public uint LeftFootBone
 		{
 			get => InternalCalls.FootIKComponent_GetLeftFootBone(Entity.ID);
@@ -1147,12 +1141,6 @@ namespace OloEngine
 		{
 			get => InternalCalls.FootIKComponent_GetChainLength(Entity.ID);
 			set => InternalCalls.FootIKComponent_SetChainLength(Entity.ID, value);
-		}
-
-		public bool EnableToeRoll
-		{
-			get => InternalCalls.FootIKComponent_GetEnableToeRoll(Entity.ID);
-			set => InternalCalls.FootIKComponent_SetEnableToeRoll(Entity.ID, value);
 		}
 
 		public uint LeftToeBone
@@ -1173,28 +1161,10 @@ namespace OloEngine
 			set => InternalCalls.FootIKComponent_SetFootHeight(Entity.ID, value);
 		}
 
-		public bool AdjustPelvis
-		{
-			get => InternalCalls.FootIKComponent_GetAdjustPelvis(Entity.ID);
-			set => InternalCalls.FootIKComponent_SetAdjustPelvis(Entity.ID, value);
-		}
-
 		public uint PelvisBone
 		{
 			get => InternalCalls.FootIKComponent_GetPelvisBone(Entity.ID);
 			set => InternalCalls.FootIKComponent_SetPelvisBone(Entity.ID, value);
-		}
-
-		public bool FootLock
-		{
-			get => InternalCalls.FootIKComponent_GetFootLock(Entity.ID);
-			set => InternalCalls.FootIKComponent_SetFootLock(Entity.ID, value);
-		}
-
-		public bool AlignFootToSlope
-		{
-			get => InternalCalls.FootIKComponent_GetAlignFootToSlope(Entity.ID);
-			set => InternalCalls.FootIKComponent_SetAlignFootToSlope(Entity.ID, value);
 		}
 
 		public float Weight
@@ -1203,22 +1173,10 @@ namespace OloEngine
 			set => InternalCalls.FootIKComponent_SetWeight(Entity.ID, value);
 		}
 
-		public bool LeftHandEnabled
-		{
-			get => InternalCalls.FootIKComponent_GetLeftHandEnabled(Entity.ID);
-			set => InternalCalls.FootIKComponent_SetLeftHandEnabled(Entity.ID, value);
-		}
-
 		public uint LeftHandBone
 		{
 			get => InternalCalls.FootIKComponent_GetLeftHandBone(Entity.ID);
 			set => InternalCalls.FootIKComponent_SetLeftHandBone(Entity.ID, value);
-		}
-
-		public bool RightHandEnabled
-		{
-			get => InternalCalls.FootIKComponent_GetRightHandEnabled(Entity.ID);
-			set => InternalCalls.FootIKComponent_SetRightHandEnabled(Entity.ID, value);
 		}
 
 		public uint RightHandBone
@@ -1237,6 +1195,48 @@ namespace OloEngine
 		{
 			get => InternalCalls.FootIKComponent_GetHandWeight(Entity.ID);
 			set => InternalCalls.FootIKComponent_SetHandWeight(Entity.ID, value);
+		}
+
+		public bool Enabled
+		{
+			get => InternalCalls.FootIKComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public bool EnableToeRoll
+		{
+			get => InternalCalls.FootIKComponent_GetEnableToeRoll(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetEnableToeRoll(Entity.ID, value);
+		}
+
+		public bool AdjustPelvis
+		{
+			get => InternalCalls.FootIKComponent_GetAdjustPelvis(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetAdjustPelvis(Entity.ID, value);
+		}
+
+		public bool FootLock
+		{
+			get => InternalCalls.FootIKComponent_GetFootLock(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetFootLock(Entity.ID, value);
+		}
+
+		public bool AlignFootToSlope
+		{
+			get => InternalCalls.FootIKComponent_GetAlignFootToSlope(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetAlignFootToSlope(Entity.ID, value);
+		}
+
+		public bool LeftHandEnabled
+		{
+			get => InternalCalls.FootIKComponent_GetLeftHandEnabled(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetLeftHandEnabled(Entity.ID, value);
+		}
+
+		public bool RightHandEnabled
+		{
+			get => InternalCalls.FootIKComponent_GetRightHandEnabled(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetRightHandEnabled(Entity.ID, value);
 		}
 	}
 

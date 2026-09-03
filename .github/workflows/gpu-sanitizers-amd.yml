@@ -1,0 +1,599 @@
+name: GPU Sanitizers (AMD, self-hosted)
+
+# The GPU-under-sanitizer BASELINE (#1015 item C, "stage 2"): the same three
+# Linux sanitizers as asan.yml -- ASan+LSan, UBSan, TSan -- with the GL-gated
+# tests ENABLED, on the self-hosted AMD box. asan.yml's jobs pass
+# `--olo-gl-backend=none` on both arms, so every test gated on a GL 4.6 context
+# skips there by contract (that job's contract is "no GPU tests", hosted parity).
+# This workflow is the other half: the same instrumented binary, every GPU-gated
+# test required to RUN, once a night, off the PR path.
+#
+# READ THE BASELINE, NOT THE COLOUR. This job's first runs will be red, and the
+# red is the product. The first time the three sanitizers met the GPU tests
+# (asan.yml routed onto the box, run 33561256256) they reported 215 failures of
+# 6,909 against 1 of 6,940 hosted on the same commit. 212 of the 215 were ONE
+# engine bug -- an SSBO binding index >= 80, which Mesa rejects at its cap of 80
+# while the NVIDIA driver the goldens were baselined on accepts it -- and 2 were
+# a real use-after-free in ShaderRegistry teardown that any compiler reproduces
+# given a GL context. Both are fixed on the branch that adds this file. Neither
+# was visible to any hosted job, and neither was a sanitizer-vs-box difference:
+# they were what the GPU tests had been hiding behind their skip.
+#
+# THIS JOB HAS TAKEN THE BOX DOWN ONCE. The AMD card runtime-suspends when idle
+# (amdgpu power/control=auto) and every GPU test process that starts after an
+# idle gap wakes it ("amdgpu: PSP is resuming... / SMU is resuming..." in the
+# journal -- dozens per conformance nightly, 86 on 2026-09-02). The wake at
+# 00:38:56 during 33561256256's ASan test step failed ("amdgpu asic init
+# failed") and the host rebooted mid-run, killing both CI runners' jobs.
+# scripts/setup-olo-ci-host.sh pins the card active so that path is never
+# taken (docs/ops/self-hosted-host-hygiene.md §2). Until that has run, and as
+# a rule afterwards: this is scheduled when nothing else is on the box, it is
+# never a PR gate, and a run that stops without a summary needs
+# `journalctl -b -1` read before anything in the engine is blamed.
+#
+# ---------------------------------------------------------------------------
+# SECURITY: why this workflow is safe on a PUBLIC repository
+# ---------------------------------------------------------------------------
+# GitHub is explicit that self-hosted runners on public repos are dangerous:
+# "forks of your public repository can potentially run dangerous code on your
+# self-hosted runner machine by creating a pull request that executes the code
+# in a workflow."
+#
+# We do not *mitigate* that risk here -- we remove it structurally, exactly as
+# gpu-conformance-amd.yml does:
+#
+#   * There is NO `pull_request` trigger, and NO `pull_request_target`. A fork
+#     PR can therefore never schedule work onto the self-hosted runner, with or
+#     without approval settings. This is the single most important line in the
+#     file; do not add a PR trigger to this workflow. (asan.yml's PR jobs reach
+#     the same box, but only behind a same-repo `head.repo.full_name` check and
+#     a kill switch; this workflow needs neither because it has no PR path.)
+#   * `schedule` only ever runs on the default branch, from repo-owned code.
+#   * `workflow_dispatch` requires write access to the repository.
+#   * The job requests no secrets. Nothing here needs one; keep it that way so a
+#     runner compromise cannot exfiltrate a token.
+#   * `permissions: contents: read` -- the GITHUB_TOKEN is read-only, and
+#     checkout is told not to persist it into .git/config. The job adds
+#     `checks: write` for the test reporter and nothing else.
+#
+# ---------------------------------------------------------------------------
+# WHICH RUNNER, and why it is `olo-ci` and not `gpu-amd`
+# ---------------------------------------------------------------------------
+# Three runners live on the box: `olo-gpu-amd` (labels self-hosted, linux, x64,
+# gpu-amd; the conformance nightly's exclusive runner) and `olo-ci-1` /
+# `olo-ci-2` (labels self-hosted, linux, x64, olo-ci; two slots). All three run
+# as the same Unix user with /dev/dri/renderD128 access, so LABELS, not
+# hardware, decide who touches the GPU -- an `olo-ci` job sees the same GPU as
+# the conformance nightly does.
+#
+# This job runs on `olo-ci`. It is a CI-class job with three matrix arms, so it
+# can use both CI slots, and it must never queue in front of, or behind, the
+# conformance nightly on that nightly's dedicated runner: a 90-minute GPU
+# conformance run stuck behind a 4-hour sanitizer run would be the conformance
+# nightly's own worst failure mode (its concurrency group cancels the stale run,
+# but only once it has started). The three runners share one GPU and 31 GiB
+# regardless of label, which is why the schedule below leaves the box otherwise
+# idle rather than pretending the slots are independent.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sanitizers:
+        # One arm, not three: a maintainer re-checking a single sanitizer's
+        # baseline should not burn both CI slots for ~4 hours. The matrix below
+        # reads this; `all` (and a scheduled run, where the input is absent)
+        # runs the full set.
+        description: 'Which sanitizer arm(s) to run'
+        type: choice
+        options:
+          - all
+          - asan-lsan
+          - ubsan
+          - tsan
+        default: all
+  schedule:
+    # 02:23 UTC. The conformance nightly starts at 00:47 UTC and takes ~90 min on
+    # its own runner; asan.yml's hosted nightly is 01:23 (no box involvement, but
+    # an odd minute keeps the two runs' summaries apart). Odd minute follows the
+    # house convention (cross-vendor.yml) of avoiding the on-the-hour surge.
+    # GitHub may still delay scheduled runs by tens of minutes under load; this
+    # job is not time-critical, and it has 240 minutes to finish before the
+    # box's 06:00 (+60 min) reboot timer -- see the timeout comment on the job.
+    - cron: '23 2 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Only workflow_dispatch and schedule reach this workflow, so cancelling a
+  # stale run is always safe -- and important here, because the CI runners are
+  # a fixed pool of two. A hung arm must not block tomorrow's run.
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  gpu-sanitizer:
+    name: GPU ${{ matrix.sanitizer }} (AMD)
+    # Defence in depth: even though no fork-reachable trigger exists, refuse to
+    # run if this workflow file ever executes outside the upstream repository.
+    if: github.repository == 'drsnuggles8/OloEngineBase'
+    runs-on: [self-hosted, linux, x64, olo-ci]
+    # 240, measured, not rounded: a COLD instrumented build on the box was ~60
+    # min (asan.yml's arms on the same runner, 33561256256) and its test phase
+    # ~50 min at 2-wide with the GPU tests skipping. Here they run, and a GPU
+    # test under ASan/TSan is several times slower than its CPU-only neighbour,
+    # so budget the test phase at double. Three arms on two slots means the
+    # third arm also waits for a slot -- inside its own 240, since the clock
+    # starts when the runner picks the job up, not when the workflow does.
+    timeout-minutes: 240
+    permissions:
+      # Job-level permissions replace the workflow-level block entirely, so
+      # re-declare contents: read alongside checks: write (the test reporter
+      # writes a check run).
+      contents: read
+      checks: write
+    strategy:
+      # Every arm is its own baseline. A TSan red must not cancel the ASan arm
+      # that was about to tell us something different.
+      fail-fast: false
+      # ONE ARM AT A TIME. All three drive the same physical card, and the
+      # runtime-PM history in docs/ops/self-hosted-host-hygiene.md is reason
+      # enough not to have two instrumented GPU runs on it at once; it also
+      # keeps two 4-wide instrumented builds off a 31 GiB box.
+      #
+      # This is deliberately NOT a shared job-level `concurrency` group with
+      # gpu-conformance-amd.yml, which is the obvious way to make the card
+      # exclusive across the two workflows. GitHub keeps at most ONE pending
+      # job per concurrency group and cancels the previously pending one, so
+      # three matrix arms sharing a group would silently drop an arm -- a run
+      # that reports two baselines where three were asked for, which is the
+      # exact "green run that tested nothing" failure this job exists to catch.
+      # Cross-workflow overlap is handled by the schedule instead: conformance
+      # starts 00:47 UTC and takes ~90 min, this starts 02:23.
+      max-parallel: 1
+      matrix:
+        # Filtered by the dispatch input. `inputs.sanitizers` is empty on a
+        # `schedule` event (the inputs context only exists for workflow_dispatch)
+        # and `''` compares equal to an absent value, so a scheduled run takes
+        # the `all` branch. NOT an `include:` list keyed on `sanitizer`: an
+        # include object whose `sanitizer` matches no combination in the
+        # filtered axis is ADDED as a new combination, which would silently
+        # undo the filter. The per-arm values live in the "Resolve sanitizer
+        # arm" step instead.
+        sanitizer: ${{ (inputs.sanitizers == '' || inputs.sanitizers == 'all') && fromJSON('["asan-lsan","ubsan","tsan"]') || fromJSON(format('["{0}"]', inputs.sanitizers)) }}
+
+    steps:
+      # A self-hosted runner's workspace PERSISTS between jobs. Even with an
+      # ephemeral runner the _work directory can survive re-registration, so
+      # never assume a clean tree: a stale generated .inl or CMake cache from a
+      # previous commit produces failures that look like real regressions. Same
+      # step, same guards, as gpu-conformance-amd.yml.
+      - name: Wipe workspace
+        run: |
+          set -euo pipefail
+          ws="${{ github.workspace }}"
+          # Never let an empty/unexpected expansion turn this into `rm -rf /*`.
+          # A self-hosted runner has a real filesystem behind it, unlike a
+          # throwaway hosted VM -- this guard is not paranoia.
+          #
+          # Normalise trailing slashes first, then test longest-match-first
+          # (the conformance workflow records why the shorter pattern was
+          # wrong: it would have let the bare runner home through).
+          while [ "${ws%/}" != "$ws" ]; do ws="${ws%/}"; done
+          case "$ws" in
+            ''|'/'|'/home')
+              echo "::error::refusing to wipe '$ws'"; exit 1 ;;
+            /home/*/*)
+              : ;;  # below a home directory -- the expected shape
+            /home/*)
+              echo "::error::refusing to wipe bare home directory '$ws'"; exit 1 ;;
+          esac
+          [ -d "$ws/_actions" ] && { echo "::error::'$ws' looks like the runner root"; exit 1; }
+          echo "Wiping $ws"
+          find "$ws" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          mkdir -p "$ws"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job makes no authenticated git writes. Don't leave the token in
+          # .git/config where a later step or a compromised dependency can read
+          # it -- the same reasoning as Windows.yml's checkout.
+          persist-credentials: false
+
+      # The per-arm values asan.yml keeps in three separate jobs: the
+      # OLO_ENABLE_<SAN> configure flag, the ctest exclude-regex, and the
+      # sanitizer runtime options for the test step. Each is COPIED from the
+      # asan.yml twin, not paraphrased -- when one changes there, change it
+      # here. The excludes' reasons (NetworkIntegrationTest needs real socket
+      # plumbing; WorkerRestartTest exceeds the timeout under instrumentation;
+      # the GNS-driving suites are not UBSan/TSan-clean inside vendored code,
+      # see #636) are documented on the twins and not repeated.
+      - name: Resolve sanitizer arm
+        id: arm
+        shell: bash
+        env:
+          OLO_SANITIZER: ${{ matrix.sanitizer }}
+          OLO_SUPPRESSIONS: ${{ github.workspace }}/.github/sanitizer-suppressions
+        run: |
+          set -euo pipefail
+          case "$OLO_SANITIZER" in
+            asan-lsan)
+              cmake_flag='-DOLO_ENABLE_ASAN=ON'
+              exclude='^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+              asan_options='halt_on_error=1:detect_leaks=1'
+              lsan_options="suppressions=$OLO_SUPPRESSIONS/lsan.txt"
+              ubsan_options=''
+              tsan_options=''
+              ;;
+            ubsan)
+              cmake_flag='-DOLO_ENABLE_UBSAN=ON'
+              exclude='^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
+              asan_options=''
+              lsan_options=''
+              ubsan_options='halt_on_error=1:print_stacktrace=1'
+              tsan_options=''
+              ;;
+            tsan)
+              cmake_flag='-DOLO_ENABLE_TSAN=ON'
+              exclude='^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
+              asan_options=''
+              lsan_options=''
+              ubsan_options=''
+              tsan_options="suppressions=$OLO_SUPPRESSIONS/tsan.txt:halt_on_error=1:second_deadlock_stack=1"
+              ;;
+            *)
+              echo "::error::unknown sanitizer arm '$OLO_SANITIZER'"; exit 1 ;;
+          esac
+          {
+            echo "cmake-flag=$cmake_flag"
+            echo "exclude=$exclude"
+            echo "asan-options=$asan_options"
+            echo "lsan-options=$lsan_options"
+            echo "ubsan-options=$ubsan_options"
+            echo "tsan-options=$tsan_options"
+          } >> "$GITHUB_OUTPUT"
+          echo "arm: $OLO_SANITIZER -> $cmake_flag, exclude '$exclude'"
+
+      # Toolchain preflight (clang, lld, ninja, ccache, jinja2), the LunarG SDK
+      # check, and the persistent ccache -- the self-hosted arm of the same
+      # action asan.yml's jobs call. It VERIFIES and never installs (the box has
+      # neither passwordless sudo nor apt-get). `vulkan-sdk` is ignored on a
+      # self-hosted runner: the SDK is the only source of shaderc / glslang /
+      # SPIRV-Cross on Rocky, and the action's input comment records the probe
+      # that showed the SDK's spirv-cross is sanitizer-safe on the box.
+      - name: Setup Linux build environment
+        id: linux
+        uses: ./.github/actions/setup-linux-build
+        with:
+          vulkan-sdk: 'false'
+          cache-name: gpu-${{ matrix.sanitizer }}
+
+      # ---------------------------------------------------------------------
+      # Preflight: prove we have a HARDWARE context before spending an hour
+      # building. Copied from gpu-conformance-amd.yml, whose comment owns the
+      # reasoning: Mesa falls back to llvmpipe SILENTLY when the render node is
+      # missing, amdgpu failed to load, or the runner user lost its `render`
+      # group, and a sanitizer run against llvmpipe would be a baseline of the
+      # wrong driver. Fail loudly instead.
+      #
+      # One difference: the probe compiles with `cc`, the C compiler
+      # setup-linux-build just resolved, not `gcc`. The conformance job's
+      # toolchain preflight checks gcc, so gcc is what its probe uses; the
+      # sanitizer arms' preflight checks clang and nothing here guarantees
+      # gcc is on the runner's PATH. The compiler that builds the engine is
+      # the one that is known to exist. (The probe itself is plain C99 and
+      # links only libEGL/libGL; the compiler choice does not affect what it
+      # measures.)
+      # ---------------------------------------------------------------------
+      - name: Preflight — require hardware GL 4.6 (reject llvmpipe)
+        shell: bash
+        env:
+          OLO_PROBE_CC: ${{ steps.linux.outputs.cc }}
+        run: |
+          set -euo pipefail
+          test -e /dev/dri/renderD128 || { echo "::error::no /dev/dri/renderD128 - amdgpu not loaded?"; exit 1; }
+
+          cat > "$RUNNER_TEMP/glprobe.c" <<'PROBE'
+          #include <EGL/egl.h>
+          #include <EGL/eglext.h>
+          #include <GL/gl.h>
+          #include <stdio.h>
+          #include <string.h>
+          #ifndef EGL_PLATFORM_SURFACELESS_MESA
+          #define EGL_PLATFORM_SURFACELESS_MESA 0x31DD
+          #endif
+          int main(void) {
+            PFNEGLGETPLATFORMDISPLAYEXTPROC gpd =
+              (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
+            if (!gpd) { printf("no eglGetPlatformDisplayEXT\n"); return 1; }
+            EGLDisplay d = gpd(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, NULL);
+            if (d == EGL_NO_DISPLAY || !eglInitialize(d, 0, 0)) { printf("eglInitialize failed\n"); return 1; }
+            eglBindAPI(EGL_OPENGL_API);
+            const EGLint ca[] = { EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+                                  EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
+                                  EGL_RED_SIZE,8, EGL_GREEN_SIZE,8, EGL_BLUE_SIZE,8, EGL_ALPHA_SIZE,8,
+                                  EGL_NONE };
+            EGLConfig c; EGLint n = 0;
+            if (!eglChooseConfig(d, ca, &c, 1, &n) || n < 1) { printf("chooseConfig failed\n"); return 1; }
+            const EGLint xa[] = { EGL_CONTEXT_MAJOR_VERSION, 4, EGL_CONTEXT_MINOR_VERSION, 6,
+                                  EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+                                  EGL_NONE };
+            EGLContext x = eglCreateContext(d, c, EGL_NO_CONTEXT, xa);
+            if (x == EGL_NO_CONTEXT) { printf("no GL 4.6 core context\n"); return 1; }
+            if (!eglMakeCurrent(d, EGL_NO_SURFACE, EGL_NO_SURFACE, x)) { printf("makeCurrent failed\n"); return 1; }
+            const char* r = (const char*)glGetString(GL_RENDERER);
+            printf("GL_VENDOR   : %s\n", (const char*)glGetString(GL_VENDOR));
+            printf("GL_RENDERER : %s\n", r);
+            printf("GL_VERSION  : %s\n", (const char*)glGetString(GL_VERSION));
+            if (!r) return 1;
+            if (strstr(r,"llvmpipe") || strstr(r,"softpipe") || strstr(r,"swrast")) {
+              printf("SOFTWARE RENDERER - refusing to run the sanitizer baseline on llvmpipe\n");
+              return 2;
+            }
+            return 0;
+          }
+          PROBE
+
+          "$OLO_PROBE_CC" -O1 -o "$RUNNER_TEMP/glprobe" "$RUNNER_TEMP/glprobe.c" -lEGL -lGL
+          if ! "$RUNNER_TEMP/glprobe"; then
+            echo "::error::Preflight failed - no hardware GL 4.6 context (see output above)."
+            exit 1
+          fi
+          echo "Hardware GL 4.6 context confirmed."
+
+      # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
+      # sanitizer-instrumented, which is what these jobs want -- see the note in
+      # asan.yml's asan-windows job. On this self-hosted runner the vcpkg clone
+      # and its binary cache persist under the runner user's cache dir.
+      - name: Setup vcpkg
+        id: vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: x64-linux
+
+      - name: Configure CMake (${{ matrix.sanitizer }}, GPU tests required)
+        # The asan.yml twin's configure line, flag for flag (Debug, -fuse-ld=lld
+        # so the instrumented link fits in memory, compiler cache on, the
+        # interchange deps and FFmpeg off), with FOUR deliberate differences:
+        #
+        # -DOLO_TESTS_CTEST_ARGS="--olo-gl-backend=egl;--olo-require-gpu;--olo-golden-vendor=amd"
+        #   where the twin passes `--olo-gl-backend=none`. It is a CMake LIST
+        #   (semicolons), spliced as EXTRA_ARGS onto every test process ctest
+        #   launches (OloEngine/tests/CMakeLists.txt), so the job states what it
+        #   tests on the configure line the log prints:
+        #     egl            the headless surfaceless path -- the box has no X
+        #                    server and no Wayland compositor, so GLFW cannot
+        #                    create a window.
+        #     require-gpu    a broken EGL path must FAIL every GPU-gated test,
+        #                    not skip it (OLO_ENSURE_GPU_OR_SKIP and the
+        #                    RendererAttachedTest gate both turn their skip into
+        #                    FAIL() under this flag). A green run that tested
+        #                    nothing is the failure mode this job exists to
+        #                    prevent; the "Assert GPU tests actually ran" step
+        #                    below is the second layer of the same guard.
+        #     golden-vendor  goldens are baselined on NVIDIA hardware; scope the
+        #                    comparisons to assets/tests/golden/amd/ exactly as
+        #                    the conformance nightly does, so a driver
+        #                    difference is not read as a sanitizer finding.
+        #
+        # -DOLO_LINK_JOBS=1 -- and, because of it, -G Ninja. Two instrumented
+        #   links at once on a 31 GiB box is the OOM the conformance job already
+        #   documents on its build step. The link pool is Ninja-only (root
+        #   CMakeLists.txt: `if(CMAKE_GENERATOR MATCHES "Ninja")`); under the
+        #   twin's default Unix Makefiles generator OLO_LINK_JOBS is an unused
+        #   cache entry and the cap silently does nothing, which is the exact
+        #   shape of bug the pool's own comment refuses. Ninja honours
+        #   CMAKE_<LANG>_COMPILER_LAUNCHER too, so ccache still engages.
+        run: >
+          cmake -S . -B build -G Ninja
+          ${{ steps.vcpkg.outputs.toolchain-args }}
+          ${{ steps.linux.outputs.extra-cmake-args }}
+          -DPython_EXECUTABLE=${{ steps.linux.outputs.python-exe }}
+          -DOLO_VIDEO_FFMPEG=OFF
+          -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
+          -DCMAKE_CXX_COMPILER=${{ steps.linux.outputs.cxx }}
+          -DCMAKE_C_COMPILER=${{ steps.linux.outputs.cc }}
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
+          -DOLO_ENABLE_COMPILER_CACHE=ON
+          ${{ steps.arm.outputs.cmake-flag }}
+          -DBUILD_TESTS=ON
+          -DOLO_LINK_JOBS=1
+          "-DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=egl;--olo-require-gpu;--olo-golden-vendor=amd"
+
+      - name: Build tests
+        # --parallel 4, where the twin pins 2. The twin's 2 is sized for a
+        # 4-vCPU / 16 GB hosted VM (clang++ under sanitizer instrumentation uses
+        # ~3 GB per TU). The box has 16 threads, 31 GiB and a persistent ccache
+        # that turns most of a warm build into hits; 4 leaves room for the other
+        # CI slot to be compiling at the same time (two arms of this job will
+        # be, 4 + 4 compiles ~ 24 GB peak) and for the conformance nightly's
+        # runner, should the schedules ever overlap. Links are capped separately
+        # at 1 per tree by OLO_LINK_JOBS above. Ninja's default without a
+        # width is cores + 2 = 18, so the flag is not optional.
+        run: cmake --build build --target OloEngine-Tests --parallel 4
+
+      # The number a cache is judged on: a cache that restores and hits on
+      # nothing looks exactly like a working one, and the hit rate is the only
+      # thing that can tell them apart -- see
+      # docs/agent-rules/ci-cache-that-looks-alive.md. Self-hosted, so ccache.
+      - name: Show compiler cache stats
+        if: always()
+        shell: bash
+        run: ccache --show-stats
+
+      - name: Create test results directory
+        run: mkdir -p "${GITHUB_WORKSPACE}/test_results/${{ matrix.sanitizer }}"
+
+      - name: Run tests under ${{ matrix.sanitizer }} (GPU tests required)
+        working-directory: ${{ github.workspace }}/build/OloEngine/tests
+        # Same shape as the twin -- `ctest --parallel 2 --output-on-failure
+        # --timeout 600 --exclude-regex <twin's regex>` -- and the test processes
+        # run from OloEditor/ because gtest_discover_tests sets that WORKING_DIRECTORY
+        # (the binary resolves assets, shaders and scenes relative to it).
+        #
+        # --parallel 2, same number as the twin for a DIFFERENT reason: hosted,
+        # 2 is the ~16 GB VM budget for two instrumented processes. Here the
+        # bound is the GPU -- every GL-gated test now creates a real context on
+        # the one Navi 10, and two instrumented GPU test processes (ASan shadow
+        # or TSan happens-before metadata on top of the driver's own state) are
+        # what the box has been seen to survive. The runtime-PM wakes recorded
+        # in the header happened at exactly this width; do not widen it to make
+        # the run faster without reading the journal afterwards.
+        #
+        # --timeout 600: the twin's reason (ShaderReflectionBinding compiles
+        # ~100 shaders x ~3 stages through shaderc, 3-5x slower instrumented)
+        # plus the GPU tests, which are slower still under a sanitizer because
+        # the driver's own allocations and threads are now instrumented too.
+        run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '${{ steps.arm.outputs.exclude }}'
+        env:
+          # The twin's runtime options, per arm (empty for the other two
+          # sanitizers -- an empty *_OPTIONS is a no-op).
+          ASAN_OPTIONS: ${{ steps.arm.outputs.asan-options }}
+          LSAN_OPTIONS: ${{ steps.arm.outputs.lsan-options }}
+          UBSAN_OPTIONS: ${{ steps.arm.outputs.ubsan-options }}
+          TSAN_OPTIONS: ${{ steps.arm.outputs.tsan-options }}
+          # Belt and braces against a silent software fallback mid-run, as the
+          # conformance job does: the preflight proved radeonsi once, before
+          # the build; this keeps Mesa from choosing differently an hour later.
+          MESA_LOADER_DRIVER_OVERRIDE: radeonsi
+          # A directory, not a file: every ctest entry is its own test process
+          # (gtest_discover_tests), and gtest writes one uniquely-named XML per
+          # process into a directory path. Per sanitizer so the three arms'
+          # reports and artifacts never collide.
+          GTEST_OUTPUT: xml:${{ github.workspace }}/test_results/${{ matrix.sanitizer }}/
+
+      # ---------------------------------------------------------------------
+      # The failure mode this job exists to prevent is also its own worst
+      # failure mode: if the EGL context path breaks, every GPU-gated test
+      # would skip and the run would go GREEN having verified nothing.
+      # `--olo-require-gpu` turns that skip into a FAIL() inside the test
+      # binary; this step is the independent second check over the XML, so a
+      # flag that silently stopped reaching the test processes (a CMake list
+      # that lost a semicolon, a regenerated ctest file) is caught here.
+      # Adapted from gpu-conformance-amd.yml: same needles, plus the
+      # require-gpu failure text, over a directory of per-process XMLs.
+      # ---------------------------------------------------------------------
+      - name: Assert GPU tests actually ran
+        if: always()
+        shell: bash
+        env:
+          OLO_XML_DIR: ${{ github.workspace }}/test_results/${{ matrix.sanitizer }}
+        run: |
+          python3 - <<'PY'
+          import glob, os, sys, xml.etree.ElementTree as ET
+
+          # Both GPU-gate sites, which word their skip differently:
+          #   RendererAttachedTest.cpp  -> "no usable GL 4.6 context available"
+          #   OLO_ENSURE_GPU_OR_SKIP()  -> "No GPU / GL 4.5+ context available..."
+          # and, under --olo-require-gpu, both FAIL() with a message that names
+          # the flag -- that is the gate refusing, i.e. no context, and it must
+          # be reported as the EGL path breaking rather than as one more red
+          # test in the baseline. Matched case-insensitively so a reworded
+          # message still trips this.
+          SKIP_NEEDLES = ("no usable gl 4.6 context", "no gpu / gl 4.5+ context")
+          FAIL_NEEDLE = "--olo-require-gpu"
+
+          xml_dir = os.environ["OLO_XML_DIR"]
+          files = sorted(glob.glob(os.path.join(xml_dir, "*.xml")))
+          if not files:
+              print(f"::error::no gtest XML under {xml_dir} - the test step never ran a process")
+              sys.exit(1)
+
+          total = failed = skipped = 0
+          gpu_skips, gpu_refusals = [], []
+          for path in files:
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception as e:
+                  print(f"::error::could not read gtest XML {path}: {e}")
+                  sys.exit(1)
+              for case in root.iter("testcase"):
+                  total += 1
+                  name = f"{case.get('classname')}.{case.get('name')}"
+                  was_skipped = False
+                  for sk in case.iter("skipped"):
+                      was_skipped = True
+                      blob = f"{sk.get('message') or ''} {sk.text or ''}".lower()
+                      if any(n in blob for n in SKIP_NEEDLES):
+                          gpu_skips.append(name)
+                  skipped += was_skipped
+                  was_failed = False
+                  for fl in list(case.iter("failure")) + list(case.iter("error")):
+                      was_failed = True
+                      blob = f"{fl.get('message') or ''} {fl.text or ''}".lower()
+                      if FAIL_NEEDLE in blob:
+                          gpu_refusals.append(name)
+                  failed += was_failed
+
+          print(f"{len(files)} XML files; {total} test cases, {failed} failed, {skipped} skipped; "
+                f"{len(gpu_skips)} skipped for a missing GL context, "
+                f"{len(gpu_refusals)} failed by the --olo-require-gpu gate")
+          bad = False
+          if gpu_skips:
+              print(f"::error::{len(gpu_skips)} GPU test(s) SKIPPED for want of a context - "
+                    f"--olo-require-gpu did not reach the test process (check the configure "
+                    f"line's OLO_TESTS_CTEST_ARGS), so this run verified no pixels.")
+              for name in gpu_skips[:20]:
+                  print(f"  skipped: {name}")
+              bad = True
+          if gpu_refusals:
+              print(f"::error::{len(gpu_refusals)} GPU test(s) failed because NO GL 4.6 context "
+                    f"could be created - the headless EGL path is broken; this is not a "
+                    f"sanitizer finding.")
+              for name in gpu_refusals[:20]:
+                  print(f"  refused: {name}")
+              bad = True
+          if total == 0:
+              print("::error::gtest reported zero test cases")
+              bad = True
+          if bad:
+              sys.exit(1)
+          print("OK - every GPU-gated test ran against a context.")
+          PY
+
+      - name: Test report
+        if: always()
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        with:
+          name: GPU ${{ matrix.sanitizer }} (AMD)
+          path: test_results/${{ matrix.sanitizer }}/*.xml
+          reporter: java-junit
+          fail-on-error: false
+          list-tests: 'failed'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gpu_${{ matrix.sanitizer }}_amd_results
+          path: test_results/${{ matrix.sanitizer }}/*.xml
+          if-no-files-found: warn
+
+      # The whole point of a GPU job is the pixels. On failure, get the actual
+      # and diff images off the box so they can be inspected without SSH --
+      # the same paths as the conformance job, because the tests write the
+      # same files.
+      - name: Upload golden-image diffs and visual evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gpu_${{ matrix.sanitizer }}_amd_golden_diffs
+          # Only what this run produced: the actual/diff pairs and the AMD
+          # evidence set. The full visual tree is ~450 tracked PNGs (188 MB)
+          # that the repo already holds; three red arms a night uploading it
+          # would be ~50 GB of artifact storage at the default retention.
+          path: |
+            OloEditor/assets/tests/golden/*.actual.png
+            OloEditor/assets/tests/golden/*.diff.png
+            OloEditor/assets/tests/golden/amd/*.actual.png
+            OloEditor/assets/tests/golden/amd/*.diff.png
+            OloEditor/assets/tests/visual/amd/**/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Build trees for this engine are tens of GB and the box is shared with
+      # other runners; don't let a month of nightlies fill the disk.
+      - name: Report disk usage
+        if: always()
+        run: df -h "${{ github.workspace }}" && du -sh build 2>/dev/null || true

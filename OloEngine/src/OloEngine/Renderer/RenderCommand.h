@@ -697,9 +697,9 @@ namespace OloEngine
             s_RendererAPI->CopyBufferSubData(srcBuffer, dstBuffer, srcOffsetBytes, dstOffsetBytes, sizeBytes);
         }
 
-        static void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value)
+        static void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value, u64 offset = 0, u64 size = ~0ull)
         {
-            s_RendererAPI->ClearBufferUInt(buffer, value);
+            s_RendererAPI->ClearBufferUInt(buffer, value, offset, size);
         }
 
         static void ClearBufferFloat(RHI::ResourceHandle buffer, f32 value)

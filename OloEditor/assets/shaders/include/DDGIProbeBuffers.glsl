@@ -3,11 +3,18 @@
 //
 // Include AFTER include/DDGICommon.glsl (this file reads the DDGI volume UBO).
 //
-// TWO storage bindings serve all of upgrade 2 (sparsity), upgrade 3 (variable
+// ONE storage binding serves all of upgrade 2 (sparsity), upgrade 3 (variable
 // update rate) and the measurement the issue's acceptance criteria ask for:
 //
-//   binding 79 — DDGIProbeAux, one record per probe across ALL cascades.
-//   binding 80 — DDGIStats, a handful of per-frame counters.
+//   binding 6 (SSBO_DDGI_PROBE_AUX) — a fixed 32-byte DDGIStats header (the
+//   per-frame counters, cleared by the CPU each frame) followed by the unsized
+//   DDGIProbeAux tail, one record per probe across ALL cascades (the sparsity
+//   history, never cleared per frame).
+//
+// They were two bindings (82/83) until issue #1015: Mesa drivers expose only
+// 80 SSBO binding points, so both had to move below 80 into a namespace with
+// exactly one free number. std430 allows only the LAST member to be unsized,
+// which is why the counters are the header and the records are the tail.
 //
 // NOTHING here is read back inside DDGIProbeUpdatePass::Execute. The aux buffer
 // is written by the GPU and read by the GPU; the CPU touches it only through
@@ -46,13 +53,11 @@ const uint DDGI_PROBE_STATE_UNCAPTURED = 0u;
 const uint DDGI_PROBE_STATE_ACTIVE = 1u;
 const uint DDGI_PROBE_STATE_INACTIVE = 2u;
 
-layout(std430, binding = 82) buffer DDGIProbeAuxBuffer
-{
-    DDGIProbeAuxRecord b_ProbeAux[];
-};
-
-// C++ twin: DDGIProbeUpdatePass::ProbeStats.
-layout(std430, binding = 83) buffer DDGIStatsBuffer
+// Header: C++ twin DDGIProbeUpdatePass::ProbeStats (32 bytes, offset 0).
+// Tail:   C++ twin DDGIProbeUpdatePass::ProbeAuxRecordGPU (offset 32).
+// The CPU stages its two readbacks at those offsets; adding a header member
+// moves the tail, so grow ProbeStats and this header together.
+layout(std430, binding = 6) buffer DDGIProbeAuxBuffer
 {
     uint b_StatLiveProbes;      // probes whose request is still inside the lifetime window
     uint b_StatActiveProbes;    // probes classified Active (captured, not inside geometry)
@@ -62,6 +67,7 @@ layout(std430, binding = 83) buffer DDGIStatsBuffer
     uint b_StatUncapturedLive;  // live probes still waiting for a first capture
     uint _ddgiStatPad0;
     uint _ddgiStatPad1;
+    DDGIProbeAuxRecord b_ProbeAux[];
 };
 
 // -----------------------------------------------------------------------------

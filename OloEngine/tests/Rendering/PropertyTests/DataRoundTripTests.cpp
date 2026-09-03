@@ -376,6 +376,9 @@ namespace OloEngine::Tests
             };
         };
 
+        // Exactly the bytes handed to the GPU, per mip and face.
+        std::array<std::array<std::vector<f32>, 6>, kMipLevels> uploaded{};
+
         for (u32 mip = 0; mip < kMipLevels; ++mip)
         {
             const u32 mipW = std::max(1u, kWidth >> mip);
@@ -396,6 +399,18 @@ namespace OloEngine::Tests
                     }
                 }
                 const u32 byteSize = static_cast<u32>(buf.size() * sizeof(f32));
+                // KEEP what was uploaded and compare against THAT below, rather
+                // than calling MakePattern a second time. The round trip is what
+                // this test is about, and re-deriving the reference makes it
+                // depend on two call sites of `base + 0.0001f * x` agreeing
+                // bit-for-bit -- which they need not, because GCC's default
+                // -ffp-contract=fast may fuse the multiply-add at one site and
+                // not the other, and a 1-ULP difference fails a memcmp. That is
+                // what produced 176 differing channels of 32256 on the AMD CI
+                // box (GCC 14.3 Release) while MSVC and clang passed: scattered
+                // single-ULP noise, not a missing mip, which the old failure
+                // message ("only mip 0 loaded") mis-attributed.
+                uploaded[mip][face] = buf;
                 ASSERT_TRUE(src->SetFaceDataMip(face, mip, buf.data(), byteSize));
             }
         }
@@ -446,6 +461,7 @@ namespace OloEngine::Tests
 
         // -- Verify every mip of every face bit-exact.
         u32 totalDiffs = 0;
+        std::array<u32, kMipLevels> perMipDiffs{};
         for (u32 mip = 0; mip < kMipLevels; ++mip)
         {
             const u32 mipW = std::max(1u, kWidth >> mip);
@@ -461,11 +477,12 @@ namespace OloEngine::Tests
                 // touch the underlying bytes through their canonical type.
                 // Strict-aliasing safe and matches the pattern used in the
                 // RGBA32F bit-identity test above.
+                const std::vector<f32>& expectedFace = uploaded[mip][face];
+                ASSERT_EQ(expectedFace.size(), static_cast<std::size_t>(mipW) * mipH * 4);
                 for (u32 y = 0; y < mipH; ++y)
                 {
                     for (u32 x = 0; x < mipW; ++x)
                     {
-                        auto expected = MakePattern(mip, face, x, y);
                         const std::size_t idx = (static_cast<std::size_t>(y) * mipW + x) * 4;
                         for (u32 c = 0; c < 4; ++c)
                         {
@@ -473,16 +490,30 @@ namespace OloEngine::Tests
                             std::memcpy(&readValue,
                                         readBytes.data() + (idx + c) * sizeof(f32),
                                         sizeof(f32));
-                            if (std::memcmp(&expected[c], &readValue, sizeof(f32)) != 0)
+                            if (std::memcmp(&expectedFace[idx + c], &readValue, sizeof(f32)) != 0)
+                            {
                                 ++totalDiffs;
+                                ++perMipDiffs[mip];
+                            }
                         }
                     }
                 }
             }
         }
+        // Per mip, because "which mip" is the whole diagnosis: a missing level
+        // loses every one of its channels at once, while a handful scattered
+        // across all of them is something else entirely.
+        std::string mipBreakdown;
+        for (u32 mip = 0; mip < kMipLevels; ++mip)
+        {
+            const u32 mipW = std::max(1u, kWidth >> mip);
+            mipBreakdown += " mip" + std::to_string(mip) + "(" + std::to_string(mipW) + "px)=" +
+                            std::to_string(perMipDiffs[mip]) + "/" +
+                            std::to_string(static_cast<std::size_t>(mipW) * mipW * 6u * 4u);
+        }
         EXPECT_EQ(totalDiffs, 0u)
             << "IBL cache round-trip produced " << totalDiffs
-            << " bit-different texels across all mips (classic 'only mip 0 loaded' symptom)";
+            << " bit-different channels against the bytes that were uploaded; per mip:" << mipBreakdown;
 
         // cacheGuard destructor runs IBLCache::Shutdown + remove_all(tempDir).
     }

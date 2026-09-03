@@ -82,8 +82,19 @@ namespace OloEngine
         // v3 (issue #897): CameraRigComponent gained m_TargetForward, which the
         // GENERATED binary block appends to its payload — same unlength-prefixed
         // slide as v2, same remedy.
-        constexpr u32 CurrentVersion = 3;
-        constexpr u32 MinSupportedVersion = 3;
+        //
+        // v4 (issue #1015): eight components had their FIELDS REORDERED so the
+        // struct carries no padding (Math::BitwiseEqual compares padding bytes,
+        // which GCC -O3 re-materialises; see BitwiseEqualLayoutTest). The
+        // generated block writes fields in declaration order, so a v3 sidecar
+        // holds the same BYTE COUNT in a different order — the one case the
+        // size/timestamp staleness check cannot see, because the `.olo` did not
+        // change, only this build did. Reading it back would assign a bool's
+        // byte to a u32 field and slide the rest of the entity. Reordering a
+        // serialized component is therefore a version bump, exactly like adding
+        // a field.
+        constexpr u32 CurrentVersion = 4;
+        constexpr u32 MinSupportedVersion = 4;
 
         // Per-entity storage kind (the u8 that prefixes each EntityRecord).
         enum EntityKind : u8

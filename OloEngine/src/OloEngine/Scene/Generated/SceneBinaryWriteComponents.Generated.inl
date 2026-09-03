@@ -229,11 +229,11 @@ if (entity.HasComponent<DirectionalLightComponent>())
     SceneBinIO::Write(out, comp.m_Color);
     SceneBinIO::Write(out, comp.m_Intensity);
     SceneBinIO::Write(out, comp.m_CastShadows);
+    SceneBinIO::Write(out, comp.m_CascadeDebugVisualization);
     SceneBinIO::Write(out, comp.m_ShadowBias);
     SceneBinIO::Write(out, comp.m_ShadowNormalBias);
     SceneBinIO::Write(out, comp.m_MaxShadowDistance);
     SceneBinIO::Write(out, comp.m_CascadeSplitLambda);
-    SceneBinIO::Write(out, comp.m_CascadeDebugVisualization);
 }
 
 if (entity.HasComponent<DiscoverableComponent>())
@@ -325,46 +325,46 @@ if (entity.HasComponent<FogVolumeComponent>())
     SceneBinIO::Write(out, comp.m_FalloffDistance);
     SceneBinIO::Write(out, comp.m_Priority);
     SceneBinIO::Write(out, comp.m_BlendWeight);
-    SceneBinIO::Write(out, comp.m_DensityVolume);
     SceneBinIO::Write(out, comp.m_Enabled);
     SceneBinIO::Write(out, comp.m_AffectTransparent);
+    SceneBinIO::Write(out, comp.m_DensityVolume);
 }
 
 if (entity.HasComponent<FootIKComponent>())
 {
     SceneBinIO::WriteU32(out, 1414616508u); // FootIKComponent
     auto const& comp = entity.GetComponent<FootIKComponent>();
-    SceneBinIO::Write(out, comp.Enabled);
     SceneBinIO::Write(out, comp.LeftFootBone);
     SceneBinIO::Write(out, comp.RightFootBone);
     SceneBinIO::Write(out, comp.ChainLength);
-    SceneBinIO::Write(out, comp.EnableToeRoll);
     SceneBinIO::Write(out, comp.LeftToeBone);
     SceneBinIO::Write(out, comp.RightToeBone);
     SceneBinIO::Write(out, comp.RaycastUp);
     SceneBinIO::Write(out, comp.RaycastDown);
     SceneBinIO::Write(out, comp.FootHeight);
-    SceneBinIO::Write(out, comp.AdjustPelvis);
     SceneBinIO::Write(out, comp.PelvisBone);
     SceneBinIO::Write(out, comp.MaxPelvisDrop);
     SceneBinIO::Write(out, comp.PelvisLerpSpeed);
-    SceneBinIO::Write(out, comp.FootLock);
     SceneBinIO::Write(out, comp.PlantVelocityThreshold);
     SceneBinIO::Write(out, comp.PlantLiftThreshold);
     SceneBinIO::Write(out, comp.UnlockBlendTime);
-    SceneBinIO::Write(out, comp.AlignFootToSlope);
     SceneBinIO::Write(out, comp.MaxSlopeAngle);
     SceneBinIO::Write(out, comp.Weight);
-    SceneBinIO::Write(out, comp.LeftHandEnabled);
     SceneBinIO::Write(out, comp.LeftHandBone);
     SceneBinIO::Write(out, comp.LeftHandTarget);
     SceneBinIO::Write(out, comp.LeftHandTargetEntity);
-    SceneBinIO::Write(out, comp.RightHandEnabled);
     SceneBinIO::Write(out, comp.RightHandBone);
     SceneBinIO::Write(out, comp.RightHandTarget);
     SceneBinIO::Write(out, comp.RightHandTargetEntity);
     SceneBinIO::Write(out, comp.HandChainLength);
     SceneBinIO::Write(out, comp.HandWeight);
+    SceneBinIO::Write(out, comp.Enabled);
+    SceneBinIO::Write(out, comp.EnableToeRoll);
+    SceneBinIO::Write(out, comp.AdjustPelvis);
+    SceneBinIO::Write(out, comp.FootLock);
+    SceneBinIO::Write(out, comp.AlignFootToSlope);
+    SceneBinIO::Write(out, comp.LeftHandEnabled);
+    SceneBinIO::Write(out, comp.RightHandEnabled);
 }
 
 if (entity.HasComponent<InstancePortalComponent>())
@@ -850,9 +850,9 @@ if (entity.HasComponent<VirtualMeshComponent>())
 {
     SceneBinIO::WriteU32(out, 2502968764u); // VirtualMeshComponent
     auto const& comp = entity.GetComponent<VirtualMeshComponent>();
-    SceneBinIO::Write(out, comp.m_Enabled);
     SceneBinIO::Write(out, comp.m_MeshSource);
     SceneBinIO::Write(out, comp.m_ErrorThresholdPixels);
+    SceneBinIO::Write(out, comp.m_Enabled);
     SceneBinIO::Write(out, comp.m_CastShadows);
 }
 
@@ -870,7 +870,6 @@ if (entity.HasComponent<WeatherStateComponent>())
     SceneBinIO::Write(out, comp.m_PresetClear.CloudDensity);
     SceneBinIO::Write(out, comp.m_PresetClear.CloudTypeBlend);
     SceneBinIO::Write(out, comp.m_PresetClear.CloudWetness);
-    SceneBinIO::Write(out, comp.m_PresetClear.FogEnabled);
     SceneBinIO::Write(out, comp.m_PresetClear.FogDensity);
     SceneBinIO::Write(out, comp.m_PresetClear.FogColor);
     SceneBinIO::Write(out, comp.m_PresetClear.FogHeightFalloff);
@@ -878,18 +877,18 @@ if (entity.HasComponent<WeatherStateComponent>())
     SceneBinIO::Write(out, comp.m_PresetClear.WindSpeed);
     SceneBinIO::Write(out, comp.m_PresetClear.WindGustStrength);
     SceneBinIO::Write(out, comp.m_PresetClear.WindTurbulence);
-    SceneBinIO::Write(out, comp.m_PresetClear.PrecipitationEnabled);
     SceneBinIO::Write(out, comp.m_PresetClear.PrecipitationKind);
     SceneBinIO::Write(out, comp.m_PresetClear.PrecipitationIntensity);
-    SceneBinIO::Write(out, comp.m_PresetClear.SnowAccumulationEnabled);
     SceneBinIO::Write(out, comp.m_PresetClear.SnowAccumulationRate);
     SceneBinIO::Write(out, comp.m_PresetClear.SunDimming);
     SceneBinIO::Write(out, comp.m_PresetClear.WetnessTarget);
+    SceneBinIO::Write(out, comp.m_PresetClear.FogEnabled);
+    SceneBinIO::Write(out, comp.m_PresetClear.PrecipitationEnabled);
+    SceneBinIO::Write(out, comp.m_PresetClear.SnowAccumulationEnabled);
     SceneBinIO::Write(out, comp.m_PresetOvercast.CloudCoverage);
     SceneBinIO::Write(out, comp.m_PresetOvercast.CloudDensity);
     SceneBinIO::Write(out, comp.m_PresetOvercast.CloudTypeBlend);
     SceneBinIO::Write(out, comp.m_PresetOvercast.CloudWetness);
-    SceneBinIO::Write(out, comp.m_PresetOvercast.FogEnabled);
     SceneBinIO::Write(out, comp.m_PresetOvercast.FogDensity);
     SceneBinIO::Write(out, comp.m_PresetOvercast.FogColor);
     SceneBinIO::Write(out, comp.m_PresetOvercast.FogHeightFalloff);
@@ -897,18 +896,18 @@ if (entity.HasComponent<WeatherStateComponent>())
     SceneBinIO::Write(out, comp.m_PresetOvercast.WindSpeed);
     SceneBinIO::Write(out, comp.m_PresetOvercast.WindGustStrength);
     SceneBinIO::Write(out, comp.m_PresetOvercast.WindTurbulence);
-    SceneBinIO::Write(out, comp.m_PresetOvercast.PrecipitationEnabled);
     SceneBinIO::Write(out, comp.m_PresetOvercast.PrecipitationKind);
     SceneBinIO::Write(out, comp.m_PresetOvercast.PrecipitationIntensity);
-    SceneBinIO::Write(out, comp.m_PresetOvercast.SnowAccumulationEnabled);
     SceneBinIO::Write(out, comp.m_PresetOvercast.SnowAccumulationRate);
     SceneBinIO::Write(out, comp.m_PresetOvercast.SunDimming);
     SceneBinIO::Write(out, comp.m_PresetOvercast.WetnessTarget);
+    SceneBinIO::Write(out, comp.m_PresetOvercast.FogEnabled);
+    SceneBinIO::Write(out, comp.m_PresetOvercast.PrecipitationEnabled);
+    SceneBinIO::Write(out, comp.m_PresetOvercast.SnowAccumulationEnabled);
     SceneBinIO::Write(out, comp.m_PresetRain.CloudCoverage);
     SceneBinIO::Write(out, comp.m_PresetRain.CloudDensity);
     SceneBinIO::Write(out, comp.m_PresetRain.CloudTypeBlend);
     SceneBinIO::Write(out, comp.m_PresetRain.CloudWetness);
-    SceneBinIO::Write(out, comp.m_PresetRain.FogEnabled);
     SceneBinIO::Write(out, comp.m_PresetRain.FogDensity);
     SceneBinIO::Write(out, comp.m_PresetRain.FogColor);
     SceneBinIO::Write(out, comp.m_PresetRain.FogHeightFalloff);
@@ -916,18 +915,18 @@ if (entity.HasComponent<WeatherStateComponent>())
     SceneBinIO::Write(out, comp.m_PresetRain.WindSpeed);
     SceneBinIO::Write(out, comp.m_PresetRain.WindGustStrength);
     SceneBinIO::Write(out, comp.m_PresetRain.WindTurbulence);
-    SceneBinIO::Write(out, comp.m_PresetRain.PrecipitationEnabled);
     SceneBinIO::Write(out, comp.m_PresetRain.PrecipitationKind);
     SceneBinIO::Write(out, comp.m_PresetRain.PrecipitationIntensity);
-    SceneBinIO::Write(out, comp.m_PresetRain.SnowAccumulationEnabled);
     SceneBinIO::Write(out, comp.m_PresetRain.SnowAccumulationRate);
     SceneBinIO::Write(out, comp.m_PresetRain.SunDimming);
     SceneBinIO::Write(out, comp.m_PresetRain.WetnessTarget);
+    SceneBinIO::Write(out, comp.m_PresetRain.FogEnabled);
+    SceneBinIO::Write(out, comp.m_PresetRain.PrecipitationEnabled);
+    SceneBinIO::Write(out, comp.m_PresetRain.SnowAccumulationEnabled);
     SceneBinIO::Write(out, comp.m_PresetStorm.CloudCoverage);
     SceneBinIO::Write(out, comp.m_PresetStorm.CloudDensity);
     SceneBinIO::Write(out, comp.m_PresetStorm.CloudTypeBlend);
     SceneBinIO::Write(out, comp.m_PresetStorm.CloudWetness);
-    SceneBinIO::Write(out, comp.m_PresetStorm.FogEnabled);
     SceneBinIO::Write(out, comp.m_PresetStorm.FogDensity);
     SceneBinIO::Write(out, comp.m_PresetStorm.FogColor);
     SceneBinIO::Write(out, comp.m_PresetStorm.FogHeightFalloff);
@@ -935,18 +934,18 @@ if (entity.HasComponent<WeatherStateComponent>())
     SceneBinIO::Write(out, comp.m_PresetStorm.WindSpeed);
     SceneBinIO::Write(out, comp.m_PresetStorm.WindGustStrength);
     SceneBinIO::Write(out, comp.m_PresetStorm.WindTurbulence);
-    SceneBinIO::Write(out, comp.m_PresetStorm.PrecipitationEnabled);
     SceneBinIO::Write(out, comp.m_PresetStorm.PrecipitationKind);
     SceneBinIO::Write(out, comp.m_PresetStorm.PrecipitationIntensity);
-    SceneBinIO::Write(out, comp.m_PresetStorm.SnowAccumulationEnabled);
     SceneBinIO::Write(out, comp.m_PresetStorm.SnowAccumulationRate);
     SceneBinIO::Write(out, comp.m_PresetStorm.SunDimming);
     SceneBinIO::Write(out, comp.m_PresetStorm.WetnessTarget);
+    SceneBinIO::Write(out, comp.m_PresetStorm.FogEnabled);
+    SceneBinIO::Write(out, comp.m_PresetStorm.PrecipitationEnabled);
+    SceneBinIO::Write(out, comp.m_PresetStorm.SnowAccumulationEnabled);
     SceneBinIO::Write(out, comp.m_PresetSnow.CloudCoverage);
     SceneBinIO::Write(out, comp.m_PresetSnow.CloudDensity);
     SceneBinIO::Write(out, comp.m_PresetSnow.CloudTypeBlend);
     SceneBinIO::Write(out, comp.m_PresetSnow.CloudWetness);
-    SceneBinIO::Write(out, comp.m_PresetSnow.FogEnabled);
     SceneBinIO::Write(out, comp.m_PresetSnow.FogDensity);
     SceneBinIO::Write(out, comp.m_PresetSnow.FogColor);
     SceneBinIO::Write(out, comp.m_PresetSnow.FogHeightFalloff);
@@ -954,18 +953,18 @@ if (entity.HasComponent<WeatherStateComponent>())
     SceneBinIO::Write(out, comp.m_PresetSnow.WindSpeed);
     SceneBinIO::Write(out, comp.m_PresetSnow.WindGustStrength);
     SceneBinIO::Write(out, comp.m_PresetSnow.WindTurbulence);
-    SceneBinIO::Write(out, comp.m_PresetSnow.PrecipitationEnabled);
     SceneBinIO::Write(out, comp.m_PresetSnow.PrecipitationKind);
     SceneBinIO::Write(out, comp.m_PresetSnow.PrecipitationIntensity);
-    SceneBinIO::Write(out, comp.m_PresetSnow.SnowAccumulationEnabled);
     SceneBinIO::Write(out, comp.m_PresetSnow.SnowAccumulationRate);
     SceneBinIO::Write(out, comp.m_PresetSnow.SunDimming);
     SceneBinIO::Write(out, comp.m_PresetSnow.WetnessTarget);
+    SceneBinIO::Write(out, comp.m_PresetSnow.FogEnabled);
+    SceneBinIO::Write(out, comp.m_PresetSnow.PrecipitationEnabled);
+    SceneBinIO::Write(out, comp.m_PresetSnow.SnowAccumulationEnabled);
     SceneBinIO::Write(out, comp.m_PresetFogBank.CloudCoverage);
     SceneBinIO::Write(out, comp.m_PresetFogBank.CloudDensity);
     SceneBinIO::Write(out, comp.m_PresetFogBank.CloudTypeBlend);
     SceneBinIO::Write(out, comp.m_PresetFogBank.CloudWetness);
-    SceneBinIO::Write(out, comp.m_PresetFogBank.FogEnabled);
     SceneBinIO::Write(out, comp.m_PresetFogBank.FogDensity);
     SceneBinIO::Write(out, comp.m_PresetFogBank.FogColor);
     SceneBinIO::Write(out, comp.m_PresetFogBank.FogHeightFalloff);
@@ -973,11 +972,12 @@ if (entity.HasComponent<WeatherStateComponent>())
     SceneBinIO::Write(out, comp.m_PresetFogBank.WindSpeed);
     SceneBinIO::Write(out, comp.m_PresetFogBank.WindGustStrength);
     SceneBinIO::Write(out, comp.m_PresetFogBank.WindTurbulence);
-    SceneBinIO::Write(out, comp.m_PresetFogBank.PrecipitationEnabled);
     SceneBinIO::Write(out, comp.m_PresetFogBank.PrecipitationKind);
     SceneBinIO::Write(out, comp.m_PresetFogBank.PrecipitationIntensity);
-    SceneBinIO::Write(out, comp.m_PresetFogBank.SnowAccumulationEnabled);
     SceneBinIO::Write(out, comp.m_PresetFogBank.SnowAccumulationRate);
     SceneBinIO::Write(out, comp.m_PresetFogBank.SunDimming);
     SceneBinIO::Write(out, comp.m_PresetFogBank.WetnessTarget);
+    SceneBinIO::Write(out, comp.m_PresetFogBank.FogEnabled);
+    SceneBinIO::Write(out, comp.m_PresetFogBank.PrecipitationEnabled);
+    SceneBinIO::Write(out, comp.m_PresetFogBank.SnowAccumulationEnabled);
 }

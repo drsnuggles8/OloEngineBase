@@ -922,6 +922,23 @@ TEST(MeshOptimization, OptimizeMeshKeepsUvDegenerateTriangles)
 // model is authored at a different scale.
 // =============================================================================
 
+// True when a chain level removed (nearly) the triangles a halving of its parent
+// asks for. BuildAutoLODChain targets `(parent + 1) / 2` triangles per level, but
+// clamps that to MinTriangleCount, and the simplifier may also stop short on
+// topology grounds. A level that fell well short of a halving collapsed only a
+// handful of edges, and WHICH handful is a tie-break between near-equal quadric
+// candidates, so its step error is chaotic under any perturbation (f32 rounding
+// of scaled positions, a different meshoptimizer build) rather than a property of
+// the weighting. Tests that assert on error consistency between chains treat such
+// levels differently from the well-conditioned ones; see the call sites.
+static bool LevelReachedHalvingTarget(u32 parentTriangles, u32 levelTriangles)
+{
+    const u32 halvingTarget = (parentTriangles + 1) / 2;
+    const u32 asked = parentTriangles - halvingTarget;
+    const u32 removed = parentTriangles - std::min(levelTriangles, parentTriangles);
+    return static_cast<f32>(removed) >= 0.9f * static_cast<f32>(asked);
+}
+
 // Returns the same wavy grid scaled uniformly in model space. Normals stay unit
 // length and UVs are untouched, so the only difference is world size.
 static Ref<MeshSource> MakeScaledWavyGridMesh(u32 gridSize, f32 scale)
@@ -1024,18 +1041,42 @@ TEST(MeshOptimization, AutoLODChainIsInvariantToModelScale)
     // positions 100x apart round differently, that flips the occasional quadric tie,
     // and a one-triangle difference at level 1 propagates down a nine-level chain.
     // Measured drift is ~0.1% on counts and a few percent on error.
-    constexpr f32 kTriangleTolerance = 0.02f; // 2%
-    constexpr f32 kErrorTolerance = 0.10f;    // 10%
+    //
+    // The exception is a level that did NOT reach its halving target (see
+    // LevelReachedHalvingTarget). Here that is the terminal level: LOD 7 is 36
+    // triangles, a halving asks for 18, MinTriangleCount clamps the target to 32,
+    // and the simplifier removes four triangles. Four collapses chosen by tie-break
+    // among near-equal candidates, each a large fraction of the step, is chaotic:
+    // the same meshoptimizer source built by GCC 14.3 -O3 on the Linux CI box
+    // (vcpkg port) breaks the ties differently from the MSVC/clang builds, and
+    // the terminal level's error drifted 15% between the two scales there while
+    // levels 0-7 stayed within a few percent. That drift is not the property this
+    // test guards, so a stalled level gets a loose band that only rules out a
+    // chain that ended early or ran away. The real property (the normal weight is
+    // normalized by the model extent) stays pinned by the 10% band on every level
+    // that did halve, and by NormalWeightMustBeNormalizedByModelExtent, which
+    // measures the unnormalized gap at the deepest such level.
+    constexpr f32 kTriangleTolerance = 0.02f;    // 2%
+    constexpr f32 kErrorTolerance = 0.10f;       // 10%, levels that reached their halving target
+    constexpr f32 kStalledErrorTolerance = 0.5f; // 50%, levels that did not (tie-break dominated)
 
+    u32 halvedLevels = 0;
     for (sizet i = 0; i < smallChain.size(); ++i)
     {
         const auto smallTris = static_cast<f32>(smallChain[i].TriangleCount);
         const auto largeTris = static_cast<f32>(largeChain[i].TriangleCount);
         EXPECT_NEAR(largeTris, smallTris, std::max(smallTris * kTriangleTolerance, 1.0f)) << "level " << i;
+
+        const bool halved = i == 0 || (LevelReachedHalvingTarget(smallChain[i - 1].TriangleCount, smallChain[i].TriangleCount) && LevelReachedHalvingTarget(largeChain[i - 1].TriangleCount, largeChain[i].TriangleCount));
+        halvedLevels += halved ? 1u : 0u;
+        const f32 tolerance = halved ? kErrorTolerance : kStalledErrorTolerance;
         EXPECT_NEAR(largeChain[i].Error, smallChain[i].Error,
-                    std::max(smallChain[i].Error * kErrorTolerance, 1e-6f))
-            << "level " << i << " error must be scale-invariant";
+                    std::max(smallChain[i].Error * tolerance, 1e-6f))
+            << "level " << i << " error must be scale-invariant"
+            << (halved ? "" : " (level fell short of its halving target; loose band, see LevelReachedHalvingTarget)");
     }
+    // Without this the loose band could quietly become the only one in use.
+    EXPECT_GE(halvedLevels, 3u) << "too few levels reached their halving target for the strict band to pin anything";
 }
 
 // Gives the tolerances above their teeth. The normal weight handed to meshopt is
@@ -1083,7 +1124,15 @@ TEST(MeshOptimization, NormalWeightMustBeNormalizedByModelExtent)
         << "a 100x normal weight produced byte-identical index buffers at every level — the weight "
            "is not reaching the simplifier's quadric at all";
 
-    const sizet deepest = common - 1;
+    // Measure at the deepest level that reached its halving target, because that is
+    // the deepest level the scale-invariance test holds to its 10% band; a stalled
+    // terminal level is tie-break dominated and gets a loose band there (see
+    // LevelReachedHalvingTarget), so a gap measured on it would prove nothing.
+    sizet deepest = common - 1;
+    while (deepest > 1 && !LevelReachedHalvingTarget(baseline[deepest - 1].TriangleCount, baseline[deepest].TriangleCount))
+    {
+        --deepest;
+    }
     const f32 baseError = baseline[deepest].Error;
     ASSERT_GT(baseError, 0.0f);
     const f32 relativeGap = std::abs(skewed[deepest].Error - baseError) / baseError;

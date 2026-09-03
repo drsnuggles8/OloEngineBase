@@ -37,12 +37,18 @@ namespace OloEngine
     static void ResolveRect(Scene& scene, entt::entity entity, const glm::vec2& parentPos, const glm::vec2& parentSize)
     {
         OLO_PROFILE_FUNCTION();
-        if (!scene.GetAllEntitiesWith<UIRectTransformComponent>().contains(entity))
+        // One view for both the membership test and the lookup. The reference
+        // `get` returns points into the registry's component storage, not into
+        // the view, so reading it through a temporary view was safe — but GCC 14
+        // cannot tell and reports it as -Wdangling-reference on every nightly
+        // build. A named view says what is meant and drops the warning.
+        const auto rectTransforms = scene.GetAllEntitiesWith<UIRectTransformComponent>();
+        if (!rectTransforms.contains(entity))
         {
             return;
         }
 
-        const auto& rt = scene.GetAllEntitiesWith<UIRectTransformComponent>().get<UIRectTransformComponent>(entity);
+        const auto& rt = rectTransforms.get<UIRectTransformComponent>(entity);
 
         // Anchor-based layout resolution (Unity-style)
         const glm::vec2 anchorMinPos = parentPos + rt.m_AnchorMin * parentSize;

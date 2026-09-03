@@ -9,6 +9,7 @@
 // number, and the header itself pulls in nothing but Core/Base.h + glm.
 #include "OloEngine/Renderer/Water/WaterDisturbanceField.h"
 #include <glm/glm.hpp>
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -2391,15 +2392,20 @@ namespace OloEngine
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
         // =============================================================================
 
-        static constexpr u32 SSBO_GPU_PARTICLES = 0;     // GPU particle data array
-        static constexpr u32 SSBO_ALIVE_INDICES = 1;     // Compacted alive particle index buffer
-        static constexpr u32 SSBO_COUNTERS = 2;          // Atomic counters (alive/dead/emit counts)
-        static constexpr u32 SSBO_FREE_LIST = 3;         // Free-slot indices for emission recycling
-        static constexpr u32 SSBO_INDIRECT_DRAW = 4;     // Indirect draw command buffer
-        static constexpr u32 SSBO_EMIT_STAGING = 5;      // Staging buffer for newly emitted particles
-        static constexpr u32 SSBO_FOLIAGE_INSTANCES = 6; // Foliage instance data (reserved for GPU-driven path)
-        static constexpr u32 SSBO_SNOW_DEFORMERS = 7;    // Snow deformer stamp data (pos, radius, depth)
-        static constexpr u32 SSBO_LIGHT_PROBES = 8;      // Light probe SH coefficient data
+        static constexpr u32 SSBO_GPU_PARTICLES = 0; // GPU particle data array
+        static constexpr u32 SSBO_ALIVE_INDICES = 1; // Compacted alive particle index buffer
+        static constexpr u32 SSBO_COUNTERS = 2;      // Atomic counters (alive/dead/emit counts)
+        static constexpr u32 SSBO_FREE_LIST = 3;     // Free-slot indices for emission recycling
+        static constexpr u32 SSBO_INDIRECT_DRAW = 4; // Indirect draw command buffer
+        static constexpr u32 SSBO_EMIT_STAGING = 5;  // Staging buffer for newly emitted particles
+        // 6 was SSBO_FOLIAGE_INSTANCES, "reserved for the GPU-driven foliage
+        // path" — a reservation nothing ever claimed: no C++ site referenced
+        // the constant and no shader declared a storage block at 6 (foliage
+        // instance records ride the bone-pull stream, see SSBO_BONE_PULL).
+        // Issue #1015 spent it on SSBO_DDGI_PROBE_AUX (below) when the DDGI
+        // and terrain-VT buffers had to move under the Mesa ceiling.
+        static constexpr u32 SSBO_SNOW_DEFORMERS = 7; // Snow deformer stamp data (pos, radius, depth)
+        static constexpr u32 SSBO_LIGHT_PROBES = 8;   // Light probe SH coefficient data
 
         // Forward+ light culling SSBOs
         static constexpr u32 SSBO_FPLUS_POINT_LIGHTS = 9;        // Forward+ point light data array
@@ -2511,8 +2517,9 @@ namespace OloEngine
         // kernels off them, so any foreign dispatch in between would swap the
         // page table out from under a live frame. Now contiguous — the range
         // sits entirely above the reserved vertex-pull (57) / bone-pull (63)
-        // slots, so no skip is needed — and bounded by kMaxBufferBindings (84)
-        // via the reflection test's kHighestKnownSSBOBinding.
+        // slots, so no skip is needed — and bounded by SSBO_BINDING_LIMIT (80,
+        // the Mesa ceiling; see the note at the end of this section) via the
+        // static_assert there and the reflection test's kHighestKnownSSBOBinding.
         static constexpr u32 SSBO_VSM_PAGE_TABLE = 68;     // virtual page -> flags + physical page
         static constexpr u32 SSBO_VSM_META_TABLE = 69;     // physical page -> owning virtual page
         static constexpr u32 SSBO_VSM_HPB = 70;            // dirty-flag pyramid, 7 mips x 16 clip levels
@@ -2546,36 +2553,54 @@ namespace OloEngine
         // include/VirtualShadowResources.glsl.
         static constexpr u32 SSBO_VSM_LOCAL_LIGHTS = 78; // per-layer projections + per-layer frame state
 
-        // Realtime DDGI sparsity + GPU relocation (issue #707). TWO storage
-        // bindings, and ZERO new UBO bindings — the per-cascade lattice arrays
+        // Realtime DDGI sparsity + GPU relocation (issue #707). ONE storage
+        // binding, and ZERO new UBO bindings — the per-cascade lattice arrays
         // ride inside the existing DDGIVolumeUBO (binding 51) at 512 B, which
         // is what keeps the one remaining UBO slot free for whoever needs it
         // next. Read the SSBO_VSM_LOCAL_LIGHTS note above before adding more.
         //
-        // SSBO_DDGI_PROBE_AUX is one record per probe across ALL cascades: the
-        // last frame a shaded pixel (or another probe's hit point) requested it,
-        // its GPU-computed classification, and the #751 bounce-coverage
-        // accumulator. Written by the request / relocate / relight computes,
-        // read back ONLY by the explicit diagnostics entry point — never inside
-        // DDGIProbeUpdatePass::Execute, which is acceptance criterion 3 of #707.
+        // The block has a FIXED 32-byte header followed by an unsized tail, the
+        // same shape as SSBO_VSM_LOCAL_LIGHTS and the terrain-VT kernels:
         //
-        // SSBO_DDGI_STATS is a handful of frame counters (live / relit /
-        // captured probes) with the same read-back-on-demand contract, and is
-        // where the "active probes is a small fraction of the dense grid" claim
-        // is MEASURED rather than asserted.
+        //   header — DDGIStats, a handful of per-frame counters (live / relit /
+        //   captured probes). Cleared by the CPU every frame (the header only,
+        //   never the tail), atomicAdd'ed by three kernels, and where the
+        //   "active probes is a small fraction of the dense grid" claim is
+        //   MEASURED rather than asserted. C++ twin: DDGIProbeUpdatePass::
+        //   ProbeStats.
         //
-        // These were 79/80 while #707 was in review and moved to 82/83 when
-        // #715's terrain virtual texture landed on master first and took 79-81.
-        // Worth knowing if you hit the same thing: the collision merged CLEANLY
-        // -- the two blocks are in different parts of this file, so git had no
-        // textual conflict to report and produced a header with two constants
-        // per slot. NOTHING caught it: SSBOSlotUniqueness is a hand-curated list
-        // and neither family was on it, and the GLSL literals only disagree once
-        // someone renumbers one side. Both families are on that list now. When
-        // rebasing a branch that claims bindings, diff the slot NUMBERS against
-        // master, not just the files git reports as conflicting.
-        static constexpr u32 SSBO_DDGI_PROBE_AUX = 82; // DDGIProbeAux[totalProbes]: request frame, state, bounce coverage
-        static constexpr u32 SSBO_DDGI_STATS = 83;     // DDGIStats: per-frame live/relit/captured counters
+        //   tail — DDGIProbeAux[totalProbes], one record per probe across ALL
+        //   cascades: the last frame a shaded pixel (or another probe's hit
+        //   point) requested it, its GPU-computed classification, and the #751
+        //   bounce-coverage accumulator. This is the sparsity HISTORY and must
+        //   survive across frames. C++ twin: DDGIProbeUpdatePass::
+        //   ProbeAuxRecordGPU.
+        //
+        // Both halves are read back ONLY by the explicit diagnostics entry
+        // point — never inside DDGIProbeUpdatePass::Execute, which is
+        // acceptance criterion 3 of #707.
+        //
+        // History, because this family has moved three times: 79/80 while #707
+        // was in review; 82/83 when #715's terrain virtual texture landed on
+        // master first and took 79-81 (the collision merged CLEANLY — the two
+        // blocks are in different parts of this file, so git produced a header
+        // with two constants per slot and nothing caught it until
+        // SSBOSlotUniqueness learned both families); and 6 since issue #1015,
+        // when 82/83 turned out to be above what Mesa drivers expose
+        // (SSBO_BINDING_LIMIT below). The two bindings folded into one because
+        // the namespace had no two free numbers, and the counters were a
+        // 32-byte block that had no reason to be a buffer of its own. When
+        // rebasing a branch that claims bindings, diff the slot NUMBERS
+        // against master, not just the files git reports as conflicting.
+        //
+        // 6 is also UBO_SHADOW (ShadowData), which DDGI_Relight.glsl declares
+        // alongside this block. That is legal on both backends: GL keeps the
+        // namespaces disjoint, and the Vulkan backend maps each resource KIND
+        // with its own VK_SPIRV_RESOURCE_TYPE_* mask (VulkanPipelineBuilder::
+        // BuildBindingMappings, amendment (29)), so a UBO and an SSBO at one
+        // number never share a descriptor mapping. Particle_Billboard_GPU.glsl
+        // has declared SSBO 0 + UBO 0 + sampler 0 since #691 on that basis.
+        static constexpr u32 SSBO_DDGI_PROBE_AUX = 6; // { DDGIStats header; DDGIProbeAux[totalProbes] }
 
         // GPU prefix-sum / parallel scan (issue #713). Bound by
         // `GPUPrefixSum::ExclusiveScanInPlace` immediately before each of its
@@ -2616,20 +2641,42 @@ namespace OloEngine
         static constexpr u32 SSBO_TERRAIN_LOD_MAP = 61;       // uint[(1<<depth)^2]: selected level per finest-node texel
         static constexpr u32 SSBO_TERRAIN_DRAW_ARGS = 62;     // DrawElementsIndirectCommand (also bound as GL_DRAW_INDIRECT_BUFFER, so it must be its own buffer at offset 0)
 
-        // Terrain adaptive virtual texturing (issue #715). Three
-        // buffers, and NO new UBO — deliberately: the UBO namespace has exactly
-        // one free slot under the GL 4.6 minimum of 84 (UBO_BINDING_LIMIT is
-        // 83), and a feature that wants a per-dispatch parameter block has no
-        // business spending the last one. The bake and indirection kernels read
-        // their parameters from a fixed HEADER at the front of their own SSBO
-        // instead, and the shading-side parameters ride the existing
-        // UBO_TERRAIN (10) block as three appended vec4s.
+        // Terrain adaptive virtual texturing (issue #715). Three buffers on
+        // ONE binding, and NO new UBO — deliberately: the UBO namespace has
+        // exactly one free slot under the GL 4.6 minimum of 84
+        // (UBO_BINDING_LIMIT is 83), and a feature that wants a per-dispatch
+        // parameter block has no business spending the last one. The bake and
+        // indirection kernels read their parameters from a fixed HEADER at the
+        // front of their own SSBO instead, and the shading-side parameters
+        // ride the existing UBO_TERRAIN (10) block as three appended vec4s.
         //
-        // 79-81, above the VSM range (68-78), so the two systems' ten-and-three
-        // bindings cannot collide the way #713/#714 and #703/#818 did.
-        static constexpr u32 SSBO_TERRAIN_VT_FEEDBACK = 79;    // uint[feedbackW*feedbackH], written by the terrain FRAGMENT stage
-        static constexpr u32 SSBO_TERRAIN_VT_BAKE = 80;        // bake params header + VTBakeRequest[]
-        static constexpr u32 SSBO_TERRAIN_VT_INDIRECTION = 81; // update-window header + VTIndirectionUpdate[]
+        // The three buffers that share this number, and why sharing is safe:
+        //
+        //   TerrainVTFeedback — uint[feedbackW*feedbackH], written by the
+        //     terrain FRAGMENT stage. Rebound by CommandDispatch immediately
+        //     before EVERY terrain draw (never published once and trusted).
+        //   TerrainVTBake — params header + VTBakeRequest[], read by
+        //     TerrainVTTileBake.comp and TerrainVTCompressBC7.comp. Bound by
+        //     TerrainVirtualTexture::BakeTiles immediately before its own
+        //     dispatch pair.
+        //   TerrainVTIndirectionUpdates — window header + VTIndirectionUpdate[],
+        //     read by TerrainVTIndirectionWrite/Fill.comp. Bound by
+        //     PublishIndirection immediately before its dispatches.
+        //
+        // No VT shader declares more than one of the three, every user rebinds
+        // before it reads, and all three live inside the terrain's own
+        // TerrainVirtualTexture::Update / draw — the dispatch-local pattern the
+        // two-phase instance cull uses at 18/19. What would break it: a kernel
+        // that needs two of the buffers bound at once, or a consumer that
+        // relies on a binding surviving from an earlier pass. Neither exists;
+        // TerrainVTCompressBC7 reads the bake header "still bound" only because
+        // BakeTiles bound it moments earlier in the same function.
+        //
+        // These were 79/80/81 until issue #1015: 80 and 81 are above the Mesa
+        // SSBO ceiling (SSBO_BINDING_LIMIT below), so on the AMD CI box every
+        // VT kernel failed to compile. 79 was the one number the family could
+        // keep, and the namespace had no free ones to give.
+        static constexpr u32 SSBO_TERRAIN_VT = 79; // feedback (fragment) / bake params / indirection updates — rebound per use
 
         // The structured GPU readback-stats channel (issue #721). ONE 144-byte
         // block -- overflow-flag word, enable gate, frame index, 32 counter
@@ -2637,12 +2684,13 @@ namespace OloEngine
         // into a fenced device-to-host ring. GLSL twin:
         // include/GPUReadbackStats.glsl. C++ side: Renderer/Debug/GPUReadbackStats.h.
         //
-        // 64, AND IT IS THE LAST NUMBER AVAILABLE. Read the SSBO_VSM_LOCAL_LIGHTS
+        // 64, AND IT WAS THE LAST NUMBER AVAILABLE. Read the SSBO_VSM_LOCAL_LIGHTS
         // note above first: this namespace is not merely tight, it is FULL.
-        // Every value 0..83 (the GL 4.6 minimum guarantee, exclusive) is claimed
-        // by *some* namespace; 57 and 63 are reserved engine-wide for the Vulkan
-        // vertex-pull streams; and 64 is the only number never claimed as an
-        // SSBO -- it is TEX_DDGI_VISIBILITY in the SAMPLER namespace.
+        // Every value 0..79 (SSBO_BINDING_LIMIT, exclusive — the Mesa ceiling,
+        // NOT the 84 the UBO namespace gets) is claimed by *some* namespace; 57
+        // and 63 are reserved engine-wide for the Vulkan vertex-pull streams;
+        // and 64 was the only number never claimed as an SSBO -- it is
+        // TEX_DDGI_VISIBILITY in the SAMPLER namespace.
         //
         // Reusing a number across namespaces is legal on GL (three disjoint
         // namespaces) and legal on Vulkan too, EXCEPT inside a single shader:
@@ -2657,8 +2705,11 @@ namespace OloEngine
         // GI pass. The fix then is to renumber one side, not to delete the test.
         //
         // NOTHING IS LEFT AFTER THIS. The next feature that wants a buffer
-        // binding has to either ride an existing block (the way #703 and #707
-        // did) or renumber. Say so in your issue before you start.
+        // binding has to either ride an existing block (the way #703, #707 and
+        // #1015 did) or share a dispatch-local number with buffers that are
+        // rebound before every use (the way the terrain VT does at 79).
+        // Renumbering upward is NOT an option any more: 80 is a hard ceiling,
+        // see SSBO_BINDING_LIMIT. Say so in your issue before you start.
         static constexpr u32 SSBO_GPU_STATS = 64;
 
         // The engine-wide Vulkan vertex-pull pair (ADR 0011 §5; issue #691,
@@ -2699,6 +2750,68 @@ namespace OloEngine
         // attribute path serves the same streams through vertex-input state.
         static constexpr u32 SSBO_VERTEX_PULL = 57; // "OloVertexPull" — VAO stream 0 (Vulkan-only)
         static constexpr u32 SSBO_BONE_PULL = 63;   // "OloBonePull" — VAO stream 1, bone influences (Vulkan-only)
+
+        // The SSBO namespace's ceiling, EXCLUSIVE: every SSBO_* above must be
+        // strictly below it. This is 80, not the 84 the UBO namespace gets,
+        // and the difference is not a typo (issue #1015).
+        //
+        // GL 4.6 guarantees only 8 for GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS;
+        // what drivers actually expose is a product of per-stage limits. Mesa
+        // gallium drivers (radeonsi on the AMD CI box, but every Mesa driver
+        // with 16 SSBOs per stage) report 5 graphics stages x 16 = 80 —
+        // compute is not counted. NVIDIA reports 96, which is why bindings
+        // 80..83 compiled and ran on every dev box for months and failed only
+        // on the self-hosted AMD runner, where the GLSL compiler rejects the
+        // shader outright:
+        //
+        //   layout(binding = 82) for 1 SSBOs exceeds the maximum number of
+        //   SSBO binding points (80)
+        //
+        // and glBindBufferBase on an index >= 80 is GL_INVALID_VALUE. In Debug
+        // the failed compile is an OLO_CORE_ASSERT in Renderer3D::Init, which
+        // took down 212 test processes at once; in Release it left DDGI with
+        // no kernel and the terrain VT with no bake.
+        //
+        // Sized as a COUNT like UBO_BINDING_LIMIT: compare with `<`. The
+        // per-constant static_assert below is the compile-time half of the
+        // guard; OpenGLRendererAPI::Init queries the driver's real value and
+        // logs one OLO_CORE_ERROR when it is below this, which is the runtime
+        // half — and the ONLY line you will see on a driver that exposes fewer.
+        static constexpr u32 SSBO_BINDING_LIMIT = 80;
+
+        // The highest slot any SSBO_* claims, derived rather than hand-picked
+        // for the same reason UBO_BINDING_LIMIT is: a hand-picked "top"
+        // constant silently stops covering the range when a family is added
+        // above it (the reflection test's kHighestKnownSSBOBinding had to be
+        // re-pointed six times). SSBO_VERTEX_PULL / SSBO_BONE_PULL are
+        // included: GL never binds them, but they are claimed numbers.
+        static constexpr u32 SSBO_HIGHEST_BINDING = std::max({ SSBO_GPU_PARTICLES, SSBO_ALIVE_INDICES, SSBO_COUNTERS, SSBO_FREE_LIST, SSBO_INDIRECT_DRAW,
+                                                               SSBO_EMIT_STAGING, SSBO_SNOW_DEFORMERS, SSBO_LIGHT_PROBES, SSBO_FPLUS_POINT_LIGHTS,
+                                                               SSBO_FPLUS_SPOT_LIGHTS, SSBO_FPLUS_LIGHT_INDICES, SSBO_FPLUS_LIGHT_GRID, SSBO_FPLUS_GLOBAL_INDEX,
+                                                               SSBO_GPU_PARTICLES_PREV, SSBO_INSTANCE_DATA, SSBO_INSTANCE_CULL_INPUT, SSBO_INSTANCE_DRAW_INDIRECT,
+                                                               SSBO_FPLUS_SPHERE_AREA_LIGHTS, SSBO_AUTO_EXPOSURE_HISTOGRAM, SSBO_AUTO_EXPOSURE_STATE,
+                                                               SSBO_FLUID_POSITIONS, SSBO_FLUID_VELOCITIES, SSBO_FLUID_PREDICTED_A, SSBO_FLUID_PREDICTED_B,
+                                                               SSBO_FLUID_AUX, SSBO_FLUID_GRID_HEAD, SSBO_FLUID_GRID_NEXT, SSBO_FLUID_COUNTERS,
+                                                               SSBO_FLUID_EMIT_STAGING, SSBO_FLUID_BODY_PROXIES, SSBO_FLUID_BODY_IMPULSES, SSBO_FLUID_VELOCITIES_ALT,
+                                                               SSBO_VIRTUAL_CLUSTERS, SSBO_VIRTUAL_GROUPS, SSBO_VIRTUAL_INSTANCES, SSBO_VIRTUAL_DRAW_COMMANDS,
+                                                               SSBO_VIRTUAL_DRAW_ARGS, SSBO_VIRTUAL_VISIBLE, SSBO_VIRTUAL_VERTICES, SSBO_VIRTUAL_SW_LIST,
+                                                               SSBO_VIRTUAL_VISBUFFER, SSBO_VIRTUAL_INDICES, SSBO_VIRTUAL_GROUP_STATES, SSBO_VIRTUAL_REJECTED,
+                                                               SSBO_RESOURCE_HEAP, SSBO_DEBUG_DRAW_LINE, SSBO_DEBUG_DRAW_CIRCLE, SSBO_DEBUG_DRAW_RECTANGLE,
+                                                               SSBO_DEBUG_DRAW_AABB, SSBO_DEBUG_DRAW_BOX, SSBO_DEBUG_DRAW_CONE, SSBO_DEBUG_DRAW_SPHERE,
+                                                               SSBO_REFLECTION_PROBE_GRID, SSBO_VSM_PAGE_TABLE, SSBO_VSM_META_TABLE, SSBO_VSM_HPB,
+                                                               SSBO_VSM_REQUESTS, SSBO_VSM_FREE_PAGES, SSBO_VSM_INVALIDATIONS, SSBO_VSM_CULL_INSTANCES,
+                                                               SSBO_VSM_DRAW_INSTANCES, SSBO_VSM_DRAW_COMMANDS, SSBO_VSM_STATS, SSBO_VSM_LOCAL_LIGHTS,
+                                                               SSBO_DDGI_PROBE_AUX, SSBO_PREFIX_SUM_VALUES, SSBO_PREFIX_SUM_BLOCK_SUMS, SSBO_PREFIX_SUM_TOTAL,
+                                                               SSBO_TERRAIN_NODE_BOUNDS, SSBO_TERRAIN_NODE_LIST_IN, SSBO_TERRAIN_NODE_LIST_OUT,
+                                                               SSBO_TERRAIN_CULL_STATE, SSBO_TERRAIN_VISIBLE_NODES, SSBO_TERRAIN_SPLIT_MAP, SSBO_TERRAIN_LOD_MAP,
+                                                               SSBO_TERRAIN_DRAW_ARGS, SSBO_TERRAIN_VT, SSBO_GPU_STATS, SSBO_VERTEX_PULL, SSBO_BONE_PULL });
+        static_assert(SSBO_HIGHEST_BINDING < SSBO_BINDING_LIMIT,
+                      "An SSBO_* binding is at or above SSBO_BINDING_LIMIT (80). Mesa drivers expose exactly 80 "
+                      "storage-buffer binding points (5 graphics stages x 16), so the shader will not compile on "
+                      "the AMD CI box (issue #1015). Fold the buffer into an existing block or share a "
+                      "dispatch-local number; do not raise the limit.");
+        static_assert(SSBO_BINDING_LIMIT <= MIN_GUARANTEED_BUFFER_BINDINGS,
+                      "SSBO_BINDING_LIMIT must not exceed the bind-state mirrors sized by MIN_GUARANTEED_BUFFER_BINDINGS");
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE

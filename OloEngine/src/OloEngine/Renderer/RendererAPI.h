@@ -571,7 +571,14 @@ namespace OloEngine
         virtual void ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest) = 0;
         virtual void CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer,
                                        u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes) = 0;
-        virtual void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value) = 0;
+        // Fill [offset, offset + size) with `value`, ordered inside the frame's
+        // command stream. The defaults cover the whole buffer; a ranged call
+        // (StorageBuffer::ClearData(offset, size)) is how a per-frame header in
+        // front of persistent GPU-written records is reset without a CPU write.
+        // `size == ~0ull` means "to the end of the buffer" at any offset -- it is
+        // VK_WHOLE_SIZE on the Vulkan backend, and the GL backend resolves it
+        // from the buffer's own size rather than passing a negative length.
+        virtual void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value, u64 offset = 0, u64 size = ~0ull) = 0;
         virtual void ClearBufferFloat(RHI::ResourceHandle buffer, f32 value) = 0;
 
         // ---------------------------------------------------------------------

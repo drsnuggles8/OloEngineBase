@@ -94,3 +94,26 @@ both the YAML and binary codegen with no edits here. To hand-cover a specific
 complex component, add a binary block like `TransformComponent`'s (in both
 `WriteEntityComponentsBinary` and the `ReadEntityComponentsBinary` switch, with a
 matching `CoveredComponentIds` entry) — and bump `OSceneFormat::CurrentVersion`.
+
+## REORDERING a covered component's fields is a version bump too
+
+The generated block writes fields in **declaration order** and the reader
+consumes exactly what the writer wrote, so swapping two fields of a covered
+component keeps the payload's byte COUNT and changes its meaning. That is the
+one staleness the invalidation above cannot see: the `.olo` did not change, so
+its size and timestamp still match, and the schema version only tracks the YAML
+layout. A sidecar written before the swap is then read back with a `bool`'s byte
+landing in a `u32`, and every later field in that entity slides.
+
+It is easy to do by accident, because the reason to reorder usually has nothing
+to do with serialization: issue #1015 reordered eight components' fields so the
+structs carry no padding (`Math::BitwiseEqual` compares padding bytes, which GCC
+-O3 re-materialises — see `BitwiseEqualLayoutTest`), and that alone required
+`OSceneFormat::CurrentVersion` v3 → v4.
+
+**So: adding a field, removing one, and moving one are the same change to this
+format.** Bump `CurrentVersion` (and `MinSupportedVersion` with it — a sidecar is
+a derived cache, so rejecting the old one costs one YAML load and a rewrite).
+`git diff` on `Scene/Generated/SceneBinaryWriteComponents.Generated.inl` shows
+whether a component's payload order moved; if that file changed at all, the
+version has to move with it.

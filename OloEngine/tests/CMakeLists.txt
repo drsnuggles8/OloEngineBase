@@ -35,6 +35,9 @@ add_executable(OloEngine-Tests
 		PrecipitationSystemTest.cpp
 		CoreUtilitiesTest.cpp
 		MathTest.cpp
+		# Issue #1019: every type compared whole-object through Math::BitwiseEqual
+		# must have no padding bytes.
+		BitwiseEqualLayoutTest.cpp
 		ModelImporterTest.cpp
 		MeshInterchangeTest.cpp
 		VolumeImportTest.cpp
@@ -64,6 +67,7 @@ add_executable(OloEngine-Tests
 		SceneVersionMigrationTest.cpp
 		EngineSubsystemSmokeTest.cpp
 		AppLaunchSmokeTest.cpp
+		GpuGateSwitchTest.cpp
 		FunctionalTestFixtureCoverageTest.cpp
 		PreCommitToolingSmokeTest.cpp
 		PrefabOverrideTest.cpp
@@ -1177,6 +1181,14 @@ target_compile_definitions(OloEngine-Tests PRIVATE SOL_ALL_SAFETIES_ON=1)
 target_compile_definitions(OloEngine-Tests PRIVATE
     OLO_TEST_EDITOR_ROOT="${CMAKE_SOURCE_DIR}/OloEditor")
 
+# The binary's own path, for the one test that has to observe the suite from
+# the outside: GpuGateSwitchTest re-launches OloEngine-Tests with
+# --olo-gl-backend=none / --olo-require-gpu and reads what the child reported,
+# because the GPU gate's "skip vs fail" decision is process-wide and cannot be
+# flipped from inside the process that already parsed its flags.
+target_compile_definitions(OloEngine-Tests PRIVATE
+    OLO_TEST_SELF_EXE="$<TARGET_FILE:OloEngine-Tests>")
+
 # Fix UTF-8 compilation issue
 if(MSVC)
 	target_compile_options(OloEngine-Tests PRIVATE /utf-8 /FS /bigobj)
@@ -1237,15 +1249,32 @@ include(GoogleTest)
 set(OLO_MESH_CACHE_TESTS
 	"ModelLoadDeterminism.Backpack_FreshVsCache:DataRoundTripTest.BackpackLegacyObjImportsPbrCompanionMaps:DataRoundTripTest.BackpackLegacyObjFlipsUvsToMatchTextureUploads:AllVariants/DeccerCubesLoaderFixture.*")
 
+# --olo-* flags for every ctest-launched test process (a CMake list, so
+# `-DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none` is one flag and
+# `"--olo-gl-backend=egl;--olo-require-gpu"` is two). This is how a CI job that
+# drives the suite through ctest, and therefore never writes the test command
+# line itself, still states what it tested: the value is in the configure line
+# the job log prints, and `ctest -V` shows it on every launched command. An
+# environment variable would work too and is deliberately not offered -- see
+# TestOptions.h for why the suite's knobs are flags. Empty by default; the
+# direct-binary path (the AMD nightly, a developer's shell) is unaffected.
+set(OLO_TESTS_CTEST_ARGS "" CACHE STRING
+	"Extra --olo-* flags passed to every test process ctest launches (semicolon-separated)")
+if(OLO_TESTS_CTEST_ARGS)
+	message(STATUS "OloEngine-Tests: ctest will launch every test with: ${OLO_TESTS_CTEST_ARGS}")
+endif()
+
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
 	DISCOVERY_TIMEOUT 120
 	TEST_FILTER "${OLO_MESH_CACHE_TESTS}"
+	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
 	PROPERTIES RESOURCE_LOCK "olo_mesh_cache"
 )
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
 	DISCOVERY_TIMEOUT 120
 	TEST_FILTER "-${OLO_MESH_CACHE_TESTS}"
+	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
 )
 

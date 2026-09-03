@@ -124,6 +124,29 @@ namespace OloEngine
                             maxCombinedUnits, ShaderBindingLayout::TEX_PRECIPITATION_NOISE);
         }
 
+        // Same check for storage-buffer binding points (issue #1015). The GL
+        // 4.6 minimum is 8, Mesa drivers expose 80 (5 graphics stages x 16),
+        // NVIDIA 96; the engine's SSBO_* constants are pinned below
+        // SSBO_BINDING_LIMIT (80) at compile time. A driver below that turns
+        // every shader declaring a high binding into a compile failure and
+        // every glBindBufferBase on it into GL_INVALID_VALUE — hundreds of
+        // scattered errors whose cause is this one number. Report it ONCE,
+        // here, and keep going: a Release nightly must finish and say so, not
+        // trap.
+        {
+            GLint maxStorageBindings = 0;
+            glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &maxStorageBindings);
+            if (maxStorageBindings > 0 && static_cast<u32>(maxStorageBindings) < ShaderBindingLayout::SSBO_BINDING_LIMIT)
+            {
+                OLO_CORE_ERROR("GPU reports GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS={}, below the engine's "
+                               "SSBO_BINDING_LIMIT ({}); the highest SSBO_* slot is {} (SSBO_HIGHEST_BINDING). Shaders "
+                               "declaring bindings >= {} will fail to compile and their glBindBufferBase calls "
+                               "will raise GL_INVALID_VALUE. See ShaderBindingLayout.h, SSBO_BINDING_LIMIT.",
+                               maxStorageBindings, ShaderBindingLayout::SSBO_BINDING_LIMIT,
+                               ShaderBindingLayout::SSBO_HIGHEST_BINDING, maxStorageBindings);
+            }
+        }
+
         EnableStencilTest();
         SetStencilFunc(RHI::CompareOp::Always, 1, 0xFF);
         SetStencilOp(RHI::StencilOp::Keep, RHI::StencilOp::Keep, RHI::StencilOp::Replace);
@@ -1295,6 +1318,38 @@ namespace OloEngine
         glDrawBuffers(static_cast<GLsizei>(colorAttachmentCount), allBuffers.data());
     }
 
+    namespace
+    {
+        // Make a freshly created, SINGLE-LEVEL texture complete.
+        //
+        // glTextureStorage2D leaves the sampler state at the GL defaults:
+        // MIN_FILTER = NEAREST_MIPMAP_LINEAR and MAX_LEVEL = 1000. With one
+        // level that is mipmap-INCOMPLETE, and for an integer internal format
+        // the mipmapping (non-NEAREST) filter makes it incomplete a second way.
+        // Sampling an incomplete texture is undefined: NVIDIA returns the data,
+        // Mesa returns zero, for texelFetch as much as for a filtered sample.
+        //
+        // That is not hypothetical. The virtual shadow map's R32UI physical page
+        // pool is created through here and read with texelFetch; on the AMD CI
+        // box every resident page fetched 0, which vsmDecodeDepth reads as an
+        // occluder at depth 0, so the whole floor sampled as shadowed while the
+        // region with no resident page stayed correctly lit (issue #1015). A
+        // standalone probe on that GPU returns 0 with the default state and the
+        // written value with the two calls below. Texture.h records the same
+        // lesson from the text renderer's RG16UI band texture.
+        void MakeSingleLevelTextureComplete(u32 textureID, RHI::Format internalFormat)
+        {
+            // Storage has exactly one level; say so, or the mipmapping default
+            // min filter looks for levels that do not exist.
+            glTextureParameteri(textureID, GL_TEXTURE_MAX_LEVEL, 0);
+            if (RHI::IsIntegerFormat(internalFormat))
+            {
+                glTextureParameteri(textureID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTextureParameteri(textureID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            }
+        }
+    } // namespace
+
     u32 OpenGLRendererAPI::CreateTexture2D(u32 width, u32 height, RHI::Format internalFormat)
     {
         OLO_PROFILE_FUNCTION();
@@ -1303,6 +1358,7 @@ namespace OloEngine
         glCreateTextures(GL_TEXTURE_2D, 1, &textureID);
         glTextureStorage2D(textureID, 1, Utils::ToGLInternalFormat(internalFormat),
                            static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+        MakeSingleLevelTextureComplete(textureID, internalFormat);
         return textureID;
     }
 
@@ -1314,6 +1370,7 @@ namespace OloEngine
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &textureID);
         glTextureStorage2D(textureID, 1, Utils::ToGLInternalFormat(internalFormat),
                            static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+        MakeSingleLevelTextureComplete(textureID, internalFormat);
         return textureID;
     }
 
@@ -1867,13 +1924,37 @@ namespace OloEngine
                                  static_cast<GLsizeiptr>(sizeBytes));
     }
 
-    void OpenGLRendererAPI::ClearBufferUInt(RHI::ResourceHandle buffer, u32 value)
+    void OpenGLRendererAPI::ClearBufferUInt(RHI::ResourceHandle buffer, u32 value, u64 offset, u64 size)
     {
         OLO_PROFILE_FUNCTION();
 
         const GLuint bufferID = Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer);
         Utils::GLClearProgramGuard programGuard;
-        glClearNamedBufferData(bufferID, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
+        if (offset == 0 && size == ~0ull)
+        {
+            glClearNamedBufferData(bufferID, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
+            return;
+        }
+        // `~0ull` means "to the end of the buffer" (it is VK_WHOLE_SIZE on the
+        // Vulkan twin). GL has no such sentinel, and casting it straight to
+        // GLsizeiptr would hand glClearNamedBufferSubData a negative size, so
+        // resolve the remaining length from the buffer itself.
+        GLsizeiptr clearSize = 0;
+        if (size == ~0ull)
+        {
+            GLint64 bufferBytes = 0;
+            glGetNamedBufferParameteri64v(bufferID, GL_BUFFER_SIZE, &bufferBytes);
+            const GLint64 remaining = bufferBytes - static_cast<GLint64>(offset);
+            if (remaining <= 0)
+                return;
+            clearSize = static_cast<GLsizeiptr>(remaining);
+        }
+        else
+        {
+            clearSize = static_cast<GLsizeiptr>(size);
+        }
+        glClearNamedBufferSubData(bufferID, GL_R32UI, static_cast<GLintptr>(offset), clearSize,
+                                  GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
     }
 
     void OpenGLRendererAPI::ClearBufferFloat(RHI::ResourceHandle buffer, f32 value)

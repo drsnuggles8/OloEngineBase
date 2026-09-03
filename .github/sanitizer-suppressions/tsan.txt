@@ -56,3 +56,21 @@ race:JPH::TempAllocatorImpl::Allocate
 race:JPH::QuadTree::ValidateTree
 # UVec4 SIMD int load in the same broadphase/job overlap.
 race:JPH::UVec4::sLoadInt4
+
+# ── Mesa's own driver threads (libgallium), not engine code ───────────────────
+# Needed by the GPU-under-sanitizer nightly (gpu-sanitizers-amd.yml), which is
+# the only job that runs TSan with a REAL GL context; the routed TSan job passes
+# --olo-gl-backend=none and never loads a driver.
+#
+# radeonsi spawns its own worker threads ('OloEngin:gdrv0' and friends) and
+# synchronises them internally. TSan cannot see that synchronisation, because
+# libgallium is not instrumented -- so every allocation the driver makes on one
+# of its threads and frees on the caller's looks like a race between calloc and
+# free with no engine frame in either stack. Observed on a readback in
+# PostProcessPropertyTests: both racing accesses inside libgallium-25.2.7,
+# reached through the engine only as the caller.
+#
+# called_from_lib, not a race: rule, because the racing frames ARE the
+# interceptors (free/calloc) and carry no symbol of their own. Scoped to the one
+# library, so a genuine engine-side race still reports normally.
+called_from_lib:libgallium

@@ -732,10 +732,10 @@ void main()
             src, feedback, std::regex(R"(layout\(std430,\s*binding\s*=\s*(\d+)\)\s*buffer\s+TerrainVTFeedback)")))
             << "the TerrainVTFeedback block is not declared in TerrainVirtualTexture.glsl";
         EXPECT_EQ(static_cast<u32>(std::stoul(feedback[1].str())),
-                  ShaderBindingLayout::SSBO_TERRAIN_VT_FEEDBACK)
+                  ShaderBindingLayout::SSBO_TERRAIN_VT)
             << "TerrainVirtualTexture.glsl writes feedback to SSBO " << feedback[1].str()
-            << " but ShaderBindingLayout::SSBO_TERRAIN_VT_FEEDBACK is "
-            << ShaderBindingLayout::SSBO_TERRAIN_VT_FEEDBACK
+            << " but ShaderBindingLayout::SSBO_TERRAIN_VT is "
+            << ShaderBindingLayout::SSBO_TERRAIN_VT
             << " — the page requests land in another system's buffer and the VT loop never converges.";
     }
 

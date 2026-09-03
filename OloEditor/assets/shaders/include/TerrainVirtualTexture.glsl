@@ -44,6 +44,9 @@ layout(binding = 68) uniform sampler2DArray u_TerrainVTCache;
 // back a few frames later. NOT `writeonly`: a `readonly`/`writeonly` qualifier
 // here would have to agree across every includer, and the buffer is genuinely
 // write-only from the shader's side only by convention.
+// binding 79 = SSBO_TERRAIN_VT: the bake and indirection kernels declare their
+// own blocks at the same number; CommandDispatch rebinds this buffer before
+// every terrain draw, so nothing relies on the binding surviving (issue #1015).
 layout(std430, binding = 79) buffer TerrainVTFeedback
 {
     uint b_TerrainVTFeedback[];

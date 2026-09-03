@@ -54,15 +54,38 @@ namespace OloEngine::Tests
         // the current process. Initializes the context on first call.
         static bool IsGpuAvailable();
 
-        // Convenience: calls GTEST_SKIP() with a helpful message if no GPU.
+        // Why IsGpuAvailable() is false, for the skip/fail message. Empty when
+        // a context was simply not obtainable; otherwise names the flag that
+        // forbade the attempt (`--olo-gl-backend=none`), so a run's own log
+        // says whether the GPU tests skipped for want of hardware or on
+        // purpose. The two gate sites (the macro below and
+        // RendererAttachedTest::SetUp) keep their historic wording, which the
+        // CI "assert GPU tests actually ran" step matches; this is appended.
+        static const char* GpuUnavailableDetail();
+
+        // True when `--olo-require-gpu` was given: the gate sites FAIL rather
+        // than skip. Read here rather than at each site so the two cannot
+        // disagree.
+        static bool GpuRequired();
+
+        // Convenience: calls GTEST_SKIP() with a helpful message if no GPU --
+        // or FAIL() under --olo-require-gpu, for a job that exists to run the
+        // GPU tests and must not go green by skipping them all.
         // Must be called from within a TEST/TEST_F body.
-#define OLO_ENSURE_GPU_OR_SKIP()                                                       \
-    do                                                                                 \
-    {                                                                                  \
-        if (!::OloEngine::Tests::RenderPropertyFixture::IsGpuAvailable())              \
-        {                                                                              \
-            GTEST_SKIP() << "No GPU / GL 4.5+ context available in this environment."; \
-        }                                                                              \
+#define OLO_ENSURE_GPU_OR_SKIP()                                                                       \
+    do                                                                                                 \
+    {                                                                                                  \
+        if (!::OloEngine::Tests::RenderPropertyFixture::IsGpuAvailable())                              \
+        {                                                                                              \
+            if (::OloEngine::Tests::RenderPropertyFixture::GpuRequired())                              \
+            {                                                                                          \
+                FAIL() << "--olo-require-gpu: no GL 4.6 context could be created, and this run "       \
+                          "would otherwise skip every GPU-gated test and pass having verified nothing" \
+                       << ::OloEngine::Tests::RenderPropertyFixture::GpuUnavailableDetail();           \
+            }                                                                                          \
+            GTEST_SKIP() << "No GPU / GL 4.5+ context available in this environment."                  \
+                         << ::OloEngine::Tests::RenderPropertyFixture::GpuUnavailableDetail();         \
+        }                                                                                              \
     } while (false)
 
       private:

@@ -108,7 +108,19 @@ namespace OloEngine::Tests
         // again, note the UBO namespace is the tighter one (UBO_BINDING_LIMIT is
         // 83 against a GL 4.6 ceiling of 84) -- both #715 and #707 deliberately
         // spent none of it.
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_DDGI_STATS;
+        //
+        // Re-pointed DOWN to SSBO_TERRAIN_VT (79) by issue #1015, the first
+        // move in this history that was not a collision: 80..83 are above what
+        // Mesa drivers expose (GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS = 80 on
+        // radeonsi, the AMD CI box), so DDGI's two bindings folded into one at
+        // 6 and the terrain VT's three buffers now share 79. The ceiling is a
+        // constant now -- ShaderBindingLayout::SSBO_BINDING_LIMIT, pinned by a
+        // static_assert over every SSBO_* and by
+        // ShaderBindingLayout.SSBOSlotsFitTheMesaCeiling -- so the number here
+        // can only ever move within 0..79. Nothing above 79 is legal any more.
+        // Derived, not hand-pointed: the header's own max over every SSBO_*,
+        // so a family that moves the top slot cannot leave this stale.
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_HIGHEST_BINDING;
 
         struct BindingFailure
         {

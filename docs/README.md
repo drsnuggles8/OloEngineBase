@@ -68,6 +68,8 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [ops/build.md](ops/build.md) — full Windows / Linux / WSL build matrix.
 - [ops/deployment.md](ops/deployment.md) — OloServer deployment / packaging.
 - [ops/self-hosted-gpu-runner.md](ops/self-hosted-gpu-runner.md) — the self-hosted AMD GPU CI runner.
+- [ops/self-hosted-host-hygiene.md](ops/self-hosted-host-hygiene.md) — the box behind the runners: the update timer must not reboot under a job, the GPU resets during the suite, one host is shared.
+- [ops/self-hosted-linux-toolchain.md](ops/self-hosted-linux-toolchain.md) — the pinned clang-19 is provisioned by hand and selected by absolute path; a missing pin warns, never installs.
 
 ## adr/ — architecture decision records
 
@@ -84,6 +86,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [adr/0011-rhi-neutral-resource-and-binding-model.md](adr/0011-rhi-neutral-resource-and-binding-model.md) — API-neutral RHI resource/binding model: identity vs binding address vs native handle. The decisions plus an index of all 88 amendments (what each decided, whether it still binds); the amendment bodies are in [adr/0011-amendments.md](adr/0011-amendments.md).
 - [adr/0012-adopt-the-ue-container-library-for-engine-owned-data.md](adr/0012-adopt-the-ue-container-library-for-engine-owned-data.md) — adopt the UE container library for engine-owned data; close the half-adopted state by growing usage.
 - [adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md](adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md) — destructible objects swap in pre-authored debris assets; no runtime mesh fracture.
+- [adr/0017-windows-ci-critical-path-measure-before-a-self-hosted-runner.md](adr/0017-windows-ci-critical-path-measure-before-a-self-hosted-runner.md) — the Windows CI critical path is measured on a writable cache before any self-hosted Windows runner is built, and never on the interactive workstation.
 
 ## bug-investigations/ — postmortems & deep-dives
 

@@ -35,9 +35,24 @@ on:
     - cron: '23 1 * * *' # nightly 01:23 UTC — off the on-the-hour surge, and clear
                          # of gpu-conformance (00:47) and cross-vendor (03:47).
   workflow_dispatch:
+    inputs:
+      force_hosted:
+        # The parity A/B for the self-hosted routing (#1015): dispatch twice on
+        # one commit, once each way, and diff the two runs' pass/fail sets. Only
+        # the three Linux sanitizer jobs read it; it can only move a job OFF the
+        # box, so it is safe to leave exposed.
+        description: 'Run the Linux sanitizer jobs on GitHub-hosted ubuntu-24.04 even when the self-hosted box is enabled'
+        type: boolean
+        default: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # The `force_hosted` input is PART OF THE KEY, not decoration. The parity A/B
+  # dispatches this workflow TWICE on one commit, once each way, and a group that
+  # ignores the input puts both arms in the same bucket -- where GitHub keeps at
+  # most one PENDING run and silently cancels the other. The first attempt at the
+  # A/B lost its routed arm exactly this way and looked like an infrastructure
+  # flake. Keyed on the input, the two arms are independent runs.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.inputs.force_hosted || 'default' }}
   # PULL REQUESTS ONLY. A cancelled run banks no cache -- `actions/cache/save` runs
   # `if: always()`, which survives a cancel, but the run still stops mid-build, so
   # what it banks is a partial snapshot at best. The nightly is this workflow's only
@@ -357,34 +372,57 @@ jobs:
     name: ASan + LSan (Linux/Clang)
     needs: detect-changes
     if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
-    # HOSTED, not the self-hosted box -- and #1009 tried the box first, so this is a
-    # measurement rather than a default.
+    # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not -- the same
+    # expression as vulkan-off.yml, whose comment owns the security reasoning:
+    # the fork boundary is `head.repo.full_name`, never a `pull_request_target`
+    # that checks out the PR head, and `vars.OLO_LINUX_SELF_HOSTED` is the kill
+    # switch that comes FIRST so it can only ever move a job off the box.
     #
-    # Routing these three there does not move a job, it CHANGES WHAT THEY TEST, in
-    # two ways that compound:
+    # #1010 measured these three jobs on the box and sent them back hosted: 215
+    # failed of 6,909 there against 1 of 6,940 hosted, same commit (run
+    # 33561256256). Not because the box was slow -- because routing them CHANGED
+    # WHAT THEY TESTED, and #1015 fixes both halves by contract:
     #
-    #   1. The box's toolchain is clang 21 against gcc-toolset-15's libstdc++, not
-    #      the pinned clang-19. UBSan then reports inside the standard library --
-    #      "downcast of misaligned address 0x000036f1c2f9 ... requires 8 byte
-    #      alignment" in hashtable_policy.h, "execution reached an unreachable
-    #      program point" in stl_vector.h. A six-byte pointer is garbage, so those
-    #      are the toolchain pairing, not engine UB.
-    #   2. The box HAS A GPU. Every test gated on a GL 4.6 context skips on a hosted
-    #      runner and RUNS there -- so ~200 visual/golden tests execute under a
-    #      sanitizer for the first time ever.
+    #   1. The box has a GPU. Every test gated on a GL 4.6 context skips on a
+    #      hosted runner and RAN there, ~200 visual/golden tests under a sanitizer
+    #      for the first time. Now every ctest-launched test process gets
+    #      `--olo-gl-backend=none` (OLO_TESTS_CTEST_ARGS on the configure line),
+    #      which attempts no context at all, so the gate skips exactly as it does
+    #      hosted. It is passed on BOTH arms: this job's contract is "no GPU
+    #      tests", stated on its own command line, not inherited from whatever
+    #      hardware the runner happens to have. GPU coverage under a sanitizer is
+    #      a separate scheduled job with its own baseline (gpu-sanitizers-amd.yml).
+    #   2. The box's compiler was clang 21 against gcc-toolset-15's libstdc++,
+    #      not the pinned clang-19, and UBSan reported inside the standard
+    #      library. setup-linux-build now resolves the pinned toolchain on the
+    #      self-hosted arm as well; when it is not provisioned it WARNS (a
+    #      run-summary annotation naming the dnf command) and builds with the
+    #      system clang 21 rather than failing -- see its "Resolve toolchain"
+    #      step for why a missing pin must not take the box out. Read the
+    #      "toolchain:" line of a self-hosted job before comparing it with a
+    #      hosted one.
     #
-    # Together: 215 failed of 6,909, 212 of them SIGTRAP, against 1 of 6,940 on the
-    # hosted arm (run 33561256256). The second point is genuinely valuable coverage
-    # and the first is a real question about the pairing -- both are their own piece
-    # of work, with their own baseline to establish, and neither is a caching change.
+    # The acceptance test for this routing is a same-commit A/B: dispatch the
+    # workflow once normally and once with `force_hosted: true`, then compare
+    # the pass/fail sets and the wall-clock. #1015's PR records the pair.
     #
-    # vulkan-off and steam-stub DO run on the box: they build and assert, they do not
-    # run a GPU-gated suite under instrumentation, and vulkan-off went 1h36m -> 28m
-    # there. The split is by what a job does, not by convenience.
+    # THE SCHEDULED RUN STAYS HOSTED. It is the hosted arm's only cache warmer
+    # (the trigger note at the top of this file: only default-branch runs write
+    # a cache entry other branches can read), and the box needs no warmer -- its
+    # ccache is a persistent directory every PR run feeds. Routing the nightly
+    # to the box would leave every fork PR and every `force_hosted` A/B cold,
+    # and would put three sanitizer jobs on the two CI slots at 01:23 UTC, an
+    # hour before gpu-sanitizers-amd.yml needs them.
     #
-    # Pinned to ubuntu-24.04 (noble) because the LLVM apt repo URL hardcodes the
-    # distro codename; if ubuntu-latest jumped release the apt source would 404.
-    runs-on: ubuntu-24.04
+    # `olo-ci`, not `gpu-amd`: the GPU nightly owns its runner exclusively.
+    # The hosted arm is pinned to ubuntu-24.04 (noble) because the LLVM apt repo
+    # URL hardcodes the distro codename; if ubuntu-latest jumped release the apt
+    # source would 404.
+    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && github.event.inputs.force_hosted != 'true'
+                 && github.event_name != 'schedule'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -476,6 +514,7 @@ jobs:
         -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
+        -DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none
 
     # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
     # is the whole point: the combined actions/cache action saves in a POST-JOB
@@ -496,11 +535,16 @@ jobs:
         path: ${{ steps.vcpkg.outputs.cache-path }}
 
     - name: Build tests
-      # Pinned to --parallel 2: higher concurrency has been observed to
-      # exhaust runner memory (clang++ under sanitizer instrumentation uses
-      # ~3 GB per translation unit), causing `The hosted runner lost
-      # communication with the server` failures.
-      run: cmake --build build --target OloEngine-Tests --parallel 2
+      # Pinned to --parallel 2 on the hosted arm: higher concurrency has been
+      # observed to exhaust runner memory (clang++ under sanitizer
+      # instrumentation uses ~3 GB per translation unit), causing `The hosted
+      # runner lost communication with the server` failures. 4 on the
+      # self-hosted box (16 threads, 31 GiB, a persistent ccache): two of these
+      # jobs run there at once, and 4 + 4 compiles is ~24 GB peak. The same
+      # width is used for ctest below -- with --olo-gl-backend=none the test
+      # phase is CPU-only there, and the box has the memory for four
+      # instrumented processes per job.
+      run: cmake --build build --target OloEngine-Tests --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }}
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
@@ -586,7 +630,7 @@ jobs:
       # a *compile-time* constraint (~3 GB per TU under clang+sanitizer) and does NOT
       # transfer to the test phase — don't "reconcile" the two numbers; they bound
       # different resources (peak compiler RSS vs. peak instrumented-test RSS).
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
         LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt
@@ -609,34 +653,15 @@ jobs:
     name: UBSan (Linux/Clang)
     needs: detect-changes
     if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
-    # HOSTED, not the self-hosted box -- and #1009 tried the box first, so this is a
-    # measurement rather than a default.
-    #
-    # Routing these three there does not move a job, it CHANGES WHAT THEY TEST, in
-    # two ways that compound:
-    #
-    #   1. The box's toolchain is clang 21 against gcc-toolset-15's libstdc++, not
-    #      the pinned clang-19. UBSan then reports inside the standard library --
-    #      "downcast of misaligned address 0x000036f1c2f9 ... requires 8 byte
-    #      alignment" in hashtable_policy.h, "execution reached an unreachable
-    #      program point" in stl_vector.h. A six-byte pointer is garbage, so those
-    #      are the toolchain pairing, not engine UB.
-    #   2. The box HAS A GPU. Every test gated on a GL 4.6 context skips on a hosted
-    #      runner and RUNS there -- so ~200 visual/golden tests execute under a
-    #      sanitizer for the first time ever.
-    #
-    # Together: 215 failed of 6,909, 212 of them SIGTRAP, against 1 of 6,940 on the
-    # hosted arm (run 33561256256). The second point is genuinely valuable coverage
-    # and the first is a real question about the pairing -- both are their own piece
-    # of work, with their own baseline to establish, and neither is a caching change.
-    #
-    # vulkan-off and steam-stub DO run on the box: they build and assert, they do not
-    # run a GPU-gated suite under instrumentation, and vulkan-off went 1h36m -> 28m
-    # there. The split is by what a job does, not by convenience.
-    #
-    # Pinned to ubuntu-24.04 (noble) because the LLVM apt repo URL hardcodes the
-    # distro codename; if ubuntu-latest jumped release the apt source would 404.
-    runs-on: ubuntu-24.04
+    # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary
+    # and the `force_hosted` A/B live on that job. Keep the three expressions
+    # byte-identical: a job that drifts onto a label set nobody serves does not
+    # fail, it queues for 24 hours.
+    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && github.event.inputs.force_hosted != 'true'
+                 && github.event_name != 'schedule'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -714,6 +739,7 @@ jobs:
         -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_UBSAN=ON
         -DBUILD_TESTS=ON
+        -DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none
 
     # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
     # is the whole point: the combined actions/cache action saves in a POST-JOB
@@ -738,7 +764,7 @@ jobs:
       # exhaust runner memory (clang++ under sanitizer instrumentation uses
       # ~3 GB per translation unit), causing `The hosted runner lost
       # communication with the server` failures.
-      run: cmake --build build --target OloEngine-Tests --parallel 2
+      run: cmake --build build --target OloEngine-Tests --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }}
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
@@ -812,7 +838,7 @@ jobs:
       # UBSan now enables only the curated eight checks rather than the whole
       # `undefined` group, so vptr is no longer asked of `-fno-rtti` vendor code.
       # This exclusion covers the remaining, genuinely-GNS-side gap. See #636.
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
@@ -857,34 +883,15 @@ jobs:
     # has been observed finishing at 126 minutes, i.e. over this cap. The
     # asymmetry, not the duration, was the bug.
     timeout-minutes: 180
-    # HOSTED, not the self-hosted box -- and #1009 tried the box first, so this is a
-    # measurement rather than a default.
-    #
-    # Routing these three there does not move a job, it CHANGES WHAT THEY TEST, in
-    # two ways that compound:
-    #
-    #   1. The box's toolchain is clang 21 against gcc-toolset-15's libstdc++, not
-    #      the pinned clang-19. UBSan then reports inside the standard library --
-    #      "downcast of misaligned address 0x000036f1c2f9 ... requires 8 byte
-    #      alignment" in hashtable_policy.h, "execution reached an unreachable
-    #      program point" in stl_vector.h. A six-byte pointer is garbage, so those
-    #      are the toolchain pairing, not engine UB.
-    #   2. The box HAS A GPU. Every test gated on a GL 4.6 context skips on a hosted
-    #      runner and RUNS there -- so ~200 visual/golden tests execute under a
-    #      sanitizer for the first time ever.
-    #
-    # Together: 215 failed of 6,909, 212 of them SIGTRAP, against 1 of 6,940 on the
-    # hosted arm (run 33561256256). The second point is genuinely valuable coverage
-    # and the first is a real question about the pairing -- both are their own piece
-    # of work, with their own baseline to establish, and neither is a caching change.
-    #
-    # vulkan-off and steam-stub DO run on the box: they build and assert, they do not
-    # run a GPU-gated suite under instrumentation, and vulkan-off went 1h36m -> 28m
-    # there. The split is by what a job does, not by convenience.
-    #
-    # Pinned to ubuntu-24.04 (noble) because the LLVM apt repo URL hardcodes the
-    # distro codename; if ubuntu-latest jumped release the apt source would 404.
-    runs-on: ubuntu-24.04
+    # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary
+    # and the `force_hosted` A/B live on that job. Keep the three expressions
+    # byte-identical: a job that drifts onto a label set nobody serves does not
+    # fail, it queues for 24 hours.
+    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && github.event.inputs.force_hosted != 'true'
+                 && github.event_name != 'schedule'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -966,6 +973,7 @@ jobs:
         -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_TSAN=ON
         -DBUILD_TESTS=ON
+        -DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none
 
     # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
     # is the whole point: the combined actions/cache action saves in a POST-JOB
@@ -990,7 +998,7 @@ jobs:
       # exhaust runner memory (clang++ under sanitizer instrumentation uses
       # ~3 GB per translation unit), causing `The hosted runner lost
       # communication with the server` failures.
-      run: cmake --build build --target OloEngine-Tests --parallel 2
+      run: cmake --build build --target OloEngine-Tests --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }}
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
@@ -1079,7 +1087,7 @@ jobs:
       # ThreadState and its first intercepted malloc faults inside TSan's own
       # allocator — a bare SIGSEGV with no report. OloEngine/vendor/CMakeLists.txt
       # now filters that definition off the imported target; see the comment there.
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
       env:
         # suppressions: vendored-code races we accept rather than patch — see
         # the rationale comments in tsan.txt (currently: Jolt's assert-build

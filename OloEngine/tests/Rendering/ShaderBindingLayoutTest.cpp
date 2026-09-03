@@ -208,7 +208,8 @@ TEST(ShaderBindingLayout, SSBOSlotUniqueness)
     checkSlot(ShaderBindingLayout::SSBO_FREE_LIST, "SSBO_FREE_LIST");
     checkSlot(ShaderBindingLayout::SSBO_INDIRECT_DRAW, "SSBO_INDIRECT_DRAW");
     checkSlot(ShaderBindingLayout::SSBO_EMIT_STAGING, "SSBO_EMIT_STAGING");
-    checkSlot(ShaderBindingLayout::SSBO_FOLIAGE_INSTANCES, "SSBO_FOLIAGE_INSTANCES");
+    // SSBO_FOLIAGE_INSTANCES (6) was a reservation nothing claimed; issue
+    // #1015 retired it and gave 6 to SSBO_DDGI_PROBE_AUX (checked below).
     checkSlot(ShaderBindingLayout::SSBO_SNOW_DEFORMERS, "SSBO_SNOW_DEFORMERS");
     checkSlot(ShaderBindingLayout::SSBO_FLUID_POSITIONS, "SSBO_FLUID_POSITIONS");
     checkSlot(ShaderBindingLayout::SSBO_FLUID_VELOCITIES, "SSBO_FLUID_VELOCITIES");
@@ -264,16 +265,69 @@ TEST(ShaderBindingLayout, SSBOSlotUniqueness)
     // absent from this list. Adding them is worth doing, but is an audit rather
     // than a merge fix -- these two are here because this PR is where the
     // collision actually happened.
-    checkSlot(ShaderBindingLayout::SSBO_TERRAIN_VT_FEEDBACK, "SSBO_TERRAIN_VT_FEEDBACK");
-    checkSlot(ShaderBindingLayout::SSBO_TERRAIN_VT_BAKE, "SSBO_TERRAIN_VT_BAKE");
-    checkSlot(ShaderBindingLayout::SSBO_TERRAIN_VT_INDIRECTION, "SSBO_TERRAIN_VT_INDIRECTION");
+    //
+    // Both families shrank in issue #1015, when their 80..83 turned out to be
+    // above the Mesa SSBO cap (see SSBOSlotsFitTheMesaCeiling below): the
+    // terrain VT's three buffers now share ONE constant (each is rebound before
+    // its own use), and DDGI's stats block became the fixed header of the aux
+    // buffer. One constant per family here is deliberate -- a second constant
+    // aliasing the same number would be exactly the collision this list exists
+    // to catch, so the sharing is expressed as one name, not two equal ones.
+    checkSlot(ShaderBindingLayout::SSBO_TERRAIN_VT, "SSBO_TERRAIN_VT");
     checkSlot(ShaderBindingLayout::SSBO_DDGI_PROBE_AUX, "SSBO_DDGI_PROBE_AUX");
-    checkSlot(ShaderBindingLayout::SSBO_DDGI_STATS, "SSBO_DDGI_STATS");
     // The GPU readback-stats channel (#721). On this list from day one, unlike
     // the families above, because it took the LAST free number in the SSBO
     // namespace -- a future addition that collides with it has nowhere to move
     // to, so the collision has to be loud at the moment it is introduced.
     checkSlot(ShaderBindingLayout::SSBO_GPU_STATS, "SSBO_GPU_STATS");
+}
+
+// =============================================================================
+// SSBO Slots Fit The Mesa Ceiling (issue #1015)
+// =============================================================================
+
+// The GL 4.6 minimum for GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS is 8, and what
+// a driver actually exposes is a product of its per-stage limits: Mesa gallium
+// drivers (radeonsi on the AMD RX 5600 XT CI box, and every Mesa driver with
+// 16 SSBOs per stage) report 5 graphics stages x 16 = 80 -- compute is not
+// counted. NVIDIA reports 96, which is why bindings 80..83 worked on every
+// dev box and failed only on the self-hosted runner, where the driver refused
+// the shader at compile time:
+//
+//   layout(binding = 82) for 1 SSBOs exceeds the maximum number of SSBO
+//   binding points (80)
+//
+// The UBO namespace's 84 does NOT bound the SSBO namespace. This is the L1
+// contract test for that: every SSBO_* constant is below SSBO_BINDING_LIMIT,
+// and the limit is exactly the Mesa value so nobody raises it to the NVIDIA
+// one and calls the box broken again. The compile-time twin is the
+// static_assert next to SSBO_BINDING_LIMIT; this test is the one that names
+// the offender.
+TEST(ShaderBindingLayout, SSBOSlotsFitTheMesaCeiling)
+{
+    EXPECT_EQ(ShaderBindingLayout::SSBO_BINDING_LIMIT, 80u)
+        << "SSBO_BINDING_LIMIT is the Mesa ceiling (5 graphics stages x 16 SSBOs). Raising it to a "
+           "vendor-specific value (NVIDIA: 96) re-breaks the AMD CI box (issue #1015).";
+    EXPECT_LT(ShaderBindingLayout::SSBO_HIGHEST_BINDING, ShaderBindingLayout::SSBO_BINDING_LIMIT);
+
+    auto expectBelowLimit = [](u32 slot, const char* name)
+    {
+        EXPECT_LT(slot, ShaderBindingLayout::SSBO_BINDING_LIMIT)
+            << name << " = " << slot << " is at or above GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS on Mesa (80); "
+            << "the shader declaring it will not compile on the AMD CI box (issue #1015).";
+    };
+
+    // The four that moved in #1015, by name, so a regression names the family.
+    expectBelowLimit(ShaderBindingLayout::SSBO_TERRAIN_VT, "SSBO_TERRAIN_VT");
+    expectBelowLimit(ShaderBindingLayout::SSBO_DDGI_PROBE_AUX, "SSBO_DDGI_PROBE_AUX");
+    // The next-highest families, which are the ones a future addition is most
+    // likely to stack on top of.
+    expectBelowLimit(ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS, "SSBO_VSM_LOCAL_LIGHTS");
+    expectBelowLimit(ShaderBindingLayout::SSBO_VSM_STATS, "SSBO_VSM_STATS");
+    expectBelowLimit(ShaderBindingLayout::SSBO_TERRAIN_NODE_LIST_OUT, "SSBO_TERRAIN_NODE_LIST_OUT");
+    expectBelowLimit(ShaderBindingLayout::SSBO_GPU_STATS, "SSBO_GPU_STATS");
+    expectBelowLimit(ShaderBindingLayout::SSBO_BONE_PULL, "SSBO_BONE_PULL");
+    expectBelowLimit(ShaderBindingLayout::SSBO_VERTEX_PULL, "SSBO_VERTEX_PULL");
 }
 
 // =============================================================================

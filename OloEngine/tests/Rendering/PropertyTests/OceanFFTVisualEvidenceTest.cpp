@@ -450,8 +450,18 @@ namespace OloEngine::Tests
         } scopedMockTime(kCaptureTime);
 
         // Grazing pose so wave shape dominates the frame and the foreground band
-        // can be checked for water opacity.
-        const glm::vec3 pos(0.0f, 3.0f, 42.0f);
+        // can be checked for water opacity -- but ABOVE THE CRESTS, which is the
+        // part this used to get wrong. At amplitude 4 the displacement texture
+        // reaches 3.4 m peaks on the RTX 4090 and 4.6 m on the AMD CI box, and
+        // the camera stood at 3.0 m. Whether the eye was above the surface or
+        // inside a wave was therefore a property of the random sea, and an
+        // underwater frame is a near-uniform fogged blue that no two spectra can
+        // be told apart in: the box read a luma spread of 3.7 where this machine
+        // read 36, on identical source. Seeds 99, 4242 and 20260902 rendered
+        // normally on that same box, which is what a knife edge looks like.
+        // 9 m clears the crests of any realisation this scene can produce, and
+        // at pitch 0.05 the pose is still grazing.
+        const glm::vec3 pos(0.0f, 9.0f, 42.0f);
         const f32 yaw = 0.0f, pitch = 0.05f;
 
         ASSERT_TRUE(static_cast<bool>(m_OceanEntity));
@@ -527,6 +537,55 @@ namespace OloEngine::Tests
             << "JONSWAP foreground band is not water-blue (R=" << meanR << " G=" << meanG << " B=" << meanB << ")";
 
         // Phillips vs JONSWAP must visibly differ — the selector reaches pixels.
+        //
+        // The per-frame luma spread is logged alongside, because "the two frames
+        // are alike" has two very different causes and the RMSE alone cannot
+        // separate them: two DIFFERENT wave fields that happen to score close,
+        // or two frames with no waves in them at all. On the AMD CI box both
+        // frames render as a flat plane (issue #1015) while GpuCompute in this
+        // same suite renders a full wave field on that GPU, so the question is
+        // what this scene does differently — a 200 m patch and a grazing
+        // camera — not which spectrum was selected. A spread near zero says
+        // there is no surface relief to tell apart.
+        const auto lumaSpread = [](const std::vector<u8>& frame)
+        {
+            f64 sum = 0.0;
+            f64 sumSq = 0.0;
+            const std::size_t pixels = frame.size() / 4u;
+            for (std::size_t i = 0; i < pixels; ++i)
+            {
+                const f64 luma = 0.2126 * frame[i * 4 + 0] + 0.7152 * frame[i * 4 + 1] + 0.0722 * frame[i * 4 + 2];
+                sum += luma;
+                sumSq += luma * luma;
+            }
+            if (pixels == 0)
+                return 0.0;
+            const f64 mean = sum / static_cast<f64>(pixels);
+            return std::sqrt(std::max(0.0, sumSq / static_cast<f64>(pixels) - mean * mean));
+        };
+        const f64 phillipsSpread = lumaSpread(phillipsFrame);
+        const f64 jonswapSpread = lumaSpread(jonswapFrame);
+        GTEST_LOG_(INFO) << "spectrum frames: Phillips luma spread " << phillipsSpread
+                         << ", JONSWAP " << jonswapSpread
+                         << " (a flat, wave-free surface reads near zero)";
+
+        // Assert the relief BEFORE comparing the two frames. Without this the
+        // knife-edge failure above arrives as "Phillips and JONSWAP are nearly
+        // identical", which sends the reader hunting through the spectrum
+        // selector -- the one place that was working. Two frames with no waves
+        // in them are of course alike; say so directly. Observed spreads are
+        // 22-36 with the surface in view and under 5 with the camera submerged,
+        // so 10 separates them with room on both sides.
+        constexpr f64 kMinRelief = 10.0;
+        ASSERT_GT(phillipsSpread, kMinRelief)
+            << "Phillips frame has no wave relief (luma spread " << phillipsSpread
+            << "). The surface is not being displaced, or the camera is inside a wave -- check the "
+               "crest height against the camera height before suspecting the spectrum.";
+        ASSERT_GT(jonswapSpread, kMinRelief)
+            << "JONSWAP frame has no wave relief (luma spread " << jonswapSpread
+            << "). The surface is not being displaced, or the camera is inside a wave -- check the "
+               "crest height against the camera height before suspecting the spectrum.";
+
         const f64 rmse = Rgba8Rmse(phillipsFrame, jonswapFrame);
         EXPECT_GT(rmse, 3.0)
             << "Phillips and JONSWAP frames are nearly identical (RMSE " << rmse

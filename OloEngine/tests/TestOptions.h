@@ -29,6 +29,27 @@ namespace OloEngine::Tests
     // `Options()` thereafter. Unknown `--olo-*` flags are a hard error rather
     // than a shrug: a typo'd `--olo-golden-rebse` that silently did nothing
     // would reproduce the invisibility this replaces.
+    // Which windowing/context path RenderPropertyFixture takes for the shared
+    // GL context. Parsed once from --olo-gl-backend, so the accepted spellings
+    // live in exactly one place (TestOptions.cpp) and the fixture switches on
+    // an enum with no fallback branch to drift into.
+    //
+    //   Auto        prefer GLFW (what a developer gets locally); fall back to
+    //               EGL when GLFW cannot reach a display server.
+    //   Glfw / Egl  pin one path. Headless CI pins Egl so a missing display
+    //               server is a deterministic choice, not a silent switch: two
+    //               backends can produce subtly different pixels, and a golden
+    //               baseline must know which one produced it.
+    //   None        attempt no context. Every GPU-gated test then skips exactly
+    //               as on a GitHub-hosted runner (#1015 stage B).
+    enum class GlBackend
+    {
+        Auto,
+        Glfw,
+        Egl,
+        None
+    };
+
     struct TestOptions
     {
         // --olo-golden-rebase : overwrite golden images with this run's output.
@@ -47,9 +68,23 @@ namespace OloEngine::Tests
         bool BenchAssert = false;
         // --olo-soundgraph-perf : run the SoundGraph throughput measurement.
         bool SoundGraphPerf = false;
-        // --olo-gl-backend=<egl|glfw> : force the context-creation path. `egl`
-        // is the headless surfaceless route the GPU runners need.
-        std::string GlBackend;
+        // --olo-gl-backend=<egl|glfw|none|auto> : force the context-creation
+        // path. `auto` is the default and is also accepted explicitly.
+        // `egl` is the headless surfaceless route the GPU runners need. `none`
+        // creates no context at all, so every GPU-gated test skips exactly as
+        // it does on a GitHub-hosted runner -- the switch that lets a run on
+        // the self-hosted GPU box mean the same thing as the hosted run of the
+        // same commit (issue #1015, stage B). Validated at parse time: a typo
+        // here used to fall back to auto-detection silently, and on a box with
+        // a GPU that is the difference between "tested nothing" and "tested
+        // 200 GL tests under a sanitizer".
+        GlBackend GlBackend = GlBackend::Auto;
+        // --olo-require-gpu : turn the GPU gate's skip into a FAILURE. For a
+        // job whose whole purpose is the GPU-gated tests (the nightly
+        // GPU-under-sanitizer baseline, #1015 stage C): without it, a broken
+        // EGL path skips every such test and the run goes green having
+        // verified nothing. Rejected together with `--olo-gl-backend=none`.
+        bool RequireGpu = false;
         // --olo-keep-temp : leave per-test temp directories on disk.
         bool KeepTemp = false;
         // --olo-video=<path> : an FFmpeg-decodable file for the real-decode

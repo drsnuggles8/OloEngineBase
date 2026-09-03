@@ -446,7 +446,14 @@ TEST(McpRendererSettingsApply, DDGICascadesTogglesTheRendererSettingAndReportsPr
     const auto cascadeCurrentValue = [](const PostProcessSettings& p, const RendererSettings& r,
                                         const RS::LeverState& l) -> std::string
     {
-        for (const auto& entry : RS::Describe(p, r, l).at("settings"))
+        // Bind the Describe() result to a name BEFORE iterating it. Writing
+        // `for (... : RS::Describe(p, r, l).at("settings"))` ranges over a
+        // reference INTO a temporary Json; before C++23's P2718R0 that
+        // temporary dies at the end of the range-init expression, so the loop
+        // walks freed memory. MSVC and clang-19 already implement P2718R0 and
+        // hid the bug; GCC 14 does not, and the nightly GCC job read garbage.
+        const Json described = RS::Describe(p, r, l);
+        for (const auto& entry : described.at("settings"))
         {
             if (entry.at("setting") == "ddgicascades")
             {

@@ -41,45 +41,11 @@ namespace OloEngine::Tests
 {
     namespace
     {
-        // Which windowing/context path to use for the shared GL context, via
-        // the --olo-gl-backend flag.
-        //
-        //   Auto (default) — prefer GLFW, the context a developer gets locally;
-        //                    fall back to EGL when GLFW cannot reach a display
-        //                    server, i.e. a headless Linux box that still has a
-        //                    perfectly usable GPU.
-        //   Glfw / Egl     — pin one path. Headless CI pins `egl` so that a
-        //                    missing display server is a deterministic choice
-        //                    rather than a silent backend switch: two backends
-        //                    can produce subtly different pixels, and a golden
-        //                    baseline must know which one produced it.
-        enum class GlBackend
-        {
-            Auto,
-            Glfw,
-            Egl
-        };
-
+        // The backend comes pre-parsed from --olo-gl-backend (TestOptions.h
+        // documents the four values); this is the one place it is read.
         GlBackend SelectBackend()
         {
-            const std::string& raw = OloEngine::Tests::Options().GlBackend;
-            if (raw.empty())
-                return GlBackend::Auto;
-
-            std::string value(raw);
-            std::transform(value.begin(), value.end(), value.begin(),
-                           [](unsigned char c)
-                           { return static_cast<char>(std::tolower(c)); });
-
-            if (value == "egl")
-                return GlBackend::Egl;
-            if (value == "glfw")
-                return GlBackend::Glfw;
-
-            // Unrecognised value: fall back to Auto rather than failing hard —
-            // a typo in CI config should degrade to the normal behaviour, and
-            // the GPU tests will report themselves skipped if nothing works.
-            return GlBackend::Auto;
+            return OloEngine::Tests::Options().GlBackend;
         }
 
         // ---------------------------------------------------------------
@@ -91,6 +57,9 @@ namespace OloEngine::Tests
         {
             std::once_flag m_InitOnce;
             bool m_Available = false;
+            // Set when --olo-gl-backend=none forbade the attempt, so the skip
+            // message can distinguish "no hardware" from "told not to".
+            bool m_ForcedOff = false;
             GLFWwindow* m_Window = nullptr;
 #if defined(OLO_TESTS_HAVE_EGL)
             EGLDisplay m_EglDisplay = EGL_NO_DISPLAY;
@@ -113,6 +82,12 @@ namespace OloEngine::Tests
                                        return;
 
                                    const GlBackend backend = SelectBackend();
+
+                                   if (backend == GlBackend::None)
+                                   {
+                                       m_ForcedOff = true;
+                                       return;
+                                   }
 
                                    if (backend != GlBackend::Egl && TryInitGlfw())
                                    {
@@ -332,6 +307,19 @@ namespace OloEngine::Tests
         auto& ctx = GpuContext::Get();
         ctx.TryInitOnce();
         return ctx.m_Available;
+    }
+
+    const char* RenderPropertyFixture::GpuUnavailableDetail()
+    {
+        auto& ctx = GpuContext::Get();
+        ctx.TryInitOnce();
+        return ctx.m_ForcedOff ? " (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)"
+                               : "";
+    }
+
+    bool RenderPropertyFixture::GpuRequired()
+    {
+        return OloEngine::Tests::Options().RequireGpu;
     }
 
     // -------------------------------------------------------------------------

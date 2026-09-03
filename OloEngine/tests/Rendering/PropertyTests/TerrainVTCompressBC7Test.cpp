@@ -72,7 +72,7 @@ namespace
     constexpr u32 kOutH = kTileBlocks;              // 4
 
     // CPU twin of the std430 header + request tail of the TerrainVTBake SSBO
-    // (binding 80) — the same layout TerrainVirtualTexture.cpp's VTBakeHeader
+    // (SSBO_TERRAIN_VT) — the same layout TerrainVirtualTexture.cpp's VTBakeHeader
     // pins with its own static_assert. The compressor reads only Config0.w
     // (requestCount) and Config1.y (tileTexels); everything else is the bake
     // kernel's business and stays zero here. The request tail reuses the REAL
@@ -191,7 +191,7 @@ TEST(TerrainVTCompressBC7, GpuMode6BlocksDecodeWithTheBcdecOracle)
     header.m_Config0.w = kTiles;      // requestCount
     header.m_Config1.y = kTileTexels; // tileTexels
     Ref<StorageBuffer> bakeBuffer = StorageBuffer::Create(
-        sizeof(VTBakeSsboPod), ShaderBindingLayout::SSBO_TERRAIN_VT_BAKE, StorageBufferUsage::DynamicDraw);
+        sizeof(VTBakeSsboPod), ShaderBindingLayout::SSBO_TERRAIN_VT, StorageBufferUsage::DynamicDraw);
     ASSERT_TRUE(bakeBuffer);
     bakeBuffer->SetData(&header, sizeof(VTBakeSsboPod), 0);
 
@@ -209,7 +209,7 @@ TEST(TerrainVTCompressBC7, GpuMode6BlocksDecodeWithTheBcdecOracle)
     // the seam takes the fallback and issues real binds. Bound in any other
     // order, a bindless answer would stage an offset and bind nothing.
     compress->Bind();
-    RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_TERRAIN_VT_BAKE, bakeBuffer->GetRHIHandle());
+    RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_TERRAIN_VT, bakeBuffer->GetRHIHandle());
     using enum RHI::HeapSlotLifetime;
     HeapBinding::BindImageOrOffset(0, scratch->GetRHIHandle(), 0, /*layered*/ true, 0,
                                    RHI::Access::StorageRead, RHI::Format::RGBA8UNorm, Persistent);
@@ -233,7 +233,7 @@ TEST(TerrainVTCompressBC7, GpuMode6BlocksDecodeWithTheBcdecOracle)
     // error in an unrelated later GPU test (see GPUOcclusionCullGPUTest).
     ::glBindImageTexture(0, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
     ::glBindImageTexture(1, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32UI);
-    ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_TERRAIN_VT_BAKE, 0);
+    ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_TERRAIN_VT, 0);
     ::glUseProgram(0);
 
     // ---- decode with bcdec and score ---------------------------------------

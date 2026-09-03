@@ -43,7 +43,7 @@ namespace OloEngine
         // `VTBakeRequest b_VTBakeRequests[]` in compute/TerrainVTTileBake.comp.
         // The parameters ride the payload buffer rather than a UBO on purpose:
         // the UBO namespace has one free slot left engine-wide and this feature
-        // does not get to spend it (see SSBO_TERRAIN_VT_BAKE's note).
+        // does not get to spend it (see SSBO_TERRAIN_VT's note).
         struct VTBakeHeader
         {
             glm::uvec4 m_Config0{ 0u }; // pagesWide, pageTexels, borderTexels, requestCount
@@ -207,7 +207,10 @@ namespace OloEngine
 
         const u32 bakeBytes = static_cast<u32>(sizeof(VTBakeHeader)) +
                               m_Config.MaxTileBakesPerFrame * static_cast<u32>(sizeof(VTBakeRequest));
-        m_BakeBuffer = StorageBuffer::Create(bakeBytes, SBL::SSBO_TERRAIN_VT_BAKE, StorageBufferUsage::DynamicDraw);
+        // The bake, indirection and feedback buffers share SSBO_TERRAIN_VT (issue
+        // #1015): every user rebinds the one it needs immediately before its
+        // own dispatch or draw, and no kernel reads two of them at once.
+        m_BakeBuffer = StorageBuffer::Create(bakeBytes, SBL::SSBO_TERRAIN_VT, StorageBufferUsage::DynamicDraw);
 
         // TWICE the tile count, because the worst case is not the resident set.
         // A full rebuild uploads one entry per resident page, so tile count is
@@ -220,7 +223,7 @@ namespace OloEngine
         const u32 updateBytes = static_cast<u32>(sizeof(VTIndirectionHeader)) +
                                 m_IndirectionUpdateCapacity * static_cast<u32>(sizeof(VTIndirectionUpdate));
         m_IndirectionUpdateBuffer =
-            StorageBuffer::Create(updateBytes, SBL::SSBO_TERRAIN_VT_INDIRECTION, StorageBufferUsage::DynamicDraw);
+            StorageBuffer::Create(updateBytes, SBL::SSBO_TERRAIN_VT, StorageBufferUsage::DynamicDraw);
 
         // Handle validity, not just Ref nullness: a backend can construct the
         // wrapper and refuse the storage (Vulkan refuses BC7 arrays outright;
@@ -722,7 +725,7 @@ namespace OloEngine
         const u32 bytes = m_FeedbackWords * static_cast<u32>(sizeof(u32));
 
         m_FeedbackBuffer =
-            StorageBuffer::Create(bytes, SBL::SSBO_TERRAIN_VT_FEEDBACK, StorageBufferUsage::DynamicCopy);
+            StorageBuffer::Create(bytes, SBL::SSBO_TERRAIN_VT, StorageBufferUsage::DynamicCopy);
         if (!m_FeedbackBuffer)
         {
             OLO_CORE_ERROR("TerrainVirtualTexture: feedback buffer allocation failed ({} bytes)", bytes);
@@ -1233,7 +1236,7 @@ namespace OloEngine
         HeapBinding::BindTextureOrOffset(SBL::TEX_TERRAIN_ARM_ARRAY, armArray->GetRHIHandle(), Persistent, {},
                                          RHI::NullSamplerKind::Texture2DArray);
 
-        RenderCommand::BindStorageBuffer(SBL::SSBO_TERRAIN_VT_BAKE, m_BakeBuffer->GetRHIHandle());
+        RenderCommand::BindStorageBuffer(SBL::SSBO_TERRAIN_VT, m_BakeBuffer->GetRHIHandle());
         const RHI::ResourceHandle bakeTarget =
             compressed ? m_ScratchTexture->GetRHIHandle() : m_CacheTexture->GetRHIHandle();
         HeapBinding::BindImageOrOffset(kImageUnitTarget, bakeTarget, 0, /*layered*/ true, 0,
@@ -1393,7 +1396,7 @@ namespace OloEngine
                                                static_cast<u32>(updates.size() * sizeof(VTIndirectionUpdate)),
                                                static_cast<u32>(sizeof(VTIndirectionHeader)));
         }
-        RenderCommand::BindStorageBuffer(SBL::SSBO_TERRAIN_VT_INDIRECTION, m_IndirectionUpdateBuffer->GetRHIHandle());
+        RenderCommand::BindStorageBuffer(SBL::SSBO_TERRAIN_VT, m_IndirectionUpdateBuffer->GetRHIHandle());
 
         // Pass 1 — clear every mip, on a full rebuild ONLY. On the delta path an
         // evicted page is an explicit all-zero ENTRY in the list below, which is

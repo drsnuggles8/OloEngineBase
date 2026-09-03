@@ -211,7 +211,7 @@ bug is in this section; if it does not, it is somewhere else entirely.
 
 **The two kernels share one std430 header and neither declares it for the other.**
 `TerrainVTIndirectionWrite.comp` and `TerrainVTIndirectionFill.comp` are separate programs reading the
-same SSBO (binding 81), whose C++ twin is `VTIndirectionHeader`. A member added to one declaration and
+same SSBO (`SSBO_TERRAIN_VT`), whose C++ twin is `VTIndirectionHeader`. A member added to one declaration and
 not the other is a silent misalignment of `b_VTUpdates` — not a link error, because there is no link
 between them. Three places, one layout.
 

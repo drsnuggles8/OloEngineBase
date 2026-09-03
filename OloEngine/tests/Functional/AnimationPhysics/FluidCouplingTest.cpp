@@ -22,12 +22,19 @@
 #include "../FunctionalTest.h"
 
 #include "OloEngine/Fluid/CPUFluidSolver.h"
+#include "OloEngine/Fluid/FluidSettings.h"
+#include "OloEngine/Fluid/FluidSolverTypes.h"
 #include "OloEngine/Fluid/FluidWorld.h"
+#include "OloEngine/Physics3D/JoltBody.h"
+#include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Physics3D/SceneQueries.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 
 #include <cmath>
+#include <string>
+#include <vector>
 
 namespace OloEngine::Functional
 {
@@ -114,6 +121,82 @@ namespace OloEngine::Functional
             }
             return instance->Cpu->GetCount();
         }
+
+        /// The body-proxy query the fluid runs every tick, repeated here so a
+        /// failure says WHICH half of the seam produced nothing (issue #1015).
+        ///
+        /// LightBoxFloatsDenseBoxSinks fails on the self-hosted AMD box (GCC
+        /// 14.3 Release + LTO) and passes on MSVC and clang, Debug and Release,
+        /// with both boxes resting on the ground — i.e. no lift reached them.
+        /// The solver itself is fine there (CPUFluidSolver's own coupling tests
+        /// pass), and this test pins the CPU solver, so the suspect is the
+        /// coupling: JoltScene::OverlapBox over the fluid domain, whose only
+        /// engine caller is FluidSystem::ExtractBodyProxies and which has no
+        /// unit test. If this probe reports the ground plus both boxes, the
+        /// query is not the problem and the next place to look is the impulse
+        /// the solver returns for those proxies; if it reports fewer, it is.
+        struct PoolProbe
+        {
+            i32 Hits = 0;
+            i32 WithEntity = 0;
+            i32 Dynamic = 0;
+            i32 WideHits = 0;      // same query, expanded domain doubled again
+            std::string HitDetail; // one entry per hit: entity id and position
+        };
+
+        [[nodiscard]] PoolProbe ProbePoolBodies(Entity fluidEntity)
+        {
+            PoolProbe probe;
+            JoltScene* jolt = GetScene().GetPhysicsScene();
+            if (!jolt)
+            {
+                return probe;
+            }
+
+            const auto& fluid = fluidEntity.GetComponent<FluidComponent>();
+            const glm::vec3 center = fluidEntity.GetComponent<TransformComponent>().Translation;
+
+            // THE SAME HALF EXTENTS ExtractBodyProxies USES, derived the same
+            // way -- the domain plus one smoothing radius, not the bare domain.
+            // A probe that queries a different volume from the production path
+            // is not a diagnostic of that path: it would report a body the
+            // solver does see as absent, and send the next reader looking for a
+            // Jolt bug. FluidSystem falls back to a default-constructed
+            // FluidSettings when the entity carries no settings asset, which is
+            // this scene, so this reproduces its params exactly.
+            const FluidSolverParams probeParams =
+                FluidSettings{}.ToSolverParams(center, fluid.m_DomainHalfExtents, glm::vec3(0.0f, -9.81f, 0.0f));
+            const glm::vec3 queryHalf = (probeParams.BoundsMax - probeParams.BoundsMin) * 0.5f +
+                                        glm::vec3(probeParams.SmoothingRadius());
+            const BoxOverlapInfo overlap(center, queryHalf);
+
+            std::vector<SceneQueryHit> hits(static_cast<sizet>(kFluidMaxBodyProxies) * 2u);
+            probe.Hits = jolt->OverlapBox(overlap, hits.data(), static_cast<i32>(hits.size()));
+            for (i32 i = 0; i < probe.Hits; ++i)
+            {
+                const SceneQueryHit& hit = hits[static_cast<sizet>(i)];
+                probe.HitDetail += " {id=" + std::to_string(static_cast<u64>(hit.m_HitEntity)) + " pos=(" +
+                                   std::to_string(hit.m_Position.x) + "," + std::to_string(hit.m_Position.y) + "," +
+                                   std::to_string(hit.m_Position.z) + ")" + (hit.m_HitBody ? "" : " NO-BODY") + "}";
+                if (!hit.m_HitBody || hit.m_HitEntity == 0)
+                {
+                    continue;
+                }
+                ++probe.WithEntity;
+                if (hit.m_HitBody->IsDynamic())
+                {
+                    ++probe.Dynamic;
+                }
+            }
+
+            // The same query over a volume twice the size. If a body inside the
+            // real domain is missing here too, the query is not finding it at
+            // all; if it appears, the domain's own bounds are the discriminator.
+            const BoxOverlapInfo wide(center, queryHalf * 2.0f);
+            std::vector<SceneQueryHit> wideHits(static_cast<sizet>(kFluidMaxBodyProxies) * 2u);
+            probe.WideHits = jolt->OverlapBox(wide, wideHits.data(), static_cast<i32>(wideHits.size()));
+            return probe;
+        }
     };
 
     TEST_F(FluidCouplingTest, PrefilledPoolSpawnsParticles)
@@ -149,8 +232,26 @@ namespace OloEngine::Functional
         // The dense box must end clearly below the light one — the sign of the
         // coupling, independent of its exact magnitude. (Both would otherwise
         // rest identically on the ground.)
+        const PoolProbe probe = ProbePoolBodies(pool);
+        // Logged unconditionally, not only on failure: the number is only
+        // meaningful next to the same number from the other platform, and the
+        // platform where this passes is the one that never prints it.
+        GTEST_LOG_(INFO) << "pool probe: " << probe.Hits << " overlap hits, " << probe.WithEntity
+                         << " with an entity+body, " << probe.Dynamic << " dynamic, " << probe.WideHits
+                         << " in a double-size volume;" << probe.HitDetail
+                         << "  expected the two boxes: light id="
+                         << static_cast<u64>(light.GetComponent<IDComponent>().ID) << " at y=" << Y(light)
+                         << ", dense id=" << static_cast<u64>(dense.GetComponent<IDComponent>().ID)
+                         << " at y=" << Y(dense);
+        const auto probeText = [&probe]
+        {
+            return " [pool probe: " + std::to_string(probe.Hits) + " overlap hits, " +
+                   std::to_string(probe.WithEntity) + " with an entity+body, " + std::to_string(probe.Dynamic) +
+                   " dynamic; the ground and both boxes should all be inside the domain]";
+        };
+
         EXPECT_GT(Y(light), Y(dense) + 0.15f)
-            << "light=" << Y(light) << " dense=" << Y(dense);
+            << "light=" << Y(light) << " dense=" << Y(dense) << probeText();
 
         // Absolute sanity: the dense box reached the ground region (rest is
         // centre ~0.2); the light box is held up in the fluid column, clearly
@@ -158,8 +259,8 @@ namespace OloEngine::Functional
         // floats mostly submerged, and the coarse 0.2 m particle resolution
         // costs a little more — so the bound is ground-rest + one box half,
         // not the waterline.
-        EXPECT_LT(Y(dense), 0.4f);
-        EXPECT_GT(Y(light), 0.4f);
+        EXPECT_LT(Y(dense), 0.4f) << probeText();
+        EXPECT_GT(Y(light), 0.4f) << probeText();
         EXPECT_GT(ParticleCount(pool), 200u) << "pool lost its particles";
     }
 
