@@ -2,7 +2,7 @@
 // OceanFFTVisualEvidenceTest.cpp
 //
 // Visual evidence (PNG) for the Tessendorf FFT ocean
-// (WATER_FUTURE_IMPROVEMENTS.md §1). Renders an FFT-enabled water surface
+// (water-ocean.md §1). Renders an FFT-enabled water surface
 // through the FULL Renderer3D pipeline from several camera poses and writes each
 // frame to OloEditor/assets/tests/visual/OceanFFT_<pose>.png so a human (or the
 // agent) can eyeball the spectral ocean from the side, straddling the waterline,

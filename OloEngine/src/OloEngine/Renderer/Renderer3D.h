@@ -1335,7 +1335,7 @@ namespace OloEngine
         }
 
         // Underwater fog — runtime state for the camera-below-water pass
-        // (WATER_FUTURE_IMPROVEMENTS.md §7.2). Populated each frame by the
+        // (water-ocean.md §7.2). Populated each frame by the
         // scene's water update loop; consumed by `UnderwaterFogRenderPass`.
         static void SetUnderwaterFogState(const UnderwaterFogState& state)
         {
@@ -1433,7 +1433,7 @@ namespace OloEngine
             glm::vec4 sssColor = glm::vec4(0.0f);
             glm::vec4 ssrParams = glm::vec4(0.0f);
             glm::vec4 tessParams = glm::vec4(0.0f);
-            // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1): x = CASCADE COUNT,
+            // FFT ocean (water-ocean.md §1): x = CASCADE COUNT,
             // y = 1/L0 (the broad tile), z = heightScale, w = horizontalScale.
             // x is a count, not a boolean: 0 = Gerstner (no FFT), 1 = the
             // single-cascade field, 3 = the band-limited preset (issue #969).

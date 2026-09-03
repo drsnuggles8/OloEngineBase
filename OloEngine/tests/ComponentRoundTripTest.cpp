@@ -2792,7 +2792,7 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
-    // WaterComponent — underwater rendering fields (WATER_FUTURE_IMPROVEMENTS.md §7.2)
+    // WaterComponent — underwater rendering fields (water-ocean.md §7.2)
     //
     // Focused on the newly-added underwater fields rather than the full
     // WaterComponent surface: those three fields are the only ones added in
@@ -3007,7 +3007,7 @@ namespace OloEngine::Tests
     // BuoyancyComponent — every serialized field must survive a YAML round-trip
     // (one of the five component touch-points; a dropped read/write here would
     // silently desync a saved scene from its in-editor setup). See
-    // docs/design/WATER_FUTURE_IMPROVEMENTS.md §5.1.
+    // docs/design/water-ocean.md §5.1.
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, BuoyancyComponentSurvivesYAMLRoundTrip)
     {

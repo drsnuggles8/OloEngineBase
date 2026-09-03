@@ -1589,7 +1589,7 @@ namespace OloEngine
             water.m_RenderFromBelow = renderFromBelow.as<bool>(water.m_RenderFromBelow);
         }
 
-        // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1)
+        // FFT ocean (water-ocean.md §1)
         water.m_UseFFT = waterComponent["UseFFT"].as<bool>(water.m_UseFFT);
         water.m_FFTResolution = waterComponent["FFTResolution"].as<u32>(water.m_FFTResolution);
         water.m_FFTPatchSize = waterComponent["FFTPatchSize"].as<f32>(water.m_FFTPatchSize);
@@ -5496,7 +5496,7 @@ namespace OloEngine
             out << YAML::Key << "GodRaySunFalloff" << YAML::Value << water.m_GodRaySunFalloff;
             out << YAML::Key << "RenderFromBelow" << YAML::Value << water.m_RenderFromBelow;
 
-            // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1)
+            // FFT ocean (water-ocean.md §1)
             out << YAML::Key << "UseFFT" << YAML::Value << water.m_UseFFT;
             out << YAML::Key << "FFTResolution" << YAML::Value << water.m_FFTResolution;
             out << YAML::Key << "FFTPatchSize" << YAML::Value << water.m_FFTPatchSize;

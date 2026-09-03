@@ -118,7 +118,7 @@ vec4 waterWakeFetch(int index)
     return u_WakeHulls[index];
 }
 
-// FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1). Sampled when
+// FFT ocean cascade textures (water-ocean.md §1). Sampled when
 // u_FFTParams.x > 0.5 instead of summing Gerstner waves analytically.
 #include "BindlessHeap.glsl"
 // ARRAYS since issue #969: one layer per cascade band, so the three-band preset

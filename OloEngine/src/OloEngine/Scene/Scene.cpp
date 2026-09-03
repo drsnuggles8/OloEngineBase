@@ -269,7 +269,7 @@ namespace OloEngine
         }
     } // namespace
 
-    // Underwater test (WATER_FUTURE_IMPROVEMENTS.md §7.2). True when `cameraPos`
+    // Underwater test (water-ocean.md §7.2). True when `cameraPos`
     // lies inside the water plane's XZ footprint; writes the signed vertical gap
     // (still-surface Y − camera Y; positive = camera below the surface) to
     // `outGap`. Works in the water plane's local space so translated / rotated /
@@ -9377,7 +9377,7 @@ namespace OloEngine
                         }
                     }
 
-                    // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1). When enabled,
+                    // FFT ocean (water-ocean.md §1). When enabled,
                     // (re)evaluate the Tessendorf spectral field and hand its
                     // displacement/normal textures to the water shader; otherwise
                     // the analytic Gerstner path runs (fftParams.x stays 0).
@@ -9557,7 +9557,7 @@ namespace OloEngine
                 }
             }
 
-            // Underwater fog (WATER_FUTURE_IMPROVEMENTS.md §7.2). The tone-map
+            // Underwater fog (water-ocean.md §7.2). The tone-map
             // pass fogs each pixel by the length of its view ray that passes
             // below the water plane, so the waterline is handled per pixel. Here
             // we just pick the relevant water volume and hand over its plane /

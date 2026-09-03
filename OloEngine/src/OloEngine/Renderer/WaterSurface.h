@@ -50,7 +50,7 @@ namespace OloEngine::WaterSurface
     [[nodiscard]] f32 SampleHeight(const Params& params, glm::vec2 queryXZ, f32 rawTime);
 
     // =========================================================================
-    // FFT ocean sampling (WATER_FUTURE_IMPROVEMENTS.md §5.1).
+    // FFT ocean sampling (water-ocean.md §5.1).
     //
     // When a WaterComponent renders the Tessendorf FFT ocean instead of summing
     // Gerstner waves, physics must follow *that* surface. This reads the

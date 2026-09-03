@@ -925,7 +925,7 @@ TEST_F(CommandBucketBatchTest, SameLODBatchesAndDifferentLODsStaySeparate)
     // groups by meshHandle, so same-LOD instances collapse to one draw and
     // different-LOD instances stay separate (one draw per LOD). This pins the
     // current behaviour — relaxing it to a single multi-LOD draw needs
-    // glMultiDrawElementsIndirect (see §4 of GPU_INSTANCING_FUTURE_IMPROVEMENTS).
+    // glMultiDrawElementsIndirect and a merged-VAO mesh format (issue #1030).
     CommandBucketConfig config;
     config.EnableSorting = true;
     config.EnableBatching = true;

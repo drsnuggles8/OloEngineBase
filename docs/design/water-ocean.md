@@ -1,8 +1,25 @@
-# Water System — Future Improvements
+# Water & Ocean — Design Record
 
-This document tracks potential enhancements beyond the current Gerstner-wave
-ocean implementation. Items are grouped by subsystem and roughly ordered by
-impact vs. effort within each section.
+**What this is:** the design record for the water/ocean system as built — the
+FFT ocean and its cascades, the spectrum models, buoyancy, caustics, underwater
+rendering and planar reflections. Roughly 57 code comments cite its sections by
+number (`§1`, `§1.2`, `§5.1`, `§7.2`, …), so the section numbering is a stable
+interface: **do not renumber sections**, and add new ones at the end.
+
+**What this is NOT, any more:** a backlog. It used to be
+`water-ocean.md` and carried unshipped ideas alongside the
+shipped design, which meant the shipped half rotted (items stayed listed as
+"future" years after they landed) and the unshipped half was invisible to the
+issue tracker and the picker. The remaining open work now lives in GitHub:
+
+| Was | Now |
+|---|---|
+| §5.3 shore wave deformation | [#1033](https://github.com/drsnuggles8/OloEngineBase/issues/1033) |
+| §2.2 foam advection, §2.3 spray particles, §7.3 rain impact | [#1034](https://github.com/drsnuggles8/OloEngineBase/issues/1034) |
+| §4.1 projected grid, §4.2 adaptive tessellation, §6.3 hex tiling, §6.4 compute Gerstner | [#1035](https://github.com/drsnuggles8/OloEngineBase/issues/1035) |
+
+§7.4 (foam trail persistence) is **shipped** — the wake disturbance field from
+issue #967 is exactly that, so it is not in the table.
 
 ---
 
@@ -106,7 +123,11 @@ The industry-standard approach:
 4. **Normal map derivation** — spatial derivatives from the FFT output yield an
    analytical normal map for per-pixel lighting (no finite differences needed).
 
-### 1.2 GPU Compute Shader Implementation
+### 1.2 GPU Compute Shader Implementation — **shipped**
+
+The FFT runs on the GPU: `Renderer/Ocean/OceanFFTGpu.{h,cpp}` with
+`Ocean_SpectrumEvolve.comp` / `Ocean_FFTButterfly.comp` / `Ocean_Assemble.comp`.
+The CPU `OceanFFT` remains as the reference the tests pin against.
 
 For OloEngine (OpenGL 4.6 / compute shaders):
 
@@ -214,26 +235,6 @@ waves. Store the Jacobian in a texture, then:
 - Modulate foam brightness by $\max(0, -J)$ for varying intensity.
 - Far more physically plausible than height/angle thresholds.
 
-### 2.2 Foam Advection
-
-Currently foam is a static function of wave height. Realistic foam drifts with
-the surface current:
-
-- Store a foam density texture.
-- Advect it each frame using the displacement field's velocity.
-- Add foam where waves break; decay exponentially over several seconds.
-- Can run as a simple compute shader pass.
-
-### 2.3 Bubble / Spray Particles
-
-Wave crests that fold or exceed a steepness threshold can emit GPU particles:
-
-- Compute shader updates particle positions (ballistic trajectory + wind drag).
-- Render as point sprites or billboards with soft-particle depth blending.
-- Provides dramatic visual feedback for stormy seas.
-
----
-
 ## 3. Lighting & Shading (Medium Impact / Low–Medium Effort)
 
 ### 3.1 Proper sRGB Albedo Sampling — **shipped**
@@ -276,13 +277,21 @@ Still open:
   horizon (currently clamped a few degrees above), so dusk-to-night needs a
   separate model or a blend.
 
-### 3.3 Volumetric Light Shafts (God Rays)
+### 3.3 Volumetric Light Shafts (God Rays) — **shipped**
+
+Underwater god rays ship as a post-process: `PostProcessSettings::GodRayParams`,
+with the decay normaliser mirrored by `UnderwaterCaustics::GodRayDecaySum`, and a
+`GodRayUnderwater.olo` sandbox scene.
 
 Underwater god rays through the water surface, rendered as a screen-space
 radial blur from the sun position. Relatively cheap post-process effect that
 dramatically improves the underwater look.
 
-### 3.4 Improved Subsurface Scattering
+### 3.4 Improved Subsurface Scattering — **partially shipped**
+
+A wave-height-driven SSS term exists (`u_SSSColor.rgb`, `u_FoamParams2.z`
+= `sssIntensity` in `Water.glsl`). The deeper model below — thickness-aware,
+view-dependent back-scatter — is not built.
 
 The current SSS model uses a simple $(\mathbf{V} \cdot -\mathbf{L})^4$ term.
 Improvements:
@@ -296,24 +305,6 @@ Improvements:
 ---
 
 ## 4. Tessellation & LOD (Medium Impact / Medium Effort)
-
-### 4.1 Projected Grid
-
-Instead of tessellating a world-space plane, project a screen-space grid onto
-the water plane. Benefits:
-
-- Uniform pixel density across the entire visible ocean.
-- No wasted vertices behind the camera or beyond the horizon.
-- Screen resolution determines vertex count, not world size.
-
-**Reference**: Claes Johanson, *"Real-time water rendering — Introducing the
-projected grid concept"* (2004).
-
-### 4.2 Adaptive Tessellation with Displacement Map Roughness
-
-Currently tessellation factor is purely distance-based. Better: also consider
-the displacement map's local gradient magnitude. Flat areas get minimal
-tessellation; rough areas (wave crests) get maximum.
 
 ### 4.3 GPU Tessellation with Hull Shader Culling — **shipped**
 
@@ -383,7 +374,14 @@ Still open:
 - **Submerged-volume from the real collider** — probes are derived from a
   user box (`m_ProbeExtents`), not the actual convex/mesh collider shape.
 
-### 5.2 Wake / Kelvin Wake Pattern
+### 5.2 Wake / Kelvin Wake Pattern — **shipped (issue #967)**
+
+Delivered as a world-anchored decaying disturbance field: `Renderer/Water/WaterWake.h`,
+`WaterWakeSystem`, `Physics3D/BoatWakeSystem`, sampled in `Water.glsl` via
+`sampleWaterDisturbance()` with its own long distance fade so a chase camera does not
+delete the trail.
+
+<!-- original proposal retained below for the derivation -->
 
 Objects moving through water should produce a V-shaped wake (Kelvin wake):
 
@@ -392,19 +390,12 @@ Objects moving through water should produce a V-shaped wake (Kelvin wake):
 - Decay over distance behind the object.
 - The wake half-angle is always ~19.47° regardless of speed (Kelvin's result).
 
-### 5.3 Shore Wave Deformation
+### 5.4 Ripple Injection — **shipped (issue #967)**
 
-Waves approaching a shallow shore should:
-
-- Slow down (shoaling) — phase speed decreases with depth.
-- Increase in amplitude and steepness.
-- Refract toward the shore (Snell's law for water waves).
-- Eventually break — detect via Jacobian or steepness threshold.
-
-Requires a depth map of the seabed and modifying wave parameters per-vertex
-based on local depth.
-
-### 5.4 Ripple Injection
+`Renderer/Water/WaterDisturbanceField.{h}` + `WaterDisturbanceSystem` maintain the
+injectable field (UBO binding 63, `WaterDisturbance_Update.comp`); `Water.glsl`
+samples it through `sampleWaterDisturbance()`. This is the mechanism a rain-impact
+effect should reuse — see [#1034](https://github.com/drsnuggles8/OloEngineBase/issues/1034).
 
 > Related (issue #630): the engine now has a real particle fluid — the PBF
 > solver under `OloEngine/src/OloEngine/Fluid/` (`FluidComponent`) — which
@@ -454,32 +445,14 @@ multiple water heights aren't independently reflected; full-resolution + every
 frame (no resolution-scale / reduced-frequency update yet). Forward+ reflections
 re-use the main view's tiled light culling, so reflected lighting is approximate.
 
-### 6.2 Reflection Probe Blending
+### 6.2 Reflection Probe Blending — **shipped (issue #705)**
+
+Distance-impostor reflection probes with a cluster-culled lookup:
+`Renderer/ReflectionProbeArray.{h,cpp}`, `ReflectionProbeDistanceField.h`, and
+`include/ReflectionProbes.glsl`.
 
 When planar reflections are too expensive, blend between multiple reflection
 probes based on the camera/water position. Update probes asynchronously.
-
-### 6.3 Normal Map Detail Tiling
-
-The current normal perturbation uses scrolling normal maps. To avoid tiling
-artifacts at large scales, use detail-preserving tiling:
-
-- Blend between the normal map at different UV offsets using a hash-based
-  random offset per tile.
-- Or use a hex-tiling approach (Hextiling by Morten Mikkelsen).
-
-### 6.4 Compute Shader Wave Evaluation
-
-Move the Gerstner wave evaluation from vertex shader to a compute shader that
-writes to a displacement texture. Benefits:
-
-- Decouple wave resolution from mesh resolution.
-- Share the displacement texture between rendering, physics queries, and foam
-  generation.
-- Easier transition path to FFT later (same output texture, different
-  generation method).
-
----
 
 ## 7. Visual Polish (Low–Medium Impact / Low Effort)
 
@@ -550,21 +523,6 @@ When the camera goes below the water surface:
 - ❌ **Add floating particle effects (dust, plankton) — not yet.** No underwater
   particle path; would tie into the existing `Particle` subsystem gated on
   `UnderwaterFogState::Active`.
-
-### 7.3 Rain Impact
-
-During rain, add small circular ripple impacts on the water surface:
-
-- Can be purely in the normal map (no displacement needed).
-- Random positions, brief lifetime with expanding ring pattern.
-- Cheap visual enhancement for weather systems.
-
-### 7.4 Foam Trail Persistence
-
-For objects dragging through water, leave a persistent foam trail that
-gradually fades. Store in an advected foam density texture.
-
----
 
 ## References
 

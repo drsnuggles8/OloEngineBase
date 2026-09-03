@@ -2793,8 +2793,8 @@ namespace OloEngine
             // Inspector: read-only summary of the component's resource
             // bindings + flag editors + a basic scatter-brush MVP for inline
             // placements. Procedural density / slope-aware surface scatter is
-            // a dedicated viewport-tool feature — see
-            // docs/design/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md §1 for the spec.
+            // a dedicated viewport-tool feature — the scatter brush in this
+            // panel, whose math is pinned by ScatterBrushMathTest.
             // The volume-scatter controls below let an author drop N random
             // placements in an authored AABB via a single button — enough
             // for a working foliage demo without leaving the inspector.
@@ -6558,7 +6558,7 @@ namespace OloEngine
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Generate the ocean field with compute shaders (butterfly FFT).\nUntick to use the CPU reference path for comparison.");
 
-                    // Spectrum selection (WATER_FUTURE_IMPROVEMENTS.md §1.4).
+                    // Spectrum selection (water-ocean.md §1.4).
                     const char* kSpectrumLabels[] = { "Phillips", "JONSWAP" };
                     i32 spectrumIdx = static_cast<i32>(component.m_FFTSpectrumType);
                     if (ImGui::Combo("Spectrum", &spectrumIdx, kSpectrumLabels, 2))

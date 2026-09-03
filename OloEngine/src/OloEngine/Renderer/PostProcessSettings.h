@@ -1474,7 +1474,7 @@ namespace OloEngine
     };
 
     // Underwater rendering state. Populated each frame by the scene when the
-    // camera sits inside a water volume (WATER_FUTURE_IMPROVEMENTS.md §7.2).
+    // camera sits inside a water volume (water-ocean.md §7.2).
     // `Active == false` short-circuits the underwater fog pass; the pass
     // itself decides whether to skip or just pass through the input texture
     // unchanged so render-graph wiring stays stable.

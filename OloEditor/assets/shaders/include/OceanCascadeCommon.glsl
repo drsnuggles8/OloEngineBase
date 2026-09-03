@@ -1,6 +1,6 @@
 // ============================================================================
 // OceanCascadeCommon.glsl — the GPU half of the FFT ocean cascade sum
-// (issue #969; docs/design/WATER_FUTURE_IMPROVEMENTS.md §1.3).
+// (issue #969; docs/design/water-ocean.md §1.3).
 //
 // CPU TWIN: OceanFFTField::SampleCascades (Renderer/Ocean/OceanFFTField.cpp).
 // The contract both obey — including which SPACE the argument is in, which is

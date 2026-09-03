@@ -41,8 +41,7 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 
 ## design/ — design rationale & roadmap docs (cited from source for *why*)
 
-- [design/WATER_FUTURE_IMPROVEMENTS.md](design/WATER_FUTURE_IMPROVEMENTS.md) — water/FFT-ocean rendering design & roadmap. **Cited by ~40 code comments via bare `WATER_FUTURE_IMPROVEMENTS.md §X.Y`** — keep this basename stable.
-- [design/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md](design/GPU_INSTANCING_FUTURE_IMPROVEMENTS.md) — GPU instancing / indirect-draw design & roadmap (basename cited from code; keep stable).
+- [design/water-ocean.md](design/water-ocean.md) — design record for the shipped water/FFT-ocean system. **Cited by ~57 code comments via bare `water-ocean.md §X.Y`** — keep this basename AND the section numbering stable; add new sections at the end. Open work lives in issues #1033-#1035, not here.
 - [design/animation-retargeting.md](design/animation-retargeting.md) — animation retargeting (humanoid bone roles, rebasing).
 - [design/locomotion.md](design/locomotion.md) — character locomotion (issue #631).
 - [design/soundgraph-metasounds.md](design/soundgraph-metasounds.md) — SoundGraph / MetaSounds-style audio graph refactor.

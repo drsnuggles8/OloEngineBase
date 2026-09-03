@@ -1937,7 +1937,7 @@ namespace OloEngine
         static constexpr u32 UBO_PREVIEW = 34;              // Content-browser asset thumbnail preview (matrices + material factors)
         static constexpr u32 UBO_SH_COEFFICIENTS = 35;      // L2 spherical-harmonics coefficients (9 vec4) for SH-based IBL irradiance
         static constexpr u32 UBO_PROCEDURAL_SKY = 36;       // Preetham analytic sky model coefficients (PreethamCoefficientsUBO, 8 vec4)
-        static constexpr u32 UBO_UNDERWATER = 37;           // Underwater fog parameters (camera-below-water tint, WATER_FUTURE_IMPROVEMENTS.md §7.2)
+        static constexpr u32 UBO_UNDERWATER = 37;           // Underwater fog parameters (camera-below-water tint, water-ocean.md §7.2)
         static constexpr u32 UBO_SSR = 38;                  // Screen-space reflections parameters (camera matrices + ray-march settings)
         static constexpr u32 UBO_STAR_NEST_SKY = 39;        // Star Nest raymarched nebula sky parameters (StarNestSkyUBO, 4 vec4)
         static constexpr u32 UBO_SSGI = 40;                 // Screen-space global illumination parameters (camera matrices + hemisphere ray-march settings)
@@ -2238,7 +2238,7 @@ namespace OloEngine
         static constexpr u32 TEX_PRECIPITATION_NOISE = 31;  // Precipitation streak/lens noise (sampler2D)
         // Nearest water-surface depth (DEPTH_COMPONENT32F) captured by WaterRenderPass;
         // sampled by the underwater-fog stage in the ToneMap pass to find the per-pixel
-        // wavy water boundary (WATER_FUTURE_IMPROVEMENTS.md §7.2). Took GTAO-reserved
+        // wavy water boundary (water-ocean.md §7.2). Took GTAO-reserved
         // slot 32 — GTAO binds low sequential slots (0-5) instead, so 33-35 stay free.
         static constexpr u32 TEX_UNDERWATER_WATER_DEPTH = 32;
         // Comparison-OFF raw-depth views of the CSM array / shadow atlas, bound as
@@ -2272,7 +2272,7 @@ namespace OloEngine
         // when RendererSettings::OITEnabled is on (path-agnostic).
         static constexpr u32 TEX_OIT_ACCUM = 48;     // OIT accum buffer (RGBA16F: sum(Ci*ai*wi), sum(ai*wi))
         static constexpr u32 TEX_OIT_REVEALAGE = 49; // OIT revealage buffer (R16F: prod(1 - ai))
-        // FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1). Sampled by
+        // FFT ocean cascade textures (water-ocean.md §1). Sampled by
         // Water.glsl when the surface is in FFT mode (rgb = choppy displacement,
         // a = foam; and rgb = normal, a = Jacobian respectively).
         static constexpr u32 TEX_WATER_FFT_DISPLACEMENT = 50; // dx, height, dz, foam

@@ -2,7 +2,7 @@
 // UnderwaterCausticsVisualTest.cpp
 //
 // Visual evidence (PNG) + driver-independent contracts for the underwater
-// caustics (WATER_FUTURE_IMPROVEMENTS.md §7.1) and submerged refraction
+// caustics (water-ocean.md §7.1) and submerged refraction
 // distortion (§7.2 bullet 2) added on top of the shipped underwater-fog base.
 //
 // Both effects live in the tone-map underwater stage (PostProcess_ToneMap.glsl,
