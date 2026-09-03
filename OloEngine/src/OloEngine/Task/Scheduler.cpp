@@ -257,7 +257,18 @@ namespace OloEngine::LowLevelTasks
 
     FSchedulerTls::FTlsValues& FSchedulerTls::GetTlsValuesRef()
     {
-        return *s_TlsValuesPtr;
+        // Touch the HOLDER here, deliberately, and not s_TlsValuesPtr.
+        //
+        // This access is what forces the thread_local's dynamic initialisation on
+        // first use -- which is what allocates FTlsValues and publishes
+        // s_TlsValuesPtr in the first place. Reading the raw pointer instead would
+        // return nullptr on any thread that has not used the scheduler yet, and
+        // FScheduler::StartWorkers would write through it:
+        //   AddressSanitizer: SEGV on unknown address 0x18 ... in StartWorkers
+        // s_TlsValuesPtr exists for the SHUTDOWN direction (TryGetTlsValues, safe
+        // after the holder is destroyed); the holder is still the thing that owns
+        // construction.
+        return *s_TlsValuesHolder.TlsValues;
     }
 
     FSchedulerTls::FTlsValues* FSchedulerTls::TryGetTlsValues() noexcept
