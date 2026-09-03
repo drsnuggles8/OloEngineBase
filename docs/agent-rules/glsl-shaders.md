@@ -676,6 +676,32 @@ sync.
 
 ---
 
+## 6b. Never call `.length()` on a storage buffer
+
+**Do not ask a storage buffer for its length; carry a count, or make a generation the bound.**
+`.length()` compiles to `OpArrayLength`, and the Vulkan RHI maps most storage buffers through
+`VK_DESCRIPTOR_MAPPING_SOURCE_INDIRECT_ADDRESS_EXT`, where a buffer's length is not knowable.
+`vkCreateGraphicsPipelines` then rejects the whole pipeline, and the editor dereferences the null
+pipeline and dies:
+
+```
+vkCreateGraphicsPipelines(): pStages[1].pNext<VkShaderDescriptorSetAndBindingMappingInfoEXT>
+  .pMappings[5].source (VK_DESCRIPTOR_MAPPING_SOURCE_INDIRECT_ADDRESS_EXT) ...
+  %1180 = OpArrayLength %80 %356 0
+=== CRASH: EXCEPTION_ACCESS_VIOLATION at 0x0 (write) ===
+```
+
+The trap is *where* it fails. The GLSL compiles, the SPIR-V validates, every OpenGL test passes,
+and the shader-compilation tests stay green — the rejection happens at pipeline creation, on
+Vulkan only, at run time. It cost a full live-editor round to find (#994).
+
+What to do instead: pass the count in a UBO, or use an identity you already carry. GPU Scene's
+material read validates the record's generation, which only comes from a link the registry
+resolved this frame, so the index is inside the table by construction. Pinned for the GPU Scene
+includes by `GPUSceneLayoutTest.NoGPUSceneIncludeAsksAStorageBufferForItsLength`.
+
+---
+
 ## 7. Include system
 
 `#include` is resolved by the engine with cycle detection:

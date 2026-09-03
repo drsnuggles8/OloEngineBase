@@ -2,7 +2,7 @@
 #define INSTANCE_BLOCK_GLSL
 
 // Per-draw instance data SSBO. Layout mirrors OloEngine::InstanceData
-// (OloEngine/Renderer/Instancing/InstanceData.h, 240 B std430). Indexed by
+// (OloEngine/Renderer/Instancing/InstanceData.h, 256 B std430). Indexed by
 // gl_InstanceIndex — for non-instanced draws gl_InstanceIndex is 0 and the
 // C++ side uploads a length-1 InstanceBuffer.
 //
@@ -24,6 +24,13 @@ struct InstanceData {
     // instance's charts in the scene lightmap atlas. xy == 0 means "no
     // lightmap" — the ambient ladder falls through to probes/IBL.
     vec4 LightmapScaleOffset;
+    // Canonical GPU Scene reference (issue #994): x = instance slot, y =
+    // instance generation, z = material slot, w = material generation. A zero
+    // generation means "this draw is not linked to a GPU Scene record" — the
+    // shader then reads the per-draw UBO exactly as it did before. Validate
+    // with oloGPUSceneMaterialLink() / oloGPUSceneInstanceLink() rather than
+    // by hand: an index without its generation is a stale-slot read.
+    uvec4 GPUSceneRef;
 };
 
 layout(std430, binding = 15) readonly buffer InstanceBuffer {

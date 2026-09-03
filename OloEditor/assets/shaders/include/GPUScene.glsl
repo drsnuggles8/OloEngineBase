@@ -152,38 +152,30 @@ struct GPUSceneEnvironment
     uint Generation;
 };
 
-// Pass-local aliases. The portable GL SSBO namespace is full, so every GPU
-// Scene buffer borrows a slot from a family the raster migration (#994)
-// retires or rebinds per pass: 15/16/17 are the GPU instance cull's trio
-// (SSBO_INSTANCE_DATA / _CULL_INPUT / _DRAW_INDIRECT), 9/10 are the Forward+
-// per-type light buffers (SSBO_FPLUS_POINT_LIGHTS / _SPOT_LIGHTS). A consumer
-// binds these immediately before use and may not treat them as global sticky
-// state. A shader that includes this file may not declare, itself or through
-// another include, a storage block at any of these five numbers
-// (GPUSceneLayoutTest scans every shader's include closure for that).
-layout(std430, binding = 15) readonly buffer OloGPUSceneInstances
-{
-    GPUSceneInstance g_GPUSceneInstances[];
-};
-
-layout(std430, binding = 16) readonly buffer OloGPUSceneGeometries
-{
-    GPUSceneGeometry g_GPUSceneGeometries[];
-};
-
-layout(std430, binding = 17) readonly buffer OloGPUSceneMaterials
-{
-    GPUSceneMaterial g_GPUSceneMaterials[];
-};
-
-layout(std430, binding = 9) readonly buffer OloGPUSceneLights
-{
-    GPUSceneLight g_GPUSceneLights[];
-};
-
-layout(std430, binding = 10) readonly buffer OloGPUSceneEnvironments
-{
-    GPUSceneEnvironment g_GPUSceneEnvironments[];
-};
+// This file declares NO storage block. The portable GL SSBO namespace is full,
+// so every GPU Scene buffer borrows a slot from a family that is bound per
+// pass: 15/16/17 are the GPU instance cull's trio (SSBO_INSTANCE_DATA /
+// _CULL_INPUT / _DRAW_INDIRECT), 9/10 are the Forward+ per-type light buffers
+// (SSBO_FPLUS_POINT_LIGHTS / _SPOT_LIGHTS).
+//
+// Because the slots are shared, a consumer takes ONE KIND AT A TIME by
+// including the matching declaration file, and it takes only the kinds it
+// actually reads:
+//
+//   include/GPUSceneInstances.glsl     binding 15
+//   include/GPUSceneGeometries.glsl    binding 16
+//   include/GPUSceneMaterials.glsl     binding 17
+//   include/GPUSceneLights.glsl        binding 9
+//   include/GPUSceneEnvironments.glsl  binding 10
+//
+// The rule GPUSceneLayoutTest pins is therefore not "never touch these five"
+// but the honest one: no storage binding may be declared twice in one shader's
+// include closure. PBR_GBuffer.glsl takes the material table at 17 while it
+// still reads per-draw InstanceData at 15 (issue #994); a shader that wanted
+// the canonical instances at 15 would have to give up InstanceBlock.glsl first.
+//
+// Every consumer binds immediately before its dispatch or draw and may not
+// treat the slot as global sticky state: buffer growth rebinds and unbinds it
+// inside EndScene.
 
 #endif // OLO_GPU_SCENE_GLSL

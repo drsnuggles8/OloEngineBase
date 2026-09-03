@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/TerrainVTBindings.h"
@@ -655,6 +656,20 @@ namespace OloEngine
         // the same way color does — via a vec4 FrameDataBuffer stream entry
         // per source command.
         glm::vec4 lightmapScaleOffset = glm::vec4(0.0f);
+
+        // Index into this frame's GPU Scene draw-link table (issue #994), or
+        // GPUSceneDrawLinkNone for a draw that carries no canonical link.
+        // The link is what makes this draw render THROUGH the GPU Scene: the
+        // dispatcher takes the instance's current/previous transform and the
+        // canonical material slot from the record instead of from `transform`
+        // and `prevTransform` above. See GPUScene/GPUSceneDrawLink.h for why
+        // this is an index and not the slot itself.
+        //
+        // CommandBucket auto-batching does NOT carry it: a batched draw is one
+        // instanced call over N sources, and there is no per-instance lane for
+        // the link yet, so batching falls back to the legacy adapter path
+        // (GPUSceneLegacyAdapters.h names it) and the profiler counts it.
+        u32 gpuSceneDrawLink = GPUSceneDrawLinkNone;
     };
 
     // Static assertion to verify DrawMeshCommand is trivially copyable (POD)

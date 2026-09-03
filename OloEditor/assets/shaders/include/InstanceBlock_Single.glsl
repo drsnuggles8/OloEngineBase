@@ -22,6 +22,13 @@ struct InstanceData {
     uvec2 StableID;
     // Lightmap atlas region (issue #439) — see InstanceBlock.glsl.
     vec4 LightmapScaleOffset;
+    // Canonical GPU Scene reference (issue #994): x = instance slot, y =
+    // instance generation, z = material slot, w = material generation. A zero
+    // generation means "this draw is not linked to a GPU Scene record" — the
+    // shader then reads the per-draw UBO exactly as it did before. Validate
+    // with oloGPUSceneMaterialLink() / oloGPUSceneInstanceLink() rather than
+    // by hand: an index without its generation is a stale-slot read.
+    uvec4 GPUSceneRef;
 };
 
 layout(std430, binding = 15) readonly buffer InstanceBuffer {

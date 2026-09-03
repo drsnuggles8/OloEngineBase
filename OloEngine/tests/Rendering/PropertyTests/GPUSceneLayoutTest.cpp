@@ -11,6 +11,9 @@
 #include <array>
 #include <cstddef>
 #include <filesystem>
+#include <map>
+#include <sstream>
+#include <string_view>
 #include <spirv_cross/spirv_cross.hpp>
 #include <string>
 #include <vector>
@@ -125,7 +128,11 @@ namespace OloEngine::Tests
         // auto-exposure kernels rebind per dispatch).
         constexpr const char* kSource = R"glsl(
 #version 450
-#include "include/GPUScene.glsl"
+#include "include/GPUSceneInstances.glsl"
+#include "include/GPUSceneGeometries.glsl"
+#include "include/GPUSceneMaterials.glsl"
+#include "include/GPUSceneLights.glsl"
+#include "include/GPUSceneEnvironments.glsl"
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 layout(std430, binding = 19) writeonly buffer GPUSceneTestOutput
 {
@@ -205,73 +212,175 @@ void main()
 
     // The GPU-scene buffers alias the Forward+ per-type light slots (9/10) and
     // the instance-cull trio (15/16/17) because the portable SSBO namespace is
-    // full. Inside one shader that aliasing is a real collision on both
-    // backends. The check is on the NUMBERS, over each shader's whole include
-    // closure: any shader that reaches GPUScene.glsl must not, itself or
-    // through another include, declare a storage block at an aliased binding.
-    TEST(GPUScene, NoShaderDeclaresAnAliasedStorageBindingTogetherWithGPUScene)
+    // full. Since #994 GPUScene.glsl declares no block itself and each kind has
+    // its own declaration file, so the rule is the honest one rather than a
+    // blanket ban: if a shader takes a GPU Scene table, nothing else in that
+    // shader may declare a block at the slot it took.
+    //
+    // Everything hangs on the block NAME. A binding legitimately carries the
+    // same block twice — InstanceBlock.glsl and InstanceBlock_Vertex.glsl both
+    // declare `InstanceBuffer` at 15, one per stage — and a shader may declare
+    // an unrelated block at an aliased number as long as it does not also take
+    // the GPU Scene table there. That is what lets PBR_GBuffer.glsl read the
+    // canonical materials at 17 while it still reads per-draw InstanceData at
+    // 15, and it is why the check is scoped to the five aliased numbers rather
+    // than to every binding: the scan is text-level and cannot tell two stages
+    // of one file apart, so a wider rule would flag legal per-stage pairs.
+    TEST(GPUScene, NoShaderDeclaresAnotherBlockAtASlotItTakesForGPUScene)
     {
         namespace fs = std::filesystem;
         namespace SH = ShaderHarness;
 
         const fs::path root = SH::ResolveShaderRoot();
         ASSERT_FALSE(root.empty());
-        const fs::path gpuSceneInclude = (root / "include" / "GPUScene.glsl").lexically_normal();
-        ASSERT_TRUE(fs::exists(gpuSceneInclude));
 
         constexpr std::array<u32, 5> kAliased{ GPUSceneBindingLayout::Instances, GPUSceneBindingLayout::Geometries,
                                                GPUSceneBindingLayout::Materials, GPUSceneBindingLayout::Lights,
                                                GPUSceneBindingLayout::Environments };
-        const auto declaresAliasedBinding = [&](const fs::path& file)
+        // The canonical block name per aliased slot, taken from the per-kind
+        // declaration files themselves so a rename there cannot silently take
+        // this check out of the loop.
+        const auto blocksIn = [&](const std::string& relative)
         {
-            for (const u32 binding : SH::DeclaredStorageBufferBindings(SH::ReadWholeFile(file)))
-            {
-                if (std::ranges::find(kAliased, binding) != kAliased.end())
-                {
-                    return true;
-                }
-            }
-            return false;
+            const fs::path path = root / "include" / relative;
+            EXPECT_TRUE(fs::exists(path)) << "declaration file moved: " << path.generic_string();
+            return SH::DeclaredStorageBufferBlocks(SH::ReadWholeFile(path));
         };
-
-        // Anti-vacuity: the scanner must see the declarations it exists to catch,
-        // in the include that owns them and in the families they alias.
-        EXPECT_TRUE(declaresAliasedBinding(gpuSceneInclude));
-        for (const char* fixture : { "ForwardPlusCommon.glsl", "InstanceBlock_Vertex.glsl" })
+        std::map<u32, std::string> canonical;
+        for (const char* kind : { "Instances", "Geometries", "Materials", "Lights", "Environments" })
         {
-            const fs::path path = root / "include" / fixture;
-            ASSERT_TRUE(fs::exists(path)) << "anti-vacuity fixture moved: " << path.generic_string();
-            EXPECT_TRUE(declaresAliasedBinding(path)) << fixture << " no longer declares an aliased binding";
+            const std::vector<SH::DeclaredStorageBlock> blocks = blocksIn(std::string("GPUScene") + kind + ".glsl");
+            ASSERT_EQ(blocks.size(), 1u) << "GPUScene" << kind << ".glsl must declare exactly one storage block";
+            EXPECT_TRUE(std::ranges::find(kAliased, blocks.front().m_Binding) != kAliased.end())
+                << "GPUScene" << kind << ".glsl declares an unexpected binding";
+            canonical.emplace(blocks.front().m_Binding, blocks.front().m_Name);
         }
+        ASSERT_EQ(canonical.size(), kAliased.size()) << "two GPU Scene kinds landed on one slot";
+
+        // GPUScene.glsl is the record contract only: it must declare nothing,
+        // or a consumer could not take one kind without taking all five.
+        EXPECT_TRUE(SH::DeclaredStorageBufferBlocks(SH::ReadWholeFile(root / "include" / "GPUScene.glsl")).empty())
+            << "include/GPUScene.glsl declares a storage block again; the per-kind split (#994) is what lets a "
+               "raster shader take materials without also taking the instance slot";
+
+        // The violation this exists to catch, constructed: the canonical
+        // instance table and InstanceBlock_Vertex.glsl both want slot 15.
+        const std::vector<SH::DeclaredStorageBlock> instanceBlock = blocksIn("InstanceBlock_Vertex.glsl");
+        EXPECT_TRUE(std::ranges::any_of(instanceBlock,
+                                        [&](const SH::DeclaredStorageBlock& block)
+                                        {
+                                            return block.m_Binding == GPUSceneBindingLayout::Instances &&
+                                                   block.m_Name != canonical.at(GPUSceneBindingLayout::Instances);
+                                        }))
+            << "anti-vacuity: InstanceBlock_Vertex.glsl no longer contends for the instance slot, so a shader that "
+               "took the canonical instances alongside it would no longer be caught here";
 
         u32 scanned = 0;
+        u32 tookATable = 0;
         std::string violations;
         for (const fs::path& path : SH::EnumerateShaderSources(root))
         {
             const fs::path shader = path.lexically_normal();
-            if (shader == gpuSceneInclude)
+            ++scanned;
+
+            std::vector<SH::DeclaredStorageBlock> blocks = SH::DeclaredStorageBufferBlocks(SH::ReadWholeFile(shader));
+            for (const fs::path& dependency : SH::IncludeClosure(root, shader))
+            {
+                if (dependency.lexically_normal() == shader)
+                {
+                    continue;
+                }
+                const std::vector<SH::DeclaredStorageBlock> fromInclude =
+                    SH::DeclaredStorageBufferBlocks(SH::ReadWholeFile(dependency));
+                blocks.insert(blocks.end(), fromInclude.begin(), fromInclude.end());
+            }
+
+            bool takesATable = false;
+            for (const auto& [binding, canonicalName] : canonical)
+            {
+                const bool takesThisTable = std::ranges::any_of(
+                    blocks, [&, binding = binding](const SH::DeclaredStorageBlock& block)
+                    { return block.m_Binding == binding && block.m_Name == canonicalName; });
+                if (!takesThisTable)
+                {
+                    continue;
+                }
+                takesATable = true;
+                for (const SH::DeclaredStorageBlock& block : blocks)
+                {
+                    if (block.m_Binding == binding && block.m_Name != canonicalName)
+                    {
+                        violations += (violations.empty() ? "" : ", ") + shader.generic_string() + " binding " +
+                                      std::to_string(binding) + " (" + canonicalName + " vs " + block.m_Name + ")";
+                    }
+                }
+            }
+            tookATable += takesATable ? 1u : 0u;
+        }
+
+        EXPECT_GT(scanned, 0u);
+        EXPECT_GT(tookATable, 0u) << "no shader takes a GPU Scene table at all — the raster migration (#994) is the "
+                                     "first consumer, and PBR_GBuffer.glsl should be one";
+        EXPECT_TRUE(violations.empty())
+            << "a shader takes a GPU Scene table and declares another block at the same slot: " << violations;
+    }
+
+    // A GPU Scene consumer may not ask a storage buffer for its length.
+    //
+    // `.length()` compiles to OpArrayLength, and the Vulkan RHI maps these
+    // buffers through VK_DESCRIPTOR_MAPPING_SOURCE_INDIRECT_ADDRESS_EXT, where
+    // a buffer's length is not knowable. vkCreateGraphicsPipelines rejects the
+    // whole pipeline, and the editor then dereferences the null pipeline and
+    // crashes — on Vulkan only, at pipeline-creation time, long after the SPIR-V
+    // compiled cleanly. Nothing on the OpenGL side notices, which is why this is
+    // a test and not a review habit.
+    //
+    // The generation is the bound instead: a non-zero generation only comes from
+    // a link the registry resolved this frame, and Upload grows the buffer to
+    // hold every committed record before any draw runs.
+    TEST(GPUScene, NoGPUSceneIncludeAsksAStorageBufferForItsLength)
+    {
+        namespace fs = std::filesystem;
+        namespace SH = ShaderHarness;
+
+        const fs::path root = SH::ResolveShaderRoot();
+        ASSERT_FALSE(root.empty());
+        const fs::path includes = root / "include";
+        ASSERT_TRUE(fs::exists(includes));
+
+        u32 scanned = 0;
+        std::string violations;
+        for (const fs::directory_entry& entry : fs::directory_iterator(includes))
+        {
+            const std::string name = entry.path().filename().string();
+            if (!entry.is_regular_file() || !name.starts_with("GPUScene"))
             {
                 continue;
             }
             ++scanned;
-            const std::vector<fs::path> closure = SH::IncludeClosure(root, shader);
-            if (std::ranges::find(closure, gpuSceneInclude) == closure.end())
+            std::string source = SH::ReadWholeFile(entry.path());
+            // Strip line comments so the explanation of this rule does not trip it.
+            std::string code;
+            code.reserve(source.size());
+            std::istringstream lines(source);
+            for (std::string line; std::getline(lines, line);)
             {
-                continue;
+                const auto comment = line.find("//");
+                code.append(comment == std::string::npos ? line : line.substr(0, comment));
+                code.push_back('\n');
             }
-            bool collides = declaresAliasedBinding(shader);
-            for (const fs::path& dependency : closure)
+            if (code.find(".length()") != std::string::npos)
             {
-                collides = collides || (dependency != gpuSceneInclude && declaresAliasedBinding(dependency));
-            }
-            if (collides)
-            {
-                violations += (violations.empty() ? "" : ", ") + shader.generic_string();
+                violations += (violations.empty() ? "" : ", ") + name;
             }
         }
 
-        EXPECT_GT(scanned, 0u);
+        EXPECT_GT(scanned, 0u) << "no GPUScene*.glsl includes found — the scan is looking in the wrong place";
         EXPECT_TRUE(violations.empty())
-            << "a shader reaches GPUScene.glsl and also declares an aliased storage binding: " << violations;
+            << "a GPU Scene include calls .length() on a storage buffer; that is OpArrayLength, which the Vulkan "
+               "indirect-address descriptor mapping rejects at pipeline creation. Validate the record's generation "
+               "instead. Offending: "
+            << violations;
     }
+
 } // namespace OloEngine::Tests

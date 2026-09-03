@@ -7003,10 +7003,16 @@ namespace OloEngine
             const GPUSceneMaterialKey materialKey = Renderer3D::ResolveGPUSceneMaterialKey(
                 overrideMaterial, stableEntityId, meshSource, static_cast<u32>(i));
             Renderer3D::ExtractGPUSceneMaterial(materialKey, material);
-            Renderer3D::ExtractGPUSceneMesh(stableEntityId, 0, meshSource, static_cast<u32>(i), worldTransform,
-                                            materialKey);
+            // The migrated raster path (issue #994): the submesh is staged as a
+            // canonical instance and the draw carries the LINK to it, so the
+            // dispatcher takes this draw's current/previous transform and its
+            // material slot from the record instead of from the copies below.
+            const u32 gpuSceneDrawLink = Renderer3D::ExtractGPUSceneMesh(
+                stableEntityId, 0, meshSource, static_cast<u32>(i), worldTransform, materialKey);
 
-            if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, material, true, entityID, lodGroup); packet)
+            if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, material, true, entityID, lodGroup,
+                                                    gpuSceneDrawLink);
+                packet)
             {
                 // Baked lightmap region (issue #439): patch the draw's atlas
                 // region before submission. All-zero (the default) means "no
@@ -10218,7 +10224,7 @@ namespace OloEngine
                 // (`imc._MergedCache`) and reused frame-to-frame as long as
                 // the inline size, asset handle, and asset's instance count /
                 // data pointer all match the cached fingerprint — saves the
-                // 240 B / instance memcpy for steady-state scatter scenes.
+                // 256 B / instance memcpy for steady-state scatter scenes.
                 auto& cache = imc._MergedCache;
                 const InstanceData* inlineDataPtr = imc.Instances.data();
                 bool stableInputsChanged = cache.InlineSize != imc.Instances.size() ||
@@ -10327,9 +10333,17 @@ namespace OloEngine
                                                             ? 0
                                                             : InstancedMeshComponent::AssetStableIDNamespace;
                             const u64 stableInstanceId = instData[k].StableID | sourceNamespace;
-                            Renderer3D::ExtractGPUSceneMesh(stableEntityId, stableInstanceId, imc.MeshSource,
-                                                            static_cast<u32>(i), instData[k].Transform,
-                                                            materialKey);
+                            // The explicit instancing path is an approved legacy
+                            // adapter (GPUSceneLegacyAdapters.h): the records are
+                            // extracted so RT and diagnostics see the geometry,
+                            // but the draw is one instanced call over N sources
+                            // and InstanceData carries no per-instance link lane
+                            // yet. Asking for no link keeps a 20k-instance
+                            // scatter scene from staging and resolving 20k links
+                            // per frame that nothing can read.
+                            (void)Renderer3D::ExtractGPUSceneMesh(stableEntityId, stableInstanceId, imc.MeshSource,
+                                                                  static_cast<u32>(i), instData[k].Transform,
+                                                                  materialKey, GPUSceneDrawLinkRequest::None);
                         }
                         auto submesh = Ref<Mesh>::Create(imc.MeshSource, i);
                         auto* packet = Renderer3D::DrawMeshInstanced(

@@ -24,7 +24,7 @@
 layout(local_size_x = 256) in;
 
 // Layout mirrors OloEngine::InstanceData (Renderer/Instancing/InstanceData.h,
-// 240 B std430). Drift here vs. InstanceBlock_Vertex.glsl produces silent
+// 256 B std430). Drift here vs. InstanceBlock_Vertex.glsl produces silent
 // rendering corruption; pinned by InstanceDataLayoutTest.
 struct InstanceData {
     mat4 Transform;
@@ -38,6 +38,13 @@ struct InstanceData {
     // Lightmap atlas region (issue #439). The cull copies instances whole, so
     // the struct must match InstanceBlock.glsl even though the field is unused here.
     vec4 LightmapScaleOffset;
+    // Canonical GPU Scene reference (issue #994): x = instance slot, y =
+    // instance generation, z = material slot, w = material generation. A zero
+    // generation means "this draw is not linked to a GPU Scene record" — the
+    // shader then reads the per-draw UBO exactly as it did before. Validate
+    // with oloGPUSceneMaterialLink() / oloGPUSceneInstanceLink() rather than
+    // by hand: an index without its generation is a stale-slot read.
+    uvec4 GPUSceneRef;
 };
 
 layout(std430, binding = 16) readonly buffer InstanceCullInput {

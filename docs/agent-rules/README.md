@@ -18,7 +18,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 ## Code and review standards
 
 - [cpp-coding-quality.md](cpp-coding-quality.md): the coding rules, including float comparison, `auto`, IWYU, and the defaulted `operator==` MSVC quirk.
-- [glsl-shaders.md](glsl-shaders.md): the SPIR-V rules a shader must follow to compile: no bare uniforms, UBO bindings, MRT outputs.
+- [glsl-shaders.md](glsl-shaders.md): the SPIR-V rules a shader must follow to compile: no bare uniforms, UBO bindings, MRT outputs, and never `.length()` on a storage buffer (§6b — Vulkan rejects it at pipeline creation, long after the SPIR-V validated).
 - [sonarqube-review-alignment.md](sonarqube-review-alignment.md): read before `/code-review` so local findings match the cloud profile.
 
 ## Testing and verification
@@ -65,6 +65,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md): publish GPU counters by name without stalling; the buffer-binding namespace is full.
 - [ssbo-binding-cap-is-80-on-mesa.md](ssbo-binding-cap-is-80-on-mesa.md): every `SSBO_*` binding stays below 80, because Mesa exposes 80 storage-buffer binding points and the UBO namespace's 84 does not bound them.
 - [gpu-scene-record-contract.md](gpu-scene-record-contract.md): a GPU-scene record changes in C++ and GLSL in one commit, and only an incompatible edit or a removal advances its generation.
+- [gpu-scene-record-contract.md §7](gpu-scene-record-contract.md#7-the-raster-consumer-a-draw-link-resolved-once-per-frame): a migrated draw carries a link to its record, resolved once after the commit, and every path that still duplicates transform truth is named in `GPUSceneLegacyAdapters.h`.
 - [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md): blue noise is a claim about the error spectrum; the VNDF weight fails silently; a resolve clips, not clamps.
 - [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md): wrap every new clear site in `GLClearProgramGuard`, unbind and restore.
 - [render-pass-published-state.md](render-pass-published-state.md): a pass that publishes engine-global bindings runs last and is not wrapped in `GLStateGuard(Restore)`.
@@ -205,6 +206,7 @@ The same fact written in more than one place, with nothing enforcing agreement.
 | [destructible-debris.md](destructible-debris.md) | Two unrelated physics layer numberings; `SetCollisionLayer(Debris)` never reaches Jolt's `DEBRIS`. |
 | [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | Four uint packings in C++ and four GLSL files; a wrong bit renders plausible wrong content. |
 | [gpu-scene-record-contract.md](gpu-scene-record-contract.md) | Five records in `GPUSceneTypes.h` and `include/GPUScene.glsl`, pinned by `static_assert` and a SPIRV-Cross reflection test over member names, offsets and stride. |
+| [gpu-scene-record-contract.md §7](gpu-scene-record-contract.md#7-the-raster-consumer-a-draw-link-resolved-once-per-frame) | Every raster path that has not migrated keeps its own previous-frame transform, and a second scene representation grows one convenient copy at a time. Pinned by `GPUSceneAntiDuplicationRatchetTest`, which requires every duplicating source file to be named in `GPUSceneLegacyAdapters.h` and every name there to still duplicate. |
 | `ShaderBindingLayout.h` ↔ `include/BindlessHeap.glsl` | `HEAP_IMAGE_SLOT_BASE` is derived in C++ and a literal in GLSL, so adding any `TEX_*` slot is also a shader edit (#702). Pinned by `BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout`. |
 | [ssbo-binding-cap-is-80-on-mesa.md](ssbo-binding-cap-is-80-on-mesa.md) | The SSBO namespace's ceiling lived in prose ("full at 84") copied from the UBO namespace; the driver's real number (80 on Mesa) was mirrored nowhere, so four bindings sat above it with every test green. Pinned by `SSBO_BINDING_LIMIT` + `static_assert` and `ShaderBindingLayout.SSBOSlotsFitTheMesaCeiling`. |
 

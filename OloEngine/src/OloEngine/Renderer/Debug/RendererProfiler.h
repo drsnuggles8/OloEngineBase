@@ -97,6 +97,22 @@ namespace OloEngine
             u32 m_InstancesRendered = 0;
             u32 m_InstancesBatched = 0;
             GPUSceneFrameStats m_GPUScene;
+            // This frame's GPU Scene draw links (issue #994), in two pairs
+            // because they answer different questions.
+            //
+            // Resolved/unresolved is EXTRACTION health: how many links found a
+            // committed record. Consumed/fallback is CONSUMPTION: how many
+            // draws actually rendered through one. They are not the same
+            // number — a resolved link is dropped when CommandBucket
+            // auto-batches the draw, and a draw submitted to several passes
+            // consumes once per pass. A migrated path that silently stops
+            // consuming records still renders correctly, so the consumption
+            // pair is what has to be visible for the migration to stay
+            // migrated.
+            u32 m_GPUSceneLinkedDraws = 0;
+            u32 m_GPUSceneUnlinkedDraws = 0;
+            u32 m_GPUSceneConsumedDraws = 0;
+            u32 m_GPUSceneFallbackDraws = 0;
             // The parallel command recorder's telemetry for this frame (issue
             // #806, ADR 0011 amendment (92)). Pulled from the backend once per
             // frame in EndFrame(). All zero on OpenGL, whose facade default
@@ -210,6 +226,18 @@ namespace OloEngine
         void SetGPUSceneStats(const GPUSceneFrameStats& stats)
         {
             m_CurrentFrame.m_GPUScene = stats;
+        }
+
+        void SetGPUSceneDrawLinkCounts(u32 linked, u32 unlinked)
+        {
+            m_CurrentFrame.m_GPUSceneLinkedDraws = linked;
+            m_CurrentFrame.m_GPUSceneUnlinkedDraws = unlinked;
+        }
+
+        void SetGPUSceneConsumptionCounts(u32 consumed, u32 fallback)
+        {
+            m_CurrentFrame.m_GPUSceneConsumedDraws = consumed;
+            m_CurrentFrame.m_GPUSceneFallbackDraws = fallback;
         }
 
         // @brief Accumulate CPU time spent blocked on a GPU fence this frame.

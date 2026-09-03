@@ -3,6 +3,7 @@
 #include "DebugUtils.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
 #include <algorithm>
@@ -138,6 +139,10 @@ namespace OloEngine
         m_CurrentFrame.m_InstancesRendered = 0;
         m_CurrentFrame.m_InstancesBatched = 0;
         m_CurrentFrame.m_GPUScene = {};
+        m_CurrentFrame.m_GPUSceneLinkedDraws = 0;
+        m_CurrentFrame.m_GPUSceneUnlinkedDraws = 0;
+        m_CurrentFrame.m_GPUSceneConsumedDraws = 0;
+        m_CurrentFrame.m_GPUSceneFallbackDraws = 0;
         // m_ParallelRecording is deliberately NOT zeroed here: the backend
         // only reports it once the frame's regions have joined, so EndFrame()
         // is the sole writer. Until then the previous frame's block stays as
@@ -170,6 +175,13 @@ namespace OloEngine
         // the profiler exists. Zeros on OpenGL (the facade default); on
         // Vulkan with the lever off only InlineRegions counts.
         m_CurrentFrame.m_ParallelRecording = RenderCommand::GetParallelRecordingStats();
+
+        // GPU Scene consumption (issue #994), pulled for the same reason: the
+        // dispatcher counts what actually read a record, and it has no reason
+        // to know the profiler exists. Pulled here rather than in EndScene
+        // because dispatch runs after EndScene.
+        m_CurrentFrame.m_GPUSceneConsumedDraws = CommandDispatch::GetGPUSceneConsumedDrawCount();
+        m_CurrentFrame.m_GPUSceneFallbackDraws = CommandDispatch::GetGPUSceneFallbackDrawCount();
 
         // Store frame data in history. FrameTime and any post-frame GPU wait
         // (SwapBuffers etc.) aren't known yet — the next BeginFrame() patches
@@ -439,6 +451,10 @@ namespace OloEngine
             kindRow("Materials", gpuScene.m_Materials);
             kindRow("Lights", gpuScene.m_Lights);
             kindRow("Environments", gpuScene.m_Environments);
+            ImGui::Text("Draw links: %u resolved / %u unresolved",
+                        m_CurrentFrame.m_GPUSceneLinkedDraws, m_CurrentFrame.m_GPUSceneUnlinkedDraws);
+            ImGui::Text("Draws through records: %u consumed / %u fell back",
+                        m_CurrentFrame.m_GPUSceneConsumedDraws, m_CurrentFrame.m_GPUSceneFallbackDraws);
             ImGui::Text("Unsupported submissions: %u", gpuScene.m_UnsupportedTotal);
             const auto unsupportedCategoryCount = gpuScene.m_UnsupportedCounts.size();
             for (sizet category = 0; category < unsupportedCategoryCount; ++category)
@@ -1017,6 +1033,10 @@ namespace OloEngine
         m_InstancesRendered = 0;
         m_InstancesBatched = 0;
         m_GPUScene = {};
+        m_GPUSceneLinkedDraws = 0;
+        m_GPUSceneUnlinkedDraws = 0;
+        m_GPUSceneConsumedDraws = 0;
+        m_GPUSceneFallbackDraws = 0;
         m_ParallelRecording = {};
     }
 
