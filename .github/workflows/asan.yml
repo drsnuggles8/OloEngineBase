@@ -226,91 +226,22 @@ jobs:
     # step FAILS THE JOB if the resolved clang-cl is not the pinned major. Without
     # that assertion this failure mode is invisible: a green install step, a
     # successful build, and a wrong compiler.
+    # Installed and VERIFIED by a shared composite action rather than inline or
+    # via KyleMayes/install-llvm-action -- see
+    # .github/actions/setup-llvm-windows/action.yml for why that action cannot do
+    # this (its Windows asset table stops at 21.1.8) and for the two green-but-wrong
+    # attempts that preceded it. fuzz.yml uses the same action, so the two Windows
+    # clang-cl jobs cannot drift apart.
     #
-    # TWO INPUTS THAT LOOK HARMLESS AND ARE NOT, both learned from a run that
-    # installed nothing and said it had:
-    #
-    #   * `cached: true` does NOT mean "cache this download". Per the action's
-    #     README it means "the binaries WERE cached" -- it tells the action to
-    #     SKIP downloading because you restored them yourself with actions/cache.
-    #     Neither this job nor fuzz.yml ever had such a restore step, so the
-    #     install was a no-op that printed "Using cached LLVM and Clang 23.1.0..."
-    #     and installed nothing. The README also says caching is not recommended:
-    #     it is usually slower than just downloading.
-    #   * `directory` defaults to C:\Program Files\LLVM on Windows -- the exact
-    #     path the runner image's own LLVM occupies. So a no-op install leaves
-    #     LLVM_PATH pointing at the image's compiler, and every later step
-    #     resolves that instead of the pin, with nothing anywhere saying so.
-    #
-    # Hence: no `cached`, and an explicit directory that the image does not use,
-    # so a failed install cannot silently look like a successful one.
+    # It exports LLVM_PATH plus OLO_CLANG_CL / OLO_LLD_LINK / OLO_LLVM_RC as
+    # absolute paths for the configure line below, and FAILS THE JOB if the
+    # resolved clang-cl is not the requested major.
     - name: Install LLVM (pinned)
-      uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
+      uses: ./.github/actions/setup-llvm-windows
       with:
         version: "23.1.0"
-        directory: ${{ runner.temp }}/llvm-pinned
+        sha256: "1aebf024b959b3835c3bd936da2fa58cd002c61ccf47fce1714447b900bd9837"
 
-    # Resolve the pinned toolchain to absolute paths and PROVE it is the pinned one.
-    # Every tool comes from the same install root: mixing a clang-cl 23 front end
-    # with the image's lld-link 20 is exactly the sort of skew this job exists to
-    # keep out. cmake/ClangCLToolchain.cmake names all three by bare filename, which
-    # is what let PATH decide last time; the absolute paths exported here override
-    # it, because a -D cache entry already exists by the time its `set(... CACHE ...)`
-    # runs.
-    - name: Resolve and verify the pinned clang-cl
-      id: llvm
-      shell: pwsh
-      run: |
-        $expected = '23'
-        $bin = Join-Path "$env:LLVM_PATH" 'bin'
-        $clangcl = Join-Path $bin 'clang-cl.exe'
-        if (-not (Test-Path $clangcl)) {
-          Write-Host "::error::no clang-cl.exe under LLVM_PATH ('$env:LLVM_PATH')"
-          if (Test-Path $bin) { Get-ChildItem $bin -Filter '*.exe' | Select-Object -First 20 -ExpandProperty Name }
-          exit 1
-        }
-        $verLine = (& $clangcl --version | Select-Object -First 1)
-        Write-Host "resolved: $clangcl"
-        Write-Host "version : $verLine"
-        if ($verLine -notmatch 'clang version (\d+)\.') {
-          Write-Host "::error::could not parse a version out of '$verLine'"
-          exit 1
-        }
-        $major = $Matches[1]
-        if ($major -ne $expected) {
-          Write-Host "::error::pinned LLVM $expected requested, but $clangcl reports major $major. The pin did not take effect; do not trust this job's result."
-          exit 1
-        }
-        # Forward slashes: CMake treats a backslash in a -D value as an escape.
-        # .Replace() and not -replace: the latter takes a REGEX, where a lone
-        # backslash is a parse error rather than a literal.
-        "OLO_CLANG_CL=$($clangcl.Replace('\','/'))"                          >> $env:GITHUB_ENV
-        "OLO_LLD_LINK=$((Join-Path $bin 'lld-link.exe').Replace('\','/'))"   >> $env:GITHUB_ENV
-        "OLO_LLVM_RC=$((Join-Path $bin 'llvm-rc.exe').Replace('\','/'))"    >> $env:GITHUB_ENV
-        # Belt and braces: later steps that call bare `clang-cl` (the ASan runtime
-        # lookup below) then resolve the same binary.
-        $bin >> $env:GITHUB_PATH
-
-    # NOTE: this job deliberately does NOT use sccache (unlike the Linux sanitizer jobs).
-    # The Windows sccache server reliably crashes — "sccache: error: failed to execute
-    # compile … An existing connection was forcibly closed by the remote host. (os error
-    # 10054)" — while compiling the largest ASan-instrumented GameNetworkingSockets TUs
-    # (steamnetworkingsockets_*.cpp, tier0/dbg.cpp). It hits a different TU each attempt, so
-    # bounded retries never clear it (observed: three attempts, three different TUs). Building
-    # WITHOUT the sccache launcher — the compiler runs directly — removes the crash entirely
-    # (verified locally: a clang-cl ASan build of GNS completes with no cache). The cost is a
-    # full cold compile every run, acceptable for a job that otherwise never goes green. If a
-    # future sccache release fixes the Windows large-object crash, restore the Setup sccache +
-    # Cache steps and re-add -DOLO_ENABLE_COMPILER_CACHE=ON below.
-
-    # Third-party deps come from the vcpkg manifest (issue #773). The triplet is the
-    # plain MSVC one even though this job compiles with clang-cl: ports are shared with
-    # the cl.exe jobs, which halves the cache and avoids a clang-cl-built-MaterialX bug
-    # (see docs/agent-rules/vcpkg-dependency-management.md). NOTE: vcpkg ports
-    # are NOT sanitizer-instrumented — which is what this job wants. The ~40 lines
-    # that used to de-instrument protobuf/abseil by hand (so an instrumented protoc
-    # would stop aborting mid-build) are gone because nothing third-party is compiled
-    # here any more. The engine, GNS's consumers and the tests stay instrumented.
     - name: Setup vcpkg
       id: vcpkg
       uses: ./.github/actions/setup-vcpkg

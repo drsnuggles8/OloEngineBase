@@ -81,32 +81,28 @@ jobs:
         # section markers (duplicate-symbol link errors). LLVM 20.x fixes
         # both.
         #
-        # `KyleMayes/install-llvm-action` exports `LLVM_PATH` pointing at the
-        # install root (so binaries live at `$LLVM_PATH/bin`). Pinned to an exact
-        # release so we don't drift with the action's "latest N.x" interpretation.
+        # Installed by .github/actions/setup-llvm-windows, shared with asan.yml so
+        # the two Windows clang-cl jobs cannot drift apart. It downloads the official
+        # LLVM release, checks a pinned SHA256, unpacks it and FAILS the job if the
+        # resulting clang-cl is not the requested major.
         #
-        # THIS STEP USED TO INSTALL NOTHING. It passed `cached: true`, which does
-        # not mean "cache this download" -- the action's README defines it as "the
-        # binaries WERE cached", i.e. skip downloading because the caller restored
-        # them with actions/cache. This job has no such restore step, so the action
-        # skipped the download, printed "Using cached LLVM and Clang <version>...",
-        # and left LLVM_PATH at its Windows default of C:\Program Files\LLVM --
-        # which is where the runner IMAGE's LLVM already lives. The job therefore
-        # fuzzed with the image's compiler while reporting a pinned one, and the
-        # two matched by coincidence (the image shipped 20.1.8, the old pin here).
-        # `directory` is set below so a broken install can never masquerade as the
-        # image's working one again. See asan.yml's Install LLVM step for the run
-        # that exposed this.
+        # THIS STEP USED TO INSTALL NOTHING. It called KyleMayes/install-llvm-action
+        # with `cached: true`, which does not mean "cache this download" -- that
+        # action's README defines it as "the binaries WERE cached", i.e. skip
+        # downloading because the caller restored them with actions/cache. This job
+        # has no such restore step, so the action skipped the download, printed
+        # "Using cached LLVM and Clang <version>...", and left LLVM_PATH at its
+        # Windows default of C:\Program Files\LLVM -- where the runner IMAGE's LLVM
+        # already lives. So this job fuzzed with the image's compiler while reporting
+        # a pinned one, and the two matched only by coincidence: the image shipped
+        # 20.1.8 and the old pin here said 20.1.8. That held until the pin moved.
         #
-        # Moved 20.1.8 -> 23.1.0 alongside the Windows ASan job's new pin, so the
-        # two Windows clang-cl jobs share one toolchain version rather than
-        # drifting apart. 23.1.0 also fixes the clang-cl + ASan exception-handling
-        # miscompile behind issue #497 (measured in asan.yml's Install LLVM step) --
-        # not something this job hit, but no reason to stay behind it either.
-        uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
+        # Moved 20.1.8 -> 23.1.0 alongside the Windows ASan job, which needs 23.1.0
+        # for the clang-cl + ASan exception-handling fix behind issue #497.
+        uses: ./.github/actions/setup-llvm-windows
         with:
           version: "23.1.0"
-          directory: ${{ runner.temp }}/llvm-pinned
+          sha256: "1aebf024b959b3835c3bd936da2fa58cd002c61ccf47fce1714447b900bd9837"
 
       # NOTE: this job deliberately does NOT use sccache (unlike Windows.yml).
       # The Windows sccache server reliably crashes — "sccache: error: failed to

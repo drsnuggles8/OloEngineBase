@@ -1,0 +1,109 @@
+name: 'Install a pinned LLVM toolchain (Windows)'
+description: >
+  Download, checksum-verify and unpack an official LLVM release for Windows, then
+  PROVE the resulting clang-cl is the version that was asked for.
+
+  It exists because KyleMayes/install-llvm-action cannot install LLVM 22 or newer
+  on Windows -- its assets.json tops out at 21.1.8 for win32/x64 and v2.0.9 is its
+  newest release, both predating LLVM 22 (Jun 2026) and 23 (Aug 2026). LLVM
+  stopped shipping the LLVM-<ver>-win64.exe installer that action's Windows path
+  expects; 22+ publish .tar.xz / .tar.zst only.
+
+  It also exists because the two jobs that pin a Windows toolchain kept doing it
+  wrong in the same way, and every wrong version was GREEN:
+
+    * `cached: true` was read as "cache this download". The action's README
+      defines it as "the binaries WERE cached" -- skip downloading, the caller
+      restored them. Neither job had an actions/cache restore, so the action
+      installed nothing and said "Using cached LLVM and Clang <version>...".
+    * that action's `directory` defaults to C:\Program Files\LLVM on Windows, which
+      is where the runner image's own LLVM already lives -- so a skipped install
+      is indistinguishable from a successful one, and every later step silently
+      uses the image's compiler.
+
+  The combination cost a CI round that reported nine failing exception-handling
+  tests, which read as "the pinned LLVM does not fix the bug" and actually meant
+  "the pin was never installed". Hence the assertion at the end: this action
+  fails the job when the resolved clang-cl is not the requested major, because a
+  gate whose compiler can change silently is not a gate.
+
+inputs:
+  version:
+    description: 'Full LLVM release version, e.g. 23.1.0.'
+    required: true
+  sha256:
+    description: >
+      SHA256 of clang+llvm-<version>-x86_64-pc-windows-msvc.tar.zst, lowercase hex.
+      Pinned rather than trusted from the URL: a re-tagged or replaced asset would
+      otherwise change a sanitizer gate's compiler with nothing saying so.
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download and unpack LLVM ${{ inputs.version }}
+      shell: pwsh
+      run: |
+        $version = '${{ inputs.version }}'
+        $sha256  = '${{ inputs.sha256 }}'.ToLower()
+        $asset   = "clang+llvm-$version-x86_64-pc-windows-msvc"
+        $url     = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$version/$asset.tar.zst"
+        $archive = Join-Path $env:RUNNER_TEMP 'llvm.tar.zst'
+        $dest    = Join-Path $env:RUNNER_TEMP 'llvm-pinned'
+
+        Write-Host "downloading $url"
+        curl.exe --fail --silent --show-error --location --output $archive $url
+        if ($LASTEXITCODE -ne 0) { Write-Host "::error::download failed: $url"; exit 1 }
+
+        $got = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+        if ($got -ne $sha256) {
+          Write-Host "::error::SHA256 mismatch for $asset.tar.zst -- expected $sha256, got $got"
+          exit 1
+        }
+        Write-Host "sha256 ok: $got"
+
+        New-Item -ItemType Directory -Force -Path $dest | Out-Null
+        # The runner's tar is bsdtar, which reads .tar.zst natively. Called by
+        # absolute path: Git's GNU tar is also on PATH and cannot read zstd.
+        & (Join-Path $env:SystemRoot 'System32/tar.exe') -xf $archive -C $dest
+        if ($LASTEXITCODE -ne 0) { Write-Host "::error::extraction failed"; exit 1 }
+
+        # The archive carries a single top-level directory named after the asset.
+        "LLVM_PATH=$(Join-Path $dest $asset)" >> $env:GITHUB_ENV
+
+    - name: Verify the pinned clang-cl
+      shell: pwsh
+      run: |
+        $expected = '${{ inputs.version }}'.Split('.')[0]
+        $bin = Join-Path "$env:LLVM_PATH" 'bin'
+        $clangcl = Join-Path $bin 'clang-cl.exe'
+        if (-not (Test-Path $clangcl)) {
+          Write-Host "::error::no clang-cl.exe under LLVM_PATH ('$env:LLVM_PATH')"
+          if (Test-Path $bin) { Get-ChildItem $bin -Filter '*.exe' | Select-Object -First 20 -ExpandProperty Name }
+          exit 1
+        }
+        $verLine = (& $clangcl --version | Select-Object -First 1)
+        Write-Host "resolved: $clangcl"
+        Write-Host "version : $verLine"
+        if ($verLine -notmatch 'clang version (\d+)\.') {
+          Write-Host "::error::could not parse a version out of '$verLine'"
+          exit 1
+        }
+        if ($Matches[1] -ne $expected) {
+          Write-Host "::error::pinned LLVM $expected requested, but $clangcl reports major $($Matches[1]). The pin did not take effect; do not trust this job's result."
+          exit 1
+        }
+        # Absolute paths for the caller's configure line. cmake/ClangCLToolchain.cmake
+        # names clang-cl / lld-link / llvm-rc by BARE FILENAME, so PATH order alone
+        # decides which one CMake finds -- that is exactly how the image's compiler
+        # won last time. A -D cache entry already exists by the time the toolchain's
+        # set(... CACHE ...) runs, so these win.
+        #
+        # .Replace() and not -replace: the latter takes a REGEX, in which a lone
+        # backslash is a parse error.
+        "OLO_CLANG_CL=$($clangcl.Replace('\','/'))"                        >> $env:GITHUB_ENV
+        "OLO_LLD_LINK=$((Join-Path $bin 'lld-link.exe').Replace('\','/'))" >> $env:GITHUB_ENV
+        "OLO_LLVM_RC=$((Join-Path $bin 'llvm-rc.exe').Replace('\','/'))"   >> $env:GITHUB_ENV
+        # Later steps that call bare `clang-cl` (the ASan runtime lookup) then
+        # resolve this same binary.
+        $bin >> $env:GITHUB_PATH
