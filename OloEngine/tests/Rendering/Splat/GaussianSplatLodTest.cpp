@@ -191,6 +191,43 @@ namespace OloEngine::Tests
         EXPECT_NEAR(after.Color.b, before.Color.b, 1.0 / 255.0);
     }
 
+    TEST(GaussianSplatMerge, AVeryFlatSplatStillWeighsSomething)
+    {
+        // THE FAILURE THIS EXISTS TO CATCH is silent and total. A splat fitted
+        // to a flat surface -- most of a real scan -- is oblate, and the record
+        // packs its covariance as halves whose denormals stop at 6e-8. A thin
+        // axis below sigma = 2.4e-4 therefore stores as exactly zero, the
+        // determinant is zero, and an unfloored mass function gives that splat
+        // weight 0: it contributes nothing to the moment fit and the first
+        // coarsening erases it.
+        //
+        // The mass-preservation test cannot catch that on its own, because it
+        // compares a level against a baseline computed by the same function --
+        // both sides would agree that the vanished splats never existed. So the
+        // property is pinned directly here.
+        const GpuSplat flat = MakeSplat(glm::vec3(0.0f), 0.0001f, 0.8f, glm::vec3(0.5f));
+        const std::array<f32, 6> cov = UnpackCovariance(flat.CovXXXY, flat.CovXZYY, flat.CovYZZZ);
+        ASSERT_FALSE(cov[0] > 0.0f) << "this test assumes the packing underflowed; pick a smaller sigma";
+
+        const std::array<GpuSplat, 1> group{ flat };
+        EXPECT_GT(ComputeMoments(group).Mass, 0.0) << "a splat too thin to pack weighs nothing and vanishes";
+
+        // And a group of them merges rather than being refused wholesale.
+        const std::array<GpuSplat, 3> flatGroup{
+            MakeSplat(glm::vec3(-0.2f, 0.0f, 0.0f), 0.0001f, 0.8f, glm::vec3(0.9f, 0.1f, 0.1f)),
+            MakeSplat(glm::vec3(0.0f, 0.0f, 0.0f), 0.0001f, 0.8f, glm::vec3(0.9f, 0.1f, 0.1f)),
+            MakeSplat(glm::vec3(0.2f, 0.0f, 0.0f), 0.0001f, 0.8f, glm::vec3(0.9f, 0.1f, 0.1f)),
+        };
+        GpuSplat merged{};
+        ASSERT_TRUE(MergeCluster(flatGroup, merged));
+        EXPECT_NEAR(merged.Position.x, 0.0f, 1e-4f);
+
+        // The merged splat spans the group, which is the whole point: its
+        // variance along the spread axis is the parallel-axis term.
+        const std::array<f32, 6> mergedCov = UnpackCovariance(merged.CovXXXY, merged.CovXZYY, merged.CovYZZZ);
+        EXPECT_GT(mergedCov[0], 0.01f);
+    }
+
     TEST(GaussianSplatMerge, DegenerateGroupsAreRejectedRatherThanEmitted)
     {
         GpuSplat merged{};
@@ -278,6 +315,8 @@ namespace OloEngine::Tests
         chain.Build(base);
 
         ASSERT_GE(chain.LevelCount(), 3u) << "4096 splats at 4:1 should give at least 4096/1024/256";
+        EXPECT_EQ(chain.DroppedClusters(), 0u)
+            << "a refused merge silently removes geometry from every coarser level";
         EXPECT_EQ(chain.Level(0).Count(), base.Count());
 
         u32 previous = chain.Level(0).Count();

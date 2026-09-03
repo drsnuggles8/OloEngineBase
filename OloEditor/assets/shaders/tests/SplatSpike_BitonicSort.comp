@@ -21,14 +21,17 @@
 // right. ADR 0018 section 3.3 has the reasoning and 5.2 the numbers.
 //
 // THE TWO ENTRY POINTS. A naive bitonic network is O(log^2 N) dispatches, each
-// re-reading the whole array from global memory. 2^21 elements would be 231
-// dispatches. Every step whose stride is below the workgroup's span can instead
-// run entirely in shared memory, so the shader has two modes:
+// re-reading the whole array from global memory: 231 of them at 2^21 elements.
+// Every step whose stride is below the workgroup's span can instead run entirely
+// in shared memory, so the shader has two modes:
 //
 //   global  one compare-exchange step, for a stride wider than the tile
 //   local   a whole descending run of steps inside one tile
 //
-// which takes 2^21 from 231 dispatches to 21 global plus 21 local.
+// A 512-element tile absorbs the last 9 steps of every k, which takes 2^21 from
+// 231 dispatches to 78 global plus 21 local, and the 4096-element fixture from
+// 78 to 6 global plus 12 local. It is a constant-factor win, not a change of
+// order: the global half is still O(log^2 N).
 // =============================================================================
 
 #version 460 core

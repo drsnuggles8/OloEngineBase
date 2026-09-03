@@ -12,25 +12,61 @@ namespace OloEngine::GaussianSplat
 {
     namespace
     {
-        // A splat's contribution to the group, up to the (2 pi)^{3/2} that
-        // appears on both sides of every comparison and therefore cancels:
-        // alpha times the volume of its 1-sigma ellipsoid.
-        [[nodiscard]] f64 SplatMass(const GpuSplat& splat)
-        {
-            const std::array<f32, 6> sigma = UnpackCovariance(splat.CovXXXY, splat.CovXZYY, splat.CovYZZZ);
-            const f32 determinant = SymmetricDeterminant(sigma);
-            if (!(determinant > 0.0f))
-                return 0.0;
-            const f64 alpha = static_cast<f64>((splat.ColorOpacity >> 24) & 0xFFu) / 255.0;
-            return alpha * std::sqrt(static_cast<f64>(determinant));
-        }
-
         [[nodiscard]] f64 SymmetricDeterminant64(const std::array<f64, 6>& s)
         {
             // (xx, xy, xz, yy, yz, zz)
             return s[0] * (s[3] * s[5] - s[4] * s[4]) - s[1] * (s[1] * s[5] - s[4] * s[2]) +
                    s[2] * (s[1] * s[4] - s[3] * s[2]);
         }
+
+        // A splat's contribution to the group, up to the (2 pi)^{3/2} that
+        // appears on both sides of every comparison and therefore cancels:
+        // alpha times the volume of its 1-sigma ellipsoid.
+        //
+        // THE VARIANCE FLOOR IS LOAD-BEARING, not defensive padding. A splat
+        // fitted to a flat surface -- which is most of a real scan -- is very
+        // oblate, and the record stores its covariance in HALF, whose denormals
+        // stop at 6e-8. A thin axis below sigma = 2.4e-4 therefore packs to
+        // exactly zero, the determinant is zero, and the splat weighs nothing:
+        // it would contribute nothing to the moment fit and be erased by the
+        // first coarsening. That is precisely the failure #1039 exists to
+        // prevent, and the mass test could not catch it, because the baseline it
+        // compares against is computed by this same function.
+        //
+        // The floor is the smallest thickness the record can represent, so a
+        // splat is treated as being exactly as thin as the format allows rather
+        // than as having no volume at all.
+        constexpr f64 kMinVariance = 6.0e-8;
+
+        // Raises the three diagonal terms to the floor, which is what stops a
+        // rank-deficient covariance from having determinant zero. Applied in
+        // BOTH places a determinant is taken: to a member when weighing it, and
+        // to the MERGED covariance, because a cluster of coplanar splats -- a
+        // patch of wall -- is itself rank-deficient in the direction none of its
+        // members has any thickness in. Flooring only the members would fix the
+        // weighing and still refuse the merge.
+        [[nodiscard]] std::array<f64, 6> WithVarianceFloor(const std::array<f64, 6>& sigma)
+        {
+            std::array<f64, 6> floored = sigma;
+            floored[0] = std::max(floored[0], kMinVariance);
+            floored[3] = std::max(floored[3], kMinVariance);
+            floored[5] = std::max(floored[5], kMinVariance);
+            return floored;
+        }
+
+        [[nodiscard]] f64 SplatMass(const GpuSplat& splat)
+        {
+            const std::array<f32, 6> sigma = UnpackCovariance(splat.CovXXXY, splat.CovXZYY, splat.CovYZZZ);
+            const std::array<f64, 6> floored =
+                WithVarianceFloor({ sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], sigma[5] });
+
+            const f64 determinant = SymmetricDeterminant64(floored);
+            if (!(determinant > 0.0))
+                return 0.0;
+            const f64 alpha = static_cast<f64>((splat.ColorOpacity >> 24) & 0xFFu) / 255.0;
+            return alpha * std::sqrt(determinant);
+        }
+
     } // namespace
 
     auto SymmetricDeterminant(const std::array<f32, 6>& s) -> f32
@@ -106,7 +142,8 @@ namespace OloEngine::GaussianSplat
         if (!(moments.Mass > 0.0))
             return false;
 
-        const f64 determinant = SymmetricDeterminant64(moments.Covariance);
+        const std::array<f64, 6> covariance = WithVarianceFloor(moments.Covariance);
+        const f64 determinant = SymmetricDeterminant64(covariance);
         if (!(determinant > 0.0))
             return false;
 
@@ -119,14 +156,14 @@ namespace OloEngine::GaussianSplat
         // but not an excess.
         const f64 alpha = std::min(1.0, moments.Mass / std::sqrt(determinant));
 
-        std::array<f32, 6> covariance{};
+        std::array<f32, 6> packed{};
         for (sizet i = 0; i < 6; ++i)
-            covariance[i] = static_cast<f32>(moments.Covariance[i]);
+            packed[i] = static_cast<f32>(covariance[i]);
 
         out = GpuSplat{};
         out.Position = glm::vec3(moments.Mean);
         out.ColorOpacity = PackColorOpacity(glm::vec3(moments.Color), static_cast<f32>(alpha));
-        PackCovariance(covariance, out.CovXXXY, out.CovXZYY, out.CovYZZZ);
+        PackCovariance(packed, out.CovXXXY, out.CovXZYY, out.CovYZZZ);
         return true;
     }
 
@@ -226,6 +263,7 @@ namespace OloEngine::GaussianSplat
         OLO_PROFILE_FUNCTION();
 
         m_Levels.clear();
+        m_DroppedClusters = 0;
         m_Levels.push_back(base);
         if (base.Empty())
             return;
@@ -261,6 +299,8 @@ namespace OloEngine::GaussianSplat
                 GpuSplat mergedSplat;
                 if (MergeCluster(members, mergedSplat))
                     merged.push_back(mergedSplat);
+                else
+                    ++m_DroppedClusters;
             }
             if (merged.empty())
                 break;

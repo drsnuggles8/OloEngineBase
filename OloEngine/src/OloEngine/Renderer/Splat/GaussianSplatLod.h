@@ -100,8 +100,19 @@ namespace OloEngine::GaussianSplat
 
         [[nodiscard]] auto TotalGpuBytes() const -> sizet;
 
+        // Clusters whose merge was refused (see MergeCluster) and which are
+        // therefore missing from every coarser level. Reported rather than
+        // swallowed: a chain built from a cloud this rejects loses geometry
+        // silently, and "the coarse level looks thin" is a bad way to find out.
+        // The fixture yields zero, and GaussianSplatLodTest asserts that.
+        [[nodiscard]] auto DroppedClusters() const -> u32
+        {
+            return m_DroppedClusters;
+        }
+
       private:
         std::vector<SplatCloud> m_Levels;
+        u32 m_DroppedClusters = 0;
     };
 
     // Partitions `splats` into clusters of at most `clusterSize` by recursive

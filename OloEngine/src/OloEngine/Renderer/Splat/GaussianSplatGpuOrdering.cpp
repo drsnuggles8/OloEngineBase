@@ -100,14 +100,24 @@ namespace OloEngine::GaussianSplat
 
     void GpuViewOrdering::ReleaseBindings() const
     {
-        // Leave no SSBO of ours on a shared binding point for whatever runs
-        // next in this process.
+        // Leave no buffer of ours on a shared binding point for whatever runs
+        // next in this process (testing-architecture.md 6.4).
         for (const Ref<StorageBuffer>& buffer :
              { m_SplatBuffer, m_OrderBuffer, m_KeyBuffer, m_StatsBuffer, m_IndirectBuffer })
         {
             if (buffer)
                 buffer->Unbind();
         }
+
+        // The UBOs matter MORE than the SSBOs here and were missed the first
+        // time. Bindings 7 and 8 are UBO_USER_0 and UBO_USER_1 -- the
+        // post-process and motion-blur slots -- so leaving a destroyed buffer
+        // on them hands the next pass in the process a dangling binding. There
+        // is no UniformBuffer::Unbind, hence the raw call.
+        if (m_CullUniforms)
+            ::glBindBufferBase(GL_UNIFORM_BUFFER, kBindingCullUbo, 0);
+        if (m_SortUniforms)
+            ::glBindBufferBase(GL_UNIFORM_BUFFER, kBindingSortUbo, 0);
     }
 
     auto GpuViewOrdering::Initialize() -> bool
@@ -158,6 +168,19 @@ namespace OloEngine::GaussianSplat
         OLO_CORE_ASSERT(m_Ready && m_SplatBuffer, "GpuViewOrdering::BuildOrdering before SetCloud");
 
         m_Dispatches = DispatchCounts{};
+
+        // THE BUDGET IS NOT IMPLEMENTED HERE, AND THAT IS DELIBERATE -- see
+        // ADR 0018 section 3.4: selecting the top N splats destroys the diffuse
+        // mass, and LOD level selection replaces it. Silently ignoring the field
+        // would make the CPU and GPU paths disagree exactly where the header
+        // promises they cannot, so a caller that sets a budget this pass would
+        // actually change is told.
+        if (settings.MaxSplats > 0 && settings.MaxSplats < m_SplatCount)
+        {
+            OLO_CORE_WARN("GpuViewOrdering: ViewSettings::MaxSplats ({}) is ignored by the GPU ordering pass; "
+                          "pick a SplatLodChain level instead (ADR 0018 section 3.4)",
+                          settings.MaxSplats);
+        }
 
         CullUniforms uniforms;
         uniforms.View = view;
@@ -266,6 +289,12 @@ namespace OloEngine::GaussianSplat
         out.Stats = ViewStats{};
         if (!m_Ready || !m_OrderBuffer)
             return;
+
+        // BufferUpdate, not just ShaderStorage. `GetData` reads through
+        // glGetNamedBufferSubData, and GL only orders shader writes against a
+        // client-side read behind GL_BUFFER_UPDATE_BARRIER_BIT; the frame path
+        // does not need it, so it is issued here rather than in BuildOrdering.
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
 
         std::array<u32, kStatSlots> stats{};
         m_StatsBuffer->GetData(stats.data(), static_cast<u32>(stats.size() * sizeof(u32)));

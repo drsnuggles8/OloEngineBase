@@ -7,7 +7,8 @@ is affordable.
 
 **The decision, up front.** Gaussian splats are viable in OloEngine. Two things had to be true and
 now are, both measured in this PR: the per-view ordering runs on the GPU
-(**0.51 ms for 500 k splats, 4.7 ms for 2 M** — 33× the single-threaded CPU pass it replaces), and
+(**0.5–2.2 ms for 500 k splats, 4.7–10.7 ms for 2 M** — 8 to 33× the single-threaded CPU pass it
+replaces), and
 LOD comes from **merging** splats offline rather than selecting among them at draw time. What is
 *not* done, deliberately, is the integration: no component, no scene serialization, no asset-registry
 entry, no Vulkan port. §4 states every interaction a splat cloud has and does not have, and §6 says
@@ -18,7 +19,8 @@ first draft said "do not proceed": the CPU ordering pass cost 16.6 ms at 500 k s
 frame, against published captures of 1–6 M splats. That was the right call on that evidence. Then
 [#1038](https://github.com/drsnuggles8/OloEngineBase/issues/1038) and
 [#1039](https://github.com/drsnuggles8/OloEngineBase/issues/1039) — the two preconditions it named —
-were implemented, and the blocking number moved by a factor of 33. The measurement was the argument
+were implemented, and the blocking number moved by more than an order of magnitude. The measurement
+was the argument
 in both directions.
 
 ---
@@ -114,7 +116,9 @@ than plausible:
 
 * the CPU's stable radix sort and the GPU's unstable bitonic network produce the **same array**, so
   the parity test can assert equality instead of "same set, roughly ordered";
-* the GPU cull can compact with an unordered atomic without becoming nondeterministic;
+* the cull can write its results in any order — it marks rejects in place with the maximum key rather
+  than compacting, so the sort array is a fixed power of two whose length never depends on a count
+  the CPU would have to read back;
 * two splats at the same depth cannot swap between frames, which is a shimmer the eye picks up.
 
 On the CPU, descending order comes from complementing the keys and **not** from reversing the last
@@ -133,10 +137,13 @@ subtly wrong and hard to prove right. Bitonic sorting on the *pair* needs no sta
 measurement, a slower algorithm that is provably identical beat a faster one that is probably right.
 
 The naive bitonic network is O(log²N) dispatches — 231 for 2²¹ elements, each re-reading the whole
-array. Every step whose stride is below a workgroup's 512-element tile is instead resolved in shared
-memory, which takes that to 21 global plus 21 local. The measured dispatch count for the 4096-splat
-fixture is 1 cull + 6 global + 12 local = **19**, and `TheIndirectDrawCountIsWrittenByTheGpu` pins it
-so a regression to one-dispatch-per-step cannot pass unnoticed.
+array. A 512-element workgroup tile absorbs the last nine steps of every k in shared memory, which
+takes 2²¹ to 78 global plus 21 local and the 4096-element fixture from 78 to 6 global plus 12 local.
+That is a constant-factor win, not a change of order: the global half is still O(log²N), and it is
+the reason a radix sort — O(N) per pass, four passes — remains the right endpoint. The measured
+dispatch count for the fixture is 1 cull + 6 global + 12 local = **19**, and
+`TheIndirectDrawCountIsWrittenByTheGpu` pins it so a regression to one-dispatch-per-step cannot pass
+unnoticed.
 
 ### 3.4 LOD is merging, not selection
 
@@ -212,10 +219,17 @@ samples, in the Debug test binary — host build configuration does not change G
 
 | splats | drawn | CPU whole pass | GPU whole pass | speed-up |
 |---:|---:|---:|---:|---:|
-| 4,096 | 3,043 | 0.14 ms | **0.085 ms** | 1.6× |
-| 100,000 | 74,431 | 2.60 ms | **0.262 ms** | 9.9× |
-| 500,000 | 372,165 | 16.55 ms | **0.506 ms** | 33× |
-| 2,000,000 | 1,488,977 | 155.3 ms | **4.683 ms** | 33× |
+| 4,096 | 3,043 | 0.14 ms | **0.09–0.28 ms** | 0.5–1.6× |
+| 100,000 | 74,431 | 2.60 ms | **0.26–0.85 ms** | 3–10× |
+| 500,000 | 372,165 | 16.55 ms | **0.51–2.15 ms** | 8–33× |
+| 2,000,000 | 1,488,977 | 155.3 ms | **4.7–10.7 ms** | 15–33× |
+
+The GPU column is a range over three runs of the identical dispatch sequence, and the spread is
+wide — up to 4× — because this box was building other worktrees during the later two, on top of the
+clock-state effect §5.3 documents. It is quoted honestly rather than as its best case, because the
+decision does not turn on which end is right: even the **slowest** GPU number beats the CPU by 8× at
+500 k and 15× at 2 M. At 4 k the GPU can be slower, which is expected and irrelevant — 19 dispatches
+have a fixed overhead that a 0.14 ms CPU pass does not, and nobody needs a GPU sort for 4 k splats.
 
 **This is the number that reversed the decision.** A 16.7 ms frame at 60 Hz has everything else in
 the engine in it too; giving the ordering a fifth of it bought 120–150 k visible splats on the CPU

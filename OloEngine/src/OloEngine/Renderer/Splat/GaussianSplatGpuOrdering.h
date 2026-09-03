@@ -91,7 +91,8 @@ namespace OloEngine::GaussianSplat
 
         // Number of compute dispatches the last BuildOrdering issued, split
         // into the cull and the two sort modes. Reported by the measurement so
-        // "the sort is N dispatches" is observed rather than recomputed.
+        // the dispatch count is observed rather than recomputed from a formula
+        // that might not match the loop.
         struct DispatchCounts
         {
             u32 Cull = 0;
