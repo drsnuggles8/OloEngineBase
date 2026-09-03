@@ -162,6 +162,34 @@ namespace OloEngine::Tests::ShaderHarness
         return bindings;
     }
 
+    // A storage block as declared: its binding and its block NAME. Two files
+    // in one include closure may legally declare the same binding when they
+    // declare the SAME block for different stages (InstanceBlock.glsl and
+    // InstanceBlock_Vertex.glsl are the standing example). Two DIFFERENT blocks
+    // at one binding is the real collision, and needs the name to tell apart.
+    struct DeclaredStorageBlock
+    {
+        u32 m_Binding = 0;
+        std::string m_Name;
+    };
+
+    inline std::vector<DeclaredStorageBlock> DeclaredStorageBufferBlocks(const std::string& source)
+    {
+        static const std::regex kStorageBlock{
+            R"BLK(layout\s*\(([^)]*)\)\s*(?:(?:readonly|writeonly|coherent|restrict|volatile)\s+)*buffer\s+([A-Za-z_][A-Za-z0-9_]*))BLK"
+        };
+        static const std::regex kBinding{ R"BND(binding\s*=\s*(\d+))BND" };
+        std::vector<DeclaredStorageBlock> blocks;
+        for (std::sregex_iterator it{ source.begin(), source.end(), kStorageBlock }, end; it != end; ++it)
+        {
+            const std::string qualifiers = (*it)[1].str();
+            std::smatch binding;
+            if (std::regex_search(qualifiers, binding, kBinding))
+                blocks.push_back({ static_cast<u32>(std::stoul(binding[1].str())), (*it)[2].str() });
+        }
+        return blocks;
+    }
+
     inline shaderc_shader_kind StageFromToken(const std::string& tok)
     {
         if (tok == "vertex")

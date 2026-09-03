@@ -235,7 +235,7 @@ namespace OloEngine
         return data;
     }
 
-    CommandPacket* Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic, i32 entityID, const LODGroup* lodGroup)
+    CommandPacket* Renderer3D::DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic, i32 entityID, const LODGroup* lodGroup, u32 gpuSceneDrawLink)
     {
         OLO_PROFILE_FUNCTION();
         if (!s_Data.Pipeline->FrameCorePasses.Scene)
@@ -406,6 +406,13 @@ namespace OloEngine
         // Forward / Forward+ too. Static meshes self-alias (prev == curr)
         // so their velocity reads zero.
         cmd->prevTransform = GetAndRecordPrevTransform(entityID, cmd->transform);
+        // The canonical link (issue #994). It is carried, not consumed, here:
+        // the record's slot only becomes final at EndScene, so the dispatcher
+        // is the first place that can read the transforms it names. `transform`
+        // and `prevTransform` above stay filled because an unresolved link must
+        // still draw, and because the depth prepass and every legacy adapter
+        // read them.
+        cmd->gpuSceneDrawLink = gpuSceneDrawLink;
         cmd->entityID = entityID;
         cmd->shaderHandle = shaderToUse->GetHandle();
 

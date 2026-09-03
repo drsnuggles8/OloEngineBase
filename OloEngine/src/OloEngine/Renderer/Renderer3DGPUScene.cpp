@@ -124,6 +124,13 @@ namespace OloEngine
                         "Renderer3D::BeginGPUSceneExtraction called twice before EndScene");
         s_Data.SceneGPU.BeginExtraction(ownerToken, s_Data.RenderOrigin);
         s_Data.GPUSceneExtractionActive = true;
+        // The link table is per frame and indices into it are handed to draw
+        // packets, so it is cleared here and nowhere else: a stale entry would
+        // give this frame's draw last frame's record.
+        s_Data.GPUSceneDrawLinks.clear();
+        s_Data.GPUSceneDrawLinksResolved = false;
+        s_Data.GPUSceneLinkedDraws = 0;
+        s_Data.GPUSceneUnlinkedDraws = 0;
     }
 
     GPUSceneMaterialKey Renderer3D::ResolveGPUSceneMaterialKey(const Material* overrideMaterial, u64 stableEntityId,
@@ -173,27 +180,28 @@ namespace OloEngine
         s_Data.SceneGPU.ExtractMaterial(key, BuildMaterialInput(material, RHI::DescriptorHeap::Get().IsEnabled()));
     }
 
-    void Renderer3D::ExtractGPUSceneMesh(u64 stableEntityId, u64 stableInstanceId,
-                                         const Ref<MeshSource>& meshSource, u32 submeshIndex,
-                                         const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey)
+    u32 Renderer3D::ExtractGPUSceneMesh(u64 stableEntityId, u64 stableInstanceId,
+                                        const Ref<MeshSource>& meshSource, u32 submeshIndex,
+                                        const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
+                                        GPUSceneDrawLinkRequest linkRequest)
     {
         if (!s_Data.GPUSceneExtractionActive || !meshSource || !meshSource->GetVertexArray() || submeshIndex >= static_cast<u32>(meshSource->GetSubmeshes().Num()))
         {
-            return;
+            return GPUSceneDrawLinkNone;
         }
 
         const Ref<VertexBuffer>& vertexBuffer = meshSource->GetVertexBuffer();
         const Ref<IndexBuffer>& indexBuffer = meshSource->GetIndexBuffer();
         if (!vertexBuffer || !indexBuffer)
         {
-            return;
+            return GPUSceneDrawLinkNone;
         }
 
         const RHI::ResourceHandle vertexHandle = vertexBuffer->GetRHIHandle();
         const RHI::ResourceHandle indexHandle = indexBuffer->GetRHIHandle();
         if (!vertexHandle.IsValid() || !indexHandle.IsValid())
         {
-            return;
+            return GPUSceneDrawLinkNone;
         }
 
         const Submesh& submesh = meshSource->GetSubmeshes()[static_cast<i32>(submeshIndex)];
@@ -216,16 +224,88 @@ namespace OloEngine
                 .m_BaseVertex = static_cast<i32>(submesh.m_BaseVertex),
                 .m_VertexCount = submesh.m_VertexCount,
             });
-        s_Data.SceneGPU.ExtractInstance(
-            GPUSceneInstanceKey{
-                .m_EntityId = stableEntityId,
-                .m_Geometry = geometryKey,
-                .m_InstanceId = stableInstanceId,
-            },
-            GPUSceneInstanceInput{
-                .m_WorldTransform = worldTransform,
-                .m_Material = materialKey,
-            });
+        const GPUSceneInstanceKey instanceKey{
+            .m_EntityId = stableEntityId,
+            .m_Geometry = geometryKey,
+            .m_InstanceId = stableInstanceId,
+        };
+        s_Data.SceneGPU.ExtractInstance(instanceKey,
+                                        GPUSceneInstanceInput{
+                                            .m_WorldTransform = worldTransform,
+                                            .m_Material = materialKey,
+                                        });
+
+        if (linkRequest == GPUSceneDrawLinkRequest::None)
+        {
+            // The record is still extracted — RT and diagnostics see the
+            // geometry — but nothing will resolve a link for it.
+            return GPUSceneDrawLinkNone;
+        }
+
+        // The link is appended AFTER staging succeeded, so an index always
+        // names a key the registry was actually asked to commit.
+        const auto link = static_cast<u32>(s_Data.GPUSceneDrawLinks.size());
+        s_Data.GPUSceneDrawLinks.push_back(GPUSceneDrawLink{ .m_InstanceKey = instanceKey });
+        return link;
+    }
+
+    void Renderer3D::ResolveGPUSceneDrawLinks()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        s_Data.GPUSceneLinkedDraws = 0;
+        s_Data.GPUSceneUnlinkedDraws = 0;
+        for (GPUSceneDrawLink& link : s_Data.GPUSceneDrawLinks)
+        {
+            link.m_Resolved = false;
+            const GPUSceneHandle instance = s_Data.SceneGPU.FindInstance(link.m_InstanceKey);
+            const GPUSceneInstance* record = s_Data.SceneGPU.GetInstanceRecord(instance);
+            if (!record)
+            {
+                // Staged but not committed, or retired in the same frame. The
+                // draw keeps the data it assembled itself; it is counted so a
+                // path that stops consuming records is visible in the profiler
+                // rather than merely still correct.
+                ++s_Data.GPUSceneUnlinkedDraws;
+                continue;
+            }
+
+            link.m_Resolved = true;
+            link.m_Instance = instance;
+            // The instance carries the material slot AND the generation that
+            // slot had at commit. Both travel to the shader so a consumer can
+            // reject a slot whose record was replaced under it.
+            link.m_Material = GPUSceneHandle{ .m_Index = record->MaterialIndex,
+                                              .m_Generation = record->MaterialGeneration };
+            link.m_CurrentTransform = DecodeGPUSceneTransform(record->CurrentTransform);
+            link.m_PreviousTransform = DecodeGPUSceneTransform(record->PreviousTransform);
+            ++s_Data.GPUSceneLinkedDraws;
+        }
+        s_Data.GPUSceneDrawLinksResolved = true;
+    }
+
+    const GPUSceneDrawLink* Renderer3D::GetGPUSceneDrawLink(u32 link)
+    {
+        if (!s_Data.GPUSceneDrawLinksResolved || link >= s_Data.GPUSceneDrawLinks.size())
+        {
+            return nullptr;
+        }
+        return &s_Data.GPUSceneDrawLinks[link];
+    }
+
+    bool Renderer3D::BindGPUSceneMaterials()
+    {
+        return s_Data.SceneGPU.HasGPUResources() && s_Data.SceneGPU.BindMaterials();
+    }
+
+    u32 Renderer3D::GetGPUSceneLinkedDrawCount()
+    {
+        return s_Data.GPUSceneLinkedDraws;
+    }
+
+    u32 Renderer3D::GetGPUSceneUnlinkedDrawCount()
+    {
+        return s_Data.GPUSceneUnlinkedDraws;
     }
 
     void Renderer3D::ExtractGPUSceneLight(const GPUSceneLightKey& key, const GPUSceneLightInput& input)
@@ -283,6 +363,14 @@ namespace OloEngine
         InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
         s_Data.SceneGPU.Reset();
         s_Data.GPUSceneExtractionActive = false;
+        // A reload or backend switch tombstones every record, so every link
+        // this frame produced now names a retired slot. Dropping the table is
+        // what stops a resolved link from outliving its record: after this a
+        // consumer sees "no link" until the next extraction rebuilds one.
+        s_Data.GPUSceneDrawLinks.clear();
+        s_Data.GPUSceneDrawLinksResolved = false;
+        s_Data.GPUSceneLinkedDraws = 0;
+        s_Data.GPUSceneUnlinkedDraws = 0;
     }
 
     u32 Renderer3D::InvalidateTemporalHistories(

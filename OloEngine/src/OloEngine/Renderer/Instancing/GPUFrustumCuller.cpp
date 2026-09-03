@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
 #include <algorithm>
@@ -230,6 +231,9 @@ namespace OloEngine
         slot.InputBuffer->Bind();    // SSBO_INSTANCE_CULL_INPUT (16)
         slot.OutputBuffer->Bind();   // SSBO_INSTANCE_DATA (15)
         slot.IndirectBuffer->Bind(); // SSBO_INSTANCE_DRAW_INDIRECT (17)
+        // Slot 17 is shared with the GPU Scene material table (#994): tell the
+        // dispatcher its cached "materials are bound" answer is stale.
+        CommandDispatch::InvalidateGPUSceneMaterialBinding();
 
         const bool usesRootBindings = !useOcclusion && inputCount > 0u;
         if (usesRootBindings)
@@ -526,6 +530,7 @@ namespace OloEngine
         result.Phase2Output->Bind(); // 15
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_DRAW_INDIRECT,
                                          result.Phase2Indirect->GetRHIHandle());
+        CommandDispatch::InvalidateGPUSceneMaterialBinding();
         RenderCommand::BindStorageBuffer(kRejectedCountBinding, result.RejectedCounter->GetRHIHandle());
 
         // SHADER MOVED ABOVE THE TEXTURE BIND. The seam forks on

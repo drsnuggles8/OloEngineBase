@@ -86,6 +86,19 @@ namespace OloEngine
         // correctness and become the pure optimisation they read as.
         RHI::ResourceHandle CurrentBoundShader{};
         RHI::ResourceHandle CurrentBoundVAO{};
+        // Whether the GPU Scene material table is the current occupant of the
+        // aliased slot 17. See BindGPUSceneMaterialsIfNeeded().
+        bool GPUSceneMaterialsBound = false;
+        // Draws that actually rendered THROUGH a canonical record this frame,
+        // and draws that carried a link and fell back. Counted here rather than
+        // at extraction because this is the only place the record is read: a
+        // path that stops passing its link, or a batcher that drops one, must
+        // show up as a number that moved. A draw submitted to several passes
+        // (depth prepass and colour) counts once per pass on purpose — the
+        // question these answer is "did anything consume", not "how many
+        // meshes".
+        u32 GPUSceneConsumedDraws = 0;
+        u32 GPUSceneFallbackDraws = 0;
         u16 LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
         u16 LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         // Heap re-initialisation epoch the cached material UBO was built under.
@@ -220,6 +233,23 @@ namespace OloEngine
             s_Data.BoundUBOs[bindingPoint] = buffer;
         }
         RenderCommand::BindUniformBuffer(bindingPoint, buffer);
+    }
+
+    // The GPU Scene material table at SSBO_INSTANCE_DRAW_INDIRECT (17). The
+    // slot is shared with the GPU instance cull's indirect buffer, so the
+    // "already bound" answer is only valid until that cull binds its own —
+    // GPUFrustumCuller calls InvalidateGPUSceneMaterialBinding() when it does.
+    // Without that hook a linked draw after a GPU-culled instanced draw would
+    // read draw-indirect commands as material records.
+    // Returns whether the table is bound NOW. Latching on a bind that did not
+    // happen would leave slot 17 holding the instance cull's indirect buffer
+    // while every later draw believed it held material records.
+    static bool BindGPUSceneMaterialsIfNeeded()
+    {
+        if (s_Data.GPUSceneMaterialsBound)
+            return true;
+        s_Data.GPUSceneMaterialsBound = Renderer3D::BindGPUSceneMaterials();
+        return s_Data.GPUSceneMaterialsBound;
     }
 
     // Conditionally bind a VAO only when it differs from the currently bound one.
@@ -1129,30 +1159,81 @@ namespace OloEngine
         // make Upload/Bind unreachable here (they mutate the GPU buffer).
         void UploadModelInstance(const ShaderBindingLayout::ModelUBO& modelData,
                                  Ref<InstanceBuffer>& instanceBuffer,
-                                 const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f))
+                                 const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f),
+                                 const GPUSceneDrawLink* gpuSceneLink = nullptr,
+                                 bool gpuSceneMaterialsBound = false)
         {
             if (!instanceBuffer)
                 return;
 
-            // Camera-relative (issue #429): shift the world transform (and its
-            // previous-frame counterpart, for motion vectors) into render-
-            // relative space before upload. This one choke point covers every
-            // single-instance mesh path — main, depth-only, quad, terrain,
-            // voxel. The normal matrix is translation-invariant so it is
-            // uploaded unchanged. Near origin the origin is (0,0,0) and this is
-            // a no-op. Read the render origin from CommandDispatch's own state
-            // (the same source UploadCameraUBO and DrawMeshInstanced use) so the
-            // relative transform and the camera shift cannot diverge.
+            // This one choke point covers every single-instance mesh path —
+            // main, depth-only, quad, terrain, voxel — and is therefore where
+            // the GPU Scene migration lands: a draw that carries a resolved
+            // canonical link takes its transforms from the record, everything
+            // else keeps the camera-relative shift it always did. The normal
+            // matrix is translation-invariant so it is uploaded unchanged.
+            // Near origin the origin is (0,0,0) and the shift is a no-op. Read
+            // the render origin from CommandDispatch's own state (the same
+            // source UploadCameraUBO and DrawMeshInstanced use) so the relative
+            // transform and the camera shift cannot diverge.
             const glm::vec3 origin = CommandDispatch::GetRenderOrigin();
 
             InstanceData inst;
-            inst.Transform = MakeModelRelative(modelData.Model, origin);
             inst.Normal = modelData.Normal;
-            inst.PrevTransform = MakeModelRelative(modelData.PrevModel, origin);
             inst.EntityID = modelData.EntityID;
             inst.LightmapScaleOffset = lightmapScaleOffset;
             // Color / Custom keep their defaults (white tint, 0) — the explicit
             // instancing path populates them later.
+
+            if (gpuSceneLink && gpuSceneLink->m_Resolved)
+            {
+                // The migrated path (issue #994). The record's transforms are
+                // ALREADY render-relative — GPUScene encoded them with the same
+                // origin this frame set — so they are used as they are; shifting
+                // them again would double the offset and put the mesh at twice
+                // the distance from the camera.
+                //
+                // The previous transform matters more than the current one. The
+                // per-entity cache below is keyed on entity id and is written on
+                // every DrawMesh call, so a multi-submesh mesh overwrote its own
+                // history between submeshes and submeshes 1..N-1 reported zero
+                // velocity. The instance record's history is per (entity,
+                // geometry, submesh) — the same identity a future TLAS/ReSTIR
+                // consumer resolves — so motion vectors and the RT contract now
+                // read one truth.
+                inst.Transform = gpuSceneLink->m_CurrentTransform;
+                inst.PrevTransform = gpuSceneLink->m_PreviousTransform;
+                inst.GPUSceneRef = gpuSceneLink->Ref();
+                // The material half of the link is only honest while the
+                // canonical material table is the current occupant of its
+                // aliased slot. Without the bind the shader would resolve the
+                // slot against whatever else is there, so the material lanes
+                // are zeroed — generation zero is "no link" — and the draw
+                // reads the per-draw material UBO exactly as before. The
+                // transform half needs no binding and stays.
+                if (!gpuSceneMaterialsBound)
+                {
+                    inst.GPUSceneRef.z = 0u;
+                    inst.GPUSceneRef.w = GPUSceneDrawRefUnlinked;
+                }
+                ++s_Data.GPUSceneConsumedDraws;
+            }
+            else
+            {
+                if (gpuSceneLink)
+                {
+                    // A link that was carried but did not resolve: the record
+                    // was rejected at extraction or retired before the commit.
+                    ++s_Data.GPUSceneFallbackDraws;
+                }
+                // Camera-relative (issue #429): shift the world transform (and
+                // its previous-frame counterpart, for motion vectors) into
+                // render-relative space before upload. This is the legacy
+                // adapter half of the choke point — every path that has no
+                // canonical link yet (GPUSceneLegacyAdapters.h) lands here.
+                inst.Transform = MakeModelRelative(modelData.Model, origin);
+                inst.PrevTransform = MakeModelRelative(modelData.PrevModel, origin);
+            }
 
             const std::span<const InstanceData> oneInstance(&inst, 1);
             instanceBuffer->Upload(oneInstance);
@@ -1178,10 +1259,28 @@ namespace OloEngine
         UploadMaterialState(mat, materialDataIndex);
     }
 
+    void CommandDispatch::InvalidateGPUSceneMaterialBinding()
+    {
+        s_Data.GPUSceneMaterialsBound = false;
+    }
+
+    u32 CommandDispatch::GetGPUSceneConsumedDrawCount()
+    {
+        return s_Data.GPUSceneConsumedDraws;
+    }
+
+    u32 CommandDispatch::GetGPUSceneFallbackDrawCount()
+    {
+        return s_Data.GPUSceneFallbackDraws;
+    }
+
     void CommandDispatch::ResetState()
     {
         s_Data.CurrentBoundShader = {};
         s_Data.CurrentBoundVAO = {};
+        s_Data.GPUSceneMaterialsBound = false;
+        s_Data.GPUSceneConsumedDraws = 0;
+        s_Data.GPUSceneFallbackDraws = 0;
         s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
         s_Data.LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         s_Data.BoundTextures.fill(RHI::NullResource);
@@ -1765,7 +1864,14 @@ namespace OloEngine
                 modelData.PadEntity[2] = 0;
                 modelData.PrevModel = cmd->prevTransform;
 
-                UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+                // The prepass must transform the vertex with EXACTLY the matrix
+                // the colour pass will use — that is what the `invariant
+                // gl_Position` contract and the GL_LEQUAL re-test depend on —
+                // so it consumes the same link rather than the command's copy.
+                // The prepass reads no material, so it takes the link for its
+                // transforms only and never binds the material table.
+                UploadModelInstance(modelData, s_Data.ModelInstanceBuffer, glm::vec4(0.0f),
+                                    Renderer3D::GetGPUSceneDrawLink(cmd->gpuSceneDrawLink), false);
                 // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
             }
 
@@ -1812,7 +1918,19 @@ namespace OloEngine
                 constexpr u32 expectedSize = ShaderBindingLayout::ModelUBO::GetSize();
                 static_assert(sizeof(ShaderBindingLayout::ModelUBO) == expectedSize, "ModelUBO size mismatch");
 
-                UploadModelInstance(modelData, s_Data.ModelInstanceBuffer, cmd->lightmapScaleOffset);
+                // The canonical material table is a pass-local alias of slot 17
+                // (GPUScene.h), so it is taken immediately before the draw that
+                // reads it and never left bound as global state. Only the
+                // material table: the per-draw InstanceData stream still owns
+                // slot 15 and binding the canonical instances there would
+                // replace it mid-pass. Bind BEFORE the upload, because the
+                // upload writes the material half of the link only when the
+                // bind succeeded.
+                const GPUSceneDrawLink* gpuSceneLink = Renderer3D::GetGPUSceneDrawLink(cmd->gpuSceneDrawLink);
+                const bool gpuSceneMaterialsBound =
+                    gpuSceneLink && gpuSceneLink->m_Resolved && BindGPUSceneMaterialsIfNeeded();
+                UploadModelInstance(modelData, s_Data.ModelInstanceBuffer, cmd->lightmapScaleOffset, gpuSceneLink,
+                                    gpuSceneMaterialsBound);
                 // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
             }
 

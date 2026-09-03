@@ -21,10 +21,13 @@ namespace OloEngine
     //     buffers inherit their numbers rather than claiming new ones.
     //
     // Consequence, pinned by GPUSceneLayoutTest over every shader's include
-    // closure: a shader that reaches GPUScene.glsl may not declare, itself or
-    // through another include, a storage block at any of these five numbers
-    // until #994 retires the aliased declarations. Buffer growth rebinds and
-    // unbinds the slot inside EndScene, so every consumer binds per pass.
+    // closure: no storage binding may be declared twice in one shader's
+    // closure. Since #994 the GLSL side declares one buffer per file
+    // (include/GPUSceneMaterials.glsl and friends) and include/GPUScene.glsl
+    // declares none, so a consumer takes only the kinds it reads and the two
+    // families can coexist in one shader as long as they use different slots.
+    // Buffer growth rebinds and unbinds the slot inside EndScene, so every
+    // consumer binds per pass.
     struct GPUSceneBindingLayout
     {
         static constexpr u32 Instances = ShaderBindingLayout::SSBO_INSTANCE_DATA;
@@ -91,7 +94,17 @@ namespace OloEngine
         void Upload();
         // Pass-local aliases: call immediately before the consuming dispatch or
         // draw. Allocation/growth releases the aliases before pass setup.
+        //
+        // Bind() takes all five slots at once and is therefore only for a
+        // consumer that reads all five. A raster pass takes the kinds it
+        // actually reads: the classic mesh path (#994) takes materials alone,
+        // because the per-draw InstanceData stream still owns slot 15 and
+        // binding the canonical instances there would replace it mid-pass.
         void Bind() const;
+        // Only the material table has a consumer today (#994). The other four
+        // get their own binder when something reads them; adding them now would
+        // be four untested entry points that look supported and are not.
+        [[nodiscard]] bool BindMaterials() const;
         void Shutdown();
         [[nodiscard]] bool HasGPUResources() const;
         [[nodiscard]] RHI::ResourceHandle GetInstanceBufferHandle() const;

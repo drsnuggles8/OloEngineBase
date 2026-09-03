@@ -728,6 +728,16 @@ namespace OloEngine
         }
     }
 
+    bool GPUScene::BindMaterials() const
+    {
+        if (!m_Impl->m_Materials.m_Buffer)
+        {
+            return false;
+        }
+        m_Impl->m_Materials.m_Buffer->Bind();
+        return true;
+    }
+
     void GPUScene::Shutdown()
     {
         Reset();

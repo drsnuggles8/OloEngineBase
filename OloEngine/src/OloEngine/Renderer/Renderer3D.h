@@ -19,6 +19,7 @@
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Renderer/HZBGenerator.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
+#include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
@@ -273,10 +274,16 @@ namespace OloEngine
         // record input (factors, flags, RHI texture identities and their
         // persistent heap offsets); later calls with the same key are no-ops.
         static void ExtractGPUSceneMaterial(const GPUSceneMaterialKey& key, const Material& material);
-        static void ExtractGPUSceneMesh(u64 stableEntityId, u64 stableInstanceId,
-                                        const Ref<MeshSource>& meshSource, u32 submeshIndex,
-                                        const glm::mat4& worldTransform,
-                                        const GPUSceneMaterialKey& materialKey);
+        // Stages the submesh as a GPU Scene instance and returns the DRAW LINK
+        // the caller hands to DrawMesh, or GPUSceneDrawLinkNone when the source
+        // is not extractable (no vertex array, no GPU buffers, submesh out of
+        // range). The link is a position in this frame's link table, not a
+        // slot: slots only exist after EndExtraction commits.
+        // Contract and ordering: GPUScene/GPUSceneDrawLink.h.
+        [[nodiscard]] static u32 ExtractGPUSceneMesh(
+            u64 stableEntityId, u64 stableInstanceId, const Ref<MeshSource>& meshSource, u32 submeshIndex,
+            const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
+            GPUSceneDrawLinkRequest linkRequest = GPUSceneDrawLinkRequest::Link);
         static void ExtractGPUSceneLight(const GPUSceneLightKey& key, const GPUSceneLightInput& input);
         // The environment record's home is the renderer's published global IBL
         // (SetGlobalIBL / OverrideGlobalIrradiance / ClearGlobalIBL). EndScene
@@ -290,7 +297,37 @@ namespace OloEngine
             std::optional<TemporalHistoryEffect> effect = std::nullopt);
         static void ResetGPUScene();
         [[nodiscard]] static const GPUSceneFrameStats& GetGPUSceneStats();
-        static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true, i32 entityID = -1, const LODGroup* lodGroup = nullptr);
+        // Turns every link staged this frame into the record it names. Called
+        // once, from EndScene, after EndExtraction and Upload; a consumer that
+        // reads a link before this ran sees "unresolved" and falls back.
+        static void ResolveGPUSceneDrawLinks();
+        // The resolved link, or nullptr for GPUSceneDrawLinkNone / an index
+        // this frame's table does not hold. Command dispatch reads links only
+        // through this: it must never resolve a key itself.
+        [[nodiscard]] static const GPUSceneDrawLink* GetGPUSceneDrawLink(u32 link);
+        // How many of this frame's draw links RESOLVED to a committed record and
+        // how many did not. This measures extraction health, not consumption: a
+        // resolved link is still dropped when CommandBucket auto-batches the
+        // draw. What actually rendered through the records is
+        // CommandDispatch::GetGPUSceneConsumedDrawCount().
+        [[nodiscard]] static u32 GetGPUSceneLinkedDrawCount();
+        [[nodiscard]] static u32 GetGPUSceneUnlinkedDrawCount();
+        // Takes the canonical material table on its aliased slot, immediately
+        // before the draw that reads it (GPUScene.h). Only that one kind: the
+        // per-draw InstanceData stream still owns the instance slot.
+        //
+        // Returns false when there was nothing to bind, which the caller must
+        // NOT cache as "bound": slot 17 then still holds whatever the instance
+        // cull left there, and a draw that read it as a material record would
+        // be reading draw-indirect commands.
+        [[nodiscard]] static bool BindGPUSceneMaterials();
+        // `gpuSceneDrawLink` is the value ExtractGPUSceneMesh returned for this
+        // submesh (issue #994). A draw that passes it renders through the
+        // canonical instance record — transforms, and the material slot the
+        // shader reads — instead of the copies assembled here. The default,
+        // GPUSceneDrawLinkNone, is the legacy adapter behaviour and is what
+        // every unmigrated caller keeps.
+        static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true, i32 entityID = -1, const LODGroup* lodGroup = nullptr, u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
         // Virtualized geometry (issue #629): queues a cluster-LOD-DAG instance
         // for the GPU-driven VirtualGeometryPass. Builds + registers the DAG for
         // the mesh source on first sight (synchronous for now; the cook slice
@@ -1868,6 +1905,14 @@ namespace OloEngine
             // Value-owned so generations survive renderer restart resets.
             GPUScene SceneGPU;
             bool GPUSceneExtractionActive = false;
+            // This frame's draw links (GPUScene/GPUSceneDrawLink.h). Cleared at
+            // BeginGPUSceneExtraction, appended during submission, resolved
+            // once in EndScene. Kept as a vector because a link index is a
+            // plain position: the table is never reordered.
+            std::vector<GPUSceneDrawLink> GPUSceneDrawLinks;
+            bool GPUSceneDrawLinksResolved = false;
+            u32 GPUSceneLinkedDraws = 0;
+            u32 GPUSceneUnlinkedDraws = 0;
 
             // GPU-side per-instance frustum cull pre-pass. Used by
             // `DrawMeshInstanced` when the input count crosses

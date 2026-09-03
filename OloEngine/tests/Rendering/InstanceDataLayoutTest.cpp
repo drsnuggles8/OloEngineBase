@@ -10,7 +10,7 @@
 //
 // What this test guards
 // ---------------------
-// 1. Total struct size is 240 bytes — divisible by 16 so std430 array stride
+// 1. Total struct size is 256 bytes — divisible by 16 so std430 array stride
 //    has no end padding.
 // 2. Field offsets match the std430 layout assumed by shaders (see
 //    ShaderBindingLayout::GetInstanceSSBOLayout()).
@@ -36,11 +36,11 @@ namespace OloEngine::Tests
 {
     TEST(InstanceDataLayout, StructSizeMatchesStd430)
     {
-        // 240 = 15 * 16, so a std430 array of InstanceData has stride 240.
+        // 256 = 16 * 16, so a std430 array of InstanceData has stride 256.
         // A drift here means the shader's `instances[i]` reads from the wrong
         // memory offset — usually expressed as instances after the first
         // having garbage transforms.
-        EXPECT_EQ(sizeof(InstanceData), 240u);
+        EXPECT_EQ(sizeof(InstanceData), 256u);
         EXPECT_EQ(sizeof(InstanceData) % 16u, 0u);
     }
 
@@ -56,6 +56,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(offsetof(InstanceData, Custom), 212u);
         EXPECT_EQ(offsetof(InstanceData, StableID), 216u);
         EXPECT_EQ(offsetof(InstanceData, LightmapScaleOffset), 224u);
+        EXPECT_EQ(offsetof(InstanceData, GPUSceneRef), 240u);
     }
 
     TEST(InstanceDataLayout, DefaultsAreIdentityAndNeutral)
@@ -74,6 +75,11 @@ namespace OloEngine::Tests
         EXPECT_EQ(data.LightmapScaleOffset.y, 0.0f);
         EXPECT_EQ(data.LightmapScaleOffset.z, 0.0f);
         EXPECT_EQ(data.LightmapScaleOffset.w, 0.0f);
+        // The canonical GPU Scene link defaults to "unlinked": generation zero
+        // is the invalid generation, so a default-constructed instance can
+        // never be mistaken for one that names a live record (issue #994).
+        EXPECT_EQ(data.GPUSceneRef.y, GPUSceneDrawRefUnlinked);
+        EXPECT_EQ(data.GPUSceneRef.w, GPUSceneDrawRefUnlinked);
         EXPECT_EQ(data.Color.x, 1.0f);
         EXPECT_EQ(data.Color.y, 1.0f);
         EXPECT_EQ(data.Color.z, 1.0f);

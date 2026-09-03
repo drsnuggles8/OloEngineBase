@@ -175,6 +175,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GPUSceneLightRecordPropertyTests.cpp
 		Rendering/PropertyTests/GPUSceneEnvironmentAndLifecyclePropertyTests.cpp
 		Rendering/PropertyTests/GPUSceneLightAdapterTest.cpp
+		Rendering/PropertyTests/GPUSceneRasterMigrationTest.cpp
+		Rendering/PropertyTests/GPUSceneRasterMigrationEvidenceTest.cpp
+		Rendering/PropertyTests/GPUSceneAntiDuplicationRatchetTest.cpp
 		Rendering/LightmapPageEncodingTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp
 		Rendering/GPUReadbackStatsLayoutTest.cpp

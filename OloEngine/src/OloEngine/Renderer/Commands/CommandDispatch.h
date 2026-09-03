@@ -93,6 +93,18 @@ namespace OloEngine
         // (sort keys and the planar-reflection mirror need them); the camera-UBO
         // packing here derives the relative matrices from those plus this origin
         // so the shared, terrain, voxel and mirror uploads all agree.
+        // The GPU Scene material table shares slot 17 with the instance cull's
+        // draw-indirect buffer (issue #994). Anything that binds its own buffer
+        // there must call this, or the next draw that reads a canonical
+        // material record reads that buffer instead.
+        static void InvalidateGPUSceneMaterialBinding();
+        // Draws this frame that rendered through a canonical GPU Scene record,
+        // and draws that carried a link and fell back to their own copy. These
+        // are the CONSUMPTION numbers — Renderer3D's link counters only say
+        // whether extraction resolved, which stays true even if nothing reads
+        // the result. Reset once per frame by ResetState().
+        [[nodiscard]] static u32 GetGPUSceneConsumedDrawCount();
+        [[nodiscard]] static u32 GetGPUSceneFallbackDrawCount();
         static void SetRenderOrigin(const glm::vec3& origin);
         static const glm::vec3& GetRenderOrigin();
 

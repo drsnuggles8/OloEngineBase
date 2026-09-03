@@ -218,7 +218,14 @@ namespace OloEngine
             ExtractGPUSceneEnvironment();
             (void)s_Data.SceneGPU.EndExtraction();
             s_Data.SceneGPU.Upload();
+            // The commit-to-consumer step (issue #994): slots and generations
+            // are final here, so every draw link staged during submission is
+            // turned into the record it names, once, before any pass can read
+            // a buffer. Command dispatch resolves nothing itself.
+            ResolveGPUSceneDrawLinks();
             RendererProfiler::GetInstance().SetGPUSceneStats(s_Data.SceneGPU.GetLastFrameUpdate().m_Stats);
+            RendererProfiler::GetInstance().SetGPUSceneDrawLinkCounts(s_Data.GPUSceneLinkedDraws,
+                                                                      s_Data.GPUSceneUnlinkedDraws);
             s_Data.GPUSceneExtractionActive = false;
         }
 

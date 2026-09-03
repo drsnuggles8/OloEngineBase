@@ -176,6 +176,18 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 // block signatures matched across stages.
 #include "include/InstanceBlock.glsl"
 
+// Canonical GPU Scene material record (issue #994). Included AFTER the
+// instance block because the link it resolves travels in
+// InstanceData::GPUSceneRef. This is the raster path that consumes the record:
+// every material constant below comes from the registry's committed record
+// when the draw carries a live link, and from the per-draw UBO otherwise.
+//
+// The textures still bind through the slot path — the record's heap offsets
+// read OLO_GPU_SCENE_HEAP_OFFSET_UNRESOLVED wherever the descriptor heap is
+// off (GL's default), and #805 has not landed — so the record supplies the
+// FACTORS and the FLAGS, and the sampler set stays exactly as it was.
+#include "include/GPUSceneMaterialResolve.glsl"
+
 // Baked lightmap atlas (issue #439): UBO 1 + sampler 16. Included AFTER the
 // instance block because the per-draw atlas region it needs travels in
 // InstanceData::LightmapScaleOffset.
@@ -228,34 +240,79 @@ vec2 octEncodeGB(vec3 n)
 
 void main()
 {
+    // Start from the per-draw UBO, then let a live canonical record override
+    // it. A real branch, not a ternary: SPIR-V's OpSelect evaluates BOTH
+    // operands, so a ternary would read the record even on the unlinked path,
+    // where oloGPUSceneMaterial leaves it unwritten. One source of locals
+    // either way, so the two sources cannot disagree field by field.
+    //
+    // The record is byte-identical to what the UBO carries for the same
+    // material — both are built from the same Material — which is why the
+    // migration is expected to be pixel-identical rather than merely close.
+    vec4  matBaseColorFactor   = u_BaseColorFactor;
+    vec4  matEmissiveFactor    = u_EmissiveFactor;
+    float matMetallicFactor    = u_MetallicFactor;
+    float matRoughnessFactor   = u_RoughnessFactor;
+    float matNormalScale       = u_NormalScale;
+    float matOcclusionStrength = u_OcclusionStrength;
+    float matAlphaCutoff       = u_AlphaCutoff;
+    int   matAlphaMode         = u_AlphaMode;
+    int   matPBRModel          = u_PBRModel;
+    bool  matUseAlbedoMap      = bool(u_UseAlbedoMap);
+    bool  matUseNormalMap      = bool(u_UseNormalMap);
+    bool  matUseMRMap          = bool(u_UseMetallicRoughnessMap);
+    bool  matUseAOMap          = bool(u_UseAOMap);
+    bool  matUseEmissiveMap    = bool(u_UseEmissiveMap);
+
+    GPUSceneMaterial gpuSceneMaterial;
+    if (oloGPUSceneMaterial(instances[v_InstanceIndex].GPUSceneRef, gpuSceneMaterial))
+    {
+        matBaseColorFactor   = gpuSceneMaterial.BaseColorFactor;
+        matEmissiveFactor    = gpuSceneMaterial.EmissiveFactor;
+        matMetallicFactor    = gpuSceneMaterial.MetallicFactor;
+        matRoughnessFactor   = gpuSceneMaterial.RoughnessFactor;
+        matNormalScale       = gpuSceneMaterial.NormalScale;
+        matOcclusionStrength = gpuSceneMaterial.OcclusionStrength;
+        matAlphaCutoff       = gpuSceneMaterial.AlphaCutoff;
+        matAlphaMode         = int(gpuSceneMaterial.AlphaMode);
+        matPBRModel          = int(gpuSceneMaterial.ClosureVersion);
+        // The record's *Map bits are set exactly when the texture handle is
+        // valid, which is the same condition PBRMaterialUBO's Use*Map ints encode.
+        matUseAlbedoMap      = (gpuSceneMaterial.Flags & OLO_GPU_SCENE_MATERIAL_ALBEDO_MAP) != 0u;
+        matUseNormalMap      = (gpuSceneMaterial.Flags & OLO_GPU_SCENE_MATERIAL_NORMAL_MAP) != 0u;
+        matUseMRMap          = (gpuSceneMaterial.Flags & OLO_GPU_SCENE_MATERIAL_METALLIC_ROUGHNESS_MAP) != 0u;
+        matUseAOMap          = (gpuSceneMaterial.Flags & OLO_GPU_SCENE_MATERIAL_OCCLUSION_MAP) != 0u;
+        matUseEmissiveMap    = (gpuSceneMaterial.Flags & OLO_GPU_SCENE_MATERIAL_EMISSIVE_MAP) != 0u;
+    }
+
     // glTF MASK: discard before any other work when sampled alpha falls below cutoff.
     // Per glTF 2.0 spec, the sampled alpha is texture.a * baseColorFactor.a.
-    if (u_AlphaMode == 1)
+    if (matAlphaMode == 1)
     {
-        float sampledAlpha = u_BaseColorFactor.a;
-        if (u_UseAlbedoMap == 1)
+        float sampledAlpha = matBaseColorFactor.a;
+        if (matUseAlbedoMap)
             sampledAlpha *= texture(u_AlbedoMap, v_TexCoord).a;
-        if (sampledAlpha < u_AlphaCutoff)
+        if (sampledAlpha < matAlphaCutoff)
             discard;
     }
 
-    vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
+    vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, matBaseColorFactor.rgb, matUseAlbedoMap);
     vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord,
-                                                     u_MetallicFactor, u_RoughnessFactor,
-                                                     bool(u_UseMetallicRoughnessMap));
+                                                     matMetallicFactor, matRoughnessFactor,
+                                                     matUseMRMap);
     float metallic = metallicRoughness.x;
     float roughness = metallicRoughness.y;
 
-    float ao = sampleAO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
-    vec3 emissive = sampleEmissive(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
+    float ao = sampleAO(u_AOMap, v_TexCoord, matOcclusionStrength, matUseAOMap);
+    vec3 emissive = sampleEmissive(u_EmissiveMap, v_TexCoord, matEmissiveFactor.rgb, matUseEmissiveMap);
 
     // sanitizeSurfaceNormal, not normalize: a zero-length or NaN interpolated normal
     // (zero-area triangle, cancelling smooth normals, bad import) would otherwise write a
     // NaN octahedral normal into the G-Buffer and light up as a white pixel.
     vec3 N = sanitizeSurfaceNormal(v_Normal, dFdx(v_WorldPos), dFdy(v_WorldPos));
-    if (u_UseNormalMap == 1)
+    if (matUseNormalMap)
     {
-        N = getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
+        N = getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, matNormalScale);
     }
 
     // Screen-space velocity in [-1,1] NDC units.
@@ -268,7 +325,7 @@ void main()
     // Alpha carries the PBR closure model selector (issue #975): 0=Legacy,
     // 1=ClosureV2. RGBA16F represents small integers exactly, and the
     // deferred lighting pass reads it back with a round().
-    o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlags(u_PBRModel)); // flag-lane layout: see oloEncodeGBufferPbrFlags (#975)
+    o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlags(matPBRModel)); // flag-lane layout: see oloEncodeGBufferPbrFlags (#975)
     o_GBufferVelocity = velocity;
     o_GBufferEntityID = u_EntityID;
     // vec4(0) whenever the scene kill switch is off, this draw has no atlas
