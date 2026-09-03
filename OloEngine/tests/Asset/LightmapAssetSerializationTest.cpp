@@ -85,9 +85,22 @@ namespace
         lightmap->SetTexelData(std::move(texels));
 
         std::vector<LightmapEntityEntry> entries;
-        entries.push_back({ 0x1111111111111111ull, 0, 0, glm::vec4(0.25f, 0.25f, 0.0f, 0.0f) });
-        entries.push_back({ 0x2222222222222222ull, 0, 0, glm::vec4(0.5f, 0.5f, 0.25f, 0.0f) });
-        entries.push_back({ 0x3333333333333333ull, 0, 0, glm::vec4(0.125f, 0.125f, 0.75f, 0.875f) });
+        // Sub-keys on purpose (issue #867), and two entries SHARING a UUID: that
+        // is the shape an InstancedMeshComponent produces, and it is exactly what
+        // a reader still assuming one region per entity would collapse.
+        const auto makeEntry = [](u64 uuid, u64 subKey, const glm::vec4& region)
+        {
+            LightmapEntityEntry entry;
+            entry.EntityUUID = uuid;
+            entry.SubKey = subKey;
+            entry.ScaleOffset = region;
+            return entry;
+        };
+        entries.push_back(makeEntry(0x1111111111111111ull, 0, glm::vec4(0.25f, 0.25f, 0.0f, 0.0f)));
+        entries.push_back(makeEntry(0x2222222222222222ull, 0x8000000000000004ull,
+                                    glm::vec4(0.5f, 0.5f, 0.25f, 0.0f)));
+        entries.push_back(makeEntry(0x2222222222222222ull, 5ull,
+                                    glm::vec4(0.125f, 0.125f, 0.75f, 0.875f)));
         lightmap->SetEntries(std::move(entries));
 
         return lightmap;
@@ -198,6 +211,11 @@ TEST_F(LightmapAssetSerializationTest, DiskRoundTripIsBitExact)
         const auto& a = source->GetEntries()[i];
         const auto& b = loaded->GetEntries()[i];
         EXPECT_EQ(a.EntityUUID, b.EntityUUID) << "entry " << i;
+        // The sub-key is half the region's ADDRESS (issue #867). A reader that
+        // dropped or truncated it would not fail — it would hand every instance
+        // of a batch the same region, so the batch shades from one instance's
+        // charts and merely looks a bit flat.
+        EXPECT_EQ(a.SubKey, b.SubKey) << "entry " << i;
         EXPECT_EQ(a.Page, b.Page) << "entry " << i;
         EXPECT_EQ(0, std::memcmp(&a.ScaleOffset, &b.ScaleOffset, sizeof(glm::vec4)))
             << "entry " << i << " ScaleOffset did not round-trip bit-exactly";
@@ -228,6 +246,42 @@ TEST_F(LightmapAssetSerializationTest, VersionAboveCurrentIsRejected)
     Ref<Asset> loadedAsset;
     EXPECT_FALSE(serializer.TryLoadData(m_Metadata, loadedAsset))
         << "A file claiming a future format version must be rejected";
+    EXPECT_FALSE(loadedAsset) << "Rejection must not return a partially-populated asset";
+}
+
+// -----------------------------------------------------------------------------
+// 2b. A version BELOW MinSupportedVersion is rejected outright (issue #867).
+//
+// v1 wrote 32-byte entity entries; v2 writes 48-byte ones with a SubKey. The
+// two strides differ, so a v1 file read as v2 would not fail a size check by
+// luck alone — the section frame's exact-size test catches it, but the version
+// gate is the guard that is SUPPOSED to, and this pins that it is the one doing
+// the work. A .olmap is a derived artifact: the cost of rejecting it is one
+// re-bake, which is why MinSupportedVersion moves with CurrentVersion instead of
+// a migration chain existing at all.
+// -----------------------------------------------------------------------------
+TEST_F(LightmapAssetSerializationTest, VersionBelowMinSupportedIsRejected)
+{
+    static_assert(OLmapFormat::MinSupportedVersion > 1,
+                  "this test patches a v1 header; if v1 became supported again it must be rewritten");
+
+    auto source = MakeBakedLightmap();
+    LightmapSerializer serializer;
+    serializer.Serialize(m_Metadata, source);
+    ASSERT_TRUE(fs::exists(AbsolutePath()));
+
+    {
+        std::fstream file(AbsolutePath(), std::ios::in | std::ios::out | std::ios::binary);
+        ASSERT_TRUE(file.is_open());
+        constexpr u32 legacyVersion = 1;
+        file.seekp(static_cast<std::streamoff>(offsetof(OLmapFormat::FileHeader, Version)), std::ios::beg);
+        file.write(reinterpret_cast<const char*>(&legacyVersion), sizeof(legacyVersion));
+        ASSERT_FALSE(file.fail());
+    }
+
+    Ref<Asset> loadedAsset;
+    EXPECT_FALSE(serializer.TryLoadData(m_Metadata, loadedAsset))
+        << "A pre-#867 v1 file must be rejected, not read with the wrong entry stride";
     EXPECT_FALSE(loadedAsset) << "Rejection must not return a partially-populated asset";
 }
 

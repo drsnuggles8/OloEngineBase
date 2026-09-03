@@ -635,6 +635,7 @@ add_executable(OloEngine-Tests
 		TransformComponentTest.cpp
 		Scene/WorldTransformPropagationBenchmarkTest.cpp
 		# System scheduler dependency-graph derivation (issue #453)
+		Scene/SceneLightmapGatherTest.cpp
 		Scene/SceneLightmapStalenessTest.cpp
 		Scene/SystemSchedulerTest.cpp
 		# Floating-origin / origin-rebasing math (issue #429)

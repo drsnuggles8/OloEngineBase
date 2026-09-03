@@ -1271,7 +1271,10 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
     // 7 counts (issue #629 added the two cook-identity words). Every byte poke below is
     // relative to it, so it MUST track the writer — it used to be a bare `36` and, when the
     // header grew, each poke silently landed in the wrong section and corrupted nothing.
-    constexpr sizet kHeaderBytes = 11 * sizeof(u32);
+    // 12 words since issue #867 added LightmapUVCount. The fixture carries no
+    // UV2, so its optional array is zero bytes and every section below still
+    // sits directly after the vertices.
+    constexpr sizet kHeaderBytes = 12 * sizeof(u32);
 
     // Empty / truncated input
     EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob({}, out));
@@ -1387,4 +1390,115 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
 
     // The pristine blob still loads after all of the above
     EXPECT_TRUE(VirtualMeshSerializer::DeserializeFromBlob(blob, out));
+}
+
+// -----------------------------------------------------------------------------
+// Baked lightmap UV2 through the cook (issue #867)
+//
+// The lightmap atlas is addressed as `uv2 * scale + offset`, so a virtual mesh
+// can only ever sample it if UV2 survives cluster building and the LOD
+// simplifier at the SAME vertex slots the positions do. UV2 is a PARALLEL array
+// (Vertex is 32 bytes with pinned offsets — baked-lightmap-pipeline.md §1), and
+// a parallel array that falls out of step does not error: it addresses another
+// chart's texels, which renders as a plausible patch of light.
+// -----------------------------------------------------------------------------
+
+// A grid whose UV2 is deliberately DIFFERENT from its UV0 — mirrored in x — so a
+// test that accidentally reads UV0 where it means UV2 cannot pass.
+static Ref<MeshSource> MakeGridMeshWithLightmapUVs(u32 gridSize)
+{
+    Ref<MeshSource> mesh = MakeGridMesh(gridSize);
+
+    TArray<glm::vec2> lightmapUVs;
+    lightmapUVs.Reserve(mesh->GetVertices().Num());
+    for (i32 i = 0; i < mesh->GetVertices().Num(); ++i)
+    {
+        const glm::vec2& uv0 = mesh->GetVertices()[i].TexCoord;
+        lightmapUVs.Add({ 1.0f - uv0.x, uv0.y });
+    }
+    mesh->GetLightmapUVs() = MoveTemp(lightmapUVs);
+    return mesh;
+}
+
+TEST(VirtualMeshBuilder, LightmapUVsRideTheVertexCompaction)
+{
+    auto mesh = MakeGridMeshWithLightmapUVs(16);
+    ASSERT_TRUE(mesh->HasLightmapUVs());
+
+    auto vm = VirtualMeshBuilder::Build(*mesh);
+    ASSERT_TRUE(vm.IsValid());
+
+    // All-or-nothing: every compacted vertex has a UV2 or none does. A partial
+    // stream would leave some vertices reading (0,0) — the region's corner texel.
+    ASSERT_EQ(vm.LightmapUVs.size(), vm.Vertices.size());
+
+    // The compaction reorders and drops vertices, so identity is checked through
+    // the DATA rather than through indices: the source's UV2 is the x-mirror of
+    // its UV0, and the builder copies both from the same source vertex, so that
+    // relation must hold for every surviving vertex. If the two arrays ever fell
+    // out of step, this is the assertion that would catch it.
+    for (sizet i = 0; i < vm.Vertices.size(); ++i)
+    {
+        EXPECT_NEAR(vm.LightmapUVs[i].x, 1.0f - vm.Vertices[i].TexCoord.x, 1e-5f)
+            << "vertex " << i << ": UV2 does not belong to this vertex";
+        EXPECT_NEAR(vm.LightmapUVs[i].y, vm.Vertices[i].TexCoord.y, 1e-5f) << "vertex " << i;
+    }
+}
+
+TEST(VirtualMeshBuilder, AMeshWithNoLightmapUVsCooksWithAnEmptyStream)
+{
+    // Only lightmapped meshes pay. An unbaked cook must carry no UV2 array at
+    // all rather than a zero-filled one — the blob's size, and the GPU pack's
+    // decision to allocate a parallel stream, both key off `empty()`.
+    auto vm = VirtualMeshBuilder::Build(*MakeGridMesh(16));
+    ASSERT_TRUE(vm.IsValid());
+    EXPECT_TRUE(vm.LightmapUVs.empty());
+}
+
+TEST(VirtualMeshSerializer, LightmapUVsRoundTripByteExactly)
+{
+    auto vm = VirtualMeshBuilder::Build(*MakeGridMeshWithLightmapUVs(16));
+    ASSERT_TRUE(vm.IsValid());
+    ASSERT_FALSE(vm.LightmapUVs.empty());
+
+    auto blob = VirtualMeshSerializer::SerializeToBlob(vm);
+    ASSERT_FALSE(blob.empty());
+
+    VirtualMesh loaded;
+    ASSERT_TRUE(VirtualMeshSerializer::DeserializeFromBlob(blob, loaded));
+    ASSERT_EQ(loaded.LightmapUVs.size(), vm.LightmapUVs.size());
+    for (sizet i = 0; i < vm.LightmapUVs.size(); ++i)
+    {
+        // EXPECT_EQ on floats: a cook is a derived artifact whose whole value is
+        // being reproducible, so bit-identity IS the contract here.
+        EXPECT_EQ(loaded.LightmapUVs[i].x, vm.LightmapUVs[i].x) << "uv " << i;
+        EXPECT_EQ(loaded.LightmapUVs[i].y, vm.LightmapUVs[i].y) << "uv " << i;
+    }
+    EXPECT_EQ(VirtualMeshSerializer::SerializeToBlob(loaded), blob);
+}
+
+TEST(VirtualMeshSerializer, ABlobClaimingAPartialLightmapUVStreamIsRejected)
+{
+    // The header's LightmapUVCount is 0 or VertexCount and nothing else. A blob
+    // claiming anything in between would leave part of the mesh sampling texel
+    // (0,0) of whatever chart sits at the region's corner — a wrong-address bug
+    // that renders as light rather than as an error, so the reader refuses it.
+    auto vm = VirtualMeshBuilder::Build(*MakeGridMeshWithLightmapUVs(16));
+    ASSERT_TRUE(vm.IsValid());
+    auto blob = VirtualMeshSerializer::SerializeToBlob(vm);
+    ASSERT_FALSE(blob.empty());
+
+    // LightmapUVCount is the 12th u32 of the header (magic, wire version,
+    // builder version, cook fingerprint, then the seven counts).
+    constexpr sizet kLightmapUVCountOffset = 11 * sizeof(u32);
+    ASSERT_GT(blob.size(), kLightmapUVCountOffset + sizeof(u32));
+    u32 claimed = 0;
+    std::memcpy(&claimed, blob.data() + kLightmapUVCountOffset, sizeof(claimed));
+    ASSERT_EQ(claimed, static_cast<u32>(vm.Vertices.size())) << "header layout drifted";
+
+    const u32 partial = claimed / 2;
+    std::memcpy(blob.data() + kLightmapUVCountOffset, &partial, sizeof(partial));
+
+    VirtualMesh loaded;
+    EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob(blob, loaded));
 }

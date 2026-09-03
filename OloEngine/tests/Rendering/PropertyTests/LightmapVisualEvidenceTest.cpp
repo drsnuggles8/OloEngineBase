@@ -90,7 +90,9 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/Scene/SceneLightmap.h"
+#include "OloEngine/Scene/SceneLightmapGather.h"
 
 #include <gtest/gtest.h>
 #include <glm/glm.hpp>
@@ -356,8 +358,7 @@ namespace OloEngine::Tests
 
             // The room. Same dimensions as LightmapBakeParityTest's BleedRoom:
             // interior x in [-3, 3], y in [0, 3], z in [-2, 2], open at -/+Z.
-            m_Floor = MakeRoomPiece("Floor", { 0.0f, -0.1f, 0.0f }, { 6.0f, 0.2f, 4.0f },
-                                    { 0.6f, 0.6f, 0.6f });
+            BuildFloor();
             m_RedWall = MakeRoomPiece("RedWall", { -3.1f, 1.5f, 0.0f }, { 0.2f, 3.0f, 4.0f },
                                       { 0.75f, 0.04f, 0.04f });
             m_GreenWall = MakeRoomPiece("GreenWall", { 3.1f, 1.5f, 0.0f }, { 0.2f, 3.0f, 4.0f },
@@ -366,6 +367,15 @@ namespace OloEngine::Tests
                                       { 0.6f, 0.6f, 0.6f });
 
             EnableRendering(kSize, kSize);
+        }
+
+        // The room's floor. Overridden by the instanced variant below; the
+        // walls and ceiling stay MeshComponents either way, so the ONLY
+        // difference between the two fixtures is how the floor is drawn.
+        virtual void BuildFloor()
+        {
+            m_Floor = MakeRoomPiece("Floor", { 0.0f, -0.1f, 0.0f }, { 6.0f, 0.2f, 4.0f },
+                                    { 0.6f, 0.6f, 0.6f });
         }
 
         // One lightmap-static room piece with its OWN fresh MeshSource (a
@@ -404,26 +414,25 @@ namespace OloEngine::Tests
         {
             Scene& scene = GetScene();
 
-            // ── Gather every lightmap-static entity — EditorLayer::BakeLightmaps'
-            // exact loop ──
+            // ── Gather every lightmap-static RECEIVER through the production
+            // walk (issue #867). Calling GatherLightmapReceivers rather than
+            // re-writing EditorLayer::BakeLightmaps' loop is the point: this
+            // suite is the only thing that renders the whole chain, so it should
+            // render the code the editor actually runs. ──
+            const std::vector<LightmapReceiver> receivers = GatherLightmapReceivers(scene);
             std::vector<LightmapBakeInput> inputs;
+            inputs.reserve(receivers.size());
+            for (const LightmapReceiver& receiver : receivers)
             {
-                auto view = scene.GetAllEntitiesWith<IDComponent, MeshComponent>();
-                for (auto entity : view)
-                {
-                    const auto& mesh = view.get<MeshComponent>(entity);
-                    if (!mesh.m_LightmapStatic || !mesh.m_MeshSource || mesh.m_MeshSource->GetVertices().IsEmpty())
-                    {
-                        continue;
-                    }
-                    LightmapBakeInput input;
-                    input.EntityUUID = static_cast<u64>(view.get<IDComponent>(entity).ID);
-                    input.Mesh = mesh.m_MeshSource;
-                    input.WorldTransform = scene.GetWorldTransform(entity);
-                    inputs.push_back(std::move(input));
-                }
+                LightmapBakeInput input;
+                input.EntityUUID = static_cast<u64>(receiver.EntityUUID);
+                input.SubKey = receiver.SubKey;
+                input.Mesh = receiver.Mesh;
+                input.WorldTransform = receiver.WorldTransform;
+                inputs.push_back(std::move(input));
             }
-            ASSERT_EQ(inputs.size(), 4u) << "expected exactly the 4 lightmap-static room pieces";
+            ASSERT_EQ(inputs.size(), ExpectedReceiverCount())
+                << "the gather did not produce the receiver set this room is built from";
 
             // ── Bake settings. The scene-level SceneLightmapSettings fields are
             // set FIRST because ComputeBakeKey hashes them — the key must be
@@ -451,7 +460,7 @@ namespace OloEngine::Tests
             LightmapBakePrepared prepared;
             std::string prepareError;
             ASSERT_TRUE(LightmapBaker::Prepare(inputs, bakeSettings, prepared, prepareError)) << prepareError;
-            EXPECT_EQ(prepared.BakedEntityCount, 4u);
+            EXPECT_EQ(prepared.BakedEntityCount, ExpectedReceiverCount());
             EXPECT_EQ(prepared.SkippedEntityCount, 0u);
             EXPECT_GT(prepared.Jobs.size(), 200u) << "the room's charts cover too little of the atlas";
             m_BakedPageCount = prepared.PageCount;
@@ -473,16 +482,15 @@ namespace OloEngine::Tests
             // recomputes the key against the POST-unwrap meshes at sample time. A
             // key computed before Prepare can never match — the runtime would
             // (correctly) refuse the bake as stale.
-            bakeSettings.BakeKey = SceneLightmapRuntime::ComputeBakeKey(scene, lmSettings);
+            bakeSettings.BakeKey = SceneLightmapRuntime::ComputeBakeKey(scene, lmSettings, receivers);
 
-            // ── The reference world, from the SAME scene via the SAME predicate
-            // production uses. Lights are gathered unconditionally (the predicate
-            // gates geometry only); default build options = the production bake's
-            // (no environment, full material model). ──
+            // ── The reference world, from the SAME receiver list the bake is
+            // about to consume (issue #867). AddScene's MeshComponent predicate
+            // could not serve an instanced receiver at all: those surfaces have
+            // no MeshComponent, so the bake would have traced a room they were
+            // missing from — no occlusion, no bounce, and no error to say so. ──
             PathTracing::ReferenceSceneBuilder builder;
-            builder.AddScene(scene, [](Entity entity)
-                             { return entity.HasComponent<MeshComponent>() &&
-                                      entity.GetComponent<MeshComponent>().m_LightmapStatic; });
+            builder.AddLightmapReceivers(scene, receivers);
             EXPECT_EQ(builder.GetPendingLightCount(), 1u);
             const PathTracing::ReferenceScene world = builder.Build(PathTracing::ReferenceSceneBuildOptions{});
 
@@ -513,7 +521,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(runtime->IsValid())
                 << "SceneLightmapRuntime::Resolve rejected a freshly baked, key-matching asset — "
                 << "asset lookup (AddMemoryOnlyAsset/GetAsset), Validate(), or atlas creation failed.";
-            EXPECT_GT(runtime->GetScaleOffset(m_Floor.GetUUID()).x, 0.0f)
+            EXPECT_TRUE(runtime->HasAnyRegionForEntity(m_Floor.GetUUID()))
                 << "the floor entity has no atlas region — the entry table is mis-keyed";
         }
 
@@ -527,6 +535,14 @@ namespace OloEngine::Tests
             }
             FlipRowsInPlace(outPx, outW, outH);
             return true;
+        }
+
+        // How many receivers this room's scene is built from. The instanced
+        // variant below overrides it: its floor is ONE entity drawing N
+        // instances, and each instance is its own receiver.
+        [[nodiscard]] virtual u32 ExpectedReceiverCount() const
+        {
+            return 4u; // floor, red wall, green wall, ceiling
         }
 
         Entity m_Floor;
@@ -1003,5 +1019,289 @@ namespace OloEngine::Tests
         EXPECT_GT((onGreen.G - offGreen.G), (onGreen.R - offGreen.R) + 0.5f)
             << "multi-page: the light ADDED beside the GREEN wall is not green-shifted: dG="
             << (onGreen.G - offGreen.G) << " dR=" << (onGreen.R - offGreen.R);
+    }
+
+    // -------------------------------------------------------------------------
+    // LightmapInstancedBleedRoom — the SAME room, with the floor drawn as an
+    // InstancedMeshComponent (issue #867).
+    //
+    // The floor becomes ONE entity holding TWO world-space instances: a left
+    // tile hugging the red wall and a right tile hugging the green wall. Walls,
+    // ceiling, light and camera are untouched, so this fixture differs from
+    // LightmapBleedRoom in exactly one thing — how the floor is submitted.
+    //
+    // That is what makes the hue assertion decisive rather than merely
+    // encouraging. Under the pre-#867 model the whole component was one entity
+    // and could carry at most ONE region, so both tiles would have sampled the
+    // same charts and come out the same colour. Seeing the left tile red-shifted
+    // AND the right tile green-shifted, in one frame, is only possible if each
+    // instance received and addressed a region of its own — which is the entire
+    // claim of this receiver.
+    //
+    // Evidence PNGs (written BEFORE any assertion, so a red run still leaves the
+    // frames behind), under OloEditor/assets/tests/visual/:
+    //   Lightmap_Instanced_On.png   — bake enabled
+    //   Lightmap_Instanced_Off.png  — same pose, SceneLightmapSettings::Enabled = false
+    // -------------------------------------------------------------------------
+    class LightmapInstancedBleedRoom : public LightmapBleedRoom
+    {
+      protected:
+        // Two instances, one region each.
+        [[nodiscard]] u32 ExpectedReceiverCount() const override
+        {
+            return 5u; // 2 floor instances + red wall + green wall + ceiling
+        }
+
+        void BuildFloor() override
+        {
+            Scene& scene = GetScene();
+            m_Floor = scene.CreateEntity("FloorInstances");
+
+            auto& imc = m_Floor.AddComponent<InstancedMeshComponent>();
+            Ref<Mesh> cube = MeshPrimitives::CreateCube();
+            ASSERT_TRUE(cube);
+            imc.MeshSource = cube->GetMeshSource();
+            imc.LightmapStatic = true;
+
+            // The floor's two halves. Instances are WORLD-space — the entity's
+            // own TransformComponent is deliberately not applied on top — so the
+            // pair tiles exactly the x in [-3, 3] the MeshComponent floor covers,
+            // and the analysis rects derived for that floor stay valid verbatim.
+            const auto tile = [](f32 centreX, u64 stableID)
+            {
+                InstanceData instance;
+                instance.Transform = glm::translate(glm::mat4(1.0f), glm::vec3(centreX, -0.1f, 0.0f)) *
+                                     glm::scale(glm::mat4(1.0f), glm::vec3(3.0f, 0.2f, 4.0f));
+                instance.StableID = stableID;
+                return instance;
+            };
+            imc.Instances.push_back(tile(-1.5f, kLeftTileStableID)); // beside the RED wall
+            imc.Instances.push_back(tile(1.5f, kRightTileStableID)); // beside the GREEN wall
+
+            // The grey the MeshComponent floor uses, so the two rooms are
+            // photometrically comparable.
+            auto& material = m_Floor.AddComponent<MaterialComponent>();
+            material.m_Material.SetBaseColorFactor(glm::vec4(0.6f, 0.6f, 0.6f, 1.0f));
+            material.m_Material.SetMetallicFactor(0.0f);
+            material.m_Material.SetRoughnessFactor(0.9f);
+        }
+
+        static constexpr u64 kLeftTileStableID = 11;
+        static constexpr u64 kRightTileStableID = 22;
+    };
+
+    TEST_F(LightmapInstancedBleedRoom, EachInstanceReceivesItsOwnBakedRegion)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        ASSERT_NO_FATAL_FAILURE(BakeAndResolve());
+
+        Scene& scene = GetScene();
+        auto& runtime = scene.GetLightmapRuntime();
+
+        // ── The CPU half of the claim, before a pixel is read. Two distinct,
+        // non-sentinel regions under one entity UUID is the thing the sub-key
+        // exists to make possible, and asserting it here means a red pixel test
+        // below can be read as "the shader mis-addressed it" rather than "maybe
+        // nothing was baked at all". ──
+        const UUID floorUUID = m_Floor.GetUUID();
+        const glm::vec4 leftRegion = runtime->GetScaleOffset(floorUUID, kLeftTileStableID);
+        const glm::vec4 rightRegion = runtime->GetScaleOffset(floorUUID, kRightTileStableID);
+        ASSERT_GT(leftRegion.x, 0.0f) << "the left floor instance has no atlas region";
+        ASSERT_GT(rightRegion.x, 0.0f) << "the right floor instance has no atlas region";
+        EXPECT_NE(0, std::memcmp(&leftRegion, &rightRegion, sizeof(glm::vec4)))
+            << "both instances share one region — the sub-key is not reaching the entry table, so "
+               "every instance of a batch would shade from the first one's charts";
+        // And the "whole entity" key must MISS: nothing bakes a region there for
+        // an instanced component, and serving one would mean the draw could pick
+        // up a region no instance owns.
+        EXPECT_FLOAT_EQ(runtime->GetScaleOffset(floorUUID, 0).x, 0.0f);
+
+        // ── The frame. ──
+        std::vector<u8> onPx;
+        u32 width = 0;
+        u32 height = 0;
+        // 2 frames: the first seeds prev-frame history, the second is the
+        // stable image (the SceneRenderEvidenceTest cadence the tests above use).
+        RunFrames(2);
+        ASSERT_TRUE(CaptureTopDown(onPx, width, height))
+            << "ReadbackComposite failed — UIComposite framebuffer unavailable";
+        ASSERT_EQ(width, kSize);
+        ASSERT_EQ(height, kSize);
+        WriteEvidencePng("Lightmap_Instanced_On.png", onPx, width, height);
+
+        scene.GetLightmapSettings().Enabled = false;
+        std::vector<u8> offPx;
+        u32 offW = 0;
+        u32 offH = 0;
+        // 3 frames so no ON-frame history bleeds into the captured image.
+        RunFrames(3);
+        ASSERT_TRUE(CaptureTopDown(offPx, offW, offH));
+        WriteEvidencePng("Lightmap_Instanced_Off.png", offPx, offW, offH);
+        ASSERT_EQ(offW, width);
+        ASSERT_EQ(offH, height);
+        scene.GetLightmapSettings().Enabled = true;
+
+        const PixelRect redRect = MakeRect(kRedRegionX0, kRedRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
+        const PixelRect greenRect =
+            MakeRect(kGreenRegionX0, kGreenRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
+        ASSERT_GT(redRect.PixelCount(), 0u);
+        ASSERT_GT(greenRect.PixelCount(), 0u);
+
+        const RegionMeans onRed = MeanChannelsInRect(onPx, width, redRect);
+        const RegionMeans onGreen = MeanChannelsInRect(onPx, width, greenRect);
+        const RegionMeans offRed = MeanChannelsInRect(offPx, width, redRect);
+        const RegionMeans offGreen = MeanChannelsInRect(offPx, width, greenRect);
+
+        // THE contract. Two instances of one entity, two different hues, in one
+        // frame — impossible under the one-region-per-entity model this issue
+        // replaced. The direct light is white, so channel asymmetry on a grey
+        // floor can only have come from the baked indirect term.
+        EXPECT_GT(onRed.R, onRed.G * 1.05f)
+            << "instanced: the tile beside the RED wall is not red-shifted: r=" << onRed.R << " g=" << onRed.G
+            << " — see Lightmap_Instanced_On.png";
+        EXPECT_GT(onGreen.G, onGreen.R * 1.05f)
+            << "instanced: the tile beside the GREEN wall is not green-shifted: g=" << onGreen.G
+            << " r=" << onGreen.R << " — see Lightmap_Instanced_On.png";
+
+        // ON vs OFF, the "is the chain connected at all" half. A missed path on
+        // this receiver looks EXACTLY like the old probe/IBL fallback, so the
+        // differential is the only thing that can tell them apart.
+        const f32 meanAbsDiff =
+            0.5f * (MeanAbsDiffInRect(onPx, offPx, width, redRect) + MeanAbsDiffInRect(onPx, offPx, width, greenRect));
+        EXPECT_GT(meanAbsDiff, 3.0f)
+            << "instanced: ON and OFF frames barely differ over the floor (" << meanAbsDiff
+            << " grey levels) — the instance buffer's LightmapScaleOffset lane never reached the shader";
+
+        EXPECT_GE(onRed.Luminance(), offRed.Luminance())
+            << "instanced: baked indirect must only ADD light";
+
+        EXPECT_GT((onRed.R - offRed.R), (onRed.G - offRed.G) + 0.5f)
+            << "instanced: the light ADDED beside the RED wall is not red-shifted: dR=" << (onRed.R - offRed.R)
+            << " dG=" << (onRed.G - offRed.G);
+        EXPECT_GT((onGreen.G - offGreen.G), (onGreen.R - offGreen.R) + 0.5f)
+            << "instanced: the light ADDED beside the GREEN wall is not green-shifted: dG="
+            << (onGreen.G - offGreen.G) << " dR=" << (onGreen.R - offGreen.R);
+
+        // ── Un-marking the batch must CLEAR the lanes, not merely stop
+        // refreshing them ──
+        //
+        // These regions live in the component's own instance storage, so once
+        // written they persist. If the fill only ran while the flag was set, an
+        // un-ticked batch would keep sampling the rects it was baked into — and
+        // the next bake, which repacks the atlas, would have it shading from
+        // whatever surface owns them then. That is a wrong-address bug that
+        // renders as a plausible patch of light, and nothing else in the
+        // pipeline would catch it: the region is structurally valid, just not
+        // this batch's any more.
+        {
+            auto& imc = m_Floor.GetComponent<InstancedMeshComponent>();
+            ASSERT_FALSE(imc.Instances.empty());
+            ASSERT_GT(imc.Instances[0].LightmapScaleOffset.x, 0.0f)
+                << "the draw never wrote a region into the instance buffer at all";
+
+            imc.LightmapStatic = false;
+            RunFrames(2);
+            for (const InstanceData& instance : imc.Instances)
+            {
+                EXPECT_FLOAT_EQ(instance.LightmapScaleOffset.x, 0.0f)
+                    << "un-marking Lightmap Static left a stale atlas region in the instance buffer";
+            }
+
+            // And ticking it back on restores them, so the clear is a real
+            // convergence rather than a one-way door.
+            imc.LightmapStatic = true;
+            RunFrames(2);
+            EXPECT_GT(imc.Instances[0].LightmapScaleOffset.x, 0.0f)
+                << "re-marking Lightmap Static did not restore the batch's regions";
+        }
+    }
+
+    TEST_F(LightmapInstancedBleedRoom, PerInstanceRegionsSurviveTheDeferredPath)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        ASSERT_NO_FATAL_FAILURE(BakeAndResolve());
+
+        Scene& scene = GetScene();
+        SceneLightmapSettings& lmSettings = scene.GetLightmapSettings();
+
+        // Two proven halves are not a proven whole, and this repo has the scars
+        // to prove it (issue #629). The classic room already pins that RT5
+        // carries baked irradiance through the deferred path, and the forward
+        // test above pins that each instance addresses its own region — but the
+        // INTERSECTION is its own chain: the G-Buffer shader reads the region
+        // from `instances[gl_InstanceIndex]`, and on an instanced draw that
+        // index is a real per-instance lookup rather than the constant 0 a
+        // single-instance draw resolves to. Nothing else in the suite exercises
+        // that.
+        u32 width = 0;
+        u32 height = 0;
+        const auto capture = [&](bool bakeEnabled, const char* fileName, std::vector<u8>& out)
+        {
+            Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+            Renderer3D::ApplyRendererSettings();
+            lmSettings.Enabled = bakeEnabled;
+            // 3 frames: a path switch rebuilds the frame graph, so the temporal
+            // state gets a frame to settle before the captured one.
+            RunFrames(3);
+            u32 w = 0;
+            u32 h = 0;
+            ASSERT_TRUE(CaptureTopDown(out, w, h)) << "ReadbackComposite failed for " << fileName;
+            if (width == 0)
+            {
+                width = w;
+                height = h;
+            }
+            // The analysis rects are derived from one camera pose at aspect 1; a
+            // differently shaped capture would still produce in-range rects and
+            // silently measure the wrong patch of floor. The size check is not
+            // belt-and-braces either: the mean helpers index the vector raw.
+            ASSERT_EQ(w, kSize);
+            ASSERT_EQ(h, kSize);
+            ASSERT_EQ(out.size(), static_cast<std::size_t>(w) * h * 4u);
+            WriteEvidencePng(fileName, out, w, h);
+        };
+
+        std::vector<u8> deferredOn;
+        std::vector<u8> deferredOff;
+        capture(true, "Lightmap_InstancedDeferred_On.png", deferredOn);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        capture(false, "Lightmap_InstancedDeferred_Off.png", deferredOff);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        lmSettings.Enabled = true;
+
+        const PixelRect redRect = MakeRect(kRedRegionX0, kRedRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
+        const PixelRect greenRect =
+            MakeRect(kGreenRegionX0, kGreenRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
+
+        const RegionMeans onRed = MeanChannelsInRect(deferredOn, width, redRect);
+        const RegionMeans onGreen = MeanChannelsInRect(deferredOn, width, greenRect);
+        const RegionMeans offRed = MeanChannelsInRect(deferredOff, width, redRect);
+        const RegionMeans offGreen = MeanChannelsInRect(deferredOff, width, greenRect);
+
+        // Per-instance hue, on the deferred path: the region reached RT5 through
+        // the instance buffer, and each instance addressed its OWN charts.
+        EXPECT_GT(onRed.R, onRed.G * 1.05f)
+            << "deferred instanced: the tile beside the RED wall is not red-shifted: r=" << onRed.R
+            << " g=" << onRed.G << " — see Lightmap_InstancedDeferred_On.png";
+        EXPECT_GT(onGreen.G, onGreen.R * 1.05f)
+            << "deferred instanced: the tile beside the GREEN wall is not green-shifted: g=" << onGreen.G
+            << " r=" << onGreen.R;
+
+        // ON vs OFF: "the chain is broken anywhere" — a G-Buffer pass that never
+        // wrote RT5 for an instanced draw looks exactly like an unbaked scene.
+        const f32 meanAbsDiff = 0.5f * (MeanAbsDiffInRect(deferredOn, deferredOff, width, redRect) +
+                                        MeanAbsDiffInRect(deferredOn, deferredOff, width, greenRect));
+        EXPECT_GT(meanAbsDiff, 3.0f)
+            << "deferred instanced: ON and OFF barely differ over the floor (" << meanAbsDiff
+            << " grey levels) — the per-instance region never reached the G-Buffer's RT5";
+
+        EXPECT_GT((onRed.R - offRed.R), (onRed.G - offRed.G) + 0.5f)
+            << "deferred instanced: the light ADDED beside the RED wall is not red-shifted";
+        EXPECT_GT((onGreen.G - offGreen.G), (onGreen.R - offGreen.R) + 0.5f)
+            << "deferred instanced: the light ADDED beside the GREEN wall is not green-shifted";
     }
 } // namespace OloEngine::Tests
