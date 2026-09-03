@@ -24,19 +24,28 @@ namespace OloEngine::VirtualMeshBuilder
         static_assert(offsetof(VirtualLODBounds, Radius) == 12, "radius must directly follow the center");
         static_assert(offsetof(Vertex, Position) == 0, "positions must be the first 12 bytes of Vertex");
 
-        // Attribute layout for attribute-aware simplification: nx ny nz u v.
+        // Attribute layout for attribute-aware simplification: nx ny nz u v u2 v2.
         // Weights match MeshOptimization::GenerateLODMeshWithAttributes (normals matter
         // less than UVs for visual quality).
-        constexpr sizet kAttributeCount = 5;
-        constexpr std::array<f32, kAttributeCount> kAttributeWeights = { 0.5f, 0.5f, 0.5f, 1.0f, 1.0f };
+        // Slots 5..6 are the baked lightmap UV2 (issue #867) and are FILLED WITH
+        // ZERO on a mesh that has none — a constant attribute contributes nothing
+        // to the quadric, so an unbaked cook simplifies exactly as it did before.
+        constexpr sizet kAttributeCount = 7;
+        constexpr std::array<f32, kAttributeCount> kAttributeWeights = { 0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f, 1.0f };
 
         // Which attributes count as a protected discontinuity under permissive simplification.
         // Mirrors the reference's clodMesh::attribute_protect_mask, which demo/nanite.cpp sets
         // to (1 << 3) | (1 << 4) — the UV pair — for exactly this attribute layout. NORMALS are
         // deliberately unprotected: a normal wedge is what flat shading produces everywhere, and
         // decimated geometry wants smoothed normals, not per-face-flat ones.
+        // Extended to 4 for the lightmap UV2 pair (issue #867): a UV2 chart seam is
+        // a discontinuity for exactly the reason a UV0 seam is — collapsing across
+        // it welds two atlas charts, and the surviving wedge then addresses the
+        // wrong texels. The bake's own unwrap SEAM-SPLITS vertices to create those
+        // wedges, so leaving them unprotected would let the simplifier undo the
+        // parameterization the atlas was rasterized against.
         constexpr sizet kFirstProtectedAttribute = 3;
-        constexpr sizet kProtectedAttributeCount = 2;
+        constexpr sizet kProtectedAttributeCount = 4;
 
         constexpr i32 kOwnerUnset = -2;
         constexpr i32 kOwnerShared = -1;
@@ -775,6 +784,14 @@ namespace OloEngine::VirtualMeshBuilder
         // new vertices, so this single array serves every LOD level of the part.
         std::vector<u32> indices(rangeIndexCount);
         {
+            // The lightmap UV2 stream rides the SAME compaction as the vertices
+            // (issue #867). MeshSource guarantees the parallel array is either
+            // empty or exactly as long as the vertex array (HasLightmapUVs), and
+            // a stream that silently fell out of step here would not error — it
+            // would address another chart's texels.
+            const bool sourceHasLightmapUVs = meshSource.HasLightmapUVs();
+            const auto& srcLightmapUVs = meshSource.GetLightmapUVs();
+
             std::vector<u32> vertexRemap(static_cast<sizet>(srcVertices.Num()), UINT32_MAX);
             for (sizet i = 0; i < rangeIndexCount; ++i)
             {
@@ -788,6 +805,10 @@ namespace OloEngine::VirtualMeshBuilder
                 {
                     vertexRemap[v] = static_cast<u32>(result.Vertices.size());
                     result.Vertices.push_back(srcVertices[static_cast<i32>(v)]);
+                    if (sourceHasLightmapUVs)
+                    {
+                        result.LightmapUVs.push_back(srcLightmapUVs[static_cast<i32>(v)]);
+                    }
                 }
                 indices[i] = vertexRemap[v];
             }
@@ -798,6 +819,7 @@ namespace OloEngine::VirtualMeshBuilder
         result.SourceTriangleCount = static_cast<u32>(indices.size() / 3);
 
         ctx.Attributes.resize(ctx.VertexCount * kAttributeCount);
+        const bool hasLightmapUVs = !result.LightmapUVs.empty();
         for (sizet i = 0; i < ctx.VertexCount; ++i)
         {
             const Vertex& vertex = result.Vertices[i];
@@ -806,6 +828,14 @@ namespace OloEngine::VirtualMeshBuilder
             ctx.Attributes[i * kAttributeCount + 2] = vertex.Normal.z;
             ctx.Attributes[i * kAttributeCount + 3] = vertex.TexCoord.x;
             ctx.Attributes[i * kAttributeCount + 4] = vertex.TexCoord.y;
+            // Zero, not garbage, when the mesh has no UV2. A CONSTANT attribute
+            // adds nothing to the quadric and marks no vertex as a wedge, so an
+            // unbaked cook simplifies to the same geometry it did before #867 —
+            // "the same", not "bit-identical": the quadric now accumulates over
+            // seven floats instead of five, and float addition is not
+            // associative. That is exactly why kVirtualMeshBuilderVersion moved.
+            ctx.Attributes[i * kAttributeCount + 5] = hasLightmapUVs ? result.LightmapUVs[i].x : 0.0f;
+            ctx.Attributes[i * kAttributeCount + 6] = hasLightmapUVs ? result.LightmapUVs[i].y : 0.0f;
         }
 
         // Canonical per-position indices: cluster connectivity and boundary locks must see

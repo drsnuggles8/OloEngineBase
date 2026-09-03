@@ -28,6 +28,10 @@ namespace OloEngine
                 totalIndices += static_cast<sizet>(cluster.TriangleCount) * 3;
             }
             data.Vertices.reserve(totalVertices);
+            if (!mesh.LightmapUVs.empty())
+            {
+                data.LightmapUVs.reserve(totalVertices);
+            }
             data.Indices.reserve(totalIndices);
         }
 
@@ -48,13 +52,22 @@ namespace OloEngine
             data.Clusters.push_back(record);
 
             // Expand the cluster's vertex window into cluster-owned packed vertices
+            const bool hasLightmapUVs = mesh.LightmapUVs.size() == mesh.Vertices.size();
             for (u32 v = 0; v < cluster.VertexCount; ++v)
             {
-                const Vertex& vertex = mesh.Vertices[mesh.ClusterVertexRefs[cluster.VertexOffset + v]];
+                const u32 sourceVertex = mesh.ClusterVertexRefs[cluster.VertexOffset + v];
+                const Vertex& vertex = mesh.Vertices[sourceVertex];
                 VirtualGpuVertex packed;
                 packed.PositionU = { vertex.Position, vertex.TexCoord.x };
                 packed.NormalV = { vertex.Normal, vertex.TexCoord.y };
                 data.Vertices.push_back(packed);
+                // Same cluster-local slot, same expansion order (issue #867) —
+                // the parallel stream is only addressable because the two are
+                // pushed in lockstep here.
+                if (hasLightmapUVs)
+                {
+                    data.LightmapUVs.push_back(mesh.LightmapUVs[sourceVertex]);
+                }
             }
 
             // Local u8 triangle indices widen to u32; BaseVertex carries VertexBase

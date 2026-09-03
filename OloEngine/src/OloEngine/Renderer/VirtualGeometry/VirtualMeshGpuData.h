@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 
+#include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
 #include <cstddef>
@@ -260,6 +261,20 @@ namespace OloEngine
     struct VirtualMeshGpuData
     {
         std::vector<VirtualGpuVertex> Vertices;
+        // Baked lightmap UV2, one per entry of Vertices, or EMPTY when the cook
+        // carried none (issue #867).
+        //
+        // A PARALLEL stream rather than a wider VirtualGpuVertex, and the reason
+        // is measured rather than stylistic: the packed vertex is 32 bytes and
+        // this is the highest-vertex-count path in the engine, so widening it to
+        // 48 would cost 50% more vertex bandwidth on every virtual mesh in every
+        // scene, baked or not. It is also the shape MeshSource and VirtualMesh
+        // already use for the same data (baked-lightmap-pipeline.md §1).
+        //
+        // The two arrays are indexed by the SAME cluster-local vertex slot, so
+        // they must always be either equal in size or this one empty — the
+        // registry checks that before it uploads.
+        std::vector<glm::vec2> LightmapUVs;
         std::vector<u32> Indices;
         std::vector<VirtualClusterGpuRecord> Clusters;
         std::vector<VirtualGroupGpuRecord> Groups;
