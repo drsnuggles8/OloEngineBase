@@ -313,9 +313,21 @@ jobs:
       # snapshot carrying it (cmake/overlay-ports/gamenetworkingsockets/portfile.cmake
       # — v1.6.0 is still the newest tag and predates the fix), and both the
       # NetworkManager::Init gate and ServerAuthoritativeLoopTest's GTEST_SKIP are
-      # gone. So this job now runs the live GNS init and ServerAuthoritativeLoopTest
-      # under ASan for real. If that regresses, the fix is to move the pin, not to
-      # bring the gate back.
+      # gone, so the live init runs here and ServerAuthoritativeLoopTest's 17 cases
+      # execute instead of skipping.
+      #
+      # BE PRECISE ABOUT WHAT THAT COVERS. GNS is a vcpkg port built with cl.exe and
+      # no sanitizer flags -- see the triplet note on the vcpkg step above, "vcpkg
+      # ports are NOT sanitizer-instrumented", which is deliberate. So ASan
+      # instruments the engine and the test process, NOT GNS internals: allocations
+      # and interceptors crossing the boundary are covered, stack and global redzones
+      # inside GNS are not. What this change buys is sanitizer coverage of OloEngine's
+      # own networking code against a LIVE transport -- NetworkManager init/shutdown,
+      # NetworkThread, dispatch, replication -- all of which previously never executed
+      # under ASan at all. It does not re-arm detection of #418-class faults inside
+      # GNS; that would need an instrumented GNS build, which this job explicitly does
+      # not want. If these tests regress, the fix is to move the pin, not to bring the
+      # gate back.
       #
       # The Task* and Shader* suites were excluded here on a since-disproven "the
       # task system starts the Steam service thread" theory — they never touched
@@ -323,8 +335,10 @@ jobs:
       # ASan, so they are no longer excluded. See issue #317.
       #
       # Remaining exclusions match the Linux ASan job exactly:
-      #   NetworkIntegrationTest — drives a live client/server socket, which the
-      #     ASan GNS gate intentionally disables; excluded on every sanitizer job.
+      #   NetworkIntegrationTest — needs real client/server socket plumbing that CI
+      #     environments do not provide; excluded on EVERY job in this repo, the
+      #     non-sanitizer ones included (Windows.yml, gpu-conformance-amd.yml). Not
+      #     related to the removed ASan gate, and not something the GNS pin changes.
       #   WorkerRestartTest — a tight 100-iteration worker-pool teardown/recreate
       #     stress test that exceeds the 120 s timeout under sanitizer
       #     instrumentation; excluded on every sanitizer job.
