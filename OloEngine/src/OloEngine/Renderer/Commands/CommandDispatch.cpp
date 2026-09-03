@@ -2681,6 +2681,7 @@ namespace OloEngine
             api.SetColorMask(false, false, false, false);
             api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
             Renderer3D::EndDecalReceiverIntersectionQuery();
+            InvalidateRenderStateCache();
             ApplyPODRenderState(cmd->renderStateIndex, api);
         }
 

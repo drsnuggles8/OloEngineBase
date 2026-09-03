@@ -339,6 +339,8 @@ namespace OloEngine
         m_LocalLights.Reset();
         for (auto& stats : m_StatsBuffers)
             stats.Reset();
+        m_Statistics = {};
+        m_HasStatistics = false;
 
         m_GlobalsUBO.Reset();
         m_PassUBO.Reset();

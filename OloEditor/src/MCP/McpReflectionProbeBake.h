@@ -15,7 +15,8 @@ namespace OloEngine::MCP::ReflectionProbeBake
     [[nodiscard]] inline Json InputSchema()
     {
         return Schema::Object()
-            .Prop("entity", Schema::String().Desc("Exact TagComponent name of the reflection-probe entity."))
+            .Prop("entity", Schema::Raw(Json{ { "type", "string" }, { "minLength", 1 } })
+                                .Desc("Exact TagComponent name of the reflection-probe entity."))
             .Required({ "entity" })
             .NoAdditional();
     }

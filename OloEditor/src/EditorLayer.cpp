@@ -19,6 +19,7 @@
 #include <GLFW/glfw3.h>
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -1421,6 +1422,9 @@ namespace OloEngine
             &EditorLayer::m_ShowAudioEventsPanel,
             &EditorLayer::m_ShowMcpPanel,
         };
+        static_assert(std::ranges::none_of(kPanelMembers, [](PanelMember member)
+                                           { return member == nullptr; }),
+                      "Every MCP panel id must map to a valid EditorLayer member.");
 
         const sizet index = static_cast<sizet>(panel);
         OLO_CORE_ASSERT(index < kPanelMembers.size(), "Invalid MCP editor panel id: {}", static_cast<u32>(panel));

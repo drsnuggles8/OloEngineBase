@@ -146,6 +146,30 @@ TEST(McpInputValidation, EnumRejectsValuesOutsideTheClosedSet)
                               "'mode' must be one of"));
 }
 
+TEST(McpInputValidation, StringLengthBoundsAreEnforced)
+{
+    const Json schema = Schema::Object()
+                            .Prop("name", Schema::Raw(Json{ { "type", "string" },
+                                                            { "minLength", 1 },
+                                                            { "maxLength", 4 } }))
+                            .NoAdditional();
+    EXPECT_TRUE(ErrorContains(McpServer::ValidateArguments(schema, Json{ { "name", "" } }),
+                              "'name' must have at least 1 characters"));
+    EXPECT_FALSE(McpServer::ValidateArguments(schema, Json{ { "name", "prob" } }).has_value());
+    EXPECT_TRUE(ErrorContains(McpServer::ValidateArguments(schema, Json{ { "name", "probe" } }),
+                              "'name' must have at most 4 characters"));
+
+    const Json oneCharacter = Schema::Object()
+                                  .Prop("name", Schema::Raw(Json{ { "type", "string" }, { "maxLength", 1 } }))
+                                  .NoAdditional();
+    EXPECT_FALSE(McpServer::ValidateArguments(oneCharacter,
+                                              Json{ { "name", std::string("\xC3\xA9") } })
+                     .has_value());
+    EXPECT_TRUE(McpServer::ValidateArguments(oneCharacter,
+                                             Json{ { "name", std::string("\xC3\xA9x") } })
+                    .has_value());
+}
+
 TEST(McpInputValidation, ClosedObjectRejectsUnexpectedProperty)
 {
     const auto err = McpServer::ValidateArguments(CountAndTagSchema(), Json{ { "count", 1 }, { "extra", true } });

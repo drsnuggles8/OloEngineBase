@@ -285,7 +285,8 @@ namespace OloEngine::MCP::AccessibilitySettingsTool
             }
             SanitizeAccessibilitySettings(candidate);
             const Json sanitized = CurrentValue(field, candidate);
-            clamped = std::fabs(sanitized.get<f64>() - parsed) > 1.0e-6;
+            const f32 requested = static_cast<f32>(parsed);
+            clamped = std::fabs(sanitized.get<f32>() - requested) > 1.0e-6f;
         }
         else
         {

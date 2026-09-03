@@ -225,6 +225,30 @@ TEST(McpRenderExplain, IssuedDecalWithZeroFragmentsIsReportedExactly)
     EXPECT_NE(std::string::npos, v.Summary.find("draw was issued"));
 }
 
+TEST(McpRenderExplain, DecalObservationFailuresDoNotPreemptDegenerateScale)
+{
+    WhyNotVisibleInput in = MakeVisibleDecal();
+    in.Entity.ScaleDegenerate = true;
+    in.Entity.Submitted = false;
+    in.Entity.ReceiverIntersectsProjection = false;
+    in.Entity.DrawIssued = false;
+    in.Entity.FragmentsSurvived = false;
+    const WhyNotVisibleVerdict v = ExplainWhyNotVisible(in);
+    EXPECT_EQ("degenerate_scale", v.ReasonCode);
+}
+
+TEST(McpRenderExplain, DecalObservationFailuresDoNotPreemptOutsideFrustum)
+{
+    WhyNotVisibleInput in = MakeVisibleDecal();
+    in.Entity.InFrustum = false;
+    in.Entity.Submitted = false;
+    in.Entity.ReceiverIntersectsProjection = false;
+    in.Entity.DrawIssued = false;
+    in.Entity.FragmentsSurvived = false;
+    const WhyNotVisibleVerdict v = ExplainWhyNotVisible(in);
+    EXPECT_EQ("outside_frustum", v.ReasonCode);
+}
+
 TEST(McpRenderExplain, UnknownDecalObservationsRemainWarningsNotFalseFailures)
 {
     WhyNotVisibleInput in = MakeVisibleDecal();

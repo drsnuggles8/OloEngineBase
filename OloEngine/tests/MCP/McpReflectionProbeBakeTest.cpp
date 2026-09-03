@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "MCP/McpReflectionProbeBake.h"
+#include "MCP/McpServer.h"
 
 namespace
 {
@@ -26,7 +27,10 @@ TEST(McpReflectionProbeBake, InputSchemaRequiresOnlyEntity)
     EXPECT_EQ(schema["type"], "object");
     EXPECT_EQ(schema["required"], Json::array({ "entity" }));
     EXPECT_EQ(schema["properties"]["entity"]["type"], "string");
+    EXPECT_EQ(schema["properties"]["entity"]["minLength"], 1);
     EXPECT_EQ(schema["additionalProperties"], false);
+    EXPECT_TRUE(OloEngine::MCP::McpServer::ValidateArguments(schema, Json{ { "entity", "" } }).has_value());
+    EXPECT_FALSE(OloEngine::MCP::McpServer::ValidateArguments(schema, Json{ { "entity", "Hall Probe" } }).has_value());
 }
 
 TEST(McpReflectionProbeBake, ResultDoesNotHideBakeFailure)
