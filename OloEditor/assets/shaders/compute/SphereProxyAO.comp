@@ -1,0 +1,355 @@
+#version 460 core
+
+// =============================================================================
+// SphereProxyAO.comp — analytic sphere-proxy ambient occlusion (issue #710)
+//
+// Screen-space AO can only occlude with what is in the depth buffer, so a large
+// object leaving the frame takes its contact darkening with it. This pass adds
+// the term that does not care where the camera is pointing: a closed-form
+// sphere-occlusion integral over coarse proxy spheres, evaluated against the
+// RECEIVER's hemisphere. A proxy beside or behind the camera occludes exactly as
+// it did on screen — that is the whole feature.
+//
+// One dispatch, 16x16 workgroups, one workgroup per screen tile:
+//   1. every thread contributes its pixel's view depth to the tile's depth range
+//   2. the tile's view-space AABB is built from that range and the tile's rays
+//   3. the workgroup cooperatively bins the frame's proxies against that AABB
+//      into shared memory (a pure 3D proximity test, so off-screen and
+//      behind-camera proxies survive it — a screen-extent test would not)
+//   4. every thread shades its pixel against the tile's list only
+//
+// Output is a read-modify-write of the AO buffer the active AO producer just
+// filled: `ao *= mix(1, visibility, strength)`. GTAO keeps the fine contact
+// detail, this supplies the large-scale term it structurally cannot see.
+// =============================================================================
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+#define OLO_SPA_TILE_SIZE   16
+#define OLO_SPA_MAX_PROXIES 128
+#define OLO_SPA_PI          3.14159265358979
+// Mirrors SphereProxyAO::kSelfOcclusionFadeWidth.
+#define OLO_SPA_SELF_FADE   0.15
+
+// Mirrors ShaderBindingLayout::UBOStructures::SphereProxyAOUBO. Binding 64 is a
+// uniform-buffer slot; the same number is TEX_DDGI_VISIBILITY in the sampler
+// namespace and SSBO_GPU_STATS in the storage namespace, which is legal
+// everywhere EXCEPT inside one shader (Vulkan collapses the three into one set).
+// This shader declares neither — it includes neither DDGICommon.glsl nor
+// GPUReadbackStats.glsl — so the within-shader rule holds. Do not add either.
+layout(std140, binding = 64) uniform SphereProxyAOParams
+{
+    vec2 u_NDCToViewMul;
+    vec2 u_NDCToViewAdd;
+
+    int u_ScreenWidth;
+    int u_ScreenHeight;
+    int u_ProxyCount;
+    int u_DebugView;
+
+    float u_Strength;
+    float u_DepthLinearizeA;
+    float u_DepthLinearizeB;
+    float u_InfluenceRadiusScale;
+
+    // World-to-view for the G-Buffer normals; identity when the bound normals
+    // are already view space (the forward path), exactly as GTAO.comp does it.
+    mat4 u_ViewMatrix;
+
+    // xyz = VIEW-space centre, w = radius. View space on the CPU side, because
+    // the world coordinates it comes from can be kilometres out and the
+    // camera-relative shift has to happen in the one place that still knows the
+    // render origin.
+    vec4 u_Proxies[OLO_SPA_MAX_PROXIES];
+};
+
+#include "../include/BindlessHeap.glsl"
+
+#ifndef OLO_BINDLESS
+// Read-modify-write: the AO producer's output is both the input and the target.
+layout(binding = 0, r8) uniform image2D o_AOTerm;
+#endif
+
+#ifdef OLO_BINDLESS
+#define u_SceneDepth OLO_HEAP_TEX_2D(1)
+#define u_SceneNormals OLO_HEAP_TEX_2D(2)
+#else
+layout(binding = 1) uniform sampler2D u_SceneDepth;   // device Z, full scene band
+layout(binding = 2) uniform sampler2D u_SceneNormals; // octahedral-encoded normals
+#endif
+
+// Never compare a sampled depth against exactly 1.0: a filtered read of a D24
+// source can legitimately come back a few ULPs under it, and the sky then reads
+// as geometry at the far plane. Same threshold and reasoning as GTAO.comp.
+#define OLO_SPA_FAR_DEPTH_THRESHOLD (1.0 - 1e-6)
+
+// ---------------------------------------------------------------------------
+// Tile state. The depth range is accumulated through atomicMin/Max on the BIT
+// PATTERN: IEEE-754 ordering matches unsigned integer ordering for positive
+// floats, and the linearized view depth is strictly positive here, so this is
+// exact rather than an approximation.
+//
+// The bin result is a BITMASK, not a compacted index list, and that is a
+// correctness choice rather than a style one. A compacted list is filled with
+// atomicAdd, so its ORDER is whatever the scheduler produced that frame — and
+// the shading loop below multiplies per-proxy visibilities, which is
+// float-associative only in exact arithmetic. Two frames of an identical scene
+// would then differ in the last bits, which is precisely what
+// SphereProxyAOVisualEvidenceTest.ProxyTermIsTemporallyStable forbids and what
+// an analytic term has no excuse for. Iterating a mask in index order is
+// deterministic by construction. The mask costs one bit per proxy and the
+// shading loop pays a bit test per candidate instead of an indirection.
+// ---------------------------------------------------------------------------
+#define OLO_SPA_MASK_WORDS (OLO_SPA_MAX_PROXIES / 32)
+
+shared uint s_TileMinDepthBits;
+shared uint s_TileMaxDepthBits;
+shared uint s_TileProxyMask[OLO_SPA_MASK_WORDS];
+
+// ---------------------------------------------------------------------------
+// Octahedral decode — must match the encoder in the forward/G-Buffer shaders.
+// ---------------------------------------------------------------------------
+vec3 OctDecode(vec2 f)
+{
+    vec3 n = vec3(f.xy, 1.0 - abs(f.x) - abs(f.y));
+    float t = max(-n.z, 0.0);
+    n.x += (n.x >= 0.0) ? -t : t;
+    n.y += (n.y >= 0.0) ? -t : t;
+    return normalize(n);
+}
+
+float LinearizeDepth(float deviceZ)
+{
+    float ndc = deviceZ * 2.0 - 1.0;
+    return u_DepthLinearizeB / (ndc + u_DepthLinearizeA);
+}
+
+vec3 ComputeViewspacePosition(vec2 screenPos, float viewspaceDepth)
+{
+    vec3 ret;
+    ret.xy = (u_NDCToViewMul * screenPos + u_NDCToViewAdd) * viewspaceDepth;
+    ret.z = -viewspaceDepth;
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// Closed-form ambient occlusion of one sphere at one receiver.
+//
+// TEXTUAL MIRROR of SphereProxyAO::SphereOcclusion in
+// OloEngine/Renderer/SphereProxyAO.h — the CPU copy is what
+// SphereProxyAOMathTest pins, so the two must be edited together.
+//
+// Implemented from Inigo Quilez, "Sphere Ambient Occlusion"
+// (https://iquilezles.org/articles/sphereao). k2 <= 0 is the cone entirely
+// above (or entirely below) the receiver's tangent plane, where the integral is
+// the sphere form factor nl / h^2; k2 > 0 is the horizon-clipped case. The two
+// agree exactly at k2 == 0, so the term is continuous.
+//
+// h^2 is clamped just above the tangent case because a receiver ON the proxy's
+// surface has h == 1, where sqrt(h^2 - 1) is zero and its reciprocal diverges —
+// and that is not a corner case here, it is the occluder's own surface.
+// ---------------------------------------------------------------------------
+float SphereOcclusion(vec3 position, vec3 normal, vec4 sphere)
+{
+    if (!(sphere.w > 0.0))
+        return 0.0;
+
+    vec3 toCentre = sphere.xyz - position;
+    float distanceSq = dot(toCentre, toCentre);
+    if (!(distanceSq > 1e-12))
+        return 1.0;
+
+    float dist = sqrt(distanceSq);
+    float nl = dot(normal, toCentre / dist);
+
+    float ratio = dist / sphere.w;
+    float h2 = max(ratio * ratio, 1.000001);
+    float k2 = 1.0 - h2 * nl * nl;
+
+    if (k2 <= 0.0)
+        return clamp(max(0.0, nl) / h2, 0.0, 1.0);
+
+    float sinThetaSq = max(1.0 - nl * nl, 1e-6);
+    float hSq = h2 - 1.0;
+    float y = clamp(-nl * sqrt(hSq / sinThetaSq), -1.0, 1.0);
+
+    float clipped = nl * acos(y) - sqrt(k2 * hSq);
+    float result = (clipped / h2 + atan(sqrt(k2 / hSq))) / OLO_SPA_PI;
+    return clamp(result, 0.0, 1.0);
+}
+
+// Fade a proxy out where the receiver is its OWN object's surface.
+//
+// TEXTUAL MIRROR of SphereProxyAO::SelfOcclusionFade. A modelling decision, not
+// a numerical guard: a volume-matched sphere pokes through the object's own
+// faces, and inside the sphere the closed form's honest answer is "fully
+// enclosed" — which painted a soft dark disc across the occluder's own front
+// face. An object does not occlude itself in this term.
+float SelfOcclusionFade(float centreDistance, float radius)
+{
+    if (!(radius > 0.0))
+        return 0.0;
+    float t = clamp((centreDistance / radius - 1.0) / OLO_SPA_SELF_FADE, 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+// The proxy's contribution at a receiver: the integral, faded. Mirrors
+// SphereProxyAO::ProxyOcclusion.
+float ProxyOcclusion(vec3 position, vec3 normal, vec4 sphere)
+{
+    vec3 toCentre = sphere.xyz - position;
+    float fade = SelfOcclusionFade(sqrt(dot(toCentre, toCentre)), sphere.w);
+    if (!(fade > 0.0))
+        return 0.0;
+    return SphereOcclusion(position, normal, sphere) * fade;
+}
+
+// Squared distance from a point to an axis-aligned box.
+float PointBoxDistanceSq(vec3 p, vec3 boxMin, vec3 boxMax)
+{
+    vec3 d = max(max(boxMin - p, vec3(0.0)), p - boxMax);
+    return dot(d, d);
+}
+
+void main()
+{
+    ivec2 pixCoord = ivec2(gl_GlobalInvocationID.xy);
+    bool inBounds = (pixCoord.x < u_ScreenWidth) && (pixCoord.y < u_ScreenHeight);
+
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        // 0x7F7FFFFF / 0u are the bit patterns of FLT_MAX and +0.0, i.e. the
+        // identities for the min/max reductions below.
+        s_TileMinDepthBits = 0x7F7FFFFFu;
+        s_TileMaxDepthBits = 0u;
+    }
+    if (gl_LocalInvocationIndex < uint(OLO_SPA_MASK_WORDS))
+        s_TileProxyMask[gl_LocalInvocationIndex] = 0u;
+    barrier();
+
+    // ---- 1. This pixel's depth, and the tile's depth range ------------------
+    float deviceZ = 1.0;
+    float viewZ = 0.0;
+    bool isSurface = false;
+    if (inBounds)
+    {
+        deviceZ = texelFetch(u_SceneDepth, pixCoord, 0).r;
+        if (deviceZ < OLO_SPA_FAR_DEPTH_THRESHOLD)
+        {
+            viewZ = LinearizeDepth(deviceZ);
+            isSurface = viewZ > 0.0;
+        }
+    }
+    if (isSurface)
+    {
+        uint bits = floatBitsToUint(viewZ);
+        atomicMin(s_TileMinDepthBits, bits);
+        atomicMax(s_TileMaxDepthBits, bits);
+    }
+    barrier();
+
+    float tileMinZ = uintBitsToFloat(s_TileMinDepthBits);
+    float tileMaxZ = uintBitsToFloat(s_TileMaxDepthBits);
+    bool tileHasSurface = tileMaxZ > 0.0 && tileMinZ <= tileMaxZ;
+
+    // ---- 2/3. Tile view-space AABB, then bin the proxies into it ------------
+    //
+    // The AABB is the volume the tile's receivers actually occupy: its four
+    // corner rays swept between the tile's own near and far depths. Binning
+    // against THAT (rather than against the proxy's screen extent) is what keeps
+    // an off-screen or behind-camera proxy in the list — nothing in the test
+    // projects, so nothing clips.
+    if (tileHasSurface)
+    {
+        vec2 pixelSize = vec2(1.0) / vec2(float(u_ScreenWidth), float(u_ScreenHeight));
+        vec2 tileOriginPx = vec2(gl_WorkGroupID.xy) * float(OLO_SPA_TILE_SIZE);
+        vec2 uvMin = tileOriginPx * pixelSize;
+        vec2 uvMax = (tileOriginPx + vec2(float(OLO_SPA_TILE_SIZE))) * pixelSize;
+
+        // NDCToViewMul is positive on both axes, so the UV corner extremes map
+        // to the view-space XY extremes at a given depth; the depth scaling is
+        // positive too, so only the two depths need testing.
+        vec2 xyA = u_NDCToViewMul * uvMin + u_NDCToViewAdd;
+        vec2 xyB = u_NDCToViewMul * uvMax + u_NDCToViewAdd;
+        vec2 lo = min(xyA, xyB);
+        vec2 hi = max(xyA, xyB);
+
+        vec2 nearXY0 = lo * tileMinZ;
+        vec2 nearXY1 = lo * tileMaxZ;
+        vec2 farXY0 = hi * tileMinZ;
+        vec2 farXY1 = hi * tileMaxZ;
+
+        vec3 boxMin = vec3(min(min(nearXY0, nearXY1), min(farXY0, farXY1)), -tileMaxZ);
+        vec3 boxMax = vec3(max(max(nearXY0, nearXY1), max(farXY0, farXY1)), -tileMinZ);
+
+        uint proxyCount = uint(max(u_ProxyCount, 0));
+        for (uint i = gl_LocalInvocationIndex; i < proxyCount; i += gl_WorkGroupSize.x * gl_WorkGroupSize.y)
+        {
+            vec4 proxy = u_Proxies[i];
+            float influence = proxy.w * u_InfluenceRadiusScale;
+            if (PointBoxDistanceSq(proxy.xyz, boxMin, boxMax) <= influence * influence)
+            {
+                atomicOr(s_TileProxyMask[i >> 5u], 1u << (i & 31u));
+            }
+        }
+    }
+    barrier();
+
+    // ---- 4. Shade -----------------------------------------------------------
+    if (!inBounds || !isSurface)
+        return;
+
+    // (-2,-2) is the engine-wide "no normal here" sentinel, written by the
+    // InfiniteGrid, the Particle_* shaders and the Renderer2D_* shaders. It is
+    // outside any valid octahedral range, so decoding it yields a garbage normal
+    // and this pass would FABRICATE occlusion wherever those shaders drew — the
+    // forward-path lattice GTAO.comp had to learn to guard (see its own note at
+    // the same decode).
+    vec2 encodedNormal = texelFetch(u_SceneNormals, pixCoord, 0).rg;
+    if (encodedNormal.x < -1.5)
+        return;
+
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r8, OLO_HEAP_IMAGE_RW, image2D, o_AOTerm, 0);
+#endif
+
+    uint proxyCount = min(uint(max(u_ProxyCount, 0)), uint(OLO_SPA_MAX_PROXIES));
+    uint binnedWords = 0u;
+    for (uint w = 0u; w < uint(OLO_SPA_MASK_WORDS); ++w)
+        binnedWords |= s_TileProxyMask[w];
+
+    float visibility = 1.0;
+    if (binnedWords != 0u)
+    {
+        vec2 pixelSize = vec2(1.0) / vec2(float(u_ScreenWidth), float(u_ScreenHeight));
+        vec2 normalizedScreenPos = (vec2(pixCoord) + 0.5) * pixelSize;
+        vec3 viewPos = ComputeViewspacePosition(normalizedScreenPos, viewZ);
+
+        vec3 normal = normalize(mat3(u_ViewMatrix) * OctDecode(encodedNormal));
+
+        // Nudge the receiver off its own surface along the normal. Without it a
+        // proxy fitted to the receiver's OWN bounds sits at h == 1 for the
+        // surface it was fitted to, and the tangent clamp then reads as full
+        // occlusion over the whole object rather than only where something else
+        // is close. The offset scales with depth so it stays a constant fraction
+        // of a pixel footprint rather than vanishing at distance.
+        viewPos += normal * (viewZ * 1e-3);
+
+        // Ascending index order, so the product is evaluated in the same order
+        // on every invocation and every frame — see the note on s_TileProxyMask.
+        for (uint i = 0u; i < proxyCount; ++i)
+        {
+            if ((s_TileProxyMask[i >> 5u] & (1u << (i & 31u))) == 0u)
+                continue;
+            visibility *= 1.0 - ProxyOcclusion(viewPos, normal, u_Proxies[i]);
+        }
+        visibility = clamp(visibility, 0.0, 1.0);
+    }
+
+    float proxyTerm = mix(1.0, visibility, clamp(u_Strength, 0.0, 1.0));
+
+    // Debug view writes the proxy term alone, so an evidence capture shows what
+    // this pass contributes rather than what GTAO already had.
+    float ao = (u_DebugView != 0) ? 1.0 : imageLoad(o_AOTerm, pixCoord).r;
+    imageStore(o_AOTerm, pixCoord, vec4(clamp(ao * proxyTerm, 0.0, 1.0), 0.0, 0.0, 0.0));
+}

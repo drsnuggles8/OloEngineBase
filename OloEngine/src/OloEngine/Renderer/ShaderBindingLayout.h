@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Water/WaterDisturbanceField.h"
 #include <glm/glm.hpp>
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -1595,6 +1596,43 @@ namespace OloEngine
         };
         // @brief GTAO (Ground Truth Ambient Occlusion) parameters
         // XeGTAO-based compute AO with HZB depth pyramid
+        // Analytic sphere-proxy AO (issue #710). Mirrors the `SphereProxyAOParams`
+        // block in compute/SphereProxyAO.comp — std140, so the scalar quads below
+        // are grouped deliberately and NOTHING may be inserted between them
+        // without re-checking the shader's field offsets.
+        struct SphereProxyAOUBO
+        {
+            glm::vec2 NDCToViewMul{ 1.0f }; // Projection unpack (2/proj[0][0], 2/proj[1][1])
+            glm::vec2 NDCToViewAdd{ 0.0f }; // Projection unpack (-1/proj[0][0], -1/proj[1][1])
+
+            i32 ScreenWidth = 0;
+            i32 ScreenHeight = 0;
+            i32 ProxyCount = 0; // Live entries in Proxies below
+            i32 DebugView = 0;  // 1 = write the proxy term alone, not the product
+
+            f32 Strength = 1.0f;              // Blend of the proxy term into the AO buffer
+            f32 DepthLinearizeA = 0.0f;       // proj[2][2]
+            f32 DepthLinearizeB = 0.0f;       // proj[3][2]
+            f32 InfluenceRadiusScale = 12.0f; // Tile-binning cutoff, in proxy radii
+
+            // World-to-view for the bound normals; identity when they are already
+            // view space (the forward path) — same contract as GTAOUBO::ViewMatrix.
+            glm::mat4 ViewMatrix{ 1.0f };
+
+            // xyz = VIEW-space centre, w = radius. Fixed length: the array is part
+            // of the block, so its size is the shader's compile-time constant
+            // OLO_SPA_MAX_PROXIES and the two must agree.
+            std::array<glm::vec4, 128> Proxies{};
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(SphereProxyAOUBO);
+            }
+        };
+        static_assert(SphereProxyAOUBO::GetSize() == 2160u,
+                      "SphereProxyAOUBO must stay std140-compatible with SphereProxyAO.comp's "
+                      "SphereProxyAOParams block");
+
         struct GTAOUBO
         {
             glm::vec2 NDCToViewMul; // Projection unpack (2/proj[0][0], -2/proj[1][1])
@@ -1959,6 +1997,22 @@ namespace OloEngine
         // SSBO_BONE_PULL (63) is a Vulkan-only vertex-pull stream that no
         // compute shader touches.
         static constexpr u32 UBO_WATER_DISTURBANCE = 63;
+        // Analytic sphere-proxy AO params + the frame's proxy array (issue
+        // #710) — SphereProxyAOUBO, read by compute/SphereProxyAO.comp.
+        //
+        // The SECOND of the three numbers the note above reserved out of the
+        // uniform-buffer namespace, and taken for the same reason 63 was: the
+        // SSBO namespace is full, so a uniform block is the only kind of buffer
+        // binding left to claim. That is also why the proxy ARRAY rides this
+        // block rather than an SSBO of its own — 128 vec4s is 2 KB against the
+        // 16 KB GL 4.6 guarantees for a uniform block, so it fits with room to
+        // spare and costs no second binding.
+        //
+        // The within-shader rule holds: 64 is also TEX_DDGI_VISIBILITY (sampler)
+        // and SSBO_GPU_STATS (storage), and SphereProxyAO.comp declares neither
+        // — it includes neither DDGICommon.glsl nor GPUReadbackStats.glsl, and
+        // must not start to.
+        static constexpr u32 UBO_SPHERE_PROXY_AO = 64;
         static constexpr u32 UBO_SNOW_COMPUTE = 66;         // Snow accumulate/deform clipmap params (SnowComputeUBO)
         static constexpr u32 UBO_TERRAIN_EROSION = 67;      // Hydraulic-erosion droplet params (TerrainErosionUBO)
         static constexpr u32 UBO_LIGHT_CULLING = 68;        // Forward+/clustered light-cull dispatch params (LightCullingUBO) — the CULLER's view/counts; UBO_FORWARD_PLUS (25) is the shading side
@@ -2085,7 +2139,8 @@ namespace OloEngine
                           UBO_TERRAIN_CULL < UBO_BINDING_LIMIT &&
                           UBO_VIRTUAL_SHADOW < UBO_BINDING_LIMIT &&
                           UBO_VIRTUAL_SHADOW_DRAW < UBO_BINDING_LIMIT &&
-                          UBO_TERRAIN_BRUSH < UBO_BINDING_LIMIT,
+                          UBO_TERRAIN_BRUSH < UBO_BINDING_LIMIT &&
+                          UBO_SPHERE_PROXY_AO < UBO_BINDING_LIMIT,
                       "UBO_BINDING_LIMIT must stay one past the highest engine UBO binding");
         // GL 4.6's MINIMUM guarantee for GL_MAX_UNIFORM_BUFFER_BINDINGS — the floor every
         // conforming implementation must meet. It is a COUNT, so it is an EXCLUSIVE upper bound:
@@ -2980,6 +3035,8 @@ namespace OloEngine
                     return name.contains("HZB") || name.contains("hzb");
                 case UBO_GTAO_DENOISE:
                     return name.contains("GTAODenoise") || name.contains("gtaoDenoise");
+                case UBO_SPHERE_PROXY_AO:
+                    return name.contains("SphereProxyAO") || name.contains("sphereProxyAO");
                 // Issue #691 compute bare-uniform sweep.
                 case UBO_PARTICLE_SIM:
                     return name.contains("ParticleSim") || name.contains("particleSim");

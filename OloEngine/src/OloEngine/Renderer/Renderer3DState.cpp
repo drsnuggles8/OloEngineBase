@@ -89,6 +89,13 @@ namespace OloEngine
         {
             return true;
         }
+        // Sphere-proxy AO (issue #710) is the third consumer of this funnel.
+        // Answering yes here is what makes Scene.cpp build the casters at all;
+        // AddDDGICaster below keeps the bounds off them.
+        if (s_Data.AOProxyCollecting)
+        {
+            return true;
+        }
         auto ddgiPass = s_Data.Pipeline->FrameCorePasses.DDGIProbeUpdate;
         return ddgiPass && ddgiPass->WantsCasters();
     }
@@ -98,6 +105,12 @@ namespace OloEngine
         if (s_Data.AuxCasterSink != nullptr)
         {
             s_Data.AuxCasterSink->push_back(caster);
+        }
+        // Sphere-proxy AO keeps only the world AABB (issue #710) — it fits
+        // spheres to bounds, so the VAO, material and transform are dead weight.
+        if (s_Data.AOProxyCollecting)
+        {
+            s_Data.AOProxyBounds.push_back(caster.worldBounds);
         }
         // Only feed the DDGI pass when IT asked for casters this frame — the
         // aux sink alone must not push bake-time geometry into the pass's

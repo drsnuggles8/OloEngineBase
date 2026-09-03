@@ -35,6 +35,7 @@
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/VirtualShadowMapMarkPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
+#include "OloEngine/Renderer/Passes/SphereProxyAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSRRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
@@ -127,6 +128,10 @@ namespace OloEngine
         Ref<PlanarReflectionRenderPass> PlanarReflection;
         Ref<SSAORenderPass> SSAO;
         Ref<GTAORenderPass> GTAO;
+        // Analytic sphere-proxy AO (#710). Registered right after the AO
+        // producer and before DeferredLightingPass, so its multiply lands in
+        // AOBuffer before anything reads it.
+        Ref<SphereProxyAORenderPass> SphereProxyAO;
         Ref<ParticleRenderPass> Particle;
         Ref<OITPrepareRenderPass> OITPrepare;
         Ref<OITResolveRenderPass> OITResolve;
@@ -139,6 +144,7 @@ namespace OloEngine
             PlanarReflection.Reset();
             SSAO.Reset();
             GTAO.Reset();
+            SphereProxyAO.Reset();
             Particle.Reset();
             OITPrepare.Reset();
             OITResolve.Reset();

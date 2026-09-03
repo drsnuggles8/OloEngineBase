@@ -235,6 +235,38 @@ namespace OloEngine
         bool GTAODebugView = false;
 
         // ---------------------------------------------------------------------
+        // Analytic sphere-proxy AO (issue #710)
+        //
+        // A complementary AO term for the occluders screen-space AO cannot see:
+        // coarse spheres fitted to the frame's occluder bounds, integrated in
+        // closed form against the receiver's hemisphere and multiplied into the
+        // AO buffer GTAO just wrote. It has no camera term, so a proxy off the
+        // edge of the frame — or behind the camera — keeps occluding.
+        //
+        // Requires the GTAO technique (see SphereProxyAORenderPass for why).
+        // ---------------------------------------------------------------------
+        bool SphereProxyAOEnabled = false;
+        // How much of the proxy term reaches the AO buffer, 0 = none, 1 = all.
+        f32 SphereProxyAOStrength = 1.0f;
+        // Per-frame proxy budget. Capped by SphereProxyAO::kMaxProxies (128),
+        // which is the length of the UBO's proxy array and therefore a hard
+        // ceiling, not a preference.
+        i32 SphereProxyAOMaxProxies = 64;
+        // Occluders whose fitted sphere is larger than this are dropped. This is
+        // the "is it an object?" filter: a sphere fitted to a terrain chunk or a
+        // ground plane sits under every receiver in the scene and tints the whole
+        // frame, and that large-scale occlusion is already the shadow map's job.
+        f32 SphereProxyAOMaxRadius = 25.0f;
+        // Tile-binning cutoff in proxy radii. A proxy contributes at most
+        // 1/scale^2, so 12 admits everything above ~0.7% occlusion and drops the
+        // rest before they reach a pixel.
+        f32 SphereProxyAOInfluenceScale = 12.0f;
+        // Write the proxy term alone into the AO buffer instead of the product,
+        // so a capture shows what this pass contributes rather than what GTAO
+        // already had.
+        bool SphereProxyAODebugView = false;
+
+        // ---------------------------------------------------------------------
         // Variable Rate Compute Shading (VRCS) — issue #683
         //
         // A shared 8x8-tile classification pass rates each tile into a shading
@@ -616,6 +648,27 @@ namespace OloEngine
         { return std::isfinite(v) ? v : fallback; };
 
         s.CASSharpness = std::clamp(finite(s.CASSharpness, 0.5f), 0.0f, 1.0f);
+    }
+
+    // Clamp the sphere-proxy AO parameters to a finite, sane range (issue #710).
+    // Call after loading settings from disk, per the CLAUDE.md rule that floats
+    // read from external data are validated with std::isfinite. The clamps are
+    // not cosmetic: a NaN MaxRadius makes every fitted proxy fail its `radius >
+    // maxRadius` test in the direction that ADMITS it, and a NaN Strength
+    // propagates straight into the AO buffer.
+    inline void SanitizeSphereProxyAO(PostProcessSettings& s) noexcept
+    {
+        const auto finite = [](f32 v, f32 fallback) noexcept
+        { return std::isfinite(v) ? v : fallback; };
+
+        s.SphereProxyAOStrength = std::clamp(finite(s.SphereProxyAOStrength, 1.0f), 0.0f, 1.0f);
+        // The bounds below are the SAME numbers the MCP field registry
+        // (McpPostProcessSettings.h) and the editor panel's drag ranges advertise.
+        // Three different maxima would mean a value one surface accepts is
+        // silently truncated the first time another touches it.
+        s.SphereProxyAOMaxRadius = std::clamp(finite(s.SphereProxyAOMaxRadius, 25.0f), 0.0f, 1000.0f);
+        s.SphereProxyAOInfluenceScale = std::clamp(finite(s.SphereProxyAOInfluenceScale, 12.0f), 1.0f, 64.0f);
+        s.SphereProxyAOMaxProxies = std::clamp(s.SphereProxyAOMaxProxies, 0, 128);
     }
 
     // GPU-side UBO layout for FSR1 EASU upscale constants (std140, binding 45).

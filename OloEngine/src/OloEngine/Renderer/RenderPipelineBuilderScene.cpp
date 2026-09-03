@@ -125,6 +125,18 @@ namespace OloEngine::RenderPipelineBuilderInternal
                 break;
         }
 
+        // Analytic sphere-proxy AO (#710) reads AOBuffer and writes it back in
+        // place, so it must be registered AFTER the producer above and BEFORE
+        // DeferredLightingPass — the same reasoning that puts the producer where
+        // it is. Registered unconditionally; the node's own enable gate (set in
+        // ConfigurePassesForFrame, which requires the GRAPH's technique to be
+        // GTAO) decides whether it does anything, and the pass-state hash makes
+        // a flip rebuild the graph.
+        if (inputs.Passes->SphereProxyAO)
+        {
+            graph.AddNode(PrepareGraphNode("SphereProxyAOPass", inputs.Passes->SphereProxyAO));
+        }
+
         // Virtual Shadow Map page marking (#702). Registered here, after the last
         // depth writer, because it projects the FINISHED scene depth into the clip
         // levels — and ShadowPass, which consumes what it marks, is the first node

@@ -6390,6 +6390,12 @@ namespace OloEngine
                 out << YAML::Key << "ActiveAOTechnique" << YAML::Value << std::to_underlying(pp.ActiveAOTechnique);
                 out << YAML::Key << "GTAOEnabled" << YAML::Value << pp.GTAOEnabled;
             }
+            out << YAML::Key << "SphereProxyAOEnabled" << YAML::Value << pp.SphereProxyAOEnabled;
+            out << YAML::Key << "SphereProxyAOStrength" << YAML::Value << pp.SphereProxyAOStrength;
+            out << YAML::Key << "SphereProxyAOMaxProxies" << YAML::Value << pp.SphereProxyAOMaxProxies;
+            out << YAML::Key << "SphereProxyAOMaxRadius" << YAML::Value << pp.SphereProxyAOMaxRadius;
+            out << YAML::Key << "SphereProxyAOInfluenceScale" << YAML::Value << pp.SphereProxyAOInfluenceScale;
+            out << YAML::Key << "SphereProxyAODebugView" << YAML::Value << pp.SphereProxyAODebugView;
             out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
             out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
             out << YAML::Key << "SSAOBias" << YAML::Value << pp.SSAOBias;
@@ -6600,6 +6606,12 @@ namespace OloEngine
                 }
             }
             TrySet(pp.GTAOEnabled, ppNode["GTAOEnabled"]);
+            TrySet(pp.SphereProxyAOEnabled, ppNode["SphereProxyAOEnabled"]);
+            TrySet(pp.SphereProxyAOStrength, ppNode["SphereProxyAOStrength"]);
+            TrySet(pp.SphereProxyAOMaxProxies, ppNode["SphereProxyAOMaxProxies"]);
+            TrySet(pp.SphereProxyAOMaxRadius, ppNode["SphereProxyAOMaxRadius"]);
+            TrySet(pp.SphereProxyAOInfluenceScale, ppNode["SphereProxyAOInfluenceScale"]);
+            TrySet(pp.SphereProxyAODebugView, ppNode["SphereProxyAODebugView"]);
             TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
             TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
             TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
@@ -6661,6 +6673,7 @@ namespace OloEngine
             SanitizeContactShadow(pp);
             SanitizeCAS(pp);
             SanitizeUpscale(pp);
+            SanitizeSphereProxyAO(pp);
         }
 
         DeserializeSnowSettings(data, scene.GetSnowSettings());
@@ -6984,6 +6997,12 @@ namespace OloEngine
                 out << YAML::Key << "ActiveAOTechnique" << YAML::Value << std::to_underlying(pp.ActiveAOTechnique);
                 out << YAML::Key << "GTAOEnabled" << YAML::Value << pp.GTAOEnabled;
             }
+            out << YAML::Key << "SphereProxyAOEnabled" << YAML::Value << pp.SphereProxyAOEnabled;
+            out << YAML::Key << "SphereProxyAOStrength" << YAML::Value << pp.SphereProxyAOStrength;
+            out << YAML::Key << "SphereProxyAOMaxProxies" << YAML::Value << pp.SphereProxyAOMaxProxies;
+            out << YAML::Key << "SphereProxyAOMaxRadius" << YAML::Value << pp.SphereProxyAOMaxRadius;
+            out << YAML::Key << "SphereProxyAOInfluenceScale" << YAML::Value << pp.SphereProxyAOInfluenceScale;
+            out << YAML::Key << "SphereProxyAODebugView" << YAML::Value << pp.SphereProxyAODebugView;
             out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
             out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
             out << YAML::Key << "SSAOBias" << YAML::Value << pp.SSAOBias;

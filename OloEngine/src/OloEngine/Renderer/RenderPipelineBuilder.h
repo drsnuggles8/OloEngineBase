@@ -37,6 +37,7 @@ namespace OloEngine
         RenderGraphNode* Decal = nullptr;
         RenderGraphNode* SSAO = nullptr;
         RenderGraphNode* GTAO = nullptr;
+        RenderGraphNode* SphereProxyAO = nullptr; // #710 analytic sphere-proxy AO (after the AO producer)
         RenderGraphNode* Particle = nullptr;
         RenderGraphNode* OITPrepare = nullptr;
         RenderGraphNode* OITResolve = nullptr;

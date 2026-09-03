@@ -2007,6 +2007,22 @@ namespace OloEngine
             // Non-owning; null except while a bake path is collecting.
             std::vector<DDGIMeshCaster>* AuxCasterSink = nullptr;
 
+            // Sphere-proxy AO occluder collection (issue #710). Armed for the
+            // frame by RenderPipeline::PrepareFrame when the proxy pass is on,
+            // filled through AddDDGICaster during scene traversal, and drained
+            // in ConfigurePassesForFrame.
+            //
+            // It rides the DDGI caster funnel rather than the shadow-caster one
+            // for the reason SubmitDDGICasterIfCollecting states about itself:
+            // DDGI casters are deliberately NOT gated on the shadow toggle,
+            // because geometry has to occlude whether or not an artist asked it
+            // for a shadow. Sphere-proxy AO needs exactly that guarantee, and it
+            // needs the other property both lists share — neither is
+            // view-frustum culled, and a proxy that vanished with its object
+            // would defeat the whole feature.
+            bool AOProxyCollecting = false;
+            std::vector<BoundingBox> AOProxyBounds;
+
             // True once Init() has allocated the renderer's one-shot singletons
             // (FrameDataBufferManager, FrameResourceManager, command dispatch, …).
             // Distinct from IsInitialized(): Init() can legitimately run with a

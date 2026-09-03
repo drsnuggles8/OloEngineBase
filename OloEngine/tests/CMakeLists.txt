@@ -214,6 +214,7 @@ add_executable(OloEngine-Tests
 		Rendering/UpscaleSettingsSceneYAMLRoundTripTest.cpp
 		Rendering/SSAOMathTest.cpp
 		Rendering/GTAOMathTest.cpp
+		Rendering/SphereProxyAOMathTest.cpp
 		Rendering/VRCSContractTest.cpp
 		Rendering/VRCSClassifierGpuTest.cpp
 		Rendering/ThreadGroupSwizzleTest.cpp
@@ -398,6 +399,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FSR2VisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GTAOVisualEvidenceTest.cpp
+		Rendering/PropertyTests/SphereProxyAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VRCSVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VRCSPerfProbe.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
