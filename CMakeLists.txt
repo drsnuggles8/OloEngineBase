@@ -206,7 +206,14 @@ endif()
 # downloads/, diverging from every other worktree on this machine. An existing
 # build tree is unaffected either way: CMAKE_TOOLCHAIN_FILE is only honoured on
 # the FIRST configure, so a tree already pinned to the right vcpkg stays pinned.
-set(_olo_vs_vcpkg_re "[Mm]icrosoft [Vv]isual [Ss]tudio.*[/\]VC[/\]vcpkg")
+set(_olo_vs_vcpkg_re "[Mm]icrosoft [Vv]isual [Ss]tudio.*[/\\]VC[/\\]vcpkg")
+# NOTE the DOUBLED backslash. This is a quoted argument, so CMake unescapes it
+# before the regex engine ever sees it: "[/\]" becomes the regex [/], a class
+# holding only the forward slash, and the backslash alternative is silently gone.
+# That matters because the two operands are spelled differently: CMAKE_TOOLCHAIN_FILE
+# is normalised to forward slashes and matched either way, but $ENV{VCPKG_ROOT} on
+# Windows keeps its backslashes -- so the single-backslash version checked only the
+# half that cannot be acted on, and never fired for the env var that causes this.
 if(CMAKE_TOOLCHAIN_FILE MATCHES "${_olo_vs_vcpkg_re}" OR "$ENV{VCPKG_ROOT}" MATCHES "${_olo_vs_vcpkg_re}")
     message(WARNING
         "vcpkg is being resolved from the copy bundled with Visual Studio, not from a "
