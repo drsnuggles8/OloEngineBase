@@ -103,6 +103,21 @@ namespace OloEngine::Tests
         EXPECT_TRUE(result.Accepted());
     }
 
+    TEST(SurfaceHistoryValidity, UnusedOptionalHitDistanceMayBeNonFinite)
+    {
+        SurfaceHistoryRecord current = MakeMatchingSurface();
+        SurfaceHistoryRecord previous = current;
+        const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+        current.HitDistance = nan;
+        previous.HitDistance = nan;
+
+        const auto result = EvaluateSurfaceHistory(
+            current, previous, { 0.5f, 0.5f }, SurfaceHistoryValiditySettings{});
+
+        EXPECT_TRUE(result.Accepted());
+        EXPECT_FALSE(result.Has(SurfaceHistoryRejection::NonFinite));
+    }
+
     TEST(SurfaceHistoryValidity, FirstFrameMomentsReturnCurrentHalfResolutionSignal)
     {
         TemporalMoments stale{};

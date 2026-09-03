@@ -159,6 +159,8 @@ namespace OloEngine
             reject(SurfaceHistoryRejection::OffScreen);
         }
 
+        const bool currentHasHitDistance = HasSurfaceHistoryFlag(current.Flags, SurfaceHistoryFlag::HasHitDistance);
+        const bool previousHasHitDistance = HasSurfaceHistoryFlag(previous.Flags, SurfaceHistoryFlag::HasHitDistance);
         const bool finite =
             std::isfinite(current.LinearDepth) && std::isfinite(previous.LinearDepth) &&
             (!settings.TestGeometricNormal ||
@@ -171,7 +173,8 @@ namespace OloEngine
              (std::isfinite(current.Roughness) && std::isfinite(previous.Roughness))) &&
             (!settings.TestMotion || SurfaceHistoryDetail::IsFinite(current.Motion)) &&
             (!settings.TestHitDistance ||
-             (std::isfinite(current.HitDistance) && std::isfinite(previous.HitDistance)));
+             ((!currentHasHitDistance || std::isfinite(current.HitDistance)) &&
+              (!previousHasHitDistance || std::isfinite(previous.HitDistance))));
         if (!finite)
             reject(SurfaceHistoryRejection::NonFinite);
 
@@ -225,8 +228,6 @@ namespace OloEngine
         if (HasSurfaceHistoryFlag(current.Flags, SurfaceHistoryFlag::Disoccluded))
             reject(SurfaceHistoryRejection::Disoccluded);
 
-        const bool currentHasHitDistance = HasSurfaceHistoryFlag(current.Flags, SurfaceHistoryFlag::HasHitDistance);
-        const bool previousHasHitDistance = HasSurfaceHistoryFlag(previous.Flags, SurfaceHistoryFlag::HasHitDistance);
         if (settings.TestHitDistance && currentHasHitDistance != previousHasHitDistance)
             reject(SurfaceHistoryRejection::HitDistanceMismatch);
         else if (settings.TestHitDistance && currentHasHitDistance &&

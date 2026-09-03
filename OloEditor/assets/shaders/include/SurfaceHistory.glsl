@@ -90,6 +90,8 @@ uint OloEvaluateSurfaceHistory(OloSurfaceHistoryRecord current,
         any(greaterThan(reprojectedUV, vec2(1.0))))
         reasons |= OLO_SURFACE_REJECT_OFF_SCREEN;
 
+    bool currentHasHit = (current.Flags & OLO_SURFACE_FLAG_HAS_HIT_DISTANCE) != 0u;
+    bool previousHasHit = (previous.Flags & OLO_SURFACE_FLAG_HAS_HIT_DISTANCE) != 0u;
     if (!OloSurfaceFinite(current.LinearDepth) || !OloSurfaceFinite(previous.LinearDepth) ||
         ((settings.TestMask & OLO_SURFACE_TEST_GEOMETRIC_NORMAL) != 0u &&
          (!OloSurfaceFinite(current.GeometricNormal) || !OloSurfaceFinite(previous.GeometricNormal))) ||
@@ -99,7 +101,8 @@ uint OloEvaluateSurfaceHistory(OloSurfaceHistoryRecord current,
          (!OloSurfaceFinite(current.Roughness) || !OloSurfaceFinite(previous.Roughness))) ||
         ((settings.TestMask & OLO_SURFACE_TEST_MOTION) != 0u && !OloSurfaceFinite(current.Motion)) ||
         ((settings.TestMask & OLO_SURFACE_TEST_HIT_DISTANCE) != 0u &&
-         (!OloSurfaceFinite(current.HitDistance) || !OloSurfaceFinite(previous.HitDistance))))
+         ((currentHasHit && !OloSurfaceFinite(current.HitDistance)) ||
+          (previousHasHit && !OloSurfaceFinite(previous.HitDistance)))))
         reasons |= OLO_SURFACE_REJECT_NON_FINITE;
 
     if (OloSurfaceRelativeDifference(current.LinearDepth, previous.LinearDepth) > settings.RelativeDepthThreshold)
@@ -141,8 +144,6 @@ uint OloEvaluateSurfaceHistory(OloSurfaceHistoryRecord current,
     if ((current.Flags & OLO_SURFACE_FLAG_DISOCCLUDED) != 0u)
         reasons |= OLO_SURFACE_REJECT_DISOCCLUDED;
 
-    bool currentHasHit = (current.Flags & OLO_SURFACE_FLAG_HAS_HIT_DISTANCE) != 0u;
-    bool previousHasHit = (previous.Flags & OLO_SURFACE_FLAG_HAS_HIT_DISTANCE) != 0u;
     if ((settings.TestMask & OLO_SURFACE_TEST_HIT_DISTANCE) != 0u && currentHasHit != previousHasHit)
         reasons |= OLO_SURFACE_REJECT_HIT_DISTANCE;
     else if ((settings.TestMask & OLO_SURFACE_TEST_HIT_DISTANCE) != 0u && currentHasHit &&

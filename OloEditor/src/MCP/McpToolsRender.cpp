@@ -6123,7 +6123,7 @@ namespace OloEngine::MCP
                 "(unreachable from the final pass this frame), whether it is the final/output pass, and its "
                 "'accesses' — every resource it reads/writes WITH its resolved physical identity, so 'do "
                 "these two passes touch the same physical texture this frame' is a single lookup (each "
-                "resource also carries a 'gl' block: texture/framebuffer/attachment/buffer ids as of the last "
+                "resource also carries a 'native' block: texture/framebuffer/attachment/buffer ids as of the last "
                 "executed frame; texture views resolve to their parent object). The JSON form also reports the "
                 "persistent temporal-history registry with each plane's generation, validity, descriptor, and "
                 "last invalidation cause. Use format:\"mermaid\" or "

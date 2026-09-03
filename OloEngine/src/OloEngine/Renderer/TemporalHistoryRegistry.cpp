@@ -23,13 +23,30 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(descriptor.IsUsable(), "Temporal history descriptors must have usable dimensions and format");
 
+        if (!debugName.empty())
+        {
+            if (const auto owner = m_DebugNameOwners.find(debugName);
+                owner != m_DebugNameOwners.end() && owner->second != key)
+            {
+                OLO_CORE_ERROR("Temporal history debug name '{}' is already owned by another typed key", debugName);
+                return {};
+            }
+        }
+
         if (const auto it = m_Indices.find(key); it != m_Indices.end())
         {
             Entry& entry = m_Entries[it->second];
             const bool descriptorChanged = entry.Descriptor != descriptor;
             entry.Dependencies = dependencies;
             if (!debugName.empty())
+            {
+                if (debugName != entry.DebugName)
+                {
+                    m_DebugNameOwners.erase(entry.DebugName);
+                    m_DebugNameOwners.emplace(debugName, key);
+                }
                 entry.DebugName = std::move(debugName);
+            }
 
             if (descriptorChanged)
             {
@@ -53,6 +70,8 @@ namespace OloEngine
             .DebugName = std::move(debugName),
         });
         m_Indices.emplace(key, index);
+        if (!m_Entries.back().DebugName.empty())
+            m_DebugNameOwners.emplace(m_Entries.back().DebugName, key);
         return {
             .Token = { index, 1 },
             .Created = true,
@@ -194,6 +213,7 @@ namespace OloEngine
     void TemporalHistoryRegistry::Clear()
     {
         m_Indices.clear();
+        m_DebugNameOwners.clear();
         m_Entries.clear();
     }
 

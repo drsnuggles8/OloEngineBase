@@ -1166,6 +1166,7 @@ namespace OloEngine::Tests
         }
         EXPECT_FLOAT_EQ(result.Metadata[0], 1.0f);
         EXPECT_FLOAT_EQ(result.Metadata[1], 0.0f);
+        EXPECT_FLOAT_EQ(result.Metadata[2], 0.0f);
     }
 
     TEST(ShaderUnitDepthAwareClusterTest, TileDepthAndPixelBoundaryHelpersMatchTheirContract)

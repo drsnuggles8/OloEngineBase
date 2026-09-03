@@ -67,6 +67,11 @@ void main()
     uint stable = OloEvaluateSurfaceHistory(current, previous, vec2(0.5), true, settings);
     u_Reasons = uvec4(instanceMismatch, materialGenerationMismatch, missingIdentity, stable);
 
+    settings.TestMask |= OLO_SURFACE_TEST_HIT_DISTANCE;
+    current.HitDistance = uintBitsToFloat(0x7fc00000u);
+    previous.HitDistance = current.HitDistance;
+    uint unusedOptionalHitDistance = OloEvaluateSurfaceHistory(current, previous, vec2(0.5), true, settings);
+
     OloTemporalMoments prior;
     prior.First = vec4(100.0);
     prior.Second = vec4(10000.0);
@@ -75,5 +80,6 @@ void main()
     OloTemporalMoments firstFrame = OloAccumulateTemporalMoments(signal, prior, false, 32.0);
     u_FirstMoment = firstFrame.First;
     u_SecondMoment = firstFrame.Second;
-    u_Metadata = vec4(firstFrame.HistoryLength, OloTemporalVariance(firstFrame).x, 0.0, 0.0);
+    u_Metadata = vec4(firstFrame.HistoryLength, OloTemporalVariance(firstFrame).x,
+                      float(unusedOptionalHitDistance), 0.0);
 }

@@ -54,6 +54,19 @@ namespace OloEngine::Tests
         EXPECT_EQ(first.Token, second.Token);
     }
 
+    TEST(TemporalHistoryRegistry, DuplicateDebugNameForDifferentTypedKeyIsRejected)
+    {
+        TemporalHistoryRegistry registry;
+        const auto first = registry.Acquire(MakeKey(), MakeDescriptor(), kAllViewDependencies, "SSGI.Signal");
+        const auto collision = registry.Acquire(
+            MakeKey(TemporalHistoryEffect::SSGI, TemporalHistoryPlane::MomentsFirst),
+            MakeDescriptor(), kAllViewDependencies, "SSGI.Signal");
+
+        EXPECT_TRUE(first.Token.IsValid());
+        EXPECT_FALSE(collision.Token.IsValid());
+        EXPECT_EQ(registry.Snapshot().size(), 1u);
+    }
+
     TEST(TemporalHistoryRegistry, DescriptorMismatchAdvancesGenerationAndRejectsStaleToken)
     {
         TemporalHistoryRegistry registry;

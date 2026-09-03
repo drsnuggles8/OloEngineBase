@@ -207,6 +207,7 @@ namespace OloEngine
         [[nodiscard]] const Entry* Resolve(TemporalHistoryToken token) const;
 
         std::unordered_map<TemporalHistoryKey, u32, TemporalHistoryKeyHash> m_Indices;
+        std::unordered_map<std::string, TemporalHistoryKey> m_DebugNameOwners;
         std::vector<Entry> m_Entries;
     };
 } // namespace OloEngine
