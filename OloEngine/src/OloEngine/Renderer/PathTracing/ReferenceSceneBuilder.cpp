@@ -2,6 +2,8 @@
 
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
 
+#include "OloEngine/Scene/SceneLightmapGather.h"
+
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Renderer/LightCommon.h"
 #include "OloEngine/Renderer/Material.h"
@@ -438,6 +440,38 @@ namespace OloEngine::PathTracing
         m_Lights.push_back(refLight);
     }
 
+    namespace
+    {
+        // Shared by AddScene's geometry walk and AddSceneLights: EnTT view
+        // iteration order depends on pool packing history, which two otherwise
+        // identical scenes (or two runs) need not share. The path tracer's
+        // bit-identical contract needs stable geometry AND light ordering (both
+        // change the floating-point accumulation order), so everything is sorted
+        // by UUID before adding.
+        struct GatheredEntity
+        {
+            u64 SortKey = 0;
+            entt::entity Handle = entt::null;
+        };
+
+        [[nodiscard]] u64 SortKeyFor(Scene& scene, entt::entity handle)
+        {
+            const Entity entity{ handle, &scene };
+            // Every Scene-created entity carries an IDComponent; the entt id
+            // fallback only exists so a hand-assembled registry cannot crash
+            // the walk.
+            return entity.HasComponent<IDComponent>() ? static_cast<u64>(entity.GetComponent<IDComponent>().ID)
+                                                      : static_cast<u64>(std::to_underlying(handle));
+        }
+
+        [[nodiscard]] bool ByGatherKey(const GatheredEntity& a, const GatheredEntity& b)
+        {
+            // Handle as tie-break keeps the order strict even under a UUID
+            // collision.
+            return std::tie(a.SortKey, a.Handle) < std::tie(b.SortKey, b.Handle);
+        }
+    } // namespace
+
     // -------------------------------------------------------------------------
     // AddScene
     // -------------------------------------------------------------------------
@@ -450,32 +484,7 @@ namespace OloEngine::PathTracing
             return;
         }
 
-        // Deterministic gather: EnTT view iteration order depends on pool
-        // packing history, which two otherwise-identical scenes (or two runs)
-        // need not share. The path tracer's bit-identical contract needs
-        // stable geometry AND light ordering (both change the floating-point
-        // accumulation order), so everything is sorted by UUID before adding.
-        struct GatheredEntity
-        {
-            u64 SortKey = 0;
-            entt::entity Handle = entt::null;
-        };
-        const auto sortKeyFor = [&scene](entt::entity handle)
-        {
-            const Entity entity{ handle, &scene };
-            // Every Scene-created entity carries an IDComponent; the entt id
-            // fallback only exists so a hand-assembled registry cannot crash
-            // the walk.
-            return entity.HasComponent<IDComponent>() ? static_cast<u64>(entity.GetComponent<IDComponent>().ID)
-                                                      : static_cast<u64>(std::to_underlying(handle));
-        };
-        const auto byKey = [](const GatheredEntity& a, const GatheredEntity& b)
-        {
-            // Handle as tie-break keeps the order strict even under a UUID
-            // collision.
-            return std::tie(a.SortKey, a.Handle) < std::tie(b.SortKey, b.Handle);
-        };
-
+        // Deterministic gather: see GatheredEntity / SortKeyFor above.
         // ---- geometry -------------------------------------------------------
         {
             std::vector<GatheredEntity> meshEntities;
@@ -500,9 +509,9 @@ namespace OloEngine::PathTracing
                 {
                     continue;
                 }
-                meshEntities.push_back({ sortKeyFor(entityHandle), entityHandle });
+                meshEntities.push_back({ SortKeyFor(scene, entityHandle), entityHandle });
             }
-            std::sort(meshEntities.begin(), meshEntities.end(), byKey);
+            std::sort(meshEntities.begin(), meshEntities.end(), ByGatherKey);
 
             for (const GatheredEntity& gathered : meshEntities)
             {
@@ -516,6 +525,42 @@ namespace OloEngine::PathTracing
                                                        : nullptr;
                 AddMeshEntity(mesh.m_MeshSource, scene.GetWorldTransform(gathered.Handle), overrideMaterial);
             }
+        }
+
+        AddSceneLights(scene);
+    }
+
+    void ReferenceSceneBuilder::AddLightmapReceivers(Scene& scene, std::span<const OloEngine::LightmapReceiver> receivers)
+    {
+        if (m_Consumed)
+        {
+            OLO_CORE_ERROR("ReferenceSceneBuilder::AddLightmapReceivers on a consumed builder");
+            return;
+        }
+
+        // The receiver list IS the world the bake traces against (issue #867).
+        // AddScene walks MeshComponent entities only, so a scene whose static
+        // geometry is instanced or virtual would bake against an empty room —
+        // no occlusion, no bounce, and no error to say so. Handing the gather's
+        // own list over instead keeps "what is baked" and "what the bake can
+        // see" the same set by construction.
+        //
+        // Already deterministic: GatherLightmapReceivers sorts by
+        // (UUID, SubKey), which is what the builder's own UUID sort exists for.
+        for (const OloEngine::LightmapReceiver& receiver : receivers)
+        {
+            AddMeshEntity(receiver.Mesh, receiver.WorldTransform, receiver.OverrideMaterial);
+        }
+
+        AddSceneLights(scene);
+    }
+
+    void ReferenceSceneBuilder::AddSceneLights(Scene& scene)
+    {
+        if (m_Consumed)
+        {
+            OLO_CORE_ERROR("ReferenceSceneBuilder::AddSceneLights on a consumed builder");
+            return;
         }
 
         // ---- lights ---------------------------------------------------------
@@ -539,9 +584,9 @@ namespace OloEngine::PathTracing
                 auto view = scene.GetAllEntitiesWith<TransformComponent, LightComponent>();
                 for (const auto entityHandle : view)
                 {
-                    lights.push_back({ sortKeyFor(entityHandle), entityHandle });
+                    lights.push_back({ SortKeyFor(scene, entityHandle), entityHandle });
                 }
-                std::sort(lights.begin(), lights.end(), byKey);
+                std::sort(lights.begin(), lights.end(), ByGatherKey);
                 for (const GatheredEntity& gathered : lights)
                 {
                     addOne(view.template get<LightComponent>(gathered.Handle),

@@ -68,8 +68,17 @@
 
 #include <functional>
 #include <map>
+#include <span>
 #include <utility>
 #include <vector>
+
+namespace OloEngine
+{
+    // Scene/SceneLightmapGather.h — forward-declared so this renderer header
+    // does not pull the lightmap gather into every path-tracing translation
+    // unit; only the definition of the span's element is needed at the call.
+    struct LightmapReceiver;
+} // namespace OloEngine
 
 namespace OloEngine::PathTracing
 {
@@ -151,6 +160,22 @@ namespace OloEngine::PathTracing
         // Gathered entities are sorted by UUID before adding — see the
         // determinism note above.
         void AddScene(Scene& scene, const std::function<bool(Entity)>& includeEntity);
+
+        // Capture the world a LIGHTMAP BAKE traces against (issue #867): the
+        // geometry is exactly the receiver list the bake is about to consume —
+        // instanced placements and model submeshes included, each at its own
+        // world transform — plus every scene light, as AddScene adds them.
+        //
+        // AddScene cannot serve this: it walks MeshComponent entities, so a
+        // scene whose static geometry is instanced or virtual would bake against
+        // a world those surfaces are missing from. The failure is quiet (less
+        // bounce, no occluders) rather than loud, which is exactly why the two
+        // walks are one list.
+        void AddLightmapReceivers(Scene& scene, std::span<const OloEngine::LightmapReceiver> receivers);
+
+        // The light half of AddScene, on its own. Lights are never gated by a
+        // geometry predicate — "static" is a property of geometry.
+        void AddSceneLights(Scene& scene);
 
         // Finalises into a built ReferenceScene (TLAS + emissive list ready to
         // trace) and CONSUMES the builder. Calling anything afterwards is a

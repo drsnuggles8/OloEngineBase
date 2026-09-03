@@ -1227,6 +1227,8 @@
 		"OloEngine/Scene/SceneMeshRaycast.h"
 		"OloEngine/Scene/SceneLightmap.cpp"
 		"OloEngine/Scene/SceneLightmap.h"
+		"OloEngine/Scene/SceneLightmapGather.cpp"
+		"OloEngine/Scene/SceneLightmapGather.h"
 		"OloEngine/Scene/SceneSerializer.cpp"
 		"OloEngine/Scene/SceneSerializer.h"
 		"OloEngine/Scene/SceneBinaryFormat.h"

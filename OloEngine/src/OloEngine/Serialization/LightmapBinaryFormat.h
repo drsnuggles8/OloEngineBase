@@ -8,7 +8,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .olmap Binary Lightmap Format — Version 1 (issue #439)
+    // .olmap Binary Lightmap Format — Version 2 (issue #439, extended by #867)
     //
     // Layout:
     //   [FileHeader]
@@ -20,7 +20,7 @@ namespace OloEngine
     //   Section 0 Info        — InfoSection (atlas dimensions, page count, bake key)
     //   Section 1 Texels      — raw f32 RGBA data, ByteCount = PageCount*W*H*16
     //   Section 2 EntityTable — EntityTableHeader + EntryCount × LightmapEntityEntry
-    //                           (LightmapEntityEntry: Renderer/LightmapAsset.h, 32 bytes,
+    //                           (LightmapEntityEntry: Renderer/LightmapAsset.h, 48 bytes,
     //                           layout pinned by static_asserts there)
     //
     // All multi-byte values are little-endian. FileHeader::Checksum is the
@@ -40,8 +40,12 @@ namespace OloEngine
     namespace OLmapFormat
     {
         constexpr u32 MagicNumber = 0x504D4C4F; // "OLMP" in little-endian
-        constexpr u32 CurrentVersion = 1;
-        constexpr u32 MinSupportedVersion = 1; // == CurrentVersion, on purpose — see header comment
+        // v2 (issue #867): LightmapEntityEntry gained a `SubKey` lane and grew
+        // 32 -> 48 bytes, so the EntityTable section's stride changed. Per the
+        // versioning note above both constants move together and v1 files are
+        // rejected outright — the cost is one re-bake, not a migration path.
+        constexpr u32 CurrentVersion = 2;
+        constexpr u32 MinSupportedVersion = 2; // == CurrentVersion, on purpose — see header comment
 
         constexpr u32 FlagCompressed = 1; // Bit 0: payload is zlib-compressed
 

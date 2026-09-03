@@ -13,26 +13,66 @@
 
 namespace OloEngine
 {
-    // One scene entity's region in the baked lightmap atlas: the entity's
-    // second UV set (uv2) is mapped into the atlas as `uv2 * ScaleOffset.xy +
-    // ScaleOffset.zw` on the given page. Written verbatim into the `.olmap`
-    // EntityTable section, so the layout is on-disk ABI — see the
-    // static_asserts below and Serialization/LightmapBinaryFormat.h.
+    // ---- THE REGION IDENTITY (issue #867) ------------------------------------
+    //
+    // A baked region is addressed by `(EntityUUID, SubKey)`, NOT by the entity
+    // alone. v1 (issue #439) reached exactly one receiver — the classic
+    // `MeshComponent` — for which one entity really is one region. Every other
+    // receiver breaks that 1:1 assumption in its own way: an
+    // `InstancedMeshComponent` draws N copies of one mesh at N world transforms
+    // receiving N different bounces, and a `ModelComponent` fans one entity out
+    // over several `MeshSource`s that are unwrapped separately.
+    //
+    // `SubKey == 0` means "the whole entity", which is what the classic path
+    // still emits — so every pre-#867 bake is unchanged by this addition and
+    // keeps addressing correctly.
+    //
+    // Per receiver, and the reason each key was chosen rather than an index
+    // (VirtualMeshComponent is absent because it cannot sample the lightmap yet
+    // — see GatherLightmapReceivers in Scene/SceneLightmapGather.cpp):
+    //
+    //   MeshComponent          0
+    //   InstancedMeshComponent InstanceData::StableID — the engine's EXISTING
+    //                          persistent per-instance identity (it already
+    //                          backs GPU Scene temporal matching, and
+    //                          InstancedMeshComponent::EnsureStableIDs
+    //                          guarantees it is unique and non-zero). A
+    //                          positional index would re-key every later
+    //                          instance when one is inserted or erased, which
+    //                          stales a bake that did not actually change.
+    //   ModelComponent         the index of the FIRST `Model::GetMeshes()` entry
+    //                          sharing this mesh's `MeshSource`. Deduplicating
+    //                          by source matters: on the warm `.omesh` path
+    //                          every submesh is a view into ONE combined source,
+    //                          so the whole model is one unwrap and one region
+    //                          (SubKey 0), while a cold Assimp import gives each
+    //                          submesh its own source and its own region.
+    //
+    // A sub-key is only ever compared WITHIN one entity's set of regions, so the
+    // three schemes above never need a shared namespace.
+    //
+    // Written verbatim into the `.olmap` EntityTable section, so the layout is
+    // on-disk ABI — see the static_asserts below and
+    // Serialization/LightmapBinaryFormat.h.
     struct LightmapEntityEntry
     {
         u64 EntityUUID = 0;            // scene entity this region belongs to
-        u32 Page = 0;                  // atlas page index (v1: always 0)
+        u64 SubKey = 0;                // receiver-defined sub-identity; 0 = the whole entity (issue #867)
+        u32 Page = 0;                  // atlas page index
         u32 Pad0 = 0;                  // explicit padding — keeps the wire layout deterministic
-        glm::vec4 ScaleOffset{ 0.0f }; // uv2 * xy + zw addresses the entity's charts in the atlas
+        u64 Pad1 = 0;                  // explicit padding — ScaleOffset needs 16-byte alignment
+        glm::vec4 ScaleOffset{ 0.0f }; // uv2 * xy + zw addresses the region's charts in the atlas
     };
 
     static_assert(std::is_trivially_copyable_v<LightmapEntityEntry>);
     static_assert(std::is_standard_layout_v<LightmapEntityEntry>);
-    static_assert(sizeof(LightmapEntityEntry) == 32);
+    static_assert(sizeof(LightmapEntityEntry) == 48);
     static_assert(offsetof(LightmapEntityEntry, EntityUUID) == 0);
-    static_assert(offsetof(LightmapEntityEntry, Page) == 8);
-    static_assert(offsetof(LightmapEntityEntry, Pad0) == 12);
-    static_assert(offsetof(LightmapEntityEntry, ScaleOffset) == 16);
+    static_assert(offsetof(LightmapEntityEntry, SubKey) == 8);
+    static_assert(offsetof(LightmapEntityEntry, Page) == 16);
+    static_assert(offsetof(LightmapEntityEntry, Pad0) == 20);
+    static_assert(offsetof(LightmapEntityEntry, Pad1) == 24);
+    static_assert(offsetof(LightmapEntityEntry, ScaleOffset) == 32);
 
     // Baked GI lightmap atlas (issue #439).
     //

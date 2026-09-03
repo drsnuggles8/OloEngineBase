@@ -13,6 +13,8 @@
 #include <bit>
 #include <cmath>
 #include <span>
+#include <tuple>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine
@@ -345,7 +347,16 @@ namespace OloEngine
         unwrapOptions.Resolution = kLightmapUnwrapResolution;
         unwrapOptions.Padding = kLightmapUnwrapPadding;
 
+        // Memoized PER MESH, not per input (issue #867). Generate() is idempotent
+        // and short-circuits a mesh that already has UV2, but only on SUCCESS —
+        // a mesh that cannot be charted is re-attempted every call, and xatlas
+        // runs 100ms+ per attempt. One entity now contributes one input PER
+        // INSTANCE, so a 5,000-instance batch sharing one unchartable mesh would
+        // freeze the game thread for minutes and emit 5,000 identical warnings.
+        // The attempt is a pure function of the mesh, so one result per mesh is
+        // both faster and the same answer.
         std::vector<bool> unwrapFailed(entities.size(), false);
+        std::unordered_map<const MeshSource*, bool> unwrapAttempted;
         for (sizet e = 0; e < entities.size(); ++e)
         {
             const auto& input = entities[e];
@@ -354,21 +365,32 @@ namespace OloEngine
                 unwrapFailed[e] = true;
                 continue;
             }
+            // The transform check stays PER INPUT: two instances of one mesh can
+            // differ here, and a singular one must not condemn its siblings.
             if (!IsWorldTransformBakeable(input.WorldTransform))
             {
-                OLO_CORE_WARN("LightmapBaker: entity {:x} has a non-finite or singular world transform; it will not receive a lightmap",
-                              input.EntityUUID);
+                OLO_CORE_WARN("LightmapBaker: entity {:x} (sub-key {:x}) has a non-finite or singular world transform; "
+                              "it will not receive a lightmap",
+                              input.EntityUUID, input.SubKey);
                 unwrapFailed[e] = true;
+                continue;
+            }
+            if (const auto memo = unwrapAttempted.find(input.Mesh.Raw()); memo != unwrapAttempted.end())
+            {
+                unwrapFailed[e] = !memo->second;
                 continue;
             }
             // Local non-const Ref copy: the span is const (the INPUT LIST is
             // immutable) but the unwrap intentionally mutates the referenced
             // mesh, and Ref<T> propagates const through operator->/operator*.
             Ref<MeshSource> mesh = input.Mesh;
-            if (!LightmapUnwrap::Generate(*mesh, unwrapOptions))
+            const bool unwrapped = LightmapUnwrap::Generate(*mesh, unwrapOptions);
+            unwrapAttempted.emplace(input.Mesh.Raw(), unwrapped);
+            if (!unwrapped)
             {
-                OLO_CORE_WARN("LightmapBaker: unwrap failed for entity {:x}; it will not receive a lightmap",
-                              input.EntityUUID);
+                OLO_CORE_WARN("LightmapBaker: unwrap failed for entity {:x} (sub-key {:x}); it and everything else "
+                              "sharing that mesh will not receive a lightmap",
+                              input.EntityUUID, input.SubKey);
                 unwrapFailed[e] = true;
             }
         }
@@ -399,13 +421,25 @@ namespace OloEngine
             return false;
         }
 
-        // Deterministic packing order: big regions first (packing quality), UUID
-        // as the tie-break so two bakes of the same scene place identically.
+        // Deterministic packing order: big regions first (packing quality), then
+        // (UUID, SubKey) as the tie-break so two bakes of the same scene place
+        // identically.
+        //
+        // SubKey is NOT optional in that comparator (issue #867). One entity can
+        // now contribute many inputs — every instance of an InstancedMeshComponent
+        // shares its entity's UUID — so UUID alone stopped being a total order the
+        // moment a second receiver kind existed, and std::sort over a comparator
+        // that ties is free to order those elements however the implementation
+        // likes. Determinism is what every lightmap test leans on (§4 of
+        // docs/agent-rules/baked-lightmap-pipeline.md), and it would have failed
+        // only on scenes with instances, i.e. exactly the ones #867 exists for.
         std::sort(plans.begin(), plans.end(), [&](const EntityPlan& a, const EntityPlan& b)
                   {
             if (a.RegionSize != b.RegionSize)
                 return a.RegionSize > b.RegionSize;
-            return entities[a.InputIndex].EntityUUID < entities[b.InputIndex].EntityUUID; });
+            const auto& ea = entities[a.InputIndex];
+            const auto& eb = entities[b.InputIndex];
+            return std::tie(ea.EntityUUID, ea.SubKey) < std::tie(eb.EntityUUID, eb.SubKey); });
 
         // ── Multi-page packing (issue #868) ──
         //
@@ -542,6 +576,7 @@ namespace OloEngine
 
             LightmapEntityEntry entry;
             entry.EntityUUID = input.EntityUUID;
+            entry.SubKey = input.SubKey;
             entry.Page = plan.Page;
             entry.ScaleOffset = scaleOffset;
             outPrepared.Entries.push_back(entry);
