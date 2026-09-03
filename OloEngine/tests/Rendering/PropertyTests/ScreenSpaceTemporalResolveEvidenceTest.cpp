@@ -54,6 +54,7 @@
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Material.h"
@@ -75,6 +76,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -340,11 +342,74 @@ namespace OloEngine::Tests
             return worst;
         }
 
+        struct SSGIHistoryDiagnosticStats
+        {
+            f64 AcceptedFraction = 0.0;
+            u32 DominantReason = 0;
+            f64 MeanHistoryLength = 0.0;
+        };
+
+        [[nodiscard]] SSGIHistoryDiagnosticStats ReadSSGIHistoryDiagnostics()
+        {
+            if (const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph(); graph)
+            {
+                for (const auto& history : graph->GetTemporalHistoryRegistry().Snapshot())
+                {
+                    if (history.Key.Effect == TemporalHistoryEffect::SSGI)
+                    {
+                        std::cout << "[SSGI registry] " << history.DebugName
+                                  << " generation=" << history.Token.Generation
+                                  << " valid=" << history.Valid
+                                  << " texture=" << history.HasTexture
+                                  << " invalidation=" << static_cast<u32>(history.LastInvalidation) << std::endl;
+                    }
+                }
+            }
+
+            const u32 texture = Renderer3D::ResolveFrameGraphTexture(ResourceNames::SSGIHistoryDiagnostics);
+            EXPECT_NE(texture, 0u) << "SSGI rejection diagnostics must remain an addressable graph target";
+            if (texture == 0u)
+                return {};
+
+            std::vector<f32> pixels;
+            ReadbackRgbaFloat(texture, kWidth, kHeight, pixels);
+            if (pixels.empty())
+                return {};
+
+            std::unordered_map<u32, u32> reasonCounts;
+            u64 accepted = 0;
+            f64 historyLength = 0.0;
+            const u64 pixelCount = pixels.size() / 4u;
+            for (u64 i = 0; i < pixelCount; ++i)
+            {
+                const u32 reason = static_cast<u32>(std::max(pixels[i * 4u], 0.0f) + 0.5f);
+                ++reasonCounts[reason];
+                historyLength += pixels[i * 4u + 1u];
+                accepted += pixels[i * 4u + 3u] >= 0.5f ? 1u : 0u;
+            }
+
+            u32 dominantReason = 0;
+            u32 dominantCount = 0;
+            for (const auto& [reason, count] : reasonCounts)
+            {
+                if (count > dominantCount)
+                {
+                    dominantReason = reason;
+                    dominantCount = count;
+                }
+            }
+            return {
+                .AcceptedFraction = static_cast<f64>(accepted) / static_cast<f64>(pixelCount),
+                .DominantReason = dominantReason,
+                .MeanHistoryLength = historyLength / static_cast<f64>(pixelCount),
+            };
+        }
+
         // Drop every accumulated history by taking the passes' resources out of
-        // the graph for a frame: with SSR/SSGI disabled the scratch targets are
-        // not declared, PopulateBlackboard releases the history storage, and the
-        // valid flags go false. The next enabled frame therefore resolves with no
-        // history — which is exactly the cold state a disocclusion must produce.
+        // the graph for a frame. The shared registry advances the affected
+        // effect's generations on the feature edge, so the next enabled frame
+        // cannot import stale storage and is exactly the cold state a
+        // disocclusion must produce.
         void DropHistories(const EditorCamera& camera)
         {
             auto& pp = Renderer3D::GetPostProcessSettings();
@@ -565,6 +630,7 @@ namespace OloEngine::Tests
         pp.SSGITemporalFeedback = 0.92f;
         DropHistories(camera);
         const f64 onWorst = WorstConsecutiveDiff(camera, 6);
+        const SSGIHistoryDiagnosticStats historyDiagnostics = ReadSSGIHistoryDiagnostics();
 
         if (::testing::Test::HasFatalFailure())
             return;
@@ -575,7 +641,15 @@ namespace OloEngine::Tests
         std::cout << "[SSGI frame-to-frame stability] SSGI-off floor = " << floorWorst
                   << "   feedback 0 worst = " << offWorst << " (excess " << offExcess
                   << ")   feedback 0.92 worst = " << onWorst << " (excess " << onExcess << ")"
-                  << std::endl;
+                  << "   accepted = " << historyDiagnostics.AcceptedFraction
+                  << "   dominant reason = " << historyDiagnostics.DominantReason
+                  << "   mean history length = " << historyDiagnostics.MeanHistoryLength << std::endl;
+
+        EXPECT_GT(historyDiagnostics.AcceptedFraction, 0.25)
+            << "the shared surface-validity layer rejected nearly the whole settled frame; dominant reason bitmask="
+            << historyDiagnostics.DominantReason;
+        EXPECT_GT(historyDiagnostics.MeanHistoryLength, 2.0)
+            << "the reusable moment history never accumulated beyond first-frame state";
 
         ASSERT_GT(offExcess, 0.02)
             << "at feedback 0, SSGI adds no measurable frame-to-frame movement over the "
@@ -691,6 +765,7 @@ namespace OloEngine::Tests
         RunAndCapture(a, kSettleFrames, "SSGI_Cut_PoseA", settledA);
 
         // ONE frame after the cut to pose B, with a fully warm pose-A history.
+        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::CameraCut);
         std::vector<u8> firstFrameAfterCut;
         RunAndCapture(b, 1, "SSGI_Cut_FirstFrameAtB", firstFrameAfterCut);
 
@@ -736,6 +811,73 @@ namespace OloEngine::Tests
                "must be against the view depth this pass stored in the signal's alpha, not device "
                "depth, and it must be RELATIVE (a fixed tolerance on device depth is centimetres "
                "near the camera and kilometres far away).";
+    }
+
+    // MOVING GEOMETRY. A warm history of the red emissive block at its original
+    // position must not remain as a ghost after the block translates. The cold
+    // new-position frame is the reference and the old settled frame is the stale
+    // alternative. The image delta proves the subject is visible; the diagnostic
+    // acceptance mask supplies the ghosting threshold because independent cold
+    // frames deliberately use different stochastic samples.
+    TEST_F(ScreenSpaceTemporalResolveEvidenceTest, MovingGeometryRejectsItsOldSurfaceHistory)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const ScopedMockTime scopedMockTime(kCaptureTime);
+        const EditorCamera camera = PoseA();
+        ApplySSGIParams();
+        Renderer3D::GetPostProcessSettings().SSGITemporalResolve = true;
+
+        Entity block = GetScene().FindEntityByName("RedBlock");
+        ASSERT_TRUE(block);
+
+        DropHistories(camera);
+        std::vector<u8> settledOld;
+        RunAndCapture(camera, kSettleFrames, "SSGI_Moving_Old", settledOld);
+
+        block.GetComponent<TransformComponent>().Translation = { 4.0f, 3.0f, -8.0f };
+        std::vector<u8> firstMoved;
+        RunAndCapture(camera, 1, "SSGI_Moving_First", firstMoved);
+        const SSGIHistoryDiagnosticStats movingDiagnostics = ReadSSGIHistoryDiagnostics();
+
+        DropHistories(camera);
+        std::vector<u8> coldMoved;
+        RunAndCapture(camera, 1, "SSGI_Moving_Cold", coldMoved);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        const f64 toCold = MeanAbsDiff(firstMoved, coldMoved);
+        const f64 toStale = MeanAbsDiff(firstMoved, settledOld);
+        const auto redExcess = [](const BandStats& band)
+        { return band.R - std::max(band.G, band.B); };
+        // The old red block occupies this fixed screen-space band in PoseA.
+        // A retained ghost would leave positive red excess here after the move.
+        constexpr f32 oldBlockX0 = 0.30f;
+        constexpr f32 oldBlockX1 = 0.43f;
+        constexpr f32 oldBlockY0 = 0.18f;
+        constexpr f32 oldBlockY1 = 0.44f;
+        const f64 staleRedExcess = redExcess(
+            SampleBand(settledOld, oldBlockX0, oldBlockX1, oldBlockY0, oldBlockY1));
+        const f64 firstMovedRedExcess = redExcess(
+            SampleBand(firstMoved, oldBlockX0, oldBlockX1, oldBlockY0, oldBlockY1));
+        const f64 coldMovedRedExcess = redExcess(
+            SampleBand(coldMoved, oldBlockX0, oldBlockX1, oldBlockY0, oldBlockY1));
+        std::cout << "[SSGI moving geometry] first moved vs cold moved = " << toCold
+                  << "   vs stale old position = " << toStale
+                  << "   old-band red excess stale/first/cold = " << staleRedExcess << "/"
+                  << firstMovedRedExcess << "/" << coldMovedRedExcess
+                  << "   accepted = " << movingDiagnostics.AcceptedFraction
+                  << "   dominant reason = " << movingDiagnostics.DominantReason << std::endl;
+
+        ASSERT_GT(toStale, 0.75)
+            << "moving the subject did not materially alter the frame, so this fixture cannot reveal a ghost";
+        ASSERT_GT(staleRedExcess, 20.0)
+            << "the old-position band did not contain enough red signal to expose retained history";
+        EXPECT_LT(std::abs(firstMovedRedExcess - coldMovedRedExcess), 2.0)
+            << "the vacated block region retained more than 2/255 mean red excess versus a cold new-pose frame";
+        EXPECT_LT(movingDiagnostics.AcceptedFraction, 0.999)
+            << "moving the visible subject rejected fewer than 0.1% of half-resolution history pixels; "
+               "inspect SSGIHistoryDiagnostics and SSGIReprojectionDiagnostics for stale-surface acceptance";
     }
 
     // The SSRMaxRoughness 0.6 -> 0.8 default change is a visual claim, so measure

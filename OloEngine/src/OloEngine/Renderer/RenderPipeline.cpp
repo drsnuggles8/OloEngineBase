@@ -49,6 +49,41 @@ namespace OloEngine
     namespace
     {
         constexpr ImageFormat kTemporalHistoryFormat = ImageFormat::RGBA16F;
+        constexpr u32 kSSGIHistoryLayoutVersion = 1u;
+
+        constexpr TemporalHistoryKey kSSGIHistoryKey{
+            .Effect = TemporalHistoryEffect::SSGI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::Signal,
+        };
+        constexpr TemporalHistoryKey kSSGISurfaceHistoryKey{
+            .Effect = TemporalHistoryEffect::SSGI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::SurfaceGeometry,
+        };
+        constexpr TemporalHistoryKey kSSGIFirstMomentsHistoryKey{
+            .Effect = TemporalHistoryEffect::SSGI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::MomentsFirst,
+        };
+        constexpr TemporalHistoryKey kSSGISecondMomentsHistoryKey{
+            .Effect = TemporalHistoryEffect::SSGI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::MomentsSecond,
+        };
+        constexpr TemporalHistoryDependency kSSGIHistoryDependencies =
+            TemporalHistoryDependency::ViewTransform |
+            TemporalHistoryDependency::Projection |
+            TemporalHistoryDependency::Viewport |
+            TemporalHistoryDependency::RenderScale |
+            TemporalHistoryDependency::Scene |
+            TemporalHistoryDependency::Backend |
+            TemporalHistoryDependency::FeatureState |
+            TemporalHistoryDependency::Jitter;
 
         // Halton low-discrepancy sequence used for TAA sub-pixel jitter. Index is
         // 1-based (index 0 is undefined for Halton); the sequence repeats every
@@ -153,6 +188,7 @@ namespace OloEngine
         if (data.RGraph)
         {
             data.RGraph->ResetTopology();
+            data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
         }
 
         Reset();
@@ -380,6 +416,12 @@ namespace OloEngine
         // the current and previous ViewProjection carry their respective
         // jitters so depth-based reprojection in TAA remains self-consistent
         // without requiring an explicit unjitter uniform.
+        const u8 jitterMode = data.TemporalUpscaleActive ? 2u : (data.PostProcess.TAAEnabled ? 1u : 0u);
+        if (m_HasJitterMode && jitterMode != m_PreviousJitterMode && data.RGraph)
+            data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::JitterReset);
+        m_HasJitterMode = true;
+        m_PreviousJitterMode = jitterMode;
+
         data.PrevJitterUV = data.CurrJitterUV;
         data.CurrJitterUV = glm::vec2(0.0f);
         data.TemporalUpscaleJitterPixels = glm::vec2(0.0f);
@@ -855,6 +897,13 @@ namespace OloEngine
             PostProcessPasses.SSGI->SetSSGIUBO(data.PostProcessGPU.SSGI);
             const bool ssgiEnabled = data.PostProcess.SSGIEnabled && deferredPath &&
                                      PostProcessPasses.SSGI->IsReadyForExecution();
+            if (m_HasSSGIEnableState && ssgiEnabled != m_PreviousSSGIEnabled && data.RGraph)
+            {
+                data.RGraph->InvalidateTemporalHistories(
+                    TemporalHistoryInvalidationCause::FeatureToggled, TemporalHistoryEffect::SSGI);
+            }
+            m_HasSSGIEnableState = true;
+            m_PreviousSSGIEnabled = ssgiEnabled;
             PostProcessPasses.SSGI->SetEnabled(ssgiEnabled);
 
             if (ssgiEnabled)
@@ -2179,7 +2228,26 @@ namespace OloEngine
         HashBool(h, CloudsHistoryValid);
         // ...and once more for SSGI's and SSR's own signal histories (issue
         // #902), which gate the SSGIHistory / SSRHistory imports the same way.
-        HashBool(h, SSGIHistoryValid);
+        if (data.RGraph)
+        {
+            const auto token = data.RGraph->GetTemporalHistoryRegistry().Find(kSSGIHistoryKey);
+            HashU32(h, token.Generation);
+            HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(token));
+            const auto surfaceToken = data.RGraph->GetTemporalHistoryRegistry().Find(kSSGISurfaceHistoryKey);
+            HashU32(h, surfaceToken.Generation);
+            HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(surfaceToken));
+            const auto firstMomentsToken = data.RGraph->GetTemporalHistoryRegistry().Find(kSSGIFirstMomentsHistoryKey);
+            const auto secondMomentsToken = data.RGraph->GetTemporalHistoryRegistry().Find(kSSGISecondMomentsHistoryKey);
+            HashU32(h, firstMomentsToken.Generation);
+            HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(firstMomentsToken));
+            HashU32(h, secondMomentsToken.Generation);
+            HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(secondMomentsToken));
+        }
+        else
+        {
+            HashU32(h, 0u);
+            HashBool(h, false);
+        }
         HashBool(h, SSRHistoryValid);
         // ...and the volumetric shadow volume (issue #723), for the third time
         // in a row, because the trap does not care that the PRODUCER dodged it.
@@ -3138,8 +3206,23 @@ namespace OloEngine
                 ssgiSignalDesc.DebugName = std::string(ResourceNames::SSGISignal);
                 board.Scratch.SSGISignal = declareGraphOnlyFramebuffer(ResourceNames::SSGISignal, ssgiSignalDesc);
 
+                ssgiSignalDesc.Attachments = {
+                    RGResourceFormat::RGBA16Float,
+                    RGResourceFormat::RGBA16Float,
+                    RGResourceFormat::RGBA16Float,
+                    RGResourceFormat::RGBA16Float,
+                    RGResourceFormat::RGBA16Float,
+                };
                 ssgiSignalDesc.DebugName = std::string(ResourceNames::SSGIResolved);
                 board.Scratch.SSGIResolved = declareGraphOnlyFramebuffer(ResourceNames::SSGIResolved, ssgiSignalDesc);
+                board.Scratch.SSGIMomentsFirst = graph.CreateFramebufferAttachmentView(
+                    ResourceNames::SSGIMomentsFirst, board.Scratch.SSGIResolved, 1u);
+                board.Scratch.SSGIMomentsSecond = graph.CreateFramebufferAttachmentView(
+                    ResourceNames::SSGIMomentsSecond, board.Scratch.SSGIResolved, 2u);
+                board.Scratch.SSGIHistoryDiagnostics = graph.CreateFramebufferAttachmentView(
+                    ResourceNames::SSGIHistoryDiagnostics, board.Scratch.SSGIResolved, 3u);
+                board.Scratch.SSGIReprojectionDiagnostics = graph.CreateFramebufferAttachmentView(
+                    ResourceNames::SSGIReprojectionDiagnostics, board.Scratch.SSGIResolved, 4u);
             }
         }
 
@@ -3780,22 +3863,27 @@ namespace OloEngine
         // re-enabling the pass re-runs this block.
         if (board.Scratch.SSGIResolved.IsValid())
         {
-            EnsureHistoryStorage(pipeline.SSGIHistoryTexture, pipeline.SSGIHistoryValid, sceneBandWidth, sceneBandHeight);
-            graph.RegisterHistoryTextureSink(
-                ResourceNames::SSGIHistory,
-                pipeline.SSGIHistoryTexture ? pipeline.SSGIHistoryTexture->GetRHIHandle() : RHI::NullResource,
-                pipeline.SSGIHistoryTexture ? pipeline.SSGIHistoryTexture->GetWidth() : 0u,
-                pipeline.SSGIHistoryTexture ? pipeline.SSGIHistoryTexture->GetHeight() : 0u,
-                &pipeline.SSGIHistoryValid);
-        }
-        else
-        {
-            ResetHistoryStorage(pipeline.SSGIHistoryTexture, pipeline.SSGIHistoryValid);
-        }
-        if (pipeline.SSGIHistoryValid && pipeline.SSGIHistoryTexture)
-        {
-            board.Temporal.SSGIHistory = graph.ImportHistoryHandle(
-                ResourceNames::SSGIHistory, pipeline.SSGIHistoryTexture->GetRHIHandle());
+            TemporalHistoryDescriptor descriptor;
+            descriptor.Width = sceneBandWidth;
+            descriptor.Height = sceneBandHeight;
+            descriptor.Format = kTemporalHistoryFormat;
+            descriptor.LayoutVersion = kSSGIHistoryLayoutVersion;
+            const auto binding = graph.AcquireTemporalHistory(
+                kSSGIHistoryKey, descriptor, kSSGIHistoryDependencies, ResourceNames::SSGIHistory);
+            board.Temporal.SSGIHistory = binding.Previous;
+
+            const auto surfaceBinding = graph.AcquireTemporalHistory(
+                kSSGISurfaceHistoryKey, descriptor, kSSGIHistoryDependencies, ResourceNames::SSGISurfaceHistory);
+            board.Temporal.SSGISurfaceHistory = surfaceBinding.Previous;
+
+            const auto firstMomentsBinding = graph.AcquireTemporalHistory(
+                kSSGIFirstMomentsHistoryKey, descriptor, kSSGIHistoryDependencies,
+                ResourceNames::SSGIMomentsFirstHistory);
+            const auto secondMomentsBinding = graph.AcquireTemporalHistory(
+                kSSGISecondMomentsHistoryKey, descriptor, kSSGIHistoryDependencies,
+                ResourceNames::SSGIMomentsSecondHistory);
+            board.Temporal.SSGIMomentsFirstHistory = firstMomentsBinding.Previous;
+            board.Temporal.SSGIMomentsSecondHistory = secondMomentsBinding.Previous;
         }
 
         if (board.Scratch.SSRResolved.IsValid())
@@ -3837,11 +3925,9 @@ namespace OloEngine
         // is immune because it also carries a non-graph SetHistory fallback;
         // TAA is not, which is a pre-existing gap this change deliberately does
         // not widen its scope to fix.)
-        const bool ssgiHistoryDeclaredButNotImported =
-            board.Scratch.SSGIResolved.IsValid() && !board.Temporal.SSGIHistory.IsValid();
         const bool ssrHistoryDeclaredButNotImported =
             board.Scratch.SSRResolved.IsValid() && !board.Temporal.SSRHistory.IsValid();
-        if (ssgiHistoryDeclaredButNotImported || ssrHistoryDeclaredButNotImported)
+        if (ssrHistoryDeclaredButNotImported)
         {
             pipeline.InvalidateBlackboardCache();
             // BOTH caches, and the second one is the load-bearing half. The

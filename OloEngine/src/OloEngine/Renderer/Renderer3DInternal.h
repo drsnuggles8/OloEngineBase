@@ -216,8 +216,6 @@ namespace OloEngine
         // each accumulate their OWN signal, so each needs its own sink. Same
         // mechanics as the two above, at the scene-band resolution the
         // SSGISignal / SSRSignal scratch targets are declared at.
-        Ref<Texture2D> SSGIHistoryTexture;
-        bool SSGIHistoryValid = false;
         Ref<Texture2D> SSRHistoryTexture;
         bool SSRHistoryValid = false;
         // Surface weather response UBO (binding 53, issue #633): wetness +
@@ -279,11 +277,13 @@ namespace OloEngine
             TAAHistoryValid = false;
             CloudsHistoryTexture.Reset();
             CloudsHistoryValid = false;
-            SSGIHistoryTexture.Reset();
-            SSGIHistoryValid = false;
             SSRHistoryTexture.Reset();
             SSRHistoryValid = false;
             AtmosphereShadingUBO.Reset();
+            m_HasSSGIEnableState = false;
+            m_PreviousSSGIEnabled = false;
+            m_HasJitterMode = false;
+            m_PreviousJitterMode = 0u;
             InvalidateBlackboardCache();
         }
 
@@ -315,6 +315,10 @@ namespace OloEngine
 
         u64 m_BlackboardFingerprint = 0;
         bool m_HasValidBlackboardCache = false;
+        bool m_HasSSGIEnableState = false;
+        bool m_PreviousSSGIEnabled = false;
+        bool m_HasJitterMode = false;
+        u8 m_PreviousJitterMode = 0u; // 0=none, 1=TAA, 2=temporal upscale
     };
 
     inline Renderer3D::Renderer3DData::Renderer3DData()

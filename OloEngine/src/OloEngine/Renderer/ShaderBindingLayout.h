@@ -3103,6 +3103,9 @@ namespace OloEngine
                            name == "u_ResolvedSignal";
                 case TEX_NORMAL:
                     return name.contains("Normal") || name.contains("normal") ||
+                           // SSGI shared surface-history resolve (#976), pass-local
+                           // fullscreen reuse with no material bound.
+                           name == "u_SurfaceHistory" ||
                            // Slot 2 is reused as the velocity input slot for TAA / motion-blur passes.
                            name == "u_Velocity" ||
                            // Compute dispatch pass-local reuse (issue #627).
@@ -3112,6 +3115,9 @@ namespace OloEngine
                 case TEX_HEIGHT:
                     return name.contains("Height") || name.contains("height") ||
                            name.contains("Displacement") || name.contains("displacement") ||
+                           // SSGI shared moments history (#976), pass-local
+                           // fullscreen reuse with no material bound.
+                           name == "u_FirstMomentsHistory" ||
                            // Slot 3 is reused as the fog-history input slot for the fog pass.
                            name == "u_FogHistory" ||
                            // Compute dispatch pass-local reuse (issue #627).
@@ -3130,6 +3136,9 @@ namespace OloEngine
                     return name.contains("AO") || name.contains("Ambient") ||
                            name.contains("ambient") || name.contains("Occlusion") ||
                            name.contains("occlusion") ||
+                           // SSGI shared moments history (#976), pass-local
+                           // fullscreen reuse with no material bound.
+                           name == "u_SecondMomentsHistory" ||
                            // Compute dispatch pass-local reuse (issue #627).
                            name == "u_ViewNormals" || name == "u_InputDepth" ||
                            // DDGI fullscreen-pass pass-local reuse (issue #632).

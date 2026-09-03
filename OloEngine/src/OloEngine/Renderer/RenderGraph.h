@@ -7,11 +7,13 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/TemporalHistoryRegistry.h"
 #include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include <functional>
 #include <limits>
 #include <map>
+#include <optional>
 #include <span>
 #include <vector>
 #include <unordered_map>
@@ -609,6 +611,31 @@ namespace OloEngine
                                         u32 width,
                                         u32 height,
                                         bool* validFlag = nullptr);
+
+        struct TemporalHistoryBinding
+        {
+            TemporalHistoryToken Token{};
+            RGTextureHandle Previous{};
+            bool Valid = false;
+        };
+
+        // Persistent history storage is owned here rather than by an effect or
+        // by the transient pool. First-use histories still register a sink, but
+        // Previous remains invalid until a reachable extraction completes.
+        [[nodiscard]] TemporalHistoryBinding AcquireTemporalHistory(
+            const TemporalHistoryKey& key,
+            TemporalHistoryDescriptor descriptor,
+            TemporalHistoryDependency dependencies,
+            std::string_view debugName);
+        void ExtractTemporalHistory(TemporalHistoryToken token, RGTextureHandle sourceHandle);
+        void ExtractTemporalHistory(TemporalHistoryToken token, RGFramebufferHandle sourceHandle,
+                                    u32 colorAttachmentIndex = 0);
+        u32 InvalidateTemporalHistories(TemporalHistoryInvalidationCause cause,
+                                        std::optional<TemporalHistoryEffect> effect = std::nullopt);
+        [[nodiscard]] const TemporalHistoryRegistry& GetTemporalHistoryRegistry() const
+        {
+            return m_TemporalHistoryRegistry;
+        }
 
         // Queue a texture extraction that explicitly writes back into a named
         // imported history resource for the next frame. The callback receives
@@ -1674,6 +1701,7 @@ namespace OloEngine
             u32 Width = 0;
             u32 Height = 0;
             bool* ValidFlag = nullptr;
+            TemporalHistoryToken Token{};
         };
         struct FramebufferExtract
         {
@@ -1687,6 +1715,7 @@ namespace OloEngine
         std::vector<TemporalHistoryContract> m_TemporalHistoryContracts;
         std::unordered_map<ExternalTextureSinkKey, ExternalTextureSink, ExternalTextureSinkKeyHash> m_ExternalTextureSinks;
         std::unordered_map<std::string, HistoryTextureSink> m_HistoryTextureSinks;
+        TemporalHistoryRegistry m_TemporalHistoryRegistry;
         // Interned resource-name IDs (via m_ResourceNames) of transient
         // resources that were imported with explicit external backing. Set
         // membership replaces the previous string-keyed sets, eliminating

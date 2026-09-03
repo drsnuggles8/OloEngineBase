@@ -203,6 +203,8 @@ add_executable(OloEngine-Tests
 		Rendering/ScreenSpaceReflectionMathTest.cpp
 		Rendering/ScreenSpaceGIMathTest.cpp
 		Rendering/StochasticSamplerTest.cpp
+		Rendering/SurfaceHistoryTest.cpp
+		Rendering/TemporalHistoryRegistryTest.cpp
 		Rendering/ContactShadowMathTest.cpp
 		Rendering/OverdrawHeatmapMathTest.cpp
 		Rendering/CASMathTest.cpp

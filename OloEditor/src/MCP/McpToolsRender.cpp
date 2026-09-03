@@ -291,6 +291,156 @@ namespace OloEngine::MCP
             return "Graphics";
         }
 
+        const char* TemporalEffectName(TemporalHistoryEffect effect)
+        {
+            switch (effect)
+            {
+                case TemporalHistoryEffect::TAA:
+                    return "TAA";
+                case TemporalHistoryEffect::SSGI:
+                    return "SSGI";
+                case TemporalHistoryEffect::SSR:
+                    return "SSR";
+                case TemporalHistoryEffect::Cloudscape:
+                    return "Cloudscape";
+            }
+            return "Unknown";
+        }
+
+        const char* TemporalPlaneName(TemporalHistoryPlane plane)
+        {
+            switch (plane)
+            {
+                case TemporalHistoryPlane::Signal:
+                    return "Signal";
+                case TemporalHistoryPlane::SurfaceDepth:
+                    return "SurfaceDepth";
+                case TemporalHistoryPlane::SurfaceGeometry:
+                    return "SurfaceGeometry";
+                case TemporalHistoryPlane::SurfaceIdentity:
+                    return "SurfaceIdentity";
+                case TemporalHistoryPlane::MomentsFirst:
+                    return "MomentsFirst";
+                case TemporalHistoryPlane::MomentsSecond:
+                    return "MomentsSecond";
+                case TemporalHistoryPlane::Diagnostics:
+                    return "Diagnostics";
+            }
+            return "Unknown";
+        }
+
+        const char* TemporalResolutionName(TemporalHistoryResolution resolution)
+        {
+            switch (resolution)
+            {
+                case TemporalHistoryResolution::Display:
+                    return "Display";
+                case TemporalHistoryResolution::Scene:
+                    return "Scene";
+                case TemporalHistoryResolution::Half:
+                    return "Half";
+                case TemporalHistoryResolution::Quarter:
+                    return "Quarter";
+            }
+            return "Unknown";
+        }
+
+        const char* TemporalBackendName(TemporalHistoryBackend backend)
+        {
+            switch (backend)
+            {
+                case TemporalHistoryBackend::Unknown:
+                    return "Unknown";
+                case TemporalHistoryBackend::OpenGL:
+                    return "OpenGL";
+                case TemporalHistoryBackend::Vulkan:
+                    return "Vulkan";
+            }
+            return "Unknown";
+        }
+
+        const char* TemporalInvalidationName(TemporalHistoryInvalidationCause cause)
+        {
+            switch (cause)
+            {
+                case TemporalHistoryInvalidationCause::None:
+                    return "None";
+                case TemporalHistoryInvalidationCause::FirstUse:
+                    return "FirstUse";
+                case TemporalHistoryInvalidationCause::DescriptorChanged:
+                    return "DescriptorChanged";
+                case TemporalHistoryInvalidationCause::CameraCut:
+                    return "CameraCut";
+                case TemporalHistoryInvalidationCause::ProjectionChanged:
+                    return "ProjectionChanged";
+                case TemporalHistoryInvalidationCause::ViewportResized:
+                    return "ViewportResized";
+                case TemporalHistoryInvalidationCause::DynamicResolutionChanged:
+                    return "DynamicResolutionChanged";
+                case TemporalHistoryInvalidationCause::SceneReset:
+                    return "SceneReset";
+                case TemporalHistoryInvalidationCause::FeatureToggled:
+                    return "FeatureToggled";
+                case TemporalHistoryInvalidationCause::BackendChanged:
+                    return "BackendChanged";
+                case TemporalHistoryInvalidationCause::JitterReset:
+                    return "JitterReset";
+                case TemporalHistoryInvalidationCause::CopyFailed:
+                    return "CopyFailed";
+                case TemporalHistoryInvalidationCause::Manual:
+                    return "Manual";
+            }
+            return "Unknown";
+        }
+
+        const char* ImageFormatName(ImageFormat format)
+        {
+            switch (format)
+            {
+                case ImageFormat::None:
+                    return "None";
+                case ImageFormat::R8:
+                    return "R8";
+                case ImageFormat::R8UI:
+                    return "R8UI";
+                case ImageFormat::R16UI:
+                    return "R16UI";
+                case ImageFormat::RG16UI:
+                    return "RG16UI";
+                case ImageFormat::RGB8:
+                    return "RGB8";
+                case ImageFormat::RGBA8:
+                    return "RGBA8";
+                case ImageFormat::RGBA16F:
+                    return "RGBA16F";
+                case ImageFormat::RGBA32F:
+                    return "RGBA32F";
+                case ImageFormat::R32F:
+                    return "R32F";
+                case ImageFormat::RG32F:
+                    return "RG32F";
+                case ImageFormat::RGB32F:
+                    return "RGB32F";
+                case ImageFormat::DEPTH24STENCIL8:
+                    return "DEPTH24STENCIL8";
+                case ImageFormat::RG16F:
+                    return "RG16F";
+                case ImageFormat::R32I:
+                    return "R32I";
+                case ImageFormat::RG8:
+                    return "RG8";
+                case ImageFormat::BC7:
+                    return "BC7";
+                case ImageFormat::BC5:
+                    return "BC5";
+                case ImageFormat::BC6H:
+                    return "BC6H";
+                case ImageFormat::R32UI:
+                    return "R32UI";
+            }
+            return "Unknown";
+        }
+
         // Layers addressable through one render-graph resource name, and the layer
         // it addresses inside its parent texture object (issue #607). Shared by
         // olo_render_list_targets (which reports the count so an agent can
@@ -568,6 +718,28 @@ namespace OloEngine::MCP
                     }
 
                     snap.Resources.push_back(std::move(info));
+                }
+
+                for (const auto& history : graph->GetTemporalHistoryRegistry().Snapshot())
+                {
+                    snap.Histories.push_back(RenderGraphTopology::HistoryInfo{
+                        .Name = history.DebugName,
+                        .Effect = TemporalEffectName(history.Key.Effect),
+                        .Plane = TemporalPlaneName(history.Key.Plane),
+                        .Resolution = TemporalResolutionName(history.Key.Resolution),
+                        .Backend = TemporalBackendName(history.Descriptor.Backend),
+                        .Format = ImageFormatName(history.Descriptor.Format),
+                        .LastInvalidation = TemporalInvalidationName(history.LastInvalidation),
+                        .View = history.Key.View,
+                        .Width = history.Descriptor.Width,
+                        .Height = history.Descriptor.Height,
+                        .MipLevels = history.Descriptor.MipLevels,
+                        .Samples = history.Descriptor.Samples,
+                        .LayoutVersion = history.Descriptor.LayoutVersion,
+                        .Generation = history.Token.Generation,
+                        .Valid = history.Valid,
+                        .HasTexture = history.HasTexture,
+                    });
                 }
 
                 // Mermaid / DOT are pure transforms of the snapshot, but the snapshot
@@ -5945,14 +6117,16 @@ namespace OloEngine::MCP
             tool.Description =
                 "Export the live render graph's topology as structured data for reasoning about the render "
                 "pipeline — the passes, their topologically-sorted execution order, the pass-to-pass "
-                "dependency edges, and every registered resource (texture/framebuffer/buffer) with the passes "
+                "dependency edges, every registered resource (texture/framebuffer/buffer) with the passes "
                 "that produce and consume it. Each pass reports its work type (Graphics/Compute/Copy), whether "
                 "it declares resources, whether it is an async-compute candidate, whether it was culled "
                 "(unreachable from the final pass this frame), whether it is the final/output pass, and its "
                 "'accesses' — every resource it reads/writes WITH its resolved physical identity, so 'do "
                 "these two passes touch the same physical texture this frame' is a single lookup (each "
-                "resource also carries a 'gl' block: texture/framebuffer/attachment/buffer ids as of the last "
-                "executed frame; texture views resolve to their parent object). Use format:\"mermaid\" or "
+                "resource also carries a 'native' block: texture/framebuffer/attachment/buffer ids as of the last "
+                "executed frame; texture views resolve to their parent object). The JSON form also reports the "
+                "persistent temporal-history registry with each plane's generation, validity, descriptor, and "
+                "last invalidation cause. Use format:\"mermaid\" or "
                 "format:\"dot\" for a drawable DAG of the pass graph instead of JSON. Read-only; requires the "
                 "editor to be rendering in 3D mode. See olo_scheduler_graph for the engine's OTHER derived DAG, "
                 "the per-tick gameplay system schedule.";
@@ -6003,8 +6177,28 @@ namespace OloEngine::MCP
                                                                          .Prop("consumers", Schema::Array(Schema::String()))
                                                                          .Prop("native", Schema::Object().Desc("Backend-native object handles as hex, as of the last executed frame (texture, framebuffer, colorAttachments, depthAttachment, buffer). DISPLAY ONLY - what a RenderDoc / RGP capture shows. \"0x0\" is legitimate under Vulkan, so absence never means unbacked. Omitted when nothing native resolved."))
                                                                          .Prop("identity", Schema::Object().Desc("Resolved RHI identities as \"#index:generation\" (texture, buffer, colorAttachments, depthAttachment), plus viewOfParentLayer for a layer/face view. This is the currency to COMPARE and to decide on - two resources sharing one answer touch the same physical object on every backend. Omitted when unbacked."))))
+                                    .Prop("historyCount", Schema::Int().Min(0))
+                                    .Prop("histories", Schema::Array(Schema::Object()
+                                                                         .Prop("name", Schema::String())
+                                                                         .Prop("effect", Schema::String())
+                                                                         .Prop("plane", Schema::String())
+                                                                         .Prop("resolution", Schema::String())
+                                                                         .Prop("view", Schema::Int().Min(0))
+                                                                         .Prop("generation", Schema::Int().Min(0))
+                                                                         .Prop("valid", Schema::Bool())
+                                                                         .Prop("hasTexture", Schema::Bool())
+                                                                         .Prop("lastInvalidation", Schema::String())
+                                                                         .Prop("descriptor", Schema::Object()
+                                                                                                 .Prop("width", Schema::Int().Min(0))
+                                                                                                 .Prop("height", Schema::Int().Min(0))
+                                                                                                 .Prop("format", Schema::String())
+                                                                                                 .Prop("mipLevels", Schema::Int().Min(1))
+                                                                                                 .Prop("samples", Schema::Int().Min(1))
+                                                                                                 .Prop("layoutVersion", Schema::Int().Min(1))
+                                                                                                 .Prop("backend", Schema::String())))
+                                                           .Desc("Persistent typed temporal histories, separate from transient graph resources."))
                                     .Prop("note", Schema::String())
-                                    .Required({ "finalPass", "passCount", "passes", "executionOrder", "edgeCount", "edges", "resourceCount", "resources", "note" });
+                                    .Required({ "finalPass", "passCount", "passes", "executionOrder", "edgeCount", "edges", "resourceCount", "resources", "historyCount", "histories", "note" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderGraphTopologyExport;
             server.RegisterTool(std::move(tool));
