@@ -679,7 +679,7 @@ Two things follow, and the first one cost this repo ten weeks of red CI.
 carries the whole set in one place: `uses: ./.github/actions/setup-llvm-apt` plus
 `clang-23 lld-23` in the apt list (the default libstdc++ lacks
 `std::forward_like`, which `Core/Reflection/MemberList.h` uses),
-`-DCMAKE_{C,CXX}_COMPILER=clang(++)-19`, `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld`
+`-DCMAKE_{C,CXX}_COMPILER=clang(++)-23`, `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld`
 (BFD `ld` can exceed a 16 GB runner on this link), `CMAKE_BUILD_TYPE` at configure
 time (`--config` is *silently ignored* by the single-config generator — it will
 happily lie to you about building Release), and an explicit `--parallel N`.

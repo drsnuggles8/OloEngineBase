@@ -413,14 +413,16 @@ jobs:
     #      hardware the runner happens to have. GPU coverage under a sanitizer is
     #      a separate scheduled job with its own baseline (gpu-sanitizers-amd.yml).
     #   2. The box's compiler was clang 21 against gcc-toolset-15's libstdc++,
-    #      not the hosted arm's pinned clang, and UBSan reported inside the standard
-    #      library. setup-linux-build now resolves the pinned toolchain on the
-    #      self-hosted arm as well; when it is not provisioned it WARNS (a
-    #      run-summary annotation naming the dnf command) and builds with the
-    #      system clang 21 rather than failing -- see its "Resolve toolchain"
-    #      step for why a missing pin must not take the box out. Read the
-    #      "toolchain:" line of a self-hosted job before comparing it with a
-    #      hosted one.
+    #      not the hosted arm's clang, and UBSan reported inside the standard
+    #      library. That difference is now permanent and deliberate:
+    #      setup-linux-build uses the system clang and clang++ unconditionally on
+    #      the self-hosted arm -- there is no version pin to resolve, because
+    #      hosted is on clang-23 and Rocky 10's EPEL tops out at clang20. What it
+    #      verifies instead is compiler-rt: an incomplete set of asan/tsan/ubsan
+    #      runtimes WARNS (a run-summary annotation naming the dnf command)
+    #      rather than failing, since a hard failure would block every same-repo
+    #      PR. Read the "toolchain:" line of a self-hosted job before comparing
+    #      it with a hosted one -- the two arms run different compilers.
     #
     # The acceptance test for this routing is a same-commit A/B: dispatch the
     # workflow once normally and once with `force_hosted: true`, then compare

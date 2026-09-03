@@ -79,8 +79,18 @@ parallelism and sets `OLO_LINK_JOBS=1`; two sanitizer jobs at once already use m
 ## 4. The sanitizer runtimes are provisioned, verified by the workflow
 
 See [self-hosted-linux-toolchain.md](self-hosted-linux-toolchain.md). The short version: the
-box builds with its system clang 21 (hosted is on clang-23, deliberately), and the job warns
-until `compiler-rt` and `lld` are installed beside it. There is no version pin to provision.
+box builds with its system clang 21 (hosted is on clang-23, deliberately), and there is no
+version pin to provision.
+
+The two missing-piece outcomes are NOT the same, which matters when you read a red job:
+
+- **`lld` missing — the job FAILS.** `lld` is in the "Preflight — toolchain" step's required
+  binary list, alongside `cmake`, `ninja`, `ccache`, `clang`, `clang++`, `python3` and `nasm`.
+  A missing one is an `::error` and `exit 1` before anything is configured.
+- **`compiler-rt` missing — the job WARNS and carries on.** The runtime check in "Resolve
+  toolchain" emits a `::warning` naming the `dnf` command. The build then fails later at the
+  first sanitizer link (`cannot find libclang_rt.asan.a`), so nothing is silently skipped —
+  the warning just tells you why, several minutes earlier than the linker would.
 
 ## Root steps, once
 
@@ -88,6 +98,7 @@ until `compiler-rt` and `lld` are installed beside it. There is no version pin t
 sudo bash scripts/setup-olo-ci-host.sh
 ```
 
-Idempotent. Installs the pinned compiler, the update-timer drop-in and the GPU runtime-PM
-rule, then prints the resulting state. Nothing in any workflow installs or changes host state; a self-hosted step
+Idempotent. Installs the sanitizer runtimes and `lld` for the system clang, the update-timer
+drop-in and the GPU runtime-PM rule, then prints the resulting state. It installs no pinned
+compiler -- there is no version pin any more. Nothing in any workflow installs or changes host state; a self-hosted step
 verifies and names this script when it finds something missing.

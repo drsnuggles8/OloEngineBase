@@ -341,7 +341,7 @@ git clone https://github.com/microsoft/vcpkg ~/vcpkg        # NOT --depth 1: the
 cmake -S . -B build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
   -DVCPKG_TARGET_TRIPLET=x64-linux \
-  -DCMAKE_CXX_COMPILER=clang++-19 -DCMAKE_C_COMPILER=clang-19 \
+  -DCMAKE_CXX_COMPILER=clang++-23 -DCMAKE_C_COMPILER=clang-23 \
   -DCMAKE_BUILD_TYPE=Debug -DOLO_ENABLE_TSAN=ON -DBUILD_TESTS=ON \
   -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
   "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -lstdc++exp"
