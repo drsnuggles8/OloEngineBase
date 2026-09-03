@@ -39,6 +39,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <random>
 #include <string>
@@ -174,7 +175,12 @@ namespace OloEngine::Tests
         std::unique_ptr<GpuViewOrdering> m_Gpu;
     };
 
-    TEST_F(GaussianSplatGpuOrderingTest, PaddingIsAPowerOfTwoAndAtLeastOneTile)
+    // A PLAIN TEST, NOT A TEST_F, ON PURPOSE. `PaddedCapacityFor` is a pure
+    // function and it decides how the sort buffers are sized and how many
+    // dispatches the bitonic loop issues -- so it is exactly the contract that
+    // should still be checked on a headless runner, where the fixture below
+    // skips for want of a GL context and would take these assertions with it.
+    TEST(GaussianSplatGpuOrderingPadding, IsAPowerOfTwoAndAtLeastOneTile)
     {
         // The bitonic network is only defined on a power-of-two array, and its
         // shared-memory pass owns a 512-element tile, so a cloud smaller than a
@@ -186,6 +192,23 @@ namespace OloEngine::Tests
         EXPECT_EQ(GpuViewOrdering::PaddedCapacityFor(4096), 4096u);
         EXPECT_EQ(GpuViewOrdering::PaddedCapacityFor(4097), 8192u);
         EXPECT_EQ(GpuViewOrdering::PaddedCapacityFor(100000), 131072u);
+
+        // At the ceiling the answer is still representable, which is the whole
+        // reason the ceiling is where it is: one past a power of two is the
+        // worst case, and kMaxSplats is itself a power of two so it maps to
+        // itself rather than doubling.
+        EXPECT_EQ(GpuViewOrdering::PaddedCapacityFor(GpuViewOrdering::kMaxSplats),
+                  GpuViewOrdering::kMaxSplats);
+        EXPECT_EQ(GpuViewOrdering::PaddedCapacityFor(GpuViewOrdering::kMaxSplats - 1),
+                  GpuViewOrdering::kMaxSplats);
+
+        // Every u32 size derived from the ceiling still fits, which is what the
+        // constant is chosen for -- 32 bytes of record and 4 bytes of sort slot
+        // per splat, twice over for the key and the payload.
+        constexpr u64 kRecordBytes = static_cast<u64>(GpuViewOrdering::kMaxSplats) * 32u;
+        constexpr u64 kSlotBytes = static_cast<u64>(GpuViewOrdering::kMaxSplats) * 4u;
+        EXPECT_LE(kRecordBytes, static_cast<u64>(std::numeric_limits<u32>::max()));
+        EXPECT_LE(kSlotBytes, static_cast<u64>(std::numeric_limits<u32>::max()));
     }
 
     TEST_F(GaussianSplatGpuOrderingTest, MatchesTheCpuReferenceOnTheFixtureFromEveryPose)
@@ -297,7 +320,12 @@ namespace OloEngine::Tests
         std::printf("\n[splat-gpu] ---- per-view ordering, GPU (this machine, not a CI gate) ----\n");
         std::printf("[splat-gpu] %10s %10s %10s %12s\n", "splats", "padded", "drawn", "gpu-ms");
 
-        for (const u32 count : { 4096u, 100000u, 500000u, 2000000u })
+        // 2,000,000 and 2,100,000 straddle a power of two: they pad to
+        // 2^21 and 2^22 respectively. Both are in the list on purpose, because
+        // the pair separates "large clouds are expensive" from "crossing a
+        // padding boundary is expensive", and those imply completely different
+        // advice.
+        for (const u32 count : { 4096u, 100000u, 500000u, 2000000u, 2100000u, 4000000u })
         {
             const SplatCloud cloud = MakeParityCloud(count, 77u + count);
             m_Gpu->SetCloud(cloud);

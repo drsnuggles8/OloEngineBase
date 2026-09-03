@@ -49,13 +49,27 @@ namespace OloEngine::GaussianSplat
             sizet Offset = 0;
         };
 
-        // Reads one scalar out of a binary record. Everything the importer wants
-        // is authored as `float`, but reading a `double` correctly costs three
-        // lines and turns a corrupt cloud into a correct one for the exporters
-        // that do write doubles.
+        // Reads one scalar out of a binary record.
+        //
+        // EVERY TYPE `PlyTypeSize` ACCEPTS IS DECODED HERE, and the two lists
+        // have to stay in step. An earlier version sized `short` and `int` in
+        // the stride but fell through to a 4-byte float memcpy when reading
+        // them, which is wrong twice over: a 2-byte property reads two bytes
+        // past its own slot -- past the whole buffer if it is the last property
+        // of the last record -- and a 4-byte integer is reinterpreted as a
+        // float bit pattern that usually passes the finiteness check, so the
+        // cloud loads and is silently nonsense.
+        //
+        // No trainer writes anything but `float` for the properties this
+        // importer needs. Exporters do write integer columns for other data
+        // (classification ids, confidence), and those columns are strided past
+        // rather than read -- but "strided past" and "read" are the same code
+        // path if a required property ever appears as an integer, so it is
+        // decoded rather than assumed away.
         [[nodiscard]] f32 ReadScalar(const u8* record, const PlyProperty& prop)
         {
             const u8* src = record + prop.Offset;
+
             if (prop.Type == "double" || prop.Type == "float64")
             {
                 f64 v = 0.0;
@@ -66,6 +80,31 @@ namespace OloEngine::GaussianSplat
                 return static_cast<f32>(*src);
             if (prop.Type == "char" || prop.Type == "int8")
                 return static_cast<f32>(static_cast<i8>(*src));
+            if (prop.Type == "short" || prop.Type == "int16")
+            {
+                i16 v = 0;
+                std::memcpy(&v, src, sizeof(v));
+                return static_cast<f32>(v);
+            }
+            if (prop.Type == "ushort" || prop.Type == "uint16")
+            {
+                u16 v = 0;
+                std::memcpy(&v, src, sizeof(v));
+                return static_cast<f32>(v);
+            }
+            if (prop.Type == "int" || prop.Type == "int32")
+            {
+                i32 v = 0;
+                std::memcpy(&v, src, sizeof(v));
+                return static_cast<f32>(v);
+            }
+            if (prop.Type == "uint" || prop.Type == "uint32")
+            {
+                u32 v = 0;
+                std::memcpy(&v, src, sizeof(v));
+                return static_cast<f32>(v);
+            }
+
             f32 v = 0.0f;
             std::memcpy(&v, src, sizeof(v));
             return v;

@@ -87,7 +87,8 @@ namespace OloEngine::GaussianSplat
 
     auto GpuViewOrdering::PaddedCapacityFor(u32 count) -> u32
     {
-        const u32 atLeastATile = std::max(count, kSortTile);
+        OLO_CORE_ASSERT(count <= kMaxSplats, "GpuViewOrdering::PaddedCapacityFor above kMaxSplats");
+        const u32 atLeastATile = std::max(std::min(count, kMaxSplats), kSortTile);
         return std::bit_ceil(atLeastATile);
     }
 
@@ -142,6 +143,24 @@ namespace OloEngine::GaussianSplat
         OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(m_Ready, "GpuViewOrdering::SetCloud before a successful Initialize");
 
+        // REJECTED BEFORE ANYTHING IS NARROWED. Every size below is a u32 and
+        // each overflows at a different count (see kMaxSplats); a cloud past
+        // the ceiling would otherwise allocate a wrapped buffer, or hang the
+        // sort loop, rather than fail.
+        if (cloud.Count() > kMaxSplats)
+        {
+            OLO_CORE_ERROR("GpuViewOrdering::SetCloud refused a cloud of {} splats; the ceiling is {}",
+                           cloud.Count(), kMaxSplats);
+            m_SplatCount = 0;
+            m_PaddedCapacity = 0;
+            m_SplatBuffer = nullptr;
+            m_OrderBuffer = nullptr;
+            m_KeyBuffer = nullptr;
+            m_StatsBuffer = nullptr;
+            m_IndirectBuffer = nullptr;
+            return;
+        }
+
         m_SplatCount = cloud.Count();
         m_PaddedCapacity = PaddedCapacityFor(m_SplatCount);
 
@@ -168,6 +187,8 @@ namespace OloEngine::GaussianSplat
         OLO_CORE_ASSERT(m_Ready && m_SplatBuffer, "GpuViewOrdering::BuildOrdering before SetCloud");
 
         m_Dispatches = DispatchCounts{};
+        if (!m_SplatBuffer)
+            return; // SetCloud refused the cloud; nothing to order.
 
         // THE BUDGET IS NOT IMPLEMENTED HERE, AND THAT IS DELIBERATE -- see
         // ADR 0018 section 3.4: selecting the top N splats destroys the diffuse

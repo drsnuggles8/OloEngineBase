@@ -104,8 +104,42 @@ namespace OloEngine::GaussianSplat
             return m_Dispatches;
         }
 
-        // Smallest power of two that is >= `count` and >= 512.
+        // Smallest power of two that is >= `count` and >= 512. Only defined
+        // for counts up to kMaxSplats; above that there is no representable
+        // answer and the caller must have rejected the cloud already.
+        //
+        // THIS FUNCTION IS THE COST MODEL, WHICH IS NOT OBVIOUS FROM ITS NAME.
+        // The bitonic network sorts the padded array, so ordering cost is a
+        // STEP FUNCTION of this result rather than a curve in `count`. Measured
+        // on an RTX 4090: 2,000,000 splats pad to 2^21 and order in 1.28 ms;
+        // 2,100,000 pad to 2^22 and take 7.84 ms. Five per cent more splats,
+        // 6.1x the time, no visible change to the scene.
+        //
+        // Two consequences for a caller. Keeping a cloud just under a power of
+        // two is worth real frame time, and ADR 0018's supported envelope of
+        // 2 M splats per view is exactly the 2^21 boundary rather than a round
+        // number. Issue #1043 removes the padding entirely by replacing the
+        // sort; until it lands, this is the number to design against.
         [[nodiscard]] static auto PaddedCapacityFor(u32 count) -> u32;
+
+        // Hard ceiling on a cloud this pass will accept, and the reason it is
+        // this number rather than a round one: every size in the pass is a u32,
+        // and each of them overflows at a different count.
+        //
+        //   * `GpuBytes()` is 32 bytes per splat, so it reaches 1<<32 at
+        //     134,217,728 splats -- the narrowing cast in SetCloud would wrap
+        //     and allocate a 32-byte buffer for the whole cloud;
+        //   * the padded slot size (4 bytes each) wraps at 536,870,913;
+        //   * at 1,073,741,825 the padded capacity is 1<<31 and the sort's
+        //     `for (u32 k = 2; k <= capacity; k <<= 1)` wraps k to zero and
+        //     never terminates;
+        //   * above 1<<31, std::bit_ceil is asked for an unrepresentable 1<<32,
+        //     which is undefined.
+        //
+        // 1<<26 is 67 million splats -- 2 GB of records, an order of magnitude
+        // past the largest published capture -- and leaves every one of those
+        // computations with a factor of two or more in hand.
+        static constexpr u32 kMaxSplats = 1u << 26;
 
       private:
         void ReleaseBindings() const;

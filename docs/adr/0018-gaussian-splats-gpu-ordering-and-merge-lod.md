@@ -5,14 +5,17 @@ viability spike. This is its decision record: what was built, what it measured, 
 does and does not interact with in this engine, and the two numbers that decide whether the feature
 is affordable.
 
-**The decision, up front.** Gaussian splats are viable in OloEngine. Two things had to be true and
-now are, both measured in this PR: the per-view ordering runs on the GPU
-(**0.5–2.2 ms for 500 k splats, 4.7–10.7 ms for 2 M** — 8 to 33× the single-threaded CPU pass it
-replaces), and
-LOD comes from **merging** splats offline rather than selecting among them at draw time. What is
-*not* done, deliberately, is the integration: no component, no scene serialization, no asset-registry
-entry, no Vulkan port. §4 states every interaction a splat cloud has and does not have, and §6 says
-what remains.
+**The decision, up front.** Gaussian splats are viable in OloEngine **up to about 2 M splats per
+view**. Two things had to be true and now are, both measured in this PR: the per-view ordering runs
+on the GPU (**0.50 ms for 500 k splats, 1.28 ms for 2 M**, against 16.55 ms for 500 k on one CPU
+thread), and LOD comes from **merging** splats offline rather than selecting among them at draw
+time. What is *not* done, deliberately, is the integration: no component, no scene serialization, no
+asset-registry entry, no Vulkan port. §4 states every interaction a splat cloud has and does not
+have, and §6 says what remains.
+
+**The 2 M ceiling is a real edge, not a round number.** The bitonic sort pads to a power of two, and
+crossing one is a cliff: 2,000,000 splats order in 1.28 ms and 2,100,000 — five per cent more — take
+7.84 ms. §5.2 has the measurement and §6 turns it into a condition.
 
 **This ADR reversed its own conclusion inside one PR, and the honest version is worth keeping.** The
 first draft said "do not proceed": the CPU ordering pass cost 16.6 ms at 500 k splats, a whole 60 Hz
@@ -20,8 +23,8 @@ frame, against published captures of 1–6 M splats. That was the right call on 
 [#1038](https://github.com/drsnuggles8/OloEngineBase/issues/1038) and
 [#1039](https://github.com/drsnuggles8/OloEngineBase/issues/1039) — the two preconditions it named —
 were implemented, and the blocking number moved by more than an order of magnitude. The measurement
-was the argument
-in both directions.
+was the argument in both directions — and then a third measurement, the padding cliff in §5.2, put a
+ceiling on the new answer that no amount of reasoning would have found.
 
 ---
 
@@ -215,35 +218,50 @@ The CPU column is Release, single-threaded, mean of 20 iterations, median of thr
 machine, measured with a standalone `-O2` probe over the same translation units — the Debug suite's
 own numbers are 5–10× higher because `/MDd` checked iterators serialise every `std::vector` access.
 The GPU column is `GL_TIME_ELAPSED` around the whole pass (cull + LOD + sort), minimum of four
-samples, in the Debug test binary — host build configuration does not change GPU work.
+samples, on an idle machine; host build configuration does not change GPU work.
 
-| splats | drawn | CPU whole pass | GPU whole pass | speed-up |
+| splats | padded to | drawn | CPU whole pass | GPU whole pass |
 |---:|---:|---:|---:|---:|
-| 4,096 | 3,043 | 0.14 ms | **0.09–0.28 ms** | 0.5–1.6× |
-| 100,000 | 74,431 | 2.60 ms | **0.26–0.85 ms** | 3–10× |
-| 500,000 | 372,165 | 16.55 ms | **0.51–2.15 ms** | 8–33× |
-| 2,000,000 | 1,488,977 | 155.3 ms | **4.7–10.7 ms** | 15–33× |
+| 4,096 | 4,096 | 3,043 | 0.14 ms | **0.089 ms** |
+| 100,000 | 131,072 | 74,431 | 2.60 ms | **0.259 ms** |
+| 500,000 | 524,288 | 372,165 | 16.55 ms† | **0.503 ms** |
+| 2,000,000 | 2,097,152 | 1,488,977 | 155.3 ms† | **1.277 ms** |
+| 2,100,000 | 4,194,304 | 1,563,181 | — | **7.844 ms** |
+| 4,000,000 | 4,194,304 | 2,977,678 | — | **19.539 ms** |
 
-The GPU column is a range over three runs of the identical dispatch sequence, and the spread is
-wide — up to 4× — because this box was building other worktrees during the later two, on top of the
-clock-state effect §5.3 documents. It is quoted honestly rather than as its best case, because the
-decision does not turn on which end is right: even the **slowest** GPU number beats the CPU by 8× at
-500 k and 15× at 2 M. At 4 k the GPU can be slower, which is expected and irrelevant — 19 dispatches
-have a fixed overhead that a 0.14 ms CPU pass does not, and nobody needs a GPU sort for 4 k splats.
+† the CPU pass applies its budget at 1,048,576, so the 2 M row is not a like-for-like comparison —
+it is the cost of the CPU pass doing *less* work.
 
 **This is the number that reversed the decision.** A 16.7 ms frame at 60 Hz has everything else in
-the engine in it too; giving the ordering a fifth of it bought 120–150 k visible splats on the CPU
-and buys well past 2 M on the GPU. Published 3DGS captures of a single room are 1–6 M splats, so the
-sizes people actually publish went from an order of magnitude out of reach to comfortably inside the
-budget.
+the engine in it too. On the CPU, giving the ordering a fifth of the frame bought 120–150 k visible
+splats; on the GPU the same 3.3 ms buys **2 M**, and 2 M is inside the 1–6 M range published 3DGS
+room captures occupy.
 
-Two details worth keeping. **The sort was never the expensive half of the CPU pass** — at 500 k it
-was 5 ms of 16.5; the other 11 ms was one covariance unpack, one dot product and six plane tests per
-splat, which is exactly the embarrassingly parallel work a compute dispatch exists for, and it is
-why moving the *whole* pass won more than moving the sort would have. And **the CPU radix sort was
-never measurably faster than `std::stable_sort`**: across six runs they traded places at every size.
-The radix formulation earned its place only by being the one that ports; a CPU-only implementation
-should use `std::stable_sort`.
+**Then look at the last three rows, because they are the more useful finding.** 2,000,000 and
+2,100,000 differ by 5 % in splat count and by **6.1× in cost**. Nothing about the cloud explains
+that; what changed is the padding. The bitonic network is only defined on a power-of-two array, so
+2,000,000 pads to 2²¹ and 2,100,000 pads to 2²² — twice the array, and it lands past the point where
+the sort's working set stops fitting the GPU's last-level cache. The pair was measured specifically
+to separate "large clouds are expensive" from "crossing a padding boundary is expensive", and it is
+the second one:
+
+* **cost is a step function of `PaddedCapacityFor(count)`, not of `count`.** One splat over a power
+  of two doubles the array and can cost several times more;
+* past that step it keeps climbing — 2.1 M and 4 M pad identically and still differ by 2.5× — so the
+  step is not the whole story, but it is the discontinuity that would bite an artist who added a few
+  splats to a scan and watched the frame time triple.
+
+**So the demonstrated envelope is 2 M splats per view, not 6 M.** Between the padding boundaries at
+2²¹ and 2²² the ordering pass alone costs 8–20 ms, which is a whole 60 Hz frame before anything else
+in the engine runs. §6 makes the consequence a condition rather than a footnote.
+
+Two details about the CPU side are worth keeping. **The sort was never the expensive half of the CPU
+pass** — at 500 k it was 5 ms of 16.5; the other 11 ms was one covariance unpack, one dot product and
+six plane tests per splat, which is exactly the embarrassingly parallel work a compute dispatch
+exists for, and it is why moving the *whole* pass won more than moving the sort would have. And
+**the CPU radix sort was never measurably faster than `std::stable_sort`**: across six runs they
+traded places at every size. The radix formulation earned its place only by being the one that
+ports; a CPU-only implementation should use `std::stable_sort`.
 
 ### 5.3 The raster pass against an opaque control
 
@@ -315,17 +333,28 @@ implementation would cluster with a colour term in the metric, not only position
 
 ## 6. Decision and what remains
 
-**Proceed.** Gaussian splats are a viable asset class for this engine, on these terms:
+**Proceed, with a stated envelope.** Gaussian splats are a viable asset class for this engine, on
+these terms:
 
 1. **The per-view ordering runs on the GPU.** The CPU implementation stays as the parity reference
    and as documentation of the algorithm; it is not a supported runtime path at scan scale.
 2. **LOD is built offline by merging.** The selection budget in `ViewSettings::MaxSplats` remains
    only as the negative control the tests pin; new work must not reach for it as a LOD knob.
-3. **The contract in §4 does not change quietly.** A PR that gives a splat cloud shadows, collision
+3. **The supported envelope is 2 M splats per view**, which is `PaddedCapacityFor` = 2²¹. That is
+   not a soft guideline: §5.2 measures the next step at 6.1× the cost for 5 % more splats. A capture
+   that needs more is a request for the radix sort in §6's list, not for a bigger budget.
+4. **The contract in §4 does not change quietly.** A PR that gives a splat cloud shadows, collision
    or probe capture amends this ADR first.
 
-Still unbuilt, and each is integration work rather than an open question:
+Still unbuilt. The first is a performance requirement the envelope above depends on; the rest are
+integration work rather than open questions:
 
+- **Replace the bitonic sort with a four-pass LSD radix** ([#1043](https://github.com/drsnuggles8/OloEngineBase/issues/1043)).
+  This is what lifts the 2 M ceiling, and §5.2 is why: bitonic pads to a power of two, so the cost
+  is a step function of the padding rather than of the cloud, and its 91 global passes over memory
+  at 2²² are what fall off the cache. A radix needs no padding at all and makes four passes over
+  memory instead of ninety-one. `GPUPrefixSum` (#713) supplies the scan; the stability problem
+  §3.3 describes is the work.
 - **`SplatCloudComponent` and its cross-binding touch-points** — the `CLAUDE.md` table in full, plus
   a scene-YAML block written by hand because the component holds a `Ref<T>`.
 - **Content-sniffing PLY import dispatch** — `.ply` already means `MeshSource`, so the importer has
@@ -333,9 +362,10 @@ Still unbuilt, and each is integration work rather than an open question:
 - **The RHI-neutral Vulkan pass** — five SSBOs, two UBOs and an indirect draw, all currently on fixed
   GL binding points that the heap-bindless backend does not have.
 
-These are deliberately not filed as issues yet: they are one coherent piece of integration work that
-should be scoped together once someone commits to shipping the feature, and three separate issues in
-front of the picker would invite starting in the middle.
+The three integration items are deliberately not filed as issues: they are one coherent piece of work
+that should be scoped together once someone commits to shipping the feature, and three separate
+issues in front of the picker would invite starting in the middle. The radix sort is filed, because
+it is a self-contained performance problem with a measured motivation and it gates the envelope.
 
 ---
 

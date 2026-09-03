@@ -74,10 +74,17 @@ namespace OloEngine::Tests
 
         // Minimal well-formed PLY for the negative cases, built property by
         // property so a test can remove exactly one thing and assert on that.
+        //
+        // `Types` is empty for the usual all-float case. When it is set it must
+        // be parallel to `Properties`, and Build() both declares and ENCODES
+        // each column in its declared type -- which is what lets a test prove
+        // the reader decodes an integer column rather than memcpy-ing four
+        // bytes out of it and calling the result a float.
         struct PlyBuilder
         {
             std::string Format = "binary_little_endian";
             std::vector<std::string> Properties;
+            std::vector<std::string> Types;
             std::vector<std::vector<f32>> Rows;
 
             static PlyBuilder Minimal()
@@ -91,12 +98,65 @@ namespace OloEngine::Tests
                 return builder;
             }
 
+            [[nodiscard]] std::string TypeOf(sizet column) const
+            {
+                return Types.empty() ? std::string("float") : Types[column];
+            }
+
+            static void AppendTyped(std::vector<u8>& out, const std::string& type, f32 value)
+            {
+                const auto push = [&out](const void* data, sizet size)
+                {
+                    const auto* raw = static_cast<const u8*>(data);
+                    out.insert(out.end(), raw, raw + size);
+                };
+                if (type == "double")
+                {
+                    const f64 v = value;
+                    push(&v, sizeof(v));
+                }
+                else if (type == "int" || type == "int32")
+                {
+                    const i32 v = static_cast<i32>(value);
+                    push(&v, sizeof(v));
+                }
+                else if (type == "uint" || type == "uint32")
+                {
+                    const u32 v = static_cast<u32>(value);
+                    push(&v, sizeof(v));
+                }
+                else if (type == "short" || type == "int16")
+                {
+                    const i16 v = static_cast<i16>(value);
+                    push(&v, sizeof(v));
+                }
+                else if (type == "ushort" || type == "uint16")
+                {
+                    const u16 v = static_cast<u16>(value);
+                    push(&v, sizeof(v));
+                }
+                else if (type == "uchar" || type == "uint8")
+                {
+                    const u8 v = static_cast<u8>(value);
+                    push(&v, sizeof(v));
+                }
+                else if (type == "char" || type == "int8")
+                {
+                    const i8 v = static_cast<i8>(value);
+                    push(&v, sizeof(v));
+                }
+                else
+                {
+                    push(&value, sizeof(value));
+                }
+            }
+
             [[nodiscard]] std::vector<u8> Build() const
             {
-                std::string header = "ply\nformat " + Format + " 1.0\nelement vertex " + std::to_string(Rows.size()) +
-                                     "\n";
-                for (const std::string& name : Properties)
-                    header += "property float " + name + "\n";
+                std::string header = "ply\nformat " + Format + " 1.0\nelement vertex " +
+                                     std::to_string(Rows.size()) + "\n";
+                for (sizet i = 0; i < Properties.size(); ++i)
+                    header += "property " + TypeOf(i) + " " + Properties[i] + "\n";
                 header += "end_header\n";
 
                 std::vector<u8> bytes(header.begin(), header.end());
@@ -115,8 +175,8 @@ namespace OloEngine::Tests
                 {
                     for (const std::vector<f32>& row : Rows)
                     {
-                        const auto* raw = reinterpret_cast<const u8*>(row.data());
-                        bytes.insert(bytes.end(), raw, raw + row.size() * sizeof(f32));
+                        for (sizet i = 0; i < row.size(); ++i)
+                            AppendTyped(bytes, TypeOf(i), row[i]);
                     }
                 }
                 return bytes;
@@ -443,6 +503,67 @@ namespace OloEngine::Tests
             patched.replace(pos, std::string("element vertex 1").size(), "element vertex 4294967295");
             expectFailure({ patched.begin(), patched.end() }, "truncated");
         }
+    }
+
+    TEST(GaussianSplatImport, DecodesEveryIntegerTypeItAgreesToStrideOver)
+    {
+        // THE BUG THIS PINS reads correctly and produces nonsense. `PlyTypeSize`
+        // accepts short/ushort/int/uint so their columns can be strided over,
+        // and an earlier `ReadScalar` fell through to a 4-byte float memcpy for
+        // all of them. Two failures follow: a 2-byte column is read two bytes
+        // past its own slot -- past the end of the buffer if it is the last
+        // property of the last record -- and a 4-byte integer is reinterpreted
+        // as a float bit pattern, which for small integers is a denormal that
+        // sails through the finiteness check.
+        //
+        // So a required property is declared as each accepted integer type in
+        // turn and its decoded value is checked, rather than merely checking
+        // that the file loads.
+        for (const char* type : { "short", "ushort", "int", "uint", "uchar", "char", "double" })
+        {
+            PlyBuilder typed = PlyBuilder::Minimal();
+            typed.Types.assign(typed.Properties.size(), "float");
+            // `x` carries the integer; a value no float bit pattern coincides
+            // with, and small enough for every type above to hold.
+            const sizet xColumn = 0;
+            typed.Types[xColumn] = type;
+            typed.Rows[0][xColumn] = 7.0f;
+
+            SplatCloud cloud;
+            const std::vector<u8> bytes = typed.Build();
+            const LoadResult result = cloud.LoadPlyFromMemory(bytes, type);
+            ASSERT_TRUE(result.Ok) << type << ": " << result.Error;
+            ASSERT_EQ(cloud.Count(), 1u) << type;
+            EXPECT_NEAR(cloud.Splats()[0].Position.x, 7.0f, 1e-5f) << "property declared as " << type;
+
+            // The rest of the record must still land where the stride says, or
+            // the mis-sized read has quietly shifted everything after it.
+            EXPECT_NEAR(cloud.Splats()[0].Position.y, 2.0f, 1e-5f) << "stride broke after a " << type;
+            EXPECT_NEAR(cloud.Splats()[0].Position.z, 3.0f, 1e-5f) << "stride broke after a " << type;
+        }
+    }
+
+    TEST(GaussianSplatImport, AnIntegerColumnAtTheEndOfTheRecordIsNotOverread)
+    {
+        // The out-of-bounds half of the same bug, isolated: a 2-byte property as
+        // the LAST column of the LAST record has only two bytes behind it, so a
+        // 4-byte read runs off the end of the file image. It is the case a
+        // sanitizer would catch and a normal run would not.
+        PlyBuilder tail = PlyBuilder::Minimal();
+        tail.Properties.push_back("confidence");
+        tail.Types.assign(tail.Properties.size(), "float");
+        tail.Types.back() = "ushort";
+        tail.Rows[0].push_back(42.0f);
+
+        SplatCloud cloud;
+        const std::vector<u8> bytes = tail.Build();
+        const LoadResult result = cloud.LoadPlyFromMemory(bytes, "trailing-ushort");
+        ASSERT_TRUE(result.Ok) << result.Error;
+        EXPECT_EQ(cloud.Count(), 1u);
+        EXPECT_NEAR(cloud.Splats()[0].Position.x, 1.0f, 1e-5f);
+        // Two bytes of the record are not this representation's, so they are
+        // counted as discarded rather than silently absorbed.
+        EXPECT_EQ(result.DiscardedSourceBytes, 2u);
     }
 
     TEST(GaussianSplatImport, ToleratesExtraPropertiesAndReordering)
