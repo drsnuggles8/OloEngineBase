@@ -83,11 +83,17 @@ jobs:
         #
         # `KyleMayes/install-llvm-action` exports `LLVM_PATH` pointing at the
         # install root (so binaries live at `$LLVM_PATH/bin`) and caches the
-        # download via actions/cache. Pinned to a specific 20.1.x release so
-        # we don't drift with the action's "latest 20.x" interpretation.
+        # download via actions/cache. Pinned to an exact release so we don't
+        # drift with the action's "latest N.x" interpretation.
+        #
+        # Moved 20.1.8 -> 23.1.0 alongside the Windows ASan job's new pin, so the
+        # two Windows clang-cl jobs share one toolchain version rather than
+        # drifting apart. 23.1.0 also fixes the clang-cl + ASan exception-handling
+        # miscompile behind issue #497 (measured in asan.yml's Install LLVM step) --
+        # not something this job hit, but no reason to stay behind it either.
         uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
         with:
-          version: "20.1.8"
+          version: "23.1.0"
           cached: true
 
       # NOTE: this job deliberately does NOT use sccache (unlike Windows.yml).

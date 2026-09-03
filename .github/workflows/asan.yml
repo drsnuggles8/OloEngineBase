@@ -189,6 +189,37 @@ jobs:
       with:
         arch: x64
 
+    # PIN THE LLVM TOOLCHAIN. Without this the job compiled with whatever clang-cl
+    # the windows-2025 image happened to ship, via the VS-bundled LLVM that
+    # msvc-dev-cmd puts on PATH -- so the sanitizer gate's compiler moved silently
+    # whenever GitHub refreshed the image.
+    #
+    # 23.1.0 specifically, because it FIXES the clang-cl + ASan C++ exception-handling
+    # miscompile that cost this job ten test cases (issue #497). ASan put redzones on
+    # the compiler-emitted EH metadata globals (_ThrowInfo / _CatchableTypeArray /
+    # type descriptors) and the MSVC EH runtime read across them, so any throw that
+    # unwound into a catch died. Measured with the three-line repro from #497
+    # (`try { throw std::runtime_error{}; } catch (...) {}`, /EHsc /fsanitize=address):
+    #
+    #   clang 21.1.8 -> AddressSanitizer: access-violation in
+    #                   __FrameHandler3::CxxCallCatchBlock, exit 1
+    #   clang 23.1.0 -> caught, exit 0
+    #
+    # (Which major first fixed it was not bisected; 22.x is untested.) This step must
+    # come AFTER msvc-dev-cmd, which puts the VS-bundled LLVM on PATH -- the action
+    # prepends its own, so ordering is what makes the pin win.
+    #
+    # Same action and pinning approach as fuzz.yml. It exports LLVM_PATH at the
+    # install root (binaries under $LLVM_PATH/bin) and caches the download.
+    # The "Add clang-cl ASan runtime to PATH" step below needs no change: it asks
+    # `clang-cl -print-runtime-dir` of whichever clang-cl PATH resolves to, so it
+    # follows this pin automatically.
+    - name: Install LLVM (pinned)
+      uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
+      with:
+        version: "23.1.0"
+        cached: true
+
     # NOTE: this job deliberately does NOT use sccache (unlike the Linux sanitizer jobs).
     # The Windows sccache server reliably crashes — "sccache: error: failed to execute
     # compile … An existing connection was forcibly closed by the remote host. (os error
@@ -352,23 +383,24 @@ jobs:
       # (OloEngine/tests/CMakeLists.txt). Capped at 2 (not 4) because ASan
       # shadow memory inflates each test process's resident footprint; 2-wide stays
       # comfortably inside the windows-2025 ~16 GB budget.
-      # The trailing 10 excludes are all tests that trigger a real C++ throw+catch
-      # (malformed-input robustness + MCP error handling). clang-cl + ASan miscompiles
-      # MSVC-style C++ exception handling — ASan puts redzones on the compiler-emitted
-      # EH metadata globals (_ThrowInfo / _CatchableTypeArray / type descriptors) and
-      # the MSVC EH runtime reads across them, so any throw that unwinds into a catch
-      # crashes (global-buffer-overflow / 0xC0000005). It reproduces with a 3-line
-      # `try { throw std::runtime_error{}; } catch (...) {}` under clang-cl /fsanitize=
-      # address, and no compile/link/runtime flag fixes it (verified: -asan-globals=0,
-      # -fno-strict-aliasing, /Od, detect_stack_use_after_return=0, driver-vs-lld-link).
-      # It is an LLVM toolchain bug, not an engine defect — the old MSVC-cl.exe ASan job
-      # passed all 9, and these paths are covered there / on the Linux ASan job. Excluded
-      # here so the clang-cl job (which gives the real MSVC-ABI + Windows-only coverage)
-      # stays green; revisit if a future LLVM fixes clang-cl ASan exception handling.
-      # Tracking: https://github.com/drsnuggles8/OloEngineBase/issues/497.
+      # TEN EH cases used to be excluded here and are not any more (issue #497).
+      # They are the tests that trigger a real C++ throw+catch (malformed-input
+      # robustness + MCP error handling), and clang-cl + ASan miscompiled MSVC-style
+      # exception handling: ASan put redzones on the compiler-emitted EH metadata
+      # globals (_ThrowInfo / _CatchableTypeArray / type descriptors) and the MSVC EH
+      # runtime read across them, so any throw that unwound into a catch crashed
+      # (global-buffer-overflow / 0xC0000005). It was an LLVM toolchain bug, not an
+      # engine defect -- no compile/link/runtime flag worked around it (tried:
+      # -asan-globals=0, -fno-strict-aliasing, /Od, detect_stack_use_after_return=0,
+      # driver-vs-lld-link), and the old MSVC-cl.exe ASan job passed all of them.
+      #
+      # FIXED by the LLVM 23.1.0 pin added above -- see that step for the measured
+      # before/after on #497's own three-line repro. If these cases start failing
+      # again, the question is which clang the job resolved, not whether the engine
+      # regressed.
       run: >
         ctest --parallel 2 -C Release --output-on-failure --timeout 120
-        --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.|^SceneSerializerFuzzRegression\.UnterminatedFlowMap$|^SceneSerializerFuzzRegression\.SinglePrintableChar$|^EngineSubsystemSmoke\.ProjectLoadMissingPathFailsCleanly$|^StreamingRegionSerializer\.ParseInvalidYAML$|^InputActionSerializerTest\.MalformedYAML$|^ShaderGraphSerializationTest\.DeserializeInvalidYAMLReturnsFalse$|^CinematicSerializerTest\.MalformedYamlReturnsNullWithoutCrashing$|^AccessibilitySettingsTest\.LoadOfACorruptFileFailsWithoutCorruptingSettings$|^McpDispatchTest\.ToolsCallHandlerThrowIsCaughtAsToolError$|^McpStructuredOutput\.ToolsCallErrorHasNoStructuredContent$'
+        --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         # detect_odr_violation=0 must be repeated here — a step-level ASAN_OPTIONS
         # replaces the job-level one rather than merging (see the job `env` above).
