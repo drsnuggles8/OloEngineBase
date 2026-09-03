@@ -752,6 +752,37 @@ Entities:
       # cut in the sea from a low chase camera. 0.9 keeps a little chop against
       # the topsides while still keeping the deck dry.
       WakeShapeFlattenStrength: 0.9
+      # Shore wave deformation (issue #1033) — THE reason this scene reads as a sea
+      # rather than as a shader at a coastline. Every island here is a terrain tile
+      # whose island-falloff mask drives its border to 24 m under water (see the
+      # ShapingIslandFalloff note on each one), so the terrain already IS the sea
+      # floor for the whole approach; nothing had to be authored for this. The
+      # renderer resamples all six tiles into one 512x512 depth field over this
+      # water tile — 3.1 m per texel against wavelengths of 18-27 m — and the wave
+      # sum shoals, refracts and breaks against it per vertex.
+      #
+      # This is the only scene that turns it on, for the same reason it is the only
+      # one that turns the wake on: a feature no scene enables has no coverage in
+      # practice however green its tests are.
+      ShoreWavesEnabled: true
+      # NOT the physical 0.39, and the departure is deliberate rather than a fudge.
+      # 0.39 is a real relation (a solitary wave breaks at about 0.78 h), and it is
+      # what the maths uses everywhere else. But this sea is ~0.35 m crest-to-trough
+      # — small for the mesh-Nyquist reason the WaveAmplitude note in the header
+      # spells out, not because the game wants a millpond — and at 0.39 its surf
+      # zone is the last ~15 cm of water, which is a few pixels of a frame you
+      # actually play. Lowering the index moves the breaker line into deeper water
+      # and widens the band. Raise it back toward 0.39 if the wave amplitudes ever
+      # go up (tessellate first — see #943).
+      ShoreBreakerIndex: 0.06
+      ShoreFoamGain: 1
+      # Deliberately far longer than the crest-foam fade (FoamFadeDistance above).
+      # That fade exists because procedural whitecaps compress toward the horizon
+      # into a white wash; a shoreline band is a low-frequency world-anchored signal
+      # with no such failure mode, and fading it at whitecap distances would delete
+      # the surf you are sailing toward.
+      ShoreFoamFadeStart: 180
+      ShoreFoamFadeEnd: 520
       # Refraction pulled well down from the defaults. The submerged half of the
       # hull is visible THROUGH the surface, and at the stock distortion it came
       # through as a stippled ghost lying alongside the boat that reads as a

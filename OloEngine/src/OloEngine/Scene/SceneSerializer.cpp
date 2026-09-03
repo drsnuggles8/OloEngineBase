@@ -1542,6 +1542,18 @@ namespace OloEngine
             waterComponent["WakeShapeHeightScale"].as<f32>(water.m_WakeShapeHeightScale);
         water.m_WakeShapeFlattenStrength =
             waterComponent["WakeShapeFlattenStrength"].as<f32>(water.m_WakeShapeFlattenStrength);
+        // Shore wave deformation (issue #1033). Defaults leave it OFF, so a
+        // scene written before this existed keeps the deep-water surface it was
+        // authored against rather than acquiring a surf zone on load.
+        water.m_ShoreWavesEnabled =
+            waterComponent["ShoreWavesEnabled"].as<bool>(water.m_ShoreWavesEnabled);
+        water.m_ShoreBreakerIndex =
+            waterComponent["ShoreBreakerIndex"].as<f32>(water.m_ShoreBreakerIndex);
+        water.m_ShoreFoamGain = waterComponent["ShoreFoamGain"].as<f32>(water.m_ShoreFoamGain);
+        water.m_ShoreFoamFadeStart =
+            waterComponent["ShoreFoamFadeStart"].as<f32>(water.m_ShoreFoamFadeStart);
+        water.m_ShoreFoamFadeEnd =
+            waterComponent["ShoreFoamFadeEnd"].as<f32>(water.m_ShoreFoamFadeEnd);
         water.m_SSSColor = waterComponent["SSSColor"].as<glm::vec3>(water.m_SSSColor);
         water.m_SSSIntensity = waterComponent["SSSIntensity"].as<f32>(water.m_SSSIntensity);
         water.m_SSRMaxSteps = waterComponent["SSRMaxSteps"].as<f32>(water.m_SSRMaxSteps);
@@ -1712,6 +1724,18 @@ namespace OloEngine
         // publish time would render differently from what the inspector shows.
         SanitizeFloat(water.m_WakeShapeHeightScale, 0.0f, 4.0f, 1.0f);
         SanitizeFloat(water.m_WakeShapeFlattenStrength, 0.0f, 1.0f, 0.9f);
+        // Shore waves (issue #1033). Bounds identical to the OLO_SERIALIZE(Clamp)
+        // annotations and to WaterShoreDepthSystem::GetShaderParams2, for the
+        // reason stated above: a value clamped differently at publish time would
+        // render differently from what the inspector shows.
+        SanitizeFloat(water.m_ShoreBreakerIndex, 0.02f, 2.0f, 0.39f);
+        SanitizeFloat(water.m_ShoreFoamGain, 0.0f, 4.0f, 1.0f);
+        SanitizeFloat(water.m_ShoreFoamFadeStart, 0.0f, 5000.0f, 120.0f);
+        SanitizeFloat(water.m_ShoreFoamFadeEnd, 1.0f, 5000.0f, 400.0f);
+        // Same ordering guard the wake fade pair gets: a fade whose end is not
+        // past its start is a divide the shader's smoothstep answers with a step.
+        if (!(water.m_ShoreFoamFadeEnd > water.m_ShoreFoamFadeStart))
+            water.m_ShoreFoamFadeEnd = water.m_ShoreFoamFadeStart + 1.0f;
         SanitizeVec3(water.m_SSSColor, { 0.0f, 0.5f, 0.4f });
         SanitizeFloat(water.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
         SanitizeFloat(water.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
@@ -5461,6 +5485,11 @@ namespace OloEngine
             out << YAML::Key << "WakeShapeAffectsPhysics" << YAML::Value << water.m_WakeShapeAffectsPhysics;
             out << YAML::Key << "WakeShapeHeightScale" << YAML::Value << water.m_WakeShapeHeightScale;
             out << YAML::Key << "WakeShapeFlattenStrength" << YAML::Value << water.m_WakeShapeFlattenStrength;
+            out << YAML::Key << "ShoreWavesEnabled" << YAML::Value << water.m_ShoreWavesEnabled;
+            out << YAML::Key << "ShoreBreakerIndex" << YAML::Value << water.m_ShoreBreakerIndex;
+            out << YAML::Key << "ShoreFoamGain" << YAML::Value << water.m_ShoreFoamGain;
+            out << YAML::Key << "ShoreFoamFadeStart" << YAML::Value << water.m_ShoreFoamFadeStart;
+            out << YAML::Key << "ShoreFoamFadeEnd" << YAML::Value << water.m_ShoreFoamFadeEnd;
             out << YAML::Key << "SSSColor" << YAML::Value << water.m_SSSColor;
             out << YAML::Key << "SSSIntensity" << YAML::Value << water.m_SSSIntensity;
             out << YAML::Key << "SSRMaxSteps" << YAML::Value << water.m_SSRMaxSteps;

@@ -390,6 +390,44 @@ Objects moving through water should produce a V-shaped wake (Kelvin wake):
 - Decay over distance behind the object.
 - The wake half-angle is always ~19.47° regardless of speed (Kelvin's result).
 
+### 5.3 Shore Wave Deformation — **shipped (issue #1033)**
+
+Waves shoal, refract and break against a seabed depth field. The rule first: the depth comes
+from the terrain the scene already has, never from a separately authored texture.
+
+- **The field.** `Renderer/Water/WaterShoreDepthSystem` resamples every `TerrainComponent`'s
+  height field into ONE 512x512 RGBA16F window covering the water tile — `r` = water depth in
+  metres, `gb` = the depth gradient. Baked when its inputs change and not per frame (the sea
+  floor does not move), retained on the CPU so buoyancy reads the same field with no readback.
+- **The transform.** `Renderer/Water/WaterShoreDepth.h` is the contract and the whole of the
+  maths; `include/WaterShoreCommon.glsl` is its GPU twin. Frequency is what is conserved, so the
+  local wavenumber comes from inverting `w^2 = g k tanh(k h)` and the phase speed is `w/k` —
+  the time term of every wave's phase is therefore depth-independent, which is why a camera
+  crossing a slope sees no shimmer. Amplitude follows Green's law, direction follows Snell's law
+  against the depth gradient, and both reduce to the identity in deep water.
+- **Breaking reuses the Jacobian**, it does not add a second signal. `gerstnerWaveNormal`'s
+  accumulated tangent/binormal ARE the off-identity entries of the horizontal displacement map's
+  Jacobian (see `waterGerstnerJacobian`), so the fold detection the FFT foam reads from a texture
+  is available analytically here for nothing. The depth adds the LIMIT — amplitude capped at
+  `breakerIndex * h` — which is what makes the surf zone decay toward the waterline instead of
+  growing into a wall of water.
+- **Both displacement chains, structurally.** The transform lives inside
+  `sumGerstnerWavesShore` in `WaterCommon.glsl`, which the vertex and tess-eval stages share and
+  which `Water.glsl` and `Water_Depth.glsl` both include — so the colour pass and the
+  surface-depth capture cannot disagree about the shape.
+- **The FFT path gets the depth limit only.** A tiled spectrum has no per-train heading to turn,
+  so refraction is not representable there; the crest height is still clamped to the breaker
+  limit, because a metre-tall crest in 20 cm of water is the artefact that actually shows.
+
+Known limitation, stated so it is not rediscovered as a bug: this is ray theory evaluated
+pointwise rather than integrated along a ray, so crest SPACING, heading, height and breaking are
+right and individual crest POSITIONS drift from an eikonal solution by the accumulated phase.
+
+Contracts: `WaterShoreWaveTest.cpp` (dispersion, Green's-law dip, Snell, the breaker limit, the
+bake, and the GLSL constant mirror). Evidence:
+`WaterShoreVisualEvidenceTest.cpp` -> `assets/tests/visual/WaterShore_*.png`, from
+shoreline-grazing angles — a top-down shot cannot show whether waves turn.
+
 ### 5.4 Ripple Injection — **shipped (issue #967)**
 
 `Renderer/Water/WaterDisturbanceField.{h}` + `WaterDisturbanceSystem` maintain the

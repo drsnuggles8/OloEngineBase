@@ -93,7 +93,7 @@ layout(std430, binding = 45) readonly buffer OloResourceHeapBlock
 // the shared one is wrong.
 layout(std140, binding = 56) uniform OloHeapOffsetBlock
 {
-    uvec4 g_OloHeapOffsets[20];
+    uvec4 g_OloHeapOffsets[21];
 };
 
 #define OLO_HEAP_OFFSET(texSlot) (g_OloHeapOffsets[(texSlot) >> 2][(texSlot) & 3])
@@ -229,7 +229,7 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // headless CI. It is now pinned headlessly by
 // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout — if you are here
 // because that failed, update this number, do not relax the test.
-#define OLO_HEAP_IMAGE_BASE 72u
+#define OLO_HEAP_IMAGE_BASE 73u
 #define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
 
 // Pass this as `mem` for an image you both read and write, or for one with no

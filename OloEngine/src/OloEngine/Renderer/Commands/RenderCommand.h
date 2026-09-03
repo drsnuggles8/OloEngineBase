@@ -1083,6 +1083,12 @@ namespace OloEngine
         // Ocean::PackCascadeShaderParams builds it from the field's own preset.
         glm::vec4 fftCascadeParams = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
 
+        // Shore wave deformation (issue #1033). NOT carried here: the seabed
+        // depth field is ONE global resource, like the wake field, and routing
+        // it per-surface would let two water tiles in a frame disagree about
+        // where the sea floor is. CommandDispatch reads it from
+        // WaterShoreDepthSystem at fill time.
+
         // Normal map / noise texture IDs
         RHI::ResourceHandle normalMap0ID{};
         RHI::ResourceHandle normalMap1ID{};

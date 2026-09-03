@@ -24,6 +24,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneLightAdapter.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
+#include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -9046,6 +9047,14 @@ namespace OloEngine
                 // reasonably want foam on one surface and shape on another.
                 WaterWakeSettings wakeShapeSettings{};
                 f32 bestWakeShapeArea = -1.0f;
+                // Shore wave deformation (issue #1033) — same "largest enabled
+                // surface publishes" rule again. The bake WINDOW comes from the
+                // same winner, because the field covers one water tile: two
+                // tiles of different sizes cannot share a square window without
+                // one of them getting a seabed that stops at the other's edge.
+                WaterShoreSettings shoreSettings{};
+                WaterShoreBakeRequest shoreRequest{};
+                f32 bestShoreArea = -1.0f;
 
                 auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
                 for (auto entity : waterView)
@@ -9181,6 +9190,52 @@ namespace OloEngine
                                 std::isfinite(water.m_WakeShapeFlattenStrength)
                                     ? std::clamp(water.m_WakeShapeFlattenStrength, 0.0f, 1.0f)
                                     : 0.9f;
+                        }
+                    }
+
+                    // Shore wave tunables + the bake window (issue #1033).
+                    // Measured on the same sanitized component extents as the
+                    // two wake blocks above.
+                    if (water.m_ShoreWavesEnabled)
+                    {
+                        if (const f32 shoreArea = sizeX * sizeZ;
+                            std::isfinite(shoreArea) && shoreArea > bestShoreArea)
+                        {
+                            bestShoreArea = shoreArea;
+                            shoreSettings.m_Enabled = true;
+                            shoreSettings.m_BreakerIndex =
+                                std::isfinite(water.m_ShoreBreakerIndex)
+                                    ? std::clamp(water.m_ShoreBreakerIndex, 0.02f, 2.0f)
+                                    : WaterShore::kBreakerIndex;
+                            shoreSettings.m_FoamGain =
+                                std::isfinite(water.m_ShoreFoamGain)
+                                    ? std::clamp(water.m_ShoreFoamGain, 0.0f, 4.0f)
+                                    : 1.0f;
+                            shoreSettings.m_FoamFadeStartMetres =
+                                std::isfinite(water.m_ShoreFoamFadeStart)
+                                    ? std::clamp(water.m_ShoreFoamFadeStart, 0.0f, 5000.0f)
+                                    : 120.0f;
+                            shoreSettings.m_FoamFadeEndMetres =
+                                std::isfinite(water.m_ShoreFoamFadeEnd)
+                                    ? std::clamp(water.m_ShoreFoamFadeEnd, 1.0f, 5000.0f)
+                                    : 400.0f;
+
+                            // The window: the water tile's own footprint, taken
+                            // through its transform so a moved or scaled surface
+                            // brings the field with it. The square side is the
+                            // LONGER axis, so a rectangular tile is covered
+                            // rather than cropped — a cropped seabed reads as a
+                            // straight line of deep water cutting across a
+                            // coastline, which looks like a shader bug.
+                            const glm::mat4 waterXf = transform.GetTransform();
+                            const glm::vec4 originWorld = waterXf * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                            const glm::vec4 cornerWorld =
+                                waterXf * glm::vec4(sizeX * 0.5f, 0.0f, sizeZ * 0.5f, 1.0f);
+                            const glm::vec2 halfSpan{ std::abs(cornerWorld.x - originWorld.x),
+                                                      std::abs(cornerWorld.z - originWorld.z) };
+                            shoreRequest.CentreXZ = { originWorld.x, originWorld.z };
+                            shoreRequest.ExtentMetres = 2.0f * std::max(halfSpan.x, halfSpan.y);
+                            shoreRequest.WaterPlaneY = originWorld.y;
                         }
                     }
 
@@ -9547,6 +9602,52 @@ namespace OloEngine
                 // would let a scene switch inherit the previous scene's field.
                 Renderer3D::GetWaterDisturbanceSettings() = wakeSettings;
                 Renderer3D::GetWaterWakeSettings() = wakeShapeSettings;
+
+                // Shore wave deformation (issue #1033). Published
+                // UNCONDITIONALLY, including the disabled form, for the reason
+                // stated above the wake publish: publishing only when enabled is
+                // what lets a scene switch inherit the previous scene's seabed.
+                WaterShoreDepthSystem::SetSettings(shoreSettings);
+                if (shoreSettings.m_Enabled && shoreRequest.ExtentMetres > 0.0f)
+                {
+                    // Collect the seabed the winning tile sits on. This runs
+                    // every frame and the BAKE almost never does: Rebuild()
+                    // fingerprints its inputs and returns immediately when
+                    // nothing moved (WaterShoreDepthSystem::BuildSignature). The
+                    // per-frame cost is this walk over a handful of terrains.
+                    std::vector<SeabedTerrain> seabed;
+                    auto terrainView = m_Registry.view<TransformComponent, TerrainComponent>();
+                    for (auto terrainEntity : terrainView)
+                    {
+                        auto const& [terrainXf, terrain] =
+                            terrainView.get<TransformComponent, TerrainComponent>(terrainEntity);
+                        if (!terrain.m_TerrainData)
+                            continue;
+                        const u32 resolution = terrain.m_TerrainData->GetResolution();
+                        if (resolution == 0)
+                            continue;
+                        const std::vector<f32>& heights = terrain.m_TerrainData->GetHeightData();
+                        if (heights.size() != static_cast<sizet>(resolution) * resolution)
+                            continue;
+
+                        // A terrain entity's translation is its tile's CORNER,
+                        // not its centre (see the Translation note on every
+                        // Drift island). Rotation is not represented — see the
+                        // SeabedTerrain doc comment for why, and for what to do
+                        // rather than papering over it.
+                        SeabedTerrain tile;
+                        tile.OriginXZ = { terrainXf.Translation.x, terrainXf.Translation.z };
+                        tile.SizeXZ = { std::isfinite(terrain.m_WorldSizeX) ? terrain.m_WorldSizeX : 0.0f,
+                                        std::isfinite(terrain.m_WorldSizeZ) ? terrain.m_WorldSizeZ : 0.0f };
+                        tile.BaseY = terrainXf.Translation.y;
+                        tile.HeightScale =
+                            std::isfinite(terrain.m_HeightScale) ? terrain.m_HeightScale : 0.0f;
+                        tile.Resolution = resolution;
+                        tile.Heights = &heights;
+                        seabed.push_back(tile);
+                    }
+                    WaterShoreDepthSystem::Rebuild(shoreRequest, seabed);
+                }
             }
 
             // Screen-space fluid draws (issue #630): every enabled fluid domain

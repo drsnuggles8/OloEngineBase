@@ -1300,6 +1300,11 @@ registry.push_back(OLO_GFW_FIELD(WaterComponent, "WakeShapeEnabled", m_WakeShape
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "WakeShapeAffectsPhysics", m_WakeShapeAffectsPhysics));
 registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "WakeShapeHeightScale", m_WakeShapeHeightScale, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(4.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "WakeShapeFlattenStrength", m_WakeShapeFlattenStrength, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD(WaterComponent, "ShoreWavesEnabled", m_ShoreWavesEnabled));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "ShoreBreakerIndex", m_ShoreBreakerIndex, OLO_GFW_BOUND(0.02f), OLO_GFW_BOUND(2.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "ShoreFoamGain", m_ShoreFoamGain, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(4.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "ShoreFoamFadeStart", m_ShoreFoamFadeStart, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(5000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "ShoreFoamFadeEnd", m_ShoreFoamFadeEnd, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(5000.0f)));
 
 }
 

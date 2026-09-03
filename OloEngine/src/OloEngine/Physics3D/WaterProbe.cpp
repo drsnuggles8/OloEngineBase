@@ -24,6 +24,14 @@ namespace OloEngine::WaterProbe
             p.m_WaveAmplitude = wc.m_WaveAmplitude;
             p.m_WaveSpeed = wc.m_WaveSpeed;
             p.m_PlaneHeight = planeHeight;
+            // Shore wave deformation (issue #1033). Buoyancy has to follow the
+            // shoaled surface or a boat in the surf floats on a deep-water sea
+            // the screen is not showing — the wave slows and steepens under it
+            // and the hull does not react.
+            p.m_ShoreEnabled = wc.m_ShoreWavesEnabled;
+            p.m_ShoreBreakerIndex = std::isfinite(wc.m_ShoreBreakerIndex)
+                                        ? std::clamp(wc.m_ShoreBreakerIndex, 0.02f, 2.0f)
+                                        : WaterShore::kBreakerIndex;
             return p;
         }
     } // namespace

@@ -408,6 +408,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowEarlyOutVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TwoSidedShadowCastTest.cpp
+		Rendering/PropertyTests/WaterShoreVisualEvidenceTest.cpp
+		Rendering/PropertyTests/WaterShoreWaveTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
 		Rendering/PropertyTests/WaterDisturbanceFieldTest.cpp
 		Rendering/PropertyTests/WaterWakeShapeTest.cpp

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/WaterSurface.h"
+#include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
 
 #include "OloEngine/Renderer/Ocean/OceanFFTField.h"
 
@@ -69,14 +70,20 @@ namespace OloEngine::WaterSurface
             return (glm::vec2(nx, ny) - 0.5f) * warpAmount;
         }
 
-        // WaterCommon.glsl :: gerstnerWave (returns the displacement vector)
+        // WaterCommon.glsl :: gerstnerWave, the explicit-phase-speed overload.
+        // The speed is passed in rather than derived from the wavelength because
+        // in shallow water the two disagree: what is conserved as a wave shoals
+        // is its FREQUENCY, so c = w/k with w fixed at its deep-water value while
+        // k grows. Deriving it here would change a wave's frequency as it
+        // crossed a slope, which reads as the whole sea shimmering — and would
+        // make the CPU and GPU surfaces disagree, which is worse.
         [[nodiscard]] glm::vec3 GerstnerWave(glm::vec3 position, glm::vec2 direction,
-                                             f32 steepness, f32 wavelength, f32 time, f32 phase)
+                                             f32 steepness, f32 wavelength, f32 phaseSpeed,
+                                             f32 time, f32 phase)
         {
             const f32 k = kTwoPi / glm::max(wavelength, 0.001f);
-            const f32 c = std::sqrt(kGravity / k); // phase speed from the deep-water dispersion relation
             const f32 d = glm::dot(direction, glm::vec2(position.x, position.z));
-            const f32 f = k * (d - c * time) + phase;
+            const f32 f = k * (d - phaseSpeed * time) + phase;
             const f32 a = steepness / k; // amplitude derived from steepness
             return glm::vec3(direction.x * a * std::cos(f),
                              a * std::sin(f),
@@ -107,7 +114,9 @@ namespace OloEngine::WaterSurface
         // delta (the shader also emits a surface normal we don't need here).
         [[nodiscard]] glm::vec3 SumGerstnerDisplacement(glm::vec3 position, f32 time,
                                                         glm::vec4 waveDir0, glm::vec4 waveDir1,
-                                                        f32 waveFrequency, f32 waveAmplitude)
+                                                        f32 waveFrequency, f32 waveAmplitude,
+                                                        const WaterShore::Sample& shore,
+                                                        f32 breakerIndex)
         {
             glm::vec3 displaced = position;
 
@@ -117,9 +126,31 @@ namespace OloEngine::WaterSurface
             const f32 wl0 = glm::max(waveDir0.w, 0.1f) / glm::max(waveFrequency, 0.01f);
             const f32 wl1 = glm::max(waveDir1.w, 0.1f) / glm::max(waveFrequency, 0.01f);
 
+            // Every octave below is transformed for the seabed under it before
+            // it is summed (issue #1033), through the SAME WaterShore functions
+            // WaterShoreCommon.glsl calls — not a second port of them. With a
+            // disabled sample each transform is the identity, so this is the
+            // pre-#1033 sampler.
+            //
+            // NOTE the amplitude scale handed to the transform is
+            // `waveAmplitude * weight` with NO mesh band-limit factor, and that
+            // is correct HERE rather than a divergence: this evaluator has never
+            // applied octaveMeshWeight — it answers for the water surface, which
+            // has no vertex grid, not for a particular mesh's sampling of it.
+            // The breaker limit is therefore tested against the amplitude THIS
+            // evaluator produces, which is the one a boat floats on.
+
             // --- Primary waves (artist-controlled, 0.55 weight each) ---
-            displaced += GerstnerWave(position, dir0, waveDir0.z, wl0, time, 0.0f) * waveAmplitude * 0.55f;
-            displaced += GerstnerWave(position, dir1, waveDir1.z, wl1, time, 0.0f) * waveAmplitude * 0.55f;
+            const auto sh0 = WaterShore::TransformOctave(dir0, wl0, waveDir0.z, waveAmplitude * 0.55f,
+                                                         shore.Depth, shore.Gradient, breakerIndex);
+            displaced += GerstnerWave(position, sh0.Direction, sh0.Steepness, sh0.Wavelength,
+                                      sh0.PhaseSpeed, time, 0.0f) *
+                         waveAmplitude * 0.55f;
+            const auto sh1 = WaterShore::TransformOctave(dir1, wl1, waveDir1.z, waveAmplitude * 0.55f,
+                                                         shore.Depth, shore.Gradient, breakerIndex);
+            displaced += GerstnerWave(position, sh1.Direction, sh1.Steepness, sh1.Wavelength,
+                                      sh1.PhaseSpeed, time, 0.0f) *
+                         waveAmplitude * 0.55f;
 
             // --- Procedural detail octaves ---
             const f32 avgWL = (wl0 + wl1) * 0.5f;
@@ -136,14 +167,19 @@ namespace OloEngine::WaterSurface
                 const glm::vec2 warp = DomainWarp(glm::vec2(position.x, position.z), o.seed, wl);
                 warpedPos.x += warp.x;
                 warpedPos.z += warp.y;
-                displaced += GerstnerWave(warpedPos, d, st, wl, time * o.timeMul, o.phase) * waveAmplitude * o.ampMul;
+                const auto sh = WaterShore::TransformOctave(d, wl, st, waveAmplitude * o.ampMul,
+                                                            shore.Depth, shore.Gradient, breakerIndex);
+                displaced += GerstnerWave(warpedPos, sh.Direction, sh.Steepness, sh.Wavelength,
+                                          sh.PhaseSpeed, time * o.timeMul, o.phase) *
+                             waveAmplitude * o.ampMul;
             }
 
             return displaced - position;
         }
     } // namespace
 
-    glm::vec3 SampleDisplacement(const Params& params, glm::vec2 baseXZ, f32 rawTime)
+    glm::vec3 SampleDisplacement(const Params& params, glm::vec2 baseXZ, f32 rawTime,
+                                 const WaterShore::Sample& shore)
     {
         OLO_PROFILE_FUNCTION();
         // The water vertex shader evaluates `time = u_WaveParams.x * u_WaveParams.y`
@@ -151,7 +187,22 @@ namespace OloEngine::WaterSurface
         const f32 time = rawTime * params.m_WaveSpeed;
         const glm::vec3 basePos(baseXZ.x, params.m_PlaneHeight, baseXZ.y);
         return SumGerstnerDisplacement(basePos, time, params.m_WaveDir0, params.m_WaveDir1,
-                                       params.m_WaveFrequency, params.m_WaveAmplitude);
+                                       params.m_WaveFrequency, params.m_WaveAmplitude, shore,
+                                       params.m_ShoreBreakerIndex);
+    }
+
+    glm::vec3 SampleDisplacement(const Params& params, glm::vec2 baseXZ, f32 rawTime)
+    {
+        // The seabed is looked up at the BASE point, which is the same place the
+        // vertex stage samples it: the shader evaluates waterShoreSample() at the
+        // undisplaced vertex position, before the Gerstner shift. Sampling it at
+        // the displaced point here would put physics on a slightly different
+        // seabed than the surface it is meant to mirror — the one place these two
+        // could agree on the maths and disagree about WHERE.
+        const WaterShore::Sample shore = params.m_ShoreEnabled
+                                             ? WaterShoreDepthSystem::SampleWorld(baseXZ)
+                                             : WaterShore::DisabledSample();
+        return SampleDisplacement(params, baseXZ, rawTime, shore);
     }
 
     f32 SampleHeight(const Params& params, glm::vec2 queryXZ, f32 rawTime)

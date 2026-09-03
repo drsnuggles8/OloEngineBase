@@ -72,6 +72,26 @@ layout(std140, binding = 23) uniform WaterParams
     // LINK error rather than a silent mismatch. Read by the vertex and
     // tess-eval stages, which is where the surface is displaced.
     vec4 u_WakeShapeParams;        // x = live hull count, y = height scale (<=0 disables), z = hull flatten strength, w = reserved
+    // Shore wave deformation (issue #1033). C++ twin:
+    // UBOStructures::WaterUBO::ShoreParams / ShoreParams2; the encoding contract
+    // and every relation driven by it live in Renderer/Water/WaterShoreDepth.h,
+    // the GLSL evaluator in include/WaterShoreCommon.glsl. Declared in EVERY
+    // stage of the water programs, identically, for the same reason the #967 /
+    // #968 fields above are: GL requires a uniform block shared across a
+    // program's stages to be declared the same way in each, so appending to only
+    // the stages that read it is a LINK error rather than a silent mismatch.
+    // Read by the vertex and tess-eval stages (which displace the surface) and
+    // by the fragment stage (which fades the breaker foam).
+    //
+    // xy = seabed depth-field window centre (world XZ),
+    // z  = 1 / window extent in metres (the UV scale),
+    // w  = enable. w <= 0 IS the disabled state; there is no separate flag, so a
+    //      frame whose bake did not run cannot leave a stale field showing.
+    vec4 u_ShoreParams;
+    // x = breaker index (the a/h limit the surf zone breaks at; 0.39 is the
+    //     physical value — WaterShoreDepth.h :: kBreakerIndex),
+    // y = breaking foam gain, z/w = reserved.
+    vec4 u_ShoreParams2;
     // 80 = WaterWake::kHullVec4Count (4 hulls x 20 vec4). The layout is
     // WaterWake.h's, verbatim; WATER_WAKE_* in WaterWakeCommon.glsl mirrors the
     // offsets so nothing here indexes it by a bare literal.
@@ -118,6 +138,22 @@ vec4 oceanCascadeFetchDerivatives(vec2 uv, int layer)
     return textureLod(u_FFTDerivatives, vec3(uv, float(layer)), 0.0);
 }
 
+// Seabed depth field (issue #1033) — TEX_WATER_SHORE_DEPTH.
+// r = water depth in metres, gb = d(depth)/d(worldXZ). Baked by
+// WaterShoreDepthSystem from the scene's terrain; the encoding contract is
+// Renderer/Water/WaterShoreDepth.h. This is the hook WaterShoreCommon.glsl
+// forward-declares, so the shore math needs no sampler of its own and both
+// displacing stages share one walk over it.
+#ifdef OLO_BINDLESS
+#define u_ShoreDepth OLO_HEAP_TEX_2D(71)
+#else
+layout(binding = 71) uniform sampler2D u_ShoreDepth;
+#endif
+vec4 waterShoreFetchDepth(vec2 uv)
+{
+    return textureLod(u_ShoreDepth, uv, 0.0);
+}
+
 layout(location = 0) in vec3 tc_WorldPos[];
 layout(location = 1) in vec3 tc_Normal[];
 layout(location = 2) in vec2 tc_TexCoord[];
@@ -137,6 +173,7 @@ vec3 v_Tangent;
 vec3 v_Bitangent;
 float v_WaveHeight;
 vec3 v_PrevWorldPos;
+float v_ShoreFoam;
 #else
 layout(location = 1) out vec3 v_Normal;
 layout(location = 2) out vec2 v_TexCoord;
@@ -145,6 +182,18 @@ layout(location = 4) out vec3 v_Tangent;
 layout(location = 5) out vec3 v_Bitangent;
 layout(location = 6) out float v_WaveHeight;
 layout(location = 7) out vec3 v_PrevWorldPos;
+// Breaking-wave foam from the shore transform (issue #1033). One float rather
+// than the pair the displacing stage computes, because the fragment stage needs
+// only "has this wave broken", and the two halves of that answer are combined
+// where they are produced:
+//
+//   * the depth-limited breaker clamp — the wave could not stand up in this
+//     much water, so the excess was taken off the surface. Exactly 0 outside
+//     the surf zone, by construction;
+//   * an actual FOLD of the horizontal displacement map (Jacobian < 0), which
+//     is the same criterion the FFT ocean's foam alpha uses. Never true on a
+//     sea that is not folding, so this cannot add foam to open water.
+layout(location = 8) out float v_ShoreFoam;
 #endif
 
 void main()
@@ -172,6 +221,13 @@ void main()
     float amplitude = u_WaveParams.z;
     float frequency = u_WaveParams.w;
 
+    // Seabed under this tessellated vertex (issue #1033). Same one-sample rule
+    // as the vertex stage, and the same absolute-world-XZ addressing — the two
+    // stages displace the same surface and must not disagree about where it is.
+    WaterShoreSample shore = waterShoreSample(posAbs.xz, u_ShoreParams);
+    float shoreBreak = 0.0;
+    float shoreJacobian = 1.0;
+
     vec3 displacedNormal;
     vec3 displacedPos;
     if (u_FFTParams.x > 0.5)
@@ -180,9 +236,31 @@ void main()
         // function the vertex stage uses — the two stages displace the same
         // surface and must not each own a copy of how.
         OceanCascadeSample fft = sampleOceanCascades(posAbs.xz, u_FFTParams, u_FFTCascadeParams);
-        displacedPos = pos + vec3(fft.Displacement.x * u_FFTParams.w,
-                                  fft.Displacement.y * u_FFTParams.z,
-                                  fft.Displacement.z * u_FFTParams.w);
+        vec3 fftDisp = vec3(fft.Displacement.x * u_FFTParams.w,
+                            fft.Displacement.y * u_FFTParams.z,
+                            fft.Displacement.z * u_FFTParams.w);
+
+        // Shore depth limit for the FFT path (issue #1033). A tiled spectrum's
+        // individual wave trains cannot be refracted the way the analytic
+        // octaves are — every train shares one field, so there is no per-train
+        // heading to turn. What the FFT path CAN honour is the depth limit, and
+        // it is the half that shows: a crest standing a metre tall in 20 cm of
+        // water is the artefact that reads as "a shader" at a beach. Scale the
+        // whole displacement vector (not just its height) so the choppy
+        // horizontal shift is suppressed with it, and report the removed excess
+        // as breaking, exactly as the Gerstner path does.
+        if (shore.Enabled > 0.0)
+        {
+            float aLimit = max(u_ShoreParams2.x, 1e-4) * shore.Depth;
+            float crest = abs(fftDisp.y);
+            if (crest > aLimit)
+            {
+                float k = aLimit / max(crest, 1e-6);
+                fftDisp *= k;
+                shoreBreak = clamp(1.0 - k, 0.0, 1.0);
+            }
+        }
+        displacedPos = pos + fftDisp;
         // Zero/NaN-safe — see the vertex-stage FFT branch.
         vec3 fftNormal = oceanCascadeNormal(fft);
         displacedNormal = (dot(fftNormal, fftNormal) > 1e-12) ? normalize(fftNormal) : vec3(0.0, 1.0, 0.0);
@@ -190,22 +268,26 @@ void main()
     }
     else
     {
-        displacedPos = sumGerstnerWaves(
+        displacedPos = sumGerstnerWavesShore(
             posAbs, time,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
             u_FoamParams2.w, // mesh vertex spacing — band-limits the octave ladder (#943)
-            displacedNormal
+            shore, u_ShoreParams2.x, // seabed depth + the breaker index (#1033)
+            displacedNormal, shoreJacobian, shoreBreak
         ) - u_RenderOrigin; // world-anchored phase, relative result (issue #429)
 
         // Prev-frame displacement for velocity reprojection
         vec3 _prevNormalUnused;
-        vec3 displacedPosPrev = sumGerstnerWaves(
+        float _prevJacobianUnused;
+        float _prevBreakUnused;
+        vec3 displacedPosPrev = sumGerstnerWavesShore(
             posPrevAbs, prevTime,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
             u_FoamParams2.w, // mesh vertex spacing — band-limits the octave ladder (#943)
-            _prevNormalUnused
+            shore, u_ShoreParams2.x, // the SAME seabed sample — it does not move (#1033)
+            _prevNormalUnused, _prevJacobianUnused, _prevBreakUnused
         ) - u_RenderOrigin;
         v_PrevWorldPos = displacedPosPrev;
     }
@@ -282,6 +364,8 @@ void main()
     float maxAmplitude = max(amplitude, 0.001);
     v_WaveHeight = (u_FFTParams.x > 0.5) ? (displacedPos.y - pos.y)
                                          : (displacedPos.y - pos.y) / maxAmplitude;
+    // Issue #1033 — see the varying's declaration for what the two terms are.
+    v_ShoreFoam = max(shoreBreak, clamp(-shoreJacobian * 2.0, 0.0, 1.0));
 
     v_WorldPos = displacedPos;
     v_Normal = displacedNormal;
