@@ -34,6 +34,7 @@
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
+#include "OloEngine/Scene/SceneLightmapGather.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -2812,6 +2813,25 @@ namespace OloEngine
             ImGui::DragFloat("Cull Distance", &component.CullDistance, 1.0f, 0.0f, 100000.0f, "%.1f m");
             ImGui::TextDisabled("0 disables distance culling");
 
+            // Baked GI (issue #867). Unlike MeshComponent's flag this costs ONE
+            // ATLAS REGION PER INSTANCE — each instance sits in different world
+            // space and receives a different bounce, so they cannot share one.
+            // The count is worth showing next to the checkbox: it is the number
+            // the atlas budget has to absorb.
+            ImGui::Checkbox("Lightmap Static", &component.LightmapStatic);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Bake indirect lighting for EVERY instance of this batch.\n"
+                                  "Each instance gets its own atlas region, so a large batch needs a\n"
+                                  "large atlas (Scene > Lightmap settings) or instances will be skipped.\n"
+                                  "Requires a re-bake (Scene > Bake Lightmaps) after changes.");
+            }
+            if (component.LightmapStatic)
+            {
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%zu region(s))", component.Instances.size());
+            }
+
             ImGui::Separator();
             ImGui::TextUnformatted("Scatter Brush (MVP)");
             static i32 s_ScatterCount = 100;
@@ -3004,6 +3024,16 @@ namespace OloEngine
             }
 
             ImGui::Checkbox("Visible", &component.m_Visible);
+
+            // Baked GI (issue #867). A model contributes one region per DISTINCT
+            // MeshSource, which for a cached .omesh model is exactly one for the
+            // whole model and for a fresh import is one per mesh.
+            ImGui::Checkbox("Lightmap Static", &component.m_LightmapStatic);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Bake this model's indirect lighting into the scene lightmap.\n"
+                                  "Requires a re-bake (Scene > Bake Lightmaps) after changes.");
+            }
 
             // Import model from file
             if (ImGui::Button("Import Model...##ModelComponent"))
@@ -7595,13 +7625,15 @@ namespace OloEngine
                         s_BakeProgress = 0.0f;
 
                         // The SAME static set the scene lightmap bakes
-                        // (EditorLayer::StartLightmapBake): geometry is gated
-                        // on MeshComponent::m_LightmapStatic; lights are
-                        // gathered unconditionally by AddScene.
+                        // (EditorLayer::BakeLightmaps): the shared receiver
+                        // gather, which since issue #867 covers instanced and
+                        // model receivers as well as MeshComponent. Going
+                        // through it rather than re-writing the predicate is
+                        // the point — a probe bake tracing a different world
+                        // than the lightmap bake would disagree with it
+                        // photometrically for no visible reason.
                         PathTracing::ReferenceSceneBuilder builder;
-                        builder.AddScene(*m_Context, [](Entity meshEntity)
-                                         { return meshEntity.template HasComponent<MeshComponent>() &&
-                                                  meshEntity.template GetComponent<MeshComponent>().m_LightmapStatic; });
+                        builder.AddLightmapReceivers(*m_Context, GatherLightmapReceivers(*m_Context));
 
                         bool baked = false;
                         auto asset = Ref<LightProbeVolumeAsset>::Create();

@@ -68,6 +68,7 @@
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
 #include "OloEngine/Scene/SceneLightmap.h"
+#include "OloEngine/Scene/SceneLightmapGather.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/InputActionSerializer.h"
@@ -5741,28 +5742,30 @@ namespace OloEngine
             return;
         }
 
-        // ── Gather every lightmap-static entity (game thread — reads the ECS) ──
-        std::vector<LightmapBakeInput> inputs;
-        {
-            auto view = scene->GetAllEntitiesWith<IDComponent, MeshComponent>();
-            for (auto entity : view)
-            {
-                const auto& mesh = view.get<MeshComponent>(entity);
-                if (!mesh.m_LightmapStatic || !mesh.m_MeshSource || mesh.m_MeshSource->GetVertices().IsEmpty())
-                {
-                    continue;
-                }
-                LightmapBakeInput input;
-                input.EntityUUID = static_cast<u64>(view.get<IDComponent>(entity).ID);
-                input.Mesh = mesh.m_MeshSource;
-                input.WorldTransform = scene->GetWorldTransform(entity);
-                inputs.push_back(std::move(input));
-            }
-        }
-        if (inputs.empty())
+        // ── Gather every lightmap-static RECEIVER (game thread — reads the ECS) ──
+        //
+        // One shared gather (issue #867) feeds the bake inputs, the reference
+        // world below, the runtime's self-healing re-unwrap and the bake key. A
+        // receiver is (entity, sub-key): one per MeshComponent, one PER INSTANCE
+        // of an InstancedMeshComponent, and one per distinct MeshSource of a
+        // ModelComponent.
+        const std::vector<LightmapReceiver> receivers = GatherLightmapReceivers(*scene);
+        if (receivers.empty())
         {
             OLO_CORE_WARN("Lightmap bake: no entities are marked Lightmap Static — nothing to bake");
             return;
+        }
+
+        std::vector<LightmapBakeInput> inputs;
+        inputs.reserve(receivers.size());
+        for (const LightmapReceiver& receiver : receivers)
+        {
+            LightmapBakeInput input;
+            input.EntityUUID = static_cast<u64>(receiver.EntityUUID);
+            input.SubKey = receiver.SubKey;
+            input.Mesh = receiver.Mesh;
+            input.WorldTransform = receiver.WorldTransform;
+            inputs.push_back(std::move(input));
         }
 
         auto& lmSettings = scene->GetLightmapSettings();
@@ -5785,22 +5788,38 @@ namespace OloEngine
         // picks up the seam-split vertex data while the bake runs. Non-const
         // iteration on purpose: Ref<T> propagates const through operator->,
         // and Build() mutates the mesh.
-        for (auto& input : inputs)
+        // Many inputs can share one MeshSource (every instance of a batch does),
+        // and Build() is idempotent, so the repeats are wasted work rather than
+        // a correctness problem — dedup anyway, because a 10k-instance batch
+        // would otherwise re-upload the same VAO ten thousand times.
         {
-            input.Mesh->Build();
+            std::unordered_set<const MeshSource*> built;
+            for (auto& input : inputs)
+            {
+                if (built.insert(input.Mesh.Raw()).second)
+                {
+                    input.Mesh->Build();
+                }
+            }
         }
 
         // The bake key is computed AFTER the unwrap on purpose: the unwrap
         // changes vertex counts, and the key must describe the state the
         // runtime will re-derive at load (the resolve re-unwraps missing UV2
         // streams deterministically before ITS key check).
-        bakeSettings.BakeKey = SceneLightmapRuntime::ComputeBakeKey(*scene, lmSettings);
+        // Over the SAME receiver list, not a fresh gather: the two must agree,
+        // and re-walking would also repeat the O(scene) instance scan.
+        bakeSettings.BakeKey = SceneLightmapRuntime::ComputeBakeKey(*scene, lmSettings, receivers);
 
         // ── Capture the reference world (game thread — reads ECS + mesh data) ──
+        //
+        // From the SAME receiver list the bake consumes, not from a predicate
+        // over MeshComponent: an instanced or virtual receiver has no
+        // MeshComponent to match, so the old predicate would have baked those
+        // surfaces against a world they were missing from — no occlusion, no
+        // bounce, and nothing to say so.
         PathTracing::ReferenceSceneBuilder builder;
-        builder.AddScene(*scene, [](Entity entity)
-                         { return entity.HasComponent<MeshComponent>() &&
-                                  entity.GetComponent<MeshComponent>().m_LightmapStatic; });
+        builder.AddLightmapReceivers(*scene, receivers);
         auto world = std::make_shared<PathTracing::ReferenceScene>(builder.Build(PathTracing::ReferenceSceneBuildOptions{}));
 
         // ── Stage 2 in the background: the texel bake reads only `prepared`

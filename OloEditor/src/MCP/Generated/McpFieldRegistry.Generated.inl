@@ -420,6 +420,7 @@ registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "MaxPlayers", MaxPlaye
 
 // InstancedMeshComponent
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "Primitive", Primitive));
+registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "LightmapStatic", LightmapStatic));
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "PlacementAssetHandle", PlacementAssetHandle));
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "FrustumCullPerInstance", FrustumCullPerInstance));
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "CastShadows", CastShadows));
@@ -513,6 +514,7 @@ registry.push_back(OLO_GFW_FIELD(MeshComponent, "LightmapStatic", m_LightmapStat
 // ModelComponent
 registry.push_back(OLO_GFW_FIELD(ModelComponent, "FilePath", m_FilePath));
 registry.push_back(OLO_GFW_FIELD(ModelComponent, "Visible", m_Visible));
+registry.push_back(OLO_GFW_FIELD(ModelComponent, "LightmapStatic", m_LightmapStatic));
 
 // MorphTargetComponent
 registry.push_back(OLO_GFW_FIELD(MorphTargetComponent, "WasMorphActive", WasMorphActive));

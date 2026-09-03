@@ -21,6 +21,7 @@
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Task/ParallelFor.h"
 
+#include <algorithm>
 #include <numeric>
 
 #include <atomic>
@@ -816,6 +817,46 @@ namespace OloEngine
                 ids.push_back(instances[idx].EntityID);
             frameBuffer.WriteEntityIDs(entityIDOffset, ids.data(), visibleCount);
             cmd->entityIDBufferOffset = entityIDOffset;
+        }
+
+        // Per-instance baked lightmap regions (issue #867). The authored
+        // InstanceData already carried a LightmapScaleOffset lane and the
+        // dispatcher already reads one per instance
+        // (CommandDispatch::DrawMeshInstancedCommand), but nothing ever
+        // allocated the stream in between — so every instanced draw resolved to
+        // the all-zero "no lightmap" sentinel however carefully the region was
+        // authored. This is that missing hop.
+        //
+        // Allocated only when some surviving instance actually has a region:
+        // the sentinel costs nothing downstream, and a foliage batch of 10k
+        // unbaked instances should not pay a 160 KB frame allocation to say so.
+        // Rides the generic vec4 (Colors) stream under its own offset, exactly
+        // as CommandBucket::BatchCommands does for the batched single-draw case.
+        const bool anyLightmapRegion =
+            std::any_of(visibleIndices.begin(), visibleIndices.end(),
+                        [&instances](u32 idx)
+                        { return instances[idx].LightmapScaleOffset.x > 0.0f; });
+        if (anyLightmapRegion)
+        {
+            if (u32 lightmapOffset = frameBuffer.AllocateColors(visibleCount); lightmapOffset != UINT32_MAX)
+            {
+                std::vector<glm::vec4> regions;
+                regions.reserve(visibleCount);
+                for (u32 idx : visibleIndices)
+                    regions.push_back(instances[idx].LightmapScaleOffset);
+                frameBuffer.WriteColors(lightmapOffset, regions.data(), visibleCount);
+                cmd->lightmapRegionBufferOffset = lightmapOffset;
+            }
+            else
+            {
+                // Its own warning rather than sharing the tint stream's: a
+                // dropped tint is a cosmetic regression, a dropped region is
+                // "this batch silently lost its baked GI".
+                OLO_CORE_WARN_TAG("Renderer3D",
+                                  "instance vec4 stream exhausted — {} instances lose their baked lightmap "
+                                  "regions this frame and fall back to probes/IBL",
+                                  visibleCount);
+            }
         }
 
         if (overlayRoute)
@@ -1987,6 +2028,15 @@ namespace OloEngine
                 }
                 if (packet)
                 {
+                    // Baked lightmap region (issue #867), patched before
+                    // submission — the same shape and the same `.x > 0` gate
+                    // Scene.cpp's SubmitMeshSourceClassic uses. Animated draws
+                    // are deliberately excluded: skinned geometry is never
+                    // lightmap-static, and DrawAnimatedMeshCommand has no lane.
+                    if (!desc.IsAnimated && desc.LightmapScaleOffset.x > 0.0f)
+                    {
+                        packet->GetCommandData<DrawMeshCommand>()->lightmapScaleOffset = desc.LightmapScaleOffset;
+                    }
                     SubmitPacket(packet);
                     ++totalSubmitted;
                 }
@@ -2075,6 +2125,14 @@ namespace OloEngine
 
                 if (packet)
                 {
+                    // Same patch as the serial path above; the two must agree,
+                    // and a batch that merely crossed the parallel threshold
+                    // silently losing its baked GI is exactly the kind of split
+                    // this repo keeps paying for.
+                    if (!desc.IsAnimated && desc.LightmapScaleOffset.x > 0.0f)
+                    {
+                        packet->GetCommandData<DrawMeshCommand>()->lightmapScaleOffset = desc.LightmapScaleOffset;
+                    }
                     Renderer3D::SubmitPacketParallel(stats.Context, packet);
                     ++stats.Submitted;
                 }
