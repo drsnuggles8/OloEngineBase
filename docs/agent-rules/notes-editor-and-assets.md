@@ -246,3 +246,22 @@ DLL is never built, `ScriptEngine::Init` fails to load it, logs
 session. That is graceful degradation, not a crash, so a verification loop that only checks for a
 rendered window misses it. If you see that log line, check the edge before diagnosing anything else.
 Found by a `/start-work` runtime smoke test, not a tracked issue.
+
+## `.ply` already imports as a mesh, so a Gaussian-splat PLY silently becomes point geometry
+
+**Rule:** before adding an importer for a format, grep `AssetExtensions.cpp` for the extension.
+Registering a *second* meaning for one already in `s_ExtensionMap` is not a new capability, it is a
+conflict — and the existing meaning wins silently, at import time, with no error anywhere.
+
+`s_ExtensionMap["ply"] = AssetType::MeshSource` (added so the multi-million-triangle scanning-repo
+meshes could be imported at all). A 3D Gaussian-splat `.ply` is also a `.ply`: drop one into the
+Content Browser today and assimp reads it as a point mesh, keeping `x y z` and discarding the
+covariance, opacity and spherical harmonics that are the entire asset. The result imports without a
+warning and renders as nothing, because a mesh with no faces has no draw.
+
+Found during the #971 splat viability spike, whose importer therefore stays out of the asset
+registry entirely — see
+[ADR 0018](../adr/0018-gaussian-splats-are-an-offline-import-not-a-runtime-asset-type.md). The
+general shape applies to any format with a shared container extension: `.ply`, `.json`, `.bin`,
+`.dat`. If both meanings must coexist, the discriminator has to be file CONTENT (for splat PLYs, an
+`f_dc_0` property in the vertex element), not the extension.

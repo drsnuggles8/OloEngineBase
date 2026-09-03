@@ -182,6 +182,8 @@ add_executable(OloEngine-Tests
 		Rendering/GPUFrustumCullParityTest.cpp
 		Rendering/GPUReadbackStatsLayoutTest.cpp
 		Rendering/GPUPrefixSumTest.cpp
+		Rendering/Splat/GaussianSplatPipelineTest.cpp
+		Rendering/Splat/GaussianSplatVisualEvidenceTest.cpp
 		Rendering/GPUPrefixSumPerfProbe.cpp
 		Rendering/GPUHashMapTest.cpp
 		Rendering/GPUPagedCacheTest.cpp
