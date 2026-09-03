@@ -131,6 +131,30 @@ namespace OloEngine::LowLevelTasks
       private:
         static thread_local FTlsValuesHolder s_TlsValuesHolder;
 
+        // Lifetime signal for TryGetTlsValues(), kept DELIBERATELY SEPARATE from
+        // s_TlsValuesHolder. A raw pointer is trivially destructible, so it gets
+        // no dynamic initialisation and no `dynamic atexit destructor` of its own:
+        // its storage stays valid for the whole thread lifetime, and reading it
+        // after the holder has been destroyed is well-defined.
+        //
+        // The holder's own TlsValues member cannot serve this purpose, however
+        // carefully its dtor zeroes it -- reading a member of an object whose
+        // destructor has already run is UB, and "the storage bits remain readable"
+        // is an assumption about codegen rather than a guarantee. It held until
+        // clang 23 reordered __dyn_tls_dtor against the atexit destructors on
+        // Windows, at which point ~FScheduler's StopWorkers() read a DANGLING
+        // non-null pointer out of the destroyed holder and wrote through it:
+        //
+        //   WRITE of size 8 ... FScheduler::StopWorkers -> ~FScheduler
+        //                       -> dynamic atexit destructor for 's_Singleton'
+        //   freed by       ... ~FTlsValuesHolder
+        //                       -> dynamic atexit destructor for 's_TlsValuesHolder'
+        //                       -> __dyn_tls_dtor
+        //
+        // one heap-use-after-free per test process, in 73 suites at once. See
+        // docs/agent-rules/thread-local-lifetime-at-exit.md.
+        static thread_local FTlsValues* s_TlsValuesPtr;
+
       public:
         bool IsWorkerThread() const;
 
@@ -140,9 +164,10 @@ namespace OloEngine::LowLevelTasks
         static FTlsValues& GetTlsValuesRef();
         // Null-tolerant accessor for use during shutdown paths that may run
         // from a static destructor on the main thread, AFTER the thread_local
-        // s_TlsValuesHolder has already been destroyed (its dtor zeroes out
-        // TlsValues, but the storage bits remain readable). Hot paths should
-        // keep using GetTlsValuesRef() — null TLS there indicates a real bug.
+        // s_TlsValuesHolder has already been destroyed. It reads s_TlsValuesPtr,
+        // not the holder — see the comment there for why that distinction is the
+        // whole point and not a stylistic one. Hot paths should keep using
+        // GetTlsValuesRef() — null TLS there indicates a real bug.
         static FTlsValues* TryGetTlsValues() noexcept;
     };
 
