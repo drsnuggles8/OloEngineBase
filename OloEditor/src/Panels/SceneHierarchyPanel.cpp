@@ -7220,7 +7220,21 @@ namespace OloEngine
             ImGui::DragFloat("Error Threshold (px)", &component.m_ErrorThresholdPixels, 0.05f, 0.05f, 64.0f, "%.2f");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Screen-space error target for the cluster LOD cut; lower = more detail");
-            ImGui::Checkbox("Cast Shadows", &component.m_CastShadows); });
+            ImGui::Checkbox("Cast Shadows", &component.m_CastShadows);
+
+            // Baked GI (issue #867). One virtual mesh is one MeshSource and so
+            // one unwrap and one atlas region; the uv2 reaches the cluster
+            // raster through the vertex arena's packed tail, and BOTH sides of
+            // the virtual-geometry master switch sample it, so the toggle stays
+            // an honest A/B.
+            ImGui::Checkbox("Lightmap Static", &component.m_LightmapStatic);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Bake this mesh's indirect lighting into the scene lightmap.
+"
+                                  "The cluster DAG must be cooked AFTER the bake's unwrap to carry UV2 —
+"
+                                  "re-bake (Scene > Bake Lightmaps), which re-registers the mesh."); } });
 
         DrawComponent<FluidComponent>("Fluid", entity, [](auto& component)
                                       {

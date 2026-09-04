@@ -68,6 +68,7 @@
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
 #include "OloEngine/Scene/SceneLightmap.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Scene/SceneLightmapGather.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Core/InputActionManager.h"
@@ -5792,6 +5793,14 @@ namespace OloEngine
         // and Build() is idempotent, so the repeats are wasted work rather than
         // a correctness problem — dedup anyway, because a 10k-instance batch
         // would otherwise re-upload the same VAO ten thousand times.
+        //
+        // The unwrap also invalidates any cooked cluster DAG for that mesh
+        // (issue #867). A virtual mesh's DAG is built when the mesh is first
+        // registered, which is normally BEFORE the bake ever runs — so the
+        // cooked geometry carries no UV2, and the registry's IsRegistered()
+        // fast path would keep serving it for the process lifetime. Without
+        // this the virtual path would bake regions it can never sample, which
+        // is silent: the frame just looks unbaked.
         {
             std::unordered_set<const MeshSource*> built;
             for (auto& input : inputs)
@@ -5799,6 +5808,10 @@ namespace OloEngine
                 if (built.insert(input.Mesh.Raw()).second)
                 {
                     input.Mesh->Build();
+                    if (const AssetHandle handle = input.Mesh->GetHandle(); static_cast<u64>(handle) != 0)
+                    {
+                        VirtualMeshRegistry::Get().Invalidate(handle);
+                    }
                 }
             }
         }

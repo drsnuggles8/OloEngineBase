@@ -51,6 +51,32 @@ struct VirtualVertexOutputs {
     vec4 ClipPosPrev;
 };
 
+// The instance's baked lightmap uv2 for one vertex, or (0,0) (issue #867).
+//
+// TWO guards, and both are load-bearing rather than optimisations:
+//  * `u_VirtualLightmapUVBase != 0u` — this arena has no uv2 tail at all, so
+//    the element index would land past the buffer. On Vulkan that is a
+//    buffer-device-address read with no bounds, i.e. device loss, which is the
+//    exact incident ADR 0011 amendment (89) records for the classic path.
+//  * `LightmapScaleOffset.x > 0.0` — this INSTANCE has no baked region. Its
+//    mesh may well be a cook that predates its unwrap, so the tail holds some
+//    other mesh's charts at these indices; the C++ side refuses to publish a
+//    region in that case, and this is the shader half of the same contract.
+//
+// Kept next to TransformVirtualVertex because both raster pipelines must agree
+// on it — the mesh-vs-MDI zero-differing-pixels parity test rests on this file
+// being the only spelling.
+vec2 FetchVirtualLightmapUV(VirtualInstance inst, uint globalVertexIndex)
+{
+    if (u_VirtualLightmapUVBase == 0u || inst.LightmapScaleOffset.x <= 0.0)
+    {
+        return vec2(0.0);
+    }
+    uint element = oloVirtualLightmapUVElement(globalVertexIndex);
+    return oloVirtualLightmapUVLane(vertices[element].PositionU, vertices[element].NormalV,
+                                    globalVertexIndex);
+}
+
 VirtualVertexOutputs TransformVirtualVertex(VirtualInstance inst, VirtualGpuVertex vert)
 {
     VirtualVertexOutputs o;

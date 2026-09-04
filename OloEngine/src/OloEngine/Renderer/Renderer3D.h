@@ -342,7 +342,8 @@ namespace OloEngine
         [[nodiscard]] static bool SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
                                                     const glm::mat4& modelMatrix, const Material* overrideMaterial,
                                                     const Material& defaultMaterial, i32 entityID,
-                                                    f32 errorThresholdPixels, bool castShadows);
+                                                    f32 errorThresholdPixels, bool castShadows,
+                                                    const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f));
         // Flatten a Material into the exact POD record the frame material table
         // uploads for a draw (factors, alpha mode/cutoff, and the resolved GL
         // texture id per slot, incl. the global-IBL fallback). Public because it

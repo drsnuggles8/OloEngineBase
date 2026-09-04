@@ -1197,6 +1197,7 @@ registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "MeshSource", m_MeshSourc
 registry.push_back(OLO_GFW_FIELD_RANGE(VirtualMeshComponent, "ErrorThresholdPixels", m_ErrorThresholdPixels, OLO_GFW_BOUND(0.05f), OLO_GFW_BOUND(64.0f)));
 registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "CastShadows", m_CastShadows));
+registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "LightmapStatic", m_LightmapStatic));
 
 // VisualScriptComponent
 registry.push_back(OLO_GFW_FIELD(VisualScriptComponent, "Graph", m_Graph));

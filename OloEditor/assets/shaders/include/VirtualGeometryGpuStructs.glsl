@@ -48,7 +48,7 @@ struct VirtualCluster {
     uint _Pad2;
 };
 
-// Mirrors OloEngine::VirtualInstanceGpuRecord (224 B)
+// Mirrors OloEngine::VirtualInstanceGpuRecord (240 B)
 struct VirtualInstance {
     mat4 Transform;      // render-origin-relative
     mat4 PrevTransform;
@@ -61,6 +61,10 @@ struct VirtualInstance {
     float ErrorThresholdPixels;
     uint CommandBase;
     uint Flags;
+    // Baked lightmap atlas region (issue #867): uv2 * xy + zw with the atlas
+    // page in the integer part of .z. All zeros = no lightmap; every consumer
+    // gates on the .x scale lane, never on the colour.
+    vec4 LightmapScaleOffset;
 };
 
 // Mirrors OloEngine::VirtualVisibleCluster (16 B)

@@ -1070,6 +1070,7 @@ case 2502968764u: // VirtualMeshComponent
     comp.m_ErrorThresholdPixels = std::clamp(comp.m_ErrorThresholdPixels, static_cast<f32>(0.05f), static_cast<f32>(64.0f));
     if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
     if (!SceneBinIO::Read(reader, comp.m_CastShadows)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_LightmapStatic)) return false;
     break;
 }
 case 1559439708u: // WeaponComponent

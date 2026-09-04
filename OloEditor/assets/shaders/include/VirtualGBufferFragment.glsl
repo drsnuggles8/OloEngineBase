@@ -87,6 +87,13 @@ layout(location = 3) in vec4 v_ClipPosCurr;
 layout(location = 4) in vec4 v_ClipPosPrev;
 layout(location = 5) flat in int v_EntityID;
 layout(location = 6) flat in uint v_DbgSlot;
+layout(location = 7) in vec2 v_TexCoord2;              // baked lightmap uv2 (issue #867)
+layout(location = 8) flat in vec4 v_LightmapScaleOffset; // its atlas region; all-zero = no lightmap
+
+// The atlas sampler + the sentinel-gated decode, shared verbatim with the
+// classic path's PBR_GBuffer.glsl. Slot-based, no OLO_BINDLESS token — see the
+// include's own header.
+#include "LightmapSampling.glsl"
 
 layout(location = 0) out vec4 o_GBufferAlbedo;    // RGBA8       albedo + metallic
 layout(location = 1) out vec4 o_GBufferNormal;    // RGBA16F     octNormal + roughness + ao
@@ -151,7 +158,16 @@ void main()
     o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlags(u_PBRModel)); // flag-lane layout: see oloEncodeGBufferPbrFlags (#975)
     o_GBufferVelocity = velocity;
     o_GBufferEntityID = v_EntityID;
-    o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
+    // Baked lightmap irradiance into RT5 (issues #865, #867). This is the last
+    // stage that still holds BOTH the uv2 and the per-instance atlas region —
+    // the deferred lighting pass has neither — which is why RT5 carries the
+    // resolved irradiance E rather than the atlas UV.
+    //
+    // sampleLightmapIrradiance returns vec4(0) whenever the scene has no bake,
+    // the region is the all-zero sentinel, or the sampled texel has no
+    // coverage, so this is also the "no baked GI here" every G-Buffer writer
+    // owes the lighting pass.
+    o_GBufferBakedGI = sampleLightmapIrradiance(v_TexCoord2, v_LightmapScaleOffset);
 
     // Debug visualization (no-op unless a debug mode is active). Resolve this
     // fragment's cluster + LOD from the draw's VisibleCluster record.

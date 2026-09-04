@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualLightmapUVPacking.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
 
 #include <glm/geometric.hpp>
@@ -15,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <ranges>
 #include <cstring>
 #include <vector>
 
@@ -146,6 +148,28 @@ namespace OloEngine
                        static_cast<u64>(handle));
     }
 
+    bool VirtualMeshRegistry::MeshHasLightmapUVs(AssetHandle handle) const
+    {
+        // Every PART of the mesh must carry the stream, not merely one: a draw
+        // samples per part, and a part whose cook predates the unwrap would read
+        // the tail region a sibling part wrote. All-or-nothing, like the blob's
+        // own LightmapUVCount validation (issue #867).
+        const MeshParts parts = FindParts(handle);
+        if (!parts.Valid || parts.Count == 0)
+        {
+            return false;
+        }
+        for (u32 i = 0; i < parts.Count; ++i)
+        {
+            const auto& packed = GetEntry(parts.FirstEntry + i).Packed;
+            if (packed.LightmapUVs.empty() || packed.LightmapUVs.size() != packed.Vertices.size())
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     VirtualMeshRegistry::MeshParts VirtualMeshRegistry::FindParts(AssetHandle handle) const
     {
         if (auto it = m_EntryLookup.find(handle); it != m_EntryLookup.end())
@@ -239,6 +263,35 @@ namespace OloEngine
         CopyThroughRing(m_IndexBuffer, slotIndexBase * sizeof(u32),
                         packed.Indices.data() + page.Info.IndexOffset,
                         static_cast<u64>(page.Info.IndexCount) * sizeof(u32));
+
+        // The page's baked lightmap uv2, packed four pairs to a 32-byte element
+        // (issue #867). A page's vertices always start at slot-local index 0,
+        // and m_SlotVertexCapacity is 4-aligned, so the destination element is
+        // exactly `uvBase + slotVertexBase / 4` and the lane of slot-local
+        // vertex i is `i & 3` — no per-page offset math, which is the whole
+        // reason the capacity is rounded.
+        if (m_LightmapUVBaseElement != 0 && packed.LightmapUVs.size() == packed.Vertices.size() &&
+            !packed.LightmapUVs.empty())
+        {
+            // Packed slot-locally from 0, which is legal only because a page's
+            // vertices start at slot-local 0 AND m_SlotVertexCapacity is
+            // 4-aligned — see VirtualLightmapUVPacking.h. The lane of a
+            // slot-local index therefore equals the lane of its global index,
+            // which is what the shader relies on.
+            u32 const packedElements = VirtualLightmapUVElementCount(page.Info.VertexCount);
+            std::vector<VirtualGpuVertex> uvStaging(packedElements);
+            for (u32 v = 0; v < page.Info.VertexCount; ++v)
+            {
+                PackVirtualLightmapUV(uvStaging[VirtualLightmapUVElementOffset(v)], v,
+                                      packed.LightmapUVs[page.Info.VertexOffset + v]);
+            }
+            CopyThroughRing(m_VertexBuffer->GetRHIHandle(),
+                            (static_cast<u64>(m_LightmapUVBaseElement) +
+                             VirtualLightmapUVElementOffset(static_cast<u32>(slotVertexBase))) *
+                                sizeof(VirtualGpuVertex),
+                            uvStaging.data(),
+                            static_cast<u64>(packedElements) * sizeof(VirtualGpuVertex));
+        }
 
         // Rebase the page's cluster records onto the live slot and publish them
         // (contiguous range in the pooled cluster buffer).
@@ -374,7 +427,12 @@ namespace OloEngine
         // Slot arenas: uniform slot capacity = largest page; slot count from the
         // budget (0 = eager: every page resident, no streaming pressure). A
         // budget below pinned + headroom cannot make progress — clamp with a warn.
-        m_SlotVertexCapacity = std::max(maxPageVertices, 1u);
+        // Rounded UP to a multiple of 4 (issue #867). The uv2 tail packs four
+        // pairs per 32-byte element, so a slot's uv2 sub-region is exactly
+        // cap/4 elements and `slot * cap` is always 4-aligned — which is what
+        // lets the shader turn a global vertex index into (element, lane) with
+        // no per-page fixup. Rounding costs at most 3 unused vertices a slot.
+        m_SlotVertexCapacity = (std::max(maxPageVertices, 1u) + 3u) & ~3u;
         m_SlotIndexCapacity = std::max(maxPageIndices, 1u);
         auto const totalPages = static_cast<u32>(m_Pages.size());
         u32 slotCount = (m_BudgetSlotsSetting == 0) ? totalPages
@@ -433,7 +491,21 @@ namespace OloEngine
         // NVIDIA place them for CPU-write access and log, every frame:
         //   "Buffer usage warning: ... the GPU is the primary producer and consumer ...
         //    GL_DYNAMIC_DRAW is inconsistent with this usage pattern. Try GL_DYNAMIC_COPY"
-        u64 const vertexArenaBytes = static_cast<u64>(m_SlotVertexCapacity) * slotCount * sizeof(VirtualGpuVertex);
+        u64 const vertexElements = static_cast<u64>(m_SlotVertexCapacity) * slotCount;
+
+        // The baked lightmap uv2 tail (issue #867) — see MeshHasLightmapUVs in
+        // the header for why it lives inside this buffer rather than getting a
+        // binding. Allocated only when some registered mesh carries UV2, so an
+        // unbaked scene's arena is byte-for-byte what it was before.
+        const bool anyLightmapUVs =
+            std::ranges::any_of(m_Entries, [](const MeshEntry& entry)
+                                { return entry.Packed.LightmapUVs.size() == entry.Packed.Vertices.size() &&
+                                         !entry.Packed.LightmapUVs.empty(); });
+        u64 const lightmapElements =
+            anyLightmapUVs ? VirtualLightmapUVElementCount(static_cast<u32>(vertexElements)) : 0u;
+        m_LightmapUVBaseElement = anyLightmapUVs ? static_cast<u32>(vertexElements) : 0u;
+
+        u64 const vertexArenaBytes = (vertexElements + lightmapElements) * sizeof(VirtualGpuVertex);
         if (!m_VertexBuffer || m_VertexBuffer->GetSize() < vertexArenaBytes)
         {
             m_VertexBuffer = StorageBuffer::Create(static_cast<u32>(vertexArenaBytes),
@@ -1036,6 +1108,12 @@ namespace OloEngine
                 gpu.GroupBase = entry.GroupBase;
                 gpu.EntityID = submission.EntityID;
                 gpu.ErrorThresholdPixels = submission.ErrorThresholdPixels;
+                // Baked lightmap atlas region (issue #867). Per instance, not
+                // per part: one VirtualMeshComponent is one MeshSource and so
+                // one unwrap and one region, and the software-raster resolve
+                // reaches its surface through the instance index rather than
+                // through a draw call.
+                gpu.LightmapScaleOffset = submission.LightmapScaleOffset;
                 gpu.CommandBase = m_TotalFrameClusterCount;
 
                 // Conservative world-space sphere scaling + cone validity
@@ -1099,6 +1177,7 @@ namespace OloEngine
         m_GroupBuffer = nullptr;
         m_GroupStatesBuffer = nullptr;
         m_VertexBuffer = nullptr;
+        m_LightmapUVBaseElement = 0;
         m_InstanceBuffer = nullptr;
         m_CommandBuffer = nullptr;
         m_ArgsBuffer = nullptr;

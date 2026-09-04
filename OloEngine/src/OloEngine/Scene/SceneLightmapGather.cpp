@@ -186,27 +186,51 @@ namespace OloEngine
             }
         }
 
-        // -- VirtualMeshComponent: deliberately NOT gathered (issue #867) --
+        // -- VirtualMeshComponent (issue #867) - one MeshSource, sub-key 0 --
         //
-        // A virtual mesh cannot sample the lightmap yet. Its clusters rasterize
-        // through their own 32-byte vertex format, so the UV2 needs a second
-        // per-vertex buffer, and the SSBO binding namespace is FULL — every
-        // number below the hard Mesa ceiling of 80 is claimed, and the one
-        // reusable slot (SSBO_BONE_PULL 63) is the Vulkan vertex-pull stream.
-        // ShaderBindingLayout.h asks for that to be an issue-level decision.
+        // One virtual mesh is one MeshSource and therefore one unwrap and one
+        // atlas region, so unlike the instanced and model receivers this one
+        // never broke the 1:1 model at all. What blocked it was purely getting
+        // the uv2 to the GPU; it now rides the cluster vertex arena's packed
+        // tail (VirtualMeshRegistry::GetLightmapUVBaseElement).
         //
-        // Gathering these entities anyway would BAKE regions nothing samples:
-        // atlas space spent, page pressure raised, and a scene that looks
-        // identical. And wiring only the classic fallback (which would sample
-        // one happily) would make baked GI appear and disappear with
-        // RendererSettings::VirtualGeometryEnabled — the trap #867 calls out by
-        // name. So neither side samples, and nothing is baked for it.
-        //
-        // The cook-side half of the receiver IS done and tested: MeshSource UV2
-        // now survives cluster building and the LOD simplifier's boundary locks
-        // (VirtualMeshBuilder's 7-attribute set and widened protect window), so
-        // a virtual mesh sharing its MeshSource with a lightmap-static
-        // MeshComponent already carries correct UV2 through the DAG.
+        // Both sides of RendererSettings::VirtualGeometryEnabled sample the same
+        // region, which is the point: the toggle exists to be an honest A/B
+        // ("same geometry, same materials, only the renderer differs") and baked
+        // GI that appeared and disappeared with it would destroy that.
+        {
+            auto view = scene.GetAllEntitiesWith<IDComponent, VirtualMeshComponent>();
+            for (auto handle : view)
+            {
+                const auto& virtualMesh = view.get<VirtualMeshComponent>(handle);
+                if (!virtualMesh.m_LightmapStatic || !virtualMesh.m_Enabled ||
+                    static_cast<u64>(virtualMesh.m_MeshSource) == 0)
+                {
+                    continue;
+                }
+                Ref<MeshSource> source = AssetManager::GetAsset<MeshSource>(virtualMesh.m_MeshSource);
+                if (!IsBakeableMesh(source))
+                {
+                    continue;
+                }
+                // An entity may carry BOTH a MeshComponent and an enabled
+                // VirtualMeshComponent (Scene.cpp's ownership skip decides which
+                // one draws). Either way it is ONE entity with sub-key 0, so the
+                // mesh loop above must not have claimed it too - a duplicate pair
+                // would break the packing sort's total order.
+                const UUID uuid = view.get<IDComponent>(handle).ID;
+                const bool alreadyGathered =
+                    std::any_of(receivers.begin(), receivers.end(), [uuid](const LightmapReceiver& r)
+                                { return r.EntityUUID == uuid && r.SubKey == 0; });
+                if (alreadyGathered)
+                {
+                    continue;
+                }
+                receivers.push_back(LightmapReceiver{ uuid, 0, handle, source, scene.GetWorldTransform(handle),
+                                                      EntityMaterialOverride(scene, handle),
+                                                      LightmapReceiverKind::Virtual });
+            }
+        }
 
         // Deterministic order. Registry iteration order is not a contract and
         // the bake key, the atlas layout and every parity test are - so the sort

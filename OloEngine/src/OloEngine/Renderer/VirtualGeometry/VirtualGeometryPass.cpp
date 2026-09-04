@@ -606,6 +606,10 @@ namespace OloEngine
                 drawInfo.CommandBase = segmentBase;
                 drawInfo.ArgsSlot = static_cast<u32>(argsInstanceBase + i);
                 drawInfo.MaxClusters = instances[i].Gpu.ClusterCount;
+                // Where the baked lightmap uv2 tail starts inside the vertex
+                // arena (issue #867); 0 when this arena carries none, which is
+                // the shaders' don't-fetch signal.
+                drawInfo.LightmapUVBase = registry.GetLightmapUVBaseElement();
                 m_DrawInfoUBO->SetData(&drawInfo, sizeof(drawInfo));
 
                 // Two-sided materials must not backface-cull. Foliage is a single sheet of quads
@@ -802,6 +806,8 @@ namespace OloEngine
                     drawInfo.CommandBase = instances[i].Gpu.CommandBase;
                     drawInfo.ViewportWidth = registry.GetVisbufferWidth();
                     drawInfo.ViewportHeight = registry.GetVisbufferHeight();
+                    // The resolve reconstructs uv2 from the same tail (issue #867).
+                    drawInfo.LightmapUVBase = registry.GetLightmapUVBaseElement();
                     m_DrawInfoUBO->SetData(&drawInfo, sizeof(drawInfo));
 
                     fullscreen->Bind();

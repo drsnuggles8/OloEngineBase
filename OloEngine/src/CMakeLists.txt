@@ -907,6 +907,7 @@
 
 		"OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMesh.cpp"
+		"OloEngine/Renderer/VirtualGeometry/VirtualLightmapUVPacking.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.cpp"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"

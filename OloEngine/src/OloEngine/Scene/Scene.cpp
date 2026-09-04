@@ -10061,42 +10061,33 @@ namespace OloEngine
                 const i32 entityID = static_cast<i32>(std::to_underlying(entity));
                 const auto stableEntityId = GetStableGPUSceneEntityId(m_Registry, entity);
 
-                // NO baked lightmap region is passed here, on EITHER side of the
-                // master switch, and that is deliberate (issue #867).
+                // Baked lightmap region (issue #867). One VirtualMeshComponent is
+                // one MeshSource and therefore one unwrap and one region, so the
+                // sub-key is 0 — the same key the classic path uses.
                 //
-                // The classic fallback below would sample one happily — it is the
-                // very renderer that supports lightmaps. The GPU-driven virtual
-                // path cannot yet: its clusters rasterize through their own
-                // 32-byte vertex format, so the lightmap UV2 needs a second
-                // per-vertex buffer, and the SSBO binding namespace is FULL
-                // (ShaderBindingLayout.h: every value below the hard Mesa ceiling
-                // of 80 is claimed, and the one reusable slot, SSBO_BONE_PULL 63,
-                // is the Vulkan vertex-pull stream). Acquiring a binding is the
-                // issue-level decision that header asks for, not a drive-by.
-                //
-                // So: wiring ONLY the fallback would make baked GI appear and
-                // disappear with RendererSettings::VirtualGeometryEnabled,
-                // destroying the toggle's whole value as an A/B ("same geometry,
-                // same material-resolution rule, the only difference is the
-                // renderer"). #867 says so explicitly. Either both sides sample
-                // the lightmap or neither does — so for now, neither.
-                //
-                // The cook-side half IS done: MeshSource UV2 survives cluster
-                // building and the LOD simplifier's boundary locks
-                // (VirtualMeshBuilder's 7-attribute set and its widened protect
-                // window), which is what #867 named as this receiver's blocker.
-                // What remains is the per-vertex buffer binding and the four
-                // shaders that would read it.
+                // BOTH sides of the master switch read it, and that is the whole
+                // point. Wiring only the classic fallback would make baked GI
+                // appear and disappear with RendererSettings::VirtualGeometryEnabled,
+                // destroying that toggle's value as an A/B ("same geometry, same
+                // material-resolution rule, the only difference is the renderer").
+                // Either both sides sample the lightmap or neither does.
+                glm::vec4 lightmapScaleOffset(0.0f);
+                if (virtualMesh.m_LightmapStatic && m_LightmapRuntime && m_Registry.all_of<IDComponent>(entity))
+                {
+                    lightmapScaleOffset = m_LightmapRuntime->GetScaleOffset(m_Registry.get<IDComponent>(entity).ID);
+                }
 
                 // Master switch off (RendererSettings::VirtualGeometryEnabled): draw the very
                 // same MeshSource through the classic mesh path instead of dropping it. Same
-                // geometry, same material-resolution rule, same shadow-caster rule — the only
-                // difference is the renderer. That is what makes the toggle a usable A/B.
+                // geometry, same material-resolution rule, same shadow-caster rule, same baked
+                // lightmap region — the only difference is the renderer. That is what makes the
+                // toggle a usable A/B.
                 if (!virtualGeometryEnabled)
                 {
                     SubmitMeshSourceClassic(meshSource, worldTransform, overrideMaterial, entityID, stableEntityId,
                                             /*lodGroup*/ nullptr,
-                                            meshHasActiveShadows && virtualMesh.m_CastShadows);
+                                            meshHasActiveShadows && virtualMesh.m_CastShadows,
+                                            lightmapScaleOffset);
                     continue;
                 }
 
@@ -10118,7 +10109,8 @@ namespace OloEngine
                 // more than one submission per call.
                 const bool queued = Renderer3D::SubmitVirtualMesh(
                     virtualMesh.m_MeshSource, meshSource, worldTransform, overrideMaterial,
-                    GetDefaultMaterial(), entityID, virtualMesh.m_ErrorThresholdPixels, castsShadow);
+                    GetDefaultMaterial(), entityID, virtualMesh.m_ErrorThresholdPixels, castsShadow,
+                    lightmapScaleOffset);
                 if (queued)
                 {
                     ++vgDiagnostics.Submitted;

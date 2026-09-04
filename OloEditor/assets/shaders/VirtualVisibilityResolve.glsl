@@ -74,7 +74,7 @@ struct VirtualCluster {
     uint Lod; uint _p1; uint _p2;
 };
 
-// Mirrors OloEngine::VirtualInstanceGpuRecord (224 B std430)
+// Mirrors OloEngine::VirtualInstanceGpuRecord (240 B std430)
 struct VirtualInstance {
     mat4 Transform;
     mat4 PrevTransform;
@@ -87,6 +87,10 @@ struct VirtualInstance {
     float ErrorThresholdPixels;
     uint CommandBase;
     uint Flags;
+    // Baked lightmap atlas region (issue #867). Declared even where unused: the
+    // std430 array stride IS the struct size, so omitting it makes every
+    // instance after the first read the previous one's transform.
+    vec4 LightmapScaleOffset;
 };
 
 // Mirrors OloEngine::VirtualGpuVertex (32 B std430)
@@ -111,6 +115,10 @@ layout(std430, binding = 40) readonly buffer VirtualSwList {
     uint _h0; uint _h1; uint _h2;
     VisibleCluster Records[];
 } swList;
+// The atlas sampler + the sentinel-gated decode, shared verbatim with the
+// hardware raster path and with the classic PBR_GBuffer.glsl.
+#include "include/LightmapSampling.glsl"
+
 layout(std430, binding = 41) readonly buffer VirtualVisbuffer { uvec2 pixels[]; }; // .x payload, .y depth bits
 
 layout(std140, binding = 0) uniform CameraMatrices {
@@ -283,6 +291,32 @@ void main()
     vec2 uv2 = vec2(v2.PositionU.w, v2.NormalV.w);
     vec2 uv = uv0 * bPersp.x + uv1 * bPersp.y + uv2 * bPersp.z;
 
+    // Baked lightmap uv2, interpolated with the SAME perspective-correct
+    // weights (issue #867). The software rasterizer has no vertex stage, so
+    // this pass is the only place the virtual path's uv2 can be reconstructed —
+    // and it must land on the same texel the hardware path's varying would, or
+    // a cluster that crosses the software-raster size threshold would change
+    // colour as it crossed.
+    //
+    // Guarded exactly as the hardware path's FetchVirtualLightmapUV is: no uv2
+    // tail in this arena, or no atlas region on this instance, means no fetch —
+    // the element index would otherwise land past the buffer, which on Vulkan is
+    // an unbounded buffer-device-address read (ADR 0011 amendment (89)).
+    vec2 lightmapUV = vec2(0.0);
+    if (u_VirtualLightmapUVBase != 0u && inst.LightmapScaleOffset.x > 0.0)
+    {
+        uint e0 = oloVirtualLightmapUVElement(cluster.VertexBase + i0);
+        uint e1 = oloVirtualLightmapUVElement(cluster.VertexBase + i1);
+        uint e2 = oloVirtualLightmapUVElement(cluster.VertexBase + i2);
+        vec2 lm0 = oloVirtualLightmapUVLane(vertices[e0].PositionU, vertices[e0].NormalV,
+                                            cluster.VertexBase + i0);
+        vec2 lm1 = oloVirtualLightmapUVLane(vertices[e1].PositionU, vertices[e1].NormalV,
+                                            cluster.VertexBase + i1);
+        vec2 lm2 = oloVirtualLightmapUVLane(vertices[e2].PositionU, vertices[e2].NormalV,
+                                            cluster.VertexBase + i2);
+        lightmapUV = lm0 * bPersp.x + lm1 * bPersp.y + lm2 * bPersp.z;
+    }
+
     vec3 bScreenX = ScreenBarycentrics(pixel + vec2(1.0, 0.0), s0, s1, s2) * invW;
     bScreenX /= max(bScreenX.x + bScreenX.y + bScreenX.z, 1e-12);
     vec3 bScreenY = ScreenBarycentrics(pixel + vec2(0.0, 1.0), s0, s1, s2) * invW;
@@ -370,7 +404,11 @@ void main()
     o_GBufferEmissive = vec4(emissive, oloEncodeGBufferPbrFlags(u_PBRModel)); // flag-lane layout: see oloEncodeGBufferPbrFlags (#975)
     o_GBufferVelocity = velocity;
     o_GBufferEntityID = inst.EntityID;
-    o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
+    // Baked lightmap irradiance into RT5 (issues #865, #867) — the same call the
+    // hardware raster's fragment stage makes, on the uv2 interpolated above.
+    // The two paths MUST agree here: VirtualGeometryRasterParity exists because
+    // this shader has drifted from its hardware twin before.
+    o_GBufferBakedGI = sampleLightmapIrradiance(lightmapUV, inst.LightmapScaleOffset);
 
     // Debug visualization (no-op unless a debug mode is active).
     WriteVirtualDebug(record.ClusterIndex, cluster.Lod);

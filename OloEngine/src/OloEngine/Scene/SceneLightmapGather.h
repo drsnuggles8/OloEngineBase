@@ -21,12 +21,10 @@ namespace OloEngine
     // (EntityUUID, SubKey) and nothing downstream branches on the kind.
     enum class LightmapReceiverKind : u8
     {
-        Mesh = 0,     // MeshComponent (issue #439)
-        Instance = 1, // one instance of an InstancedMeshComponent (issue #867)
-        ModelMesh = 2 // one distinct MeshSource of a ModelComponent (issue #867)
-        // No Virtual kind: a VirtualMeshComponent cannot sample the lightmap
-        // yet, so gathering one would bake regions nothing reads. The reason,
-        // and what is still missing, are in GatherLightmapReceivers.
+        Mesh = 0,      // MeshComponent (issue #439)
+        Instance = 1,  // one instance of an InstancedMeshComponent (issue #867)
+        ModelMesh = 2, // one distinct MeshSource of a ModelComponent (issue #867)
+        Virtual = 3    // VirtualMeshComponent (issue #867)
     };
 
     // One lightmap-static receiver: the `(EntityUUID, SubKey)` region identity,

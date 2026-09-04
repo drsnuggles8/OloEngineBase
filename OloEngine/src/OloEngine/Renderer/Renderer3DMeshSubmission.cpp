@@ -120,7 +120,8 @@ namespace OloEngine
     bool Renderer3D::SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
                                        const glm::mat4& modelMatrix, const Material* overrideMaterial,
                                        const Material& defaultMaterial, i32 entityID,
-                                       f32 errorThresholdPixels, bool castShadows)
+                                       f32 errorThresholdPixels, bool castShadows,
+                                       const glm::vec4& lightmapScaleOffset)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -152,6 +153,30 @@ namespace OloEngine
         }
         submission.ErrorThresholdPixels = std::clamp(errorThresholdPixels, 0.05f, 64.0f);
         submission.CastShadows = castShadows;
+
+        // Baked lightmap region (issue #867), but ONLY when this mesh's cooked
+        // DAG actually carries the uv2 stream the shader would read.
+        //
+        // The two can genuinely disagree: the cluster DAG is cooked when the
+        // mesh is first registered, while the unwrap that creates uv2 happens
+        // at bake time. A cook that predates its unwrap leaves a valid-looking
+        // region pointing into an arena tail that holds some other mesh's
+        // charts — a wrong-address read that renders as a plausible patch of
+        // light rather than as anything obviously broken. Dropping the region
+        // instead degrades to "no baked GI", which is loud in a comparison and
+        // silent in a frame, and is the only safe direction.
+        if (registry.MeshHasLightmapUVs(meshHandle))
+        {
+            submission.LightmapScaleOffset = lightmapScaleOffset;
+        }
+        else if (lightmapScaleOffset.x > 0.0f)
+        {
+            OLO_CORE_WARN_TAG("Renderer3D",
+                              "virtual mesh {:x} has a baked lightmap region but its cooked cluster DAG "
+                              "carries no UV2 stream — the cook predates the bake's unwrap. Re-cook the "
+                              "mesh (re-register it) to receive baked GI on the virtual path.",
+                              static_cast<u64>(meshHandle));
+        }
 
         // One material slot per part. Precedence: an explicit MaterialComponent overrides
         // everything, else the material the SUBMESH was imported with (so a multi-material

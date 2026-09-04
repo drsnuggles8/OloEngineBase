@@ -91,7 +91,7 @@ namespace OloEngine
     //      AtEnd()-probed because it lands mid-block, ahead of the planar
     //      reflection and wake fields; v23 and older omit it and keep the
     //      single-cascade default, which is the pre-#969 surface exactly.
-    // v26: ModelComponent and InstancedMeshComponent gained m_LightmapStatic /
+    // v26: ModelComponent, InstancedMeshComponent and VirtualMeshComponent gained m_LightmapStatic /
     //      LightmapStatic, and InstancedMeshComponent now round-trips each
     //      instance's StableID (#867). The StableID matters as much as the flag:
     //      it is the SUB-KEY the bake writes a per-instance atlas region under,

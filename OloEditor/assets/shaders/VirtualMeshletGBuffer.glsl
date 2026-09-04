@@ -90,6 +90,8 @@ layout(location = 3) out vec4 v_ClipPosCurr[];
 layout(location = 4) out vec4 v_ClipPosPrev[];
 layout(location = 5) flat out int v_EntityID[];
 layout(location = 6) flat out uint v_DbgSlot[]; // visible-slot index (debug only)
+layout(location = 7) out vec2 v_TexCoord2[];              // baked lightmap uv2 (issue #867)
+layout(location = 8) flat out vec4 v_LightmapScaleOffset[]; // its atlas region; all-zero = no lightmap
 
 void main()
 {
@@ -116,6 +118,8 @@ void main()
         v_WorldPos[v] = o.WorldPos;
         v_Normal[v] = o.Normal;
         v_TexCoord[v] = o.TexCoord;
+        v_TexCoord2[v] = FetchVirtualLightmapUV(inst, cluster.VertexBase + v);
+        v_LightmapScaleOffset[v] = inst.LightmapScaleOffset;
         v_ClipPosCurr[v] = o.ClipPosCurr;
         v_ClipPosPrev[v] = o.ClipPosPrev;
         v_EntityID[v] = inst.EntityID;

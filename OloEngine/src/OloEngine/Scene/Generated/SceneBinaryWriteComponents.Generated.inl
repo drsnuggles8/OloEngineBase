@@ -863,6 +863,7 @@ if (entity.HasComponent<VirtualMeshComponent>())
     SceneBinIO::Write(out, comp.m_ErrorThresholdPixels);
     SceneBinIO::Write(out, comp.m_Enabled);
     SceneBinIO::Write(out, comp.m_CastShadows);
+    SceneBinIO::Write(out, comp.m_LightmapStatic);
 }
 
 if (entity.HasComponent<WeaponComponent>())

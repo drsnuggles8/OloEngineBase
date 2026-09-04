@@ -995,6 +995,7 @@ if (entity.HasComponent<VirtualMeshComponent>())
     out << YAML::Key << "ErrorThresholdPixels" << YAML::Value << comp.m_ErrorThresholdPixels;
     out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
     out << YAML::Key << "CastShadows" << YAML::Value << comp.m_CastShadows;
+    out << YAML::Key << "LightmapStatic" << YAML::Value << comp.m_LightmapStatic;
     out << YAML::EndMap; // VirtualMeshComponent
 }
 

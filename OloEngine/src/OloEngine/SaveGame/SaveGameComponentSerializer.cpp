@@ -2703,6 +2703,10 @@ namespace OloEngine
     {
         ar << c.m_Enabled << c.m_MeshSource;
         ar << c.m_ErrorThresholdPixels << c.m_CastShadows;
+        if (HasFieldsSince(ar, 26))
+        {
+            ar << c.m_LightmapStatic; // v26+ (issue #867); older saves keep the default false
+        }
 
         if (ar.IsLoading())
         {
