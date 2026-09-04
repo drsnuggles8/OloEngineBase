@@ -464,6 +464,7 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("VulkanPipelineBuilder: compute pipeline creation failed (VkResult {})",
                            static_cast<int>(result));
+            m_LastCreationFailure = { true, "<compute>", result };
             return VK_NULL_HANDLE;
         }
 
@@ -794,6 +795,7 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("VulkanPipelineBuilder: vkCreateGraphicsPipelines failed for '{}' (VkResult {})",
                            shader.GetName(), static_cast<int>(result));
+            m_LastCreationFailure = { true, shader.GetName(), result };
             return VK_NULL_HANDLE;
         }
 

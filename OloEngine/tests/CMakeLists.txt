@@ -268,6 +268,13 @@ add_executable(OloEngine-Tests
 		# root-data binding mappings, vertex pulling, and the FXAA golden-pass
 		# checkpoint (ADR 0011 §4/§5). Same SKIP ladder + zero-validation bar.
 		Rendering/VulkanShaderPipelineTest.cpp
+		# #1029: the mesh / G-Buffer shader family reaches a REAL VkPipeline. Every
+		# other device-backed Vulkan suite builds from FullscreenBlit.glsl and test
+		# shaders, so a construct the descriptor-heap binding model rejects (#994's
+		# `.length()`) was invisible to all 7086 tests and only showed up in the
+		# live editor. Derived family list + a probe pinning that the gate bites.
+		# Same SKIP ladder + zero-validation bar.
+		Rendering/VulkanMeshPipelineFamilyTest.cpp
 		# #691 Phase 7 Stage 1.2: the buffer/texture factory arms on a REAL
 		# device — arena-versioned UBO addresses, texture upload/readback with
 		# the mip blit chain and RGB->RGBA widening, the descriptor slot
