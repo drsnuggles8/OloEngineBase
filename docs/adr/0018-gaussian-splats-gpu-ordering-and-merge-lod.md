@@ -184,7 +184,7 @@ contract is how a research prototype becomes an unmaintainable feature.
 | **Reflection probes / IBL** | No. | The probe bake path renders meshes through the deferred pass; splats are not in it. And a splat receives no IBL, for the same baked-radiance reason. |
 | **Collision (Jolt)** | No. | No surface, no triangles. A splat cloud is decoration; anything the player touches needs a proxy body. |
 | **Scene serialization** | None. | The honest cost of "make it a feature": a `SplatCloudComponent` pulls in the whole cross-binding list in `CLAUDE.md` — `AllComponents`, save-game capture/restore *and* a hand-written `Serialize` overload, Lua registration, the editor inspector and Add Component menu, and a scene-YAML block (the component holds a `Ref<T>`, so codegen skips it). |
-| **Asset registry** | Deliberately outside it. | `.ply` is **already** registered as `AssetType::MeshSource`, so a splat PLY dropped in the Content Browser today is read by assimp as a point mesh and silently loses everything but `x y z`. Two importers cannot share one extension; a real feature has to discriminate on file *content* (an `f_dc_0` property). See `notes-editor-and-assets.md`. |
+| **Asset registry** | Deliberately outside it. | `.ply` is **already** registered as `AssetType::MeshSource`, so a splat PLY dropped in the Content Browser is routed to assimp, which refuses it: *"Validation failed: Mesh contains no faces"*. Measured, not assumed — nothing is imported and no data is silently lost; the user is told a good file is a broken mesh. Two importers cannot share one extension, so a real feature has to discriminate on file *content* (an `f_dc_0` property). See `notes-editor-and-assets.md`. |
 | **OpenGL 4.6** | Works, ordering and raster both. | This is what every measurement and PNG below is. |
 | **Vulkan** | Shaders compile for `vulkan1.2`; the *binding model* does not port as written. | ADR 0010/0011: the Vulkan backend is heap-bindless only. The prototype binds five SSBOs and two UBOs to fixed binding points, which is precisely the model that backend does not have. An RHI-neutral splat pass has to go through the neutral resource/binding-address model, and the indirect draw has to become an RHI concept. A real port, not a recompile. |
 
@@ -372,7 +372,9 @@ integration work rather than open questions:
 - **`SplatCloudComponent` and its cross-binding touch-points** — the `CLAUDE.md` table in full, plus
   a scene-YAML block written by hand because the component holds a `Ref<T>`.
 - **Content-sniffing PLY import dispatch** — `.ply` already means `MeshSource`, so the importer has
-  to discriminate on an `f_dc_0` property rather than the extension.
+  to discriminate on an `f_dc_0` property rather than the extension. Today a splat PLY is rejected
+  by assimp with a mesh-validation error, which is a poor message but not a correctness problem, so
+  this is worth doing *with* the asset type and not before it.
 - **The RHI-neutral Vulkan pass** — five SSBOs, two UBOs and an indirect draw, all currently on fixed
   GL binding points that the heap-bindless backend does not have.
 

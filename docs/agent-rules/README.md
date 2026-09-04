@@ -161,7 +161,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [light-path-photometric-parity.md](light-path-photometric-parity.md) | Two lighting bugs survived 4300 green tests. |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | A corrupt drive mode clamped to a different valid mode, and the car still drove. |
 | [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md) | "Load the scene, does it crash?" passes because the trigger is resolution, not loading. |
-| [notes-editor-and-assets.md](notes-editor-and-assets.md) | An extension already in `s_ExtensionMap` imports through the OLD importer with no warning; the new format's data is dropped at import. |
+| [notes-editor-and-assets.md](notes-editor-and-assets.md) | An extension already in `s_ExtensionMap` routes the file to the OLD importer, so a new format fails as a corrupt version of the old one rather than as an unsupported format. |
 | [notes-renderer.md](notes-renderer.md) | Two uniform buffers on one binding point: the shader reads the one constructed LAST, so the other's SetData lands where nothing reads and the frame renders with a zeroed camera. |
 | [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) | A test believed it exercised the manual path while a valid navmesh had switched it to the crowd follower. |
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | A steady-state offset check passes with a full one-tick lag present. |
