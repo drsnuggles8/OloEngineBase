@@ -25,6 +25,7 @@
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
+#include "OloEngine/Renderer/Water/WaterFoam.h"
 #include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ReflectionProbeArray.h"
@@ -1569,6 +1570,16 @@ namespace OloEngine
             return s_Data.WaterWakeShape;
         }
 
+        /// Advected open-ocean foam settings (issue #1034, §2.2). Published by
+        /// the scene — which is also where the dominant surface's FFT cascade
+        /// handles come from, since the dispatch happens before any draw
+        /// command exists to carry them — and consumed by RenderPipeline's
+        /// disturbance dispatch.
+        static WaterFoam::WaterFoamSettings& GetWaterFoamSettings()
+        {
+            return s_Data.WaterFoamAdvection;
+        }
+
         static SnowEjectaSettings& GetSnowEjectaSettings()
         {
             return s_Data.SnowEjecta;
@@ -2234,6 +2245,12 @@ namespace OloEngine
             // scene stops publishing, so a scene with no water cannot inherit
             // the previous one's wake settings.
             WaterDisturbanceSettings WaterDisturbance;
+            // Advected open-ocean foam (issue #1034, §2.2), published the
+            // same way and reset the same way. Separate from the wake
+            // settings above because the two gate independently: a scene
+            // can advect whitecaps with no boat in it, and a boat can wake
+            // a Gerstner sea that has no fold signal to advect.
+            WaterFoam::WaterFoamSettings WaterFoamAdvection;
             // Boat / actor wake SHAPE settings (issue #968), published the same
             // way and reset to the disabled default by BeginScene for the same
             // reason: a scene with no water must actively clear the wake rather

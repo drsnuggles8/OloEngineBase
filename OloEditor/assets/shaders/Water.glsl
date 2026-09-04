@@ -164,6 +164,38 @@ layout(std140, binding = 23) uniform WaterParams
     //     physical value — WaterShoreDepth.h :: kBreakerIndex),
     // y = breaking foam gain, z/w = reserved.
     vec4 u_ShoreParams2;
+    // Rain-impact ripples (issue #1034, §7.3). C++ twin:
+    // UBOStructures::WaterUBO::RainRippleParams / RainRippleParams2; the
+    // contract and every constant the field is built from live in
+    // Renderer/Water/WaterRainRipples.h, the evaluator in
+    // include/WaterRainCommon.glsl. Declared in EVERY stage of the water
+    // programs, identically, for the same reason the #967 / #968 / #1033 fields
+    // above are: GL requires a uniform block shared across a program's stages to
+    // be declared the same way in each, so appending to only the stage that
+    // reads it is a LINK error rather than a silent mismatch. Only the fragment
+    // stage reads them — the ripples are normal-only and never displace.
+    //
+    // x = strength (artist gain x live precipitation intensity), y = density,
+    // z = cell size (m), w = unused. x <= 0 IS the disabled state, and
+    // waterRainRippleSlope returns on it BEFORE the neighbourhood walk.
+    vec4 u_RainRippleParams;
+    // x = ripple fade start (m), y = fade end (m), z/w unused.
+    vec4 u_RainRippleParams2;
+    // Advected foam field (issue #1034, §2.2). C++ twin:
+    // UBOStructures::WaterUBO::FoamFieldParams; the contract is
+    // Renderer/Water/WaterFoam.h, the sampler include/WaterFoamCommon.glsl.
+    // Declared in EVERY stage of the water programs, identically, for the same
+    // reason every block above is. Only Water.glsl's fragment stage reads it.
+    //
+    // The .g channel of the SAME disturbance texture u_WakeFieldParams
+    // describes — same window, same lattice, same edge fade
+    // (u_WakeFieldParams2.z), different channel. It carries its own copy of the
+    // window because the two gate independently: open-ocean whitecaps advect in
+    // a scene with no boat in it, and u_WakeFieldParams is all-zero there.
+    //
+    // xy = window centre (world XZ), z = 1 / field extent, w = intensity.
+    // w <= 0 IS the disabled state.
+    vec4 u_FoamFieldParams;
     // 80 = WaterWake::kHullVec4Count (4 hulls x 20 vec4). The layout is
     // WaterWake.h's, verbatim; WATER_WAKE_* in WaterWakeCommon.glsl mirrors the
     // offsets so nothing here indexes it by a bare literal.
@@ -244,6 +276,20 @@ layout(binding = 22) uniform sampler2D u_SceneNormals;
 layout(binding = 70) uniform sampler2D u_WaterDisturbance;
 #endif
 #include "include/WaterDisturbanceCommon.glsl"
+
+// Advected open-ocean foam (issue #1034, §2.2) — the .g channel of the very
+// same u_WaterDisturbance texture above. No new sampler slot and no new
+// binding: the whole point of putting it in that field's spare channels is
+// that this shader already had the texture bound. It IS a second textureLod,
+// at the same UV on the same texture, so it costs a cache hit rather than a
+// fetch — the two live in separate helpers because the wake and the foam are
+// folded into the shading at different points and with different fades.
+#include "include/WaterFoamCommon.glsl"
+
+// Rain-impact ripples (issue #1034, §7.3). Pure math over u_RainRippleParams —
+// no texture, no extra binding, and no cost at all when it is not raining,
+// because waterRainRippleSlope returns on `params.x <= 0` before its cell walk.
+#include "include/WaterRainCommon.glsl"
 
 // Planar reflection — the opaque scene re-rendered from a mirrored, oblique-
 // clipped camera by PlanarReflectionRenderPass. u_PlanarReflectionVP projects a
@@ -575,6 +621,31 @@ void main()
     float detailBlend = 0.6 * (1.0 - smoothstep(0.03, 0.12, detailFootprint));
     vec3 normal = safeNormalize(mix(gerstnerNormal, normalMapWorld, detailBlend), gerstnerNormal);
 
+    // --- Rain-impact ripples (issue #1034, §7.3) ----------------------------
+    // Normal-only, by design: a raindrop ring is a couple of millimetres deep,
+    // which no water mesh this engine tessellates could carry as geometry, and
+    // §7.3 explicitly does not ask for displacement.
+    //
+    // Applied HERE — after the detail normal map, before anything that reads
+    // `normal` — so the rings perturb the same normal the reflection, the
+    // specular and the SSR all shade from. Folding them in later (say, next to
+    // the foam) would give rings that were visible in the diffuse term and
+    // invisible in the reflection, which is where the eye actually reads them.
+    //
+    // Its OWN distance fade, and a short one: the ripple cell grid is 0.55 m,
+    // so the field is undersampled within a few tens of metres. Sub-pixel
+    // detail has to be DROPPED, not filtered — see
+    // docs/agent-rules/water-shading-nyquist.md §3, which is the same rule the
+    // detailBlend above implements for the normal maps.
+    float rainCamDist = length(u_CameraPosition - v_WorldPos);
+    float rainFade = 1.0 - smoothstep(u_RainRippleParams2.x, u_RainRippleParams2.y, rainCamDist);
+    // The fade multiplies the SLOPE rather than blending the normal, because
+    // slopes are what add — the same reason OceanFFTField sums Slope across
+    // cascades and never Normal.
+    vec2 rainSlope = waterRainRippleSlope(v_WorldPos.xz + u_RenderOrigin.xz,
+                                          u_WaveParams.x, u_RainRippleParams) * rainFade;
+    normal = waterRainApplySlope(normal, rainSlope);
+
     // --- Underside (camera submerged) ---
     // Cheap, stable shading for the surface seen from below. Screen-space
     // reflection and refraction are sampled from an above-water frame of
@@ -824,13 +895,30 @@ void main()
     // displacement texture's alpha is saturate(1 - J): 0 on smooth water, →1 in
     // the pinched, breaking crests. This is far more physically plausible than
     // the height/angle thresholds above, so fold it in as a strong contributor.
+    //
+    // ADVECTION (issue #1034, §2.2) REPLACES that instantaneous term rather
+    // than adding to it. It has to: the instantaneous Jacobian foam IS the bug
+    // — it appears and vanishes exactly where the crest folds, so leaving it
+    // in would keep a pulsing copy underneath the drifting one and the pulsing
+    // copy is the brighter of the two. `u_FoamFieldParams.w <= 0` (advection
+    // off) selects the old term unchanged, so no existing scene moves.
+    //
+    // The swap is a mix() on a UNIFORM rather than a branch on one, so both
+    // sides are evaluated. That is deliberate: the compiler cannot hoist a
+    // uniform branch out of a fragment shader anyway, and the alternative —
+    // branching — puts sampleOceanCascades' texture fetches inside conditional
+    // control flow, which is where the derivative rules bite.
     if (u_FFTParams.x > 0.5)
     {
         // Absolute world XZ — the space the whole cascade contract is written
         // in (Renderer/Ocean/OceanCascades.h).
+        vec2 fftWorldXZ = v_WorldPos.xz + u_RenderOrigin.xz;
         OceanCascadeSample fft =
-            sampleOceanCascades(v_WorldPos.xz + u_RenderOrigin.xz, u_FFTParams, u_FFTCascadeParams);
-        foam = max(foam, fft.Foam);
+            sampleOceanCascades(fftWorldXZ, u_FFTParams, u_FFTCascadeParams);
+        float advectedFoam = sampleWaterAdvectedFoam(fftWorldXZ, u_WaterDisturbance,
+                                                     u_FoamFieldParams, u_WakeFieldParams2.z);
+        float advectBlend = (u_FoamFieldParams.w > 0.0) ? 1.0 : 0.0;
+        foam = max(foam, mix(fft.Foam, advectedFoam, advectBlend));
     }
 
     // --- Breaking-wave foam at the shore (issue #1033) ----------------------

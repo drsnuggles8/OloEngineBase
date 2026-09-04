@@ -34,22 +34,31 @@ namespace OloEngine
             return;
         }
 
-        // RG16F, not R8 and not a single-channel 16-bit float. The precision
+        // RGBA16F, not R8 and not a single-channel 16-bit float. The precision
         // argument (an R8 field's multiplicative decay rounds back to where it
-        // started and never fades) and the reason the format is two-channel
-        // (the engine's ImageFormat has no R16F, and adding one is a
-        // cross-backend change with a silent-null failure mode) are both
-        // written up in WaterDisturbanceField.h §4.
+        // started and never fades) and the reason a single-channel 16-bit float
+        // is not an option (the engine's ImageFormat has no R16F, and adding one
+        // is a cross-backend change with a silent-null failure mode) are both
+        // written up in WaterDisturbanceField.h §4. Widened from RG16F to RGBA
+        // by issue #1034: .g now carries the advected foam and .ba the previous
+        // frame's FFT horizontal displacement that its velocity is differenced
+        // from (WaterFoam.h §3).
         TextureSpecification spec;
         spec.Width = static_cast<u32>(WaterDisturbance::kResolution);
         spec.Height = static_cast<u32>(WaterDisturbance::kResolution);
-        spec.Format = ImageFormat::RG16F;
+        spec.Format = ImageFormat::RGBA16F;
         // No mips: the field is sampled at LOD 0 by a shader that already fades
         // it with distance, and a mip chain on a texture written by compute
         // every frame would need a regenerate the sampling never pays for.
         spec.GenerateMips = false;
 
-        s_Data.m_FieldTexture = Texture2D::Create(spec);
+        // TWO textures, swapped each dispatch. Only the foam advection needs
+        // this — see WaterFoam.h §2 — but the wake rides along, which costs
+        // nothing because it only ever reads its own texel either way.
+        // 2 x 512^2 x 8 B = 4 MB.
+        s_Data.m_FieldTextures[0] = Texture2D::Create(spec);
+        s_Data.m_FieldTextures[1] = Texture2D::Create(spec);
+        s_Data.m_WriteIndex = 0;
 
         s_Data.m_UpdateShader =
             ComputeShader::Create("assets/shaders/compute/WaterDisturbance_Update.comp");
@@ -57,11 +66,13 @@ namespace OloEngine
         s_Data.m_ParamsUBO = UniformBuffer::Create(UBOStructures::WaterDisturbanceUBO::GetSize(),
                                                    ShaderBindingLayout::UBO_WATER_DISTURBANCE);
 
-        if (!s_Data.m_FieldTexture || !s_Data.m_UpdateShader || !s_Data.m_ParamsUBO)
+        if (!s_Data.m_FieldTextures[0] || !s_Data.m_FieldTextures[1] || !s_Data.m_UpdateShader ||
+            !s_Data.m_ParamsUBO)
         {
             OLO_CORE_ERROR("WaterDisturbanceSystem::Init — failed to create GPU resources; "
-                           "boat wake foam is disabled for this session");
-            s_Data.m_FieldTexture.Reset();
+                           "boat wake foam and foam advection are disabled for this session");
+            s_Data.m_FieldTextures[0].Reset();
+            s_Data.m_FieldTextures[1].Reset();
             s_Data.m_UpdateShader.Reset();
             s_Data.m_ParamsUBO.Reset();
             return;
@@ -70,7 +81,7 @@ namespace OloEngine
         s_Data.m_NeedsClear = true;
         s_Data.m_HasValidWindow = false;
         s_Data.m_Initialized = true;
-        OLO_CORE_INFO("WaterDisturbanceSystem initialized ({}x{} RG16F, {:.1f} m field)",
+        OLO_CORE_INFO("WaterDisturbanceSystem initialized (2 x {}x{} RGBA16F, {:.1f} m field)",
                       WaterDisturbance::kResolution, WaterDisturbance::kResolution,
                       WaterDisturbance::kFieldExtentMetres);
     }
@@ -79,7 +90,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        s_Data.m_FieldTexture.Reset();
+        s_Data.m_FieldTextures[0].Reset();
+        s_Data.m_FieldTextures[1].Reset();
+        s_Data.m_WriteIndex = 0;
         s_Data.m_UpdateShader.Reset();
         s_Data.m_ParamsUBO.Reset();
         s_Data.m_SplatCount = 0;
@@ -142,12 +155,21 @@ namespace OloEngine
         return true;
     }
 
-    void WaterDisturbanceSystem::Update(const WaterDisturbanceSettings& settings, glm::vec2 followXZ,
-                                        Timestep dt)
+    void WaterDisturbanceSystem::Update(const WaterDisturbanceSettings& settings,
+                                        const WaterFoam::WaterFoamSettings& foam,
+                                        glm::vec2 followXZ, Timestep dt)
     {
         OLO_PROFILE_FUNCTION();
 
         s_Data.m_Settings = settings;
+        // Advection needs a fold signal, and the fold signal IS the FFT. A
+        // Gerstner sea has nothing to deposit from, so a scene that ticks the
+        // box on a non-FFT surface gets the feature off rather than an empty
+        // field costing a cascade fetch per texel — and GetFoamShaderParams
+        // then reports disabled, so the shader keeps its old Jacobian term.
+        s_Data.m_FoamSettings = foam;
+        s_Data.m_FoamSettings.m_Enabled = foam.m_Enabled && (foam.m_FFTParams.x > 0.5f) &&
+                                          foam.m_FFTDisplacement.IsValid();
 
         if (!s_Data.m_Initialized)
         {
@@ -155,7 +177,12 @@ namespace OloEngine
             return;
         }
 
-        if (!settings.m_Enabled)
+        // The two features gate INDEPENDENTLY and either one keeps the pass
+        // alive: whitecaps advect in a scene with no boat in it, and a boat
+        // wakes a Gerstner sea that cannot advect. Only "neither" stops it.
+        const bool wakeActive = settings.m_Enabled;
+        const bool foamActive = s_Data.m_FoamSettings.m_Enabled;
+        if (!wakeActive && !foamActive)
         {
             // Drop the queue AND mark the field for a clear, so re-enabling
             // does not resurrect a wake that has been logically absent for
@@ -167,6 +194,12 @@ namespace OloEngine
             s_Data.m_HasValidWindow = false;
             return;
         }
+
+        // Wake off but foam on: the queue still has to be dropped, or a
+        // producer that kept submitting would paint a wake nothing asked for
+        // the moment the foam pass started running.
+        if (!wakeActive)
+            s_Data.m_SplatCount = 0;
 
         if (!IsFinite2(followXZ))
         {
@@ -189,6 +222,23 @@ namespace OloEngine
                                  ? settings.m_HalfLifeSeconds
                                  : 6.0f;
         s_Data.m_DecayFactor = WaterDisturbance::DecayFactor(halfLife, deltaSeconds);
+        s_Data.m_DeltaSeconds = deltaSeconds;
+
+        // The foam gets its OWN half-life, and a shorter default: a whitecap is
+        // gone in a few seconds where a boat's churn is not. Sharing the wake's
+        // would tie the two features' looks together for no reason.
+        const f32 foamHalfLife = (std::isfinite(s_Data.m_FoamSettings.m_HalfLifeSeconds) &&
+                                  s_Data.m_FoamSettings.m_HalfLifeSeconds > 0.0f)
+                                     ? s_Data.m_FoamSettings.m_HalfLifeSeconds
+                                     : 3.5f;
+        s_Data.m_FoamDecayFactor = WaterDisturbance::DecayFactor(foamHalfLife, deltaSeconds);
+
+        // Swap BEFORE the dispatch, so m_WriteIndex names this frame's target
+        // and its complement the frame before — which is also what
+        // BindFieldTexture and GetFieldTextureHandle publish afterwards.
+        s_Data.m_WriteIndex ^= 1u;
+        const Ref<Texture2D>& writeTexture = s_Data.m_FieldTextures[s_Data.m_WriteIndex];
+        const Ref<Texture2D>& readTexture = s_Data.m_FieldTextures[s_Data.m_WriteIndex ^ 1u];
 
         UploadComputeParams();
 
@@ -197,9 +247,31 @@ namespace OloEngine
         // Persistent lifetime: the field is system-owned and lives across
         // frames, so its descriptor is memoised rather than ring-allocated —
         // same reasoning as the snow-depth clipmap.
-        HeapBinding::BindImageOrOffset(0, s_Data.m_FieldTexture->GetRHIHandle(), 0, false, 0,
-                                       RHI::Access::StorageReadWrite, RHI::Format::RG16Float,
+        //
+        // Both units are StorageReadWrite even though unit 1 is only ever read.
+        // That is not laziness: BindlessHeap.glsl's OLO_HEAP_IMAGE declares AND
+        // INITIALISES a local, and initialising a `readonly` variable is a
+        // write, so a read-only bindless image is not expressible — the shader
+        // declares both RW, and the binding has to say the same thing.
+        HeapBinding::BindImageOrOffset(0, writeTexture->GetRHIHandle(), 0, false, 0,
+                                       RHI::Access::StorageReadWrite, RHI::Format::RGBA16Float,
                                        RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::BindImageOrOffset(1, readTexture->GetRHIHandle(), 0, false, 0,
+                                       RHI::Access::StorageReadWrite, RHI::Format::RGBA16Float,
+                                       RHI::HeapSlotLifetime::Persistent);
+
+        // The FFT cascade array the deposit criterion reads. Bound only when
+        // advection is actually running, exactly as the shader's own
+        // `u_FoamEnabled` branch is gated — a 2D ARRAY, so the null-sampler
+        // kind must be the array one or a heap miss lands on a descriptor of
+        // the wrong type (the trap CommandDispatch records at the water draw).
+        if (foamActive)
+        {
+            HeapBinding::PublishTextureOffsetAndBind(
+                ShaderBindingLayout::TEX_WATER_FFT_DISPLACEMENT,
+                s_Data.m_FoamSettings.m_FFTDisplacement, RHI::HeapSlotLifetime::Persistent, {},
+                RHI::NullSamplerKind::Texture2DArray);
+        }
         HeapBinding::FlushOffsets();
 
         const u32 groups =
@@ -225,6 +297,23 @@ namespace OloEngine
         params.SplatCount = static_cast<i32>(s_Data.m_SplatCount);
         params.ResetAll = s_Data.m_NeedsClear ? 1 : 0;
 
+        // Foam advection (issue #1034). Every one of these is sanitised HERE,
+        // at the one boundary, so WaterFoam's pure functions and their GLSL
+        // twins can stay literal mirrors — the same rule SubmitSplat follows
+        // for the splat fields.
+        params.FoamEnabled = s_Data.m_FoamSettings.m_Enabled ? 1 : 0;
+        params.FoamDecayFactor = s_Data.m_FoamDecayFactor;
+        params.DeltaSeconds = s_Data.m_DeltaSeconds;
+        params.FoamDepositThreshold =
+            std::isfinite(s_Data.m_FoamSettings.m_DepositThreshold)
+                ? std::clamp(s_Data.m_FoamSettings.m_DepositThreshold, 0.0f, 0.99f)
+                : 0.10f;
+        params.FoamDrift = IsFinite2(s_Data.m_FoamSettings.m_DriftMetresPerSecond)
+                               ? s_Data.m_FoamSettings.m_DriftMetresPerSecond
+                               : glm::vec2(0.0f);
+        params.FoamFFTParams = s_Data.m_FoamSettings.m_FFTParams;
+        params.FoamFFTCascadeParams = s_Data.m_FoamSettings.m_FFTCascadeParams;
+
         for (u32 i = 0; i < s_Data.m_SplatCount; ++i)
         {
             const WaterDisturbanceSplat& src = s_Data.m_Splats[i];
@@ -244,7 +333,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.m_Initialized || !s_Data.m_FieldTexture)
+        if (!s_Data.m_Initialized || !s_Data.m_FieldTextures[s_Data.m_WriteIndex])
             return;
 
         // PUBLISH, NOT BIND — Water.glsl exists in both a slot-based and a
@@ -254,15 +343,21 @@ namespace OloEngine
         // and issues the slot bind for a slot-based one. Binding only would
         // leave the bindless variant indexing the previous frame's offset,
         // which shows as a wake in the wrong place rather than as an error.
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_WATER_DISTURBANCE,
-                                                 s_Data.m_FieldTexture->GetRHIHandle(),
-                                                 RHI::HeapSlotLifetime::Persistent);
+        //
+        // The CURRENT half of the ping-pong pair — the one the last dispatch
+        // wrote. Publishing the other would show the frame before, which on a
+        // decaying, advecting field is a whole frame of drift in the wrong
+        // direction and looks like the foam stuttering.
+        HeapBinding::PublishTextureOffsetAndBind(
+            ShaderBindingLayout::TEX_WATER_DISTURBANCE,
+            s_Data.m_FieldTextures[s_Data.m_WriteIndex]->GetRHIHandle(),
+            RHI::HeapSlotLifetime::Persistent);
     }
 
     RHI::ResourceHandle WaterDisturbanceSystem::GetFieldTextureHandle()
     {
-        if (s_Data.m_Initialized && s_Data.m_FieldTexture)
-            return s_Data.m_FieldTexture->GetRHIHandle();
+        if (s_Data.m_Initialized && s_Data.m_FieldTextures[s_Data.m_WriteIndex])
+            return s_Data.m_FieldTextures[s_Data.m_WriteIndex]->GetRHIHandle();
         return RHI::NullResource;
     }
 
@@ -279,6 +374,24 @@ namespace OloEngine
         const f32 intensity = std::isfinite(s_Data.m_Settings.m_Intensity)
                                   ? std::clamp(s_Data.m_Settings.m_Intensity, 0.0f, 4.0f)
                                   : 1.0f;
+        return { centre.x, centre.y, WaterDisturbance::kInvFieldExtentMetres, intensity };
+    }
+
+    glm::vec4 WaterDisturbanceSystem::GetFoamShaderParams()
+    {
+        // Its own accessor rather than a channel of GetShaderParams(), because
+        // the two features gate independently: an open ocean with advected
+        // whitecaps and no boat in it reports all-zero from that one, and the
+        // shader would then have no window to sample the foam channel with.
+        if (!s_Data.m_Initialized || !s_Data.m_FoamSettings.m_Enabled || !s_Data.m_HasValidWindow)
+            return glm::vec4(0.0f);
+
+        const glm::vec2 centre = WaterDisturbance::WindowCentreWorld(s_Data.m_LatticeMin);
+        const f32 intensity = std::isfinite(s_Data.m_FoamSettings.m_Intensity)
+                                  ? std::clamp(s_Data.m_FoamSettings.m_Intensity, 0.0f, 4.0f)
+                                  : 1.0f;
+        if (!(intensity > 0.0f))
+            return glm::vec4(0.0f); // w <= 0 IS the disabled state
         return { centre.x, centre.y, WaterDisturbance::kInvFieldExtentMetres, intensity };
     }
 

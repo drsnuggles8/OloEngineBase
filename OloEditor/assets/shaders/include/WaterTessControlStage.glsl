@@ -90,6 +90,37 @@ layout(std140, binding = 23) uniform WaterParams
     //     physical value — WaterShoreDepth.h :: kBreakerIndex),
     // y = breaking foam gain, z/w = reserved.
     vec4 u_ShoreParams2;
+    // Rain-impact ripples (issue #1034, §7.3). C++ twin:
+    // UBOStructures::WaterUBO::RainRippleParams / RainRippleParams2; the
+    // contract and every constant the field is built from live in
+    // Renderer/Water/WaterRainRipples.h, the evaluator in
+    // include/WaterRainCommon.glsl. Declared in EVERY stage of the water
+    // programs, identically, for the same reason the #967 / #968 / #1033 fields
+    // above are: GL requires a uniform block shared across a program's stages to
+    // be declared the same way in each, so appending to only the stage that
+    // reads it is a LINK error rather than a silent mismatch. Only Water.glsl's
+    // fragment stage reads them — the ripples are normal-only and never displace.
+    //
+    // x = strength (artist gain x live precipitation intensity), y = density,
+    // z = cell size (m), w = unused. x <= 0 IS the disabled state.
+    vec4 u_RainRippleParams;
+    // x = ripple fade start (m), y = fade end (m), z/w unused.
+    vec4 u_RainRippleParams2;
+    // Advected foam field (issue #1034, §2.2). C++ twin:
+    // UBOStructures::WaterUBO::FoamFieldParams; the contract is
+    // Renderer/Water/WaterFoam.h, the sampler include/WaterFoamCommon.glsl.
+    // Declared in EVERY stage of the water programs, identically, for the same
+    // reason every block above is. Only Water.glsl's fragment stage reads it.
+    //
+    // The .g channel of the SAME disturbance texture u_WakeFieldParams
+    // describes — same window, same lattice, same edge fade
+    // (u_WakeFieldParams2.z), different channel. It carries its own copy of the
+    // window because the two gate independently: open-ocean whitecaps advect in
+    // a scene with no boat in it, and u_WakeFieldParams is all-zero there.
+    //
+    // xy = window centre (world XZ), z = 1 / field extent, w = intensity.
+    // w <= 0 IS the disabled state.
+    vec4 u_FoamFieldParams;
     // 80 = WaterWake::kHullVec4Count (4 hulls x 20 vec4). The layout is
     // WaterWake.h's, verbatim; WATER_WAKE_* in WaterWakeCommon.glsl mirrors the
     // offsets so nothing here indexes it by a bare literal.

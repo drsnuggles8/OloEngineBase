@@ -25,6 +25,8 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneLightAdapter.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
+#include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
+#include "OloEngine/Renderer/Water/WaterSpraySystem.h"
 #include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/CameraRelative.h"
@@ -1464,6 +1466,8 @@ namespace OloEngine
         m_RuntimeBoatWakeTrails.Empty();
         WaterDisturbanceSystem::Reset();
         WaterWakeSystem::Reset();
+        WaterRainRippleSystem::Reset();
+        WaterSpraySystem::Reset();
 
         // Deterministic run setup (issue #452): reset the fixed-timestep tick
         // counter / accumulator / animation clock and re-seed the gameplay RNG
@@ -1951,6 +1955,8 @@ namespace OloEngine
         m_EditorBoatWakeTrails.Empty();
         WaterDisturbanceSystem::Reset();
         WaterWakeSystem::Reset();
+        WaterRainRippleSystem::Reset();
+        WaterSpraySystem::Reset();
 
         // Seed each particle system's RNG from the fixed preview seed so a
         // Simulate session's emission is decorrelated across systems and
@@ -9056,6 +9062,29 @@ namespace OloEngine
                 WaterShoreSettings shoreSettings{};
                 WaterShoreBakeRequest shoreRequest{};
                 f32 bestShoreArea = -1.0f;
+                // Rain-impact ripples (issue #1034, §7.3) — same rule once
+                // more, its own winner because a scene can reasonably want
+                // ripples on the open sea and not in a harbour pool.
+                WaterRain::WaterRainSettings rainSettings{};
+                f32 bestRainArea = -1.0f;
+                // Advected open-ocean foam (issue #1034, §2.2). Same rule, its
+                // own winner, and it is filled inside the FFT block below
+                // rather than beside the others: it needs the cascade handles
+                // and params the winning surface's field was actually built
+                // with, which only exist in there.
+                WaterFoam::WaterFoamSettings foamSettings{};
+                f32 bestFoamArea = -1.0f;
+                // Crest spray (issue #1034, §2.3). Its own winner again, and it
+                // also carries the winning surface's ocean FIELD — the emitter
+                // samples the CPU proxy rather than a texture.
+                WaterSpray::WaterSpraySettings spraySettings{};
+                Ref<Ocean::OceanFFTField> sprayField;
+                f32 bestSprayArea = -1.0f;
+                // The foam-deposit threshold of the surface that wins SPRAY, which
+                // is not necessarily the one that wins FOAM. WaterSpray clamps the
+                // spray threshold up to this, so taking it from the foam winner
+                // lets a strict threshold on one tile silence spray on another.
+                f32 sprayFoamThreshold = WaterFoam::WaterFoamSettings{}.m_DepositThreshold;
 
                 auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
                 for (auto entity : waterView)
@@ -9191,6 +9220,35 @@ namespace OloEngine
                                 std::isfinite(water.m_WakeShapeFlattenStrength)
                                     ? std::clamp(water.m_WakeShapeFlattenStrength, 0.0f, 1.0f)
                                     : 0.9f;
+                        }
+                    }
+
+                    // Rain-ripple tunables (issue #1034, §7.3). Same
+                    // dominant-surface rule, same sanitized component extents.
+                    //
+                    // This publishes only the WATER half of the gate. Whether
+                    // it is raining at all is the sky's business and arrives
+                    // separately, from RenderPipeline — see
+                    // WaterRainRippleSystem, which is where the two meet.
+                    if (water.m_RainRipplesEnabled)
+                    {
+                        if (const f32 rainArea = sizeX * sizeZ;
+                            std::isfinite(rainArea) && rainArea > bestRainArea)
+                        {
+                            bestRainArea = rainArea;
+                            rainSettings.m_Enabled = true;
+                            rainSettings.m_Strength =
+                                std::isfinite(water.m_RainRippleStrength)
+                                    ? std::clamp(water.m_RainRippleStrength, 0.0f, 4.0f)
+                                    : 1.0f;
+                            rainSettings.m_FadeStartMetres =
+                                std::isfinite(water.m_RainRippleFadeStart)
+                                    ? std::clamp(water.m_RainRippleFadeStart, 0.0f, 2000.0f)
+                                    : 18.0f;
+                            rainSettings.m_FadeEndMetres =
+                                std::isfinite(water.m_RainRippleFadeEnd)
+                                    ? std::clamp(water.m_RainRippleFadeEnd, 1.0f, 4000.0f)
+                                    : 45.0f;
                         }
                     }
 
@@ -9544,6 +9602,114 @@ namespace OloEngine
                                 static_cast<f32>(preset.m_Count), invPatch,
                                 WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale), 1.0f);
                             waterParams.fftCascadeParams = Ocean::PackCascadeShaderParams(preset);
+
+                            // Advected open-ocean foam (issue #1034, §2.2).
+                            // Captured HERE, inside the FFT block, and from the
+                            // values the field was actually built with: the
+                            // deposit criterion samples these exact cascades,
+                            // so re-deriving them anywhere else would be a
+                            // second chance to sample tiles the spectra were
+                            // not generated on.
+                            //
+                            // The handle rides on the settings rather than on
+                            // the draw command because the advection dispatch
+                            // happens in RenderPipeline's pre-graph block,
+                            // where no draw command exists yet.
+                            if (water.m_FoamAdvectionEnabled)
+                            {
+                                if (const f32 foamArea = sizeX * sizeZ;
+                                    std::isfinite(foamArea) && foamArea > bestFoamArea)
+                                {
+                                    bestFoamArea = foamArea;
+                                    foamSettings.m_Enabled = true;
+                                    foamSettings.m_FFTDisplacement = dispID;
+                                    foamSettings.m_FFTParams = waterParams.fftParams;
+                                    foamSettings.m_FFTCascadeParams = waterParams.fftCascadeParams;
+                                    foamSettings.m_Intensity =
+                                        std::isfinite(water.m_FoamAdvectionIntensity)
+                                            ? std::clamp(water.m_FoamAdvectionIntensity, 0.0f, 4.0f)
+                                            : 1.0f;
+                                    foamSettings.m_HalfLifeSeconds =
+                                        std::isfinite(water.m_FoamAdvectionHalfLife)
+                                            ? std::clamp(water.m_FoamAdvectionHalfLife, 0.05f, 120.0f)
+                                            : 3.5f;
+                                    foamSettings.m_DepositThreshold =
+                                        std::isfinite(water.m_FoamAdvectionThreshold)
+                                            ? std::clamp(water.m_FoamAdvectionThreshold, 0.0f, 0.99f)
+                                            : 0.10f;
+                                    // The mean surface current, from the wind
+                                    // that MADE these waves (sp.m_WindDirection
+                                    // is already normalised and finite by the
+                                    // time it gets here) rather than from the
+                                    // global WindSystem — a drift pointing
+                                    // across the swell would carry foam in a
+                                    // direction the surface visibly is not
+                                    // going.
+                                    const f32 driftFraction =
+                                        std::isfinite(water.m_FoamAdvectionDrift)
+                                            ? std::clamp(water.m_FoamAdvectionDrift, 0.0f, 0.5f)
+                                            : WaterFoam::kWindDriftFraction;
+                                    foamSettings.m_DriftMetresPerSecond =
+                                        glm::normalize(sp.m_WindDirection) * sp.m_WindSpeed * driftFraction;
+                                }
+                            }
+
+                            // Crest spray (issue #1034, §2.3). Captured in the
+                            // same block and for the same reason: the emitter
+                            // needs the ocean FIELD this surface is actually
+                            // rendering, and that only exists in here.
+                            if (water.m_SprayEnabled)
+                            {
+                                if (const f32 sprayArea = sizeX * sizeZ;
+                                    std::isfinite(sprayArea) && sprayArea > bestSprayArea)
+                                {
+                                    bestSprayArea = sprayArea;
+                                    sprayField = water.m_OceanField;
+                                    // THIS tile's foam threshold — the floor has to
+                                    // come from the surface the spray comes off.
+                                    sprayFoamThreshold =
+                                        std::isfinite(water.m_FoamAdvectionThreshold)
+                                            ? std::clamp(water.m_FoamAdvectionThreshold, 0.0f, 0.99f)
+                                            : 0.10f;
+                                    spraySettings.m_Enabled = true;
+                                    spraySettings.m_Threshold =
+                                        std::isfinite(water.m_SprayThreshold)
+                                            ? std::clamp(water.m_SprayThreshold, 0.0f, 0.99f)
+                                            : 0.22f;
+                                    spraySettings.m_RatePerCell =
+                                        std::isfinite(water.m_SprayRate)
+                                            ? std::clamp(water.m_SprayRate, 0.0f, 200.0f)
+                                            : 6.0f;
+                                    spraySettings.m_RadiusMetres =
+                                        std::isfinite(water.m_SprayRadius)
+                                            ? std::clamp(water.m_SprayRadius, 1.0f, 400.0f)
+                                            : 38.0f;
+                                    spraySettings.m_LaunchSpeed =
+                                        std::isfinite(water.m_SprayLaunchSpeed)
+                                            ? std::clamp(water.m_SprayLaunchSpeed, 0.0f, 30.0f)
+                                            : 2.6f;
+                                    spraySettings.m_Lifetime =
+                                        std::isfinite(water.m_SprayLifetime)
+                                            ? std::clamp(water.m_SprayLifetime, 0.05f, 20.0f)
+                                            : 0.9f;
+                                    spraySettings.m_ParticleSize =
+                                        std::isfinite(water.m_SprayParticleSize)
+                                            ? std::clamp(water.m_SprayParticleSize, 0.005f, 2.0f)
+                                            : 0.25f;
+                                    // The same wind that made the waves, for
+                                    // the reason the foam drift above gives.
+                                    spraySettings.m_WindMetresPerSecond =
+                                        glm::normalize(sp.m_WindDirection) * sp.m_WindSpeed;
+                                    // The plane the crests sit on, and the
+                                    // artist height scale the SHADER applied —
+                                    // a droplet launched from the raw field
+                                    // would spawn below a scaled-down crest and
+                                    // above a scaled-up one.
+                                    spraySettings.m_WaterPlaneY = transform.Translation.y;
+                                    spraySettings.m_HeightScale =
+                                        WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale);
+                                }
+                            }
                             // FFT crests can exceed the Gerstner-derived TCS cull
                             // margin; disable the per-patch frustum cull so off-screen-
                             // edge crests aren't clipped early.
@@ -9613,11 +9779,36 @@ namespace OloEngine
                 // would let a scene switch inherit the previous scene's field.
                 Renderer3D::GetWaterDisturbanceSettings() = wakeSettings;
                 Renderer3D::GetWaterWakeSettings() = wakeShapeSettings;
+                // Advected open-ocean foam (issue #1034). Unconditional too,
+                // and here it also clears the FFT texture handle: a stale
+                // handle would outlive the surface that owned the field.
+                Renderer3D::GetWaterFoamSettings() = foamSettings;
+                // Crest spray (issue #1034, §2.3). Handed the FIELD, not a
+                // texture: the criterion runs on OceanFFTField's retained CPU
+                // proxy, so it costs no GPU readback and it works in a headless
+                // tick. A null field is the disabled state, exactly as it is for
+                // the foam deposit that shares the criterion.
+                //
+                // The foam threshold rides along so the spray one can be clamped
+                // UP to it and never fire on gentler crests than the foam does —
+                // and it is the SPRAY winner's own threshold, not the foam
+                // winner's. The two contests have independent winners, so taking
+                // it from foamSettings would let a strict threshold authored on
+                // one tile silence spray on a completely different one.
+                WaterSpraySystem::SetSource(spraySettings, sprayField, sprayFoamThreshold);
 
                 // Shore wave deformation (issue #1033). Published
                 // UNCONDITIONALLY, including the disabled form, for the reason
                 // stated above the wake publish: publishing only when enabled is
                 // what lets a scene switch inherit the previous scene's seabed.
+                // Rain-impact ripples (issue #1034). Published UNCONDITIONALLY
+                // for the reason stated above the wake publish, and here it
+                // matters twice over: the system also holds the live
+                // precipitation half of the gate, so a scene that stops
+                // publishing water settings must actively clear the water half
+                // rather than let the sky's half keep a dead tile stippled.
+                WaterRainRippleSystem::SetSettings(rainSettings);
+
                 WaterShoreDepthSystem::SetSettings(shoreSettings);
                 if (shoreSettings.m_Enabled && shoreRequest.ExtentMetres > 0.0f)
                 {
@@ -11415,6 +11606,9 @@ namespace OloEngine
                                                   // Render precipitation particles
                                                   PrecipitationSystem::Render();
 
+                                                  // Render crest spray (issue #1034)
+                                                  WaterSpraySystem::Render();
+
                                                   ParticleBatchRenderer::EndBatch(); });
 
         Renderer3D::EndScene();
@@ -11479,6 +11673,9 @@ namespace OloEngine
 
                                                   // Render precipitation particles
                                                   PrecipitationSystem::Render();
+
+                                                  // Render crest spray (issue #1034)
+                                                  WaterSpraySystem::Render();
 
                                                   ParticleBatchRenderer::EndBatch(); });
 

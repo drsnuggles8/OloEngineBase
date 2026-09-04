@@ -2,7 +2,17 @@
 
 // ============================================================================
 // WaterDisturbance_Update.comp — one pass over the world-anchored, toroidally
-// stored water-disturbance field (issue #967).
+// stored water field (issues #967 and #1034).
+//
+// The field carries two independent signals on one lattice, in one RGBA16F
+// texture, updated by this one dispatch:
+//
+//   .r  = wake / actor disturbance (#967) — decays in place, stamped by splats;
+//   .g  = advected open-ocean foam (#1034 §2.2) — decays AND MOVES, deposited
+//         where the FFT surface folds;
+//   .ba = the previous frame's summed FFT horizontal displacement at this
+//         texel, in metres. Not an output — it is the state the foam's
+//         advecting velocity is differenced from (WaterFoam.h §3).
 //
 // Per storage texel, in this order:
 //   1. resolve the ABSOLUTE lattice coordinate this texel holds in the current
@@ -10,29 +20,71 @@
 //   2. reset it if it is newly exposed — i.e. that lattice coordinate was NOT
 //      inside the previous window, so the stored value is content from the far
 //      side of the field rather than this texel's own history;
-//   3. decay what survives by the frame's exponential factor;
-//   4. stamp every submitted capsule splat with `max`.
+//   3. decay the wake by the frame's exponential factor and stamp every
+//      submitted capsule splat with `max`;
+//   4. ADVECT the foam: read the previous field at this texel's water's
+//      position one step ago, decay it, and `max` in whatever the surface is
+//      folding hard enough to deposit right now.
 //
 // Steps 1 and 2 ARE the toroidal scheme. Dropping step 2 does not error and
 // does not blank the frame — the field keeps rendering, carrying a mirror image
 // of itself that trails the camera, which reads as a second phantom wake.
 //
-// The addressing and the splat falloff live in the shared include, not here, so
-// this shader and Water.glsl cannot disagree about where a texel is. The C++
-// source of truth is Renderer/Water/WaterDisturbanceField.h.
+// THE PASS IS PING-PONGED (image unit 0 writes, image unit 1 reads last
+// frame's) because of step 4 and only because of it: the wake reads its own
+// texel and could update in place, but a semi-Lagrangian advection reads a
+// NEIGHBOUR, and a compute pass that reads neighbours while writing in place
+// races between work groups. That race does not error either — it produces a
+// field that is partly this frame's and partly last frame's in a pattern that
+// follows the dispatch order, which reads as the foam smearing in bands.
+//
+// The addressing, the splat falloff and the advection step live in the shared
+// includes, not here, so this shader and Water.glsl cannot disagree about where
+// a texel is. The C++ sources of truth are Renderer/Water/WaterDisturbanceField.h
+// and Renderer/Water/WaterFoam.h.
 // ============================================================================
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
 #include "../include/BindlessHeap.glsl"
 #include "../include/WaterDisturbanceCommon.glsl"
+#include "../include/WaterFoamCommon.glsl"
 
-// Heap-bindless conversion (issue #691). Under OLO_BINDLESS the declaration
-// moves into main() as a local built from the heap descriptor at this image
-// unit; the body below is unchanged either way.
+// Heap-bindless conversion (issue #691). Under OLO_BINDLESS the declarations
+// move into main() as locals built from the heap descriptors at these image
+// units; the body below is unchanged either way.
+//
+// NOTE the previous-frame image is declared read-WRITE even though this pass
+// only ever reads it. `readonly` is not available through the heap macro:
+// OLO_HEAP_IMAGE declares AND INITIALISES a local, and initialising a readonly
+// variable is a write (error C7504) — BindlessHeap.glsl records four compute
+// shaders that silently fell back to the slot path before that was understood.
+// The two declarations have to agree, so both are RW here.
 #ifndef OLO_BINDLESS
-layout(rg16f, binding = 0) uniform image2D u_DisturbanceField;
+layout(rgba16f, binding = 0) uniform image2D u_DisturbanceField;
+layout(rgba16f, binding = 1) uniform image2D u_DisturbanceFieldPrev;
 #endif
+
+// The FFT ocean cascades (issue #969), sampled here for the SAME fold signal
+// Water.glsl shades from — this pass does not invent a crest detector of its
+// own (WaterFoam.h §4). Only the displacement array is bound: the derivatives
+// hook below returns a constant and the compiler dead-strips the sampler that
+// would have fed it, exactly as Water.glsl's fragment stage does.
+#ifdef OLO_BINDLESS
+#define u_FFTDisplacement OLO_HEAP_TEX_2D_ARRAY(50)  // TEX_WATER_FFT_DISPLACEMENT
+#else
+layout(binding = 50) uniform sampler2DArray u_FFTDisplacement;
+#endif
+
+#include "../include/OceanCascadeCommon.glsl"
+vec4 oceanCascadeFetchDisplacement(vec2 uv, int layer)
+{
+    return textureLod(u_FFTDisplacement, vec3(uv, float(layer)), 0.0);
+}
+vec4 oceanCascadeFetchDerivatives(vec2 uv, int layer)
+{
+    return vec4(0.0, 1.0, 0.0, 1.0);
+}
 
 // One submitted disturbance. A capsule from P0 to P1 — a point splat is
 // P0 == P1, so propeller wash and hull wake use the same record.
@@ -53,23 +105,29 @@ struct WaterDisturbanceSplat
 // (ShaderBindingLayout::UBO_WATER_DISTURBANCE).
 layout(std140, binding = 63) uniform WaterDisturbanceParams
 {
-    ivec2 u_LatticeMin;     // 0  — lower corner of THIS frame's window
-    ivec2 u_PrevLatticeMin; // 8  — lower corner of the PREVIOUS frame's window
-    float u_TexelSize;      // 16 — metres per texel
-    float u_DecayFactor;    // 20 — this frame's multiplicative decay
-    int   u_Resolution;     // 24 — texels per axis
-    int   u_SplatCount;     // 28 — live entries in u_Splats
-    int   u_ResetAll;       // 32 — 1 = clear the whole field this dispatch
-    int   _padding0;        // 36
-    int   _padding1;        // 40
-    int   _padding2;        // 44
-    WaterDisturbanceSplat u_Splats[96]; // 48 — WaterDisturbance::kMaxSplatsPerFrame
+    ivec2 u_LatticeMin;            // 0  — lower corner of THIS frame's window
+    ivec2 u_PrevLatticeMin;        // 8  — lower corner of the PREVIOUS frame's window
+    float u_TexelSize;             // 16 — metres per texel
+    float u_DecayFactor;           // 20 — this frame's multiplicative wake decay
+    int   u_Resolution;            // 24 — texels per axis
+    int   u_SplatCount;            // 28 — live entries in u_Splats
+    int   u_ResetAll;              // 32 — 1 = clear the whole field this dispatch
+    int   u_FoamEnabled;           // 36 — 0 writes zero into .g (#1034)
+    float u_FoamDecayFactor;       // 40 — the foam's OWN multiplicative decay
+    float u_DeltaSeconds;          // 44 — the advection step, raw
+    float u_FoamDepositThreshold;  // 48 — fold signal at which foam is laid down
+    float _padding0;               // 52
+    vec2  u_FoamDrift;             // 56 — mean surface current (m/s, world XZ)
+    vec4  u_FoamFFTParams;         // 64 — u_FFTParams for the dominant surface
+    vec4  u_FoamFFTCascadeParams;  // 80 — u_FFTCascadeParams for the same
+    WaterDisturbanceSplat u_Splats[96]; // 96 — WaterDisturbance::kMaxSplatsPerFrame
 };
 
 void main()
 {
 #ifdef OLO_BINDLESS
-    OLO_HEAP_IMAGE(rg16f, OLO_HEAP_IMAGE_RW, image2D, u_DisturbanceField, 0);
+    OLO_HEAP_IMAGE(rgba16f, OLO_HEAP_IMAGE_RW, image2D, u_DisturbanceField, 0);
+    OLO_HEAP_IMAGE(rgba16f, OLO_HEAP_IMAGE_RW, image2D, u_DisturbanceFieldPrev, 1);
 #endif
     ivec2 storage = ivec2(gl_GlobalInvocationID.xy);
     if (storage.x >= u_Resolution || storage.y >= u_Resolution)
@@ -80,20 +138,23 @@ void main()
     // Newly exposed texels carry the far side of the field, not their own past.
     bool keep = (u_ResetAll == 0) &&
                 waterDisturbanceWindowContains(lattice, u_PrevLatticeMin, u_Resolution);
-    float value = keep ? imageLoad(u_DisturbanceField, storage).r : 0.0;
+    vec4 previous = keep ? imageLoad(u_DisturbanceFieldPrev, storage) : vec4(0.0);
 
     // Guard against a NaN that has somehow entered the field: it would survive
-    // every decay and every max() below and pin this texel permanently.
-    if (isnan(value) || isinf(value))
-        value = 0.0;
-
-    value *= u_DecayFactor;
+    // every decay and every max() below and pin this texel permanently. The
+    // .ba half needs it too — a NaN displacement makes a NaN velocity, which
+    // backtraces to a NaN world position and quietly zeroes this texel forever.
+    if (any(isnan(previous)) || any(isinf(previous)))
+        previous = vec4(0.0);
 
     // Texel CENTRE, matching WaterDisturbance::WorldForLatticeCentre. The +0.5
     // is the half-texel convention and dropping it shifts the whole field by
     // half a texel against the shader's sample point, which reads as the wake
     // sitting slightly off the hull.
     vec2 worldXZ = (vec2(lattice) + 0.5) * u_TexelSize;
+
+    // ---- .r : wake / actor disturbance (issue #967) ------------------------
+    float wake = previous.r * u_DecayFactor;
 
     for (int i = 0; i < u_SplatCount; ++i)
     {
@@ -112,8 +173,56 @@ void main()
         float w = waterDisturbanceSplatWeight(worldXZ, p0r.xy, p1s.xy, p0r.z, p1s.z);
         // `max`, not `+=` — see WaterDisturbance::CombineSplat for why an
         // accumulate would make the foam frame-rate dependent.
-        value = max(value, clamp(p0r.w, 0.0, 1.0) * w);
+        wake = max(wake, clamp(p0r.w, 0.0, 1.0) * w);
     }
 
-    imageStore(u_DisturbanceField, storage, vec4(clamp(value, 0.0, 1.0), 0.0, 0.0, 0.0));
+    // ---- .g / .ba : advected foam (issue #1034 §2.2) -----------------------
+    //
+    // The whole block is gated on a UNIFORM, so a scene with advection off (or
+    // a Gerstner sea, which has no fold signal to deposit from) pays for none
+    // of it — no cascade fetches, no advection taps.
+    float foam = 0.0;
+    vec2 displacement = vec2(0.0);
+
+    if (u_FoamEnabled != 0)
+    {
+        OceanCascadeSample fft =
+            sampleOceanCascades(worldXZ, u_FoamFFTParams, u_FoamFFTCascadeParams);
+        displacement = fft.Displacement.xz;
+
+        // No history means no orbital term rather than a huge one: differencing
+        // against a zero displacement on the first frame (or on a texel the
+        // window has just exposed) would produce metres-per-frame of bogus
+        // velocity and smear the whole field once.
+        vec2 previousDisplacement = keep ? previous.ba : displacement;
+        vec2 velocity = waterFoamSurfaceVelocity(displacement, previousDisplacement,
+                                                 u_FoamDrift, u_DeltaSeconds);
+
+        // Gated on u_ResetAll rather than on `keep`, and the difference matters
+        // at the LEADING EDGE of a moving window: a newly exposed texel has no
+        // history of its own (so `keep` is false) but the water that drifted
+        // into it does, one texel back, inside the previous window. Skipping the
+        // read there would leave a one-texel band of missing foam trailing the
+        // camera's direction of travel. waterFoamPrevTaps already gives every
+        // out-of-window tap weight 0, so letting it decide is both correct and
+        // less code. u_ResetAll is still a hard skip: on that frame the previous
+        // texture has never been written and holds whatever the driver left.
+        if (u_ResetAll == 0)
+        {
+            vec2 source = waterFoamBacktrace(worldXZ, velocity, u_DeltaSeconds);
+            WaterFoamTaps taps =
+                waterFoamPrevTaps(source, u_TexelSize, u_PrevLatticeMin, u_Resolution);
+            // Unconditional fetches: an out-of-window tap carries weight 0 and
+            // an in-range storage coordinate, so this is branch-free and the
+            // torus seam still contributes nothing.
+            for (int t = 0; t < 4; ++t)
+                foam += taps.Weight[t] * imageLoad(u_DisturbanceFieldPrev, taps.Storage[t]).g;
+        }
+
+        foam *= u_FoamDecayFactor;
+        foam = max(foam, waterFoamDepositFromFold(fft.Foam, u_FoamDepositThreshold));
+    }
+
+    imageStore(u_DisturbanceField, storage,
+               vec4(clamp(wake, 0.0, 1.0), clamp(foam, 0.0, 1.0), displacement));
 }

@@ -436,6 +436,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/WaterShoreWaveTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
 		Rendering/PropertyTests/WaterDisturbanceFieldTest.cpp
+		Rendering/PropertyTests/WaterRainRippleTest.cpp
+		Rendering/PropertyTests/WaterFoamAdvectionTest.cpp
+		Rendering/PropertyTests/WaterSprayTest.cpp
+		Rendering/PropertyTests/WaterFoamSprayRainVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterWakeShapeTest.cpp
 		Rendering/PropertyTests/WaterWakeParityTest.cpp
 		Rendering/PropertyTests/WaterWakeShapeVisualEvidenceTest.cpp

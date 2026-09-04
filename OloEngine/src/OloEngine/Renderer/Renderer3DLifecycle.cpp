@@ -24,6 +24,7 @@
 #include "OloEngine/Renderer/CloudShadowMap.h"
 #include "OloEngine/Renderer/VolumetricShadowMap.h"
 #include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
+#include "OloEngine/Renderer/Water/WaterSpraySystem.h"
 #include "OloEngine/Renderer/Ocean/OceanFFTGpu.h"
 #include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
@@ -541,6 +542,10 @@ namespace OloEngine
         WaterDisturbanceSystem::Init();
         // Seabed depth field for shore wave deformation (issue #1033).
         WaterShoreDepthSystem::Init();
+        // Crest spray particles (issue #1034, §2.3). Owned here for the same
+        // reason the disturbance field is: a pool released from a narrower
+        // scope leaks in every session that never reaches that scope.
+        WaterSpraySystem::Init();
 
         // Initialize snow accumulation & ejecta systems
         SnowAccumulationSystem::Init();
@@ -688,6 +693,7 @@ namespace OloEngine
         // Water-disturbance field (issue #967)
         WaterDisturbanceSystem::Shutdown();
         WaterShoreDepthSystem::Shutdown();
+        WaterSpraySystem::Shutdown();
 
         // Shutdown Forward+ system
         s_Data.ForwardPlus.Shutdown();

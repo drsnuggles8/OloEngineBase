@@ -6833,6 +6833,79 @@ namespace OloEngine
                                       "longer than the crest-foam fade on purpose: surf on a beach is "
                                       "exactly what you are meant to see from a boat well offshore.");
 
+                ImGui::SeparatorText("Foam Advection");
+                ImGui::Checkbox("Advect Foam", &component.m_FoamAdvectionEnabled);
+                ImGui::SetItemTooltip("Store open-ocean foam in a world-anchored field and let it "
+                                      "DRIFT with the surface instead of whitening wherever the "
+                                      "wave happens to be folding right now (issue #1034). "
+                                      "Whitecaps stop pulsing in place.\n\n"
+                                      "Needs FFT waves: the deposit criterion is the FFT's own "
+                                      "folding Jacobian, so a Gerstner sea has nothing to deposit "
+                                      "from and the feature reports itself off.");
+                ImGui::DragFloat("Foam Intensity", &component.m_FoamAdvectionIntensity, 0.01f, 0.0f, 4.0f);
+                ImGui::SetItemTooltip("Multiplier on the advected field. 0 keeps the pass running "
+                                      "and makes the result invisible — the A/B setting for "
+                                      "telling advected foam apart from the crest and shoreline "
+                                      "terms it sits alongside.");
+                ImGui::DragFloat("Foam Half-Life", &component.m_FoamAdvectionHalfLife, 0.05f, 0.05f, 120.0f, "%.2f s");
+                ImGui::SetItemTooltip("Seconds for deposited foam to halve. Shorter than the wake's "
+                                      "on purpose: a whitecap is gone in a few seconds, a boat's "
+                                      "churn is not.");
+                ImGui::DragFloat("Foam Threshold", &component.m_FoamAdvectionThreshold, 0.005f, 0.0f, 0.99f);
+                ImGui::SetItemTooltip("Fold signal at which foam starts being laid down. RAISE it for "
+                                      "a calm sea that should only foam in the steepest crests; lower "
+                                      "it for a storm that should be white all over.");
+                ImGui::DragFloat("Foam Drift", &component.m_FoamAdvectionDrift, 0.002f, 0.0f, 0.5f);
+                ImGui::SetItemTooltip("Fraction of the FFT wind speed taken as the mean surface "
+                                      "current. The only part of the advecting velocity with a "
+                                      "non-zero mean, so it is the whole reason a foam patch ends up "
+                                      "somewhere else rather than oscillating about where it started. "
+                                      "The physical figure is nearer 1.5%%; the default exaggerates "
+                                      "it so the drift reads over a handful of frames.");
+
+                ImGui::SeparatorText("Crest Spray");
+                ImGui::Checkbox("Crest Spray", &component.m_SprayEnabled);
+                ImGui::SetItemTooltip("GPU particles thrown off crests that fold hard enough "
+                                      "(issue #1034), with ballistic motion and wind drag.\n\n"
+                                      "Shares its crest test with Foam Advection above — the same "
+                                      "function on the same signal, so a crest that sprays is a "
+                                      "crest that foams. Needs FFT waves for the same reason, and "
+                                      "emits nothing at all on a calm sea.");
+                ImGui::DragFloat("Spray Threshold", &component.m_SprayThreshold, 0.005f, 0.0f, 0.99f);
+                ImGui::SetItemTooltip("Fold signal a crest must exceed to spray. Clamped UP to the "
+                                      "foam threshold, never below it: droplets flying off water "
+                                      "that never went white read as a foam bug.");
+                ImGui::DragFloat("Spray Rate", &component.m_SprayRate, 0.1f, 0.0f, 200.0f, "%.1f /s");
+                ImGui::SetItemTooltip("Particles per second from one sample cell at full fold. A "
+                                      "PER-CELL rate, so widening the radius adds spray rather than "
+                                      "thinning what is already there.");
+                ImGui::DragFloat("Spray Radius", &component.m_SprayRadius, 1.0f, 1.0f, 400.0f, "%.0f m");
+                ImGui::DragFloat("Spray Launch Speed", &component.m_SprayLaunchSpeed, 0.05f, 0.0f, 30.0f, "%.2f m/s");
+                ImGui::DragFloat("Spray Lifetime", &component.m_SprayLifetime, 0.05f, 0.05f, 20.0f, "%.2f s");
+                ImGui::DragFloat("Spray Size", &component.m_SprayParticleSize, 0.005f, 0.005f, 2.0f, "%.3f m");
+
+                ImGui::SeparatorText("Rain Ripples");
+                ImGui::Checkbox("Rain Ripples", &component.m_RainRipplesEnabled);
+                ImGui::SetItemTooltip("Expanding ring impacts stippling the surface while it is "
+                                      "raining (issue #1034). Procedural and normal-only — no "
+                                      "texture, no extra binding, and the shader returns before its "
+                                      "cell walk when nothing is falling, so leaving this on in a "
+                                      "scene with no weather costs nothing.\n\n"
+                                      "Needs a PrecipitationComponent actually raining: this "
+                                      "checkbox is only half the gate. Snow is excluded — a "
+                                      "snowflake melts, it does not ring.");
+                ImGui::DragFloat("Ripple Strength", &component.m_RainRippleStrength, 0.01f, 0.0f, 4.0f);
+                ImGui::SetItemTooltip("Gain on the ripple slope, multiplied by the live precipitation "
+                                      "intensity. 0 keeps the feature wired up and invisible, which "
+                                      "is how to tell whether a wet-looking sea is the ripples or the "
+                                      "rest of the weather.");
+                ImGui::DragFloat("Ripple Fade Start", &component.m_RainRippleFadeStart, 1.0f, 0.0f, 2000.0f, "%.0f m");
+                ImGui::DragFloat("Ripple Fade End", &component.m_RainRippleFadeEnd, 1.0f, 1.0f, 4000.0f, "%.0f m");
+                ImGui::SetItemTooltip("Camera distances over which the ripples fade out. MUCH shorter "
+                                      "than any other water fade, and not an art choice: the ripple "
+                                      "cell grid is 0.55 m, so the field is undersampled within a few "
+                                      "tens of metres and has to be dropped rather than filtered.");
+
                 ImGui::SeparatorText("Subsurface Scattering");
                 ImGui::ColorEdit3("SSS Color", glm::value_ptr(component.m_SSSColor));
                 ImGui::DragFloat("SSS Intensity", &component.m_SSSIntensity, 0.01f, 0.0f, 5.0f);

@@ -2551,6 +2551,60 @@ namespace OloEngine
             ar << c.m_ShoreFoamFadeStart << c.m_ShoreFoamFadeEnd;
         }
 
+        // Advected open-ocean foam (issue #1034, §2.2), appended after the
+        // shore block — the same trailing-AtEnd() probe, which is now in the
+        // trailing position for the reason the three comments above give.
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_FoamAdvectionEnabled = false;
+            c.m_FoamAdvectionIntensity = 1.0f;
+            c.m_FoamAdvectionHalfLife = 3.5f;
+            c.m_FoamAdvectionThreshold = 0.10f;
+            c.m_FoamAdvectionDrift = 0.03f;
+        }
+        else
+        {
+            ar << c.m_FoamAdvectionEnabled;
+            ar << c.m_FoamAdvectionIntensity << c.m_FoamAdvectionHalfLife;
+            ar << c.m_FoamAdvectionThreshold << c.m_FoamAdvectionDrift;
+        }
+
+        // Bubble / spray particles (issue #1034, §2.3), appended after the
+        // foam-advection block — the same trailing-AtEnd() probe.
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_SprayEnabled = false;
+            c.m_SprayThreshold = 0.22f;
+            c.m_SprayRate = 6.0f;
+            c.m_SprayRadius = 38.0f;
+            c.m_SprayLaunchSpeed = 2.6f;
+            c.m_SprayLifetime = 0.9f;
+            c.m_SprayParticleSize = 0.25f;
+        }
+        else
+        {
+            ar << c.m_SprayEnabled;
+            ar << c.m_SprayThreshold << c.m_SprayRate << c.m_SprayRadius;
+            ar << c.m_SprayLaunchSpeed << c.m_SprayLifetime << c.m_SprayParticleSize;
+        }
+
+        // Rain-impact ripples (issue #1034, §7.3), appended after the shore
+        // block — the same trailing-AtEnd() probe, which is now in the
+        // trailing position for the reason the three comments above give.
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_RainRipplesEnabled = false;
+            c.m_RainRippleStrength = 1.0f;
+            c.m_RainRippleFadeStart = 18.0f;
+            c.m_RainRippleFadeEnd = 45.0f;
+        }
+        else
+        {
+            ar << c.m_RainRipplesEnabled;
+            ar << c.m_RainRippleStrength;
+            ar << c.m_RainRippleFadeStart << c.m_RainRippleFadeEnd;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -2616,6 +2670,29 @@ namespace OloEngine
             sanitize(c.m_ShoreFoamFadeEnd, 1.0f, 5000.0f, 400.0f);
             if (c.m_ShoreFoamFadeEnd < c.m_ShoreFoamFadeStart + 1.0f)
                 c.m_ShoreFoamFadeEnd = c.m_ShoreFoamFadeStart + 1.0f;
+            // Foam advection (issue #1034) — the same bounds as the scene
+            // serializer, the component annotations and Scene's per-frame
+            // publish.
+            sanitize(c.m_FoamAdvectionIntensity, 0.0f, 4.0f, 1.0f);
+            sanitize(c.m_FoamAdvectionHalfLife, 0.05f, 120.0f, 3.5f);
+            sanitize(c.m_FoamAdvectionThreshold, 0.0f, 0.99f, 0.10f);
+            sanitize(c.m_FoamAdvectionDrift, 0.0f, 0.5f, 0.03f);
+            // Spray (issue #1034) — the same bounds as the scene serializer
+            // and the component annotations.
+            sanitize(c.m_SprayThreshold, 0.0f, 0.99f, 0.22f);
+            sanitize(c.m_SprayRate, 0.0f, 200.0f, 6.0f);
+            sanitize(c.m_SprayRadius, 1.0f, 400.0f, 38.0f);
+            sanitize(c.m_SprayLaunchSpeed, 0.0f, 30.0f, 2.6f);
+            sanitize(c.m_SprayLifetime, 0.05f, 20.0f, 0.9f);
+            sanitize(c.m_SprayParticleSize, 0.005f, 2.0f, 0.25f);
+            // Rain ripples (issue #1034) — the same bounds as the scene
+            // serializer, the component annotations and Scene's per-frame
+            // publish, endpoint ordering included.
+            sanitize(c.m_RainRippleStrength, 0.0f, 4.0f, 1.0f);
+            sanitize(c.m_RainRippleFadeStart, 0.0f, 2000.0f, 18.0f);
+            sanitize(c.m_RainRippleFadeEnd, 1.0f, 4000.0f, 45.0f);
+            if (c.m_RainRippleFadeEnd < c.m_RainRippleFadeStart + 1.0f)
+                c.m_RainRippleFadeEnd = c.m_RainRippleFadeStart + 1.0f;
             sanitize(c.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
             sanitize(c.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
             sanitize(c.m_SSRStepSize, 0.01f, 1.0f, 0.1f);
