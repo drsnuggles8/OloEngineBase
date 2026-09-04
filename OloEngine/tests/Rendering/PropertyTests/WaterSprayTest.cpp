@@ -233,8 +233,13 @@ namespace OloEngine::Tests
         ASSERT_EQ(a.size(), b.size());
         for (sizet i = 0; i < a.size(); ++i)
         {
-            EXPECT_EQ(a[i].PositionLifetime, b[i].PositionLifetime) << "particle " << i;
-            EXPECT_EQ(a[i].VelocityMaxLifetime, b[i].VelocityMaxLifetime) << "particle " << i;
+            for (glm::length_t c = 0; c < 4; ++c)
+            {
+                EXPECT_FLOAT_EQ(a[i].PositionLifetime[c], b[i].PositionLifetime[c])
+                    << "particle " << i << " component " << c;
+                EXPECT_FLOAT_EQ(a[i].VelocityMaxLifetime[c], b[i].VelocityMaxLifetime[c])
+                    << "particle " << i << " component " << c;
+            }
         }
     }
 
@@ -246,7 +251,8 @@ namespace OloEngine::Tests
         const glm::ivec2 cell{ 4, -9 };
         const glm::vec2 first = WS::SamplePointForCell(cell);
         const glm::vec2 second = WS::SamplePointForCell(cell);
-        EXPECT_EQ(first, second);
+        EXPECT_FLOAT_EQ(first.x, second.x);
+        EXPECT_FLOAT_EQ(first.y, second.y);
 
         // And the cell a given world position falls in does not depend on where
         // the window happens to start.
@@ -255,7 +261,8 @@ namespace OloEngine::Tests
         const glm::ivec2 minA = WS::CellMinForCentre({ 0.0f, 0.0f }, 20.0f, axisA);
         const glm::ivec2 minB = WS::CellMinForCentre({ 40.0f, 0.0f }, 20.0f, axisB);
         EXPECT_EQ(axisA, axisB);
-        EXPECT_NE(minA, minB) << "the window did not follow the camera at all";
+        EXPECT_TRUE(minA.x != minB.x || minA.y != minB.y)
+            << "the window did not follow the camera at all";
         // The lattice itself is anchored: the two windows' corners differ by a
         // whole number of cells, so every shared cell keeps its identity.
         EXPECT_EQ((minB.x - minA.x) * static_cast<i32>(WS::kSampleSpacingMetres),

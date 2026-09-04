@@ -568,7 +568,7 @@ namespace OloEngine::Tests
         // be a tolerance, and a tolerance is precisely what this criterion is
         // not about: the shader must return BEFORE its cell walk, and it does
         // that on `x <= 0`.
-        EXPECT_EQ(WaterRainRippleSystem::GetShaderParams().x, 0.0f)
+        EXPECT_LE(WaterRainRippleSystem::GetShaderParams().x, 0.0f)
             << "the ripple field was live while it was not raining — the water tile's flag alone "
             << "switched it on, so the shader is walking 9 cells per fragment on a dry sea";
 

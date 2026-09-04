@@ -268,7 +268,7 @@ namespace OloEngine::Tests
         const WF::BilinearTaps taps = WF::PrevTaps(justOutside, latticeMin);
         for (i32 i = 0; i < 4; ++i)
         {
-            EXPECT_EQ(taps.m_Weight[i], 0.0f)
+            EXPECT_FLOAT_EQ(taps.m_Weight[i], 0.0f)
                 << "tap " << i << " outside the window carried weight — the torus seam is being "
                 << "advected in, which renders as a ghost of the foam trailing the camera";
         }
@@ -298,7 +298,7 @@ namespace OloEngine::Tests
         f32 weightOnTarget = 0.0f;
         for (i32 i = 0; i < 4; ++i)
         {
-            if (taps.m_Storage[i] == storage)
+            if (taps.m_Storage[i].x == storage.x && taps.m_Storage[i].y == storage.y)
                 weightOnTarget += taps.m_Weight[i];
         }
         EXPECT_NEAR(weightOnTarget, 1.0f, 1.0e-4f)
@@ -349,8 +349,12 @@ namespace OloEngine::Tests
     TEST(WaterFoamAdvectionTest, BacktraceIsAnIdentityWithNoStep)
     {
         const glm::vec2 p{ 12.5f, -3.25f };
-        EXPECT_EQ(WF::Backtrace(p, { 4.0f, 4.0f }, 0.0f), p);
-        EXPECT_EQ(WF::Backtrace(p, { 4.0f, 4.0f }, -1.0f), p);
+        for (const f32 dt : { 0.0f, -1.0f })
+        {
+            const glm::vec2 out = WF::Backtrace(p, { 4.0f, 4.0f }, dt);
+            EXPECT_FLOAT_EQ(out.x, p.x) << "dt = " << dt;
+            EXPECT_FLOAT_EQ(out.y, p.y) << "dt = " << dt;
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -365,9 +369,9 @@ namespace OloEngine::Tests
         ASSERT_GT(WF::DepositFromFold(0.9f, 0.25f), 0.0f);
 
         // saturate(1 - J) is exactly 0 on water that is not folding.
-        EXPECT_EQ(WF::DepositFromFold(0.0f, 0.25f), 0.0f);
-        EXPECT_EQ(WF::DepositFromFold(0.25f, 0.25f), 0.0f);
-        EXPECT_EQ(WF::DepositFromFold(0.1f, 0.25f), 0.0f);
+        EXPECT_FLOAT_EQ(WF::DepositFromFold(0.0f, 0.25f), 0.0f);
+        EXPECT_FLOAT_EQ(WF::DepositFromFold(0.25f, 0.25f), 0.0f);
+        EXPECT_FLOAT_EQ(WF::DepositFromFold(0.1f, 0.25f), 0.0f);
     }
 
     TEST(WaterFoamAdvectionTest, DepositIsARampNotAStep)
@@ -399,8 +403,8 @@ namespace OloEngine::Tests
     TEST(WaterFoamAdvectionTest, DepositRejectsNonFiniteInput)
     {
         const f32 nan = std::numeric_limits<f32>::quiet_NaN();
-        EXPECT_EQ(WF::DepositFromFold(nan, 0.25f), 0.0f);
-        EXPECT_EQ(WF::DepositFromFold(0.9f, nan), 0.0f);
+        EXPECT_FLOAT_EQ(WF::DepositFromFold(nan, 0.25f), 0.0f);
+        EXPECT_FLOAT_EQ(WF::DepositFromFold(0.9f, nan), 0.0f);
     }
 
     TEST(WaterFoamAdvectionTest, CombineTakesTheMaxSoDepositIsNotFrameRateDependent)

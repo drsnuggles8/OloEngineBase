@@ -9080,6 +9080,11 @@ namespace OloEngine
                 WaterSpray::WaterSpraySettings spraySettings{};
                 Ref<Ocean::OceanFFTField> sprayField;
                 f32 bestSprayArea = -1.0f;
+                // The foam-deposit threshold of the surface that wins SPRAY, which
+                // is not necessarily the one that wins FOAM. WaterSpray clamps the
+                // spray threshold up to this, so taking it from the foam winner
+                // lets a strict threshold on one tile silence spray on another.
+                f32 sprayFoamThreshold = WaterFoam::WaterFoamSettings{}.m_DepositThreshold;
 
                 auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
                 for (auto entity : waterView)
@@ -9660,6 +9665,12 @@ namespace OloEngine
                                 {
                                     bestSprayArea = sprayArea;
                                     sprayField = water.m_OceanField;
+                                    // THIS tile's foam threshold — the floor has to
+                                    // come from the surface the spray comes off.
+                                    sprayFoamThreshold =
+                                        std::isfinite(water.m_FoamAdvectionThreshold)
+                                            ? std::clamp(water.m_FoamAdvectionThreshold, 0.0f, 0.99f)
+                                            : 0.10f;
                                     spraySettings.m_Enabled = true;
                                     spraySettings.m_Threshold =
                                         std::isfinite(water.m_SprayThreshold)
@@ -9779,9 +9790,12 @@ namespace OloEngine
                 // the foam deposit that shares the criterion.
                 //
                 // The foam threshold rides along so the spray one can be clamped
-                // UP to it and never fire on gentler crests than the foam does.
-                WaterSpraySystem::SetSource(spraySettings, sprayField,
-                                            foamSettings.m_DepositThreshold);
+                // UP to it and never fire on gentler crests than the foam does —
+                // and it is the SPRAY winner's own threshold, not the foam
+                // winner's. The two contests have independent winners, so taking
+                // it from foamSettings would let a strict threshold authored on
+                // one tile silence spray on a completely different one.
+                WaterSpraySystem::SetSource(spraySettings, sprayField, sprayFoamThreshold);
 
                 // Shore wave deformation (issue #1033). Published
                 // UNCONDITIONALLY, including the disabled form, for the reason

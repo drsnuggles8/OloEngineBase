@@ -177,9 +177,15 @@ namespace OloEngine
         }
         else
         {
-            s_Data.m_DrainTimeRemaining = std::max(s_Data.m_DrainTimeRemaining - deltaTime, 0.0f);
+            // The guard comes BEFORE the decrement so the frame that ENDS the
+            // drain still runs the chain below. Decrementing first returns on
+            // that frame, which leaves the previous Compact's instance count
+            // published in the indirect buffer — and the last droplets, whose
+            // lifetimes expire on exactly that frame, are then drawn frozen
+            // forever because nothing ever simulates or re-compacts them again.
             if (s_Data.m_DrainTimeRemaining <= 0.0f)
                 return; // nothing airborne and nothing to emit — skip the whole chain
+            s_Data.m_DrainTimeRemaining = std::max(s_Data.m_DrainTimeRemaining - deltaTime, 0.0f);
         }
 
         // Ballistic motion with wind drag, which is what §2.3 asks for and
@@ -245,6 +251,18 @@ namespace OloEngine
             const u32 maxParticles = s_Data.m_System->GetMaxParticles();
             s_Data.m_System->Shutdown();
             s_Data.m_System->Init(maxParticles);
+            if (!s_Data.m_System->IsInitialized())
+            {
+                // Tear the whole service down rather than leaving m_Initialized
+                // true over a dead pool: Update() gates on that flag and would
+                // go on driving a shut-down system, IsInitialized() would lie to
+                // callers, and a later Init() would early-out as "already
+                // initialized" so the session could never recover.
+                OLO_CORE_ERROR("WaterSpraySystem::Reset — particle pool re-init failed; "
+                               "crest spray is disabled for this session");
+                s_Data.m_System.reset();
+                s_Data.m_Initialized = false;
+            }
         }
 
         s_Data.m_Settings = WaterSpray::WaterSpraySettings{};
