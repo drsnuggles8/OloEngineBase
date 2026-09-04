@@ -669,6 +669,13 @@ TEST_F(VulkanMeshPipelineFamily, EveryShippedMeshShaderProducesAPipeline)
         targets.Samples = 1;
 
         const VulkanRecordedPipelineState state = MeshDrawState();
+        // Cleared per shader, not once per test: GetOrCreateGraphics has
+        // early returns that hand back VK_NULL_HANDLE without recording
+        // anything (no device, no shader modules). Without this, a genuine
+        // failure on an earlier shader would be re-reported as this one's
+        // reason, and the "recorded no VkResult" branch below could never be
+        // reached again.
+        VulkanPipelineBuilder::Get().ClearLastCreationFailure();
         const VkPipeline pipeline = VulkanPipelineBuilder::Get().GetOrCreateGraphics(*vkShader, layout, state, targets);
 
         if (pipeline == VK_NULL_HANDLE)
