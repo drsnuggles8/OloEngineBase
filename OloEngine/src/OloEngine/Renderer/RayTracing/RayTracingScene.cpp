@@ -347,10 +347,9 @@ namespace OloEngine::RayTracing
                 entry.Policy = UpdatePolicy::RefitOrRebuild;
             }
             // ...and the strictest CLASS is what the geometry is reported as,
-            // for the same reason. Ordering is the enum's own most-restrictive
-            // -first order, so a mesh used both opaquely and as a cutout
+            // for the same reason: a mesh used both opaquely and as a cutout
             // reports once, as Masked.
-            entry.ReportedClass = std::min(entry.ReportedClass, geometryClass);
+            entry.ReportedClass = MostRestrictive(entry.ReportedClass, geometryClass);
 
             InstanceRecord record{};
             record.Transform[0] = instance->CurrentTransform.Row0;

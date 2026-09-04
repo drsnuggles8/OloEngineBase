@@ -51,9 +51,15 @@ namespace
         EXPECT_EQ(report.at("resident").at("compactionSavedBytes").get<u64>(), 512u);
         EXPECT_EQ(report.at("resident").at("unsupportedInstances").get<u32>(), 5u);
         EXPECT_EQ(report.at("resident").at("blasByClass").at("masked").get<u32>(), 3u);
+        // Distinct values per key on purpose: "static" and "masked" carry 12 and
+        // 3, so a mapping that crossed the two class slots reads wrong here
+        // rather than passing on a coincidence.
+        EXPECT_EQ(report.at("resident").at("blasByClass").at("static").get<u32>(), 12u);
+        EXPECT_EQ(report.at("resident").at("tlasInstances").get<u32>(), 15u);
         EXPECT_EQ(report.at("frame").at("blasBuilds").get<u32>(), 2u);
         EXPECT_EQ(report.at("frame").at("blasRefits").get<u32>(), 1u);
         EXPECT_EQ(report.at("frame").at("blasCompactions").get<u32>(), 4u);
+        EXPECT_EQ(report.at("frame").at("blasRetired").get<u32>(), 1u);
         EXPECT_EQ(report.at("frame").at("instancesSkipped").get<u32>(), 5u);
         EXPECT_EQ(report.at("lastTlasReason"), "TopologyChanged");
     }

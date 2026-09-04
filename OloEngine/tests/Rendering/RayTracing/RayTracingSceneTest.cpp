@@ -40,6 +40,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -696,6 +697,16 @@ namespace OloEngine::Tests
             RT::UnsupportedReason::EntryPointMissing,
             RT::UnsupportedReason::DisabledByLever,
         };
+        // The sweep is hand-written, so it can silently stop being exhaustive.
+        // Pinned with the repo's growth-tripwire idiom (RHIEnumLoweringTest)
+        // rather than by adding a Count enumerator: UnsupportedReason is not an
+        // array index, and a Count member would need a case in ToString's
+        // deliberately default-less switch — weakening the exhaustiveness this
+        // very test exists to protect.
+        static_assert(static_cast<u32>(RT::UnsupportedReason::DisabledByLever) == 6u,
+                      "UnsupportedReason gained or lost a member — add it to reasons[] below");
+        static_assert(std::size(reasons) == static_cast<sizet>(RT::UnsupportedReason::DisabledByLever) + 1u,
+                      "reasons[] no longer covers every UnsupportedReason");
         std::vector<std::string_view> seen;
         for (const RT::UnsupportedReason reason : reasons)
         {

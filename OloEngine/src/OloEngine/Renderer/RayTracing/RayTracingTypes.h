@@ -178,6 +178,27 @@ namespace OloEngine::RayTracing
         return "Unknown";
     }
 
+    // Which of two classes a SHARED geometry must be reported as. One BLAS
+    // serves every instance that references the mesh, so the strictest demand
+    // any of them makes is the one the structure has to satisfy: a mesh used
+    // both opaquely and as a cutout is Masked, and one deformed user makes it
+    // Deformed for everyone.
+    //
+    // This is a std::min over the enum, and the enum's most-restrictive-first
+    // ordering is what makes that correct — which is exactly why it is named
+    // here with the assert attached, instead of being a bare std::min at the
+    // call site whose correctness lives in a comment two lines above it.
+    [[nodiscard]] constexpr GeometryClass MostRestrictive(GeometryClass lhs, GeometryClass rhs)
+    {
+        static_assert(static_cast<u32>(GeometryClass::Unsupported) < static_cast<u32>(GeometryClass::Deformed) &&
+                          static_cast<u32>(GeometryClass::Deformed) < static_cast<u32>(GeometryClass::Masked) &&
+                          static_cast<u32>(GeometryClass::Masked) < static_cast<u32>(GeometryClass::RigidDynamic) &&
+                          static_cast<u32>(GeometryClass::RigidDynamic) < static_cast<u32>(GeometryClass::Static),
+                      "GeometryClass must stay ordered most-restrictive-first: MostRestrictive() is a std::min over it, "
+                      "and reordering the enum would silently pick the WEAKER class for a shared mesh");
+        return (static_cast<u32>(lhs) <= static_cast<u32>(rhs)) ? lhs : rhs;
+    }
+
     // What a class implies for the BLAS itself, independent of how the object
     // moves through the world. Deliberately three values, not five: the whole
     // point of the split is that Masked and RigidDynamic differ from Static in

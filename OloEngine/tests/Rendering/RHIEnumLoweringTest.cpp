@@ -79,10 +79,12 @@ namespace
     // silently bind as GL_READ_WRITE.
     // 18 -> 20 with #978's AccelerationStructureBuild / AccelerationStructureRead.
     // Both are DELIBERATELY absent from ToGLImageAccess: an acceleration
-    // structure is not an image, so they take its default arm and log rather
-    // than binding as GL_READ_WRITE. That arm is the correct answer here, not
-    // an omission — OpenGL has no hardware ray tracing in this engine and
-    // these two can only ever reach the Vulkan lowering.
+    // structure is not an image, so they take its default arm, which LOGS an
+    // error and still returns GL_READ_WRITE (it has to return something). That
+    // arm is the correct answer here, not an omission — OpenGL has no hardware
+    // ray tracing in this engine, so neither value can reach a glBindImageTexture
+    // call at all; they only ever reach the Vulkan lowering. The log is what
+    // would name the mistake if one ever did.
     static_assert(static_cast<int>(RHI::Access::Present) == 20,
                   "RHI::Access changed — update ToGLImageAccess() and ImageAccessLowering");
     static_assert(static_cast<int>(RHI::PrimitiveTopology::PatchList) == 5,
