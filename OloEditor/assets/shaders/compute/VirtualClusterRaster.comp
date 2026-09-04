@@ -38,6 +38,13 @@
 #extension GL_EXT_shader_atomic_int64 : enable
 #endif
 
+// The sub-sample-miss rule and the window-space area determinant (issue #712).
+// Kept in a header rather than inline because the rule has to agree EXACTLY with
+// its L2 probe and its CPU mirror — a half-pixel disagreement drops geometry
+// with nothing to show for it — and because the hardware path will want the same
+// two functions when its own per-triangle reject lands.
+#include "../include/VirtualRasterCoverage.glsl"
+
 layout(local_size_x = 64) in;
 
 // Mirrors OloEngine::VirtualClusterGpuRecord (64 B std430)
@@ -188,7 +195,7 @@ void RasterizeTriangle(uint swRecordIndex, uint triangleIndex)
     // software-rasterized cluster, invisibly, since foliage — the only two-sided
     // geometry we ship — is alpha-masked and never reaches this shader.
     bool twoSided = (inst.Flags & 4u) != 0u;
-    float signedArea = (s1.x - s0.x) * (s2.y - s0.y) - (s2.x - s0.x) * (s1.y - s0.y);
+    float signedArea = OloVirtualSignedArea2(s0, s1, s2);
     if (signedArea < 0.0 && !twoSided)
         return; // back-facing, single-sided material
     float orient = (signedArea < 0.0) ? -1.0 : 1.0;
@@ -203,8 +210,26 @@ void RasterizeTriangle(uint swRecordIndex, uint triangleIndex)
     ivec2 bbMax = ivec2(min(ceil(bbMaxF), viewport - 1.0));
     if (bbMax.x < bbMin.x || bbMax.y < bbMin.y)
         return;
+    // The work cap is deliberately still measured on this PIXEL-aligned box and
+    // not on the tighter sample box below, so the set of triangles it rejects is
+    // exactly the set it rejected before the sub-sample reject existed. The two
+    // boxes differ by about a pixel per axis, which would otherwise move the
+    // 128-pixel cutoff and change the visibility buffer for triangles sitting on
+    // it — and "pixel-identical" is the contract this change is held to.
     if (bbMax.x - bbMin.x > kMaxTriangleBBox || bbMax.y - bbMin.y > kMaxTriangleBBox)
         return;
+
+    // ---- Sub-sample-miss reject + sample-tight loop bounds (issue #712) ----
+    // Snap the box to the pixel CENTRES it can actually cover (the rule and the
+    // reasoning live in VirtualRasterCoverage.glsl). A micro-triangle that falls
+    // entirely between sample points returns here instead of walking its whole
+    // box for three edge functions per pixel — and for the triangles that do
+    // survive, these bounds are still a row and a column tighter per axis than
+    // floor/ceil of the raw box, which is where most of the saved iterations are.
+    ivec2 sampleMin;
+    ivec2 sampleMax;
+    if (!OloVirtualSampleRange(bbMinF, bbMaxF, viewport, sampleMin, sampleMax))
+        return; // covers no sample point
 
     float invArea = 1.0 / area;
     // Window depth in [0,1], interpolated with screen-space barycentrics —
@@ -215,9 +240,9 @@ void RasterizeTriangle(uint swRecordIndex, uint triangleIndex)
 
     uint payload = (swRecordIndex << 9u) | (triangleIndex & 0x1FFu);
 
-    for (int y = bbMin.y; y <= bbMax.y; ++y)
+    for (int y = sampleMin.y; y <= sampleMax.y; ++y)
     {
-        for (int x = bbMin.x; x <= bbMax.x; ++x)
+        for (int x = sampleMin.x; x <= sampleMax.x; ++x)
         {
             vec2 pixel = vec2(float(x) + 0.5, float(y) + 0.5);
 

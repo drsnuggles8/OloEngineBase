@@ -140,6 +140,7 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualClusterCullParityTest.cpp
 		Rendering/VirtualClusterTwoPhaseOcclusionTest.cpp
 		Rendering/VirtualMeshletEligibilityTest.cpp
+		Rendering/VirtualRasterCoverageTest.cpp
 		Rendering/MeshSourceBoundsTest.cpp
 		Rendering/MeshBVHRaycastTest.cpp
 		Rendering/PathTracing/ReferenceBRDFTest.cpp
@@ -392,6 +393,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SubmeshMaterialPathParityTest.cpp
 		Rendering/PropertyTests/ModelWarmCacheGeometryIdentityTest.cpp
 		Rendering/PropertyTests/VirtualGeometryRasterParityTest.cpp
+		Rendering/PropertyTests/VirtualRasterSubSampleEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualMeshAssetPackTest.cpp
 		Rendering/PropertyTests/VirtualMeshRealAssetCookTest.cpp
 		Rendering/PropertyTests/ImportedMaterialPackTest.cpp

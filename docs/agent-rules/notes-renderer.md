@@ -880,3 +880,39 @@ Two corollaries:
   buffer on a shared binding point is usually applied to SSBOs and forgotten for UBOs, and bindings
   7 and 8 are `UBO_USER_0` / `UBO_USER_1` — the post-process and motion-blur slots — so a destroyed
   buffer left there is handed to the next pass in the process.
+
+## Tightening a loop bound moves every guard that was calibrated against it
+
+**Rule:** when you replace a bound with a tighter one, re-read every *other* test written against
+the old bound — a work cap, a capacity estimate, a size assert — and either keep it on the quantity
+it was calibrated for or move it deliberately and say so in the diff. The new bound is a different
+number; a guard comparing against it silently changes verdict, and nothing fails.
+
+`VirtualClusterRaster.comp` walks `floor(bbMin) .. ceil(bbMax)` of a triangle's window-space box and
+caps that box at `kMaxTriangleBBox = 128` pixels per axis, as belt-and-braces against a huge
+post-projection triangle. Issue #712 snapped the scan to the pixel CENTRES the box can cover —
+`ceil(bbMin - 0.5) .. floor(bbMax - 0.5)` — which is about one pixel narrower per axis. Evaluating
+the cap on the new box would have shifted its cutoff by roughly two pixels, so triangles spanning
+about 129 pixels would newly have been drawn: a real change to the visibility buffer, from a line
+nobody edited, in a change whose whole contract was that the buffer stays identical. The cap
+therefore still reads the pre-snap box, with a comment saying why.
+
+Two more things that make a sample-grid snap fail silently, both worth copying if you write another:
+
+- **Both bounds are INCLUSIVE, because the edge test accepts a zero edge function.** A pixel centre
+  lying exactly on the box boundary is a covered sample. `>` where `>=` belongs drops slivers that
+  legitimately touch one sample point, which is invisible in a coverage ratio and shows up only as
+  slightly wrong edges.
+- **Clamp in float, before the int conversion.** A grazing projection can put a window coordinate
+  outside the int range, and `ivec2(hugeFloat)` is undefined in GLSL. Clamping the float first also
+  lets the empty case be spelled with legal sentinels (`viewport` on the min side, `-1` on the max)
+  so a fully off-screen triangle takes the early out instead of scanning one clamped edge pixel.
+
+**What stayed green:** every CPU test in the suite, and the SW-vs-HW parity test — its coverage
+floor is 0.80 by design, because the box cap already nicks the silhouette differently on each
+vendor. The detector that does see it is an interior-hole count on the visibility buffer
+(`VirtualRasterSubSampleEvidence.SoftwareVisibilityBufferHasNoInteriorHoles`): a watertight mesh
+cannot leave an uncovered pixel with covered neighbours all round, so any triangle-level drop —
+this reject, the box cap, the near-plane guard — shows up there as a pinhole and nowhere else.
+
+Found on #712 (triangle-level culling in the virtual-geometry raster).
