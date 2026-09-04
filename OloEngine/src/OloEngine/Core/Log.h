@@ -95,6 +95,20 @@ namespace OloEngine
             (void)Get();
         }
 
+        // Overrides the file sink's path. Every process defaulted to
+        // "OloEngine.log" in the cwd and opened it truncating, so a test run
+        // from OloEditor/ erased a live editor's log mid-session. Call this
+        // before Initialize()/Get(); afterwards the sink already exists and the
+        // call does nothing. OLO_LOG_FILE overrides the default too, for
+        // tooling that cannot rebuild.
+        static void SetLogFile(std::string_view path)
+        {
+            if (!s_Initialized.load(std::memory_order_acquire))
+            {
+                s_LogFileName = std::string(path);
+            }
+        }
+
         // Returns a pointer to the singleton if it has already been constructed,
         // or nullptr if Get() has never been called.  Safe to call from crash
         // handlers and other contexts where heavy initialization is undesirable.
@@ -187,7 +201,14 @@ namespace OloEngine
         Log();
         ~Log();
 
+        // Precedence: SetLogFile(), then OLO_LOG_FILE, then "OloEngine.log".
+        static std::string ResolveLogFileName();
+
         static inline std::atomic<bool> s_Initialized{ false };
+
+        // Read once by the constructor. Not atomic: SetLogFile() is documented
+        // as pre-Initialize(), which is single-threaded startup.
+        static inline std::string s_LogFileName{};
 
         // lock-free tag map: readers take a snapshot shared_ptr, writers copy-and-swap
         using TagMap = std::unordered_map<std::string, TagDetails>;

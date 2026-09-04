@@ -50,7 +50,15 @@ param(
     # only works if OloEditor is genuinely the top-most visible window (it usually is
     # NOT, because a background process cannot steal foreground on Windows).
     [ValidateSet('print', 'screen')]
-    [string]$Method = 'print'
+    [string]$Method = 'print',
+
+    # Backend selection, forwarded to the app as `--rhi=<value>`. Without this
+    # the driver could only ever launch the default (OpenGL), so any Vulkan
+    # session had to be started by hand outside the driver -- losing the log
+    # snapshot, the window wait and the capture path with it. Empty = let the
+    # app pick (config file, then OpenGL).
+    [ValidateSet('', 'opengl', 'vulkan')]
+    [string]$Rhi = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -238,6 +246,11 @@ function Start-Editor {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $exePath
     $psi.WorkingDirectory = $workDir
+    if ($Rhi) {
+        # EditorLayer parses argv for `--rhi=`; anything it does not recognise
+        # is treated as a project path, so pass the flag verbatim.
+        $psi.Arguments = "--rhi=$Rhi"
+    }
     # detached (launch): ShellExecute starts it in its own console so it
     # survives this script exiting. inline (capture): inherit the console so
     # the editor's log streams here, and we kill it ourselves before exiting.

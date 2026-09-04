@@ -46,6 +46,40 @@ namespace OloEngine
     }
 #endif
 
+    // Precedence: an explicit SetLogFile() call, then OLO_LOG_FILE from the
+    // environment, then the historical default. Every process used to share
+    // that default and open it truncating, so whichever started last erased the
+    // others' diagnostics.
+    std::string Log::ResolveLogFileName()
+    {
+        if (!s_LogFileName.empty())
+        {
+            return s_LogFileName;
+        }
+
+        // No std::getenv on the MSVC CRT without the deprecation opt-out;
+        // _dupenv_s is the sanctioned form and hands back an owned buffer.
+#ifdef OLO_PLATFORM_WINDOWS
+        char* value = nullptr;
+        sizet length = 0;
+        if (_dupenv_s(&value, &length, "OLO_LOG_FILE") == 0 && value != nullptr)
+        {
+            std::string result(value);
+            std::free(value);
+            if (!result.empty())
+            {
+                return result;
+            }
+        }
+#else
+        if (const char* value = std::getenv("OLO_LOG_FILE"); value != nullptr && *value != '\0')
+        {
+            return std::string(value);
+        }
+#endif
+        return std::string("OloEngine.log");
+    }
+
     Log& Log::Get()
     {
         // Intentionally leaked to survive static teardown — other statics
@@ -62,7 +96,7 @@ namespace OloEngine
 
         std::vector<spdlog::sink_ptr> logSinks;
         logSinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
-        logSinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>("OloEngine.log", true));
+        logSinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(ResolveLogFileName(), true));
         logSinks.emplace_back(m_RingbufferSink);
 
         logSinks[0]->set_pattern("%^[%T] %n: %v%$");

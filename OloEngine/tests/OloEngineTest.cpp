@@ -22,7 +22,12 @@ int main(int argc, char** argv)
     // read it yet.
     OloEngine::Levers::SetRenderGraphDiagnostics(true);
 
-    // Initialize logging explicitly
+    // Initialize logging explicitly. The suite gets its own file: run from
+    // OloEditor/ (which the visual tests require) it shared OloEngine.log with
+    // a live editor and, opening truncating, erased that editor's diagnostics
+    // mid-session — so a shader error under investigation became the suite's
+    // shutdown noise.
+    OloEngine::Log::SetLogFile("OloEngine-Tests.log");
     OloEngine::Log::Initialize();
 
     // Most headless tests never construct an Application, so the startup line
