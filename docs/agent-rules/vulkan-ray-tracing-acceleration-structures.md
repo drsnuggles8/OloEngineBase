@@ -109,6 +109,11 @@ keep, beyond bisecting. Gate the bit on the enabled capability; asking
 `VulkanDevice::Get()->IsRayQueryEnabled()` at buffer creation is safe, since no
 buffer can exist before the device decided.
 
+The gate has a second half: **clear the verdict in `Shutdown`**, next to the
+host-image-copy fields that already do it for #809's reasons. A capability flag
+that outlives its logical device is answered against a device that is gone, and
+the next `Init` can be a different GPU or the same one with the lever set.
+
 The general form: **when you add a capability, grep for every flag, stage bit
 and struct you introduced and ask which of them the device must have ENABLED to
 accept.** Usage flags and pipeline-stage bits both have this property, and both

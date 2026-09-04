@@ -1121,6 +1121,19 @@ namespace OloEngine
             std::lock_guard<std::mutex> lock(m_HostImageCopyFormatMutex);
             m_HostImageCopyFormatCache.clear();
         }
+        // #978, for the same reason and with sharper teeth: the ray-tracing
+        // verdict describes a device that is gone, and VulkanBufferResources
+        // asks IsRayQueryEnabled() at EVERY buffer creation. A verdict that
+        // outlived its device would put VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_
+        // BUILD_INPUT_READ_ONLY_BIT_KHR on buffers made for a device that never
+        // enabled the extension — VUID-VkBufferCreateInfo-None-09499, the exact
+        // failure §8b of the RT guide records. Reset to the same defaults the
+        // members declare, so an un-Init'd device reports unsupported WITH a
+        // reason rather than silently reporting None/supported.
+        m_RayQueryEnabled = false;
+        m_RayTracingPipelineEnabled = false;
+        m_RayTracingUnsupportedReason = RayTracing::UnsupportedReason::ExtensionMissing;
+        m_RayTracingProperties = RayTracing::DeviceProperties{};
         if (s_ActiveDevice == this)
         {
             s_ActiveDevice = nullptr;
