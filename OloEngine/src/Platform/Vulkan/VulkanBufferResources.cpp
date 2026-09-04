@@ -540,14 +540,27 @@ namespace OloEngine
         // build reads this stream by device address, and the usage bit is a
         // CREATE-time property — a buffer without it cannot be handed to
         // vkCmdBuildAccelerationStructuresKHR at all, however the address is
-        // obtained. Unconditional rather than gated on the RT capability
-        // because the flag is free on a device that never ray-traces, and a
-        // per-device usage set would make an asset loaded before the renderer
-        // knew its capability un-traceable for the rest of the session.
+        // obtained.
+        //
+        // GATED, and the gate is load-bearing. A usage bit belonging to an
+        // optional extension is INVALID on a device that did not enable that
+        // extension (VUID-VkBufferCreateInfo-None-09499), so setting it
+        // unconditionally makes every vertex-buffer creation an error on
+        // hardware without ray tracing — the exact opposite of "unsupported RT
+        // keeps the raster renderer usable". Headless tests never see it
+        // because they only run where RT exists; it shows up the moment the
+        // capability is off, which is what OLO_VULKAN_NO_RAY_TRACING=1 is for.
+        //
+        // Asking the device here is safe: no buffer can exist before
+        // VulkanDevice::Init has decided the capability.
+        const auto* rtDevice = VulkanDevice::Get();
+        const VkBufferUsageFlags accelerationStructureInput =
+            (rtDevice != nullptr && rtDevice->IsRayQueryEnabled())
+                ? VkBufferUsageFlags{ VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR }
+                : VkBufferUsageFlags{ 0 };
         const VkBufferUsageFlags usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
                                          VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                                         VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+                                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | accelerationStructureInput;
         const CreatedBuffer created = CreatePersistentBuffer(m_Size, usage, "vmaCreateBuffer (VulkanVertexBuffer)");
         m_Buffer = created.Buffer;
         m_Allocation = created.Allocation;
@@ -632,12 +645,17 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         const u64 sizeBytes = static_cast<u64>(count) * sizeof(u32);
-        // ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY: see the matching
-        // comment on the vertex stream above (issue #978).
+        // ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY, gated on the device
+        // having actually enabled the extension: see the matching comment on
+        // the vertex stream above (issue #978).
+        const auto* rtDevice = VulkanDevice::Get();
+        const VkBufferUsageFlags accelerationStructureInput =
+            (rtDevice != nullptr && rtDevice->IsRayQueryEnabled())
+                ? VkBufferUsageFlags{ VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR }
+                : VkBufferUsageFlags{ 0 };
         const VkBufferUsageFlags usage =
             VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | accelerationStructureInput;
         const CreatedBuffer created =
             CreatePersistentBuffer(sizeBytes, usage, "vmaCreateBuffer (VulkanIndexBuffer)");
         m_Buffer = created.Buffer;

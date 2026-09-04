@@ -93,6 +93,27 @@ Keep it Tier-2 optional (never an ADR 0010 gate row), report the **reason** alon
 in one value, and give it a bisect lever — `OLO_VULKAN_NO_RAY_TRACING=1`, which is also the only
 way to exercise the unsupported-hardware fallback on a machine whose GPU does support RT.
 
+## 8b. An optional extension's USAGE BIT is invalid without that extension
+
+A buffer usage flag from an optional extension is not free on a device that
+lacks it. `VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR`
+on every vertex and index buffer looks harmless — and makes **every buffer
+creation** an error on hardware without ray tracing
+(`VUID-VkBufferCreateInfo-None-09499`), which is precisely the
+"unsupported RT keeps the raster renderer usable" criterion failing.
+
+It is invisible to the test suite, because the device-backed tests only run
+where ray tracing exists. It showed up on the first live launch with
+`OLO_VULKAN_NO_RAY_TRACING=1` — which is the second reason that lever earns its
+keep, beyond bisecting. Gate the bit on the enabled capability; asking
+`VulkanDevice::Get()->IsRayQueryEnabled()` at buffer creation is safe, since no
+buffer can exist before the device decided.
+
+The general form: **when you add a capability, grep for every flag, stage bit
+and struct you introduced and ask which of them the device must have ENABLED to
+accept.** Usage flags and pipeline-stage bits both have this property, and both
+fail loudly only on the hardware you are not developing on.
+
 ## 9. A new `RHI::Access` write member is silently a read
 
 `RHITypes.h`'s `IsWriteAccess` has a `default: return false;` — unlike every other `Access` switch
