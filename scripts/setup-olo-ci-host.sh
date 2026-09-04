@@ -160,6 +160,7 @@ fi
 # in-toto statement carries the artifact digest. The value below is that
 # attested digest, and it matches a sha256sum of the file as downloaded here.
 llvm_version=23.1.0
+llvm_major=23         # what the workflow's pin asserts; kept explicit, not parsed out
 llvm_prefix=/opt/llvm-$llvm_version
 llvm_dirname=LLVM-$llvm_version-Linux-X64
 llvm_tarball=$llvm_dirname.tar.xz
@@ -269,7 +270,14 @@ icu_srcdir=icu4c-70_1-src
 icu_url=https://github.com/unicode-org/icu/releases/download/$icu_tag/$icu_srcdir.tgz
 icu_sha256=8d205428c17bf13bb535300669ed28b338a157b1c01ae66d31d0d3e2d47c3fd5
 
-if ! "$llvm_prefix/bin/lld" --version >/dev/null 2>&1; then
+# `-flavor gnu` IS NOT OPTIONAL IN THESE CHECKS. lld takes its flavour from
+# argv[0]; invoked under its own name it is the generic driver, prints "lld is a
+# generic driver. Invoke ld.lld (Unix), ... instead" and exits 1 -- whether or not
+# it is healthy. A guard written as `lld --version` therefore calls a perfectly
+# good linker broken every single time, and wrongly in both directions: it
+# rebuilds ICU on every run and then declares the result a failure. Asking for
+# the GNU flavour explicitly is the same question without the argv[0] trap.
+if ! "$llvm_prefix/bin/lld" -flavor gnu --version >/dev/null 2>&1; then
   echo "building ICU $icu_version so the pinned lld can start (a few minutes) ..."
   icu_work=$(mktemp -d)
   trap 'rm -rf "$icu_work"' EXIT
@@ -308,8 +316,8 @@ if ! "$llvm_prefix/bin/lld" --version >/dev/null 2>&1; then
   done
   rm -rf "$icu_work"
   trap - EXIT
-  "$llvm_prefix/bin/lld" --version >/dev/null 2>&1 \
-    || { echo "$llvm_prefix/bin/lld still does not start after installing ICU $icu_version" >&2; ldd "$llvm_prefix/bin/lld" | grep 'not found' >&2; exit 1; }
+  "$llvm_prefix/bin/lld" -flavor gnu --version >/dev/null 2>&1 \
+    || { echo "$llvm_prefix/bin/lld still does not start after installing ICU $icu_version; unresolved libraries:" >&2; ldd "$llvm_prefix/bin/lld" | grep 'not found' >&2; exit 1; }
   echo "ICU $icu_version installed into $llvm_prefix/lib; the pinned lld starts"
 fi
 
@@ -319,11 +327,17 @@ fi
 # A run that cannot make the bundled one start keeps the system LLD 21 rather
 # than leaving the box with no linker -- ELF links all work through it; only
 # LTO does not, which is the state this section used to ship.
-if "$llvm_prefix/bin/lld" --version >/dev/null 2>&1; then
+if "$llvm_prefix/bin/lld" -flavor gnu --version >/dev/null 2>&1; then
   if [ "$(readlink "$llvm_prefix/bin/ld.lld" 2>/dev/null || true)" != "lld" ]; then
     ln -sfn lld "$llvm_prefix/bin/ld.lld"
-    echo "restored $llvm_prefix/bin/ld.lld to the tarball's own LLD ($("$llvm_prefix/bin/ld.lld" --version))"
+    echo "restored $llvm_prefix/bin/ld.lld to the tarball's own LLD"
   fi
+  # Under the name ld.lld the flavour comes from argv[0] again, so this both
+  # restates the result and checks the symlink points where it should.
+  case "$("$llvm_prefix/bin/ld.lld" --version)" in
+    "LLD $llvm_major"*) : ;;
+    *) echo "$llvm_prefix/bin/ld.lld reports '$("$llvm_prefix/bin/ld.lld" --version)', not LLD $llvm_major" >&2; exit 1 ;;
+  esac
 else
   command -v ld.lld >/dev/null 2>&1 || { echo "the pinned lld does not start and there is no system ld.lld to fall back to" >&2; exit 1; }
   system_lld=$(command -v ld.lld)
