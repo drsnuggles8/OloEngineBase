@@ -158,6 +158,10 @@ namespace OloEngine
             bool Coherent = true;
             u64 Size = 0;
             RHI::MemoryResidency Residency = RHI::MemoryResidency::DeviceLocal;
+            /// Root-data address, for a raw buffer bound to an SSBO binding
+            /// point (issue #1052). Object-backed buffers keep theirs on the
+            /// object; a raw buffer has no object, so it lives here.
+            VkDeviceAddress DeviceAddress = 0;
         };
 
         [[nodiscard]] static VulkanRawBufferRegistry& Get();

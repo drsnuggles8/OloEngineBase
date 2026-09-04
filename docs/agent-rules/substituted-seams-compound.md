@@ -113,6 +113,68 @@ mechanism runs.
 - A feature with no scene has no coverage, whatever the suite says. Add the
   scene, then look at the pixels.
 
+## Second instance: a substituted BUFFER CONSTRUCTION, #1052
+
+The archetype repeats with the object under test swapped for a differently-*built*
+one, which is harder to see than a substituted call.
+
+`VulkanPassSuite.VirtualGeometryMdiCountDrawsHandAuthoredClusters` pins the
+virtual-geometry indirect-draw entry on Vulkan with the real
+`VirtualMeshGBuffer.glsl`, and says plainly in its header that the full pass is
+"disproportionate headlessly" so it hand-authors the cluster set. Reasonable, and
+documented. But it builds the index data as
+
+```cpp
+auto indexBuffer = IndexBuffer::Create(indices, 12);   // object-backed
+vao->SetIndexBuffer(indexBuffer);
+```
+
+while `VirtualMeshRegistry` builds the real one as
+
+```cpp
+m_IndexBuffer = RenderCommand::CreateBufferHandle();   // RAW handle
+```
+
+and then binds it a second way the test never does — as `SSBO_VIRTUAL_INDICES`.
+An object-backed `VulkanIndexBuffer` already carries
+`VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT` and registers in
+`VulkanRootObjectRegistry`. A raw handle is registered too — `CreateHandle`
+enters it in `RHI::ResourceRegistry` and in `VulkanRawBufferRegistry` — just not
+in `VulkanRootObjectRegistry`, which is the only one `BindStorageBuffer`
+consulted, and it lacked the usage bit besides. **That is what made this hard to
+see: the handle was valid everywhere anyone thought to look.** It resolved
+nothing at the one registry that mattered, silently bound null, and every VG
+scene on Vulkan lost the device. The test could not fail: the buffer it
+exercises is not the buffer that breaks.
+
+**The rule this adds.** A substitution is not only "called a different function"
+— it is also "built the same object a different way". When a tenant constructs an
+input itself, check it against the production *constructor*, not against the
+production *type*: same factory, same usage flags, same registry, bound at every
+binding point the real path binds it at. `IndexBuffer::Create` and
+`CreateBufferHandle` both produce "an index buffer" and share nothing that
+mattered here.
+
+**The cheap detector that would have caught it.** `VulkanRendererAPI` already
+counts unimplemented-stub hits, and `VulkanDrawPathTest` asserts
+`GetUnimplementedStubHitCount() == 0` — "the draw path must not fall through to a
+stub". No virtual-geometry tenant makes that assertion, so its fall-throughs were
+counted by nobody. Asserting that counter across a tenant's frame is one line and
+it is backend-shaped rather than feature-shaped: it catches the *next* unlowered
+path too, in whatever pass finds it first.
+
+Two aggravating conditions, both worth checking before trusting a Vulkan result:
+
+- **`RendererAttachedTest` creates a GL 4.6 context only.** Every virtual-geometry
+  evidence test rides it, so the real pass has never executed on Vulkan in any
+  test — the "a feature with no scene has no coverage" rule, one level up: a
+  feature with no scene *on that backend* has no coverage there.
+- **`driver.ps1` has no `--rhi` passthrough**, so the standard tooling launches
+  OpenGL and a "Vulkan session" that used `attach` is running GL. Reaching this
+  needed a hand-rolled launch with `--rhi=vulkan`.
+
+Found on #1052 / PR #1054.
+
 ## Related
 
 - [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md)

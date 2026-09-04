@@ -2305,6 +2305,16 @@ namespace OloEngine
                     // dispatch fresh buffers.
                     address = commandOrderedBufferReads ? ssbo->GetRootDataAddress() : ssbo->GetDeviceAddress();
                 }
+                else if (isStorage)
+                {
+                    // A raw buffer staged by BindStorageBuffer (issue #1052).
+                    // No snapshot seam applies: a raw buffer has no per-frame
+                    // arena copy, so draws and dispatches both read the one
+                    // persistent allocation — the pre-snapshot GL behaviour,
+                    // and what its GPU-writing tenants (indirect args, the
+                    // virtual-geometry index arena) require anyway.
+                    address = bindingState.GetStorageBufferAddress(binding.Binding);
+                }
                 if (address == 0)
                 {
                     // Warn once per shader+binding, then substitute the
@@ -2318,8 +2328,32 @@ namespace OloEngine
                     static VulkanWarnOnceSet s_WarnedBindings; // items may fail concurrently (#806)
                     if (s_WarnedBindings.Insert(std::string(shaderName) + ":" + std::to_string(binding.Binding)))
                     {
-                        OLO_CORE_WARN("[RHI/Vulkan] '{}' buffer binding {} has no published occupant — null block",
-                                      shaderName, binding.Binding);
+                        // An unfed UBO reads defined zeros — wrong, survivable.
+                        // An unfed SSBO is a small block a shader INDEXES, and
+                        // the index usually comes from a DIFFERENT buffer that
+                        // was fed correctly, so the read lands outside it and
+                        // loses the device. That asymmetry is the whole of
+                        // #1052, so the two cases do not get the same voice.
+                        if (isStorage)
+                        {
+                            OLO_CORE_ERROR("[RHI/Vulkan] '{}' STORAGE binding {} has no published occupant — "
+                                           "substituting the null block, which a shader that indexes this buffer "
+                                           "will read past (issue #1052). Bind it, or stop declaring it.",
+                                           shaderName, binding.Binding);
+                        }
+                        else
+                        {
+                            OLO_CORE_WARN("[RHI/Vulkan] '{}' buffer binding {} has no published occupant — null block",
+                                          shaderName, binding.Binding);
+                        }
+                    }
+                    // Counted separately from the stub tally so existing
+                    // "must not fall through to a stub" assertions keep meaning
+                    // exactly what they meant, and a tenant can assert on THIS
+                    // deliberately.
+                    if (isStorage)
+                    {
+                        m_UnfedStorageBindings.fetch_add(1, std::memory_order_relaxed);
                     }
                     address = VulkanFrameArena::Get().GetNullBlockAddress();
                 }
@@ -3861,6 +3895,14 @@ namespace OloEngine
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::UniformBuffer)
         {
             VulkanBindingState::Get().SetUniformBuffer(bindingPoint, nullptr);
+            // An UNBIND is routine; a handle that resolves nowhere is not. Same
+            // rule as BindStorageBuffer below (issue #1052): a bind that cannot
+            // do what it was asked says so, rather than leaving the point empty
+            // and letting the publication site substitute a block.
+            if (buffer.IsValid())
+            {
+                UnimplementedStub("BindUniformBuffer(unresolvable buffer)", StubKind::PreconditionFailure);
+            }
             return;
         }
         VulkanBindingState::Get().SetUniformBuffer(bindingPoint, static_cast<VulkanUniformBuffer*>(entry->Object));
@@ -3868,13 +3910,47 @@ namespace OloEngine
 
     void VulkanRendererAPI::BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
     {
+        auto& bindingState = VulkanBindingState::Get();
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(buffer);
-        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::StorageBuffer)
+        if (entry != nullptr && entry->Kind == VulkanRootObjectKind::StorageBuffer)
         {
-            VulkanBindingState::Get().SetStorageBuffer(bindingPoint, nullptr);
+            bindingState.SetStorageBuffer(bindingPoint, static_cast<VulkanStorageBuffer*>(entry->Object));
+            bindingState.SetStorageBufferAddress(bindingPoint, 0);
             return;
         }
-        VulkanBindingState::Get().SetStorageBuffer(bindingPoint, static_cast<VulkanStorageBuffer*>(entry->Object));
+
+        // A RAW buffer (CreateBufferHandle) is a legitimate SSBO occupant, not
+        // an error — GL's "a buffer is a buffer" reaches here whenever one
+        // object serves two roles. Virtual geometry's index arena is exactly
+        // that: an element buffer AND SSBO_VIRTUAL_INDICES, so it lives in
+        // VulkanRawBufferRegistry and never in the root-object registry.
+        //
+        // This arm used to fall through to SetStorageBuffer(nullptr) SILENTLY.
+        // The binding then took the frame arena's null block, and because that
+        // block is small while the shaders index it with real cluster offsets
+        // (localIndices[cluster.IndexBase + ...]), every virtual-geometry scene
+        // read far past it and lost the device — VK_ERROR_DEVICE_LOST out of
+        // vkQueueSubmit2, reported as a READ of an invalid address. The null
+        // block defends against dereferencing address 0; it cannot defend
+        // against an out-of-range read from a legitimately mapped substitute.
+        // Issue #1052.
+        bindingState.SetStorageBuffer(bindingPoint, nullptr);
+        if (auto* raw = VulkanRawBufferRegistry::Get().Lookup(buffer);
+            raw != nullptr && raw->DeviceAddress != 0)
+        {
+            bindingState.SetStorageBufferAddress(bindingPoint, raw->DeviceAddress);
+            return;
+        }
+        bindingState.SetStorageBufferAddress(bindingPoint, 0);
+
+        // An UNBIND (the null handle) is routine — passes clear their bind
+        // points. A handle that resolves nowhere is not: it is the silent
+        // no-occupant path above, and it must say so rather than let the
+        // publication site substitute a block the shader will read past.
+        if (buffer.IsValid())
+        {
+            UnimplementedStub("BindStorageBuffer(unresolvable buffer)", StubKind::PreconditionFailure);
+        }
     }
 
     void VulkanRendererAPI::BindShaderProgram(RHI::ResourceHandle program)

@@ -35,6 +35,7 @@
 #include <volk.h>
 
 #include <array>
+#include <atomic>
 #include <mutex>
 #include <span>
 #include <string>
@@ -253,6 +254,16 @@ namespace OloEngine
             OutsideRecording,
             Count
         };
+        /// Times a STORAGE binding was published as the arena's null block
+        /// because nothing fed it (issue #1052). Non-zero means a shader is
+        /// reading a zero-filled stand-in it may index out of; it is the
+        /// device-loss precursor, so a tenant that renders real geometry should
+        /// assert this is 0 the way it asserts the stub count is.
+        [[nodiscard]] u64 GetUnfedStorageBindingCount() const
+        {
+            return m_UnfedStorageBindings.load(std::memory_order_relaxed);
+        }
+
         [[nodiscard]] u64 GetUnimplementedStubHitCount() const
         {
             return m_UnimplementedStubHits;
@@ -688,6 +699,10 @@ namespace OloEngine
         // Stub bookkeeping may be touched from RecordParallel workers (a
         // refused entry point counts as a stub hit), hence the mutex.
         mutable std::mutex m_StubMutex;
+        // Unfed STORAGE bindings that took the null-block substitution
+        // (issue #1052). Atomic, not mutex-guarded like the stub tally: the
+        // publication site runs per draw and may fork across recording workers.
+        mutable std::atomic<u64> m_UnfedStorageBindings{ 0 };
         mutable u64 m_UnimplementedStubHits = 0;
         mutable std::array<u64, static_cast<sizet>(StubKind::Count)> m_StubHitsByKind{};
         mutable std::unordered_set<std::string> m_WarnedStubs;
