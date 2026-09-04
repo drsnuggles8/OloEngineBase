@@ -2,6 +2,7 @@
 
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
+#include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <glm/glm.hpp>
@@ -786,6 +787,20 @@ namespace OloEngine
         // GL_NV_mesh_shader is deliberately out of scope. The decision is
         // refuse-or-degrade, made explicitly by the caller, never silent.
         [[nodiscard("Store this!")]] virtual bool SupportsMeshShaders() const = 0;
+        // The hardware ray-tracing capability, issue #978 — ONE owner for the
+        // whole question (rhi-abstraction-boundary.md §13c). It deliberately
+        // answers three things at once: whether ray query is usable right now,
+        // WHY it is not when it is not, and the device properties the
+        // acceleration-structure builder needs (alignments, max counts, SBT
+        // alignment). Splitting those into separate accessors is exactly how a
+        // reported reason drifts from the gate that produced it.
+        //
+        // Vulkan answers from the logical device's ENABLED extensions AND its
+        // loaded entry points — the SupportsMeshShaders enabled-not-merely-
+        // supported rule, plus the volk null-pointer rule. OpenGL always
+        // answers unsupported with BackendNotVulkan. Callers gate on
+        // .Supported and report .Reason; a silent no-op is never correct here.
+        [[nodiscard("Store this!")]] virtual RayTracing::Capabilities GetRayTracingCapabilities() const = 0;
 
         [[nodiscard("Store this!")]] static API GetAPI()
         {

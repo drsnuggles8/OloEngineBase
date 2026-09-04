@@ -49,6 +49,16 @@ namespace OloEngine::RenderGraphBarrierPlanner
             case RGWriteUsage::DepthStencil:
             case RGWriteUsage::Clear:
                 return MemoryBarrierFlags::Framebuffer;
+            // OpenGL has no acceleration-structure concept, so there is no
+            // honest GL flag for this. It maps to ShaderStorage rather than
+            // None DELIBERATELY: a None result makes the planner log an
+            // UnmappedTransition and DROP the barrier record entirely, so the
+            // Vulkan lowering that does understand the access would never be
+            // reached. ShaderStorage is the closest over-approximation, and
+            // over-synchronising on a backend that will never see this usage
+            // costs nothing.
+            case RGWriteUsage::AccelerationStructureBuild:
+                return MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate;
             default:
                 return MemoryBarrierFlags::None;
         }
@@ -71,6 +81,10 @@ namespace OloEngine::RenderGraphBarrierPlanner
                 return MemoryBarrierFlags::Framebuffer;
             case RGReadUsage::ComputeIndirectArgs:
                 return MemoryBarrierFlags::Command;
+            // Same reasoning as the producer side: never None, or the record
+            // is dropped before the Vulkan lowering sees it.
+            case RGReadUsage::AccelerationStructure:
+                return MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate;
             default:
                 return MemoryBarrierFlags::None;
         }
@@ -91,6 +105,8 @@ namespace OloEngine::RenderGraphBarrierPlanner
                 return RHI::Access::TransferWrite;
             case RGWriteUsage::Clear:
                 return RHI::Access::ClearAsLoadOp;
+            case RGWriteUsage::AccelerationStructureBuild:
+                return RHI::Access::AccelerationStructureBuild;
         }
 
         return RHI::Access::Undefined;
@@ -113,6 +129,8 @@ namespace OloEngine::RenderGraphBarrierPlanner
                 return RHI::Access::TransferRead;
             case RGReadUsage::InputAttachment:
                 return RHI::Access::InputAttachmentRead;
+            case RGReadUsage::AccelerationStructure:
+                return RHI::Access::AccelerationStructureRead;
         }
 
         return RHI::Access::Undefined;

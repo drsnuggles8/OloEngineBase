@@ -91,6 +91,15 @@ namespace OloEngine
         Push({ .QueryPool = queryPool, .EnqueuedAtGeneration = m_Generation });
     }
 
+    void VulkanDeferredReclaim::Enqueue(VkAccelerationStructureKHR accelerationStructure) noexcept
+    {
+        if (accelerationStructure == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        Push({ .AccelerationStructure = accelerationStructure, .EnqueuedAtGeneration = m_Generation });
+    }
+
     void VulkanDeferredReclaim::DestroyEntry(const Entry& entry)
     {
         // Image metadata retires at ACTUAL destroy time — a barrier emitted for
@@ -145,6 +154,17 @@ namespace OloEngine
         else if (entry.QueryPool != VK_NULL_HANDLE)
         {
             vkDestroyQueryPool(device->GetDevice(), entry.QueryPool, nullptr);
+        }
+        else if (entry.AccelerationStructure != VK_NULL_HANDLE)
+        {
+            // volk leaves this null on a device without
+            // VK_KHR_acceleration_structure, and an entry can only exist if
+            // the extension was enabled — but the device may have been torn
+            // down and re-created without it between enqueue and drain.
+            if (vkDestroyAccelerationStructureKHR != nullptr)
+            {
+                vkDestroyAccelerationStructureKHR(device->GetDevice(), entry.AccelerationStructure, nullptr);
+            }
         }
         else if (entry.Allocation != VK_NULL_HANDLE)
         {

@@ -298,6 +298,15 @@ add_executable(OloEngine-Tests
 		# the process-global backend; first tenant is the golden-gated FXAA
 		# pass. Same SKIP ladder + zero-validation bar.
 		Rendering/VulkanPassSuiteTest.cpp
+		# #978: the ray-tracing acceleration-structure scene manager. The
+		# device-free half drives a REAL GPUScene (extraction and commit are
+		# pure CPU) through a recording fake backend, so classification, the
+		# refit heuristic, instance packing and the stale/reused-slot rule run
+		# everywhere including CI. The device-backed half builds real BLAS/TLAS
+		# structures and traces real rays; same SKIP ladder + zero-validation
+		# bar as every other Vulkan tenant.
+		Rendering/RayTracing/RayTracingSceneTest.cpp
+		Rendering/RayTracing/RayTracingDeviceTest.cpp
 		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
 		Rendering/BackendSelectionTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`
@@ -803,6 +812,7 @@ add_executable(OloEngine-Tests
 		# renderer or editor TU is pulled into these tests.
 		MCP/McpVirtualShadowMapStatsTest.cpp
 		MCP/McpRenderLODStatsTest.cpp
+		MCP/McpRayTracingStatsTest.cpp
 		MCP/McpDDGIProbeStatsTest.cpp
 		# Pure froxel <-> world mapping (the shaders' exponential z-slice
 		# distribution + view-ray secant scaling) behind olo_froxel_fog_probe (#607,

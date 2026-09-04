@@ -63,6 +63,12 @@ OLO_LEVER_TOGGLE(VulkanNoHostImageCopy, "OLO_VULKAN_NO_HOST_IMAGE_COPY",
                  "disabling the Vulkan 1.4 host-image-copy route (#809). The host route changes WHEN an "
                  "upload happens relative to the queue, so this is the A/B for attributing a frame or "
                  "validation difference to it without rebuilding the backend.")
+OLO_LEVER_TOGGLE(VulkanNoRayTracing, "OLO_VULKAN_NO_RAY_TRACING",
+                 "Refuse VK_KHR_acceleration_structure / VK_KHR_ray_query at device creation, so the RT "
+                 "scene reports unsupported and builds nothing (#978). This is the A/B for \"is that frame "
+                 "difference, validation error or device fault the acceleration-structure path's fault?\" — "
+                 "and it is also the only way to exercise the unsupported-hardware fallback on a machine "
+                 "whose GPU does support ray tracing.")
 
 // --- Assets and bakes -------------------------------------------------------
 // TEXT, not a toggle, and that is a correction: the variable NAMES THE OUTPUT

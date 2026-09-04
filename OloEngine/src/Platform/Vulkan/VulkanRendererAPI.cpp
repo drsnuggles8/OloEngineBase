@@ -202,6 +202,24 @@ namespace OloEngine
             m_EnabledStageMask &= ~(VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT |
                                     VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT);
         }
+        // Same VUID family again for the ray-tracing stages (issue #978).
+        // Unlike the mesh bits, barriers DO name these — the AS build->read
+        // hazard is exactly a VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD
+        // source scope — so on a device without the extensions this strip is
+        // what keeps a lowered barrier legal rather than a validation error.
+        if (!device->IsRayQueryEnabled())
+        {
+            m_EnabledStageMask &= ~VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+        }
+        // The ACCELERATION_STRUCTURE_COPY stage is never in the mask at all:
+        // it belongs to VK_KHR_ray_tracing_maintenance1, which is not enabled,
+        // so it would be illegal even WITH ray query on. The lowering does not
+        // emit it (see VulkanBarrierLowering's AccelerationStructureBuild arm).
+        m_EnabledStageMask &= ~VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR;
+        if (!device->IsRayTracingPipelineEnabled())
+        {
+            m_EnabledStageMask &= ~VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+        }
 
         m_LimitsCached = true;
     }
@@ -1157,6 +1175,41 @@ namespace OloEngine
         // had both, and DrawMeshTasks refuses without them (issue #813).
         const auto* device = VulkanDevice::Get();
         return device != nullptr && device->IsMeshShaderEnabled();
+    }
+
+    RayTracing::Capabilities VulkanRendererAPI::GetRayTracingCapabilities() const
+    {
+        // Same enabled-not-merely-supported rule, and the device is the single
+        // owner of the answer: it is the only place that saw the extension
+        // list, the feature probe, the vkCreateDevice result and the volk
+        // pointers, which are four independent ways this can be unavailable.
+        RayTracing::Capabilities capabilities{};
+        const auto* device = VulkanDevice::Get();
+        if (device == nullptr)
+        {
+            capabilities.Reason = RayTracing::UnsupportedReason::NoDevice;
+            return capabilities;
+        }
+        capabilities.Supported = device->IsRayQueryEnabled();
+        capabilities.RayTracingPipeline = device->IsRayTracingPipelineEnabled();
+        capabilities.Reason = device->GetRayTracingUnsupportedReason();
+        capabilities.Properties = device->GetRayTracingProperties();
+        return capabilities;
+    }
+
+    VkCommandBuffer VulkanRendererAPI::BeginAccelerationStructureRecording()
+    {
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
+        {
+            return VK_NULL_HANDLE;
+        }
+        // vkCmdBuildAccelerationStructuresKHR, vkCmdCopyAccelerationStructureKHR,
+        // vkCmdResetQueryPool and vkCmdPipelineBarrier2 are all illegal inside
+        // a render-pass instance, and this backend's rendering scope is opened
+        // lazily — so closing it here is not defensive, it is the precondition.
+        EndRenderingScope();
+        return ctx.Cmd;
     }
 
     u32 VulkanRendererAPI::GetMaxFramebufferSamples() const

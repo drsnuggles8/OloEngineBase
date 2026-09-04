@@ -555,6 +555,19 @@ namespace OloEngine::RHI
         ClearAsLoadOp,
         ClearAsTransfer,
 
+        // Hardware ray tracing (issue #978). An acceleration structure has no
+        // image layout and no per-AS barrier object — the Vulkan spec
+        // synchronises them with ordinary memory barriers — so these two are
+        // buffer-shaped members of this lattice whose whole content is the
+        // stage/access pair the lowering produces.
+        //
+        // AccelerationStructureBuild covers build, update and the compaction
+        // copy alike: all three write the destination structure, and an update
+        // additionally reads the source, which is why the lowering names both
+        // access bits on the write side.
+        AccelerationStructureBuild,
+        AccelerationStructureRead,
+
         Present,
     };
 
@@ -569,6 +582,14 @@ namespace OloEngine::RHI
             case Access::TransferWrite:
             case Access::ClearAsLoadOp:
             case Access::ClearAsTransfer:
+            // An acceleration-structure build WRITES its destination. This
+            // switch has a `default:` — unlike every other Access switch in
+            // the chain, which are default-less so -Wswitch catches a new
+            // member — so a write enumerator missing from here is silently
+            // classified as a READ, and the planner then emits no
+            // write-after-write barrier at all. There is no compiler
+            // diagnostic for that; this comment is the guard.
+            case Access::AccelerationStructureBuild:
                 return true;
             default:
                 return false;

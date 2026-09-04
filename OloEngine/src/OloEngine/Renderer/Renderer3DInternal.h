@@ -34,6 +34,7 @@
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/VirtualShadowMapMarkPass.h"
+#include "OloEngine/Renderer/Passes/RayTracingScenePass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SphereProxyAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
@@ -165,6 +166,7 @@ namespace OloEngine
         // consumes what it marks) is the first node in the graph, so its output is
         // one frame ahead of its consumer by construction.
         Ref<VirtualShadowMapMarkPass> VirtualShadowMapMark;
+        Ref<RayTracingScenePass> RayTracingScene; // #978 BLAS/TLAS build, first in the frame
 
         void Reset()
         {

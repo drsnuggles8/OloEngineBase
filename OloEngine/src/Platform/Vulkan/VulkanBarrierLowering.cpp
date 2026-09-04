@@ -135,6 +135,34 @@ namespace OloEngine::VulkanBarrierLowering
             case RHI::Access::ClearAsTransfer:
                 return { VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT };
 
+            case RHI::Access::AccelerationStructureBuild:
+                // Build, update and the compaction copy all land here. The
+                // READ bit rides along with the WRITE because an UPDATE-mode
+                // build reads its source structure and a compaction copy reads
+                // the structure it is compacting — the same reasoning
+                // ColorAttachmentWrite makes above, and the same direction:
+                // widening a scope can only over-synchronise.
+                //
+                // Deliberately NOT naming
+                // VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_COPY_BIT_KHR: it
+                // was added by VK_KHR_ray_tracing_maintenance1, which this
+                // backend does not enable, so naming it is invalid usage
+                // rather than harmless over-synchronisation. Without that
+                // extension vkCmdCopyAccelerationStructureKHR is synchronised
+                // with the BUILD stage, which is exactly what this returns —
+                // so the compaction copy is covered either way.
+                return { VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                         VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR |
+                             VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+            case RHI::Access::AccelerationStructureRead:
+                // Two distinct readers, and both have to be named or the one
+                // that is missing races silently. A ray query runs in an
+                // ordinary shader stage (this engine traces from compute and
+                // fragment), and a TLAS BUILD reads the BLASes it references —
+                // which is why the build stage appears on the read side too.
+                return { ShaderStagesForQueue(queue) | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                         VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+
             case RHI::Access::Present:
                 // Presentation is synchronised by the queue-submit semaphore,
                 // not by an access mask (there is no PRESENT access bit).
@@ -199,6 +227,12 @@ namespace OloEngine::VulkanBarrierLowering
             case RHI::Access::IndexRead:
             case RHI::Access::VertexAttributeRead:
             case RHI::Access::UniformRead:
+            // An acceleration structure is not an image and has no layout at
+            // all — the Vulkan spec synchronises them with memory barriers
+            // only — so these join the buffer-shaped group rather than getting
+            // a layout of their own.
+            case RHI::Access::AccelerationStructureBuild:
+            case RHI::Access::AccelerationStructureRead:
                 return VK_IMAGE_LAYOUT_GENERAL;
         }
 

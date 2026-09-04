@@ -130,6 +130,38 @@ namespace OloEngine
         [[nodiscard]] const GPUSceneEnvironment* GetEnvironmentRecord(GPUSceneHandle handle) const;
         [[nodiscard]] const GPUSceneFrameUpdate& GetLastFrameUpdate() const;
 
+        // --- Slot-indexed read seam (issue #978) -------------------------
+        //
+        // The handle-based accessors above answer "give me the record for a
+        // key I already hold". A consumer that must walk the WHOLE table —
+        // the ray-tracing scene builds one BLAS per live geometry and one TLAS
+        // instance per live instance — has no such key, and there was no way
+        // to enumerate. These four close that gap and nothing more: they are
+        // read-only, they hand back the same const pointers, and they apply
+        // the same liveness rule.
+        //
+        // THE LIVENESS RULE IS THE POINT. Each Get*BySlot returns nullptr
+        // unless the slot is live AND its record carries the Active flag.
+        // Testing the generation alone is not enough: AdvanceGeneration
+        // saturates at u32 max and then leaves the generation UNCHANGED, so a
+        // tombstoned slot can keep the generation its last live handle had.
+        // That is exactly the stale-record hole #978's acceptance criterion is
+        // about, and answering it here means every consumer gets it right.
+        [[nodiscard]] u32 GetInstanceSlotCount() const;
+        [[nodiscard]] const GPUSceneInstance* GetLiveInstanceRecordBySlot(u32 slot) const;
+        // The geometry/material variants additionally take the generation the
+        // referring instance recorded, so a record that died and had its slot
+        // reused between frames is refused rather than silently substituted.
+        [[nodiscard]] const GPUSceneGeometry* GetLiveGeometryRecordBySlot(u32 slot, u32 generation) const;
+        [[nodiscard]] const GPUSceneMaterial* GetLiveMaterialRecordBySlot(u32 slot, u32 generation) const;
+
+        // The camera-relative origin this frame's transforms were ENCODED
+        // against (GPUScene.cpp's MakeModelRelative). A consumer that decodes
+        // or re-keys those transforms must use this one rather than reading
+        // the camera again — the two are the same number only until a rebase
+        // lands mid-frame.
+        [[nodiscard]] const glm::vec3& GetRenderOrigin() const;
+
         // Invalidates every live handle while retaining slot generations. This
         // is safe for scene reloads and renderer restarts: stale handles cannot
         // become valid merely because allocation starts again at slot zero.

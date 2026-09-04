@@ -379,6 +379,21 @@ namespace OloEngine
         return s_Data.RGraph ? s_Data.RGraph->InvalidateTemporalHistories(cause, effect) : 0u;
     }
 
+    const GPUScene& Renderer3D::GetGPUScene()
+    {
+        return s_Data.SceneGPU;
+    }
+
+    RayTracing::RayTracingScene& Renderer3D::GetRayTracingScene()
+    {
+        return s_Data.SceneRT;
+    }
+
+    const RayTracing::SceneStats& Renderer3D::GetRayTracingStats()
+    {
+        return s_Data.SceneRT.GetStats();
+    }
+
     const GPUSceneFrameStats& Renderer3D::GetGPUSceneStats()
     {
         return s_Data.SceneGPU.GetLastFrameUpdate().m_Stats;

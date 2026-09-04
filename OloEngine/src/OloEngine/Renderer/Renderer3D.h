@@ -19,6 +19,7 @@
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Renderer/HZBGenerator.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
+#include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
@@ -297,6 +298,18 @@ namespace OloEngine
             std::optional<TemporalHistoryEffect> effect = std::nullopt);
         static void ResetGPUScene();
         [[nodiscard]] static const GPUSceneFrameStats& GetGPUSceneStats();
+
+        // --- Ray tracing (issue #978) ------------------------------------
+        //
+        // The acceleration-structure scene lives here because it CONSUMES the
+        // GPU Scene above and has exactly its lifetime. Both are exposed as
+        // const references rather than by value: the RayTracingScenePass
+        // borrows them at renderer init and holds the pointers for the
+        // session, and the editor panel and the MCP diagnostic read the stats
+        // through the same accessor.
+        [[nodiscard]] static const GPUScene& GetGPUScene();
+        [[nodiscard]] static RayTracing::RayTracingScene& GetRayTracingScene();
+        [[nodiscard]] static const RayTracing::SceneStats& GetRayTracingStats();
         // Turns every link staged this frame into the record it names. Called
         // once, from EndScene, after EndExtraction and Upload; a consumer that
         // reads a link before this ran sees "unresolved" and falls back.
@@ -1912,6 +1925,10 @@ namespace OloEngine
             // Stable CPU registries plus RHI-neutral instance/geometry SSBOs.
             // Value-owned so generations survive renderer restart resets.
             GPUScene SceneGPU;
+            // Acceleration structures over SceneGPU (#978). Value-owned beside
+            // it for the same reason: a renderer restart must not strand the
+            // BLAS table behind a dangling scene.
+            RayTracing::RayTracingScene SceneRT;
             bool GPUSceneExtractionActive = false;
             // This frame's draw links (GPUScene/GPUSceneDrawLink.h). Cleared at
             // BeginGPUSceneExtraction, appended during submission, resolved

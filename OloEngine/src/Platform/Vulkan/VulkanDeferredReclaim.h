@@ -78,6 +78,16 @@ namespace OloEngine
         // and DeleteQueries is called from a frame that may still have the
         // previous one submitted — same generation discipline as pipelines.
         void Enqueue(VkQueryPool queryPool) noexcept;
+        // Acceleration structures (issue #978). An in-flight command buffer
+        // can still be building into one or tracing against it, so the same
+        // generation discipline applies.
+        //
+        // ORDERING IS LOAD-BEARING AT THE CALL SITE: an AS and the VkBuffer
+        // backing it are two entries, and this queue destroys in insertion
+        // order within a generation. Enqueue the AS handle FIRST — freeing the
+        // memory under a live structure is a use-after-free inside the driver,
+        // not a validation message.
+        void Enqueue(VkAccelerationStructureKHR accelerationStructure) noexcept;
 
         // Called by the frame loop once per completed frame. Destroys every
         // entry enqueued >= 2 notifications ago; also unregisters images from
@@ -105,12 +115,13 @@ namespace OloEngine
 
         struct Entry
         {
-            VkImage Image = VK_NULL_HANDLE; // exactly one of Image/Buffer/Semaphore/Pipeline/View/QueryPool is set
+            VkImage Image = VK_NULL_HANDLE; // exactly one of Image/Buffer/Semaphore/Pipeline/View/QueryPool/AccelerationStructure is set
             VkBuffer Buffer = VK_NULL_HANDLE;
             VkSemaphore Semaphore = VK_NULL_HANDLE;
             VkPipeline Pipeline = VK_NULL_HANDLE;
             VkImageView View = VK_NULL_HANDLE;
             VkQueryPool QueryPool = VK_NULL_HANDLE;
+            VkAccelerationStructureKHR AccelerationStructure = VK_NULL_HANDLE;
             VmaAllocation Allocation = VK_NULL_HANDLE; // set only for Image/Buffer entries
             u64 EnqueuedAtGeneration = 0;
         };

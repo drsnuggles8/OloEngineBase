@@ -18,6 +18,9 @@ namespace OloEngine
     // upcast from each concrete pass class (which derives `RenderGraphNode`).
     struct RenderPipelinePassInputs
     {
+        // #978 acceleration-structure build. FIRST in the frame: every
+        // ray-query consumer reads what it produces.
+        RenderGraphNode* RayTracingScene = nullptr;
         RenderGraphNode* Scene = nullptr;
         RenderGraphNode* Shadow = nullptr;
         RenderGraphNode* DDGIProbeUpdate = nullptr;      // #632 realtime DDGI capture/relight/blend

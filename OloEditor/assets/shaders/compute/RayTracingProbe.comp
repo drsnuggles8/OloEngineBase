@@ -1,0 +1,232 @@
+// =============================================================================
+// RayTracingProbe.comp — the RT diagnostic. Issue #978.
+//
+// Traces a caller-supplied batch of deterministic rays against the scene TLAS
+// and writes, per ray: hit instance, primitive index, barycentrics, distance
+// and material ID. It is what `olo_rt_trace_ray` runs, and it is the tenant
+// that makes the acceleration structures OBSERVABLE — a substrate whose only
+// evidence is "the build did not error" is not a validated substrate.
+//
+// VULKAN ONLY. `GL_EXT_ray_query` has no OpenGL representation, so this shader
+// is loaded exclusively behind `RenderCommand::SupportsRayTracing()`, the same
+// rule the mesh-shader stages follow.
+//
+// ZERO BINDINGS EXCEPT ONE UBO, on purpose. The buffer-binding namespace is
+// full: UBO 65 is the last free number engine-wide and #978 takes it, and the
+// SSBO namespace has been full since SSBO_GPU_STATS. So everything else —
+// the TLAS, the ray batch, the hit batch, and the three GPU Scene tables —
+// arrives as a DEVICE ADDRESS in that one UBO and is reached through
+// GL_EXT_buffer_reference. That is not a workaround; it is the same root-data
+// pointer model ADR 0011 §4 already uses for every buffer on this backend.
+//
+// The TLAS itself needs no descriptor either: `accelerationStructureEXT(uvec2)`
+// converts a device address straight to an acceleration-structure handle
+// (`OpConvertUToAccelerationStructureKHR`). Note it is only legal as a function
+// ARGUMENT — assigning it to a local is a compile error.
+// =============================================================================
+
+#version 460 core
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+#include "../include/GPUScene.glsl"
+#include "../include/RayTracingAlphaTest.glsl"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+// One ray: origin + tMin, then direction + tMax. Two vec4s so the CPU side can
+// upload a flat float array with no packing step.
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer OloRtRayBuffer
+{
+    vec4 Rays[];
+};
+
+// One hit. Deliberately fixed-width and index-addressed: the CPU reads it back
+// by ray index, and nothing here ever asks a buffer for its length —
+// OpArrayLength access-violates inside the driver on this backend (#994).
+struct OloRtProbeHit
+{
+    // x = distance along the ray, -1 on a miss.
+    // y, z = barycentrics (b1, b2); b0 = 1 - b1 - b2.
+    // w = 1.0 on a hit, 0.0 on a miss. Carried explicitly so a legitimate
+    //     zero-distance hit is not read as a miss.
+    vec4 DistanceAndBarycentrics;
+    // x = instanceCustomIndex, which IS the GPU Scene instance slot.
+    // y = primitive index within the hit geometry.
+    // z = GPU Scene material slot, resolved from the instance record.
+    // w = GPU Scene geometry slot, likewise.
+    uvec4 Ids;
+    // xy = the interpolated UV at the hit, reconstructed from the barycentrics
+    // through the shared alpha helper's UV path. Returned rather than kept
+    // internal because it is what makes the alpha decision auditable from
+    // outside: a caller can check the UV the confirmation would have sampled.
+    // zw = 0, reserved.
+    vec4 UVAndPad;
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 16) writeonly buffer OloRtHitBuffer
+{
+    OloRtProbeHit Hits[];
+};
+
+// The three GPU Scene tables, by address rather than by their SSBO bindings.
+// Reading them by address is also what keeps this dispatch clear of the
+// instance-cull trio's binding aliases at 15/16/17.
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer OloRtInstanceTable
+{
+    GPUSceneInstance Instances[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer OloRtGeometryTable
+{
+    GPUSceneGeometry Geometries[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer OloRtMaterialTable
+{
+    GPUSceneMaterial Materials[];
+};
+
+// UBO_RAY_TRACING (65). Counts travel here rather than being derived from a
+// buffer length, for the OpArrayLength reason above.
+layout(std140, binding = 65) uniform RayTracingProbeParams
+{
+    uvec2 TlasAddress;
+    uvec2 RayAddress;
+    uvec2 HitAddress;
+    uvec2 InstanceTableAddress;
+    uvec2 GeometryTableAddress;
+    uvec2 MaterialTableAddress;
+    uint RayCount;
+    uint InstanceSlotCount;
+    uint GeometrySlotCount;
+    uint MaterialSlotCount;
+    // Bit 0: cull back faces. Bit 1: stop at the first hit (a visibility ray
+    // rather than a closest-hit one).
+    uint RayFlags;
+    uint InstanceMask;
+} u_RayTracing;
+
+#define OLO_RT_FLAG_CULL_BACK_FACES 1u
+#define OLO_RT_FLAG_TERMINATE_ON_FIRST_HIT 2u
+
+void main()
+{
+    const uint rayIndex = gl_GlobalInvocationID.x;
+    if (rayIndex >= u_RayTracing.RayCount)
+    {
+        return;
+    }
+
+    OloRtRayBuffer rays = OloRtRayBuffer(u_RayTracing.RayAddress);
+    OloRtHitBuffer hits = OloRtHitBuffer(u_RayTracing.HitAddress);
+    OloRtInstanceTable instances = OloRtInstanceTable(u_RayTracing.InstanceTableAddress);
+    OloRtGeometryTable geometries = OloRtGeometryTable(u_RayTracing.GeometryTableAddress);
+    OloRtMaterialTable materials = OloRtMaterialTable(u_RayTracing.MaterialTableAddress);
+
+    const vec4 originAndTMin = rays.Rays[rayIndex * 2u + 0u];
+    const vec4 directionAndTMax = rays.Rays[rayIndex * 2u + 1u];
+
+    uint rayFlags = gl_RayFlagsNoneEXT;
+    if ((u_RayTracing.RayFlags & OLO_RT_FLAG_CULL_BACK_FACES) != 0u)
+    {
+        rayFlags |= gl_RayFlagsCullBackFacingTrianglesEXT;
+    }
+    if ((u_RayTracing.RayFlags & OLO_RT_FLAG_TERMINATE_ON_FIRST_HIT) != 0u)
+    {
+        rayFlags |= gl_RayFlagsTerminateOnFirstHitEXT;
+    }
+
+    OloRtProbeHit result;
+    result.DistanceAndBarycentrics = vec4(-1.0, 0.0, 0.0, 0.0);
+    result.Ids = uvec4(0u);
+    result.UVAndPad = vec4(0.0);
+
+    // A malformed ray is UNDEFINED BEHAVIOUR at rayQueryInitializeEXT, not a
+    // miss: the spec requires finite origin/direction/bounds, tMin >= 0 and
+    // tMin <= tMax. The rays arrive in a host-written buffer, and the consumer
+    // this shader is built for (olo_rt_trace_ray, #607) takes them from a JSON
+    // request — so validate here, and report a defined miss for anything that
+    // fails. Same shape as the table-index guards in the loop below: reject
+    // bad input, never traverse on it.
+    const bool rayIsFinite = !any(isnan(originAndTMin)) && !any(isinf(originAndTMin)) &&
+                             !any(isnan(directionAndTMax)) && !any(isinf(directionAndTMax));
+    const bool rayIntervalIsValid = originAndTMin.w >= 0.0 && originAndTMin.w <= directionAndTMax.w;
+    const bool rayHasDirection = dot(directionAndTMax.xyz, directionAndTMax.xyz) > 0.0;
+    if (!rayIsFinite || !rayIntervalIsValid || !rayHasDirection)
+    {
+        hits.Hits[rayIndex] = result;
+        return;
+    }
+
+    rayQueryEXT rayQuery;
+    rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(u_RayTracing.TlasAddress), rayFlags,
+                          u_RayTracing.InstanceMask & 0xFFu, originAndTMin.xyz, originAndTMin.w,
+                          directionAndTMax.xyz, directionAndTMax.w);
+
+    // The traversal loop. Every non-opaque candidate — which is exactly the
+    // Masked geometry class, since the builder flags every other class
+    // VK_GEOMETRY_OPAQUE_BIT_KHR — goes through the shared confirmation
+    // helper. An opaque hit never reaches here; the hardware commits it.
+    while (rayQueryProceedEXT(rayQuery))
+    {
+        if (rayQueryGetIntersectionTypeEXT(rayQuery, false) != gl_RayQueryCandidateIntersectionTriangleEXT)
+        {
+            continue;
+        }
+
+        const uint candidateInstance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, false));
+        if (candidateInstance >= u_RayTracing.InstanceSlotCount)
+        {
+            continue;
+        }
+        const GPUSceneInstance instance = instances.Instances[candidateInstance];
+        if ((instance.Flags & OLO_GPU_SCENE_INSTANCE_ACTIVE) == 0u)
+        {
+            continue;
+        }
+        if (instance.MaterialIndex >= u_RayTracing.MaterialSlotCount ||
+            instance.GeometryIndex >= u_RayTracing.GeometrySlotCount)
+        {
+            continue;
+        }
+
+        const GPUSceneMaterial material = materials.Materials[instance.MaterialIndex];
+
+        // Without a bound alpha mask this dispatch cannot fetch the texel (see
+        // RayTracingAlphaTest.glsl's "who supplies the texture" note), so the
+        // POLICY half runs here against a fully-opaque sample: a material that
+        // needs no alpha test is confirmed, and a masked one is confirmed on
+        // its own cutoff. The UV a real fetch would have used is reconstructed
+        // for the COMMITTED hit below and returned, so the reconstruction is
+        // exercised on the device rather than merely compiled.
+        if (oloRayTracingConfirmAlpha(material, 1.0))
+        {
+            rayQueryConfirmIntersectionEXT(rayQuery);
+        }
+    }
+
+    if (rayQueryGetIntersectionTypeEXT(rayQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+    {
+        const vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
+        const uint instanceSlot = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, true));
+        result.DistanceAndBarycentrics =
+            vec4(rayQueryGetIntersectionTEXT(rayQuery, true), barycentrics.x, barycentrics.y, 1.0);
+        result.Ids.x = instanceSlot;
+        result.Ids.y = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true));
+        if (instanceSlot < u_RayTracing.InstanceSlotCount)
+        {
+            const GPUSceneInstance instance = instances.Instances[instanceSlot];
+            result.Ids.z = instance.MaterialIndex;
+            result.Ids.w = instance.GeometryIndex;
+            if (instance.GeometryIndex < u_RayTracing.GeometrySlotCount)
+            {
+                const GPUSceneGeometry geometry = geometries.Geometries[instance.GeometryIndex];
+                result.UVAndPad =
+                    vec4(oloRayTracingHitUV(geometry, result.Ids.y, barycentrics), 0.0, 0.0);
+            }
+        }
+    }
+
+    hits.Hits[rayIndex] = result;
+}

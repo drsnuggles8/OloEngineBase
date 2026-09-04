@@ -835,6 +835,19 @@ namespace OloEngine::Testing
         {
             return m_SupportsMeshShaders;
         }
+        // Ray tracing (issue #978). Defaults to unsupported so a headless test
+        // exercises the fallback arm unless it deliberately opts in — the same
+        // default-off rule as m_SupportsMeshShaders. Settable, because the
+        // unsupported-hardware acceptance criterion needs a test that can
+        // assert BOTH arms off one branch.
+        [[nodiscard("Store this!")]] RayTracing::Capabilities GetRayTracingCapabilities() const override
+        {
+            return m_RayTracingCapabilities;
+        }
+        void SetRayTracingCapabilities(const RayTracing::Capabilities& capabilities)
+        {
+            m_RayTracingCapabilities = capabilities;
+        }
         void SetBlendStateForAttachment(u32 attachment, bool enabled) override
         {
             RecordedCall c{ "SetBlendStateForAttachment" };
@@ -1342,6 +1355,8 @@ namespace OloEngine::Testing
         u32 m_MaxUniformBlockSize = 65536u;
         bool m_SupportsInt64Atomics = false;
         bool m_SupportsMeshShaders = false;
+        // Default-constructed: Supported = false, Reason = BackendNotVulkan.
+        RayTracing::Capabilities m_RayTracingCapabilities{};
         Viewport m_Viewport{ 0, 0, 1920, 1080 };
         bool m_StencilEnabled = false;
     };

@@ -459,6 +459,20 @@ namespace OloEngine
         [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override;
         [[nodiscard("Store this!")]] bool SupportsInt64ShaderAtomics() const override;
         [[nodiscard("Store this!")]] bool SupportsMeshShaders() const override;
+        [[nodiscard("Store this!")]] RayTracing::Capabilities GetRayTracingCapabilities() const override;
+
+        // Acceleration-structure builds (#978) are queue commands and are
+        // ILLEGAL inside a dynamic-rendering scope, which this backend opens
+        // lazily. This closes any open scope and returns the frame's primary
+        // command buffer so the RT backend can record its builds in frame
+        // order — the same shape RecordStagedImageUpload uses internally,
+        // exposed because the acceleration-structure builder is a sibling TU
+        // rather than a member.
+        //
+        // Returns VK_NULL_HANDLE when no frame is recording, which the caller
+        // must treat as "not this frame" rather than as an error: a one-shot
+        // submit would execute AHEAD of the frame that produced the geometry.
+        [[nodiscard]] VkCommandBuffer BeginAccelerationStructureRecording();
 
         // --- Parallel command recording (#806, amendment (92)) ---------------
         [[nodiscard]] bool SupportsParallelRecording() const override;

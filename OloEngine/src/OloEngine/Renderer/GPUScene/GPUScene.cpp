@@ -857,6 +857,56 @@ namespace OloEngine
         return m_Impl->m_LastFrameUpdate;
     }
 
+    u32 GPUScene::GetInstanceSlotCount() const
+    {
+        return static_cast<u32>(m_Impl->m_Instances.m_Slots.size());
+    }
+
+    const GPUSceneInstance* GPUScene::GetLiveInstanceRecordBySlot(u32 slot) const
+    {
+        const auto& table = m_Impl->m_Instances;
+        if (slot >= table.m_Slots.size() || !table.m_Slots[slot].m_Live)
+        {
+            return nullptr;
+        }
+        const GPUSceneInstance& record = table.m_Records[slot];
+        // Belt AND braces, deliberately: m_Live is the CPU-side truth and the
+        // Active flag is what the record itself claims. A tombstone clears the
+        // flag, and a saturated generation counter can leave m_Live's twin —
+        // the handle generation — indistinguishable from a live one, so the
+        // flag is the check that still holds at u32 max.
+        return (record.Flags & GPUSceneInstanceFlagActive) != 0u ? &record : nullptr;
+    }
+
+    const GPUSceneGeometry* GPUScene::GetLiveGeometryRecordBySlot(u32 slot, u32 generation) const
+    {
+        const auto& table = m_Impl->m_Geometries;
+        if (slot >= table.m_Slots.size() || !table.m_Slots[slot].m_Live ||
+            table.m_Slots[slot].m_Generation != generation)
+        {
+            return nullptr;
+        }
+        const GPUSceneGeometry& record = table.m_Records[slot];
+        return (record.Flags & GPUSceneGeometryFlagActive) != 0u ? &record : nullptr;
+    }
+
+    const GPUSceneMaterial* GPUScene::GetLiveMaterialRecordBySlot(u32 slot, u32 generation) const
+    {
+        const auto& table = m_Impl->m_Materials;
+        if (slot >= table.m_Slots.size() || !table.m_Slots[slot].m_Live ||
+            table.m_Slots[slot].m_Generation != generation)
+        {
+            return nullptr;
+        }
+        const GPUSceneMaterial& record = table.m_Records[slot];
+        return (record.Flags & GPUSceneMaterialFlagActive) != 0u ? &record : nullptr;
+    }
+
+    const glm::vec3& GPUScene::GetRenderOrigin() const
+    {
+        return m_Impl->m_RenderOrigin;
+    }
+
     void GPUScene::Reset()
     {
         auto& impl = *m_Impl;

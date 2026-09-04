@@ -27,6 +27,12 @@
 #endif
 #include <vk_mem_alloc.h>
 
+// The ray-tracing capability vocabulary (#978) is API-neutral on purpose, so
+// the device can publish its reason and its captured properties in the same
+// type the renderer facade returns — one owner for the capability value
+// instead of a Vulkan struct here and a parallel enum there.
+#include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
+
 #include <functional>
 #include <mutex>
 #include <unordered_map>
@@ -168,6 +174,49 @@ namespace OloEngine
             return m_MeshShaderProperties;
         }
 
+        // --- Hardware ray tracing (issue #978) ---------------------------
+        // VK_KHR_acceleration_structure + VK_KHR_ray_query (+ the
+        // VK_KHR_deferred_host_operations dependency): OPTIONAL, the same
+        // Tier-2 rule as VK_EXT_mesh_shader above — never an ADR 0010 gate
+        // row, because a device without ray tracing still satisfies the
+        // contract and the renderer routes around it explicitly.
+        //
+        // TRUE means all four things hold, which is what makes this safe to
+        // call rather than merely informative: the extensions are listed, the
+        // feature bits came back VK_TRUE, vkCreateDevice accepted them, and
+        // volk populated the entry points. The reason a FALSE answer is false
+        // is carried separately by GetRayTracingUnsupportedReason so the
+        // renderer can report it rather than silently disabling itself.
+        [[nodiscard]] bool IsRayQueryEnabled() const
+        {
+            return m_RayQueryEnabled;
+        }
+        // VK_KHR_ray_tracing_pipeline: a strict superset requirement of the
+        // above (an SBT path). Ray query alone is enough for this subsystem,
+        // so this stays false on a device that offers acceleration structures
+        // without pipelines, and only the SBT alignment properties depend on
+        // it.
+        [[nodiscard]] bool IsRayTracingPipelineEnabled() const
+        {
+            return m_RayTracingPipelineEnabled;
+        }
+        // Why IsRayQueryEnabled() is false. Meaningless (None) when it is
+        // true. Stored as the neutral enum rather than a string so the
+        // renderer's capability value and the log line cannot drift.
+        [[nodiscard]] RayTracing::UnsupportedReason GetRayTracingUnsupportedReason() const
+        {
+            return m_RayTracingUnsupportedReason;
+        }
+        // AS alignment / scratch alignment / max geometry-instance-primitive
+        // counts, and the SBT alignments when the pipeline extension is on.
+        // Captured once at Init through the same vkGetPhysicalDeviceProperties2
+        // probe as the mesh-shader limits; all-zero when RT is unavailable, so
+        // gate on IsRayQueryEnabled before consuming a number.
+        [[nodiscard]] const RayTracing::DeviceProperties& GetRayTracingProperties() const
+        {
+            return m_RayTracingProperties;
+        }
+
         // --- Vulkan 1.4 core conveniences (issue #809) -------------------
         // These are FEATURES, not extensions, on the ADR 0010 floor: the
         // device already targets 1.4, so no extension name is added and no
@@ -290,6 +339,15 @@ namespace OloEngine
         // Cached at Init when VK_EXT_mesh_shader is present; all-zero
         // otherwise (see GetMeshShaderProperties).
         VkPhysicalDeviceMeshShaderPropertiesEXT m_MeshShaderProperties{};
+
+        // Ray tracing (#978). Every one of these is committed AFTER
+        // vkCreateDevice returns and AFTER volkLoadDevice has run, because
+        // until both have happened the flags would describe a request rather
+        // than the logical device (the m_Maintenance5Enabled rule).
+        bool m_RayQueryEnabled = false;
+        bool m_RayTracingPipelineEnabled = false;
+        RayTracing::UnsupportedReason m_RayTracingUnsupportedReason = RayTracing::UnsupportedReason::ExtensionMissing;
+        RayTracing::DeviceProperties m_RayTracingProperties{};
     };
 } // namespace OloEngine
 

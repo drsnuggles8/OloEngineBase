@@ -540,6 +540,23 @@ namespace OloEngine
             return s_RendererAPI->SupportsMeshShaders();
         }
 
+        // Hardware ray tracing (issue #978). See
+        // RendererAPI::GetRayTracingCapabilities — this carries the reason and
+        // the device properties, not just a verdict.
+        [[nodiscard("Store this!")]] static RayTracing::Capabilities GetRayTracingCapabilities()
+        {
+            return s_RendererAPI->GetRayTracingCapabilities();
+        }
+        // The gate spelled as a predicate, for call sites that only need
+        // yes/no. It FORWARDS rather than re-deriving the test, so there is
+        // still exactly one owner — an inlined `GetAPI() == Vulkan && ...`
+        // here is precisely how a predicate and its reported reason start
+        // disagreeing (rhi-abstraction-boundary.md §13c).
+        [[nodiscard("Store this!")]] static bool SupportsRayTracing()
+        {
+            return s_RendererAPI->GetRayTracingCapabilities().Supported;
+        }
+
         // =====================================================================
         // Call-site sweep additions (issue #691). One-line forwarders, same as
         // everything above — see RendererAPI.h for the shape rationale and
