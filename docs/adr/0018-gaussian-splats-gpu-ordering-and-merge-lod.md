@@ -220,7 +220,7 @@ own numbers are 5–10× higher because `/MDd` checked iterators serialise every
 The GPU column is `GL_TIME_ELAPSED` around the whole pass (cull + LOD + sort), minimum of four
 samples, on an idle machine; host build configuration does not change GPU work.
 
-| splats | padded to | drawn | CPU whole pass | GPU whole pass |
+| splats | padded to | GPU drawn | CPU whole pass | GPU whole pass |
 |---:|---:|---:|---:|---:|
 | 4,096 | 4,096 | 3,043 | 0.14 ms | **0.089 ms** |
 | 100,000 | 131,072 | 74,431 | 2.60 ms | **0.259 ms** |
@@ -229,8 +229,9 @@ samples, on an idle machine; host build configuration does not change GPU work.
 | 2,100,000 | 4,194,304 | 1,563,181 | — | **7.844 ms** |
 | 4,000,000 | 4,194,304 | 2,977,678 | — | **19.539 ms** |
 
-† the CPU pass applies its budget at 1,048,576, so the 2 M row is not a like-for-like comparison —
-it is the cost of the CPU pass doing *less* work.
+The draw count is the GPU pass's, which runs with the budget lifted (`MaxSplats = 0`); the CPU pass
+applies its default 1,048,576 budget, so at 2 M it is not a like-for-like comparison — † marks the
+rows where the CPU number is the cost of doing *less* work than the GPU column beside it.
 
 **This is the number that reversed the decision.** A 16.7 ms frame at 60 Hz has everything else in
 the engine in it too. On the CPU, giving the ordering a fifth of the frame bought 120–150 k visible
@@ -240,10 +241,15 @@ room captures occupy.
 **Then look at the last three rows, because they are the more useful finding.** 2,000,000 and
 2,100,000 differ by 5 % in splat count and by **6.1× in cost**. Nothing about the cloud explains
 that; what changed is the padding. The bitonic network is only defined on a power-of-two array, so
-2,000,000 pads to 2²¹ and 2,100,000 pads to 2²² — twice the array, and it lands past the point where
-the sort's working set stops fitting the GPU's last-level cache. The pair was measured specifically
-to separate "large clouds are expensive" from "crossing a padding boundary is expensive", and it is
-the second one:
+2,000,000 pads to 2²¹ and 2,100,000 pads to 2²² — twice the array, and one more k level, meaning 13
+extra global passes over it.
+
+**A doubling that costs 6.1× is more than a doubling explains, and the reason is not measured
+here.** The obvious hypothesis is cache: the key and payload arrays together are 33 MB at 2²¹ and
+67 MB at 2²², which straddles this GPU's last-level cache, so the repeated global passes would stop
+hitting it. That is a *hypothesis* — `GL_TIME_ELAPSED` establishes the timing and the padding, not
+the mechanism, and no profiler counter was collected. Anyone acting on it should confirm with one.
+What is measured, and is enough for the decision, is the shape:
 
 * **cost is a step function of `PaddedCapacityFor(count)`, not of `count`.** One splat over a power
   of two doubles the array and can cost several times more;
