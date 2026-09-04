@@ -98,6 +98,24 @@ namespace OloEngine
         return binding < kMaxBufferBindings ? m_StorageBuffers[binding] : nullptr;
     }
 
+    // GLOBAL-ONLY BY CONSTRUCTION, and that is sufficient — the reasoning is
+    // not local, so it is written down here (issue #1052).
+    //
+    // Get() answers a WORKER's mirror while a RecordParallel item runs on that
+    // thread, so clearing through Get() clears one mirror. Both callers —
+    // VulkanRawBufferRegistry::Allocate's orphan path and ::Destroy — are
+    // RefuseOnWorker entry points, so they always run on the render thread and
+    // Get() is Global() there. A worker mirror cannot be holding a stale
+    // address at that moment either: RecordParallel forks through a BLOCKING
+    // ParallelFor under an m_InParallelRegion guard, so while worker mirrors
+    // exist the render thread is inside that call and cannot be retiring a
+    // buffer; and a worker seeds its copy FROM Global at the fork, so a clear
+    // that happened before the fork is inherited.
+    //
+    // This is the same discipline the object-pointer twin ClearBuffer relies on
+    // (see the header's dangling-pointer note). If RecordParallel ever becomes
+    // non-blocking, or a resource entry point loses its RefuseOnWorker guard,
+    // BOTH paths need active-mirror tracking, not just this one.
     void VulkanBindingState::ClearStorageBufferAddress(u64 address)
     {
         if (address == 0)

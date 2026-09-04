@@ -138,10 +138,14 @@ m_IndexBuffer = RenderCommand::CreateBufferHandle();   // RAW handle
 and then binds it a second way the test never does — as `SSBO_VIRTUAL_INDICES`.
 An object-backed `VulkanIndexBuffer` already carries
 `VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT` and registers in
-`VulkanRootObjectRegistry`; a raw handle had neither, so `BindStorageBuffer`
-resolved nothing, silently bound null, and every VG scene on Vulkan lost the
-device. The test could not fail: the buffer it exercises is not the buffer that
-breaks.
+`VulkanRootObjectRegistry`. A raw handle is registered too — `CreateHandle`
+enters it in `RHI::ResourceRegistry` and in `VulkanRawBufferRegistry` — just not
+in `VulkanRootObjectRegistry`, which is the only one `BindStorageBuffer`
+consulted, and it lacked the usage bit besides. **That is what made this hard to
+see: the handle was valid everywhere anyone thought to look.** It resolved
+nothing at the one registry that mattered, silently bound null, and every VG
+scene on Vulkan lost the device. The test could not fail: the buffer it
+exercises is not the buffer that breaks.
 
 **The rule this adds.** A substitution is not only "called a different function"
 — it is also "built the same object a different way". When a tenant constructs an
