@@ -224,14 +224,15 @@ samples, on an idle machine; host build configuration does not change GPU work.
 |---:|---:|---:|---:|---:|
 | 4,096 | 4,096 | 3,043 | 0.14 ms | **0.089 ms** |
 | 100,000 | 131,072 | 74,431 | 2.60 ms | **0.259 ms** |
-| 500,000 | 524,288 | 372,165 | 16.55 ms† | **0.503 ms** |
+| 500,000 | 524,288 | 372,165 | 16.55 ms | **0.503 ms** |
 | 2,000,000 | 2,097,152 | 1,488,977 | 155.3 ms† | **1.277 ms** |
 | 2,100,000 | 4,194,304 | 1,563,181 | — | **7.844 ms** |
 | 4,000,000 | 4,194,304 | 2,977,678 | — | **19.539 ms** |
 
-The draw count is the GPU pass's, which runs with the budget lifted (`MaxSplats = 0`); the CPU pass
-applies its default 1,048,576 budget, so at 2 M it is not a like-for-like comparison — † marks the
-rows where the CPU number is the cost of doing *less* work than the GPU column beside it.
+The draw count is the GPU pass's, which runs with the budget lifted (`MaxSplats = 0`). The CPU pass
+applies its default 1,048,576 budget, which binds only on the 2 M row — † marks it, and there the
+CPU number is the cost of doing *less* work than the GPU column beside it. On every other row the
+budget never engages and the two passes cull the same set.
 
 **This is the number that reversed the decision.** A 16.7 ms frame at 60 Hz has everything else in
 the engine in it too. On the CPU, giving the ordering a fifth of the frame bought 120–150 k visible
@@ -244,12 +245,19 @@ that; what changed is the padding. The bitonic network is only defined on a powe
 2,000,000 pads to 2²¹ and 2,100,000 pads to 2²² — twice the array, and one more k level, meaning 13
 extra global passes over it.
 
-**A doubling that costs 6.1× is more than a doubling explains, and the reason is not measured
-here.** The obvious hypothesis is cache: the key and payload arrays together are 33 MB at 2²¹ and
-67 MB at 2²², which straddles this GPU's last-level cache, so the repeated global passes would stop
-hitting it. That is a *hypothesis* — `GL_TIME_ELAPSED` establishes the timing and the padding, not
-the mechanism, and no profiler counter was collected. Anyone acting on it should confirm with one.
-What is measured, and is enough for the decision, is the shape:
+**A doubling that costs 6.1× is more than a doubling explains, and the remainder is not accounted
+for here.** What *is* derivable: the array doubles (2×), and 2²² has one more k level than 2²¹, which
+is 13 more global passes rather than 78 (1.17×). Together that predicts about **2.3×**, against 6.1×
+measured — so roughly 2.6× is unexplained.
+
+Cache is the obvious suspect and the arithmetic does **not** support the simple version of it: at
+8 bytes per slot the key and payload arrays are 16 MiB at 2²¹ and 32 MiB at 2²², both of which fit
+inside this GPU's 72 MB last-level cache, so "the working set falls out of cache" is not it. Whether
+the bitonic access pattern actually realises that reuse is a different question, and one
+`GL_TIME_ELAPSED` cannot answer — it establishes the timing and the padding, not the mechanism, and
+no profiler counter was collected. Anyone who needs the mechanism should collect one.
+
+None of that changes the decision, because the decision rests on the shape rather than the cause:
 
 * **cost is a step function of `PaddedCapacityFor(count)`, not of `count`.** One splat over a power
   of two doubles the array and can cost several times more;

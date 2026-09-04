@@ -32,8 +32,6 @@
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
 
-#include <array>
-
 namespace OloEngine::Tests
 {
     namespace
@@ -49,13 +47,41 @@ namespace OloEngine::Tests
             ::glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, binding, &bound);
             return static_cast<u32>(bound);
         }
+
+        // Restores whatever was on the binding point when the test started.
+        //
+        // These tests write process-global GL state, and testing-architecture.md
+        // 6.4 is explicit that a test must not leave a shared binding altered
+        // for whatever runs next. A destructor rather than a trailing call, so
+        // an ASSERT_* that exits the test early still restores.
+        class ScopedBindingRestore
+        {
+          public:
+            explicit ScopedBindingRestore(u32 binding)
+                : m_Binding(binding), m_Saved(CurrentlyBoundAt(binding))
+            {
+            }
+
+            ~ScopedBindingRestore()
+            {
+                if (CurrentlyBoundAt(m_Binding) != m_Saved)
+                    ::glBindBufferBase(GL_UNIFORM_BUFFER, m_Binding, m_Saved);
+            }
+
+            ScopedBindingRestore(const ScopedBindingRestore&) = delete;
+            ScopedBindingRestore& operator=(const ScopedBindingRestore&) = delete;
+
+          private:
+            u32 m_Binding = 0;
+            u32 m_Saved = 0;
+        };
     } // namespace
 
     TEST(UniformBufferBindingOwnership, ConstructionClaimsTheBindingPoint)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedBindingRestore restore(kScratchBinding);
 
-        const u32 before = CurrentlyBoundAt(kScratchBinding);
         {
             Ref<UniformBuffer> buffer = UniformBuffer::Create(64, kScratchBinding);
             ASSERT_TRUE(buffer);
@@ -66,12 +92,12 @@ namespace OloEngine::Tests
             buffer->Unbind();
         }
         EXPECT_EQ(CurrentlyBoundAt(kScratchBinding), 0u) << "the scratch binding was left occupied";
-        (void)before;
     }
 
     TEST(UniformBufferBindingOwnership, UnbindingAStaleBufferDoesNotEvictTheCurrentOwner)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedBindingRestore restore(kScratchBinding);
 
         Ref<UniformBuffer> older = UniformBuffer::Create(64, kScratchBinding);
         ASSERT_TRUE(older);
@@ -97,6 +123,7 @@ namespace OloEngine::Tests
     TEST(UniformBufferBindingOwnership, RebindingRestoresOwnershipAfterADisplacement)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedBindingRestore restore(kScratchBinding);
 
         Ref<UniformBuffer> first = UniformBuffer::Create(64, kScratchBinding);
         Ref<UniformBuffer> second = UniformBuffer::Create(64, kScratchBinding);
