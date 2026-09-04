@@ -2275,8 +2275,32 @@ namespace OloEngine
                     static VulkanWarnOnceSet s_WarnedBindings; // items may fail concurrently (#806)
                     if (s_WarnedBindings.Insert(std::string(shaderName) + ":" + std::to_string(binding.Binding)))
                     {
-                        OLO_CORE_WARN("[RHI/Vulkan] '{}' buffer binding {} has no published occupant — null block",
-                                      shaderName, binding.Binding);
+                        // An unfed UBO reads defined zeros — wrong, survivable.
+                        // An unfed SSBO is a small block a shader INDEXES, and
+                        // the index usually comes from a DIFFERENT buffer that
+                        // was fed correctly, so the read lands outside it and
+                        // loses the device. That asymmetry is the whole of
+                        // #1052, so the two cases do not get the same voice.
+                        if (isStorage)
+                        {
+                            OLO_CORE_ERROR("[RHI/Vulkan] '{}' STORAGE binding {} has no published occupant — "
+                                           "substituting the null block, which a shader that indexes this buffer "
+                                           "will read past (issue #1052). Bind it, or stop declaring it.",
+                                           shaderName, binding.Binding);
+                        }
+                        else
+                        {
+                            OLO_CORE_WARN("[RHI/Vulkan] '{}' buffer binding {} has no published occupant — null block",
+                                          shaderName, binding.Binding);
+                        }
+                    }
+                    // Counted separately from the stub tally so existing
+                    // "must not fall through to a stub" assertions keep meaning
+                    // exactly what they meant, and a tenant can assert on THIS
+                    // deliberately.
+                    if (isStorage)
+                    {
+                        m_UnfedStorageBindings.fetch_add(1, std::memory_order_relaxed);
                     }
                     address = VulkanFrameArena::Get().GetNullBlockAddress();
                 }
@@ -3818,6 +3842,14 @@ namespace OloEngine
         if (entry == nullptr || entry->Kind != VulkanRootObjectKind::UniformBuffer)
         {
             VulkanBindingState::Get().SetUniformBuffer(bindingPoint, nullptr);
+            // An UNBIND is routine; a handle that resolves nowhere is not. Same
+            // rule as BindStorageBuffer below (issue #1052): a bind that cannot
+            // do what it was asked says so, rather than leaving the point empty
+            // and letting the publication site substitute a block.
+            if (buffer.IsValid())
+            {
+                UnimplementedStub("BindUniformBuffer(unresolvable buffer)", StubKind::PreconditionFailure);
+            }
             return;
         }
         VulkanBindingState::Get().SetUniformBuffer(bindingPoint, static_cast<VulkanUniformBuffer*>(entry->Object));
