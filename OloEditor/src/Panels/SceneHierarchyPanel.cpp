@@ -33,6 +33,7 @@
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
+#include "OloEngine/Asset/InstancePlacementAsset.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
 #include "OloEngine/Scene/SceneLightmapGather.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
@@ -2829,7 +2830,19 @@ namespace OloEngine
             if (component.LightmapStatic)
             {
                 ImGui::SameLine();
-                ImGui::TextDisabled("(%zu region(s))", component.Instances.size());
+                // Placement-asset instances are receivers too (the gather emits
+                // one per instance from both lists), so a count of the inline
+                // list alone understates the atlas pressure this very tooltip
+                // exists to help the author judge.
+                sizet regionCount = component.Instances.size();
+                if (component.PlacementAssetHandle != 0)
+                {
+                    if (auto placement = AssetManager::GetAsset<InstancePlacementAsset>(component.PlacementAssetHandle))
+                    {
+                        regionCount += placement->GetInstances().size();
+                    }
+                }
+                ImGui::TextDisabled("(%zu region(s))", regionCount);
             }
 
             ImGui::Separator();

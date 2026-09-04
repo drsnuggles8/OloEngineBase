@@ -1236,6 +1236,27 @@ namespace OloEngine::Tests
         // index is a real per-instance lookup rather than the constant 0 a
         // single-instance draw resolves to. Nothing else in the suite exercises
         // that.
+        // Renderer3D settings are PROCESS-GLOBAL. Restore whatever this process
+        // had before, or a leaked Deferred / disabled-VG state silently
+        // re-targets every later test in the binary — the same hazard the
+        // deferred-path test above documents, and the reason it keeps a
+        // PathRestore guard. The virtual test needs both fields, and it must
+        // restore the value it OBSERVED rather than a literal: the defaults are
+        // not this test's to assert.
+        struct SettingsRestore
+        {
+            RenderingPath Path;
+            bool VirtualGeometry;
+            ~SettingsRestore()
+            {
+                auto& restored = Renderer3D::GetRendererSettings();
+                restored.Path = Path;
+                restored.VirtualGeometryEnabled = VirtualGeometry;
+                Renderer3D::ApplyRendererSettings();
+            }
+        } const settingsRestore{ Renderer3D::GetRendererSettings().Path,
+                                 Renderer3D::GetRendererSettings().VirtualGeometryEnabled };
+
         u32 width = 0;
         u32 height = 0;
         const auto capture = [&](bool bakeEnabled, const char* fileName, std::vector<u8>& out)
@@ -1388,6 +1409,27 @@ namespace OloEngine::Tests
                    "never carry one either";
         }
 
+        // Renderer3D settings are PROCESS-GLOBAL. Restore whatever this process
+        // had before, or a leaked Deferred / disabled-VG state silently
+        // re-targets every later test in the binary — the same hazard the
+        // deferred-path test above documents, and the reason it keeps a
+        // PathRestore guard. The virtual test needs both fields, and it must
+        // restore the value it OBSERVED rather than a literal: the defaults are
+        // not this test's to assert.
+        struct SettingsRestore
+        {
+            RenderingPath Path;
+            bool VirtualGeometry;
+            ~SettingsRestore()
+            {
+                auto& restored = Renderer3D::GetRendererSettings();
+                restored.Path = Path;
+                restored.VirtualGeometryEnabled = VirtualGeometry;
+                Renderer3D::ApplyRendererSettings();
+            }
+        } const settingsRestore{ Renderer3D::GetRendererSettings().Path,
+                                 Renderer3D::GetRendererSettings().VirtualGeometryEnabled };
+
         u32 width = 0;
         u32 height = 0;
         const auto capture = [&](bool virtualEnabled, bool bakeEnabled, const char* fileName,
@@ -1427,9 +1469,7 @@ namespace OloEngine::Tests
         capture(true, false, "Lightmap_Virtual_Off.png", bakeOff);
         if (::testing::Test::HasFatalFailure())
             return;
-        Renderer3D::GetRendererSettings().VirtualGeometryEnabled = true;
-        Renderer3D::ApplyRendererSettings();
-        lmSettings.Enabled = true;
+        lmSettings.Enabled = true; // settingsRestore puts the renderer back
 
         const PixelRect redRect = MakeRect(kRedRegionX0, kRedRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
         const PixelRect greenRect =
@@ -1467,6 +1507,24 @@ namespace OloEngine::Tests
         //    matters.
         const f32 toggleDiff = 0.5f * (MeanAbsDiffInRect(virtualOn, virtualOff, width, redRect) +
                                        MeanAbsDiffInRect(virtualOn, virtualOff, width, greenRect));
+
+        // The criterion is "only the RENDERER differs", so bound the toggle's
+        // effect ABSOLUTELY. The relative check below is only an ordering guard:
+        // on its own it passes at 0.9 * bakeDiff, which would be a gross parity
+        // failure between the two rasterizers while still reading green.
+        //
+        // Sized like the forward-vs-deferred kMaxPathMeanDelta above, and for
+        // the same reason: two rasterizers over different intermediates are not
+        // per-pixel equal, but a dropped or mis-addressed region moves these
+        // means by the ON/OFF signal or more. Live MCP probing of RT5 on a real
+        // imported asset reads BIT-IDENTICAL across the toggle, so the true
+        // value here is far below the bound.
+        constexpr f32 kMaxToggleMeanDelta = 12.0f;
+        EXPECT_LT(toggleDiff, kMaxToggleMeanDelta)
+            << "virtual: the VG master switch changed the floor by " << toggleDiff
+            << " grey levels — the two rasterizers must deliver the same baked GI. Compare "
+            << "Lightmap_Virtual_On.png against Lightmap_Virtual_ClassicFallback.png";
+
         EXPECT_LT(toggleDiff, bakeDiff)
             << "virtual: the VG master switch changes the floor MORE than the bake itself does ("
             << toggleDiff << " vs " << bakeDiff << " grey levels). Baked GI that appears and "

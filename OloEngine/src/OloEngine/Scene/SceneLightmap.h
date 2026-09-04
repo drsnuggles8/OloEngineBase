@@ -218,11 +218,24 @@ namespace OloEngine
         // poison its siblings, and a per-RECEIVER memo would re-run xatlas once
         // per instance of a batch whose shared mesh fails (100ms+ each).
         //
-        // The pointer is only ever COMPARED, never dereferenced, and the set is
-        // cleared by Invalidate() — which fires on every re-bake and asset
-        // reload. The residual risk is a freed mesh whose address is reused
-        // between two rechecks with no Invalidate in between; the consequence is
-        // one mesh skipping its self-heal until the next Invalidate.
-        std::unordered_set<const MeshSource*> m_FailedUnwraps;
+        // OWNING, and that is the point: a raw pointer memo can match a freed
+        // mesh whose address was reused before the next Invalidate(), skip the
+        // re-unwrap, and leave the NEW mesh permanently without UV2 — silently,
+        // which is the failure class this whole feature is about. Holding a Ref
+        // makes the address it compares un-reusable by construction.
+        //
+        // It retains a failed mesh until Invalidate() clears the set (every
+        // re-bake and asset reload). That is a bounded cost, and the memo only
+        // ever holds meshes xatlas has already refused.
+        // Keyed by raw pointer for the lookup, VALUED by an owning reference so
+        // that key can never be a recycled address.
+        //
+        // The value is Ref<RefCounted>, not Ref<MeshSource>, purely so this
+        // header keeps its forward declaration: Ref<T>'s destructor needs T
+        // complete, and pulling MeshSource.h in here would drag it into every
+        // translation unit that includes Scene.h. The upcast happens in the .cpp
+        // where the type IS complete. (A set of Refs would also need a
+        // std::hash<Ref<T>> the engine does not have.)
+        std::unordered_map<const MeshSource*, Ref<RefCounted>> m_FailedUnwraps;
     };
 } // namespace OloEngine

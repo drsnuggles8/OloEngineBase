@@ -170,7 +170,7 @@ namespace OloEngine
                 }
                 else
                 {
-                    m_FailedUnwraps.insert(receiver.Mesh.Raw());
+                    m_FailedUnwraps.emplace(receiver.Mesh.Raw(), receiver.Mesh);
                 }
             }
         }
