@@ -189,26 +189,59 @@ jobs:
       with:
         arch: x64
 
-    # NOTE: this job deliberately does NOT use sccache (unlike the Linux sanitizer jobs).
-    # The Windows sccache server reliably crashes — "sccache: error: failed to execute
-    # compile … An existing connection was forcibly closed by the remote host. (os error
-    # 10054)" — while compiling the largest ASan-instrumented GameNetworkingSockets TUs
-    # (steamnetworkingsockets_*.cpp, tier0/dbg.cpp). It hits a different TU each attempt, so
-    # bounded retries never clear it (observed: three attempts, three different TUs). Building
-    # WITHOUT the sccache launcher — the compiler runs directly — removes the crash entirely
-    # (verified locally: a clang-cl ASan build of GNS completes with no cache). The cost is a
-    # full cold compile every run, acceptable for a job that otherwise never goes green. If a
-    # future sccache release fixes the Windows large-object crash, restore the Setup sccache +
-    # Cache steps and re-add -DOLO_ENABLE_COMPILER_CACHE=ON below.
+    # PIN THE LLVM TOOLCHAIN. Without this the job compiled with whatever clang-cl
+    # the windows-2025 image happened to ship, via the VS-bundled LLVM that
+    # msvc-dev-cmd puts on PATH -- so the sanitizer gate's compiler moved silently
+    # whenever GitHub refreshed the image.
+    #
+    # 23.1.0 specifically, because it FIXES the clang-cl + ASan C++ exception-handling
+    # miscompile that cost this job ten test cases (issue #497). ASan put redzones on
+    # the compiler-emitted EH metadata globals (_ThrowInfo / _CatchableTypeArray /
+    # type descriptors) and the MSVC EH runtime read across them, so any throw that
+    # unwound into a catch died. Measured with the three-line repro from #497
+    # (`try { throw std::runtime_error{}; } catch (...) {}`, /EHsc /fsanitize=address):
+    #
+    #   clang 21.1.8 -> AddressSanitizer: access-violation in
+    #                   __FrameHandler3::CxxCallCatchBlock, exit 1
+    #   clang 23.1.0 -> caught, exit 0
+    #
+    # (Which major first fixed it was not bisected; 22.x is untested.)
+    #
+    # Same action and pinning approach as fuzz.yml. It exports LLVM_PATH at the
+    # install root, with the binaries under $LLVM_PATH/bin, and caches the download.
+    #
+    # PATH ORDER IS NOT ENOUGH, and the first attempt at this proved it. That
+    # version relied on the action prepending its bin to PATH after msvc-dev-cmd,
+    # and asserted "ordering is what makes the pin win". The step went green
+    # ("Using cached LLVM and Clang 23.1.0..."), and CMake then reported
+    #
+    #   -- The CXX compiler identification is Clang 20.1.8 with MSVC-like command-line
+    #   -- Check for working CXX compiler: C:/Program Files/LLVM/bin/clang-cl.exe
+    #
+    # i.e. the windows-2025 image's preinstalled LLVM, not the pin. The nine
+    # exception-handling tests then failed exactly as they do on clang 20, which
+    # read as "23.1.0 does not fix #497" and was really "the pin was never used".
+    #
+    # So the pin is bound by ABSOLUTE PATH below, not by PATH order, and the next
+    # step FAILS THE JOB if the resolved clang-cl is not the pinned major. Without
+    # that assertion this failure mode is invisible: a green install step, a
+    # successful build, and a wrong compiler.
+    # Installed and VERIFIED by a shared composite action rather than inline or
+    # via KyleMayes/install-llvm-action -- see
+    # .github/actions/setup-llvm-windows/action.yml for why that action cannot do
+    # this (its Windows asset table stops at 21.1.8) and for the two green-but-wrong
+    # attempts that preceded it. fuzz.yml uses the same action, so the two Windows
+    # clang-cl jobs cannot drift apart.
+    #
+    # It exports LLVM_PATH plus OLO_CLANG_CL / OLO_LLD_LINK / OLO_LLVM_RC as
+    # absolute paths for the configure line below, and FAILS THE JOB if the
+    # resolved clang-cl is not the requested major.
+    - name: Install LLVM (pinned)
+      uses: ./.github/actions/setup-llvm-windows
+      with:
+        version: "23.1.0"
+        sha256: "1aebf024b959b3835c3bd936da2fa58cd002c61ccf47fce1714447b900bd9837"
 
-    # Third-party deps come from the vcpkg manifest (issue #773). The triplet is the
-    # plain MSVC one even though this job compiles with clang-cl: ports are shared with
-    # the cl.exe jobs, which halves the cache and avoids a clang-cl-built-MaterialX bug
-    # (see docs/agent-rules/vcpkg-dependency-management.md). NOTE: vcpkg ports
-    # are NOT sanitizer-instrumented — which is what this job wants. The ~40 lines
-    # that used to de-instrument protobuf/abseil by hand (so an instrumented protoc
-    # would stop aborting mid-build) are gone because nothing third-party is compiled
-    # here any more. The engine, GNS's consumers and the tests stay instrumented.
     - name: Setup vcpkg
       id: vcpkg
       uses: ./.github/actions/setup-vcpkg
@@ -234,6 +267,10 @@ jobs:
         -G "Ninja Multi-Config"
         ${{ steps.vcpkg.outputs.toolchain-args }}
         "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/ClangCLToolchain.cmake"
+        "-DCMAKE_C_COMPILER=${{ env.OLO_CLANG_CL }}"
+        "-DCMAKE_CXX_COMPILER=${{ env.OLO_CLANG_CL }}"
+        "-DCMAKE_LINKER=${{ env.OLO_LLD_LINK }}"
+        "-DCMAKE_RC_COMPILER=${{ env.OLO_LLVM_RC }}"
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DOLO_ENABLE_LTO=OFF
@@ -352,23 +389,24 @@ jobs:
       # (OloEngine/tests/CMakeLists.txt). Capped at 2 (not 4) because ASan
       # shadow memory inflates each test process's resident footprint; 2-wide stays
       # comfortably inside the windows-2025 ~16 GB budget.
-      # The trailing 10 excludes are all tests that trigger a real C++ throw+catch
-      # (malformed-input robustness + MCP error handling). clang-cl + ASan miscompiles
-      # MSVC-style C++ exception handling — ASan puts redzones on the compiler-emitted
-      # EH metadata globals (_ThrowInfo / _CatchableTypeArray / type descriptors) and
-      # the MSVC EH runtime reads across them, so any throw that unwinds into a catch
-      # crashes (global-buffer-overflow / 0xC0000005). It reproduces with a 3-line
-      # `try { throw std::runtime_error{}; } catch (...) {}` under clang-cl /fsanitize=
-      # address, and no compile/link/runtime flag fixes it (verified: -asan-globals=0,
-      # -fno-strict-aliasing, /Od, detect_stack_use_after_return=0, driver-vs-lld-link).
-      # It is an LLVM toolchain bug, not an engine defect — the old MSVC-cl.exe ASan job
-      # passed all 9, and these paths are covered there / on the Linux ASan job. Excluded
-      # here so the clang-cl job (which gives the real MSVC-ABI + Windows-only coverage)
-      # stays green; revisit if a future LLVM fixes clang-cl ASan exception handling.
-      # Tracking: https://github.com/drsnuggles8/OloEngineBase/issues/497.
+      # TEN EH cases used to be excluded here and are not any more (issue #497).
+      # They are the tests that trigger a real C++ throw+catch (malformed-input
+      # robustness + MCP error handling), and clang-cl + ASan miscompiled MSVC-style
+      # exception handling: ASan put redzones on the compiler-emitted EH metadata
+      # globals (_ThrowInfo / _CatchableTypeArray / type descriptors) and the MSVC EH
+      # runtime read across them, so any throw that unwound into a catch crashed
+      # (global-buffer-overflow / 0xC0000005). It was an LLVM toolchain bug, not an
+      # engine defect -- no compile/link/runtime flag worked around it (tried:
+      # -asan-globals=0, -fno-strict-aliasing, /Od, detect_stack_use_after_return=0,
+      # driver-vs-lld-link), and the old MSVC-cl.exe ASan job passed all of them.
+      #
+      # FIXED by the LLVM 23.1.0 pin added above -- see that step for the measured
+      # before/after on #497's own three-line repro. If these cases start failing
+      # again, the question is which clang the job resolved, not whether the engine
+      # regressed.
       run: >
         ctest --parallel 2 -C Release --output-on-failure --timeout 120
-        --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.|^SceneSerializerFuzzRegression\.UnterminatedFlowMap$|^SceneSerializerFuzzRegression\.SinglePrintableChar$|^EngineSubsystemSmoke\.ProjectLoadMissingPathFailsCleanly$|^StreamingRegionSerializer\.ParseInvalidYAML$|^InputActionSerializerTest\.MalformedYAML$|^ShaderGraphSerializationTest\.DeserializeInvalidYAMLReturnsFalse$|^CinematicSerializerTest\.MalformedYamlReturnsNullWithoutCrashing$|^AccessibilitySettingsTest\.LoadOfACorruptFileFailsWithoutCorruptingSettings$|^McpDispatchTest\.ToolsCallHandlerThrowIsCaughtAsToolError$|^McpStructuredOutput\.ToolsCallErrorHasNoStructuredContent$'
+        --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         # detect_odr_violation=0 must be repeated here — a step-level ASAN_OPTIONS
         # replaces the job-level one rather than merging (see the job `env` above).

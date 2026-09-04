@@ -108,6 +108,11 @@ namespace OloEngine::LowLevelTasks
 
     // Thread-local storage definitions
     thread_local FSchedulerTls::FTlsValuesHolder FSchedulerTls::s_TlsValuesHolder;
+
+    // Trivially destructible on purpose: no dynamic init, no atexit destructor,
+    // so it outlives the holder above and stays readable from a static
+    // destructor. See the declaration in Scheduler.h.
+    thread_local FSchedulerTls::FTlsValues* FSchedulerTls::s_TlsValuesPtr = nullptr;
     // Note: FTask::s_ActiveTask is defined inline in Task.h (C++17 inline variable)
     thread_local bool Private::FOversubscriptionTls::s_IsOversubscriptionAllowed = false;
 
@@ -179,10 +184,12 @@ namespace OloEngine::LowLevelTasks
         if (FPlatformMallocCrash::IsActive())
         {
             TlsValues = nullptr;
+            s_TlsValuesPtr = nullptr;
             return;
         }
 
         TlsValues = new FTlsValues();
+        s_TlsValuesPtr = TlsValues;
 
         if (FImpl::s_ThreadTlsValuesMutex.TryLock())
         {
@@ -206,6 +213,12 @@ namespace OloEngine::LowLevelTasks
 
         if (TlsValues)
         {
+            // Retire the lifetime signal FIRST. Everything below can free the
+            // object, and any reader that runs afterwards -- including a static
+            // destructor on this very thread -- must see nullptr rather than a
+            // pointer to freed storage.
+            s_TlsValuesPtr = nullptr;
+
             if (FImpl::s_ThreadTlsValuesMutex.TryLock())
             {
                 FImpl::ProcessPendingTlsValuesNoLock();
@@ -244,16 +257,27 @@ namespace OloEngine::LowLevelTasks
 
     FSchedulerTls::FTlsValues& FSchedulerTls::GetTlsValuesRef()
     {
+        // Touch the HOLDER here, deliberately, and not s_TlsValuesPtr.
+        //
+        // This access is what forces the thread_local's dynamic initialisation on
+        // first use -- which is what allocates FTlsValues and publishes
+        // s_TlsValuesPtr in the first place. Reading the raw pointer instead would
+        // return nullptr on any thread that has not used the scheduler yet, and
+        // FScheduler::StartWorkers would write through it:
+        //   AddressSanitizer: SEGV on unknown address 0x18 ... in StartWorkers
+        // s_TlsValuesPtr exists for the SHUTDOWN direction (TryGetTlsValues, safe
+        // after the holder is destroyed); the holder is still the thing that owns
+        // construction.
         return *s_TlsValuesHolder.TlsValues;
     }
 
     FSchedulerTls::FTlsValues* FSchedulerTls::TryGetTlsValues() noexcept
     {
-        // Direct read of TlsValues — see header comment. The thread_local
-        // holder's dtor sets this to nullptr before the storage formally
-        // dies, so this read is well-defined even from atexit on the main
-        // thread.
-        return s_TlsValuesHolder.TlsValues;
+        // Read the trivially-destructible pointer, NOT s_TlsValuesHolder.TlsValues.
+        // The holder has a destructor, so touching its members after it has run is
+        // UB; s_TlsValuesPtr has none, so its storage is alive for as long as the
+        // thread is. See the header for the use-after-free this distinction fixes.
+        return s_TlsValuesPtr;
     }
 
     // Singleton instance

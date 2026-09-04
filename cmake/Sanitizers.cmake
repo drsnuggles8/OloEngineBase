@@ -166,6 +166,30 @@ if(OLO_ENABLE_ASAN)
             # global keeps its own address and redzone. link.exe (the old MSVC ASan job)
             # didn't fold these; lld-link does.
             add_link_options(/OPT:NOICF)
+
+            # /DEBUG, so a sanitizer report can actually be READ.
+            #
+            # SetupConfigurations.cmake compiles Release with /Zi, so the OBJECTS
+            # carry debug info -- but CMake's default Release link flags contain no
+            # /DEBUG, so lld-link emits no program PDB. llvm-symbolizer then falls
+            # back to the export table and resolves every frame to whichever
+            # exported symbol happens to sit nearest, which is where ASan reports
+            # naming `SteamNetworkingSockets_*` and `ffxFsr2ContextGenerateReactiveMask`
+            # came from. Those names are noise: they are not evidence that
+            # networking or FSR2 is involved, and at least one investigation
+            # (issue #317) started by believing them.
+            #
+            # The 219-failure heap-use-after-free behind
+            # docs/agent-rules/thread-local-lifetime-at-exit.md was unreadable in CI
+            # for exactly this reason, and became a one-line diagnosis the moment a
+            # PDB existed:
+            #
+            #   #0 FScheduler::StopWorkers   Task/Scheduler.cpp:627
+            #   #1 ~FScheduler -> `dynamic atexit destructor for 's_Singleton'`
+            #
+            # Scoped to sanitizer builds deliberately: the PDB for the test binary is
+            # ~2 GB, which a normal Release build has no reason to pay for.
+            add_link_options(/DEBUG)
         endif()
 
         message(STATUS "  MSVC ASan: /fsanitize=address /MD (no leak detection on Windows)")
