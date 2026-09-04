@@ -2186,6 +2186,8 @@ namespace OloEngine
                 imc.CastShadows = imcNode["CastShadows"].as<bool>();
             if (imcNode["CullDistance"])
                 imc.CullDistance = imcNode["CullDistance"].as<f32>();
+            if (imcNode["LightmapStatic"])
+                imc.LightmapStatic = imcNode["LightmapStatic"].as<bool>();
             if (imcNode["PlacementAssetHandle"])
                 imc.PlacementAssetHandle = imcNode["PlacementAssetHandle"].as<u64>();
             if (imcNode["Primitive"])
@@ -2259,6 +2261,10 @@ namespace OloEngine
             if (modelComponent["Visible"])
             {
                 mc.m_Visible = modelComponent["Visible"].as<bool>();
+            }
+            if (modelComponent["LightmapStatic"])
+            {
+                mc.m_LightmapStatic = modelComponent["LightmapStatic"].as<bool>();
             }
         }
 
@@ -4429,6 +4435,10 @@ namespace OloEngine
             auto const& modelComponent = entity.GetComponent<ModelComponent>();
             out << YAML::Key << "FilePath" << YAML::Value << modelComponent.m_FilePath;
             out << YAML::Key << "Visible" << YAML::Value << modelComponent.m_Visible;
+            if (modelComponent.m_LightmapStatic)
+            {
+                out << YAML::Key << "LightmapStatic" << YAML::Value << modelComponent.m_LightmapStatic;
+            }
 
             out << YAML::EndMap; // ModelComponent
         }
@@ -4447,6 +4457,10 @@ namespace OloEngine
             out << YAML::Key << "FrustumCullPerInstance" << YAML::Value << imc.FrustumCullPerInstance;
             out << YAML::Key << "CastShadows" << YAML::Value << imc.CastShadows;
             out << YAML::Key << "CullDistance" << YAML::Value << imc.CullDistance;
+            if (imc.LightmapStatic)
+            {
+                out << YAML::Key << "LightmapStatic" << YAML::Value << imc.LightmapStatic;
+            }
             if (imc.PlacementAssetHandle != 0)
                 out << YAML::Key << "PlacementAssetHandle" << YAML::Value << static_cast<u64>(imc.PlacementAssetHandle);
             if (imc.Primitive != MeshPrimitive::None)

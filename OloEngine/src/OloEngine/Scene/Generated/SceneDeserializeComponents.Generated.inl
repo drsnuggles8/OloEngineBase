@@ -1072,6 +1072,7 @@ if (auto node = entity["VirtualMeshComponent"]; node)
         comp.m_ErrorThresholdPixels = std::clamp(v, static_cast<f32>(0.05f), static_cast<f32>(64.0f));
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
     comp.m_CastShadows = node["CastShadows"].as<bool>(comp.m_CastShadows);
+    comp.m_LightmapStatic = node["LightmapStatic"].as<bool>(comp.m_LightmapStatic);
 }
 
 if (auto node = entity["WeaponComponent"]; node)

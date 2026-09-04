@@ -60,11 +60,19 @@ namespace OloEngine
         u64 BakeKey = 0;
     };
 
-    // One static entity to bake. Gathered by the caller (the Scene-side wiring
+    // One static RECEIVER to bake. Gathered by the caller (the Scene-side wiring
     // decides what "static" means); the baker never touches the ECS.
+    //
+    // `(EntityUUID, SubKey)` is the region identity (issue #867) — one entity may
+    // contribute SEVERAL inputs, each with its own world transform and therefore
+    // its own bounce: N instances of an InstancedMeshComponent, or the distinct
+    // MeshSources a ModelComponent fans out over. `SubKey == 0` is "the whole
+    // entity", which is what the classic MeshComponent path emits. See
+    // LightmapEntityEntry in Renderer/LightmapAsset.h for the per-receiver key.
     struct LightmapBakeInput
     {
         u64 EntityUUID = 0;
+        u64 SubKey = 0;
         Ref<MeshSource> Mesh;
         glm::mat4 WorldTransform = glm::mat4(1.0f);
     };

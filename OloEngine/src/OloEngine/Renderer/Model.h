@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -58,6 +59,16 @@ namespace OloEngine
         // paths so the three cannot drift apart again (issue #629).
         void DrawParallel(const glm::mat4& transform, const Material* overrideMaterial,
                           const Material& fallbackMaterial, i32 entityID) const;
+        // As above, plus a baked lightmap region per mesh (issue #867).
+        //
+        // `lightmapRegionForMesh(meshIndex)` is called once per mesh and returns
+        // that mesh's ENCODED atlas region, or vec4(0) for "no lightmap". A
+        // callback rather than a span because the caller has to resolve the
+        // model's sub-key per mesh anyway (LightmapSubKeyForModelMesh), and a
+        // model with no bake must cost nothing.
+        void DrawParallel(const glm::mat4& transform, const Material* overrideMaterial,
+                          const Material& fallbackMaterial, i32 entityID,
+                          const std::function<glm::vec4(sizet)>& lightmapRegionForMesh) const;
 
         void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
         void GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, std::vector<CommandPacket*>& outCommands) const;

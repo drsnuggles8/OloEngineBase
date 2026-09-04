@@ -918,6 +918,7 @@
 
 		"OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMesh.cpp"
+		"OloEngine/Renderer/VirtualGeometry/VirtualLightmapUVPacking.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.cpp"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
@@ -1238,6 +1239,8 @@
 		"OloEngine/Scene/SceneMeshRaycast.h"
 		"OloEngine/Scene/SceneLightmap.cpp"
 		"OloEngine/Scene/SceneLightmap.h"
+		"OloEngine/Scene/SceneLightmapGather.cpp"
+		"OloEngine/Scene/SceneLightmapGather.h"
 		"OloEngine/Scene/SceneSerializer.cpp"
 		"OloEngine/Scene/SceneSerializer.h"
 		"OloEngine/Scene/SceneBinaryFormat.h"

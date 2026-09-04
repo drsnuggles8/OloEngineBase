@@ -156,6 +156,15 @@ namespace OloEngine
         // geometry — culling it drops half of every leaf.
         std::vector<u8> PartTwoSided;
         bool CastShadows = true;
+        // Baked lightmap atlas region for this instance (issue #867): the same
+        // encoded vec4 InstanceData::LightmapScaleOffset carries on the classic
+        // path. All zeros is the "no lightmap" sentinel.
+        //
+        // One VirtualMeshComponent is one MeshSource and therefore one unwrap
+        // and one region, so every part of a multi-submesh mesh shares it and
+        // addresses its own charts through its own uv2 — exactly what the
+        // classic path does across submeshes.
+        glm::vec4 LightmapScaleOffset{ 0.0f };
     };
 
     // @brief GPU residence for every registered virtual mesh (issue #629).
@@ -470,6 +479,36 @@ namespace OloEngine
         {
             return m_VertexBuffer;
         }
+
+        // ---- Baked lightmap UV2 (issue #867) ------------------------------
+        //
+        // The UV2 does NOT get a binding of its own: the SSBO namespace is full
+        // below Mesa's hard ceiling of 80 (ssbo-binding-cap-is-80-on-mesa.md),
+        // and SSBO_BONE_PULL (63) — the one reusable number — is unreachable
+        // here because VulkanRendererAPI::AssembleRootData resolves 57/63 from
+        // the draw's VAO streams and never from a published buffer, while the
+        // mesh-shader route passes no VAO at all.
+        //
+        // So it rides the vertex arena, the route ShaderBindingLayout.h names
+        // first ("ride an existing block"): a PACKED TAIL REGION of the same
+        // SSBO_VIRTUAL_VERTICES buffer, four uv2 pairs to a 32-byte element.
+        // That costs +12.5% of the vertex arena and only when a registered mesh
+        // actually carries UV2 — a scene with no baked virtual geometry
+        // allocates exactly what it did before.
+        //
+        // Element index of the first uv2 element, for u_VirtualLightmapUVBase.
+        // ZERO means "this arena carries no UV2 at all", which is also the
+        // shader's don't-fetch signal.
+        [[nodiscard]] u32 GetLightmapUVBaseElement() const
+        {
+            return m_LightmapUVBaseElement;
+        }
+
+        // Whether the registered mesh's cooked DAG actually carries a UV2
+        // stream. A lightmap region must NOT be published for a mesh whose cook
+        // predates its unwrap: the region would be valid while the arena tail
+        // held nothing, and the fetch would read another mesh's charts.
+        [[nodiscard]] bool MeshHasLightmapUVs(AssetHandle handle) const;
         [[nodiscard]] const Ref<StorageBuffer>& GetInstanceBuffer() const
         {
             return m_InstanceBuffer;
@@ -622,7 +661,8 @@ namespace OloEngine
         Ref<StorageBuffer> m_GroupBuffer;       // SSBO_VIRTUAL_GROUPS
         Ref<StorageBuffer> m_GroupStatesBuffer; // SSBO_VIRTUAL_GROUP_STATES (bit0 resident / bit1 request / bit2 touch)
         // Budgeted geometry slot arenas (page slots of uniform capacity)
-        Ref<StorageBuffer> m_VertexBuffer;   // SSBO_VIRTUAL_VERTICES arena
+        Ref<StorageBuffer> m_VertexBuffer;   // SSBO_VIRTUAL_VERTICES arena (+ the packed uv2 tail, issue #867)
+        u32 m_LightmapUVBaseElement = 0;     // first uv2 element in that arena; 0 = no uv2 resident
         RHI::ResourceHandle m_IndexBuffer{}; // element-buffer + SSBO_VIRTUAL_INDICES arena
         RHI::ResourceHandle m_Vao{};         // element-buffer-only VAO for the MDI path
 

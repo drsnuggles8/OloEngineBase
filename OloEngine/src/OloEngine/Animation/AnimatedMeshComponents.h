@@ -126,6 +126,12 @@ namespace OloEngine
         Ref<Model> m_Model;
         std::string m_FilePath; // Original file path for serialization/reload
         bool m_Visible = true;
+        // Baked-GI receiver flag (issue #867), the ModelComponent twin of
+        // MeshComponent::m_LightmapStatic. A model fans one entity out over
+        // several MeshSources, so it contributes one region per DISTINCT source
+        // rather than one per entity — see LightmapEntityEntry's sub-key table
+        // in Renderer/LightmapAsset.h.
+        bool m_LightmapStatic = false;
 
         ModelComponent() = default;
         explicit ModelComponent(const std::string& filePath)

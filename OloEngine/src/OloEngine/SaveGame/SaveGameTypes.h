@@ -91,7 +91,14 @@ namespace OloEngine
     //      AtEnd()-probed because it lands mid-block, ahead of the planar
     //      reflection and wake fields; v23 and older omit it and keep the
     //      single-cascade default, which is the pre-#969 surface exactly.
-    static constexpr u32 kSaveGameFormatVersion = 25; // 25: Material::PBRModel closure selector (#975)
+    // v26: ModelComponent, InstancedMeshComponent and VirtualMeshComponent gained m_LightmapStatic /
+    //      LightmapStatic, and InstancedMeshComponent now round-trips each
+    //      instance's StableID (#867). The StableID matters as much as the flag:
+    //      it is the SUB-KEY the bake writes a per-instance atlas region under,
+    //      so a save that let EnsureStableIDs re-derive the ids would stale the
+    //      bake on load whenever the list had a gap. v25 and older omit all
+    //      three and keep the defaults, which is the pre-#867 behaviour.
+    static constexpr u32 kSaveGameFormatVersion = 26; // 26: lightmap receivers on Model/Instanced (#867)
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

@@ -2005,6 +2005,13 @@ namespace OloEngine
     void Model::DrawParallel(const glm::mat4& transform, const Material* overrideMaterial,
                              const Material& fallbackMaterial, i32 entityID) const
     {
+        DrawParallel(transform, overrideMaterial, fallbackMaterial, entityID, {});
+    }
+
+    void Model::DrawParallel(const glm::mat4& transform, const Material* overrideMaterial,
+                             const Material& fallbackMaterial, i32 entityID,
+                             const std::function<glm::vec4(sizet)>& lightmapRegionForMesh) const
+    {
         OLO_PROFILE_FUNCTION();
 
         if (m_Meshes.empty())
@@ -2024,7 +2031,7 @@ namespace OloEngine
                                            : nullptr;
             Material meshMaterial = ResolveSubmeshMaterial(overrideMaterial, imported, fallbackMaterial);
 
-            meshDescriptors.push_back({
+            Renderer3D::MeshSubmitDesc descriptor{
                 m_Meshes[i],
                 transform,
                 meshMaterial,
@@ -2032,7 +2039,17 @@ namespace OloEngine
                 entityID, // EntityID for picking
                 false,    // IsAnimated
                 nullptr   // BoneMatrices
-            });
+            };
+            // Baked lightmap region for this mesh (issue #867). A model fans one
+            // entity out over several MeshSources, so the region is per mesh —
+            // and on the warm .omesh path, where every mesh is a submesh view
+            // into ONE combined source, the callback hands every mesh the same
+            // region, which is exactly right: one source, one unwrap, one region.
+            if (lightmapRegionForMesh)
+            {
+                descriptor.LightmapScaleOffset = lightmapRegionForMesh(i);
+            }
+            meshDescriptors.push_back(std::move(descriptor));
         }
 
         // Submit all meshes in parallel

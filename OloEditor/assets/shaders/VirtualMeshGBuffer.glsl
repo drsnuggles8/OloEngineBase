@@ -35,6 +35,8 @@ layout(location = 3) out vec4 v_ClipPosCurr;
 layout(location = 4) out vec4 v_ClipPosPrev;
 layout(location = 5) flat out int v_EntityID;
 layout(location = 6) flat out uint v_DbgSlot; // gl_BaseInstance -> VisibleCluster record (debug only)
+layout(location = 7) out vec2 v_TexCoord2;              // baked lightmap uv2 (issue #867)
+layout(location = 8) flat out vec4 v_LightmapScaleOffset; // its atlas region; all-zero = no lightmap
 
 invariant gl_Position;
 
@@ -48,6 +50,8 @@ void main()
     v_WorldPos = o.WorldPos;
     v_Normal = o.Normal;
     v_TexCoord = o.TexCoord;
+    v_TexCoord2 = FetchVirtualLightmapUV(inst, uint(gl_VertexIndex));
+    v_LightmapScaleOffset = inst.LightmapScaleOffset;
     v_EntityID = inst.EntityID;
     v_ClipPosCurr = o.ClipPosCurr;
     v_ClipPosPrev = o.ClipPosPrev;

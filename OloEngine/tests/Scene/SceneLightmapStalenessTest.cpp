@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -24,6 +25,7 @@
 #include "OloEngine/Scene/SceneLightmap.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace OloEngine::Tests
 {
@@ -204,5 +206,88 @@ namespace OloEngine::Tests
         f.DynamicSphere.GetComponent<MeshComponent>().m_LightmapStatic = false;
         f.StaticWall.GetComponent<MeshComponent>().m_LightmapStatic = false;
         EXPECT_NE(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original);
+    }
+
+    // ── Instanced receivers (issue #867) ─────────────────────────────────────
+    //
+    // The bake now owes one atlas region PER INSTANCE, so the key has to see
+    // per-instance state. Both directions are silent if it does not: a key that
+    // misses an instance move renders that instance from a region baked for
+    // where it USED to be — plausible light in the wrong place — and a key that
+    // misses an added instance leaves the new one with no region at all, which
+    // looks exactly like an unbaked scene.
+
+    namespace
+    {
+        [[nodiscard]] Entity MakeInstancedBatch(Scene& scene, u32 count)
+        {
+            Entity rocks = scene.CreateEntity("Rocks");
+            auto& imc = rocks.AddComponent<InstancedMeshComponent>();
+            if (Ref<Mesh> cube = MeshPrimitives::CreateCube())
+                imc.MeshSource = cube->GetMeshSource();
+            imc.LightmapStatic = true;
+            for (u32 i = 0; i < count; ++i)
+            {
+                InstanceData instance;
+                instance.Transform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i) * 3.0f, 0.0f, 0.0f));
+                instance.StableID = static_cast<u64>(i) + 1u;
+                imc.Instances.push_back(instance);
+            }
+            return rocks;
+        }
+    } // namespace
+
+    TEST(SceneLightmapStaleness, MovingOneInstanceChangesTheKeyAndMovingItBackRestoresIt)
+    {
+        StalenessFixture f = MakeFixture();
+        Entity rocks = MakeInstancedBatch(*f.World, 4);
+        const SceneLightmapSettings settings = f.World->GetLightmapSettings();
+        const u64 original = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
+
+        auto& instances = rocks.GetComponent<InstancedMeshComponent>().Instances;
+        const glm::mat4 saved = instances[2].Transform;
+        instances[2].Transform = glm::translate(saved, glm::vec3(0.0f, 4.0f, 0.0f));
+        EXPECT_NE(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original)
+            << "an instance moved out of the region baked for it and the key did not notice";
+
+        instances[2].Transform = saved;
+        EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original)
+            << "the key must be a pure function of the state, so restoring it restores the key";
+    }
+
+    TEST(SceneLightmapStaleness, AddingOrRemovingAnInstanceChangesTheKey)
+    {
+        StalenessFixture f = MakeFixture();
+        Entity rocks = MakeInstancedBatch(*f.World, 4);
+        const SceneLightmapSettings settings = f.World->GetLightmapSettings();
+        const u64 original = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
+
+        auto& instances = rocks.GetComponent<InstancedMeshComponent>().Instances;
+        InstanceData extra;
+        extra.Transform = glm::translate(glm::mat4(1.0f), glm::vec3(-9.0f, 0.0f, 0.0f));
+        extra.StableID = 99;
+        instances.push_back(extra);
+        // The new instance has NO region until a re-bake. Without the sub-key in
+        // the key this would read as "still valid" and the new rock would be the
+        // only unlit thing in the scene.
+        EXPECT_NE(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original);
+
+        instances.pop_back();
+        EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original);
+    }
+
+    TEST(SceneLightmapStaleness, InstancedBatchIsInvisibleToTheKeyUntilItIsMarkedStatic)
+    {
+        StalenessFixture f = MakeFixture();
+        const SceneLightmapSettings settings = f.World->GetLightmapSettings();
+        const u64 before = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
+
+        Entity rocks = MakeInstancedBatch(*f.World, 3);
+        EXPECT_NE(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), before);
+
+        // A batch the bake never sees contributes nothing to the key either —
+        // the same rule MeshComponent has followed since #439.
+        rocks.GetComponent<InstancedMeshComponent>().LightmapStatic = false;
+        EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), before);
     }
 } // namespace OloEngine::Tests

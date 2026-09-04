@@ -13,6 +13,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/SceneLightmapGather.h"
 
 #include <glm/gtc/packing.hpp>
 
@@ -25,7 +26,10 @@ namespace OloEngine
     {
         // Bumping this stales every existing bake — do so whenever the bake's
         // semantics change (integrand, texel layout, key inputs).
-        constexpr u64 kBakeKeyFormatVersion = 2; // v2: lights hash what the bake consumes (raw Translation, per-type)
+        // v3 (issue #867): the key walks every RECEIVER, not just MeshComponent
+        // entities, and mixes each receiver's sub-key and own world transform —
+        // moving one instance of an InstancedMeshComponent must stale the bake.
+        constexpr u64 kBakeKeyFormatVersion = 3;
 
         // How many Resolve() calls pass between full rechecks. The recheck is
         // O(scene) (UV2 scan + key hash); a scene edit is still picked up in a
@@ -76,15 +80,24 @@ namespace OloEngine
         m_PageCount = 0;
         m_AtlasTexture = nullptr;
         m_Regions.clear();
+        m_EntitiesWithRegions.clear();
+        // Bumped on the way DOWN as well as up: a consumer caching regions has
+        // to notice the table going away just as much as it changing.
+        ++m_ResolveGeneration;
     }
 
-    glm::vec4 SceneLightmapRuntime::GetScaleOffset(UUID entityUUID) const
+    glm::vec4 SceneLightmapRuntime::GetScaleOffset(UUID entityUUID, u64 subKey) const
     {
         if (!IsValid())
             return glm::vec4(0.0f);
 
-        const auto it = m_Regions.find(entityUUID);
+        const auto it = m_Regions.find(LightmapRegionKey{ entityUUID, subKey });
         return it != m_Regions.end() ? it->second : glm::vec4(0.0f);
+    }
+
+    bool SceneLightmapRuntime::HasAnyRegionForEntity(UUID entityUUID) const
+    {
+        return IsValid() && m_EntitiesWithRegions.contains(entityUUID);
     }
 
     void SceneLightmapRuntime::Resolve(Scene& scene)
@@ -114,39 +127,55 @@ namespace OloEngine
         // mesh's missing UV2 stream deterministically BEFORE the key check, so
         // a reloaded scene (procedural primitives, un-resaved .omesh) matches
         // the layout the bake rasterized instead of reading permanently stale.
+        //
+        // Walks the SHARED receiver gather (issue #867) rather than a private
+        // MeshComponent loop, so an instanced or model receiver heals on the same
+        // terms the classic one always did. Several receivers can share a
+        // MeshSource (every instance of one batch does); Generate() is idempotent
+        // and HasLightmapUVs() short-circuits the repeats.
+        //
+        // Gathered ONCE per recheck and handed to ComputeBakeKey below: the walk
+        // is O(scene) with an EnsureStableIDs scan per instanced batch, and it
+        // sits behind the throttle for that reason.
+        const std::vector<LightmapReceiver> receivers = GatherLightmapReceivers(scene);
         {
             LightmapUnwrapOptions unwrapOptions;
             unwrapOptions.Resolution = kLightmapUnwrapResolution;
             unwrapOptions.Padding = kLightmapUnwrapPadding;
 
-            auto meshView = scene.GetAllEntitiesWith<IDComponent, MeshComponent>();
-            for (auto entity : meshView)
+            for (const LightmapReceiver& receiver : receivers)
             {
-                auto& mesh = meshView.get<MeshComponent>(entity);
-                if (!mesh.m_LightmapStatic || !mesh.m_MeshSource || mesh.m_MeshSource->HasLightmapUVs())
+                if (receiver.Mesh->HasLightmapUVs())
                     continue;
                 // An unwrap that failed once (unchartable faces, chart overflow)
                 // will fail identically on every retry — xatlas runs 100ms+ per
                 // mesh, so retrying each recheck is a recurring frame hitch.
                 // The memo clears on Invalidate() (re-bake, asset change).
-                const UUID uuid = meshView.get<IDComponent>(entity).ID;
-                if (m_FailedUnwraps.contains(uuid))
+                if (m_FailedUnwraps.contains(receiver.Mesh.Raw()))
                     continue;
-                if (LightmapUnwrap::Generate(*mesh.m_MeshSource, unwrapOptions))
+                // Through the SHARED helper, so the runtime's self-healing
+                // re-unwrap deals with a cooked virtual-mesh blob exactly as the
+                // editor's bake does. Without that, a virtual receiver whose
+                // mesh lost its UV2 would heal on the classic path and not on
+                // the virtual one — baked GI that appears only with the master
+                // switch off, which is the asymmetry this whole receiver exists
+                // to avoid.
+                if (PrepareReceiverForBake(receiver))
                 {
                     if (RenderCommand::IsDeviceAvailable())
                     {
-                        mesh.m_MeshSource->Build();
+                        Ref<MeshSource> mesh = receiver.Mesh;
+                        mesh->Build();
                     }
                 }
                 else
                 {
-                    m_FailedUnwraps.insert(uuid);
+                    m_FailedUnwraps.emplace(receiver.Mesh.Raw(), receiver.Mesh);
                 }
             }
         }
 
-        const u64 liveKey = ComputeBakeKey(scene, settings);
+        const u64 liveKey = ComputeBakeKey(scene, settings, receivers);
 
         // Cheap re-resolve: same asset, same live key, texture already built.
         if (m_Resolved && m_ResolvedAsset == settings.LightmapAsset && m_ResolvedBakeKey == liveKey && !m_Stale)
@@ -203,6 +232,7 @@ namespace OloEngine
         u32 rejectedPages = 0;
         const u32 pageCount = asset->GetPageCount();
         m_Regions.reserve(asset->GetEntries().size());
+        m_EntitiesWithRegions.reserve(asset->GetEntries().size());
         for (const auto& entry : asset->GetEntries())
         {
             // Both halves of the address are bounded, not just the page: the
@@ -222,12 +252,15 @@ namespace OloEngine
             // Fold the page into the region here — this is the ONE place the
             // encoding is composed; everything downstream (DrawMeshCommand,
             // the FrameDataBuffer stream, InstanceData) just carries the vec4.
-            m_Regions.emplace(UUID(entry.EntityUUID), EncodeLightmapRegion(entry.ScaleOffset, entry.Page));
+            m_Regions.emplace(LightmapRegionKey{ UUID(entry.EntityUUID), entry.SubKey },
+                              EncodeLightmapRegion(entry.ScaleOffset, entry.Page));
+            m_EntitiesWithRegions.insert(UUID(entry.EntityUUID));
         }
+        ++m_ResolveGeneration;
         if (rejectedPages > 0)
         {
-            OLO_CORE_WARN("SceneLightmapRuntime: {} entity regions address texels outside the asset's {} "
-                          "page(s) — those entities fall back to probes/IBL",
+            OLO_CORE_WARN("SceneLightmapRuntime: {} baked regions address texels outside the asset's {} "
+                          "page(s) — those receivers fall back to probes/IBL",
                           rejectedPages, pageCount);
         }
         m_AtlasSize = asset->GetWidth();
@@ -282,6 +315,12 @@ namespace OloEngine
 
     u64 SceneLightmapRuntime::ComputeBakeKey(Scene& scene, const SceneLightmapSettings& settings)
     {
+        return ComputeBakeKey(scene, settings, GatherLightmapReceivers(scene));
+    }
+
+    u64 SceneLightmapRuntime::ComputeBakeKey(Scene& scene, const SceneLightmapSettings& settings,
+                                             std::span<const LightmapReceiver> receivers)
+    {
         BakeKeyHasher hasher;
         hasher.Mix(kBakeKeyFormatVersion);
         hasher.Mix(settings.AtlasSize);
@@ -289,34 +328,28 @@ namespace OloEngine
         hasher.Mix(settings.MaxBounces);
         hasher.Mix(settings.TexelsPerMeter);
 
-        // Deterministic visit order: gather then sort by UUID — registry
-        // iteration order is not a contract, the key must be.
+        // Registry iteration order is not a contract and the key must be, so
+        // both walks below sort. The RECEIVERS come pre-sorted by (UUID, SubKey)
+        // from the shared gather; hashing the SAME list the bake consumes is the
+        // point of that gather, because a key computed over a different walk
+        // than the bake's does not render wrongly — it renders with no baked GI
+        // and no error at all. The LIGHTS are gathered and sorted here.
         struct KeyedEntity
         {
             u64 Uuid;
             entt::entity Handle;
         };
-        std::vector<KeyedEntity> staticEntities;
-
-        auto meshView = scene.GetAllEntitiesWith<IDComponent, MeshComponent>();
-        for (auto entity : meshView)
-        {
-            const auto& mesh = meshView.get<MeshComponent>(entity);
-            if (!mesh.m_LightmapStatic || !mesh.m_MeshSource)
-                continue;
-            staticEntities.push_back({ static_cast<u64>(meshView.get<IDComponent>(entity).ID), entity });
-        }
-        std::sort(staticEntities.begin(), staticEntities.end(),
-                  [](const KeyedEntity& a, const KeyedEntity& b)
-                  { return a.Uuid < b.Uuid; });
 
         const Material defaultMaterial{};
-        for (const auto& keyed : staticEntities)
+        for (const LightmapReceiver& receiver : receivers)
         {
-            const auto& mesh = meshView.get<MeshComponent>(keyed.Handle);
-            const Ref<MeshSource>& source = mesh.m_MeshSource;
+            const Ref<MeshSource>& source = receiver.Mesh;
 
-            hasher.Mix(keyed.Uuid);
+            hasher.Mix(static_cast<u64>(receiver.EntityUUID));
+            // The sub-key is hashed for its own sake, not just as a
+            // disambiguator: adding, removing or re-identifying an instance
+            // changes which regions the bake owes, and the atlas layout with it.
+            hasher.Mix(receiver.SubKey);
             hasher.Mix(static_cast<u64>(source->GetHandle()));
 
             // Geometry proxy: counts + bounds. A vertex-level edit that keeps
@@ -328,15 +361,15 @@ namespace OloEngine
             hasher.Mix(bounds.Min);
             hasher.Mix(bounds.Max);
 
-            hasher.Mix(scene.GetWorldTransform(keyed.Handle));
+            // The RECEIVER's transform, not the entity's: an instance's
+            // world transform is its own, and moving one instance of a batch
+            // has to stale the bake exactly as moving a mesh entity does.
+            hasher.Mix(receiver.WorldTransform);
 
-            const Material* overrideMaterial = nullptr;
-            if (Entity e{ keyed.Handle, &scene }; e.HasComponent<MaterialComponent>())
-                overrideMaterial = &e.GetComponent<MaterialComponent>().m_Material;
             const auto& submeshes = source->GetSubmeshes();
             for (i32 s = 0; s < submeshes.Num(); ++s)
             {
-                MixMaterial(hasher, ResolveSubmeshMaterial(overrideMaterial, source.get(),
+                MixMaterial(hasher, ResolveSubmeshMaterial(receiver.OverrideMaterial, source.get(),
                                                            static_cast<u32>(s), defaultMaterial));
             }
         }

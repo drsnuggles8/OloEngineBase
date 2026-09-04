@@ -68,7 +68,7 @@ struct VirtualGroup {
     float _p0; float _p1; float _p2;
 };
 
-// Mirrors OloEngine::VirtualInstanceGpuRecord (224 B std430).
+// Mirrors OloEngine::VirtualInstanceGpuRecord (240 B std430).
 struct VirtualInstance {
     mat4 Transform;      // render-origin-relative
     mat4 PrevTransform;
@@ -81,6 +81,10 @@ struct VirtualInstance {
     float ErrorThresholdPixels;
     uint CommandBase;
     uint Flags;          // bit0 = uniform scale (enables the cone test)
+    // Baked lightmap atlas region (issue #867). Declared even where unused: the
+    // std430 array stride IS the struct size, so omitting it makes every
+    // instance after the first read the previous one's transform.
+    vec4 LightmapScaleOffset;
 };
 
 // DrawElementsIndirectCommand, 32 B stride (matches GPUFrustumCuller's IndirectCommandPOD).

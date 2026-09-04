@@ -188,12 +188,17 @@ its acceptance criteria live there. Read the issue before re-deriving the design
   `if` guard around the pull. See ADR 0011 amendment (89) for the full incident and the invariant
   that would break the binding-reuse (a future draw needing bones AND a lightmap UV2 stream at
   once).
-- **VirtualGeometry / InstancedMeshComponent / ModelComponent receivers (#867)**: only the classic
-  `MeshComponent` path samples the lightmap in v1. Each breaks the `UUID → one region` model
-  differently. Note the trap recorded there: wiring only the VirtualGeometry *fallback* path
-  (`virtualGeometryEnabled == false`, which re-routes through `SubmitMeshSourceClassic`) would
-  make baked GI appear and disappear with the VG master switch, destroying that toggle's value as
-  an A/B. Both sides sample it or neither does.
+- **InstancedMeshComponent / ModelComponent receivers (#867) — DONE.** The region identity
+  generalised from `UUID → one region` to `(UUID, sub-key) → one region`, and one shared gather
+  (`Scene/SceneLightmapGather.h`) now feeds the bake, the reference world, the self-healing
+  re-unwrap and the bake key. Rules and the per-receiver sub-key table:
+  [lightmap-receiver-identity.md](lightmap-receiver-identity.md).
+- **VirtualGeometry receiver (#867) — DONE.** UV2 survives cluster building and the LOD
+  simplifier, and reaches the GPU as a PACKED TAIL of the cluster vertex arena rather than through
+  a binding of its own — the namespace is full, and `SSBO_BONE_PULL` (63) is resolved from the
+  draw's VAO streams on Vulkan, which the mesh-shader route does not have. All three rasterizers
+  sample, and so does the classic fallback, so the master switch stays an honest A/B. Rules:
+  [lightmap-receiver-identity.md](lightmap-receiver-identity.md).
 - **Multi-page atlas (#868) — DONE.** The bake packs across pages before it degrades anything, the
   runtime uploads a `Texture2DArray` layer per page, and the `Page != 0` rejection is gone. See §8
   for the encoding, the budget policy and what replaced that guard.

@@ -2008,6 +2008,11 @@ namespace OloEngine
         lua.new_usertype<ModelComponent>("ModelComponent",
                                          "filePath", &ModelComponent::m_FilePath,
                                          "visible", &ModelComponent::m_Visible,
+                                         // Baked-GI receiver flag (issue #867). Toggling it stales
+                                         // any existing bake, which the runtime detects on its own;
+                                         // a script cannot re-bake, so this is an authoring lever
+                                         // for tools rather than something to flip at runtime.
+                                         "lightmapStatic", &ModelComponent::m_LightmapStatic,
                                          "isLoaded", sol::property(&ModelComponent::IsLoaded));
 
         // --- SceneCamera (needed by CameraComponent) ---
@@ -2081,8 +2086,8 @@ namespace OloEngine
         // foliage / debris / crowds). The component's mesh source and override
         // material are authored in editor / via YAML — Lua exposes the
         // behavioural fields plus instance-list manipulation.
-        lua.new_usertype<InstancedMeshComponent>("InstancedMeshComponent", "cast_shadows", &InstancedMeshComponent::CastShadows, "frustum_cull_per_instance", &InstancedMeshComponent::FrustumCullPerInstance, "cull_distance", &InstancedMeshComponent::CullDistance, "instance_count", sol::readonly_property([](const InstancedMeshComponent& c) -> int
-                                                                                                                                                                                                                                                                                                                { return static_cast<int>(c.Instances.size()); }),
+        lua.new_usertype<InstancedMeshComponent>("InstancedMeshComponent", "cast_shadows", &InstancedMeshComponent::CastShadows, "frustum_cull_per_instance", &InstancedMeshComponent::FrustumCullPerInstance, "cull_distance", &InstancedMeshComponent::CullDistance, "lightmap_static", &InstancedMeshComponent::LightmapStatic, "instance_count", sol::readonly_property([](const InstancedMeshComponent& c) -> int
+                                                                                                                                                                                                                                                                                                                                                                            { return static_cast<int>(c.Instances.size()); }),
                                                  "clear_instances", [](InstancedMeshComponent& c)
                                                  { c.Instances.clear(); }, "add_instance", [](InstancedMeshComponent& c, f32 px, f32 py, f32 pz, f32 ex, f32 ey, f32 ez, f32 sx, f32 sy, f32 sz, f32 cr, f32 cg, f32 cb, f32 ca, f32 custom, i32 instanceEntityID)
                                                  {

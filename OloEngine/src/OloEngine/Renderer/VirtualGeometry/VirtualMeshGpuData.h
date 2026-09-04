@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 
+#include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
 #include <cstddef>
@@ -81,7 +82,11 @@ namespace OloEngine
         u32 ViewportHeight = 0;
         u32 ArgsSlot = 0;
         u32 MaxClusters = 0;
-        u32 Pad0 = 0;
+        // First element of the baked lightmap uv2 tail in the vertex arena
+        // (issue #867); 0 = this arena carries none. Claimed out of the block's
+        // first pad word, which is exactly what VirtualDrawInfo.glsl says the
+        // pads are there for.
+        u32 LightmapUVBase = 0;
         u32 Pad1 = 0;
     };
     static_assert(sizeof(VirtualDrawInfoGpu) == 32,
@@ -157,6 +162,7 @@ namespace OloEngine
     //    128    64  NormalMatrix   (transpose(inverse(mat3(Transform))) in a mat4)
     //    192     4  ClusterBase / 196 ClusterCount / 200 GroupBase / 204 EntityID
     //    208     4  MaxScale / 212 ErrorThresholdPixels / 216 CommandBase / 220 Flags (bit0 = uniform scale)
+    //    224    16  LightmapScaleOffset (baked atlas region, issue #867)
     struct VirtualInstanceGpuRecord
     {
         glm::mat4 Transform{ 1.0f };
@@ -203,8 +209,27 @@ namespace OloEngine
         //    threshold, i.e. most of them). Foliage escaped that only by being alpha-masked
         //    and therefore hardware-only.
         static constexpr u32 kFlagTwoSided = 1u << 2;
+
+        // Baked lightmap atlas region for this instance (issue #867): uv2 * xy +
+        // zw with the atlas page in the integer part of `.z` — the same encoded
+        // vec4 InstanceData::LightmapScaleOffset carries on the classic path,
+        // decoded by the same sampleLightmapIrradiance. All zeros is the "no
+        // lightmap" sentinel and every consumer gates on the untouched `.x`.
+        //
+        // It is per INSTANCE rather than per draw because the software-raster
+        // resolve needs it too, and that pass reaches its surface through
+        // VirtualVisibleCluster::InstanceIndex rather than through a draw call.
+        //
+        // A new 16 bytes rather than a spare lane, because there was none: the
+        // record was exactly 224 with all eight scalar slots spoken for. FIVE
+        // hand-copied std430 mirrors must move with it — VirtualGeometryGpuStructs.glsl,
+        // VirtualClusterCull.comp, VirtualClusterRaster.comp, VirtualVisibilityResolve.glsl
+        // and VirtualMeshShadowDepth.glsl. A stride mismatch does not error; every
+        // instance past the first reads the previous one's transform.
+        glm::vec4 LightmapScaleOffset{ 0.0f };
     };
-    static_assert(sizeof(VirtualInstanceGpuRecord) == 224, "std430 mirror in VirtualClusterCull.comp expects 224-byte instance records");
+    static_assert(sizeof(VirtualInstanceGpuRecord) == 240, "std430 mirrors (5 of them) expect 240-byte instance records");
+    static_assert(sizeof(VirtualInstanceGpuRecord) % 16 == 0, "std430 array stride must stay a 16-byte multiple");
 
     // Per-instance cull output header. The first field doubles as the
     // glMultiDrawElementsIndirectCount draw-count parameter (stride 16 keeps
@@ -260,6 +285,20 @@ namespace OloEngine
     struct VirtualMeshGpuData
     {
         std::vector<VirtualGpuVertex> Vertices;
+        // Baked lightmap UV2, one per entry of Vertices, or EMPTY when the cook
+        // carried none (issue #867).
+        //
+        // A PARALLEL stream rather than a wider VirtualGpuVertex, and the reason
+        // is measured rather than stylistic: the packed vertex is 32 bytes and
+        // this is the highest-vertex-count path in the engine, so widening it to
+        // 48 would cost 50% more vertex bandwidth on every virtual mesh in every
+        // scene, baked or not. It is also the shape MeshSource and VirtualMesh
+        // already use for the same data (baked-lightmap-pipeline.md §1).
+        //
+        // The two arrays are indexed by the SAME cluster-local vertex slot, so
+        // they must always be either equal in size or this one empty — the
+        // registry checks that before it uploads.
+        std::vector<glm::vec2> LightmapUVs;
         std::vector<u32> Indices;
         std::vector<VirtualClusterGpuRecord> Clusters;
         std::vector<VirtualGroupGpuRecord> Groups;

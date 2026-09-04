@@ -342,7 +342,8 @@ namespace OloEngine
         [[nodiscard]] static bool SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
                                                     const glm::mat4& modelMatrix, const Material* overrideMaterial,
                                                     const Material& defaultMaterial, i32 entityID,
-                                                    f32 errorThresholdPixels, bool castShadows);
+                                                    f32 errorThresholdPixels, bool castShadows,
+                                                    const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f));
         // Flatten a Material into the exact POD record the frame material table
         // uploads for a draw (factors, alpha mode/cutoff, and the resolved GL
         // texture id per slot, incl. the global-IBL fallback). Public because it
@@ -691,6 +692,13 @@ namespace OloEngine
             bool HasPrevTransform = false; // False => prev == current (zero object motion).
             // For LOD selection
             const LODGroup* LODGroupPtr = nullptr;
+            // Baked lightmap atlas region for this draw (issue #867): uv2 * xy +
+            // zw, with the atlas page in the integer part of `.z`. All zeros —
+            // the default — is the shader's "no lightmap" sentinel, so a caller
+            // that knows nothing about baked GI needs no change. Patched onto
+            // the produced DrawMeshCommand exactly as Scene.cpp's
+            // SubmitMeshSourceClassic patches the classic mesh path's.
+            glm::vec4 LightmapScaleOffset = glm::vec4(0.0f);
         };
 
         /**

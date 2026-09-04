@@ -13,6 +13,7 @@
 
 #include "Components.h"
 #include "Prefab.h"
+#include "SceneLightmapGather.h"
 #include "SystemScheduler.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/InstancePlacementAsset.h"
@@ -10174,15 +10175,33 @@ namespace OloEngine
                 const i32 entityID = static_cast<i32>(std::to_underlying(entity));
                 const auto stableEntityId = GetStableGPUSceneEntityId(m_Registry, entity);
 
+                // Baked lightmap region (issue #867). One VirtualMeshComponent is
+                // one MeshSource and therefore one unwrap and one region, so the
+                // sub-key is 0 — the same key the classic path uses.
+                //
+                // BOTH sides of the master switch read it, and that is the whole
+                // point. Wiring only the classic fallback would make baked GI
+                // appear and disappear with RendererSettings::VirtualGeometryEnabled,
+                // destroying that toggle's value as an A/B ("same geometry, same
+                // material-resolution rule, the only difference is the renderer").
+                // Either both sides sample the lightmap or neither does.
+                glm::vec4 lightmapScaleOffset(0.0f);
+                if (virtualMesh.m_LightmapStatic && m_LightmapRuntime && m_Registry.all_of<IDComponent>(entity))
+                {
+                    lightmapScaleOffset = m_LightmapRuntime->GetScaleOffset(m_Registry.get<IDComponent>(entity).ID);
+                }
+
                 // Master switch off (RendererSettings::VirtualGeometryEnabled): draw the very
                 // same MeshSource through the classic mesh path instead of dropping it. Same
-                // geometry, same material-resolution rule, same shadow-caster rule — the only
-                // difference is the renderer. That is what makes the toggle a usable A/B.
+                // geometry, same material-resolution rule, same shadow-caster rule, same baked
+                // lightmap region — the only difference is the renderer. That is what makes the
+                // toggle a usable A/B.
                 if (!virtualGeometryEnabled)
                 {
                     SubmitMeshSourceClassic(meshSource, worldTransform, overrideMaterial, entityID, stableEntityId,
                                             /*lodGroup*/ nullptr,
-                                            meshHasActiveShadows && virtualMesh.m_CastShadows);
+                                            meshHasActiveShadows && virtualMesh.m_CastShadows,
+                                            lightmapScaleOffset);
                     continue;
                 }
 
@@ -10204,7 +10223,8 @@ namespace OloEngine
                 // more than one submission per call.
                 const bool queued = Renderer3D::SubmitVirtualMesh(
                     virtualMesh.m_MeshSource, meshSource, worldTransform, overrideMaterial,
-                    GetDefaultMaterial(), entityID, virtualMesh.m_ErrorThresholdPixels, castsShadow);
+                    GetDefaultMaterial(), entityID, virtualMesh.m_ErrorThresholdPixels, castsShadow,
+                    lightmapScaleOffset);
                 if (queued)
                 {
                     ++vgDiagnostics.Submitted;
@@ -10411,6 +10431,14 @@ namespace OloEngine
                     // the submission needs. No copy and no cache involvement.
                     instData = imc.Instances.data();
                     totalCount = inlineCount;
+                    if (cache.InlineSize != inlineCount || cache.InlineDataPtr != inlineDataPtr ||
+                        cache.PlacementHandle != imc.PlacementAssetHandle || cache.AssetSize != 0)
+                    {
+                        // The instance set changed, so any lightmap regions
+                        // written into it belong to a different set (issue
+                        // #867). Zero the stamp so the fill below re-runs.
+                        cache.LightmapResolveGeneration = 0;
+                    }
                     cache.InlineSize = inlineCount;
                     cache.InlineDataPtr = inlineDataPtr;
                     cache.PlacementHandle = imc.PlacementAssetHandle;
@@ -10429,6 +10457,11 @@ namespace OloEngine
                                             cache.Data.size() == (inlineCount + assetCount);
                     if (!cacheValid)
                     {
+                        // A rebuilt merge re-copies from the source lists, which
+                        // never carried the regions this path writes into
+                        // cache.Data — so the fill below has to run again
+                        // (issue #867).
+                        cache.LightmapResolveGeneration = 0;
                         cache.Data.clear();
                         cache.Data.reserve(inlineCount + assetCount);
                         cache.Data.insert(cache.Data.end(), imc.Instances.begin(), imc.Instances.end());
@@ -10441,6 +10474,64 @@ namespace OloEngine
                     }
                     instData = cache.Data.data();
                     totalCount = cache.Data.size();
+                }
+
+                // Baked lightmap regions, one PER INSTANCE (issue #867). This is
+                // the receiver the issue exists for: N copies of one mesh at N
+                // world transforms each receive their own bounce, so each needs
+                // its own atlas region, keyed by the instance's StableID (with
+                // AssetStableIDNamespace ORed in for placement-asset instances —
+                // the two lists number their stable IDs independently).
+                //
+                // Written into the instance buffer the draw actually reads,
+                // which is `imc.Instances` on the inline-only fast path and the
+                // merged cache otherwise — `instData` aliases one or the other,
+                // and this picks the same storage by the same condition. Writing
+                // the source lists instead would not do: on the merged path the
+                // draw reads the CACHE, so a region written into `imc.Instances`
+                // would only appear after the next rebuild.
+                //
+                // Gated on the resolve GENERATION rather than done every frame:
+                // this is one hash lookup per instance and a scatter batch is
+                // tens of thousands of them, but the regions only change when
+                // the bake is re-resolved. A cache rebuild above leaves the
+                // generation at 0, so a merge and a re-bake both re-apply.
+                //
+                // The gate is deliberately NOT `if (imc.LightmapStatic)`. These
+                // lanes live in the component's own instance storage, so once
+                // written they persist: un-ticking "Lightmap Static" with the
+                // fill skipped would leave the batch sampling the rects it was
+                // baked into forever, and the next bake — which repacks the
+                // atlas — would have it shading from whatever surface owns them
+                // now. The flag therefore selects the WANTED stamp rather than
+                // whether to run at all, and clearing it is just another state
+                // the fill has to converge on.
+                if (m_LightmapRuntime && m_Registry.all_of<IDComponent>(entity))
+                {
+                    const UUID uuid = m_Registry.get<IDComponent>(entity).ID;
+                    // 0 is "no regions applied", which is also the initial value —
+                    // so a batch that was never lightmap-static never runs the
+                    // loop, and one that stops being lightmap-static runs it
+                    // exactly once to zero the lanes.
+                    const u64 wanted = imc.LightmapStatic ? m_LightmapRuntime->GetResolveGeneration() : 0;
+                    if (cache.LightmapResolveGeneration != wanted)
+                    {
+                        const bool covered =
+                            imc.LightmapStatic && m_LightmapRuntime->HasAnyRegionForEntity(uuid);
+                        InstanceData* writable = (assetCount == 0) ? imc.Instances.data() : cache.Data.data();
+                        for (sizet k = 0; k < totalCount; ++k)
+                        {
+                            // A stale bake, a cleared handle or an uncovered
+                            // entity must RESET the lane, not leave the last
+                            // resolve's regions addressing an atlas that is gone.
+                            const u64 sourceNamespace =
+                                k < inlineCount ? 0 : InstancedMeshComponent::AssetStableIDNamespace;
+                            writable[k].LightmapScaleOffset =
+                                covered ? m_LightmapRuntime->GetScaleOffset(uuid, writable[k].StableID | sourceNamespace)
+                                        : glm::vec4(0.0f);
+                        }
+                        cache.LightmapResolveGeneration = wanted;
+                    }
                 }
 
                 // One decision for the draw AND the canonical material record
@@ -10619,8 +10710,34 @@ namespace OloEngine
                 // Pass entity ID for mouse picking support
                 const auto modelTransform = GetWorldTransform(entity);
                 Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::LegacyModel);
+
+                // Baked lightmap regions, one per model mesh (issue #867). The
+                // sub-key is recovered with the SAME scan the bake gather used
+                // (LightmapSubKeyForModelMesh) — the first mesh index sharing
+                // this mesh's MeshSource — so a warm .omesh model, whose meshes
+                // are all views into one combined source, asks for sub-key 0 on
+                // every mesh and gets the single region the bake wrote.
+                //
+                // Left empty (and therefore free) unless the entity is actually
+                // lightmap-static and the resolved bake covers it.
+                std::function<glm::vec4(sizet)> lightmapRegionForMesh;
+                if (model.m_LightmapStatic && m_LightmapRuntime && m_Registry.all_of<IDComponent>(entity))
+                {
+                    if (const UUID uuid = m_Registry.get<IDComponent>(entity).ID;
+                        m_LightmapRuntime->HasAnyRegionForEntity(uuid))
+                    {
+                        const Model& sourceModel = *model.m_Model;
+                        lightmapRegionForMesh = [this, uuid, &sourceModel](sizet meshIndex)
+                        {
+                            return m_LightmapRuntime->GetScaleOffset(
+                                uuid, LightmapSubKeyForModelMesh(sourceModel, meshIndex));
+                        };
+                    }
+                }
+
                 model.m_Model->DrawParallel(modelTransform, overrideMaterial, GetDefaultMaterial(),
-                                            static_cast<int>(std::to_underlying(entity)));
+                                            static_cast<int>(std::to_underlying(entity)),
+                                            lightmapRegionForMesh);
 
                 // Submit each submesh as a shadow caster — Model::DrawParallel
                 // only enqueues color draws, so without this loop ModelComponent

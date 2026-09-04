@@ -138,8 +138,13 @@ namespace OloEngine
             // v2 (issue #629): header carries the COOK IDENTITY — builder version + build-config
             // fingerprint — after the wire version. A v1 blob has no way to prove which builder
             // produced it, so it is rejected outright and re-cooked; see kVirtualMeshBuilderVersion.
-            constexpr u32 kVersion = 2;
-            constexpr sizet kHeaderSize = 11 * sizeof(u32);
+            // v3 (issue #867): a LightmapUVCount lands in the header and an optional
+            // vec2-per-vertex UV2 array follows the vertices. The count is 0 or
+            // VertexCount and nothing else, so an unbaked cook grows by exactly the
+            // one header word.
+            constexpr u32 kVersion = 3;
+            constexpr sizet kHeaderSize = 12 * sizeof(u32);
+            constexpr sizet kLightmapUVWireSize = 2 * sizeof(f32);
             constexpr sizet kVertexWireSize = 8 * sizeof(f32); // px py pz nx ny nz u v
             constexpr sizet kClusterWireSize = 6 * sizeof(u32) + 11 * sizeof(f32);
             constexpr sizet kGroupWireSize = 3 * sizeof(u32) + 5 * sizeof(f32);
@@ -240,10 +245,12 @@ namespace OloEngine
             }
 
             [[nodiscard]] sizet ExpectedBlobSize(sizet vertexCount, sizet clusterCount, sizet groupCount,
-                                                 sizet vertexRefCount, sizet triangleByteCount)
+                                                 sizet vertexRefCount, sizet triangleByteCount,
+                                                 sizet lightmapUVCount)
             {
                 return kHeaderSize +
                        vertexCount * kVertexWireSize +
+                       lightmapUVCount * kLightmapUVWireSize +
                        clusterCount * kClusterWireSize +
                        groupCount * kGroupWireSize +
                        vertexRefCount * sizeof(u32) +
@@ -259,6 +266,7 @@ namespace OloEngine
                 u32 TriangleByteCount = 0;
                 u32 LevelCount = 0;
                 u32 SourceTriangleCount = 0;
+                u32 LightmapUVCount = 0;
             };
 
             // Every stage below treats the blob as hostile: read, then validate before use,
@@ -288,7 +296,16 @@ namespace OloEngine
                 if (!reader.Read(counts.VertexCount) || !reader.Read(counts.ClusterCount) ||
                     !reader.Read(counts.GroupCount) || !reader.Read(counts.VertexRefCount) ||
                     !reader.Read(counts.TriangleByteCount) || !reader.Read(counts.LevelCount) ||
-                    !reader.Read(counts.SourceTriangleCount))
+                    !reader.Read(counts.SourceTriangleCount) || !reader.Read(counts.LightmapUVCount))
+                {
+                    return false;
+                }
+
+                // The UV2 stream is all-or-nothing (issue #867): a partial stream would
+                // leave some vertices addressing texel (0,0) of whatever chart happens to
+                // sit at the region corner, which renders as a plausible flat patch of
+                // light rather than as anything obviously broken.
+                if (counts.LightmapUVCount != 0 && counts.LightmapUVCount != counts.VertexCount)
                 {
                     return false;
                 }
@@ -306,7 +323,8 @@ namespace OloEngine
                     return false;
                 }
                 return blob.size() == ExpectedBlobSize(counts.VertexCount, counts.ClusterCount, counts.GroupCount,
-                                                       counts.VertexRefCount, counts.TriangleByteCount);
+                                                       counts.VertexRefCount, counts.TriangleByteCount,
+                                                       counts.LightmapUVCount);
             }
 
             [[nodiscard]] bool ReadVertices(BlobReader& reader, VirtualMesh& mesh, const WireCounts& counts)
@@ -316,6 +334,15 @@ namespace OloEngine
                 {
                     if (!ReadFiniteVec3(reader, vertex.Position) || !ReadFiniteVec3(reader, vertex.Normal) ||
                         !ReadFiniteF32(reader, vertex.TexCoord.x) || !ReadFiniteF32(reader, vertex.TexCoord.y))
+                    {
+                        return false;
+                    }
+                }
+
+                mesh.LightmapUVs.resize(counts.LightmapUVCount);
+                for (glm::vec2& uv : mesh.LightmapUVs)
+                {
+                    if (!ReadFiniteF32(reader, uv.x) || !ReadFiniteF32(reader, uv.y))
                     {
                         return false;
                     }
@@ -533,7 +560,8 @@ namespace OloEngine
             OLO_PROFILE_FUNCTION();
 
             BlobWriter writer(ExpectedBlobSize(mesh.Vertices.size(), mesh.Clusters.size(), mesh.Groups.size(),
-                                               mesh.ClusterVertexRefs.size(), mesh.ClusterTriangles.size()));
+                                               mesh.ClusterVertexRefs.size(), mesh.ClusterTriangles.size(),
+                                               mesh.LightmapUVs.size()));
 
             writer.Write(kMagic);
             writer.Write(kVersion);
@@ -546,12 +574,18 @@ namespace OloEngine
             writer.Write(static_cast<u32>(mesh.ClusterTriangles.size()));
             writer.Write(mesh.LevelCount);
             writer.Write(mesh.SourceTriangleCount);
+            writer.Write(static_cast<u32>(mesh.LightmapUVs.size()));
 
             for (const Vertex& vertex : mesh.Vertices)
             {
                 writer.Write(vertex.Position);
                 writer.Write(vertex.Normal);
                 writer.Write(vertex.TexCoord);
+            }
+
+            for (const glm::vec2& uv : mesh.LightmapUVs)
+            {
+                writer.Write(uv);
             }
 
             for (const VirtualCluster& cluster : mesh.Clusters)

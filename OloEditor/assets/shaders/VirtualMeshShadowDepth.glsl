@@ -15,7 +15,7 @@ struct VirtualGpuVertex {
     vec4 NormalV;
 };
 
-// Mirrors OloEngine::VirtualInstanceGpuRecord (224 B std430)
+// Mirrors OloEngine::VirtualInstanceGpuRecord (240 B std430)
 struct VirtualInstance {
     mat4 Transform;
     mat4 PrevTransform;
@@ -28,6 +28,10 @@ struct VirtualInstance {
     float ErrorThresholdPixels;
     uint CommandBase;
     uint Flags;
+    // Baked lightmap atlas region (issue #867). Declared even where unused: the
+    // std430 array stride IS the struct size, so omitting it makes every
+    // instance after the first read the previous one's transform.
+    vec4 LightmapScaleOffset;
 };
 
 layout(std430, binding = 39) readonly buffer VirtualVertices { VirtualGpuVertex vertices[]; };

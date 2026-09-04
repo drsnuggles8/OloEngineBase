@@ -35,10 +35,48 @@ layout(std140, binding = 49) uniform VirtualDrawInfo {
     // 20 — the instance's ClusterCount: the task stage's launch clamp, mirroring
     //      the MDI arm's maxDrawCount bound against a corrupt GPU-written count.
     uint u_VirtualMaxClusters;
-    // 24/28 — std140 rounds the block to a 16-byte multiple; the pads are
-    //         explicit so the C++ mirror can be a plain struct with the same size.
-    uint u_VirtualDrawInfoPad0;
+    // 24 — first ELEMENT of the baked lightmap uv2 tail inside the vertex
+    //      arena at binding 39 (issue #867). The uv2 has no binding of its own:
+    //      the SSBO namespace is full below Mesa's 80 ceiling, and the one
+    //      reusable number — SSBO_BONE_PULL (63) — resolves from the draw's VAO
+    //      streams on Vulkan, which the mesh-shader route does not have. So it
+    //      rides that arena as a packed tail, four uv2 pairs to a 32-byte
+    //      element. ZERO means "this arena carries no uv2", and every reader
+    //      must treat it as don't-fetch: a buffer-device-address read past the
+    //      arena has no bounds (ADR 0011 amendment (89)).
+    uint u_VirtualLightmapUVBase;
+    // 28 — std140 rounds the block to a 16-byte multiple; the pad is explicit so
+    //      the C++ mirror can be a plain struct with the same size.
     uint u_VirtualDrawInfoPad1;
 };
+
+// ---- the packed uv2 tail: ONE spelling of the addressing math --------------
+//
+// Split in two so neither half needs the vertex SSBO or the VirtualGpuVertex
+// type to be declared first — this include is pulled in by stages that declare
+// binding 39 and by stages that do not, and an include-order dependency here
+// would be a compile error in one pipeline and silence in the rest.
+//
+// `globalVertexIndex` is the SAME index the vertex fetch uses
+// (cluster.VertexBase + local, or gl_VertexIndex): a page's vertices start at
+// slot-local 0 and the arena's slot capacity is 4-aligned, so the element and
+// the lane fall out of the global index with no per-page fixup.
+//
+// Callers MUST check `u_VirtualLightmapUVBase != 0u` and the instance's
+// `LightmapScaleOffset.x > 0.0` before fetching — see the field note above.
+uint oloVirtualLightmapUVElement(uint globalVertexIndex)
+{
+    return u_VirtualLightmapUVBase + (globalVertexIndex >> 2u);
+}
+
+// Lanes 0..3 of an element are (PositionU.xy, PositionU.zw, NormalV.xy,
+// NormalV.zw). The field names belong to the vertex layout this region borrows;
+// the sixteen bytes hold four uv2 pairs and nothing else.
+vec2 oloVirtualLightmapUVLane(vec4 elementLow, vec4 elementHigh, uint globalVertexIndex)
+{
+    uint lane = globalVertexIndex & 3u;
+    vec4 pair = ((lane & 2u) == 0u) ? elementLow : elementHigh;
+    return ((lane & 1u) == 0u) ? pair.xy : pair.zw;
+}
 
 #endif // VIRTUAL_DRAW_INFO_GLSL

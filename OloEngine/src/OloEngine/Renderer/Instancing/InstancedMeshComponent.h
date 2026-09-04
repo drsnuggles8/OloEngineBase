@@ -93,6 +93,17 @@ namespace OloEngine
 
         Ref<class Material> OverrideMaterial;
 
+        // Baked-GI receiver flag (issue #867), the InstancedMeshComponent twin
+        // of MeshComponent::m_LightmapStatic. This is the receiver the whole
+        // issue exists for: dense static props are the lightmap use case, and
+        // each instance sits in different world space receiving a different
+        // bounce, so the bake emits ONE REGION PER INSTANCE keyed by that
+        // instance's StableID (see LightmapEntityEntry in
+        // Renderer/LightmapAsset.h). Atlas pressure therefore rises with the
+        // instance count — a 200-instance batch wants 200 regions, which is
+        // what the multi-page atlas (issue #868) is for.
+        bool LightmapStatic = false;
+
         // Inline placement list authored at runtime / via scripting. Always
         // rendered. Combined with PlacementAssetHandle's instances at draw
         // time (asset instances are appended to this list).
@@ -130,6 +141,13 @@ namespace OloEngine
             AssetHandle PlacementHandle = 0;
             sizet AssetSize = 0;
             const InstanceData* AssetDataPtr = nullptr;
+            // SceneLightmapRuntime resolve generation whose regions are already
+            // written into the instance buffer (issue #867). Zero means "never
+            // applied", which is also what a rebuilt cache resets to. Filling N
+            // regions is N hash lookups, and a scatter batch is tens of
+            // thousands of instances — far too much to redo every frame for a
+            // value that only changes when the bake is re-resolved.
+            u64 LightmapResolveGeneration = 0;
         };
         // Runtime-derived cache — never serialized, and (Skip) never MCP-writable:
         // sub-object addressing would otherwise expose _MergedCache.PlacementHandle as

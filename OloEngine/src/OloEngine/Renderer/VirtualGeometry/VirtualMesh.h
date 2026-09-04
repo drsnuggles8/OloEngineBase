@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Vertex.h"
 
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
 #include <span>
@@ -53,7 +54,16 @@ namespace OloEngine
     // reference — permissive simplification with UV-seam protect bits replaced the
     // unconditional position weld, and a watertightness-guarded sloppy pass was added as a
     // last-resort fallback. Every DAG's geometry changes, so v1 caches must be rejected.
-    inline constexpr u32 kVirtualMeshBuilderVersion = 2;
+    // v3 (issue #867): the attribute set handed to meshopt_simplifyWithAttributes grew from
+    // 5 floats to 7 (the baked lightmap UV2 pair) and the protect window widened to cover
+    // them, so a UV2 chart seam is now a wedge the simplifier may not collapse across.
+    //
+    // Bumped even though a mesh with NO UV2 fills those two slots with a constant and should
+    // therefore simplify identically: the quadric accumulates over seven floats instead of
+    // five, float addition is not associative, and a cached DAG that differs from what this
+    // builder would now produce is exactly what the cook fingerprint exists to reject. A
+    // "probably identical" cache is not a contract.
+    inline constexpr u32 kVirtualMeshBuilderVersion = 3;
 
     // Sphere + object-space error used for view-dependent LOD selection.
     // For groups these are conservative: the sphere of a group contains the spheres of all
@@ -109,6 +119,16 @@ namespace OloEngine
     struct VirtualMesh
     {
         std::vector<Vertex> Vertices; // compacted copy of the referenced source vertices
+        // Baked lightmap UV2, one per entry of Vertices, or EMPTY when the
+        // source had none (issue #867).
+        //
+        // A PARALLEL array rather than a wider Vertex, for the same reason
+        // MeshSource keeps m_LightmapUVs beside its vertices
+        // (docs/agent-rules/baked-lightmap-pipeline.md §1): Vertex is 32 bytes
+        // with three pinned offsets and ~38 shaders whose vertex-pull branch
+        // hard-codes that stride. Only lightmapped meshes pay, and an unbaked
+        // virtual mesh is byte-identical to what it cooked before.
+        std::vector<glm::vec2> LightmapUVs;
         std::vector<VirtualCluster> Clusters;
         std::vector<VirtualClusterGroup> Groups;
         std::vector<u32> ClusterVertexRefs; // per-cluster references into Vertices

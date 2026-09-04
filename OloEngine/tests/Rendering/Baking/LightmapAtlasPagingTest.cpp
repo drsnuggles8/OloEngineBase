@@ -56,6 +56,8 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
+#include <tuple>
 #include <string>
 #include <vector>
 
@@ -88,6 +90,34 @@ namespace OloEngine::Tests
                 input.Mesh = shared;
                 input.WorldTransform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i) * edge * 2.0f, 0.0f, 0.0f)) *
                                        glm::scale(glm::mat4(1.0f), glm::vec3(edge));
+                inputs.push_back(input);
+            }
+            return inputs;
+        }
+
+        // The shape an InstancedMeshComponent produces (issue #867): ONE entity
+        // UUID and `count` distinct sub-keys, each at its own world transform.
+        // Before #867 the packing sort tie-broke on UUID alone, which is not a
+        // total order over this list at all — std::sort may then place equal
+        // elements however the implementation likes, and two runs of the same
+        // bake can differ. That failure would have appeared ONLY on scenes with
+        // instances, i.e. exactly the scenes #867 exists for.
+        [[nodiscard]] std::vector<LightmapBakeInput> MakeInstanceField(u32 count, f32 edge)
+        {
+            Ref<Mesh> cube = MeshPrimitives::CreateCube();
+            Ref<MeshSource> shared = cube ? cube->GetMeshSource() : nullptr;
+
+            std::vector<LightmapBakeInput> inputs;
+            inputs.reserve(count);
+            for (u32 i = 0; i < count; ++i)
+            {
+                LightmapBakeInput input;
+                input.EntityUUID = 0x5EED0000u; // one entity for the whole batch
+                input.SubKey = static_cast<u64>(i) + 1u;
+                input.Mesh = shared;
+                input.WorldTransform =
+                    glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i) * edge * 2.0f, 0.0f, 0.0f)) *
+                    glm::scale(glm::mat4(1.0f), glm::vec3(edge));
                 inputs.push_back(input);
             }
             return inputs;
@@ -288,6 +318,57 @@ namespace OloEngine::Tests
             EXPECT_EQ(first.Regions[i].Y, second.Regions[i].Y) << "region " << i;
             EXPECT_EQ(first.Regions[i].Size, second.Regions[i].Size) << "region " << i;
             EXPECT_EQ(first.Regions[i].Page, second.Regions[i].Page) << "region " << i;
+        }
+    }
+
+    // ── Determinism holds when every input SHARES one entity UUID (issue #867)
+    //
+    // The instanced receiver's shape. The packing sort's tie-break is
+    // (size desc, UUID asc, SubKey asc); drop the sub-key and the comparator
+    // ties for every pair in this list, so std::sort is free to order them
+    // differently between two runs — and the whole lightmap verification story
+    // (bit-identical bakes, oracle re-derivation at a seed derived from the
+    // texel's ADDRESS) rests on the layout being reproducible.
+    //
+    // Two separate assertions, because they fail differently: identical layouts
+    // across runs is determinism, and distinct regions per sub-key is the thing
+    // that makes N instances worth baking at all.
+    TEST(LightmapAtlasPaging, OneEntityWithManySubKeysPacksDeterministically)
+    {
+        LightmapBakeSettings settings;
+        settings.AtlasSize = 512;
+        settings.MinRegionSize = 8;
+        settings.TexelsPerMeter = 8.0f;
+        settings.MaxAtlasPages = 4;
+
+        LightmapBakePrepared first;
+        LightmapBakePrepared second;
+        std::string error;
+
+        std::vector<LightmapBakeInput> inputsA = MakeInstanceField(48, 4.0f);
+        ASSERT_TRUE(LightmapBaker::Prepare(inputsA, settings, first, error)) << error;
+        std::vector<LightmapBakeInput> inputsB = MakeInstanceField(48, 4.0f);
+        ASSERT_TRUE(LightmapBaker::Prepare(inputsB, settings, second, error)) << error;
+
+        ASSERT_EQ(first.Entries.size(), 48u) << "every instance must get its own region";
+        ASSERT_EQ(first.Entries.size(), second.Entries.size());
+        for (sizet i = 0; i < first.Entries.size(); ++i)
+        {
+            EXPECT_EQ(first.Entries[i].EntityUUID, second.Entries[i].EntityUUID) << "entry " << i;
+            EXPECT_EQ(first.Entries[i].SubKey, second.Entries[i].SubKey) << "entry " << i;
+            EXPECT_EQ(first.Regions[i].X, second.Regions[i].X) << "region " << i;
+            EXPECT_EQ(first.Regions[i].Y, second.Regions[i].Y) << "region " << i;
+            EXPECT_EQ(first.Regions[i].Page, second.Regions[i].Page) << "region " << i;
+        }
+
+        // No two instances may share an atlas rect — that is the failure the
+        // sub-key exists to prevent, and it renders as a batch lit from one
+        // instance's charts rather than as anything obviously broken.
+        std::set<std::tuple<u32, u32, u32>> occupied;
+        for (const auto& region : first.Regions)
+        {
+            EXPECT_TRUE(occupied.emplace(region.Page, region.X, region.Y).second)
+                << "two sub-keys landed on the same atlas rect";
         }
     }
     // ── The baked ASSET is page-shaped, and each page holds only its own

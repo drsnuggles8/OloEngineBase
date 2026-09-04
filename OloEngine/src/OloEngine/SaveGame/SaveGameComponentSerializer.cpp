@@ -2731,6 +2731,10 @@ namespace OloEngine
     {
         ar << c.m_Enabled << c.m_MeshSource;
         ar << c.m_ErrorThresholdPixels << c.m_CastShadows;
+        if (HasFieldsSince(ar, 26))
+        {
+            ar << c.m_LightmapStatic; // v26+ (issue #867); older saves keep the default false
+        }
 
         if (ar.IsLoading())
         {
@@ -2964,6 +2968,10 @@ namespace OloEngine
     void SaveGameComponentSerializer::Serialize(FArchive& ar, ModelComponent& c)
     {
         ar << c.m_FilePath << c.m_Visible;
+        if (HasFieldsSince(ar, 26))
+        {
+            ar << c.m_LightmapStatic; // v26+ (issue #867); older saves keep the default false
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, AnimationStateComponent& c)
@@ -4208,6 +4216,10 @@ namespace OloEngine
         ar << c.PlacementAssetHandle;
         ar << c.FrustumCullPerInstance << c.CastShadows;
         ar << c.CullDistance;
+        if (HasFieldsSince(ar, 26))
+        {
+            ar << c.LightmapStatic; // v26+ (issue #867); older saves keep the default false
+        }
 
         // Inline placement list — round-trip the per-instance transforms.
         u64 instanceCount = c.Instances.size();
@@ -4220,6 +4232,14 @@ namespace OloEngine
             for (int row = 0; row < 4; ++row)
                 for (int col = 0; col < 4; ++col)
                     ar << inst.Transform[row][col];
+            // StableID from v26 (issue #867): it is the sub-key the bake wrote
+            // this instance's atlas region under, so letting EnsureStableIDs
+            // re-derive it on load would stale the bake for any list with a gap
+            // — and silently, since a stale bake just falls back to probes.
+            if (HasFieldsSince(ar, 26))
+            {
+                ar << inst.StableID;
+            }
         }
     }
 

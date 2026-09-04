@@ -5234,8 +5234,13 @@ namespace OloEngine
         f32 m_ErrorThresholdPixels = 1.0f; // screen-space error target for the DAG cut
         bool m_Enabled = true;
         bool m_CastShadows = true;
+        // Baked-GI receiver flag (issue #867). One VirtualMeshComponent is one
+        // MeshSource and therefore one unwrap and one region, so its sub-key is
+        // 0 like the classic path's. Takes a byte from Pad0 below, so the
+        // component's pinned 16-byte no-hole layout is unchanged.
+        bool m_LightmapStatic = false;
         OLO_SERIALIZE(Skip)
-        u16 Pad0 = 0;
+        u8 Pad0 = 0;
 
         VirtualMeshComponent() = default;
         VirtualMeshComponent(const VirtualMeshComponent&) = default;
