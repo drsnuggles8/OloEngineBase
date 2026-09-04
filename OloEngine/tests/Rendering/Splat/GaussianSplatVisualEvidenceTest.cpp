@@ -207,7 +207,11 @@ namespace OloEngine::Tests
                     glDepthMask(GL_TRUE);
                 }
 
-                glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, static_cast<GLsizei>(instanceCount));
+                // GL_TRIANGLES with six vertices, matching what the indirect path
+                // draws through RendererAPI::DrawArraysIndirect -- the two
+                // routes have to rasterise the identical quad for
+                // GpuOrderedFrameMatchesTheCpuOrderedFrame to mean anything.
+                glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(instanceCount));
 
                 glBindVertexArray(0);
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);

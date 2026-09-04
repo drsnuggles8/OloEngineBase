@@ -30,6 +30,17 @@ namespace OloEngine
         // Re-bind this buffer to its original binding point
         virtual void Bind() const = 0;
 
+        // Releases this buffer's binding point. `StorageBuffer` has always had
+        // this; `UniformBuffer` did not, which left the only way to clear a UBO
+        // slot a raw `glBindBufferBase(..., 0)` in engine-layer code -- exactly
+        // what the RHI boundary ratchet forbids (issue #691, ADR 0011).
+        //
+        // It matters because a UniformBuffer claims its binding point at
+        // CONSTRUCTION and nothing rebinds afterwards, so a destroyed buffer
+        // left on a shared slot is handed to whatever runs next. See
+        // notes-renderer.md.
+        virtual void Unbind() const = 0;
+
         // Resource handle caching support
         virtual u32 GetRendererID() const = 0;
 

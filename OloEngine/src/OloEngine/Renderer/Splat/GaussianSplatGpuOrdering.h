@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Splat/GaussianSplatView.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/VertexArray.h"
 
 #include <glm/glm.hpp>
 
@@ -145,7 +146,6 @@ namespace OloEngine::GaussianSplat
         void ReleaseBindings() const;
 
         bool m_Ready = false;
-        u32 m_Vao = 0;
         u32 m_SplatCount = 0;
         u32 m_PaddedCapacity = 0;
         DispatchCounts m_Dispatches;
@@ -159,5 +159,6 @@ namespace OloEngine::GaussianSplat
         Ref<StorageBuffer> m_IndirectBuffer;
         Ref<UniformBuffer> m_CullUniforms;
         Ref<UniformBuffer> m_SortUniforms;
+        Ref<VertexArray> m_EmptyVertexArray;
     };
 } // namespace OloEngine::GaussianSplat

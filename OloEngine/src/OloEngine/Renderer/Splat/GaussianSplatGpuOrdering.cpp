@@ -7,8 +7,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
-
-#include <glad/gl.h>
+#include "OloEngine/Renderer/VertexArray.h"
 
 #include <algorithm>
 #include <array>
@@ -95,8 +94,6 @@ namespace OloEngine::GaussianSplat
     GpuViewOrdering::~GpuViewOrdering()
     {
         ReleaseBindings();
-        if (m_Vao != 0)
-            ::glDeleteVertexArrays(1, &m_Vao);
     }
 
     void GpuViewOrdering::ReleaseBindings() const
@@ -113,12 +110,11 @@ namespace OloEngine::GaussianSplat
         // The UBOs matter MORE than the SSBOs here and were missed the first
         // time. Bindings 7 and 8 are UBO_USER_0 and UBO_USER_1 -- the
         // post-process and motion-blur slots -- so leaving a destroyed buffer
-        // on them hands the next pass in the process a dangling binding. There
-        // is no UniformBuffer::Unbind, hence the raw call.
+        // on them hands the next pass in the process a dangling binding.
         if (m_CullUniforms)
-            ::glBindBufferBase(GL_UNIFORM_BUFFER, kBindingCullUbo, 0);
+            m_CullUniforms->Unbind();
         if (m_SortUniforms)
-            ::glBindBufferBase(GL_UNIFORM_BUFFER, kBindingSortUbo, 0);
+            m_SortUniforms->Unbind();
     }
 
     auto GpuViewOrdering::Initialize() -> bool
@@ -224,9 +220,15 @@ namespace OloEngine::GaussianSplat
 
         m_StatsBuffer->ClearData();
 
-        // { count = 4 vertices, instanceCount = 0, first = 0, baseInstance = 0 }.
+        // { count = 6 vertices, instanceCount = 0, first = 0, baseInstance = 0 }.
         // instanceCount is the only field the GPU writes.
-        const std::array<u32, 4> indirect{ 4u, 0u, 0u, 0u };
+        //
+        // SIX VERTICES, NOT A FOUR-VERTEX STRIP. The quad is two triangles
+        // because RendererAPI::DrawArraysIndirect draws GL_TRIANGLES, and
+        // adapting the shader to the facade is the right way round: reaching
+        // for a raw glDrawArraysIndirect to keep a strip is what the RHI
+        // boundary ratchet exists to stop (issue #691, ADR 0011).
+        const std::array<u32, 4> indirect{ 6u, 0u, 0u, 0u };
         m_IndirectBuffer->SetData(indirect.data(), static_cast<u32>(indirect.size() * sizeof(u32)));
 
         m_SplatBuffer->Bind();
@@ -283,11 +285,11 @@ namespace OloEngine::GaussianSplat
         OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(m_Ready && m_IndirectBuffer, "GpuViewOrdering::DrawIndirect before BuildOrdering");
 
-        // A core-profile draw needs SOME vertex array bound even when every
-        // vertex is synthesised from gl_VertexIndex, so the prototype keeps an
-        // empty one of its own rather than borrowing the caller's.
-        if (m_Vao == 0)
-            ::glCreateVertexArrays(1, &m_Vao);
+        // A draw needs SOME vertex array bound even when every vertex is
+        // synthesised from gl_VertexIndex, so the prototype keeps an empty one
+        // of its own rather than borrowing the caller's.
+        if (!m_EmptyVertexArray)
+            m_EmptyVertexArray = VertexArray::Create();
 
         m_SplatBuffer->Bind();
         m_OrderBuffer->Bind();
@@ -295,11 +297,7 @@ namespace OloEngine::GaussianSplat
         // its camera, so binding it here is what stops the draw and the cull
         // disagreeing about the view.
         m_CullUniforms->Bind();
-        ::glBindVertexArray(m_Vao);
-        ::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_IndirectBuffer->GetRendererID());
-        ::glDrawArraysIndirect(GL_TRIANGLE_STRIP, nullptr);
-        ::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
-        ::glBindVertexArray(0);
+        RenderCommand::DrawArraysIndirect(m_EmptyVertexArray, m_IndirectBuffer->GetRHIHandle());
     }
 
     void GpuViewOrdering::ReadbackOrdering(ViewOrdering& out) const

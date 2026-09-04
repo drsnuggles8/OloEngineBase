@@ -16,6 +16,7 @@ namespace OloEngine
 
         void SetData(const UniformData& data) override;
         void Bind() const override;
+        void Unbind() const override;
 
         // Resource handle caching support
         u32 GetRendererID() const override

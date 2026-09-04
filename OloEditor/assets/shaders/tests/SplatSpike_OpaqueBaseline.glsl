@@ -54,7 +54,14 @@ layout(std140, binding = 7) uniform SplatViewUniforms
 
 layout(location = 0) out vec4 v_Color;
 
-const vec2 kCorners[4] = vec2[4](vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0));
+// TWO TRIANGLES, NOT A FOUR-VERTEX STRIP. The indirect draw goes through
+// RendererAPI::DrawArraysIndirect, which draws GL_TRIANGLES; adapting the quad
+// to the facade is the right way round, because reaching for a raw
+// glDrawArraysIndirect to keep a strip is what the RHI boundary ratchet exists
+// to stop (issue #691, ADR 0011). The non-indirect path draws the same six
+// vertices, so both routes render an identical quad.
+const vec2 kCorners[6] = vec2[6](vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(-1.0, 1.0),
+                                 vec2(1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0));
 
 void main()
 {
@@ -77,7 +84,7 @@ void main()
 
     vec4 clip = u_Projection * vec4(viewPos, 1.0);
     vec2 centerPixels = (clip.xy / clip.w * 0.5 + 0.5) * u_ViewportFocal.xy;
-    vec2 pixel = centerPixels + kCorners[gl_VertexIndex & 3] * radiusPixels;
+    vec2 pixel = centerPixels + kCorners[gl_VertexIndex % 6] * radiusPixels;
 
     v_Color = vec4(float((splat.ColorOpacity) & 0xFFu) / 255.0, float((splat.ColorOpacity >> 8) & 0xFFu) / 255.0,
                    float((splat.ColorOpacity >> 16) & 0xFFu) / 255.0, 1.0);

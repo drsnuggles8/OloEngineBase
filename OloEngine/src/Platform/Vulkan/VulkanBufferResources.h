@@ -216,6 +216,10 @@ namespace OloEngine
         // draw-time root writer can find it.
         void Bind() const override;
 
+        // The mirror of Bind: clears this buffer from its binding point's
+        // occupancy record so the draw-time root writer stops finding it.
+        void Unbind() const override;
+
         // Diagnostics-only field: a native GL name does not exist here.
         [[nodiscard]] u32 GetRendererID() const override
         {

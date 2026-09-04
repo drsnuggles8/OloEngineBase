@@ -406,6 +406,17 @@ namespace OloEngine
         VulkanBindingState::Get().SetUniformBuffer(m_Binding, const_cast<VulkanUniformBuffer*>(this));
     }
 
+    void VulkanUniformBuffer::Unbind() const
+    {
+        // Only clear the slot if WE are the occupant. A later buffer on the
+        // same binding point has already displaced us (a UniformBuffer claims
+        // its binding at construction), and unbinding this one must not evict
+        // the buffer that legitimately owns the slot now.
+        VulkanBindingState& state = VulkanBindingState::Get();
+        if (state.GetUniformBuffer(m_Binding) == this)
+            state.SetUniformBuffer(m_Binding, nullptr);
+    }
+
     void VulkanUniformBuffer::EnsureShadow(u32 requiredSize)
     {
         if (requiredSize == 0 || requiredSize <= m_Size)

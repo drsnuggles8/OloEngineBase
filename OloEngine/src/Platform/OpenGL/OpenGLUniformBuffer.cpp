@@ -73,4 +73,9 @@ namespace OloEngine
     {
         glBindBufferBase(GL_UNIFORM_BUFFER, m_Binding, m_RendererID);
     }
+
+    void OpenGLUniformBuffer::Unbind() const
+    {
+        glBindBufferBase(GL_UNIFORM_BUFFER, m_Binding, 0);
+    }
 } // namespace OloEngine
