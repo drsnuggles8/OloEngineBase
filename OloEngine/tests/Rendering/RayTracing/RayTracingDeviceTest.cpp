@@ -39,9 +39,11 @@
 #include "OloEngine/Renderer/Vertex.h"
 
 #include "../RenderingTestUtils.h"
-#include "../VulkanTestSupport.h"
 
 #if OLO_WITH_VULKAN
+// VulkanTestSupport.h pulls <volk.h>, which only exists on the include path
+// when the Vulkan backend is compiled in — it must stay INSIDE the guard.
+#include "../VulkanTestSupport.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
