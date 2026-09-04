@@ -46,13 +46,17 @@ fi
 #   clang / lld / compiler-rt   the sanitizer jobs are clang-only, and
 #                               -fsanitize=address|undefined|thread needs the
 #                               compiler-rt runtimes. Rocky 10 ships clang 21.
-#                               There is no VERSION pin any more (#1015 had one:
+#                               There is no VERSION pin from a PACKAGE (#1015
+#                               removed one that never worked:
 #                               EPEL's clang19 under /usr/lib64/llvm19/bin, which
 #                               was never actually installed on the box, so every
-#                               run silently took the fallback). Hosted is on
-#                               clang-23 and EPEL tops out at clang20, so no pin
-#                               can match; the box uses its system clang and
-#                               setup-linux-build verifies the RUNTIMES instead.
+#                               run silently took the fallback). EPEL tops out at
+#                               clang20, so the clang-23 that CI builds with comes
+#                               from an LLVM tarball at /opt/llvm-23.1.0, installed
+#                               by setup-olo-ci-host.sh -- NOT by this script, and
+#                               NOT on PATH. What is installed here is the system
+#                               clang, which stays the host default and the
+#                               fallback setup-linux-build warns down to.
 #                               docs/ops/self-hosted-linux-toolchain.md.
 #                               setup-olo-ci-host.sh installs the same three
 #                               packages on their own for a box that is

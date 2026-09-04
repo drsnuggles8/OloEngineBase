@@ -16,10 +16,11 @@ and the Linux CI jobs in
 
 **The Linux sanitizer jobs run here with hosted parity** (#1015): every ctest-launched test
 process gets `--olo-gl-backend=none`, so the GL-gated tests skip exactly as they do on a
-hosted runner. The compiler is NOT the same as hosted -- the box builds with its system
-clang 21, hosted builds with clang-23 -- which is deliberate. #1010's measurement
-(215 failures of 6,909 here against 1 of 6,940 hosted) was two engine bugs the GPU exposed,
-not the toolchain — see [self-hosted-linux-toolchain.md](self-hosted-linux-toolchain.md).
+hosted runner. The compiler is the same as hosted too, since #1036: **clang-23**, taken from
+an LLVM release tarball at `/opt/llvm-23.1.0` because Rocky 10 packages no clang above 21.
+That closed a confound rather than a bug -- #1010's measurement (215 failures of 6,909 here
+against 1 of 6,940 hosted) was two engine bugs the GPU exposed, not the toolchain — see
+[self-hosted-linux-toolchain.md](self-hosted-linux-toolchain.md).
 The GPU-under-sanitizer coverage is its own scheduled job,
 [gpu-sanitizers-amd.yml](../../.github/workflows/gpu-sanitizers-amd.yml).
 
@@ -90,7 +91,7 @@ Confirmed working on the target box before any of this was written:
 | Context | **OpenGL 4.6 Core, GLSL 4.60** via `EGL_MESA_platform_surfaceless` |
 | Display server | **none** — no X, no Wayland (`multi-user.target`) |
 | CPU / RAM | Ryzen 7 3700X (8C/16T) / 31 GiB |
-| Toolchain | cmake 4.4.0, ninja 1.13, clang 21.1.8 (system) + clang 19.1.7 from EPEL (the pin the sanitizer jobs prefer), gcc 14.3.1, python 3.12 |
+| Toolchain | cmake 4.4.0, ninja 1.13, clang 23.1.0 at `/opt/llvm-23.1.0` (what CI builds with, #1036) over clang 21.1.8 (system, the fallback and the host default), gcc 14.3.1, python 3.12 |
 
 Headless offscreen render + readback was verified pixel-exact (FBO clear to
 `0.25,0.5,0.75,1.0` → readback `64,128,191,255`, `glGetError() == 0`).
@@ -487,25 +488,29 @@ X/Wayland `-devel` set; creates the `~/.cache/olo/*` directories from §1c; and
 registers `olo-ci-1` and `olo-ci-2` with labels `self-hosted,linux,x64,olo-ci`
 under user systemd, exactly like the GPU runner.
 
-**The box builds with Rocky 10's system clang (21.1.8); the hosted arm builds with
-clang-23 from apt.llvm.org.** That skew is deliberate, not a missing pin. Hosted
-needs a clang from apt.llvm.org at all because ubuntu-24.04's default libstdc++
-lacks `std::forward_like`; the box cannot follow it, because EPEL on Rocky 10 tops
-out at `clang20` and ships no `clang22` or `clang23`.
+**Both Linux arms build with clang-23** (#1036). Hosted takes it from apt.llvm.org,
+because ubuntu-24.04's default libstdc++ lacks `std::forward_like`; the box takes
+it from the official LLVM release tarball at `/opt/llvm-23.1.0`, installed by
+`scripts/setup-olo-ci-host.sh`, because EPEL on Rocky 10 tops out at `clang20` and
+ships no `clang22` or `clang23`. The prefix is versioned and deliberately off the
+system `PATH`, so Rocky's clang 21 stays the default for everything else on this
+host — including the other repository's runners.
 
-There used to be a `clang-19` pin here, selected by absolute path from
-`/usr/lib64/llvm19/bin`. It was never provisioned — that directory does not exist
-on the box — so every self-hosted sanitizer run had silently been taking the
-fallback path for as long as the pin stood. `setup-linux-build` now verifies the
-**sanitizer runtimes** instead of a version, and `scripts/setup-olo-ci-host.sh`
-provisions `compiler-rt` and `lld` for the system clang. A missing runtime emits a
-`::warning` rather than failing — it must not take the box out, since every
-same-repo PR's sanitizer jobs land here.
+An earlier `clang-19` pin here named `/usr/lib64/llvm19/bin`, a directory that does
+not exist on the box, and nothing checked: every self-hosted sanitizer run had
+silently been taking the fallback for as long as the pin stood. So this pin is
+**asserted** — `setup-linux-build` requires the path to be executable and to report
+major 23 before it uses it, and it verifies the sanitizer runtimes of whatever
+compiler it ended up with. Every failure mode emits a `::warning` and falls back
+rather than failing: it must not take the box out, since every same-repo PR's
+sanitizer jobs land here.
 
 **Read the job's `toolchain:` line rather than assuming**, and read it before
-concluding the box is broken when a
-self-hosted job fails and its hosted fallback passes. The full rule and the
-evidence that the version skew was never the cause of #1010's 215 failures are in
+concluding the box is broken when a self-hosted job fails and its hosted fallback
+passes: it prints an absolute path under `/opt` when the pin is in effect and a
+bare `clang++` when it is not. The full rule, why the prefix carries its own
+ICU 70 so the tarball's LLD can start at all, and the evidence that the old
+version skew was never the cause of #1010's 215 failures are in
 [self-hosted-linux-toolchain.md](self-hosted-linux-toolchain.md).
 
 **Why two CI runners and not three.** 31 GiB total. A sanitizer build is the
@@ -599,7 +604,7 @@ stable enough to be worth trending — unlike hosted-runner perf data.
 |---|---|
 | A Linux CI job queues forever | no `olo-ci` runner is online — `gh api repos/drsnuggles8/OloEngineBase/actions/runners`. There is no automatic hosted fallback for a same-repo PR: the `runs-on` expression chose this box before scheduling |
 | `clang: command not found` on an `olo-ci` job | the CI provisioning was never run — `sudo bash scripts/setup-olo-ci-runners.sh` (§6) |
-| A job fails here and its hosted rerun passes | check the compiler first, and read the job's `toolchain:` line rather than assuming. The box builds with its system clang 21 and hosted builds with clang-23, by design; a `::warning` about sanitizer runtimes means compiler-rt is missing, not that the version is wrong. See [self-hosted-linux-toolchain.md](self-hosted-linux-toolchain.md) |
+| A job fails here and its hosted rerun passes | read the job's `toolchain:` line rather than assuming. Both arms build with clang-23 since #1036, so the compiler is no longer an explanation — *unless* that line names a bare `clang++` instead of `/opt/llvm-23.1.0/bin/clang++`, which means the pin is not provisioned and a `::warning` above says so. A `::warning` about sanitizer runtimes means compiler-rt is missing, not that the version is wrong. See [self-hosted-linux-toolchain.md](self-hosted-linux-toolchain.md) |
 | `undefined symbol: std::__stacktrace_impl::_S_current` at link | `libstdc++exp.a` is missing from the GCC install clang selected. Rocky's clang picks **gcc-toolset-15**, which omits it, while the base GCC 14 beside it has it. `OloEngine/CMakeLists.txt` globs the base dirs and links it explicitly — that fallback used to be GNU-only on the (backwards) premise that clang resolves it itself |
 | A job is CANCELLED mid-build with no error, or "the self-hosted runner lost communication with the server" | the host rebooted. Two known causes, told apart by `journalctl -b -1` (the previous boot's last lines): a kernel update applied by `dnf-automatic-install.timer` in its 06:00–07:00 local slot (`shutdown -r +5` in the log; 2026-08-11, 08-14, 08-22), or a failed GPU runtime-PM wake (`amdgpu asic init failed` after a run of `SMU is resuming`; 2026-09-02 00:39, under the ASan test step, which killed both in-flight sanitizer jobs). `scripts/setup-olo-ci-host.sh` makes the timer skip a slot while a job runs and pins the GPU active so it never takes the wake path. The timer guard is BEST EFFORT: its `ExecCondition` runs once, before `dnf-automatic-install.service` starts, so a job picked up while dnf is already working is not seen and a kernel update's `shutdown -r +5` still lands on it. Before a planned update, drain the pool by hand — stop the `Runner.Listener` processes or mark the runners offline through the GitHub API, then restore afterward ([self-hosted-host-hygiene.md](self-hosted-host-hygiene.md) §1) Details: [self-hosted-host-hygiene.md](self-hosted-host-hygiene.md) |
 | Cold builds despite the persistent caches | `~/.cache/olo` is owned by the wrong user, or the job took the hosted arm. The setup step logs the resolved cache dir |

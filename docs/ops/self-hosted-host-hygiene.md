@@ -4,7 +4,8 @@ Rules for the host behind the `olo-*` runners, and the evidence for each. The ru
 provisioning itself is in [self-hosted-gpu-runner.md](self-hosted-gpu-runner.md); the
 root-only steps below are applied by
 [`scripts/setup-olo-ci-host.sh`](../../scripts/setup-olo-ci-host.sh). Issue
-[#1015](https://github.com/drsnuggles8/OloEngineBase/issues/1015), item E.
+[#1015](https://github.com/drsnuggles8/OloEngineBase/issues/1015), item E, plus the pinned
+compiler from [#1036](https://github.com/drsnuggles8/OloEngineBase/issues/1036).
 
 ## 1. Unattended updates must not reboot under a running job
 
@@ -76,11 +77,19 @@ Memory is the other shared budget: an instrumented compile is ~3 GB per translat
 an instrumented `OloEngine-Tests` link several more, so every self-hosted build caps its
 parallelism and sets `OLO_LINK_JOBS=1`; two sanitizer jobs at once already use most of the box.
 
-## 4. The sanitizer runtimes are provisioned, verified by the workflow
+## 4. The CI compiler is provisioned; the workflow verifies it and never installs
 
-See [self-hosted-linux-toolchain.md](self-hosted-linux-toolchain.md). The short version: the
-box builds with its system clang 21 (hosted is on clang-23, deliberately), and there is no
-version pin to provision.
+See [self-hosted-linux-toolchain.md](self-hosted-linux-toolchain.md). The short version: CI
+builds with **clang-23 from an LLVM release tarball at `/opt/llvm-23.1.0`**, so the two Linux
+sanitizer arms run the same compiler major; Rocky's system clang 21 stays the host default and
+is the warn-and-fall-back path. The prefix is ~12 GB, so leave ~16 GB free on `/` before
+running the script.
+
+One detail worth knowing before it confuses a link failure: the tarball's `lld` is linked
+against ICU 70 and this box has ICU 74, so it will not start until the script builds ICU 70
+into `/opt/llvm-23.1.0/lib` (found there by the tarball's own `$ORIGIN/../lib` RUNPATH, not by
+anything system-wide). If those three `libicu*.so.70` files go missing, `lld` stops starting and
+the script falls the box back to the system LLD 21 — which links everything except LTO.
 
 The two missing-piece outcomes are NOT the same, which matters when you read a red job:
 
@@ -98,7 +107,13 @@ The two missing-piece outcomes are NOT the same, which matters when you read a r
 sudo bash scripts/setup-olo-ci-host.sh
 ```
 
-Idempotent. Installs the sanitizer runtimes and `lld` for the system clang, the update-timer
-drop-in and the GPU runtime-PM rule, then prints the resulting state. It installs no pinned
-compiler -- there is no version pin any more. Nothing in any workflow installs or changes host state; a self-hosted step
-verifies and names this script when it finds something missing.
+Idempotent, and safe to re-run: everything it does is checked first and skipped when already
+in place. It installs the sanitizer runtimes and `lld` for the system clang, the update-timer
+drop-in, the GPU runtime-PM rule and the pinned clang-23 at `/opt/llvm-23.1.0`, then prints the
+resulting state. The compiler step is **last on purpose** -- it is the only one that needs the
+network and moves gigabytes, and under `set -e` anything after it would be skipped when a
+download fails. Budget ~20 minutes and ~16 GB of free space on the first run; a re-run with the
+prefix already present only re-verifies, which takes seconds.
+
+Nothing in any workflow installs or changes host state; a self-hosted step verifies and names
+this script when it finds something missing.
