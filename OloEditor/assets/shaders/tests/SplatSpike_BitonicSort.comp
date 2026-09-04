@@ -6,19 +6,26 @@
 // lexicographically, which for the caller's complemented depth keys means
 // far-to-near with ties broken on the unique cloud index.
 //
-// WHY BITONIC AND NOT A RADIX SORT. #1038 proposed a four-pass LSD radix over
-// GPUPrefixSum, which is the faster algorithm and is what a production path
-// should end up with. It is not what shipped here, for one reason: a radix sort
-// is only a drop-in replacement for the CPU reference if it is STABLE, and a
-// stable GPU radix needs per-tile rank computation (ballot-based, or a
-// 256x256 shared histogram it cannot afford) that is easy to get subtly wrong
-// and hard to prove right. Bitonic sorting on the PAIR is a total order, so
-// stability is not a property it needs to have -- exactly one permutation
-// satisfies the comparison, and GaussianSplatGpuOrderingParityTest can assert
-// index-for-index equality with the CPU rather than "same set, roughly ordered".
-// For a spike whose whole point is a trustworthy measurement, a slower
-// algorithm that is provably identical beat a faster one that is probably
-// right. ADR 0018 section 3.3 has the reasoning and 5.2 the numbers.
+// THIS IS NO LONGER THE SPLAT SORT. Issue #1043 replaced it with the four-pass
+// LSD radix in SplatSpike_RadixHistogram.comp + SplatSpike_RadixScatter.comp,
+// and this network is retained only as the A/B CONTROL that
+// GaussianSplatGpuOrderingParityTest interleaves against -- the same role
+// SplatSpike_OpaqueBaseline.glsl plays for the raster pass (ADR 0018 section
+// 5.3). GpuViewOrdering compiles it lazily, so nothing but the measurement
+// pays for it. Do not reach for it as a fallback: the reason it went is that
+// it is only defined on a power-of-two array, which made the ordering cost a
+// step function of the padding rather than a curve in the cloud.
+//
+// WHY IT SHIPPED FIRST, WHICH IS STILL WORTH KNOWING. #1038 proposed the radix
+// and did not build it, because a radix is only a drop-in replacement for the
+// CPU reference if it is STABLE, and a stable GPU radix needs per-tile rank
+// computation that is easy to get subtly wrong and hard to prove right.
+// Bitonic sorting on the PAIR is a total order, so stability is not a property
+// it needs to have -- exactly one permutation satisfies the comparison. For a
+// spike whose whole point was a trustworthy measurement, a slower algorithm
+// that was provably identical beat a faster one that was probably right.
+// #1043 is where the rank computation got done properly; the reasoning lives
+// in SplatSpike_RadixScatter.comp and ADR 0018 sections 3.2 and 3.3.
 //
 // THE TWO ENTRY POINTS. A naive bitonic network is O(log^2 N) dispatches, each
 // re-reading the whole array from global memory: 231 of them at 2^21 elements.

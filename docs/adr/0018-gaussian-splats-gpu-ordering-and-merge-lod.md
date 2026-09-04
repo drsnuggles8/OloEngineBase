@@ -5,17 +5,23 @@ viability spike. This is its decision record: what was built, what it measured, 
 does and does not interact with in this engine, and the two numbers that decide whether the feature
 is affordable.
 
-**The decision, up front.** Gaussian splats are viable in OloEngine **up to about 2 M splats per
-view**. Two things had to be true and now are, both measured in this PR: the per-view ordering runs
-on the GPU (**0.50 ms for 500 k splats, 1.28 ms for 2 M**, against 16.55 ms for 500 k on one CPU
-thread), and LOD comes from **merging** splats offline rather than selecting among them at draw
-time. What is *not* done, deliberately, is the integration: no component, no scene serialization, no
-asset-registry entry, no Vulkan port. §4 states every interaction a splat cloud has and does not
-have, and §6 says what remains.
+**The decision, up front.** Gaussian splats are viable in OloEngine. Two things had to be true and
+now are: the per-view ordering runs on the GPU (**0.24 ms for 500 k splats, 0.69 ms for 2 M, 2.21 ms
+for 8 M**, against 16.55 ms for 500 k on one CPU thread), and LOD comes from **merging** splats
+offline rather than selecting among them at draw time. What is *not* done, deliberately, is the
+integration: no component, no scene serialization, no asset-registry entry, no Vulkan port. §4
+states every interaction a splat cloud has and does not have, and §6 says what remains.
 
-**The 2 M ceiling is a real edge, not a round number.** The bitonic sort pads to a power of two, and
-crossing one is a cliff: 2,000,000 splats order in 1.28 ms and 2,100,000 — five per cent more — take
-7.84 ms. §5.2 has the measurement and §6 turns it into a condition.
+**The ordering pass no longer sets a ceiling, and the story of how it stopped is the useful part.**
+The first version of this ADR capped the feature at 2 M splats per view, because the bitonic sort it
+shipped with is only defined on a power-of-two array: 2,000,000 splats ordered in 1.28 ms and
+2,100,000 — five per cent more — took several times that, purely because the array doubled.
+[#1043](https://github.com/drsnuggles8/OloEngineBase/issues/1043) replaced it with a four-pass LSD
+radix, which pads to a 2048-element tile instead. The step is gone, the pass is 1.7–2.9× faster
+above 500 k (and 1.5× *slower* on the 4,096-splat fixture, which §5.2 tabulates rather than hides),
+and it costs 0.28–0.47 ns per splat from 500 k to 8 M. §5.2 has all of it — including a **correction
+to this ADR's own earlier measurement**: that 6.1× step was really 1.75–2.7×, and the remainder it
+called "unexplained" was a downclocked GPU rather than a cache effect.
 
 **This ADR reversed its own conclusion inside one PR, and the honest version is worth keeping.** The
 first draft said "do not proceed": the CPU ordering pass cost 16.6 ms at 500 k splats, a whole 60 Hz
@@ -24,7 +30,10 @@ frame, against published captures of 1–6 M splats. That was the right call on 
 [#1039](https://github.com/drsnuggles8/OloEngineBase/issues/1039) — the two preconditions it named —
 were implemented, and the blocking number moved by more than an order of magnitude. The measurement
 was the argument in both directions — and then a third measurement, the padding cliff in §5.2, put a
-ceiling on the new answer that no amount of reasoning would have found.
+ceiling on the new answer that no amount of reasoning would have found. #1043 then removed that
+ceiling and, in the course of it, showed that the cliff had been *over*-measured. Four turns, all of
+them driven by a number rather than by an argument, and one of them by finding a fault in a number
+this document had already published.
 
 ---
 
@@ -34,7 +43,8 @@ ceiling on the new answer that no amount of reasoning would have found.
 |---|---|
 | PLY importer + 32-byte GPU record | `OloEngine/src/OloEngine/Renderer/Splat/GaussianSplatCloud.{h,cpp}` |
 | CPU reference: cull, LOD, budget, back-to-front sort | `OloEngine/src/OloEngine/Renderer/Splat/GaussianSplatView.{h,cpp}` |
-| GPU per-view ordering + indirect draw (#1038) | `OloEngine/src/OloEngine/Renderer/Splat/GaussianSplatGpuOrdering.{h,cpp}`, `SplatSpike_Cull.comp`, `SplatSpike_BitonicSort.comp` |
+| GPU per-view ordering + indirect draw (#1038, #1043) | `OloEngine/src/OloEngine/Renderer/Splat/GaussianSplatGpuOrdering.{h,cpp}`, `SplatSpike_Cull.comp`, `SplatSpike_RadixHistogram.comp`, `SplatSpike_RadixScatter.comp` |
+| Bitonic sort, retained as the A/B control (#1038) | `SplatSpike_BitonicSort.comp` |
 | Hierarchical LOD by merging (#1039) | `OloEngine/src/OloEngine/Renderer/Splat/GaussianSplatLod.{h,cpp}` |
 | EWA splat rasteriser | `OloEditor/assets/shaders/tests/SplatSpike_Gaussian.glsl` |
 | Opaque control, same set, no sort or blend | `OloEditor/assets/shaders/tests/SplatSpike_OpaqueBaseline.glsl` |
@@ -97,14 +107,15 @@ cost of the whole technique.
 
 ### 3.1 The pass, on both processors
 
-`BuildViewOrdering` (CPU) and `SplatSpike_Cull.comp` + `SplatSpike_BitonicSort.comp` (GPU) do the
+`BuildViewOrdering` (CPU) and `SplatSpike_Cull.comp` + the radix sort (GPU) do the
 same four things: alpha reject → near-plane reject (the projection diverges at the eye plane, so
 there is no correct thing to draw there) → conservative frustum cull against the splat's 3σ radius →
 **LOD**, dropping any splat whose 3σ footprint projects below a pixel threshold → sort far-to-near.
 
 The CPU version stays as the **reference**, not as a fallback. `GaussianSplatGpuOrderingParityTest`
 asserts the two agree *index for index and stat for stat* across four poses, eight splat counts
-straddling the sort's padding boundary, and a cloud where every depth is bit-identical.
+straddling the bitonic network's padding boundary, six more straddling the radix tile, a cloud where
+every depth is bit-identical, and two more where tie groups span three tiles.
 
 ### 3.2 The sort key is a total order, which is what makes exact parity possible
 
@@ -117,8 +128,10 @@ satisfies it.
 That single property buys three things at once, and it is the reason the GPU work is provable rather
 than plausible:
 
-* the CPU's stable radix sort and the GPU's unstable bitonic network produce the **same array**, so
-  the parity test can assert equality instead of "same set, roughly ordered";
+* there is a single right answer, so the parity test can assert **equality** instead of "same set,
+  roughly ordered". #1038's bitonic network got that for free by comparing the *pair*; #1043's radix
+  sorts on the key alone and earns it by being **stable** over an array the cull writes in index
+  order. Both reproduce the CPU array exactly, by different arguments -- see 3.3;
 * the cull can write its results in any order — it marks rejects in place with the maximum key rather
   than compacting, so the sort array is a fixed power of two whose length never depends on a count
   the CPU would have to read back;
@@ -129,24 +142,58 @@ radix pass's buckets: that pass is usually skipped as uniform (the top byte of a
 plus most of the exponent), and a reversal implemented there silently returns ascending order in
 exactly that case.
 
-### 3.3 Why the GPU sort is bitonic and not the radix #1038 proposed
+### 3.3 The GPU sort is a four-pass LSD radix, and its stability is the load-bearing part
 
-#1038 proposed a four-pass LSD radix over `GPUPrefixSum` (#713). That is the faster algorithm and it
-is what a production path should end up with. It is not what shipped, for one reason: a radix sort
-only replaces the CPU reference if it is **stable**, and a stable GPU radix needs per-tile rank
-computation — ballot-based, or a 256×256 shared histogram it cannot afford — which is easy to get
-subtly wrong and hard to prove right. Bitonic sorting on the *pair* needs no stability at all
-(§3.2), so the parity test can be exact. For a spike whose entire value is a trustworthy
-measurement, a slower algorithm that is provably identical beat a faster one that is probably right.
+The sort is four 8-bit LSD radix passes over the 32-bit key
+([#1043](https://github.com/drsnuggles8/OloEngineBase/issues/1043)). Each pass is three dispatches:
+a tile histogram writing `hist[bin * numTiles + tile]`, one `GPUPrefixSum` exclusive scan of that
+transposed array (#713 -- consumed, not reimplemented), and a scatter. Twelve dispatches plus four
+scans, **whatever the cloud is**, and no power-of-two padding: the array is rounded up to a whole
+2048-element tile and no further, so the ordering cost is a curve in the cloud rather than a step
+function of the padding. 5.2 is the before and after.
 
-The naive bitonic network is O(log²N) dispatches — 231 for 2²¹ elements, each re-reading the whole
-array. A 512-element workgroup tile absorbs the last nine steps of every k in shared memory, which
-takes 2²¹ to 78 global plus 21 local and the 4096-element fixture from 78 to 6 global plus 12 local.
-That is a constant-factor win, not a change of order: the global half is still O(log²N), and it is
-the reason a radix sort — O(N) per pass, four passes — remains the right endpoint. The measured
-dispatch count for the fixture is 1 cull + 6 global + 12 local = **19**, and
-`TheIndirectDrawCountIsWrittenByTheGpu` pins it so a regression to one-dispatch-per-step cannot pass
-unnoticed.
+**A radix only replaces the CPU reference if it is stable**, and that is what #1038 declined to
+attempt inside a spike. The comparison in 3.2 is a total order over (key, index); a radix sees only
+the key, so equal keys come out in input order — which is index order, because the cull writes
+`b_Order[slot] = slot`. Stability is therefore the whole of the parity guarantee.
+
+It is worth being exact about how a wrong rank fails, because the intuition is wrong in a way that
+would misdirect a future debugger. An LSD radix carries each pass's order forward into the next, so a
+rank that is not the element's position breaks **distinct** keys too — the array comes out genuinely
+unsorted, and every parity case fails on the keys. The subtle half appears only on **ties**: any
+permutation of equal keys is correctly sorted, so the array looks right and only the payload order is
+wrong, which on screen is two splats at the same depth swapping between frames. That is the half
+`MatchesTheCpuReferenceWhenEveryDepthIsIdentical` exists for, and it is the only case whose subject
+is purely the tiebreak. Both halves were confirmed by replaying the shader's tile decomposition on
+the CPU against two deliberately wrong ranks.
+
+The rank that has to be exact is **how many earlier elements of the same tile carry the same digit**.
+The direct formulation — a 256 × 256 matrix of per-thread counts, scanned down each bin — is 256 KiB
+of shared memory and does not fit, which is the "256×256 shared histogram it cannot afford" the first
+version of this section named. `SplatSpike_RadixScatter.comp` avoids it: it **locally sorts each tile
+by the digit**, stably, with eight successive one-bit splits, each of which is a single workgroup
+prefix sum and stable by construction. Once the tile is sorted, an element's rank inside its digit is
+its position minus where that digit's run starts — one subtraction, no per-bin scan. Cross-tile
+stability is free from the transposed histogram layout, because the scan visits a bin's tiles in tile
+order.
+
+**The sanctioned fallback was not needed.** #1043 offered a 64-bit (key, index) composite as the
+escape hatch if stability proved impractical — eight passes instead of four, restoring the total
+order by brute force. The four-pass stable version works and is what shipped.
+
+**The bitonic network is kept, and only as the A/B control.** `SplatSpike_BitonicSort.comp` is still
+in the tree, compiled lazily, selected by `SortAlgorithm::Bitonic`, and exercised by
+`TheBitonicControlStillAgreesWithTheCpuReference` so it cannot rot into a flattering comparison. Its
+role is exactly `SplatSpike_OpaqueBaseline.glsl`'s in 5.3: GPU timings on this workstation move up to
+4× run to run, so "the radix is faster" is only a claim if both paths can be timed in one process,
+alternating. It is not a fallback — it is the thing that was replaced, retained so the replacement
+stays measurable.
+
+For the record, since it is the number the radix is measured against: the naive bitonic network is
+O(log²N) dispatches — 231 for 2²¹ elements, each re-reading the whole array. A 512-element workgroup
+tile absorbed the last nine steps of every k in shared memory, taking 2²¹ to 78 global plus 21 local.
+That was a constant-factor win, not a change of order, and it is why a radix — O(N) per pass, four
+passes — was always the right endpoint.
 
 ### 3.4 LOD is merging, not selection
 
@@ -212,62 +259,118 @@ Memory is still where a splat cloud is *worst* against a mesh asset, and the rat
 shares one texture across thousands of triangles and streams by mip, while splat memory is linear in
 captured detail with nothing to share.
 
-### 5.2 The per-view ordering pass: CPU reference against the GPU pass
+### 5.2 The per-view ordering pass
 
-The CPU column is Release, single-threaded, mean of 20 iterations, median of three runs on an idle
-machine, measured with a standalone `-O2` probe over the same translation units — the Debug suite's
-own numbers are 5–10× higher because `/MDd` checked iterators serialise every `std::vector` access.
-The GPU column is `GL_TIME_ELAPSED` around the whole pass (cull + LOD + sort), minimum of four
-samples, on an idle machine; host build configuration does not change GPU work.
+Three tables: what the CPU costs, what the radix sort that ships costs, and the two sorts against
+each other. **Read the method note first, because the first version of this section got it wrong.**
 
-| splats | padded to | GPU drawn | CPU whole pass | GPU whole pass |
-|---:|---:|---:|---:|---:|
-| 4,096 | 4,096 | 3,043 | 0.14 ms | **0.089 ms** |
-| 100,000 | 131,072 | 74,431 | 2.60 ms | **0.259 ms** |
-| 500,000 | 524,288 | 372,165 | 16.55 ms | **0.503 ms** |
-| 2,000,000 | 2,097,152 | 1,488,977 | 155.3 ms† | **1.277 ms** |
-| 2,100,000 | 4,194,304 | 1,563,181 | — | **7.844 ms** |
-| 4,000,000 | 4,194,304 | 2,977,678 | — | **19.539 ms** |
+**Method.** The CPU column is Release, single-threaded, mean of 20 iterations, median of three runs
+on an idle machine, measured with a standalone `-O2` probe over the same translation units — the
+Debug suite's own numbers are 5–10× higher because `/MDd` checked iterators serialise every
+`std::vector` access. The GPU columns are `GL_TIME_ELAPSED` around the whole pass (cull + LOD +
+sort), **after a 250 ms warm-up loop**, minimum of nine adjacent samples, minimum again across three
+runs on an idle box; host build configuration does not change GPU work. The rows below are one
+such run rather than a per-row minimum across four, because that run's minimum and median agree to
+within 1 % on every row -- which is the in-band evidence that the box was idle for all of it, and
+which stitching best-of rows together would throw away. The spread across the four runs is 5-15 % on
+every row above 500 k, except where a sibling worktree started compiling mid-run.
+
+**That warm-up is not boilerplate, and leaving it out invented a finding.** Building a 2 M-splat
+cloud in a Debug host takes seconds, the GPU idles through all of it and drops its clocks, and four
+adjacent millisecond samples never bring them back — so the *slow* rows in a sweep are the rows
+whose CPU-side setup took longest, not the rows that do more work. Measured that way, 2,000,000
+splats reported 2.7 ms while 1,500,000 reported 0.58 ms and 3,000,000 reported 0.98 ms, which is an
+impossible shape for a sort that is linear in the count. With the warm-up, every row falls into
+line. §5.3 had already recorded the same effect for the raster pass (10.3 ms against 4.3 ms for an
+identical draw); this section did not apply it, and 5.2 as first written is the cost of that.
+
+#### The radix sort, which is what ships
+
+| splats | padded to | GPU drawn | CPU whole pass | GPU whole pass | ns per splat |
+|---:|---:|---:|---:|---:|---:|
+| 4,096 | 4,096 | 3,043 | 0.14 ms | **0.165 ms** | 40.3 |
+| 100,000 | 100,352 | 74,431 | 2.60 ms | **0.138 ms** | 1.38 |
+| 500,000 | 501,760 | 372,165 | 16.55 ms | **0.237 ms** | 0.47 |
+| 1,500,000 | 1,501,184 | 1,116,534 | — | **0.561 ms** | 0.37 |
+| 2,000,000 | 2,000,896 | 1,488,977 | 155.3 ms† | **0.688 ms** | 0.34 |
+| 2,100,000 | 2,101,248 | 1,563,181 | — | **0.724 ms** | 0.34 |
+| 3,000,000 | 3,000,320 | 2,233,155 | — | **0.957 ms** | 0.32 |
+| 4,000,000 | 4,001,792 | 2,977,678 | — | **1.311 ms** | 0.33 |
+| 6,000,000 | 6,000,640 | 4,466,033 | — | **1.709 ms** | 0.28 |
+| 8,000,000 | 8,001,536 | 5,954,725 | — | **2.206 ms** | 0.28 |
 
 The draw count is the GPU pass's, which runs with the budget lifted (`MaxSplats = 0`). The CPU pass
 applies its default 1,048,576 budget, which binds only on the 2 M row — † marks it, and there the
 CPU number is the cost of doing *less* work than the GPU column beside it. On every other row the
 budget never engages and the two passes cull the same set.
 
-**This is the number that reversed the decision.** A 16.7 ms frame at 60 Hz has everything else in
-the engine in it too. On the CPU, giving the ordering a fifth of the frame bought 120–150 k visible
-splats; on the GPU the same 3.3 ms buys **2 M**, and 2 M is inside the 1–6 M range published 3DGS
-room captures occupy.
+**The last column is the result.** From 500 k to 8 M the pass costs 0.28–0.47 ns per splat, drifting
+*down* as the fixed cost amortises — the ordering is linear in the cloud, which is what a four-pass
+radix promises and what the bitonic network could not do at any size. **2,000,000 and 2,100,000, the
+pair this whole issue was filed over, now differ by 5.2 % for 5.0 % more splats.** Below about 100 k the pass is dominated by
+its own fixed cost — one cull, four histograms, four scatters and four `GPUPrefixSum` calls, whatever
+the count — which is why the 4,096 row is 30 ns per splat. The A/B below measures that end too,
+because "is the new sort ever slower?" is the obvious question and the fixture is where the answer
+could be yes.
 
-**Then look at the last three rows, because they are the more useful finding.** 2,000,000 and
-2,100,000 differ by 5 % in splat count and by **6.1× in cost**. Nothing about the cloud explains
-that; what changed is the padding. The bitonic network is only defined on a power-of-two array, so
-2,000,000 pads to 2²¹ and 2,100,000 pads to 2²² — twice the array, and one more k level, meaning 13
-extra global passes over it.
+#### The radix against the bitonic network it replaced
 
-**A doubling that costs 6.1× is more than a doubling explains, and the remainder is not accounted
-for here.** What *is* derivable: the array doubles (2×), and 2²² has one more k level than 2²¹, which
-is 13 more global passes rather than 78 (1.17×). Together that predicts about **2.3×**, against 6.1×
-measured — so roughly 2.6× is unexplained.
+Interleaved A,B,A,B in one process (`MeasureRadixAgainstTheBitonicControl`), because the same
+dispatch sequence on this box has been measured at 0.506, 1.127 and 2.150 ms across three runs and
+an A-then-B comparison charges all of that drift to whichever ran second.
 
-Cache is the obvious suspect and the arithmetic does **not** support the simple version of it: at
-8 bytes per slot the key and payload arrays are 16 MiB at 2²¹ and 32 MiB at 2²², both of which fit
-inside this GPU's 72 MB last-level cache, so "the working set falls out of cache" is not it. Whether
-the bitonic access pattern actually realises that reuse is a different question, and one
-`GL_TIME_ELAPSED` cannot answer — it establishes the timing and the padding, not the mechanism, and
-no profiler counter was collected. Anyone who needs the mechanism should collect one.
+| splats | radix pad | bitonic pad | radix | bitonic | speed-up |
+|---:|---:|---:|---:|---:|---:|
+| 4,096 | 4,096 | 4,096 | 0.124 ms | **0.081 ms** | **0.65×** |
+| 500,000 | 501,760 | 524,288 | **0.246 ms** | 0.484 ms | 1.97× |
+| 2,000,000 | 2,000,896 | 2,097,152 | **0.712 ms** | 1.239 ms | 1.74× |
+| 2,100,000 | 2,101,248 | 4,194,304 | **0.751 ms** | 2.164 ms | 2.88× |
 
-None of that changes the decision, because the decision rests on the shape rather than the cause:
+Three things to read off it, and the first is the one a table like this usually omits.
 
-* **cost is a step function of `PaddedCapacityFor(count)`, not of `count`.** One splat over a power
-  of two doubles the array and can cost several times more;
-* past that step it keeps climbing — 2.1 M and 4 M pad identically and still differ by 2.5× — so the
-  step is not the whole story, but it is the discontinuity that would bite an artist who added a few
-  splats to a scan and watched the frame time triple.
+**The radix loses on the fixture, by 1.5×.** At 4,096 splats both sorts pad to the same 4,096 and the
+network needs only six global steps and twelve local ones, against a radix whose cost is nine
+dispatches and four scans no matter how small the cloud is. That is a real regression at that size
+and it is the right trade anyway: 0.124 ms against 0.081 ms is 43 microseconds on a cloud nobody
+ships, and the crossover is somewhere below 100 k where both are already under 0.15 ms.
 
-**So the demonstrated envelope is 2 M splats per view, not 6 M.** Between the padding boundaries at
-2²¹ and 2²² the ordering pass alone costs 8–20 ms, which is a whole 60 Hz frame before anything else
-in the engine runs. §6 makes the consequence a condition rather than a footnote.
+**The radix is 1.7–2.0× faster where the padding does not bite**, which is the algorithmic win — four
+passes over memory against 78 global ones.
+
+**And it is 2.9× faster one splat past a power of two**, which is the padding win. That one does not
+shrink with tuning; it disappears, because there is no count at which the radix pays a step.
+
+**These four ratios are the most trustworthy numbers in this section**, and that is a property of the
+method rather than luck: two runs on different box states produced 0.65× / 1.97× / 1.74× / 2.88× and
+0.66× / 1.98× / 1.72× / 2.88×. Interleaving cancels the drift that moves both columns together, which
+is why §5.3 already said the ratio is what to trust and the absolutes are not. Re-derive the
+absolutes before quoting them anywhere else; the ratios should reproduce.
+
+#### The step was real, and it was 1.75–2.7×, not 6.1×
+
+The bitonic column above crosses 2²¹ between its last two rows, so it measures the step this issue
+was filed over — and it comes out at **1.75×** in the run tabulated, and at 2.3×, 2.6× and 2.7× on
+three repeat runs, against the **6.1×** recorded when this ADR was first written.
+
+The difference is the warm-up, and it resolves a loose end that section left open. The first version
+reasoned that a doubled array plus one more k level predicts about **2.3×**, measured 6.1×, and
+recorded that "roughly 2.6× is unexplained" — then went looking for a cache mechanism and correctly
+reported that the arithmetic did not support one, because 16 MiB and 32 MiB both fit this GPU's
+72 MB last-level cache. **The unexplained remainder was not a cache effect. It was a cold GPU.**
+2,100,000 was the row whose cloud took longest to build in the runs available at the time, so it
+absorbed the largest downclock. The predicted 2.3× was right all along.
+
+That correction makes the step **less than half** what #1043's problem statement claims, and it is
+worth saying plainly rather than leaving the old number standing: anyone re-deriving the motivation
+from that issue will not reproduce 6.1×. It does not change the decision, because the decision never
+rested on the size of the step:
+
+* **the bitonic cost was a step function of `PaddedCapacityFor(count)` and the radix's is not.**
+  A 1.75–2.7× discontinuity for 5 % more splats is still a discontinuity an artist would hit by
+  adding splats to a scan, and still one nothing on screen explains;
+* the radix is faster **everywhere above about 100 k**, step or no step, so removing the
+  discontinuity cost nothing to buy — 43 microseconds on a 4,096-splat fixture, and nothing anywhere
+  a real capture lives.
 
 Two details about the CPU side are worth keeping. **The sort was never the expensive half of the CPU
 pass** — at 500 k it was 5 ms of 16.5; the other 11 ms was one covariance unpack, one dot product and
@@ -310,9 +413,11 @@ them. `Splat_Corner_ReversedOrder.png` is the same pose drawn front-to-back — 
 inverts, and the frame moves 3.9/255 mean absolute difference, which is what makes the sort's
 necessity visible rather than asserted.
 
-`Splat_Corner_GpuOrdered.png` is the same pose ordered by the GPU pass and drawn indirectly. It
-matches the CPU-ordered frame to under 0.5/255, which is the end-to-end check that the index parity
-in §3.1 actually reaches the screen.
+`Splat_Corner_GpuOrdered.png` is the same pose ordered by the GPU pass and drawn indirectly. Since
+#1043 it matches the CPU-ordered frame at **0.0000/255** — the two PNGs are byte-identical, where
+the bitonic version agreed to under 0.5/255. That is the end-to-end check that the index parity in
+§3.1 actually reaches the screen, and it is exact now because a stable radix over a total order has
+no freedom left: same order buffer, same draw, same pixels.
 
 ### 5.5 Selection against merging, at matched splat counts
 
@@ -354,21 +459,33 @@ these terms:
    and as documentation of the algorithm; it is not a supported runtime path at scan scale.
 2. **LOD is built offline by merging.** The selection budget in `ViewSettings::MaxSplats` remains
    only as the negative control the tests pin; new work must not reach for it as a LOD knob.
-3. **The supported envelope is 2 M splats per view**, which is `PaddedCapacityFor` = 2²¹. That is
-   not a soft guideline: §5.2 measures the next step at 6.1× the cost for 5 % more splats. A capture
-   that needs more is a request for the radix sort in §6's list, not for a bigger budget.
-4. **The contract in §4 does not change quietly.** A PR that gives a splat cloud shadows, collision
+3. **The ordering pass no longer sets an envelope, and #1043 is why the number moved rather than
+   the reasoning.** The first version of this ADR said 2 M splats per view, and that ceiling was the
+   bitonic network's power-of-two padding: past 2²¹ the ordering alone cost a whole 60 Hz frame.
+   With the radix, §5.2 measures **0.69 ms at 2 M, 1.71 ms at 6 M and 2.21 ms at 8 M** and
+   0.28–0.47 ns per splat throughout, so the ordering is under an eighth of a 60 Hz frame across the
+   entire 1–6 M range that published 3DGS room captures occupy, and there is no discontinuity
+   anywhere in it. **Nothing in this ADR now measures an ordering limit below 8 M**, which is where
+   the sweep stops, not where the pass stops scaling.
+4. **What binds instead is the raster pass, and this ADR does not have that number at scan scale.**
+   §5.3 measured the splat raster at 6.0 ms for 496 k splats drawn and at 1.8× an equivalent opaque
+   pass, and splat cost is *overdraw* cost, which grows as the camera approaches. Extrapolating that
+   row linearly puts a 1.5 M-splat draw at a whole frame on its own. So the honest statement is that
+   the constraint moved from the ordering, which is now measured and cheap, to the raster, which is
+   scene-dependent and was only ever measured on a 4,096-splat fixture. **Anyone who needs an
+   envelope for a real capture has to measure the raster on that capture**; quoting 2 M, or 8 M, as
+   a supported number would be inventing one.
+5. **The contract in §4 does not change quietly.** A PR that gives a splat cloud shadows, collision
    or probe capture amends this ADR first.
 
-Still unbuilt. The first is a performance requirement the envelope above depends on; the rest are
-integration work rather than open questions:
+Done since the first version of this ADR:
 
-- **Replace the bitonic sort with a four-pass LSD radix** ([#1043](https://github.com/drsnuggles8/OloEngineBase/issues/1043)).
-  This is what lifts the 2 M ceiling, and §5.2 is why: bitonic pads to a power of two, so the cost
-  is a step function of the padding rather than of the cloud, and its 91 global passes over memory
-  at 2²² are what fall off the cache. A radix needs no padding at all and makes four passes over
-  memory instead of ninety-one. `GPUPrefixSum` (#713) supplies the scan; the stability problem
-  §3.3 describes is the work.
+- **The four-pass LSD radix sort** ([#1043](https://github.com/drsnuggles8/OloEngineBase/issues/1043)),
+  which is what lifted the ordering ceiling. §3.3 is the algorithm and the stability argument, §5.2
+  the measurement. `GPUPrefixSum` (#713) supplies the scan, consumed unchanged.
+
+Still unbuilt, all of it integration work rather than open questions:
+
 - **`SplatCloudComponent` and its cross-binding touch-points** — the `CLAUDE.md` table in full, plus
   a scene-YAML block written by hand because the component holds a `Ref<T>`.
 - **Content-sniffing PLY import dispatch** — `.ply` already means `MeshSource`, so the importer has
@@ -380,8 +497,13 @@ integration work rather than open questions:
 
 The three integration items are deliberately not filed as issues: they are one coherent piece of work
 that should be scoped together once someone commits to shipping the feature, and three separate
-issues in front of the picker would invite starting in the middle. The radix sort is filed, because
-it is a self-contained performance problem with a measured motivation and it gates the envelope.
+issues in front of the picker would invite starting in the middle. The radix sort *was* filed
+separately, because it was a self-contained performance problem with a measured motivation and it
+gated the envelope; that is the shape to copy if anything else here needs splitting out.
+
+**The next measurement anyone should take is the raster pass at 1–6 M splats**, per point 4 above.
+It is not filed either, because it belongs with the integration work that would give it a real
+scene to measure -- a 4,096-splat fixture cannot answer it.
 
 ---
 

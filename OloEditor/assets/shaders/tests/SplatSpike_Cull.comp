@@ -12,18 +12,34 @@
 // cpu-gpu-surface-parity.md.
 //
 // MARK IN PLACE, DO NOT COMPACT. A culled splat writes the maximum key rather
-// than being removed, so the sort array stays a fixed power of two and its
-// length never depends on a count the CPU would have to read back. The
+// than being removed, so the sort array's length is a fixed function of the
+// cloud and never depends on a count the CPU would have to read back. The
 // alternative -- an atomic append -- makes the array smaller when culling is
 // aggressive and costs a readback (or an indirect dispatch) to know how much to
 // sort. For a cloud whose splats are mostly on screen, which is the case this
 // exists to make fast, the two do the same amount of work.
 //
 // The key is the COMPLEMENT of the view depth's bit pattern, so an ascending
-// sort yields far-to-near. Ties break on the payload, which is the unique cloud
-// index, so the ordering is a TOTAL order: exactly one output permutation
-// satisfies it and the result is bit-identical to the CPU's stable sort without
-// the GPU sort itself having to be stable.
+// sort yields far-to-near.
+//
+// TIES ARE BROKEN BY POSITION, WHICH IS WHY THE SORT MUST BE STABLE. #1038's
+// bitonic network compared the (key, payload) PAIR, so it needed no stability;
+// the radix in SplatSpike_RadixScatter.comp that replaced it (issue #1043)
+// sorts on the key alone, and reproduces the CPU reference's (key, index) total
+// order only because it is stable and this shader writes b_Order[slot] = slot.
+// Change either half and equal-depth splats start swapping between frames,
+// which is a shimmer a viewer notices.
+//
+// TWO PROPERTIES THE REJECT KEY DEPENDS ON, both true and neither obvious.
+// A rejected or padding slot carries kInvalid, and it has to sort STRICTLY
+// behind every survivor rather than merely tie with one, because a tie would be
+// broken by slot order and a reject at a low slot would land in front of a
+// survivor at a high one. It does: a survivor's key is ~floatBitsToUint(depth)
+// with depth > u_CullParams.y, so a POSITIVE near clip makes every survivor key
+// strictly less than 0xFFFFFFFF. A near clip of zero or below is already
+// meaningless -- the Gaussian's projection diverges at the eye plane -- and it
+// is also where the CPU reference and this shader stop agreeing about a
+// non-positive depth at all, so it is out of contract on both sides.
 // =============================================================================
 
 #version 460 core
@@ -80,7 +96,7 @@ layout(std140, binding = 7) uniform SplatCullUniforms
     vec4 u_ViewportFocal; // xy = viewport pixels, zw = focal length in pixels
     vec4 u_Planes[6];     // world-space frustum planes, xyz = normal, w = distance
     vec4 u_CullParams;    // y = near clip, z = min screen extent px, w = min alpha
-    uvec4 u_Counts;       // x = splat count, y = padded power-of-two capacity
+    uvec4 u_Counts;       // x = splat count, y = padded sort capacity
 };
 
 const uint kInvalid = 0xFFFFFFFFu;

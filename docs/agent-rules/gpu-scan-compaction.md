@@ -247,3 +247,20 @@ and skip the whole path when the answer is no. `GPUPrefixSumTest` does exactly t
   buffer method. The empty-scan case originally called `ClearData()` through one; routing `count == 0`
   through the normal single-work-group dispatch (every lane out of range, total 0) removed both the
   const problem and the special case.
+- **`kMaxElements` bounds your TILE SIZE, not just your element count.** A histogram-and-scatter pass
+  built on this scan (the splat radix sort, #1043) scans `bins x ceil(maxCount / tile)` entries, so
+  shrinking the tile for occupancy silently walks the largest supported input past the scan's 16.7 M
+  ceiling — at the ceiling, where nothing routinely runs. Pin the relation with a `static_assert`
+  next to the tile constant rather than a comment; the splat pass has one.
+- **A radix sort needs a tie test, and it needs a MULTI-TILE one.** An LSD radix needs stability to
+  be *correct* — each pass carries the last one's order forward — so a wrong per-tile rank scrambles
+  distinct keys and fails loudly. The quiet case is the tie: with equal keys any permutation is
+  correctly sorted, so only the payload order is wrong. And a *single-tile* tie cloud cannot see a
+  cross-tile rank error at all, which is what the transposed `hist[bin * numTiles + tile]` layout
+  exists to prevent. Test both (`MatchesTheCpuReference{WhenEveryDepthIsIdentical,
+  WhenTiesSpanManyRadixTiles}`).
+- **Prove the algorithm on the CPU before spending a build on it.** Transcribing the tile
+  decomposition, the splits and the scatter into ~150 lines of Python and diffing against `sorted()`
+  costs minutes against a build that costs an hour of lock queue. It is also how the bullet above was
+  checked rather than guessed: replaying the shader against a strided lane assignment and against an
+  atomic-style random rank showed which cases each actually fails.

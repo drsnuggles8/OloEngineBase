@@ -1,0 +1,87 @@
+// =============================================================================
+// SplatSpike_RadixHistogram.comp
+//
+// Pass 1 of 3 in one digit of the Gaussian-splat LSD radix sort (issue #1043).
+// Counts how many of this tile's keys land in each of the 256 bins of the
+// current 8-bit digit and writes that count TRANSPOSED:
+//
+//     b_Hist[bin * numTiles + tile]
+//
+// WHY TRANSPOSED, WHICH IS THE WHOLE TRICK. A single exclusive scan over that
+// flat array is simultaneously (a) the global bin offsets, because the array is
+// bin-major, and (b) each tile's offset WITHIN its bin, because the tiles of a
+// bin are contiguous and in tile order. So the scatter pass needs one load,
+// b_Hist[bin * numTiles + tile], to know exactly where its run of `bin` starts
+// in the output -- and because tiles are laid out in increasing order inside
+// each bin, the result is STABLE across tiles for free. The stability that has
+// to be worked for is the one WITHIN a tile, and that is
+// SplatSpike_RadixScatter.comp's job.
+//
+// THE ARRAY IS PADDED TO A WHOLE NUMBER OF TILES, so there is no bounds test in
+// the loop below. GpuViewOrdering::PaddedCapacityFor rounds the cloud up to a
+// multiple of kTile and SplatSpike_Cull.comp fills the slack with the maximum
+// key, which sorts behind every real splat. That padding is at most kTile-1
+// elements, which is what replaced the bitonic network's power-of-two padding
+// and its step function (ADR 0018 section 5.2).
+// =============================================================================
+
+#version 460 core
+
+layout(local_size_x = 256) in;
+
+// Must equal kRadixThreads / kRadixElementsPerThread / kSortTile in
+// GaussianSplatGpuOrdering.cpp, and match SplatSpike_RadixScatter.comp.
+const uint kThreads = 256u;
+const uint kElementsPerThread = 8u;
+const uint kTile = kThreads * kElementsPerThread;
+const uint kRadixBins = 256u;
+
+layout(std430, binding = 2) readonly buffer SplatKeyBuffer
+{
+    uint b_Keys[];
+};
+
+// u32[kRadixBins * numTiles], bin-major. GPUPrefixSum scans this in place
+// between this dispatch and the scatter.
+layout(std430, binding = 9) writeonly buffer SplatRadixHistogram
+{
+    uint b_Hist[];
+};
+
+layout(std140, binding = 8) uniform SplatSortUniforms
+{
+    // x = element count (a multiple of kTile)
+    // y = shift: the low bit of this pass's 8-bit digit -- 0, 8, 16 or 24
+    // z = numTiles = count / kTile
+    // w = unused
+    uvec4 u_SortParams;
+};
+
+shared uint s_Hist[kRadixBins];
+
+void main()
+{
+    uint local = gl_LocalInvocationID.x;
+    uint tile = gl_WorkGroupID.x;
+    uint shift = u_SortParams.y;
+    uint numTiles = u_SortParams.z;
+
+    // One thread per bin, which is why the workgroup size and the bin count are
+    // the same number.
+    s_Hist[local] = 0u;
+    barrier();
+
+    // BLOCKED, NOT STRIDED: thread t owns the contiguous run
+    // [t*kElementsPerThread, (t+1)*kElementsPerThread). The scatter has to use
+    // the same decomposition for its ranks to mean anything, and a blocked run
+    // is what makes "elements before mine in this tile" a per-thread prefix sum
+    // rather than an interleave. The loads look uncoalesced and are not, in
+    // effect: the warp sweeps the whole cache line set on its first iteration
+    // and the remaining seven hit L1.
+    uint base = tile * kTile + local * kElementsPerThread;
+    for (uint e = 0u; e < kElementsPerThread; ++e)
+        atomicAdd(s_Hist[(b_Keys[base + e] >> shift) & 0xFFu], 1u);
+    barrier();
+
+    b_Hist[local * numTiles + tile] = s_Hist[local];
+}

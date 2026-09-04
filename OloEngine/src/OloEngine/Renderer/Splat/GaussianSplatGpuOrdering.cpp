@@ -3,6 +3,7 @@
 
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/GPUPrefixSum.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
@@ -14,6 +15,7 @@
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace OloEngine::GaussianSplat
 {
@@ -28,12 +30,35 @@ namespace OloEngine::GaussianSplat
         constexpr u32 kBindingKeys = 2;
         constexpr u32 kBindingStats = 3;
         constexpr u32 kBindingIndirect = 4;
+        constexpr u32 kBindingOrderOut = 5;
+        constexpr u32 kBindingKeysOut = 6;
+        constexpr u32 kBindingHistogram = 9;
         constexpr u32 kBindingCullUbo = 7;
         constexpr u32 kBindingSortUbo = 8;
 
-        // Must equal `kTile` in SplatSpike_BitonicSort.comp and
-        // `local_size_x` in both compute shaders.
-        constexpr u32 kSortTile = 512;
+        // The radix tile. Must equal kThreads * kElementsPerThread in
+        // SplatSpike_RadixHistogram.comp and SplatSpike_RadixScatter.comp.
+        //
+        // 2048 RATHER THAN A SMALLER TILE FOR TWO SEPARATE REASONS, both worth
+        // stating because a future reader will want to shrink it for occupancy.
+        // First, the scatter's shared-memory cost is the tile (16 KiB of keys
+        // and payloads plus 4 KiB of scan and bin state) while its barrier cost
+        // is per tile and NOT per element, so a bigger tile amortises the eight
+        // one-bit splits over more work. Second, the transposed histogram is
+        // 256 * (count / kSortTile) elements and has to fit
+        // GPUPrefixSum::kMaxElements; the static_assert below pins that this
+        // tile size makes kMaxSplats fit, and halving the tile would break it.
+        constexpr u32 kSortTile = 2048;
+        constexpr u32 kRadixBins = 256;
+        // Four 8-bit digits over the 32-bit key. EVEN BY REQUIREMENT, not by
+        // coincidence: the scatter ping-pongs between the key/order buffers and
+        // their scratch twins, so an even number of passes is what leaves the
+        // result in the buffers the draw and the readback read.
+        constexpr u32 kRadixPasses = 4;
+        static_assert(kRadixPasses % 2 == 0, "the radix ping-pong lands in the scratch buffers on an odd pass count");
+
+        // The bitonic control's tile: `kTile` in SplatSpike_BitonicSort.comp.
+        constexpr u32 kBitonicTile = 512;
         constexpr u32 kWorkGroupSize = 256;
 
         constexpr u32 kStatSlots = 5; // Drawn, BehindNearPlane, FrustumCulled, TooSmall, TooFaint
@@ -54,6 +79,9 @@ namespace OloEngine::GaussianSplat
         };
         static_assert(sizeof(CullUniforms) == 272);
 
+        // One buffer serves both sorts, because they need the same number of
+        // words and never run in the same dispatch. Radix: (count, shift,
+        // numTiles, unused). Bitonic: (count, k, j, localMode).
         struct SortUniforms
         {
             glm::uvec4 SortParams{ 0u };
@@ -84,10 +112,27 @@ namespace OloEngine::GaussianSplat
         }
     } // namespace
 
+    // The radix's own ceiling, checked here rather than trusted. The scan has to
+    // cover one entry per (bin, tile), and GPUPrefixSum caps a single scan at
+    // kMaxElements; at kSortTile = 2048 the largest cloud this pass accepts
+    // needs 8,388,608 of them against a limit of 16,776,960. Shrink kSortTile
+    // and this stops holding before anything else does.
+    static_assert(static_cast<u64>(kRadixBins) * ((GpuViewOrdering::kMaxSplats + kSortTile - 1) / kSortTile) <=
+                      static_cast<u64>(GPUPrefixSum::kMaxElements),
+                  "the transposed radix histogram at kMaxSplats does not fit one GPUPrefixSum scan");
+
     auto GpuViewOrdering::PaddedCapacityFor(u32 count) -> u32
     {
         OLO_CORE_ASSERT(count <= kMaxSplats, "GpuViewOrdering::PaddedCapacityFor above kMaxSplats");
-        const u32 atLeastATile = std::max(std::min(count, kMaxSplats), kSortTile);
+        const u32 clamped = std::min(count, kMaxSplats);
+        const u32 tiles = std::max(1u, (clamped + kSortTile - 1) / kSortTile);
+        return tiles * kSortTile;
+    }
+
+    auto GpuViewOrdering::BitonicPaddedCapacityFor(u32 count) -> u32
+    {
+        OLO_CORE_ASSERT(count <= kMaxSplats, "GpuViewOrdering::BitonicPaddedCapacityFor above kMaxSplats");
+        const u32 atLeastATile = std::max(std::min(count, kMaxSplats), kBitonicTile);
         return std::bit_ceil(atLeastATile);
     }
 
@@ -100,8 +145,8 @@ namespace OloEngine::GaussianSplat
     {
         // Leave no buffer of ours on a shared binding point for whatever runs
         // next in this process (testing-architecture.md 6.4).
-        for (const Ref<StorageBuffer>& buffer :
-             { m_SplatBuffer, m_OrderBuffer, m_KeyBuffer, m_StatsBuffer, m_IndirectBuffer })
+        for (const Ref<StorageBuffer>& buffer : { m_SplatBuffer, m_OrderBuffer, m_KeyBuffer, m_OrderScratch,
+                                                  m_KeyScratch, m_HistogramBuffer, m_StatsBuffer, m_IndirectBuffer })
         {
             if (buffer)
                 buffer->Unbind();
@@ -122,8 +167,22 @@ namespace OloEngine::GaussianSplat
         OLO_PROFILE_FUNCTION();
 
         m_CullShader = ComputeShader::Create("assets/shaders/tests/SplatSpike_Cull.comp");
-        m_SortShader = ComputeShader::Create("assets/shaders/tests/SplatSpike_BitonicSort.comp");
-        m_Ready = m_CullShader && m_CullShader->IsValid() && m_SortShader && m_SortShader->IsValid();
+        m_HistogramShader = ComputeShader::Create("assets/shaders/tests/SplatSpike_RadixHistogram.comp");
+        m_ScatterShader = ComputeShader::Create("assets/shaders/tests/SplatSpike_RadixScatter.comp");
+        m_Ready = m_CullShader && m_CullShader->IsValid() && m_HistogramShader && m_HistogramShader->IsValid() &&
+                  m_ScatterShader && m_ScatterShader->IsValid();
+
+        if (m_Ready)
+        {
+            // The scan is consumed, not owned: #713 already tests it, and a
+            // second device-level scan in the engine would be a second thing to
+            // keep correct for no benefit.
+            m_PrefixSum = Ref<GPUPrefixSum>::Create();
+            m_PrefixSum->EnsureInitialised();
+            m_Ready = m_PrefixSum->IsAvailable();
+            if (!m_Ready)
+                OLO_CORE_ERROR("GpuViewOrdering::Initialize: GPUPrefixSum is unavailable, so the radix sort has no scan");
+        }
 
         if (m_Ready)
         {
@@ -132,6 +191,94 @@ namespace OloEngine::GaussianSplat
             m_Ready = m_CullUniforms && m_SortUniforms;
         }
         return m_Ready;
+    }
+
+    auto GpuViewOrdering::SetSortAlgorithm(SortAlgorithm algorithm) -> bool
+    {
+        OLO_CORE_ASSERT(m_Ready, "GpuViewOrdering::SetSortAlgorithm before a successful Initialize");
+
+        if (algorithm == SortAlgorithm::Bitonic && !m_BitonicShader)
+        {
+            m_BitonicShader = ComputeShader::Create("assets/shaders/tests/SplatSpike_BitonicSort.comp");
+            if (!m_BitonicShader || !m_BitonicShader->IsValid())
+            {
+                OLO_CORE_ERROR("GpuViewOrdering: SplatSpike_BitonicSort.comp failed to compile; the A/B control is unavailable");
+                m_BitonicShader = nullptr;
+                return false;
+            }
+        }
+
+        if (algorithm != m_Algorithm)
+        {
+            m_Algorithm = algorithm;
+            // The two sorts pad differently, so every buffer sized from the
+            // padding has to follow. The splat records do not, which is the
+            // whole reason this is not just `SetCloud` again: an A/B that
+            // re-uploaded 96 MB of records between samples would be measuring
+            // the upload.
+            if (m_SplatBuffer)
+                ResizeSortBuffers();
+        }
+        return true;
+    }
+
+    void GpuViewOrdering::ResetIndirectCommand()
+    {
+        // { count = 6 vertices, instanceCount = 0, first = 0, baseInstance = 0 }.
+        // instanceCount is the only field the GPU writes.
+        //
+        // SIX VERTICES, NOT A FOUR-VERTEX STRIP. The quad is two triangles
+        // because RendererAPI::DrawArraysIndirect draws GL_TRIANGLES, and
+        // adapting the shader to the facade is the right way round: reaching
+        // for a raw glDrawArraysIndirect to keep a strip is what the RHI
+        // boundary ratchet exists to stop (issue #691, ADR 0011).
+        //
+        // CALLED WHENEVER THE ORDER BUFFER IS INVALIDATED, not only per frame.
+        // A fresh StorageBuffer is uninitialised, so `SetCloud` followed
+        // straight by `DrawIndirect` used to read an instance count that was
+        // whatever the driver handed back, and `SetSortAlgorithm` reallocates
+        // the order buffer under a command that still holds the LAST frame's
+        // count. Zeroing it here makes the failure mode "draws nothing", which
+        // is visible, instead of "draws the right number of garbage indices",
+        // which renders a plausible frame.
+        if (!m_IndirectBuffer)
+            return;
+        const std::array<u32, 4> indirect{ 6u, 0u, 0u, 0u };
+        m_IndirectBuffer->SetData(indirect.data(), static_cast<u32>(indirect.size() * sizeof(u32)));
+    }
+
+    void GpuViewOrdering::ResizeSortBuffers()
+    {
+        m_PaddedCapacity = (m_Algorithm == SortAlgorithm::Radix) ? PaddedCapacityFor(m_SplatCount)
+                                                                 : BitonicPaddedCapacityFor(m_SplatCount);
+
+        const u32 slotBytes = m_PaddedCapacity * static_cast<u32>(sizeof(u32));
+        m_OrderBuffer = StorageBuffer::Create(slotBytes, kBindingOrder, StorageBufferUsage::DynamicCopy);
+        m_KeyBuffer = StorageBuffer::Create(slotBytes, kBindingKeys, StorageBufferUsage::DynamicCopy);
+
+        if (m_Algorithm == SortAlgorithm::Radix)
+        {
+            m_OrderScratch = StorageBuffer::Create(slotBytes, kBindingOrderOut, StorageBufferUsage::DynamicCopy);
+            m_KeyScratch = StorageBuffer::Create(slotBytes, kBindingKeysOut, StorageBufferUsage::DynamicCopy);
+            const u32 histogramBytes =
+                kRadixBins * (m_PaddedCapacity / kSortTile) * static_cast<u32>(sizeof(u32));
+            m_HistogramBuffer =
+                StorageBuffer::Create(histogramBytes, kBindingHistogram, StorageBufferUsage::DynamicCopy);
+        }
+        else
+        {
+            // Released rather than kept: the bitonic control is only ever the
+            // second half of an A/B, and 3 x 16 MiB of idle scratch during it
+            // would sit on the very budget the measurement is about.
+            m_OrderScratch = nullptr;
+            m_KeyScratch = nullptr;
+            m_HistogramBuffer = nullptr;
+        }
+
+        // The order buffer just became a fresh, uninitialised allocation, so
+        // whatever instance count the indirect command still carries now points
+        // into it. See ResetIndirectCommand.
+        ResetIndirectCommand();
     }
 
     void GpuViewOrdering::SetCloud(const SplatCloud& cloud)
@@ -152,26 +299,28 @@ namespace OloEngine::GaussianSplat
             m_SplatBuffer = nullptr;
             m_OrderBuffer = nullptr;
             m_KeyBuffer = nullptr;
+            m_OrderScratch = nullptr;
+            m_KeyScratch = nullptr;
+            m_HistogramBuffer = nullptr;
             m_StatsBuffer = nullptr;
             m_IndirectBuffer = nullptr;
             return;
         }
 
         m_SplatCount = cloud.Count();
-        m_PaddedCapacity = PaddedCapacityFor(m_SplatCount);
 
         const u32 splatBytes = std::max<u32>(static_cast<u32>(cloud.GpuBytes()), sizeof(GpuSplat));
         m_SplatBuffer = StorageBuffer::Create(splatBytes, kBindingSplats, StorageBufferUsage::DynamicDraw);
         if (m_SplatCount > 0)
             m_SplatBuffer->SetData(cloud.Splats().data(), static_cast<u32>(cloud.GpuBytes()));
 
-        const u32 slotBytes = m_PaddedCapacity * static_cast<u32>(sizeof(u32));
-        m_OrderBuffer = StorageBuffer::Create(slotBytes, kBindingOrder, StorageBufferUsage::DynamicCopy);
-        m_KeyBuffer = StorageBuffer::Create(slotBytes, kBindingKeys, StorageBufferUsage::DynamicCopy);
+        ResizeSortBuffers();
+
         m_StatsBuffer =
             StorageBuffer::Create(kStatSlots * static_cast<u32>(sizeof(u32)), kBindingStats, StorageBufferUsage::DynamicCopy);
         m_IndirectBuffer =
             StorageBuffer::Create(4 * static_cast<u32>(sizeof(u32)), kBindingIndirect, StorageBufferUsage::DynamicCopy);
+        ResetIndirectCommand();
     }
 
     void GpuViewOrdering::BuildOrdering(const glm::mat4& view,
@@ -220,16 +369,7 @@ namespace OloEngine::GaussianSplat
 
         m_StatsBuffer->ClearData();
 
-        // { count = 6 vertices, instanceCount = 0, first = 0, baseInstance = 0 }.
-        // instanceCount is the only field the GPU writes.
-        //
-        // SIX VERTICES, NOT A FOUR-VERTEX STRIP. The quad is two triangles
-        // because RendererAPI::DrawArraysIndirect draws GL_TRIANGLES, and
-        // adapting the shader to the facade is the right way round: reaching
-        // for a raw glDrawArraysIndirect to keep a strip is what the RHI
-        // boundary ratchet exists to stop (issue #691, ADR 0011).
-        const std::array<u32, 4> indirect{ 6u, 0u, 0u, 0u };
-        m_IndirectBuffer->SetData(indirect.data(), static_cast<u32>(indirect.size() * sizeof(u32)));
+        ResetIndirectCommand();
 
         m_SplatBuffer->Bind();
         m_OrderBuffer->Bind();
@@ -243,16 +383,120 @@ namespace OloEngine::GaussianSplat
         m_Dispatches.Cull = 1;
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
 
-        // The bitonic network. Every step whose stride is at least the tile
-        // width has to go through global memory; the rest of that k's steps are
-        // finished inside one workgroup, which is what keeps the dispatch count
-        // at 2 log N instead of log^2 N.
-        m_SortShader->Bind();
-        const u32 localTiles = m_PaddedCapacity / kSortTile;
+        if (m_Algorithm == SortAlgorithm::Radix)
+            SortRadix();
+        else
+            SortBitonic();
+
+        // The order buffer is about to be read by a vertex shader and the
+        // indirect buffer by the command processor, neither of which the
+        // storage barrier above covers.
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command);
+    }
+
+    void GpuViewOrdering::SortRadix()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Four 8-bit LSD passes over the complemented depth key, ping-ponging
+        // between the live buffers and their scratch twins. Each pass is a tile
+        // histogram, one GPUPrefixSum exclusive scan of it, and a scatter.
+        //
+        // NO PASS IS SKIPPED AS UNIFORM, which the CPU reference does do. It
+        // can: it has already read the histogram. Here the histogram only ever
+        // exists on the device, so "is this digit constant?" costs the readback
+        // this whole class is built to avoid -- and a fixed four passes is a
+        // fixed cost, which is the property the issue is about.
+        const u32 numTiles = m_PaddedCapacity / kSortTile;
+        OLO_CORE_ASSERT(numTiles * kSortTile == m_PaddedCapacity,
+                        "the radix sort needs a whole number of tiles; PaddedCapacityFor guarantees it");
+
+        Ref<StorageBuffer> sourceKeys = m_KeyBuffer;
+        Ref<StorageBuffer> sourceOrder = m_OrderBuffer;
+        Ref<StorageBuffer> destinationKeys = m_KeyScratch;
+        Ref<StorageBuffer> destinationOrder = m_OrderScratch;
+        bool scanned = true;
+
+        for (u32 pass = 0; pass < kRadixPasses && scanned; ++pass)
+        {
+            SortUniforms sortUniforms;
+            sortUniforms.SortParams = glm::uvec4(m_PaddedCapacity, pass * 8u, numTiles, 0u);
+            m_SortUniforms->SetData(&sortUniforms, static_cast<u32>(sizeof(sortUniforms)));
+            m_SortUniforms->Bind();
+
+            // Bound by handle rather than by `Bind()`, because which OBJECT
+            // plays "source" swaps every pass while the shaders' binding points
+            // do not.
+            RenderCommand::BindStorageBuffer(kBindingKeys, sourceKeys->GetRHIHandle());
+            RenderCommand::BindStorageBuffer(kBindingOrder, sourceOrder->GetRHIHandle());
+            RenderCommand::BindStorageBuffer(kBindingKeysOut, destinationKeys->GetRHIHandle());
+            RenderCommand::BindStorageBuffer(kBindingOrderOut, destinationOrder->GetRHIHandle());
+            RenderCommand::BindStorageBuffer(kBindingHistogram, m_HistogramBuffer->GetRHIHandle());
+
+            m_HistogramShader->Bind();
+            RenderCommand::DispatchCompute(numTiles, 1, 1);
+            ++m_Dispatches.RadixHistogram;
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+
+            // Scans in place and emits its own barriers. It binds and releases
+            // SSBOs 54-56 and UBO 79, none of which this pass uses, so the five
+            // bindings above survive it -- but it leaves ITS shader bound, so
+            // the scatter has to rebind.
+            //
+            // A REFUSED SCAN IS NOT SURVIVABLE, so it stops the sort rather
+            // than letting three more passes run on an unscanned histogram.
+            // That would leave every tile's offsets equal to its raw bin count,
+            // and the scatter would pile the whole cloud on top of itself -- a
+            // frame that draws and is wrong, which is the failure mode this
+            // pass is hardest to debug from.
+            scanned = m_PrefixSum->ExclusiveScanInPlace(m_HistogramBuffer, kRadixBins * numTiles);
+            if (!scanned)
+            {
+                OLO_CORE_ERROR("GpuViewOrdering: the radix histogram scan was refused at pass {} of {}; "
+                               "the draw order is undefined for this frame",
+                               pass, kRadixPasses);
+                continue; // fall out of the loop, but through the rebinding below
+            }
+            ++m_Dispatches.RadixScanCalls;
+
+            m_ScatterShader->Bind();
+            RenderCommand::DispatchCompute(numTiles, 1, 1);
+            ++m_Dispatches.RadixScatter;
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+
+            std::swap(sourceKeys, destinationKeys);
+            std::swap(sourceOrder, destinationOrder);
+        }
+
+        OLO_CORE_ASSERT(!scanned || sourceOrder == m_OrderBuffer,
+                        "the radix ping-pong did not land back in the order buffer");
+
+        // Put the live buffers back on their own binding points and take the
+        // scratch off theirs. Without this the draw would read binding 1 and
+        // find the scratch order buffer sitting on it, which is the previous
+        // pass's data and renders a plausible, wrong frame.
+        m_OrderBuffer->Bind();
+        m_KeyBuffer->Bind();
+        RenderCommand::BindStorageBuffer(kBindingKeysOut, {});
+        RenderCommand::BindStorageBuffer(kBindingOrderOut, {});
+        RenderCommand::BindStorageBuffer(kBindingHistogram, {});
+    }
+
+    void GpuViewOrdering::SortBitonic()
+    {
+        OLO_PROFILE_FUNCTION();
+        OLO_CORE_ASSERT(m_BitonicShader, "GpuViewOrdering::SortBitonic without the control shader");
+
+        // The A/B control, kept from #1038. Every step whose stride is at least
+        // the tile width has to go through global memory; the rest of that k's
+        // steps are finished inside one workgroup, which is what keeps the
+        // dispatch count at 2 log N instead of log^2 N.
+        m_BitonicShader->Bind();
+        const u32 localTiles = m_PaddedCapacity / kBitonicTile;
         for (u32 k = 2; k <= m_PaddedCapacity; k <<= 1)
         {
             u32 j = k >> 1;
-            for (; j > (kSortTile >> 1); j >>= 1)
+            for (; j > (kBitonicTile >> 1); j >>= 1)
             {
                 SortUniforms sortUniforms;
                 sortUniforms.SortParams = glm::uvec4(m_PaddedCapacity, k, j, 0u);
@@ -273,11 +517,6 @@ namespace OloEngine::GaussianSplat
             ++m_Dispatches.SortLocal;
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
         }
-
-        // The order buffer is about to be read by a vertex shader and the
-        // indirect buffer by the command processor, neither of which the
-        // storage barrier above covers.
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command);
     }
 
     void GpuViewOrdering::DrawIndirect()

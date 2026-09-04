@@ -1,0 +1,230 @@
+// =============================================================================
+// SplatSpike_RadixScatter.comp
+//
+// Pass 3 of 3 in one digit of the Gaussian-splat LSD radix sort (issue #1043).
+// Reads the scanned transposed histogram, works out where each of this tile's
+// (key, payload) pairs belongs in the output, and writes them there.
+//
+// THIS SHADER IS THE WHOLE REASON #1038 SHIPPED A BITONIC NETWORK INSTEAD.
+// A radix sort only reproduces the CPU reference index for index if it is
+// STABLE, and the stable part is exactly the line below marked "local rank":
+// how many earlier elements OF THIS TILE carry the same digit.
+//
+// GET IT WRONG AND THE SORT IS NOT MERELY UNSTABLE, IT IS WRONG. An LSD radix
+// carries the previous pass's order forward through the current one, so a rank
+// that is not the element's position breaks the ordering of DISTINCT keys as
+// well -- which is the loud half of the failure, and the half every parity case
+// catches. The quiet half only shows up when keys TIE: any permutation of equal
+// keys is correctly sorted, so the array looks right and only the payload order
+// is wrong, which on screen is two splats at the same depth swapping between
+// frames. GaussianSplatGpuOrderingParityTest's all-identical-depths case is the
+// oracle for that half. ADR 0018 sections 3.2 and 3.3 have the argument.
+//
+// HOW THE RANK IS COMPUTED, AND WHY IT IS NOT A 256-WIDE SCAN. The obvious
+// formulation -- a kRadixBins x kThreads matrix of per-thread counts, scanned
+// down each bin -- is 256 KiB of shared memory and does not fit. Instead the
+// tile is LOCALLY SORTED by the digit, stably, using kRadixBits successive
+// one-bit splits. A one-bit split is a single workgroup prefix sum and is
+// stable by construction, so eight of them leave the tile ordered by digit with
+// equal digits still in their original relative order. Once that holds, an
+// element's rank inside its digit is just its position minus where its digit's
+// run starts -- one subtraction, no per-bin scan.
+//
+// The cost is kRadixBits workgroup scans per tile per digit, all in shared
+// memory, against four passes over global memory for the whole sort. The
+// bitonic network it replaces made 91 global passes at 2^22.
+// =============================================================================
+
+#version 460 core
+
+layout(local_size_x = 256) in;
+
+// Must equal kRadixThreads / kRadixElementsPerThread / kSortTile in
+// GaussianSplatGpuOrdering.cpp, and match SplatSpike_RadixHistogram.comp.
+const uint kThreads = 256u;
+const uint kElementsPerThread = 8u;
+const uint kTile = kThreads * kElementsPerThread;
+const uint kRadixBits = 8u;
+const uint kRadixBins = 256u;
+
+layout(std430, binding = 2) readonly buffer SplatKeyBuffer
+{
+    uint b_Keys[];
+};
+
+layout(std430, binding = 1) readonly buffer SplatOrderBuffer
+{
+    uint b_Order[];
+};
+
+layout(std430, binding = 6) writeonly buffer SplatKeyOutBuffer
+{
+    uint b_KeysOut[];
+};
+
+layout(std430, binding = 5) writeonly buffer SplatOrderOutBuffer
+{
+    uint b_OrderOut[];
+};
+
+// Scanned in place by GPUPrefixSum since SplatSpike_RadixHistogram.comp wrote
+// it, so element [bin * numTiles + tile] is now the output offset at which this
+// tile's run of `bin` begins.
+layout(std430, binding = 9) readonly buffer SplatRadixHistogram
+{
+    uint b_Hist[];
+};
+
+layout(std140, binding = 8) uniform SplatSortUniforms
+{
+    // x = element count (a multiple of kTile)
+    // y = shift: the low bit of this pass's 8-bit digit -- 0, 8, 16 or 24
+    // z = numTiles = count / kTile
+    // w = unused
+    uvec4 u_SortParams;
+};
+
+shared uint s_Keys[kTile];
+shared uint s_Order[kTile];
+shared uint s_Scan[2][kThreads];
+shared uint s_ScanTotal;
+shared uint s_BinStart[kRadixBins];
+shared uint s_GlobalBase[kRadixBins];
+
+// Inclusive prefix sum of `value` over the workgroup's kThreads lanes; the
+// group total is left in s_ScanTotal.
+//
+// PING-PONGED RATHER THAN IN PLACE so each Hillis-Steele step needs ONE barrier
+// instead of two (read-all, barrier, write-all). Eight steps run per one-bit
+// split and eight splits per digit, so halving the barriers here halves the
+// synchronisation cost of the whole sort.
+//
+// A lane only ever reads and writes its OWN slot outside the loop, which is why
+// two consecutive calls need no barrier between them: the cross-lane read
+// inside the loop is always preceded by this function's own first barrier.
+uint WorkgroupInclusiveScan(uint value)
+{
+    uint local = gl_LocalInvocationID.x;
+    uint cur = 0u;
+    s_Scan[0][local] = value;
+    barrier();
+
+    for (uint offset = 1u; offset < kThreads; offset <<= 1u)
+    {
+        uint prev = cur;
+        cur = 1u - cur;
+        s_Scan[cur][local] = s_Scan[prev][local] + ((local >= offset) ? s_Scan[prev][local - offset] : 0u);
+        barrier();
+    }
+
+    if (local == kThreads - 1u)
+        s_ScanTotal = s_Scan[cur][local];
+    barrier();
+    return s_Scan[cur][local];
+}
+
+void main()
+{
+    uint local = gl_LocalInvocationID.x;
+    uint tile = gl_WorkGroupID.x;
+    uint shift = u_SortParams.y;
+    uint numTiles = u_SortParams.z;
+    uint lane = local * kElementsPerThread; // this thread's first slot in the tile
+
+    // One thread per bin -- which is why the workgroup size and the bin count
+    // are the same number -- reading where this tile's run of that bin starts
+    // in the output. This is the only thing the scan pass exists to produce.
+    s_GlobalBase[local] = b_Hist[local * numTiles + tile];
+
+    // Blocked, exactly as the histogram read it: see the note there.
+    uint base = tile * kTile + lane;
+    uint keys[kElementsPerThread];
+    uint payload[kElementsPerThread];
+    for (uint e = 0u; e < kElementsPerThread; ++e)
+    {
+        keys[e] = b_Keys[base + e];
+        payload[e] = b_Order[base + e];
+    }
+    barrier();
+
+    // ---------------------------------------------------------------------
+    // Stable local sort of the tile by this pass's 8-bit digit, LSB first.
+    // ---------------------------------------------------------------------
+    for (uint bit = 0u; bit < kRadixBits; ++bit)
+    {
+        uint mask = 1u << (shift + bit);
+
+        uint myZeros = 0u;
+        for (uint e = 0u; e < kElementsPerThread; ++e)
+            myZeros += ((keys[e] & mask) == 0u) ? 1u : 0u;
+
+        uint inclusive = WorkgroupInclusiveScan(myZeros);
+        uint zerosBefore = inclusive - myZeros;
+        uint totalZeros = s_ScanTotal;
+
+        // Zeros take the front of the tile in their original relative order and
+        // ones follow in theirs. That is what makes ONE split stable, and eight
+        // stable splits a stable sort by the 8-bit digit.
+        uint zeroSlot = zerosBefore;
+        uint oneSlot = totalZeros + (lane - zerosBefore);
+        uint destination[kElementsPerThread];
+        for (uint e = 0u; e < kElementsPerThread; ++e)
+        {
+            if ((keys[e] & mask) == 0u)
+            {
+                destination[e] = zeroSlot;
+                zeroSlot += 1u;
+            }
+            else
+            {
+                destination[e] = oneSlot;
+                oneSlot += 1u;
+            }
+        }
+
+        // Every lane holds its values in registers, so the tile is permuted
+        // through a SINGLE shared array rather than a ping-pong. This barrier
+        // is what guarantees the previous iteration's read-back finished before
+        // anything overwrites the slot it came from.
+        barrier();
+        for (uint e = 0u; e < kElementsPerThread; ++e)
+        {
+            s_Keys[destination[e]] = keys[e];
+            s_Order[destination[e]] = payload[e];
+        }
+        barrier();
+        for (uint e = 0u; e < kElementsPerThread; ++e)
+        {
+            keys[e] = s_Keys[lane + e];
+            payload[e] = s_Order[lane + e];
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Where each digit's run begins inside the now-sorted tile.
+    // ---------------------------------------------------------------------
+    // Exactly one position per present digit satisfies this, because the tile
+    // is sorted -- so no initialisation and no atomics are needed, and a digit
+    // absent from the tile is never read below.
+    for (uint e = 0u; e < kElementsPerThread; ++e)
+    {
+        uint i = lane + e;
+        uint digit = (s_Keys[i] >> shift) & 0xFFu;
+        uint previous = (i == 0u) ? 0u : (i - 1u);
+        uint previousDigit = (s_Keys[previous] >> shift) & 0xFFu;
+        if (i == 0u || previousDigit != digit)
+            s_BinStart[digit] = i;
+    }
+    barrier();
+
+    for (uint e = 0u; e < kElementsPerThread; ++e)
+    {
+        uint i = lane + e;
+        uint digit = (s_Keys[i] >> shift) & 0xFFu;
+        // The local rank -- how many earlier elements of this tile share this
+        // digit. Stability lives on this line.
+        uint destination = s_GlobalBase[digit] + (i - s_BinStart[digit]);
+        b_KeysOut[destination] = s_Keys[i];
+        b_OrderOut[destination] = s_Order[i];
+    }
+}
