@@ -121,6 +121,35 @@ TEST_F(LuaBindingTest, Vec4_ConstructAndAccess)
     EXPECT_FLOAT_EQ(result.get<f32>(3), 4.0f);
 }
 
+// The bare-call spelling every Lua author reaches for first. Before
+// sol::call_constructor was registered alongside the constructor list, only
+// `.new(...)` existed and `vec3(1, 2, 3)` raised "attempt to call a table
+// value" — a dead end that reads like the type is missing rather than the
+// call form being unbound.
+TEST_F(LuaBindingTest, Vectors_ConstructViaBareCall)
+{
+    auto v2 = lua.script("local v = vec2(4.0, 5.0); return v.x, v.y");
+    EXPECT_FLOAT_EQ(v2.get<f32>(0), 4.0f);
+    EXPECT_FLOAT_EQ(v2.get<f32>(1), 5.0f);
+
+    auto v3 = lua.script("local v = vec3(1.0, 2.0, 3.0); return v.x, v.y, v.z");
+    EXPECT_FLOAT_EQ(v3.get<f32>(0), 1.0f);
+    EXPECT_FLOAT_EQ(v3.get<f32>(1), 2.0f);
+    EXPECT_FLOAT_EQ(v3.get<f32>(2), 3.0f);
+
+    auto v4 = lua.script("local v = vec4(1.0, 2.0, 3.0, 4.0); return v.x, v.y, v.z, v.w");
+    EXPECT_FLOAT_EQ(v4.get<f32>(0), 1.0f);
+    EXPECT_FLOAT_EQ(v4.get<f32>(1), 2.0f);
+    EXPECT_FLOAT_EQ(v4.get<f32>(2), 3.0f);
+    EXPECT_FLOAT_EQ(v4.get<f32>(3), 4.0f);
+
+    // The single-argument and default constructors reach through the same
+    // metamethod, and `.new(...)` must keep working beside it.
+    auto mixed = lua.script("local a = vec3(7.0); local b = vec3.new(1.0, 2.0, 3.0); return a.z, b.x");
+    EXPECT_FLOAT_EQ(mixed.get<f32>(0), 7.0f);
+    EXPECT_FLOAT_EQ(mixed.get<f32>(1), 1.0f);
+}
+
 // =============================================================================
 // TransformComponent
 // =============================================================================

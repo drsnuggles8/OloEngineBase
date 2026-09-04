@@ -838,19 +838,29 @@ namespace OloEngine
             });
 
         // --- GLM vector types (needed before components that use them) ---
+        // sol::constructors alone binds only `vec3.new(x, y, z)`; the bare
+        // `vec3(x, y, z)` every Lua author reaches for first raised "attempt to
+        // call a table value". sol::call_constructor installs __call on the
+        // type table so both spellings work.
+        using Vec2Ctors = sol::constructors<glm::vec2(), glm::vec2(float), glm::vec2(float, float)>;
         lua.new_usertype<glm::vec2>("vec2",
-                                    sol::constructors<glm::vec2(), glm::vec2(float), glm::vec2(float, float)>(),
+                                    Vec2Ctors(),
+                                    sol::call_constructor, Vec2Ctors(),
                                     "x", &glm::vec2::x,
                                     "y", &glm::vec2::y);
 
+        using Vec3Ctors = sol::constructors<glm::vec3(), glm::vec3(float), glm::vec3(float, float, float)>;
         lua.new_usertype<glm::vec3>("vec3",
-                                    sol::constructors<glm::vec3(), glm::vec3(float), glm::vec3(float, float, float)>(),
+                                    Vec3Ctors(),
+                                    sol::call_constructor, Vec3Ctors(),
                                     "x", &glm::vec3::x,
                                     "y", &glm::vec3::y,
                                     "z", &glm::vec3::z);
 
+        using Vec4Ctors = sol::constructors<glm::vec4(), glm::vec4(float), glm::vec4(float, float, float, float)>;
         lua.new_usertype<glm::vec4>("vec4",
-                                    sol::constructors<glm::vec4(), glm::vec4(float), glm::vec4(float, float, float, float)>(),
+                                    Vec4Ctors(),
+                                    sol::call_constructor, Vec4Ctors(),
                                     "x", &glm::vec4::x,
                                     "y", &glm::vec4::y,
                                     "z", &glm::vec4::z,
