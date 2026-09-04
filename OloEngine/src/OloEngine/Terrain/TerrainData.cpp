@@ -241,6 +241,7 @@ namespace OloEngine
         // so any pending GPU-newer flag is discharged rather than left to trigger
         // a readback that would undo this upload.
         m_CPUMirrorStale = false;
+        ++m_HeightRevision; // height content changed — see GetHeightRevision()
 
         if (m_Resolution == 0)
         {
@@ -266,6 +267,7 @@ namespace OloEngine
         // it first, so the mirror is a superset of the GPU state and this partial
         // upload leaves the two in agreement.
         m_CPUMirrorStale = false;
+        ++m_HeightRevision; // height content changed — see GetHeightRevision()
 
         if (!m_GPUHeightmap || m_Resolution == 0)
         {
@@ -346,6 +348,11 @@ namespace OloEngine
 
         m_Heights.resize(static_cast<sizet>(m_Resolution) * m_Resolution);
         std::memcpy(m_Heights.data(), rawData.data(), rawData.size());
+        // The GPU is authoritative during sculpting, so this memcpy is where a
+        // brush stroke becomes visible to every CPU consumer — and it lands at
+        // the SAME address every time. Bumping here is the only signal a cache
+        // keyed on the field's identity can see.
+        ++m_HeightRevision;
     }
 
     bool TerrainData::ExportRawR32F(const std::string& path) const

@@ -30,6 +30,7 @@ const float WATER_SHORE_DEEP_SENTINEL = 1000.0;
 const float WATER_SHORE_MIN_DEPTH = 0.05;
 const float WATER_SHORE_BREAKER_INDEX = 0.39;
 const float WATER_SHORE_MAX_STEEPNESS = 0.9;
+const float WATER_SHORE_MIN_REFRACTION = 0.35;
 const int WATER_SHORE_DISPERSION_ITERATIONS = 4;
 
 // Provided by each stage after its own sampler declaration.
@@ -190,7 +191,11 @@ WaterShoreOctave waterShoreTransformOctave(vec2 deepDir, float deepWavelength, f
         float cosLocal = (cosDeep < 0.0) ? -cosMag : cosMag;
 
         o.Direction = t * sinLocal + s * cosLocal;
-        kr = sqrt(max(abs(cosDeep), 0.0) / max(cosMag, 1e-3));
+        // Floored at tangency — WaterShoreDepth.h :: Refract explains why the
+        // bare ray-tube term deletes the waves on an island's flanks, and why a
+        // threshold guard would be worse than the floor.
+        kr = max(sqrt(max(abs(cosDeep), 0.0) / max(cosMag, 1e-3)),
+                 WATER_SHORE_MIN_REFRACTION);
     }
 
     // --- Amplitude, then the breaker limit -----------------------------------

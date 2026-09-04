@@ -39,6 +39,11 @@ namespace OloEngine
         u32 Resolution = 0;                        ///< height field is Resolution x Resolution
         const std::vector<f32>* Heights = nullptr; ///< row-major, borrowed for the call
                                                    ///< (TerrainData::GetHeightData)
+        /// TerrainData::GetHeightRevision(). Carried because the heights vector's
+        /// ADDRESS is not an identity for its contents: a sculpt rewrites every
+        /// sample in place, at the same address, so a bake keyed on the pointer
+        /// alone would go on shoaling against the coastline the scene loaded with.
+        u64 HeightRevision = 0;
     };
 
     /// What the scene asks the bake for.

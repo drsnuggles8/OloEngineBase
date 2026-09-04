@@ -165,6 +165,13 @@ namespace OloEngine::WaterShore
     /// the surface a function even where the breaker limit above has not bitten.
     inline constexpr f32 kMaxSteepness = 0.9f;
 
+    /// Floor on the refraction coefficient — how much of the ray-tube amplitude
+    /// term survives at grazing incidence. 0.35 corresponds to about 83 degrees
+    /// off the shore normal, past which the ray-tube argument is describing a
+    /// ray that barely moves across the contours and is not worth trusting. See
+    /// Refract() for what goes wrong without it.
+    inline constexpr f32 kMinRefractionCoefficient = 0.35f;
+
     /// Fixed-point iterations used to invert the dispersion relation. Four is
     /// not a tuning knob: it is a mirrored constant, and the CPU and GLSL sides
     /// must run the SAME count or the two surfaces differ by the residual.
@@ -286,7 +293,25 @@ namespace OloEngine::WaterShore
         result.Direction = t * sinLocal + s * cosLocal;
         // Kr = sqrt(cos(theta0) / cos(theta)) — the ray tube widens as the ray
         // straightens, so this is <= 1 and offsets part of the shoaling gain.
-        result.Coefficient = std::sqrt(glm::max(std::abs(cosDeep), 0.0f) / glm::max(cosMag, 1e-3f));
+        //
+        // FLOORED, because the term is singular at tangency and the singularity
+        // is reachable: a wave running along a depth contour has cos(theta0) = 0
+        // and the bare formula reports zero amplitude. That is not a wave that
+        // got smaller, it is a ray that never left deep water — the pointwise
+        // model is being asked about a state its own ray construction cannot
+        // produce. Unfloored it deletes the waves on an island's FLANKS, in a
+        // band that rotates around the island as the swell heading changes,
+        // which reads as patches of dead-flat sea rather than as an error.
+        //
+        // A threshold test on |cos(theta0)| returning 1.0 is the obvious guard
+        // and is worse: Kr is already ~0.03 just outside any epsilon small
+        // enough to call "tangent", so the guard puts a STEP in the middle of
+        // exactly the region it is meant to fix, and a step in an amplitude
+        // renders as a ring. The floor keeps the function continuous and leaves
+        // the whole non-tangent range bit-identical.
+        result.Coefficient = glm::max(
+            std::sqrt(glm::max(std::abs(cosDeep), 0.0f) / glm::max(cosMag, 1e-3f)),
+            kMinRefractionCoefficient);
         return result;
     }
 

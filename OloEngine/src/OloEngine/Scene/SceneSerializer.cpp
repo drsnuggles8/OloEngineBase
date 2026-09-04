@@ -1732,9 +1732,12 @@ namespace OloEngine
         SanitizeFloat(water.m_ShoreFoamGain, 0.0f, 4.0f, 1.0f);
         SanitizeFloat(water.m_ShoreFoamFadeStart, 0.0f, 5000.0f, 120.0f);
         SanitizeFloat(water.m_ShoreFoamFadeEnd, 1.0f, 5000.0f, 400.0f);
-        // Same ordering guard the wake fade pair gets: a fade whose end is not
-        // past its start is a divide the shader's smoothstep answers with a step.
-        if (!(water.m_ShoreFoamFadeEnd > water.m_ShoreFoamFadeStart))
+        // Same ordering guard the wake fade pair gets, and the SAME threshold:
+        // at least a metre of separation, not merely "greater than". A bare `>`
+        // test accepts a half-metre band here while the save-game path widens it
+        // to a metre, so one scene would render two different fades depending on
+        // which loader it came through.
+        if (water.m_ShoreFoamFadeEnd < water.m_ShoreFoamFadeStart + 1.0f)
             water.m_ShoreFoamFadeEnd = water.m_ShoreFoamFadeStart + 1.0f;
         SanitizeVec3(water.m_SSSColor, { 0.0f, 0.5f, 0.4f });
         SanitizeFloat(water.m_SSSIntensity, 0.0f, 5.0f, 0.5f);

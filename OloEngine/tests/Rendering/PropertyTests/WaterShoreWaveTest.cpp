@@ -35,8 +35,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
+#include <limits>
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -271,6 +273,39 @@ TEST(WaterShoreWave, ObliqueWavesTurnTowardTheShoreAndNeverPastIt)
     EXPECT_LT(previousAngle, glm::radians(20.0f));
 }
 
+// A wave running along a depth contour is the singular case of the ray-tube
+// amplitude term: cos(theta0) = 0, so the bare Kr formula reports ZERO amplitude
+// and the octave disappears. That is not a wave that got smaller — it is a ray
+// that never left deep water — and unfloored it deletes the waves on an island's
+// FLANKS, in a band that rotates around the island with the swell heading.
+TEST(WaterShoreWave, ContourParallelWavesKeepTheirAmplitude)
+{
+    const glm::vec2 gradient{ 1.0f, 0.0f }; // deeper toward +X; contours run along Z
+    constexpr f32 wavelength = 18.2f;
+
+    // Exactly tangent, and either way along the contour.
+    for (const glm::vec2 alongContour : { glm::vec2{ 0.0f, 1.0f }, glm::vec2{ 0.0f, -1.0f } })
+    {
+        const WaterShore::Refraction refr =
+            WaterShore::Refract(alongContour, gradient, 0.4f);
+        EXPECT_GE(refr.Coefficient, WaterShore::kMinRefractionCoefficient);
+        EXPECT_LE(refr.Coefficient, 1.0f);
+
+        const auto octave = WaterShore::TransformOctave(alongContour, wavelength, 0.25f, 0.07f,
+                                                        2.0f, gradient);
+        const f32 amplitude = octave.Steepness / (kTwoPi / octave.Wavelength);
+        EXPECT_GT(amplitude, 0.0f) << "a contour-parallel octave vanished";
+    }
+
+    // The floor must not disturb the non-tangent range: at moderate incidence the
+    // term is still the physical one, well clear of the floor.
+    const f32 incidence = glm::radians(30.0f);
+    const glm::vec2 oblique{ -std::cos(incidence), std::sin(incidence) };
+    const WaterShore::Refraction moderate = WaterShore::Refract(oblique, gradient, 0.4f);
+    EXPECT_GT(moderate.Coefficient, WaterShore::kMinRefractionCoefficient + 0.2f);
+    EXPECT_LE(moderate.Coefficient, 1.0f);
+}
+
 // A wave already running straight at the beach has nothing to turn, and a flat
 // seabed has nothing to turn against. Both must be exact no-ops on direction:
 // a normalise of a near-zero vector here is how a whole ocean picks up NaN.
@@ -432,6 +467,61 @@ TEST(WaterShoreField, BakeResamplesTheSeabedIntoDepthAndGradient)
     }
 }
 
+// A window whose centre is non-finite must not reach the retained window, the
+// signature, or the shader. NaN fails `uv < 0 || uv > 1` in BOTH directions, so
+// the out-of-window guard passes and the sampler reads at a NaN coordinate.
+TEST(WaterShoreField, NonFiniteWindowIsNormalisedBeforeItIsStored)
+{
+    WaterShoreBakeRequest bad;
+    bad.CentreXZ = { std::numeric_limits<f32>::quiet_NaN(), 0.0f };
+    bad.ExtentMetres = 400.0f;
+    bad.WaterPlaneY = std::numeric_limits<f32>::infinity();
+
+    std::vector<glm::vec4> texels;
+    WaterShoreDepthSystem::BakeField(bad, {}, texels);
+    ASSERT_EQ(texels.size(), static_cast<sizet>(WaterShore::kResolution) * WaterShore::kResolution);
+    for (const glm::vec4& texel : texels)
+    {
+        EXPECT_TRUE(std::isfinite(texel.x));
+        EXPECT_TRUE(std::isfinite(texel.y));
+        EXPECT_TRUE(std::isfinite(texel.z));
+    }
+
+    // And a NaN centre must not make two identical requests hash differently —
+    // NaN compares unequal to itself, so an un-normalised signature would rebake
+    // every single frame.
+    EXPECT_EQ(WaterShoreDepthSystem::BuildSignature(bad, {}),
+              WaterShoreDepthSystem::BuildSignature(bad, {}));
+}
+
+// A sculpt rewrites every height sample AT THE SAME ADDRESS (SyncFromGPU
+// resizes an already-correctly-sized mirror and memcpys into it), so a signature
+// keyed on the vector's identity alone is constant across a whole sculpting
+// session — and the surf line stays pinned to the coastline the scene loaded
+// with, silently, while the terrain visibly changes beside it.
+TEST(WaterShoreField, AnInPlaceHeightEditChangesTheSignature)
+{
+    constexpr f32 size = 200.0f;
+    RampBed bed = MakeRampBed(65, size, -20.0f, 40.0f);
+
+    WaterShoreBakeRequest request;
+    request.ExtentMetres = size;
+
+    std::array<SeabedTerrain, 1> tiles{ bed.Tile };
+    const u64 before = WaterShoreDepthSystem::BuildSignature(request, tiles);
+
+    // Edit in place: same vector, same address, same size — only the samples and
+    // the revision move, exactly as a brush stroke does.
+    const f32* addressBefore = bed.Heights.data();
+    bed.Heights[10] = 0.9f;
+    tiles[0].HeightRevision = bed.Tile.HeightRevision + 1;
+    ASSERT_EQ(bed.Heights.data(), addressBefore) << "the test did not edit in place";
+
+    EXPECT_NE(WaterShoreDepthSystem::BuildSignature(request, tiles), before)
+        << "an in-place height edit did not change the bake signature — the seabed "
+           "would keep the shape the scene loaded with";
+}
+
 // Where there is no terrain the field must read as open sea, and the SENTINEL
 // is what makes every downstream relation reduce to its deep-water form there.
 TEST(WaterShoreField, WaterWithNoTerrainUnderItReadsAsOpenSea)
@@ -517,6 +607,19 @@ TEST(WaterShoreWave, TheBuoyancySamplerFollowsTheShoaledSurface)
     const glm::vec3 shallow =
         WaterSurface::SampleDisplacement(params, queryXZ, time, FlatBed(1.0f, { 1.0f, 0.0f }));
     EXPECT_NE(shallow.y, deepA.y);
+
+    // Enabled is honoured on its own, not merely because DisabledSample() also
+    // happens to carry the deep sentinel depth. The GLSL evaluator tests the
+    // flag explicitly, so a C++ mirror that only agreed by coincidence of depth
+    // would diverge the first time anyone built a disabled sample with a real
+    // depth in it — the CPU/GPU surface split this file exists to prevent.
+    WaterShore::Sample disabledButShallow = FlatBed(1.0f, { 1.0f, 0.0f });
+    disabledButShallow.Enabled = false;
+    const glm::vec3 ignored =
+        WaterSurface::SampleDisplacement(params, queryXZ, time, disabledButShallow);
+    EXPECT_FLOAT_EQ(ignored.x, deepA.x);
+    EXPECT_FLOAT_EQ(ignored.y, deepA.y);
+    EXPECT_FLOAT_EQ(ignored.z, deepA.z);
     // The surf-zone surface is bounded by the breaker limit summed over the
     // ladder, which is far below the deep-water crest bound at this amplitude.
     EXPECT_LT(std::abs(shallow.y), 8.0f * WaterShore::kBreakerIndex * 1.0f);
@@ -540,12 +643,13 @@ TEST(WaterShoreWave, TheShaderCarriesTheSameConstantsAsTheHeader)
         const char* Declaration;
         f32 Value;
     };
-    const std::array<Mirror, 5> kMirrors{ {
+    const std::array<Mirror, 6> kMirrors{ {
         { "const float WATER_SHORE_GRAVITY = ", WaterShore::kGravity },
         { "const float WATER_SHORE_DEEP_SENTINEL = ", WaterShore::kDeepSentinelMetres },
         { "const float WATER_SHORE_MIN_DEPTH = ", WaterShore::kMinDepthMetres },
         { "const float WATER_SHORE_BREAKER_INDEX = ", WaterShore::kBreakerIndex },
         { "const float WATER_SHORE_MAX_STEEPNESS = ", WaterShore::kMaxSteepness },
+        { "const float WATER_SHORE_MIN_REFRACTION = ", WaterShore::kMinRefractionCoefficient },
     } };
 
     for (const Mirror& mirror : kMirrors)

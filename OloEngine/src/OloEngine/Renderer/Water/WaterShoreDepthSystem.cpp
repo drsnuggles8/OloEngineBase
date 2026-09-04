@@ -44,6 +44,24 @@ namespace OloEngine
             }
         }
 
+        /// Every non-finite field replaced, once, so the signature, the bake and
+        /// the retained window all describe the SAME window.
+        ///
+        /// BakeField used to sanitise into locals and never write back, which
+        /// left a NaN centre in s_Data.m_Window: GetShaderParams then shipped it
+        /// to the GPU, where `uv.x < 0.0 || uv.x > 1.0` is false for NaN, so the
+        /// out-of-window guard passed and the shader sampled at a NaN uv. Every
+        /// float from a scene file is validated (CLAUDE.md -> Conventions) and
+        /// this is the boundary that owes it.
+        [[nodiscard]] WaterShoreBakeRequest Sanitize(const WaterShoreBakeRequest& request)
+        {
+            WaterShoreBakeRequest out;
+            out.CentreXZ = { std::isfinite(request.CentreXZ.x) ? request.CentreXZ.x : 0.0f,
+                             std::isfinite(request.CentreXZ.y) ? request.CentreXZ.y : 0.0f };
+            out.ExtentMetres = std::isfinite(request.ExtentMetres) ? request.ExtentMetres : 0.0f;
+            out.WaterPlaneY = std::isfinite(request.WaterPlaneY) ? request.WaterPlaneY : 0.0f;
+            return out;
+        }
     } // namespace
 
     void WaterShoreDepthSystem::Init()
@@ -124,14 +142,22 @@ namespace OloEngine
             HashInto(hash, terrain.HeightScale);
             HashInto(hash, terrain.Resolution);
             // The height field's IDENTITY, not its contents. Hashing 512^2
-            // floats per terrain every frame would cost more than the bake it
-            // is meant to avoid; a regenerate replaces the vector, so the
-            // pointer moves, and a sculpt edit in place is covered because the
-            // editor's terrain rebuild path re-uploads and re-allocates. If an
-            // in-place edit ever stops reallocating, hash a version counter
-            // here — do not start hashing the samples.
+            // floats per terrain every frame would cost more than the bake it is
+            // meant to avoid, so this hashes the vector's address and size for a
+            // REPLACED field, plus TerrainData's revision counter for a field
+            // rewritten in place.
+            //
+            // The revision is not belt-and-braces. An in-place edit is the COMMON
+            // case, not the exotic one: sculpting is GPU-resident, and
+            // SyncFromGPU() refreshes an already-correctly-sized mirror with
+            // resize() + memcpy, so every sample changes at the same address and
+            // the size does not move either. Without the revision this hash is
+            // constant across a whole sculpting session and the surf line stays
+            // pinned to the coastline the scene loaded with — silently, with the
+            // terrain visibly changing next to it.
             HashInto(hash, terrain.Heights);
             HashInto(hash, terrain.Heights != nullptr ? terrain.Heights->size() : sizet{ 0 });
+            HashInto(hash, terrain.HeightRevision);
         }
         return hash;
     }
@@ -145,10 +171,13 @@ namespace OloEngine
         const u32 res = WaterShore::kResolution;
         outTexels.assign(static_cast<sizet>(res) * res, glm::vec4(0.0f));
 
-        const f32 extent = std::isfinite(request.ExtentMetres) ? request.ExtentMetres : 0.0f;
-        const f32 planeY = std::isfinite(request.WaterPlaneY) ? request.WaterPlaneY : 0.0f;
-        const glm::vec2 centre{ std::isfinite(request.CentreXZ.x) ? request.CentreXZ.x : 0.0f,
-                                std::isfinite(request.CentreXZ.y) ? request.CentreXZ.y : 0.0f };
+        // Idempotent: Rebuild() has already normalised what it stores, and this
+        // is here so a direct BakeField() call (the tests) cannot be handed a
+        // window the retained one would not have accepted.
+        const WaterShoreBakeRequest sane = Sanitize(request);
+        const f32 extent = sane.ExtentMetres;
+        const f32 planeY = sane.WaterPlaneY;
+        const glm::vec2 centre = sane.CentreXZ;
         if (!(extent > 0.0f))
         {
             for (glm::vec4& texel : outTexels)
@@ -291,12 +320,19 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const u64 signature = BuildSignature(request, terrains);
+        // Normalised BEFORE the signature, so a scene that hands over a NaN
+        // centre on one frame and a NaN centre on the next is one window rather
+        // than two (NaN compares unequal to itself, and the raw bytes of two
+        // different NaNs differ), and so the window this stores is the window
+        // the bake actually used.
+        const WaterShoreBakeRequest sane = Sanitize(request);
+
+        const u64 signature = BuildSignature(sane, terrains);
         if (s_Data.m_HasField && signature == s_Data.m_Signature)
             return;
 
-        BakeField(request, terrains, s_Data.m_Texels);
-        s_Data.m_Window = request;
+        BakeField(sane, terrains, s_Data.m_Texels);
+        s_Data.m_Window = sane;
         s_Data.m_Signature = signature;
         s_Data.m_HasField = true;
 

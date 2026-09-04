@@ -64,6 +64,28 @@ namespace OloEngine
         {
             return m_Resolution;
         }
+
+        // ── Height-content revision (issue #1033) ──
+        //
+        // Bumped whenever the height SAMPLES change, as opposed to the vector
+        // that holds them. Consumers that cache something derived from this
+        // field need it because the obvious identity — the heights vector's
+        // address and size — does not move when the contents do: SyncFromGPU()
+        // refreshes an already-correctly-sized mirror with resize() + memcpy, so
+        // a GPU sculpt rewrites every sample at the same address, and a CPU brush
+        // stroke through the non-const GetHeightData() does the same.
+        //
+        // A cache keyed on the address alone therefore looks valid forever while
+        // the terrain visibly changes underneath it. WaterShoreDepthSystem's
+        // seabed field was exactly that: the surf line would keep shoaling
+        // against the coastline the terrain had when the scene loaded.
+        //
+        // It is a counter and not a dirty flag on purpose — a flag cannot
+        // distinguish "edited, consumed, edited again" from "not edited".
+        [[nodiscard]] u64 GetHeightRevision() const
+        {
+            return m_HeightRevision;
+        }
         // ── The CPU/GPU height sync point (issue #716) ──
         //
         // Since the sculpt brush and hydraulic erosion became GPU-resident, the
@@ -142,6 +164,9 @@ namespace OloEngine
         // Mutable because SyncFromGPU() refreshes them from a const read
         // accessor — see the sync-point comment above.
         mutable std::vector<f32> m_Heights; // Row-major CPU MIRROR of the heightmap, [0, 1]
+        // Bumped at the three points height CONTENT changes — see
+        // GetHeightRevision(). Mutable because SyncFromGPU() is const.
+        mutable u64 m_HeightRevision = 0;
         mutable bool m_CPUMirrorStale = false;
         Ref<Texture2D> m_GPUHeightmap; // R32F GPU texture — authoritative while authoring
     };

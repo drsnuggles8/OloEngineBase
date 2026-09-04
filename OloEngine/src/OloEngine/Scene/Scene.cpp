@@ -9229,10 +9229,20 @@ namespace OloEngine
                             // coastline, which looks like a shader bug.
                             const glm::mat4 waterXf = transform.GetTransform();
                             const glm::vec4 originWorld = waterXf * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-                            const glm::vec4 cornerWorld =
-                                waterXf * glm::vec4(sizeX * 0.5f, 0.0f, sizeZ * 0.5f, 1.0f);
-                            const glm::vec2 halfSpan{ std::abs(cornerWorld.x - originWorld.x),
-                                                      std::abs(cornerWorld.z - originWorld.z) };
+                            // The transformed AABB's half-extents: the sum of the
+                            // absolute contributions of both transformed basis
+                            // vectors, per axis. Taking ONE corner's displacement
+                            // instead is right only for an axis-aligned tile — a
+                            // tile rotated 45 degrees maps its (+x, +z) corner to
+                            // a point with the same world X as its centre, which
+                            // reports a half-span of zero on that axis and
+                            // produces a window that covers a fraction of the
+                            // surface. The rest of the sea then reads as deep
+                            // water with a straight edge across the coastline.
+                            const glm::vec2 basisX{ waterXf[0].x, waterXf[0].z };
+                            const glm::vec2 basisZ{ waterXf[2].x, waterXf[2].z };
+                            const glm::vec2 halfSpan =
+                                glm::abs(basisX) * (sizeX * 0.5f) + glm::abs(basisZ) * (sizeZ * 0.5f);
                             shoreRequest.CentreXZ = { originWorld.x, originWorld.z };
                             shoreRequest.ExtentMetres = 2.0f * std::max(halfSpan.x, halfSpan.y);
                             shoreRequest.WaterPlaneY = originWorld.y;
@@ -9644,6 +9654,9 @@ namespace OloEngine
                             std::isfinite(terrain.m_HeightScale) ? terrain.m_HeightScale : 0.0f;
                         tile.Resolution = resolution;
                         tile.Heights = &heights;
+                        // GetHeightData() above already synced the mirror, so
+                        // this revision describes the samples just read.
+                        tile.HeightRevision = terrain.m_TerrainData->GetHeightRevision();
                         seabed.push_back(tile);
                     }
                     WaterShoreDepthSystem::Rebuild(shoreRequest, seabed);

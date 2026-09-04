@@ -186,8 +186,15 @@ namespace OloEngine::WaterSurface
         // (= Time * WaveSpeed) before calling sumGerstnerWaves — match it exactly.
         const f32 time = rawTime * params.m_WaveSpeed;
         const glm::vec3 basePos(baseXZ.x, params.m_PlaneHeight, baseXZ.y);
+        // Honour Enabled, rather than relying on a disabled sample also carrying
+        // the deep sentinel depth. WaterShoreCommon.glsl's evaluator tests the
+        // flag explicitly (`shore.Enabled <= 0.0`), and a mirror that agreed only
+        // because DisabledSample() happens to be deep would diverge the moment
+        // anyone constructed a disabled sample with a real depth in it — a
+        // CPU/GPU surface split, which is the failure this file exists to prevent.
+        const WaterShore::Sample effective = shore.Enabled ? shore : WaterShore::DisabledSample();
         return SumGerstnerDisplacement(basePos, time, params.m_WaveDir0, params.m_WaveDir1,
-                                       params.m_WaveFrequency, params.m_WaveAmplitude, shore,
+                                       params.m_WaveFrequency, params.m_WaveAmplitude, effective,
                                        params.m_ShoreBreakerIndex);
     }
 
