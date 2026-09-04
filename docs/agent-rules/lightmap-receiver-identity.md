@@ -13,6 +13,7 @@ path, or `Model::DrawParallel`.
    | receiver | sub-key |
    |---|---|
    | `MeshComponent` | `0` |
+   | `VirtualMeshComponent` | `0` — one component is one `MeshSource`, so one unwrap and one region |
    | `InstancedMeshComponent` | that instance's `InstanceData::StableID`, with `AssetStableIDNamespace` ORed in for placement-asset instances |
    | `ModelComponent` | the index of the FIRST `Model::GetMeshes()` entry sharing that mesh's `MeshSource` |
 
@@ -55,7 +56,8 @@ path, or `Model::DrawParallel`.
   source, so the whole model is one unwrap and one region; emitting one input per mesh would
   rasterize the same whole source into N identical regions and burn N times the atlas.
 - **VirtualGeometry** — did NOT break the 1:1 model at all (one component is one `MeshSource` and
-  therefore one unwrap and one region). See below for what actually blocks it.
+  therefore one unwrap and one region). What blocked it was never the identity; it was getting a
+  per-vertex UV2 to a rasterizer with no spare buffer binding. See below.
 
 ## Known approximation: a model's BOUNCE colour comes from its MeshSource
 
@@ -98,29 +100,73 @@ The generalisable shape: **a per-draw value that survives auto-batching needs a 
 stream, and a lane that has one end wired at each side and nothing in the middle looks exactly like
 a lane that is not wired at all.** Nothing errors; the value is simply the default.
 
-## VirtualGeometry is NOT wired, on purpose — and neither is its fallback
+## VirtualGeometry: the UV2 rides the vertex arena, because no binding was available
 
-The cook-side half is done and tested: `MeshSource` UV2 now survives cluster building and the LOD
-simplifier's boundary locks (`VirtualMeshBuilder`'s attribute set grew from 5 floats to 7 and its
-protect window widened to cover the UV2 pair, so a chart seam is a wedge the simplifier may not
-collapse across), it rides the versioned blob (`.OVGM` v3), and `PackVirtualMeshForGpu` expands it
-as a parallel stream. `kVirtualMeshBuilderVersion` moved to 3 accordingly.
+The cook side is the easy half — `VirtualMeshBuilder`'s attribute set grew from 5 floats to 7 and
+its protect window widened to cover the UV2 pair, so a chart seam is a wedge the simplifier may not
+collapse across, and the stream rides the versioned blob (`.OVGM` v3).
 
-What remains is a **GPU buffer binding**, and it is an issue-level decision rather than a task:
+The hard half was the GPU, and the answer is worth recording because the obvious candidate is a
+dead end:
 
-- The cluster vertex is `VirtualGpuVertex`, 32 bytes with both `.w` lanes spent on UV0, so UV2
-  needs a second per-vertex buffer.
-- `ShaderBindingLayout.h` states the SSBO namespace is FULL — every value below the hard Mesa
-  ceiling of 80 is claimed, and the header asks for a new claim to be raised in an issue first.
-  The one reusable slot, `SSBO_BONE_PULL` (63), is the Vulkan vertex-pull stream; a virtual mesh
-  can never be skinned (the builder rejects skinned sources), so the reuse argument #866 made for
-  the classic path applies — but it needs a Vulkan RHI change and an ADR amendment.
+**`SSBO_BONE_PULL` (63) cannot serve this path.** It is the number ADR 0011 amendment (89) reused
+for the classic path's UV2, and a virtual mesh can never be skinned, so the mutual-exclusion
+argument holds — but `VulkanRendererAPI::AssembleRootData` resolves bindings 57 and 63 from **the
+draw's VAO streams**, in an `else if` chain that returns before the published-buffer arm is ever
+reached. A `StorageBuffer` published at 63 is silently ignored on Vulkan. Worse, the mesh-shader
+route calls `PrepareDrawCommon(nullptr, meshPipeline=true)` — no VAO at all — so 63 resolves to the
+frame arena's fixed 64 KiB null block whatever is done to `m_Vao`. Giving the VG VAO a stream-1
+buffer would fix the MDI route and never the mesh route.
 
-**Do not wire only the classic fallback in the meantime.** When
-`RendererSettings::VirtualGeometryEnabled` is off, `Scene.cpp` re-routes the same `MeshSource`
-through `SubmitMeshSourceClassic` — the very renderer that *does* support lightmaps. Passing a
-region only there would make baked GI appear and disappear with the master switch, destroying that
-toggle's whole purpose as a clean A/B ("same geometry, same material-resolution rule, the only
-difference is the renderer"). Either both sides sample the lightmap or neither does, so for now
-`GatherLightmapReceivers` skips `VirtualMeshComponent` entirely — baking regions nothing reads
-would spend atlas space and raise page pressure for a frame that looks identical.
+**A new number does not exist either**: every value 0..79 is claimed and 80 is Mesa's hard ceiling
+([ssbo-binding-cap-is-80-on-mesa.md](ssbo-binding-cap-is-80-on-mesa.md)).
+
+So it took the first route `ShaderBindingLayout.h` names when the namespace is out of numbers:
+**ride an existing block.** The UV2 is a packed tail region of the cluster vertex arena
+(`SSBO_VIRTUAL_VERTICES`, 39), four uv2 pairs to a 32-byte element:
+
+    [ vertices:  SlotCount * SlotVertexCapacity elements ]
+    [ uv2 tail:  SlotCount * SlotVertexCapacity / 4 elements ]
+
+That is **+12.5% of the vertex arena, and only when a registered mesh carries UV2**. Widening
+`VirtualGpuVertex` to 48 bytes would have needed no binding either, but at +50% of an arena that is
+hundreds of MB on a Sponza-scale scene — paid by every VG scene, baked or not. Same trade §1 of
+[baked-lightmap-pipeline.md](baked-lightmap-pipeline.md) already rejected for `Vertex`.
+
+### Two invariants make the addressing exact — do not break either
+
+1. `VirtualMeshRegistry::LoadPage` copies a page's vertices to `slotVertexBase`, so **every page
+   starts at slot-local index 0**.
+2. `m_SlotVertexCapacity` is rounded **up to a multiple of 4**, so `slot * capacity` is 4-aligned.
+
+Together those make a global vertex index decompose into `(element, lane)` with no per-page fixup,
+which is what lets the CPU pack a page from 0 and the shader read it back by the same index. The
+math lives in `VirtualLightmapUVPacking.h` with a GLSL twin in `include/VirtualDrawInfo.glsl`
+(`oloVirtualLightmapUVElement` / `oloVirtualLightmapUVLane`) — change one, change both.
+`u_VirtualLightmapUVBase` rides the draw-info UBO's first spare pad word; **0 means "no tail"**.
+
+### The fetch is guarded twice, and both guards are safety
+
+- `u_VirtualLightmapUVBase != 0` — no tail means the element index lands past the arena, and a
+  buffer-device-address read has no bounds. That is amendment (89)'s device-loss incident again.
+- `LightmapScaleOffset.x > 0.0` — no region on this instance. The cook may **predate the unwrap**:
+  a DAG is built when the mesh is first registered, while UV2 only exists after the bake. C++ side,
+  `SubmitVirtualMesh` refuses to publish a region unless `MeshHasLightmapUVs(handle)`, and
+  `EditorLayer::BakeLightmaps` calls `VirtualMeshRegistry::Invalidate` on every unwrapped mesh so
+  the DAG re-cooks with the stream. Without that the registry's `IsRegistered()` fast path would
+  serve the stale UV2-less DAG for the process lifetime.
+
+### All three rasterizers sample, and so does the fallback
+
+Virtual geometry reaches the screen three ways — hardware MDI, `VK_EXT_mesh_shader`, and the
+compute software rasterizer resolved through `VirtualVisibilityResolve.glsl`. All three write RT5,
+so all three sample; the resolve reconstructs UV2 from the triangle's three vertices with the same
+perspective-correct barycentrics it already uses for UV0. Miss one and a cluster changes colour as
+it crosses the software-raster size threshold — a per-cluster discontinuity, much harder to spot
+than a whole surface going unlit.
+
+And `Scene.cpp` passes the same region to the `virtualGeometryEnabled == false` fallback, because
+#867 is explicit that baked GI must not appear and disappear with the master switch. The GPU proof
+is `LightmapVirtualBleedRoom.VirtualGeometryReceivesBakedGIOnBothSidesOfTheToggle`, which captures
+the room with the switch on, with it off, and unbaked, and asserts the switch changes the floor
+*less* than the bake does. Wiring only the fallback passes every other contract and fails there.

@@ -220,6 +220,76 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // Contract 2c — the VIRTUAL raster paths sample the atlas too, on BOTH of
+    // their rasterizers, and both guard the arena read.
+    //
+    // Virtual geometry has three ways onto the screen — hardware MDI, the
+    // VK_EXT_mesh_shader path, and the compute software rasterizer resolved
+    // through VirtualVisibilityResolve.glsl. All three write RT5, so all three
+    // have to sample, or a cluster changes colour when it crosses the
+    // software-raster size threshold. That is a per-cluster discontinuity in a
+    // frame, which is far harder to spot than a whole surface going unlit.
+    //
+    // These are text scans for the same reason LightmapPageEncodingTest's is:
+    // the only test that renders a paged virtual atlas is behind
+    // OLO_ENSURE_GPU_OR_SKIP(), so on a machine with no GPU nothing else would
+    // notice these reverting.
+    // -------------------------------------------------------------------------
+    TEST(GBufferBakedGIContract, VirtualRasterPathsSampleTheAtlas)
+    {
+        struct VirtualConsumer
+        {
+            const char* File;
+            const char* What;
+        };
+        // The hardware raster's fragment stage is shared verbatim by the MDI and
+        // mesh-shader pipelines, so covering the include covers both.
+        constexpr VirtualConsumer kConsumers[] = {
+            { "include/VirtualGBufferFragment.glsl", "the hardware raster (MDI + mesh shader)" },
+            { "VirtualVisibilityResolve.glsl", "the software raster's material resolve" },
+        };
+
+        for (const VirtualConsumer& consumer : kConsumers)
+        {
+            const std::string src = ReadWholeFile(ShaderRoot() / consumer.File);
+            ASSERT_FALSE(src.empty()) << consumer.File;
+
+            EXPECT_NE(src.find("LightmapSampling.glsl"), std::string::npos)
+                << consumer.File << " (" << consumer.What
+                << ") does not include the lightmap sampler, so it cannot decode a region";
+
+            EXPECT_TRUE(std::regex_search(src, std::regex(R"(o_GBufferBakedGI\s*=\s*sampleLightmapIrradiance\()"))) << consumer.File << " (" << consumer.What
+                                                                                                                    << ") writes something other than the atlas sample into RT5. If it writes vec4(0) again, "
+                                                                                                                       "virtual geometry silently stops receiving baked GI on that rasterizer while the other "
+                                                                                                                       "one keeps it — the two disagree per cluster, not per object.";
+        }
+    }
+
+    // The arena read itself must be guarded, twice over. This is the virtual
+    // path's version of the amendment-(89) device-loss guard: the uv2 rides the
+    // vertex arena's packed tail, so an index computed with no tail present (or
+    // for an instance with no region) lands past the buffer — and a
+    // buffer-device-address read has no bounds.
+    TEST(GBufferBakedGIContract, VirtualLightmapUVFetchIsGuarded)
+    {
+        const std::string stage = ReadWholeFile(ShaderRoot() / "include/VirtualGBufferVertexStage.glsl");
+        ASSERT_FALSE(stage.empty());
+        EXPECT_TRUE(std::regex_search(
+            stage, std::regex(R"(u_VirtualLightmapUVBase\s*==\s*0u[\s\S]{0,120}LightmapScaleOffset\.x\s*<=\s*0\.0)")))
+            << "FetchVirtualLightmapUV does not check BOTH that the arena carries a uv2 tail and that "
+               "this instance has a region. Either alone is insufficient: no tail means the element "
+               "index is past the buffer, and no region means the mesh's cook may predate its unwrap so "
+               "the tail holds another mesh's charts.";
+
+        const std::string resolve = ReadWholeFile(ShaderRoot() / "VirtualVisibilityResolve.glsl");
+        ASSERT_FALSE(resolve.empty());
+        EXPECT_TRUE(std::regex_search(
+            resolve, std::regex(R"(u_VirtualLightmapUVBase\s*!=\s*0u[\s\S]{0,120}LightmapScaleOffset\.x\s*>\s*0\.0)")))
+            << "the software-raster resolve fetches the uv2 tail without the same two guards the "
+               "hardware stage uses";
+    }
+
+    // -------------------------------------------------------------------------
     // Contract 3b — forward and deferred enter the ladder at the same rung, with
     // the same gate and the same helpers.
     //

@@ -200,6 +200,7 @@ The same fact written in more than one place, with nothing enforcing agreement.
 | [reference-path-tracer.md](reference-path-tracer.md) | A C++ BRDF port against the GLSL it mirrors. |
 | [baked-lightmap-pipeline.md](baked-lightmap-pipeline.md) | The GI stores' units ledger, and bake-time unwrap parameters mirrored by the runtime resolve. |
 | [lightmap-receiver-identity.md](lightmap-receiver-identity.md) | Four walks that must gather the same lightmap receivers; a mismatch renders with no baked GI and no error. |
+| [lightmap-receiver-identity.md §VirtualGeometry](lightmap-receiver-identity.md#virtualgeometry-the-uv2-rides-the-vertex-arena-because-no-binding-was-available) | A reserved vertex-pull binding resolves from the VAO, so publishing a buffer there is silently ignored. |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | Five exclusion sets, each mirrored by a coverage-test roster. |
 | [runtime-scene-switching.md](runtime-scene-switching.md) | The build pipeline and the runtime must agree on an asset layout. |
 | [audio-voice-budget.md](audio-voice-budget.md) | One config field costs four edits, one of them silent. |

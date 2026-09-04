@@ -91,6 +91,7 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Scene/SceneLightmap.h"
 #include "OloEngine/Scene/SceneLightmapGather.h"
 
@@ -1303,5 +1304,180 @@ namespace OloEngine::Tests
             << "deferred instanced: the light ADDED beside the RED wall is not red-shifted";
         EXPECT_GT((onGreen.G - offGreen.G), (onGreen.R - offGreen.R) + 0.5f)
             << "deferred instanced: the light ADDED beside the GREEN wall is not green-shifted";
+    }
+
+    // -------------------------------------------------------------------------
+    // LightmapVirtualBleedRoom — the SAME room, floor drawn as a
+    // VirtualMeshComponent (issue #867, section 3).
+    //
+    // Virtual geometry submits only on Deferred, so every capture here forces
+    // that path. The floor's MeshSource is registered with the asset manager and
+    // referenced by handle, the shape a real virtual mesh has.
+    //
+    // ORDERING IS THE WHOLE TRICK. A cluster DAG is cooked when the mesh is
+    // first registered, and UV2 only exists after the bake's unwrap — so a mesh
+    // registered before the bake cooks WITHOUT the stream and can never sample,
+    // silently. The fixture bakes first and only then lets the virtual path
+    // register the mesh, which is exactly what EditorLayer::BakeLightmaps
+    // arranges with its VirtualMeshRegistry::Invalidate call.
+    // -------------------------------------------------------------------------
+    class LightmapVirtualBleedRoom : public LightmapBleedRoom
+    {
+      protected:
+        [[nodiscard]] u32 ExpectedReceiverCount() const override
+        {
+            return 4u; // virtual floor + red wall + green wall + ceiling
+        }
+
+        void BuildFloor() override
+        {
+            Scene& scene = GetScene();
+
+            Ref<Mesh> cube = MeshPrimitives::CreateCube();
+            ASSERT_TRUE(cube);
+            Ref<MeshSource> source = cube->GetMeshSource();
+            ASSERT_TRUE(source);
+
+            m_FloorMeshHandle = AssetManager::AddMemoryOnlyAsset(source);
+            ASSERT_NE(static_cast<u64>(m_FloorMeshHandle), 0u);
+
+            m_Floor = scene.CreateEntity("VirtualFloor");
+            auto& transform = m_Floor.GetComponent<TransformComponent>();
+            transform.Translation = { 0.0f, -0.1f, 0.0f };
+            transform.Scale = { 6.0f, 0.2f, 4.0f };
+
+            auto& vm = m_Floor.AddComponent<VirtualMeshComponent>();
+            vm.m_MeshSource = m_FloorMeshHandle;
+            vm.m_Enabled = true;
+            vm.m_ErrorThresholdPixels = 1.0f;
+            vm.m_LightmapStatic = true;
+
+            auto& material = m_Floor.AddComponent<MaterialComponent>();
+            material.m_Material.SetBaseColorFactor(glm::vec4(0.6f, 0.6f, 0.6f, 1.0f));
+            material.m_Material.SetMetallicFactor(0.0f);
+            material.m_Material.SetRoughnessFactor(0.9f);
+        }
+
+        AssetHandle m_FloorMeshHandle = 0;
+    };
+
+    TEST_F(LightmapVirtualBleedRoom, VirtualGeometryReceivesBakedGIOnBothSidesOfTheToggle)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        ASSERT_NO_FATAL_FAILURE(BakeAndResolve());
+
+        Scene& scene = GetScene();
+        SceneLightmapSettings& lmSettings = scene.GetLightmapSettings();
+        auto& runtime = scene.GetLightmapRuntime();
+
+        // The CPU half first: one MeshSource is one unwrap and one region, so the
+        // virtual receiver's sub-key is 0 like the classic path's.
+        ASSERT_GT(runtime->GetScaleOffset(m_Floor.GetUUID(), 0).x, 0.0f)
+            << "the virtual floor has no atlas region — the gather did not pick the receiver up";
+
+        // The cook must have been invalidated by the unwrap, or the DAG carries
+        // no UV2 and the runtime is right to refuse to sample. Asserting it here
+        // means a red pixel test below reads as "the shader mis-addressed it"
+        // rather than "the geometry never had the stream".
+        {
+            Ref<MeshSource> floorSource = AssetManager::GetAsset<MeshSource>(m_FloorMeshHandle);
+            ASSERT_TRUE(floorSource);
+            ASSERT_TRUE(floorSource->HasLightmapUVs())
+                << "the floor's MeshSource has no UV2 after the bake's unwrap, so the cluster DAG could "
+                   "never carry one either";
+        }
+
+        u32 width = 0;
+        u32 height = 0;
+        const auto capture = [&](bool virtualEnabled, bool bakeEnabled, const char* fileName,
+                                 std::vector<u8>& out)
+        {
+            auto& settings = Renderer3D::GetRendererSettings();
+            settings.Path = RenderingPath::Deferred; // virtual geometry submits nowhere else
+            settings.VirtualGeometryEnabled = virtualEnabled;
+            Renderer3D::ApplyRendererSettings();
+            lmSettings.Enabled = bakeEnabled;
+            // 3 frames: switching the path or the master switch rebuilds the
+            // frame graph, so the temporal state gets a frame to settle.
+            RunFrames(3);
+            u32 w = 0;
+            u32 h = 0;
+            ASSERT_TRUE(CaptureTopDown(out, w, h)) << "ReadbackComposite failed for " << fileName;
+            if (width == 0)
+            {
+                width = w;
+                height = h;
+            }
+            ASSERT_EQ(w, kSize);
+            ASSERT_EQ(h, kSize);
+            ASSERT_EQ(out.size(), static_cast<std::size_t>(w) * h * 4u);
+            WriteEvidencePng(fileName, out, w, h);
+        };
+
+        std::vector<u8> virtualOn;
+        std::vector<u8> virtualOff;
+        std::vector<u8> bakeOff;
+        capture(true, true, "Lightmap_Virtual_On.png", virtualOn);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        capture(false, true, "Lightmap_Virtual_ClassicFallback.png", virtualOff);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        capture(true, false, "Lightmap_Virtual_Off.png", bakeOff);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        Renderer3D::GetRendererSettings().VirtualGeometryEnabled = true;
+        Renderer3D::ApplyRendererSettings();
+        lmSettings.Enabled = true;
+
+        const PixelRect redRect = MakeRect(kRedRegionX0, kRedRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
+        const PixelRect greenRect =
+            MakeRect(kGreenRegionX0, kGreenRegionX1, kFloorRegionY0, kFloorRegionY1, width, height);
+
+        const RegionMeans onRed = MeanChannelsInRect(virtualOn, width, redRect);
+        const RegionMeans onGreen = MeanChannelsInRect(virtualOn, width, greenRect);
+        const RegionMeans offRed = MeanChannelsInRect(bakeOff, width, redRect);
+        const RegionMeans offGreen = MeanChannelsInRect(bakeOff, width, greenRect);
+
+        // 1. The virtual raster samples the atlas at all.
+        EXPECT_GT(onRed.R, onRed.G * 1.05f)
+            << "virtual: the floor beside the RED wall is not red-shifted: r=" << onRed.R << " g=" << onRed.G
+            << " — the cluster raster is not reading the uv2 tail. See Lightmap_Virtual_On.png";
+        EXPECT_GT(onGreen.G, onGreen.R * 1.05f)
+            << "virtual: the floor beside the GREEN wall is not green-shifted: g=" << onGreen.G
+            << " r=" << onGreen.R;
+
+        // 2. ON vs OFF — "the chain is broken anywhere" looks exactly like the
+        //    old probe/IBL fallback, so only the differential separates them.
+        const f32 bakeDiff = 0.5f * (MeanAbsDiffInRect(virtualOn, bakeOff, width, redRect) +
+                                     MeanAbsDiffInRect(virtualOn, bakeOff, width, greenRect));
+        EXPECT_GT(bakeDiff, 3.0f)
+            << "virtual: ON and OFF barely differ over the floor (" << bakeDiff
+            << " grey levels) — the region never reached the cluster raster's RT5 write";
+
+        // 3. THE ACCEPTANCE CRITERION #867 states for this receiver: identical
+        //    baked GI with the VG toggle on and off. The two paths are different
+        //    rasterizers over different intermediates, so this is a REGION MEAN
+        //    comparison, never per-pixel — but it must be tight, because the
+        //    whole point of the toggle is that only the renderer differs.
+        //
+        //    Wiring only the fallback would sail through contracts 1 and 2 and
+        //    fail exactly here, which is why this assertion is the one that
+        //    matters.
+        const f32 toggleDiff = 0.5f * (MeanAbsDiffInRect(virtualOn, virtualOff, width, redRect) +
+                                       MeanAbsDiffInRect(virtualOn, virtualOff, width, greenRect));
+        EXPECT_LT(toggleDiff, bakeDiff)
+            << "virtual: the VG master switch changes the floor MORE than the bake itself does ("
+            << toggleDiff << " vs " << bakeDiff << " grey levels). Baked GI that appears and "
+            << "disappears with VirtualGeometryEnabled destroys the toggle's value as an A/B — see "
+            << "Lightmap_Virtual_On.png against Lightmap_Virtual_ClassicFallback.png";
+
+        const RegionMeans fallbackRed = MeanChannelsInRect(virtualOff, width, redRect);
+        const RegionMeans fallbackGreen = MeanChannelsInRect(virtualOff, width, greenRect);
+        EXPECT_GT(fallbackRed.R, fallbackRed.G * 1.05f)
+            << "virtual: the CLASSIC FALLBACK lost the red bleed, so the toggle is not an honest A/B";
+        EXPECT_GT(fallbackGreen.G, fallbackGreen.R * 1.05f)
+            << "virtual: the CLASSIC FALLBACK lost the green bleed";
     }
 } // namespace OloEngine::Tests
