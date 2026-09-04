@@ -2041,6 +2041,28 @@ namespace OloEngine
         // — it includes neither DDGICommon.glsl nor GPUReadbackStats.glsl, and
         // must not start to.
         static constexpr u32 UBO_SPHERE_PROXY_AO = 64;
+        // Hardware ray tracing (issue #978) — RayTracingProbeParams, read by
+        // compute/RayTracingProbe.comp.
+        //
+        // THE LAST FREE BUFFER BINDING IN THE ENGINE. 63/64/65 were the three
+        // numbers the note above reserved out of the uniform-buffer namespace;
+        // 63 went to #967 and 64 to #710, so this is the third and final one.
+        // The SSBO namespace has been full since SSBO_GPU_STATS. After this
+        // line, a feature that wants a buffer binding must ride an existing
+        // block or renumber a family — say so in the issue before starting.
+        //
+        // #978 needs exactly ONE, and that is the point of the design rather
+        // than luck: the TLAS, the ray batch, the hit batch and the three GPU
+        // Scene tables all reach the shader as DEVICE ADDRESSES carried inside
+        // this block (GL_EXT_buffer_reference), so a subsystem that would
+        // naively have wanted five bindings costs one. The acceleration
+        // structure itself needs no descriptor at all —
+        // accelerationStructureEXT(uvec2) converts an address directly.
+        //
+        // The within-shader rule holds: 65 is also TEX_VSM_PHYSICAL (sampler),
+        // and RayTracingProbe.comp declares no VSM sampler and must not start
+        // to.
+        static constexpr u32 UBO_RAY_TRACING = 65;
         static constexpr u32 UBO_SNOW_COMPUTE = 66;         // Snow accumulate/deform clipmap params (SnowComputeUBO)
         static constexpr u32 UBO_TERRAIN_EROSION = 67;      // Hydraulic-erosion droplet params (TerrainErosionUBO)
         static constexpr u32 UBO_LIGHT_CULLING = 68;        // Forward+/clustered light-cull dispatch params (LightCullingUBO) — the CULLER's view/counts; UBO_FORWARD_PLUS (25) is the shading side
@@ -3073,6 +3095,8 @@ namespace OloEngine
                     return name.contains("GTAODenoise") || name.contains("gtaoDenoise");
                 case UBO_SPHERE_PROXY_AO:
                     return name.contains("SphereProxyAO") || name.contains("sphereProxyAO");
+                case UBO_RAY_TRACING:
+                    return name.contains("RayTracing") || name.contains("rayTracing");
                 // Issue #691 compute bare-uniform sweep.
                 case UBO_PARTICLE_SIM:
                     return name.contains("ParticleSim") || name.contains("particleSim");

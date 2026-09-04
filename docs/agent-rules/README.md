@@ -58,6 +58,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md): the OpenGL boundary leaks through the include graph, not a `glXxx(` grep; plus the Vulkan epic's lessons.
 - [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md): a CPU buffer write between two recorded draws is last-write-wins on Vulkan.
 - [vulkan-parallel-recording.md](vulkan-parallel-recording.md): a pass forks with `RenderCommand::RecordParallel` and gives every item its own resource objects; per-command-buffer state is per recording context.
+- [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md): a BLAS is per geometry and opacity is per instance; acceleration structures reach a shader as a device address, builds ride the frame command buffer, and compaction is a multi-frame handshake because idling is banned.
 - [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md): `glColorMask` and `glEnable(GL_BLEND)` are indexed calls for every draw buffer; never port one as a fallback.
 - [lazy-static-release-ownership.md](lazy-static-release-ownership.md): release a shared lazy static from an unconditional teardown, not from `Renderer3D::Shutdown`.
 - [gpu-debug-draws.md](gpu-debug-draws.md): any shader can draw a primitive into the viewport; read the overflow protocol before concluding "it drew nothing".
@@ -170,6 +171,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | A position check passes on the scheduler tie-break alone, with the dependency edge missing. |
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | Adding `server/discover` alone keeps tests green and breaks the legacy fallback for real clients. |
 | [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | Two scenes rendered skybox-only with zero errors because no test interleaved two SSBO uploads with draws. |
+| [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md) | A new `RHI::Access` write member is classified as a read by the one switch with a `default:`, so no write-after-write barrier is emitted and nothing warns. |
 | [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) | Every Vulkan draw wrote colour attachment 0 alone, and the forward path only displays attachment 0. |
 | [substituted-seams-compound.md](substituted-seams-compound.md) | A decal tenant made three substitutions, each hiding a different live bug; no decal had ever produced a pixel. |
 | [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md) | A compute kernel wrote mip 0 and left coarser mips stale; the visual test was green because every mip was uniformly stale. |
@@ -302,6 +304,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) | What is bound when you clear. |
 | [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | A CPU write between two recorded draws is last-write-wins on Vulkan. |
 | [vulkan-parallel-recording.md](vulkan-parallel-recording.md) | Two parallel items wrote one UBO object, or transitioned one subresource; the merge reports the second, the first renders the wrong cascade. |
+| [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md) | A per-instance BLAS loop builds one structure twice; a saturated GPU Scene generation makes a dead record look live. |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | A `barrier()` only some invocations reach. |
 | [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | A shared lazy static released from a conditional teardown. |
 | [configure-time-variable-visibility.md](configure-time-variable-visibility.md) | A CMake variable read by a subdirectory processed before the line that sets it. |

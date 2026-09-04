@@ -2361,3 +2361,63 @@ compute (#808). The phase-2 tracker for the first two is #1013.
 
 Narrative and the checklist for converting a pass:
 [vulkan-parallel-recording.md](../agent-rules/vulkan-parallel-recording.md).
+
+### (93) Hardware ray tracing is a Tier-2 capability whose whole answer is one value, and whose structures need no descriptor
+
+Issue #978 added the first acceleration-structure code in the tree. Four decisions
+are worth carrying forward.
+
+**The capability is one value, not a predicate plus a reason.** ADR 0010's
+contract stays exactly as wide as it was — `VK_KHR_acceleration_structure`,
+`VK_KHR_ray_query` and `VK_KHR_deferred_host_operations` are enabled
+when-supported, never gate rows, the same Tier-2 rule EDS3, device-fault and
+`VK_EXT_mesh_shader` follow. What is new is the shape of the report.
+`SupportsMeshShaders()` returns a bool because a caller that gets `false` only
+needs to route around it; #978's acceptance criteria require the renderer to
+say *why*, so `RendererAPI::GetRayTracingCapabilities()` returns the verdict,
+the reason and the captured device properties together.
+`RenderCommand::SupportsRayTracing()` forwards to `.Supported` rather than
+re-deriving it — §13c's one-predicate-one-owner rule, applied to a value
+instead of a bool.
+
+The reason has to distinguish four independent failures, because each has a
+different fix: the extension is absent, the extension is present but its
+feature bit is `VK_FALSE`, `vkCreateDevice` accepted it but volk exported no
+entry point, or `OLO_VULKAN_NO_RAY_TRACING=1` turned it off. Only
+`VulkanDevice::Init` can tell them apart, so it decides the reason and the
+renderer reports it.
+
+**An acceleration structure reaches a shader as a device address.**
+`accelerationStructureEXT(uvec2)` lowers to
+`OpConvertUToAccelerationStructureKHR` under `OpCapability RayQueryKHR` alone —
+no `VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR`, no change to
+`VulkanResourceHeap` or `VulkanDescriptorHeapBackend`. Combined with
+`GL_EXT_buffer_reference` for the ray batch, the hit batch and the GPU Scene
+tables, the whole subsystem costs **one** buffer binding: `UBO_RAY_TRACING`
+(65), which is the last free number in the engine. This is §4's root-data
+pointer model arriving somewhere it was not designed for and fitting exactly.
+
+**The neutral/backend seam is `RHI::DescriptorHeap`'s, not `RendererAPI`'s.**
+`RayTracingScene` (`Renderer/RayTracing/`) owns the policy — classification,
+the refit heuristic, instance packing, the stale-record guard, the counters —
+and holds an `IRayTracingBackend` implemented once in `Platform/Vulkan/`. The
+neutral half compiles and is tested with no GPU, which is every CI runner;
+the factory lives in a neutral TU with an explicit `switch (GetAPI())`, never
+in the Platform TU (§9a). Two `RHI::Access` members were added
+(`AccelerationStructureBuild` / `AccelerationStructureRead`) so the build→read
+hazard is expressed in the neutral lattice and lowered by
+`VulkanBarrierLowering` like every other transition.
+
+**Builds ride the frame command buffer.** `VulkanOneShot` submits ahead of the
+still-recording frame (amendment (72)), so a BLAS built through it reads vertex
+data the frame has not uploaded — silently, with no error.
+`VulkanRendererAPI::BeginAccelerationStructureRecording()` closes the lazy
+dynamic-rendering scope and returns the frame's primary command buffer; it is
+`RecordStagedImageUpload`'s shape, exposed because the builder is a sibling TU.
+The corollary is that compaction cannot block: the size query is stamped in the
+build's own command buffer and polled without a wait bit in a later frame,
+because "no routine scene update calls `vkDeviceWaitIdle`" is an acceptance
+criterion and a blocking read of an unexecuted query never returns at all.
+
+Rules, traps and the measured device numbers:
+[vulkan-ray-tracing-acceleration-structures.md](../agent-rules/vulkan-ray-tracing-acceleration-structures.md).

@@ -48,6 +48,14 @@ struct GPUSceneGeometry
 };
 
 // GPUSceneMaterialFlag
+// GPUSceneInstanceFlag / GPUSceneGeometryFlag mirrors. Only the Active bit is
+// defined on either, because that is the only one either enum carries today —
+// and a consumer that resolves a record by slot MUST test it: a tombstoned
+// slot keeps its generation when the generation counter saturates, so a
+// generation compare alone can accept a dead record (GPUSceneTypes.h's rule).
+#define OLO_GPU_SCENE_INSTANCE_ACTIVE (1u << 0)
+#define OLO_GPU_SCENE_GEOMETRY_ACTIVE (1u << 0)
+
 #define OLO_GPU_SCENE_MATERIAL_ACTIVE (1u << 0)
 #define OLO_GPU_SCENE_MATERIAL_PBR (1u << 1)
 #define OLO_GPU_SCENE_MATERIAL_TWO_SIDED (1u << 2)

@@ -41,6 +41,19 @@ namespace OloEngine::RenderPipelineBuilderInternal
                                        const SceneLightingStageInputs& inputs)
     {
         OLO_CORE_ASSERT(inputs.Passes, "RegisterSceneAndLightingNodes requires pass inputs");
+
+        // Acceleration-structure build (#978) goes FIRST, before ShadowPass.
+        // Every ray-query consumer that lands later reads what it produces,
+        // and its own input — the GPU Scene — was uploaded before the graph
+        // was compiled, so nothing in the frame can order ahead of it.
+        // Registered on every path and on every backend; it self-disables in
+        // Execute when the device has no ray tracing (topology is cached, so
+        // gating registration on a capability would cull it for the session).
+        if (inputs.Passes->RayTracingScene)
+        {
+            graph.AddNode(PrepareGraphNode("RayTracingScenePass", inputs.Passes->RayTracingScene));
+        }
+
         graph.AddNode(PrepareGraphNode("ShadowPass", inputs.Passes->Shadow));
 
         // Realtime DDGI probe update (#632): its relight stage samples the

@@ -16,6 +16,9 @@
 #include "MCP/McpRenderOverrides.h"
 #include "MCP/McpRenderProbePixel.h"
 #include "MCP/McpRenderLODStats.h"
+#include "MCP/McpRayTracingStats.h"
+
+#include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "MCP/McpRenderTargetStats.h"
 #include "MCP/McpRenderValidate.h"
 #include "MCP/McpRendererSettings.h"
@@ -6053,6 +6056,36 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        Json BuildRayTracingStatsReport()
+        {
+            RayTracingStats::Snapshot snapshot;
+            snapshot.State.Available = Renderer3D::HasInitialized();
+            if (snapshot.State.Available)
+            {
+                const auto& scene = Renderer3D::GetRayTracingScene();
+                snapshot.Capabilities = scene.GetCapabilities();
+                snapshot.Stats = Renderer3D::GetRayTracingStats();
+                // "Enabled" is the capability, not a user toggle: there is no
+                // switch to turn ray tracing off, only a device that does or
+                // does not have it.
+                snapshot.State.Enabled = snapshot.Capabilities.Supported;
+                // A TLAS that has never been built is noData, NOT ready with
+                // zeros — an unsupported GPU and an empty scene must not
+                // produce the same payload.
+                snapshot.State.HasData = snapshot.Capabilities.Supported && scene.GetTlasDeviceAddress() != 0u;
+            }
+            snapshot.State.Freshness = StatsSnapshot::FreshnessModel::PreviousFrame;
+            return RayTracingStats::BuildReport(snapshot);
+        }
+
+        ToolResult Handle_RayTracingStats(McpServer& server, const Json& /*args*/)
+        {
+            const Json result = server.MarshalRead([]() -> Json
+                                                   { return BuildRayTracingStatsReport(); });
+
+            return ToolResult::Structured(result);
+        }
+
         Json BuildDDGIProbeStatsReport()
         {
             DDGIProbeStats::Snapshot snapshot;
@@ -7850,6 +7883,74 @@ namespace OloEngine::MCP
                                     .Required({ "availability", "freshness" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderLODStats;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_rt_scene_stats";
+            tool.Toolset = "render";
+            tool.Title = "Ray-tracing scene statistics";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Return the hardware ray-tracing acceleration-structure scene's capability and counters (issue "
+                "#978): whether ray query is usable on this device and WHY it is not when it is not, the resident "
+                "BLAS population by geometry class, TLAS instance count, acceleration-structure and scratch memory, "
+                "compaction savings, and this frame's build/refit/compaction/retire counts. Status distinguishes "
+                "'unavailable' (no ray tracing on this device or backend) from 'noData' (ray tracing is live but no "
+                "TLAS has been built yet, e.g. a scene with no traceable geometry) — an all-zero payload from those "
+                "two causes means different things.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("availability", Schema::Object()
+                                              .Prop("available", Schema::Bool())
+                                              .Prop("enabled", Schema::Bool())
+                                              .Prop("hasData", Schema::Bool())
+                                              .Prop("status", Schema::String().Enum({ "unavailable", "disabled", "noData", "ready" }))
+                                              .Required({ "available", "enabled", "hasData", "status" }))
+                    .Prop("freshness", Schema::Object()
+                                           .Prop("model", Schema::String().Enum({ "previousFrame" }))
+                                           .Prop("stale", Schema::Bool())
+                                           .Prop("sampleAgeFrames", Schema::Raw(Json{ { "type", Json::array({ "integer", "null" }) }, { "minimum", 0 } }))
+                                           .Required({ "model", "stale", "sampleAgeFrames" }))
+                    .Prop("capability", Schema::Object()
+                                            .Prop("supported", Schema::Bool())
+                                            .Prop("rayTracingPipeline", Schema::Bool())
+                                            .Prop("reason", Schema::String().Desc("Human-readable reason; 'supported' when it is."))
+                                            .Prop("properties", Schema::Object()
+                                                                    .Prop("minScratchOffsetAlignment", Schema::Int().Min(0))
+                                                                    .Prop("maxInstanceCount", Schema::Int().Min(0))
+                                                                    .Prop("maxGeometryCount", Schema::Int().Min(0))
+                                                                    .Prop("maxPrimitiveCount", Schema::Int().Min(0)))
+                                            .Required({ "supported", "rayTracingPipeline", "reason" }))
+                    .Prop("resident", Schema::Object()
+                                          .Prop("blasByClass", Schema::Object()
+                                                                   .Prop("static", Schema::Int().Min(0))
+                                                                   .Prop("rigidDynamic", Schema::Int().Min(0))
+                                                                   .Prop("deformed", Schema::Int().Min(0))
+                                                                   .Prop("masked", Schema::Int().Min(0))
+                                                                   .Prop("unsupported", Schema::Int().Min(0).Desc("Always 0: an unsupported record produces no acceleration structure. See resident.unsupportedInstances.")))
+                                          .Prop("tlasInstances", Schema::Int().Min(0))
+                                          .Prop("unsupportedInstances", Schema::Int().Min(0).Desc("Live GPU Scene instances the RT scene cannot trace, which stay raster-only. A real, expected population, not an error count."))
+                                          .Prop("accelerationStructureBytes", Schema::Int().Min(0))
+                                          .Prop("scratchBytes", Schema::Int().Min(0))
+                                          .Prop("compactionSavedBytes", Schema::Int().Min(0)))
+                    .Prop("frame", Schema::Object()
+                                       .Prop("blasBuilds", Schema::Int().Min(0))
+                                       .Prop("blasRefits", Schema::Int().Min(0))
+                                       .Prop("blasCompactions", Schema::Int().Min(0))
+                                       .Prop("blasRetired", Schema::Int().Min(0))
+                                       .Prop("tlasBuilds", Schema::Int().Min(0))
+                                       .Prop("tlasUpdates", Schema::Int().Min(0))
+                                       .Prop("instancesTraced", Schema::Int().Min(0))
+                                       .Prop("instancesSkipped", Schema::Int().Min(0))
+                                       .Prop("blasBuildGpuNs", Schema::Int().Min(0).Desc("Nanoseconds; 0 means no sample has resolved yet, not that it was free."))
+                                       .Prop("tlasBuildGpuNs", Schema::Int().Min(0)))
+                    .Prop("lastTlasReason", Schema::String())
+                    .Required({ "availability", "freshness", "capability" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RayTracingStats;
             server.RegisterTool(std::move(tool));
         }
 

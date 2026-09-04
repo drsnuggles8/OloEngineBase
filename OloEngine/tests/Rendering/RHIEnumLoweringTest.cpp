@@ -77,7 +77,13 @@ namespace
     // enum pair onto it — and only its three Storage* values are image-load/store
     // accesses, so a new member falling through ToGLImageAccess()'s default would
     // silently bind as GL_READ_WRITE.
-    static_assert(static_cast<int>(RHI::Access::Present) == 18,
+    // 18 -> 20 with #978's AccelerationStructureBuild / AccelerationStructureRead.
+    // Both are DELIBERATELY absent from ToGLImageAccess: an acceleration
+    // structure is not an image, so they take its default arm and log rather
+    // than binding as GL_READ_WRITE. That arm is the correct answer here, not
+    // an omission — OpenGL has no hardware ray tracing in this engine and
+    // these two can only ever reach the Vulkan lowering.
+    static_assert(static_cast<int>(RHI::Access::Present) == 20,
                   "RHI::Access changed — update ToGLImageAccess() and ImageAccessLowering");
     static_assert(static_cast<int>(RHI::PrimitiveTopology::PatchList) == 5,
                   "RHI::PrimitiveTopology changed — update ToGL() and PrimitiveTopologyLowering");

@@ -295,6 +295,19 @@ namespace OloEngine
         // scope — a vendor-specific extension with no core/ARB promotion, so
         // the engine's mesh-pipeline work is Vulkan-only and routes to the
         // classic vertex-pipeline path on this backend via this gate.
+        // Hardware ray tracing is Vulkan-only here (issue #978). There is no
+        // OpenGL equivalent of VK_KHR_ray_query worth having — the NV
+        // GL extensions are deliberately out of scope — so this answers
+        // unsupported with the reason rather than pretending a device could
+        // ever say otherwise. The properties stay all-zero, which is what
+        // "not captured" means.
+        [[nodiscard("Store this!")]] RayTracing::Capabilities GetRayTracingCapabilities() const override
+        {
+            RayTracing::Capabilities capabilities{};
+            capabilities.Reason = RayTracing::UnsupportedReason::BackendNotVulkan;
+            return capabilities;
+        }
+
         [[nodiscard("Store this!")]] bool SupportsMeshShaders() const override
         {
             return false;

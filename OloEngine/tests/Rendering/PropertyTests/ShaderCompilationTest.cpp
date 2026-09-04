@@ -286,6 +286,21 @@ namespace OloEngine::Tests
                 continue;
             }
 
+            // A compute shader that declares ray query (or the physical-storage
+            // buffer references that go with it) can only ever be compiled by
+            // VulkanComputeShader's Vulkan tier — GL_EXT_ray_query and
+            // buffer_reference are both "only allowed when using GLSL for
+            // Vulkan", so sweeping them at the GL target env below reports a
+            // failure for a shader that is perfectly correct.
+            //
+            // DERIVED from the source rather than a filename list, so the day a
+            // second ray-tracing shader lands it is covered without touching
+            // this file — the rule VulkanMeshPipelineFamilyTest's family
+            // derivation follows.
+            const bool vulkanOnlyCompute = source.find("GL_EXT_ray_query") != std::string::npos ||
+                                           source.find("GL_EXT_ray_tracing") != std::string::npos ||
+                                           source.find("GL_EXT_buffer_reference") != std::string::npos;
+
             for (const auto& [kind, stageSource] : stages)
             {
                 shaderc::CompileOptions options;
@@ -300,16 +315,17 @@ namespace OloEngine::Tests
                 // locations under the OpenGL target env accept that syntax
                 // while still producing SPIR-V, the closest headless
                 // approximation of the real compile path.
-                if (kind == shaderc_glsl_compute_shader)
+                if (kind == shaderc_glsl_compute_shader && !vulkanOnlyCompute)
                 {
                     options.SetTargetEnvironment(shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
                     options.SetAutoMapLocations(true);
                 }
-                else if (kind == shaderc_glsl_task_shader || kind == shaderc_glsl_mesh_shader)
+                else if (kind == shaderc_glsl_task_shader || kind == shaderc_glsl_mesh_shader || vulkanOnlyCompute)
                 {
-                    // Mesh-shading stages never travel the GL tier's vulkan_1_2
-                    // env — they are compiled only by VulkanShader's vulkan_1_4
-                    // tier with OLO_VULKAN defined. Mirror that tier EXACTLY,
+                    // Mesh-shading stages — and, since #978, ray-query compute
+                    // shaders — never travel the GL tier's vulkan_1_2 env. They
+                    // are compiled only by the vulkan_1_4 tier with OLO_VULKAN
+                    // defined. Mirror that tier EXACTLY,
                     // including the SPIR-V dialect: 1.4 lowers to SPIR-V 1.6,
                     // which is where glslang emits LocalSizeId (the §14b class)
                     // — sweeping at a lower env would validate a different

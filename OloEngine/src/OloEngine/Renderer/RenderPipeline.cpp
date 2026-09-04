@@ -4077,6 +4077,7 @@ namespace OloEngine
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DDGIProbeUpdate = FrameCorePasses.DDGIProbeUpdate.Raw();
         inputs.Passes.VirtualShadowMapMark = FrameCorePasses.VirtualShadowMapMark.Raw();
+        inputs.Passes.RayTracingScene = FrameCorePasses.RayTracingScene.Raw();
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
         inputs.Passes.DeferredGPUOcclusion = SceneCompositePasses.DeferredGPUOcclusion.Raw();
@@ -4147,6 +4148,16 @@ namespace OloEngine
         FrameCorePasses.VirtualShadowMapMark->SetName("VirtualShadowMapMarkPass");
         FrameCorePasses.VirtualShadowMapMark->Init(shadowPassSpec);
         FrameCorePasses.VirtualShadowMapMark->SetShadowMap(&data.Shadow);
+
+        // Acceleration-structure build (#978). Owns no framebuffer and reads
+        // no graph resource — it consumes the GPU Scene directly and produces
+        // a TLAS the graph's resource model cannot represent, which is why it
+        // is NeverCull. Wired with the two things it borrows for the session;
+        // on a backend without ray tracing its Execute is one predicate.
+        FrameCorePasses.RayTracingScene = Ref<RayTracingScenePass>::Create();
+        FrameCorePasses.RayTracingScene->SetName("RayTracingScenePass");
+        FrameCorePasses.RayTracingScene->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
+        FrameCorePasses.RayTracingScene->SetGPUScene(&Renderer3D::GetGPUScene());
 
         FrameCorePasses.Scene = Ref<SceneRenderPass>::Create();
         FrameCorePasses.Scene->SetName("ScenePass");

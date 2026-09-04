@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
+#include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Scene/Components.h"
 
@@ -298,6 +299,78 @@ namespace OloEngine
                     if (ImGui::Combo("Debug view##VirtualGeom", &debugMode, s_DebugModes, IM_ARRAYSIZE(s_DebugModes)))
                     {
                         vgRegistry.SetDebugMode(static_cast<VirtualDebugMode>(debugMode));
+                    }
+                }
+            }
+        }
+
+        // --- Ray tracing (issue #978) --------------------------------------
+        //
+        // ALWAYS shown, unlike the Virtual Geometry block above which appears
+        // only when the scene asked for it. The single most useful thing this
+        // section can say is "your GPU has no ray tracing, and here is why",
+        // and a header that hides itself when unsupported cannot say it — the
+        // user would see nothing and conclude the counters were broken.
+        {
+            const RayTracing::Capabilities rtCapabilities = Renderer3D::GetRayTracingScene().GetCapabilities();
+            const RayTracing::SceneStats& rt = Renderer3D::GetRayTracingStats();
+            if (ImGui::CollapsingHeader("Ray Tracing", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                if (!rtCapabilities.Supported)
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f), "Unavailable");
+                    ImGui::TextWrapped("%s", std::string(rtCapabilities.ReasonText()).c_str());
+                    ImGui::TextWrapped("The raster renderer is unaffected: no acceleration structure is built "
+                                       "and nothing downstream changes.");
+                }
+                else
+                {
+                    ImGui::Text("Ray query: enabled%s",
+                                rtCapabilities.RayTracingPipeline ? " (+ ray-tracing pipeline)" : "");
+                    ImGui::Separator();
+
+                    ImGui::TextDisabled("Acceleration structures (resident, one per geometry)");
+                    ImGui::Text("Static: %u   Rigid: %u   Deformed: %u   Masked: %u",
+                                rt.Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Static)],
+                                rt.Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::RigidDynamic)],
+                                rt.Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Deformed)],
+                                rt.Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Masked)]);
+                    // Unsupported is a real, expected population — skinned,
+                    // cloth, virtualized and particle geometry never reach the
+                    // canonical GPU Scene — so it is labelled rather than left
+                    // to read as an error count.
+                    ImGui::Text("Unsupported instances (raster only): %u", rt.Resident.UnsupportedInstances);
+                    ImGui::Text("TLAS instances: %u", rt.Resident.TlasInstances);
+
+                    ImGui::Separator();
+                    ImGui::TextDisabled("Memory");
+                    ImGui::Text("Acceleration structures: %.2f MB",
+                                static_cast<f64>(rt.Resident.AccelerationStructureBytes) / (1024.0 * 1024.0));
+                    ImGui::Text("Build scratch (pooled): %.2f MB",
+                                static_cast<f64>(rt.Resident.ScratchBytes) / (1024.0 * 1024.0));
+                    ImGui::Text("Compaction saved: %.2f MB",
+                                static_cast<f64>(rt.Resident.CompactionSavedBytes) / (1024.0 * 1024.0));
+
+                    ImGui::Separator();
+                    ImGui::TextDisabled("This frame");
+                    ImGui::Text("BLAS builds: %u   refits: %u   compactions: %u   retired: %u", rt.Frame.BlasBuilds,
+                                rt.Frame.BlasRefits, rt.Frame.BlasCompactions, rt.Frame.BlasRetired);
+                    ImGui::Text("TLAS: %s (%s)", rt.Frame.TlasBuilds > 0 ? "rebuilt" : "updated",
+                                std::string(RayTracing::ToString(rt.LastTlasReason)).c_str());
+                    ImGui::Text("Instances traced: %u   skipped: %u", rt.Frame.InstancesTraced,
+                                rt.Frame.InstancesSkipped);
+                    // A zero here means "no sample has resolved yet", which is
+                    // the normal state for the first frames after a build —
+                    // not "it was free". Say so rather than printing 0.00 ms.
+                    if (rt.Frame.BlasBuildGpuNs > 0 || rt.Frame.TlasBuildGpuNs > 0)
+                    {
+                        ImGui::Text("GPU: BLAS %.3f ms   TLAS %.3f ms",
+                                    static_cast<f64>(rt.Frame.BlasBuildGpuNs) / 1.0e6,
+                                    static_cast<f64>(rt.Frame.TlasBuildGpuNs) / 1.0e6);
+                    }
+                    else
+                    {
+                        ImGui::TextDisabled("GPU time: no sample resolved yet");
                     }
                 }
             }

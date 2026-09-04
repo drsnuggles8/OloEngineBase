@@ -419,6 +419,11 @@ namespace OloEngine
         // grows it on demand via InstanceBuffer::EnsureCapacity().
         s_Data.ModelInstanceBuffer = Ref<InstanceBuffer>::Create(1);
         s_Data.SceneGPU.InitializeGPU();
+        // Ray tracing (#978). Installs the device backend when the active
+        // backend has one; on every other backend this is a no-op that leaves
+        // the scene reporting BackendNotVulkan, and nothing downstream
+        // changes. Deliberately AFTER the GPU Scene it consumes.
+        s_Data.SceneRT.Init();
         // GPU per-instance frustum culler — compute shader is lazy-loaded on
         // first cull dispatch so a stripped-down embedded build that doesn't
         // ship the compute shaders can still drive the CPU path.
@@ -729,6 +734,9 @@ namespace OloEngine
         s_Data.SharedSceneUBOs.Reset();
         s_Data.MultiLightBuffer.Reset();
         s_Data.ModelInstanceBuffer.Reset();
+        // Ray tracing before the GPU Scene it keys off, so no acceleration
+        // structure outlives the records that named it.
+        s_Data.SceneRT.Shutdown();
         s_Data.SceneGPU.Shutdown();
         s_Data.GPUSceneExtractionActive = false;
         // The two-phase GPU culler (#431) owns a pool of StorageBuffers / InstanceBuffers.

@@ -56,6 +56,11 @@ namespace OloEngine
         ComputeIndirectArgs = 4, // Indirect draw args buffer
         TransferSource = 5,      // CopyImageSubData source / blit src
         InputAttachment = 6,     // Vulkan input attachment
+        // A shader tracing rays against the scene TLAS (issue #978). Distinct
+        // from ShaderStorage because the stage/access pair it lowers to names
+        // the acceleration-structure access bits, and because the source scope
+        // it has to wait on is an AS BUILD rather than another shader.
+        AccelerationStructure = 7,
     };
 
     // Write access mode — describes how a pass produces a resource
@@ -67,6 +72,8 @@ namespace OloEngine
         ShaderStorage = 3, // SSBO store
         TransferDest = 4,  // CopyImageSubData dest / blit dst
         Clear = 5,         // Just cleared (no GPU write)
+        // vkCmdBuildAccelerationStructuresKHR / the compaction copy (#978).
+        AccelerationStructureBuild = 6,
     };
 
     // Subresource range for texture/buffer access — supports all views

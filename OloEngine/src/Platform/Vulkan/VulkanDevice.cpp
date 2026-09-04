@@ -503,18 +503,44 @@ namespace OloEngine
         VkPhysicalDeviceMeshShaderFeaturesEXT supportedMeshShader{};
         supportedMeshShader.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
         bool hasMeshShaderExtension = false;
+        // Hardware ray tracing (issue #978): OPTIONAL, same when-supported
+        // rule again. Three extensions move together —
+        // VK_KHR_acceleration_structure needs
+        // VK_KHR_deferred_host_operations as a hard dependency (it has no
+        // feature struct of its own, so it is a name in the list only), and
+        // VK_KHR_ray_query is what lets a compute/fragment shader trace
+        // without an SBT. VK_KHR_ray_tracing_pipeline is probed separately
+        // because this subsystem does not need it; only the SBT alignment
+        // properties do.
+        VkPhysicalDeviceAccelerationStructureFeaturesKHR supportedAccelStruct{};
+        supportedAccelStruct.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+        VkPhysicalDeviceRayQueryFeaturesKHR supportedRayQuery{};
+        supportedRayQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+        VkPhysicalDeviceRayTracingPipelineFeaturesKHR supportedRayPipeline{};
+        supportedRayPipeline.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+        bool hasAccelStructExtension = false;
+        bool hasDeferredHostOpsExtension = false;
+        bool hasRayQueryExtension = false;
+        bool hasRayPipelineExtension = false;
         {
             u32 extCount = 0;
             vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extCount, nullptr);
             std::vector<VkExtensionProperties> available(extCount);
             vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extCount, available.data());
-            hasEds3Extension = std::ranges::any_of(available, [](const VkExtensionProperties& p)
-                                                   { return std::string_view(p.extensionName) == VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME; });
-            hasDeviceFaultExtension = std::ranges::any_of(available, [](const VkExtensionProperties& p)
-                                                          { return std::string_view(p.extensionName) == VK_EXT_DEVICE_FAULT_EXTENSION_NAME; });
-            hasMeshShaderExtension = std::ranges::any_of(available, [](const VkExtensionProperties& p)
-                                                         { return std::string_view(p.extensionName) == VK_EXT_MESH_SHADER_EXTENSION_NAME; });
-            if (hasEds3Extension || hasDeviceFaultExtension || hasMeshShaderExtension)
+            const auto listed = [&available](const char* name)
+            {
+                return std::ranges::any_of(available, [name](const VkExtensionProperties& p)
+                                           { return std::string_view(p.extensionName) == std::string_view(name); });
+            };
+            hasEds3Extension = listed(VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME);
+            hasDeviceFaultExtension = listed(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
+            hasMeshShaderExtension = listed(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+            hasAccelStructExtension = listed(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+            hasDeferredHostOpsExtension = listed(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+            hasRayQueryExtension = listed(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+            hasRayPipelineExtension = listed(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
+            if (hasEds3Extension || hasDeviceFaultExtension || hasMeshShaderExtension || hasAccelStructExtension ||
+                hasRayQueryExtension || hasRayPipelineExtension)
             {
                 VkPhysicalDeviceFeatures2 probe{};
                 probe.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
@@ -529,9 +555,33 @@ namespace OloEngine
                     supportedMeshShader.pNext = probe.pNext;
                     probe.pNext = &supportedMeshShader;
                 }
+                // Chaining an extension's feature struct on a device that does
+                // not advertise the extension is undefined, so each link is
+                // gated on its own listing rather than on the group.
+                if (hasAccelStructExtension)
+                {
+                    supportedAccelStruct.pNext = probe.pNext;
+                    probe.pNext = &supportedAccelStruct;
+                }
+                if (hasRayQueryExtension)
+                {
+                    supportedRayQuery.pNext = probe.pNext;
+                    probe.pNext = &supportedRayQuery;
+                }
+                if (hasRayPipelineExtension)
+                {
+                    supportedRayPipeline.pNext = probe.pNext;
+                    probe.pNext = &supportedRayPipeline;
+                }
                 vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &probe);
                 supportedFault.pNext = nullptr;
                 supportedMeshShader.pNext = nullptr;
+                // Scrub every reused struct: these are probe results now and
+                // request structs later, and a stale pNext would splice the
+                // probe chain into vkCreateDevice's.
+                supportedAccelStruct.pNext = nullptr;
+                supportedRayQuery.pNext = nullptr;
+                supportedRayPipeline.pNext = nullptr;
             }
         }
         const bool wantDynamicBlend = hasEds3Extension &&
@@ -694,6 +744,69 @@ namespace OloEngine
             meshShaderFeatures.taskShader = VK_TRUE;
         }
 
+        // Hardware ray tracing (issue #978). OPTIONAL, never an ADR 0010 gate
+        // row — the same Tier-2 rule as mesh shaders. The unsupported REASON
+        // is decided here rather than at a use site, because this is the only
+        // place that can tell "the extension is absent" from "the extension
+        // is present and its feature bit is off", and #978 requires the
+        // renderer to report which.
+        //
+        // Only the bits this subsystem consumes are enabled.
+        // accelerationStructureCaptureReplay, accelerationStructureHostCommands
+        // and accelerationStructureIndirectBuild stay FALSE: nothing uses them
+        // and an unused feature bit is dead weight the validation layer still
+        // has to reason about (the EDS3 / mesh-shader rule).
+        VkPhysicalDeviceAccelerationStructureFeaturesKHR accelStructFeatures{};
+        accelStructFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+        VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{};
+        rayQueryFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayPipelineFeatures{};
+        rayPipelineFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+
+        // OLO_VULKAN_NO_RAY_TRACING=1 forces the whole subsystem off so a
+        // frame or validation difference can be attributed to it without a
+        // rebuild — the OLO_VULKAN_NO_HOST_IMAGE_COPY genre, and the
+        // "give every alternative GPU path a runtime lever" rule from the
+        // mesh-shader port (rhi-abstraction-boundary.md §14c).
+        const bool rayTracingForcedOff = Levers::VulkanNoRayTracing();
+        const bool rtExtensionsListed = hasAccelStructExtension && hasDeferredHostOpsExtension && hasRayQueryExtension;
+        const bool rtFeaturesSupported = supportedAccelStruct.accelerationStructure == VK_TRUE &&
+                                         supportedRayQuery.rayQuery == VK_TRUE;
+        const bool wantRayQuery = rtExtensionsListed && rtFeaturesSupported && !rayTracingForcedOff;
+        // The pipeline path rides on top of ray query; it is never enabled on
+        // its own, so a device offering pipelines without ray query reports
+        // the ray-query reason rather than half-enabling.
+        const bool wantRayPipeline =
+            wantRayQuery && hasRayPipelineExtension && supportedRayPipeline.rayTracingPipeline == VK_TRUE;
+
+        RayTracing::UnsupportedReason rayTracingReason = RayTracing::UnsupportedReason::None;
+        if (rayTracingForcedOff)
+        {
+            rayTracingReason = RayTracing::UnsupportedReason::DisabledByLever;
+        }
+        else if (!rtExtensionsListed)
+        {
+            rayTracingReason = RayTracing::UnsupportedReason::ExtensionMissing;
+        }
+        else if (!rtFeaturesSupported)
+        {
+            rayTracingReason = RayTracing::UnsupportedReason::FeatureUnsupported;
+        }
+
+        if (wantRayQuery)
+        {
+            deviceExtensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+            deviceExtensions.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+            deviceExtensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+            accelStructFeatures.accelerationStructure = VK_TRUE;
+            rayQueryFeatures.rayQuery = VK_TRUE;
+        }
+        if (wantRayPipeline)
+        {
+            deviceExtensions.push_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
+            rayPipelineFeatures.rayTracingPipeline = VK_TRUE;
+        }
+
         void* featureChainHead = wantDynamicBlend ? static_cast<void*>(&eds3Features)
                                                   : static_cast<void*>(&vulkan14Features);
         if (wantDeviceFault)
@@ -705,6 +818,21 @@ namespace OloEngine
         {
             meshShaderFeatures.pNext = featureChainHead;
             featureChainHead = &meshShaderFeatures;
+        }
+        // None of the three RT feature structs is version-promoted, so each
+        // stays a standalone chained struct (VUID-VkDeviceCreateInfo-pNext-02830
+        // rejects a promoted feature spelled both ways at once).
+        if (wantRayQuery)
+        {
+            accelStructFeatures.pNext = featureChainHead;
+            featureChainHead = &accelStructFeatures;
+            rayQueryFeatures.pNext = featureChainHead;
+            featureChainHead = &rayQueryFeatures;
+        }
+        if (wantRayPipeline)
+        {
+            rayPipelineFeatures.pNext = featureChainHead;
+            featureChainHead = &rayPipelineFeatures;
         }
 
         VkDeviceCreateInfo deviceInfo{};
@@ -726,6 +854,78 @@ namespace OloEngine
         // device's enabled features, which exist only once the create returns.
         m_MeshShaderEnabled = wantMeshShader;
         volkLoadDevice(m_Device);
+
+        // Ray tracing, committed after volkLoadDevice for the reason
+        // m_Maintenance5Enabled documents below: an enabled feature bit is not
+        // proof the command is callable, because volk only populates a pointer
+        // the loader/ICD actually exported. Every entry point this subsystem
+        // calls is null-checked here, once, rather than at each call site.
+        const bool rayTracingEntryPointsLoaded =
+            vkCreateAccelerationStructureKHR != nullptr && vkDestroyAccelerationStructureKHR != nullptr &&
+            vkGetAccelerationStructureBuildSizesKHR != nullptr && vkCmdBuildAccelerationStructuresKHR != nullptr &&
+            vkGetAccelerationStructureDeviceAddressKHR != nullptr && vkCmdCopyAccelerationStructureKHR != nullptr &&
+            vkCmdWriteAccelerationStructuresPropertiesKHR != nullptr;
+        m_RayQueryEnabled = wantRayQuery && rayTracingEntryPointsLoaded;
+        m_RayTracingPipelineEnabled = m_RayQueryEnabled && wantRayPipeline;
+        m_RayTracingUnsupportedReason = m_RayQueryEnabled ? RayTracing::UnsupportedReason::None
+                                        : (wantRayQuery && !rayTracingEntryPointsLoaded)
+                                            ? RayTracing::UnsupportedReason::EntryPointMissing
+                                            : rayTracingReason;
+        if (m_RayQueryEnabled)
+        {
+            VkPhysicalDeviceAccelerationStructurePropertiesKHR accelProps{};
+            accelProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+            VkPhysicalDeviceRayTracingPipelinePropertiesKHR pipelineProps{};
+            pipelineProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
+            VkPhysicalDeviceProperties2 rtProps2{};
+            rtProps2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            rtProps2.pNext = &accelProps;
+            if (m_RayTracingPipelineEnabled)
+            {
+                accelProps.pNext = &pipelineProps;
+            }
+            vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &rtProps2);
+            accelProps.pNext = nullptr;
+
+            m_RayTracingProperties.MaxGeometryCount = accelProps.maxGeometryCount;
+            m_RayTracingProperties.MaxInstanceCount = accelProps.maxInstanceCount;
+            m_RayTracingProperties.MaxPrimitiveCount = accelProps.maxPrimitiveCount;
+            m_RayTracingProperties.MinScratchOffsetAlignment = accelProps.minAccelerationStructureScratchOffsetAlignment;
+            if (m_RayTracingPipelineEnabled)
+            {
+                m_RayTracingProperties.ShaderGroupHandleSize = pipelineProps.shaderGroupHandleSize;
+                m_RayTracingProperties.ShaderGroupBaseAlignment = pipelineProps.shaderGroupBaseAlignment;
+                m_RayTracingProperties.ShaderGroupHandleAlignment = pipelineProps.shaderGroupHandleAlignment;
+            }
+            // Recorded, never gated on: these two are FALSE on the primary
+            // development GPU, and the builder's device-only, non-indirect
+            // path is correct either way. (Same discipline as
+            // identicalMemoryTypeRequirements, which gating on once disabled a
+            // whole feature here.)
+            m_RayTracingProperties.SupportsHostCommands = supportedAccelStruct.accelerationStructureHostCommands == VK_TRUE;
+            m_RayTracingProperties.SupportsIndirectBuild = supportedAccelStruct.accelerationStructureIndirectBuild == VK_TRUE;
+        }
+        if (rayTracingForcedOff)
+        {
+            OLO_CORE_WARN("[Vulkan] ray tracing disabled by OLO_VULKAN_NO_RAY_TRACING=1 — "
+                          "the RT scene reports unsupported and the raster path is unaffected");
+        }
+        // Loud either way: a silent fallback here would make every later
+        // measurement a measurement of the wrong path (§14a).
+        if (m_RayQueryEnabled)
+        {
+            OLO_CORE_INFO("[Vulkan] Ray tracing: ray query enabled{} (scratch align {} B, max instances {}, "
+                          "max primitives {})",
+                          m_RayTracingPipelineEnabled ? " + ray-tracing pipeline" : "",
+                          m_RayTracingProperties.MinScratchOffsetAlignment, m_RayTracingProperties.MaxInstanceCount,
+                          m_RayTracingProperties.MaxPrimitiveCount);
+        }
+        else
+        {
+            OLO_CORE_INFO("[Vulkan] Ray tracing: unavailable ({}) — the RT scene stays empty and every "
+                          "raster path is unaffected",
+                          RayTracing::ToString(m_RayTracingUnsupportedReason));
+        }
         vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
 
         // #809: same commit-after-create rule, and the entry points these
