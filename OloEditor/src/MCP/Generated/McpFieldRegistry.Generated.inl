@@ -1308,6 +1308,22 @@ registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "ShoreBreakerIndex", m_Sh
 registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "ShoreFoamGain", m_ShoreFoamGain, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(4.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "ShoreFoamFadeStart", m_ShoreFoamFadeStart, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(5000.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "ShoreFoamFadeEnd", m_ShoreFoamFadeEnd, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(5000.0f)));
+registry.push_back(OLO_GFW_FIELD(WaterComponent, "FoamAdvectionEnabled", m_FoamAdvectionEnabled));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "FoamAdvectionIntensity", m_FoamAdvectionIntensity, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(4.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "FoamAdvectionHalfLife", m_FoamAdvectionHalfLife, OLO_GFW_BOUND(0.05f), OLO_GFW_BOUND(120.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "FoamAdvectionThreshold", m_FoamAdvectionThreshold, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(0.99f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "FoamAdvectionDrift", m_FoamAdvectionDrift, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(0.5f)));
+registry.push_back(OLO_GFW_FIELD(WaterComponent, "SprayEnabled", m_SprayEnabled));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "SprayThreshold", m_SprayThreshold, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(0.99f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "SprayRate", m_SprayRate, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(200.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "SprayRadius", m_SprayRadius, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(400.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "SprayLaunchSpeed", m_SprayLaunchSpeed, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(30.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "SprayLifetime", m_SprayLifetime, OLO_GFW_BOUND(0.05f), OLO_GFW_BOUND(20.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "SprayParticleSize", m_SprayParticleSize, OLO_GFW_BOUND(0.005f), OLO_GFW_BOUND(2.0f)));
+registry.push_back(OLO_GFW_FIELD(WaterComponent, "RainRipplesEnabled", m_RainRipplesEnabled));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "RainRippleStrength", m_RainRippleStrength, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(4.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "RainRippleFadeStart", m_RainRippleFadeStart, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(2000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "RainRippleFadeEnd", m_RainRippleFadeEnd, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(4000.0f)));
 
 }
 

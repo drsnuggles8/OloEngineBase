@@ -701,6 +701,43 @@ namespace OloEngine
             // horizon into a white wash (#943), and surf on a beach is exactly
             // the signal you are meant to see from a boat well offshore.
             glm::vec4 ShoreParams2;
+            // Rain-impact ripples (issue #1034, §7.3). The procedural,
+            // world-anchored ring field evaluated by
+            // include/WaterRainCommon.glsl; the contract, and every constant it
+            // is built from, live in Renderer/Water/WaterRainRipples.h.
+            //
+            // x = strength (artist gain x live precipitation intensity),
+            // y = density (fraction of cells that fire per cycle),
+            // z = cell size in metres, w = unused.
+            //
+            // x <= 0 IS the disabled state, and the shader returns on it BEFORE
+            // walking the 3x3 cell neighbourhood — which is what makes "no cost
+            // when rain is off" structural rather than a multiply by zero.
+            // Read from WaterRainRippleSystem rather than carried per-surface,
+            // for the same reason the wake and shore blocks above are: whether
+            // it is raining is a property of the SCENE, not of a water tile.
+            glm::vec4 RainRippleParams;
+            // x = ripple fade start (m), y = ripple fade end (m), z/w unused.
+            //
+            // Its OWN fade, much shorter than the wake's: the ripple cell grid
+            // is sub-metre, so it is undersampled long before the horizon and
+            // has to be DROPPED rather than filtered
+            // (docs/agent-rules/water-shading-nyquist.md §3).
+            glm::vec4 RainRippleParams2;
+            // Advected foam field (issue #1034, §2.2). The .g channel of the
+            // SAME world-anchored disturbance texture WakeFieldParams above
+            // describes — same window, same lattice, same edge fade
+            // (WakeFieldParams2.z), different channel. The contract is
+            // Renderer/Water/WaterFoam.h.
+            //
+            // xy = window centre (world XZ), z = 1 / field extent,
+            // w  = intensity. w <= 0 IS the disabled state.
+            //
+            // It carries its OWN copy of the window rather than reusing
+            // WakeFieldParams because the two features gate independently: a
+            // scene can advect open-ocean whitecaps with no boat in it, and
+            // WakeFieldParams reports all-zero in exactly that case.
+            glm::vec4 FoamFieldParams;
             // The packed hull records. Layout is WaterWake.h's, verbatim; a
             // flat vec4 array because its std140 stride is exactly 16 bytes on
             // every implementation, with no padding rule to get wrong.
@@ -746,17 +783,26 @@ namespace OloEngine
         // has to remember to enforce.
         struct WaterDisturbanceUBO
         {
-            glm::ivec2 LatticeMin;                                                 // 0  — lower corner of THIS frame's window
-            glm::ivec2 PrevLatticeMin;                                             // 8  — lower corner of the PREVIOUS frame's window
-            f32 TexelSize;                                                         // 16 — metres per texel
-            f32 DecayFactor;                                                       // 20 — this frame's multiplicative decay
-            i32 Resolution;                                                        // 24 — texels per axis
-            i32 SplatCount;                                                        // 28 — live entries in Splats
-            i32 ResetAll;                                                          // 32 — 1 = clear the whole field this dispatch
-            i32 Pad0;                                                              // 36
-            i32 Pad1;                                                              // 40
-            i32 Pad2;                                                              // 44
-            WaterDisturbanceSplatGpu Splats[WaterDisturbance::kMaxSplatsPerFrame]; // 48
+            glm::ivec2 LatticeMin;     // 0  — lower corner of THIS frame's window
+            glm::ivec2 PrevLatticeMin; // 8  — lower corner of the PREVIOUS frame's window
+            f32 TexelSize;             // 16 — metres per texel
+            f32 DecayFactor;           // 20 — this frame's multiplicative decay
+            i32 Resolution;            // 24 — texels per axis
+            i32 SplatCount;            // 28 — live entries in Splats
+            i32 ResetAll;              // 32 — 1 = clear the whole field this dispatch
+            // Foam advection (issue #1034, §2.2). The same dispatch, over the
+            // same lattice, writing the .g channel of the same texture — see
+            // Renderer/Water/WaterFoam.h §1 for why it rides here rather than
+            // in a field of its own.
+            i32 FoamEnabled;                                                       // 36 — 0 writes zero into .g, so switching advection off cannot freeze the foam
+            f32 FoamDecayFactor;                                                   // 40 — the foam's OWN exponential decay; whitecaps outlive a wave, not a boat
+            f32 DeltaSeconds;                                                      // 44 — the advection step. DecayFactor already folds dt in; the backtrace needs it raw
+            f32 FoamDepositThreshold;                                              // 48 — fold signal at which foam starts being laid down
+            f32 Pad0;                                                              // 52
+            glm::vec2 FoamDrift;                                                   // 56 — mean surface current (m/s, world XZ)
+            glm::vec4 FoamFFTParams;                                               // 64 — u_FFTParams for the dominant surface's cascade sum
+            glm::vec4 FoamFFTCascadeParams;                                        // 80 — u_FFTCascadeParams for the same
+            WaterDisturbanceSplatGpu Splats[WaterDisturbance::kMaxSplatsPerFrame]; // 96
 
             static constexpr u32 GetSize()
             {
@@ -1878,15 +1924,22 @@ namespace OloEngine
     // 104 vec4 = 1664 B, comfortably under the 16 KB std140 block ceiling — and
     // an ARRAY rather than a block of its own precisely because the engine has
     // exactly one UBO binding left below UBO_BINDING_LIMIT.
+    // The trailing `+ 3u` is issue #1034's: RainRippleParams, RainRippleParams2
+    // and FoamFieldParams. Every one of them is declared in ALL FIVE water
+    // shader stages, so a member added here without updating them is a link
+    // error rather than a silent mismatch — see the block's own comments.
     static_assert(sizeof(UBOStructures::WaterUBO) ==
-                      (21u + 1u + 2u + WaterWake::kHullVec4Count) * sizeof(glm::vec4),
+                      (21u + 1u + 2u + 3u + WaterWake::kHullVec4Count) * sizeof(glm::vec4),
                   "WaterUBO no longer matches its own field list -- a member was added without "
                   "updating this expression");
-    static_assert(sizeof(UBOStructures::WaterUBO) == 1664, "WaterUBO unexpected size -- update GLSL layout");
+    static_assert(sizeof(UBOStructures::WaterUBO) == 1712, "WaterUBO unexpected size -- update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterDisturbanceUBO) % 16 == 0,
                   "WaterDisturbanceUBO size must be 16-byte aligned for std140");
-    // 48 B header + kMaxSplatsPerFrame (96) * 32 B per capsule splat.
-    static_assert(sizeof(UBOStructures::WaterDisturbanceUBO) == 3120,
+    // 96 B header + kMaxSplatsPerFrame (96) * 32 B per capsule splat. The header
+    // grew from 48 to 96 with issue #1034's foam-advection fields, which also
+    // moved the splat array's offset — both sides changed together, and
+    // WaterFoamAdvectionTest pins every offset in it.
+    static_assert(sizeof(UBOStructures::WaterDisturbanceUBO) == 3168,
                   "WaterDisturbanceUBO unexpected size -- update WaterDisturbance_Update.comp");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) % 16 == 0, "ForwardPlusUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 48, "ForwardPlusUBO unexpected size — update GLSL layout");

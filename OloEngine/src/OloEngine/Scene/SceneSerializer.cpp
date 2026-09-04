@@ -1554,6 +1554,39 @@ namespace OloEngine
             waterComponent["ShoreFoamFadeStart"].as<f32>(water.m_ShoreFoamFadeStart);
         water.m_ShoreFoamFadeEnd =
             waterComponent["ShoreFoamFadeEnd"].as<f32>(water.m_ShoreFoamFadeEnd);
+        // Advected open-ocean foam (issue #1034). Defaults leave it OFF, so a
+        // scene written before this existed keeps its instantaneous Jacobian
+        // whitecaps rather than acquiring a drifting foam field on load.
+        water.m_FoamAdvectionEnabled =
+            waterComponent["FoamAdvectionEnabled"].as<bool>(water.m_FoamAdvectionEnabled);
+        water.m_FoamAdvectionIntensity =
+            waterComponent["FoamAdvectionIntensity"].as<f32>(water.m_FoamAdvectionIntensity);
+        water.m_FoamAdvectionHalfLife =
+            waterComponent["FoamAdvectionHalfLife"].as<f32>(water.m_FoamAdvectionHalfLife);
+        water.m_FoamAdvectionThreshold =
+            waterComponent["FoamAdvectionThreshold"].as<f32>(water.m_FoamAdvectionThreshold);
+        water.m_FoamAdvectionDrift =
+            waterComponent["FoamAdvectionDrift"].as<f32>(water.m_FoamAdvectionDrift);
+        // Bubble / spray particles (issue #1034). Defaults leave it OFF.
+        water.m_SprayEnabled = waterComponent["SprayEnabled"].as<bool>(water.m_SprayEnabled);
+        water.m_SprayThreshold = waterComponent["SprayThreshold"].as<f32>(water.m_SprayThreshold);
+        water.m_SprayRate = waterComponent["SprayRate"].as<f32>(water.m_SprayRate);
+        water.m_SprayRadius = waterComponent["SprayRadius"].as<f32>(water.m_SprayRadius);
+        water.m_SprayLaunchSpeed =
+            waterComponent["SprayLaunchSpeed"].as<f32>(water.m_SprayLaunchSpeed);
+        water.m_SprayLifetime = waterComponent["SprayLifetime"].as<f32>(water.m_SprayLifetime);
+        water.m_SprayParticleSize =
+            waterComponent["SprayParticleSize"].as<f32>(water.m_SprayParticleSize);
+        // Rain-impact ripples (issue #1034). Defaults leave them OFF, so a
+        // scene written before this existed renders exactly as it did.
+        water.m_RainRipplesEnabled =
+            waterComponent["RainRipplesEnabled"].as<bool>(water.m_RainRipplesEnabled);
+        water.m_RainRippleStrength =
+            waterComponent["RainRippleStrength"].as<f32>(water.m_RainRippleStrength);
+        water.m_RainRippleFadeStart =
+            waterComponent["RainRippleFadeStart"].as<f32>(water.m_RainRippleFadeStart);
+        water.m_RainRippleFadeEnd =
+            waterComponent["RainRippleFadeEnd"].as<f32>(water.m_RainRippleFadeEnd);
         water.m_SSSColor = waterComponent["SSSColor"].as<glm::vec3>(water.m_SSSColor);
         water.m_SSSIntensity = waterComponent["SSSIntensity"].as<f32>(water.m_SSSIntensity);
         water.m_SSRMaxSteps = waterComponent["SSRMaxSteps"].as<f32>(water.m_SSRMaxSteps);
@@ -1739,6 +1772,28 @@ namespace OloEngine
         // which loader it came through.
         if (water.m_ShoreFoamFadeEnd < water.m_ShoreFoamFadeStart + 1.0f)
             water.m_ShoreFoamFadeEnd = water.m_ShoreFoamFadeStart + 1.0f;
+        // Foam advection (issue #1034). Bounds identical to the
+        // OLO_SERIALIZE(Clamp) annotations and to Scene's per-frame publish.
+        SanitizeFloat(water.m_FoamAdvectionIntensity, 0.0f, 4.0f, 1.0f);
+        SanitizeFloat(water.m_FoamAdvectionHalfLife, 0.05f, 120.0f, 3.5f);
+        SanitizeFloat(water.m_FoamAdvectionThreshold, 0.0f, 0.99f, 0.10f);
+        SanitizeFloat(water.m_FoamAdvectionDrift, 0.0f, 0.5f, 0.03f);
+        // Spray (issue #1034). Bounds identical to the OLO_SERIALIZE(Clamp)
+        // annotations and to WaterSpray::Emit's own guards.
+        SanitizeFloat(water.m_SprayThreshold, 0.0f, 0.99f, 0.22f);
+        SanitizeFloat(water.m_SprayRate, 0.0f, 200.0f, 6.0f);
+        SanitizeFloat(water.m_SprayRadius, 1.0f, 400.0f, 38.0f);
+        SanitizeFloat(water.m_SprayLaunchSpeed, 0.0f, 30.0f, 2.6f);
+        SanitizeFloat(water.m_SprayLifetime, 0.05f, 20.0f, 0.9f);
+        SanitizeFloat(water.m_SprayParticleSize, 0.005f, 2.0f, 0.25f);
+        // Rain ripples (issue #1034). Bounds identical to the
+        // OLO_SERIALIZE(Clamp) annotations and to
+        // WaterRainRippleSystem::GetShaderParams2, for the reason above.
+        SanitizeFloat(water.m_RainRippleStrength, 0.0f, 4.0f, 1.0f);
+        SanitizeFloat(water.m_RainRippleFadeStart, 0.0f, 2000.0f, 18.0f);
+        SanitizeFloat(water.m_RainRippleFadeEnd, 1.0f, 4000.0f, 45.0f);
+        if (water.m_RainRippleFadeEnd < water.m_RainRippleFadeStart + 1.0f)
+            water.m_RainRippleFadeEnd = water.m_RainRippleFadeStart + 1.0f;
         SanitizeVec3(water.m_SSSColor, { 0.0f, 0.5f, 0.4f });
         SanitizeFloat(water.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
         SanitizeFloat(water.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
@@ -5507,6 +5562,25 @@ namespace OloEngine
             out << YAML::Key << "ShoreFoamGain" << YAML::Value << water.m_ShoreFoamGain;
             out << YAML::Key << "ShoreFoamFadeStart" << YAML::Value << water.m_ShoreFoamFadeStart;
             out << YAML::Key << "ShoreFoamFadeEnd" << YAML::Value << water.m_ShoreFoamFadeEnd;
+            // Advected open-ocean foam (issue #1034, §2.2).
+            out << YAML::Key << "FoamAdvectionEnabled" << YAML::Value << water.m_FoamAdvectionEnabled;
+            out << YAML::Key << "FoamAdvectionIntensity" << YAML::Value << water.m_FoamAdvectionIntensity;
+            out << YAML::Key << "FoamAdvectionHalfLife" << YAML::Value << water.m_FoamAdvectionHalfLife;
+            out << YAML::Key << "FoamAdvectionThreshold" << YAML::Value << water.m_FoamAdvectionThreshold;
+            out << YAML::Key << "FoamAdvectionDrift" << YAML::Value << water.m_FoamAdvectionDrift;
+            // Bubble / spray particles (issue #1034, §2.3).
+            out << YAML::Key << "SprayEnabled" << YAML::Value << water.m_SprayEnabled;
+            out << YAML::Key << "SprayThreshold" << YAML::Value << water.m_SprayThreshold;
+            out << YAML::Key << "SprayRate" << YAML::Value << water.m_SprayRate;
+            out << YAML::Key << "SprayRadius" << YAML::Value << water.m_SprayRadius;
+            out << YAML::Key << "SprayLaunchSpeed" << YAML::Value << water.m_SprayLaunchSpeed;
+            out << YAML::Key << "SprayLifetime" << YAML::Value << water.m_SprayLifetime;
+            out << YAML::Key << "SprayParticleSize" << YAML::Value << water.m_SprayParticleSize;
+            // Rain-impact ripples (issue #1034, §7.3).
+            out << YAML::Key << "RainRipplesEnabled" << YAML::Value << water.m_RainRipplesEnabled;
+            out << YAML::Key << "RainRippleStrength" << YAML::Value << water.m_RainRippleStrength;
+            out << YAML::Key << "RainRippleFadeStart" << YAML::Value << water.m_RainRippleFadeStart;
+            out << YAML::Key << "RainRippleFadeEnd" << YAML::Value << water.m_RainRippleFadeEnd;
             out << YAML::Key << "SSSColor" << YAML::Value << water.m_SSSColor;
             out << YAML::Key << "SSSIntensity" << YAML::Value << water.m_SSSIntensity;
             out << YAML::Key << "SSRMaxSteps" << YAML::Value << water.m_SSRMaxSteps;

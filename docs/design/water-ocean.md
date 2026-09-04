@@ -225,15 +225,79 @@ Phillips. Pinned by `OceanFFTSpectrumTest`.
 
 ## 2. Foam & Whitecap Generation (Medium Impact / Medium Effort)
 
-### 2.1 Jacobian-Based Foam
+### 2.1 Jacobian-Based Foam — **shipped**
 
 The FFT pipeline naturally provides the Jacobian determinant of the horizontal
 displacement. Areas where $J < 0$ (surface folding) correspond to breaking
-waves. Store the Jacobian in a texture, then:
+waves. `Ocean_Assemble.comp` packs `saturate(1 - J)` into the displacement
+texture's alpha, and `Water.glsl` folds it in with the height/angle/shoreline
+foam terms. Far more physically plausible than those thresholds — but static,
+which is what §2.2 is about.
 
-- Accumulate foam over time where $J < \epsilon$ (with exponential decay).
-- Modulate foam brightness by $\max(0, -J)$ for varying intensity.
-- Far more physically plausible than height/angle thresholds.
+### 2.2 Foam Advection — **shipped (issue #1034)**
+
+The §2.1 signal is a function of what the surface is doing *right now*, so a
+whitecap appears and vanishes in place. Real foam is a thing floating on the
+water: laid down where the wave broke, then carried by the surface for seconds.
+
+- **The field.** A channel of the existing world-anchored, toroidally stored
+  disturbance field rather than a second one — `.r` is the boat wake (§5.4),
+  `.g` is the advected foam, `.ba` is the previous frame's FFT horizontal
+  displacement. Widened RG16F → RGBA16F for it, and ping-ponged, because a
+  semi-Lagrangian step reads a *neighbour* and a compute pass that reads
+  neighbours while writing in place races between work groups. The contract is
+  [`Renderer/Water/WaterFoam.h`](../../OloEngine/src/OloEngine/Renderer/Water/WaterFoam.h);
+  its GPU twin is `include/WaterFoamCommon.glsl`; both run in the one existing
+  `WaterDisturbance_Update.comp` dispatch. No new UBO binding and no new sampler
+  slot — the engine has one of the former and none of the latter to spare.
+- **The velocity has two parts and needs both.** *Orbital* — the wave's own
+  motion, obtained by differencing this frame's FFT horizontal displacement
+  against the one stored in `.ba` last frame. Deep-water orbits are closed, so
+  it transports nothing on average, but it is what makes foam slide down the
+  front of a breaking crest. *Drift* — the wind-driven surface current, a few
+  percent of the wind speed, and the only part with a non-zero mean, so it is
+  the whole reason a patch ends up somewhere else rather than oscillating about
+  where it started.
+- **Advection REPLACES the §2.1 term rather than adding to it.** Leaving the
+  instantaneous Jacobian foam in would keep a pulsing copy underneath the
+  drifting one, and the pulsing copy is the brighter of the two. Advection off
+  selects the old term unchanged, so no existing scene moves.
+- **Requires the FFT ocean.** The deposit criterion *is* the fold signal, so a
+  Gerstner sea has nothing to deposit from and the system reports the feature
+  off rather than running an empty pass.
+
+Contracts: `WaterFoamAdvectionTest.cpp` — the recurrence run over many steps
+with the patch's centre of mass asserted to have MOVED by what the velocity
+says (negative-controlled against a zero velocity), the toroidal seam, the
+half-texel convention, the UBO offsets and the GLSL constant mirror.
+
+### 2.3 Bubble / Spray Particles — **shipped (issue #1034)**
+
+Crests that fold hard enough throw spray: GPU particles on ballistic arcs with
+wind drag, drawn as soft-depth-blended billboards.
+
+- **An emitter, not a subsystem.** `GPUParticleSystem` already runs the
+  emit/simulate/compact/indirect chain, `Particle_Simulate.comp` already does
+  gravity + drag + wind-field sampling, and `ParticleBatchRenderer` already
+  draws the billboards. `Renderer/Water/WaterSpraySystem` adds the emitter and
+  [`WaterSpray.h`](../../OloEngine/src/OloEngine/Renderer/Water/WaterSpray.h)
+  the emission criterion.
+- **ONE crest detector, shared with §2.2.** `WaterSpray::Emit` calls
+  `WaterFoam::DepositFromFold` — the same function on the same fold signal the
+  compute pass lays foam down with. A crest that sprays is a crest that foams,
+  by construction. What it does *not* do is read the foam texture: that would
+  be a per-frame GPU readback to learn something it can evaluate directly from
+  the CPU ocean proxy `OceanFFTField` already retains for buoyancy.
+- **Emission is CPU-side and world-anchored.** Candidates sit on a jittered
+  lattice anchored at the world origin, so flying the camera over a fixed sea
+  does not re-roll which crests are spraying. The fractional per-cell rate is
+  resolved against a hash of (cell, time bucket) rather than an RNG, which
+  makes emission frame-rate independent *and* reproducible under a mocked clock.
+
+Contracts: `WaterSprayTest.cpp` — "a calm sea emits nothing" (negative-
+controlled against a folding sea through the same fixture), emission tracking
+`DepositFromFold` across a fold sweep, frame-rate independence at 60 vs 120 Hz,
+determinism, the per-frame cap, and the launch geometry.
 
 ## 3. Lighting & Shading (Medium Impact / Low–Medium Effort)
 
@@ -432,8 +496,13 @@ shoreline-grazing angles — a top-down shot cannot show whether waves turn.
 
 `Renderer/Water/WaterDisturbanceField.{h}` + `WaterDisturbanceSystem` maintain the
 injectable field (UBO binding 63, `WaterDisturbance_Update.comp`); `Water.glsl`
-samples it through `sampleWaterDisturbance()`. This is the mechanism a rain-impact
-effect should reuse — see [#1034](https://github.com/drsnuggles8/OloEngineBase/issues/1034).
+samples it through `sampleWaterDisturbance()`. Issue #1034 added a second signal
+to the same field and the same dispatch — see §2.2 for the advected foam channel
+and why the texture is now RGBA16F and ping-ponged.
+
+Rain impacts do NOT reuse it, and §7.3 records the two measurements that rule it
+out: half-metre texels against a 0.2 m ring, and a 96-per-frame splat queue
+against a sea's worth of raindrops.
 
 > Related (issue #630): the engine now has a real particle fluid — the PBF
 > solver under `OloEngine/src/OloEngine/Fluid/` (`FluidComponent`) — which
@@ -561,6 +630,43 @@ When the camera goes below the water surface:
 - ❌ **Add floating particle effects (dust, plankton) — not yet.** No underwater
   particle path; would tie into the existing `Particle` subsystem gated on
   `UnderwaterFogState::Active`.
+
+### 7.3 Rain-Impact Ripples — **shipped (issue #1034)**
+
+Small expanding rings stipple the surface while precipitation is active.
+
+- **Procedural, not the disturbance field.** §5.4's field is the obvious host —
+  it is already "inject a decaying world-anchored disturbance" — and two numbers
+  rule it out: it is 0.5 m *per texel*, where a rain ring is ~0.2 m across at
+  its widest, and its splat queue is 96 *per frame*, shared with the boat wake.
+  Rain covers the whole visible sea. So the rings are evaluated analytically at
+  shading time from a world-anchored cell hash;
+  [`Renderer/Water/WaterRainRipples.h`](../../OloEngine/src/OloEngine/Renderer/Water/WaterRainRipples.h)
+  is the contract and `include/WaterRainCommon.glsl` its GPU twin.
+- **Zero cost when it is not raining, structurally.** `waterRainRippleSlope`
+  returns on `params.x <= 0` *before* walking its 3×3 cell neighbourhood, and
+  that value comes from a uniform, so the branch is uniform. The smoothed
+  precipitation intensity is snapped to zero below a floor as well — it decays
+  exponentially and never reaches zero on its own, so without the floor the
+  early-out would stop firing after the first shower.
+- **Normal-only.** A raindrop ring is a couple of millimetres deep; no water
+  mesh this engine tessellates could carry it as geometry. The ring's height
+  profile derivative is the primitive, and it is added to the shading normal as
+  a *slope* — slopes add, normals do not.
+- **An integer hash.** The ring cycle index grows without bound with the clock,
+  and the usual `fract(sin(dot(p, k)) * c)` degenerates into visible structure
+  once its argument gets large — a defect that appears only after minutes of
+  play. lowbias32 has no such regime, and being exact on both sides is what lets
+  the CPU/GPU parity be a value comparison rather than a picture comparison.
+- **Both halves of the gate.** The water tile says whether ripples are wanted;
+  the sky says whether it is raining. They meet in
+  `Renderer/Water/WaterRainRippleSystem`, which is also where snow is excluded —
+  a snowflake landing on water melts, it does not ring.
+
+Contracts: `WaterRainRippleTest.cpp` — the exactly-zero OFF state, the intensity
+tail snapping off (negative-controlled against a modelled exponential decay),
+ring expansion and the amplitude envelope's two ends, the two-halves gate, and
+the GLSL constant/early-out mirror.
 
 ## References
 

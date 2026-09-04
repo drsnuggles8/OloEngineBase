@@ -24,6 +24,7 @@
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
+#include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
 #include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
 #include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
@@ -3000,6 +3001,24 @@ namespace OloEngine
             // cannot put a stale or half-baked seabed on screen.
             waterData.ShoreParams = WaterShoreDepthSystem::GetShaderParams();
             waterData.ShoreParams2 = WaterShoreDepthSystem::GetShaderParams2();
+            // Rain-impact ripples (issue #1034). Same rule again, and here it
+            // is the least arguable of the four: whether it is RAINING is a
+            // property of the sky, not of a water tile, and two tiles that
+            // disagreed about it would put a downpour on one and a dry calm on
+            // the other in the same frame.
+            //
+            // GetShaderParams() reports x == 0 for every reason the ripples
+            // could be unusable — the tile has them off, it is not raining, or
+            // what is falling is snow — so packing it unconditionally cannot
+            // leave a stale stipple on a sea the weather has since dried.
+            waterData.RainRippleParams = WaterRainRippleSystem::GetShaderParams();
+            waterData.RainRippleParams2 = WaterRainRippleSystem::GetShaderParams2();
+            // Advected open-ocean foam (issue #1034). The .g channel of the SAME
+            // texture WakeFieldParams above describes, so it needs no binding of
+            // its own — but it does need its own window params, because the two
+            // features gate independently and WakeFieldParams reports all-zero
+            // on a sea with no boat in it.
+            waterData.FoamFieldParams = WaterDisturbanceSystem::GetFoamShaderParams();
             std::memcpy(waterData.WakeHulls, WaterWakeSystem::GetHullData(),
                         sizeof(waterData.WakeHulls));
             waterUBO->SetData(&waterData, ShaderBindingLayout::WaterUBO::GetSize());

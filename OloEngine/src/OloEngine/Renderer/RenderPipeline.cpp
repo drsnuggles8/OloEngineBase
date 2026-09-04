@@ -38,6 +38,8 @@
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
+#include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
+#include "OloEngine/Renderer/Water/WaterSpraySystem.h"
 
 #include <algorithm>
 #include <array>
@@ -1804,9 +1806,22 @@ namespace OloEngine
             // wall-clock dt would decay the field by however long the previous
             // frame happened to take, making every wake golden flaky.
             const f32 wakeDt = SampleMockableDt(data.WaterDisturbancePrevTimeSeconds, 0.25f);
-            WaterDisturbanceSystem::Update(data.WaterDisturbance,
+            // The same dispatch also advects the open-ocean foam channel
+            // (issue #1034 §2.2) — same window, same lattice, same dt. It is
+            // fed as a second settings block rather than folded into the first
+            // because the two features gate independently, and the pass runs
+            // when EITHER is on.
+            WaterDisturbanceSystem::Update(data.WaterDisturbance, data.WaterFoamAdvection,
                                            glm::vec2(data.ViewPos.x, data.ViewPos.z),
                                            Timestep(wakeDt));
+
+            // Crest spray particles (issue #1034, §2.3). Driven from the same
+            // block, on the same mockable dt as the field above, so a golden
+            // capture of spray is reproducible for the reason the wake's is.
+            // Called unconditionally: Update() drains particles already in
+            // the air when spray is switched off, rather than deleting them
+            // mid-arc.
+            WaterSpraySystem::Update(data.ViewPos, Timestep(wakeDt));
 
             // Boat / actor wake SHAPE (issue #968). No dispatch and no dt: the
             // records are plain CPU state that BoatWakeSystem rebuilt during the
@@ -1829,6 +1844,29 @@ namespace OloEngine
                 glm::vec3 windDir = (windXZLen > 1e-6f) ? (windXZ / windXZLen) : glm::vec3(1.0f, 0.0f, 0.0f);
                 f32 windSpeed = data.Wind.Speed;
                 PrecipitationSystem::Update(data.Precipitation, data.ViewPos, windDir, windSpeed, Timestep(dt));
+
+                // Rain-impact ripples (issue #1034, §7.3) — the SKY half of the
+                // gate. The water half was published by the scene; the two meet
+                // in WaterRainRippleSystem, which is the only place that knows
+                // both.
+                //
+                // Fed unconditionally, exactly like the disturbance settings
+                // above, so switching the weather off actively drops the
+                // stipple instead of freezing it.
+                //
+                // The SMOOTHED intensity, not `data.Precipitation.Intensity`:
+                // the smoothed one is what the raindrops themselves are flying
+                // at, so the surface dries as the shower thins out rather than
+                // snapping dry a full drain-time before the last drop lands.
+                //
+                // Snow is excluded because a snowflake landing on water melts,
+                // it does not ring. Rain, hail and sleet all strike hard enough.
+                {
+                    const bool rippleCapable =
+                        data.Precipitation.Type != PrecipitationType::Snow;
+                    WaterRainRippleSystem::SetPrecipitation(
+                        rippleCapable, PrecipitationSystem::GetCurrentIntensity());
+                }
 
                 if (data.Precipitation.Enabled)
                 {

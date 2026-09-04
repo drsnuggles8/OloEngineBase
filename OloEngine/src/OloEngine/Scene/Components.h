@@ -4919,6 +4919,115 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 5000.0f)
         f32 m_ShoreFoamFadeEnd = 400.0f;
 
+        // --- Advected open-ocean foam (issue #1034, §2.2) --------------------
+        // Whitecaps are a static function of the surface today: the shader
+        // whitens wherever the FFT is folding right now, so they appear and
+        // vanish IN PLACE. Real foam is laid down where the wave broke and then
+        // drifts with the surface. Turning this on stores a foam density field
+        // and advects it; the contract is Renderer/Water/WaterFoam.h.
+        //
+        // REQUIRES m_UseFFT. The deposit criterion is the FFT's own folding
+        // Jacobian, so a Gerstner sea has nothing to deposit from — the system
+        // reports the feature off in that case rather than running an empty
+        // pass. OFF by default, like every other water addition, so no existing
+        // scene changes what it renders.
+        bool m_FoamAdvectionEnabled = false;
+        // Shader multiplier on the advected field. 0 keeps the pass running and
+        // makes the result invisible — the A/B setting for telling advected
+        // foam apart from the crest and shoreline terms it sits alongside.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 4.0f)
+        f32 m_FoamAdvectionIntensity = 1.0f;
+        // Seconds for deposited foam to halve. Shorter than the wake's on
+        // purpose: a whitecap is gone in a few seconds, a boat's churn is not.
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 120.0f)
+        f32 m_FoamAdvectionHalfLife = 3.5f;
+        // Fold signal (saturate(1 - Jacobian)) at which foam starts being laid
+        // down. RAISE it for a calm sea that should only foam in the steepest
+        // crests; lower it for a storm that should be white all over.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 0.99f)
+        f32 m_FoamAdvectionThreshold = 0.10f;
+        // Fraction of the FFT wind speed taken as the mean surface drift. This
+        // is the ONLY part of the advecting velocity with a non-zero mean, so
+        // it is the whole reason a foam patch ends up somewhere else instead of
+        // oscillating about where it started. The physical Stokes-drift figure
+        // is nearer 1.5%; the default exaggerates it so the drift is visible
+        // over a handful of frames.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 0.5f)
+        f32 m_FoamAdvectionDrift = 0.03f;
+
+        // --- Bubble / spray particles (issue #1034, §2.3) --------------------
+        // GPU particles thrown off crests that fold hard enough, with ballistic
+        // motion and wind drag. Shares its crest criterion with foam advection
+        // above — literally the same function, so a crest that sprays is a
+        // crest that foams — and, like it, REQUIRES m_UseFFT.
+        //
+        // OFF by default. Emission is CPU-side (the criterion reads the ocean's
+        // retained CPU proxy, so it costs no GPU readback) and is skipped
+        // entirely when the sea is not folding, which is the §2.3 acceptance
+        // criterion "does not emit on a calm sea".
+        bool m_SprayEnabled = false;
+        // Fold signal a crest must exceed to spray. Clamped UP to the foam
+        // deposit threshold at publish time, never below it: spray is the
+        // louder half of the same phenomenon, and droplets flying off water
+        // that never went white read as a foam bug.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 0.99f)
+        f32 m_SprayThreshold = 0.22f;
+        // Particles per second from one sample cell at full fold. A PER-CELL
+        // rate, so widening the radius adds spray rather than thinning what is
+        // already there.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 200.0f)
+        f32 m_SprayRate = 6.0f;
+        // How far from the camera crests are sampled, metres. Each cell is one
+        // CPU cascade sample, and the emitter strides rather than truncating
+        // past its own cap, so raising this thins the sampling instead of
+        // cutting the far half off.
+        OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 400.0f)
+        f32 m_SprayRadius = 38.0f;
+        // Initial upward speed of a droplet, m/s.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 30.0f)
+        f32 m_SprayLaunchSpeed = 2.6f;
+        // Seconds a droplet lives. Sized to the ballistic arc it actually
+        // flies — at the default launch speed it is back at the surface in
+        // about 0.6 s.
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 20.0f)
+        f32 m_SprayLifetime = 0.9f;
+        // Billboard size, metres. A PUFF standing for a cluster of droplets,
+        // not a single droplet — a real droplet is millimetres across and
+        // subtends under a pixel at any distance you would see spray from.
+        OLO_SERIALIZE(Clamp, Min = 0.005f, Max = 2.0f)
+        f32 m_SprayParticleSize = 0.25f;
+
+        // --- Rain-impact ripples (issue #1034, §7.3) -------------------------
+        // Small expanding rings stippling the surface while precipitation is
+        // active. Procedural and normal-only; the contract is
+        // Renderer/Water/WaterRainRipples.h.
+        //
+        // This flag is only half the gate: the OTHER half is whether it is
+        // actually raining, which the water tile cannot know. Both have to be
+        // true, and WaterRainRippleSystem is where they meet. So leaving this
+        // on in a scene with no weather costs nothing — the shader's
+        // `u_RainRippleParams.x <= 0` early-out fires on the precipitation half
+        // alone.
+        //
+        // OFF by default, like the wake and shore flags, so no existing scene
+        // changes what it renders.
+        bool m_RainRipplesEnabled = false;
+        // Artist gain on the ripple slope, multiplied by the live precipitation
+        // intensity. 0 keeps the feature wired up and makes it invisible, which
+        // is the useful setting for A/B-ing whether a wet-looking sea is the
+        // ripples or the rest of the weather.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 4.0f)
+        f32 m_RainRippleStrength = 1.0f;
+        // Camera distances over which the ripples fade out. MUCH shorter than
+        // any other water fade, and not an art choice: the ripple cell grid is
+        // 0.55 m, so the field is undersampled within a few tens of metres and
+        // has to be dropped rather than filtered
+        // (docs/agent-rules/water-shading-nyquist.md §3).
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 2000.0f)
+        f32 m_RainRippleFadeStart = 18.0f;
+        OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 4000.0f)
+        f32 m_RainRippleFadeEnd = 45.0f;
+
         // Runtime (not serialized)
         OLO_SERIALIZE(Skip)
         Ref<Mesh> m_WaterMesh;
@@ -5009,7 +5118,19 @@ namespace OloEngine
                 // Shore waves (issue #1033). The bool is compared on its own for
                 // the padding reason above; the four floats are contiguous.
                 && m_ShoreWavesEnabled == o.m_ShoreWavesEnabled
-                && blkEq(m_ShoreBreakerIndex, m_ShoreFoamFadeEnd); // f32*4
+                && blkEq(m_ShoreBreakerIndex, m_ShoreFoamFadeEnd) // f32*4
+                // Foam advection (issue #1034). Bool on its own, floats as one
+                // block — the same padding rule as every group above.
+                && m_FoamAdvectionEnabled == o.m_FoamAdvectionEnabled
+                && blkEq(m_FoamAdvectionIntensity, m_FoamAdvectionDrift) // f32*4
+                // Spray (issue #1034). Bool on its own, floats as one block —
+                // the same padding rule as every group above.
+                && m_SprayEnabled == o.m_SprayEnabled
+                && blkEq(m_SprayThreshold, m_SprayParticleSize) // f32*6
+                // Rain ripples (issue #1034). Bool on its own, floats as one
+                // block — the same padding rule as every group above.
+                && m_RainRipplesEnabled == o.m_RainRipplesEnabled
+                && blkEq(m_RainRippleStrength, m_RainRippleFadeEnd); // f32*3
             // clang-format on
         }
 
@@ -5140,6 +5261,22 @@ namespace OloEngine
             m_ShoreFoamGain = src.m_ShoreFoamGain;
             m_ShoreFoamFadeStart = src.m_ShoreFoamFadeStart;
             m_ShoreFoamFadeEnd = src.m_ShoreFoamFadeEnd;
+            m_FoamAdvectionEnabled = src.m_FoamAdvectionEnabled;
+            m_FoamAdvectionIntensity = src.m_FoamAdvectionIntensity;
+            m_FoamAdvectionHalfLife = src.m_FoamAdvectionHalfLife;
+            m_FoamAdvectionThreshold = src.m_FoamAdvectionThreshold;
+            m_FoamAdvectionDrift = src.m_FoamAdvectionDrift;
+            m_SprayEnabled = src.m_SprayEnabled;
+            m_SprayThreshold = src.m_SprayThreshold;
+            m_SprayRate = src.m_SprayRate;
+            m_SprayRadius = src.m_SprayRadius;
+            m_SprayLaunchSpeed = src.m_SprayLaunchSpeed;
+            m_SprayLifetime = src.m_SprayLifetime;
+            m_SprayParticleSize = src.m_SprayParticleSize;
+            m_RainRipplesEnabled = src.m_RainRipplesEnabled;
+            m_RainRippleStrength = src.m_RainRippleStrength;
+            m_RainRippleFadeStart = src.m_RainRippleFadeStart;
+            m_RainRippleFadeEnd = src.m_RainRippleFadeEnd;
             // Planar reflections were missing from this list while operator==
             // compared them — the exact asymmetry the comment on m_WakeFoamEnabled
             // above warns about. Scene::Copy runs on every Play/Simulate entry, so

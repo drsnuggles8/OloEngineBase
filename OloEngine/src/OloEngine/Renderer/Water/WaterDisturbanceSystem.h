@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceField.h"
+#include "OloEngine/Renderer/Water/WaterFoam.h"
 
 #include <glm/glm.hpp>
 
@@ -56,15 +57,32 @@ namespace OloEngine
     };
 
     // =========================================================================
-    // WaterDisturbanceSystem — the renderer-owned water-disturbance service
-    // (issue #967).
+    // WaterDisturbanceSystem — the renderer-owned water-field service
+    // (issues #967 and #1034).
     //
-    // Maintains a world-anchored, toroidally stored RG16F field of "how churned
-    // is the water here" (only .r is read — see WaterDisturbanceField.h §4 for
-    // why 16-bit float, and why two channels), updated once per frame by a
-    // compute dispatch that
-    // decays what is there and stamps the frame's submitted splats. Water.glsl
-    // samples it ON TOP of the existing procedural / shoreline / Jacobian foam.
+    // Maintains a world-anchored, toroidally stored RGBA16F field, updated once
+    // per frame by ONE compute dispatch. Two independent signals share the
+    // lattice because they want exactly the same window, and the engine has one
+    // free UBO binding and no free sampler slot to spend on a second one:
+    //
+    //   .r  = "how churned is the water here" — the wake / actor disturbance
+    //         (issue #967). Decays in place, stamped by submitted splats.
+    //         Water.glsl samples it ON TOP of the existing procedural /
+    //         shoreline / Jacobian foam.
+    //   .g  = advected open-ocean foam (issue #1034 §2.2). Decays AND MOVES with
+    //         the surface, deposited where the FFT folds. Water.glsl samples it
+    //         INSTEAD OF the instantaneous Jacobian term, which is the term that
+    //         pulses in place.
+    //   .ba = the previous frame's FFT horizontal displacement, which is the
+    //         state the foam's advecting velocity is differenced from.
+    //
+    // The pass is PING-PONGED — two textures, swapped each frame — and only the
+    // foam needs that: the wake reads its own texel, but a semi-Lagrangian
+    // advection reads a neighbour, and reading neighbours while writing in
+    // place races between work groups. See WaterFoam.h §2.
+    //
+    // The field's precision, format and addressing are WaterDisturbanceField.h;
+    // the advection recurrence is WaterFoam.h.
     //
     // Deliberately a static singleton dispatched from RenderPipeline rather
     // than a render-graph pass, mirroring SnowAccumulationSystem — which is the
@@ -123,7 +141,14 @@ namespace OloEngine
         /// `followXZ` is the ABSOLUTE world XZ the field window centres on —
         /// the camera, in practice. It is snapped to the texel lattice inside,
         /// so passing a continuously moving position is correct and expected.
-        static void Update(const WaterDisturbanceSettings& settings, glm::vec2 followXZ, Timestep dt);
+        /// The dispatch runs when EITHER feature is enabled, and the two gate
+        /// independently: open-ocean whitecaps advect in a scene with no boat
+        /// in it, and a boat leaves a wake on a Gerstner sea that has no fold
+        /// signal to deposit foam from. With both off the field is marked for a
+        /// clear and nothing is dispatched at all.
+        static void Update(const WaterDisturbanceSettings& settings,
+                           const WaterFoam::WaterFoamSettings& foam, glm::vec2 followXZ,
+                           Timestep dt);
 
         /// Publish + bind the field at TEX_WATER_DISTURBANCE for water shading.
         static void BindFieldTexture();
@@ -137,6 +162,15 @@ namespace OloEngine
 
         /// WaterUBO::WakeFieldParams2 for the current settings.
         [[nodiscard]] static glm::vec4 GetShaderParams2();
+
+        /// WaterUBO::FoamFieldParams for the current window (issue #1034).
+        /// Returns w == 0 (the disabled state) for every reason the advected
+        /// foam could be unusable — not initialized, advection off, or the
+        /// field never yet written — so a caller that packs this
+        /// unconditionally cannot put a stale foam field on screen. It is a
+        /// SEPARATE accessor from GetShaderParams() rather than a channel of
+        /// it because the two features gate independently.
+        [[nodiscard]] static glm::vec4 GetFoamShaderParams();
 
         /// Drop the whole field on the next Update.
         ///
@@ -162,7 +196,11 @@ namespace OloEngine
         struct WaterDisturbanceData
         {
             Ref<ComputeShader> m_UpdateShader;
-            Ref<Texture2D> m_FieldTexture;  // R16F, kResolution^2
+            /// The ping-pong pair. RGBA16F, kResolution^2 each.
+            /// m_FieldTextures[m_WriteIndex] is what the last dispatch wrote and
+            /// what BindFieldTexture publishes; the other holds the frame before.
+            Ref<Texture2D> m_FieldTextures[2];
+            u32 m_WriteIndex = 0;
             Ref<UniformBuffer> m_ParamsUBO; // UBO_WATER_DISTURBANCE
 
             // The frame's queue. A plain array rather than a vector: the bound
@@ -184,7 +222,10 @@ namespace OloEngine
             bool m_Initialized = false;
 
             WaterDisturbanceSettings m_Settings{};
+            WaterFoam::WaterFoamSettings m_FoamSettings{};
             f32 m_DecayFactor = 1.0f;
+            f32 m_FoamDecayFactor = 1.0f;
+            f32 m_DeltaSeconds = 0.0f;
         };
 
         static WaterDisturbanceData s_Data;

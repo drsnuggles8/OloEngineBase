@@ -1181,6 +1181,37 @@ namespace OloEngine
                                          "wakeFoamFadeEnd", sol::property([](const WaterComponent& w)
                                                                           { return w.m_WakeFoamFadeEnd; }, [](WaterComponent& w, f32 v)
                                                                           { if (std::isfinite(v) && v >= 1.0f && v <= 4000.0f) w.m_WakeFoamFadeEnd = v; }),
+                                         // Advected foam and crest spray (issue #1034). Exposed for the
+                                         // same reason as the wake fields: DriftWeatherDirector.lua owns
+                                         // the sea state, and whitecaps that could not be eased with the
+                                         // rest of it would step when the weather changed. The deposit
+                                         // THRESHOLDS are the sea-state knob; the field's half-life,
+                                         // drift fraction and particle geometry are not weather and stay
+                                         // authored in the component.
+                                         "foamAdvectionEnabled", &WaterComponent::m_FoamAdvectionEnabled,
+                                         "foamAdvectionIntensity", sol::property([](const WaterComponent& w)
+                                                                                 { return w.m_FoamAdvectionIntensity; }, [](WaterComponent& w, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.0f && v <= 4.0f) w.m_FoamAdvectionIntensity = v; }),
+                                         "foamAdvectionThreshold", sol::property([](const WaterComponent& w)
+                                                                                 { return w.m_FoamAdvectionThreshold; }, [](WaterComponent& w, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.0f && v <= 0.99f) w.m_FoamAdvectionThreshold = v; }),
+                                         "sprayEnabled", &WaterComponent::m_SprayEnabled,
+                                         "sprayThreshold", sol::property([](const WaterComponent& w)
+                                                                         { return w.m_SprayThreshold; }, [](WaterComponent& w, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f && v <= 0.99f) w.m_SprayThreshold = v; }),
+                                         "sprayRate", sol::property([](const WaterComponent& w)
+                                                                    { return w.m_SprayRate; }, [](WaterComponent& w, f32 v)
+                                                                    { if (std::isfinite(v) && v >= 0.0f && v <= 200.0f) w.m_SprayRate = v; }),
+                                         // Rain-impact ripples (issue #1034). Exposed for the same
+                                         // reason the wake fields above are: DriftWeatherDirector.lua
+                                         // drives the precipitation this reacts to, and a stipple it
+                                         // could turn the rain on for but not ease in would pop.
+                                         // The fade distances are deliberately NOT exposed — they are
+                                         // a sampling limit (the 0.55 m cell grid), not weather.
+                                         "rainRipplesEnabled", &WaterComponent::m_RainRipplesEnabled,
+                                         "rainRippleStrength", sol::property([](const WaterComponent& w)
+                                                                             { return w.m_RainRippleStrength; }, [](WaterComponent& w, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f && v <= 4.0f) w.m_RainRippleStrength = v; }),
                                          "underwaterFogColor", sol::property([](const WaterComponent& w)
                                                                              { return w.m_UnderwaterFogColor; }, [](WaterComponent& w, const glm::vec3& v)
                                                                              { if (std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z)) w.m_UnderwaterFogColor = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f)); }),
