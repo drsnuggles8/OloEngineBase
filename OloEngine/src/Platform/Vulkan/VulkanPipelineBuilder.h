@@ -54,6 +54,7 @@
 #include <array>
 #include <mutex>
 #include <shared_mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -142,6 +143,33 @@ namespace OloEngine
         // the maps (device teardown).
         void ReleaseAll();
 
+        // The last creation failure, kept so a caller can report the REASON
+        // rather than a bare null handle (issue #1029). GetOrCreate* return
+        // VK_NULL_HANDLE and log on a vkCreate*Pipelines failure; the log is
+        // not reachable from a test assertion, and "the handle was null" does
+        // not say which shader or which VkResult. Recorded under the same
+        // lock the creation already holds, so it is the failure of the call
+        // that just returned null on this thread as long as no other thread
+        // failed in between — a diagnostic, never a control-flow input.
+        struct CreationFailure
+        {
+            bool Valid = false; ///< False until a creation has failed.
+            std::string ShaderName;
+            VkResult Result = VK_SUCCESS;
+        };
+
+        [[nodiscard]] CreationFailure GetLastCreationFailure() const
+        {
+            std::shared_lock lock(m_Mutex);
+            return m_LastCreationFailure;
+        }
+
+        void ClearLastCreationFailure()
+        {
+            std::lock_guard<std::shared_mutex> lock(m_Mutex);
+            m_LastCreationFailure = {};
+        }
+
         [[nodiscard]] sizet GetCachedPipelineCount() const
         {
             std::shared_lock lock(m_Mutex);
@@ -186,6 +214,7 @@ namespace OloEngine
         // contention the #806 measurement found.
         mutable std::shared_mutex m_Mutex;
         std::unordered_map<Key, VkPipeline, KeyHash> m_Pipelines;
+        CreationFailure m_LastCreationFailure;
     };
 } // namespace OloEngine
 
