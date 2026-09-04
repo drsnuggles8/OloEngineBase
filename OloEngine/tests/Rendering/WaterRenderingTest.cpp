@@ -36,17 +36,18 @@ TEST(WaterRendering, WaterUBOAlignment)
 
 TEST(WaterRendering, WaterUBOSizeStable)
 {
-    // 102 x glm::vec4 = 102 x 16 = 1632 bytes:
+    // 104 x glm::vec4 = 104 x 16 = 1664 bytes:
     //   21  the scalar params (18 until #967 appended WakeFieldParams /
     //       WakeFieldParams2 for the boat-wake foam field; FFTParams was the one
     //       before that, water-ocean.md §1; FFTCascadeParams the
     //       one after, for #969's band-limited cascades),
-    //   +1  WakeShapeParams and
+    //   +1  WakeShapeParams,
+    //   +2  ShoreParams / ShoreParams2 for the #1033 shore wave transform, and
     //   +80 WakeHulls[WaterWake::kHullVec4Count] for the #968 wake SHAPE.
     //
     // The array is what makes #968 cost ZERO new binding slots — the engine has
     // exactly one UBO slot left below UBO_BINDING_LIMIT, and a wake block was
-    // not what to spend it on. 1632 B is comfortably under the 16 KB std140
+    // not what to spend it on. 1664 B is comfortably under the 16 KB std140
     // block ceiling, and water is single-instance so it uploads once per draw.
     //
     // A change here is a five-file edit, not a one-line one: the block is
@@ -54,8 +55,8 @@ TEST(WaterRendering, WaterUBOSizeStable)
     // WaterTess*/WaterVertexStage includes, because GL requires every stage of a
     // program to declare a shared uniform block the same way.
     EXPECT_EQ(sizeof(UBOStructures::WaterUBO),
-              (21u + 1u + WaterWake::kHullVec4Count) * sizeof(glm::vec4));
-    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 1632u);
+              (21u + 1u + 2u + WaterWake::kHullVec4Count) * sizeof(glm::vec4));
+    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 1664u);
 }
 
 TEST(WaterRendering, WaterUBOGetSizeMatchesSizeof)

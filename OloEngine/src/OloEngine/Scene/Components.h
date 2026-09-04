@@ -4885,6 +4885,40 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_WakeShapeFlattenStrength = 0.9f;
 
+        // --- Shore wave deformation (issue #1033) ---------------------------
+        // Waves shoal, refract and break against a seabed depth field resampled
+        // from the scene's terrain. The contract, and every relation these
+        // drive, are in Renderer/Water/WaterShoreDepth.h.
+        //
+        // OFF by default, and for the same reason the wake fields are: a water
+        // tile with no terrain under it gets a field that is deep everywhere,
+        // which costs a 512x512 bake and one vertex fetch to change nothing.
+        // A scene that has islands opts in.
+        bool m_ShoreWavesEnabled = false;
+
+        // The a/h limit the surf zone breaks at. 0.39 is the physical value
+        // (WaterShore::kBreakerIndex — a solitary wave breaks at H ~ 0.78 h, and
+        // Gerstner amplitude is half the height). LOWERING it moves the breaker
+        // line into deeper water and widens the visible band, which is an art
+        // decision on a sea whose amplitude is small for Nyquist reasons rather
+        // than for physical ones — see the WaveAmplitude note in Drift.olo.
+        OLO_SERIALIZE(Clamp, Min = 0.02f, Max = 2.0f)
+        f32 m_ShoreBreakerIndex = 0.39f;
+        // Multiplier on the breaking-wave foam. 0 keeps the geometry and drops
+        // the white water, which is the useful setting for A/B-ing whether a
+        // shoreline reads because of the shape or only because of the foam.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 4.0f)
+        f32 m_ShoreFoamGain = 1.0f;
+        // Camera distances over which the breaker foam fades. Deliberately far
+        // longer than the crest-foam fade — surf on a beach is exactly the
+        // signal you are meant to see from a boat well offshore, whereas that
+        // fade exists for a horizon-aliasing failure mode (#943) a shoreline
+        // band does not have.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 5000.0f)
+        f32 m_ShoreFoamFadeStart = 120.0f;
+        OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 5000.0f)
+        f32 m_ShoreFoamFadeEnd = 400.0f;
+
         // Runtime (not serialized)
         OLO_SERIALIZE(Skip)
         Ref<Mesh> m_WaterMesh;
@@ -4971,7 +5005,11 @@ namespace OloEngine
                 // report two identical components as different.
                 && m_WakeShapeEnabled == o.m_WakeShapeEnabled
                 && m_WakeShapeAffectsPhysics == o.m_WakeShapeAffectsPhysics
-                && blkEq(m_WakeShapeHeightScale, m_WakeShapeFlattenStrength); // f32*2
+                && blkEq(m_WakeShapeHeightScale, m_WakeShapeFlattenStrength) // f32*2
+                // Shore waves (issue #1033). The bool is compared on its own for
+                // the padding reason above; the four floats are contiguous.
+                && m_ShoreWavesEnabled == o.m_ShoreWavesEnabled
+                && blkEq(m_ShoreBreakerIndex, m_ShoreFoamFadeEnd); // f32*4
             // clang-format on
         }
 
@@ -5097,6 +5135,11 @@ namespace OloEngine
             m_WakeShapeAffectsPhysics = src.m_WakeShapeAffectsPhysics;
             m_WakeShapeHeightScale = src.m_WakeShapeHeightScale;
             m_WakeShapeFlattenStrength = src.m_WakeShapeFlattenStrength;
+            m_ShoreWavesEnabled = src.m_ShoreWavesEnabled;
+            m_ShoreBreakerIndex = src.m_ShoreBreakerIndex;
+            m_ShoreFoamGain = src.m_ShoreFoamGain;
+            m_ShoreFoamFadeStart = src.m_ShoreFoamFadeStart;
+            m_ShoreFoamFadeEnd = src.m_ShoreFoamFadeEnd;
             // Planar reflections were missing from this list while operator==
             // compared them — the exact asymmetry the comment on m_WakeFoamEnabled
             // above warns about. Scene::Copy runs on every Play/Simulate entry, so

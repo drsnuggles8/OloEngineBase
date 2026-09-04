@@ -23,6 +23,7 @@
 #include "OloEngine/Renderer/CloudNoise.h"
 #include "OloEngine/Renderer/CloudShadowMap.h"
 #include "OloEngine/Renderer/VolumetricShadowMap.h"
+#include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
 #include "OloEngine/Renderer/Ocean/OceanFFTGpu.h"
 #include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
@@ -533,6 +534,8 @@ namespace OloEngine
         // released from a narrower scope leaks in every session that never
         // reaches that scope (docs/agent-rules/lazy-static-release-ownership.md).
         WaterDisturbanceSystem::Init();
+        // Seabed depth field for shore wave deformation (issue #1033).
+        WaterShoreDepthSystem::Init();
 
         // Initialize snow accumulation & ejecta systems
         SnowAccumulationSystem::Init();
@@ -679,6 +682,7 @@ namespace OloEngine
 
         // Water-disturbance field (issue #967)
         WaterDisturbanceSystem::Shutdown();
+        WaterShoreDepthSystem::Shutdown();
 
         // Shutdown Forward+ system
         s_Data.ForwardPlus.Shutdown();

@@ -202,7 +202,7 @@ layout(std430, binding = 45) readonly buffer OloResourceHeapBlock
 
 layout(std140, binding = 56) uniform OloHeapOffsetBlock
 {
-    uvec4 g_OloHeapOffsets[20];
+    uvec4 g_OloHeapOffsets[21];
 };
 
 #define OLO_HEAP_OFFSET(texSlot) (g_OloHeapOffsets[(texSlot) >> 2][(texSlot) & 3])
@@ -212,7 +212,7 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // #702's TEX_VSM_PHYSICAL). Pinned by
 // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout, which reads this
 // literal out of this file for exactly that reason.
-#define OLO_HEAP_IMAGE_BASE 72u
+#define OLO_HEAP_IMAGE_BASE 73u
 #define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
 #define OLO_HEAP_IMAGE_RW
 #define OLO_HEAP_IMAGE(fmt, mem, type, name, imgUnit) \

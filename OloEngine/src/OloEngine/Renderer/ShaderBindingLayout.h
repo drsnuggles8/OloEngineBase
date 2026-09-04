@@ -679,6 +679,28 @@ namespace OloEngine
             //
             // Mirrors WaterWakeSystem::GetHullCount / GetRenderHeightScale.
             glm::vec4 WakeShapeParams;
+            // Shore wave deformation (issue #1033). The seabed depth field's
+            // window, and the two knobs the surf zone is authored with. The
+            // encoding contract, and every relation these drive, live in
+            // Renderer/Water/WaterShoreDepth.h; the GLSL evaluator is
+            // include/WaterShoreCommon.glsl.
+            //
+            // xy = window centre (world XZ), z = 1 / window extent in metres,
+            // w  = enable. w <= 0 IS the disabled state — read from the service
+            //      here rather than carried per-surface, for the same reason the
+            //      wake field is, so a frame whose bake did not run cannot show
+            //      a stale field.
+            glm::vec4 ShoreParams;
+            // x = breaker index (the a/h limit; WaterShore::kBreakerIndex is the
+            //     physical 0.39), y = breaking-foam gain,
+            // z = breaker-foam fade start (m), w = fade end (m).
+            //
+            // The foam fade is the breaker band's OWN, deliberately far longer
+            // than the 12-45 m crest-foam fade it would otherwise inherit: that
+            // fade exists because procedural whitecaps compress toward the
+            // horizon into a white wash (#943), and surf on a beach is exactly
+            // the signal you are meant to see from a boat well offshore.
+            glm::vec4 ShoreParams2;
             // The packed hull records. Layout is WaterWake.h's, verbatim; a
             // flat vec4 array because its std140 stride is exactly 16 bytes on
             // every implementation, with no padding rule to get wrong.
@@ -1851,15 +1873,16 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
     // 288 until issue #967 appended WakeFieldParams / WakeFieldParams2; 320 until
     // #968 appended WakeShapeParams + WakeHulls[80] for the wake SHAPE; 1616
-    // until #969 appended FFTCascadeParams for the band-limited cascades.
-    // 102 vec4 = 1632 B, comfortably under the 16 KB std140 block ceiling — and
+    // until #969 appended FFTCascadeParams for the band-limited cascades; 1632
+    // until #1033 appended ShoreParams / ShoreParams2 for the shore transform.
+    // 104 vec4 = 1664 B, comfortably under the 16 KB std140 block ceiling — and
     // an ARRAY rather than a block of its own precisely because the engine has
     // exactly one UBO binding left below UBO_BINDING_LIMIT.
     static_assert(sizeof(UBOStructures::WaterUBO) ==
-                      (21u + 1u + WaterWake::kHullVec4Count) * sizeof(glm::vec4),
+                      (21u + 1u + 2u + WaterWake::kHullVec4Count) * sizeof(glm::vec4),
                   "WaterUBO no longer matches its own field list -- a member was added without "
                   "updating this expression");
-    static_assert(sizeof(UBOStructures::WaterUBO) == 1632, "WaterUBO unexpected size -- update GLSL layout");
+    static_assert(sizeof(UBOStructures::WaterUBO) == 1664, "WaterUBO unexpected size -- update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterDisturbanceUBO) % 16 == 0,
                   "WaterDisturbanceUBO size must be 16-byte aligned for std140");
     // 48 B header + kMaxSplatsPerFrame (96) * 32 B per capsule splat.
@@ -2377,7 +2400,15 @@ namespace OloEngine
         // through storage image unit 0.
         static constexpr u32 TEX_WATER_DISTURBANCE = 70;
 
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 71; // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Seabed depth field for shore wave deformation (issue #1033). RGBA16F:
+        // r = water depth in metres, gb = d(depth)/d(worldXZ), a reserved.
+        // Baked by WaterShoreDepthSystem from the scene's terrain and sampled
+        // per-vertex by the water displacement chain; the encoding contract is
+        // Renderer/Water/WaterShoreDepth.h. The shader-graph user base shifts up
+        // by one, per the established procedure for new engine slots.
+        static constexpr u32 TEX_WATER_SHORE_DEPTH = 71;
+
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 72; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -3263,6 +3294,10 @@ namespace OloEngine
                     return name.contains("Foam") || name.contains("foam");
                 case TEX_WATER_DISTURBANCE:
                     return name.contains("Disturbance") || name.contains("disturbance");
+                case TEX_WATER_SHORE_DEPTH:
+                    // Seabed depth field (issue #1033): the water stages bind
+                    // u_ShoreDepth to this slot.
+                    return name.contains("Shore") || name.contains("shore");
                 case TEX_WATER_SSR:
                     return name.contains("SSR") || name.contains("ssr") ||
                            (name.contains("Screen") && name.contains("Reflection"));

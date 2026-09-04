@@ -2533,6 +2533,24 @@ namespace OloEngine
             ar << c.m_WakeShapeHeightScale << c.m_WakeShapeFlattenStrength;
         }
 
+        // Shore wave deformation (issue #1033), appended after the wake-shape
+        // block — the same trailing-AtEnd() probe, which is now in the trailing
+        // position for the reason the two comments above give.
+        if (ar.IsLoading() && ar.AtEnd())
+        {
+            c.m_ShoreWavesEnabled = false;
+            c.m_ShoreBreakerIndex = 0.39f;
+            c.m_ShoreFoamGain = 1.0f;
+            c.m_ShoreFoamFadeStart = 120.0f;
+            c.m_ShoreFoamFadeEnd = 400.0f;
+        }
+        else
+        {
+            ar << c.m_ShoreWavesEnabled;
+            ar << c.m_ShoreBreakerIndex << c.m_ShoreFoamGain;
+            ar << c.m_ShoreFoamFadeStart << c.m_ShoreFoamFadeEnd;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -2588,6 +2606,16 @@ namespace OloEngine
                 c.m_WakeFoamFadeEnd = c.m_WakeFoamFadeStart + 1.0f;
             sanitize(c.m_WakeShapeHeightScale, 0.0f, 4.0f, 1.0f);
             sanitize(c.m_WakeShapeFlattenStrength, 0.0f, 1.0f, 0.9f);
+            // Shore waves (issue #1033) — the same bounds as the scene
+            // serializer, the component annotations and Scene's per-frame
+            // publish, including the endpoint-ordering invariant the fade pair
+            // cannot get from independent clamps.
+            sanitize(c.m_ShoreBreakerIndex, 0.02f, 2.0f, 0.39f);
+            sanitize(c.m_ShoreFoamGain, 0.0f, 4.0f, 1.0f);
+            sanitize(c.m_ShoreFoamFadeStart, 0.0f, 5000.0f, 120.0f);
+            sanitize(c.m_ShoreFoamFadeEnd, 1.0f, 5000.0f, 400.0f);
+            if (c.m_ShoreFoamFadeEnd < c.m_ShoreFoamFadeStart + 1.0f)
+                c.m_ShoreFoamFadeEnd = c.m_ShoreFoamFadeStart + 1.0f;
             sanitize(c.m_SSSIntensity, 0.0f, 5.0f, 0.5f);
             sanitize(c.m_SSRMaxSteps, 0.0f, 256.0f, 64.0f);
             sanitize(c.m_SSRStepSize, 0.01f, 1.0f, 0.1f);

@@ -6766,6 +6766,30 @@ namespace OloEngine
                 ImGui::SetItemTooltip("How much of the ocean displacement the hull footprint removes. "
                                       "1 = dead flat inside the hull.");
 
+                ImGui::SeparatorText("Shore Waves");
+                ImGui::Checkbox("Shore Waves", &component.m_ShoreWavesEnabled);
+                ImGui::SetItemTooltip("Shoaling, refraction and breaking against a seabed depth field "
+                                      "resampled from the scene's terrain (issue #1033). Waves slow "
+                                      "and bunch up in shallow water, turn to arrive parallel to the "
+                                      "beach, and break where they can no longer stand up. Costs one "
+                                      "bake per seabed change and one texture fetch per surface "
+                                      "vertex; a water tile with no terrain under it changes nothing.");
+                ImGui::DragFloat("Breaker Index", &component.m_ShoreBreakerIndex, 0.005f, 0.02f, 2.0f);
+                ImGui::SetItemTooltip("The wave-amplitude / water-depth limit the surf zone breaks at. "
+                                      "0.39 is the physical value. LOWER it to move the breaker line "
+                                      "into deeper water and widen the visible band — worth doing on a "
+                                      "sea whose amplitude is small for mesh-Nyquist reasons rather "
+                                      "than physical ones.");
+                ImGui::DragFloat("Breaker Foam", &component.m_ShoreFoamGain, 0.01f, 0.0f, 4.0f);
+                ImGui::SetItemTooltip("Multiplier on the breaking-wave foam. 0 keeps the wave SHAPE and "
+                                      "drops the white water, which is how to tell whether a shoreline "
+                                      "reads because of the geometry or only because of the foam.");
+                ImGui::DragFloat("Breaker Fade Start", &component.m_ShoreFoamFadeStart, 1.0f, 0.0f, 5000.0f);
+                ImGui::DragFloat("Breaker Fade End", &component.m_ShoreFoamFadeEnd, 1.0f, 1.0f, 5000.0f);
+                ImGui::SetItemTooltip("Camera distances over which the breaker foam fades out. Much "
+                                      "longer than the crest-foam fade on purpose: surf on a beach is "
+                                      "exactly what you are meant to see from a boat well offshore.");
+
                 ImGui::SeparatorText("Subsurface Scattering");
                 ImGui::ColorEdit3("SSS Color", glm::value_ptr(component.m_SSSColor));
                 ImGui::DragFloat("SSS Intensity", &component.m_SSSIntensity, 0.01f, 0.0f, 5.0f);

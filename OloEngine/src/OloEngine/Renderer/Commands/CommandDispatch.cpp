@@ -24,6 +24,7 @@
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
+#include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
 #include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -2988,6 +2989,17 @@ namespace OloEngine
                 glm::vec4(static_cast<f32>(WaterWakeSystem::GetHullCount()),
                           WaterWakeSystem::GetRenderHeightScale(),
                           WaterWakeSystem::GetSettings().m_FlattenStrength, 0.0f);
+            // Shore wave deformation (issue #1033). Same "one global service,
+            // read here rather than carried per-surface" rule as the two wake
+            // blocks above, and for the same reason: the sea floor is a
+            // property of the SCENE, not of a water tile, and two tiles that
+            // disagreed about it would shoal against different coastlines.
+            //
+            // GetShaderParams() reports the disabled state (w == 0) for every
+            // reason the field could be unusable, so packing it unconditionally
+            // cannot put a stale or half-baked seabed on screen.
+            waterData.ShoreParams = WaterShoreDepthSystem::GetShaderParams();
+            waterData.ShoreParams2 = WaterShoreDepthSystem::GetShaderParams2();
             std::memcpy(waterData.WakeHulls, WaterWakeSystem::GetHullData(),
                         sizeof(waterData.WakeHulls));
             waterUBO->SetData(&waterData, ShaderBindingLayout::WaterUBO::GetSize());
@@ -3008,6 +3020,13 @@ namespace OloEngine
                            RHI::NullSamplerKind::Texture2DArray);
         BindTrackedTexture(cmd->fftDerivativesID, ShaderBindingLayout::TEX_WATER_FFT_DERIVATIVES,
                            RHI::NullSamplerKind::Texture2DArray);
+        // Seabed depth field (issue #1033). Published rather than plain-bound
+        // for the reason WaterDisturbanceSystem::BindFieldTexture records: the
+        // water shader exists in a slot-based and a bindless variant and which
+        // one is in flight is not knowable here, so the seam does both. A frame
+        // with no baked field publishes nothing and the shader's own
+        // `u_ShoreParams.w <= 0` test keeps it from sampling.
+        WaterShoreDepthSystem::PublishFieldTexture();
 
         // Bind the global environment cubemap for water reflections (binding 9).
         // The water pass doesn't otherwise touch this slot, so set it explicitly

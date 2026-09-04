@@ -41,6 +41,18 @@ layout(location = 4) in vec3 v_Tangent;
 layout(location = 5) in vec3 v_Bitangent;
 layout(location = 6) in float v_WaveHeight;
 layout(location = 7) in vec3 v_PrevWorldPos;
+// Breaking-wave foam from the shore transform (issue #1033). One float rather
+// than the pair the displacing stage computes, because the fragment stage needs
+// only "has this wave broken", and the two halves of that answer are combined
+// where they are produced:
+//
+//   * the depth-limited breaker clamp — the wave could not stand up in this
+//     much water, so the excess was taken off the surface. Exactly 0 outside
+//     the surf zone, by construction;
+//   * an actual FOLD of the horizontal displacement map (Jacobian < 0), which
+//     is the same criterion the FFT ocean's foam alpha uses. Never true on a
+//     sea that is not folding, so this cannot add foam to open water.
+layout(location = 8) in float v_ShoreFoam;
 
 // MRT outputs matching SceneRenderPass format
 layout(location = 0) out vec4 o_Color;
@@ -132,6 +144,26 @@ layout(std140, binding = 23) uniform WaterParams
     // LINK error rather than a silent mismatch. Read by the vertex and
     // tess-eval stages, which is where the surface is displaced.
     vec4 u_WakeShapeParams;        // x = live hull count, y = height scale (<=0 disables), z = hull flatten strength, w = reserved
+    // Shore wave deformation (issue #1033). C++ twin:
+    // UBOStructures::WaterUBO::ShoreParams / ShoreParams2; the encoding contract
+    // and every relation driven by it live in Renderer/Water/WaterShoreDepth.h,
+    // the GLSL evaluator in include/WaterShoreCommon.glsl. Declared in EVERY
+    // stage of the water programs, identically, for the same reason the #967 /
+    // #968 fields above are: GL requires a uniform block shared across a
+    // program's stages to be declared the same way in each, so appending to only
+    // the stages that read it is a LINK error rather than a silent mismatch.
+    // Read by the vertex and tess-eval stages (which displace the surface) and
+    // by the fragment stage (which fades the breaker foam).
+    //
+    // xy = seabed depth-field window centre (world XZ),
+    // z  = 1 / window extent in metres (the UV scale),
+    // w  = enable. w <= 0 IS the disabled state; there is no separate flag, so a
+    //      frame whose bake did not run cannot leave a stale field showing.
+    vec4 u_ShoreParams;
+    // x = breaker index (the a/h limit the surf zone breaks at; 0.39 is the
+    //     physical value — WaterShoreDepth.h :: kBreakerIndex),
+    // y = breaking foam gain, z/w = reserved.
+    vec4 u_ShoreParams2;
     // 80 = WaterWake::kHullVec4Count (4 hulls x 20 vec4). The layout is
     // WaterWake.h's, verbatim; WATER_WAKE_* in WaterWakeCommon.glsl mirrors the
     // offsets so nothing here indexes it by a bare literal.
@@ -801,6 +833,16 @@ void main()
         foam = max(foam, fft.Foam);
     }
 
+    // --- Breaking-wave foam at the shore (issue #1033) ----------------------
+    // Folded in with the sea's own foam terms, not on top of them: a breaker IS
+    // a wave crest, and it should be broken up by the same pattern and gated by
+    // the same coverage the rest of the crest foam is. What it must NOT inherit
+    // is the 12-45 m crest-foam fade below — surf on a beach is the thing you
+    // see from a boat 100 m off, and that fade exists for a horizon-aliasing
+    // failure mode (#943) a shoreline band does not have. It gets its own,
+    // much longer fade from u_ShoreParams2.zw, applied after that one.
+    float shoreBreakFoam = clamp(v_ShoreFoam * max(u_ShoreParams2.y, 0.0), 0.0, 1.0);
+
     // Distance fade: at grazing angles the foam patches compress toward the
     // horizon into a continuous white wash that dominates the frame. Fade foam
     // out fairly aggressively with distance so only nearby waves (where foam
@@ -828,6 +870,13 @@ void main()
     float foamPattern = smoothstepAA(0.25, 0.65, foamNoise);
 
     foam *= hasFoamTexture ? foamSample.r : foamPattern;
+
+    // The breaker band, re-applied after the crest fade with its own reach (see
+    // above). Broken up by the same pattern, but only partly: like a wake, the
+    // core of a breaker is genuinely continuous where a whitecap's is not.
+    shoreBreakFoam *= mix(0.5, 1.0, hasFoamTexture ? foamSample.r : foamPattern);
+    shoreBreakFoam *= 1.0 - smoothstep(u_ShoreParams2.z, u_ShoreParams2.w, foamCamDist);
+    foam = max(foam, clamp(shoreBreakFoam, 0.0, 1.0));
 
     // --- Boat / actor wake foam (issue #967) --------------------------------
     // Sampled ON TOP of everything above, never instead of it: the crest,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Water/WaterShoreDepth.h"
 
 #include <glm/glm.hpp>
 
@@ -34,6 +35,16 @@ namespace OloEngine::WaterSurface
         f32 m_WaveAmplitude = 0.5f;                      ///< global amplitude multiplier
         f32 m_WaveSpeed = 1.0f;                          ///< the shader folds Time * WaveSpeed into the phase
         f32 m_PlaneHeight = 0.0f;                        ///< world-space Y of the flat (undisplaced) water plane
+
+        /// Shore wave deformation (issue #1033). When set, the sampler reads the
+        /// baked seabed depth field and shoals/refracts/breaks each octave the
+        /// same way the vertex stage does, so a boat in the surf floats on the
+        /// surface that is DRAWN there rather than on the deep-water one.
+        ///
+        /// Off means every shore relation is the identity, which is the
+        /// pre-#1033 sampler exactly — see WaterShoreDepth.h.
+        bool m_ShoreEnabled = false;
+        f32 m_ShoreBreakerIndex = WaterShore::kBreakerIndex; ///< WaterComponent::m_ShoreBreakerIndex
     };
 
     /// Full Gerstner displacement delta (dx, dy, dz) the shader adds to a base
@@ -41,6 +52,17 @@ namespace OloEngine::WaterSurface
     /// `rawTime` (seconds — the same `Time::GetTime()` the renderer feeds the
     /// water shader; the WaveSpeed factor is applied internally).
     [[nodiscard]] glm::vec3 SampleDisplacement(const Params& params, glm::vec2 baseXZ, f32 rawTime);
+
+    /// The same displacement with the seabed handed in explicitly, instead of
+    /// looked up from WaterShoreDepthSystem (issue #1033).
+    ///
+    /// This is the real implementation and the overload above delegates to it.
+    /// Two callers want the explicit form: the contract test, which has to drive
+    /// known depths without a baked field anywhere, and any future consumer that
+    /// already holds a sample. Everything else should use the lookup form, so
+    /// that physics and rendering cannot end up reading different seabeds.
+    [[nodiscard]] glm::vec3 SampleDisplacement(const Params& params, glm::vec2 baseXZ, f32 rawTime,
+                                               const WaterShore::Sample& shore);
 
     /// World-space water height of the surface column directly above world
     /// `queryXZ`. Gerstner displaces a base point horizontally as well as

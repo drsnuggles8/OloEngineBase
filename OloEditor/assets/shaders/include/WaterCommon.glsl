@@ -3,6 +3,14 @@
 // Reusable include for water surface vertex animation
 // =============================================================================
 
+// Shore wave deformation (issue #1033): shoaling, refraction and breaking
+// against the baked seabed depth field. Included here rather than per-stage so
+// every consumer of sumGerstnerWaves gets it — the colour pass and the
+// surface-depth capture replay ONE chain, and a shape that shoals in only one
+// of them is a silent depth artefact at the waterline. The sampling hook
+// `waterShoreFetchDepth` is defined by each stage after its own sampler.
+#include "WaterShoreCommon.glsl"
+
 // Lightweight hash-based 2D noise for domain warping (vertex stage).
 // Breaks spatial coherence between wave octaves so they don't share
 // a common origin, eliminating the visible grid/diamond pattern.
@@ -36,6 +44,27 @@ vec2 domainWarp(vec2 pos, float seed, float wavelength)
     return (vec2(nx, ny) - 0.5) * warpAmount;
 }
 
+// Explicit-phase-speed overload (issue #1033). In shallow water the phase speed
+// is NOT sqrt(g/k): the wave's angular frequency is what is conserved as it
+// shoals, so c = w/k with w fixed at its deep-water value. Passing c in rather
+// than deriving it from the (already shortened) wavelength is what keeps the
+// time term depth-independent — derive it here and a vertex crossing a slope
+// would see its frequency change, which reads as the whole sea shimmering.
+vec3 gerstnerWave(vec3 position, vec2 direction, float steepness, float wavelength,
+                  float phaseSpeed, float time, float phase)
+{
+    float k = 2.0 * 3.14159265 / max(wavelength, 0.001);
+    float d = dot(direction, position.xz);
+    float f = k * (d - phaseSpeed * time) + phase;
+    float a = steepness / k;
+
+    return vec3(
+        direction.x * a * cos(f),
+        a * sin(f),
+        direction.y * a * cos(f)
+    );
+}
+
 // Single Gerstner wave displacement
 // @param position World-space vertex position (xz plane)
 // @param direction Normalized wave propagation direction (2D)
@@ -63,6 +92,52 @@ vec3 gerstnerWave(vec3 position, vec2 direction, float steepness, float waveleng
 vec3 gerstnerWave(vec3 position, vec2 direction, float steepness, float wavelength, float time)
 {
     return gerstnerWave(position, direction, steepness, wavelength, time, 0.0);
+}
+
+// Explicit-phase-speed overload — the normal twin of the gerstnerWave() one
+// above, and it must be used wherever that one is: the two describe the same
+// wave, and a normal built from a different phase speed shades a crest that is
+// no longer where the vertex put it.
+//
+// The three accumulated terms are also, exactly, the off-identity entries of
+// the horizontal displacement map's JACOBIAN (issue #1033):
+//
+//     Jxx = tangent.x    Jzz = binormal.z    Jxz = Jzx = tangent.z == binormal.x
+//
+// so the fold detection breaking reuses costs nothing extra — see
+// waterGerstnerJacobian() below.
+void gerstnerWaveNormal(vec3 position, vec2 direction, float steepness, float wavelength,
+                        float phaseSpeed, float time, float phase,
+                        inout vec3 tangent, inout vec3 binormal)
+{
+    float k = 2.0 * 3.14159265 / max(wavelength, 0.001);
+    float d = dot(direction, position.xz);
+    float f = k * (d - phaseSpeed * time) + phase;
+
+    tangent += vec3(
+        -direction.x * direction.x * steepness * sin(f),
+        direction.x * steepness * cos(f),
+        -direction.x * direction.y * steepness * sin(f)
+    );
+
+    binormal += vec3(
+        -direction.x * direction.y * steepness * sin(f),
+        direction.y * steepness * cos(f),
+        -direction.y * direction.y * steepness * sin(f)
+    );
+}
+
+// Determinant of the horizontal displacement map's Jacobian, from the tangent /
+// binormal a full octave sweep has already accumulated. 1 on a flat sea, < 1
+// where the surface is compressed, < 0 where it has FOLDED over itself.
+//
+// This is the same fold signal the FFT ocean writes into its derivatives
+// texture's alpha for foam (OceanFFTField) — computed rather than sampled,
+// because the Gerstner path has no such texture. Breaking reads it instead of
+// inventing a second steepness heuristic, per issue #1033.
+float waterGerstnerJacobian(vec3 tangent, vec3 binormal)
+{
+    return tangent.x * binormal.z - tangent.z * binormal.x;
 }
 
 // Analytical normal for a single Gerstner wave (with phase offset)
@@ -134,6 +209,11 @@ float octaveMeshWeight(float wavelength, float vertexSpacing)
 // wavelength ratios.  The broader angular spread and extra octaves
 // produce a much more natural, "random" ocean surface.
 //
+// Every octave is transformed for the local water depth before it is summed
+// (issue #1033): it shoals, refracts and is capped by the breaker limit. With a
+// disabled `shore` sample every one of those reduces to identity, so the open
+// ocean is the pre-#1033 surface rather than an approximation of it.
+//
 // @param position  Original world-space vertex position
 // @param time      Current animation time
 // @param waveDir0  xy = direction0, z = steepness0, w = wavelength0
@@ -142,17 +222,26 @@ float octaveMeshWeight(float wavelength, float vertexSpacing)
 // @param waveAmplitude  Global amplitude multiplier
 // @param vertexSpacing  Surface mesh vertex spacing in metres; band-limits the
 //                       octave ladder. 0 disables that (every octave at weight 1).
+// @param shore     Seabed depth + gradient under this point (waterShoreSample)
+// @param breakerIndex  the a/h limit the surf zone breaks at. WATER_SHORE_BREAKER_INDEX
+//                      is the physical value; a scene may widen the band.
 // @param normal    Output: computed surface normal
+// @param jacobian  Output: determinant of the horizontal displacement Jacobian.
+//                  1 flat, < 1 compressed, < 0 folded — the breaking/foam signal.
+// @param breaking  Output: strongest per-octave breaker clamp over the ladder,
+//                  0 offshore. The depth-limited half of the same story.
 // @return          Displaced world-space position
-vec3 sumGerstnerWaves(vec3 position, float time,
-                      vec4 waveDir0, vec4 waveDir1,
-                      float waveFrequency, float waveAmplitude,
-                      float vertexSpacing,
-                      out vec3 normal)
+vec3 sumGerstnerWavesShore(vec3 position, float time,
+                           vec4 waveDir0, vec4 waveDir1,
+                           float waveFrequency, float waveAmplitude,
+                           float vertexSpacing,
+                           WaterShoreSample shore, float breakerIndex,
+                           out vec3 normal, out float jacobian, out float breaking)
 {
     vec3 displaced = position;
     vec3 tangent = vec3(1.0, 0.0, 0.0);
     vec3 binormal = vec3(0.0, 0.0, 1.0);
+    breaking = 0.0;
 
     // Normalize directions
     vec2 dir0 = normalize(waveDir0.xy + vec2(0.0001));
@@ -180,16 +269,33 @@ vec3 sumGerstnerWaves(vec3 position, float time,
     // The factor is therefore written out at BOTH call sites rather than hoisted
     // into a local: the pairing is the invariant, and keeping it visible per
     // line is what WaterGerstnerNormalScaleTest pins. Keep them in step.
+    //
+    // Since #1033 the same product is also the shore transform's
+    // `amplitudeScale`, for a third reason: the breaker limit is a statement
+    // about metres of water, so it has to be tested against the amplitude the
+    // surface is actually displaced by rather than the nominal one.
+    //
+    // The band-limit weight is deliberately derived from the DEEP wavelength and
+    // not from the shoaled one. Shoaling shortens a wavelength by up to 4x on
+    // Drift's approaches, so re-deriving it would fade the primaries out to
+    // nothing exactly where the shore waves are the whole point — the same shape
+    // of mistake the tess-eval stage's wake-spacing note records, one factor
+    // along. The surface near shore is finely tessellated in practice, which is
+    // what the base-grid spacing understates.
 
     // --- Primary waves (artist-controlled) ---
     // Scaled down to 0.55 each so detail octaves can compete and break the grid
     float meshW_wl0 = octaveMeshWeight(wl0, vertexSpacing);
-    displaced += gerstnerWave(position, dir0, waveDir0.z, wl0, time) * waveAmplitude * 0.55 * meshW_wl0;
-    gerstnerWaveNormal(position, dir0, waveDir0.z * waveAmplitude * 0.55 * meshW_wl0, wl0, time, tangent, binormal);
+    WaterShoreOctave sh0 = waterShoreTransformOctave(dir0, wl0, waveDir0.z, waveAmplitude * 0.55 * meshW_wl0, shore, breakerIndex);
+    breaking = max(breaking, sh0.Breaking);
+    displaced += gerstnerWave(position, sh0.Direction, sh0.Steepness, sh0.Wavelength, sh0.PhaseSpeed, time, 0.0) * waveAmplitude * 0.55 * meshW_wl0;
+    gerstnerWaveNormal(position, sh0.Direction, sh0.Steepness * waveAmplitude * 0.55 * meshW_wl0, sh0.Wavelength, sh0.PhaseSpeed, time, 0.0, tangent, binormal);
 
     float meshW_wl1 = octaveMeshWeight(wl1, vertexSpacing);
-    displaced += gerstnerWave(position, dir1, waveDir1.z, wl1, time) * waveAmplitude * 0.55 * meshW_wl1;
-    gerstnerWaveNormal(position, dir1, waveDir1.z * waveAmplitude * 0.55 * meshW_wl1, wl1, time, tangent, binormal);
+    WaterShoreOctave sh1 = waterShoreTransformOctave(dir1, wl1, waveDir1.z, waveAmplitude * 0.55 * meshW_wl1, shore, breakerIndex);
+    breaking = max(breaking, sh1.Breaking);
+    displaced += gerstnerWave(position, sh1.Direction, sh1.Steepness, sh1.Wavelength, sh1.PhaseSpeed, time, 0.0) * waveAmplitude * 0.55 * meshW_wl1;
+    gerstnerWaveNormal(position, sh1.Direction, sh1.Steepness * waveAmplitude * 0.55 * meshW_wl1, sh1.Wavelength, sh1.PhaseSpeed, time, 0.0, tangent, binormal);
 
     // --- Procedural detail octaves ---
     // Uses golden angle (~137.5 degrees) for direction distribution,
@@ -212,7 +318,7 @@ vec3 sumGerstnerWaves(vec3 position, float time,
     // Phase offsets — irrational multiples so waves never re-align
     const float PI = 3.14159265;
 
-    // Octave 0: long crosswave — nearly as strong as primary
+    // Octave 0: long crosswave - nearly as strong as primary
     {
         float angle = baseAngle + GOLDEN_ANGLE * 1.0;
         vec2  d  = DIR_FROM_ANGLE(angle);
@@ -221,8 +327,10 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float ph = PI * 1.7231;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 1.0, wl);
         float meshW = octaveMeshWeight(wl, vertexSpacing);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.03, ph) * waveAmplitude * 0.5 * meshW;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.5 * meshW, wl, time * 1.03, ph, tangent, binormal);
+        WaterShoreOctave sh = waterShoreTransformOctave(d, wl, st, waveAmplitude * 0.5 * meshW, shore, breakerIndex);
+        breaking = max(breaking, sh.Breaking);
+        displaced += gerstnerWave(warpedPos, sh.Direction, sh.Steepness, sh.Wavelength, sh.PhaseSpeed, time * 1.03, ph) * waveAmplitude * 0.5 * meshW;
+        gerstnerWaveNormal(warpedPos, sh.Direction, sh.Steepness * waveAmplitude * 0.5 * meshW, sh.Wavelength, sh.PhaseSpeed, time * 1.03, ph, tangent, binormal);
     }
 
     // Octave 1: medium crosswave
@@ -234,8 +342,10 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float ph = PI * 3.4519;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 2.7, wl);
         float meshW = octaveMeshWeight(wl, vertexSpacing);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 0.97, ph) * waveAmplitude * 0.4 * meshW;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.4 * meshW, wl, time * 0.97, ph, tangent, binormal);
+        WaterShoreOctave sh = waterShoreTransformOctave(d, wl, st, waveAmplitude * 0.4 * meshW, shore, breakerIndex);
+        breaking = max(breaking, sh.Breaking);
+        displaced += gerstnerWave(warpedPos, sh.Direction, sh.Steepness, sh.Wavelength, sh.PhaseSpeed, time * 0.97, ph) * waveAmplitude * 0.4 * meshW;
+        gerstnerWaveNormal(warpedPos, sh.Direction, sh.Steepness * waveAmplitude * 0.4 * meshW, sh.Wavelength, sh.PhaseSpeed, time * 0.97, ph, tangent, binormal);
     }
 
     // Octave 2: medium-short chop
@@ -247,8 +357,10 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float ph = PI * 0.8637;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 4.1, wl);
         float meshW = octaveMeshWeight(wl, vertexSpacing);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.11, ph) * waveAmplitude * 0.3 * meshW;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.3 * meshW, wl, time * 1.11, ph, tangent, binormal);
+        WaterShoreOctave sh = waterShoreTransformOctave(d, wl, st, waveAmplitude * 0.3 * meshW, shore, breakerIndex);
+        breaking = max(breaking, sh.Breaking);
+        displaced += gerstnerWave(warpedPos, sh.Direction, sh.Steepness, sh.Wavelength, sh.PhaseSpeed, time * 1.11, ph) * waveAmplitude * 0.3 * meshW;
+        gerstnerWaveNormal(warpedPos, sh.Direction, sh.Steepness * waveAmplitude * 0.3 * meshW, sh.Wavelength, sh.PhaseSpeed, time * 1.11, ph, tangent, binormal);
     }
 
     // Octave 3: choppy detail
@@ -260,8 +372,10 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float ph = PI * 5.1043;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 5.9, wl);
         float meshW = octaveMeshWeight(wl, vertexSpacing);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 0.89, ph) * waveAmplitude * 0.22 * meshW;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.22 * meshW, wl, time * 0.89, ph, tangent, binormal);
+        WaterShoreOctave sh = waterShoreTransformOctave(d, wl, st, waveAmplitude * 0.22 * meshW, shore, breakerIndex);
+        breaking = max(breaking, sh.Breaking);
+        displaced += gerstnerWave(warpedPos, sh.Direction, sh.Steepness, sh.Wavelength, sh.PhaseSpeed, time * 0.89, ph) * waveAmplitude * 0.22 * meshW;
+        gerstnerWaveNormal(warpedPos, sh.Direction, sh.Steepness * waveAmplitude * 0.22 * meshW, sh.Wavelength, sh.PhaseSpeed, time * 0.89, ph, tangent, binormal);
     }
 
     // Octave 4: fine ripple
@@ -273,8 +387,10 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float ph = PI * 2.6891;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 7.3, wl);
         float meshW = octaveMeshWeight(wl, vertexSpacing);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.23, ph) * waveAmplitude * 0.15 * meshW;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.15 * meshW, wl, time * 1.23, ph, tangent, binormal);
+        WaterShoreOctave sh = waterShoreTransformOctave(d, wl, st, waveAmplitude * 0.15 * meshW, shore, breakerIndex);
+        breaking = max(breaking, sh.Breaking);
+        displaced += gerstnerWave(warpedPos, sh.Direction, sh.Steepness, sh.Wavelength, sh.PhaseSpeed, time * 1.23, ph) * waveAmplitude * 0.15 * meshW;
+        gerstnerWaveNormal(warpedPos, sh.Direction, sh.Steepness * waveAmplitude * 0.15 * meshW, sh.Wavelength, sh.PhaseSpeed, time * 1.23, ph, tangent, binormal);
     }
 
     // Octave 5: finest detail
@@ -286,12 +402,36 @@ vec3 sumGerstnerWaves(vec3 position, float time,
         float ph = PI * 4.3127;
         vec3 warpedPos = position; warpedPos.xz += domainWarp(position.xz, 9.1, wl);
         float meshW = octaveMeshWeight(wl, vertexSpacing);
-        displaced += gerstnerWave(warpedPos, d, st, wl, time * 1.07, ph) * waveAmplitude * 0.1 * meshW;
-        gerstnerWaveNormal(warpedPos, d, st * waveAmplitude * 0.1 * meshW, wl, time * 1.07, ph, tangent, binormal);
+        WaterShoreOctave sh = waterShoreTransformOctave(d, wl, st, waveAmplitude * 0.1 * meshW, shore, breakerIndex);
+        breaking = max(breaking, sh.Breaking);
+        displaced += gerstnerWave(warpedPos, sh.Direction, sh.Steepness, sh.Wavelength, sh.PhaseSpeed, time * 1.07, ph) * waveAmplitude * 0.1 * meshW;
+        gerstnerWaveNormal(warpedPos, sh.Direction, sh.Steepness * waveAmplitude * 0.1 * meshW, sh.Wavelength, sh.PhaseSpeed, time * 1.07, ph, tangent, binormal);
     }
 
     #undef DIR_FROM_ANGLE
 
+    // The fold signal, from terms the octave sweep already summed — see
+    // waterGerstnerJacobian(). Zero extra cost, and the SAME quantity the FFT
+    // ocean writes into its derivatives alpha, so the two paths' foam agrees on
+    // what "breaking" means.
+    jacobian = waterGerstnerJacobian(tangent, binormal);
+
     normal = normalize(cross(binormal, tangent));
     return displaced;
+}
+
+// Deep-water entry point, unchanged for every caller that has nothing to say
+// about the seabed. waterShoreDisabled() makes every shore relation the
+// identity, so this is the pre-#1033 surface rather than an approximation.
+vec3 sumGerstnerWaves(vec3 position, float time,
+                      vec4 waveDir0, vec4 waveDir1,
+                      float waveFrequency, float waveAmplitude,
+                      float vertexSpacing,
+                      out vec3 normal)
+{
+    float jacobianUnused;
+    float breakingUnused;
+    return sumGerstnerWavesShore(position, time, waveDir0, waveDir1, waveFrequency, waveAmplitude,
+                                 vertexSpacing, waterShoreDisabled(), WATER_SHORE_BREAKER_INDEX,
+                                 normal, jacobianUnused, breakingUnused);
 }
