@@ -1,0 +1,173 @@
+// =============================================================================
+// SplatSpike_BitonicSort.comp
+//
+// The GPU sort behind the Gaussian-splat ordering pass (issue #1038). Sorts a
+// power-of-two array of (key, payload) pairs ASCENDING on the pair compared
+// lexicographically, which for the caller's complemented depth keys means
+// far-to-near with ties broken on the unique cloud index.
+//
+// WHY BITONIC AND NOT A RADIX SORT. #1038 proposed a four-pass LSD radix over
+// GPUPrefixSum, which is the faster algorithm and is what a production path
+// should end up with. It is not what shipped here, for one reason: a radix sort
+// is only a drop-in replacement for the CPU reference if it is STABLE, and a
+// stable GPU radix needs per-tile rank computation (ballot-based, or a
+// 256x256 shared histogram it cannot afford) that is easy to get subtly wrong
+// and hard to prove right. Bitonic sorting on the PAIR is a total order, so
+// stability is not a property it needs to have -- exactly one permutation
+// satisfies the comparison, and GaussianSplatGpuOrderingParityTest can assert
+// index-for-index equality with the CPU rather than "same set, roughly ordered".
+// For a spike whose whole point is a trustworthy measurement, a slower
+// algorithm that is provably identical beat a faster one that is probably
+// right. ADR 0018 section 3.3 has the reasoning and 5.2 the numbers.
+//
+// THE TWO ENTRY POINTS. A naive bitonic network is O(log^2 N) dispatches, each
+// re-reading the whole array from global memory: 231 of them at 2^21 elements.
+// Every step whose stride is below the workgroup's span can instead run entirely
+// in shared memory, so the shader has two modes:
+//
+//   global  one compare-exchange step, for a stride wider than the tile
+//   local   a whole descending run of steps inside one tile
+//
+// A 512-element tile absorbs the last 9 steps of every k, which takes 2^21 from
+// 231 dispatches to 78 global plus 21 local, and the 4096-element fixture from
+// 78 to 6 global plus 12 local. It is a constant-factor win, not a change of
+// order: the global half is still O(log^2 N).
+// =============================================================================
+
+#version 460 core
+
+layout(local_size_x = 256) in;
+
+// Two elements per thread: a 256-thread workgroup owns a 512-element tile, and
+// the local pass can therefore resolve every step with stride < 512.
+const uint kTile = 512u;
+
+layout(std430, binding = 2) buffer SplatKeyBuffer
+{
+    uint b_Keys[];
+};
+
+layout(std430, binding = 1) buffer SplatOrderBuffer
+{
+    uint b_Order[];
+};
+
+layout(std140, binding = 8) uniform SplatSortUniforms
+{
+    // x = total element count (a power of two, at least kTile)
+    // y = k, the bitonic sequence length for this dispatch
+    // z = j: the single compare distance in global mode, or the FIRST (largest)
+    //        compare distance in local mode, which then halves down to 1
+    // w = 1 when this dispatch is the local shared-memory mode
+    uvec4 u_SortParams;
+};
+
+shared uint s_Keys[kTile];
+shared uint s_Order[kTile];
+
+// Ascending on (key, payload). The payload tiebreak is what makes this a total
+// order; without it two splats at the same depth could come out either way and
+// the frame would shimmer between them.
+bool Greater(uint keyA, uint orderA, uint keyB, uint orderB)
+{
+    return (keyA > keyB) || (keyA == keyB && orderA > orderB);
+}
+
+void CompareExchangeGlobal(uint lo, uint hi, bool ascending)
+{
+    uint keyLo = b_Keys[lo];
+    uint keyHi = b_Keys[hi];
+    uint orderLo = b_Order[lo];
+    uint orderHi = b_Order[hi];
+
+    bool swapNeeded = Greater(keyLo, orderLo, keyHi, orderHi) == ascending;
+    if (swapNeeded)
+    {
+        b_Keys[lo] = keyHi;
+        b_Keys[hi] = keyLo;
+        b_Order[lo] = orderHi;
+        b_Order[hi] = orderLo;
+    }
+}
+
+void CompareExchangeShared(uint lo, uint hi, bool ascending)
+{
+    uint keyLo = s_Keys[lo];
+    uint keyHi = s_Keys[hi];
+    uint orderLo = s_Order[lo];
+    uint orderHi = s_Order[hi];
+
+    bool swapNeeded = Greater(keyLo, orderLo, keyHi, orderHi) == ascending;
+    if (swapNeeded)
+    {
+        s_Keys[lo] = keyHi;
+        s_Keys[hi] = keyLo;
+        s_Order[lo] = orderHi;
+        s_Order[hi] = orderLo;
+    }
+}
+
+void main()
+{
+    uint count = u_SortParams.x;
+    uint k = u_SortParams.y;
+    bool localMode = (u_SortParams.w != 0u);
+
+    if (!localMode)
+    {
+        // One compare-exchange step. Threads are indexed over PAIRS, and the
+        // partner index is derived so that each pair is visited exactly once:
+        // the classic `i = 2*t - (t & (j-1))` mapping.
+        uint j = u_SortParams.z;
+        uint thread = gl_GlobalInvocationID.x;
+        uint half_ = count >> 1u;
+        if (thread >= half_)
+            return;
+
+        uint lo = (thread << 1u) - (thread & (j - 1u));
+        uint hi = lo + j;
+        if (hi >= count)
+            return;
+
+        // Every bitonic sequence of length k alternates direction; the block a
+        // pair belongs to decides which way it sorts.
+        bool ascending = ((lo & k) == 0u);
+        CompareExchangeGlobal(lo, hi, ascending);
+        return;
+    }
+
+    // Local mode: this workgroup owns one contiguous tile and resolves every
+    // remaining step of the current k, from u_SortParams.z down to 1, in shared
+    // memory. A tile is closed under XOR with any j below its width, so those
+    // steps never need to leave the workgroup.
+    //
+    // THE STARTING J IS PASSED IN, NOT ASSUMED TO BE kTile/2. For a small k the
+    // network only has steps at j <= k/2, and starting at kTile/2 anyway would
+    // run compare-exchanges the algorithm does not contain and silently produce
+    // an unsorted array.
+    uint tileBase = gl_WorkGroupID.x * kTile;
+    uint local = gl_LocalInvocationID.x;
+
+    s_Keys[local] = b_Keys[tileBase + local];
+    s_Order[local] = b_Order[tileBase + local];
+    s_Keys[local + 256u] = b_Keys[tileBase + local + 256u];
+    s_Order[local + 256u] = b_Order[tileBase + local + 256u];
+    barrier();
+
+    for (uint j = u_SortParams.z; j >= 1u; j >>= 1u)
+    {
+        uint lo = (local << 1u) - (local & (j - 1u));
+        uint hi = lo + j;
+        // The direction comes from the GLOBAL index, not the tile-local one:
+        // the tile is a slice of a longer bitonic sequence and does not get to
+        // choose its own direction.
+        bool ascending = (((tileBase + lo) & k) == 0u);
+        CompareExchangeShared(lo, hi, ascending);
+        barrier();
+    }
+
+    b_Keys[tileBase + local] = s_Keys[local];
+    b_Order[tileBase + local] = s_Order[local];
+    b_Keys[tileBase + local + 256u] = s_Keys[local + 256u];
+    b_Order[tileBase + local + 256u] = s_Order[local + 256u];
+}

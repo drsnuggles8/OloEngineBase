@@ -852,3 +852,31 @@ occlusion at 0.6 removed the black but replaced it with a flat constant across e
 for scenes that still need one.
 
 Found on #710 (analytic sphere-proxy ambient occlusion).
+
+## A `UniformBuffer` claims its binding point at CONSTRUCTION, so two of them on one binding is last-created-wins
+
+**Rule:** when two `UniformBuffer`s (or `StorageBuffer`s) can be alive on the same binding point at
+once, call `Bind()` before every draw or dispatch that reads one. Writing it with `SetData` is not
+enough. `UniformBuffer::Create(size, binding)` issues the `glBindBufferBase` itself, and nothing
+rebinds afterwards — so the buffer constructed *last* owns the slot and every `SetData` on the other
+one lands in memory no shader reads.
+
+The failure is silent and total: the shader reads whatever the other buffer holds, which for a
+freshly created one is zeroes. A camera UBO read as zeroes produces a frame that renders — with a
+degenerate view matrix — rather than an error.
+
+Found on #1040. `GaussianSplatVisualEvidenceTest` owned a camera UBO on binding 7 and
+`GpuViewOrdering` created its own on the same binding for the cull dispatch. Constructing the
+ordering rig silently took the slot, and the CPU-ordered comparison frame drew through a buffer the
+test never wrote — 11.7/255 away from the frame it was supposed to match. Both sides now bind
+explicitly and the two frames are byte-identical.
+
+Two corollaries:
+
+* **Symmetric binding points are a design smell but a legitimate one.** Sharing binding 7 between the
+  cull dispatch and the draw is what guarantees they agree about the camera; the fix is explicit
+  binding, not separate slots.
+* **Unbind the UBOs too, not just the SSBOs.** `testing-architecture.md` §6.4's rule about leaving no
+  buffer on a shared binding point is usually applied to SSBOs and forgotten for UBOs, and bindings
+  7 and 8 are `UBO_USER_0` / `UBO_USER_1` — the post-process and motion-blur slots — so a destroyed
+  buffer left there is handed to the next pass in the process.

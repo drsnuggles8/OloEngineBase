@@ -246,3 +246,40 @@ DLL is never built, `ScriptEngine::Init` fails to load it, logs
 session. That is graceful degradation, not a crash, so a verification loop that only checks for a
 rendered window misses it. If you see that log line, check the edge before diagnosing anything else.
 Found by a `/start-work` runtime smoke test, not a tracked issue.
+
+## `.ply` is already claimed by the mesh importer, so a Gaussian-splat PLY fails as a broken mesh
+
+**Rule:** before adding an importer for a format, grep `AssetExtensions.cpp` for the extension.
+Registering a *second* meaning for one already in `s_ExtensionMap` is not a new capability, it is a
+conflict, and the existing meaning wins — the file is routed to the old importer and the user is
+told whatever that importer thinks of it.
+
+`s_ExtensionMap["ply"] = AssetType::MeshSource` (added so the multi-million-triangle scanning-repo
+meshes could be imported at all). A 3D Gaussian-splat `.ply` is also a `.ply`, so dropping one into
+the Content Browser routes it to assimp, which **refuses it**:
+
+```
+ASSIMP Error: Validation failed: Mesh  contains no faces
+```
+
+`Model::LoadModel` then returns with no model. Measured against the #971 fixture with the engine's
+own import flags; dropping `aiProcess_ValidateDataStructure` does not change the outcome, only the
+message (*"No output meshes: all meshes are orphaned and are not referenced by any nodes"*), because
+a splat cloud is vertices with no faces and the mesh path has nothing to keep.
+
+**So the failure mode is a confusing error, not silent data loss.** That distinction matters for how
+much it is worth fixing: nothing is imported wrongly, and no data is quietly dropped — a user is
+told their file is a broken mesh when it is in fact a perfectly good file of a kind the engine does
+not support yet. Worth a clearer message when splats become a real asset type, not before.
+
+Found during the #971 splat viability spike, whose importer therefore stays out of the asset
+registry entirely — see [ADR 0018](../adr/0018-gaussian-splats-gpu-ordering-and-merge-lod.md) §4 and
+§6. The general shape applies to any format with a shared container extension: `.ply`, `.json`,
+`.bin`, `.dat`. If both meanings must coexist, the discriminator has to be file CONTENT (for splat
+PLYs, an `f_dc_0` property in the vertex element), not the extension.
+
+**The wider lesson is about the write-up, not the code.** The first version of this note claimed the
+splat PLY imported as a point mesh and silently lost everything but `x y z`. That was inferred from
+reading `AssetExtensions.cpp` and never tested; running the file through assimp with the engine's
+flags took about ten minutes and produced the opposite answer. A claim about what an importer *does*
+is cheap to verify and easy to get backwards.

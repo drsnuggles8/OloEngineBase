@@ -73,4 +73,23 @@ namespace OloEngine
     {
         glBindBufferBase(GL_UNIFORM_BUFFER, m_Binding, m_RendererID);
     }
+
+    void OpenGLUniformBuffer::Unbind() const
+    {
+        // ONLY CLEAR THE SLOT IF WE ARE STILL ITS OCCUPANT. A UniformBuffer
+        // claims its binding point at construction and nothing rebinds
+        // afterwards, so a buffer created later on the same point has already
+        // displaced this one -- and an unconditional clear here would evict the
+        // buffer that legitimately owns the slot now, leaving the next draw
+        // reading zeroes. That is the same last-created-wins hazard
+        // notes-renderer.md describes, seen from the other side.
+        //
+        // The Vulkan implementation has the identical guard against its own
+        // binding-state record; this one was missed on the first pass and is
+        // pinned by UniformBufferBindingOwnershipTest.
+        GLint current = 0;
+        glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, m_Binding, &current);
+        if (static_cast<u32>(current) == m_RendererID)
+            glBindBufferBase(GL_UNIFORM_BUFFER, m_Binding, 0);
+    }
 } // namespace OloEngine
