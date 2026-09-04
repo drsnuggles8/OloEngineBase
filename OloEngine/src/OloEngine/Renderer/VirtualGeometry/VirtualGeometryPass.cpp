@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -726,6 +727,18 @@ namespace OloEngine
         // phases append to the same SW list, so a single dispatch covers both.
         if (swEnabled)
         {
+            // Sub-pass GPU bracket (issue #712), the same split SceneRenderPass
+            // and VolumetricFogPass use: the software rasterizer's own GPU-ms,
+            // published as "VirtualGeometryPass/SwRaster" and surfaced in
+            // olo_perf_pass_timings. Without it the raster's cost is folded into
+            // a pass total that is mostly cull + hardware draws + resolve, and
+            // the issue's acceptance criterion ("measured reduction in
+            // software-rasterizer time") is not measurable at all. The Resolve
+            // bracket below is its CONTROL: the resolve's work is a function of
+            // the visibility buffer, which this change leaves identical, so a
+            // reading where BOTH moved is the box drifting, not the shader.
+            auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
+            gpuSubTimers.BeginSubPass("SwRaster");
             registry.GetVertexBuffer()->Bind();
             registry.GetVisbufferBuffer()->Bind();
             RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VIRTUAL_INDICES,
@@ -771,6 +784,7 @@ namespace OloEngine
                 RenderCommand::DispatchCompute(groupsX, groupsY, 1);
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
             }
+            gpuSubTimers.EndSubPass();
         }
 
         // ── 5. Phase-2 hardware raster + visibility-buffer material resolve ──
@@ -789,6 +803,10 @@ namespace OloEngine
             // HW-rasterized ones from both phases.
             if (swEnabled)
             {
+                // The SwRaster bracket's control (see its comment): one
+                // fullscreen resolve draw per instance, whose cost follows the
+                // visibility buffer this change must leave untouched.
+                GPUPassTimerPool::GetInstance().BeginSubPass("Resolve");
                 RenderCommand::DisableCulling(); // fullscreen triangle
                 m_ResolveShader->Bind();
                 registry.GetSwListBuffer()->Bind();
@@ -819,6 +837,7 @@ namespace OloEngine
                     context.DrawIndexed(fullscreen);
                 }
                 RenderCommand::EnableCulling();
+                GPUPassTimerPool::GetInstance().EndSubPass();
             }
 
             targetFB->Unbind();

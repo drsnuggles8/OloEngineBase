@@ -19,6 +19,7 @@
 #include "OloEnginePCH.h"
 
 #include "RenderPropertyTest.h"
+#include "VirtualRasterCoverageMirror.h"
 
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -1206,6 +1207,143 @@ namespace OloEngine::Tests
         const bool sphereIntersects = ClusteredLighting::DepthRangeIntersectsMask(
             1u << 5u, -sphereCenterZ - sphereRadius, -sphereCenterZ + sphereRadius, 0.0f, 32.0f);
         EXPECT_EQ(values[8], static_cast<u32>(sphereIntersects));
+    }
+
+    // Layer-2 for the virtual-geometry raster's sub-sample-miss rule (issue
+    // #712). The probe includes the SHIPPED VirtualRasterCoverage.glsl, so this
+    // is what fails when the GLSL and the CPU mirror in
+    // VirtualRasterCoverageMirror.h drift — the rule's own correctness is
+    // pinned, without a GL context, by VirtualRasterCoverageTest.
+    TEST(ShaderUnitVirtualSampleBoundsTest, SampleRangeAndAreaSignMatchTheCpuMirror)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        namespace Mirror = OloEngine::Tests::VirtualRasterCoverage;
+
+        struct Case
+        {
+            glm::vec2 S0;
+            glm::vec2 S1;
+            glm::vec2 S2;
+            glm::vec2 Viewport;
+        };
+
+        // Far outside the int range but still finite, and small enough that the
+        // area determinant does not overflow either: an inf/NaN case here would
+        // be testing the driver's fast-math flags, not the rule.
+        constexpr f32 kHuge = 1.0e18f;
+        // Coordinates are multiples of 1/64 (or plainly separated from a pixel
+        // centre) so ceil/floor land on the same side on any float unit.
+        const std::array<Case, 12> cases{ {
+            // Wholly inside one pixel, missing its centre -> reject.
+            { { 10.0625f, 10.0625f }, { 10.375f, 10.0625f }, { 10.0625f, 10.375f }, { 64.0f, 64.0f } },
+            // Same triangle nudged onto the centre -> kept, one pixel wide.
+            { { 10.4375f, 10.4375f }, { 10.75f, 10.4375f }, { 10.4375f, 10.75f }, { 64.0f, 64.0f } },
+            // Vertices exactly on pixel centres: both bounds inclusive.
+            { { 4.5f, 4.5f }, { 8.5f, 4.5f }, { 4.5f, 8.5f }, { 64.0f, 64.0f } },
+            // A hair inside those centres: both boundary pixels drop out.
+            { { 4.515625f, 4.515625f }, { 8.484375f, 4.515625f }, { 4.515625f, 8.484375f }, { 64.0f, 64.0f } },
+            // Clockwise winding — the area sign flips, the range does not.
+            { { 4.5f, 4.5f }, { 4.5f, 8.5f }, { 8.5f, 4.5f }, { 64.0f, 64.0f } },
+            // Degenerate (collinear): area is neither positive nor negative.
+            { { 3.0f, 3.0f }, { 6.0f, 6.0f }, { 9.0f, 9.0f }, { 64.0f, 64.0f } },
+            // Off-screen on each side -> reject, with in-range int bounds.
+            { { -40.0f, 10.0f }, { -20.0f, 10.0f }, { -40.0f, 20.0f }, { 64.0f, 64.0f } },
+            { { 90.0f, 10.0f }, { 120.0f, 10.0f }, { 90.0f, 20.0f }, { 64.0f, 64.0f } },
+            { { 10.0f, -40.0f }, { 20.0f, -40.0f }, { 10.0f, -20.0f }, { 64.0f, 64.0f } },
+            { { 10.0f, 90.0f }, { 20.0f, 90.0f }, { 10.0f, 120.0f }, { 64.0f, 64.0f } },
+            // Hanging off the near corner: clamped to the screen edge.
+            { { -5.5f, -5.5f }, { 6.5f, -5.5f }, { -5.5f, 6.5f }, { 37.0f, 23.0f } },
+            // A box far outside the int range: the float clamps keep the
+            // conversion legal and the range comes back as the whole screen.
+            { { -kHuge, -kHuge }, { kHuge, -kHuge }, { -kHuge, kHuge }, { 37.0f, 23.0f } },
+        } };
+
+        std::vector<glm::vec4> inputs;
+        inputs.reserve(cases.size() * 2);
+        for (const Case& c : cases)
+        {
+            inputs.emplace_back(c.S0.x, c.S0.y, c.S1.x, c.S1.y);
+            inputs.emplace_back(c.S2.x, c.S2.y, c.Viewport.x, c.Viewport.y);
+        }
+
+        const auto count = static_cast<u32>(cases.size());
+        const auto inputBytes = static_cast<GLsizeiptr>(inputs.size() * sizeof(glm::vec4));
+        ScopedBuffer input(inputBytes, GL_DYNAMIC_STORAGE_BIT);
+        ::glNamedBufferSubData(input.m_Id, 0, inputBytes, inputs.data());
+        ScopedBuffer ranges(static_cast<GLsizeiptr>(count * sizeof(glm::ivec4)),
+                            GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+        ScopedBuffer meta(static_cast<GLsizeiptr>(count * sizeof(glm::uvec4)),
+                          GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+
+        auto shader = ComputeShader::Create("assets/shaders/tests/ShaderUnit_VirtualSampleBounds.glsl");
+        ASSERT_TRUE(shader && shader->IsValid())
+            << "ShaderUnit_VirtualSampleBounds failed to compile/link — "
+               "include/VirtualRasterCoverage.glsl does not build as included";
+
+        shader->Bind();
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, input.m_Id);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ranges.m_Id);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, meta.m_Id);
+        ::glDispatchCompute(count, 1, 1);
+        ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+        std::vector<glm::ivec4> gpuRanges(count);
+        std::vector<glm::uvec4> gpuMeta(count);
+        ::glGetNamedBufferSubData(ranges.m_Id, 0,
+                                  static_cast<GLsizeiptr>(count * sizeof(glm::ivec4)),
+                                  gpuRanges.data());
+        ::glGetNamedBufferSubData(meta.m_Id, 0,
+                                  static_cast<GLsizeiptr>(count * sizeof(glm::uvec4)),
+                                  gpuMeta.data());
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+        shader->Unbind();
+
+        u32 kept = 0;
+        for (u32 i = 0; i < count; ++i)
+        {
+            const Case& c = cases[i];
+            const Mirror::SampleRange expected =
+                Mirror::SampleRangeFromTriangle(c.S0, c.S1, c.S2, c.Viewport);
+            SCOPED_TRACE(::testing::Message() << "case " << i);
+
+            EXPECT_EQ(gpuMeta[i].x, static_cast<u32>(expected.Covers));
+            if (expected.Covers)
+            {
+                ++kept;
+                EXPECT_EQ(gpuRanges[i].x, expected.Min.x);
+                EXPECT_EQ(gpuRanges[i].y, expected.Min.y);
+                EXPECT_EQ(gpuRanges[i].z, expected.Max.x);
+                EXPECT_EQ(gpuRanges[i].w, expected.Max.y);
+            }
+            else
+            {
+                // Even on the reject path the bounds must stay legal ints —
+                // that is what the float-side clamping is there for.
+                EXPECT_GE(gpuRanges[i].x, 0);
+                EXPECT_LE(gpuRanges[i].x, static_cast<i32>(c.Viewport.x));
+                EXPECT_GE(gpuRanges[i].z, -1);
+                EXPECT_LE(gpuRanges[i].z, static_cast<i32>(c.Viewport.x) - 1);
+                EXPECT_GE(gpuRanges[i].y, 0);
+                EXPECT_LE(gpuRanges[i].y, static_cast<i32>(c.Viewport.y));
+                EXPECT_GE(gpuRanges[i].w, -1);
+                EXPECT_LE(gpuRanges[i].w, static_cast<i32>(c.Viewport.y) - 1);
+            }
+
+            // Only the SIGN of the area is contractual (the GPU may contract
+            // the products into an FMA), and a CCW triangle must read positive:
+            // the raster's backface reject depends on that orientation.
+            const f32 expectedArea = Mirror::SignedArea2(c.S0, c.S1, c.S2);
+            const u32 expectedSign = (expectedArea > 0.0f) ? 1u : ((expectedArea < 0.0f) ? 0u : 2u);
+            EXPECT_EQ(gpuMeta[i].y, expectedSign);
+        }
+
+        // Anti-vacuous: the table must contain both outcomes, or every
+        // comparison above passed against one branch of the rule.
+        EXPECT_GT(kept, 0u);
+        EXPECT_LT(kept, count);
     }
 
 } // namespace OloEngine::Tests

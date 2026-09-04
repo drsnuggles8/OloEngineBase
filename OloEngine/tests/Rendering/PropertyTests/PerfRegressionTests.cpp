@@ -1734,6 +1734,113 @@ namespace OloEngine::Tests
         CheckPerfRegression("virtual_hwraster_frame_1280x720", hwNs);
     }
 
+    // The software rasterizer's OWN GPU time, at sub-pass resolution (issue #712).
+    //
+    // SoftwareVsHardwareRasterBudget above times the WHOLE FRAME, which is the
+    // right instrument for "is the software path worth taking" and the wrong one
+    // for "did a change inside VirtualClusterRaster.comp help": the raster is a
+    // fraction of that frame, and the measured run-to-run spread on this
+    // workstation is about 5% — the hardware arm, which never runs the software
+    // shader at all, moved 4.4% between two interleaved rounds. Anything smaller
+    // than that is unresolvable at frame resolution, by construction.
+    //
+    // VirtualGeometryPass stamps "VirtualGeometryPass/SwRaster" and
+    // ".../Resolve" GPU sub-pass brackets; this reads them straight off
+    // GPUPassTimerPool, min-of-N with the same policy as MeasureFrameGpuNs
+    // (jitter only ever lengthens a sample). Resolve is the built-in CONTROL: it
+    // is driven by the visibility buffer, so a shader change that leaves the
+    // buffer identical must leave Resolve alone — a reading where both moved is
+    // the box drifting, not the raster.
+    //
+    // REPORTED, NOT ASSERTED, like the FSR2 pair below: there is no baseline
+    // entry to regress against and a threshold here would be pinning this
+    // machine. Only the structural invariants gate — that the brackets exist and
+    // that the software path actually ran.
+    TEST_F(VirtualGeometryPerf, SoftwareRasterSubPassBudget)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = RenderingPath::Deferred;
+        settings.VirtualGeometryEnabled = true;
+        Renderer3D::ApplyRendererSettings();
+
+        auto& registry = VirtualMeshRegistry::Get();
+        registry.SetSwRasterMode(VirtualSwRasterMode::ForceSoftware);
+
+        EditorCamera camera(45.0f, static_cast<f32>(kVgWidth) / static_cast<f32>(kVgHeight), 0.1f, 500.0f);
+        camera.SetViewportSize(static_cast<f32>(kVgWidth), static_cast<f32>(kVgHeight));
+        camera.SetPose(kCameraPos, 0.0f, 0.0f);
+
+        // The pool publishes a frame's timings 1-3 frames after it was issued,
+        // so the warmup also fills the ring with this workload's numbers.
+        constexpr u32 kWarmup = 8;
+        constexpr u32 kMeasure = 24;
+        RunEditorFrames(camera, kWarmup);
+
+        const auto bracketMs = [](const std::vector<GPUPassTimerPool::PassTiming>& timings,
+                                  std::string_view suffix) -> f64
+        {
+            for (const auto& timing : timings)
+            {
+                if (timing.Name.size() >= suffix.size() &&
+                    std::string_view(timing.Name).substr(timing.Name.size() - suffix.size()) == suffix)
+                    return timing.GpuMs;
+            }
+            return -1.0;
+        };
+
+        f64 bestSw = std::numeric_limits<f64>::max();
+        f64 bestResolve = std::numeric_limits<f64>::max();
+        u32 swSamples = 0;
+        u32 resolveSamples = 0;
+        for (u32 i = 0; i < kMeasure; ++i)
+        {
+            RunEditorFrames(camera, 1);
+            const auto timings = GPUPassTimerPool::GetInstance().GetLastPassTimingsCopy();
+            const f64 sw = bracketMs(timings, "/SwRaster");
+            const f64 resolve = bracketMs(timings, "/Resolve");
+            if (sw > 0.0)
+            {
+                bestSw = std::min(bestSw, sw);
+                ++swSamples;
+            }
+            if (resolve > 0.0)
+            {
+                bestResolve = std::min(bestResolve, resolve);
+                ++resolveSamples;
+            }
+        }
+
+        const VirtualCullStats stats = registry.ReadFrameCullStats();
+        registry.SetSwRasterMode(VirtualSwRasterMode::Auto); // don't leak the mode
+
+        // A bracket that never showed up leaves its accumulator at DBL_MAX, and
+        // the EXPECTs below are non-fatal — so normalise first, or the recorded
+        // property and the log line publish 1.8e308 as if it were a timing (the
+        // same normalisation MeasureFsr2PassMs does).
+        if (swSamples == 0)
+            bestSw = 0.0;
+        if (resolveSamples == 0)
+            bestResolve = 0.0;
+
+        // Structural invariants — the only gates. Each one is a way this probe
+        // could report a confident number about the wrong thing.
+        EXPECT_GT(stats.SoftwareRasterized, 0u)
+            << "ForceSoftware rasterized nothing in software — this probe is timing an empty dispatch";
+        ASSERT_GT(swSamples, 0u)
+            << "no VirtualGeometryPass/SwRaster bracket in the published timings — the sub-pass "
+               "brackets are gone, or the pass did not run";
+        EXPECT_GT(resolveSamples, 0u) << "no VirtualGeometryPass/Resolve control bracket";
+
+        ::testing::Test::RecordProperty("vg_swraster_subpass_ms", std::to_string(bestSw));
+        ::testing::Test::RecordProperty("vg_resolve_subpass_ms", std::to_string(bestResolve));
+        GTEST_LOG_(INFO) << "[nanite] swraster-subpass " << bestSw << " ms GPU (min of " << swSamples
+                         << "), resolve-control " << bestResolve << " ms GPU (min of " << resolveSamples
+                         << "), swClusters=" << stats.SoftwareRasterized
+                         << ", hwDraws=" << stats.HardwareDraws;
+    }
+
     // =========================================================================
     // FSR2 temporal upscaling (#684) — does it actually pay for itself?
     //
