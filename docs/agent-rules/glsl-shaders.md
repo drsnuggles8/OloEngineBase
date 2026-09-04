@@ -681,8 +681,10 @@ sync.
 **Do not ask a storage buffer for its length; carry a count, or make a generation the bound.**
 `.length()` compiles to `OpArrayLength`, and the Vulkan RHI maps most storage buffers through
 `VK_DESCRIPTOR_MAPPING_SOURCE_INDIRECT_ADDRESS_EXT`, where a buffer's length is not knowable.
-`vkCreateGraphicsPipelines` then rejects the whole pipeline, and the editor dereferences the null
-pipeline and dies:
+`vkCreateGraphicsPipelines` then **access-violates inside the driver** — it does not return an
+error the RHI can report. Measured under a debugger on the dev box's NVIDIA driver (#1029):
+`vvl::DispatchDevice::CreateGraphicsPipelines` -> `nvoglv64` -> `0xC0000005`, with the validation
+layer's `VUID-VkPipelineShaderStageCreateInfo-pNext-11378` logged just before the fault:
 
 ```
 vkCreateGraphicsPipelines(): pStages[1].pNext<VkShaderDescriptorSetAndBindingMappingInfoEXT>
@@ -698,7 +700,13 @@ Vulkan only, at run time. It cost a full live-editor round to find (#994).
 What to do instead: pass the count in a UBO, or use an identity you already carry. GPU Scene's
 material read validates the record's generation, which only comes from a link the registry
 resolved this frame, so the index is inside the table by construction. Pinned for the GPU Scene
-includes by `GPUSceneLayoutTest.NoGPUSceneIncludeAsksAStorageBufferForItsLength`.
+includes by `GPUSceneLayoutTest.NoGPUSceneIncludeAsksAStorageBufferForItsLength`, and for every
+mesh / G-Buffer shader by `VulkanMeshPipelineFamily.EveryShippedMeshShaderProducesAPipeline`,
+which scans the production SPIR-V for `OpArrayLength` before it can reach a driver (#1029).
+
+Because the call crashes rather than failing, a test cannot provoke this construct and assert on
+the result — it kills the process, and the SEH unwind skips the pipeline builder's `lock_guard`,
+so the next `ReleaseAll()` deadlocks. Detect it in the SPIR-V; never hand it to the driver.
 
 ---
 
