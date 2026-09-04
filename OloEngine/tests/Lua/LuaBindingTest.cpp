@@ -143,11 +143,28 @@ TEST_F(LuaBindingTest, Vectors_ConstructViaBareCall)
     EXPECT_FLOAT_EQ(v4.get<f32>(2), 3.0f);
     EXPECT_FLOAT_EQ(v4.get<f32>(3), 4.0f);
 
-    // The single-argument and default constructors reach through the same
-    // metamethod, and `.new(...)` must keep working beside it.
-    auto mixed = lua.script("local a = vec3(7.0); local b = vec3.new(1.0, 2.0, 3.0); return a.z, b.x");
-    EXPECT_FLOAT_EQ(mixed.get<f32>(0), 7.0f);
-    EXPECT_FLOAT_EQ(mixed.get<f32>(1), 1.0f);
+    // The single-argument form broadcasts, so check all three components --
+    // checking only z would still pass if the scalar reached one lane.
+    auto broadcast = lua.script("local v = vec3(7.0); return v.x, v.y, v.z");
+    EXPECT_FLOAT_EQ(broadcast.get<f32>(0), 7.0f);
+    EXPECT_FLOAT_EQ(broadcast.get<f32>(1), 7.0f);
+    EXPECT_FLOAT_EQ(broadcast.get<f32>(2), 7.0f);
+
+    // The zero-argument constructor reaches through the same metamethod, so it
+    // is worth proving it is callable -- but NOT worth asserting its contents.
+    // This project does not define GLM_FORCE_CTOR_INIT, so glm::vec3() leaves
+    // its members uninitialized; asserting zeros here would read indeterminate
+    // values and pass or fail by luck. Assign, then read back instead.
+    auto defaulted = lua.script("local v = vec3(); v.x = 2.0; v.y = 3.0; v.z = 4.0; return v.x, v.y, v.z");
+    EXPECT_FLOAT_EQ(defaulted.get<f32>(0), 2.0f);
+    EXPECT_FLOAT_EQ(defaulted.get<f32>(1), 3.0f);
+    EXPECT_FLOAT_EQ(defaulted.get<f32>(2), 4.0f);
+
+    // `.new(...)` must keep working beside the bare call.
+    auto viaNew = lua.script("local v = vec3.new(1.0, 2.0, 3.0); return v.x, v.y, v.z");
+    EXPECT_FLOAT_EQ(viaNew.get<f32>(0), 1.0f);
+    EXPECT_FLOAT_EQ(viaNew.get<f32>(1), 2.0f);
+    EXPECT_FLOAT_EQ(viaNew.get<f32>(2), 3.0f);
 }
 
 // =============================================================================
