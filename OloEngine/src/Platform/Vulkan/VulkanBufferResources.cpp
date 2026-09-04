@@ -294,6 +294,9 @@ namespace OloEngine
         // under the SAME identity.
         if (entry->Buffer != VK_NULL_HANDLE || entry->Allocation != VK_NULL_HANDLE)
         {
+            // Unstage before retiring: a bind point still holding the old
+            // address would publish a freed allocation (issue #1052).
+            VulkanBindingState::Get().ClearStorageBufferAddress(entry->DeviceAddress);
             VulkanDeferredReclaim::Get().Enqueue(entry->Buffer, entry->Allocation);
             *entry = Entry{};
         }
@@ -304,8 +307,16 @@ namespace OloEngine
         // The GL twin's raw buffers serve as SSBO scratch, copy endpoints and
         // indirect-args storage interchangeably; one conservative usage set
         // keeps the facade's "a buffer is a buffer" contract.
+        //
+        // SHADER_DEVICE_ADDRESS (issue #1052): a raw buffer bound to an SSBO
+        // binding point reaches the shader as a root-data POINTER like every
+        // other buffer, and the address cannot be taken without this CREATE-time
+        // bit. Its absence is what made SSBO_VIRTUAL_INDICES unbindable and lost
+        // the device on every virtual-geometry scene. VulkanVertexBuffer and
+        // VulkanIndexBuffer already set it; the raw family was the outlier.
         bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                           VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+                           VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         VmaAllocationCreateInfo allocInfo{};
@@ -351,6 +362,11 @@ namespace OloEngine
             entry->Coherent = (memProps & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
         }
 
+        VkBufferDeviceAddressInfo addressInfo{};
+        addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+        addressInfo.buffer = buffer;
+        entry->DeviceAddress = vkGetBufferDeviceAddress(device->GetDevice(), &addressInfo);
+
         // Keep generic native resolution working (CopyBufferSubData's operands
         // and barrier lowering resolve through the identity registry).
         RHI::ResourceRegistry::Get().UpdateNative(handle, VkHandleToU64(buffer));
@@ -371,6 +387,9 @@ namespace OloEngine
         }
         if (it->second.Buffer != VK_NULL_HANDLE || it->second.Allocation != VK_NULL_HANDLE)
         {
+            // Unstage before retiring — see the matching call in Allocate's
+            // orphan path (issue #1052).
+            VulkanBindingState::Get().ClearStorageBufferAddress(it->second.DeviceAddress);
             VulkanDeferredReclaim::Get().Enqueue(it->second.Buffer, it->second.Allocation);
         }
         m_Entries.erase(it);

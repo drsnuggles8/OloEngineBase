@@ -73,6 +73,21 @@ namespace OloEngine
         m_StorageBuffers[binding] = buffer;
     }
 
+    void VulkanBindingState::SetStorageBufferAddress(u32 binding, u64 address)
+    {
+        if (binding >= kMaxBufferBindings)
+        {
+            OLO_CORE_WARN("VulkanBindingState: SSBO binding {} out of range", binding);
+            return;
+        }
+        m_StorageBufferAddresses[binding] = address;
+    }
+
+    u64 VulkanBindingState::GetStorageBufferAddress(u32 binding) const
+    {
+        return binding < kMaxBufferBindings ? m_StorageBufferAddresses[binding] : 0;
+    }
+
     VulkanUniformBuffer* VulkanBindingState::GetUniformBuffer(u32 binding) const
     {
         return binding < kMaxBufferBindings ? m_UniformBuffers[binding] : nullptr;
@@ -81,6 +96,21 @@ namespace OloEngine
     VulkanStorageBuffer* VulkanBindingState::GetStorageBuffer(u32 binding) const
     {
         return binding < kMaxBufferBindings ? m_StorageBuffers[binding] : nullptr;
+    }
+
+    void VulkanBindingState::ClearStorageBufferAddress(u64 address)
+    {
+        if (address == 0)
+        {
+            return;
+        }
+        for (auto& entry : m_StorageBufferAddresses)
+        {
+            if (entry == address)
+            {
+                entry = 0;
+            }
+        }
     }
 
     void VulkanBindingState::ClearBuffer(const void* buffer)

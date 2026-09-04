@@ -82,6 +82,21 @@ namespace OloEngine
         void SetStorageBuffer(u32 binding, VulkanStorageBuffer* buffer);
         [[nodiscard]] VulkanUniformBuffer* GetUniformBuffer(u32 binding) const;
         [[nodiscard]] VulkanStorageBuffer* GetStorageBuffer(u32 binding) const;
+        // A raw buffer (CreateBufferHandle) bound to an SSBO binding point:
+        // there is no engine object to point at, so the bind stages the ADDRESS
+        // (issue #1052). Set to 0 to clear. Only consulted when the same binding
+        // has no VulkanStorageBuffer occupant, so the object path is unchanged.
+        // `u64` rather than VkDeviceAddress: this header is deliberately free of
+        // the Vulkan headers (Core/Base + ShaderBindingLayout only), and the
+        // publication site already carries the address as u64.
+        void SetStorageBufferAddress(u32 binding, u64 address);
+        [[nodiscard]] u64 GetStorageBufferAddress(u32 binding) const;
+        // The raw-buffer twin of ClearBuffer: called when a raw buffer's
+        // storage is retired, so a destroyed allocation's address can never be
+        // published to a shader. A staged address outlives its buffer
+        // otherwise, which is the dangling-pointer version of the very fault
+        // this path exists to prevent (issue #1052).
+        void ClearStorageBufferAddress(u64 address);
         // Called from destructors: drop every entry pointing at `buffer`.
         void ClearBuffer(const void* buffer);
 
@@ -127,6 +142,7 @@ namespace OloEngine
       private:
         std::array<VulkanUniformBuffer*, kMaxBufferBindings> m_UniformBuffers{};
         std::array<VulkanStorageBuffer*, kMaxBufferBindings> m_StorageBuffers{};
+        std::array<u64, kMaxBufferBindings> m_StorageBufferAddresses{};
         std::array<u32, kMaxTextureSlots> m_TextureHeapSlots{};
         std::array<u32, kMaxTextureSlots> m_TextureSamplerSlots{}; ///< Zero-init IS DefaultSlot.
         std::array<u32, kMaxTextureSlots> m_ImageHeapSlots{};
