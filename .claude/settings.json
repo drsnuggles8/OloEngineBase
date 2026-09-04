@@ -62,7 +62,7 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "if command -v pwsh >/dev/null 2>&1; then pwsh -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/claude-stop-hook.ps1; else sh .claude/hooks/claude-stop-hook.sh; fi"
+            "command": "hooks=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks\"; if command -v pwsh >/dev/null 2>&1; then pwsh -NoProfile -ExecutionPolicy Bypass -File \"$hooks/claude-stop-hook.ps1\"; else sh \"$hooks/claude-stop-hook.sh\"; fi"
           }
         ]
       }
