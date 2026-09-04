@@ -47,11 +47,13 @@
 #      immediate write applies it now. (`amdgpu.runpm=0` on the kernel command
 #      line is the equivalent for a future reinstall.)
 #
-#   4. clang-23 at /opt/llvm-23.1.0, from the official LLVM release tarball, so
-#      the self-hosted sanitizer arm and its hosted twin run the same compiler
-#      major (#1036). Not a package -- EPEL on Rocky 10 tops out at clang20 --
-#      and deliberately not on the system PATH. Details at the step itself and
-#      in docs/ops/self-hosted-linux-toolchain.md.
+#   4. clang-23 AND LLD 23 at /opt/llvm-23.1.0, from the official LLVM release
+#      tarball, so the self-hosted sanitizer arm and its hosted twin run the same
+#      toolchain (#1036). Not a package -- EPEL on Rocky 10 tops out at clang20 --
+#      and deliberately not on the system PATH. The lld half needs ICU 70 built
+#      beside it, which is most of what that step does and why it takes twenty
+#      minutes cold. Details at the step itself and in
+#      docs/ops/self-hosted-linux-toolchain.md.
 #
 # Usage (as root, idempotent):  sudo bash scripts/setup-olo-ci-host.sh
 set -euo pipefail
@@ -228,24 +230,107 @@ for other in /opt/llvm-*; do
   echo "note: an older LLVM prefix is still on disk ($other, $(du -sh "$other" | awk '{ print $1 }')). Remove it once no branch pins it: rm -rf $other"
 done
 
-# THE TARBALL'S OWN ld.lld DOES NOT RUN ON ROCKY 10, and every Linux configure
-# line in this repo passes -fuse-ld=lld, which clang resolves from its own bin
-# directory before PATH. The release is built on an Ubuntu with ICU 70; this
-# box has ICU 74, and nothing bridges an ICU soname:
+# THE TARBALL'S OWN lld DOES NOT START ON ROCKY 10, and that matters more than
+# it looks: every Linux configure line in this repo passes -fuse-ld=lld, and
+# clang resolves ld.lld from its own bin directory before PATH.
+#
 #     ld.lld: error while loading shared libraries: libicui18n.so.70
+#
 # reported by clang as "unable to execute command: No such file or directory"
-# at the first link rather than at configure. Point that one name at the
-# system LLD instead and -fuse-ld=lld keeps working unchanged everywhere.
-# The residual hosted/self-hosted skew is then the LINKER only (LLD 21 driving
-# clang 23 objects), which all three sanitizers link, run and symbolise
-# through. lld / lld-link / ld64.lld / wasm-ld / llvm-mt beside it are the same
-# ICU-broken binary and nothing here invokes them; every other tool in the
-# tarball resolves cleanly.
-command -v ld.lld >/dev/null 2>&1 || { echo "no system ld.lld to point the pinned clang at" >&2; exit 1; }
-system_lld=$(command -v ld.lld)
-if [ "$(readlink -f "$llvm_prefix/bin/ld.lld" 2>/dev/null || true)" != "$(readlink -f "$system_lld")" ]; then
-  ln -sfn "$system_lld" "$llvm_prefix/bin/ld.lld"
-  echo "pointed $llvm_prefix/bin/ld.lld at $system_lld (the bundled one needs ICU 70)"
+# at the FIRST LINK rather than at configure, so it reads like a missing linker
+# and is a missing library. The release is built on an Ubuntu carrying ICU 70;
+# this box has ICU 74, and an ICU soname cannot be bridged -- the symbols are
+# suffixed per major (`ucnv_open_70`), so ICU 74 exports none of what lld wants.
+# libxml2 is linked statically into lld for lld-link's Windows manifests and
+# drags ICU in with it; nothing else in the tarball needs it.
+#
+# THE FIRST FIX WAS TO POINT ld.lld AT THE SYSTEM LLD 21, and it worked for
+# ELF links -- but it cost LTO, silently. LLD 21 cannot read clang 23's bitcode:
+#
+#     ld.lld: error: Invalid summary version 14. Version should be in the range [1-12].
+#
+# so check_ipo_supported() flipped to NO on the box and every configure printed
+# "LTO requested but not supported". The Debug sanitizer jobs never noticed,
+# because LTO is Release/Dist only -- which is exactly why that is the kind of
+# thing worth removing rather than documenting. (The BFD path is not an out
+# either: the tarball ships libLTO.so but no LLVMgold.so, so ld.bfd cannot load
+# an LLVM plugin at all.)
+#
+# SO SUPPLY ICU 70 INSTEAD OF WORKING AROUND ITS ABSENCE. Three shared objects,
+# built from the pinned ICU4C source release, dropped into the prefix's own lib
+# directory -- where they are found with no wrapper, no patchelf, no
+# LD_LIBRARY_PATH and nothing system-wide, because every binary in the tarball
+# already carries RUNPATH '$ORIGIN/../lib'. Rocky's own ICU 74 is untouched and
+# no other program on the host can see these.
+icu_version=70.1
+icu_major=70          # the soname lld records; deliberately not derived from the above
+icu_tag=release-70-1
+icu_srcdir=icu4c-70_1-src
+icu_url=https://github.com/unicode-org/icu/releases/download/$icu_tag/$icu_srcdir.tgz
+icu_sha256=8d205428c17bf13bb535300669ed28b338a157b1c01ae66d31d0d3e2d47c3fd5
+
+if ! "$llvm_prefix/bin/lld" --version >/dev/null 2>&1; then
+  echo "building ICU $icu_version so the pinned lld can start (a few minutes) ..."
+  icu_work=$(mktemp -d)
+  trap 'rm -rf "$icu_work"' EXIT
+  curl -fL --retry 3 --retry-delay 5 -o "$icu_work/src.tgz" "$icu_url"
+  echo "$icu_sha256  $icu_work/src.tgz" | sha256sum -c - \
+    || { echo "checksum mismatch on $icu_srcdir.tgz -- refusing to build it" >&2; exit 1; }
+  tar --no-same-owner -xf "$icu_work/src.tgz" -C "$icu_work"
+  (
+    cd "$icu_work/icu/source"
+    # --disable-tools prints "This ICU cannot build its own data. Expect build
+    # failures in the 'data' directory" and then builds fine anyway, because the
+    # source release ships icudt70l.dat prebuilt. Verified on the pinned version;
+    # re-check the note if that version ever moves.
+    #
+    # -j4, not -jnproc: this box runs CI, and a provisioning step is not worth
+    # starving two in-flight sanitizer jobs of the machine.
+    ./configure --prefix="$icu_work/out" --enable-static=no \
+                --disable-tests --disable-samples --disable-extras --disable-tools >configure.log 2>&1 \
+      || { echo "ICU configure failed:" >&2; tail -20 configure.log >&2; exit 1; }
+    make -j4 >build.log 2>&1 && make install >>build.log 2>&1 \
+      || { echo "ICU build failed:" >&2; tail -20 build.log >&2; exit 1; }
+  )
+  # Only the three lld actually needs -- 6.3 MB in total, of which libicudata is
+  # a 9 KB STUB, because --disable-tools builds no ICU data. That is correct
+  # here: lld touches ICU only through libxml2's encoding conversion for
+  # lld-link's Windows manifests, which no ELF link reaches, and the converters
+  # it would use are code rather than data. Verified by linking plain, LTO,
+  # ThinLTO, ASan, TSan and UBSan through it. If a complete ICU is ever wanted
+  # here, drop --disable-tools and expect ~30 MB and a few more minutes.
+  #
+  # cp -a keeps the .so.70 -> .so.70.1 symlink, which is what the soname
+  # recorded in lld resolves to.
+  for lib in icuuc icui18n icudata; do
+    cp -a "$icu_work/out/lib/lib$lib.so.$icu_version" "$icu_work/out/lib/lib$lib.so.$icu_major" "$llvm_prefix/lib/" \
+      || { echo "ICU built but lib$lib.so.$icu_major is not where it was expected" >&2; exit 1; }
+  done
+  rm -rf "$icu_work"
+  trap - EXIT
+  "$llvm_prefix/bin/lld" --version >/dev/null 2>&1 \
+    || { echo "$llvm_prefix/bin/lld still does not start after installing ICU $icu_version" >&2; ldd "$llvm_prefix/bin/lld" | grep 'not found' >&2; exit 1; }
+  echo "ICU $icu_version installed into $llvm_prefix/lib; the pinned lld starts"
+fi
+
+# ld.lld IS THE TARBALL'S OWN AGAIN, restoring it if an earlier run of this
+# script pointed it at the system LLD. It is a symlink to `lld` in the tarball,
+# and lld picks its flavour from argv[0], so the name is the whole mechanism.
+# A run that cannot make the bundled one start keeps the system LLD 21 rather
+# than leaving the box with no linker -- ELF links all work through it; only
+# LTO does not, which is the state this section used to ship.
+if "$llvm_prefix/bin/lld" --version >/dev/null 2>&1; then
+  if [ "$(readlink "$llvm_prefix/bin/ld.lld" 2>/dev/null || true)" != "lld" ]; then
+    ln -sfn lld "$llvm_prefix/bin/ld.lld"
+    echo "restored $llvm_prefix/bin/ld.lld to the tarball's own LLD ($("$llvm_prefix/bin/ld.lld" --version))"
+  fi
+else
+  command -v ld.lld >/dev/null 2>&1 || { echo "the pinned lld does not start and there is no system ld.lld to fall back to" >&2; exit 1; }
+  system_lld=$(command -v ld.lld)
+  if [ "$(readlink -f "$llvm_prefix/bin/ld.lld" 2>/dev/null || true)" != "$(readlink -f "$system_lld")" ]; then
+    ln -sfn "$system_lld" "$llvm_prefix/bin/ld.lld"
+  fi
+  echo "WARNING: $llvm_prefix/bin/lld does not start, so ld.lld points at $system_lld (LLD 21). ELF links work; LTO does not -- CMake will report 'IPO/LTO supported by this toolchain: NO'." >&2
 fi
 
 # ASSERT THE INSTALL, every run, provisioned now or already there. The pin this
@@ -275,23 +360,29 @@ int main()
     return (forwarded == 7 && !std::stacktrace::current().empty()) ? 0 : 1;
 }
 PROBE
-for san in address undefined thread; do
+for mode in -fsanitize=address -fsanitize=undefined -fsanitize=thread -flto; do
   # -lstdc++exp AFTER the translation unit, never before it: a static archive
   # named ahead of the object that needs it is scanned while nothing is undefined
   # yet, and the linker drops every member. `undefined symbol:
   # std::__stacktrace_impl::_S_current` is what that looks like.
-  "$llvm_prefix/bin/clang++" -std=c++23 -fsanitize=$san -fuse-ld=lld \
+  #
+  # -flto is in this list because it is the ONE mode that tells the tarball's own
+  # LLD 23 apart from the system LLD 21 fallback. LLD 21 links every case above
+  # perfectly well and then fails bitcode with "Invalid summary version 14" --
+  # which no Debug CI job here would ever notice, because LTO is Release/Dist only.
+  "$llvm_prefix/bin/clang++" -std=c++23 $mode -fuse-ld=lld \
       -o "$probe/probe" "$probe/probe.cpp" -lstdc++exp >"$probe/log" 2>&1 && "$probe/probe" \
-    || { echo "the pinned clang cannot build or run a C++23 -fsanitize=$san program:" >&2; cat "$probe/log" >&2; rm -rf "$probe"; exit 1; }
+    || { echo "the pinned clang cannot build or run a C++23 $mode program:" >&2; cat "$probe/log" >&2; rm -rf "$probe"; exit 1; }
 done
 rm -rf "$probe"
-echo "pinned clang verified: C++23 + std::stacktrace + asan/ubsan/tsan all link and run"
+echo "pinned clang verified: C++23 + std::stacktrace + asan/ubsan/tsan + LTO all link and run"
 
 # ------------------------------------------------------------------- report
 echo
 echo "state:"
 echo "  ci clang:  $llvm_prefix/bin/clang++ -> $("$llvm_prefix/bin/clang++" --version | head -1)"
-echo "  ci lld:    $llvm_prefix/bin/ld.lld -> $(readlink -f "$llvm_prefix/bin/ld.lld") ($(ld.lld --version))"
+echo "  ci lld:    $llvm_prefix/bin/ld.lld -> $(readlink -f "$llvm_prefix/bin/ld.lld") ($("$llvm_prefix/bin/ld.lld" --version))"
+echo "  ci icu:    $(ls "$llvm_prefix"/lib/libicuuc.so.* 2>/dev/null | tr '\n' ' ' || echo '<none — lld is the system LLD>')"
 echo "  ci rt:     $("$llvm_prefix/bin/clang++" -print-runtime-dir)"
 echo "  fallback:  $(command -v clang++) -> $(clang++ --version | head -1)"
 echo "  runtimes:  $(clang++ -print-runtime-dir 2>/dev/null || echo '<unknown>')"

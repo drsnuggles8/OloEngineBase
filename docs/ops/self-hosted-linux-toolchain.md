@@ -5,11 +5,10 @@ Issues [#1015](https://github.com/drsnuggles8/OloEngineBase/issues/1015) item A 
 calls [`setup-linux-build`](../../.github/actions/setup-linux-build/action.yml) on the `olo-ci`
 runners: the three Linux sanitizer jobs, `vulkan-off`, `steam-stub`, and the GPU-under-sanitizer
 nightly. All six take their compiler from that action's outputs, so the pin below moves all six,
-not only the sanitizer arm the issue was filed about. The one to watch is
+not only the sanitizer arm the issue was filed about. Watch
 [`gpu-sanitizers-amd.yml`](../../.github/workflows/gpu-sanitizers-amd.yml): its baseline is a
-comparison against previous runs on the same hardware, so treat the first nightly after a
-compiler change as a new baseline rather than as a regression, and check the `toolchain:` line
-before bisecting anything it reports.
+same-hardware comparison, so the first nightly after a toolchain change is a new baseline, not a
+regression.
 
 ## The rule
 
@@ -25,10 +24,9 @@ before bisecting anything it reports.
    a choice.
 3. **The pin is asserted, never assumed.** The pin this replaced named `/usr/lib64/llvm19`, a
    directory that never existed on the box, and nothing checked: every self-hosted sanitizer run
-   silently took the fallback for as long as the pin stood. `setup-linux-build` now requires the
-   path to be executable **and** to report major 23 before it uses it, and
-   `setup-olo-ci-host.sh` re-verifies on every run -- compiler-rt complete, and a C++23 program
-   with `std::stacktrace` actually linking and running under each of asan/ubsan/tsan.
+   silently took the fallback for as long as it stood. `setup-olo-ci-host.sh` re-verifies on
+   every run -- compiler-rt complete, and a C++23 `std::stacktrace` program actually linking and
+   running under asan, ubsan, tsan **and `-flto`**.
 4. **It is a ladder, and every rung warns and carries on.** Four things are checked in order,
    and any one of them failing falls back to the system clang with a `::warning` naming
    `scripts/setup-olo-ci-host.sh`:
@@ -37,7 +35,7 @@ before bisecting anything it reports.
    |---|---|
    | the prefix is executable | nothing provisioned it |
    | it reports major 23 | a bump landed in the action before it landed on the box |
-   | its `ld.lld --version` runs | unpacked without the ICU symlink swap (next section) |
+   | its `ld.lld --version` runs | unpacked without the ICU 70 libs beside it (next section) |
    | its compiler-rt is complete | `asan`/`tsan`/`ubsan` archives are not all beside it |
 
    The last one falls back **only if the system clang's runtimes are complete** — trading
@@ -58,72 +56,85 @@ before bisecting anything it reports.
 
 Provision with `sudo bash scripts/setup-olo-ci-host.sh` (idempotent; see
 [self-hosted-host-hygiene.md](self-hosted-host-hygiene.md)). It needs ~16 GB free on the
-filesystem holding `/opt` and takes roughly ten minutes on a cold install.
+filesystem holding `/opt` and takes roughly twenty minutes on a cold install — ten for the LLVM
+tarball, the rest for the ICU build the next section explains.
 
-## The one thing that is still skewed: the linker
+## The linker is part of the pin, and getting it there took a detour
 
-`ld.lld` is **not** pinned, and cannot be. Every Linux configure line passes `-fuse-ld=lld`, and
-clang resolves `ld.lld` from its own `bin` directory before `PATH` -- but the tarball's copy does
-not run on Rocky 10:
+The tarball's `lld` does not start on Rocky 10:
 
 ```
 ld.lld: error while loading shared libraries: libicui18n.so.70
 ```
 
-The release is built on an Ubuntu carrying ICU 70; this box has ICU 74, and nothing bridges an
-ICU soname. Clang reports it as `unable to execute command: No such file or directory` at the
-**first link**, not at configure, so it reads like a missing linker rather than a missing
-library. `setup-olo-ci-host.sh` therefore replaces `/opt/llvm-23.1.0/bin/ld.lld` with a symlink
-to the system `/usr/bin/ld.lld`, and every call site keeps working unchanged.
+`libxml2` is linked statically into `lld` for `lld-link`'s Windows manifests and drags ICU in
+with it. The release is built on an Ubuntu carrying ICU 70; this box has ICU 74, and an ICU
+soname cannot be bridged — the symbols are suffixed per major (`ucnv_open_70`), so ICU 74 exports
+none of what `lld` wants, and a symlink would fail at load rather than work by luck. Every Linux
+configure line passes `-fuse-ld=lld`, and clang resolves `ld.lld` from its own `bin` before
+`PATH`, so this surfaces as `clang++: error: unable to execute command` at the **first link**,
+not at configure. It reads like a missing linker and is a missing library.
 
-So the residual difference against the hosted arm is **LLD 21 driving clang 23 objects**, rather
-than a whole different compiler. Measured on the box before the pin landed: ASan, UBSan and TSan
-each link, run, fire on a planted bug and symbolise with source lines through that pairing.
-`lld`, `lld-link`, `ld64.lld`, `wasm-ld` and `llvm-mt` beside it are the same ICU-broken binary
-and nothing here invokes them; every other tool in the tarball resolves cleanly (`lldb` wants a
-`libpython3.14` the box lacks, and is likewise unused).
+**The first fix was to point `ld.lld` at the system LLD 21, and it silently cost LTO.** ELF links
+all worked; bitcode did not — `ld.lld: error: Invalid summary version 14` — so
+`check_ipo_supported()` flipped to `NO` and every configure printed `LTO requested but not
+supported`. No Debug sanitizer job would notice, LTO being Release/Dist only, which is what made
+it worth removing rather than documenting. BFD is no escape: the tarball ships `libLTO.so` but no
+`LLVMgold.so`, so `ld.bfd` cannot load an LLVM plugin at all.
+
+**So the fix is to supply ICU 70 rather than work around its absence.** `setup-olo-ci-host.sh`
+builds ICU4C 70.1 from its pinned source release and drops three shared objects —
+`libicuuc`, `libicui18n`, `libicudata` — into `/opt/llvm-23.1.0/lib`. Nothing else is needed:
+every binary in the tarball already carries `RUNPATH '$ORIGIN/../lib'`, so there is **no wrapper,
+no `patchelf`, no `LD_LIBRARY_PATH` and nothing on the system linker path**. Rocky's own ICU 74
+is untouched and no other program on the host can see these. `ld.lld` is then the tarball's own
+symlink to `lld` again, and both arms link with LLD 23.
+
+Measured on the box: plain ELF, `-flto`, `-flto=thin`, `-fsanitize=address`, `-fsanitize=thread`
+and `-fsanitize=undefined` all link and run through LLD 23. The ICU build takes a few minutes at
+`-j4` (deliberately not `nproc` — this box runs CI) and links only libc, libstdc++ and libgcc.
+
+**It degrades rather than fails.** A prefix whose `lld` will not start keeps the system LLD 21,
+which links everything except LTO, and the script says so loudly. That is why the action's ladder
+checks `ld.lld --version`: a pinned clang beside a linker that cannot run is a hard failure at
+link time, and turning that into a warning is this action's whole job.
 
 ## The skew was never the cause of #1010's failures -- that argument still stands
 
 Closing the skew removes a confound. It does not fix a known bug, and nobody should read this
 change as having done so.
 
-#1010 measured the sanitizer jobs on the box, saw 215 failures against 1 hosted, and blamed half
-of them on "clang 21 against gcc-toolset-15's libstdc++": two UBSan reports inside the standard
-library, `downcast of misaligned address 0x000036f1c2f9` in `hashtable_policy.h` and `execution
-reached an unreachable program point` in `stl_vector.h`. Two independent checks say otherwise:
+#1010 measured these jobs on the box, saw 215 failures against 1 hosted, and blamed half of them
+on "clang 21 against gcc-toolset-15's libstdc++" -- two UBSan reports inside the standard library
+(`downcast of misaligned address` in `hashtable_policy.h`, `unreachable program point` in
+`stl_vector.h`). Two independent checks said otherwise, and still do:
 
-- A ~200-line probe of `std::unordered_map` and `std::vector` (insert, erase, rehash, node
-  handles, 8- and 16-byte-aligned payloads, ~200k elements) built on the box with the exact
-  `cmake/Sanitizers.cmake` UBSan flags is clean at `-O0` through `-O3`, under
-  `-fsanitize=undefined`, with `_GLIBCXX_ASSERTIONS`, and under both libstdc++ pairings the box
-  offers (`--gcc-install-dir` for gcc 14, and the default gcc-toolset-15).
-- The two reports have one stack: `~ShaderLibrary` -> `~Ref<Shader>` -> `~OpenGLShader` ->
-  `ShaderRegistry::UnregisterShader` walking a freed `unordered_map`. That is a destruction-order
-  use-after-free in the engine (`ShaderRegistry::Get()` was a plain function-local static,
-  destroyed before the static `ShaderLibrary` whose shaders unregister from it), fixed on
-  #1015's branch by making the registry never-destructed (the ADR 0004 shape). Any compiler
-  reproduces it given a GL context; the hosted runner has none, so it never saw it.
+- A ~200-line probe of `std::unordered_map` and `std::vector` under the exact
+  `cmake/Sanitizers.cmake` UBSan flags is clean at `-O0` through `-O3`, with `_GLIBCXX_ASSERTIONS`,
+  under **both** libstdc++ pairings the box offers. There was nothing wrong with the pairing.
+- Both reports share one stack: `~ShaderLibrary` -> `~Ref<Shader>` -> `~OpenGLShader` ->
+  `ShaderRegistry::UnregisterShader` walking a freed `unordered_map` — a destruction-order
+  use-after-free in the engine, fixed on #1015's branch by making the registry never-destructed
+  (the ADR 0004 shape). Any compiler reproduces it given a GL context; the hosted runner has none.
 
-The other 212 failures were one bug too: SSBO binding slots 80..83 exceed Mesa's
-`GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS` of 80 (NVIDIA reports 96), so `DDGI_ProbeMaintain`
-fails to compile in `Renderer3D::Init` and asserts in a Debug build. Also fixed on that branch.
+The other 212 were one bug too: SSBO binding slots 80..83 exceed Mesa's
+`GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS` of 80 (NVIDIA reports 96), so `DDGI_ProbeMaintain` fails
+to compile in `Renderer3D::Init` and asserts in a Debug build. Also fixed on that branch.
 
 Two compiler versions in the fleet were real coverage, and that coverage is what this change
 spends. It buys something narrower and more useful: when one arm goes red and the other does not,
-the compiler is no longer on the list of explanations.
+the toolchain is no longer on the list of explanations.
 
 ## Facts about the box that decided this
 
 - **The pinned clang selects a different libstdc++ from the system one.** Rocky's `clang++ 21` is
   pinned to gcc-toolset-15 by `/etc/clang/x86_64-redhat-linux-gnu-clang++.cfg`; the tarball's
-  `clang++ 23` reads no such config and reports `Selected GCC installation:
-  /usr/lib/gcc/x86_64-redhat-linux/14`. Both link the same runtime `/lib64/libstdc++.so.6.0.33`
-  (GLIBCXX_3.4.33). One consequence is a simplification: base GCC 14 **has** `libstdc++exp.a`,
-  which gcc-toolset-15 omits, so `check_linker_flag(CXX "-lstdc++exp")` in
+  `clang++ 23` reads no such config and picks base GCC 14. Both link the same runtime
+  `libstdc++.so.6.0.33`. One consequence is a simplification: base GCC 14 **has**
+  `libstdc++exp.a`, which gcc-toolset-15 omits, so `check_linker_flag(CXX "-lstdc++exp")` in
   `OloEngine/CMakeLists.txt` now succeeds directly instead of falling through to the glob that
-  hunts the base GCC lib dirs. That fallback still earns its place -- the system clang remains
-  the warn-down path.
+  hunts the base GCC lib dirs. That glob still earns its place -- the system clang is still the
+  warn-down path.
 - `std::forward_like` (the reason the hosted arm needs a non-default libstdc++) compiles against
   libstdc++ 14 and 15 alike, so it was never the box's problem. `libc++` is not installed
   system-wide and nothing here uses it.

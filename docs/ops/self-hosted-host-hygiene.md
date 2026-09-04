@@ -85,9 +85,11 @@ sanitizer arms run the same compiler major; Rocky's system clang 21 stays the ho
 is the warn-and-fall-back path. The prefix is ~12 GB, so leave ~16 GB free on `/` before
 running the script.
 
-One detail worth knowing before it confuses a link failure: the tarball's own `ld.lld` needs
-ICU 70 and this box has ICU 74, so the script points `/opt/llvm-23.1.0/bin/ld.lld` at the
-system `/usr/bin/ld.lld`. Do not "restore" it.
+One detail worth knowing before it confuses a link failure: the tarball's `lld` is linked
+against ICU 70 and this box has ICU 74, so it will not start until the script builds ICU 70
+into `/opt/llvm-23.1.0/lib` (found there by the tarball's own `$ORIGIN/../lib` RUNPATH, not by
+anything system-wide). If those three `libicu*.so.70` files go missing, `lld` stops starting and
+the script falls the box back to the system LLD 21 — which links everything except LTO.
 
 The two missing-piece outcomes are NOT the same, which matters when you read a red job:
 
@@ -110,7 +112,7 @@ in place. It installs the sanitizer runtimes and `lld` for the system clang, the
 drop-in, the GPU runtime-PM rule and the pinned clang-23 at `/opt/llvm-23.1.0`, then prints the
 resulting state. The compiler step is **last on purpose** -- it is the only one that needs the
 network and moves gigabytes, and under `set -e` anything after it would be skipped when a
-download fails. Budget ~10 minutes and ~16 GB of free space on the first run; a re-run with the
+download fails. Budget ~20 minutes and ~16 GB of free space on the first run; a re-run with the
 prefix already present only re-verifies, which takes seconds.
 
 Nothing in any workflow installs or changes host state; a self-hosted step verifies and names

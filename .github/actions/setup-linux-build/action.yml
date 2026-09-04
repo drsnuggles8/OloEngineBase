@@ -341,23 +341,31 @@ runs:
             esac
           fi
 
-          # WHAT IS DELIBERATELY NOT PINNED: ld.lld. Every Linux configure line
-          # here passes -fuse-ld=lld, and clang resolves ld.lld from its OWN bin
-          # directory before PATH -- but the tarball's copy does not run on Rocky
-          # 10 at all. It is linked against libicui18n / libicuuc / libicudata
-          # .so.70, the ICU of the Ubuntu the release is built on, and this box
-          # has ICU 74:
+          # THE LINKER IS PART OF THE PIN, and getting it there took a detour
+          # worth knowing about. Every Linux configure line here passes
+          # -fuse-ld=lld, and clang resolves ld.lld from its OWN bin directory
+          # before PATH -- but the tarball's lld does not start on Rocky 10:
           #     ld.lld: error while loading shared libraries: libicui18n.so.70
-          # which surfaces as `clang++: error: unable to execute command` at the
-          # first link, not at configure. setup-olo-ci-host.sh therefore replaces
-          # $prefix/bin/ld.lld with a symlink to the system /usr/bin/ld.lld, so
-          # -fuse-ld=lld keeps working unchanged at every call site. The residual
-          # skew against the hosted arm is now the LINKER only (LLD 21 driving
-          # clang 23 objects), not the compiler; ASan, TSan and UBSan each link,
-          # run, fire and symbolise correctly through it (measured on the box
-          # before the pin landed). `lld`, `lld-link`, `ld64.lld`, `wasm-ld` and
-          # `llvm-mt` beside it are the same ICU-broken binary and nothing here
-          # uses them; every other tool in the tarball resolves cleanly.
+          # surfacing as `clang++: error: unable to execute command` at the first
+          # LINK, not at configure. libxml2 is static inside lld for lld-link's
+          # Windows manifests and drags ICU in; the release is built on an Ubuntu
+          # with ICU 70 and this box has ICU 74, whose symbols are suffixed per
+          # major, so no soname bridge exists.
+          #
+          # Pointing ld.lld at the system LLD 21 fixed ELF links and quietly cost
+          # LTO -- LLD 21 rejects clang 23 bitcode ("Invalid summary version 14"),
+          # so check_ipo_supported() flipped to NO on the box and every configure
+          # warned. Nothing in a Debug sanitizer job notices that, which is what
+          # made it worth removing rather than documenting. setup-olo-ci-host.sh
+          # now builds ICU 70 from source into $prefix/lib, where the tarball's
+          # own RUNPATH ('$ORIGIN/../lib') finds it, and ld.lld is the tarball's
+          # own again. Nothing system-wide changes; Rocky's ICU 74 is untouched.
+          #
+          # It still DEGRADES rather than fails: a prefix whose lld will not start
+          # keeps the system LLD 21, which links everything except LTO. Hence the
+          # ld.lld check in the ladder above -- a pinned clang beside a linker
+          # that cannot run is a hard failure at link time, and this action's
+          # whole job is to turn that into a warning.
 
           # VERIFY, never install (the convention at the top of this file). What
           # is checked is the SANITIZER RUNTIMES of whichever compiler the ladder

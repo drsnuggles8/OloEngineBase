@@ -522,11 +522,11 @@ jobs:
       # memory at once and can exceed the 16 GB on hosted runners — the OOM
       # reaper then kills the runner agent mid-link ("The runner has received
       # a shutdown signal", gmake "Terminated", partial output deleted). lld
-      # links the same binary in a fraction of the memory and time. It is
-      # version-matched via clang's own bin dir on the hosted arm; on the box it
-      # is deliberately NOT -- the pinned clang-23 tarball's ld.lld needs ICU 70
-      # and Rocky 10 has ICU 74, so setup-olo-ci-host.sh points that name at the
-      # system LLD 21 (docs/ops/self-hosted-linux-toolchain.md).
+      # links the same binary in a fraction of the memory and time, and is
+      # version-matched via clang's own bin dir on BOTH arms -- on the box that
+      # took an ICU 70 build beside the pinned prefix, because the tarball's lld
+      # is linked against an ICU this distro does not have
+      # (docs/ops/self-hosted-linux-toolchain.md).
       run: >
         cmake -S . -B build
         ${{ steps.vcpkg.outputs.toolchain-args }}

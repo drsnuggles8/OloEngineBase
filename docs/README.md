@@ -68,7 +68,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [ops/deployment.md](ops/deployment.md) — OloServer deployment / packaging.
 - [ops/self-hosted-gpu-runner.md](ops/self-hosted-gpu-runner.md) — the self-hosted AMD GPU CI runner.
 - [ops/self-hosted-host-hygiene.md](ops/self-hosted-host-hygiene.md) — the box behind the runners: the update timer must not reboot under a job, the GPU resets during the suite, one host is shared.
-- [ops/self-hosted-linux-toolchain.md](ops/self-hosted-linux-toolchain.md) — both Linux arms pin clang-23: hosted from apt.llvm.org, the box from an LLVM tarball at `/opt/llvm-23.1.0`; a missing pin or sanitizer runtime warns and falls back, never installs.
+- [ops/self-hosted-linux-toolchain.md](ops/self-hosted-linux-toolchain.md) — both Linux arms pin clang-23 and LLD 23: hosted from apt.llvm.org, the box from an LLVM tarball at `/opt/llvm-23.1.0` with its own ICU 70 beside it; a missing pin or sanitizer runtime warns and falls back, never installs.
 
 ## adr/ — architecture decision records
 

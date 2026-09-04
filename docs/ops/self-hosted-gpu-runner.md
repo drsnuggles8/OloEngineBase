@@ -508,9 +508,9 @@ sanitizer jobs land here.
 **Read the job's `toolchain:` line rather than assuming**, and read it before
 concluding the box is broken when a self-hosted job fails and its hosted fallback
 passes: it prints an absolute path under `/opt` when the pin is in effect and a
-bare `clang++` when it is not. The full rule, the ICU-70 reason `ld.lld` stays on
-the system copy, and the evidence that the old version skew was never the cause of
-#1010's 215 failures are in
+bare `clang++` when it is not. The full rule, why the prefix carries its own
+ICU 70 so the tarball's LLD can start at all, and the evidence that the old
+version skew was never the cause of #1010's 215 failures are in
 [self-hosted-linux-toolchain.md](self-hosted-linux-toolchain.md).
 
 **Why two CI runners and not three.** 31 GiB total. A sanitizer build is the
