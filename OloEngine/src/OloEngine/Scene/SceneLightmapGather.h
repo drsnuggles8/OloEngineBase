@@ -72,4 +72,26 @@ namespace OloEngine
     // Returns 0 for an out-of-range index or a null mesh, which is the "whole
     // entity" key and simply misses in a table that has no entry for it.
     [[nodiscard]] u64 LightmapSubKeyForModelMesh(const Model& model, sizet meshIndex);
+
+    // Unwrap one receiver's mesh for the bake, dealing with the cooked
+    // virtual-geometry blob that would otherwise make the unwrap refuse.
+    //
+    // LightmapUnwrap::Generate rejects a MeshSource carrying a virtual-mesh blob
+    // outright, because the unwrap SEAM-SPLITS vertices and the cooked cluster
+    // DAG indexes the original vertex order — a DAG kept across an unwrap points
+    // at the wrong vertices. That guard is right about the hazard and wrong as a
+    // final answer for a lightmap-static virtual mesh: refusing means the mesh
+    // can never carry UV2, so it can never receive baked GI, silently.
+    //
+    // The blob is a CACHE, not the truth: VirtualMeshRegistry falls back to
+    // VirtualMeshBuilder::BuildSet when it is absent or fails validation. So the
+    // resolution is to DROP the stale cook and let it be rebuilt from the
+    // unwrapped geometry, which is the only ordering that produces a DAG whose
+    // vertices carry UV2 at all.
+    //
+    // Returns true when the mesh has (or now has) a complete UV2 stream. Also
+    // invalidates the registry's cached DAG so the next submission re-cooks —
+    // without that, IsRegistered()'s fast path serves the pre-unwrap DAG for the
+    // process lifetime.
+    [[nodiscard]] bool PrepareReceiverForBake(const LightmapReceiver& receiver);
 } // namespace OloEngine

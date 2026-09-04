@@ -171,11 +171,20 @@ namespace OloEngine
         }
         else if (lightmapScaleOffset.x > 0.0f)
         {
-            OLO_CORE_WARN_TAG("Renderer3D",
-                              "virtual mesh {:x} has a baked lightmap region but its cooked cluster DAG "
-                              "carries no UV2 stream — the cook predates the bake's unwrap. Re-cook the "
-                              "mesh (re-register it) to receive baked GI on the virtual path.",
-                              static_cast<u64>(meshHandle));
+            // Warn-once per mesh: this condition is PERMANENT until the DAG is
+            // re-cooked, and this runs per instance per frame — an unmemoized
+            // warning here fills OloEngine.log at frame rate and buries every
+            // other diagnostic, which is the failure the same pattern in
+            // Scene.cpp's virtual loop already exists to avoid.
+            static std::unordered_set<u64> s_WarnedUncookedLightmapMeshes;
+            if (s_WarnedUncookedLightmapMeshes.insert(static_cast<u64>(meshHandle)).second)
+            {
+                OLO_CORE_WARN_TAG("Renderer3D",
+                                  "virtual mesh {:x} has a baked lightmap region but its cooked cluster DAG "
+                                  "carries no UV2 stream — the cook predates the bake's unwrap, so this mesh "
+                                  "falls back to probes/IBL. Re-bake the scene to re-cook it.",
+                                  static_cast<u64>(meshHandle));
+            }
         }
 
         // One material slot per part. Precedence: an explicit MaterialComponent overrides

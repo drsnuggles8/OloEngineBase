@@ -7230,11 +7230,11 @@ namespace OloEngine
             ImGui::Checkbox("Lightmap Static", &component.m_LightmapStatic);
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Bake this mesh's indirect lighting into the scene lightmap.
-"
-                                  "The cluster DAG must be cooked AFTER the bake's unwrap to carry UV2 —
-"
-                                  "re-bake (Scene > Bake Lightmaps), which re-registers the mesh."); } });
+                ImGui::SetTooltip("Bake this mesh's indirect lighting into the scene lightmap. "
+                                  "The cluster DAG must carry UV2, which only exists after the "
+                                  "bake's unwrap, so a mesh with a pre-cooked virtual blob has to "
+                                  "be re-imported before it can receive baked GI.");
+            } });
 
         DrawComponent<FluidComponent>("Fluid", entity, [](auto& component)
                                       {

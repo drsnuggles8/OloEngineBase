@@ -153,14 +153,18 @@ namespace OloEngine
                 // The memo clears on Invalidate() (re-bake, asset change).
                 if (m_FailedUnwraps.contains(receiver.Mesh.Raw()))
                     continue;
-                // Local non-const Ref: the receiver list is const but the unwrap
-                // deliberately mutates the referenced mesh, and Ref<T> propagates
-                // const through operator->.
-                Ref<MeshSource> mesh = receiver.Mesh;
-                if (LightmapUnwrap::Generate(*mesh, unwrapOptions))
+                // Through the SHARED helper, so the runtime's self-healing
+                // re-unwrap deals with a cooked virtual-mesh blob exactly as the
+                // editor's bake does. Without that, a virtual receiver whose
+                // mesh lost its UV2 would heal on the classic path and not on
+                // the virtual one — baked GI that appears only with the master
+                // switch off, which is the asymmetry this whole receiver exists
+                // to avoid.
+                if (PrepareReceiverForBake(receiver))
                 {
                     if (RenderCommand::IsDeviceAvailable())
                     {
+                        Ref<MeshSource> mesh = receiver.Mesh;
                         mesh->Build();
                     }
                 }

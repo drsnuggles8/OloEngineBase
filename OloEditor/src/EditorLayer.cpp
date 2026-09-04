@@ -5776,6 +5776,30 @@ namespace OloEngine
         bakeSettings.MaxBounces = lmSettings.MaxBounces;
         bakeSettings.TexelsPerMeter = lmSettings.TexelsPerMeter;
 
+        // ── Unwrap every receiver's mesh BEFORE Prepare (issue #867) ──
+        //
+        // Prepare() unwraps too, but it calls LightmapUnwrap::Generate directly,
+        // and that refuses any mesh carrying a cooked virtual-geometry blob —
+        // its cluster DAG indexes the pre-split vertex order. Refusing means a
+        // virtual mesh can never carry UV2 and so can never receive baked GI,
+        // silently. PrepareReceiverForBake drops the stale cook first (it is a
+        // cache; the registry rebuilds from geometry without it) and invalidates
+        // the registry so the DAG re-cooks from the UNWRAPPED mesh, which is the
+        // only ordering that yields clusters whose vertices carry UV2.
+        //
+        // Meshes that fail here are left to Prepare's own per-input skip, which
+        // already warns and drops them from the atlas.
+        {
+            std::unordered_set<const MeshSource*> prepared;
+            for (const LightmapReceiver& receiver : receivers)
+            {
+                if (prepared.insert(receiver.Mesh.Raw()).second)
+                {
+                    (void)PrepareReceiverForBake(receiver);
+                }
+            }
+        }
+
         // ── Stage 1 on the game thread: unwrap (mutates meshes the editor is
         // rendering), atlas layout, texel rasterization ──
         auto prepared = std::make_shared<LightmapBakePrepared>();
@@ -5808,10 +5832,6 @@ namespace OloEngine
                 if (built.insert(input.Mesh.Raw()).second)
                 {
                     input.Mesh->Build();
-                    if (const AssetHandle handle = input.Mesh->GetHandle(); static_cast<u64>(handle) != 0)
-                    {
-                        VirtualMeshRegistry::Get().Invalidate(handle);
-                    }
                 }
             }
         }

@@ -7,7 +7,9 @@
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/Baking/LightmapUnwrap.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
@@ -240,6 +242,51 @@ namespace OloEngine
                   [](const LightmapReceiver& a, const LightmapReceiver& b)
                   { return std::tie(a.EntityUUID, a.SubKey) < std::tie(b.EntityUUID, b.SubKey); });
         return receivers;
+    }
+
+    bool PrepareReceiverForBake(const LightmapReceiver& receiver)
+    {
+        // Local non-const Ref: the receiver list is const but the unwrap
+        // deliberately mutates the referenced mesh, and Ref<T> propagates const
+        // through operator->.
+        Ref<MeshSource> mesh = receiver.Mesh;
+        if (!mesh)
+        {
+            return false;
+        }
+        if (mesh->HasLightmapUVs())
+        {
+            return true;
+        }
+
+        // Drop a stale cook BEFORE unwrapping — see the header. The registry's
+        // cached DAG goes too, or its IsRegistered() fast path keeps serving the
+        // pre-unwrap one.
+        if (mesh->HasVirtualMeshBlob())
+        {
+            mesh->SetVirtualMeshBlob({});
+            if (const AssetHandle handle = mesh->GetHandle(); static_cast<u64>(handle) != 0)
+            {
+                VirtualMeshRegistry::Get().Invalidate(handle);
+            }
+        }
+
+        LightmapUnwrapOptions unwrapOptions;
+        unwrapOptions.Resolution = kLightmapUnwrapResolution;
+        unwrapOptions.Padding = kLightmapUnwrapPadding;
+        if (!LightmapUnwrap::Generate(*mesh, unwrapOptions))
+        {
+            return false;
+        }
+
+        // The unwrap changed the vertex array, so any DAG cooked from it is now
+        // wrong even if the mesh never had a blob (it may have been registered
+        // and built at runtime).
+        if (const AssetHandle handle = mesh->GetHandle(); static_cast<u64>(handle) != 0)
+        {
+            VirtualMeshRegistry::Get().Invalidate(handle);
+        }
+        return true;
     }
 
     u64 LightmapSubKeyForModelMesh(const Model& model, sizet meshIndex)
