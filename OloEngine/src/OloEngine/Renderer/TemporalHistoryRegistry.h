@@ -20,6 +20,7 @@ namespace OloEngine
         SSGI,
         SSR,
         Cloudscape,
+        RayTracedShadow, ///< Hybrid ray-traced shadow visibility mask (issue #1056)
     };
 
     enum class TemporalHistoryPlane : u8

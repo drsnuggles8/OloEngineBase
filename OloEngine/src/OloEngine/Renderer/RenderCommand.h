@@ -373,6 +373,13 @@ namespace OloEngine
             s_RendererAPI->IssueBarrierBatch(flags, barriers);
         }
 
+        // See RendererAPI::SupportsIntraFrameFenceCompletion (#1052). No live
+        // API means no fence can complete at all, so the safe answer is false.
+        [[nodiscard]] static bool SupportsIntraFrameFenceCompletion()
+        {
+            return s_RendererAPI && s_RendererAPI->SupportsIntraFrameFenceCompletion();
+        }
+
         [[nodiscard]] static bool SupportsRenderGraphFenceSubmission()
         {
             return s_RendererAPI && s_RendererAPI->SupportsRenderGraphFenceSubmission();

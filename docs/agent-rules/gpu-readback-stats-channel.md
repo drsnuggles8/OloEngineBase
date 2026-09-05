@@ -76,8 +76,10 @@ declares its constants, the test will fail rather than stop checking — keep it
 ## 3. What makes it non-stalling is the FENCE, not the buffer
 
 The issue text says "persistent-mapped staging buffers". The engine cannot do that for a readback:
-`AllocatePersistentUploadStorage` maps `GL_MAP_WRITE_BIT` only, and the Vulkan backend stubs it
-entirely. So the ring is `MemoryResidency::DeviceToHost` buffers read with `ReadBufferSubData`, and
+`AllocatePersistentUploadStorage` maps `GL_MAP_WRITE_BIT` only — write-only on both backends now
+that Vulkan lowers it too (#1052, a `HOST_VISIBLE|HOST_COHERENT` sequential-write placement), so it
+is still the wrong side of the transfer. The ring is `MemoryResidency::DeviceToHost` buffers read
+with `ReadBufferSubData`, and
 the thing that keeps it off the critical path is:
 
 > **`IsFenceSignaled` is a poll. There is no `ClientWaitFence` anywhere in `GPUReadbackStats`, and

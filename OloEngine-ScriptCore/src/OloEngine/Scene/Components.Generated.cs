@@ -1049,6 +1049,12 @@ namespace OloEngine
 			get => InternalCalls.DirectionalLightComponent_GetCastShadows(Entity.ID);
 			set => InternalCalls.DirectionalLightComponent_SetCastShadows(Entity.ID, value);
 		}
+
+		public bool RayTracedShadows
+		{
+			get => InternalCalls.DirectionalLightComponent_GetRayTracedShadows(Entity.ID);
+			set => InternalCalls.DirectionalLightComponent_SetRayTracedShadows(Entity.ID, value);
+		}
 	}
 
 	public partial class DiscoverableComponent : Component
@@ -2203,6 +2209,12 @@ namespace OloEngine
 			get => InternalCalls.PointLightComponent_GetCastShadows(Entity.ID);
 			set => InternalCalls.PointLightComponent_SetCastShadows(Entity.ID, value);
 		}
+
+		public bool RayTracedShadows
+		{
+			get => InternalCalls.PointLightComponent_GetRayTracedShadows(Entity.ID);
+			set => InternalCalls.PointLightComponent_SetRayTracedShadows(Entity.ID, value);
+		}
 	}
 
 	public partial class ProceduralSkyComponent : Component
@@ -2554,6 +2566,12 @@ namespace OloEngine
 			get => InternalCalls.SphereAreaLightComponent_GetCastShadows(Entity.ID);
 			set => InternalCalls.SphereAreaLightComponent_SetCastShadows(Entity.ID, value);
 		}
+
+		public bool RayTracedShadows
+		{
+			get => InternalCalls.SphereAreaLightComponent_GetRayTracedShadows(Entity.ID);
+			set => InternalCalls.SphereAreaLightComponent_SetRayTracedShadows(Entity.ID, value);
+		}
 	}
 
 	public partial class SphereCollider3DComponent : Component
@@ -2615,6 +2633,12 @@ namespace OloEngine
 		{
 			get => InternalCalls.SpotLightComponent_GetCastShadows(Entity.ID);
 			set => InternalCalls.SpotLightComponent_SetCastShadows(Entity.ID, value);
+		}
+
+		public bool RayTracedShadows
+		{
+			get => InternalCalls.SpotLightComponent_GetRayTracedShadows(Entity.ID);
+			set => InternalCalls.SpotLightComponent_SetRayTracedShadows(Entity.ID, value);
 		}
 	}
 

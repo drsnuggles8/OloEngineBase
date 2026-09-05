@@ -172,7 +172,16 @@ namespace OloEngine
         // (DeviceToHost => HOST_VISIBLE mapped, the readback-ring case). An
         // existing buffer goes through VulkanDeferredReclaim — GL's
         // glNamedBufferData orphaning semantics.
-        void Allocate(RHI::ResourceHandle handle, u64 sizeBytes, RHI::MemoryResidency residency);
+        //
+        // `requireHostCoherentMap` is AllocatePersistentUploadStorage's contract
+        // (issue #1052): GL's glNamedBufferStorage(WRITE|PERSISTENT|COHERENT)
+        // hands back a pointer the caller memcpys through and then reads on the
+        // device with no flush call anywhere. Demanding the property up front is
+        // what makes that safe — VMA's ordinary HostToDevice arm is allowed to
+        // place the buffer in DEVICE_LOCAL memory and stage transfers instead,
+        // which leaves Mapped null and would silently drop every write.
+        void Allocate(RHI::ResourceHandle handle, u64 sizeBytes, RHI::MemoryResidency residency,
+                      bool requireHostCoherentMap = false);
         // Null when the handle was never minted here (or is stale).
         [[nodiscard]] Entry* Lookup(RHI::ResourceHandle handle);
         // Deferred-reclaims the buffer, unregisters the identity, drops the
@@ -464,6 +473,31 @@ namespace OloEngine
         [[nodiscard]] const VulkanVertexBuffer* GetPullVertexBuffer(sizet streamIndex) const;
         [[nodiscard]] const VulkanIndexBuffer* GetVulkanIndexBuffer() const;
 
+        // The RAW element buffer (RendererAPI::SetVertexArrayIndexBuffer —
+        // glVertexArrayElementBuffer's shape, issue #1052), for a VAO minted by
+        // CreateVertexArrayHandle whose index arena is a CreateBufferHandle
+        // handle rather than an IndexBuffer object. VirtualMeshRegistry's
+        // dual-purpose index arena is the tenant.
+        //
+        // ADR 0011 §5 removes the vertex ATTRIBUTE axis from the PSO — vertex
+        // data is pulled through device addresses. The index buffer was never
+        // one of those axes: it is not part of VkGraphicsPipelineCreateInfo at
+        // all, it is vkCmdBindIndexBuffer command state. So the pull model does
+        // not reach it and this records exactly what GL records.
+        //
+        // The HANDLE is stored, not the resolved VkBuffer: the arena is
+        // re-allocated under the same identity when the page budget changes,
+        // and BindIndexBufferFor resolves at draw time so that is picked up
+        // without a re-set.
+        void SetRawIndexBuffer(RHI::ResourceHandle indexBuffer)
+        {
+            m_RawIndexBuffer = indexBuffer;
+        }
+        [[nodiscard]] RHI::ResourceHandle GetRawIndexBuffer() const
+        {
+            return m_RawIndexBuffer;
+        }
+
 #ifdef OLO_DEBUG
         // Leak forensics: who built this VAO (see
         // VulkanRootObjectRegistry::LogSurvivingVertexArrays).
@@ -476,6 +510,10 @@ namespace OloEngine
       private:
         std::vector<Ref<VertexBuffer>> m_VertexBuffers;
         Ref<IndexBuffer> m_IndexBuffer;
+        /// Non-owning: the raw index arena's lifetime belongs to whoever minted
+        /// the handle (VulkanRawBufferRegistry holds the storage). See
+        /// SetRawIndexBuffer.
+        RHI::ResourceHandle m_RawIndexBuffer;
         RHI::ScopedResourceHandle m_RHIHandle;
 #ifdef OLO_DEBUG
         std::stacktrace m_CreationStack;

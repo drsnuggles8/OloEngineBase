@@ -10,6 +10,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 
 namespace OloEngine
 {
@@ -360,6 +361,32 @@ namespace OloEngine
             ShadowAtlas::TileScaleOffset(rect, m_Settings.AtlasResolution);
     }
 
+    void ShadowMap::SetRayTracedShadowRouting(const std::array<i32, 4>& lightIndicesByChannel, bool active)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        m_UBOData.RayTracedShadowLightIndices =
+            glm::ivec4(lightIndicesByChannel[0], lightIndicesByChannel[1], lightIndicesByChannel[2],
+                       lightIndicesByChannel[3]);
+        m_UBOData.RayTracedShadowParams = glm::vec4(active ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
+
+        if (!m_ShadowUBO)
+        {
+            return;
+        }
+
+        // A partial write at the block's tail rather than a full re-upload: the
+        // 4 KB of cascade and atlas matrices above it are unchanged, and this
+        // runs inside the frame, after the lit passes have already had the rest
+        // bound. Same idiom SSGIRenderPass uses to patch its TemporalParams.
+        m_ShadowUBO->SetData(&m_UBOData.RayTracedShadowLightIndices,
+                             static_cast<u32>(sizeof(glm::ivec4) + sizeof(glm::vec4)),
+                             static_cast<u32>(offsetof(UBOStructures::ShadowUBO, RayTracedShadowLightIndices)));
+        // Re-establish binding point 6: the passes between UploadUBO and here
+        // may have displaced this indexed binding.
+        m_ShadowUBO->Bind();
+    }
+
     void ShadowMap::UploadUBO(const glm::vec3& renderOrigin)
     {
         OLO_PROFILE_FUNCTION();
@@ -379,6 +406,19 @@ namespace OloEngine
         data.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
         data.AtlasResolution = static_cast<i32>(m_Settings.AtlasResolution);
         data.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
+
+        // The ray-traced routing goes up INACTIVE every frame (issue #1056).
+        // This is what makes the fallback structural rather than a flag: the
+        // only code that turns the branch on is RayTracedShadowPass, AFTER its
+        // draws, so a frame where that pass did not run — a path switch, a
+        // culled node, a device that cannot trace — leaves the lighting shader
+        // on the raster branch by construction. Resetting the member too (not
+        // just the upload copy) keeps the next partial write from re-publishing
+        // last frame's channel assignment.
+        m_UBOData.RayTracedShadowLightIndices = glm::ivec4(-1);
+        m_UBOData.RayTracedShadowParams = glm::vec4(0.0f);
+        data.RayTracedShadowLightIndices = m_UBOData.RayTracedShadowLightIndices;
+        data.RayTracedShadowParams = m_UBOData.RayTracedShadowParams;
 
         // Camera-relative (issue #429): the lit pass samples shadows using the
         // fragment's render-relative world position, so the light-space matrices

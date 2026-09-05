@@ -112,6 +112,11 @@ namespace OloEngine::Tests
               { s.SSREnabled = !s.SSREnabled; } },
             { "SSGIEnabled", [](PostProcessSettings& s)
               { s.SSGIEnabled = !s.SSGIEnabled; } },
+            // Issue #708: half resolution sizes every resource in the SSGI
+            // denoiser chain AND its four temporal histories, so it is a
+            // topology toggle even though it declares no new resource.
+            { "SSGIHalfResolution", [](PostProcessSettings& s)
+              { s.SSGIHalfResolution = !s.SSGIHalfResolution; } },
             { "BloomEnabled", [](PostProcessSettings& s)
               { s.BloomEnabled = !s.BloomEnabled; } },
             { "DOFEnabled", [](PostProcessSettings& s)

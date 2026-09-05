@@ -16,25 +16,57 @@ namespace OloEngine
     // bloom:
     //   AOApplyColor/SSSColor/SceneColor → SSR → SSRColor → Bloom → ...
     //
-    // THREE DRAWS IN ONE NODE (issue #902), the CloudscapeRenderPass shape:
+    // FIVE DRAWS IN ONE NODE (issues #902, #708), the CloudscapeRenderPass shape:
     //   A. PostProcess_SSR.glsl          → SSRSignal   (the stochastic term
     //                                      ONLY: rgb = the reflection DELTA,
     //                                      (reflection - base) * blend, and
-    //                                      a = positive view depth)
-    //   B. PostProcess_SSRResolve.glsl   → SSRResolved (temporal accumulation
+    //                                      a = positive view depth; RT1 = the
+    //                                      guide plane)
+    //   B. PostProcess_SSRPreBlur.glsl   → SSRPreBlurred (roughness-scaled
+    //                                      depth+normal guided blur)
+    //   C. PostProcess_SSRResolve.glsl   → SSRResolved (temporal accumulation
     //                                      against SSRHistory; the graph copies
     //                                      this into the history sink)
-    //   C. PostProcess_SSRComposite.glsl → SSRColor    (upstream colour + the
+    //   D. PostProcess_SSRPostBlur.glsl  → SSRDenoised (roughness-scaled
+    //                                      cleanup filter)
+    //   E. PostProcess_SSRComposite.glsl → SSRColor    (upstream colour + the
     //                                      resolved delta, which reproduces the
     //                                      old mix(base, reflection, blend))
     //
-    // The split is the whole point: compositing into the scene colour made the
-    // output un-accumulable, because temporally blending it would smear the
-    // base colour along with the noise. Draw B needs the current frame's signal
-    // in a real texture (its 3x3 neighbourhood clip gathers neighbours that do
-    // not exist yet inside draw A), which is why this is three draws and not
-    // one shader with a history sample bolted on. It is also what pays for the
-    // raised SSRMaxRoughness default.
+    // WHICH OF ISSUE #708's FIVE STAGES TRANSFERRED FROM SSGI, AND WHICH DID
+    // NOT. Two did, unchanged in shape and changed in guide; three did not, and
+    // saying so plainly is more useful than forcing one denoiser onto two very
+    // different signals:
+    //
+    //   * pre-blur and post-blur — YES, sharing the kernel in
+    //     include/SpatialDenoise.glsl, but with the radius driven by ROUGHNESS
+    //     rather than by variance and history length. A mirror carries the
+    //     sharpest detail in the frame and its reflection of a high-contrast
+    //     edge is legitimately high-variance, so a variance guide would blur
+    //     precisely the pixels that must stay sharp. What sets the correct
+    //     filter width for a reflection is the width of the specular lobe the
+    //     single VNDF sample came from, and that is roughness.
+    //   * ray distribution over the 2x2 quad — NO. It subdivides the ray strata
+    //     of a multi-ray hemisphere across neighbouring pixels; SSR draws ONE
+    //     VNDF sample per pixel, so there are no strata to subdivide. The
+    //     blue-noise rotation already decorrelates neighbours at one sample.
+    //   * half-resolution trace and guided upscale — NO. Indirect diffuse is
+    //     smooth, which is exactly why half resolution costs SSGI so little; a
+    //     reflection is the opposite, and tracing it at a quarter of the pixels
+    //     discards the detail that makes it read as a reflection at all.
+    //   * variance-driven history length — NO. SSR's resolve keeps no moment
+    //     attachments to read a variance or a history length from, and the guide
+    //     would be wrong for specular anyway (see the pre/post-blur note above),
+    //     so adding them would be cost for a worse result.
+    //
+    // The split into separate draws is the whole point: compositing into the
+    // scene colour made the output un-accumulable, because temporally blending
+    // it would smear the base colour along with the noise. And every stage here
+    // gathers a NEIGHBOURHOOD of the stage before it - the pre-blur's Poisson
+    // disc, the resolve's 3x3 clip box, the post-blur's disc - so each one needs
+    // its input in a real texture that the whole previous draw has finished
+    // writing. None of these can be folded into the one before it. The resolve
+    // is also what pays for the raised SSRMaxRoughness default.
     //
     // The pass reads the lit scene color plus the deferred G-Buffer (world
     // normal + roughness in RT1, metallic in RT0.a) and scene depth, then
@@ -56,6 +88,9 @@ namespace OloEngine
     // Output:
     //   * SSRColor (RGBA16F) — reflection-composited scene color.
     //   * SSRResolved (RGBA16F, graph scratch) — extracted into SSRHistory.
+    //   * SSRSignal / SSRPreBlurred / SSRDenoised (RGBA16F, graph scratch) —
+    //     the denoiser chain's intermediates. SSRSignal's attachment 1 is the
+    //     guide plane whose roughness sets both spatial stages' radius.
     //
     // Disabled / forward-path semantics: when the pass is disabled or the
     // G-Buffer is unavailable (forward / forward+), the graph omits SSRColor so
@@ -89,7 +124,9 @@ namespace OloEngine
             // The UBO carries the camera matrices + ray params the shader needs;
             // executing without it would ray-march against stale/garbage state.
             return m_SSRShader && m_SSRShader->IsReady() &&
+                   m_SSRPreBlurShader && m_SSRPreBlurShader->IsReady() &&
                    m_SSRResolveShader && m_SSRResolveShader->IsReady() &&
+                   m_SSRPostBlurShader && m_SSRPostBlurShader->IsReady() &&
                    m_SSRCompositeShader && m_SSRCompositeShader->IsReady() && m_SSRUBO;
         }
 
@@ -118,13 +155,28 @@ namespace OloEngine
         [[nodiscard]] glm::vec2 GetHZBUVFactor() const noexcept;
         [[nodiscard]] u32 GetHZBMipCount() const noexcept;
 
+        // Denoiser-stage gates (issue #708). Only whether the two spatial
+        // stages run at all: their radii travel in the UBO, which the pipeline
+        // fills. A stage whose radius is 0 is SKIPPED, and its consumer binds
+        // the previous stage's output instead — see Execute.
+        void SetDenoiseSettings(bool preBlurEnabled, bool postBlurEnabled) noexcept
+        {
+            m_PreBlurEnabled = preBlurEnabled;
+            m_PostBlurEnabled = postBlurEnabled;
+        }
+
       private:
         bool m_Enabled = false;
 
         Ref<Shader> m_SSRShader;
+        Ref<Shader> m_SSRPreBlurShader;
         Ref<Shader> m_SSRResolveShader;
+        Ref<Shader> m_SSRPostBlurShader;
         Ref<Shader> m_SSRCompositeShader;
         Ref<UniformBuffer> m_SSRUBO;
+
+        bool m_PreBlurEnabled = true;
+        bool m_PostBlurEnabled = true;
 
         bool m_TemporalResolveEnabled = true;
         f32 m_TemporalFeedback = 0.92f;
@@ -141,7 +193,9 @@ namespace OloEngine
         RGTextureHandle m_SelectedVelocityTexture{};
         RGTextureHandle m_SelectedHistoryTexture{};
         RGFramebufferHandle m_SelectedSignalFramebuffer{};
+        RGFramebufferHandle m_SelectedPreBlurredFramebuffer{};
         RGFramebufferHandle m_SelectedResolvedFramebuffer{};
+        RGFramebufferHandle m_SelectedDenoisedFramebuffer{};
 
         // The shared blue-noise tile (issue #706), created once in Init(). Not a
         // graph resource: it is pass-owned, immutable and bound with a Persistent

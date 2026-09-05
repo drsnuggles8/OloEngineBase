@@ -1908,20 +1908,58 @@ TEST_F(VulkanPassSuite, SsgiAddsGatheredBounceLightOnlyWithIntensity)
         blackboard.GBuffer.GBufferAlbedo =
             graph.ImportTextureHandle(ResourceNames::GBufferAlbedo, albedoTexture->GetRHIHandle(), auxDesc);
 
-        // The stochastic-signal scratch pair the pass has needed since #902:
-        // draw A writes SSGISignal, draw B resolves it into SSGIResolved, draw C
-        // composites. The pass bails (loudly) without them, so declaring them is
-        // not optional scaffolding — it is the pass's contract. RGBA16F, not the
-        // RGBA8UNorm the stand-in inputs use: alpha carries the view depth the
-        // resolve's disocclusion test reads.
+        // The denoiser chain's scratch, which the pass has needed since #902
+        // (signal + resolved) and #708 (pre-blurred + denoised). The pass bails
+        // (loudly) without any of them, so declaring them is not optional
+        // scaffolding — it is the pass's contract. RGBA16F, not the RGBA8UNorm
+        // the stand-in inputs use: alpha carries the view depth every geometry
+        // test in the chain reconstructs its positions from.
+        // THE TRACE BAND, not kSize. Production defaults SSGIHalfResolution to
+        // true, so the whole chain is allocated at rounded-up half resolution
+        // and only the composite draw runs at the scene band. Declaring these
+        // at kSize would make the six-draw assertion below pass while covering
+        // a configuration the engine never ships, and would never exercise the
+        // guided upscale — the one stage whose whole job is crossing between
+        // the two bands. Same `(n + 1) / 2` rounding as PopulateBlackboard.
+        constexpr u32 kTraceSize = (kSize + 1u) / 2u;
+
         RGResourceDesc signalDesc;
         signalDesc.Kind = RGResourceHandle::Kind::Framebuffer;
         signalDesc.Format = RGResourceFormat::RGBA16Float;
-        signalDesc.Width = kSize;
-        signalDesc.Height = kSize;
+        signalDesc.Width = kTraceSize;
+        signalDesc.Height = kTraceSize;
         signalDesc.DebugName = std::string(ResourceNames::SSGISignal);
+        // Two attachments: the signal, and the trace-band guide plane (#708)
+        // whose normal and roughness weight every later stage's taps.
+        signalDesc.Attachments = {
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+        };
         blackboard.Scratch.SSGISignal =
             graph.DeclareTransientFramebuffer(ResourceNames::SSGISignal, signalDesc);
+        // The pre-blur and post-blur outputs are single-attachment.
+        signalDesc.Attachments.clear();
+        signalDesc.DebugName = std::string(ResourceNames::SSGIPreBlurred);
+        blackboard.Scratch.SSGIPreBlurred =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSGIPreBlurred, signalDesc);
+        signalDesc.DebugName = std::string(ResourceNames::SSGIDenoised);
+        blackboard.Scratch.SSGIDenoised =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSGIDenoised, signalDesc);
+
+        // SSGIResolved needs ALL FIVE, matching what PopulateBlackboard declares:
+        // the resolve shader writes resolved colour plus two moment planes and
+        // two diagnostic planes, and since #708 the post-blur READS attachments
+        // 1 and 2 for the variance and history length that drive its radius.
+        // Declaring one attachment here used to be harmless because nothing read
+        // the rest; now it asserts, which is the harness catching a real
+        // divergence from production rather than a test-only detail.
+        signalDesc.Attachments = {
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+        };
         signalDesc.DebugName = std::string(ResourceNames::SSGIResolved);
         blackboard.Scratch.SSGIResolved =
             graph.DeclareTransientFramebuffer(ResourceNames::SSGIResolved, signalDesc);
@@ -1954,9 +1992,11 @@ TEST_F(VulkanPassSuite, SsgiAddsGatheredBounceLightOnlyWithIntensity)
             std::string(ResourceNames::SceneColorTexture),
             [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
             { return blackboard.Scene.SceneColor; });
-        // 4 = the producer's draw plus SSGI's three (signal, resolve, composite).
+        // 6 = the producer's draw plus SSGI's five (signal, pre-blur, resolve,
+        // post-blur, composite+upscale) — issue #708 added the two spatial
+        // stages, and both run because the default radii are non-zero.
         return RunSinglePassChain(kSize, producer, ssgi, "SSGIPass", ResourceNames::SSGIColor, [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
-                                  { blackboard.Post.SSGIColor = handle; }, 4u);
+                                  { blackboard.Post.SSGIColor = handle; }, 6u);
     };
 
     const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
@@ -4709,11 +4749,25 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
         signalDesc.Width = kSize;
         signalDesc.Height = kSize;
         signalDesc.DebugName = std::string(ResourceNames::SSRSignal);
+        // Attachment 1 is the guide plane (#708) whose ROUGHNESS sets both
+        // spatial stages' radius — at intensity 0 they filter a zero delta, so
+        // the passthrough floor below is unchanged either way.
+        signalDesc.Attachments = {
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+        };
         blackboard.Scratch.SSRSignal =
             graph.DeclareTransientFramebuffer(ResourceNames::SSRSignal, signalDesc);
+        signalDesc.Attachments.clear();
+        signalDesc.DebugName = std::string(ResourceNames::SSRPreBlurred);
+        blackboard.Scratch.SSRPreBlurred =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSRPreBlurred, signalDesc);
         signalDesc.DebugName = std::string(ResourceNames::SSRResolved);
         blackboard.Scratch.SSRResolved =
             graph.DeclareTransientFramebuffer(ResourceNames::SSRResolved, signalDesc);
+        signalDesc.DebugName = std::string(ResourceNames::SSRDenoised);
+        blackboard.Scratch.SSRDenoised =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSRDenoised, signalDesc);
     };
 
     auto ssr = Ref<SSRRenderPass>::Create();
@@ -4744,9 +4798,11 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
         std::string(ResourceNames::SceneColorTexture),
         [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
         { return blackboard.Scene.SceneColor; });
-    // 4 = the producer's draw plus SSR's three (signal, resolve, composite).
+    // 6 = the producer's draw plus SSR's five (signal, pre-blur, resolve,
+    // post-blur, composite) — issue #708 added the two spatial stages, and both
+    // run because the default radii are non-zero.
     const auto rendered = RunSinglePassChain(kSize, producer, ssr, "SSRPass", ResourceNames::SSRColor, [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
-                                             { blackboard.Post.SSRColor = handle; }, 4u);
+                                             { blackboard.Post.SSRColor = handle; }, 6u);
     ASSERT_EQ(rendered.size(), patternRgba8.size());
 
     u32 maxDiff = 0;
@@ -5999,6 +6055,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     const u64 stubsBefore = api.GetUnimplementedStubHitCount();
+    const u64 unfedBefore = api.GetUnfedStorageBindingCount();
 
     // --- the real MDI shader (DrawParameters capability gate) ---------------
     auto vgShader = Shader::Create("assets/shaders/VirtualMeshGBuffer.glsl");
@@ -6048,10 +6105,37 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
 
     // Pooled cluster-local index buffer: each cluster's 6 indices are LOCAL
     // (0..3); the command's BaseVertex lands them on the pooled slot.
+    //
+    // BUILT THE WAY THE REGISTRY BUILDS IT (issue #1052), which is the whole
+    // point of this block. It used to read
+    //
+    //     auto indexBuffer = IndexBuffer::Create(indices, 12);   // object-backed
+    //     auto vao = VertexArray::Create();
+    //     vao->SetIndexBuffer(indexBuffer);
+    //
+    // and that substitution is what let virtual geometry ship broken on Vulkan
+    // twice. VirtualMeshRegistry mints a RAW handle
+    // (RenderCommand::CreateBufferHandle), fills it through the upload path,
+    // hangs it on a raw VAO with SetVertexArrayIndexBuffer, AND binds the same
+    // handle a second way as SSBO_VIRTUAL_INDICES — four production seams the
+    // object-backed spelling shares nothing with. An object-backed
+    // VulkanIndexBuffer already carried every usage bit and registry entry the
+    // draw needed; the raw one carried none of them, and the test could not
+    // fail because the buffer it exercised was not the buffer that breaks.
+    // See substituted-seams-compound.md.
     u32 indices[] = { 0u, 1u, 2u, 2u, 3u, 0u, 0u, 1u, 2u, 2u, 3u, 0u };
-    auto indexBuffer = IndexBuffer::Create(indices, 12);
-    auto vao = VertexArray::Create();
-    vao->SetIndexBuffer(indexBuffer);
+    const RHI::ResourceHandle indexArena = RenderCommand::CreateBufferHandle();
+    ASSERT_TRUE(indexArena.IsValid());
+    RenderCommand::AllocateBufferStorage(indexArena, sizeof(indices), RHI::MemoryResidency::DeviceLocal);
+    RenderCommand::UploadBufferSubData(indexArena, 0, sizeof(indices), indices);
+    const RHI::ResourceHandle rawVao = RenderCommand::CreateVertexArrayHandle();
+    ASSERT_TRUE(rawVao.IsValid());
+    RenderCommand::SetVertexArrayIndexBuffer(rawVao, indexArena);
+    // The second role. The registry's arena is "element-buffer + SSBO_
+    // VIRTUAL_INDICES arena", and binding 42 is where every VG shader reads the
+    // cluster-local indices — the binding that had no published occupant and
+    // lost the device in #1054. This tenant never bound it at all.
+    RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VIRTUAL_INDICES, indexArena);
 
     std::array<VgMdiCommand, 2> commands{};
     commands[0] = { 6u, 1u, 0u, 0, 0u, {} };
@@ -6146,7 +6230,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
                 // maxDrawCount stays 2 in BOTH chains: the count BUFFER must
                 // drive (chain 2's contract).
                 RenderCommand::MultiDrawElementsIndirectCountRaw(
-                    vao->GetRHIHandle(), commandSSBO->GetRHIHandle(), 0u,
+                    rawVao, commandSSBO->GetRHIHandle(), 0u,
                     argsSSBO->GetRHIHandle(), 0u, 2u, 32u);
 
                 // The pass's phase-2 fence: framebuffer writes -> texture
@@ -6212,8 +6296,21 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
         EXPECT_EQ(right[2], 0);
     }
 
+    // The assertion that would have caught #1052 on day one, now that the
+    // buffers under it are the production ones: not a single entry point this
+    // frame touched fell through to a #691 no-op. It is backend-shaped rather
+    // than feature-shaped — it catches the NEXT unlowered path too.
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
-        << "MDI-count + TextureBarrier must ride real implementations, not stubs";
+        << "MDI-count + TextureBarrier + the raw index arena's create/upload/bind must ride real "
+           "implementations, not stubs";
+    // ... and nothing was fed the frame arena's null block, which is the
+    // device-loss precursor #1054 fixed and this test never watched.
+    EXPECT_EQ(api.GetUnfedStorageBindingCount(), unfedBefore)
+        << "a storage binding published the null block — the shader is reading a zero-filled stand-in";
+
+    RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VIRTUAL_INDICES, RHI::NullResource);
+    RenderCommand::DeleteVertexArray(rawVao);
+    RenderCommand::DeleteBuffer(indexArena);
 }
 
 // =============================================================================

@@ -87,6 +87,10 @@ namespace OloEngine
             RGTextureHandle AOBuffer;
             RGTextureHandle ShadowMapCSM;
             RGTextureHandle ShadowMapAtlas; // local-light shadow atlas (issue #435)
+            // Ray-traced shadow visibility mask (issue #1056). Invalid whenever
+            // the technique fell back, which is what makes the fallback a fact
+            // the graph carries rather than a flag a shader has to be told.
+            RGTextureHandle RayTracedShadowMask;
             // Comparison-OFF raw-depth view GL ids (PCSS blocker search); 0 = none.
             RHI::ResourceHandle ShadowMapCSMRawID{};
             RHI::ResourceHandle ShadowMapAtlasRawID{};

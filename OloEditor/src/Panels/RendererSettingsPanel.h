@@ -50,6 +50,10 @@ namespace OloEngine
         // Also renders the page-draw counter, which is what makes the caching
         // claim observable rather than asserted.
         static void DrawVirtualShadowMapControls();
+        // Hybrid ray-traced shadows (issue #1056): the technique switch, its
+        // tuning, and — the part that matters when it does not appear to work —
+        // the per-reason fallback counters.
+        static void DrawRayTracedShadowControls();
         static void DrawAOControls(QualityTieringSettings& qt, bool& changed);
         static void DrawPostProcessControls(QualityTieringSettings& qt, bool& changed);
 

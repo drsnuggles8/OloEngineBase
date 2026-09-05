@@ -19,6 +19,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 - [cpp-coding-quality.md](cpp-coding-quality.md): the coding rules, including float comparison, `auto`, IWYU, and the defaulted `operator==` MSVC quirk.
 - [glsl-shaders.md](glsl-shaders.md): the SPIR-V rules a shader must follow to compile: no bare uniforms, UBO bindings, MRT outputs, and never `.length()` on a storage buffer (§6b — Vulkan rejects it at pipeline creation, long after the SPIR-V validated).
+- [technique-selection-seams.md](technique-selection-seams.md): when a subsystem grows a second way of computing the same number, the choice is a value carrying the reason it is not what was asked for — not another shader `if`, and not a new row in a path enum.
 - [sonarqube-review-alignment.md](sonarqube-review-alignment.md): read before `/code-review` so local findings match the cloud profile.
 
 ## Testing and verification
@@ -26,7 +27,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [testing-architecture.md](testing-architecture.md): which renderer layer or Functional axis a new test belongs to, and the registration contract.
 - [../testing.md](../testing.md): why we test what we test; value heuristic, anti-patterns, retirement criteria.
 - [substituted-seams-compound.md](substituted-seams-compound.md): every substitution a test makes is a seam it stops testing, and they compound — including building the same object a different way.
-- [no-silent-fallbacks.md](no-silent-fallbacks.md): a path that cannot do what it was asked says so loudly and countably; rank a fallback by whether the substituted value can be INDEXED.
+- [no-silent-fallbacks.md](no-silent-fallbacks.md): a path that cannot do what it was asked says so loudly and countably; rank a fallback by whether the substituted value can be INDEXED, and lower every entry point a caller falls back to.
 - [reference-path-tracer.md](reference-path-tracer.md): the ground-truth oracle for "is it correct", where a golden can only say "did it change".
 - [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md): measure the noise floor and audit a recording before baking a per-vendor baseline.
 - [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md): give a visual-test scene a ground plane, then look at the PNG.
@@ -57,7 +58,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [incomplete-texture-samples-as-zero.md](incomplete-texture-samples-as-zero.md): set a texture's sampler state at creation; an incomplete texture reads zero on AMD and fine on NVIDIA.
 - [std-distributions-are-not-portable.md](std-distributions-are-not-portable.md): seed procedural content with your own transform over mt19937; std:: distributions differ between standard libraries, so one seed is two different results.
 - [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md): the OpenGL boundary leaks through the include graph, not a `glXxx(` grep; plus the Vulkan epic's lessons.
-- [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md): a CPU buffer write between two recorded draws is last-write-wins on Vulkan.
+- [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md): a CPU buffer write between two recorded draws is last-write-wins on Vulkan — and the per-draw snapshot that fixes it must never cover a buffer the GPU produces.
 - [vulkan-parallel-recording.md](vulkan-parallel-recording.md): a pass forks with `RenderCommand::RecordParallel` and gives every item its own resource objects; per-command-buffer state is per recording context.
 - [vulkan-parallel-graph-recording.md](vulkan-parallel-graph-recording.md): schedule ready prepared passes before compiling resource lifetimes, and publish shared state only after joining.
 - [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md): a BLAS is per geometry and opacity is per instance; acceleration structures reach a shader as a device address, builds ride the frame command buffer, and compaction is a multi-frame handshake because idling is banned.
@@ -72,6 +73,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [gpu-scene-record-contract.md](gpu-scene-record-contract.md): a GPU-scene record changes in C++ and GLSL in one commit, and only an incompatible edit or a removal advances its generation.
 - [gpu-scene-record-contract.md §7](gpu-scene-record-contract.md#7-the-raster-consumer-a-draw-link-resolved-once-per-frame): a migrated draw carries a link to its record, resolved once after the commit, and every path that still duplicates transform truth is named in `GPUSceneLegacyAdapters.h`.
 - [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md): blue noise is a claim about the error spectrum; the VNDF weight fails silently; a resolve clips, not clamps.
+- [screen-space-denoiser-chain.md](screen-space-denoiser-chain.md): a filter that runs at half resolution is guided by a guide buffer at its own resolution, its geometry test is a plane distance, and only a stage's SIZE is graph topology.
 - [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md): wrap every new clear site in `GLClearProgramGuard`, unbind and restore.
 - [render-pass-published-state.md](render-pass-published-state.md): a pass that publishes engine-global bindings runs last and is not wrapped in `GLStateGuard(Restore)`.
 - [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md): `WriteNewVersion` renames a physical resource; use the poison and disable levers to find stale reads.
@@ -173,11 +175,11 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | A steady-state offset check passes with a full one-tick lag present. |
 | [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | A position check passes on the scheduler tie-break alone, with the dependency edge missing. |
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | Adding `server/discover` alone keeps tests green and breaks the legacy fallback for real clients. |
-| [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | Two scenes rendered skybox-only with zero errors because no test interleaved two SSBO uploads with draws. |
+| [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | Two scenes rendered skybox-only with zero errors because no test interleaved two SSBO uploads with draws. Later, the same snapshot applied to a GPU-output buffer made the mesh-shader raster arm launch `EmitMeshTasksEXT(0)` — a legal call, so nothing warned — while masking an out-of-bounds read that device-faults once you remove it. |
 | [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md) | A new `RHI::Access` write member is classified as a read by the one switch with a `default:`, so no write-after-write barrier is emitted and nothing warns. |
 | [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) | Every Vulkan draw wrote colour attachment 0 alone, and the forward path only displays attachment 0. |
 | [substituted-seams-compound.md](substituted-seams-compound.md) | A decal tenant made three substitutions, each hiding a different live bug; no decal had ever produced a pixel. |
-| [no-silent-fallbacks.md](no-silent-fallbacks.md) | Two defensible fallbacks composed into VK_ERROR_DEVICE_LOST on every virtual-geometry scene, three layers from the cause, with both Vulkan VG tests passing. |
+| [no-silent-fallbacks.md](no-silent-fallbacks.md) | Two defensible fallbacks composed into VK_ERROR_DEVICE_LOST on every virtual-geometry scene, three layers from the cause, with both Vulkan VG tests passing. A stub returning `nullptr` then vanished into the caller's own "mapping failed" branch, so no page upload landed and every counter still read green. |
 | [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md) | A compute kernel wrote mip 0 and left coarser mips stale; the visual test was green because every mip was uniformly stale. |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | A compaction test that sorts both sides passes identically on `atomicAdd` and on the scan replacing it. |
 | [variable-rate-compute-shading.md](variable-rate-compute-shading.md) | A classifier that coarsens nothing passes every "did coarsening damage the image" assertion. |
@@ -187,6 +189,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [observer-camera.md](observer-camera.md) | The frozen cut looks plausible when culling quietly follows the observer. |
 | [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md) §14, §16, §18 | Every tenant and sweep was green while the first full virtual-geometry frame on Vulkan failed three ways; a barrier scope true about the draws was false about the queue; one field answered two questions that disagree on the frame an attachment is created. |
 | [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) | A missing VNDF weight renders believable, permanently too-bright specular, smallest where you would check; two channels seeded with the PRNG increment correlate at +0.55 while passing every per-channel metric; a resolve with crossed accumulators stays plausible. |
+| [screen-space-denoiser-chain.md](screen-space-denoiser-chain.md) | A half-resolution filter guided by the full-resolution G-Buffer rejects every tap along every silhouette, and the noisy fringe it leaves looks like the trace being bad rather than the guide; a history sized at the wrong band smears uniformly instead of failing. |
 | [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) | Projecting through the real view-projection instead of a facing plane passes every value test; only an invariance test under camera direction separates them. |
 | [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) | A vertical wall at the tile edge, and six flat-coloured islands, with every pipeline stage verified correct; "assert the weights vary" passes on the bug. |
 | [water-shading-nyquist.md](water-shading-nyquist.md) | Normals derived without the amplitude the displacement carried, for months; a second FFT grid lost 38% of slope RMS while height RMS held. |
@@ -253,6 +256,7 @@ No crash, no error, no log line; work or data disappears and the system keeps ru
 | [configure-time-variable-visibility.md](configure-time-variable-visibility.md) | A DLL copy step for the test executable, on the first configure only. |
 | [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) | A texture, from the second load onward. |
 | [shared-atlas-allocator.md](shared-atlas-allocator.md) | A budget claim, when `vector::resize()` or a `= T{}` reset discards a non-RAII handle. |
+| [technique-selection-seams.md](technique-selection-seams.md) | The REASON a light did not get the technique it asked for, when the choice is a shader branch: by the time the shader runs it is one uniform, and nothing on the CPU made the decision. |
 
 **The counter-move:** ask what the absence would look like. If nothing would differ, you need a
 coverage test, not a unit test.
