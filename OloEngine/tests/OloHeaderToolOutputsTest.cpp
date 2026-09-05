@@ -83,6 +83,7 @@ namespace OloEngine::Tests
                 { "sceneOutDir", "OHT_SCENE_OUT" },
                 { "saveGameOutDir", "OHT_SAVEGAME_OUT" },
                 { "mcpOutDir", "OHT_MCP_OUT" },
+                { "visualScriptOutDir", "OHT_VS_OUT" },
             };
             return map;
         }
@@ -209,6 +210,7 @@ namespace OloEngine::Tests
             { "OHT_SCENE_OUT", RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Scene" / "Generated" },
             { "OHT_SAVEGAME_OUT", RepoRoot() / "OloEngine" / "src" / "OloEngine" / "SaveGame" / "Generated" },
             { "OHT_MCP_OUT", RepoRoot() / "OloEditor" / "src" / "MCP" / "Generated" },
+            { "OHT_VS_OUT", RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Scripting" / "VisualScript" / "Generated" },
         };
 
         for (const auto& artefact : ArtefactsDeclaredByCMake())

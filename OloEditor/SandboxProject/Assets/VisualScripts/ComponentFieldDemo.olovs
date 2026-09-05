@@ -1,0 +1,158 @@
+VisualScript: 1
+NodeBudgetPerTick: 10000
+Variables:
+  - Name: BobAmplitude
+    Type: Float
+    Default: 0.75
+  - Name: Elapsed
+    Type: Float
+    Default: 0
+EventGraph:
+  Name: EventGraph
+  NextNodeId: 15
+  NextLinkId: 17
+  Inputs: []
+  Outputs: []
+  Nodes:
+    - Id: 1
+      Type: Event.OnUpdate
+      Position: -520 -60
+    - Id: 2
+      Type: Entity.GetSelf
+      Position: -520 140
+    - Id: 3
+      Type: Component.GetField
+      Position: -300 140
+      Properties:
+        Component: TransformComponent
+        Field: Translation
+    - Id: 4
+      Type: Vector.Break
+      Position: -80 140
+    - Id: 5
+      Type: Variable.Get
+      Position: -300 340
+      Properties:
+        Variable: Elapsed
+    - Id: 6
+      Type: Math.Sin
+      Position: -110 340
+    - Id: 7
+      Type: Variable.Get
+      Position: -110 440
+      Properties:
+        Variable: BobAmplitude
+    - Id: 8
+      Type: Math.Multiply
+      Position: 90 380
+    - Id: 9
+      Type: Vector.Make
+      Position: 300 200
+    - Id: 10
+      Type: Component.SetField
+      Position: 520 -60
+      Properties:
+        Component: TransformComponent
+        Field: Translation
+    - Id: 11
+      Type: Utility.Print
+      Position: 760 -60
+      PinDefaults:
+        - Pin: Message
+          Type: String
+          Value: bobbed
+    - Id: 12
+      Type: Math.Add
+      Position: -300 -220
+    - Id: 13
+      Type: Variable.Get
+      Position: -520 -220
+      Properties:
+        Variable: Elapsed
+    - Id: 14
+      Type: Variable.Set
+      Position: -80 -60
+      Properties:
+        Variable: Elapsed
+  Links:
+    - Id: 1
+      SourceNode: 1
+      SourcePin: Then
+      TargetNode: 14
+      TargetPin: Enter
+    - Id: 13
+      SourceNode: 14
+      SourcePin: Then
+      TargetNode: 10
+      TargetPin: Enter
+    - Id: 14
+      SourceNode: 13
+      SourcePin: Value
+      TargetNode: 12
+      TargetPin: A
+    - Id: 15
+      SourceNode: 1
+      SourcePin: Delta Seconds
+      TargetNode: 12
+      TargetPin: B
+    - Id: 16
+      SourceNode: 12
+      SourcePin: Result
+      TargetNode: 14
+      TargetPin: Value
+    - Id: 2
+      SourceNode: 2
+      SourcePin: Self
+      TargetNode: 3
+      TargetPin: Target
+    - Id: 3
+      SourceNode: 2
+      SourcePin: Self
+      TargetNode: 10
+      TargetPin: Target
+    - Id: 4
+      SourceNode: 3
+      SourcePin: Value
+      TargetNode: 4
+      TargetPin: Vector
+    - Id: 5
+      SourceNode: 4
+      SourcePin: X
+      TargetNode: 9
+      TargetPin: X
+    - Id: 6
+      SourceNode: 4
+      SourcePin: Z
+      TargetNode: 9
+      TargetPin: Z
+    - Id: 7
+      SourceNode: 5
+      SourcePin: Value
+      TargetNode: 6
+      TargetPin: A
+    - Id: 8
+      SourceNode: 6
+      SourcePin: Result
+      TargetNode: 8
+      TargetPin: A
+    - Id: 9
+      SourceNode: 7
+      SourcePin: Value
+      TargetNode: 8
+      TargetPin: B
+    - Id: 10
+      SourceNode: 8
+      SourcePin: Result
+      TargetNode: 9
+      TargetPin: Y
+    - Id: 11
+      SourceNode: 9
+      SourcePin: Vector
+      TargetNode: 10
+      TargetPin: Value
+    - Id: 12
+      SourceNode: 10
+      SourcePin: Then
+      TargetNode: 11
+      TargetPin: Enter
+Functions: []

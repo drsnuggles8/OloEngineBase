@@ -145,20 +145,50 @@ fi
 # On MSYS without native-symlink privilege, `ln` falls back to a file copy, which can
 # transiently fail with "Device or resource busy" when it races a DLL that link.exe (or
 # an AV scanner) is still holding open — observed on avformat during a fresh parallel
-# build. make is fully incremental, so retry a few times: a retry only redoes the failed
-# symlink + downstream steps, and a genuine compile error fails fast at the same object
-# each time (already-built .o files stay up to date) rather than rebuilding from scratch.
+# build. make is fully incremental, so that one case is worth retrying.
+#
+# It is the ONLY case worth retrying, and the loop below now checks before it retries.
+# The previous version retried any failure and announced every one of them as
+# "transient EBUSY symlink?", which is how a real compile error came to look like a
+# flake: a truncated `libavformat/protocol_list.c` (a configure output cut short mid-
+# write) failed with `error C2059: syntax error: 'const'` and was reported five times
+# as a transient symlink race. Two things hid it, and both are fixed here:
+#
+#   * `| tail -25` threw the error away. Under -j the sibling jobs keep printing for
+#     a long time after the failing one, so the actual error scrolls out of a 25-line
+#     window. The full output now goes to a log, and the failure path greps it.
+#   * The comment claimed a genuine compile error "fails fast at the same object each
+#     time". It does not, visibly: make gets a little further on each attempt as the
+#     unrelated objects finish, so the tail shows different files every round and the
+#     run looks like it is making progress through a flake.
+#
+# Job count is capped rather than $(nproc) — see CLAUDE.md's "never uncapped" rule.
+# This box reports 28 CPUs and also hosts CI runners for another repo.
+_make_jobs="${OLO_FFMPEG_JOBS:-6}"
+_make_log="$(pwd)/ffbuild-make.log"
 _make_attempt=1
 _make_max=5
 while :; do
-    if "$MAKE" -j"$(nproc)" 2>&1 | tail -25; then
+    if "$MAKE" -j"$_make_jobs" > "$_make_log" 2>&1; then
+        tail -10 "$_make_log"
         break
     fi
-    if [ "$_make_attempt" -ge "$_make_max" ]; then
-        echo "make failed after $_make_attempt attempts" >&2
+
+    # Classify before retrying. A compiler/assembler diagnostic or a missing tool is
+    # ours to fix; only the symlink/copy race gets another go.
+    if grep -qE 'error [A-Z][0-9]{4}|error:|Error 127|No such file or directory' "$_make_log"; then
+        echo "=== ffmpeg build failed with a real error (not a retryable race) ===" >&2
+        grep -nE 'error [A-Z][0-9]{4}|error:|Error 127|\*\*\*' "$_make_log" | head -20 >&2
+        echo "=== full log: $_make_log ===" >&2
         exit 1
     fi
-    echo "=== make attempt $_make_attempt failed (transient EBUSY symlink?) — retrying in 3s ===" >&2
+    if [ "$_make_attempt" -ge "$_make_max" ]; then
+        echo "make failed after $_make_attempt attempts; last 40 lines:" >&2
+        tail -40 "$_make_log" >&2
+        echo "=== full log: $_make_log ===" >&2
+        exit 1
+    fi
+    echo "=== make attempt $_make_attempt failed, no diagnostic in the log (transient EBUSY symlink?) — retrying in 3s ===" >&2
     _make_attempt=$((_make_attempt + 1))
     sleep 3
 done
