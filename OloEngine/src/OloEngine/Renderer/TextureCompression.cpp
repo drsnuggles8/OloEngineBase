@@ -3,6 +3,8 @@
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Instrumentor.h"
+#include "OloEngine/Renderer/BC6HEncoder.h"
+#include "OloEngine/Renderer/TextureImportSettings.h"
 
 // Vendored encoders/decoders (bc7enc_rdo, MIT / public domain). Only this TU pulls
 // them in, keeping the header renderer-agnostic. bc7enc: BC7 encode; rgbcx: BC5
@@ -20,9 +22,6 @@
 // stb_image is only *declared* here — STB_IMAGE_IMPLEMENTATION lives in
 // Platform/OpenGL/OpenGLTexture.cpp, which provides the definitions at link time.
 #include <stb_image/stb_image.h>
-
-// glm::packHalf1x16 — float -> IEEE half bit pattern, used to build BC6H encode targets.
-#include <glm/gtc/packing.hpp>
 
 #include <algorithm>
 #include <array>
@@ -91,7 +90,6 @@ namespace OloEngine
             return rgba;
         }
 
-        // Box-filter downsample an RGBA8 image to half size (each dim halved, min 1).
         // sRGB transfer function, both directions (IEC 61966-2-1). Only used to build a
         // mip chain in linear light; the stored texels stay sRGB-encoded either way.
         f32 SRGBToLinear(f32 encoded)
@@ -119,6 +117,7 @@ namespace OloEngine
             return table;
         }
 
+        // Box-filter downsample an RGBA8 image to half size (each dim halved, min 1).
         //
         // `srgb` selects a GAMMA-CORRECT reduction (#624 item 4): the four source texels
         // are decoded to linear light, averaged there, and re-encoded. Averaging sRGB code
@@ -136,8 +135,8 @@ namespace OloEngine
             outW = std::max(1u, width / 2);
             outH = std::max(1u, height / 2);
             std::vector<u8> dst(static_cast<sizet>(outW) * outH * 4);
-
             const std::array<f32, 256>& decode = SRGBDecodeTable();
+
             for (u32 y = 0; y < outH; ++y)
             {
                 const u32 sy0 = std::min(y * 2, height - 1);
@@ -290,93 +289,9 @@ namespace OloEngine
             return levels;
         }
 
-        // ---- BC6H (unsigned, mode 11) cook helpers ---------------------------
-        // BC6H packs RGB half-float into 16-byte 4x4 blocks. We emit only "mode 11":
-        // 1 subset, two 10-bit endpoints stored raw (no delta), 4-bit interpolation
-        // indices. The decode chain (matched to the vendored bcdec reference, which the
-        // round-trip test cross-checks) is: unquantize each 10-bit endpoint component to
-        // 16-bit, interpolate with the 4-bit index, then scale by 31/64 to get the
-        // half-float bit pattern. The encoder inverts that chain.
-
-        // BC6H 4-bit interpolation weights (index -> weight, /64). Exactly the bcdec /
-        // D3D "aWeight4" table — note index 13 is 55, NOT 56 (the table is not perfectly
-        // symmetric, which is why the anchor swap below re-selects indices instead of
-        // just inverting them).
-        constexpr std::array<i32, 16> kBC6HWeights4 = {
-            0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64
-        };
-
-        constexpr i32 kBC6HEndpointMax = 1023; // 10-bit endpoint precision
-        constexpr f32 kMaxFiniteHalf = 65504.0f;
-
-        // Unsigned unquantize of a 10-bit endpoint component to 16-bit (matches
-        // bcdec__unquantize with bits==10, isSigned==0).
-        i32 Bc6hUnquantizeUnsigned(i32 comp)
-        {
-            if (comp <= 0)
-                return 0;
-            if (comp >= kBC6HEndpointMax)
-                return 0xFFFF;
-            return ((comp << 16) + 0x8000) >> 10;
-        }
-
-        // Nearest 10-bit endpoint whose unquantized value best matches `target16` (a
-        // 16-bit interpolation-space value). unquantize is ~linear (comp*64), so start
-        // from target/64 and check the 3-wide neighbourhood for the exact nearest.
-        i32 Bc6hQuantizeEndpointUnsigned(i32 target16)
-        {
-            target16 = std::clamp(target16, 0, 0xFFFF);
-            const i32 guess = std::clamp(target16 >> 6, 0, kBC6HEndpointMax);
-            i32 best = guess;
-            i32 bestErr = std::abs(Bc6hUnquantizeUnsigned(guess) - target16);
-            for (i32 c = std::max(0, guess - 1); c <= std::min(kBC6HEndpointMax, guess + 1); ++c)
-            {
-                const i32 err = std::abs(Bc6hUnquantizeUnsigned(c) - target16);
-                if (err < bestErr)
-                {
-                    bestErr = err;
-                    best = c;
-                }
-            }
-            return best;
-        }
-
-        // Interpolate two unquantized 16-bit endpoints with a 4-bit index (matches
-        // bcdec__interpolate).
-        i32 Bc6hInterpolate(i32 a, i32 b, i32 index)
-        {
-            return (a * (64 - kBC6HWeights4[index]) + b * kBC6HWeights4[index] + 32) >> 6;
-        }
-
-        // Convert a source HDR float to the 16-bit interpolation-space target the decoder
-        // works in: clamp to non-negative (unsigned BC6H) and to the max finite half, take
-        // its half-float bit pattern (the value finish_unquantize must reproduce), then
-        // invert finish_unquantize ( half = (interp*31)>>6 ).
-        i32 Bc6hFloatToInterpTarget(f32 value)
-        {
-            if (!std::isfinite(value))
-                value = value > 0.0f ? kMaxFiniteHalf : 0.0f;
-            value = std::clamp(value, 0.0f, kMaxFiniteHalf);
-            const u32 halfBits = static_cast<u32>(::glm::packHalf1x16(value)) & 0xFFFFu; // -> [0, 0x7BFF]
-            const i32 interp = static_cast<i32>((static_cast<i64>(halfBits) * 64 + 15) / 31);
-            return std::clamp(interp, 0, 0xFFFF);
-        }
-
-        // Little-endian, LSB-first bit writer over a fixed 16-byte block.
-        struct Bc6hBitWriter
-        {
-            std::array<u8, 16>& Data;
-            u32 Pos = 0;
-            void Put(u32 value, u32 bits)
-            {
-                for (u32 i = 0; i < bits; ++i)
-                {
-                    if ((value >> i) & 1u)
-                        Data[Pos >> 3] |= static_cast<u8>(1u << (Pos & 7u));
-                    ++Pos;
-                }
-            }
-        };
+        // ---- BC6H cook helpers ------------------------------------------------
+        // The per-block BC6H encoder lives in BC6HEncoder.cpp; everything here is the
+        // image-level plumbing around it (expand to RGB float, downsample, gather).
 
         // Expand tightly-packed `channels`-per-texel float source to RGB (3 floats/texel).
         // channels>=3 keeps R,G,B (extra dropped); 2 -> R,G,0; 1 -> R,R,R.
@@ -442,184 +357,6 @@ namespace OloEngine
             }
         }
 
-        // Encode one 4x4 block of RGB floats (48 contiguous floats, row-major R,G,B) to a
-        // 16-byte unsigned-BC6H mode-11 block.
-        void EncodeBC6HBlockUnsigned(u8* dst, const f32* blockRGB)
-        {
-            // 1. Source -> interpolation-space targets (16 texels x RGB).
-            std::array<std::array<i32, 3>, 16> target{};
-            for (u32 t = 0; t < 16; ++t)
-                for (u32 c = 0; c < 3; ++c)
-                    target[t][c] = Bc6hFloatToInterpTarget(blockRGB[t * 3 + c]);
-
-            // 2. Endpoints: bounding box, then tightened to the extreme projections along
-            //    the box diagonal (a cheap PCA-lite that fits smooth HDR gradients well).
-            std::array<i32, 3> bbMin = { 0xFFFF, 0xFFFF, 0xFFFF };
-            std::array<i32, 3> bbMax = { 0, 0, 0 };
-            for (const auto& tx : target)
-                for (u32 c = 0; c < 3; ++c)
-                {
-                    bbMin[c] = std::min(bbMin[c], tx[c]);
-                    bbMax[c] = std::max(bbMax[c], tx[c]);
-                }
-            const std::array<i64, 3> axis = { bbMax[0] - bbMin[0], bbMax[1] - bbMin[1], bbMax[2] - bbMin[2] };
-            std::array<i32, 3> ep0 = bbMin;
-            std::array<i32, 3> ep1 = bbMax;
-            if (axis[0] != 0 || axis[1] != 0 || axis[2] != 0)
-            {
-                i64 minProj = std::numeric_limits<i64>::max();
-                i64 maxProj = std::numeric_limits<i64>::min();
-                u32 minTexel = 0;
-                u32 maxTexel = 0;
-                for (u32 t = 0; t < 16; ++t)
-                {
-                    i64 proj = 0;
-                    for (u32 c = 0; c < 3; ++c)
-                        proj += axis[c] * (target[t][c] - bbMin[c]);
-                    if (proj < minProj)
-                    {
-                        minProj = proj;
-                        minTexel = t;
-                    }
-                    if (proj > maxProj)
-                    {
-                        maxProj = proj;
-                        maxTexel = t;
-                    }
-                }
-                ep0 = target[minTexel];
-                ep1 = target[maxTexel];
-            }
-
-            // 3. Per-texel index selection minimizing squared error across RGB (the index
-            //    is shared by the three channels); returns the block's total error so the
-            //    refinement loop can compare candidates. Reused by the anchor fixup.
-            const auto selectIndices = [&](const std::array<i32, 3>& a, const std::array<i32, 3>& b,
-                                           std::array<i32, 16>& out) -> i64
-            {
-                i64 total = 0;
-                for (u32 t = 0; t < 16; ++t)
-                {
-                    i64 bestErr = std::numeric_limits<i64>::max();
-                    i32 bestIdx = 0;
-                    for (i32 w = 0; w < 16; ++w)
-                    {
-                        i64 err = 0;
-                        for (u32 c = 0; c < 3; ++c)
-                        {
-                            const i64 d = static_cast<i64>(Bc6hInterpolate(a[c], b[c], w)) - target[t][c];
-                            err += d * d;
-                        }
-                        if (err < bestErr)
-                        {
-                            bestErr = err;
-                            bestIdx = w;
-                        }
-                    }
-                    out[t] = bestIdx;
-                    total += bestErr;
-                }
-                return total;
-            };
-
-            // Quantize an interp-space endpoint pair to 10-bit and recompute the values the
-            // decoder will actually interpolate between.
-            const auto quantizePair = [](const std::array<i32, 3>& e0, const std::array<i32, 3>& e1,
-                                         std::array<i32, 3>& q0, std::array<i32, 3>& q1,
-                                         std::array<i32, 3>& u0, std::array<i32, 3>& u1)
-            {
-                for (u32 c = 0; c < 3; ++c)
-                {
-                    q0[c] = Bc6hQuantizeEndpointUnsigned(e0[c]);
-                    q1[c] = Bc6hQuantizeEndpointUnsigned(e1[c]);
-                    u0[c] = Bc6hUnquantizeUnsigned(q0[c]);
-                    u1[c] = Bc6hUnquantizeUnsigned(q1[c]);
-                }
-            };
-
-            std::array<i32, 3> q0{}, q1{}, u0{}, u1{};
-            quantizePair(ep0, ep1, q0, q1, u0, u1);
-            std::array<i32, 16> indices{};
-            i64 bestTotal = selectIndices(u0, u1, indices);
-
-            // 4. Refine: alternate a least-squares endpoint fit (given the current indices)
-            //    with index re-selection. interp = A*(1 - w/64) + B*(w/64) is linear in the
-            //    two endpoints, so per channel this is a 2x2 normal-equation solve. Keep a
-            //    step only if it lowers total error, so refinement can never regress a block
-            //    (this closes most of the gap a single-segment mode-11 fit leaves on curved
-            //    HDR gradients; a multi-mode / PCA encoder is a deferred follow-up).
-            for (u32 iter = 0; iter < 2; ++iter)
-            {
-                std::array<i32, 3> rep0{}, rep1{};
-                for (u32 c = 0; c < 3; ++c)
-                {
-                    f64 a00 = 0.0, a01 = 0.0, a11 = 0.0, rhs0 = 0.0, rhs1 = 0.0;
-                    for (u32 t = 0; t < 16; ++t)
-                    {
-                        const f64 wgt = static_cast<f64>(kBC6HWeights4[indices[t]]) / 64.0;
-                        const f64 s = 1.0 - wgt;
-                        a00 += s * s;
-                        a01 += s * wgt;
-                        a11 += wgt * wgt;
-                        rhs0 += s * static_cast<f64>(target[t][c]);
-                        rhs1 += wgt * static_cast<f64>(target[t][c]);
-                    }
-                    const f64 det = a00 * a11 - a01 * a01;
-                    if (std::abs(det) < 1e-6)
-                    {
-                        // Degenerate (every index identical): keep the current endpoints.
-                        rep0[c] = u0[c];
-                        rep1[c] = u1[c];
-                    }
-                    else
-                    {
-                        const f64 endA = (rhs0 * a11 - rhs1 * a01) / det;
-                        const f64 endB = (rhs1 * a00 - rhs0 * a01) / det;
-                        rep0[c] = std::clamp(static_cast<i32>(std::lround(endA)), 0, 0xFFFF);
-                        rep1[c] = std::clamp(static_cast<i32>(std::lround(endB)), 0, 0xFFFF);
-                    }
-                }
-                std::array<i32, 3> nq0{}, nq1{}, nu0{}, nu1{};
-                quantizePair(rep0, rep1, nq0, nq1, nu0, nu1);
-                std::array<i32, 16> nindices{};
-                const i64 total = selectIndices(nu0, nu1, nindices);
-                if (total >= bestTotal)
-                    break; // converged / no improvement
-                bestTotal = total;
-                q0 = nq0;
-                q1 = nq1;
-                u0 = nu0;
-                u1 = nu1;
-                indices = nindices;
-            }
-
-            // 5. Anchor fixup: index[0]'s MSB is implicit-0, so it must be < 8. If not,
-            //    swap endpoints and re-select (see the weight-table asymmetry note above).
-            if (indices[0] >= 8)
-            {
-                std::swap(q0, q1);
-                std::swap(u0, u1);
-                selectIndices(u0, u1, indices);
-                if (indices[0] >= 8)
-                    indices[0] = 7; // defensive: guarantee a legal anchor on a rare tie
-            }
-
-            // 6. Pack the mode-11 bitstream: mode(5)=0b00011, then rw,gw,bw,rx,gx,bx (each
-            //    10 bits), then indices (index 0 = 3 bits, indices 1..15 = 4 bits each).
-            std::array<u8, 16> block{};
-            Bc6hBitWriter bw{ block };
-            bw.Put(0b00011u, 5);
-            bw.Put(static_cast<u32>(q0[0]), 10);
-            bw.Put(static_cast<u32>(q0[1]), 10);
-            bw.Put(static_cast<u32>(q0[2]), 10);
-            bw.Put(static_cast<u32>(q1[0]), 10);
-            bw.Put(static_cast<u32>(q1[1]), 10);
-            bw.Put(static_cast<u32>(q1[2]), 10);
-            bw.Put(static_cast<u32>(indices[0]), 3);
-            for (u32 t = 1; t < 16; ++t)
-                bw.Put(static_cast<u32>(indices[t]), 4);
-            std::memcpy(dst, block.data(), 16);
-        }
     } // namespace
 
     namespace TextureCompression
@@ -666,6 +403,7 @@ namespace OloEngine
                 case TextureCompressionFormat::BC7:
                 case TextureCompressionFormat::BC5:
                 case TextureCompressionFormat::BC6H:
+                case TextureCompressionFormat::BC6HSigned:
                     return 16;
                 case TextureCompressionFormat::None:
                     return 0;
@@ -766,7 +504,28 @@ namespace OloEngine
             return image;
         }
 
-        CompressedTextureImage EncodeBC6H(const f32* pixels, u32 width, u32 height, u32 channels, bool generateMips)
+        bool HasNegativeComponents(const f32* pixels, u32 width, u32 height, u32 channels)
+        {
+            if (!pixels || width == 0 || height == 0 || channels == 0)
+                return false;
+            const sizet texelCount = static_cast<sizet>(width) * height;
+            const u32 rgbChannels = std::min(channels, 3u);
+            for (sizet i = 0; i < texelCount; ++i)
+            {
+                const f32* texel = pixels + i * channels;
+                for (u32 c = 0; c < rgbChannels; ++c)
+                {
+                    // A non-finite component is clamped by the encoder in both variants,
+                    // so it must not be what forces the signed one.
+                    if (std::isfinite(texel[c]) && texel[c] < 0.0f)
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        CompressedTextureImage EncodeBC6H(const f32* pixels, u32 width, u32 height, u32 channels,
+                                          bool isSigned, bool generateMips)
         {
             OLO_PROFILE_FUNCTION();
 
@@ -778,13 +537,13 @@ namespace OloEngine
                 return image;
             }
 
-            image.Format = TextureCompressionFormat::BC6H;
+            image.Format = isSigned ? TextureCompressionFormat::BC6HSigned : TextureCompressionFormat::BC6H;
             image.Width = width;
             image.Height = height;
-            image.SRGB = false;     // HDR is linear — never sRGB
+            image.SRGB = false;     // HDR is linear, never sRGB
             image.HasAlpha = false; // BC6H is RGB only
 
-            const auto encodeLevel = [](const std::vector<f32>& rgb, u32 w, u32 h)
+            const auto encodeLevel = [isSigned](const std::vector<f32>& rgb, u32 w, u32 h)
             {
                 const u32 bx = BlockCount(w);
                 const u32 by = BlockCount(h);
@@ -795,7 +554,7 @@ namespace OloEngine
                     for (u32 x = 0; x < bx; ++x)
                     {
                         GatherBlockRGBFloat(rgb, w, h, x, y, block);
-                        EncodeBC6HBlockUnsigned(out.data() + (static_cast<sizet>(y) * bx + x) * 16, block.data());
+                        BC6H::EncodeBlock(out.data() + (static_cast<sizet>(y) * bx + x) * 16, block.data(), isSigned);
                     }
                 }
                 return out;
@@ -816,7 +575,7 @@ namespace OloEngine
                 return false;
             // BC6H is HDR (half-float); it has no meaningful 8-bit representation. Callers
             // that need its pixels use DecodeToRGBAFloat instead.
-            if (image.Format == TextureCompressionFormat::BC6H)
+            if (IsBC6H(image.Format))
             {
                 OLO_CORE_ERROR("TextureCompression::DecodeToRGBA8 - BC6H is HDR; use DecodeToRGBAFloat");
                 return false;
@@ -884,8 +643,9 @@ namespace OloEngine
         bool DecodeToRGBAFloat(const CompressedTextureImage& image, u32 mipLevel,
                                std::vector<f32>& outRGBA, u32& outWidth, u32& outHeight)
         {
-            if (!image.IsValid() || image.Format != TextureCompressionFormat::BC6H || mipLevel >= image.MipLevels())
+            if (!image.IsValid() || !IsBC6H(image.Format) || mipLevel >= image.MipLevels())
                 return false;
+            const int bcdecSigned = image.Format == TextureCompressionFormat::BC6HSigned ? 1 : 0;
 
             const u32 mw = std::max(1u, image.Width >> mipLevel);
             const u32 mh = std::max(1u, image.Height >> mipLevel);
@@ -909,7 +669,7 @@ namespace OloEngine
                 for (u32 bx = 0; bx < bxCount; ++bx)
                 {
                     const u8* blockPtr = blocks.data() + (static_cast<sizet>(by) * bxCount + bx) * 16;
-                    ::bcdec_bc6h_float(blockPtr, decoded.data(), 4 * 3, 0 /* unsigned */);
+                    ::bcdec_bc6h_float(blockPtr, decoded.data(), 4 * 3, bcdecSigned);
 
                     for (u32 ry = 0; ry < 4; ++ry)
                     {
@@ -998,7 +758,8 @@ namespace OloEngine
             }
             if (formatInt != static_cast<u32>(TextureCompressionFormat::BC7) &&
                 formatInt != static_cast<u32>(TextureCompressionFormat::BC5) &&
-                formatInt != static_cast<u32>(TextureCompressionFormat::BC6H))
+                formatInt != static_cast<u32>(TextureCompressionFormat::BC6H) &&
+                formatInt != static_cast<u32>(TextureCompressionFormat::BC6HSigned))
             {
                 OLO_CORE_ERROR("TextureCompression::DeserializeFromBlob - unknown format {}", formatInt);
                 return false;
@@ -1018,7 +779,7 @@ namespace OloEngine
                 return false;
             }
             const auto blobFormat = static_cast<TextureCompressionFormat>(formatInt);
-            if ((blobFormat == TextureCompressionFormat::BC5 || blobFormat == TextureCompressionFormat::BC6H) &&
+            if ((blobFormat == TextureCompressionFormat::BC5 || IsBC6H(blobFormat)) &&
                 (flags & (kFlagSRGB | kFlagHasAlpha)) != 0)
             {
                 OLO_CORE_ERROR("TextureCompression::DeserializeFromBlob - {} must not set sRGB/alpha flags ({:#x})",
@@ -1142,16 +903,67 @@ namespace OloEngine
             OLO_PROFILE_FUNCTION();
 
             TextureCompressionFormat format = options.Format;
-            if (format == TextureCompressionFormat::None)
+            bool srgb = options.SRGB;
+            bool autoSRGBFromName = options.AutoSRGBFromName;
+            bool generateMips = options.GenerateMips;
+
+            // A "<image>.oloimport" sidecar is the only reliable per-texture signal the
+            // cook has (#624 item 2). It is what makes BC5 reachable automatically: no
+            // property of the pixels separates a two-channel tangent-space normal from a
+            // roughness or AO map, so guessing would silently drop a channel from
+            // someone's data.
+            //
+            // Precedence, and it differs per field because only one of them has a way to
+            // spell "unset": an explicit `Format` beats the sidecar (None means auto),
+            // while `ColorSpace` and `GenerateMips` beat the caller's, because a `false`
+            // in CompressOptions is indistinguishable from a default. A caller that must
+            // have exactly what it passed sets UseImportSettings = false.
+            if (options.UseImportSettings)
             {
-                // An HDR source (.hdr / .exr with float data) auto-selects BC6H; everything
-                // else defaults to BC7. BC5 is never auto-chosen (deliberate normal-map opt-in).
-                format = ::stbi_is_hdr(srcImagePath.c_str()) ? TextureCompressionFormat::BC6H
-                                                             : TextureCompressionFormat::BC7;
+                if (TextureImportSettings settings; TextureImport::LoadForImage(srcImagePath, settings))
+                {
+                    if (format == TextureCompressionFormat::None)
+                    {
+                        switch (settings.Format)
+                        {
+                            case TextureImportSettings::FormatChoice::BC7:
+                                format = TextureCompressionFormat::BC7;
+                                break;
+                            case TextureImportSettings::FormatChoice::BC5:
+                                format = TextureCompressionFormat::BC5;
+                                break;
+                            case TextureImportSettings::FormatChoice::BC6H:
+                                format = TextureCompressionFormat::BC6H;
+                                break;
+                            case TextureImportSettings::FormatChoice::BC6HSigned:
+                                format = TextureCompressionFormat::BC6HSigned;
+                                break;
+                            case TextureImportSettings::FormatChoice::Auto:
+                                break;
+                        }
+                    }
+                    if (settings.ColorSpace != TextureImportSettings::ColorSpaceChoice::Auto)
+                    {
+                        srgb = settings.ColorSpace == TextureImportSettings::ColorSpaceChoice::SRGB;
+                        autoSRGBFromName = false;
+                    }
+                    if (settings.GenerateMips.has_value())
+                        generateMips = *settings.GenerateMips;
+                }
             }
 
-            bool srgb = options.SRGB;
-            if (options.AutoSRGBFromName && format == TextureCompressionFormat::BC7)
+            // Auto: an HDR source (.hdr / .exr with float data) becomes BC6H, everything
+            // else BC7. Whether that BC6H is the signed variant is decided from the
+            // decoded pixels below, once they exist.
+            bool autoSelectBC6HVariant = false;
+            if (format == TextureCompressionFormat::None)
+            {
+                const bool isHDR = ::stbi_is_hdr(srcImagePath.c_str()) != 0;
+                format = isHDR ? TextureCompressionFormat::BC6H : TextureCompressionFormat::BC7;
+                autoSelectBC6HVariant = isHDR;
+            }
+
+            if (autoSRGBFromName && format == TextureCompressionFormat::BC7)
             {
                 const std::string filename = std::filesystem::path(srcImagePath).filename().string();
                 srgb = IsLikelyColorTexture(filename);
@@ -1165,7 +977,7 @@ namespace OloEngine
             int channels = 0;
             CompressedTextureImage image;
 
-            if (format == TextureCompressionFormat::BC6H)
+            if (IsBC6H(format))
             {
                 // Load HDR as float, forcing 3 components (RGB) so a 1/4-channel HDR source
                 // still feeds EncodeBC6H a well-defined RGB buffer.
@@ -1176,7 +988,14 @@ namespace OloEngine
                     OLO_CORE_ERROR("TextureCompression::CompressImageFile - failed to load HDR '{}'", srcImagePath);
                     return false;
                 }
-                image = EncodeBC6H(data, static_cast<u32>(width), static_cast<u32>(height), 3, options.GenerateMips);
+                // Signed BC6H costs nothing in size but one bit of endpoint magnitude, so
+                // it is only chosen when the data actually needs it: any negative
+                // component in the decoded pixels. An explicitly requested variant is
+                // honoured as-is, including "unsigned, and clamp my negatives away".
+                bool isSigned = format == TextureCompressionFormat::BC6HSigned;
+                if (autoSelectBC6HVariant)
+                    isSigned = HasNegativeComponents(data, static_cast<u32>(width), static_cast<u32>(height), 3);
+                image = EncodeBC6H(data, static_cast<u32>(width), static_cast<u32>(height), 3, isSigned, generateMips);
                 ::stbi_image_free(data);
             }
             else
@@ -1189,9 +1008,9 @@ namespace OloEngine
                     return false;
                 }
                 if (format == TextureCompressionFormat::BC5)
-                    image = EncodeBC5(data, static_cast<u32>(width), static_cast<u32>(height), static_cast<u32>(channels), options.GenerateMips);
+                    image = EncodeBC5(data, static_cast<u32>(width), static_cast<u32>(height), static_cast<u32>(channels), generateMips);
                 else
-                    image = EncodeBC7(data, static_cast<u32>(width), static_cast<u32>(height), static_cast<u32>(channels), srgb, options.GenerateMips);
+                    image = EncodeBC7(data, static_cast<u32>(width), static_cast<u32>(height), static_cast<u32>(channels), srgb, generateMips);
                 ::stbi_image_free(data);
             }
 

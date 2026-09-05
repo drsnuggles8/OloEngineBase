@@ -45,14 +45,22 @@ namespace OloEngine
         // which has no float form. Until this existed the Vulkan backend's
         // RHI::Format::R32UInt arm had nothing to map to and returned the NULL
         // texture handle, so the whole pool silently did not exist there.
-        R32UI
+        R32UI,
+        // BPTC RGB half-float, SIGNED variant (issue #624), for HDR source data that
+        // carries negative components. Appended for the same reason as R32UI above:
+        // this enum's integer values are persisted verbatim in asset-pack texture
+        // records and the IBL cache header, so slotting it next to BC6H would have
+        // renumbered R32UI and made every legacy record holding 18 read back as a
+        // block-compressed format.
+        BC6HS
     };
 
     // True for the block-compressed ImageFormat values, which take the
     // glCompressedTextureSubImage2D upload path instead of a client pixel format.
     [[nodiscard("Store this!")]] constexpr bool IsCompressedFormat(ImageFormat format) noexcept
     {
-        return format == ImageFormat::BC7 || format == ImageFormat::BC5 || format == ImageFormat::BC6H;
+        return format == ImageFormat::BC7 || format == ImageFormat::BC5 || format == ImageFormat::BC6H ||
+               format == ImageFormat::BC6HS;
     }
 
     // True for the integer (non-normalised) ImageFormat values — the ones a

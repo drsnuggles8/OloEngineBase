@@ -280,6 +280,8 @@ namespace OloEngine::Utils
                 return GL_COMPRESSED_RG_RGTC2;
             case RHI::Format::BC6HUFloat:
                 return GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT;
+            case RHI::Format::BC6HSFloat:
+                return GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT;
             case RHI::Format::BC7UNorm:
                 return GL_COMPRESSED_RGBA_BPTC_UNORM;
             case RHI::Format::BC7SRGB:

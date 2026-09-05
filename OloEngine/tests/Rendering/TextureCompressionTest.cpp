@@ -7,6 +7,7 @@
 // and non-multiple-of-4 (partial block) handling. The GPU upload path is verified
 // separately by the GL evidence test.
 
+#include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCompression.h"
 
 #include <gtest/gtest.h>
@@ -16,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -162,6 +164,35 @@ TEST(TextureCompression, BlockGeometry)
     EXPECT_EQ(TextureCompression::MipByteSize(TextureCompressionFormat::BC5, 13, 7), 128u);
 }
 
+TEST(TextureCompression, PersistedFormatEnumValuesAreStable)
+{
+    // ImageFormat and TextureCompressionFormat are both written to disk as raw integers —
+    // ImageFormat in asset-pack texture records and the IBL cache header,
+    // TextureCompressionFormat in the .olotex container. So a new entry may only ever be
+    // APPENDED; slotting one next to a related value renumbers everything after it and
+    // makes every legacy record read back as a different format, which loads without an
+    // error and then behaves as nonsense. Pin the ordinals so that is a test failure and
+    // not a field report.
+    static_assert(static_cast<u32>(ImageFormat::BC7) == 16);
+    static_assert(static_cast<u32>(ImageFormat::BC5) == 17);
+    static_assert(static_cast<u32>(ImageFormat::BC6H) == 18);
+    static_assert(static_cast<u32>(ImageFormat::R32UI) == 19);
+    static_assert(static_cast<u32>(ImageFormat::BC6HS) == 20,
+                  "ImageFormat entries are APPENDED — a new one must not renumber R32UI");
+
+    static_assert(static_cast<u32>(TextureCompressionFormat::None) == 0);
+    static_assert(static_cast<u32>(TextureCompressionFormat::BC7) == 1);
+    static_assert(static_cast<u32>(TextureCompressionFormat::BC5) == 2);
+    static_assert(static_cast<u32>(TextureCompressionFormat::BC6H) == 3);
+    static_assert(static_cast<u32>(TextureCompressionFormat::BC6HSigned) == 4,
+                  "TextureCompressionFormat values are persisted in .olotex — append only");
+
+    EXPECT_TRUE(IsCompressedFormat(ImageFormat::BC6HS));
+    EXPECT_FALSE(IsCompressedFormat(ImageFormat::R32UI));
+    EXPECT_TRUE(IsBC6H(TextureCompressionFormat::BC6HSigned));
+    EXPECT_FALSE(IsBC6H(TextureCompressionFormat::BC7));
+}
+
 TEST(TextureCompression, EncodeBC7RoundTripWithinTolerance)
 {
     constexpr u32 kW = 64;
@@ -256,7 +287,6 @@ TEST(TextureCompression, HandlesNonMultipleOf4Dimensions)
     EXPECT_GT(psnr, 30.0) << "partial-block PSNR too low: " << psnr << " dB";
 }
 
-TEST(TextureCompression, ContainerBlobRoundTripIsBitExact)
 // ---- Linear-space mip generation (#624 item 4) ----------------------------
 
 TEST(TextureCompression, SRGBMipChainIsFilteredInLinearLight)
@@ -346,6 +376,7 @@ TEST(TextureCompression, SRGBMipFilteringLeavesAlphaAlone)
     EXPECT_NEAR(mean, 128.0, 8.0) << "alpha mip 1 mean " << mean << " — alpha must not be gamma-corrected";
 }
 
+TEST(TextureCompression, ContainerBlobRoundTripIsBitExact)
 {
     constexpr u32 kW = 32;
     constexpr u32 kH = 16;
@@ -538,7 +569,7 @@ TEST(TextureCompression, EncodeBC6HRoundTripWithinTolerance)
     constexpr f32 kPeak = 8.0f;
     const std::vector<f32> source = MakeGradientHDR(kW, kH, kPeak);
 
-    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, false);
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, false);
     ASSERT_TRUE(image.IsValid());
     EXPECT_EQ(image.Format, TextureCompressionFormat::BC6H);
     EXPECT_FALSE(image.SRGB);
@@ -585,7 +616,7 @@ TEST(TextureCompression, BC6HFlatBlockIsNearLossless)
         source[i * 3 + 1] = 1.25f;
         source[i * 3 + 2] = 0.5f;
     }
-    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, false);
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, false);
     ASSERT_TRUE(image.IsValid());
 
     std::vector<f32> decoded;
@@ -606,7 +637,7 @@ TEST(TextureCompression, BC6HGeneratesFullMipChain)
     constexpr u32 kH = 64;
     const std::vector<f32> source = MakeGradientHDR(kW, kH, 4.0f);
 
-    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, true);
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, true);
     ASSERT_TRUE(image.IsValid());
     EXPECT_EQ(image.MipLevels(), 7u); // 64 -> ... -> 1
 
@@ -626,7 +657,7 @@ TEST(TextureCompression, BC6HHandlesNonMultipleOf4Dimensions)
     constexpr f32 kPeak = 6.0f;
     const std::vector<f32> source = MakeGradientHDR(kW, kH, kPeak);
 
-    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, false);
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, false);
     ASSERT_TRUE(image.IsValid());
     EXPECT_EQ(image.Width, kW);
     EXPECT_EQ(image.Height, kH);
@@ -646,7 +677,7 @@ TEST(TextureCompression, BC6HContainerBlobRoundTripIsBitExact)
     constexpr u32 kH = 16;
     const std::vector<f32> source = MakeGradientHDR(kW, kH, 5.0f);
 
-    const CompressedTextureImage original = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, true);
+    const CompressedTextureImage original = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, true);
     ASSERT_TRUE(original.IsValid());
 
     const std::vector<u8> blob = TextureCompression::SerializeToBlob(original);
@@ -670,8 +701,135 @@ TEST(TextureCompression, EncodeBC6HRejectsInsufficientChannels)
     constexpr u32 kH = 8;
     std::vector<f32> rg(static_cast<sizet>(kW) * kH * 2, 1.0f);
     // BC6H is RGB HDR; a 2-channel source is meaningless and must be rejected.
-    const CompressedTextureImage image = TextureCompression::EncodeBC6H(rg.data(), kW, kH, 2, false);
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(rg.data(), kW, kH, 2, /*isSigned*/ false, false);
     EXPECT_FALSE(image.IsValid());
+}
+
+// ---- Signed BC6H (#624) ---------------------------------------------------
+// GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT. The unsigned variant cannot store a negative
+// component at all (it clamps to 0), so a source that carries negatives is the one case
+// where the variant choice changes the pixels rather than just the internal format.
+
+TEST(TextureCompression, SignedBC6HPreservesNegativesThatUnsignedClampsAway)
+{
+    constexpr u32 kW = 16;
+    constexpr u32 kH = 16;
+    constexpr f32 kPeak = 4.0f;
+
+    // A field that swings through zero in every channel.
+    std::vector<f32> source(static_cast<sizet>(kW) * kH * 3);
+    for (u32 y = 0; y < kH; ++y)
+    {
+        for (u32 x = 0; x < kW; ++x)
+        {
+            const f32 fx = (static_cast<f32>(x) / static_cast<f32>(kW - 1)) * 2.0f - 1.0f;
+            const f32 fy = (static_cast<f32>(y) / static_cast<f32>(kH - 1)) * 2.0f - 1.0f;
+            f32* p = &source[(static_cast<sizet>(y) * kW + x) * 3];
+            p[0] = kPeak * fx;
+            p[1] = kPeak * fy;
+            p[2] = kPeak * fx * fy;
+        }
+    }
+
+    const CompressedTextureImage signedImage = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ true, false);
+    ASSERT_TRUE(signedImage.IsValid());
+    EXPECT_EQ(signedImage.Format, TextureCompressionFormat::BC6HSigned);
+
+    const CompressedTextureImage unsignedImage = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, false);
+    ASSERT_TRUE(unsignedImage.IsValid());
+    EXPECT_EQ(unsignedImage.Format, TextureCompressionFormat::BC6H);
+
+    std::vector<f32> signedDecoded;
+    std::vector<f32> unsignedDecoded;
+    u32 dw = 0;
+    u32 dh = 0;
+    ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(signedImage, 0, signedDecoded, dw, dh));
+    ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(unsignedImage, 0, unsignedDecoded, dw, dh));
+
+    // Repack source as RGBA so the stride-4 PSNR helper lines up.
+    std::vector<f32> sourceRGBA(static_cast<sizet>(kW) * kH * 4, 1.0f);
+    for (sizet i = 0; i < static_cast<sizet>(kW) * kH; ++i)
+    {
+        sourceRGBA[i * 4 + 0] = source[i * 3 + 0];
+        sourceRGBA[i * 4 + 1] = source[i * 3 + 1];
+        sourceRGBA[i * 4 + 2] = source[i * 3 + 2];
+    }
+
+    const double signedPSNR = ComputePSNRFloat(sourceRGBA, signedDecoded, 4, 3, kPeak);
+    const double unsignedPSNR = ComputePSNRFloat(sourceRGBA, unsignedDecoded, 4, 3, kPeak);
+    // Measured ~25.8 dB. A field that crosses zero is BC6H's hard case in EITHER variant:
+    // the format interpolates in a sign-magnitude, roughly logarithmic space, so a segment
+    // running from -peak to +peak has to pass through the region where that space is at
+    // its most stretched. The number that matters here is the GAP below, not the absolute
+    // dB — the floor is only here to catch the encoder breaking outright.
+    EXPECT_GT(signedPSNR, 22.0) << "signed BC6H round-trip PSNR too low: " << signedPSNR << " dB";
+    EXPECT_GT(signedPSNR, unsignedPSNR + 6.0)
+        << "signed should be far ahead of unsigned on signed data (signed " << signedPSNR
+        << " dB vs unsigned " << unsignedPSNR << " dB)";
+
+    // And the unsigned variant must genuinely clamp, not wrap or emit garbage.
+    for (sizet i = 0; i < static_cast<sizet>(kW) * kH; ++i)
+    {
+        for (u32 c = 0; c < 3; ++c)
+            EXPECT_GE(unsignedDecoded[i * 4 + c], 0.0f);
+    }
+}
+
+TEST(TextureCompression, HasNegativeComponentsIgnoresNonFiniteValues)
+{
+    // Only a real negative may force the signed variant: a NaN or -inf is clamped by the
+    // encoder in both variants, so it must not silently switch the whole texture's format.
+    std::vector<f32> positive = { 1.0f, 2.0f, 3.0f, 0.0f, 0.5f, 4.0f };
+    EXPECT_FALSE(TextureCompression::HasNegativeComponents(positive.data(), 2, 1, 3));
+
+    std::vector<f32> withNegative = positive;
+    withNegative[4] = -0.5f;
+    EXPECT_TRUE(TextureCompression::HasNegativeComponents(withNegative.data(), 2, 1, 3));
+
+    std::vector<f32> withNonFinite = positive;
+    withNonFinite[1] = -std::numeric_limits<f32>::infinity();
+    withNonFinite[2] = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(TextureCompression::HasNegativeComponents(withNonFinite.data(), 2, 1, 3));
+}
+
+TEST(TextureCompression, SignedBC6HSurvivesTheContainerRoundTrip)
+{
+    constexpr u32 kW = 8;
+    constexpr u32 kH = 8;
+    std::vector<f32> source(static_cast<sizet>(kW) * kH * 3);
+    for (sizet i = 0; i < source.size(); ++i)
+        source[i] = (i % 5 == 0) ? -1.5f : 2.25f;
+
+    const CompressedTextureImage original = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ true, true);
+    ASSERT_TRUE(original.IsValid());
+
+    CompressedTextureImage restored;
+    ASSERT_TRUE(TextureCompression::DeserializeFromBlob(TextureCompression::SerializeToBlob(original), restored));
+    EXPECT_EQ(restored.Format, TextureCompressionFormat::BC6HSigned);
+    ASSERT_EQ(restored.MipLevels(), original.MipLevels());
+    for (u32 level = 0; level < original.MipLevels(); ++level)
+        EXPECT_EQ(restored.Mips[level], original.Mips[level]) << "mip " << level << " block bytes differ";
+}
+
+TEST(TextureCompression, SignedBC6HRoundTripsAConstantNegative)
+{
+    // The degenerate case for the signed variant: coincident negative endpoints. Gets the
+    // sign handling in quantize / unquantize / finish_unquantize on the record, separately
+    // from the mixed-sign field above.
+    constexpr u32 kW = 8;
+    constexpr u32 kH = 8;
+    std::vector<f32> negatives(static_cast<sizet>(kW) * kH * 3, -0.75f);
+    EXPECT_TRUE(TextureCompression::HasNegativeComponents(negatives.data(), kW, kH, 3));
+
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(negatives.data(), kW, kH, 3, /*isSigned*/ true, false);
+    ASSERT_TRUE(image.IsValid());
+
+    std::vector<f32> decoded;
+    u32 dw = 0;
+    u32 dh = 0;
+    ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(image, 0, decoded, dw, dh));
+    for (sizet i = 0; i < static_cast<sizet>(kW) * kH; ++i)
+        EXPECT_NEAR(decoded[i * 4 + 0], -0.75f, 0.01f);
 }
 
 TEST(TextureCompression, DecodeToRGBA8RejectsBC6H)
@@ -681,7 +839,7 @@ TEST(TextureCompression, DecodeToRGBA8RejectsBC6H)
     constexpr u32 kW = 8;
     constexpr u32 kH = 8;
     const std::vector<f32> source = MakeGradientHDR(kW, kH, 2.0f);
-    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, false);
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, false);
     ASSERT_TRUE(image.IsValid());
 
     std::vector<u8> rgba8;
@@ -696,7 +854,7 @@ TEST(TextureCompression, DeserializeRejectsBC6HWithColorFlags)
     constexpr u32 kW = 8;
     constexpr u32 kH = 8;
     const std::vector<f32> source = MakeGradientHDR(kW, kH, 2.0f);
-    const CompressedTextureImage bc6h = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, false);
+    const CompressedTextureImage bc6h = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, false);
     ASSERT_TRUE(bc6h.IsValid());
     std::vector<u8> blob = TextureCompression::SerializeToBlob(bc6h);
     ASSERT_GE(blob.size(), 28u);

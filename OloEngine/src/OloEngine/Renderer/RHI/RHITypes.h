@@ -247,6 +247,11 @@ namespace OloEngine::RHI
         // what lets an image copy stage compressed VT cache tiles out of an
         // uncompressed staging array.
         RGBA32UInt,
+
+        // BPTC RGB half-float, SIGNED variant (issue #624). Appended, not slotted
+        // next to BC6HUFloat: this enum's ordinals are pinned by
+        // RHIEnumLoweringTest and members may only ever be appended.
+        BC6HSFloat,
     };
 
     // An INTEGER texture must be sampled with NEAREST, and a single-level one
@@ -324,7 +329,7 @@ namespace OloEngine::RHI
 
     [[nodiscard]] constexpr bool IsCompressed(Format format) noexcept
     {
-        return format == Format::BC5UNorm || format == Format::BC6HUFloat ||
+        return format == Format::BC5UNorm || format == Format::BC6HUFloat || format == Format::BC6HSFloat ||
                format == Format::BC7UNorm || format == Format::BC7SRGB;
     }
 

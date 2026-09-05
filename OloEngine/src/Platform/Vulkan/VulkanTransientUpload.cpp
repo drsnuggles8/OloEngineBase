@@ -103,6 +103,8 @@ namespace OloEngine::VulkanUpload
                 return VK_FORMAT_BC5_UNORM_BLOCK;
             case ImageFormat::BC6H:
                 return VK_FORMAT_BC6H_UFLOAT_BLOCK;
+            case ImageFormat::BC6HS:
+                return VK_FORMAT_BC6H_SFLOAT_BLOCK;
         }
 
         OLO_CORE_ASSERT(false, "ImageFormatToVkFormat: unknown ImageFormat {}", static_cast<u32>(format));
@@ -118,6 +120,7 @@ namespace OloEngine::VulkanUpload
             case ImageFormat::BC7:
             case ImageFormat::BC5:
             case ImageFormat::BC6H:
+            case ImageFormat::BC6HS:
                 return 0;
             case ImageFormat::R8:
             case ImageFormat::R8UI:

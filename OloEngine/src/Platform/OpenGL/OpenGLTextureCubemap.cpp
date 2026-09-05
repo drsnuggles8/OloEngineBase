@@ -54,6 +54,7 @@ namespace OloEngine
                 case ImageFormat::BC7:
                 case ImageFormat::BC5:
                 case ImageFormat::BC6H:
+                case ImageFormat::BC6HS:
                     // Block-compressed cubemaps aren't produced by the cook path; a
                     // compressed face would need glCompressedTextureSubImage3D. Return 0
                     // (unsupported) explicitly so a stray value is a defined error, not an
@@ -89,6 +90,7 @@ namespace OloEngine
                 case ImageFormat::BC7:
                 case ImageFormat::BC5:
                 case ImageFormat::BC6H:
+                case ImageFormat::BC6HS:
                     // Block-compressed cubemaps aren't produced by the cook path.
                     OLO_CORE_ASSERT(false, "Block-compressed cubemaps are not supported");
                     return 0;

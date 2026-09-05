@@ -4654,6 +4654,8 @@ namespace OloEngine
                     return { ImageFormat::BC5, false };
                 case RHI::Format::BC6HUFloat:
                     return { ImageFormat::BC6H, false };
+                case RHI::Format::BC6HSFloat:
+                    return { ImageFormat::BC6HS, false };
                 case RHI::Format::BC7UNorm:
                     return { ImageFormat::BC7, false };
                 case RHI::Format::BC7SRGB:

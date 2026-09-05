@@ -260,7 +260,7 @@ TEST(CompressedTextureVisualEvidence, BC6HUploadStoresBlocksAndDecompressesOnGPU
     const std::vector<f32> source = MakeGradientHDR(kW, kH, kPeak);
 
     // Encode HDR RGB -> BC6H (unsigned), base mip only for a clean 1:1 comparison.
-    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*mips*/ false);
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, /*mips*/ false);
     ASSERT_TRUE(image.IsValid());
     EXPECT_EQ(image.Format, TextureCompressionFormat::BC6H);
 

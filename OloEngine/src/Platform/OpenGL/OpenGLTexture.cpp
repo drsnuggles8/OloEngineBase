@@ -60,6 +60,7 @@ namespace OloEngine
                 case ImageFormat::BC7:
                 case ImageFormat::BC5:
                 case ImageFormat::BC6H:
+                case ImageFormat::BC6HS:
                     // Compressed formats upload via glCompressedTextureSubImage2D with no
                     // client pixel format; this value is unused for those paths.
                     return 0;
@@ -118,6 +119,9 @@ namespace OloEngine
                     // BPTC RGB half-float, unsigned variant (non-negative HDR radiance).
                     // Always linear — sRGB does not apply to a float format.
                     return GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT;
+                case ImageFormat::BC6HS:
+                    // BPTC RGB half-float, signed variant (source data with negatives).
+                    return GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT;
             }
 
             OLO_CORE_ASSERT(false, "Unknown ImageFormat!");
@@ -135,6 +139,7 @@ namespace OloEngine
                 case TextureCompressionFormat::BC7:
                     return (GLAD_GL_VERSION_4_2 != 0) || (GLAD_GL_ARB_texture_compression_bptc != 0);
                 case TextureCompressionFormat::BC6H:
+                case TextureCompressionFormat::BC6HSigned:
                     // Same BPTC feature as BC7 (both are core since GL 4.2).
                     return (GLAD_GL_VERSION_4_2 != 0) || (GLAD_GL_ARB_texture_compression_bptc != 0);
                 case TextureCompressionFormat::BC5:
@@ -289,6 +294,7 @@ namespace OloEngine
             case ImageFormat::BC7:
             case ImageFormat::BC5:
             case ImageFormat::BC6H:
+            case ImageFormat::BC6HS:
                 // Block-compressed textures are not created through the spec ctor (use
                 // the CompressedTextureImage ctor, which tracks block bytes exactly).
                 // ~1 byte/texel is a coarse placeholder purely for this tracking line.
@@ -434,6 +440,9 @@ namespace OloEngine
             case TextureCompressionFormat::BC6H:
                 m_Specification.Format = ImageFormat::BC6H;
                 break;
+            case TextureCompressionFormat::BC6HSigned:
+                m_Specification.Format = ImageFormat::BC6HS;
+                break;
             case TextureCompressionFormat::BC7:
             case TextureCompressionFormat::None:
             default:
@@ -449,9 +458,9 @@ namespace OloEngine
         // the mip chain on the CPU and upload uncompressed so rendering still works.
         if (!Utils::IsCompressionSupported(image.Format))
         {
-            const char* formatName = image.Format == TextureCompressionFormat::BC5    ? "BC5/RGTC"
-                                     : image.Format == TextureCompressionFormat::BC6H ? "BC6H/BPTC"
-                                                                                      : "BC7/BPTC";
+            const char* formatName = image.Format == TextureCompressionFormat::BC5 ? "BC5/RGTC"
+                                     : IsBC6H(image.Format)                        ? "BC6H/BPTC"
+                                                                                   : "BC7/BPTC";
             OLO_CORE_WARN("OpenGLTexture2D: driver lacks {} support — falling back to uncompressed (RGBA8, or RGBA16F for BC6H HDR)", formatName);
             UploadDecompressedFallback(image);
             return;
@@ -510,7 +519,7 @@ namespace OloEngine
     {
         // BC6H is HDR: decode base mip to RGBA float and upload as RGBA16F so the fallback
         // preserves the high dynamic range (an 8-bit fallback would clip/banding the HDR).
-        if (image.Format == TextureCompressionFormat::BC6H)
+        if (IsBC6H(image.Format))
         {
             std::vector<f32> rgbaF;
             u32 fw = 0;

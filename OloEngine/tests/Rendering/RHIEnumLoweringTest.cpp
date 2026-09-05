@@ -69,7 +69,7 @@ namespace
                   "RHI::Filter changed — update ToGL() and FilterLowering");
     static_assert(static_cast<int>(RHI::AddressMode::ClampToBorder) == 3,
                   "RHI::AddressMode changed — update ToGL() and AddressModeLowering");
-    static_assert(static_cast<int>(RHI::Format::RGBA32UInt) == 23,
+    static_assert(static_cast<int>(RHI::Format::BC6HSFloat) == 24,
                   "RHI::Format changed — update ToGLInternalFormat() and FormatLowering");
     // Access and PrimitiveTopology are lowered by ToGLImageAccess() / ToGL() and
     // so need the same growth tripwire. Access is the one most likely to gain a
@@ -379,13 +379,14 @@ TEST(RHIFormatCompleteness, NoFilterableFormatIsMistakenForAnInteger)
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::BC6HUFloat));
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::BC7UNorm));
     EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::BC7SRGB));
+    EXPECT_FALSE(RHI::IsIntegerFormat(RHI::Format::BC6HSFloat));
 
     // The two lists together must name every enumerator: 6 integer formats
-    // above plus the 18 here, and RGBA32UInt is the last member (the enum's
+    // above plus the 19 here, and BC6HSFloat is the last member (the enum's
     // ordinals are pinned by RHIEnumLoweringTest's static_asserts, and members
     // may only be appended). If someone appends a format, this count fails and
     // they have to decide which list it belongs in.
-    static_assert(static_cast<u16>(RHI::Format::RGBA32UInt) + 1 == 24,
+    static_assert(static_cast<u16>(RHI::Format::BC6HSFloat) + 1 == 25,
                   "a Format was added: classify it in IsIntegerFormat and list it in one of the two "
                   "RHIFormatCompleteness tests");
 }
