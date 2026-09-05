@@ -60,15 +60,47 @@ it.
    it see real data, does the reply make sense"; deterministic tests answer "is
    the math right".
 
+## The same rule, inside a capture test
+
+A multi-angle visual-evidence test must measure its own noise floor and assert
+against it, for the same reason a live diagnostic must: without it, a set of
+captures that are all the *same frame* is indistinguishable from a set that
+covers the scene. Issue #931 is that failure. A test posed its camera with
+`EditorCamera::SetPosition`/`SetYaw`/`SetPitch`, which at the time only stashed
+the members and never rebuilt the view matrix, so every "angle" rendered from
+the constructor's default orbit view. Over an open sea the result is a perfectly
+plausible frame of sky and water with the subject a quarter of a kilometre
+off-screen — three identical PNGs that would have been baked as goldens and gone
+green forever. It was caught only because that test happened to measure its floor
+and happened to mask for its subject's colour.
+
+Both checks now live in
+[`VisualEvidenceGuards.h`](../../OloEngine/tests/Rendering/PropertyTests/VisualEvidenceGuards.h):
+`ExpectCapturesAreDistinct` (every pair of poses differs by more than a multiple
+of the *measured* floor) and `ExpectFrameHasSubject` (a content mask finds the
+subject). Call both from any capture test with more than one pose. Rule 2 above
+applies to the guards themselves — `MeshVisibilityEvidenceTest` hands the
+distinctness guard one pose captured twice and requires it to fail.
+
 ## The suite's own evidence PNGs are nondeterministic — measured values
 
-`OloEngine-Tests.exe` **rewrites** the visual-evidence PNGs under
-`OloEditor/assets/tests/visual/` on every run (they are evidence, not goldens —
-nothing compares them). So `git status` after a test run routinely shows a
-handful of modified PNGs that have **nothing to do with your change**, and the
-tempting readings are both wrong: committing them as "regenerated evidence"
-launders noise into the repo, and reading them as a regression sends you
-debugging a change you did not make.
+`OloEngine-Tests.exe` **rewrites** many of the PNGs under
+`OloEditor/assets/tests/visual/` on every run. So `git status` after a test run
+routinely shows a handful of modified PNGs that have **nothing to do with your
+change**, and the tempting readings are both wrong: committing them as
+"regenerated evidence" launders noise into the repo, and reading them as a
+regression sends you debugging a change you did not make.
+
+**That directory holds two kinds of file, and only one of them is disposable.**
+A test that writes unconditionally is producing *evidence* — nothing compares it,
+and a modified one after a run is noise. A test that writes only under
+`--olo-golden-rebase` (`Water_*`, `Drift_*`, `MeshVisibility_*`, and the rest of
+the sibling set) is producing a *golden*: a normal run reads it back and fails on
+drift, so deleting or overwriting one removes a baseline the suite needs. The
+`git checkout --` advice below is safe for both, because a golden is never
+written by a normal run in the first place — a golden that shows as modified
+means you passed `--olo-golden-rebase`, and then the question is whether you
+meant to.
 
 Measured on one machine (RTX 4090, Debug) by running the identical binary
 twice and diffing run 1 against run 2 — i.e. with *no code change at all*:

@@ -126,6 +126,7 @@ add_executable(OloEngine-Tests
 		Rendering/ReflectionProbeSelectionTest.cpp
 		Rendering/ReflectionProbeDistanceFieldTest.cpp
 		Rendering/PlanarReflectionMathTest.cpp
+		Rendering/EditorCameraPoseTest.cpp
 		Rendering/CameraRelativeTest.cpp
 		Rendering/Renderer2DCameraRelativeTest.cpp
 		Rendering/TerrainCameraRelativeLODTest.cpp
@@ -406,6 +407,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/OceanFFTVisualEvidenceTest.cpp
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
+		Rendering/PropertyTests/MeshVisibilityEvidenceTest.cpp
+		Rendering/PropertyTests/VisualEvidenceGuards.cpp
 		Rendering/PropertyTests/BloomVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ObserverCameraVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FogVisualEvidenceTest.cpp
