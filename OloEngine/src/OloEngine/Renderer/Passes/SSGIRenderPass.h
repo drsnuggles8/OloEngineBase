@@ -15,22 +15,47 @@ namespace OloEngine
     // SSR:
     //   AOApplyColor/SSSColor/SceneColor → SSGI → SSGIColor → SSR → Bloom → ...
     //
-    // THREE DRAWS IN ONE NODE (issue #902), the CloudscapeRenderPass shape:
+    // FIVE DRAWS IN ONE NODE (issues #902, #708), the CloudscapeRenderPass shape.
+    // Draws A-D run at the TRACE band — half the scene band when
+    // SSGIHalfResolution is on — and only draw E is full resolution:
     //   A. PostProcess_SSGI.glsl          → SSGISignal   (the stochastic term
     //                                       ONLY: rgb = indirect diffuse,
-    //                                       a = positive view depth)
-    //   B. PostProcess_SSGIResolve.glsl   → SSGIResolved (temporal accumulation
+    //                                       a = positive view depth; RT1 = the
+    //                                       trace-band guide plane)
+    //   B. PostProcess_SSGIPreBlur.glsl   → SSGIPreBlurred (small depth+normal
+    //                                       guided blur, so the history has
+    //                                       something stable to accumulate)
+    //   C. PostProcess_SSGIResolve.glsl   → SSGIResolved (temporal accumulation
     //                                       against SSGIHistory; the graph
     //                                       copies this into the history sink)
-    //   C. PostProcess_SSGIComposite.glsl → SSGIColor    (upstream colour +
-    //                                       resolved signal * intensity)
+    //   D. PostProcess_SSGIPostBlur.glsl  → SSGIDenoised (variance- and
+    //                                       history-length-guided radius: wide
+    //                                       where still noisy, narrow where
+    //                                       converged)
+    //   E. PostProcess_SSGIComposite.glsl → SSGIColor    (guided upscale of the
+    //                                       denoised signal onto the full-res
+    //                                       surface, plus upstream colour +
+    //                                       signal * intensity)
     //
-    // The split is the whole point: compositing into the scene colour made the
-    // output un-accumulable, because temporally blending it would smear the
-    // base colour along with the noise. Draw B needs the current frame's signal
-    // in a real texture (its 3x3 neighbourhood clip gathers neighbours that do
-    // not exist yet inside draw A), which is why this is three draws and not
-    // one shader with a history sample bolted on.
+    // The ordering is the one denoisinator.md argues for: a cheap spatial pass
+    // BEFORE the temporal one and a small one after, rather than either alone.
+    // Pre-blur alone shimmers in motion; temporal alone reacts slowly and needs
+    // one expensive wide filter to hide it. Doing both lets each be small.
+    //
+    // B and D are skipped entirely when their radius is 0, and the draw that
+    // would have consumed their output binds the previous stage's instead —
+    // so turning a stage off removes its cost rather than running a
+    // pass-through. The graph shape does not change, which is what keeps the
+    // radii out of the blackboard fingerprint.
+    //
+    // The split into separate draws is the whole point: compositing into the
+    // scene colour made the output un-accumulable, because temporally blending
+    // it would smear the base colour along with the noise. And every stage here
+    // gathers a NEIGHBOURHOOD of the stage before it — the pre-blur's Poisson
+    // disc, the resolve's 3x3 clip box, the post-blur's disc, the upscale's 2x2
+    // footprint — so each one needs its input in a real texture that the whole
+    // previous draw has finished writing. None of these can be folded into the
+    // one before it.
     //
     // The pass reads the lit scene colour plus the deferred G-Buffer (world
     // normal in RT1, albedo in RT0) and scene depth, then casts a
@@ -52,6 +77,9 @@ namespace OloEngine
     // Output:
     //   * SSGIColor (RGBA16F) — indirect-diffuse-composited scene colour.
     //   * SSGIResolved (RGBA16F, graph scratch) — extracted into SSGIHistory.
+    //   * SSGISignal / SSGIPreBlurred / SSGIDenoised (RGBA16F, graph scratch at
+    //     the trace band) — the denoiser chain's intermediates. SSGISignal's
+    //     attachment 1 is the guide plane extracted into SSGISurfaceHistory.
     //
     // Disabled / forward-path semantics: when the pass is disabled or the
     // G-Buffer is unavailable (forward / forward+), the graph omits SSGIColor so
@@ -85,7 +113,9 @@ namespace OloEngine
             // The UBO carries the camera matrices + ray params the shader needs;
             // executing without it would gather against stale/garbage state.
             return m_SSGIShader && m_SSGIShader->IsReady() &&
+                   m_SSGIPreBlurShader && m_SSGIPreBlurShader->IsReady() &&
                    m_SSGIResolveShader && m_SSGIResolveShader->IsReady() &&
+                   m_SSGIPostBlurShader && m_SSGIPostBlurShader->IsReady() &&
                    m_SSGICompositeShader && m_SSGICompositeShader->IsReady() && m_SSGIUBO;
         }
 
@@ -107,13 +137,28 @@ namespace OloEngine
             m_TemporalClipGamma = clipGamma;
         }
 
+        // Denoiser-stage gates (issue #708). Only whether the two spatial
+        // stages run at all: their radii travel in the UBO, which the pipeline
+        // fills. A stage whose radius is 0 is SKIPPED, and its consumer binds
+        // the previous stage's output instead — see Execute.
+        void SetDenoiseSettings(bool preBlurEnabled, bool postBlurEnabled) noexcept
+        {
+            m_PreBlurEnabled = preBlurEnabled;
+            m_PostBlurEnabled = postBlurEnabled;
+        }
+
       private:
         bool m_Enabled = false;
 
         Ref<Shader> m_SSGIShader;
+        Ref<Shader> m_SSGIPreBlurShader;
         Ref<Shader> m_SSGIResolveShader;
+        Ref<Shader> m_SSGIPostBlurShader;
         Ref<Shader> m_SSGICompositeShader;
         Ref<UniformBuffer> m_SSGIUBO;
+
+        bool m_PreBlurEnabled = true;
+        bool m_PostBlurEnabled = true;
 
         bool m_TemporalResolveEnabled = true;
         f32 m_TemporalFeedback = 0.92f;
@@ -128,7 +173,9 @@ namespace OloEngine
         RGTextureHandle m_SelectedFirstMomentsHistoryTexture{};
         RGTextureHandle m_SelectedSecondMomentsHistoryTexture{};
         RGFramebufferHandle m_SelectedSignalFramebuffer{};
+        RGFramebufferHandle m_SelectedPreBlurredFramebuffer{};
         RGFramebufferHandle m_SelectedResolvedFramebuffer{};
+        RGFramebufferHandle m_SelectedDenoisedFramebuffer{};
 
         // The shared blue-noise tile (issue #706), created once in Init(). Not a
         // graph resource: it is pass-owned, immutable and bound with a Persistent

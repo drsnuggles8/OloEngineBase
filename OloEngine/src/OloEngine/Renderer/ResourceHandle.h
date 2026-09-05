@@ -377,13 +377,19 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SSRColor = "SSRColor";                       // After screen-space reflections composite (only valid when SSR is enabled, deferred path)
     inline constexpr std::string_view SSRColorTexture = "SSRColorTexture";         // Color attachment view of SSRColor
     inline constexpr std::string_view SSGISignal = "SSGISignal";                   // Raw stochastic indirect-diffuse signal, rgb = radiance, a = view depth (SSGI draw A output, issue #902)
+    inline constexpr std::string_view SSGIGuide = "SSGIGuide";                     // Trace-band surface plane, rg = oct world normal, b = roughness, a = AO (SSGISignal attachment 1, issue #708)
+    inline constexpr std::string_view SSGIPreBlurred = "SSGIPreBlurred";           // Depth/normal-guided pre-blur of the raw signal (issue #708 stage 2; what the resolve accumulates)
     inline constexpr std::string_view SSGIResolved = "SSGIResolved";               // Temporally-resolved SSGI signal (SSGI draw B output; the SSGIHistory source)
+    inline constexpr std::string_view SSGIDenoised = "SSGIDenoised";               // Variance-guided post-blur of the resolved signal (issue #708 stage 4; what the upscale reads)
     inline constexpr std::string_view SSGIMomentsFirst = "SSGIMomentsFirst";
     inline constexpr std::string_view SSGIMomentsSecond = "SSGIMomentsSecond";
     inline constexpr std::string_view SSGIHistoryDiagnostics = "SSGIHistoryDiagnostics";
     inline constexpr std::string_view SSGIReprojectionDiagnostics = "SSGIReprojectionDiagnostics";
     inline constexpr std::string_view SSRSignal = "SSRSignal";                                       // Raw stochastic reflection delta, rgb = (reflection - base) * blend, a = view depth (SSR draw A output, issue #902)
+    inline constexpr std::string_view SSRGuide = "SSRGuide";                                         // Surface plane, rg = oct world normal, b = roughness, a = AO (SSRSignal attachment 1, issue #708)
+    inline constexpr std::string_view SSRPreBlurred = "SSRPreBlurred";                               // Roughness-scaled pre-blur of the raw reflection delta (issue #708 stage 2)
     inline constexpr std::string_view SSRResolved = "SSRResolved";                                   // Temporally-resolved SSR signal (SSR draw B output; the SSRHistory source)
+    inline constexpr std::string_view SSRDenoised = "SSRDenoised";                                   // Roughness-scaled post-blur of the resolved delta (issue #708 stage 4)
     inline constexpr std::string_view ContactShadowColor = "ContactShadowColor";                     // After screen-space contact-shadow composite (only valid when ContactShadow is enabled, deferred path)
     inline constexpr std::string_view ContactShadowColorTexture = "ContactShadowColorTexture";       // Color attachment view of ContactShadowColor
     inline constexpr std::string_view OverdrawColor = "OverdrawColor";                               // Overdraw heatmap debug view (only valid when OverdrawDebugView is on); replaces the viewport late in the post chain

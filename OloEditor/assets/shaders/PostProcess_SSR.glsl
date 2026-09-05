@@ -64,6 +64,14 @@ void main()
 // rendered frame is checked by SSRVisualEvidenceTest.
 
 layout(location = 0) out vec4 o_Color;
+// The guide plane (issue #708), packed exactly like G-Buffer RT1:
+//   rg = octahedral world normal, b = roughness, a = AO.
+// The two spatial denoiser stages that bracket the temporal resolve are guided
+// by this rather than by the G-Buffer directly, so the SSR chain has the same
+// shape as SSGI's and the shared kernel in include/SpatialDenoise.glsl serves
+// both. Roughness in b is what sets the blur radius here — see
+// OloDenoiseRoughnessRadius for why specular cannot use SSGI's variance guide.
+layout(location = 1) out vec4 o_Guide;
 
 layout(location = 0) in vec2 v_TexCoord;
 
@@ -103,17 +111,25 @@ layout(std140, binding = 38) uniform SSRParams
     vec4 u_Flags;        // x = DebugView (0/1), y = FrameIndex, zw = pad
     vec4 u_HZBParams;    // xy = HZB UVFactor, z = HZB mip count, w = UseHiZ (0/1)
     vec4 u_TemporalParams; // #902; read by the resolve/composite draws, not here
+    // #708 denoiser chain. Unlike SSGI there is no separate trace band: SSR
+    // stays at full resolution, because a reflection carries the sharpest
+    // detail in the frame and a half-resolution trace loses exactly that.
+    vec4 u_DenoiseParams;  // x = PreBlurRadius (px), y = unused, z = PostBlurMaxRadius, w = unused
+    vec4 u_DenoiseGuide;   // x = PlaneTolerance (relative), y = NormalPower, z = RoughnessKnee, w = MaxRoughness (the trace's cutoff)
 };
 
 // Named SSR_MIN_ROUGHNESS, not MIN_ROUGHNESS: PBRCommon.glsl (pulled in by
 // StochasticCommon.glsl above) #defines the latter, and a macro followed by a
 // `const float MIN_ROUGHNESS = ...` here would expand into a syntax error.
 const float SSR_MIN_ROUGHNESS = 0.045;
+// The sky sentinel this pass writes into alpha lives in the denoiser header,
+// because every later stage of the chain has to recognise it — see
+// OLO_DENOISE_SKY_VIEW_DEPTH there for why the value is 60000 and not a round
+// number.
+#include "include/SpatialDenoise.glsl"
+
 const float SKY_DEPTH = 0.999999;
-// Ceiling for the view depth this pass hands the temporal resolve in alpha.
-// Must stay under the RGBA16F (half-float) maximum of 65504 — see the clamp in
-// main() for why exceeding it defeats the guard entirely.
-const float OLO_MAX_VIEW_DEPTH = 60000.0;
+const float OLO_MAX_VIEW_DEPTH = OLO_DENOISE_SKY_VIEW_DEPTH;
 const int HARD_MAX_STEPS = 256;
 const int HARD_MAX_BIN_STEPS = 32;
 const int HARD_MAX_HZB_LEVELS = 16; // loop-safety cap on the HZB mip used for skipping
@@ -204,13 +220,19 @@ void main()
     float viewDepth = (rawViewDepth > 0.0 && rawViewDepth < OLO_MAX_VIEW_DEPTH) ? rawViewDepth
                                                                                 : OLO_MAX_VIEW_DEPTH;
 
+    // The guide plane is written on EVERY path, sky and early-out included: the
+    // two spatial stages read it to decide whether a tap is on this surface, and
+    // a texel this pass returned early from would hand them an undefined normal
+    // and an undefined roughness to weight by.
+    vec4 gN = texture(u_GBufferNormal, v_TexCoord);
+    o_Guide = gN;
+
     if (depth >= SKY_DEPTH) // sky / background — nothing to reflect from
     {
         o_Color = vec4(0.0, 0.0, 0.0, viewDepth);
         return;
     }
 
-    vec4 gN = texture(u_GBufferNormal, v_TexCoord);
     float roughness = max(gN.z, SSR_MIN_ROUGHNESS);
     float maxRoughness = u_ShadeParams.y;
 

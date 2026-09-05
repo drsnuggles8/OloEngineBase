@@ -352,6 +352,8 @@ namespace OloEngine::MCP::PostProcess
         OLO_PP_NUM(SSREdgeFade, "ssr", FieldType::Float, 0.0, 0.5, "Screen-border fade width in UV."),
         OLO_PP_BOOL(SSRDebugView, "ssr", "Show the resolved reflection delta instead of the composite."),
         OLO_PP_BOOL(SSRTemporalResolve, "ssr", "Accumulate the reflection signal over frames (issue #902)."),
+        OLO_PP_NUM(SSRPreBlurRadius, "ssr", FieldType::Float, 0.0, static_cast<f64>(kScreenSpaceMaxDenoiseRadius), "Pre-blur radius in pixels, scaled per pixel by roughness; 0 disables the stage."),
+        OLO_PP_NUM(SSRPostBlurRadius, "ssr", FieldType::Float, 0.0, static_cast<f64>(kScreenSpaceMaxDenoiseRadius), "Post-blur radius in pixels, scaled per pixel by roughness; 0 disables the stage."),
         OLO_PP_NUM(SSRTemporalFeedback, "ssr", FieldType::Float, 0.0, 0.98, "History weight per frame for the SSR temporal resolve."),
 
         // ---- screen-space global illumination ----------------------------------
@@ -366,6 +368,10 @@ namespace OloEngine::MCP::PostProcess
         OLO_PP_BOOL(SSGIDebugView, "ssgi", "Show the indirect-diffuse buffer in isolation."),
         OLO_PP_BOOL(SSGITemporalResolve, "ssgi", "Accumulate the indirect-diffuse signal over frames (issue #902)."),
         OLO_PP_NUM(SSGITemporalFeedback, "ssgi", FieldType::Float, 0.0, 0.98, "History weight per frame for the SSGI temporal resolve."),
+        OLO_PP_BOOL(SSGIHalfResolution, "ssgi", "Trace and denoise at half resolution, then guided-upscale (issue #708)."),
+        OLO_PP_BOOL(SSGIRayDistribution, "ssgi", "Give each pixel of a 2x2 quad a different quarter of the ray strata."),
+        OLO_PP_NUM(SSGIPreBlurRadius, "ssgi", FieldType::Float, 0.0, static_cast<f64>(kScreenSpaceMaxDenoiseRadius), "Pre-blur radius in trace-band pixels; 0 disables the stage."),
+        OLO_PP_NUM(SSGIPostBlurRadius, "ssgi", FieldType::Float, 0.0, static_cast<f64>(kScreenSpaceMaxDenoiseRadius), "Post-blur maximum radius in trace-band pixels; 0 disables the stage."),
 
         // ---- screen-space contact shadows --------------------------------------
         OLO_PP_BOOL(ContactShadowEnabled, "contactshadow", "Run screen-space contact shadows (Deferred path only)."),
@@ -595,6 +601,10 @@ namespace OloEngine::MCP::PostProcess
             std::string_view{ "CASEnabled" },
             std::string_view{ "SSREnabled" },
             std::string_view{ "SSGIEnabled" },
+            // Half resolution sizes every resource in the SSGI denoiser chain
+            // and its four temporal histories (issue #708), so an MCP write must
+            // rebuild the graph exactly as toggling the feature does.
+            std::string_view{ "SSGIHalfResolution" },
             std::string_view{ "ContactShadowEnabled" },
             std::string_view{ "OverdrawDebugView" },
             std::string_view{ "FogEnabled" },

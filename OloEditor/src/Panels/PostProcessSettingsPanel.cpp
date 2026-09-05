@@ -169,6 +169,8 @@ namespace OloEngine
             AppendChange(changes, "SSRDebugView", before.SSRDebugView, after.SSRDebugView);
             AppendChange(changes, "SSRTemporalResolve", before.SSRTemporalResolve, after.SSRTemporalResolve);
             AppendChange(changes, "SSRTemporalFeedback", before.SSRTemporalFeedback, after.SSRTemporalFeedback);
+            AppendChange(changes, "SSRPreBlurRadius", before.SSRPreBlurRadius, after.SSRPreBlurRadius);
+            AppendChange(changes, "SSRPostBlurRadius", before.SSRPostBlurRadius, after.SSRPostBlurRadius);
 
             AppendChange(changes, "SSGIEnabled", before.SSGIEnabled, after.SSGIEnabled);
             AppendChange(changes, "SSGIIntensity", before.SSGIIntensity, after.SSGIIntensity);
@@ -181,6 +183,10 @@ namespace OloEngine
             AppendChange(changes, "SSGIDebugView", before.SSGIDebugView, after.SSGIDebugView);
             AppendChange(changes, "SSGITemporalResolve", before.SSGITemporalResolve, after.SSGITemporalResolve);
             AppendChange(changes, "SSGITemporalFeedback", before.SSGITemporalFeedback, after.SSGITemporalFeedback);
+            AppendChange(changes, "SSGIHalfResolution", before.SSGIHalfResolution, after.SSGIHalfResolution);
+            AppendChange(changes, "SSGIRayDistribution", before.SSGIRayDistribution, after.SSGIRayDistribution);
+            AppendChange(changes, "SSGIPreBlurRadius", before.SSGIPreBlurRadius, after.SSGIPreBlurRadius);
+            AppendChange(changes, "SSGIPostBlurRadius", before.SSGIPostBlurRadius, after.SSGIPostBlurRadius);
 
             AppendChange(changes, "ContactShadowEnabled", before.ContactShadowEnabled, after.ContactShadowEnabled);
             AppendChange(changes, "ContactShadowIntensity", before.ContactShadowIntensity, after.ContactShadowIntensity);
@@ -352,6 +358,18 @@ namespace OloEngine
                 // 0.98 ceiling OloTemporalBlend enforces anyway.
                 ImGui::SliderFloat("Temporal Feedback##SSR", &settings.SSRTemporalFeedback, 0.0f, 0.98f,
                                    "%.2f", ImGuiSliderFlags_AlwaysClamp);
+
+                // Denoiser chain (issue #708). SSR takes only the two spatial
+                // stages; SSRRenderPass's header says which of the other three
+                // did not transfer from SSGI and why.
+                ImGui::SeparatorText("Denoiser chain");
+                ImGui::SliderFloat("Pre-Blur Radius##SSR", &settings.SSRPreBlurRadius, 0.0f,
+                                   kScreenSpaceMaxDenoiseRadius, "%.1f px", ImGuiSliderFlags_AlwaysClamp);
+                ImGui::SliderFloat("Post-Blur Radius##SSR", &settings.SSRPostBlurRadius, 0.0f,
+                                   kScreenSpaceMaxDenoiseRadius, "%.1f px", ImGuiSliderFlags_AlwaysClamp);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Both radii are scaled per pixel by ROUGHNESS, so a mirror is\n"
+                                      "never filtered no matter what these say.");
             }
 
             ImGui::Unindent();
@@ -384,6 +402,27 @@ namespace OloEngine
                 // 0.98 ceiling OloTemporalBlend enforces anyway.
                 ImGui::SliderFloat("Temporal Feedback##SSGI", &settings.SSGITemporalFeedback, 0.0f, 0.98f,
                                    "%.2f", ImGuiSliderFlags_AlwaysClamp);
+
+                // Denoiser chain (issue #708). Grouped and labelled by stage so
+                // the A/B the acceptance criteria ask for is one panel away:
+                // zero both radii and turn half resolution off, and the pass is
+                // the pre-#708 trace -> resolve -> composite again.
+                ImGui::SeparatorText("Denoiser chain");
+                ImGui::Checkbox("Half Resolution##SSGI", &settings.SSGIHalfResolution);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Trace and denoise at half resolution, then guided-upscale.\n"
+                                      "Resizes the SSGI histories, so toggling it drops them.");
+                ImGui::Checkbox("Ray Distribution##SSGI", &settings.SSGIRayDistribution);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Each pixel of a 2x2 quad takes a different quarter of the ray\n"
+                                      "strata, so the pre-blur that averages them sees ~4x the rays.");
+                ImGui::SliderFloat("Pre-Blur Radius##SSGI", &settings.SSGIPreBlurRadius, 0.0f,
+                                   kScreenSpaceMaxDenoiseRadius, "%.1f px", ImGuiSliderFlags_AlwaysClamp);
+                ImGui::SliderFloat("Post-Blur Radius##SSGI", &settings.SSGIPostBlurRadius, 0.0f,
+                                   kScreenSpaceMaxDenoiseRadius, "%.1f px", ImGuiSliderFlags_AlwaysClamp);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Maximum radius. The per-pixel radius runs from 0 to this,\n"
+                                      "driven by the accumulated variance and history length.");
             }
 
             ImGui::Unindent();

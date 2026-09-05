@@ -371,8 +371,28 @@ namespace OloEngine::Tests
             if (texture == 0u)
                 return {};
 
+            // Read the target at ITS OWN size, not the viewport's. Since issue
+            // #708 the SSGI denoiser chain runs at a trace band that is half the
+            // scene band by default, so SSGIHistoryDiagnostics is a quarter of
+            // the pixels. Reading kWidth x kHeight anyway does not fail — it
+            // returns the real quarter followed by zeros, which reads as
+            // "exactly 25% of the frame accepted its history, for no stated
+            // reason". That is a plausible-looking rendering regression that
+            // never happened.
+            i32 diagnosticsWidth = 0;
+            i32 diagnosticsHeight = 0;
+            glGetTextureLevelParameteriv(texture, 0, GL_TEXTURE_WIDTH, &diagnosticsWidth);
+            glGetTextureLevelParameteriv(texture, 0, GL_TEXTURE_HEIGHT, &diagnosticsHeight);
+            // EXPECT + return, not ASSERT: this helper returns a value, and
+            // ASSERT_* only compiles in a void function.
+            EXPECT_GT(diagnosticsWidth, 0) << "SSGIHistoryDiagnostics reported a zero width";
+            EXPECT_GT(diagnosticsHeight, 0) << "SSGIHistoryDiagnostics reported a zero height";
+            if (diagnosticsWidth <= 0 || diagnosticsHeight <= 0)
+                return {};
+
             std::vector<f32> pixels;
-            ReadbackRgbaFloat(texture, kWidth, kHeight, pixels);
+            ReadbackRgbaFloat(texture, static_cast<u32>(diagnosticsWidth),
+                              static_cast<u32>(diagnosticsHeight), pixels);
             if (pixels.empty())
                 return {};
 

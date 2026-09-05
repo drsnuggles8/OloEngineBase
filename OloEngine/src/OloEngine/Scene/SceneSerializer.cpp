@@ -6535,6 +6535,8 @@ namespace OloEngine
             out << YAML::Key << "SSRDebugView" << YAML::Value << pp.SSRDebugView;
             out << YAML::Key << "SSRTemporalResolve" << YAML::Value << pp.SSRTemporalResolve;
             out << YAML::Key << "SSRTemporalFeedback" << YAML::Value << pp.SSRTemporalFeedback;
+            out << YAML::Key << "SSRPreBlurRadius" << YAML::Value << pp.SSRPreBlurRadius;
+            out << YAML::Key << "SSRPostBlurRadius" << YAML::Value << pp.SSRPostBlurRadius;
             out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
             out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
             out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
@@ -6546,6 +6548,10 @@ namespace OloEngine
             out << YAML::Key << "SSGIDebugView" << YAML::Value << pp.SSGIDebugView;
             out << YAML::Key << "SSGITemporalResolve" << YAML::Value << pp.SSGITemporalResolve;
             out << YAML::Key << "SSGITemporalFeedback" << YAML::Value << pp.SSGITemporalFeedback;
+            out << YAML::Key << "SSGIHalfResolution" << YAML::Value << pp.SSGIHalfResolution;
+            out << YAML::Key << "SSGIRayDistribution" << YAML::Value << pp.SSGIRayDistribution;
+            out << YAML::Key << "SSGIPreBlurRadius" << YAML::Value << pp.SSGIPreBlurRadius;
+            out << YAML::Key << "SSGIPostBlurRadius" << YAML::Value << pp.SSGIPostBlurRadius;
             out << YAML::Key << "ContactShadowEnabled" << YAML::Value << pp.ContactShadowEnabled;
             out << YAML::Key << "ContactShadowIntensity" << YAML::Value << pp.ContactShadowIntensity;
             out << YAML::Key << "ContactShadowMaxDistance" << YAML::Value << pp.ContactShadowMaxDistance;
@@ -6752,6 +6758,8 @@ namespace OloEngine
             TrySet(pp.SSRDebugView, ppNode["SSRDebugView"]);
             TrySet(pp.SSRTemporalResolve, ppNode["SSRTemporalResolve"]);
             TrySet(pp.SSRTemporalFeedback, ppNode["SSRTemporalFeedback"]);
+            TrySet(pp.SSRPreBlurRadius, ppNode["SSRPreBlurRadius"]);
+            TrySet(pp.SSRPostBlurRadius, ppNode["SSRPostBlurRadius"]);
             TrySet(pp.SSGIEnabled, ppNode["SSGIEnabled"]);
             TrySet(pp.SSGIIntensity, ppNode["SSGIIntensity"]);
             TrySet(pp.SSGIMaxDistance, ppNode["SSGIMaxDistance"]);
@@ -6763,6 +6771,10 @@ namespace OloEngine
             TrySet(pp.SSGIDebugView, ppNode["SSGIDebugView"]);
             TrySet(pp.SSGITemporalResolve, ppNode["SSGITemporalResolve"]);
             TrySet(pp.SSGITemporalFeedback, ppNode["SSGITemporalFeedback"]);
+            TrySet(pp.SSGIHalfResolution, ppNode["SSGIHalfResolution"]);
+            TrySet(pp.SSGIRayDistribution, ppNode["SSGIRayDistribution"]);
+            TrySet(pp.SSGIPreBlurRadius, ppNode["SSGIPreBlurRadius"]);
+            TrySet(pp.SSGIPostBlurRadius, ppNode["SSGIPostBlurRadius"]);
             TrySet(pp.ContactShadowEnabled, ppNode["ContactShadowEnabled"]);
             TrySet(pp.ContactShadowIntensity, ppNode["ContactShadowIntensity"]);
             TrySet(pp.ContactShadowMaxDistance, ppNode["ContactShadowMaxDistance"]);
@@ -7144,6 +7156,8 @@ namespace OloEngine
             out << YAML::Key << "SSRDebugView" << YAML::Value << pp.SSRDebugView;
             out << YAML::Key << "SSRTemporalResolve" << YAML::Value << pp.SSRTemporalResolve;
             out << YAML::Key << "SSRTemporalFeedback" << YAML::Value << pp.SSRTemporalFeedback;
+            out << YAML::Key << "SSRPreBlurRadius" << YAML::Value << pp.SSRPreBlurRadius;
+            out << YAML::Key << "SSRPostBlurRadius" << YAML::Value << pp.SSRPostBlurRadius;
             out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
             out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
             out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
@@ -7155,6 +7169,10 @@ namespace OloEngine
             out << YAML::Key << "SSGIDebugView" << YAML::Value << pp.SSGIDebugView;
             out << YAML::Key << "SSGITemporalResolve" << YAML::Value << pp.SSGITemporalResolve;
             out << YAML::Key << "SSGITemporalFeedback" << YAML::Value << pp.SSGITemporalFeedback;
+            out << YAML::Key << "SSGIHalfResolution" << YAML::Value << pp.SSGIHalfResolution;
+            out << YAML::Key << "SSGIRayDistribution" << YAML::Value << pp.SSGIRayDistribution;
+            out << YAML::Key << "SSGIPreBlurRadius" << YAML::Value << pp.SSGIPreBlurRadius;
+            out << YAML::Key << "SSGIPostBlurRadius" << YAML::Value << pp.SSGIPostBlurRadius;
             out << YAML::Key << "ContactShadowEnabled" << YAML::Value << pp.ContactShadowEnabled;
             out << YAML::Key << "ContactShadowIntensity" << YAML::Value << pp.ContactShadowIntensity;
             out << YAML::Key << "ContactShadowMaxDistance" << YAML::Value << pp.ContactShadowMaxDistance;
