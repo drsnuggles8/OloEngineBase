@@ -27,7 +27,11 @@ namespace
 
 TEST(McpEditorPanels, CatalogueIsCompleteUniqueAndFindable)
 {
-    EXPECT_EQ(Panels::kPanels.size(), 34u);
+    // Bump alongside kPanels whenever a panel is added (issue #646 added the
+    // Tilemap Painter, 34 -> 35). The count is asserted so a panel added to the
+    // PanelId enum but forgotten in kPanels fails here rather than silently
+    // becoming unaddressable over MCP.
+    EXPECT_EQ(Panels::kPanels.size(), 35u);
     std::set<std::string> names;
     for (const auto& panel : Panels::kPanels)
     {

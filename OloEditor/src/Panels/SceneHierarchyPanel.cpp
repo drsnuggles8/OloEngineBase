@@ -2073,6 +2073,7 @@ namespace OloEngine
             DisplayAddComponentEntry<LuaScriptComponent>("Lua Script");
             DisplayAddComponentEntry<SpriteRendererComponent>("Sprite Renderer");
             DisplayAddComponentEntry<CircleRendererComponent>("Circle Renderer");
+            DisplayAddComponentEntry<TilemapComponent>("Tilemap");
             DisplayAddComponentEntry<Rigidbody2DComponent>("Rigidbody 2D");
             DisplayAddComponentEntry<BoxCollider2DComponent>("Box Collider 2D");
             DisplayAddComponentEntry<CircleCollider2DComponent>("Circle Collider 2D");
@@ -2537,6 +2538,47 @@ namespace OloEngine
             ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
             ImGui::DragFloat("Thickness", &component.Thickness, 0.025f, 0.0f, 1.0f);
             ImGui::DragFloat("Fade", &component.Fade, 0.00025f, 0.0f, 1.0f); });
+
+        DrawComponent<TilemapComponent>("Tilemap", entity, [](auto& component)
+                                        {
+            // Read-only geometry here on purpose: resizing the grid rewrites every
+            // layer, so it belongs behind the painter panel's explicit "Apply Size"
+            // button rather than on a drag that fires mid-sweep.
+            ImGui::Text("Grid: %u x %u tiles", component.Width, component.Height);
+            ImGui::Text("Layers: %zu", component.Layers.size());
+
+            std::string tilesetLabel = component.TilesetHandle != 0
+                                           ? "Tileset: " + std::to_string(static_cast<u64>(component.TilesetHandle))
+                                           : std::string("Tileset: <none>");
+            ImGui::Button(tilesetLabel.c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        AssetHandle const handle = assetManager->ImportAsset(assetPath);
+                        if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::Tileset)
+                        {
+                            component.TilesetHandle = handle;
+                        }
+                        else if (handle != 0)
+                        {
+                            OLO_WARN("Dropped asset is not a Tileset (type: {0})",
+                                     AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
+            ImGui::DragFloat("Tile Size", &component.TileSize, 0.01f, 0.0001f, 10000.0f);
+            ImGui::Checkbox("Generate Colliders", &component.GenerateColliders);
+            ImGui::DragFloat("Collider Friction", &component.ColliderFriction, 0.01f, 0.0f, 1.0f);
+            ImGui::DragFloat("Collider Restitution", &component.ColliderRestitution, 0.01f, 0.0f, 1.0f);
+            ImGui::TextDisabled("Paint tiles in Window > Tilemap Painter."); });
 
         DrawComponent<Rigidbody2DComponent>("Rigidbody 2D", entity, [](auto& component)
                                             {

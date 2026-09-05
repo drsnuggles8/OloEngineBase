@@ -1423,6 +1423,7 @@ namespace OloEngine
             &EditorLayer::m_ShowShaderEditor,
             &EditorLayer::m_ShowAudioEventsPanel,
             &EditorLayer::m_ShowMcpPanel,
+            &EditorLayer::m_ShowTilemapPainter,
         };
         static_assert(std::ranges::none_of(kPanelMembers, [](PanelMember member)
                                            { return member == nullptr; }),
@@ -1989,6 +1990,21 @@ namespace OloEngine
                 m_InstanceScatterBrushPanel.OnUpdate(ts, hitPos, surfaceNormal, hasHit, mouseDown);
             }
 
+            // Tilemap painter. Unlike the brushes above it needs no surface
+            // raycast: the panel intersects the ray with the target tilemap's own
+            // plane, so all EditorLayer owes it is the ray and the click state.
+            if (m_ShowTilemapPainter && m_TilemapPainterPanel.IsActive() &&
+                m_ViewportHovered && m_SceneState == SceneState::Edit)
+            {
+                m_TilemapPainterPanel.SetTargetEntity(m_SceneHierarchyPanel.GetSelectedEntity());
+
+                Ray mouseRay;
+                const bool hasRay = BuildMouseRay({ mx, my }, viewportSize, mouseRay);
+                const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft) &&
+                                       !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt);
+                m_TilemapPainterPanel.OnUpdate(mouseRay, hasRay, mouseDown);
+            }
+
             if (m_Is3DMode)
             {
                 OnOverlayRender3D();
@@ -2306,6 +2322,12 @@ namespace OloEngine
             ImGui::MenuItem("Renderer Settings", nullptr, &m_ShowRendererSettings);
             ImGui::MenuItem("Terrain Editor", nullptr, &m_ShowTerrainEditor);
             ImGui::MenuItem("Instance Scatter Brush", nullptr, &m_ShowInstanceScatterBrush);
+            // Drive the panel's own Visible flag from the menu as well. OnImGuiRender
+            // early-returns while Visible is false and EditorLayer copies Visible back
+            // into m_ShowTilemapPainter afterwards, so without this a window closed by
+            // its X could never be reopened for the rest of the session.
+            if (ImGui::MenuItem("Tilemap Painter", nullptr, &m_ShowTilemapPainter))
+                m_TilemapPainterPanel.Visible = m_ShowTilemapPainter;
             ImGui::MenuItem("Scene Streaming", nullptr, &m_ShowStreamingPanel);
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
@@ -2868,6 +2890,14 @@ namespace OloEngine
             m_InstanceScatterBrushPanel.SetContext(m_ActiveScene);
             m_InstanceScatterBrushPanel.OnImGuiRender();
             m_ShowInstanceScatterBrush = m_InstanceScatterBrushPanel.Visible;
+        }
+
+        if (m_ShowTilemapPainter)
+        {
+            m_TilemapPainterPanel.SetContext(m_ActiveScene);
+            m_TilemapPainterPanel.SetTargetEntity(m_SceneHierarchyPanel.GetSelectedEntity());
+            m_TilemapPainterPanel.OnImGuiRender();
+            m_ShowTilemapPainter = m_TilemapPainterPanel.Visible;
         }
 
         if (m_ShowTerrainEditor)
@@ -3525,6 +3555,14 @@ namespace OloEngine
         // Same pattern for the instance scatter brush — when in Paint mode,
         // left-click is a stroke deposit, not entity-picking.
         if (m_ShowInstanceScatterBrush && m_InstanceScatterBrushPanel.IsActive() &&
+            e.GetMouseButton() == Mouse::ButtonLeft && m_ViewportHovered &&
+            !Input::IsKeyPressed(Key::LeftAlt))
+        {
+            return true;
+        }
+        // Same pattern again for the tilemap painter: a click in a paint mode
+        // writes a tile instead of changing the selection.
+        if (m_ShowTilemapPainter && m_TilemapPainterPanel.IsActive() &&
             e.GetMouseButton() == Mouse::ButtonLeft && m_ViewportHovered &&
             !Input::IsKeyPressed(Key::LeftAlt))
         {
@@ -4608,6 +4646,8 @@ namespace OloEngine
         m_TerrainEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_InstanceScatterBrushPanel.SetContext(m_EditorScene);
         m_InstanceScatterBrushPanel.SetCommandHistory(&m_CommandHistory);
+        m_TilemapPainterPanel.SetContext(m_EditorScene);
+        m_TilemapPainterPanel.SetCommandHistory(&m_CommandHistory);
         m_StreamingPanel.SetContext(m_EditorScene);
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
         m_StatisticsPanel.SetContext(m_EditorScene);
