@@ -59,6 +59,8 @@ add_executable(OloEngine-Tests
 		RuntimeAssetManagerTest.cpp
 		AssetLoadedEventTest.cpp
 		ComponentRoundTripTest.cpp
+		TilemapTest.cpp
+		TilesetSerializerTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
@@ -387,6 +389,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
+		Rendering/PropertyTests/TilemapVisualEvidenceTest.cpp
 		Rendering/PropertyTests/BenchmarkCaptureTest.cpp
 		Rendering/PropertyTests/MaterialLabSceneEvidenceTest.cpp
 		Rendering/PropertyTests/PlayerCameraRigVisualEvidenceTest.cpp
@@ -1101,6 +1104,7 @@ add_executable(OloEngine-Tests
 		Functional/Atmosphere/DriftLegWeatherAndSeaStateTest.cpp
 		Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp
 		Functional/SaveGame/AbilityComponentRoundTripTest.cpp
+		Functional/SaveGame/TilemapPersistenceRoundTripTest.cpp
 		Functional/Dialogue/DialogueTextRevealsOverTicksTest.cpp
 		Functional/Gameplay/DamageKillsEntityAndFlipsDeathTagTest.cpp
 		Functional/Gameplay/WeaponImpactUsesGameplayDamageTest.cpp
