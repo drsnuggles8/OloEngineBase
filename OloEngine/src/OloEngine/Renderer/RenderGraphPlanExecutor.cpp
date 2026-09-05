@@ -104,6 +104,29 @@ namespace OloEngine::RenderGraphPlanExecutor
             if (passes.size() < 2)
                 return false;
 
+            // Declining AFTER this point costs the group twice: the fallback
+            // re-runs every member through Execute(), which prepares it again.
+            // The decline cannot be predicted without preparing (the physical
+            // resource uses are what PrepareParallelRecording returns), so it
+            // is counted and named instead of being absorbed silently — a
+            // group that declines in steady state is a planner bug, and only a
+            // number that moves will say so.
+            const auto decline = [&api, &passes](const char* reason, const std::string& passName)
+            {
+                api.NoteDeclinedRecordingGroup();
+                // Warn once — the per-frame count is the metric; the log line
+                // only has to name the pass and the reason the first time.
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    OLO_CORE_WARN("[RenderGraph] recording group of {} passes declined at '{}' ({}); its members are "
+                                  "prepared twice per frame and recorded sequentially",
+                                  passes.size(), passName, reason);
+                }
+                return false;
+            };
+
             std::vector<RGPreparedPass> prepared;
             std::vector<RGCommandContext> contexts;
             prepared.reserve(passes.size());
@@ -117,10 +140,10 @@ namespace OloEngine::RenderGraphPlanExecutor
                 context.BeginPass(pass->NodeName);
                 auto recording = pass->NodePointer->PrepareParallelRecording(context);
                 if (!recording.Record)
-                    return false;
+                    return decline("pass prepared no recording body", pass->NodeName);
                 for (const auto& previous : prepared)
                     if (RecordingResourcesConflict(previous, recording))
-                        return false;
+                        return decline("physical resource use conflicts with an earlier member", pass->NodeName);
                 instanceCapacity = std::max(instanceCapacity, recording.InstanceCapacity);
                 prepared.push_back(std::move(recording));
                 contexts.push_back(std::move(context));

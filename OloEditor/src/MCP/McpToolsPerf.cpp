@@ -331,6 +331,7 @@ namespace OloEngine::MCP
                 totals.ParallelRecording.InlineRegions = pr.InlineRegions;
                 totals.ParallelRecording.SecondariesExecuted = pr.SecondariesExecuted;
                 totals.ParallelRecording.MergeConflicts = pr.MergeConflicts;
+                totals.ParallelRecording.DeclinedGroups = pr.DeclinedGroups;
                 totals.ParallelRecording.WorkerRecordMs = pr.WorkerRecordMs;
                 totals.ParallelRecording.RegionWallMs = pr.RegionWallMs;
                 totals.ParallelRecording.JoinWaitMs = pr.JoinWaitMs;
@@ -338,7 +339,8 @@ namespace OloEngine::MCP
                 {
                     totals.ParallelRecording.RegionTimings.push_back({ region.PassName, region.Parallel,
                         region.WorkerRecordMs, region.RegionWallMs, region.JoinWaitMs, region.ItemRecordMs, region.ItemPassNames,
-                        region.SelectionSeedMs, region.AttachmentPrepareMs, region.SampledImagePrepareMs, region.PipelineLookupMs });
+                        region.SelectionSeedMs, region.AttachmentPrepareMs, region.SampledImagePrepareMs, region.PipelineLookupMs,
+                        region.FrontendPrepareMs });
                 }
                 totals.GpuResultsAgeFrames =
                     (pool.GetLastResolvedFrameNumber() > 0 && pool.GetCurrentFrameNumber() >= pool.GetLastResolvedFrameNumber())

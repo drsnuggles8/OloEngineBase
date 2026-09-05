@@ -220,10 +220,16 @@ namespace OloEngine
         {
             if (!source)
                 return nullptr;
-            if (!retained)
-                retained = UniformBuffer::Create(size, binding);
+            // Size from the SOURCE, not only from the layout constant: the
+            // shared object is what the copy has to hold, and a Debug-only
+            // assert on the layout size would leave a Release build writing
+            // past the item's buffer if the two ever diverged.
             const auto bytes = source->GetCachedData();
-            OLO_CORE_ASSERT(bytes.size() <= size, "Recording upload clone capacity");
+            const u32 required = std::max(size, static_cast<u32>(bytes.size()));
+            if (retained && retained->GetSize() < required)
+                retained.Reset();
+            if (!retained)
+                retained = UniformBuffer::Create(required, binding);
             if (!bytes.empty())
                 retained->SetData(bytes.data(), static_cast<u32>(bytes.size()));
             return retained;
@@ -241,7 +247,7 @@ namespace OloEngine
         // state, for every forward draw. Reserve its item-owned destination
         // even when no Renderer3D VSM exists (standalone pass consumers too).
         item.VirtualShadowUBO = std::move(previous.VirtualShadowUBO);
-        if (RenderCommand::GetRendererAPI().SupportsParallelRecording() && !item.VirtualShadowUBO)
+        if (RenderCommand::SupportsParallelRecording() && !item.VirtualShadowUBO)
             item.VirtualShadowUBO = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
         item.ModelInstanceBuffer = std::move(previous.ModelInstanceBuffer);
         if (s_MainData.ModelInstanceBuffer)
@@ -1287,7 +1293,7 @@ namespace OloEngine
     void CommandDispatch::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
-        RenderCommand::GetRendererAPI().ReleaseParallelRecordingResources();
+        RenderCommand::ReleaseParallelRecordingResources();
         Data().CameraUBO.Reset();
         Data().MaterialUBO.Reset();
         Data().BoneMatricesUBO.Reset();

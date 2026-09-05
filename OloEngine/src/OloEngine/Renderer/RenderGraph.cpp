@@ -4374,6 +4374,13 @@ namespace OloEngine
             // unlock its partner (depth/velocity upscale versus particle color).
             // Advance that ordinary work first. If only prepared nodes remain,
             // drain the first one to guarantee progress and preserve dependencies.
+            //
+            // This deferral applies to a prepared COMPUTE pass too, and there it
+            // also grows the async batch rather than splitting it: waiting for
+            // the partner is what makes the candidates contiguous, which is the
+            // run GetAsyncComputeBatches partitions on
+            // (SchedulingGroupsEarlyComputeWithLaterReadyPeersAndDrainsDisabledNodes
+            // pins exactly that).
             const auto ordinary = std::ranges::find_if(ready, [&](const auto& name)
                                                        { return !recordingCandidates.contains(name); });
             emit(ordinary != ready.end() ? *ordinary : ready.front());
@@ -4384,6 +4391,43 @@ namespace OloEngine
         // be conservative in case of any unforeseen edge case.
         if (reordered.size() == m_ExecutionOrder.size())
         {
+            // Every edge this function derived must still point forwards.
+            //
+            // The size check above only proves no pass was dropped or
+            // duplicated, which is what a cycle looks like — it says nothing
+            // about the ORDER, and both new emission paths (a group emitted as
+            // a block, a lone candidate deferred behind ordinary work) move
+            // passes past each other. A bookkeeping slip in either — a
+            // successor whose in-degree was decremented twice, a group member
+            // that was not in fact ready — produces a complete sequence with a
+            // consumer ahead of its producer, which this catches and the size
+            // check does not.
+            //
+            // Note the scope: the guarantee is over the edges in `successors`,
+            // which are m_Dependencies plus the last-writer edges derived
+            // above. An ordering that only ever existed as registration order,
+            // with no edge to express it, is outside what any check here can
+            // see — that is what DependsOnPass is for.
+#if !defined(OLO_DIST)
+            {
+                std::unordered_map<std::string_view, sizet> position;
+                position.reserve(reordered.size());
+                for (sizet index = 0; index < reordered.size(); ++index)
+                    position.emplace(reordered[index], index);
+                for (const auto& [producer, consumers] : successors)
+                {
+                    const auto producerAt = position.find(producer);
+                    if (producerAt == position.end())
+                        continue;
+                    for (const auto& consumer : consumers)
+                    {
+                        const auto consumerAt = position.find(consumer);
+                        OLO_CORE_ASSERT(consumerAt == position.end() || producerAt->second < consumerAt->second,
+                                        "RenderGraph reorder placed a consumer before its producer");
+                    }
+                }
+            }
+#endif
             m_ExecutionOrder = std::move(reordered);
             if (Levers::RenderGraphDiagnostics())
                 OLO_CORE_TRACE("RenderGraph: Compute-hoist applied to execution order");

@@ -67,6 +67,10 @@ namespace
         }
         void PushDebugGroup(u32, std::string_view) override {}
         void PopDebugGroup() override {}
+        void NoteDeclinedRecordingGroup() override
+        {
+            ++Declined;
+        }
         void RecordParallelOrdered(u32 count, const std::function<void(u32)>& body,
                                    const std::function<void(u32)>& before,
                                    const std::function<void(u32)>& after, u32, std::span<const std::string>) override
@@ -88,6 +92,7 @@ namespace
             }
         }
         u32 Groups = 0;
+        u32 Declined = 0;
         std::vector<u32> ExecutionOrder;
     };
 
@@ -196,6 +201,34 @@ TEST(RenderGraphParallelRecording, PhysicalAliasDeclinesLogicalIndependence)
                                                                 .RecordingAPI = &api });
     EXPECT_EQ(api.Groups, 0u);
     EXPECT_EQ(order, (std::vector<std::string>{ "Writer", "Reader" }));
+    EXPECT_EQ(timings.size(), 2u);
+    // The decline is counted, not absorbed. Reader was already prepared when
+    // the conflict was found, and the sequential fallback prepares it again, so
+    // a group that declines every frame pays for itself twice every frame.
+    // declinedGroups in olo_perf_pass_timings is the only place that shows.
+    EXPECT_EQ(api.Declined, 1u);
+    EXPECT_EQ(writer.InlineCalls, 1u);
+    EXPECT_EQ(reader.InlineCalls, 1u);
+}
+
+TEST(RenderGraphParallelRecording, PassThatPreparesNoBodyCountsAsADeclinedGroup)
+{
+    PreparedNode first("First"), second("Second");
+    std::vector<std::string> order;
+    first.Record = [&](RGCommandContext&)
+    { order.push_back("First"); };
+    // second has no Record: it is eligible and reaches PrepareParallelRecording,
+    // but hands back nothing a worker could run.
+    std::array nodes{ &first, &second };
+    const auto plan = MakePlan(nodes);
+    ThreadedRecordingAPI api;
+    RGCommandContext context;
+    const auto timings = RenderGraphPlanExecutor::ExecutePlan({ .SubmissionPlan = plan, .Context = context, .RuntimeBarrierExecutionEnabled = false, .IsPassReachable = [](const std::string&)
+                                                                                                                                                     { return true; },
+                                                                .RecordingAPI = &api });
+    EXPECT_EQ(api.Groups, 0u);
+    EXPECT_EQ(api.Declined, 1u);
+    EXPECT_EQ(order, (std::vector<std::string>{ "First" }));
     EXPECT_EQ(timings.size(), 2u);
 }
 
@@ -433,4 +466,54 @@ TEST(RenderGraphParallelRecording, ExternalBatchFencesPreserveDefaultSplitSubmis
     }
     EXPECT_EQ(waits, 3u);
     EXPECT_EQ(signals, 3u);
+}
+
+// The reorder's blast radius. Whole-pass grouping emits a block of candidates
+// together and defers a lone candidate behind ordinary work, so passes do move
+// past each other; what must survive is every DECLARED edge. The reorder's own
+// guard only compares sizes, which catches a cycle and not a misordering.
+//
+// Note what this cannot pin, because the scheduler cannot see it either: an
+// order that exists only as registration order, with no edge to express it.
+// A pass that hands another one engine-owned state has to say so with
+// DependsOnPass (FogRenderPass does, for the froxel volume) or it is not
+// ordered at all.
+TEST(RenderGraphParallelRecording, SchedulingKeepsEveryDeclaredEdgePointingForwards)
+{
+    RenderGraph graph;
+    AddSchedulingNode(graph, "Scene", false, {});
+    // Two prepared candidates that become ready together and therefore group,
+    // straddling ordinary graphics work with edges of its own.
+    AddSchedulingNode(graph, "PreparedA", true, { "Scene" }, true);
+    AddSchedulingNode(graph, "OrdinaryOne", false, { "Scene" });
+    AddSchedulingNode(graph, "PreparedB", true, { "Scene" }, true);
+    AddSchedulingNode(graph, "OrdinaryTwo", false, { "PreparedA" });
+    AddSchedulingNode(graph, "OrdinaryThree", false, { "OrdinaryOne" });
+    AddSchedulingNode(graph, "Final", false, { "PreparedB", "OrdinaryTwo", "OrdinaryThree" });
+    graph.SetFinalPass("Final");
+    graph.BuildFrameGraph();
+
+    const auto& order = graph.GetExecutionOrder();
+    ASSERT_EQ(order.size(), 7u);
+    const auto indexOf = [&order](std::string_view name)
+    { return static_cast<sizet>(std::distance(order.begin(), std::ranges::find(order, name))); };
+    const std::vector<std::pair<std::string_view, std::string_view>> edges{
+        { "Scene", "PreparedA" }, { "Scene", "OrdinaryOne" }, { "Scene", "PreparedB" }, { "PreparedA", "OrdinaryTwo" }, { "OrdinaryOne", "OrdinaryThree" }, { "PreparedB", "Final" }, { "OrdinaryTwo", "Final" }, { "OrdinaryThree", "Final" }
+    };
+    for (const auto& [producer, consumer] : edges)
+        EXPECT_LT(indexOf(producer), indexOf(consumer)) << producer << " must precede " << consumer;
+    EXPECT_EQ(order.front(), "Scene");
+    EXPECT_EQ(order.back(), "Final");
+
+    // The candidates still group — the edge check above must not be bought by
+    // quietly switching the reorder off.
+    const auto plan = graph.GetSubmissionPlan();
+    std::vector<u32> groups;
+    for (const auto& command : plan)
+        if (command.CommandKind == RenderGraph::SubmissionCommand::Kind::Pass &&
+            (command.NodeName == "PreparedA" || command.NodeName == "PreparedB"))
+            groups.push_back(command.RecordingGroup);
+    ASSERT_EQ(groups.size(), 2u);
+    EXPECT_NE(groups[0], UINT32_MAX);
+    EXPECT_EQ(groups[0], groups[1]);
 }

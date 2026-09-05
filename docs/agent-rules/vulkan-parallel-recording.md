@@ -78,31 +78,39 @@ attachment layout. Clearing inside an atlas item would erase other entries' tile
    setters, lazy builders or upload objects safe. Shadow foliage receives time as a frozen
    argument and uses the item's foliage UBO; virtual-geometry shadows receive prepared
    per-view command/argument/visible buffers and parameter UBOs.
-3. **Size buffers before the fork.** `InstanceBuffer::Upload` can grow storage, but resource
+3. **Anything an item writes into its private upload object dies at the join.** The item's
+   copy is seeded from the shared object at the fork; nothing copies it back. The inline path
+   leaves the shared object holding the LAST iteration's bytes, the forked path leaves it
+   holding the pre-fork bytes, so a pass that reads a UBO's *contents* after a region instead
+   of re-uploading them reads different data on OpenGL and on Vulkan. Re-upload after the
+   region, or keep the write out of the item. This is why `Publish()` clears the dispatcher's
+   bind caches: it forces the next draw to rebind and re-upload rather than trust a cache that
+   describes an item's buffer.
+4. **Size buffers before the fork.** `InstanceBuffer::Upload` can grow storage, but resource
    creation and reclamation are refused on items. Prepare enough capacity for the largest
    batch that item can upload.
-4. **Order the clears.** A clear that covers what several items share goes before the fork. A
+5. **Order the clears.** A clear that covers what several items share goes before the fork. A
    clear that covers one item's own subresource goes inside that item. The fork pre-transitions
    the target that is *selected at the fork*; a region whose items select their own targets
    (the cascades) relies on those targets being disjoint instead.
-5. **Textures an item samples must already be in their read layout at the fork.** Declare them
+6. **Textures an item samples must already be in their read layout at the fork.** Declare them
    as graph reads (the planner transitions them before the pass) or bind them once before the
    fork. The fork pretransitions all seeded sampled-image slots except images also bound for
    writes; it cannot discover textures that exist only in packets until replay. A texture
    written earlier in the frame and first sampled inside two items is a rule-5 conflict, and
    the record-time claim names both items. Join between a shared write and a later sampling
    region; a stale sampler must never move the current output into a read layout.
-6. **Do not target the backbuffer, query, read back, flush or create resources inside an item.**
+7. **Do not target the backbuffer, query, read back, flush or create resources inside an item.**
    Each is refused; in Debug it asserts. Frame-scoped dispatcher setters also reject item
    calls, and a Vulkan buffer object written by two items in one region asserts at the
    second `SetData`. GPU timestamp scopes belong outside worker bodies.
-7. **Keep the item bodies independent of iteration order.** Depth-only rendering is
+8. **Keep the item bodies independent of iteration order.** Depth-only rendering is
    order-independent. Blended draws may use contiguous ranges of the already sorted packet
    stream because secondary execution preserves that stream's GPU order. CPU state an item
    expects from a previous iteration is still a bug: every item starts from the fork's seed.
    Explicitly establish item-local shader/mode caches at the start of every body, including
    the inline path where backend state carries over from the preceding item.
-8. **Verify on both backends.** OpenGL runs the same code inline. A Vulkan frame recorded with
+9. **Verify on both backends.** OpenGL runs the same code inline. A Vulkan frame recorded with
    `OLO_VK_PARALLEL_RECORDING=0` (the lever forces inline) must match one recorded with it on,
    and the validation layer must stay clean.
 

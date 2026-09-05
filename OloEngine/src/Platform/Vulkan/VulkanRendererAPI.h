@@ -493,6 +493,10 @@ namespace OloEngine
                                    const std::function<void(u32)>& afterExecute,
                                    u32 instanceCapacity = 1u, std::span<const std::string> itemPassNames = {}) override;
         void ReleaseParallelRecordingResources() override;
+        void NoteDeclinedRecordingGroup() override
+        {
+            ++m_ParallelStats.DeclinedGroups;
+        }
         [[nodiscard]] ParallelRecordingFrameStats GetParallelRecordingStats() const override
         {
             return m_ParallelStats;

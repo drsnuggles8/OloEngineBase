@@ -404,6 +404,23 @@ namespace OloEngine
                 body(item);
             }
         }
+        // Guarded like RecordParallel above. CommandDispatch::Shutdown is the
+        // caller, and fixtures reach it after dropping their API; the plain
+        // GetRendererAPI() accessor dereferences unconditionally.
+        static void ReleaseParallelRecordingResources()
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->ReleaseParallelRecordingResources();
+            }
+        }
+        static void NoteDeclinedRecordingGroup()
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->NoteDeclinedRecordingGroup();
+            }
+        }
         [[nodiscard]] static RendererAPI::ParallelRecordingFrameStats GetParallelRecordingStats()
         {
             return s_RendererAPI ? s_RendererAPI->GetParallelRecordingStats()

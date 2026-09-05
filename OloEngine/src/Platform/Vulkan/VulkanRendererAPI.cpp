@@ -6852,6 +6852,14 @@ namespace OloEngine
         // Vulkan uses root-data texture slots, including when the first shader
         // bind of a backend switch happens inside an item. Freeze these legacy
         // GL program flags before workers enter HeapBinding.
+        //
+        // Restored at the join, not left frozen: these are process-wide and
+        // published by OpenGLRendererAPI::BindShaderProgram, so a backend that
+        // never reads them must not be the one that decides their value for
+        // whoever does. Inert while only one backend is live; the restore is
+        // what keeps it inert in a process that has both.
+        const bool seededProgramBindless = Shader::IsBoundProgramBindless();
+        const bool seededProgramMaterialOffsets = Shader::ReadsMaterialHeapOffsets();
         Shader::SetBoundProgramBindless(false);
         Shader::SetBoundProgramMaterialOffsets(false);
         // Two lazy paths every item's draw may take are primed here so no
@@ -6871,8 +6879,10 @@ namespace OloEngine
         // Buffer constructors claim their binding points. Preserve the exact
         // pre-fork mirror while creating/reusing the frontend's upload objects.
         const auto seededBinding = VulkanBindingState::Global();
+        const auto frontendStart = StartRecordingCost();
         for (u32 index = 0; index < itemCount; ++index)
             m_Items[index]->Frontend.Prepare(instanceCapacity);
+        timing.FrontendPrepareMs = RecordingCostMs(frontendStart);
         VulkanBindingState::Global() = seededBinding;
 
         for (u32 index = 0; index < itemCount; ++index)
@@ -6953,10 +6963,16 @@ namespace OloEngine
         {
             for (u32 index = 0; index < itemCount; ++index)
             {
+                // Both brackets are skipped for an item that recorded nothing.
+                // afterExecute publishes the pass's frame state (a history
+                // swap, a settings hand-over): running it for a body that
+                // never recorded would publish work that did not happen, and
+                // beforeExecute opens the GPU timer its partner closes.
+                if (!m_Items[index]->Recorded)
+                    continue;
                 if (beforeExecute)
                     beforeExecute(index);
-                if (m_Items[index]->Recorded)
-                    vkCmdExecuteCommands(main.Cmd, 1u, &m_Items[index]->Cmd);
+                vkCmdExecuteCommands(main.Cmd, 1u, &m_Items[index]->Cmd);
                 main.ForgetCommandBufferBinds();
                 if (afterExecute)
                     afterExecute(index);
@@ -6970,6 +6986,8 @@ namespace OloEngine
         // vkCmdExecuteCommands: the per-command-buffer caches must not claim
         // otherwise (the ResumeRecordingAfterFlush shape).
         main.ForgetCommandBufferBinds();
+        Shader::SetBoundProgramBindless(seededProgramBindless);
+        Shader::SetBoundProgramMaterialOffsets(seededProgramMaterialOffsets);
         // GL's sticky framebuffer state after a loop is the LAST iteration's.
         if (lastRecorded != nullptr)
         {

@@ -333,6 +333,14 @@ namespace OloEngine
         // Release retained item upload objects while the device is alive.
         virtual void ReleaseParallelRecordingResources() {}
 
+        // A whole-pass recording group the planner formed but the executor
+        // could not run in parallel, after it had already prepared at least
+        // one member. Counted rather than left silent: the fallback re-prepares
+        // every member through the ordinary Execute() path, so a group that
+        // declines in steady state pays that twice on every frame and there is
+        // otherwise nothing to see.
+        virtual void NoteDeclinedRecordingGroup() {}
+
         struct ParallelRecordingRegionStats
         {
             std::string PassName;
@@ -349,6 +357,12 @@ namespace OloEngine
             f64 AttachmentPrepareMs = 0.0;
             f64 SampledImagePrepareMs = 0.0;
             f64 PipelineLookupMs = 0.0;
+            // Caller-side seeding of every item's frontend context: the
+            // dispatcher cache reset plus the per-item copy of each shared
+            // upload object. It scales with items x uploads, so on a small
+            // scene it is the largest fixed cost of forking at all — it has to
+            // be attributable rather than inferred from RegionWallMs.
+            f64 FrontendPrepareMs = 0.0;
         };
 
         // Frame-level telemetry for the parallel recorder, reset per frame by
@@ -359,6 +373,7 @@ namespace OloEngine
             u32 InlineRegions = 0;       ///< RecordParallel calls that ran inline (unsupported, declined, or item count < 2).
             u32 SecondariesExecuted = 0; ///< Secondary command buffers executed into the primary.
             u32 MergeConflicts = 0;      ///< Subresources two items transitioned non-identically (amendment (92) rule 5).
+            u32 DeclinedGroups = 0;      ///< Whole-pass groups prepared then run sequentially instead (NoteDeclinedRecordingGroup).
             f64 WorkerRecordMs = 0.0;    ///< Sum of per-item recording time, including caller items.
             f64 RegionWallMs = 0.0;      ///< Sum of fork-to-join wall time on the render thread.
             f64 JoinWaitMs = 0.0;
