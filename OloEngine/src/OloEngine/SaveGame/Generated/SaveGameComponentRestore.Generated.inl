@@ -113,6 +113,7 @@ TRY_LOAD_COMPONENT(TagComponent);
 TRY_LOAD_COMPONENT(TerrainComponent);
 TRY_LOAD_COMPONENT(TextComponent);
 TRY_LOAD_COMPONENT(TileRendererComponent);
+TRY_LOAD_COMPONENT(TilemapComponent);
 TRY_LOAD_COMPONENT(TimeOfDayComponent);
 TRY_LOAD_COMPONENT(TransformComponent);
 TRY_LOAD_COMPONENT(TriangleMeshCollider3DComponent);

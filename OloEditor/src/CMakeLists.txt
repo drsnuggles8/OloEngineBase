@@ -91,6 +91,8 @@
 		"Panels/TerrainEditorPanel.h"
 		"Panels/InstanceScatterBrushPanel.cpp"
 		"Panels/InstanceScatterBrushPanel.h"
+		"Panels/TilemapPainterPanel.cpp"
+		"Panels/TilemapPainterPanel.h"
 		"Panels/StreamingPanel.cpp"
 		"Panels/StreamingPanel.h"
 		"Panels/NetworkDebugPanel.cpp"

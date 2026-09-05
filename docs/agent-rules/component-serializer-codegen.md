@@ -328,6 +328,14 @@ coverage test. The one silent case is a component persisted some way other than 
 - The coverage tests parse generated files as text (for example `CollectTupleMembers` reads the
   `AllComponents = ComponentGroup<…>` marker). When a touch-point moves from hand-written code into
   a generated file, repoint the test's parser or it fails on an empty parse.
+- **A component in a NEW subsystem directory needs its header added to two test allowlists.**
+  `ComponentTupleCoverageTest.cpp` and `ComponentSerializerCoverageTest.cpp` each carry a hand-listed
+  `ComponentHeaderRoots()`; the generator scans all of `OloEngine/src/`, so it picks the component up
+  and emits every artefact, while the tests — which only read the listed headers — see a tuple entry
+  and a serializer branch naming a struct they cannot find, and report it as a dead reference. Adding
+  a component to an *existing* listed header needs nothing. The failure is loud and names the fix, so
+  this costs a rebuild rather than a bug; the trap is only that the generator and the tests disagree
+  about where components may live. (#646 added `OloEngine/Tilemap/TilemapComponent.h` to both.)
 
 Build-graph wiring, the depfile gate and how to force a regeneration: §1b of
 [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md).

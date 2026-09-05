@@ -47,6 +47,7 @@ namespace OloEngine::MCP::EditorPanels
         ShaderEditor,
         AudioEvents,
         McpServer,
+        TilemapPainter,
         Count
     };
 
@@ -92,6 +93,7 @@ namespace OloEngine::MCP::EditorPanels
         PanelDescriptor{ PanelId::ShaderEditor, "shader_editor", "Shader Editor" },
         PanelDescriptor{ PanelId::AudioEvents, "audio_events", "Audio Events" },
         PanelDescriptor{ PanelId::McpServer, "mcp_server", "MCP Server" },
+        PanelDescriptor{ PanelId::TilemapPainter, "tilemap_painter", "Tilemap Painter" },
     };
     static_assert(kPanels.size() == static_cast<sizet>(PanelId::Count));
 

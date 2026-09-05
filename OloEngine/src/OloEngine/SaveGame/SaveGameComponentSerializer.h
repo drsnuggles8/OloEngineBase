@@ -22,6 +22,7 @@ namespace OloEngine
     struct TransformComponent;
     struct RelationshipComponent;
     struct SpriteRendererComponent;
+    struct TilemapComponent;
     struct CircleRendererComponent;
     struct CameraComponent;
     struct Rigidbody2DComponent;
@@ -160,6 +161,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, TransformComponent& c);
         static void Serialize(FArchive& ar, RelationshipComponent& c);
         static void Serialize(FArchive& ar, SpriteRendererComponent& c);
+        static void Serialize(FArchive& ar, TilemapComponent& c);
         static void Serialize(FArchive& ar, CircleRendererComponent& c);
         static void Serialize(FArchive& ar, CameraComponent& c);
         static void Serialize(FArchive& ar, Rigidbody2DComponent& c);

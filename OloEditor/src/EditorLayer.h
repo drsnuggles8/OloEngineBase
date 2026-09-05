@@ -8,6 +8,7 @@
 #include "Panels/RendererSettingsPanel.h"
 #include "Panels/TerrainEditorPanel.h"
 #include "Panels/InstanceScatterBrushPanel.h"
+#include "Panels/TilemapPainterPanel.h"
 #include "Panels/StreamingPanel.h"
 #include "Panels/InputSettingsPanel.h"
 #include "Panels/NetworkDebugPanel.h"
@@ -410,6 +411,8 @@ namespace OloEngine
         TerrainEditorPanel m_TerrainEditorPanel;
         InstanceScatterBrushPanel m_InstanceScatterBrushPanel;
         bool m_ShowInstanceScatterBrush = false;
+        TilemapPainterPanel m_TilemapPainterPanel;
+        bool m_ShowTilemapPainter = false;
         // Mesh-surface raycast for the scatter brush (§1.2) — owns the lazily
         // built per-mesh BVH cache, so it must outlive per-frame queries.
         SceneMeshRaycaster m_MeshRaycaster;

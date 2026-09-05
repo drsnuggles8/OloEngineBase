@@ -113,6 +113,7 @@ SAVE_COMPONENT(TagComponent, entity, writer);
 SAVE_COMPONENT(TerrainComponent, entity, writer);
 SAVE_COMPONENT(TextComponent, entity, writer);
 SAVE_COMPONENT(TileRendererComponent, entity, writer);
+SAVE_COMPONENT(TilemapComponent, entity, writer);
 SAVE_COMPONENT(TimeOfDayComponent, entity, writer);
 SAVE_COMPONENT(TransformComponent, entity, writer);
 SAVE_COMPONENT(TriangleMeshCollider3DComponent, entity, writer);
