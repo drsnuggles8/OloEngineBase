@@ -37,7 +37,7 @@
 //
 //   RANGES: a field whose scene-serializer load path clamps or rejects out-of-range
 //   values carries the same bounds here (from its OLO_SERIALIZE(Clamp, Min=…, Max=…)
-//   annotation, or from the generator's kMcpFieldClamps table for a component the
+//   annotation, or from the generator's kHandWrittenFieldClamps table for a component the
 //   serializer keeps hand-written). A write outside the range is CLAMPED, not
 //   silently accepted, so MCP can never put a component into a state a scene load
 //   could not produce — and the response says `clamped: true` with the original
@@ -898,7 +898,7 @@ namespace OloEngine::MCP::GenericFieldWrite
     // std::string / AssetHandle) — directly, or inside a public nested struct/class
     // member — and rebuild GenerateBindings. To keep a runtime-only field out, mark it
     // OLO_SERIALIZE(Skip); to keep a whole runtime-only component out, add it to
-    // kComponentsNotMcpEditable in tools/OloHeaderTool/main.cpp.
+    // kComponentsNotFieldEditable in tools/OloHeaderTool/main.cpp.
     //
     // SETTER-BASED FIELDS (issue #607's AudioSourceComponent slice): a field behind a
     // PRIVATE member reached only through an OLO_PROPERTY Get/Set expression pair (no

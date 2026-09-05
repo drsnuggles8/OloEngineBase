@@ -2,14 +2,17 @@
 #include "VisualScriptEditorPanel.h"
 
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scripting/VisualScript/ComponentFieldRegistry.h"
 #include "OloEngine/Scripting/VisualScript/VisualScriptSystem.h"
 
 #include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <system_error>
 
 #include <glm/gtc/type_ptr.hpp>
@@ -34,6 +37,24 @@ namespace OloEngine
             PinType::Bool, PinType::Int, PinType::Float, PinType::Vec2, PinType::Vec3,
             PinType::Vec4, PinType::String, PinType::Entity, PinType::Asset
         };
+
+        /// Case-insensitive substring match for the component/field pickers. An
+        /// empty filter matches everything, so the combo opens on the full list.
+        [[nodiscard]] bool MatchesFilter(std::string_view candidate, std::string_view filter)
+        {
+            if (filter.empty())
+            {
+                return true;
+            }
+            const auto lower = [](std::string_view text)
+            {
+                std::string out(text);
+                std::ranges::transform(out, out.begin(), [](unsigned char c)
+                                       { return static_cast<char>(std::tolower(c)); });
+                return out;
+            };
+            return lower(candidate).find(lower(filter)) != std::string::npos;
+        }
 
         /// What one frame of an editing widget did.
         struct EditOutcome
@@ -398,6 +419,115 @@ namespace OloEngine
                     }
                 }
                 ImGui::EndCombo();
+            }
+        }
+        else if (node->m_TypeName == NodeTypes::kGetComponentField || node->m_TypeName == NodeTypes::kSetComponentField)
+        {
+            // Two properties, picked from the generated engine-side registry
+            // (issue #793) rather than typed. Typing them would compile fine and
+            // fail at runtime, which is exactly the failure mode the registry
+            // exists to remove — and with ~1.1k fields a free-text box is a
+            // guessing game.
+            const std::string currentComponent = node->GetProperty(NodeProps::kComponentName, s_Empty);
+            const std::string currentField = node->GetProperty(NodeProps::kFieldName, s_Empty);
+
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo("Component", currentComponent.empty() ? "(none)" : currentComponent.c_str()))
+            {
+                ImGui::SetNextItemWidth(-1.0f);
+                ImGui::InputTextWithHint("##componentfilter", "Filter...", m_FieldPickerComponentSearch,
+                                         sizeof(m_FieldPickerComponentSearch));
+                ImGui::BeginChild("##components", ImVec2(260.0f, 240.0f));
+                for (const std::string& name : ComponentFieldRegistry::ComponentNames())
+                {
+                    if (!MatchesFilter(name, m_FieldPickerComponentSearch))
+                    {
+                        continue;
+                    }
+                    if (ImGui::Selectable(name.c_str(), name == currentComponent))
+                    {
+                        PushUndo();
+                        VisualScriptNode* target = graph.FindNode(m_DetailsNode);
+                        target->SetProperty(std::string(NodeProps::kComponentName), name);
+                        // Clear the field in the same edit. A field key is only
+                        // meaningful against one component, so keeping the old one
+                        // would leave the node addressing something that does not
+                        // exist — and it would still LOOK configured.
+                        target->SetProperty(std::string(NodeProps::kFieldName), std::string{});
+                        Compile();
+                        // Explicit, because Selectable's own auto-close is gated
+                        // on the CURRENT window carrying ImGuiWindowFlags_Popup
+                        // (imgui_widgets.cpp) and inside BeginChild the current
+                        // window is the child, not the combo popup. Without this
+                        // the list stays open after a pick and has to be
+                        // dismissed by clicking elsewhere.
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                ImGui::EndChild();
+                ImGui::EndCombo();
+            }
+
+            const std::vector<const ComponentFieldEntry*> fields =
+                currentComponent.empty() ? std::vector<const ComponentFieldEntry*>{}
+                                         : ComponentFieldRegistry::FieldsOf(currentComponent);
+
+            ImGui::BeginDisabled(fields.empty());
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo("Field", currentField.empty() ? "(none)" : currentField.c_str()))
+            {
+                ImGui::SetNextItemWidth(-1.0f);
+                ImGui::InputTextWithHint("##fieldfilter", "Filter...", m_FieldPickerFieldSearch,
+                                         sizeof(m_FieldPickerFieldSearch));
+                ImGui::BeginChild("##fields", ImVec2(260.0f, 240.0f));
+                for (const ComponentFieldEntry* entry : fields)
+                {
+                    if (!MatchesFilter(entry->m_Field, m_FieldPickerFieldSearch))
+                    {
+                        continue;
+                    }
+                    if (ImGui::Selectable(entry->m_Field.c_str(), entry->m_Field == currentField))
+                    {
+                        PushUndo();
+                        graph.FindNode(m_DetailsNode)->SetProperty(std::string(NodeProps::kFieldName), entry->m_Field);
+                        Compile();
+                        ImGui::CloseCurrentPopup(); // see the component list above
+                    }
+                    // The pin type the Value pin will take, shown inline: it is the
+                    // one thing that decides whether an existing wire survives the
+                    // pick, so seeing it before clicking beats discovering it after.
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("%s", PinTypeToString(entry->m_Type));
+                }
+                ImGui::EndChild();
+                ImGui::EndCombo();
+            }
+            ImGui::EndDisabled();
+
+            if (!currentComponent.empty() && !currentField.empty())
+            {
+                const ComponentFieldEntry* entry = ComponentFieldRegistry::Find(currentComponent, currentField);
+                if (entry == nullptr)
+                {
+                    // Reachable after a component is renamed or a field stops
+                    // being exposed. Say so here rather than only at runtime.
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Not in the registry any more.");
+                }
+                else if (entry->m_Bounds.IsBounded())
+                {
+                    // Named locals rather than temporaries inside the varargs call:
+                    // a `std::to_string(...).c_str()` argument is legal (the
+                    // temporary outlives the call) but reads like a dangling
+                    // pointer, and this is a printf-style call where it would not
+                    // be diagnosed if it ever stopped being legal.
+                    const std::string minText = entry->m_Bounds.m_Min.m_Present
+                                                    ? std::to_string(entry->m_Bounds.m_Min.m_Value)
+                                                    : std::string("-inf");
+                    const std::string maxText = entry->m_Bounds.m_Max.m_Present
+                                                    ? std::to_string(entry->m_Bounds.m_Max.m_Value)
+                                                    : std::string("+inf");
+                    ImGui::TextDisabled("Clamped to [%s, %s]", minText.c_str(), maxText.c_str());
+                }
             }
         }
         else if (node->m_TypeName == NodeTypes::kSequence)

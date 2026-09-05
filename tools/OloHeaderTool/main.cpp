@@ -1565,6 +1565,19 @@ struct SerField
     // (elaborated-type keyword already peeled), used for the generated
     // AssetManager::GetAsset<T> call (issue #451 Ref<T> slice).
     std::string refType;
+
+    // The member's WRITTEN type, leaf name only ("AssetHandle", "UUID", "f32",
+    // "MyEnum"), for the scalar path only — empty for a container element, whose
+    // `type` already carries the element's PropType and whose spelling nothing
+    // needs. Recorded because PropType is deliberately lossy in one place that
+    // matters downstream: SceneSerType maps BOTH `AssetHandle` and `UUID` onto
+    // PropType::AssetHandle, since the scene serializer round-trips them
+    // identically (a u64). The visual-script field registry cannot: an
+    // AssetHandle is a PinType::Asset and a UUID is a PinType::Entity, and
+    // presenting an entity reference to a graph author as an asset pin is a wire
+    // the compiler would accept and the runtime could never satisfy. One string
+    // per field is cheaper than a second type classifier.
+    std::string cppType;
 };
 
 // Per-component result of the field scan.
@@ -2462,6 +2475,7 @@ static ComponentSerInfo ParseComponentFields(std::string body,
         f.member = name;
         f.key = StripPrefix(name, "m_");
         f.type = pt;
+        f.cppType = LeafTypeName(type);
         if (pt == PropType::Struct)
         {
             f.structPartial = !nested->trivial;
@@ -3728,7 +3742,7 @@ static void EmitSceneBinaryCoveredIds(std::ostream& out, const std::map<std::str
 // addressing key — rewriting it would break the very handle used to address the
 // entity). This mirrors kComponentsNotInTuple minus TagComponent, which IS a
 // legitimate editable label. Guarded by McpFieldRegistryTest.
-static const std::set<std::string> kComponentsNotMcpEditable = {
+static const std::set<std::string> kComponentsNotFieldEditable = {
     "IDComponent",
     "WorldTransformComponent",
     // AnimationStateComponent is in the scene-copy tuple and IS serialized, but every
@@ -3746,6 +3760,15 @@ static const std::set<std::string> kComponentsNotMcpEditable = {
     "LocomotionStateComponent",
     "ProjectileComponent",
     "ImpactDecalComponent",
+    // RelationshipComponent is the scene GRAPH, not per-entity data. Its
+    // m_ParentHandle and the parent's m_Children are two halves of one link, and
+    // only Entity::SetParent updates both; writing the handle alone leaves them
+    // disagreeing, which Scene::PropagateWorldTransforms calls out by name as
+    // "data corruption, not a supported path" (it stops descending rather than
+    // trusting the link). A raw field write would therefore report success and
+    // reparent nothing - and could install a cycle that never met SetParent's
+    // guard. Reparenting needs a node that calls SetParent, not a field write.
+    "RelationshipComponent",
 };
 
 // Ranges the SceneSerializer's HAND-WRITTEN deserialize enforces but which are
@@ -3764,12 +3787,12 @@ static const std::set<std::string> kComponentsNotMcpEditable = {
 // The real fix — and the follow-up this leaves behind — is to migrate those
 // hand-written clamps onto OLO_SERIALIZE(Clamp, Min=…, Max=…), after which MCP
 // inherits them for free with no entry in this table.
-struct McpRange
+struct FieldRange
 {
     std::optional<std::string> min;
     std::optional<std::string> max;
 };
-static const std::map<std::string, McpRange> kMcpFieldClamps = {
+static const std::map<std::string, FieldRange> kHandWrittenFieldClamps = {
     // SphereAreaLightComponent — deserialize REJECTS a negative value (keeps the
     // default); MCP clamps to the same floor rather than silently accepting it.
     { "SphereAreaLightComponent.Intensity", { std::string("0.0f"), std::nullopt } },
@@ -3825,7 +3848,7 @@ static bool IsMcpEditableField(const SerField& f)
 // the numeric types plus the float vectors (clamped component-wise), mirroring
 // the serializer's own kClampEligible set (scalars + glm::vec3) but widened to
 // vec2/vec4 since the same component-wise clamp is well-defined there.
-static bool IsMcpRangeableField(const SerField& f)
+static bool IsRangeableField(const SerField& f)
 {
     switch (f.type)
     {
@@ -3852,7 +3875,7 @@ static std::string McpBound(const std::optional<std::string>& expr)
 // How deep the MCP emitter follows a nested-record chain. `System.Emitter.Shape.X`
 // is depth 3; nothing real needs more, and the cap keeps a pathological type graph
 // (or a leaf-name collision in the record registry) from exploding the registry.
-constexpr int kMcpMaxNestingDepth = 4;
+constexpr int kFieldMaxNestingDepth = 4;
 
 // Recursively emit the registry entries for one component's field list. A
 // PropType::Struct member — trivial (LODGroupComponent's LODGroup) or PARTIAL
@@ -3878,10 +3901,15 @@ static constexpr std::size_t kMcpChunkMaxEntries = 48;
 // largest FUNCTION, not the TU, so splitting the TU alone was not enough. Blocks
 // are added per component, so a chunk can exceed kMcpChunkMaxEntries by at most
 // one component's field count.
-class McpChunkWriter
+class ChunkWriter
 {
   public:
-    explicit McpChunkWriter(std::ostream& out) : m_Out(out)
+    // `entryType` is the element type of the vector each chunk fills - the MCP
+    // registry's FieldEntry, or the visual-script registry's own entry type. The
+    // two registries are emitted into different files consumed by different TUs,
+    // so the chunk/driver function names are shared but never collide.
+    ChunkWriter(std::ostream& out, std::string entryType)
+        : m_Out(out), m_EntryType(std::move(entryType))
     {
     }
 
@@ -3891,7 +3919,7 @@ class McpChunkWriter
         {
             CloseChunk();
             m_Out << "static void BuildRegistryChunk" << m_ChunkCount
-                  << "(std::vector<FieldEntry>& registry)\n{\n";
+                  << "(std::vector<" << m_EntryType << ">& registry)\n{\n";
             ++m_ChunkCount;
             m_ChunkEntries = 0;
             m_Open = true;
@@ -3904,7 +3932,7 @@ class McpChunkWriter
     void Finish()
     {
         CloseChunk();
-        m_Out << "static void BuildRegistryChunks(std::vector<FieldEntry>& registry)\n{\n";
+        m_Out << "static void BuildRegistryChunks(std::vector<" << m_EntryType << ">& registry)\n{\n";
         for (std::size_t i = 0; i < m_ChunkCount; ++i)
             m_Out << "    BuildRegistryChunk" << i << "(registry);\n";
         m_Out << "}\n";
@@ -3919,6 +3947,7 @@ class McpChunkWriter
     }
 
     std::ostream& m_Out;
+    std::string m_EntryType;
     std::size_t m_ChunkEntries = 0;
     std::size_t m_ChunkCount = 0;
     bool m_Open = false;
@@ -3926,7 +3955,7 @@ class McpChunkWriter
 
 // Emit the registry body #include'd (at anonymous-namespace scope) by
 // McpFieldRegistry.cpp. Returns the number of (component, field) pairs emitted.
-static std::size_t EmitMcpFieldRegistry(McpChunkWriter& writer, std::ostream& header,
+static std::size_t EmitMcpFieldRegistry(ChunkWriter& writer, std::ostream& header,
                                         const std::map<std::string, ComponentSerInfo>& comps)
 {
     header << "// Auto-generated by OloHeaderTool — DO NOT EDIT MANUALLY\n";
@@ -3935,26 +3964,26 @@ static std::size_t EmitMcpFieldRegistry(McpChunkWriter& writer, std::ostream& he
     header << "// The MCP `olo_entity_set_field` / `olo_entity_list_fields` field registry\n";
     header << "// (issue #607). One entry per public, JSON-coercible data member of every\n";
     header << "// `struct *Component` under OloEngine/src, minus the runtime-only components\n";
-    header << "// in the generator's kComponentsNotMcpEditable set and minus every field the\n";
+    header << "// in the generator's kComponentsNotFieldEditable set and minus every field the\n";
     header << "// shared field scan drops (non-public, OLO_SERIALIZE(Skip), or a type with no\n";
     header << "// scalar JSON shape: u64 / ivec / quat / mat / struct / Ref<T> / container).\n";
     header << "//\n";
     header << "// A ranged entry (OLO_GFW_FIELD_RANGE) carries the SAME bounds the scene\n";
     header << "// serializer enforces on load — from the field's OLO_SERIALIZE(Clamp, …)\n";
     header << "// annotation, or (for a component the serializer keeps hand-written) from the\n";
-    header << "// generator's kMcpFieldClamps table. A write outside the range is CLAMPED and\n";
+    header << "// generator's kHandWrittenFieldClamps table. A write outside the range is CLAMPED and\n";
     header << "// reported as `clamped: true` with the original `requestedValue`.\n";
     header << "//\n";
     header << "// #include'd at anonymous-namespace scope in McpFieldRegistry.cpp, where\n";
     header << "// FieldEntry and the OLO_GFW_* macros are in scope. The entries are split\n";
     header << "// across BuildRegistryChunkN functions (driver: BuildRegistryChunks) so no\n";
     header << "// single function is large enough to run clang-cl Release+ASan out of\n";
-    header << "// memory — see McpChunkWriter in tools/OloHeaderTool/main.cpp.\n\n";
+    header << "// memory — see ChunkWriter in tools/OloHeaderTool/main.cpp.\n\n";
 
     std::size_t emitted = 0;
     for (auto const& [name, info] : comps)
     {
-        if (kComponentsNotMcpEditable.contains(name))
+        if (kComponentsNotFieldEditable.contains(name))
             continue;
 
         std::ostringstream body;
@@ -3980,7 +4009,7 @@ static void EmitMcpFieldsRecursive(std::ostream& out, const std::string& compone
 
         if (f.type == PropType::Struct)
         {
-            if (depth + 1 >= kMcpMaxNestingDepth)
+            if (depth + 1 >= kFieldMaxNestingDepth)
                 continue;
             EmitMcpFieldsRecursive(out, component, f.subFields, keyPrefix + f.key + ".",
                                    memberPrefix + f.member + ".", depth + 1, emitted);
@@ -3991,18 +4020,18 @@ static void EmitMcpFieldsRecursive(std::ostream& out, const std::string& compone
 
         const std::string key = keyPrefix + f.key;
 
-        McpRange range;
+        FieldRange range;
         // Reject shares Clamp's bounds here. MCP only knows how to RANGE a write,
         // not to refuse one, so a Reject field is clamped at the MCP boundary
         // rather than left unvalidated — bounded-to-a-valid-enumerator beats
         // "anything goes", and it keeps a live editor write from setting a value
         // the scene loader would then silently discard on reload.
-        if ((f.hasClamp || f.hasReject) && IsMcpRangeableField(f))
-            range = McpRange{ f.clampMin, f.clampMax };
-        // kMcpFieldClamps is keyed by the FULL dotted field name, so a hand-written
+        if ((f.hasClamp || f.hasReject) && IsRangeableField(f))
+            range = FieldRange{ f.clampMin, f.clampMax };
+        // kHandWrittenFieldClamps is keyed by the FULL dotted field name, so a hand-written
         // serializer's clamp on a nested field would be spelled "Comp.Sub.Field".
-        if (auto it = kMcpFieldClamps.find(component + "." + key);
-            it != kMcpFieldClamps.end() && IsMcpRangeableField(f))
+        if (auto it = kHandWrittenFieldClamps.find(component + "." + key);
+            it != kHandWrittenFieldClamps.end() && IsRangeableField(f))
             range = it->second;
 
         if (range.min || range.max)
@@ -4099,7 +4128,7 @@ static std::string McpSetterCppType(PropType t)
 // MCP-editable field there (the plain member/nested-member scan already reaches it)
 // is skipped here rather than double-registered. Returns the number of (component,
 // field) pairs emitted, added to EmitMcpFieldRegistry's own count by the caller.
-static std::size_t EmitMcpSetterFields(McpChunkWriter& writer, const std::vector<ComponentDef>& components,
+static std::size_t EmitMcpSetterFields(ChunkWriter& writer, const std::vector<ComponentDef>& components,
                                        const std::map<std::string, ComponentSerInfo>& fieldScan)
 {
     std::size_t emitted = 0;
@@ -4107,7 +4136,7 @@ static std::size_t EmitMcpSetterFields(McpChunkWriter& writer, const std::vector
     {
         if (!kOloPropertySetterMcpComponents.contains(comp.name))
             continue;
-        if (kComponentsNotMcpEditable.contains(comp.name))
+        if (kComponentsNotFieldEditable.contains(comp.name))
             continue;
 
         const ComponentSerInfo* scanned = nullptr;
@@ -4841,7 +4870,7 @@ static bool WriteMcpFieldRegistry(const fs::path& mcpOutDir, const std::map<std:
                                   const std::vector<ComponentDef>& properties)
 {
     std::ostringstream ss;
-    McpChunkWriter writer(ss);
+    ChunkWriter writer(ss, "FieldEntry");
     std::size_t emitted = EmitMcpFieldRegistry(writer, ss, componentFields);
     // Setter-based entries (OLO_PROPERTY reuse, issue #607's AudioSourceComponent
     // slice) — a small allowlisted addition on top of the plain field scan above;
@@ -4858,14 +4887,231 @@ static bool WriteMcpFieldRegistry(const fs::path& mcpOutDir, const std::map<std:
         return false;
     }
     std::cout << "OloHeaderTool: MCP field registry — " << emitted << " writable fields ("
-              << kComponentsNotMcpEditable.size() << " runtime-only components excluded)\n";
+              << kComponentsNotFieldEditable.size() << " runtime-only components excluded)\n";
     return ReportWrite(mcpOutDir / "McpFieldRegistry.Generated.inl", ss.str());
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Visual-script component-field registry codegen (issue #793)
+//
+// The `Component.GetField` / `Component.SetField` nodes address an arbitrary
+// component field by two runtime strings. That needs a name -> typed-accessor
+// table that lives in the ENGINE, not the editor: a graph runs in OloRuntime and
+// OloServer, neither of which links OloEditor, so the MCP registry
+// (McpFieldRegistry.Generated.inl, above) cannot serve — it is the same idea one
+// layer up, and #793 called for exactly this sibling.
+//
+// Same input scan (CollectComponentFields), same exclusion set, same clamp
+// bounds, same nested-record descent. What differs is only the value domain:
+// MCP coerces to and from JSON, this coerces to and from PinValue, whose type
+// set (PinType) is narrower. Two consequences worth stating because they are the
+// only real design content here:
+//
+//   * PinType has no unsigned 64-bit member, so a plain u64 field is skipped
+//     rather than silently truncated into an i64 Int pin.
+//   * PinType DOES distinguish an asset reference from an entity reference,
+//     while PropType does not — SceneSerType folds both `AssetHandle` and `UUID`
+//     onto PropType::AssetHandle because scene YAML round-trips them identically.
+//     SerField::cppType carries the written spelling so the two can be told
+//     apart here. Getting this wrong would hand a graph author an Asset pin for
+//     what is really an entity reference, and CheckLinkCompatibility would then
+//     cheerfully accept a wire the runtime can never satisfy.
+// ════════════════════════════════════════════════════════════════════════════
+
+// The PinType a field is exposed as, or nullopt when visual scripting has no
+// shape for it. Returns the PinType ENUMERATOR NAME, which the OLO_VSF_* macros
+// paste after `PinType::` — so a typo here is a compile error in the generated
+// file, not a wrong pin at runtime.
+static std::optional<std::string> VisualScriptPinType(const SerField& f)
+{
+    if (f.isVector || f.isSet || f.isMap)
+        return std::nullopt; // no static field name for a container element
+
+    switch (f.type)
+    {
+        case PropType::Bool:
+            return "Bool";
+        // Every integral width, and an enum, lands on the single Int pin (i64).
+        // The setter casts back through decltype(member), so an out-of-range
+        // write to a narrow field is caught by the range guard rather than by a
+        // silent narrowing.
+        case PropType::Int:
+        case PropType::UInt:
+        case PropType::SmallInt:
+        case PropType::SmallUInt:
+        case PropType::Enum:
+            return "Int";
+        case PropType::Float:
+            return "Float";
+        case PropType::Vec2:
+            return "Vec2";
+        case PropType::Vec3:
+            return "Vec3";
+        case PropType::Vec4:
+            return "Vec4";
+        case PropType::String:
+            return "String";
+        case PropType::AssetHandle:
+            // The one place PropType is lossy in a way that matters — see this
+            // section's header comment. An unrecognised spelling is skipped
+            // rather than guessed: a wrong pin kind here is invisible until a
+            // graph silently fails to resolve at runtime.
+            if (f.cppType == "AssetHandle")
+                return "Asset";
+            if (f.cppType == "UUID")
+                return "Entity";
+            return std::nullopt;
+        default:
+            // U64, IVec*, Quat, Mat*, Struct (descended into separately), Ref<T>.
+            return std::nullopt;
+    }
+}
+
+static std::string VisualScriptBound(const std::optional<std::string>& expr)
+{
+    return expr ? ("OLO_VSF_BOUND(" + *expr + ")") : std::string("OLO_VSF_NO_BOUND");
+}
+
+static void EmitVisualScriptFieldsRecursive(std::ostream& out, const std::string& component,
+                                            const std::vector<SerField>& fields,
+                                            const std::string& keyPrefix, const std::string& memberPrefix,
+                                            int depth, std::size_t& emitted);
+
+// Emit the registry body #include'd (at anonymous-namespace scope) by
+// ComponentFieldRegistry.cpp. Returns the number of (component, field) pairs.
+static std::size_t EmitVisualScriptFieldRegistry(ChunkWriter& writer, std::ostream& header,
+                                                 const std::map<std::string, ComponentSerInfo>& comps)
+{
+    header << "// Auto-generated by OloHeaderTool — DO NOT EDIT MANUALLY\n";
+    header << "// Re-generate with: cmake --build build --target GenerateBindings\n";
+    header << "//\n";
+    header << "// The engine-side component-field registry behind the visual-script\n";
+    header << "// `Component.GetField` / `Component.SetField` nodes (issue #793). One entry\n";
+    header << "// per public data member of every `struct *Component` under OloEngine/src\n";
+    header << "// that has a PinType shape, minus the runtime-only components in the\n";
+    header << "// generator's kComponentsNotFieldEditable set and minus every field the\n";
+    header << "// shared field scan drops (non-public, OLO_SERIALIZE(Skip), or a type with\n";
+    header << "// no PinType: u64 / ivec / quat / mat / Ref<T> / container).\n";
+    header << "//\n";
+    header << "// This is the ENGINE sibling of McpFieldRegistry.Generated.inl — same scan,\n";
+    header << "// same exclusions, same bounds — because a graph runs in OloRuntime and\n";
+    header << "// OloServer, which do not link the editor.\n";
+    header << "//\n";
+    header << "// A ranged entry (OLO_VSF_FIELD_RANGE) carries the SAME bounds the scene\n";
+    header << "// serializer enforces on load — from the field's OLO_SERIALIZE(Clamp, ...)\n";
+    header << "// annotation, or (for a component the serializer keeps hand-written) from\n";
+    header << "// the generator's kHandWrittenFieldClamps table. A graph write outside the\n";
+    header << "// range is CLAMPED, so a graph cannot put a component into a state a scene\n";
+    header << "// load could never produce.\n";
+    header << "//\n";
+    header << "// #include'd at anonymous-namespace scope in ComponentFieldRegistry.cpp,\n";
+    header << "// where the OLO_VSF_* macros are in scope. Entries are split across\n";
+    header << "// BuildRegistryChunkN functions (driver: BuildRegistryChunks) so no single\n";
+    header << "// function is large enough to run clang-cl Release+ASan out of memory —\n";
+    header << "// see ChunkWriter in tools/OloHeaderTool/main.cpp.\n\n";
+
+    std::size_t emitted = 0;
+    for (auto const& [name, info] : comps)
+    {
+        if (kComponentsNotFieldEditable.contains(name))
+            continue;
+
+        std::ostringstream body;
+        std::size_t before = emitted;
+        EmitVisualScriptFieldsRecursive(body, name, info.fields, "", "", 0, emitted);
+        if (emitted == before)
+            continue; // no PinType-shaped leaf anywhere in this component
+
+        writer.AddBlock("// " + name + "\n" + body.str() + "\n", emitted - before);
+    }
+    return emitted;
+}
+
+static void EmitVisualScriptFieldsRecursive(std::ostream& out, const std::string& component,
+                                            const std::vector<SerField>& fields,
+                                            const std::string& keyPrefix, const std::string& memberPrefix,
+                                            int depth, std::size_t& emitted)
+{
+    for (const SerField& f : fields)
+    {
+        if (f.isVector || f.isSet || f.isMap)
+            continue;
+
+        // A nested record — trivial or PARTIAL — is descended into exactly as the
+        // MCP emitter descends it, so a graph addresses component
+        // "ParticleSystemComponent" field "System.Emitter.RateOverTime" with the
+        // same dotted key an agent uses over MCP. One classification, two
+        // consumers.
+        if (f.type == PropType::Struct)
+        {
+            if (depth + 1 >= kFieldMaxNestingDepth)
+                continue;
+            EmitVisualScriptFieldsRecursive(out, component, f.subFields, keyPrefix + f.key + ".",
+                                            memberPrefix + f.member + ".", depth + 1, emitted);
+            continue;
+        }
+
+        const std::optional<std::string> pin = VisualScriptPinType(f);
+        if (!pin)
+            continue;
+
+        const std::string key = keyPrefix + f.key;
+
+        FieldRange range;
+        // Reject shares Clamp's bounds here, for the same reason the MCP emitter
+        // gives: this registry can range a write but not refuse one, and a value
+        // bounded to something the loader accepts beats one it would silently
+        // discard on the next scene load.
+        if ((f.hasClamp || f.hasReject) && IsRangeableField(f))
+            range = FieldRange{ f.clampMin, f.clampMax };
+        if (auto it = kHandWrittenFieldClamps.find(component + "." + key);
+            it != kHandWrittenFieldClamps.end() && IsRangeableField(f))
+            range = it->second;
+
+        if (range.min || range.max)
+        {
+            out << "registry.push_back(OLO_VSF_FIELD_RANGE(" << component << ", \"" << key << "\", "
+                << memberPrefix << f.member << ", " << *pin << ", "
+                << VisualScriptBound(range.min) << ", " << VisualScriptBound(range.max) << "));\n";
+        }
+        else
+        {
+            out << "registry.push_back(OLO_VSF_FIELD(" << component << ", \"" << key << "\", "
+                << memberPrefix << f.member << ", " << *pin << "));\n";
+        }
+        ++emitted;
+    }
+}
+
+// Writes <vs_out_dir>/ComponentFieldRegistry.Generated.inl, #include'd by
+// OloEngine/src/OloEngine/Scripting/VisualScript/ComponentFieldRegistry.cpp.
+static bool WriteVisualScriptFieldRegistry(const fs::path& visualScriptOutDir,
+                                           const std::map<std::string, ComponentSerInfo>& componentFields)
+{
+    std::ostringstream ss;
+    ChunkWriter writer(ss, "ComponentFieldEntry");
+    const std::size_t emitted = EmitVisualScriptFieldRegistry(writer, ss, componentFields);
+    writer.Finish();
+
+    // Same non-empty guard the tuple and save-game writers use, and for the same
+    // reason: an empty registry is not a legitimate outcome of a healthy scan, and
+    // silently shipping one would make every Get/Set Field node in every graph
+    // report "unknown field" at runtime with nothing in the build to say why.
+    if (emitted == 0)
+    {
+        std::cerr << "ERROR: No visual-script component fields collected — refusing to overwrite "
+                     "ComponentFieldRegistry.Generated.inl with an empty registry.\n";
+        return false;
+    }
+    std::cout << "OloHeaderTool: Visual-script field registry — " << emitted << " fields ("
+              << kComponentsNotFieldEditable.size() << " runtime-only components excluded)\n";
+    return ReportWrite(visualScriptOutDir / "ComponentFieldRegistry.Generated.inl", ss.str());
 }
 
 static void PrintUsage()
 {
     std::cerr << "Usage: OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> "
-                 "<savegame_out_dir> <mcp_out_dir> [options]\n"
+                 "<savegame_out_dir> <mcp_out_dir> <visualscript_out_dir> [options]\n"
                  "\n"
                  "Options (both opt-in, so the tool stays usable standalone):\n"
                  "  --depfile <path>  Write a Make-format depfile naming every header the scan\n"
@@ -4878,7 +5124,7 @@ static void PrintUsage()
 
 int main(int argc, char* argv[])
 {
-    if (argc < 7)
+    if (argc < 8)
     {
         PrintUsage();
         return 1;
@@ -4890,10 +5136,11 @@ int main(int argc, char* argv[])
     fs::path sceneOutDir = argv[4];
     fs::path saveGameOutDir = argv[5];
     fs::path mcpOutDir = argv[6];
+    fs::path visualScriptOutDir = argv[7];
 
     fs::path depfilePath;
     fs::path stampPath;
-    for (int i = 7; i < argc; ++i)
+    for (int i = 8; i < argc; ++i)
     {
         const std::string_view arg = argv[i];
         fs::path* target = nullptr;
@@ -5010,6 +5257,11 @@ int main(int argc, char* argv[])
         // component (including the ones the serializer keeps hand-written, whose
         // recognised fields the scan still collects).
         if (!WriteMcpFieldRegistry(mcpOutDir, componentFields, components))
+            errors = true;
+        // The engine-side component-field registry behind the visual-script
+        // Get/Set Field nodes (issue #793) - the same scan again, for a consumer
+        // that must work without the editor linked (OloRuntime, OloServer).
+        if (!WriteVisualScriptFieldRegistry(visualScriptOutDir, componentFields))
             errors = true;
     }
 
