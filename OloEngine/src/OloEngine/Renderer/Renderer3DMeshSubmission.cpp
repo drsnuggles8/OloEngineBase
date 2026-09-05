@@ -79,10 +79,6 @@ namespace OloEngine
     {
         if (!shader)
             return false;
-        const u64 handle = static_cast<u64>(shader->GetHandle());
-        if (handle == 0)
-            return false;
-
         // Primary path: ask the shader itself. `Shader::IsDeferredCapable()`
         // is populated by the backend's reflection pass (for OpenGL, at
         // Reflect() time by scanning the fragment stage's declared outputs
@@ -101,12 +97,15 @@ namespace OloEngine
         // set so those queries don't misclassify a not-yet-reflected shader
         // as forward-only.
         //
-        // Compare by AssetHandle rather than RendererID — the latter is
-        // re-issued on hot-reload whereas the handle is stable across the
-        // asset lifetime.
-        const auto matches = [handle](const Ref<Shader>& candidate)
+        // Built-in shaders can exist without an asset registration. Their
+        // object identity is authoritative even when the asset handle is zero.
+        // Registered aliases may also match by nonzero AssetHandle; never
+        // equate two unrelated unregistered shaders through their zero handles.
+        const u64 handle = static_cast<u64>(shader->GetHandle());
+        const auto matches = [&shader, handle](const Ref<Shader>& candidate)
         {
-            return candidate && static_cast<u64>(candidate->GetHandle()) == handle;
+            return candidate && (candidate == shader ||
+                                 (handle != 0 && static_cast<u64>(candidate->GetHandle()) == handle));
         };
         return matches(s_Data.PBRGBufferShader) || matches(s_Data.PBRGBufferSkinnedShader) ||
                matches(s_Data.SkyboxGBufferShader) || matches(s_Data.LightCubeGBufferShader) ||
