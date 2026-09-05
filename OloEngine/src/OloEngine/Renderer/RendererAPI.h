@@ -269,6 +269,26 @@ namespace OloEngine
         {
             return false;
         }
+
+        // True when a fence from CreateFence can complete WITHOUT the caller
+        // forcing a queue submit first (issue #1052).
+        //
+        // OpenGL's ClientWaitFence flushes inside the wait
+        // (GL_SYNC_FLUSH_COMMANDS_BIT), so a fence whose commands were never
+        // submitted still completes. VulkanRendererAPI::CreateFence STAGES its
+        // signal for the next submit, so the same wait spins forever —
+        // GPUBufferLockManager::Wait says exactly this and asks that the loop
+        // be audited when Vulkan's AllocatePersistentUploadStorage stops being
+        // a stub. It has (#1052), and this is that audit's result.
+        //
+        // The one consumer is a persistent-mapped ring: it may only WRAP
+        // within a frame — which means waiting on a range fenced earlier in
+        // the same frame — on a backend that answers true. False is the safe
+        // default, so a new backend cannot inherit the hang by omission.
+        [[nodiscard]] virtual bool SupportsIntraFrameFenceCompletion() const
+        {
+            return false;
+        }
         [[nodiscard]] virtual bool SubmitRenderGraphFenceSegment()
         {
             return false;

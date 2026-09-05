@@ -297,6 +297,7 @@ add_executable(OloEngine-Tests
 		# rendering scope. Same SKIP ladder + zero-validation bar.
 		Rendering/VulkanDrawPathTest.cpp
 		Rendering/VulkanRawBufferStorageBindingTest.cpp
+		Rendering/VulkanRawBufferUploadTest.cpp
 		# #691 Phase 7 Stage 1.6b: REAL passes through the REAL render graph on
 		# a device — transients, planner barriers, pass bodies recording via
 		# the process-global backend; first tenant is the golden-gated FXAA

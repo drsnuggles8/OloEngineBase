@@ -27,7 +27,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [testing-architecture.md](testing-architecture.md): which renderer layer or Functional axis a new test belongs to, and the registration contract.
 - [../testing.md](../testing.md): why we test what we test; value heuristic, anti-patterns, retirement criteria.
 - [substituted-seams-compound.md](substituted-seams-compound.md): every substitution a test makes is a seam it stops testing, and they compound — including building the same object a different way.
-- [no-silent-fallbacks.md](no-silent-fallbacks.md): a path that cannot do what it was asked says so loudly and countably; rank a fallback by whether the substituted value can be INDEXED.
+- [no-silent-fallbacks.md](no-silent-fallbacks.md): a path that cannot do what it was asked says so loudly and countably; rank a fallback by whether the substituted value can be INDEXED, and lower every entry point a caller falls back to.
 - [reference-path-tracer.md](reference-path-tracer.md): the ground-truth oracle for "is it correct", where a golden can only say "did it change".
 - [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md): measure the noise floor and audit a recording before baking a per-vendor baseline.
 - [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md): give a visual-test scene a ground plane, then look at the PNG.
@@ -58,7 +58,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [incomplete-texture-samples-as-zero.md](incomplete-texture-samples-as-zero.md): set a texture's sampler state at creation; an incomplete texture reads zero on AMD and fine on NVIDIA.
 - [std-distributions-are-not-portable.md](std-distributions-are-not-portable.md): seed procedural content with your own transform over mt19937; std:: distributions differ between standard libraries, so one seed is two different results.
 - [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md): the OpenGL boundary leaks through the include graph, not a `glXxx(` grep; plus the Vulkan epic's lessons.
-- [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md): a CPU buffer write between two recorded draws is last-write-wins on Vulkan.
+- [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md): a CPU buffer write between two recorded draws is last-write-wins on Vulkan — and the per-draw snapshot that fixes it must never cover a buffer the GPU produces.
 - [vulkan-parallel-recording.md](vulkan-parallel-recording.md): a pass forks with `RenderCommand::RecordParallel` and gives every item its own resource objects; per-command-buffer state is per recording context.
 - [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md): a BLAS is per geometry and opacity is per instance; acceleration structures reach a shader as a device address, builds ride the frame command buffer, and compaction is a multi-frame handshake because idling is banned.
 - [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md): `glColorMask` and `glEnable(GL_BLEND)` are indexed calls for every draw buffer; never port one as a fallback.
@@ -174,11 +174,11 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | A steady-state offset check passes with a full one-tick lag present. |
 | [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | A position check passes on the scheduler tie-break alone, with the dependency edge missing. |
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | Adding `server/discover` alone keeps tests green and breaks the legacy fallback for real clients. |
-| [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | Two scenes rendered skybox-only with zero errors because no test interleaved two SSBO uploads with draws. |
+| [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | Two scenes rendered skybox-only with zero errors because no test interleaved two SSBO uploads with draws. Later, the same snapshot applied to a GPU-output buffer made the mesh-shader raster arm launch `EmitMeshTasksEXT(0)` — a legal call, so nothing warned — while masking an out-of-bounds read that device-faults once you remove it. |
 | [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md) | A new `RHI::Access` write member is classified as a read by the one switch with a `default:`, so no write-after-write barrier is emitted and nothing warns. |
 | [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) | Every Vulkan draw wrote colour attachment 0 alone, and the forward path only displays attachment 0. |
 | [substituted-seams-compound.md](substituted-seams-compound.md) | A decal tenant made three substitutions, each hiding a different live bug; no decal had ever produced a pixel. |
-| [no-silent-fallbacks.md](no-silent-fallbacks.md) | Two defensible fallbacks composed into VK_ERROR_DEVICE_LOST on every virtual-geometry scene, three layers from the cause, with both Vulkan VG tests passing. |
+| [no-silent-fallbacks.md](no-silent-fallbacks.md) | Two defensible fallbacks composed into VK_ERROR_DEVICE_LOST on every virtual-geometry scene, three layers from the cause, with both Vulkan VG tests passing. A stub returning `nullptr` then vanished into the caller's own "mapping failed" branch, so no page upload landed and every counter still read green. |
 | [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md) | A compute kernel wrote mip 0 and left coarser mips stale; the visual test was green because every mip was uniformly stale. |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | A compaction test that sorts both sides passes identically on `atomicAdd` and on the scan replacing it. |
 | [variable-rate-compute-shading.md](variable-rate-compute-shading.md) | A classifier that coarsens nothing passes every "did coarsening damage the image" assertion. |

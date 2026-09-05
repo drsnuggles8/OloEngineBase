@@ -136,15 +136,13 @@ m_IndexBuffer = RenderCommand::CreateBufferHandle();   // RAW handle
 ```
 
 and then binds it a second way the test never does — as `SSBO_VIRTUAL_INDICES`.
-An object-backed `VulkanIndexBuffer` already carries
-`VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT` and registers in
-`VulkanRootObjectRegistry`. A raw handle is registered too — `CreateHandle`
-enters it in `RHI::ResourceRegistry` and in `VulkanRawBufferRegistry` — just not
-in `VulkanRootObjectRegistry`, which is the only one `BindStorageBuffer`
-consulted, and it lacked the usage bit besides. **That is what made this hard to
-see: the handle was valid everywhere anyone thought to look.** It resolved
-nothing at the one registry that mattered, silently bound null, and every VG
-scene on Vulkan lost the device. The test could not fail: the buffer it
+An object-backed `VulkanIndexBuffer` already carries every usage bit and
+registry entry the draw needs; a raw handle is registered in
+`RHI::ResourceRegistry` and `VulkanRawBufferRegistry` but *not* in
+`VulkanRootObjectRegistry`, the only one `BindStorageBuffer` consulted, and it
+lacked the usage bits besides. **That is what made it hard to see: the handle
+was valid everywhere anyone thought to look.** It silently bound null, and every
+VG scene on Vulkan lost the device. The test could not fail: the buffer it
 exercises is not the buffer that breaks.
 
 **The rule this adds.** A substitution is not only "called a different function"
@@ -157,23 +155,24 @@ mattered here.
 
 **The cheap detector that would have caught it.** `VulkanRendererAPI` already
 counts unimplemented-stub hits, and `VulkanDrawPathTest` asserts
-`GetUnimplementedStubHitCount() == 0` — "the draw path must not fall through to a
-stub". No virtual-geometry tenant makes that assertion, so its fall-throughs were
-counted by nobody. Asserting that counter across a tenant's frame is one line and
-it is backend-shaped rather than feature-shaped: it catches the *next* unlowered
-path too, in whatever pass finds it first.
+`GetUnimplementedStubHitCount() == 0`. No virtual-geometry tenant made that
+assertion, so its fall-throughs were counted by nobody. It is one line, and
+backend-shaped rather than feature-shaped: it catches the *next* unlowered path
+too.
 
 Two aggravating conditions, both worth checking before trusting a Vulkan result:
 
 - **`RendererAttachedTest` creates a GL 4.6 context only.** Every virtual-geometry
   evidence test rides it, so the real pass has never executed on Vulkan in any
-  test — the "a feature with no scene has no coverage" rule, one level up: a
-  feature with no scene *on that backend* has no coverage there.
-- **`driver.ps1` has no `--rhi` passthrough**, so the standard tooling launches
-  OpenGL and a "Vulkan session" that used `attach` is running GL. Reaching this
-  needed a hand-rolled launch with `--rhi=vulkan`.
+  test — a feature with no scene *on that backend* has no coverage there.
+- **Check the backend you think you are on.** `driver.ps1 -Action attach` used to
+  launch OpenGL unconditionally, so a "Vulkan session" was running GL. It takes
+  `-Rhi vulkan` now; either way, `[RHI] Backend:` in `OloEditor/OloEngine.log`
+  is the only proof.
 
-Found on #1052 / PR #1054.
+Found on #1052 / PR #1054. The *rest* of that issue — why nothing rendered even
+after the device loss was fixed — is a second mechanism, in
+[no-silent-fallbacks.md](no-silent-fallbacks.md).
 
 ## Related
 
@@ -184,5 +183,8 @@ Found on #1052 / PR #1054.
   prove a lever acts before concluding anything from its silence.
 - [live-verification-noise-floor.md](live-verification-noise-floor.md) — read the
   `liveness` block on every capture.
+- [no-silent-fallbacks.md](no-silent-fallbacks.md) — #1052's other half: an
+  unlowered entry point whose return value is a legal in-band answer disappears
+  into the caller's own degradation branch.
 - [testing-architecture.md](testing-architecture.md) — where a tenant belongs and
   what it owes.

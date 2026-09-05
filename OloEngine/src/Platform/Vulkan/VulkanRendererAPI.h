@@ -584,6 +584,16 @@ namespace OloEngine
         [[nodiscard]] bool PrepareDrawCommon(const VulkanVertexArray* vao, bool meshPipeline);
         // Bind the VAO's index buffer if it changed (redundant-bind cache,
         // reset per recording). False when the VAO has no index buffer.
+        // A VAO's element buffer, whichever family holds it: the object-backed
+        // VulkanIndexBuffer, or the RAW arena SetVertexArrayIndexBuffer
+        // recorded (issue #1052). `Buffer == VK_NULL_HANDLE` means neither.
+        struct ResolvedIndexBuffer
+        {
+            VkBuffer Buffer = VK_NULL_HANDLE;
+            VkDeviceSize SizeBytes = 0; ///< #809's real-extent bind
+            u32 Count = 0;              ///< the DrawIndexed(va, 0) whole-buffer sentinel
+        };
+        [[nodiscard]] static ResolvedIndexBuffer ResolveIndexBufferFor(const VulkanVertexArray* vao);
         [[nodiscard]] bool BindIndexBufferFor(const VulkanVertexArray* vao);
         // Handle -> VkBuffer for the indirect-draw family (#691). Any
         // Vulkan-backend buffer identity resolves (its registry native IS the
