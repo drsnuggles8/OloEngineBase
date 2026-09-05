@@ -52,7 +52,16 @@ namespace OloEngine
         // records and the IBL cache header, so slotting it next to BC6H would have
         // renumbered R32UI and made every legacy record holding 18 read back as a
         // block-compressed format.
-        BC6HS
+        BC6HS,
+        // 4x32-bit unsigned integer (issue #624). Appended, like every entry since
+        // RG16F. One RGBA32UI texel is bit-compatible with one 16-byte BC block,
+        // which is how the GPU BC6H encoder writes its output without taking an
+        // SSBO binding — see Renderer/BC6HGpuEncoder.h.
+        RGBA32UI,
+        // RGTC1 single channel, 8 bytes per 4x4 block (issue #624). Appended, like
+        // every entry since RG16F. Sampled as (R,R,R,1) via a texture swizzle set at
+        // upload, so it is a drop-in for greyscale data that used to cost a full BC7.
+        BC4
     };
 
     // True for the block-compressed ImageFormat values, which take the
@@ -60,7 +69,7 @@ namespace OloEngine
     [[nodiscard("Store this!")]] constexpr bool IsCompressedFormat(ImageFormat format) noexcept
     {
         return format == ImageFormat::BC7 || format == ImageFormat::BC5 || format == ImageFormat::BC6H ||
-               format == ImageFormat::BC6HS;
+               format == ImageFormat::BC6HS || format == ImageFormat::BC4;
     }
 
     // True for the integer (non-normalised) ImageFormat values — the ones a
@@ -79,7 +88,7 @@ namespace OloEngine
     {
         return format == ImageFormat::R8UI || format == ImageFormat::R16UI ||
                format == ImageFormat::RG16UI || format == ImageFormat::R32I ||
-               format == ImageFormat::R32UI;
+               format == ImageFormat::R32UI || format == ImageFormat::RGBA32UI;
     }
 
     struct TextureSpecification

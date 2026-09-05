@@ -20,7 +20,7 @@
 //
 //     TextureImportSettings:
 //       Version: 1
-//       Format: BC5          # Auto | BC7 | BC5 | BC6H | BC6HSigned
+//       Format: BC5          # Auto | BC7 | BC5 | BC4 | BC6H | BC6HSigned
 //       ColorSpace: Linear   # Auto | Linear | sRGB
 //       GenerateMips: true   # omit for Auto
 //
@@ -46,6 +46,7 @@ namespace OloEngine
             BC5,
             BC6H,
             BC6HSigned,
+            BC4, // single-channel; see TextureCompression::EncodeBC4
         };
 
         // Explicit colour space. Auto keeps the filename heuristic

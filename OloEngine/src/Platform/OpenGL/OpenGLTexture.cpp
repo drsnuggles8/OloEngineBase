@@ -57,6 +57,11 @@ namespace OloEngine
                     return GL_RGBA;
                 case ImageFormat::DEPTH24STENCIL8:
                     return GL_DEPTH_STENCIL;
+                case ImageFormat::RGBA32UI:
+                    // Integer texel format: the client format must be the _INTEGER one
+                    // or the upload/readback silently converts through a float path.
+                    return GL_RGBA_INTEGER;
+                case ImageFormat::BC4:
                 case ImageFormat::BC7:
                 case ImageFormat::BC5:
                 case ImageFormat::BC6H:
@@ -115,6 +120,10 @@ namespace OloEngine
                 case ImageFormat::BC5:
                     // RGTC2 two-channel; always linear.
                     return GL_COMPRESSED_RG_RGTC2;
+                case ImageFormat::BC4:
+                    // RGTC1 single channel; always linear. A swizzle set after upload
+                    // makes it sample (R,R,R,1) — see the compressed constructor.
+                    return GL_COMPRESSED_RED_RGTC1;
                 case ImageFormat::BC6H:
                     // BPTC RGB half-float, unsigned variant (non-negative HDR radiance).
                     // Always linear — sRGB does not apply to a float format.
@@ -122,6 +131,8 @@ namespace OloEngine
                 case ImageFormat::BC6HS:
                     // BPTC RGB half-float, signed variant (source data with negatives).
                     return GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT;
+                case ImageFormat::RGBA32UI:
+                    return GL_RGBA32UI;
             }
 
             OLO_CORE_ASSERT(false, "Unknown ImageFormat!");
@@ -143,6 +154,7 @@ namespace OloEngine
                     // Same BPTC feature as BC7 (both are core since GL 4.2).
                     return (GLAD_GL_VERSION_4_2 != 0) || (GLAD_GL_ARB_texture_compression_bptc != 0);
                 case TextureCompressionFormat::BC5:
+                case TextureCompressionFormat::BC4:
                     return (GLAD_GL_VERSION_3_0 != 0) || (GLAD_GL_ARB_texture_compression_rgtc != 0);
                 case TextureCompressionFormat::None:
                     return false;
@@ -291,6 +303,10 @@ namespace OloEngine
             case ImageFormat::DEPTH24STENCIL8:
                 bytesPerPixel = 4;
                 break;
+            case ImageFormat::RGBA32UI:
+                bytesPerPixel = 16;
+                break;
+            case ImageFormat::BC4:
             case ImageFormat::BC7:
             case ImageFormat::BC5:
             case ImageFormat::BC6H:
@@ -437,6 +453,9 @@ namespace OloEngine
             case TextureCompressionFormat::BC5:
                 m_Specification.Format = ImageFormat::BC5;
                 break;
+            case TextureCompressionFormat::BC4:
+                m_Specification.Format = ImageFormat::BC4;
+                break;
             case TextureCompressionFormat::BC6H:
                 m_Specification.Format = ImageFormat::BC6H;
                 break;
@@ -458,9 +477,10 @@ namespace OloEngine
         // the mip chain on the CPU and upload uncompressed so rendering still works.
         if (!Utils::IsCompressionSupported(image.Format))
         {
-            const char* formatName = image.Format == TextureCompressionFormat::BC5 ? "BC5/RGTC"
-                                     : IsBC6H(image.Format)                        ? "BC6H/BPTC"
-                                                                                   : "BC7/BPTC";
+            const char* formatName = image.Format == TextureCompressionFormat::BC5   ? "BC5/RGTC"
+                                     : image.Format == TextureCompressionFormat::BC4 ? "BC4/RGTC"
+                                     : IsBC6H(image.Format)                          ? "BC6H/BPTC"
+                                                                                     : "BC7/BPTC";
             OLO_CORE_WARN("OpenGLTexture2D: driver lacks {} support — falling back to uncompressed (RGBA8, or RGBA16F for BC6H HDR)", formatName);
             UploadDecompressedFallback(image);
             return;
@@ -506,6 +526,18 @@ namespace OloEngine
         glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+        // RGTC1 stores one channel and samples (R, 0, 0, 1). The cook only ever picks
+        // BC4 for data whose G and B ALREADY equalled R (TextureCompression::
+        // AnalyzeChannels measures that), so replicating red across the three colour
+        // channels makes the substitution invisible to every shader. DecodeToRGBA8
+        // does the same thing on the CPU side, deliberately.
+        if (image.Format == TextureCompressionFormat::BC4)
+        {
+            glTextureParameteri(m_RendererID, GL_TEXTURE_SWIZZLE_G, GL_RED);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_SWIZZLE_B, GL_RED);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_SWIZZLE_A, GL_ONE);
+        }
 
         // Require the base level (mip 0) specifically — a texture whose full-resolution
         // level never uploaded is unusable even if a smaller mip happened to succeed, so a
@@ -866,6 +898,10 @@ namespace OloEngine
             case ImageFormat::RGBA32F:
                 bpp = 16;
                 dataType = GL_FLOAT;
+                break;
+            case ImageFormat::RGBA32UI:
+                bpp = 16;
+                dataType = GL_UNSIGNED_INT;
                 break;
             default:
                 break;

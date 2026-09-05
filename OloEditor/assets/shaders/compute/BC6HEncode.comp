@@ -1,0 +1,13 @@
+#version 460 core
+
+// =============================================================================
+// BC6HEncode.comp — GPU BC6H block encoder, UNSIGNED variant (#624 item 3).
+//
+// One invocation per 4x4 block. The whole encoder lives in the shared include so
+// the signed variant is the same code with one define; see BC6HEncodeSigned.comp
+// and BC6HEncodeCommon.glsl. Dispatched by BC6HGpuEncoder, not per frame.
+// =============================================================================
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "../include/BC6HEncodeCommon.glsl"

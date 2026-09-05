@@ -385,6 +385,8 @@ namespace OloEngine::VulkanBarrierLowering
                 return VK_FORMAT_BC7_SRGB_BLOCK;
             case RHI::Format::BC5UNorm:
                 return VK_FORMAT_BC5_UNORM_BLOCK;
+            case RHI::Format::BC4UNorm:
+                return VK_FORMAT_BC4_UNORM_BLOCK;
             case RHI::Format::BC6HUFloat:
                 return VK_FORMAT_BC6H_UFLOAT_BLOCK;
             case RHI::Format::BC6HSFloat:

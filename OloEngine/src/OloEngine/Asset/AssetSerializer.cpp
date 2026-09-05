@@ -375,7 +375,8 @@ namespace OloEngine
         bool recordGenerateMips = spec.GenerateMips;
         if (haveCooked)
         {
-            recordFormat = (cooked.Format == TextureCompressionFormat::BC5)          ? ImageFormat::BC5
+            recordFormat = (cooked.Format == TextureCompressionFormat::BC4)          ? ImageFormat::BC4
+                           : (cooked.Format == TextureCompressionFormat::BC5)        ? ImageFormat::BC5
                            : (cooked.Format == TextureCompressionFormat::BC6H)       ? ImageFormat::BC6H
                            : (cooked.Format == TextureCompressionFormat::BC6HSigned) ? ImageFormat::BC6HS
                                                                                      : ImageFormat::BC7;

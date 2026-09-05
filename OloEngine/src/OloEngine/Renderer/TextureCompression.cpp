@@ -31,6 +31,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <atomic>
 #include <limits>
 #include <mutex>
 
@@ -191,13 +192,15 @@ namespace OloEngine
         }
 
         // Encode a single RGBA8 mip level's blocks with the given per-block encoder.
-        // `encodeBlock(dst16, block64)` fills 16 output bytes from a 64-byte RGBA block.
+        // `encodeBlock(dst, block64)` fills `blockBytes` output bytes from a 64-byte RGBA
+        // block. `blockBytes` is 16 for BC5/BC7 and 8 for BC4, which stores one channel.
         template<typename EncodeBlockFn>
-        std::vector<u8> EncodeLevel(const std::vector<u8>& rgba, u32 width, u32 height, EncodeBlockFn&& encodeBlock)
+        std::vector<u8> EncodeLevel(const std::vector<u8>& rgba, u32 width, u32 height, EncodeBlockFn&& encodeBlock,
+                                    u32 blockBytes = 16)
         {
             const u32 bx = TextureCompression::BlockCount(width);
             const u32 by = TextureCompression::BlockCount(height);
-            std::vector<u8> out(static_cast<sizet>(bx) * by * 16);
+            std::vector<u8> out(static_cast<sizet>(bx) * by * blockBytes);
 
             std::array<u8, 64> block{};
             for (u32 y = 0; y < by; ++y)
@@ -205,7 +208,7 @@ namespace OloEngine
                 for (u32 x = 0; x < bx; ++x)
                 {
                     GatherBlockRGBA(rgba, width, height, x, y, block);
-                    u8* dst = out.data() + (static_cast<sizet>(y) * bx + x) * 16;
+                    u8* dst = out.data() + (static_cast<sizet>(y) * bx + x) * blockBytes;
                     encodeBlock(dst, block.data());
                 }
             }
@@ -405,6 +408,8 @@ namespace OloEngine
                 case TextureCompressionFormat::BC6H:
                 case TextureCompressionFormat::BC6HSigned:
                     return 16;
+                case TextureCompressionFormat::BC4:
+                    return 8; // one channel, half a block
                 case TextureCompressionFormat::None:
                     return 0;
             }
@@ -504,6 +509,103 @@ namespace OloEngine
             return image;
         }
 
+        // The GPU encode hook and its counters. Plain atomics rather than a mutex:
+        // the hook is set once by the renderer and read once per mip level.
+        std::atomic<Bc6hGpuEncodeFn> s_GpuBC6HEncoder{ nullptr };
+        std::atomic<u64> s_Bc6hGpuLevels{ 0 };
+        std::atomic<u64> s_Bc6hCpuLevels{ 0 };
+
+        void SetGpuBC6HEncoder(Bc6hGpuEncodeFn encoder)
+        {
+            s_GpuBC6HEncoder.store(encoder, std::memory_order_relaxed);
+        }
+
+        bool HasGpuBC6HEncoder()
+        {
+            return s_GpuBC6HEncoder.load(std::memory_order_relaxed) != nullptr;
+        }
+
+        Bc6hEncodeCounts GetBC6HEncodeCounts()
+        {
+            return { s_Bc6hGpuLevels.load(std::memory_order_relaxed),
+                     s_Bc6hCpuLevels.load(std::memory_order_relaxed) };
+        }
+
+        void ResetBC6HEncodeCounts()
+        {
+            s_Bc6hGpuLevels.store(0, std::memory_order_relaxed);
+            s_Bc6hCpuLevels.store(0, std::memory_order_relaxed);
+        }
+
+        CompressedTextureImage EncodeBC4(const u8* pixels, u32 width, u32 height, u32 channels, bool generateMips)
+        {
+            OLO_PROFILE_FUNCTION();
+
+            CompressedTextureImage image;
+            if (!pixels || width == 0 || height == 0 || channels == 0 || channels > 4)
+            {
+                OLO_CORE_ERROR("TextureCompression::EncodeBC4 - invalid input ({}x{}, {} ch)", width, height, channels);
+                return image;
+            }
+
+            EnsureEncodersInitialized();
+
+            // rgbcx::encode_bc4 reads channel 0 from a 4-byte-stride buffer.
+            const auto encodeBlock = [](u8* dst, const u8* block64)
+            {
+                ::rgbcx::encode_bc4(dst, block64, 4);
+            };
+
+            image.Format = TextureCompressionFormat::BC4;
+            image.Width = width;
+            image.Height = height;
+            image.SRGB = false; // single-channel data is linear by construction
+
+            image.Mips = BuildMipChain<u8>(
+                ExpandToRGBA8(pixels, width, height, channels), width, height, generateMips,
+                [&encodeBlock](const std::vector<u8>& lvl, u32 w, u32 h)
+                { return EncodeLevel(lvl, w, h, encodeBlock, 8); },
+                [](const std::vector<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
+                { return DownsampleRGBA8(s, w, h, /*srgb*/ false, ow, oh); });
+            return image;
+        }
+
+        ChannelUsage AnalyzeChannels(const u8* pixels, u32 width, u32 height, u32 channels)
+        {
+            ChannelUsage usage;
+            if (!pixels || width == 0 || height == 0 || channels == 0 || channels > 4)
+                return usage;
+
+            const std::vector<u8> rgba = ExpandToRGBA8(pixels, width, height, channels);
+            const sizet texelCount = static_cast<sizet>(width) * height;
+
+            std::array<u8, 4> first{ rgba[0], rgba[1], rgba[2], rgba[3] };
+            std::array<bool, 4> varies{ false, false, false, false };
+            bool greyscale = true;
+            for (sizet i = 0; i < texelCount; ++i)
+            {
+                const u8* texel = &rgba[i * 4];
+                for (u32 c = 0; c < 4; ++c)
+                {
+                    if (texel[c] != first[c])
+                        varies[c] = true;
+                }
+                if (texel[0] != texel[1] || texel[1] != texel[2])
+                    greyscale = false;
+            }
+
+            // "Has alpha" must mean NOT OPAQUE, not merely "alpha is non-constant": a
+            // uniformly translucent source has a constant alpha that is still alpha, and
+            // calling it opaque would both mis-sort it AND let the greyscale rule narrow
+            // it to BC4, which drops the channel for good. ExpandToRGBA8 writes a
+            // constant 255 for a 1/3-channel source, so those stay opaque either way.
+            usage.HasAlpha = varies[3] || first[3] != 255;
+            usage.IsGreyscale = greyscale;
+            for (u32 c = 0; c < 4; ++c)
+                usage.VaryingChannels += varies[c] ? 1u : 0u;
+            return usage;
+        }
+
         bool HasNegativeComponents(const f32* pixels, u32 width, u32 height, u32 channels)
         {
             if (!pixels || width == 0 || height == 0 || channels == 0)
@@ -547,6 +649,25 @@ namespace OloEngine
             {
                 const u32 bx = BlockCount(w);
                 const u32 by = BlockCount(h);
+
+                // GPU fast path (#624 item 3), when the renderer registered one. The
+                // shader runs the same mode search as BC6H::EncodeBlock below; a
+                // failure here is a speed regression, not a quality one, so it warns
+                // and continues on the CPU rather than failing the cook.
+                if (const Bc6hGpuEncodeFn gpu = s_GpuBC6HEncoder.load(std::memory_order_relaxed))
+                {
+                    std::vector<u8> gpuOut;
+                    if (gpu(rgb.data(), w, h, isSigned, gpuOut) &&
+                        gpuOut.size() == static_cast<sizet>(bx) * by * 16)
+                    {
+                        s_Bc6hGpuLevels.fetch_add(1, std::memory_order_relaxed);
+                        return gpuOut;
+                    }
+                    OLO_CORE_WARN("TextureCompression::EncodeBC6H - GPU encode of the {}x{} level failed; "
+                                  "falling back to the CPU encoder for it",
+                                  w, h);
+                }
+
                 std::vector<u8> out(static_cast<sizet>(bx) * by * 16);
                 std::array<f32, 48> block{};
                 for (u32 y = 0; y < by; ++y)
@@ -557,6 +678,7 @@ namespace OloEngine
                         BC6H::EncodeBlock(out.data() + (static_cast<sizet>(y) * bx + x) * 16, block.data(), isSigned);
                     }
                 }
+                s_Bc6hCpuLevels.fetch_add(1, std::memory_order_relaxed);
                 return out;
             };
 
@@ -590,7 +712,9 @@ namespace OloEngine
             const std::vector<u8>& blocks = image.Mips[mipLevel];
             const u32 bxCount = BlockCount(mw);
             const u32 byCount = BlockCount(mh);
-            if (blocks.size() < static_cast<sizet>(bxCount) * byCount * 16)
+            // BC4 is 8 bytes per block, everything else 16 — never assume the stride.
+            const u32 blockBytes = BlockSizeBytes(image.Format);
+            if (blocks.size() < static_cast<sizet>(bxCount) * byCount * blockBytes)
             {
                 OLO_CORE_ERROR("TextureCompression::DecodeToRGBA8 - mip {} block data truncated", mipLevel);
                 return false;
@@ -601,12 +725,25 @@ namespace OloEngine
             {
                 for (u32 bx = 0; bx < bxCount; ++bx)
                 {
-                    const u8* blockPtr = blocks.data() + (static_cast<sizet>(by) * bxCount + bx) * 16;
+                    const u8* blockPtr = blocks.data() + (static_cast<sizet>(by) * bxCount + bx) * blockBytes;
                     if (image.Format == TextureCompressionFormat::BC7)
                     {
                         // bc7decomp writes 16 color_rgba (RGBA) contiguously.
                         static_assert(sizeof(::bc7decomp::color_rgba) == 4, "color_rgba must be 4 bytes");
                         ::bc7decomp::unpack_bc7(blockPtr, reinterpret_cast<::bc7decomp::color_rgba*>(decoded.data()));
+                    }
+                    else if (image.Format == TextureCompressionFormat::BC4)
+                    {
+                        decoded.fill(0);
+                        ::rgbcx::unpack_bc4(blockPtr, decoded.data(), 4);
+                        // (R, R, R, 1) — the same swizzle the GPU upload installs, so a
+                        // BC4 texture reads identically whichever path decoded it.
+                        for (u32 i = 0; i < 16; ++i)
+                        {
+                            decoded[i * 4 + 1] = decoded[i * 4 + 0];
+                            decoded[i * 4 + 2] = decoded[i * 4 + 0];
+                            decoded[i * 4 + 3] = 255;
+                        }
                     }
                     else // BC5
                     {
@@ -759,7 +896,8 @@ namespace OloEngine
             if (formatInt != static_cast<u32>(TextureCompressionFormat::BC7) &&
                 formatInt != static_cast<u32>(TextureCompressionFormat::BC5) &&
                 formatInt != static_cast<u32>(TextureCompressionFormat::BC6H) &&
-                formatInt != static_cast<u32>(TextureCompressionFormat::BC6HSigned))
+                formatInt != static_cast<u32>(TextureCompressionFormat::BC6HSigned) &&
+                formatInt != static_cast<u32>(TextureCompressionFormat::BC4))
             {
                 OLO_CORE_ERROR("TextureCompression::DeserializeFromBlob - unknown format {}", formatInt);
                 return false;
@@ -779,11 +917,15 @@ namespace OloEngine
                 return false;
             }
             const auto blobFormat = static_cast<TextureCompressionFormat>(formatInt);
-            if ((blobFormat == TextureCompressionFormat::BC5 || IsBC6H(blobFormat)) &&
+            if ((blobFormat == TextureCompressionFormat::BC5 || blobFormat == TextureCompressionFormat::BC4 ||
+                 IsBC6H(blobFormat)) &&
                 (flags & (kFlagSRGB | kFlagHasAlpha)) != 0)
             {
                 OLO_CORE_ERROR("TextureCompression::DeserializeFromBlob - {} must not set sRGB/alpha flags ({:#x})",
-                               blobFormat == TextureCompressionFormat::BC5 ? "BC5" : "BC6H", flags);
+                               blobFormat == TextureCompressionFormat::BC5   ? "BC5"
+                               : blobFormat == TextureCompressionFormat::BC4 ? "BC4"
+                                                                             : "BC6H",
+                               flags);
                 return false;
             }
             // Bound header fields BEFORE any allocation: a hostile/corrupt .olotex must
@@ -932,6 +1074,9 @@ namespace OloEngine
                             case TextureImportSettings::FormatChoice::BC5:
                                 format = TextureCompressionFormat::BC5;
                                 break;
+                            case TextureImportSettings::FormatChoice::BC4:
+                                format = TextureCompressionFormat::BC4;
+                                break;
                             case TextureImportSettings::FormatChoice::BC6H:
                                 format = TextureCompressionFormat::BC6H;
                                 break;
@@ -953,8 +1098,9 @@ namespace OloEngine
             }
 
             // Auto: an HDR source (.hdr / .exr with float data) becomes BC6H, everything
-            // else BC7. Whether that BC6H is the signed variant is decided from the
-            // decoded pixels below, once they exist.
+            // else BC7. Whether that BC6H is the signed variant, and whether an LDR source
+            // narrows to BC4, are both decided from the decoded pixels below.
+            const bool autoSelectFormat = format == TextureCompressionFormat::None;
             bool autoSelectBC6HVariant = false;
             if (format == TextureCompressionFormat::None)
             {
@@ -1007,10 +1153,38 @@ namespace OloEngine
                     OLO_CORE_ERROR("TextureCompression::CompressImageFile - failed to load '{}'", srcImagePath);
                     return false;
                 }
+                const u32 texelWidth = static_cast<u32>(width);
+                const u32 texelHeight = static_cast<u32>(height);
+                const u32 sourceChannels = static_cast<u32>(channels);
+
+                // Per-channel format selection (#624 item 5), from the PIXELS. A greyscale
+                // source — one whose R, G and B are equal at every texel, which includes
+                // every 1-channel file — was previously widened to R,R,R,255 and stored as
+                // BC7 at 16 bytes per block. BC4 stores exactly the one channel that
+                // carries anything, in 8, and this engine samples BC4 as (R,R,R,1), so
+                // nothing downstream can tell the difference.
+                //
+                // This is safe to do automatically precisely because it is a measurement:
+                // no channel that carries information is dropped. The neighbouring case
+                // that ISN'T safe, and so is left to the sidecar, is narrowing an RGB
+                // source to two channels — BC5 decodes blue as 0, which is a change unless
+                // the source's blue happened to be 0 too.
+                const ChannelUsage usage = AnalyzeChannels(data, texelWidth, texelHeight, sourceChannels);
+                if (autoSelectFormat && !usage.HasAlpha && usage.IsGreyscale && !srgb)
+                    format = TextureCompressionFormat::BC4;
+
                 if (format == TextureCompressionFormat::BC5)
-                    image = EncodeBC5(data, static_cast<u32>(width), static_cast<u32>(height), static_cast<u32>(channels), generateMips);
+                    image = EncodeBC5(data, texelWidth, texelHeight, sourceChannels, generateMips);
+                else if (format == TextureCompressionFormat::BC4)
+                    image = EncodeBC4(data, texelWidth, texelHeight, sourceChannels, generateMips);
                 else
-                    image = EncodeBC7(data, static_cast<u32>(width), static_cast<u32>(height), static_cast<u32>(channels), srgb, generateMips);
+                {
+                    image = EncodeBC7(data, texelWidth, texelHeight, sourceChannels, srgb, generateMips);
+                    // Alpha is MEASURED, not inferred from the channel count: a 4-channel
+                    // PNG whose alpha is a constant 255 is opaque, and reporting it as
+                    // transparent puts an opaque albedo in the transparent render pass.
+                    image.HasAlpha = usage.HasAlpha;
+                }
                 ::stbi_image_free(data);
             }
 

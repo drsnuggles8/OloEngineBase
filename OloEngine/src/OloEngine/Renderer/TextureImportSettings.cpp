@@ -21,10 +21,11 @@ namespace OloEngine
         // Spelling <-> enum tables. Kept as one table per enum so the parser and the
         // emitter cannot drift apart, and so an unknown spelling is rejected rather than
         // silently mapped to Auto.
-        constexpr std::array<std::pair<std::string_view, TextureImportSettings::FormatChoice>, 5> kFormatNames = { {
+        constexpr std::array<std::pair<std::string_view, TextureImportSettings::FormatChoice>, 6> kFormatNames = { {
             { "Auto", TextureImportSettings::FormatChoice::Auto },
             { "BC7", TextureImportSettings::FormatChoice::BC7 },
             { "BC5", TextureImportSettings::FormatChoice::BC5 },
+            { "BC4", TextureImportSettings::FormatChoice::BC4 },
             { "BC6H", TextureImportSettings::FormatChoice::BC6H },
             { "BC6HSigned", TextureImportSettings::FormatChoice::BC6HSigned },
         } };

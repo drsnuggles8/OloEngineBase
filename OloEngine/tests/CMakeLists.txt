@@ -122,7 +122,9 @@ add_executable(OloEngine-Tests
 		Rendering/BC6HBlockModeReader.h
 		Rendering/BC6HQualityTest.cpp
 		Rendering/BC6HModeCoverageTest.cpp
+		Rendering/PropertyTests/BC6HGpuEncoderTest.cpp
 		Rendering/TextureImportSettingsTest.cpp
+		Rendering/TextureChannelAnalysisTest.cpp
 		Rendering/BoundingVolumeTest.cpp
 		Rendering/FrustumCullingTest.cpp
 		Rendering/ObserverCameraTest.cpp

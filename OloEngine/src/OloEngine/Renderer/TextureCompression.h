@@ -34,6 +34,9 @@ namespace OloEngine
                         // Unsigned variant (non-negative radiance); no alpha, never sRGB.
         BC6HSigned = 4, // As BC6H but the SIGNED variant (GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT),
                         // for HDR source data that carries negative components (#624).
+        BC4 = 5,        // Single-channel (R), 8 bytes / 4x4 block — HALF the size of every
+                        // other format here. Greyscale data: AO, roughness, height, masks.
+                        // Samples as (R,R,R,1), see the note on EncodeBC4 (#624).
     };
 
     // True for the two BC6H variants, which share block geometry, the container layout
@@ -83,7 +86,7 @@ namespace OloEngine
         [[nodiscard]] bool IsLikelyColorTexture(std::string_view filename);
 
         // ---- Block geometry ---------------------------------------------------
-        // Bytes per 4x4 block (BC5 and BC7 are both 16). 0 for None.
+        // Bytes per 4x4 block: 8 for BC4, 16 for BC5/BC7/BC6H. 0 for None.
         [[nodiscard]] u32 BlockSizeBytes(TextureCompressionFormat format);
         // Number of 4x4 blocks spanning a mip dimension: ceil(dim / 4), at least 1.
         [[nodiscard]] u32 BlockCount(u32 dimension);
@@ -103,6 +106,15 @@ namespace OloEngine
         [[nodiscard]] CompressedTextureImage EncodeBC7(const u8* pixels, u32 width, u32 height, u32 channels, bool srgb, bool generateMips);
         [[nodiscard]] CompressedTextureImage EncodeBC5(const u8* pixels, u32 width, u32 height, u32 channels, bool generateMips);
 
+        // Encode channel 0 (R) of the source to BC4 — 8 bytes per block, half of BC7.
+        //
+        // The decode is (R, R, R, 1) in this engine, on both the GPU (a texture swizzle
+        // set at upload) and the CPU (DecodeToRGBA8). That is deliberate: it makes BC4
+        // a drop-in for a greyscale source that would otherwise have been expanded to
+        // R,R,R,255 and stored as BC7, so the auto-cook can pick it purely on measured
+        // channel content without changing what any shader reads.
+        [[nodiscard]] CompressedTextureImage EncodeBC4(const u8* pixels, u32 width, u32 height, u32 channels, bool generateMips);
+
         // Encode HDR RGB float source (channels >= 3, extra channels ignored; the R,G,B
         // triples are read row-major with `channels` floats/texel stride) to BC6H.
         //
@@ -118,14 +130,60 @@ namespace OloEngine
         [[nodiscard]] CompressedTextureImage EncodeBC6H(const f32* pixels, u32 width, u32 height, u32 channels,
                                                         bool isSigned, bool generateMips);
 
+        // ---- GPU encode hook (#624 item 3) ------------------------------------
+        // Signature of a GPU BC6H level encoder: fills `outBlocks` with the tightly
+        // packed blocks for one mip level, or returns false having logged why.
+        using Bc6hGpuEncodeFn = bool (*)(const f32* rgb, u32 width, u32 height, bool isSigned,
+                                         std::vector<u8>& outBlocks);
+
+        // Hand EncodeBC6H a GPU encoder, or nullptr to take it away. Registered by
+        // Renderer/BC6HGpuEncoder.h, which owns the compute pass; this header stays
+        // free of any renderer or GL dependency, which is what lets the encoders be
+        // unit-tested with no graphics context.
+        //
+        // When set, EncodeBC6H encodes each mip level on the GPU and falls back to the
+        // CPU encoder for that level — loudly, one warning naming the level — if the
+        // hook returns false. The fallback is a SPEED fallback, not a quality one:
+        // both paths run the same mode search and emit the same container.
+        void SetGpuBC6HEncoder(Bc6hGpuEncodeFn encoder);
+        [[nodiscard]] bool HasGpuBC6HEncoder();
+
+        // How many mip levels this process encoded on each path since start-up.
+        // A cook that believes it used the GPU can check rather than assume, and a
+        // silent fall back to the CPU shows up as a number instead of as a slow bake.
+        struct Bc6hEncodeCounts
+        {
+            u64 GpuLevels = 0;
+            u64 CpuLevels = 0;
+        };
+        [[nodiscard]] Bc6hEncodeCounts GetBC6HEncodeCounts();
+        void ResetBC6HEncodeCounts();
+
         // True if any RGB component of the float source is negative — the signal that a
         // source needs the SIGNED BC6H variant. Reads `channels` floats/texel and looks
         // at the first three. Non-finite components are ignored (they are clamped by the
         // encoder either way, so they must not force the signed variant on their own).
         [[nodiscard]] bool HasNegativeComponents(const f32* pixels, u32 width, u32 height, u32 channels);
 
+        // ---- Channel analysis (#624 item 5) -----------------------------------
+        // What a decoded 8-bit image actually USES, measured rather than guessed from
+        // its filename. This is the reliable half of "per-channel / packed-format
+        // heuristics": every field below is a property of the pixels, so acting on it
+        // cannot misfire the way a name-based rule can.
+        struct ChannelUsage
+        {
+            bool HasAlpha = false;    // a 4-channel source whose alpha is NOT constant 255
+            bool IsGreyscale = false; // R == G == B for every texel (or a 1-channel source)
+            u32 VaryingChannels = 0;  // how many of R,G,B,A are not constant across the image
+        };
+
+        // `channels` is the source's own channel count as stb reports it: 1 = grey,
+        // 2 = grey+alpha, 3 = RGB, 4 = RGBA.
+        [[nodiscard]] ChannelUsage AnalyzeChannels(const u8* pixels, u32 width, u32 height, u32 channels);
+
         // ---- Decode (CPU) -----------------------------------------------------
-        // Decompress one mip level to RGBA8 (4 bytes/texel). BC5 fills b=0, a=255.
+        // Decompress one mip level to RGBA8 (4 bytes/texel). BC5 fills b=0, a=255;
+        // BC4 fills g=b=r and a=255, matching the GPU swizzle.
         // Used by tests and the no-BPTC-hardware fallback upload path. Rejects BC6H
         // (an HDR format cannot be represented in 8-bit) — use DecodeToRGBAFloat for it.
         [[nodiscard]] bool DecodeToRGBA8(const CompressedTextureImage& image, u32 mipLevel,

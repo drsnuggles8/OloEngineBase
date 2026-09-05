@@ -252,6 +252,9 @@ namespace OloEngine::RHI
         // next to BC6HUFloat: this enum's ordinals are pinned by
         // RHIEnumLoweringTest and members may only ever be appended.
         BC6HSFloat,
+
+        // RGTC1 single channel (issue #624), appended for the same reason.
+        BC4UNorm,
     };
 
     // An INTEGER texture must be sampled with NEAREST, and a single-level one
@@ -329,7 +332,8 @@ namespace OloEngine::RHI
 
     [[nodiscard]] constexpr bool IsCompressed(Format format) noexcept
     {
-        return format == Format::BC5UNorm || format == Format::BC6HUFloat || format == Format::BC6HSFloat ||
+        return format == Format::BC4UNorm || format == Format::BC5UNorm ||
+               format == Format::BC6HUFloat || format == Format::BC6HSFloat ||
                format == Format::BC7UNorm || format == Format::BC7SRGB;
     }
 

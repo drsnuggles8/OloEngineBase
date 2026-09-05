@@ -278,6 +278,8 @@ namespace OloEngine::Utils
                 return GL_DEPTH_COMPONENT32F;
             case RHI::Format::BC5UNorm:
                 return GL_COMPRESSED_RG_RGTC2;
+            case RHI::Format::BC4UNorm:
+                return GL_COMPRESSED_RED_RGTC1;
             case RHI::Format::BC6HUFloat:
                 return GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT;
             case RHI::Format::BC6HSFloat:

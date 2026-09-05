@@ -4652,6 +4652,8 @@ namespace OloEngine
                     return { ImageFormat::DEPTH24STENCIL8, false };
                 case RHI::Format::BC5UNorm:
                     return { ImageFormat::BC5, false };
+                case RHI::Format::BC4UNorm:
+                    return { ImageFormat::BC4, false };
                 case RHI::Format::BC6HUFloat:
                     return { ImageFormat::BC6H, false };
                 case RHI::Format::BC6HSFloat:
@@ -4661,10 +4663,9 @@ namespace OloEngine
                 case RHI::Format::BC7SRGB:
                     return { ImageFormat::BC7, true };
                 case RHI::Format::RGBA32UInt:
-                    // No ImageFormat member yet (the R32UInt/#702 precedent):
-                    // fall through to None, so the create warns and returns
-                    // the null handle rather than lying.
-                    break;
+                    // Gained an ImageFormat member with the GPU BC6H encoder (#624),
+                    // which writes its 16-byte blocks as RGBA32UI texels.
+                    return { ImageFormat::RGBA32UI, false };
             }
             return {};
         }

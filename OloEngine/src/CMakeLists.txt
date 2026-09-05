@@ -736,6 +736,8 @@
 		"OloEngine/Renderer/Texture.h"
 		"OloEngine/Renderer/BC6HEncoder.cpp"
 		"OloEngine/Renderer/BC6HEncoder.h"
+		"OloEngine/Renderer/BC6HGpuEncoder.cpp"
+		"OloEngine/Renderer/BC6HGpuEncoder.h"
 		"OloEngine/Renderer/TextureCompression.cpp"
 		"OloEngine/Renderer/TextureCompression.h"
 		"OloEngine/Renderer/TextureImportSettings.cpp"

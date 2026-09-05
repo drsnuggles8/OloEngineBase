@@ -54,7 +54,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 ## Renderer
 
-- [multi-mode-block-format-encoders.md](multi-mode-block-format-encoders.md): a block format with several block layouts is validated one mode at a time against the reference decoder's own read order; BC6H interpolates in half-float space, so a high-contrast block is not its hard case.
+- [multi-mode-block-format-encoders.md](multi-mode-block-format-encoders.md): a block format with several block layouts is validated one mode at a time against the reference decoder's own read order; BC6H interpolates in half-float space, so a high-contrast block is not its hard case; a compute port keeps its integer half identical and returns bulk data in an `rgba32ui` image rather than spending a scarce buffer binding.
 - [incomplete-texture-samples-as-zero.md](incomplete-texture-samples-as-zero.md): set a texture's sampler state at creation; an incomplete texture reads zero on AMD and fine on NVIDIA.
 - [std-distributions-are-not-portable.md](std-distributions-are-not-portable.md): seed procedural content with your own transform over mt19937; std:: distributions differ between standard libraries, so one seed is two different results.
 - [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md): the OpenGL boundary leaks through the include graph, not a `glXxx(` grep; plus the Vulkan epic's lessons.

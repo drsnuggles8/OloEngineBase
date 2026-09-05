@@ -444,6 +444,10 @@ namespace OloEngine::MCP
                     return "BC6H";
                 case ImageFormat::BC6HS:
                     return "BC6HS";
+                case ImageFormat::RGBA32UI:
+                    return "RGBA32UI";
+                case ImageFormat::BC4:
+                    return "BC4";
                 case ImageFormat::R32UI:
                     return "R32UI";
             }

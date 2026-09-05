@@ -179,15 +179,23 @@ TEST(TextureCompression, PersistedFormatEnumValuesAreStable)
     static_assert(static_cast<u32>(ImageFormat::R32UI) == 19);
     static_assert(static_cast<u32>(ImageFormat::BC6HS) == 20,
                   "ImageFormat entries are APPENDED — a new one must not renumber R32UI");
+    static_assert(static_cast<u32>(ImageFormat::RGBA32UI) == 21,
+                  "ImageFormat entries are APPENDED — a new one must not renumber BC6HS");
+    static_assert(static_cast<u32>(ImageFormat::BC4) == 22,
+                  "ImageFormat entries are APPENDED — a new one must not renumber RGBA32UI");
 
     static_assert(static_cast<u32>(TextureCompressionFormat::None) == 0);
     static_assert(static_cast<u32>(TextureCompressionFormat::BC7) == 1);
     static_assert(static_cast<u32>(TextureCompressionFormat::BC5) == 2);
     static_assert(static_cast<u32>(TextureCompressionFormat::BC6H) == 3);
-    static_assert(static_cast<u32>(TextureCompressionFormat::BC6HSigned) == 4,
+    static_assert(static_cast<u32>(TextureCompressionFormat::BC6HSigned) == 4);
+    static_assert(static_cast<u32>(TextureCompressionFormat::BC4) == 5,
                   "TextureCompressionFormat values are persisted in .olotex — append only");
 
     EXPECT_TRUE(IsCompressedFormat(ImageFormat::BC6HS));
+    EXPECT_TRUE(IsCompressedFormat(ImageFormat::BC4));
+    EXPECT_FALSE(IsCompressedFormat(ImageFormat::RGBA32UI));
+    EXPECT_TRUE(IsIntegerFormat(ImageFormat::RGBA32UI));
     EXPECT_FALSE(IsCompressedFormat(ImageFormat::R32UI));
     EXPECT_TRUE(IsBC6H(TextureCompressionFormat::BC6HSigned));
     EXPECT_FALSE(IsBC6H(TextureCompressionFormat::BC7));
