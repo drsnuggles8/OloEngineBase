@@ -274,7 +274,8 @@ namespace OloEngine
         return handle;
     }
 
-    void VulkanRawBufferRegistry::Allocate(RHI::ResourceHandle handle, u64 sizeBytes, RHI::MemoryResidency residency)
+    void VulkanRawBufferRegistry::Allocate(RHI::ResourceHandle handle, u64 sizeBytes, RHI::MemoryResidency residency,
+                                           bool requireHostCoherentMap)
     {
         auto* entry = Lookup(handle);
         if (entry == nullptr)
@@ -314,9 +315,17 @@ namespace OloEngine
         // bit. Its absence is what made SSBO_VIRTUAL_INDICES unbindable and lost
         // the device on every virtual-geometry scene. VulkanVertexBuffer and
         // VulkanIndexBuffer already set it; the raw family was the outlier.
+        //
+        // INDEX_BUFFER (issue #1052, the same lesson one role later): the raw
+        // family is also where a dual-purpose ELEMENT buffer lands —
+        // VirtualMeshRegistry's index arena is a GL element buffer AND
+        // SSBO_VIRTUAL_INDICES — so SetVertexArrayIndexBuffer's
+        // vkCmdBindIndexBuffer needs the bit at CREATE time too. A raw buffer's
+        // role is whatever its caller picks, so the usage set has to cover
+        // every role the facade offers rather than the one the last caller used.
         bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
-                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+                           VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         VmaAllocationCreateInfo allocInfo{};
@@ -336,6 +345,18 @@ namespace OloEngine
             case RHI::MemoryResidency::DeviceLocal:
                 break;
         }
+        if (requireHostCoherentMap)
+        {
+            // AllocatePersistentUploadStorage's contract (see the header): the
+            // caller writes through the returned pointer and reads it on-device
+            // with no flush, so a non-coherent or non-mappable placement is not
+            // a slower path, it is a wrong one. Dropping
+            // ALLOW_TRANSFER_INSTEAD and stating the memory properties makes
+            // vmaCreateBuffer FAIL rather than hand back an unmapped buffer.
+            allocInfo.flags =
+                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+            allocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        }
 
         VmaAllocationInfo outInfo{};
         VkBuffer buffer = VK_NULL_HANDLE;
@@ -344,6 +365,13 @@ namespace OloEngine
             VK_SUCCESS)
         {
             OLO_CORE_ERROR("[RHI/Vulkan] AllocateBufferStorage: vmaCreateBuffer({} bytes) failed", sizeBytes);
+            // The orphan path above already retired the previous storage and
+            // cleared the entry, so the identity registry is still naming a
+            // buffer that no longer exists. Leaving it there makes the next
+            // CopyBufferSubData / UploadBufferSubData record a copy into freed
+            // storage; zeroing it makes them resolve nothing and refuse
+            // loudly, which is the contract everywhere else here (#1052).
+            RHI::ResourceRegistry::Get().UpdateNative(handle, 0u);
             return;
         }
 

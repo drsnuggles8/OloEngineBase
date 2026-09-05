@@ -5891,6 +5891,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     const u64 stubsBefore = api.GetUnimplementedStubHitCount();
+    const u64 unfedBefore = api.GetUnfedStorageBindingCount();
 
     // --- the real MDI shader (DrawParameters capability gate) ---------------
     auto vgShader = Shader::Create("assets/shaders/VirtualMeshGBuffer.glsl");
@@ -5940,10 +5941,37 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
 
     // Pooled cluster-local index buffer: each cluster's 6 indices are LOCAL
     // (0..3); the command's BaseVertex lands them on the pooled slot.
+    //
+    // BUILT THE WAY THE REGISTRY BUILDS IT (issue #1052), which is the whole
+    // point of this block. It used to read
+    //
+    //     auto indexBuffer = IndexBuffer::Create(indices, 12);   // object-backed
+    //     auto vao = VertexArray::Create();
+    //     vao->SetIndexBuffer(indexBuffer);
+    //
+    // and that substitution is what let virtual geometry ship broken on Vulkan
+    // twice. VirtualMeshRegistry mints a RAW handle
+    // (RenderCommand::CreateBufferHandle), fills it through the upload path,
+    // hangs it on a raw VAO with SetVertexArrayIndexBuffer, AND binds the same
+    // handle a second way as SSBO_VIRTUAL_INDICES — four production seams the
+    // object-backed spelling shares nothing with. An object-backed
+    // VulkanIndexBuffer already carried every usage bit and registry entry the
+    // draw needed; the raw one carried none of them, and the test could not
+    // fail because the buffer it exercised was not the buffer that breaks.
+    // See substituted-seams-compound.md.
     u32 indices[] = { 0u, 1u, 2u, 2u, 3u, 0u, 0u, 1u, 2u, 2u, 3u, 0u };
-    auto indexBuffer = IndexBuffer::Create(indices, 12);
-    auto vao = VertexArray::Create();
-    vao->SetIndexBuffer(indexBuffer);
+    const RHI::ResourceHandle indexArena = RenderCommand::CreateBufferHandle();
+    ASSERT_TRUE(indexArena.IsValid());
+    RenderCommand::AllocateBufferStorage(indexArena, sizeof(indices), RHI::MemoryResidency::DeviceLocal);
+    RenderCommand::UploadBufferSubData(indexArena, 0, sizeof(indices), indices);
+    const RHI::ResourceHandle rawVao = RenderCommand::CreateVertexArrayHandle();
+    ASSERT_TRUE(rawVao.IsValid());
+    RenderCommand::SetVertexArrayIndexBuffer(rawVao, indexArena);
+    // The second role. The registry's arena is "element-buffer + SSBO_
+    // VIRTUAL_INDICES arena", and binding 42 is where every VG shader reads the
+    // cluster-local indices — the binding that had no published occupant and
+    // lost the device in #1054. This tenant never bound it at all.
+    RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VIRTUAL_INDICES, indexArena);
 
     std::array<VgMdiCommand, 2> commands{};
     commands[0] = { 6u, 1u, 0u, 0, 0u, {} };
@@ -6038,7 +6066,7 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
                 // maxDrawCount stays 2 in BOTH chains: the count BUFFER must
                 // drive (chain 2's contract).
                 RenderCommand::MultiDrawElementsIndirectCountRaw(
-                    vao->GetRHIHandle(), commandSSBO->GetRHIHandle(), 0u,
+                    rawVao, commandSSBO->GetRHIHandle(), 0u,
                     argsSSBO->GetRHIHandle(), 0u, 2u, 32u);
 
                 // The pass's phase-2 fence: framebuffer writes -> texture
@@ -6104,8 +6132,21 @@ TEST_F(VulkanPassSuite, VirtualGeometryMdiCountDrawsHandAuthoredClusters)
         EXPECT_EQ(right[2], 0);
     }
 
+    // The assertion that would have caught #1052 on day one, now that the
+    // buffers under it are the production ones: not a single entry point this
+    // frame touched fell through to a #691 no-op. It is backend-shaped rather
+    // than feature-shaped — it catches the NEXT unlowered path too.
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
-        << "MDI-count + TextureBarrier must ride real implementations, not stubs";
+        << "MDI-count + TextureBarrier + the raw index arena's create/upload/bind must ride real "
+           "implementations, not stubs";
+    // ... and nothing was fed the frame arena's null block, which is the
+    // device-loss precursor #1054 fixed and this test never watched.
+    EXPECT_EQ(api.GetUnfedStorageBindingCount(), unfedBefore)
+        << "a storage binding published the null block — the shader is reading a zero-filled stand-in";
+
+    RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VIRTUAL_INDICES, RHI::NullResource);
+    RenderCommand::DeleteVertexArray(rawVao);
+    RenderCommand::DeleteBuffer(indexArena);
 }
 
 // =============================================================================
