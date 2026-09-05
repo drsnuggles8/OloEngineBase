@@ -916,3 +916,70 @@ cannot leave an uncovered pixel with covered neighbours all round, so any triang
 this reject, the box cap, the near-plane guard — shows up there as a pinhole and nowhere else.
 
 Found on #712 (triangle-level culling in the virtual-geometry raster).
+
+## Adding a world-space 2D component means editing FOUR draw sites, and they do not agree today
+
+`Scene` submits world-space 2D content (sprites, circles, text) from four places, not one. A new 2D
+component wired into some of them renders in one mode and silently vanishes in another:
+
+| Site | `Scene.cpp` context | What it drew before #646 |
+|---|---|---|
+| Runtime, 3D mode | `Renderer3D::SetUICompositeRenderCallback` inside `OnUpdateRuntime` | sprites, circles, text |
+| Runtime, 2D mode | the `else` branch of the same `if (m_Is3DModeEnabled)` | sprites, circles, text, particles |
+| Editor, 3D mode | `SetUICompositeRenderCallback` inside `OnUpdateEditor` | **text only** |
+| Editor, 2D mode | `RenderScene(EditorCamera const&)` | sprites, circles, text, particles |
+
+The third row is the trap. A sprite is invisible in the editor's 3D viewport and always has been, so
+"my component doesn't draw in the editor" reads as normal — until someone toggles 2D mode and it
+appears. Nothing fails, no log line, and a headless visual-evidence test built on
+`RendererAttachedTest` goes through the **editor 3D** path (`EnableRendering` sets 3D mode, and
+`RunEditorFrames` drives `OnUpdateEditor`), so it captures the one path most likely to be missing
+the call.
+
+So: grep for `Renderer2D::BeginScene` in `Scene.cpp` and account for **every** hit before believing a
+2D feature is wired. #646 added `Scene::RenderTilemaps` and called it from all four, which is also
+why tilemaps are visible in the editor's 3D viewport while sprites still are not — the inconsistency
+in that row is pre-existing and was not widened.
+
+The cheaper way to avoid the trap entirely: keep the per-component draw in a helper that takes the
+view-projection, so adding a site is one line rather than a copied loop, and a missing site is
+visible as a missing call rather than as an absent loop body.
+
+Found on #646 (2D tilemap / tileset system).
+
+## A texture built in memory is vertically mirrored relative to one loaded from a file
+
+`TextureSerializer::TryLoadRawData` sets `stbi_set_flip_vertically_on_load_thread(1)`
+(`Asset/AssetSerializer.cpp`), so a decoded image arrives **bottom picture row first**. GL puts the
+first row in memory at `v = 0`, which means for a real asset:
+
+    picture bottom -> v = 0        picture top -> v = 1
+
+A texture assembled by hand and pushed through `Texture2D::SetData` gets **no** such flip — whatever
+row you write first is `v = 0`. So a fixture that fills its pixel buffer in the natural
+top-row-first order produces a texture that is upside-down compared to the same image on disk.
+
+For a full-surface texture (a noise field, a flat colour, a gradient you only check statistically)
+this is invisible. It becomes a real failure the moment the V coordinate carries meaning — a sprite
+atlas, a tile atlas, a glyph sheet, a UI nine-slice — because every sub-rect then samples its
+vertical mirror. Sampling tile 0 of a 4x4 atlas returns tile 12, and every tile in the frame is
+wrong *consistently*, which reads like a deliberate palette rather than a bug.
+
+Two consequences worth internalising:
+
+- **A "did anything draw" assertion cannot see it.** A mirrored atlas fills exactly as many pixels
+  as a correct one. #646's non-clear-pixel-fraction check passed at 0.8+ on a completely wrong
+  frame; only the per-cell "this cell must carry *this* tile's colour" assertion caught it. If a
+  test builds an atlas, it must assert tile *identity*, not tile *presence*.
+- **When such a test fails, decide which side is wrong before editing either.** The natural reflex
+  is to flip the UV maths until the test goes green, which breaks every real asset while making the
+  fixture agree with itself. Check what the loader does first; on #646 the production `GetTileUV`
+  was correct and the fixture's row order was the bug.
+
+To stand in for a loaded image, emit rows bottom-picture-row first:
+
+```cpp
+const u32 imageRow = (height - 1u - memoryRow);   // memoryRow 0 == v 0 == picture bottom
+```
+
+Found on #646 (2D tilemap / tileset system).
