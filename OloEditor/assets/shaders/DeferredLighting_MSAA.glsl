@@ -95,6 +95,12 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
     int _shadowPad1;
     int _shadowPad2;
+    // Hybrid ray-traced shadow routing (issue #1056). Which light index reads
+    // which channel of u_RayTracedShadowMask; -1 = the channel is unassigned.
+    // Written by RayTracedShadowPass AFTER its draws, so a frame where the
+    // trace did not run leaves x below at 0 and this whole branch off.
+    ivec4 u_RayTracedShadowLightIndices;
+    vec4 u_RayTracedShadowParams; // x = mask active, yzw reserved
 };
 
 layout(std140, binding = 8) uniform MotionBlurMatrices {
@@ -118,6 +124,11 @@ layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas;
 // Comparison-OFF raw-depth views of the textures above for the PCSS blocker search.
 layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw;
 layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
+// Ray-traced shadow visibility mask (issue #1056) — one channel per light,
+// 1 = lit. Always bound (to an opaque white 1x1 when the pass did not run), so
+// the sampler can never dangle; the ROUTING in ShadowData, not the texture, is
+// what says whether it is meaningful.
+layout(binding = 72) uniform sampler2D u_RayTracedShadowMask;
 
 // Clustered light lists (issue #435) — included after the ShadowData block +
 // atlas samplers so the evaluator can attenuate culled lights by their entry.

@@ -230,6 +230,7 @@ if (entity.HasComponent<DirectionalLightComponent>())
     SceneBinIO::Write(out, comp.m_Intensity);
     SceneBinIO::Write(out, comp.m_CastShadows);
     SceneBinIO::Write(out, comp.m_CascadeDebugVisualization);
+    SceneBinIO::Write(out, comp.m_RayTracedShadows);
     SceneBinIO::Write(out, comp.m_ShadowBias);
     SceneBinIO::Write(out, comp.m_ShadowNormalBias);
     SceneBinIO::Write(out, comp.m_MaxShadowDistance);
@@ -529,6 +530,7 @@ if (entity.HasComponent<PointLightComponent>())
     SceneBinIO::Write(out, comp.m_Range);
     SceneBinIO::Write(out, comp.m_Attenuation);
     SceneBinIO::Write(out, comp.m_CastShadows);
+    SceneBinIO::Write(out, comp.m_RayTracedShadows);
     SceneBinIO::Write(out, comp.m_ShadowBias);
     SceneBinIO::Write(out, comp.m_ShadowNormalBias);
 }
@@ -671,6 +673,7 @@ if (entity.HasComponent<SpotLightComponent>())
     SceneBinIO::Write(out, comp.m_OuterCutoff);
     SceneBinIO::Write(out, comp.m_Attenuation);
     SceneBinIO::Write(out, comp.m_CastShadows);
+    SceneBinIO::Write(out, comp.m_RayTracedShadows);
     SceneBinIO::Write(out, comp.m_ShadowBias);
     SceneBinIO::Write(out, comp.m_ShadowNormalBias);
 }

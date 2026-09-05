@@ -621,6 +621,25 @@ channel delta > 4 LSBs.
 **Limitations.** Brittle across GPU vendors even with SSIM. Per-vendor
 baseline sets remain a deferred follow-up.
 
+**A multi-angle capture test must also prove its camera moved and its
+subject is on screen.** A golden comparison only answers "did this change?",
+so a test whose captures were all the same blank frame passes forever once
+those frames are baked — which is exactly what issue #931 nearly shipped.
+[`Rendering/PropertyTests/VisualEvidenceGuards.h`](../OloEngine/tests/Rendering/PropertyTests/VisualEvidenceGuards.h)
+carries the two checks that close that hole, and any test capturing more than
+one pose should call both:
+
+- `ExpectCapturesAreDistinct` — every pair of poses must differ by far more
+  than the run-to-run noise floor. **Measure that floor** by capturing one pose
+  twice rather than hardcoding a constant; see
+  [live-verification-noise-floor.md](agent-rules/live-verification-noise-floor.md).
+- `ExpectFrameHasSubject` — a content mask must find the subject. Three
+  different, valid, empty skies are still three frames that prove nothing.
+
+[`MeshVisibilityEvidenceTest.cpp`](../OloEngine/tests/Rendering/PropertyTests/MeshVisibilityEvidenceTest.cpp)
+is the worked example, and it also feeds the distinctness guard the failure it
+exists to catch, so the guard cannot itself pass vacuously.
+
 #### L9 — Cross-vendor conformance
 
 **What it catches.** Vendor-specific divergence — a bug that hides on

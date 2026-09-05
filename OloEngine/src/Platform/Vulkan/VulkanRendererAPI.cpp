@@ -2448,11 +2448,40 @@ namespace OloEngine
         return true;
     }
 
+    VulkanRendererAPI::ResolvedIndexBuffer VulkanRendererAPI::ResolveIndexBufferFor(const VulkanVertexArray* vao)
+    {
+        if (vao == nullptr)
+        {
+            return {};
+        }
+        // The object-backed occupant wins, the way BindStorageBuffer's does:
+        // a VAO built through VertexArray::SetIndexBuffer owns a Ref, and that
+        // is the stronger claim on "this VAO's element buffer".
+        if (const auto* indexBuffer = vao->GetVulkanIndexBuffer();
+            indexBuffer != nullptr && indexBuffer->GetVkBuffer() != VK_NULL_HANDLE)
+        {
+            // The engine's index format is fixed 32-bit (IndexBuffer.h), so the
+            // byte extent is the element count times four.
+            return { indexBuffer->GetVkBuffer(), static_cast<VkDeviceSize>(indexBuffer->GetCount()) * sizeof(u32),
+                     indexBuffer->GetCount() };
+        }
+        // The raw element buffer (SetVertexArrayIndexBuffer, #1052). Resolved
+        // here rather than cached on the VAO so a re-allocate under the same
+        // identity — VirtualMeshRegistry re-sizes its index arena when the page
+        // budget changes — is picked up without a re-set.
+        if (const auto* raw = VulkanRawBufferRegistry::Get().Lookup(vao->GetRawIndexBuffer());
+            raw != nullptr && raw->Buffer != VK_NULL_HANDLE)
+        {
+            return { raw->Buffer, static_cast<VkDeviceSize>(raw->Size), static_cast<u32>(raw->Size / sizeof(u32)) };
+        }
+        return {};
+    }
+
     bool VulkanRendererAPI::BindIndexBufferFor(const VulkanVertexArray* vao)
     {
         auto& ctx = Ctx();
-        const auto* indexBuffer = vao != nullptr ? vao->GetVulkanIndexBuffer() : nullptr;
-        if (indexBuffer == nullptr || indexBuffer->GetVkBuffer() == VK_NULL_HANDLE)
+        const ResolvedIndexBuffer indexBuffer = ResolveIndexBufferFor(vao);
+        if (indexBuffer.Buffer == VK_NULL_HANDLE)
         {
             static std::atomic<bool> s_Warned{ false };
             if (!s_Warned.exchange(true, std::memory_order_relaxed))
@@ -2461,7 +2490,7 @@ namespace OloEngine
             }
             return false;
         }
-        if (indexBuffer->GetVkBuffer() != ctx.BoundIndexBuffer)
+        if (indexBuffer.Buffer != ctx.BoundIndexBuffer || indexBuffer.SizeBytes != ctx.BoundIndexBufferSize)
         {
             // #809 (maintenance5, core in 1.4): bind the buffer's REAL byte
             // size instead of the implicit whole-buffer bind. The facade's
@@ -2471,22 +2500,25 @@ namespace OloEngine
             // the buffer into a validation error naming the bind, instead of
             // an out-of-bounds index fetch that renders garbage. The engine's
             // index format is fixed 32-bit (IndexBuffer.h), so the byte size
-            // is the count times four.
+            // is the count times four. ResolveIndexBufferFor computes it for
+            // both occupant kinds.
             //
-            // The cache key stays the VkBuffer alone: VulkanIndexBuffer's
-            // count is fixed at construction, so a changed element count is
-            // necessarily a different VkBuffer.
+            // The cache key is the buffer AND the extent: VulkanIndexBuffer's
+            // count is fixed at construction, but a RAW arena is re-allocated
+            // at a new size under the same identity when the page budget
+            // changes, and VMA is free to return the same VkBuffer for the
+            // replacement — so the handle alone cannot distinguish the two.
             const auto* device = VulkanDevice::Get();
             if (device != nullptr && device->IsMaintenance5Enabled())
             {
-                const VkDeviceSize sizeBytes = static_cast<VkDeviceSize>(indexBuffer->GetCount()) * sizeof(u32);
-                vkCmdBindIndexBuffer2(ctx.Cmd, indexBuffer->GetVkBuffer(), 0, sizeBytes, VK_INDEX_TYPE_UINT32);
+                vkCmdBindIndexBuffer2(ctx.Cmd, indexBuffer.Buffer, 0, indexBuffer.SizeBytes, VK_INDEX_TYPE_UINT32);
             }
             else
             {
-                vkCmdBindIndexBuffer(ctx.Cmd, indexBuffer->GetVkBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                vkCmdBindIndexBuffer(ctx.Cmd, indexBuffer.Buffer, 0, VK_INDEX_TYPE_UINT32);
             }
-            ctx.BoundIndexBuffer = indexBuffer->GetVkBuffer();
+            ctx.BoundIndexBuffer = indexBuffer.Buffer;
+            ctx.BoundIndexBufferSize = indexBuffer.SizeBytes;
         }
         return true;
     }
@@ -2611,7 +2643,7 @@ namespace OloEngine
             // context.DrawIndexed(va) pass-body call uses the no-count form,
             // so the whole pass suite silently drew nothing (found by
             // VulkanPassSuiteTest's first full-graph frame).
-            const u32 count = indexCount != 0 ? indexCount : vao->GetVulkanIndexBuffer()->GetCount();
+            const u32 count = indexCount != 0 ? indexCount : ResolveIndexBufferFor(vao).Count;
             vkCmdDrawIndexed(ctx.Cmd, count, 1, 0, 0, 0);
         }
     }
@@ -2623,7 +2655,7 @@ namespace OloEngine
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
             // Same 0 = whole-index-buffer facade contract as DrawIndexed.
-            const u32 count = indexCount != 0 ? indexCount : vao->GetVulkanIndexBuffer()->GetCount();
+            const u32 count = indexCount != 0 ? indexCount : ResolveIndexBufferFor(vao).Count;
             vkCmdDrawIndexed(ctx.Cmd, count, instanceCount, 0, 0, 0);
         }
     }
@@ -2655,7 +2687,7 @@ namespace OloEngine
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_PATCH_LIST) && BindIndexBufferFor(vao))
         {
             // Same 0 = whole-index-buffer facade contract as DrawIndexed.
-            const u32 count = indexCount != 0 ? indexCount : vao->GetVulkanIndexBuffer()->GetCount();
+            const u32 count = indexCount != 0 ? indexCount : ResolveIndexBufferFor(vao).Count;
             vkCmdDrawIndexed(ctx.Cmd, count, 1, 0, 0, 0);
         }
     }
@@ -4440,28 +4472,204 @@ namespace OloEngine
         VulkanRawBufferRegistry::Get().Allocate(buffer, sizeBytes, residency);
     }
 
-    void* VulkanRendererAPI::AllocatePersistentUploadStorage(RHI::ResourceHandle /*buffer*/, u64 /*sizeBytes*/)
+    void* VulkanRendererAPI::AllocatePersistentUploadStorage(RHI::ResourceHandle buffer, u64 sizeBytes)
     {
         if (RefuseOnWorker("AllocatePersistentUploadStorage"))
         {
             return nullptr;
         }
-        UnimplementedStub("AllocatePersistentUploadStorage");
-        return nullptr;
+        // #1052. GL's shape is glNamedBufferStorage(WRITE|PERSISTENT|COHERENT)
+        // followed by glMapNamedBufferRange over the whole range. VMA's twin is
+        // a HOST_VISIBLE|HOST_COHERENT placement created MAPPED: the pointer is
+        // the allocation's own persistent mapping and stays valid for the
+        // buffer's life, so there is no map/unmap pair here at all (see
+        // UnmapBuffer).
+        //
+        // Leaving this a no-op is what emptied virtual geometry's arenas on
+        // Vulkan: GPUCircularBuffer::Create takes the returned nullptr as
+        // "mapping failed" and degrades to direct uploads, and the direct
+        // upload — UploadBufferSubData — was a no-op stub too, so every page
+        // load wrote nothing to either arena and no raster arm had geometry to
+        // draw.
+        if (RHI::ResourceRegistry::Get().KindOf(buffer) != RHI::ResourceKind::Buffer)
+        {
+            UnimplementedStub("AllocatePersistentUploadStorage(not a buffer handle)", StubKind::PreconditionFailure);
+            return nullptr;
+        }
+        auto& registry = VulkanRawBufferRegistry::Get();
+        // A Buffer-kind handle this registry never minted would no-op inside
+        // Allocate and then look identical to a failed mapping below, so the
+        // caller's "mapping failed" branch would swallow a caller bug — the
+        // exact #1052 shape. Refuse it here, counted.
+        if (registry.Lookup(buffer) == nullptr)
+        {
+            UnimplementedStub("AllocatePersistentUploadStorage(not a raw-registry buffer)",
+                              StubKind::PreconditionFailure);
+            return nullptr;
+        }
+        registry.Allocate(buffer, sizeBytes, RHI::MemoryResidency::HostToDevice, /*requireHostCoherentMap=*/true);
+        const auto* entry = registry.Lookup(buffer);
+        if (entry == nullptr || entry->Mapped == nullptr)
+        {
+            // GL returns nullptr when the map fails and every caller carries
+            // that branch, so this is the contract rather than a fallback — but
+            // it is a real capability gap on a desktop device, so say so.
+            OLO_CORE_ERROR("[RHI/Vulkan] AllocatePersistentUploadStorage({} bytes): no host-coherent mappable "
+                           "placement — the caller's direct-upload path takes over",
+                           sizeBytes);
+            return nullptr;
+        }
+        return entry->Mapped;
     }
 
-    void VulkanRendererAPI::UnmapBuffer(RHI::ResourceHandle /*buffer*/)
+    void VulkanRendererAPI::UnmapBuffer(RHI::ResourceHandle buffer)
     {
-        UnimplementedStub("UnmapBuffer");
+        if (RefuseOnWorker("UnmapBuffer"))
+        {
+            return;
+        }
+        // #1052. Complete, and deliberately does nothing to the allocation.
+        // GL needs this call because glMapNamedBufferRange hands out a mapping
+        // the buffer object outlives; AllocatePersistentUploadStorage's VMA
+        // placement is MAPPED for its whole life instead, so the mapping dies
+        // with the storage in Destroy / a re-Allocate and there is nothing to
+        // release here. Kind-guarded like its siblings so a handle from the
+        // wrong family is still refused loudly rather than ignored.
+        if (RHI::ResourceRegistry::Get().KindOf(buffer) != RHI::ResourceKind::Buffer ||
+            VulkanRawBufferRegistry::Get().Lookup(buffer) == nullptr)
+        {
+            UnimplementedStub("UnmapBuffer(not a raw-registry buffer)", StubKind::PreconditionFailure);
+        }
     }
 
-    void VulkanRendererAPI::UploadBufferSubData(RHI::ResourceHandle /*buffer*/, u64 /*offsetBytes*/, u64 /*sizeBytes*/, const void* /*data*/)
+    void VulkanRendererAPI::UploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data)
     {
         if (RefuseOnWorker("UploadBufferSubData"))
         {
             return;
         }
-        UnimplementedStub("UploadBufferSubData");
+        if (sizeBytes == 0u || data == nullptr)
+        {
+            return; // glNamedBufferSubData's degenerate call, which GL ignores
+        }
+        // #1052. GL's glNamedBufferSubData is ordered against everything the
+        // frame already issued, so this stages into a transfer-source buffer
+        // and records vkCmdCopyBuffer on the FRAME command buffer — the
+        // UploadTextureSubImage2D shape, for the same reason. Resolution is
+        // generic (the identity registry, like CopyBufferSubData) because both
+        // families reach here: VirtualMeshRegistry's ring fallback writes the
+        // RAW index arena and the OBJECT-backed vertex StorageBuffer through
+        // this one entry point.
+        auto& ctx = Ctx();
+        auto& registry = RHI::ResourceRegistry::Get();
+        const u64 native =
+            registry.KindOf(buffer) == RHI::ResourceKind::Buffer ? registry.ResolveNativeForBackend(buffer) : 0u;
+        if (native == 0u)
+        {
+            UnimplementedStub("UploadBufferSubData(unresolvable buffer)", StubKind::PreconditionFailure);
+            return;
+        }
+        const auto dst = reinterpret_cast<VkBuffer>(native);
+
+        // Range-check against the destination the way ReadBufferSubData does.
+        // vkCmdCopyBuffer past the end is a VUID violation (and undefined
+        // behaviour on a device without robustness); a counted refusal names
+        // the caller instead. Only the raw family can be measured — an
+        // object-backed buffer's size lives on its C++ object, and the
+        // registry does not carry one.
+        if (const auto* rawDst = VulkanRawBufferRegistry::Get().Lookup(buffer);
+            rawDst != nullptr && offsetBytes + sizeBytes > rawDst->Size)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] UploadBufferSubData: out-of-range write ({}+{} of {}) — dropped", offsetBytes,
+                          sizeBytes, rawDst->Size);
+            UnimplementedStub("UploadBufferSubData(out-of-range)", StubKind::PreconditionFailure);
+            return;
+        }
+
+        // A VulkanStorageBuffer serves DRAWS from a frame-arena SNAPSHOT when a
+        // mid-frame SetData pushed one (GetRootDataAddress). This write goes to
+        // the persistent buffer, so a live snapshot would shadow it and the
+        // upload would land nowhere a shader looks — drop it, which returns the
+        // buffer to resolving persistent.
+        if (const auto* rootEntry = VulkanRootObjectRegistry::Get().Lookup(buffer);
+            rootEntry != nullptr && rootEntry->Kind == VulkanRootObjectKind::StorageBuffer)
+        {
+            static_cast<VulkanStorageBuffer*>(rootEntry->Object)->InvalidateSnapshotForExternalWrite();
+        }
+
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr)
+        {
+            OLO_CORE_ERROR("[RHI/Vulkan] UploadBufferSubData with no live VulkanDevice — ignored");
+            return;
+        }
+
+        if (ctx.Cmd == VK_NULL_HANDLE)
+        {
+            // No recording bracket (load-time seeding, headless fixtures): the
+            // blocking one-shot, which owns its own staging and the
+            // availability barrier every later submission needs.
+            VulkanOneShot::UploadToBuffer(dst, offsetBytes, data, sizeBytes, "VulkanRendererAPI::UploadBufferSubData");
+            return;
+        }
+
+        VkBufferCreateInfo stagingInfo{};
+        stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        stagingInfo.size = sizeBytes;
+        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VmaAllocationCreateInfo stagingAlloc{};
+        stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
+        stagingAlloc.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        VkBuffer staging = VK_NULL_HANDLE;
+        VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+        VmaAllocationInfo stagingOut{};
+        if (vmaCreateBuffer(device->GetAllocator(), &stagingInfo, &stagingAlloc, &staging, &stagingAllocation,
+                            &stagingOut) != VK_SUCCESS)
+        {
+            OLO_CORE_ERROR("[RHI/Vulkan] UploadBufferSubData: staging allocation failed ({} bytes)", sizeBytes);
+            return;
+        }
+        std::memcpy(stagingOut.pMappedData, data, sizeBytes);
+        vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, sizeBytes);
+
+        // Transfer commands are illegal inside a dynamic-rendering scope.
+        EndRenderingScope();
+
+        // No per-buffer state tracking exists (ADR 0011 §1.5's GL-shaped
+        // barrier model), so bracket conservatively — the CopyBufferSubData
+        // spelling, minus the host-read half this direction never needs.
+        const auto globalBarrier = [&](VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
+                                       VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess)
+        {
+            VkMemoryBarrier2 barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            barrier.srcStageMask = srcStage & m_EnabledStageMask;
+            barrier.srcAccessMask = srcAccess;
+            barrier.dstStageMask = dstStage & m_EnabledStageMask;
+            barrier.dstAccessMask = dstAccess;
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.memoryBarrierCount = 1;
+            dep.pMemoryBarriers = &barrier;
+            vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        };
+        globalBarrier(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+        VkBufferCopy region{};
+        region.srcOffset = 0;
+        region.dstOffset = offsetBytes;
+        region.size = sizeBytes;
+        vkCmdCopyBuffer(ctx.Cmd, staging, dst, 1, &region);
+
+        globalBarrier(VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
+
+        // The copy is consumed when the FRAME submits, so the staging buffer
+        // must outlive this call (the UploadTextureSubImage2D discipline).
+        VulkanDeferredReclaim::Get().Enqueue(staging, stagingAllocation);
     }
 
     void VulkanRendererAPI::ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest)
@@ -4536,6 +4744,18 @@ namespace OloEngine
         }
         const auto src = reinterpret_cast<VkBuffer>(srcNative);
         const auto dst = reinterpret_cast<VkBuffer>(dstNative);
+
+        // The copy lands in the destination's PERSISTENT buffer, so a live
+        // frame-arena snapshot staged by an earlier SetData would shadow it for
+        // every later draw (issue #1052 — this is the path
+        // VirtualMeshRegistry's upload ring takes for the vertex arena once the
+        // ring maps, so it is not hypothetical). Drop it; the buffer then
+        // resolves persistent, which is where the copy went.
+        if (const auto* dstRoot = VulkanRootObjectRegistry::Get().Lookup(dstBuffer);
+            dstRoot != nullptr && dstRoot->Kind == VulkanRootObjectKind::StorageBuffer)
+        {
+            static_cast<VulkanStorageBuffer*>(dstRoot->Object)->InvalidateSnapshotForExternalWrite();
+        }
 
         // Transfer commands are illegal inside a dynamic-rendering scope.
         EndRenderingScope();
@@ -4976,9 +5196,53 @@ namespace OloEngine
         rawVaos.erase(it);
     }
 
-    void VulkanRendererAPI::SetVertexArrayIndexBuffer(RHI::ResourceHandle /*vertexArray*/, RHI::ResourceHandle /*indexBuffer*/)
+    void VulkanRendererAPI::SetVertexArrayIndexBuffer(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indexBuffer)
     {
-        UnimplementedStub("SetVertexArrayIndexBuffer");
+        if (RefuseOnWorker("SetVertexArrayIndexBuffer"))
+        {
+            return;
+        }
+        // #1052 — and the design question this issue was really about.
+        //
+        // ADR 0011 §5 decides that vertex input layout is "not baked at all":
+        // vertex shaders fetch through a device-address pointer instead of
+        // VkPipelineVertexInputStateCreateInfo. That reads like it removes this
+        // entry point along with the rest of vertex-input state. It does not.
+        // The index buffer is not part of VkGraphicsPipelineCreateInfo in the
+        // first place — it is bound with vkCmdBindIndexBuffer, plain command
+        // state, contributing zero PSO permutation axes — so §5's "remove the
+        // axis entirely" cannot apply to it, and no ADR contract changes here.
+        // BindIndexBufferFor has been doing exactly this for object-backed VAOs
+        // since #691; all that was missing is the RAW aggregate's half.
+        //
+        // (The alternative — feeding the hardware MDI arm from the same index
+        // SSBO the software raster reads — was rejected:
+        // vkCmdDrawIndexedIndirectCount REQUIRES a bound index buffer, so it
+        // would mean rewriting VirtualMeshRegistry's DrawElementsIndirectCommand
+        // records into a non-indexed encoding and forking VG's GL and Vulkan
+        // draw paths, which is what the raw facade exists to avoid.)
+        const auto* entry = VulkanRootObjectRegistry::Get().Lookup(vertexArray);
+        if (entry == nullptr || entry->Kind != VulkanRootObjectKind::VertexArray)
+        {
+            UnimplementedStub("SetVertexArrayIndexBuffer(unresolvable vertex array)", StubKind::PreconditionFailure);
+            return;
+        }
+        auto* vao = static_cast<VulkanVertexArray*>(entry->Object);
+        if (!indexBuffer.IsValid())
+        {
+            vao->SetRawIndexBuffer({}); // glVertexArrayElementBuffer(vao, 0) detaches
+            return;
+        }
+        // Raw-handle family only: an object-backed index buffer reaches a VAO
+        // through VertexArray::SetIndexBuffer, which owns a Ref. Accepting one
+        // here would record a handle nothing keeps alive.
+        if (RHI::ResourceRegistry::Get().KindOf(indexBuffer) != RHI::ResourceKind::Buffer ||
+            VulkanRawBufferRegistry::Get().Lookup(indexBuffer) == nullptr)
+        {
+            UnimplementedStub("SetVertexArrayIndexBuffer(not a raw-registry buffer)", StubKind::PreconditionFailure);
+            return;
+        }
+        vao->SetRawIndexBuffer(indexBuffer);
     }
 
     void VulkanRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset, u32 width, u32 height, RHI::Format sourceFormat, const void* data)

@@ -3524,6 +3524,26 @@ static void DirectionalLightComponent_SetCastShadows(UUID entityID, bool value)
     comp.m_CastShadows = value;
 }
 
+static bool DirectionalLightComponent_GetRayTracedShadows(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DirectionalLightComponent>();
+    return comp.m_RayTracedShadows;
+}
+
+static void DirectionalLightComponent_SetRayTracedShadows(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<DirectionalLightComponent>();
+    comp.m_RayTracedShadows = value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // DiscoverableComponent                                                          //
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -7107,6 +7127,26 @@ static void PointLightComponent_SetCastShadows(UUID entityID, bool value)
     comp.m_CastShadows = value;
 }
 
+static bool PointLightComponent_GetRayTracedShadows(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PointLightComponent>();
+    return comp.m_RayTracedShadows;
+}
+
+static void PointLightComponent_SetRayTracedShadows(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PointLightComponent>();
+    comp.m_RayTracedShadows = value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // ProceduralSkyComponent                                                         //
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -8250,6 +8290,26 @@ static void SphereAreaLightComponent_SetCastShadows(UUID entityID, bool value)
     comp.m_CastShadows = value;
 }
 
+static bool SphereAreaLightComponent_GetRayTracedShadows(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    return comp.m_RayTracedShadows;
+}
+
+static void SphereAreaLightComponent_SetRayTracedShadows(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SphereAreaLightComponent>();
+    comp.m_RayTracedShadows = value;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // SphereCollider3DComponent                                                      //
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -8432,6 +8492,26 @@ static void SpotLightComponent_SetCastShadows(UUID entityID, bool value)
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<SpotLightComponent>();
     comp.m_CastShadows = value;
+}
+
+static bool SpotLightComponent_GetRayTracedShadows(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpotLightComponent>();
+    return comp.m_RayTracedShadows;
+}
+
+static void SpotLightComponent_SetRayTracedShadows(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<SpotLightComponent>();
+    comp.m_RayTracedShadows = value;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////

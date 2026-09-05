@@ -693,6 +693,10 @@ namespace OloEngine
 		internal static extern bool DirectionalLightComponent_GetCastShadows(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void DirectionalLightComponent_SetCastShadows(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool DirectionalLightComponent_GetRayTracedShadows(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void DirectionalLightComponent_SetRayTracedShadows(ulong entityID, bool value);
 		#endregion
 
 		#region DiscoverableComponent
@@ -1405,6 +1409,10 @@ namespace OloEngine
 		internal static extern bool PointLightComponent_GetCastShadows(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PointLightComponent_SetCastShadows(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PointLightComponent_GetRayTracedShadows(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PointLightComponent_SetRayTracedShadows(ulong entityID, bool value);
 		#endregion
 
 		#region ProceduralSkyComponent
@@ -1640,6 +1648,10 @@ namespace OloEngine
 		internal static extern bool SphereAreaLightComponent_GetCastShadows(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void SphereAreaLightComponent_SetCastShadows(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool SphereAreaLightComponent_GetRayTracedShadows(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SphereAreaLightComponent_SetRayTracedShadows(ulong entityID, bool value);
 		#endregion
 
 		#region SphereCollider3DComponent
@@ -1678,6 +1690,10 @@ namespace OloEngine
 		internal static extern bool SpotLightComponent_GetCastShadows(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void SpotLightComponent_SetCastShadows(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool SpotLightComponent_GetRayTracedShadows(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void SpotLightComponent_SetRayTracedShadows(ulong entityID, bool value);
 		#endregion
 
 		#region SpringBoneComponent

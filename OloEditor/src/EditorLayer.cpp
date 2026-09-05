@@ -3104,9 +3104,18 @@ namespace OloEngine
         // Elevated and looking slightly down so the infinite grid on the XZ
         // plane is visible.  Without this the camera sits at Y=0 with zero
         // pitch, making every view ray parallel to the grid plane.
-        m_EditorCamera.SetPosition({ 0.0f, 5.0f, 10.0f });
-        m_EditorCamera.SetPitch(-0.4f);
-        m_EditorCamera.SetYaw(0.0f);
+        //
+        // Expressed as an ORBIT about the world origin rather than a bare eye
+        // position: the pose has to survive the user's first Alt+drag, and Focus
+        // is the call that gives the orbit a real pivot. Written as three
+        // separate stashing setters it did neither — the eye position was
+        // discarded by the next UpdateView and the negative pitch tilted the
+        // view UP, parking the camera ~3.9 m BELOW the grid looking at the sky:
+        // the exact failure the paragraph above says this function prevents
+        // (issue #931).
+        constexpr glm::vec3 eye{ 0.0f, 5.0f, 10.0f };
+        const f32 distance = glm::length(eye);
+        m_EditorCamera.Focus(glm::vec3(0.0f), distance, 0.0f, std::asin(eye.y / distance));
     }
 
     void EditorLayer::TryInitialize3DMode()

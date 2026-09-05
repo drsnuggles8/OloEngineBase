@@ -1,5 +1,12 @@
 #pragma once
 
+// Self-containment: the inline template at CreateRenderStreamDrawCall uses
+// OLO_PROFILE_FUNCTION(), so this header owes the macro rather than borrowing
+// it from whatever the includer happened to pull in first. Every existing
+// includer already had it (the PCH, or a sibling header), which is why a
+// missing include here compiled everywhere for so long — until a test TU
+// included this header on its own and Linux/Clang named it.
+#include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/FluidRenderData.h"
@@ -57,6 +64,7 @@ namespace OloEngine
     class GPUDrivenOcclusionPass;
     class DeferredGPUOcclusionPass;
     class DDGIProbeUpdatePass;
+    class RayTracedShadowPass;
     struct DDGIVolumeDesc;
     struct DDGIMeshCaster;
     class RenderCommand;
@@ -744,6 +752,23 @@ namespace OloEngine
         }
         static void SetCameraClipPlanes(f32 nearClip, f32 farClip);
 
+        // The frame's ray-traced-shadow candidates (issue #1056), in the order
+        // the scene's light setup found them. Published here rather than read
+        // out of the ECS by the pass because the identity that matters — the
+        // index into the multi-light UBO — only exists inside that loop, and it
+        // is what the lighting shader matches the mask routing against.
+        //
+        // Publishing a CANDIDATE list, not a decision: RayTracedShadowPass is
+        // the only place that knows whether the trace actually ran, so it is
+        // the only place allowed to turn the routing on. See ShadowTechnique.h.
+        static void SetRayTracedShadowLightRequests(std::vector<RayTracedShadowLightRequest> requests);
+        // Cleared at BeginScene, so an empty list means "no light asked this
+        // frame", never "the last frame's list is still here".
+        [[nodiscard]] static const std::vector<RayTracedShadowLightRequest>& GetRayTracedShadowLightRequests()
+        {
+            return s_Data.RayTracedShadowLightRequests;
+        }
+
         // Upload multi-light UBO data for the current frame (partial: only header + activeLightCount lights)
         static void UploadMultiLightUBO(const UBOStructures::MultiLightUBO& data, i32 activeLightCount);
 
@@ -1149,6 +1174,11 @@ namespace OloEngine
         // The pass itself, for the editor debug viz + MCP capture accessors
         // (may be null before Init / after Shutdown).
         [[nodiscard]] static DDGIProbeUpdatePass* GetDDGIPass();
+        // The ray-traced shadow pass (issue #1056), for the renderer settings
+        // panel's fallback counters. Null before Init / after Shutdown, and the
+        // panel MUST handle that: on a machine without ray tracing the pass
+        // still exists, but before Init there is no pipeline at all.
+        [[nodiscard]] static RayTracedShadowPass* GetRayTracedShadowPass();
 
         // Auxiliary mesh-caster sink (issue #705). While set, the scene's
         // SubmitDDGICasterIfCollecting sites ALSO append to this vector, so a
@@ -1715,6 +1745,12 @@ namespace OloEngine
             Ref<UniformBuffer> SSR;
             Ref<UniformBuffer> SSGI;
             Ref<UniformBuffer> ContactShadow;
+            // Hybrid ray-traced shadows (issue #1056), at UBO_RAY_TRACING (65).
+            // Owned here rather than by the pass so its lifetime matches every
+            // other per-pass block, but FILLED inside the pass: half of it —
+            // the TLAS device address, the resolved channel routing, whether a
+            // history exists — is only known once the graph is executing.
+            Ref<UniformBuffer> RayTracedShadow;
 
             PostProcessUBOData PostProcessData{};
             MotionBlurUBOData MotionBlurData{};
@@ -1940,6 +1976,8 @@ namespace OloEngine
             // it for the same reason: a renderer restart must not strand the
             // BLAS table behind a dangling scene.
             RayTracing::RayTracingScene SceneRT;
+            // See SetRayTracedShadowLightRequests (issue #1056).
+            std::vector<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
             bool GPUSceneExtractionActive = false;
             // This frame's draw links (GPUScene/GPUSceneDrawLink.h). Cleared at
             // BeginGPUSceneExtraction, appended during submission, resolved

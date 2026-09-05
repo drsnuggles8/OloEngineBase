@@ -106,16 +106,18 @@ TEST(ScreenSpaceReflection, SSRUBOGetSizeMatchesSizeof)
 }
 
 // The std140 block in PostProcess_SSR.glsl is laid out byte-for-byte against
-// this struct: 3 mat4 (192) + 6 vec4 (96) = 288. The HZBParams vec4 (#284:
-// min-depth HZB acceleration) and the trailing TemporalParams vec4 (#902:
-// per-pass temporal resolve) must each keep the size 16-byte aligned. The
-// SAME block is declared by PostProcess_SSRResolve.glsl and
-// PostProcess_SSRComposite.glsl, so a drift here breaks three shaders.
+// this struct: 3 mat4 (192) + 8 vec4 (128) = 320. The HZBParams vec4 (#284:
+// min-depth HZB acceleration), the TemporalParams vec4 (#902: per-pass temporal
+// resolve) and the two denoiser vec4s (#708) must each keep the size 16-byte
+// aligned. The SAME block is declared by all four sibling shaders of the pass
+// (PreBlur / Resolve / PostBlur / Composite), so a drift here breaks five.
 TEST(ScreenSpaceReflection, SSRUBOLayoutSizeMatchesShader)
 {
-    EXPECT_EQ(sizeof(SSRUBOData), 288u) << "SSRUBOData drifted from the PostProcess_SSR.glsl SSRParams block";
+    EXPECT_EQ(sizeof(SSRUBOData), 320u) << "SSRUBOData drifted from the PostProcess_SSR.glsl SSRParams block";
     EXPECT_EQ(offsetof(SSRUBOData, HZBParams), 256u) << "HZBParams must follow Flags at offset 256";
     EXPECT_EQ(offsetof(SSRUBOData, TemporalParams), 272u) << "TemporalParams must follow HZBParams at offset 272";
+    EXPECT_EQ(offsetof(SSRUBOData, DenoiseParams), 288u) << "DenoiseParams must follow TemporalParams at offset 288";
+    EXPECT_EQ(offsetof(SSRUBOData, DenoiseGuide), 304u);
 }
 
 TEST(ScreenSpaceReflection, SSRBindingIsUniqueAndExpected)

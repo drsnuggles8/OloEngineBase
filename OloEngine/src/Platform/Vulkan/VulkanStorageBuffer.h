@@ -92,10 +92,29 @@ namespace OloEngine
         // in the frame reads the LAST SetData at execute time: the exact
         // failure that emptied the auto-batched instanced draws (all batches
         // sampling the final ModelInstanceBuffer upload — #691).
-        // Falls back to the persistent address when no snapshot is live
-        // (GPU-written buffers never SetData mid-frame, so they always
-        // resolve persistent).
+        // Falls back to the persistent address when no snapshot is live.
+        //
+        // KNOWN DEFECT, issue #1058: a `DynamicCopy` (GPU-produced) buffer that
+        // the CPU also writes — the virtual-geometry draw-args buffer is zeroed
+        // each frame before the cull dispatches — keeps serving DRAWS that CPU
+        // snapshot while the dispatch writes the persistent buffer. The
+        // virtual-geometry mesh-shader task stage reads its launch count that
+        // way, gets 0, and rasterizes nothing. Not fixed here: suppressing the
+        // snapshot for DynamicCopy makes the mesh arm run and then exposes an
+        // out-of-bounds SSBO read that loses the device. See the issue.
         [[nodiscard]] VkDeviceAddress GetRootDataAddress();
+
+        // Drop any live snapshot because someone wrote the PERSISTENT buffer
+        // behind SetData's back (issue #1052): VulkanRendererAPI's
+        // UploadBufferSubData / CopyBufferSubData reach this buffer by its
+        // VkBuffer, so a snapshot staged by an earlier SetData would keep
+        // shadowing it and the write would land where no draw looks. Dropping
+        // it returns the buffer to resolving persistent, which is where the
+        // write went.
+        void InvalidateSnapshotForExternalWrite()
+        {
+            InvalidateSnapshot();
+        }
 
       private:
         void CreateBuffer();

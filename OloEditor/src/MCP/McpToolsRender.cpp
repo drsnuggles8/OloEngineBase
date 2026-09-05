@@ -63,6 +63,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Shadow/ShadowAtlas.h"
+#include "OloEngine/Renderer/Passes/RayTracedShadowPass.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
@@ -310,6 +311,8 @@ namespace OloEngine::MCP
                     return "SSR";
                 case TemporalHistoryEffect::Cloudscape:
                     return "Cloudscape";
+                case TemporalHistoryEffect::RayTracedShadow:
+                    return "RayTracedShadow";
             }
             return "Unknown";
         }
@@ -2644,6 +2647,16 @@ namespace OloEngine::MCP
                 // that fell back to CSM must not read back as 'on' (issue #702).
                 lever.VirtualShadowMaps = Renderer3D::GetShadowMap().IsVirtualShadowMapActive();
                 lever.VSMDebugMode = Renderer3D::GetShadowMap().GetSettings().VSM.DebugMode;
+                // The REQUEST, unlike VirtualShadowMaps above. The technique
+                // is a per-light decision made inside the frame, so there is
+                // no single effective bool to report: a scene can have one
+                // ray-traced light and three that fell back. Reporting the
+                // request keeps the lever able to say what it was set to, and
+                // the per-light truth is the fallback counters (issue #1056).
+                lever.RayTracedShadows =
+                    Renderer3D::GetShadowMap().GetSettings().Technique == ShadowTechnique::RayTraced;
+                lever.RayTracedShadowSoftness = RayTracedSoftnessPreset(
+                    Renderer3D::GetShadowMap().GetSettings().RayTraced.LightAngularRadiusDegrees);
                 return lever;
             };
 
@@ -2724,11 +2737,53 @@ namespace OloEngine::MCP
                                                "OloEngine.log); reporting the effective state";
                     }
                 }
+                else if (setting == Setting::RayTracedShadowSoftness)
+                {
+                    ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+                    shadow.RayTraced.LightAngularRadiusDegrees =
+                        RayTracedSoftnessDegrees(lever.RayTracedShadowSoftness);
+                    Renderer3D::GetShadowMap().SetSettings(shadow);
+                    applied.Data["angularRadiusDegrees"] = shadow.RayTraced.LightAngularRadiusDegrees;
+                }
                 else if (setting == Setting::VSMDebug)
                 {
                     ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
                     shadow.VSM.DebugMode = lever.VSMDebugMode;
                     Renderer3D::GetShadowMap().SetSettings(shadow);
+                }
+                else if (setting == Setting::RayTracedShadows)
+                {
+                    ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+                    shadow.Technique = lever.RayTracedShadows ? ShadowTechnique::RayTraced
+                                                              : ShadowTechnique::ShadowMap;
+                    Renderer3D::GetShadowMap().SetSettings(shadow);
+
+                    // No effective-value correction here, deliberately, and it is
+                    // the opposite call from VirtualShadowMaps just above. VSM has
+                    // ONE flag that Init can refuse, so reporting the request would
+                    // be a lie. The shadow technique has no such flag: it is decided
+                    // per light, inside the frame, after this call returns — a scene
+                    // can end up with one ray-traced light and three fallbacks, and
+                    // there is no single bool that describes that honestly. So the
+                    // lever reports the request and points at the thing that does.
+                    if (const RayTracedShadowPass* pass = Renderer3D::GetRayTracedShadowPass();
+                        pass != nullptr && lever.RayTracedShadows)
+                    {
+                        const auto& stats = pass->GetStats();
+                        applied.Data["rayTracedLights"] = stats.RayTracedLights;
+                        applied.Data["fallbackLights"] = stats.FallbackLights;
+                        if (stats.FallbackLights > 0)
+                        {
+                            applied.Data["fallbackReason"] =
+                                std::string(ToString(stats.DominantFallbackReason()));
+                        }
+                        // One frame stale by construction: these are last frame's
+                        // numbers, because this write lands before the frame that
+                        // acts on it. Say so rather than letting a caller read a
+                        // zero as "it did not work".
+                        applied.Data["note"] = "counters are from the PREVIOUS frame; re-read after a frame "
+                                               "has rendered with the new setting";
+                    }
                 }
                 else if (setting == Setting::HZBOcclusion)
                 {
@@ -7146,7 +7201,13 @@ namespace OloEngine::MCP
                 "derive it on for tile culling) and 'softshadows' (pcf|pcss — PCSS is the dominant ScenePass cost in "
                 "shadowed scenes; A/B it in one call instead of editing shader source). Also exposes 'msaa' (1|2|4|8), "
                 "'persamplelighting', 'depthawareculling', 'virtualshadowmaps', 'vsmdebug' (off plus six diagnostic views), "
-                "'ddgicascades', and 'hzbocclusion'. Topology-affecting changes rebuild the render graph. Call with NO arguments to list "
+                "'ddgicascades', and 'hzbocclusion'. Two more drive the hybrid ray-traced shadow tier (#1056): "
+                "'raytracedshadows' (off|on — routes opted-in lights through ray-query visibility instead of the shadow "
+                "map; Vulkan + Deferred only, and it reports 'rayTracedLights'/'fallbackLights'/'fallbackReason' rather "
+                "than an effective bool, because the technique is decided PER LIGHT inside the frame) and "
+                "'raytracedsoftness' (sharp|sun|overcast|exaggerated — the light's angular radius, THE knob that makes "
+                "the penumbra geometric; sweep it from one camera pose to show contact hardening, and read the chosen "
+                "value back as 'angularRadiusDegrees'). Topology-affecting changes rebuild the render graph. Call with NO arguments to list "
                 "every setting with its current value and allowed values. The change is session-global and ephemeral (a "
                 "scene reload restores it); the response reports 'previousValue' so you can restore by calling again "
                 "with that token — this is restore-prior-value, NOT an undo-stack entry (unlike olo_entity_set_field). "
@@ -7171,7 +7232,16 @@ namespace OloEngine::MCP
                                     .Prop("value", Schema::String().Desc("Apply shape only: the resulting value token ('auto' already resolved)."))
                                     .Prop("changed", Schema::Bool().Desc("Apply shape only."))
                                     .Prop("restoreWith", Schema::String().Desc("Apply shape only: same as previousValue, the explicit restore hint."))
-                                    .Prop("requested", Schema::String().Desc("Apply shape only: 'auto' when depthprepass auto was requested; omitted otherwise."));
+                                    .Prop("requested", Schema::String().Desc("Apply shape only: 'auto' when depthprepass auto was requested; omitted otherwise."))
+                                    // Setting-specific apply fields. Declared because the
+                                    // handler populates them: a property a caller receives
+                                    // but cannot find in the schema reads as an accident,
+                                    // and an agent that validates the response drops it.
+                                    .Prop("angularRadiusDegrees", Schema::Number().Desc("Apply shape, 'raytracedsoftness' only: the light angular radius in degrees the chosen preset resolved to."))
+                                    .Prop("rayTracedLights", Schema::Int().Desc("Apply shape, 'raytracedshadows' on: lights routed to ray-traced visibility. From the PREVIOUS frame — see 'note'."))
+                                    .Prop("fallbackLights", Schema::Int().Desc("Apply shape, 'raytracedshadows' on: lights that asked for it and kept their shadow map. From the PREVIOUS frame."))
+                                    .Prop("fallbackReason", Schema::String().Desc("Apply shape, 'raytracedshadows' on and fallbackLights > 0: the dominant reason, as a sentence."))
+                                    .Prop("note", Schema::String().Desc("Apply shape: a caveat about the values just reported — that the ray-traced counters are one frame stale, or that virtual shadow maps refused to initialise and the effective state is being reported."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_RendererSettingsSet;
             server.RegisterTool(std::move(tool));
