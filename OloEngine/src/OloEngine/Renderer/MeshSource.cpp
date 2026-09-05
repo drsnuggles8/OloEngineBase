@@ -397,6 +397,7 @@ namespace OloEngine
 
     void MeshSource::CalculateSubmeshBounds()
     {
+        const bool hasBoneInfluences = HasBoneInfluences();
         for (auto& submesh : m_Submeshes)
         {
             if (submesh.m_VertexCount == 0 || submesh.m_BaseVertex >= static_cast<u32>(m_Vertices.Num()))
@@ -425,7 +426,7 @@ namespace OloEngine
             }
 
             // For animated meshes, expand submesh bounds to account for bone transformations
-            if (HasBoneInfluences())
+            if (hasBoneInfluences)
             {
                 // Calculate the size of the submesh bounding box
                 glm::vec3 size = max - min;

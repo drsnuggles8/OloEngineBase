@@ -161,6 +161,31 @@ TEST_F(MeshBinarySerializerTest, WriteAndReadStaticMesh)
     std::filesystem::remove(path);
 }
 
+TEST_F(MeshBinarySerializerTest, PreservesAuthoredBoundsForEverySubmesh)
+{
+    auto original = MakeSimpleMesh();
+    original->GetSubmeshes()[0].m_BoundingBox = BoundingBox({ -2, -3, -4 }, { 5, 6, 7 });
+    Submesh second = original->GetSubmeshes()[0];
+    second.m_MeshName = "Second";
+    second.m_BoundingBox = BoundingBox({ -8, -9, -10 }, { 11, 12, 13 });
+    original->GetSubmeshes().Add(second);
+    const auto path = GetTestCachePath("authored_submesh_bounds.omesh");
+    ASSERT_TRUE(MeshBinarySerializer::Write(path, *original, 12345));
+    auto loaded = MeshBinarySerializer::Read(path);
+    ASSERT_TRUE(loaded);
+    ASSERT_EQ(loaded->GetSubmeshes().Num(), 2);
+    for (i32 i = 0; i < 2; ++i)
+    {
+        const auto& expected = original->GetSubmeshes()[i].m_BoundingBox;
+        const auto& actual = loaded->GetSubmeshes()[i].m_BoundingBox;
+        for (glm::length_t axis = 0; axis < 3; ++axis)
+        {
+            EXPECT_FLOAT_EQ(actual.Min[axis], expected.Min[axis]);
+            EXPECT_FLOAT_EQ(actual.Max[axis], expected.Max[axis]);
+        }
+    }
+}
+
 // v2 cook slice (issue #629): a cooked OVGM blob attached to the MeshSource
 // must survive the .omesh round-trip byte-exactly through the appended
 // VirtualMesh section. (OVGM semantic validation is VirtualMeshSerializer's
