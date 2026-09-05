@@ -1155,7 +1155,34 @@ namespace OloEngine
                 }
                 const u32 texelWidth = static_cast<u32>(width);
                 const u32 texelHeight = static_cast<u32>(height);
-                const u32 sourceChannels = static_cast<u32>(channels);
+                u32 sourceChannels = static_cast<u32>(channels);
+
+                // stb's channel count carries a MEANING, not just a width: 1 = grey,
+                // 2 = grey+alpha, 3 = RGB, 4 = RGBA. ExpandToRGBA8 reads two channels as
+                // (R, G, 0, 255) — correct for the raw xy data EncodeBC5 is documented to
+                // take, and wrong for a file, where it puts the alpha in green and then
+                // declares the image opaque. A grey+alpha PNG cooked to BC7 that way loses
+                // its transparency and gains a green ramp.
+                //
+                // Widen it here, in the one place that knows the bytes came from stb, so
+                // the encoders keep their raw-channel contracts.
+                std::vector<u8> greyAlphaRGBA;
+                const u8* pixels = data;
+                if (sourceChannels == 2)
+                {
+                    const sizet texelCount = static_cast<sizet>(texelWidth) * texelHeight;
+                    greyAlphaRGBA.resize(texelCount * 4);
+                    for (sizet i = 0; i < texelCount; ++i)
+                    {
+                        const u8 grey = data[i * 2 + 0];
+                        greyAlphaRGBA[i * 4 + 0] = grey;
+                        greyAlphaRGBA[i * 4 + 1] = grey;
+                        greyAlphaRGBA[i * 4 + 2] = grey;
+                        greyAlphaRGBA[i * 4 + 3] = data[i * 2 + 1];
+                    }
+                    pixels = greyAlphaRGBA.data();
+                    sourceChannels = 4;
+                }
 
                 // Per-channel format selection (#624 item 5), from the PIXELS. A greyscale
                 // source — one whose R, G and B are equal at every texel, which includes
@@ -1169,17 +1196,17 @@ namespace OloEngine
                 // that ISN'T safe, and so is left to the sidecar, is narrowing an RGB
                 // source to two channels — BC5 decodes blue as 0, which is a change unless
                 // the source's blue happened to be 0 too.
-                const ChannelUsage usage = AnalyzeChannels(data, texelWidth, texelHeight, sourceChannels);
+                const ChannelUsage usage = AnalyzeChannels(pixels, texelWidth, texelHeight, sourceChannels);
                 if (autoSelectFormat && !usage.HasAlpha && usage.IsGreyscale && !srgb)
                     format = TextureCompressionFormat::BC4;
 
                 if (format == TextureCompressionFormat::BC5)
-                    image = EncodeBC5(data, texelWidth, texelHeight, sourceChannels, generateMips);
+                    image = EncodeBC5(pixels, texelWidth, texelHeight, sourceChannels, generateMips);
                 else if (format == TextureCompressionFormat::BC4)
-                    image = EncodeBC4(data, texelWidth, texelHeight, sourceChannels, generateMips);
+                    image = EncodeBC4(pixels, texelWidth, texelHeight, sourceChannels, generateMips);
                 else
                 {
-                    image = EncodeBC7(data, texelWidth, texelHeight, sourceChannels, srgb, generateMips);
+                    image = EncodeBC7(pixels, texelWidth, texelHeight, sourceChannels, srgb, generateMips);
                     // Alpha is MEASURED, not inferred from the channel count: a 4-channel
                     // PNG whose alpha is a constant 255 is opaque, and reporting it as
                     // transparent puts an opaque albedo in the transparent render pass.

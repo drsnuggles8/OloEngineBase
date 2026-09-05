@@ -304,3 +304,62 @@ TEST(TextureChannelAnalysis, UniformlyTranslucentSourceIsNotCalledOpaqueAndIsNot
 
     Remove(png);
 }
+
+TEST(TextureChannelAnalysis, TwoChannelSourceIsGreyPlusAlphaNotRedGreen)
+{
+    // stb's channel count is a MEANING, not a width: 2 means grey+alpha. Reading it as
+    // (R, G, 0, 255) — which is the right reading for the raw xy data EncodeBC5 takes,
+    // and the one ExpandToRGBA8 does — puts the alpha in green and calls the image
+    // opaque. A grey+alpha PNG then cooks to BC7 with its transparency gone and a green
+    // ramp where the alpha used to be, and sorts into the opaque pass.
+    constexpr u32 kW = 16;
+    constexpr u32 kH = 16;
+    std::vector<u8> greyAlpha(static_cast<sizet>(kW) * kH * 2);
+    for (u32 y = 0; y < kH; ++y)
+    {
+        for (u32 x = 0; x < kW; ++x)
+        {
+            const sizet i = static_cast<sizet>(y) * kW + x;
+            greyAlpha[i * 2 + 0] = static_cast<u8>((x * 255) / std::max(1u, kW - 1)); // grey
+            greyAlpha[i * 2 + 1] = static_cast<u8>((y * 255) / std::max(1u, kH - 1)); // alpha
+        }
+    }
+
+    const std::filesystem::path png = OloEngine::Tests::TempFile("channels_grey_alpha.png");
+    ASSERT_NE(::stbi_write_png(png.string().c_str(), static_cast<int>(kW), static_cast<int>(kH), 2,
+                               greyAlpha.data(), static_cast<int>(kW) * 2),
+              0);
+
+    TextureCompression::CompressOptions options;
+    CompressedTextureImage image;
+    ASSERT_TRUE(TextureCompression::CompressImageFile(png.string(), options, image));
+    EXPECT_EQ(image.Format, TextureCompressionFormat::BC7) << "alpha rules out the BC4 narrowing";
+    EXPECT_TRUE(image.HasAlpha) << "a grey+alpha source carries alpha; reporting it opaque mis-sorts it";
+
+    // And the alpha has to survive as alpha rather than land in green.
+    std::vector<u8> decoded;
+    u32 dw = 0;
+    u32 dh = 0;
+    ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 0, decoded, dw, dh));
+    ASSERT_EQ(decoded.size(), static_cast<sizet>(kW) * kH * 4);
+
+    // CompressImageFile loads with the runtime loader's vertical flip, so compare against
+    // a flipped expectation rather than the source order.
+    sizet checked = 0;
+    for (u32 y = 0; y < kH; ++y)
+    {
+        for (u32 x = 0; x < kW; ++x)
+        {
+            const sizet src = static_cast<sizet>(kH - 1 - y) * kW + x;
+            const sizet dst = static_cast<sizet>(y) * kW + x;
+            EXPECT_NEAR(decoded[dst * 4 + 3], greyAlpha[src * 2 + 1], 12)
+                << "texel " << dst << ": alpha did not survive the cook";
+            EXPECT_NEAR(decoded[dst * 4 + 1], greyAlpha[src * 2 + 0], 12)
+                << "texel " << dst << ": green must carry the GREY, not the alpha";
+            ++checked;
+        }
+    }
+    EXPECT_GT(checked, 0u);
+
+    Remove(png);
+}
