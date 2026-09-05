@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/BlueNoiseTexture.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/FrameBlackboard.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -326,9 +327,17 @@ namespace OloEngine
         // from the geometry it was tracing against — a no-op near the world
         // origin, which is exactly why no test on a small scene could see it,
         // and a 1024 m displacement the moment the origin grid snaps.
-        const glm::mat4 relativeView = MakeViewRelative(m_View, m_RenderOrigin);
+        const glm::mat4 relativeView = MakeRayTracedShadowView(m_View, m_RenderOrigin);
         params.InvView = glm::inverse(relativeView);
-        params.InvProjection = glm::inverse(m_Projection);
+        // THE A8 SHADER-RECONSTRUCTION SEAM, not a plain inverse. This shader
+        // does the `ndc = vec3(uv*2-1, depth*2-1)` reconstruction, which is the
+        // family RHIProjectionSeam.h says must carry the Vulkan row flip —
+        // sampled uv v=0 is the TOP row there. A plain glm::inverse renders
+        // correctly on GL and reconstructs every ray origin vertically mirrored
+        // on Vulkan, which puts a hard diagonal band of false shadow across the
+        // frame. ContactShadowRenderPass does the same reconstruction and uses
+        // the same helper; the two must not disagree.
+        params.InvProjection = RHI::AdjustedInverseForShaderReconstruction(m_Projection);
         params.View = relativeView;
 
         const u64 tlasAddress = m_RayTracingScene != nullptr ? m_RayTracingScene->GetTlasDeviceAddress() : 0u;
@@ -342,8 +351,7 @@ namespace OloEngine
             // the same render-relative space as the ray origin; a directional
             // light's is a direction, which is translation-invariant and must
             // NOT be shifted.
-            const glm::vec3 lightVector =
-                light.Directional ? light.Vector : (light.Vector - m_RenderOrigin);
+            const glm::vec3 lightVector = MakeRayTracedShadowLightVector(light, m_RenderOrigin);
             params.LightVectors[channel] = glm::vec4(lightVector, light.Directional ? 1.0f : 2.0f);
             // A directional light's angular radius is converted to a tangent
             // here rather than in the shader: it is a per-light constant, so

@@ -57,6 +57,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <cmath>
 #include <string_view>
 #include <vector>
 
@@ -69,19 +70,20 @@ namespace OloEngine::MCP::RendererSettings
     // only — the structs are plain POD).
     enum class Setting
     {
-        Upscale,           // PostProcessSettings::Upscale  (FSR1 spatial-upscale quality preset)
-        Tonemap,           // PostProcessSettings::Tonemap  (tone-map operator)
-        RenderPath,        // RendererSettings::Path        (forward / forward+ / deferred)
-        MSAA,              // RendererSettings::Deferred.MSAASampleCount
-        PerSampleLighting, // RendererSettings::Deferred.PerSampleLighting
-        DepthPrepass,      // LeverState::DepthPrepassEnabled (Renderer3D live toggle; 'auto' = settings-derived)
-        DepthAwareCulling, // LeverState::DepthAwareCulling (issue #722 algorithm-only A/B lever)
-        SoftShadows,       // LeverState::SoftShadows       (ShadowSettings::SoftShadows: PCSS vs PCF)
-        HZBOcclusion,      // LeverState::HZBOcclusion      (Renderer3D::EnableHZBOcclusionCulling)
-        VirtualShadowMaps, // LeverState::VirtualShadowMaps (ShadowSettings::VSM.Enabled, issue #702)
-        VSMDebug,          // LeverState::VSMDebugMode (VirtualShadowMapSettings::DebugMode)
-        RayTracedShadows,  // LeverState::RayTracedShadows (ShadowSettings::Technique, issue #1056)
-        DDGICascades,      // RendererSettings::DDGICascadesEnabled (issue #707)
+        Upscale,                 // PostProcessSettings::Upscale  (FSR1 spatial-upscale quality preset)
+        Tonemap,                 // PostProcessSettings::Tonemap  (tone-map operator)
+        RenderPath,              // RendererSettings::Path        (forward / forward+ / deferred)
+        MSAA,                    // RendererSettings::Deferred.MSAASampleCount
+        PerSampleLighting,       // RendererSettings::Deferred.PerSampleLighting
+        DepthPrepass,            // LeverState::DepthPrepassEnabled (Renderer3D live toggle; 'auto' = settings-derived)
+        DepthAwareCulling,       // LeverState::DepthAwareCulling (issue #722 algorithm-only A/B lever)
+        SoftShadows,             // LeverState::SoftShadows       (ShadowSettings::SoftShadows: PCSS vs PCF)
+        HZBOcclusion,            // LeverState::HZBOcclusion      (Renderer3D::EnableHZBOcclusionCulling)
+        VirtualShadowMaps,       // LeverState::VirtualShadowMaps (ShadowSettings::VSM.Enabled, issue #702)
+        VSMDebug,                // LeverState::VSMDebugMode (VirtualShadowMapSettings::DebugMode)
+        RayTracedShadows,        // LeverState::RayTracedShadows (ShadowSettings::Technique, issue #1056)
+        RayTracedShadowSoftness, // LeverState::RayTracedShadowSoftness (RayTracedShadowSettings::LightAngularRadiusDegrees)
+        DDGICascades,            // RendererSettings::DDGICascadesEnabled (issue #707)
     };
 
     // Live renderer state the perf-lever settings (#316) read/write. These are NOT
@@ -112,6 +114,13 @@ namespace OloEngine::MCP::RendererSettings
         // and the renderer settings panel surface — reporting 'off' here
         // instead would make the lever unable to say what it was set to.
         bool RayTracedShadows = false;
+        // The ray-traced light's apparent SIZE, as a preset index rather than a
+        // float: the lever surface is enum-valued, and the four sizes that
+        // matter are qualitative anyway (a pin-sharp reference, the real sun, an
+        // overcast sky, and a deliberately exaggerated one for SEEING the
+        // penumbra). It is the only knob that changes the shadow's softness, so
+        // it is the one an A/B of "are these shadows actually soft?" needs.
+        i32 RayTracedShadowSoftness = 1;
     };
 
     // Engine integers of the depthprepass tri-token. 'off'/'on' mirror the live
@@ -135,6 +144,47 @@ namespace OloEngine::MCP::RendererSettings
 
     inline constexpr i32 kRayTracedShadowsOff = 0;
     inline constexpr i32 kRayTracedShadowsOn = 1;
+
+    // Preset -> light angular RADIUS in degrees. The sun's true value is 0.265;
+    // the others bracket it so a capture sweep shows the penumbra widening.
+    inline constexpr i32 kRayTracedSoftnessSharp = 0;
+    inline constexpr i32 kRayTracedSoftnessSun = 1;
+    inline constexpr i32 kRayTracedSoftnessOvercast = 2;
+    inline constexpr i32 kRayTracedSoftnessExaggerated = 3;
+
+    [[nodiscard]] inline f32 RayTracedSoftnessDegrees(i32 preset)
+    {
+        switch (preset)
+        {
+            case kRayTracedSoftnessSharp:
+                return 0.02f;
+            case kRayTracedSoftnessOvercast:
+                return 2.0f;
+            case kRayTracedSoftnessExaggerated:
+                return 6.0f;
+            case kRayTracedSoftnessSun:
+            default:
+                return 0.265f;
+        }
+    }
+
+    // Nearest preset for a live degrees value, so the lever reads back what the
+    // renderer actually holds even when the panel set an arbitrary number.
+    [[nodiscard]] inline i32 RayTracedSoftnessPreset(f32 degrees)
+    {
+        i32 best = kRayTracedSoftnessSun;
+        f32 bestDelta = 1.0e30f;
+        for (i32 preset = kRayTracedSoftnessSharp; preset <= kRayTracedSoftnessExaggerated; ++preset)
+        {
+            const f32 delta = std::abs(RayTracedSoftnessDegrees(preset) - degrees);
+            if (delta < bestDelta)
+            {
+                bestDelta = delta;
+                best = preset;
+            }
+        }
+        return best;
+    }
 
     inline constexpr i32 kDDGICascadesOff = 0;
     inline constexpr i32 kDDGICascadesOn = 1;
@@ -208,6 +258,15 @@ namespace OloEngine::MCP::RendererSettings
           "unshadowed" },
     } };
 
+    inline constexpr std::array<EnumValue, 4> kRayTracedSoftnessValues = { {
+        { "sharp", kRayTracedSoftnessSharp, "0.02 deg — a near-point source; the reference for what a HARD ray-traced shadow looks like" },
+        { "sun", kRayTracedSoftnessSun, "0.265 deg — the real sun's angular radius, and the default" },
+        { "overcast", kRayTracedSoftnessOvercast, "2 deg — a visibly soft source; the penumbra widens with occluder distance" },
+        { "exaggerated", kRayTracedSoftnessExaggerated,
+          "6 deg — deliberately unphysical, for SEEING contact hardening in a capture: the shadow is sharp where "
+          "an occluder meets the floor and broad where it is metres above it" },
+    } };
+
     inline constexpr std::array<EnumValue, 2> kRayTracedShadowValues = { {
         { "off", kRayTracedShadowsOff, "Every light shadows from its shadow map (CSM / atlas / VSM)" },
         { "on", kRayTracedShadowsOn,
@@ -257,7 +316,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 13> kSettings = { {
+    inline constexpr std::array<SettingInfo, 14> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -294,6 +353,11 @@ namespace OloEngine::MCP::RendererSettings
           "temporal + variance-guided denoiser, 'off' = the raster shadow-map tier. THE A/B lever for the hybrid "
           "shadow work: it changes only which mechanism answers the visibility question, so a paired capture "
           "isolates the technique from every other renderer setting." },
+        { "raytracedsoftness", Setting::RayTracedShadowSoftness,
+          "Ray-traced light angular radius (RayTracedShadowSettings.LightAngularRadiusDegrees, issue #1056). THE "
+          "knob that makes the penumbra a geometric fact rather than a filter width: the ray is jittered inside "
+          "this cone, so a distant occluder softens on its own. Sweep sharp -> exaggerated from one camera pose "
+          "to show contact hardening. Ignored unless raytracedshadows is on." },
         { "vsmdebug", Setting::VSMDebug,
           "Virtual Shadow Map diagnostic view: clip level, page address, residency, comparison and depth stages." },
         { "ddgicascades", Setting::DDGICascades,
@@ -355,6 +419,8 @@ namespace OloEngine::MCP::RendererSettings
                 return kVirtualShadowMapValues;
             case Setting::RayTracedShadows:
                 return kRayTracedShadowValues;
+            case Setting::RayTracedShadowSoftness:
+                return kRayTracedSoftnessValues;
             case Setting::VSMDebug:
                 return kVSMDebugValues;
             case Setting::DDGICascades:
@@ -573,6 +639,8 @@ namespace OloEngine::MCP::RendererSettings
                 return lever.VirtualShadowMaps ? kVirtualShadowMapsOn : kVirtualShadowMapsOff;
             case Setting::RayTracedShadows:
                 return lever.RayTracedShadows ? kRayTracedShadowsOn : kRayTracedShadowsOff;
+            case Setting::RayTracedShadowSoftness:
+                return lever.RayTracedShadowSoftness;
             case Setting::VSMDebug:
                 return lever.VSMDebugMode;
             case Setting::DDGICascades:
@@ -652,6 +720,9 @@ namespace OloEngine::MCP::RendererSettings
                 break;
             case Setting::RayTracedShadows:
                 lever.RayTracedShadows = value == kRayTracedShadowsOn;
+                break;
+            case Setting::RayTracedShadowSoftness:
+                lever.RayTracedShadowSoftness = value;
                 break;
             case Setting::VSMDebug:
                 lever.VSMDebugMode = value;

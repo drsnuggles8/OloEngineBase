@@ -2649,6 +2649,8 @@ namespace OloEngine::MCP
                 // the per-light truth is the fallback counters (issue #1056).
                 lever.RayTracedShadows =
                     Renderer3D::GetShadowMap().GetSettings().Technique == ShadowTechnique::RayTraced;
+                lever.RayTracedShadowSoftness = RayTracedSoftnessPreset(
+                    Renderer3D::GetShadowMap().GetSettings().RayTraced.LightAngularRadiusDegrees);
                 return lever;
             };
 
@@ -2728,6 +2730,14 @@ namespace OloEngine::MCP
                         applied.Data["note"] = "virtual shadow maps refused to initialise (see "
                                                "OloEngine.log); reporting the effective state";
                     }
+                }
+                else if (setting == Setting::RayTracedShadowSoftness)
+                {
+                    ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+                    shadow.RayTraced.LightAngularRadiusDegrees =
+                        RayTracedSoftnessDegrees(lever.RayTracedShadowSoftness);
+                    Renderer3D::GetShadowMap().SetSettings(shadow);
+                    applied.Data["angularRadiusDegrees"] = shadow.RayTraced.LightAngularRadiusDegrees;
                 }
                 else if (setting == Setting::VSMDebug)
                 {

@@ -235,6 +235,51 @@ namespace OloEngine
     };
 
     // -------------------------------------------------------------------------
+    // The space the rays are traced in
+    // -------------------------------------------------------------------------
+
+    // THE ONE THING ABOUT THIS FEATURE A TEST CANNOT SEE BY LOOKING AT PIXELS.
+    //
+    // The acceleration structure is built from GPU Scene's RENDER-RELATIVE
+    // instance transforms (issue #429), and every shader's reconstructed "world
+    // position" is render-relative too, because the camera UBO is made relative
+    // before upload. A ray traced from an ABSOLUTE world position is therefore
+    // displaced from the geometry it is tracing against by exactly the render
+    // origin.
+    //
+    // That displacement is ZERO near the world origin — which is where every
+    // test scene and every benchmark scene in this repo sits, so the bug is
+    // invisible to a rendered frame, a golden image and a device test alike. It
+    // becomes a 1024 m miss the moment the origin grid snaps. So the conversion
+    // lives here, as two pure functions, and is pinned by arithmetic rather than
+    // by a picture.
+    //
+    // A DIRECTION IS NOT A POSITION, and this is the whole trap: a directional
+    // light's vector is translation-invariant and must NOT be shifted, while a
+    // punctual light's is a point and must be. Shifting both, or neither, is a
+    // plausible-looking image that is wrong.
+
+    // View matrix mapping RENDER-RELATIVE world positions to view space, from
+    // the world view matrix and the origin GPU Scene encoded against.
+    [[nodiscard]] inline glm::mat4 MakeRayTracedShadowView(const glm::mat4& worldView,
+                                                           const glm::vec3& renderOrigin)
+    {
+        // Same construction as CameraRelative.h's MakeViewRelative; spelled out
+        // rather than included so this header stays free of renderer headers and
+        // the test can reach it. RayTracedShadowSpaceTest pins the two equal.
+        glm::mat4 relative = worldView;
+        relative[3] = worldView * glm::vec4(renderOrigin, 1.0f);
+        return relative;
+    }
+
+    // The light vector as the trace shader must receive it.
+    [[nodiscard]] inline glm::vec3 MakeRayTracedShadowLightVector(const RayTracedShadowLightRequest& request,
+                                                                  const glm::vec3& renderOrigin)
+    {
+        return request.Directional ? request.Vector : (request.Vector - renderOrigin);
+    }
+
+    // -------------------------------------------------------------------------
     // The decision
     // -------------------------------------------------------------------------
 

@@ -314,6 +314,10 @@ add_executable(OloEngine-Tests
 		# mask is checked by the GPU visual-evidence tenant beside it, which skips
 		# without a GL 4.6 context.
 		Rendering/Shadow/ShadowTechniqueSelectionTest.cpp
+		# The space a shadow ray is traced in. Its own tenant because the defect
+		# it pins is a byte-identical no-op at the world origin, which is where
+		# every rendered-frame check in this repo happens to sit.
+		Rendering/Shadow/RayTracedShadowSpaceTest.cpp
 		Rendering/PropertyTests/RayTracedShadowVisualEvidenceTest.cpp
 		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
 		Rendering/BackendSelectionTest.cpp
