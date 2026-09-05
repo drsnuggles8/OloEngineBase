@@ -297,6 +297,7 @@ namespace OloEngine
             AtmosphereShadingUBO.Reset();
             m_HasSSGIEnableState = false;
             m_PreviousSSGIEnabled = false;
+            m_PreviousSSGIHalfResolution = true;
             m_HasJitterMode = false;
             m_PreviousJitterMode = 0u;
             InvalidateBlackboardCache();
@@ -332,6 +333,11 @@ namespace OloEngine
         bool m_HasValidBlackboardCache = false;
         bool m_HasSSGIEnableState = false;
         bool m_PreviousSSGIEnabled = false;
+        // Tracked alongside the enable because the #708 half-resolution toggle
+        // resizes every SSGI history; see the invalidation in RenderPipeline.cpp.
+        // Defaults to PostProcessSettings::SSGIHalfResolution's own default so
+        // the first frame after a reset does not read as a change.
+        bool m_PreviousSSGIHalfResolution = true;
         bool m_HasJitterMode = false;
         u8 m_PreviousJitterMode = 0u; // 0=none, 1=TAA, 2=temporal upscale
     };

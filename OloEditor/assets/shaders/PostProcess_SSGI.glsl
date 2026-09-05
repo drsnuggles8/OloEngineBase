@@ -76,6 +76,15 @@ void main()
 // rendered frame is checked by SSGIVisualEvidenceTest.
 
 layout(location = 0) out vec4 o_Color;
+// The guide plane (issue #708), packed exactly like G-Buffer RT1:
+//   rg = octahedral world normal, b = roughness, a = AO.
+// Every later stage of the denoiser chain is guided by THIS, not by the
+// full-resolution G-Buffer, because the chain runs at the trace band and a
+// guide read at a different resolution than the signal it weights would reject
+// taps by silhouettes the signal cannot see. It is also the source the graph
+// extracts SSGISurfaceHistory from, so the temporal resolve's surface test
+// compares like with like across frames.
+layout(location = 1) out vec4 o_Guide;
 
 layout(location = 0) in vec2 v_TexCoord;
 
@@ -109,16 +118,26 @@ layout(std140, binding = 40) uniform SSGIParams
     mat4 u_View;
     vec4 u_RayParams;      // x = MaxSteps, y = MaxDistance (view units), z = Thickness, w = Stride (view units)
     vec4 u_ShadeParams;    // x = Intensity, y = RayCount, z = EdgeFade (UV), w = unused
-    vec4 u_ScreenParams;   // x = width, y = height, z = 1/width, w = 1/height
+    vec4 u_ScreenParams;   // x = FULL-res width, y = height, z = 1/width, w = 1/height
     vec4 u_Flags;          // x = DebugView (0/1), y = FrameIndex, zw = pad
     vec4 u_TemporalParams; // #902; read by the resolve/composite draws, not here
+    // #708 denoiser chain. TraceParams is the band the trace / pre-blur /
+    // resolve / post-blur actually run at — half of ScreenParams when the
+    // half-resolution trace is on, equal to it otherwise. Every stage that
+    // steps by a texel MUST use TraceParams.zw, not ScreenParams.zw.
+    vec4 u_TraceParams;    // x = trace width, y = trace height, z = 1/width, w = 1/height
+    vec4 u_DenoiseParams;  // x = PreBlurRadius (px), y = PostBlurMinRadius, z = PostBlurMaxRadius, w = VarianceKnee
+    vec4 u_DenoiseGuide;   // x = PlaneTolerance (relative), y = NormalPower, z = TargetHistoryLength, w = RayDistribution (0/1)
 };
 
+// The sky sentinel this pass writes into alpha now lives in the denoiser
+// header, because every later stage of the chain has to recognise it — see
+// OLO_DENOISE_SKY_VIEW_DEPTH there for why the value is 60000 and not a round
+// number.
+#include "include/SpatialDenoise.glsl"
+
 const float SKY_DEPTH = 0.999999;
-// Ceiling for the view depth this pass hands the temporal resolve in alpha.
-// Must stay under the RGBA16F (half-float) maximum of 65504 — see the clamp in
-// main() for why exceeding it defeats the guard entirely.
-const float OLO_MAX_VIEW_DEPTH = 60000.0;
+const float OLO_MAX_VIEW_DEPTH = OLO_DENOISE_SKY_VIEW_DEPTH;
 const int HARD_MAX_STEPS = 64;  // loop-safety cap; must match kSSGIMaxSteps
 const int HARD_MAX_RAYS = 32;   // loop-safety cap; must match kSSGIMaxRays
 
@@ -154,9 +173,25 @@ vec2 ProjectToUV(vec3 viewPos)
 // pass carried; keeping one copy is what stops the sampler and the basis
 // drifting apart the way the IBL bake shaders' radical inverses did (#262).)
 
+// The full-resolution texel this (possibly half-resolution) fragment stands on.
+// The shading point's depth, normal and albedo MUST come from one whole texel:
+// a bilinear tap at a half-res fragment centre averages a 2x2 block, and across
+// a silhouette that averages a foreground depth with a background one into a
+// position that lies on neither surface — the ray then starts inside geometry
+// and the pixel goes black. `texelFetch` cannot do that by construction.
+//
+// Everything the ray MARCH samples is still an ordinary filtered lookup at an
+// arbitrary UV; only these three centre reads are snapped.
+ivec2 FullResTexel(vec2 uv)
+{
+    ivec2 maxTexel = ivec2(max(u_ScreenParams.xy - 1.0, vec2(0.0)));
+    return clamp(ivec2(uv * u_ScreenParams.xy), ivec2(0), maxTexel);
+}
+
 void main()
 {
-    float depth = texture(u_DepthTexture, v_TexCoord).r;
+    ivec2 centerTexel = FullResTexel(v_TexCoord);
+    float depth = texelFetch(u_DepthTexture, centerTexel, 0).r;
 
     // View-space position first, so the depth this pass hands the temporal
     // resolve in alpha is written on EVERY path — including the sky early-out.
@@ -180,14 +215,21 @@ void main()
     float viewDepth = (rawViewDepth > 0.0 && rawViewDepth < OLO_MAX_VIEW_DEPTH) ? rawViewDepth
                                                                                 : OLO_MAX_VIEW_DEPTH;
 
+    vec4 gN = texelFetch(u_GBufferNormal, centerTexel, 0);
+
+    // The guide plane is written on EVERY path, sky included, for the same
+    // reason alpha is: it becomes next frame's SSGISurfaceHistory, and a texel
+    // the trace returned early from would hand the resolve an undefined normal
+    // to run its surface test against.
+    o_Guide = gN;
+
     if (depth >= SKY_DEPTH) // sky / background — receives no GI
     {
         o_Color = vec4(0.0, 0.0, 0.0, viewDepth);
         return;
     }
 
-    vec4 gN = texture(u_GBufferNormal, v_TexCoord);
-    vec3 albedo = texture(u_GBufferAlbedo, v_TexCoord).rgb;
+    vec3 albedo = texelFetch(u_GBufferAlbedo, centerTexel, 0).rgb;
 
     // World normal -> view space.
     vec3 Nworld = OctDecode(gN.xy);
@@ -222,7 +264,16 @@ void main()
         // a screen-wide constant) and a blue-noise-rotated azimuth in place of
         // the interleaved-gradient hash. See OloSampleStratified2D for why
         // rotating the radius instead measured WORSE than the noise it replaced.
-        vec2 u = OloSampleStratified2D(pixel, frameIndex, uint(r), uint(rayCount), 0u);
+        //
+        // Ray distribution (issue #708, step 1) subdivides each of those strata
+        // four ways and gives one quarter to each pixel of the 2x2 quad, so
+        // adjacent pixels sample complementary directions and the pre-blur that
+        // follows recovers close to 4x the ray count instead of re-averaging
+        // near-identical hemispheres. Per-pixel stratification is unchanged —
+        // see OloSampleQuadDistributed2D.
+        vec2 u = u_DenoiseGuide.w > 0.5
+                     ? OloSampleQuadDistributed2D(pixel, frameIndex, uint(r), uint(rayCount), 0u)
+                     : OloSampleStratified2D(pixel, frameIndex, uint(r), uint(rayCount), 0u);
         vec3 dir = OloCosineHemisphere(u, Nview);
 
         // Linear view-space march along the ray.

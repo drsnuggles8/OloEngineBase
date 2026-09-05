@@ -147,15 +147,21 @@ TEST(ScreenSpaceGI, SSGIUBOGetSizeMatchesSizeof)
 }
 
 // The std140 block in PostProcess_SSGI.glsl is laid out byte-for-byte against
-// this struct: 3 mat4 (192) + 5 vec4 (80) = 272. The trailing TemporalParams
-// vec4 (#902: per-pass temporal resolve) is read by the SAME block declared in
-// PostProcess_SSGIResolve.glsl and PostProcess_SSGIComposite.glsl, so a drift
-// here breaks three shaders.
+// this struct: 3 mat4 (192) + 8 vec4 (128) = 320. The trailing vec4s are read by
+// the SAME block declared in the four other shaders of the pass
+// (PreBlur / Resolve / PostBlur / Composite), so a drift here breaks five
+// shaders — which is why the offsets, not just the size, are pinned.
 TEST(ScreenSpaceGI, SSGIUBOLayoutSizeMatchesShader)
 {
-    EXPECT_EQ(sizeof(SSGIUBOData), 272u) << "SSGIUBOData drifted from the PostProcess_SSGI.glsl SSGIParams block";
+    EXPECT_EQ(sizeof(SSGIUBOData), 320u) << "SSGIUBOData drifted from the PostProcess_SSGI.glsl SSGIParams block";
     EXPECT_EQ(offsetof(SSGIUBOData, RayParams), 192u) << "RayParams must follow the 3 matrices at offset 192";
     EXPECT_EQ(offsetof(SSGIUBOData, TemporalParams), 256u) << "TemporalParams must follow Flags at offset 256";
+    // Issue #708's three lanes. SSGIRenderPass::Execute patches TraceParams by
+    // offsetof, so a silently moved offset would write the trace resolution over
+    // whatever landed there instead — the offsets are the contract, not decoration.
+    EXPECT_EQ(offsetof(SSGIUBOData, TraceParams), 272u) << "TraceParams must follow TemporalParams at offset 272";
+    EXPECT_EQ(offsetof(SSGIUBOData, DenoiseParams), 288u);
+    EXPECT_EQ(offsetof(SSGIUBOData, DenoiseGuide), 304u);
 }
 
 TEST(ScreenSpaceGI, SSGIBindingIsUniqueAndExpected)

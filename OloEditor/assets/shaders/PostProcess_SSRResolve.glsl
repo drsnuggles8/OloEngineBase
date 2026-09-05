@@ -100,6 +100,8 @@ layout(std140, binding = 38) uniform SSRParams
     vec4 u_Flags;
     vec4 u_HZBParams;
     vec4 u_TemporalParams;  // x = Feedback, y = HasVelocity, z = HistoryUsable, w = ClipGamma
+    vec4 u_DenoiseParams; // #708: x = PreBlurRadius (px), y = unused, z = PostBlurMaxRadius, w = unused
+    vec4 u_DenoiseGuide;  // #708: x = PlaneTolerance, y = NormalPower, z = RoughnessKnee, w = MaxRoughness
 };
 
 // Relative view-depth tolerance for the disocclusion test. 5% of the shading

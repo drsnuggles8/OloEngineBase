@@ -41,7 +41,9 @@ namespace OloEngine
         m_SelectedFirstMomentsHistoryTexture = {};
         m_SelectedSecondMomentsHistoryTexture = {};
         m_SelectedSignalFramebuffer = {};
+        m_SelectedPreBlurredFramebuffer = {};
         m_SelectedResolvedFramebuffer = {};
+        m_SelectedDenoisedFramebuffer = {};
 
         // Pick the latest upstream colour to gather indirect light from: AOApply
         // (if AO ran), SSS, else raw SceneColor. SSGI runs before SSR, so SSRColor
@@ -70,15 +72,13 @@ namespace OloEngine
         m_SelectedSceneDepthTexture = blackboard.Scene.SceneDepth;
         m_SelectedGBufferNormalTexture = blackboard.GBuffer.GBufferNormal;
         m_SelectedGBufferAlbedoTexture = blackboard.GBuffer.GBufferAlbedo;
-        // Preserve the exact packed surface metadata sampled by this resolve.
-        // This must be declared from Setup(): BuildFrameGraph clears and rebuilds
-        // extraction contracts before visiting nodes, so a pre-build declaration
-        // from PopulateBlackboard would be discarded on every cache miss.
-        builder.ExtractHistoryTexture(ResourceNames::SSGISurfaceHistory, m_SelectedGBufferNormalTexture);
 
         // G-Buffer velocity (RT3) drives the resolve's reprojection. SSGI runs
-        // before the upscale band, so this is the scene-band velocity, matching
-        // the resolution the signal targets are declared at. Optional: without
+        // before the upscale band, so this is the scene-band velocity — which is
+        // a different resolution than the trace band the resolve runs at once
+        // #708's half-resolution trace is on, and that is fine: velocity is a UV
+        // delta, so it is resolution-independent and the resolve samples it by
+        // UV rather than by texel. Optional: without
         // it the resolve falls back to a zero-motion reprojection, which is
         // correct for a static camera and ghosts under motion — the shader is
         // told which case it is rather than guessing.
@@ -118,19 +118,54 @@ namespace OloEngine
         {
             m_SelectedSignalFramebuffer = blackboard.Scratch.SSGISignal;
             // Intra-pass write-then-sample: draw A renders the stochastic
-            // signal, draw B (temporal resolve) samples it — including a 3x3
-            // neighbourhood — inside the same Execute. Same idiom as
-            // CloudscapeRenderPass's CloudsRaw.
+            // signal, every later draw samples it — including neighbourhoods —
+            // inside the same Execute. Same idiom as CloudscapeRenderPass's
+            // CloudsRaw.
             builder.AllowSamePassReadWrite(m_SelectedSignalFramebuffer);
             builder.Write(m_SelectedSignalFramebuffer, RGWriteUsage::RenderTarget);
             [[maybe_unused]] const auto signalRead = builder.Read(m_SelectedSignalFramebuffer, RGReadUsage::ShaderSample);
+            // Preserve the exact packed surface metadata sampled by this
+            // resolve. Attachment 1 of the SIGNAL framebuffer, not the
+            // full-resolution G-Buffer normal it used to be (#708): with a
+            // half-resolution trace those are different images, and a surface
+            // test comparing a half-res current normal against a full-res
+            // previous one rejects history along every silhouette forever.
+            //
+            // This must be declared from Setup(): BuildFrameGraph clears and
+            // rebuilds extraction contracts before visiting nodes, so a
+            // pre-build declaration from PopulateBlackboard would be discarded
+            // on every cache miss.
+            builder.ExtractHistoryTexture(ResourceNames::SSGISurfaceHistory, m_SelectedSignalFramebuffer, 1u);
+        }
+
+        // Pre-blur (stage 2) and post-blur (stage 4) scratch. Declared
+        // unconditionally on the same gate as the signal even when their radius
+        // is 0 — the graph shape must not depend on a UBO value, or the radius
+        // would have to be hashed into the blackboard fingerprint. Execute
+        // simply skips the draw and rebinds its consumer.
+        if (blackboard.Scratch.SSGIPreBlurred.IsValid())
+        {
+            m_SelectedPreBlurredFramebuffer = blackboard.Scratch.SSGIPreBlurred;
+            builder.AllowSamePassReadWrite(m_SelectedPreBlurredFramebuffer);
+            builder.Write(m_SelectedPreBlurredFramebuffer, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto preBlurRead =
+                builder.Read(m_SelectedPreBlurredFramebuffer, RGReadUsage::ShaderSample);
+        }
+
+        if (blackboard.Scratch.SSGIDenoised.IsValid())
+        {
+            m_SelectedDenoisedFramebuffer = blackboard.Scratch.SSGIDenoised;
+            builder.AllowSamePassReadWrite(m_SelectedDenoisedFramebuffer);
+            builder.Write(m_SelectedDenoisedFramebuffer, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto denoisedRead =
+                builder.Read(m_SelectedDenoisedFramebuffer, RGReadUsage::ShaderSample);
         }
 
         if (blackboard.Scratch.SSGIResolved.IsValid())
         {
             m_SelectedResolvedFramebuffer = blackboard.Scratch.SSGIResolved;
-            // Intra-pass write-then-sample again: draw B writes the resolve,
-            // draw C (composite) samples it.
+            // Intra-pass write-then-sample again: draw C writes the resolve,
+            // draw D (post-blur) samples it.
             builder.AllowSamePassReadWrite(m_SelectedResolvedFramebuffer);
             builder.Write(m_SelectedResolvedFramebuffer, RGWriteUsage::RenderTarget);
             [[maybe_unused]] const auto resolvedRead = builder.Read(m_SelectedResolvedFramebuffer, RGReadUsage::ShaderSample);
@@ -163,7 +198,9 @@ namespace OloEngine
 
         m_FramebufferSpec = spec;
         m_SSGIShader = Shader::Create("assets/shaders/PostProcess_SSGI.glsl");
+        m_SSGIPreBlurShader = Shader::Create("assets/shaders/PostProcess_SSGIPreBlur.glsl");
         m_SSGIResolveShader = Shader::Create("assets/shaders/PostProcess_SSGIResolve.glsl");
+        m_SSGIPostBlurShader = Shader::Create("assets/shaders/PostProcess_SSGIPostBlur.glsl");
         m_SSGICompositeShader = Shader::Create("assets/shaders/PostProcess_SSGIComposite.glsl");
 
         if (!m_BlueNoiseTexture.IsValid())
@@ -199,11 +236,17 @@ namespace OloEngine
             gbufferAlbedoID = context.ResolveTextureHandle(m_SelectedGBufferAlbedoTexture);
 
         Ref<Framebuffer> signalFramebuffer;
+        Ref<Framebuffer> preBlurredFramebuffer;
         Ref<Framebuffer> resolvedFramebuffer;
+        Ref<Framebuffer> denoisedFramebuffer;
         if (m_SelectedSignalFramebuffer.IsValid())
             signalFramebuffer = context.ResolveFramebuffer(m_SelectedSignalFramebuffer);
+        if (m_SelectedPreBlurredFramebuffer.IsValid())
+            preBlurredFramebuffer = context.ResolveFramebuffer(m_SelectedPreBlurredFramebuffer);
         if (m_SelectedResolvedFramebuffer.IsValid())
             resolvedFramebuffer = context.ResolveFramebuffer(m_SelectedResolvedFramebuffer);
+        if (m_SelectedDenoisedFramebuffer.IsValid())
+            denoisedFramebuffer = context.ResolveFramebuffer(m_SelectedDenoisedFramebuffer);
 
         RHI::ResourceHandle velocityID{};
         RHI::ResourceHandle historyID{};
@@ -227,16 +270,19 @@ namespace OloEngine
             return;
         }
 
-        if (!inputColorTextureID.IsValid() || !outputFramebuffer || !signalFramebuffer || !resolvedFramebuffer)
+        if (!inputColorTextureID.IsValid() || !outputFramebuffer || !signalFramebuffer ||
+            !preBlurredFramebuffer || !resolvedFramebuffer || !denoisedFramebuffer)
         {
             m_Target = nullptr;
             if (static u32 s_MissingInputOrOutputWarnings = 0; s_MissingInputOrOutputWarnings++ < 10)
             {
-                OLO_CORE_WARN("SSGIRenderPass: missing input/output (inputTex={}, outputFB={}, signalFB={}, resolvedFB={}, depthTex={}, normalTex={}, albedoTex={})",
+                OLO_CORE_WARN("SSGIRenderPass: missing input/output (inputTex={}, outputFB={}, signalFB={}, preBlurFB={}, resolvedFB={}, denoisedFB={}, depthTex={}, normalTex={}, albedoTex={})",
                               inputColorTextureID,
                               outputFramebuffer ? outputFramebuffer->GetRHIHandle() : RHI::NullResource,
                               signalFramebuffer ? signalFramebuffer->GetRHIHandle() : RHI::NullResource,
+                              preBlurredFramebuffer ? preBlurredFramebuffer->GetRHIHandle() : RHI::NullResource,
                               resolvedFramebuffer ? resolvedFramebuffer->GetRHIHandle() : RHI::NullResource,
+                              denoisedFramebuffer ? denoisedFramebuffer->GetRHIHandle() : RHI::NullResource,
                               sceneDepthID,
                               gbufferNormalID,
                               gbufferAlbedoID);
@@ -291,9 +337,22 @@ namespace OloEngine
                 m_TemporalClipGamma);
             m_SSGIUBO->SetData(&temporalParams, static_cast<u32>(sizeof(glm::vec4)),
                                static_cast<u32>(offsetof(SSGIUBOData, TemporalParams)));
+
+            // Patch the trace band (issue #708). Taken from the framebuffer the
+            // graph ACTUALLY allocated, not from the settings: on the frame a
+            // resize lands the settings say "half of the new viewport" while the
+            // pooled target is still the old size, and every stage of the chain
+            // steps by TraceParams.zw - a wrong value there does not fail, it
+            // silently filters the wrong neighbourhood.
+            const auto& signalSpec = signalFramebuffer->GetSpecification();
+            const f32 traceWidth = signalSpec.Width > 0u ? static_cast<f32>(signalSpec.Width) : 1.0f;
+            const f32 traceHeight = signalSpec.Height > 0u ? static_cast<f32>(signalSpec.Height) : 1.0f;
+            const glm::vec4 traceParams(traceWidth, traceHeight, 1.0f / traceWidth, 1.0f / traceHeight);
+            m_SSGIUBO->SetData(&traceParams, static_cast<u32>(sizeof(glm::vec4)),
+                               static_cast<u32>(offsetof(SSGIUBOData, TraceParams)));
         }
 
-        // Common fullscreen-blit state, re-established for each of the three
+        // Common fullscreen-blit state, re-established for each of the five
         // draws because each one binds a different framebuffer.
         const auto setFullscreenState = [&context]()
         {
@@ -313,6 +372,17 @@ namespace OloEngine
             context.Clear();
         };
 
+        // By value, not by const reference: Ref<T>::operator-> on a CONST Ref
+        // hands back a const T*, and Framebuffer::Bind() is non-const. The copy
+        // is a refcount bump five times per frame.
+        const auto bindTarget = [&context, &setFullscreenState](Ref<Framebuffer> target)
+        {
+            target->Bind();
+            const auto& spec = target->GetSpecification();
+            context.SetViewport(0, 0, spec.Width, spec.Height);
+            setFullscreenState();
+        };
+
         const auto drawFullscreen = [&context]()
         {
             const auto va = MeshPrimitives::GetFullscreenTriangle();
@@ -322,14 +392,14 @@ namespace OloEngine
         };
 
         // ----------------------------------------------------------------
-        // Draw A - the stochastic signal ONLY, into SSGISignal.
+        // Draw A - the stochastic signal ONLY, into SSGISignal (trace band).
+        // Two attachments: the signal, and the guide plane every later stage
+        // weights its taps by.
         // ----------------------------------------------------------------
-        signalFramebuffer->Bind();
-        {
-            const auto& signalSpec = signalFramebuffer->GetSpecification();
-            context.SetViewport(0, 0, signalSpec.Width, signalSpec.Height);
-        }
-        setFullscreenState();
+        bindTarget(signalFramebuffer);
+
+        constexpr std::array<u32, 2> signalAttachments{ 0u, 1u };
+        RenderCommand::SetDrawBuffers(signalAttachments);
 
         // Heap-bindless conversion (issue #691, bucket 1). Shader bound
         // first - the seam forks on the program in flight. All four inputs are
@@ -348,58 +418,107 @@ namespace OloEngine
         drawFullscreen();
         signalFramebuffer->Unbind();
 
-        // ----------------------------------------------------------------
-        // Draw B - temporal resolve of that signal, into SSGIResolved.
-        // ----------------------------------------------------------------
         const RHI::ResourceHandle signalTextureID = signalFramebuffer->GetColorAttachmentHandle(0);
+        const RHI::ResourceHandle guideTextureID = signalFramebuffer->GetColorAttachmentHandle(1);
 
-        resolvedFramebuffer->Bind();
+        // ----------------------------------------------------------------
+        // Draw B - pre-blur (issue #708 stage 2), into SSGIPreBlurred.
+        //
+        // Skipped outright when the radius is 0: the resolve then accumulates
+        // the raw signal, which is exactly the pre-#708 behaviour and the arm an
+        // A/B measures against. Running a pass-through instead would keep the
+        // cost of a stage the user turned off.
+        // ----------------------------------------------------------------
+        RHI::ResourceHandle resolveInputTextureID = signalTextureID;
+        if (m_PreBlurEnabled)
         {
-            const auto& resolvedSpec = resolvedFramebuffer->GetSpecification();
-            context.SetViewport(0, 0, resolvedSpec.Width, resolvedSpec.Height);
+            bindTarget(preBlurredFramebuffer);
+            m_SSGIPreBlurShader->Bind();
+            context.BindTextureOrHeapOffset(0, signalTextureID, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(1, guideTextureID, RHI::HeapSlotLifetime::FrameTransient);
+            drawFullscreen();
+            preBlurredFramebuffer->Unbind();
+            resolveInputTextureID = preBlurredFramebuffer->GetColorAttachmentHandle(0);
         }
-        setFullscreenState();
+
+        // ----------------------------------------------------------------
+        // Draw C - temporal resolve of that signal, into SSGIResolved.
+        // ----------------------------------------------------------------
+        bindTarget(resolvedFramebuffer);
 
         constexpr std::array<u32, 5> resolvedAttachments{ 0u, 1u, 2u, 3u, 4u };
         RenderCommand::SetDrawBuffers(resolvedAttachments);
 
         m_SSGIResolveShader->Bind();
-        context.BindTextureOrHeapOffset(0, signalTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(0, resolveInputTextureID, RHI::HeapSlotLifetime::FrameTransient);
         // With no history the shader ignores unit 1 (TemporalParams.z == 0), but
         // it must still be bound to something valid or the sampler dangles.
-        context.BindTextureOrHeapOffset(1, historyID.IsValid() ? historyID : signalTextureID,
+        context.BindTextureOrHeapOffset(1, historyID.IsValid() ? historyID : resolveInputTextureID,
                                         historyID.IsValid() ? RHI::HeapSlotLifetime::Persistent
                                                             : RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(2, surfaceHistoryID.IsValid() ? surfaceHistoryID : gbufferNormalID,
+        // The fallback is the CURRENT guide, not the full-resolution G-Buffer
+        // normal: with a half-resolution trace the two differ in size, and the
+        // surface test would then compare a half-res sample against a full-res
+        // one and reject history everywhere.
+        context.BindTextureOrHeapOffset(2, surfaceHistoryID.IsValid() ? surfaceHistoryID : guideTextureID,
                                         surfaceHistoryID.IsValid() ? RHI::HeapSlotLifetime::Persistent
                                                                    : RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(3, firstMomentsHistoryID.IsValid() ? firstMomentsHistoryID : signalTextureID,
+        context.BindTextureOrHeapOffset(3, firstMomentsHistoryID.IsValid() ? firstMomentsHistoryID : resolveInputTextureID,
                                         firstMomentsHistoryID.IsValid() ? RHI::HeapSlotLifetime::Persistent
                                                                         : RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(4, secondMomentsHistoryID.IsValid() ? secondMomentsHistoryID : signalTextureID,
+        context.BindTextureOrHeapOffset(4, secondMomentsHistoryID.IsValid() ? secondMomentsHistoryID : resolveInputTextureID,
                                         secondMomentsHistoryID.IsValid() ? RHI::HeapSlotLifetime::Persistent
                                                                          : RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID,
-                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(5, guideTextureID, RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_VELOCITY,
                                         velocityID.IsValid() ? velocityID : signalTextureID,
                                         RHI::HeapSlotLifetime::FrameTransient);
         drawFullscreen();
         resolvedFramebuffer->Unbind();
 
+        const RHI::ResourceHandle resolvedTextureID = resolvedFramebuffer->GetColorAttachmentHandle(0);
+
         // ----------------------------------------------------------------
-        // Draw C - composite the RESOLVED signal onto the upstream colour.
+        // Draw D - post-blur (issue #708 stage 4), into SSGIDenoised.
+        //
+        // Reads the resolve's moment attachments for the variance and history
+        // length that drive its per-pixel radius. Its output is deliberately NOT
+        // what the graph extracts into SSGIHistory - accumulating a
+        // disocclusion-widened blur would bake the widening into the history and
+        // take the full history length to wash out again.
         // ----------------------------------------------------------------
-        outputFramebuffer->Bind();
+        RHI::ResourceHandle compositeSignalTextureID = resolvedTextureID;
+        if (m_PostBlurEnabled)
         {
-            const auto& outSpec = outputFramebuffer->GetSpecification();
-            context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
+            bindTarget(denoisedFramebuffer);
+            m_SSGIPostBlurShader->Bind();
+            context.BindTextureOrHeapOffset(0, resolvedTextureID, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(1, guideTextureID, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(2, resolvedFramebuffer->GetColorAttachmentHandle(1),
+                                            RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(3, resolvedFramebuffer->GetColorAttachmentHandle(2),
+                                            RHI::HeapSlotLifetime::FrameTransient);
+            drawFullscreen();
+            denoisedFramebuffer->Unbind();
+            compositeSignalTextureID = denoisedFramebuffer->GetColorAttachmentHandle(0);
         }
-        setFullscreenState();
+
+        // ----------------------------------------------------------------
+        // Draw E - guided upscale (issue #708 stage 5) plus the composite of the
+        // denoised signal onto the upstream colour, at the SCENE band.
+        // ----------------------------------------------------------------
+        bindTarget(outputFramebuffer);
 
         m_SSGICompositeShader->Bind();
         context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(1, resolvedFramebuffer->GetColorAttachmentHandle(0),
+        context.BindTextureOrHeapOffset(1, compositeSignalTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(2, guideTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        // The upscale is the one stage that needs the FULL-resolution surface:
+        // it is deciding which trace-band taps belong to the pixel in front of
+        // the viewer, and only the full-res depth and normal know that.
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID,
                                         RHI::HeapSlotLifetime::FrameTransient);
         drawFullscreen();
 
@@ -434,7 +553,9 @@ namespace OloEngine
         m_SelectedFirstMomentsHistoryTexture = {};
         m_SelectedSecondMomentsHistoryTexture = {};
         m_SelectedSignalFramebuffer = {};
+        m_SelectedPreBlurredFramebuffer = {};
         m_SelectedResolvedFramebuffer = {};
+        m_SelectedDenoisedFramebuffer = {};
     }
 
 } // namespace OloEngine
