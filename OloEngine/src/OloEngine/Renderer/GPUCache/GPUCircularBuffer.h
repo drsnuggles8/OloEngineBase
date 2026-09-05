@@ -97,6 +97,29 @@ namespace OloEngine
             }
             if (m_Head + bytes > m_SizeBytes)
             {
+                // Wrapping means waiting on a range this FRAME already fenced.
+                // That only terminates on a backend whose fence can complete
+                // without a queue submit: OpenGL's ClientWaitFence flushes
+                // inside the wait, Vulkan STAGES the signal for the next submit
+                // and would spin forever (issue #1052 — the audit
+                // GPUBufferLockManager::Wait asks for, now that Vulkan's
+                // AllocatePersistentUploadStorage is real). Refuse the
+                // reservation instead; the caller's direct-upload path is a
+                // complete lowering on both backends, so this costs staging
+                // bandwidth, never correctness.
+                if (!RenderCommand::SupportsIntraFrameFenceCompletion())
+                {
+                    static bool s_Warned = false;
+                    if (!s_Warned)
+                    {
+                        s_Warned = true;
+                        OLO_CORE_WARN("GPUCircularBuffer: a {}-byte reservation would wrap the {}-byte ring, and this "
+                                      "backend cannot complete a fence within the frame — falling back to direct "
+                                      "uploads for the rest of this batch (issue #1052)",
+                                      bytes, m_SizeBytes);
+                    }
+                    return nullptr;
+                }
                 m_Head = 0;
             }
             m_LockManager.WaitForLockedRange(m_Head, bytes);
