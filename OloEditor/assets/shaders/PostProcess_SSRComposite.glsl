@@ -76,6 +76,8 @@ layout(std140, binding = 38) uniform SSRParams
     vec4 u_Flags;        // x = DebugView (0/1), y = FrameIndex, zw = pad
     vec4 u_HZBParams;
     vec4 u_TemporalParams;
+    vec4 u_DenoiseParams; // #708: x = PreBlurRadius (px), y = unused, z = PostBlurMaxRadius, w = unused
+    vec4 u_DenoiseGuide;  // #708: x = PlaneTolerance, y = NormalPower, z = RoughnessKnee, w = MaxRoughness
 };
 
 void main()

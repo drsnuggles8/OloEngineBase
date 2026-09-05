@@ -1903,20 +1903,49 @@ TEST_F(VulkanPassSuite, SsgiAddsGatheredBounceLightOnlyWithIntensity)
         blackboard.GBuffer.GBufferAlbedo =
             graph.ImportTextureHandle(ResourceNames::GBufferAlbedo, albedoTexture->GetRHIHandle(), auxDesc);
 
-        // The stochastic-signal scratch pair the pass has needed since #902:
-        // draw A writes SSGISignal, draw B resolves it into SSGIResolved, draw C
-        // composites. The pass bails (loudly) without them, so declaring them is
-        // not optional scaffolding — it is the pass's contract. RGBA16F, not the
-        // RGBA8UNorm the stand-in inputs use: alpha carries the view depth the
-        // resolve's disocclusion test reads.
+        // The denoiser chain's scratch, which the pass has needed since #902
+        // (signal + resolved) and #708 (pre-blurred + denoised). The pass bails
+        // (loudly) without any of them, so declaring them is not optional
+        // scaffolding — it is the pass's contract. RGBA16F, not the RGBA8UNorm
+        // the stand-in inputs use: alpha carries the view depth every geometry
+        // test in the chain reconstructs its positions from.
         RGResourceDesc signalDesc;
         signalDesc.Kind = RGResourceHandle::Kind::Framebuffer;
         signalDesc.Format = RGResourceFormat::RGBA16Float;
         signalDesc.Width = kSize;
         signalDesc.Height = kSize;
         signalDesc.DebugName = std::string(ResourceNames::SSGISignal);
+        // Two attachments: the signal, and the trace-band guide plane (#708)
+        // whose normal and roughness weight every later stage's taps.
+        signalDesc.Attachments = {
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+        };
         blackboard.Scratch.SSGISignal =
             graph.DeclareTransientFramebuffer(ResourceNames::SSGISignal, signalDesc);
+        // The pre-blur and post-blur outputs are single-attachment.
+        signalDesc.Attachments.clear();
+        signalDesc.DebugName = std::string(ResourceNames::SSGIPreBlurred);
+        blackboard.Scratch.SSGIPreBlurred =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSGIPreBlurred, signalDesc);
+        signalDesc.DebugName = std::string(ResourceNames::SSGIDenoised);
+        blackboard.Scratch.SSGIDenoised =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSGIDenoised, signalDesc);
+
+        // SSGIResolved needs ALL FIVE, matching what PopulateBlackboard declares:
+        // the resolve shader writes resolved colour plus two moment planes and
+        // two diagnostic planes, and since #708 the post-blur READS attachments
+        // 1 and 2 for the variance and history length that drive its radius.
+        // Declaring one attachment here used to be harmless because nothing read
+        // the rest; now it asserts, which is the harness catching a real
+        // divergence from production rather than a test-only detail.
+        signalDesc.Attachments = {
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+        };
         signalDesc.DebugName = std::string(ResourceNames::SSGIResolved);
         blackboard.Scratch.SSGIResolved =
             graph.DeclareTransientFramebuffer(ResourceNames::SSGIResolved, signalDesc);
@@ -1949,9 +1978,11 @@ TEST_F(VulkanPassSuite, SsgiAddsGatheredBounceLightOnlyWithIntensity)
             std::string(ResourceNames::SceneColorTexture),
             [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
             { return blackboard.Scene.SceneColor; });
-        // 4 = the producer's draw plus SSGI's three (signal, resolve, composite).
+        // 6 = the producer's draw plus SSGI's five (signal, pre-blur, resolve,
+        // post-blur, composite+upscale) — issue #708 added the two spatial
+        // stages, and both run because the default radii are non-zero.
         return RunSinglePassChain(kSize, producer, ssgi, "SSGIPass", ResourceNames::SSGIColor, [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
-                                  { blackboard.Post.SSGIColor = handle; }, 4u);
+                                  { blackboard.Post.SSGIColor = handle; }, 6u);
     };
 
     const auto redAt = [kSize](const std::vector<u8>& img, u32 x, u32 y)
@@ -4601,11 +4632,25 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
         signalDesc.Width = kSize;
         signalDesc.Height = kSize;
         signalDesc.DebugName = std::string(ResourceNames::SSRSignal);
+        // Attachment 1 is the guide plane (#708) whose ROUGHNESS sets both
+        // spatial stages' radius — at intensity 0 they filter a zero delta, so
+        // the passthrough floor below is unchanged either way.
+        signalDesc.Attachments = {
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+        };
         blackboard.Scratch.SSRSignal =
             graph.DeclareTransientFramebuffer(ResourceNames::SSRSignal, signalDesc);
+        signalDesc.Attachments.clear();
+        signalDesc.DebugName = std::string(ResourceNames::SSRPreBlurred);
+        blackboard.Scratch.SSRPreBlurred =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSRPreBlurred, signalDesc);
         signalDesc.DebugName = std::string(ResourceNames::SSRResolved);
         blackboard.Scratch.SSRResolved =
             graph.DeclareTransientFramebuffer(ResourceNames::SSRResolved, signalDesc);
+        signalDesc.DebugName = std::string(ResourceNames::SSRDenoised);
+        blackboard.Scratch.SSRDenoised =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSRDenoised, signalDesc);
     };
 
     auto ssr = Ref<SSRRenderPass>::Create();
@@ -4636,9 +4681,11 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
         std::string(ResourceNames::SceneColorTexture),
         [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
         { return blackboard.Scene.SceneColor; });
-    // 4 = the producer's draw plus SSR's three (signal, resolve, composite).
+    // 6 = the producer's draw plus SSR's five (signal, pre-blur, resolve,
+    // post-blur, composite) — issue #708 added the two spatial stages, and both
+    // run because the default radii are non-zero.
     const auto rendered = RunSinglePassChain(kSize, producer, ssr, "SSRPass", ResourceNames::SSRColor, [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
-                                             { blackboard.Post.SSRColor = handle; }, 4u);
+                                             { blackboard.Post.SSRColor = handle; }, 6u);
     ASSERT_EQ(rendered.size(), patternRgba8.size());
 
     u32 maxDiff = 0;

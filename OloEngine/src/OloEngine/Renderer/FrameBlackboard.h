@@ -201,13 +201,36 @@ namespace OloEngine
             // SSGIRenderPass / SSRRenderPass. This split is what makes the
             // signal accumulable at all — the composited colour is not.
             RGFramebufferHandle SSGISignal;
+            // The five-stage denoiser chain's own scratch (issue #708). All at
+            // the TRACE band, which is half the scene band when
+            // SSGIHalfResolution is on:
+            //   SSGISignal[0] raw signal -> SSGIPreBlurred -> SSGIResolved[0]
+            //   -> SSGIDenoised -> (guided upscale inside the composite draw).
+            // SSGIGuide is SSGISignal's second attachment, the trace-band
+            // surface plane every guided stage weights taps against and the
+            // source SSGISurfaceHistory is extracted from. The passes reach it
+            // through the framebuffer rather than this view; the view exists so
+            // the chain's intermediates are addressable by name from
+            // olo_render_capture_target, which is how the half-resolution band
+            // and the guide were verified in the live editor.
+            RGTextureHandle SSGIGuide;
+            RGFramebufferHandle SSGIPreBlurred;
+            RGFramebufferHandle SSGIDenoised;
             RGFramebufferHandle SSGIResolved;
             RGTextureHandle SSGIMomentsFirst;
             RGTextureHandle SSGIMomentsSecond;
             RGTextureHandle SSGIHistoryDiagnostics;
             RGTextureHandle SSGIReprojectionDiagnostics;
             RGFramebufferHandle SSRSignal;
+            // SSR's half of the denoiser chain (issue #708). Full resolution,
+            // unlike SSGI's: a reflection carries the sharpest detail in the
+            // frame, so there is no half-res trace and no upscale here.
+            // SSRGuide is SSRSignal's second attachment, the surface plane
+            // whose ROUGHNESS sets both blur radii.
+            RGTextureHandle SSRGuide;
+            RGFramebufferHandle SSRPreBlurred;
             RGFramebufferHandle SSRResolved;
+            RGFramebufferHandle SSRDenoised;
         };
 
         // -----------------------------------------------------------------------

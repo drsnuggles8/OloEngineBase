@@ -385,6 +385,16 @@ namespace OloEngine
         // resolve just keeps none of the history.
         bool SSRTemporalResolve = true;
         f32 SSRTemporalFeedback = 0.92f; // History weight per frame (0 = no accumulation, 0.98 cap)
+        // Denoiser chain (issue #708). SSR gets the two spatial stages that
+        // bracket the temporal resolve and NOT the other two: see
+        // SSRRenderPass's header for which stages transferred from SSGI and
+        // why the other two did not.
+        //
+        // Both radii are in full-resolution pixels and are scaled per pixel by
+        // ROUGHNESS, so a near-mirror is never filtered no matter what these
+        // say. 0 disables the stage outright.
+        f32 SSRPreBlurRadius = 2.0f;
+        f32 SSRPostBlurRadius = 3.0f;
 
         // Screen-Space Global Illumination (SSGI)
         // Deferred-only: one-bounce indirect *diffuse* lighting. For each opaque
@@ -414,6 +424,47 @@ namespace OloEngine
         // it to the upstream colour afterwards.
         bool SSGITemporalResolve = true;
         f32 SSGITemporalFeedback = 0.92f; // History weight per frame (0 = no accumulation, 0.98 cap)
+        // Denoiser chain (issue #708). The temporal resolve above is stage 3 of
+        // five; these four knobs drive the other four. Off, the pass degenerates
+        // to exactly the pre-#708 trace -> resolve -> composite shape, which is
+        // what makes an A/B against it possible at runtime.
+        //
+        // Half resolution is the setting that pays for the rest: indirect
+        // diffuse is a smooth, slowly-varying signal, so tracing it at a quarter
+        // of the pixels costs very little image quality and the guided upscale
+        // at the end recovers the surface detail from the full-res depth and
+        // normal. It changes the size of every graph resource in the chain, so
+        // it is hashed into the blackboard fingerprint.
+        bool SSGIHalfResolution = true;
+        // Give each pixel of a 2x2 quad a different quarter of the ray strata,
+        // so neighbours sample complementary directions and the pre-blur that
+        // averages them recovers close to 4x the ray count.
+        bool SSGIRayDistribution = true;
+        // Pre-blur radius in TRACE-band pixels (0 disables the stage). Small on
+        // purpose: it only has to make the signal stable enough for the temporal
+        // resolve's neighbourhood clip to mean something.
+        //
+        // 1.0 AND NOT 2.0, ON MEASUREMENT. The pre-blur spreads each ray hit
+        // over its own radius, and where the hemisphere is sparse — a surface
+        // whose rays mostly leave the screen — that turns fine grain into soft
+        // low-frequency blobs, which read worse than the noise they replaced
+        // even though every noise metric improves. Measured on the #708 evidence
+        // scene (floor patch, 4 rays, local high-pass noise against an 8-ray
+        // unfiltered baseline of 1.215), with the corrected tap offset:
+        //
+        //     radius 0 : 0.875   mean 142.04   (no blobs, least filtering)
+        //     radius 1 : 0.802   mean 143.35   (blobs faint)
+        //     radius 2 : 0.800   mean 143.37   (blobs clearly visible)
+        //
+        // Radius 1 keeps 99.7% of radius 2's noise reduction. The blobs are the
+        // symptom of the one reference stage this chain does not have — an
+        // energy-preserving firefly pre-filter ahead of the pre-blur — so the
+        // radius is kept small rather than the stage made stronger.
+        f32 SSGIPreBlurRadius = 1.0f;
+        // Post-blur MAXIMUM radius in trace-band pixels (0 disables the stage).
+        // The per-pixel radius runs from 0 up to this, driven by the accumulated
+        // variance and history length — see OloDenoisePostBlurRadius.
+        f32 SSGIPostBlurRadius = 4.0f;
 
         // Screen-Space Contact Shadows (SSCS)
         // Deferred-only: short-range per-pixel hard shadows for the primary
@@ -455,6 +506,44 @@ namespace OloEngine
         bool operator==(const PostProcessSettings&) const = default;
     };
 
+    // Upper bound for every #708 denoiser radius, in the pixels of the band the
+    // stage runs at. Shared by both sanitizers, the editor sliders and the MCP
+    // field registry so all four agree on what a settable radius is.
+    //
+    // 16 is where the 8-tap Poisson disc stops reading as a blur and starts
+    // reading as eight separate smudges — a kernel limit, not a performance cap.
+    inline constexpr f32 kScreenSpaceMaxDenoiseRadius = 16.0f;
+
+    // The #708 denoiser's internal guide constants. Deliberately NOT settings:
+    // they describe what "the same surface" means to the bilateral kernel, which
+    // is a property of the G-Buffer encoding rather than something an artist
+    // tunes per scene, and exposing them would invite a value that silently
+    // disables the geometry test.
+    //
+    // PlaneTolerance is relative to the shading distance, so it is 5 cm at 1 m
+    // and 5 m at 100 m — the same 5% the SSGI temporal resolve already uses for
+    // its disocclusion test, kept equal on purpose so the spatial and temporal
+    // halves of the denoiser agree about what a surface is.
+    inline constexpr f32 kSSGIDenoisePlaneTolerance = 0.05f;
+    // Raised-cosine exponent for the normal weight. 8 keeps a tap 20 degrees off
+    // the centre normal at roughly 0.6 weight and one 60 degrees off at 0.004 —
+    // curved surfaces still filter, a wall meeting a floor does not.
+    inline constexpr f32 kSSGIDenoiseNormalPower = 8.0f;
+    // Accumulated frames at which the post-blur stops widening for a short
+    // history. 16 is where the temporal resolve's own variance estimate becomes
+    // worth trusting at the default feedback of 0.92 (0.92^16 ~ 0.26, so most of
+    // the initial sample has washed out by then).
+    inline constexpr f32 kSSGIDenoiseTargetHistoryLength = 16.0f;
+    // Relative standard deviation (sigma / mean) at which the variance-driven
+    // radius reaches its maximum. 0.5 = "half as noisy as it is bright".
+    inline constexpr f32 kSSGIDenoiseVarianceKnee = 0.5f;
+    // Roughness at which SSR's spatial stages reach their full radius. Below it
+    // the radius ramps to 0, so a mirror is never filtered — see
+    // OloDenoiseRoughnessRadius for why specular cannot use the variance guide.
+    // 0.3 rather than SSRMaxRoughness's 0.8: the specular lobe is already
+    // several pixels wide well before the roughness fade starts.
+    inline constexpr f32 kSSRDenoiseRoughnessKnee = 0.3f;
+
     // Upper bounds for the SSR step counts. These MUST match the runtime UBO
     // upload clamp in RenderPipeline.cpp and the HARD_MAX_* loop caps in
     // PostProcess_SSR.glsl — otherwise a persisted/edited value above the
@@ -483,6 +572,8 @@ namespace OloEngine
         // 0.98 is the hard cap OloTemporalBlend applies anyway; clamping here
         // keeps a persisted 1.0 from reading as "never updates" in the panel.
         s.SSRTemporalFeedback = std::clamp(finite(s.SSRTemporalFeedback, 0.92f), 0.0f, 0.98f);
+        s.SSRPreBlurRadius = std::clamp(finite(s.SSRPreBlurRadius, 2.0f), 0.0f, kScreenSpaceMaxDenoiseRadius);
+        s.SSRPostBlurRadius = std::clamp(finite(s.SSRPostBlurRadius, 3.0f), 0.0f, kScreenSpaceMaxDenoiseRadius);
     }
 
     // Upper bounds for the SSGI ray-march counts. These MUST match the runtime
@@ -510,6 +601,12 @@ namespace OloEngine
         s.SSGIRayCount = std::clamp(s.SSGIRayCount, 1, kSSGIMaxRays);
         s.SSGIEdgeFade = std::clamp(finite(s.SSGIEdgeFade, 0.1f), 0.0f, 0.5f);
         s.SSGITemporalFeedback = std::clamp(finite(s.SSGITemporalFeedback, 0.92f), 0.0f, 0.98f);
+        // Radii are in trace-band pixels and the kernel is an 8-tap Poisson disc,
+        // so a radius past ~16 leaves visible holes between taps rather than
+        // blurring more. The upper bounds are the point at which the pattern
+        // stops reading as a blur, not a performance cap.
+        s.SSGIPreBlurRadius = std::clamp(finite(s.SSGIPreBlurRadius, 1.0f), 0.0f, kScreenSpaceMaxDenoiseRadius);
+        s.SSGIPostBlurRadius = std::clamp(finite(s.SSGIPostBlurRadius, 4.0f), 0.0f, kScreenSpaceMaxDenoiseRadius);
     }
 
     // Upper bound for the contact-shadow march step count. MUST match the runtime
@@ -824,6 +921,17 @@ namespace OloEngine
         // gamma. z is what makes the FIRST frame correct: with no history the
         // resolve must output the current frame, not blend against garbage.
         glm::vec4 TemporalParams = glm::vec4(0.92f, 0.0f, 0.0f, 1.25f);
+        // Denoiser chain (issue #708). No trace-band lane: SSR stays at full
+        // resolution, because a reflection carries the sharpest detail in the
+        // frame and a half-resolution trace loses exactly that.
+        // x = PreBlurRadius (px), y = unused, z = PostBlurMaxRadius, w = unused
+        glm::vec4 DenoiseParams = glm::vec4(2.0f, 0.0f, 3.0f, 0.0f);
+        // x = PlaneTolerance (relative), y = NormalPower, z = RoughnessKnee,
+        // w = MaxRoughness — the TRACE's own cutoff, so the spatial stages can
+        // reject taps it deliberately produced a zero delta for instead of
+        // averaging those zeros into a rough neighbour.
+        glm::vec4 DenoiseGuide = glm::vec4(kSSGIDenoisePlaneTolerance, kSSGIDenoiseNormalPower,
+                                           kSSRDenoiseRoughnessKnee, 0.8f);
 
         static constexpr u32 GetSize()
         {
@@ -832,7 +940,7 @@ namespace OloEngine
     };
 
     static_assert(sizeof(SSRUBOData) % 16 == 0, "SSRUBOData must be 16-byte aligned for std140");
-    static_assert(sizeof(SSRUBOData) == 288, "SSRUBOData std140 size drifted — update PostProcess_SSR.glsl layout");
+    static_assert(sizeof(SSRUBOData) == 320, "SSRUBOData std140 size drifted — update PostProcess_SSR.glsl layout");
 
     // GPU-side UBO layout for screen-space global illumination (std140, binding 40).
     // All math the PostProcess_SSGI.glsl hemisphere gather needs: camera matrices
@@ -855,6 +963,21 @@ namespace OloEngine
         glm::vec4 Flags = glm::vec4(0.0f);
         // Temporal resolve (issue #902) — same lanes as SSRUBOData::TemporalParams.
         glm::vec4 TemporalParams = glm::vec4(0.92f, 0.0f, 0.0f, 1.25f);
+        // Denoiser chain (issue #708). TraceParams is the resolution the trace,
+        // pre-blur, resolve and post-blur actually run at — half of ScreenParams
+        // with SSGIHalfResolution on, equal to it otherwise. SSGIRenderPass
+        // patches it in Execute() rather than RenderPipeline filling it, for the
+        // same reason TemporalParams' runtime lanes are patched there: only
+        // Execute knows the size the graph actually allocated the signal targets
+        // at, and a value derived from the settings would be wrong on the frame
+        // a resize lands.
+        // x = trace width, y = trace height, z = 1/width, w = 1/height
+        glm::vec4 TraceParams = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+        // x = PreBlurRadius (px), y = PostBlurMinRadius, z = PostBlurMaxRadius, w = VarianceKnee
+        glm::vec4 DenoiseParams = glm::vec4(1.0f, 0.0f, 4.0f, kSSGIDenoiseVarianceKnee);
+        // x = PlaneTolerance (relative), y = NormalPower, z = TargetHistoryLength, w = RayDistribution (0/1)
+        glm::vec4 DenoiseGuide = glm::vec4(kSSGIDenoisePlaneTolerance, kSSGIDenoiseNormalPower,
+                                           kSSGIDenoiseTargetHistoryLength, 1.0f);
 
         static constexpr u32 GetSize()
         {
@@ -863,7 +986,7 @@ namespace OloEngine
     };
 
     static_assert(sizeof(SSGIUBOData) % 16 == 0, "SSGIUBOData must be 16-byte aligned for std140");
-    static_assert(sizeof(SSGIUBOData) == 272, "SSGIUBOData std140 size drifted — update PostProcess_SSGI.glsl layout");
+    static_assert(sizeof(SSGIUBOData) == 320, "SSGIUBOData std140 size drifted — update PostProcess_SSGI.glsl layout");
 
     // GPU-side UBO layout for screen-space contact shadows (std140, binding 41).
     // All math the PostProcess_ContactShadow.glsl ray march needs: camera matrices

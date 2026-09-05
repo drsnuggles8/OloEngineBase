@@ -384,6 +384,73 @@ vec2 OloSampleStratified2D(ivec2 pixel, uint frameIndex, uint sampleIndex, uint 
     return vec2((float(sampleIndex) + rot.x) / n,
                 fract(OloSobolOwen1D(sampleIndex, OLO_SOBOL_SCRAMBLE_SEED, dimension) + rot.y));
 }
+
+// -----------------------------------------------------------------------------
+// Ray distribution over the 2x2 quad (issue #708, step 1)
+//
+// Same stratified-plus-jitter construction as OloSampleStratified2D, except the
+// stratum grid is shared by the four pixels of a 2x2 quad instead of owned by
+// each pixel alone. Pixel q of the quad walks strata q, q+4, q+8 ... of a
+// 4*sampleCount grid, so:
+//
+//   * each pixel on its own is still perfectly stratified — its strata are
+//     1/sampleCount apart, exactly as before, merely offset by q/(4*sampleCount)
+//   * the quad TOGETHER covers 4*sampleCount strata with no overlap, so
+//     neighbouring pixels sample complementary directions rather than
+//     near-identical ones
+//
+// That second property is what the pre-blur cashes in: averaging a
+// depth/normal-guided neighbourhood of a quad-distributed trace recovers close
+// to 4x the ray count, where averaging a neighbourhood of independently
+// stratified pixels recovers far less because the neighbours largely repeat the
+// centre pixel's directions.
+//
+// The azimuth follows the same widened index, so the four pixels differ in BOTH
+// hemisphere dimensions, not just the radius.
+//
+// THE PHASE ROTATES PER FRAME, and the reason is a bias you cannot see in any
+// noise metric. Work the measure out: with the phase pinned to the pixel's
+// parity, pixel p draws u1 from (4r + phase + jitter) / (4N) for r = 0..N-1.
+// The jitter is in [0,1), so each (r, phase) covers a stratum of width 1/(4N),
+// and the union over r is N such strata — total measure exactly 1/4 of [0,1),
+// forever. Each pixel therefore converges to the mean of ITS OWN QUARTER of the
+// cosine-weighted radius domain, not of the whole one. That is a bias, so the
+// temporal resolve cannot remove it and neither can any length of history.
+//
+// Adding the frame index makes each pixel visit all four phases over four
+// frames, so its own temporal average covers the full domain, while any single
+// frame still has the quad covering four complementary phases. The rotation is
+// by a WHOLE stratum, so the per-pixel stratification is permuted, not
+// jittered — which is why this does not reintroduce the failure
+// OloSampleStratified2D's comment describes (that one moved u1 WITHIN the
+// domain, breaking the radius; this one relabels which strata a pixel owns).
+//
+// INTERACTION WITH THE RESOLVE TOGGLE, which is deliberate and worth stating:
+// `stochasticFrameIndexFor()` pins the frame index to 0 while the pass's
+// temporal resolve is OFF, so with the resolve off this rotation stops and each
+// pixel is back to owning one quarter of the domain. That is the correct
+// behaviour for that mode, not an oversight — with no accumulator there is
+// nothing converging, so the quarter-domain restriction is a fixed spatial
+// pattern rather than a converged bias, and a pass with no history behind it is
+// REQUIRED to sample a stable dither instead of redrawing grain every frame
+// (pinned by ScreenSpaceTemporalResolveEvidenceTest.DisablingTheResolveFreezes-
+// TheSamplerInsteadOfRedrawingGrain). The same pinning freezes the spatial
+// stages' disc rotation, for the same reason. Turning the resolve off is a
+// bisecting lever, not a shipping configuration.
+//
+// HONEST NOTE ON HOW THIS WAS FOUND: the change was made while chasing visible
+// low-frequency mottling on a box face in SSGIDenoise_Chain_4rays.png, on the
+// theory that the fixed phase was producing it. It was not — an A/B with the
+// pre-blur disabled showed the mottling is the PRE-BLUR spreading sparse ray
+// hits (see SSGIPreBlurRadius's comment for the measurements), and this rotation
+// changed the rendered frame by no amount anyone could see. It is kept because
+// the measure argument above is correct on its own, not because it fixed the
+// artifact it was written for.
+vec2 OloSampleQuadDistributed2D(ivec2 pixel, uint frameIndex, uint sampleIndex, uint sampleCount, uint dimension)
+{
+    uint quadIndex = (uint(pixel.x & 1) + 2u * uint(pixel.y & 1) + frameIndex) & 3u;
+    return OloSampleStratified2D(pixel, frameIndex, sampleIndex * 4u + quadIndex, sampleCount * 4u, dimension);
+}
 #endif // OLO_BLUE_NOISE_GLOBAL_SAMPLER
 
 // -----------------------------------------------------------------------------

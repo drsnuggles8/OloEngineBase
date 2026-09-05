@@ -3233,7 +3233,12 @@ namespace OloEngine
                            // resolve draw's input is this frame's raw stochastic
                            // signal. Same pass-local slot-0 reuse as the
                            // fullscreen entries above — no material is bound.
-                           name == "u_StochasticSignal";
+                           name == "u_StochasticSignal" ||
+                           // SSGI / SSR post-blur (issue #708): the cleanup
+                           // filter's input is the temporally resolved signal,
+                           // at the same pass-local slot 0 as the resolve's own
+                           // input above.
+                           name == "u_ResolvedSignal";
                 case TEX_SPECULAR:
                     // Slot 1 is reused across shader contexts: Metallic/Roughness in PBR,
                     // Depth textures in particle effects, Bloom textures in post-processing,
@@ -3270,7 +3275,20 @@ namespace OloEngine
                            // resolve draw samples last frame's history
                            // (u_History, already listed above). Both are
                            // pass-local slot-1 reuse in fullscreen draws.
-                           name == "u_ResolvedSignal";
+                           name == "u_ResolvedSignal" ||
+                           // SSGI / SSR denoiser chain (issue #708): the trace-band
+                           // guide plane (oct normal + roughness) every guided
+                           // stage weights its taps by. Pass-local fullscreen
+                           // reuse with no material bound, like the entries
+                           // above. It appears at three different slots because
+                           // each stage of the chain has a different number of
+                           // inputs ahead of it; the NAME is the same because it
+                           // is the same texture in all of them.
+                           name == "u_Guide" ||
+                           // SSGI / SSR composite (issue #708): with a post-blur
+                           // in the chain the composite samples the DENOISED
+                           // signal rather than the resolved one.
+                           name == "u_DenoisedSignal";
                 case TEX_NORMAL:
                     return name.contains("Normal") || name.contains("normal") ||
                            // SSGI shared surface-history resolve (#976), pass-local
@@ -3281,7 +3299,15 @@ namespace OloEngine
                            // Compute dispatch pass-local reuse (issue #627).
                            name == "u_HistoryVolume" ||
                            // DDGI fullscreen-pass pass-local reuse (issue #632).
-                           name == "u_PrevIrradiance";
+                           name == "u_PrevIrradiance" ||
+                           // SSGI / SSR denoiser chain (issue #708) — see the
+                           // note at TEX_SPECULAR for why u_Guide appears at
+                           // more than one slot.
+                           name == "u_Guide" ||
+                           // SSGI post-blur (issue #708): the accumulated first
+                           // moments, whose alpha carries the history length
+                           // that widens the radius on a disocclusion.
+                           name == "u_MomentsFirst";
                 case TEX_HEIGHT:
                     return name.contains("Height") || name.contains("height") ||
                            name.contains("Displacement") || name.contains("displacement") ||
@@ -3301,7 +3327,11 @@ namespace OloEngine
                            // reads scene depth here, mirroring GTAO.comp's
                            // pass-local 3/4/5 so the two compute dispatches keep
                            // the same slot meanings.
-                           name == "u_SceneDepth";
+                           name == "u_SceneDepth" ||
+                           // SSGI post-blur (issue #708): the accumulated second
+                           // moments, whose alpha carries the luminance variance
+                           // that drives the radius.
+                           name == "u_MomentsSecond";
                 case TEX_AMBIENT:
                     return name.contains("AO") || name.contains("Ambient") ||
                            name.contains("ambient") || name.contains("Occlusion") ||
@@ -3321,7 +3351,14 @@ namespace OloEngine
                            // VRCS classification (issue #683): the previous
                            // frame's resolved colour, for the luminance-variance
                            // term. Pass-local, same as u_HilbertLUT above.
-                           name == "u_PrevSceneColor";
+                           name == "u_PrevSceneColor" ||
+                           // SSGI temporal resolve (issue #708): the trace-band
+                           // guide plane, one slot past the four history inputs.
+                           // It replaced a read of the full-resolution G-Buffer
+                           // normal at TEX_GBUFFER_NORMAL, which is a different
+                           // resolution than the signal once the half-res trace
+                           // is on. See the note at TEX_SPECULAR.
+                           name == "u_Guide";
                 case TEX_ROUGHNESS:
                     return name.contains("Roughness") || name.contains("roughness") ||
                            // VRCS (issue #683): GTAO.comp reads the per-tile

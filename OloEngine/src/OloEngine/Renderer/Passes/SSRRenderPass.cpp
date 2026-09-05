@@ -37,7 +37,9 @@ namespace OloEngine
         m_SelectedVelocityTexture = {};
         m_SelectedHistoryTexture = {};
         m_SelectedSignalFramebuffer = {};
+        m_SelectedPreBlurredFramebuffer = {};
         m_SelectedResolvedFramebuffer = {};
+        m_SelectedDenoisedFramebuffer = {};
 
         // Pick the latest upstream colour to reflect: SSGI (if the indirect-diffuse
         // bounce ran), AOApply (if AO ran), SSS, else raw SceneColor.
@@ -92,9 +94,9 @@ namespace OloEngine
         {
             m_SelectedSignalFramebuffer = blackboard.Scratch.SSRSignal;
             // Intra-pass write-then-sample: draw A renders the stochastic
-            // signal, draw B (temporal resolve) samples it — including a 3x3
-            // neighbourhood — inside the same Execute. Same idiom as
-            // CloudscapeRenderPass's CloudsRaw.
+            // signal, every later draw samples it — including neighbourhoods —
+            // inside the same Execute. Same idiom as CloudscapeRenderPass's
+            // CloudsRaw.
             builder.AllowSamePassReadWrite(m_SelectedSignalFramebuffer);
             builder.Write(m_SelectedSignalFramebuffer, RGWriteUsage::RenderTarget);
             [[maybe_unused]] const auto signalRead = builder.Read(m_SelectedSignalFramebuffer, RGReadUsage::ShaderSample);
@@ -103,8 +105,8 @@ namespace OloEngine
         if (blackboard.Scratch.SSRResolved.IsValid())
         {
             m_SelectedResolvedFramebuffer = blackboard.Scratch.SSRResolved;
-            // Intra-pass write-then-sample again: draw B writes the resolve,
-            // draw C (composite) samples it.
+            // Intra-pass write-then-sample again: draw C writes the resolve,
+            // draw D (post-blur) samples it.
             builder.AllowSamePassReadWrite(m_SelectedResolvedFramebuffer);
             builder.Write(m_SelectedResolvedFramebuffer, RGWriteUsage::RenderTarget);
             [[maybe_unused]] const auto resolvedRead = builder.Read(m_SelectedResolvedFramebuffer, RGReadUsage::ShaderSample);
@@ -114,6 +116,29 @@ namespace OloEngine
             // composite carries the base colour and accumulating that is the
             // exact failure #902 exists to prevent.
             builder.ExtractHistoryTexture(ResourceNames::SSRHistory, m_SelectedResolvedFramebuffer);
+        }
+
+        // Pre-blur (stage 2) and post-blur (stage 4) scratch (issue #708).
+        // Declared on the same gate as the signal even when their radius is 0 —
+        // the graph shape must not depend on a UBO value, or the radius would
+        // have to be hashed into the blackboard fingerprint. Execute simply
+        // skips the draw and rebinds its consumer.
+        if (blackboard.Scratch.SSRPreBlurred.IsValid())
+        {
+            m_SelectedPreBlurredFramebuffer = blackboard.Scratch.SSRPreBlurred;
+            builder.AllowSamePassReadWrite(m_SelectedPreBlurredFramebuffer);
+            builder.Write(m_SelectedPreBlurredFramebuffer, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto preBlurRead =
+                builder.Read(m_SelectedPreBlurredFramebuffer, RGReadUsage::ShaderSample);
+        }
+
+        if (blackboard.Scratch.SSRDenoised.IsValid())
+        {
+            m_SelectedDenoisedFramebuffer = blackboard.Scratch.SSRDenoised;
+            builder.AllowSamePassReadWrite(m_SelectedDenoisedFramebuffer);
+            builder.Write(m_SelectedDenoisedFramebuffer, RGWriteUsage::RenderTarget);
+            [[maybe_unused]] const auto denoisedRead =
+                builder.Read(m_SelectedDenoisedFramebuffer, RGReadUsage::ShaderSample);
         }
 
         constexpr std::string_view ssrVersionTag = "SSRPass";
@@ -135,7 +160,9 @@ namespace OloEngine
 
         m_FramebufferSpec = spec;
         m_SSRShader = Shader::Create("assets/shaders/PostProcess_SSR.glsl");
+        m_SSRPreBlurShader = Shader::Create("assets/shaders/PostProcess_SSRPreBlur.glsl");
         m_SSRResolveShader = Shader::Create("assets/shaders/PostProcess_SSRResolve.glsl");
+        m_SSRPostBlurShader = Shader::Create("assets/shaders/PostProcess_SSRPostBlur.glsl");
         m_SSRCompositeShader = Shader::Create("assets/shaders/PostProcess_SSRComposite.glsl");
 
         if (!m_BlueNoiseTexture.IsValid())
@@ -187,11 +214,17 @@ namespace OloEngine
             gbufferAlbedoID = context.ResolveTextureHandle(m_SelectedGBufferAlbedoTexture);
 
         Ref<Framebuffer> signalFramebuffer;
+        Ref<Framebuffer> preBlurredFramebuffer;
         Ref<Framebuffer> resolvedFramebuffer;
+        Ref<Framebuffer> denoisedFramebuffer;
         if (m_SelectedSignalFramebuffer.IsValid())
             signalFramebuffer = context.ResolveFramebuffer(m_SelectedSignalFramebuffer);
+        if (m_SelectedPreBlurredFramebuffer.IsValid())
+            preBlurredFramebuffer = context.ResolveFramebuffer(m_SelectedPreBlurredFramebuffer);
         if (m_SelectedResolvedFramebuffer.IsValid())
             resolvedFramebuffer = context.ResolveFramebuffer(m_SelectedResolvedFramebuffer);
+        if (m_SelectedDenoisedFramebuffer.IsValid())
+            denoisedFramebuffer = context.ResolveFramebuffer(m_SelectedDenoisedFramebuffer);
 
         RHI::ResourceHandle velocityID{};
         RHI::ResourceHandle historyID{};
@@ -206,7 +239,8 @@ namespace OloEngine
             return;
         }
 
-        if (!inputColorTextureID.IsValid() || !outputFramebuffer || !signalFramebuffer || !resolvedFramebuffer)
+        if (!inputColorTextureID.IsValid() || !outputFramebuffer || !signalFramebuffer ||
+            !preBlurredFramebuffer || !resolvedFramebuffer || !denoisedFramebuffer)
         {
             m_Target = nullptr;
             if (static u32 s_MissingInputOrOutputWarnings = 0; s_MissingInputOrOutputWarnings++ < 10)
@@ -312,6 +346,17 @@ namespace OloEngine
             context.Clear();
         };
 
+        // By value, not by const reference: Ref<T>::operator-> on a CONST Ref
+        // hands back a const T*, and Framebuffer::Bind() is non-const. The copy
+        // is a refcount bump five times per frame.
+        const auto bindTarget = [&context, &setFullscreenState](Ref<Framebuffer> target)
+        {
+            target->Bind();
+            const auto& spec = target->GetSpecification();
+            context.SetViewport(0, 0, spec.Width, spec.Height);
+            setFullscreenState();
+        };
+
         const auto drawFullscreen = [&context]()
         {
             const auto va = MeshPrimitives::GetFullscreenTriangle();
@@ -324,13 +369,13 @@ namespace OloEngine
 
         // ----------------------------------------------------------------
         // Draw A - the stochastic reflection delta ONLY, into SSRSignal.
+        // Two attachments: the delta, and the guide plane whose roughness sets
+        // both spatial stages' radius.
         // ----------------------------------------------------------------
-        signalFramebuffer->Bind();
-        {
-            const auto& signalSpec = signalFramebuffer->GetSpecification();
-            context.SetViewport(0, 0, signalSpec.Width, signalSpec.Height);
-        }
-        setFullscreenState();
+        bindTarget(signalFramebuffer);
+
+        constexpr std::array<u32, 2> signalAttachments{ 0u, 1u };
+        RenderCommand::SetDrawBuffers(signalAttachments);
 
         // Heap-bindless conversion (issue #691, bucket 1). The shader is
         // bound FIRST because the seam forks on Shader::IsBoundProgramBindless(),
@@ -355,23 +400,38 @@ namespace OloEngine
         drawFullscreen();
         signalFramebuffer->Unbind();
 
-        // ----------------------------------------------------------------
-        // Draw B - temporal resolve of that signal, into SSRResolved.
-        // ----------------------------------------------------------------
         const RHI::ResourceHandle signalTextureID = signalFramebuffer->GetColorAttachmentHandle(0);
+        const RHI::ResourceHandle guideTextureID = signalFramebuffer->GetColorAttachmentHandle(1);
 
-        resolvedFramebuffer->Bind();
+        // ----------------------------------------------------------------
+        // Draw B - pre-blur (issue #708 stage 2), into SSRPreBlurred.
+        //
+        // Skipped outright when the radius is 0: the resolve then accumulates
+        // the raw signal, which is exactly the pre-#708 behaviour and the arm an
+        // A/B measures against.
+        // ----------------------------------------------------------------
+        RHI::ResourceHandle resolveInputTextureID = signalTextureID;
+        if (m_PreBlurEnabled)
         {
-            const auto& resolvedSpec = resolvedFramebuffer->GetSpecification();
-            context.SetViewport(0, 0, resolvedSpec.Width, resolvedSpec.Height);
+            bindTarget(preBlurredFramebuffer);
+            m_SSRPreBlurShader->Bind();
+            context.BindTextureOrHeapOffset(0, signalTextureID, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(1, guideTextureID, RHI::HeapSlotLifetime::FrameTransient);
+            drawFullscreen();
+            preBlurredFramebuffer->Unbind();
+            resolveInputTextureID = preBlurredFramebuffer->GetColorAttachmentHandle(0);
         }
-        setFullscreenState();
+
+        // ----------------------------------------------------------------
+        // Draw C - temporal resolve of that signal, into SSRResolved.
+        // ----------------------------------------------------------------
+        bindTarget(resolvedFramebuffer);
 
         m_SSRResolveShader->Bind();
-        context.BindTextureOrHeapOffset(0, signalTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(0, resolveInputTextureID, RHI::HeapSlotLifetime::FrameTransient);
         // With no history the shader ignores unit 1 (TemporalParams.z == 0), but
         // it must still be bound to something valid or the sampler dangles.
-        context.BindTextureOrHeapOffset(1, historyID.IsValid() ? historyID : signalTextureID,
+        context.BindTextureOrHeapOffset(1, historyID.IsValid() ? historyID : resolveInputTextureID,
                                         RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_VELOCITY,
                                         velocityID.IsValid() ? velocityID : signalTextureID,
@@ -379,20 +439,34 @@ namespace OloEngine
         drawFullscreen();
         resolvedFramebuffer->Unbind();
 
+        const RHI::ResourceHandle resolvedTextureID = resolvedFramebuffer->GetColorAttachmentHandle(0);
+
         // ----------------------------------------------------------------
-        // Draw C - composite the RESOLVED delta onto the upstream colour.
+        // Draw D - post-blur (issue #708 stage 4), into SSRDenoised. Its output
+        // is deliberately NOT what the graph extracts into SSRHistory: the
+        // history must carry the resolve's own estimate, not a filtered copy of
+        // it, or the filter compounds with itself frame after frame.
         // ----------------------------------------------------------------
-        outputFramebuffer->Bind();
+        RHI::ResourceHandle compositeSignalTextureID = resolvedTextureID;
+        if (m_PostBlurEnabled)
         {
-            const auto& outSpec = outputFramebuffer->GetSpecification();
-            context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
+            bindTarget(denoisedFramebuffer);
+            m_SSRPostBlurShader->Bind();
+            context.BindTextureOrHeapOffset(0, resolvedTextureID, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(1, guideTextureID, RHI::HeapSlotLifetime::FrameTransient);
+            drawFullscreen();
+            denoisedFramebuffer->Unbind();
+            compositeSignalTextureID = denoisedFramebuffer->GetColorAttachmentHandle(0);
         }
-        setFullscreenState();
+
+        // ----------------------------------------------------------------
+        // Draw E - composite the DENOISED delta onto the upstream colour.
+        // ----------------------------------------------------------------
+        bindTarget(outputFramebuffer);
 
         m_SSRCompositeShader->Bind();
         context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(1, resolvedFramebuffer->GetColorAttachmentHandle(0),
-                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(1, compositeSignalTextureID, RHI::HeapSlotLifetime::FrameTransient);
         drawFullscreen();
 
         RenderCommand::SetDepthMask(true);
@@ -426,7 +500,9 @@ namespace OloEngine
         m_SelectedVelocityTexture = {};
         m_SelectedHistoryTexture = {};
         m_SelectedSignalFramebuffer = {};
+        m_SelectedPreBlurredFramebuffer = {};
         m_SelectedResolvedFramebuffer = {};
+        m_SelectedDenoisedFramebuffer = {};
     }
 
 } // namespace OloEngine

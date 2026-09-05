@@ -211,6 +211,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VolumetricShadowVisualEvidenceTest.cpp
 		Rendering/AutoExposureMathTest.cpp
 		Rendering/ScreenSpaceReflectionMathTest.cpp
+		Rendering/ScreenSpaceDenoiseMathTest.cpp
 		Rendering/ScreenSpaceGIMathTest.cpp
 		Rendering/StochasticSamplerTest.cpp
 		Rendering/SurfaceHistoryTest.cpp
@@ -414,6 +415,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeParallaxVisualEvidenceTest.cpp
+		Rendering/PropertyTests/SSGIDenoiserVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ScreenSpaceTemporalResolveEvidenceTest.cpp
 		Rendering/DDGI/DDGIVisualEvidenceTest.cpp
