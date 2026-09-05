@@ -92,15 +92,52 @@ namespace OloEngine
         }
 
         // Box-filter downsample an RGBA8 image to half size (each dim halved, min 1).
-        // NOTE: filtering is done in the stored 8-bit space (gamma-naive for sRGB) —
-        // matches glGenerateMipmap's default behaviour; a linear-space mip build is a
-        // deliberate follow-up. `outW`/`outH` receive the reduced dimensions.
-        std::vector<u8> DownsampleRGBA8(const std::vector<u8>& src, u32 width, u32 height, u32& outW, u32& outH)
+        // sRGB transfer function, both directions (IEC 61966-2-1). Only used to build a
+        // mip chain in linear light; the stored texels stay sRGB-encoded either way.
+        f32 SRGBToLinear(f32 encoded)
+        {
+            return encoded <= 0.04045f ? (encoded / 12.92f) : std::pow((encoded + 0.055f) / 1.055f, 2.4f);
+        }
+
+        f32 LinearToSRGB(f32 linear)
+        {
+            return linear <= 0.0031308f ? (linear * 12.92f) : (1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f);
+        }
+
+        // 256-entry sRGB -> linear table. Building the table once and indexing it turns
+        // the per-texel std::pow into a load; the inverse still needs the real function
+        // because its input is continuous.
+        const std::array<f32, 256>& SRGBDecodeTable()
+        {
+            static const std::array<f32, 256> table = []
+            {
+                std::array<f32, 256> values{};
+                for (u32 i = 0; i < 256; ++i)
+                    values[i] = SRGBToLinear(static_cast<f32>(i) / 255.0f);
+                return values;
+            }();
+            return table;
+        }
+
+        //
+        // `srgb` selects a GAMMA-CORRECT reduction (#624 item 4): the four source texels
+        // are decoded to linear light, averaged there, and re-encoded. Averaging sRGB code
+        // values directly — which is what glGenerateMipmap does by default, and what this
+        // cook did before — is averaging the wrong quantity and comes out too dark: a
+        // 50/50 black-and-white checkerboard reduces to 128/255 instead of the 188/255
+        // that actually carries half the light. The error is largest exactly where mip
+        // chains are most visible, on high-contrast albedo at a distance.
+        //
+        // Alpha is NEVER gamma-decoded — it is coverage, not light, and is linear in the
+        // stored space already. `outW`/`outH` receive the reduced dimensions.
+        std::vector<u8> DownsampleRGBA8(const std::vector<u8>& src, u32 width, u32 height, bool srgb,
+                                        u32& outW, u32& outH)
         {
             outW = std::max(1u, width / 2);
             outH = std::max(1u, height / 2);
             std::vector<u8> dst(static_cast<sizet>(outW) * outH * 4);
 
+            const std::array<f32, 256>& decode = SRGBDecodeTable();
             for (u32 y = 0; y < outH; ++y)
             {
                 const u32 sy0 = std::min(y * 2, height - 1);
@@ -116,8 +153,17 @@ namespace OloEngine
                     u8* d = &dst[(static_cast<sizet>(y) * outW + x) * 4];
                     for (u32 c = 0; c < 4; ++c)
                     {
-                        const u32 sum = static_cast<u32>(p00[c]) + p01[c] + p10[c] + p11[c];
-                        d[c] = static_cast<u8>((sum + 2) / 4);
+                        if (srgb && c < 3)
+                        {
+                            const f32 average = (decode[p00[c]] + decode[p01[c]] + decode[p10[c]] + decode[p11[c]]) * 0.25f;
+                            const f32 encoded = std::clamp(LinearToSRGB(average), 0.0f, 1.0f);
+                            d[c] = static_cast<u8>(std::lround(encoded * 255.0f));
+                        }
+                        else
+                        {
+                            const u32 sum = static_cast<u32>(p00[c]) + p01[c] + p10[c] + p11[c];
+                            d[c] = static_cast<u8>((sum + 2) / 4);
+                        }
                     }
                 }
             }
@@ -680,8 +726,8 @@ namespace OloEngine
                 ExpandToRGBA8(pixels, width, height, channels), width, height, generateMips,
                 [&encodeBlock](const std::vector<u8>& lvl, u32 w, u32 h)
                 { return EncodeLevel(lvl, w, h, encodeBlock); },
-                [](const std::vector<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
-                { return DownsampleRGBA8(s, w, h, ow, oh); });
+                [srgb](const std::vector<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
+                { return DownsampleRGBA8(s, w, h, srgb, ow, oh); });
             return image;
         }
 
@@ -716,7 +762,7 @@ namespace OloEngine
                 [&encodeBlock](const std::vector<u8>& lvl, u32 w, u32 h)
                 { return EncodeLevel(lvl, w, h, encodeBlock); },
                 [](const std::vector<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
-                { return DownsampleRGBA8(s, w, h, ow, oh); });
+                { return DownsampleRGBA8(s, w, h, /*srgb*/ false, ow, oh); });
             return image;
         }
 

@@ -83,7 +83,10 @@ namespace OloEngine
 
         // ---- Encode -----------------------------------------------------------
         // Source pixels are tightly packed, `channels` bytes/texel, row-major.
-        // `generateMips` builds the full box-filtered chain; otherwise mip 0 only.
+        // `generateMips` builds the full box-filtered chain; otherwise mip 0 only. An
+        // sRGB BC7 chain is filtered in LINEAR light (#624 item 4) — averaging sRGB code
+        // values directly darkens every mip; alpha is always averaged as stored, since it
+        // is coverage rather than light.
         //
         // EncodeBC7 expands the source to RGBA (missing channels: G/B copy R for 1-ch,
         // A defaults to 255) before encoding all four channels.

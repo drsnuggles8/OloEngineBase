@@ -257,6 +257,95 @@ TEST(TextureCompression, HandlesNonMultipleOf4Dimensions)
 }
 
 TEST(TextureCompression, ContainerBlobRoundTripIsBitExact)
+// ---- Linear-space mip generation (#624 item 4) ----------------------------
+
+TEST(TextureCompression, SRGBMipChainIsFilteredInLinearLight)
+{
+    // A 50/50 black-and-white checkerboard is the sharp case. Half the LIGHT is sRGB
+    // ~0.5^(1/2.2) == 188/255, not the 128/255 an average of sRGB code values gives.
+    // Averaging in the stored space is what glGenerateMipmap does by default and what
+    // this cook did before #624; it darkens every sRGB mip.
+    constexpr u32 kW = 32;
+    constexpr u32 kH = 32;
+    std::vector<u8> checker(static_cast<sizet>(kW) * kH * 4, 255);
+    for (u32 y = 0; y < kH; ++y)
+    {
+        for (u32 x = 0; x < kW; ++x)
+        {
+            const u8 value = ((x + y) % 2 == 0) ? 255 : 0;
+            u8* p = &checker[(static_cast<sizet>(y) * kW + x) * 4];
+            p[0] = value;
+            p[1] = value;
+            p[2] = value;
+            p[3] = 255;
+        }
+    }
+
+    const auto mipOneMean = [](const CompressedTextureImage& image) -> double
+    {
+        std::vector<u8> decoded;
+        u32 dw = 0;
+        u32 dh = 0;
+        EXPECT_TRUE(TextureCompression::DecodeToRGBA8(image, 1, decoded, dw, dh));
+        double sum = 0.0;
+        sizet samples = 0;
+        for (sizet texel = 0; texel + 4 <= decoded.size(); texel += 4)
+        {
+            for (u32 c = 0; c < 3; ++c)
+            {
+                sum += static_cast<double>(decoded[texel + c]);
+                ++samples;
+            }
+        }
+        return samples == 0 ? 0.0 : sum / static_cast<double>(samples);
+    };
+
+    const CompressedTextureImage srgbImage = TextureCompression::EncodeBC7(checker.data(), kW, kH, 4, /*srgb*/ true, true);
+    ASSERT_TRUE(srgbImage.IsValid());
+    ASSERT_GT(srgbImage.MipLevels(), 1u);
+    const double srgbMean = mipOneMean(srgbImage);
+    // BC7 is lossy, so allow a few code values of slack around the exact 188.
+    EXPECT_NEAR(srgbMean, 188.0, 6.0) << "sRGB mip 1 mean " << srgbMean << " — expected linear-light averaging";
+
+    // A LINEAR BC7 texture must NOT be gamma-corrected: its code values already are the
+    // quantity to average, and "correcting" them would brighten every roughness/AO mip.
+    const CompressedTextureImage linearImage = TextureCompression::EncodeBC7(checker.data(), kW, kH, 4, /*srgb*/ false, true);
+    ASSERT_TRUE(linearImage.IsValid());
+    const double linearMean = mipOneMean(linearImage);
+    EXPECT_NEAR(linearMean, 128.0, 6.0) << "linear mip 1 mean " << linearMean << " — expected a plain average";
+}
+
+TEST(TextureCompression, SRGBMipFilteringLeavesAlphaAlone)
+{
+    // Alpha is coverage, not light. A 50/50 alpha checkerboard must still reduce to ~128.
+    constexpr u32 kW = 16;
+    constexpr u32 kH = 16;
+    std::vector<u8> pixels(static_cast<sizet>(kW) * kH * 4, 200);
+    for (u32 y = 0; y < kH; ++y)
+    {
+        for (u32 x = 0; x < kW; ++x)
+            pixels[(static_cast<sizet>(y) * kW + x) * 4 + 3] = ((x + y) % 2 == 0) ? 255 : 0;
+    }
+
+    const CompressedTextureImage image = TextureCompression::EncodeBC7(pixels.data(), kW, kH, 4, /*srgb*/ true, true);
+    ASSERT_TRUE(image.IsValid());
+    ASSERT_GT(image.MipLevels(), 1u);
+
+    std::vector<u8> decoded;
+    u32 dw = 0;
+    u32 dh = 0;
+    ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 1, decoded, dw, dh));
+    double sum = 0.0;
+    sizet samples = 0;
+    for (sizet texel = 0; texel + 4 <= decoded.size(); texel += 4)
+    {
+        sum += static_cast<double>(decoded[texel + 3]);
+        ++samples;
+    }
+    const double mean = samples == 0 ? 0.0 : sum / static_cast<double>(samples);
+    EXPECT_NEAR(mean, 128.0, 8.0) << "alpha mip 1 mean " << mean << " — alpha must not be gamma-corrected";
+}
+
 {
     constexpr u32 kW = 32;
     constexpr u32 kH = 16;
