@@ -53,6 +53,7 @@
 #include "OloEngine/Gameplay/PlayerRig/PlayerRigComponents.h"
 #include "OloEngine/Gameplay/Combat/CombatComponents.h"
 #include "OloEngine/Cinematic/CinematicComponent.h"
+#include "OloEngine/Tilemap/TilemapComponent.h"
 #include "OloEngine/Scene/ComponentReflection.h"
 
 #include <box2d/id.h>

@@ -73,6 +73,7 @@ namespace OloEngine
         serializers[AssetType::CharacterClassDatabase] = CreateScope<CharacterClassDatabaseSerializer>();
         serializers[AssetType::VisualScript] = CreateScope<VisualScriptAssetSerializer>();
         serializers[AssetType::Volume] = CreateScope<VolumeSerializer>();
+        serializers[AssetType::Tileset] = CreateScope<TilesetSerializer>();
     }
 
     void AssetImporter::Shutdown()
@@ -137,16 +138,33 @@ namespace OloEngine
 
     bool AssetImporter::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset)
     {
-        TUniqueLock<FMutex> lock(GetSerializersMutex());
-        auto& serializers = GetSerializers();
-        auto it = serializers.find(metadata.Type);
-        if (it == serializers.end())
+        // The mutex guards the REGISTRY LOOKUP ONLY, and is released before the
+        // serializer runs. Holding it across the load self-deadlocks whenever a
+        // serializer resolves a dependent asset — MeshSerializer loads its
+        // MeshSource, and TilesetSerializer used to resolve its atlas texture —
+        // because FMutex is not recursive and the nested GetAsset lands right back
+        // here. The symptom is the editor freezing on the first frame that touches
+        // such an asset, with no log line and no crash.
+        //
+        // Releasing early is safe: the registry is a function-local static
+        // populated once by Init() and never mutated afterwards (Shutdown() is an
+        // intentional no-op, see below), and the serializers it owns are
+        // process-lifetime and stateless. So the raw pointer stays valid after the
+        // lock drops.
+        AssetSerializer* serializer = nullptr;
         {
-            OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
-            return false;
+            TUniqueLock<FMutex> lock(GetSerializersMutex());
+            auto& serializers = GetSerializers();
+            auto it = serializers.find(metadata.Type);
+            if (it == serializers.end())
+            {
+                OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
+                return false;
+            }
+            serializer = it->second.get();
         }
 
-        return it->second->TryLoadData(metadata, asset);
+        return serializer->TryLoadData(metadata, asset);
     }
 
     bool AssetImporter::SupportsAsyncLoading(AssetType type)

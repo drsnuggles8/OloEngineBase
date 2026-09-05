@@ -55,6 +55,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 ## Renderer
 
+- [multi-mode-block-format-encoders.md](multi-mode-block-format-encoders.md): a block format with several block layouts is validated one mode at a time against the reference decoder's own read order; BC6H interpolates in half-float space, so a high-contrast block is not its hard case; a compute port keeps its integer half identical and returns bulk data in an `rgba32ui` image rather than spending a scarce buffer binding.
 - [incomplete-texture-samples-as-zero.md](incomplete-texture-samples-as-zero.md): set a texture's sampler state at creation; an incomplete texture reads zero on AMD and fine on NVIDIA.
 - [std-distributions-are-not-portable.md](std-distributions-are-not-portable.md): seed procedural content with your own transform over mt19937; std:: distributions differ between standard libraries, so one seed is two different results.
 - [rhi-abstraction-boundary.md](rhi-abstraction-boundary.md): the OpenGL boundary leaks through the include graph, not a `glXxx(` grep; plus the Vulkan epic's lessons.
@@ -144,12 +145,12 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 Accumulated per-subsystem gotchas. Skim the relevant one before working in that area.
 
-- [notes-renderer.md](notes-renderer.md): offline capture, GL wrappers, shader bindings, SSAO/SSR/FSR, IBL bakes, GPU timers, which per-instance bounds list survives frustum culling, why two uniform buffers on one binding point is last-created-wins, and why tightening a loop bound moves every guard that was calibrated against it.
+- [notes-renderer.md](notes-renderer.md): offline capture, GL wrappers, shader bindings, SSAO/SSR/FSR, IBL bakes, GPU timers, which per-instance bounds list survives frustum culling, why two uniform buffers on one binding point is last-created-wins, why tightening a loop bound moves every guard that was calibrated against it, the four separate Scene draw sites a world-space 2D component must be wired into, and why a texture built in memory is vertically mirrored relative to one loaded from a file.
 - [notes-mcp-tool-authoring.md](notes-mcp-tool-authoring.md): the three-part tool split, schemas, consent and undo, frame capture.
 - [notes-core-and-threading.md](notes-core-and-threading.md): yaml-cpp decode, `Ref<T>` constness, the task system, EnTT first-touch, C++ traps.
 - [notes-gameplay-physics-nav.md](notes-gameplay-physics-nav.md): the two Jolt systems, joints, Detour, dialogue guards, the gameplay scheduler.
 - [notes-audio-animation-sim.md](notes-audio-animation-sim.md): pose sampling, retargeting, morph targets, the fixed-timestep split, SoundGraph.
-- [notes-editor-and-assets.md](notes-editor-and-assets.md): Content Browser, filewatch import, placeholders, texture cook, the ScriptCore build edge, and why a second meaning for an already-registered extension loses silently.
+- [notes-editor-and-assets.md](notes-editor-and-assets.md): Content Browser, filewatch import, placeholders, texture cook, the ScriptCore build edge, why a second meaning for an already-registered extension loses silently, and why an asset serializer that resolves a second asset used to deadlock the whole editor with no diagnostic at all.
 
 ---
 
@@ -170,7 +171,10 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [component-serializer-codegen.md](component-serializer-codegen.md) | A corrupt drive mode clamped to a different valid mode, and the car still drove. |
 | [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md) | "Load the scene, does it crash?" passes because the trigger is resolution, not loading. |
 | [notes-editor-and-assets.md](notes-editor-and-assets.md) | An extension already in `s_ExtensionMap` routes the file to the OLD importer, so a new format fails as a corrupt version of the old one rather than as an unsupported format. |
+| [notes-editor-and-assets.md](notes-editor-and-assets.md) | A serializer that calls `AssetManager::GetAsset` from inside its own `TryLoadData` re-enters the importer's non-recursive registry mutex: the editor freezes mid-frame with no crash, no assert and no log line, looking exactly like a slow shader warmup. |
 | [notes-renderer.md](notes-renderer.md) | Two uniform buffers on one binding point: the shader reads the one constructed LAST, so the other's SetData lands where nothing reads and the frame renders with a zeroed camera. |
+| [notes-renderer.md](notes-renderer.md) | A new world-space 2D component wired into only some of Scene's four `Renderer2D::BeginScene` sites draws in one viewport mode and silently vanishes in another; the editor's 3D-mode site is the one usually missed, and it is the path headless visual-evidence tests exercise. |
+| [notes-renderer.md](notes-renderer.md) | The image loader flips rows on load but `Texture2D::SetData` does not, so an atlas built in a test is vertically mirrored against the same image on disk and every sub-rect samples its neighbour; a "did anything draw" assertion cannot see it. |
 | [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) | A test believed it exercised the manual path while a valid navmesh had switched it to the crowd follower. |
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | A steady-state offset check passes with a full one-tick lag present. |
 | [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | A position check passes on the scheduler tie-break alone, with the dependency edge missing. |
@@ -180,6 +184,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) | Every Vulkan draw wrote colour attachment 0 alone, and the forward path only displays attachment 0. |
 | [substituted-seams-compound.md](substituted-seams-compound.md) | A decal tenant made three substitutions, each hiding a different live bug; no decal had ever produced a pixel. |
 | [no-silent-fallbacks.md](no-silent-fallbacks.md) | Two defensible fallbacks composed into VK_ERROR_DEVICE_LOST on every virtual-geometry scene, three layers from the cause, with both Vulkan VG tests passing. A stub returning `nullptr` then vanished into the caller's own "mapping failed" branch, so no page upload landed and every counter still read green. |
+| [multi-mode-block-format-encoders.md](multi-mode-block-format-encoders.md) | A misplaced field in one of fourteen block layouts corrupts only the blocks that chose that mode, and the aggregate PSNR barely moves. |
 | [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md) | A compute kernel wrote mip 0 and left coarser mips stale; the visual test was green because every mip was uniformly stale. |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | A compaction test that sorts both sides passes identically on `atomicAdd` and on the scan replacing it. |
 | [variable-rate-compute-shading.md](variable-rate-compute-shading.md) | A classifier that coarsens nothing passes every "did coarsening damage the image" assertion. |

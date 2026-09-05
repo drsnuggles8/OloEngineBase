@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 
 #include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Renderer/BC6HGpuEncoder.h"
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -240,9 +241,18 @@ namespace OloEngine
                 explicit TextureCookScope(bool enabled)
                 {
                     TextureSerializer::SetAssetPackCompressionEnabled(enabled);
+                    // Let HDR textures cook on the GPU for the duration of the build
+                    // (#624 item 3). This runs on a worker, so the encoder marshals each
+                    // level to the context thread through the game thread's task queue
+                    // and blocks; if nothing drains that queue it gives up once, latches
+                    // off and the rest of the bake finishes on the CPU encoder.
+                    // TextureCompression::GetBC6HEncodeCounts() reports which ran.
+                    if (enabled)
+                        BC6HGpu::RegisterWithTextureCompression();
                 }
                 ~TextureCookScope()
                 {
+                    BC6HGpu::UnregisterFromTextureCompression();
                     TextureSerializer::SetAssetPackCompressionEnabled(false);
                 }
                 TextureCookScope(const TextureCookScope&) = delete;

@@ -50,6 +50,7 @@ ids.insert(entt::type_hash<SailComponent>::value());
 ids.insert(entt::type_hash<SnowDeformerComponent>::value());
 ids.insert(entt::type_hash<SpotLightComponent>::value());
 ids.insert(entt::type_hash<SpringBoneComponent>::value());
+ids.insert(entt::type_hash<TilemapComponent>::value());
 ids.insert(entt::type_hash<TimeOfDayComponent>::value());
 ids.insert(entt::type_hash<UIButtonComponent>::value());
 ids.insert(entt::type_hash<UICanvasComponent>::value());

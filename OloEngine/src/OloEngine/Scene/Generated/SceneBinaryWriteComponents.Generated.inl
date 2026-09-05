@@ -691,6 +691,32 @@ if (entity.HasComponent<SpringBoneComponent>())
     SceneBinIO::Write(out, comp.Weight);
 }
 
+if (entity.HasComponent<TilemapComponent>())
+{
+    SceneBinIO::WriteU32(out, 4161997664u); // TilemapComponent
+    auto const& comp = entity.GetComponent<TilemapComponent>();
+    SceneBinIO::Write(out, comp.TilesetHandle);
+    SceneBinIO::Write(out, comp.Width);
+    SceneBinIO::Write(out, comp.Height);
+    SceneBinIO::Write(out, comp.TileSize);
+    SceneBinIO::Write(out, comp.Color);
+    SceneBinIO::WriteU32(out, static_cast<u32>(comp.Layers.size()));
+    for (auto const& be0 : comp.Layers)
+    {
+        SceneBinIO::Write(out, be0.Name);
+        SceneBinIO::WriteU32(out, static_cast<u32>(be0.Tiles.size()));
+        for (auto const& be1 : be0.Tiles)
+            SceneBinIO::Write(out, be1);
+        SceneBinIO::Write(out, be0.Visible);
+        SceneBinIO::Write(out, be0.Solid);
+        SceneBinIO::Write(out, be0.Opacity);
+        SceneBinIO::Write(out, be0.ZOffset);
+    }
+    SceneBinIO::Write(out, comp.GenerateColliders);
+    SceneBinIO::Write(out, comp.ColliderFriction);
+    SceneBinIO::Write(out, comp.ColliderRestitution);
+}
+
 if (entity.HasComponent<TimeOfDayComponent>())
 {
     SceneBinIO::WriteU32(out, 3023319560u); // TimeOfDayComponent

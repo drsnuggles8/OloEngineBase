@@ -101,8 +101,21 @@ namespace OloEngine::VulkanUpload
                 return srgb ? VK_FORMAT_BC7_SRGB_BLOCK : VK_FORMAT_BC7_UNORM_BLOCK;
             case ImageFormat::BC5:
                 return VK_FORMAT_BC5_UNORM_BLOCK;
+            case ImageFormat::BC4:
+                // NOTE: BC4 samples (R, 0, 0, 1) and this engine's contract is
+                // (R, R, R, 1) — the OpenGL upload installs a texture swizzle for it
+                // (OpenGLTexture2D's compressed constructor). Vulkan's equivalent is a
+                // VkComponentMapping on the image view, and there is none in the tree
+                // yet. Latent today because the Vulkan compressed-texture upload path
+                // is still a stub (#691); whoever enables it must add the mapping, or
+                // every BC4 texture reads green and blue as zero.
+                return VK_FORMAT_BC4_UNORM_BLOCK;
             case ImageFormat::BC6H:
                 return VK_FORMAT_BC6H_UFLOAT_BLOCK;
+            case ImageFormat::BC6HS:
+                return VK_FORMAT_BC6H_SFLOAT_BLOCK;
+            case ImageFormat::RGBA32UI:
+                return VK_FORMAT_R32G32B32A32_UINT;
         }
 
         OLO_CORE_ASSERT(false, "ImageFormatToVkFormat: unknown ImageFormat {}", static_cast<u32>(format));
@@ -118,7 +131,14 @@ namespace OloEngine::VulkanUpload
             case ImageFormat::BC7:
             case ImageFormat::BC5:
             case ImageFormat::BC6H:
+            case ImageFormat::BC6HS:
+            case ImageFormat::BC4:
                 return 0;
+            case ImageFormat::RGBA32UI:
+                // 4 x 32-bit unsigned. Not zero: zero means "no client pixel format",
+                // which is true of the block-compressed formats above and false of an
+                // integer texel format.
+                return 16;
             case ImageFormat::R8:
             case ImageFormat::R8UI:
                 return 1;
