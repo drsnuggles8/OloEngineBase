@@ -63,6 +63,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Shadow/ShadowAtlas.h"
+#include "OloEngine/Renderer/Passes/RayTracedShadowPass.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
@@ -310,6 +311,8 @@ namespace OloEngine::MCP
                     return "SSR";
                 case TemporalHistoryEffect::Cloudscape:
                     return "Cloudscape";
+                case TemporalHistoryEffect::RayTracedShadow:
+                    return "RayTracedShadow";
             }
             return "Unknown";
         }
@@ -2638,6 +2641,14 @@ namespace OloEngine::MCP
                 // that fell back to CSM must not read back as 'on' (issue #702).
                 lever.VirtualShadowMaps = Renderer3D::GetShadowMap().IsVirtualShadowMapActive();
                 lever.VSMDebugMode = Renderer3D::GetShadowMap().GetSettings().VSM.DebugMode;
+                // The REQUEST, unlike VirtualShadowMaps above. The technique
+                // is a per-light decision made inside the frame, so there is
+                // no single effective bool to report: a scene can have one
+                // ray-traced light and three that fell back. Reporting the
+                // request keeps the lever able to say what it was set to, and
+                // the per-light truth is the fallback counters (issue #1056).
+                lever.RayTracedShadows =
+                    Renderer3D::GetShadowMap().GetSettings().Technique == ShadowTechnique::RayTraced;
                 return lever;
             };
 
@@ -2723,6 +2734,40 @@ namespace OloEngine::MCP
                     ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
                     shadow.VSM.DebugMode = lever.VSMDebugMode;
                     Renderer3D::GetShadowMap().SetSettings(shadow);
+                }
+                else if (setting == Setting::RayTracedShadows)
+                {
+                    ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+                    shadow.Technique = lever.RayTracedShadows ? ShadowTechnique::RayTraced
+                                                              : ShadowTechnique::ShadowMap;
+                    Renderer3D::GetShadowMap().SetSettings(shadow);
+
+                    // No effective-value correction here, deliberately, and it is
+                    // the opposite call from VirtualShadowMaps just above. VSM has
+                    // ONE flag that Init can refuse, so reporting the request would
+                    // be a lie. The shadow technique has no such flag: it is decided
+                    // per light, inside the frame, after this call returns — a scene
+                    // can end up with one ray-traced light and three fallbacks, and
+                    // there is no single bool that describes that honestly. So the
+                    // lever reports the request and points at the thing that does.
+                    if (const RayTracedShadowPass* pass = Renderer3D::GetRayTracedShadowPass();
+                        pass != nullptr && lever.RayTracedShadows)
+                    {
+                        const auto& stats = pass->GetStats();
+                        applied.Data["rayTracedLights"] = stats.RayTracedLights;
+                        applied.Data["fallbackLights"] = stats.FallbackLights;
+                        if (stats.FallbackLights > 0)
+                        {
+                            applied.Data["fallbackReason"] =
+                                std::string(ToString(stats.DominantFallbackReason()));
+                        }
+                        // One frame stale by construction: these are last frame's
+                        // numbers, because this write lands before the frame that
+                        // acts on it. Say so rather than letting a caller read a
+                        // zero as "it did not work".
+                        applied.Data["note"] = "counters are from the PREVIOUS frame; re-read after a frame "
+                                               "has rendered with the new setting";
+                    }
                 }
                 else if (setting == Setting::HZBOcclusion)
                 {

@@ -316,6 +316,7 @@ case 2327397916u: // DirectionalLightComponent
     if (!SceneBinIO::Read(reader, comp.m_Intensity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_CastShadows)) return false;
     if (!SceneBinIO::Read(reader, comp.m_CascadeDebugVisualization)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_RayTracedShadows)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShadowBias)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShadowNormalBias)) return false;
     if (!SceneBinIO::Read(reader, comp.m_MaxShadowDistance)) return false;
@@ -662,6 +663,7 @@ case 1013186614u: // PointLightComponent
     if (!SceneBinIO::Read(reader, comp.m_Range)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Attenuation)) return false;
     if (!SceneBinIO::Read(reader, comp.m_CastShadows)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_RayTracedShadows)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShadowBias)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShadowNormalBias)) return false;
     break;
@@ -847,6 +849,7 @@ case 3341205314u: // SpotLightComponent
     if (!SceneBinIO::Read(reader, comp.m_OuterCutoff)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Attenuation)) return false;
     if (!SceneBinIO::Read(reader, comp.m_CastShadows)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_RayTracedShadows)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShadowBias)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShadowNormalBias)) return false;
     break;

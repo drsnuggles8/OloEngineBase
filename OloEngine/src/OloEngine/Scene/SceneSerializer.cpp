@@ -2649,6 +2649,8 @@ namespace OloEngine
             if (const f32 range = sphereAreaLightComponent["Range"].as<f32>(areaLight.m_Range); std::isfinite(range) && range >= 0.0f)
                 areaLight.m_Range = range;
             areaLight.m_CastShadows = sphereAreaLightComponent["CastShadows"].as<bool>(areaLight.m_CastShadows);
+            areaLight.m_RayTracedShadows =
+                sphereAreaLightComponent["RayTracedShadows"].as<bool>(areaLight.m_RayTracedShadows);
         }
 
         if (auto procSky = entity["ProceduralSkyComponent"]; procSky)
@@ -4727,6 +4729,7 @@ namespace OloEngine
             out << YAML::Key << "Radius" << YAML::Value << areaLight.m_Radius;
             out << YAML::Key << "Range" << YAML::Value << areaLight.m_Range;
             out << YAML::Key << "CastShadows" << YAML::Value << areaLight.m_CastShadows;
+            out << YAML::Key << "RayTracedShadows" << YAML::Value << areaLight.m_RayTracedShadows;
 
             out << YAML::EndMap; // SphereAreaLightComponent
         }

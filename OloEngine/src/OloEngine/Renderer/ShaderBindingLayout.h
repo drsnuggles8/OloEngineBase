@@ -458,6 +458,24 @@ namespace OloEngine
             i32 Pad1 = 0;
             i32 Pad2 = 0;
 
+            // Ray-traced shadow technique routing (issue #1056). Which light
+            // reads which channel of the RGBA16F mask at
+            // TEX_RAY_TRACED_SHADOW; -1 = this channel is unassigned. Indexed
+            // BY CHANNEL, not by light: there are at most four channels and
+            // there may be MAX_LIGHTS lights, so the shader's inner loop scans
+            // four ints rather than the block carrying a per-light lane.
+            //
+            // Lives in the SHADOW block rather than a new one because the
+            // buffer-binding namespace is full (see UBO_RAY_TRACING's comment)
+            // and because "which mechanism shadows this light" is exactly what
+            // this block is for. Every lighting shader that already reads
+            // ShadowData gets the routing for free.
+            glm::ivec4 RayTracedShadowLightIndices{ -1, -1, -1, -1 };
+            // x = 1 when the mask texture is bound and at least one channel is
+            //     assigned; 0 disables the branch entirely (the fallback path).
+            // y..w reserved.
+            glm::vec4 RayTracedShadowParams{ 0.0f };
+
             static constexpr u32 GetSize()
             {
                 return sizeof(ShadowUBO);
@@ -467,10 +485,59 @@ namespace OloEngine
         // std140 layout sanity check for ShadowUBO — mirrors the GLSL `ShadowData`
         // block at binding 6 (GetShadowUBOLayout). A mismatch means the C++ struct
         // drifted from the shader. Expected size:
-        //   4*mat4 (256) + 2*vec4 (32) + 48*mat4 (3072) + 48*vec4 (768) + 8*int (32) = 4160 B.
+        //   4*mat4 (256) + 2*vec4 (32) + 48*mat4 (3072) + 48*vec4 (768) + 8*int (32)
+        //   + ivec4 (16) + vec4 (16)  [ray-traced routing, #1056]              = 4192 B.
         // Comfortably under the GL 4.6 16 KB minimum UBO size.
         static_assert(sizeof(ShadowUBO) % 16 == 0, "ShadowUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(ShadowUBO) == 4160, "ShadowUBO std140 size drifted from GLSL expectation (4160 B)");
+        static_assert(sizeof(ShadowUBO) == 4192, "ShadowUBO std140 size drifted from GLSL expectation (4192 B)");
+
+        // @brief Hybrid ray-traced shadow parameters (issue #1056), uploaded at
+        // UBO_RAY_TRACING (65). GLSL twin: the RayTracingShadowParams block
+        // declared identically by RayTracedShadow.glsl, RayTracedShadowResolve.glsl
+        // and RayTracedShadowFilter.glsl — one upload feeds all three draws.
+        //
+        // IT SHARES BINDING 65 WITH RayTracingProbe.comp's OWN BLOCK, and that
+        // is the design, not an accident. #978 took the last free buffer binding
+        // in the engine (see UBO_RAY_TRACING's comment); the probe is a
+        // diagnostic that never runs inside a rendered frame, so the two blocks
+        // are never live together, and each owner rebinds its buffer before its
+        // own dispatch the way every other pass here does. The within-shader
+        // rule still holds: 65 is also TEX_VSM_PHYSICAL, and none of the three
+        // shaders declares a VSM sampler.
+        //
+        // The TLAS travels as a DEVICE ADDRESS rather than a descriptor —
+        // accelerationStructureEXT(uvec2) converts one directly — which is why
+        // a pass that reads an acceleration structure, scene depth, the
+        // G-Buffer normal and a blue-noise tile still costs exactly one buffer
+        // binding.
+        struct RayTracingShadowUBO
+        {
+            glm::mat4 InvView;       //   0 — view -> world, for the world position the ray starts at
+            glm::mat4 InvProjection; //  64 — clip -> view, for the depth reconstruction
+            glm::mat4 View;          // 128
+            // One row per mask channel. xyz = the world direction TOWARD the
+            // light (directional) or the light's world POSITION (punctual);
+            // w = 0 none, 1 directional, 2 punctual.
+            glm::vec4 LightVectors[4]; // 192
+            // Per channel: x = tan(angular radius) for a directional light or
+            // the emitter radius in metres for a punctual one, y = range,
+            // zw reserved.
+            glm::vec4 LightShapes[4];        // 256
+            glm::uvec4 TlasAddressAndCounts; // 320 — xy = TLAS device address, z = active channels, w = frame index
+            glm::vec4 RayParams;             // 336 — x = raysPerPixel, y = maxRayDistance, z = normalBias, w reserved
+            glm::vec4 ScreenParams;          // 352 — x = width, y = height, z = 1/width, w = 1/height
+            glm::vec4 TemporalParams;        // 368 — x = feedback, y = hasVelocity, z = historyUsable, w = clipGamma
+            glm::vec4 FilterParams;          // 384 — x = spatialRadiusPixels, y = spatialEnabled, zw reserved
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(RayTracingShadowUBO);
+            }
+        };
+        static_assert(sizeof(RayTracingShadowUBO) % 16 == 0,
+                      "RayTracingShadowUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(RayTracingShadowUBO) == 400,
+                      "RayTracingShadowUBO std140 size drifted from the GLSL RayTracingShadowParams block (400 B)");
 
         // @brief Decal projection parameters
         struct DecalUBO
@@ -2483,7 +2550,18 @@ namespace OloEngine
         // by one, per the established procedure for new engine slots.
         static constexpr u32 TEX_WATER_SHORE_DEPTH = 71;
 
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 72; // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Ray-traced shadow visibility mask (issue #1056). RGBA16F, screen
+        // resolution: ONE CHANNEL PER LIGHT, up to kRayTracedShadowMaskChannels
+        // (4). 1 = fully lit, 0 = fully occluded; a channel no light was
+        // assigned is 1 so a stale sample can only ever brighten, never darken.
+        // Which light reads which channel travels in ShadowUBO's
+        // RayTracedShadowLightIndices, and the encoding contract is
+        // Renderer/Shadow/ShadowTechnique.h. Sampled by the deferred lighting
+        // shaders; produced by RayTracedShadowPass. The shader-graph user base
+        // shifts up by one, per the established procedure for new engine slots.
+        static constexpr u32 TEX_RAY_TRACED_SHADOW = 72;
+
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 73; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -2542,7 +2620,8 @@ namespace OloEngine
         // more obvious of the two mirrors, still matched. #723's TEX_VOLUMETRIC_SHADOW
         // is the third slot to land in that same blind spot (75 → 76 still rounds
         // to 76), so the OLO_HEAP_IMAGE_BASE edit below is again the only visible
-        // half of the change. The trailing pad entries are never indexed — image units
+        // half of the change. #1056's TEX_RAY_TRACED_SHADOW is the fourth: the
+        // base moved 73 → 74 while this table stayed at 84 slots / 21 uvec4s. The trailing pad entries are never indexed — image units
         // stay < MAX_ENGINE_IMAGE_SLOTS — they only keep the std140 block a
         // whole number of uvec4s. include/BindlessHeap.glsl declares
         // `uvec4 g_OloHeapOffsets[HEAP_OFFSET_TABLE_VEC4S]` and must match.
@@ -3233,7 +3312,12 @@ namespace OloEngine
                            // resolve draw's input is this frame's raw stochastic
                            // signal. Same pass-local slot-0 reuse as the
                            // fullscreen entries above — no material is bound.
-                           name == "u_StochasticSignal";
+                           name == "u_StochasticSignal" ||
+                           // Ray-traced shadows (issue #1056): the spatial
+                           // filter's input is the temporally resolved
+                           // visibility. Same pass-local slot-0 reuse as every
+                           // fullscreen entry above — no material is bound.
+                           name == "u_RayTracedShadowResolved";
                 case TEX_SPECULAR:
                     // Slot 1 is reused across shader contexts: Metallic/Roughness in PBR,
                     // Depth textures in particle effects, Bloom textures in post-processing,
@@ -3270,7 +3354,12 @@ namespace OloEngine
                            // resolve draw samples last frame's history
                            // (u_History, already listed above). Both are
                            // pass-local slot-1 reuse in fullscreen draws.
-                           name == "u_ResolvedSignal";
+                           name == "u_ResolvedSignal" ||
+                           // Ray-traced shadows (issue #1056): the resolve reads
+                           // last frame's visibility at u_History (already
+                           // listed above) and the filter reads the moment /
+                           // depth / blocker-distance plane here.
+                           name == "u_RayTracedShadowMoments";
                 case TEX_NORMAL:
                     return name.contains("Normal") || name.contains("normal") ||
                            // SSGI shared surface-history resolve (#976), pass-local
@@ -3301,7 +3390,11 @@ namespace OloEngine
                            // reads scene depth here, mirroring GTAO.comp's
                            // pass-local 3/4/5 so the two compute dispatches keep
                            // the same slot meanings.
-                           name == "u_SceneDepth";
+                           name == "u_SceneDepth" ||
+                           // Ray-traced shadow temporal resolve (issue #1056):
+                           // last frame's moment / depth / blocker-distance
+                           // plane. Pass-local fullscreen reuse.
+                           name == "u_RayTracedShadowMomentsHistory";
                 case TEX_AMBIENT:
                     return name.contains("AO") || name.contains("Ambient") ||
                            name.contains("ambient") || name.contains("Occlusion") ||
@@ -3311,6 +3404,11 @@ namespace OloEngine
                            name == "u_SecondMomentsHistory" ||
                            // Compute dispatch pass-local reuse (issue #627).
                            name == "u_ViewNormals" || name == "u_InputDepth" ||
+                           // Ray-traced shadow temporal resolve (issue #1056):
+                           // this frame's per-light blocker distance, which
+                           // feeds OLO_SURFACE_TEST_HIT_DISTANCE. Pass-local
+                           // fullscreen reuse.
+                           name == "u_RayTracedShadowHitDistance" ||
                            // DDGI fullscreen-pass pass-local reuse (issue #632).
                            name == "u_ProbeData";
                 case TEX_EMISSIVE:
@@ -3375,6 +3473,11 @@ namespace OloEngine
                     // Seabed depth field (issue #1033): the water stages bind
                     // u_ShoreDepth to this slot.
                     return name.contains("Shore") || name.contains("shore");
+                case TEX_RAY_TRACED_SHADOW:
+                    // Ray-traced shadow visibility mask (issue #1056): the
+                    // deferred lighting shaders bind u_RayTracedShadowMask
+                    // here.
+                    return name.contains("RayTracedShadow") || name.contains("rayTracedShadow");
                 case TEX_WATER_SSR:
                     return name.contains("SSR") || name.contains("ssr") ||
                            (name.contains("Screen") && name.contains("Reflection"));
@@ -3632,6 +3735,8 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
     int _shadowPad1;
     int _shadowPad2;
+    ivec4 u_RayTracedShadowLightIndices; // light index per mask channel, -1 = unassigned (#1056)
+    vec4 u_RayTracedShadowParams;        // x = mask active, yzw reserved (#1056)
 };)";
             return s_Layout;
         }

@@ -208,6 +208,17 @@ namespace OloEngine
             RGTextureHandle SSGIReprojectionDiagnostics;
             RGFramebufferHandle SSRSignal;
             RGFramebufferHandle SSRResolved;
+
+            // Ray-traced shadow scratch (issue #1056). RGBA16F at the scene
+            // band; one channel per ray-traced light, 1 = lit. Signal is draw
+            // A's raw one-sample-per-pixel trace, Resolved is draw B's
+            // temporal accumulation (attachment 0) plus its moments
+            // (attachment 1) — draw C reads both and writes the graph-visible
+            // RayTracedShadowMask. All three live inside one Execute; same
+            // idiom as SSGISignal / SSGIResolved.
+            RGFramebufferHandle RayTracedShadowSignal;
+            RGFramebufferHandle RayTracedShadowResolved;
+            RGTextureHandle RayTracedShadowMoments;
         };
 
         // -----------------------------------------------------------------------
@@ -228,6 +239,15 @@ namespace OloEngine
             // tracking); 0 when the ShadowMap is uninitialised.
             RHI::ResourceHandle ShadowMapCSMRawID{};
             RHI::ResourceHandle ShadowMapAtlasRawID{};
+
+            // Ray-traced shadow visibility mask (issue #1056). RGBA16F,
+            // one channel per ray-traced light, 1 = lit. Written by
+            // RayTracedShadowPass's final draw and sampled by the deferred
+            // lighting shaders at TEX_RAY_TRACED_SHADOW. Invalid whenever the
+            // technique fell back — which is what makes the fallback visible
+            // to the graph rather than only to the shader.
+            RGFramebufferHandle RayTracedShadowMask;
+            RGTextureHandle RayTracedShadowMaskTexture;
         };
 
         // -----------------------------------------------------------------------
@@ -314,6 +334,10 @@ namespace OloEngine
             RGTextureHandle SSGIMomentsFirstHistory;
             RGTextureHandle SSGIMomentsSecondHistory;
             RGTextureHandle SSRHistory; // Previous resolved SSR signal (issue #902)
+            // Ray-traced shadow temporal state (issue #1056).
+            RGTextureHandle RayTracedShadowHistory;
+            RGTextureHandle RayTracedShadowSurfaceHistory;
+            RGTextureHandle RayTracedShadowMomentsHistory;
             // (Fog's temporal history moved into VolumetricFogPass's own 3D
             // scatter volume with the froxel fog rework — issue #435.)
         };

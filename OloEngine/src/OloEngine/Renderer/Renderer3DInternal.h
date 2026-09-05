@@ -34,6 +34,7 @@
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/VirtualShadowMapMarkPass.h"
+#include "OloEngine/Renderer/Passes/RayTracedShadowPass.h"
 #include "OloEngine/Renderer/Passes/RayTracingScenePass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SphereProxyAORenderPass.h"
@@ -133,6 +134,11 @@ namespace OloEngine
         // producer and before DeferredLightingPass, so its multiply lands in
         // AOBuffer before anything reads it.
         Ref<SphereProxyAORenderPass> SphereProxyAO;
+        // Hybrid ray-traced shadows (#1056). Registered after the last
+        // G-Buffer writer (it reads scene depth + the world normal) and before
+        // DeferredLightingPass (which samples the mask it produces), with a
+        // by-name execution edge on RayTracingScenePass.
+        Ref<RayTracedShadowPass> RayTracedShadow;
         Ref<ParticleRenderPass> Particle;
         Ref<OITPrepareRenderPass> OITPrepare;
         Ref<OITResolveRenderPass> OITResolve;
@@ -146,6 +152,7 @@ namespace OloEngine
             SSAO.Reset();
             GTAO.Reset();
             SphereProxyAO.Reset();
+            RayTracedShadow.Reset();
             Particle.Reset();
             OITPrepare.Reset();
             OITResolve.Reset();

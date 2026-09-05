@@ -13,6 +13,9 @@
 //   - sampler2D u_BRDFLutMap (12)
 //   - sampler2DArrayShadow u_ShadowMapCSM (8), u_ShadowAtlas (13)
 //   - sampler2DArray u_ShadowMapCSMRaw (33), u_ShadowAtlasRaw (34) — PCSS blocker search
+//   - sampler2D u_RayTracedShadowMask (72) — hybrid ray-traced visibility mask,
+//     plus the ShadowData block's u_RayTracedShadowLightIndices /
+//     u_RayTracedShadowParams routing lanes (issue #1056)
 //   - include/PBRCommon.glsl, include/LightProbeSampling.glsl,
 //     include/ForwardPlusCommon.glsl (with FPLUS_ATLAS_SHADOWS defined, AFTER
 //     the ShadowData block + atlas samplers)
@@ -53,6 +56,53 @@ vec3 ReconstructWorldPosGB(vec2 uv, float depthNDC)
     vec4 clipPos = vec4(uv * 2.0 - 1.0, zNDC, 1.0);
     vec4 worldPos = u_InverseViewProjection * clipPos;
     return worldPos.xyz / worldPos.w;
+}
+
+// -----------------------------------------------------------------------------
+// The shadow-technique seam (issue #1056).
+//
+// This file used to decide the directional light's shadow with a literal
+// two-way GLSL branch. Ray tracing is a THIRD source of the same number, and
+// bolting on a third `if` selected by yet another unrelated flag is what the
+// seam exists to avoid — so the question asked here is "does a ray-traced mask
+// answer for this light?", once, for every light type, and the answer is a
+// routing lookup rather than a technique flag.
+//
+// Returns true and fills `visibility` when light `lightIndex` reads a mask
+// channel this frame. False means: take whichever raster path this light type
+// already had. The CPU side (OloEngine::SelectShadowTechnique) is what decided
+// that, counted the reason, and left u_RayTracedShadowParams.x at 0 when the
+// answer was no — so there is no way for this branch to be on while the mask
+// is absent.
+//
+// texelFetch, not texture(): the mask is declared at the scene band, the same
+// resolution this pass shades at, so there is exactly one texel per shaded
+// pixel and any filtering would only smear the denoiser's own edge-aware
+// result across a silhouette it deliberately kept.
+bool oloRayTracedShadowFactor(int lightIndex, out float visibility)
+{
+    visibility = 1.0;
+    if (u_RayTracedShadowParams.x < 0.5 || lightIndex < 0)
+        return false;
+
+    // Four comparisons against the channel routing rather than a per-light
+    // lane in the block: there are at most four ray-traced lights and up to
+    // MAX_LIGHTS lights, so this is the cheap direction to index.
+    int channel = -1;
+    for (int c = 0; c < 4; ++c)
+    {
+        if (u_RayTracedShadowLightIndices[c] == lightIndex)
+        {
+            channel = c;
+            break;
+        }
+    }
+    if (channel < 0)
+        return false;
+
+    vec4 mask = texelFetch(u_RayTracedShadowMask, ivec2(gl_FragCoord.xy), 0);
+    visibility = clamp(mask[channel], 0.0, 1.0);
+    return true;
 }
 
 // Apply cascade-debug tint on top of the lit color. Shared between variants.
@@ -170,7 +220,14 @@ vec3 ComputeDeferredLit(
             // when the system is off — so this branch is safe to compile in
             // unconditionally and needs no second shader variant.
             float shadow;
-            if (VSM_ENABLED != 0)
+            if (oloRayTracedShadowFactor(i, shadow))
+            {
+                // Ray-traced visibility answers for this light. Nothing else
+                // runs: the mask IS the shadow term, and blending it with a
+                // projected one would reintroduce the shadow map's resolution
+                // limit on top of a geometrically correct penumbra.
+            }
+            else if (VSM_ENABLED != 0)
             {
                 shadow = vsmShadowFactor(worldPos, N);
             }
@@ -201,7 +258,11 @@ vec3 ComputeDeferredLit(
             // fall through to the atlas arrays on the VSM branch.
             int atlasEntry = int(u_Lights[i].direction.w);
             float localShadow;
-            if (vsmLocalShadow(worldPos, N, atlasEntry, false, localShadow))
+            if (oloRayTracedShadowFactor(i, localShadow))
+            {
+                lightContrib *= localShadow;
+            }
+            else if (vsmLocalShadow(worldPos, N, atlasEntry, false, localShadow))
             {
                 lightContrib *= localShadow;
             }
@@ -227,7 +288,11 @@ vec3 ComputeDeferredLit(
             // the BASE atlas entry of the 6 cube-face tiles (issue #435).
             int baseEntry = int(u_Lights[i].direction.w);
             float localShadow;
-            if (vsmLocalShadow(worldPos, N, baseEntry, true, localShadow))
+            if (oloRayTracedShadowFactor(i, localShadow))
+            {
+                lightContrib *= localShadow;
+            }
+            else if (vsmLocalShadow(worldPos, N, baseEntry, true, localShadow))
             {
                 lightContrib *= localShadow;
             }

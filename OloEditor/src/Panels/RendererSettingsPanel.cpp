@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 #include "OloEngine/Renderer/DDGI/DDGICommon.h"
+#include "OloEngine/Renderer/Passes/RayTracedShadowPass.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
@@ -258,6 +259,172 @@ namespace OloEngine
             changed = true;
 
         DrawVirtualShadowMapControls();
+        DrawRayTracedShadowControls();
+    }
+
+    void RendererSettingsPanel::DrawRayTracedShadowControls()
+    {
+        // Edits ShadowSettings DIRECTLY, like the VSM block above and for the
+        // same reason: the technique is a structural choice (it changes which
+        // pass runs and which texture the lighting shader reads), not a quality
+        // dial a preset should be allowed to flip.
+        ImGui::Spacing();
+        ImGui::TextDisabled("Hybrid ray-traced shadows (issue #1056)");
+
+        auto& shadowMap = Renderer3D::GetShadowMap();
+        ShadowSettings settings = shadowMap.GetSettings();
+        RayTracedShadowSettings& rt = settings.RayTraced;
+        bool changed = false;
+
+        bool rayTraced = settings.Technique == ShadowTechnique::RayTraced;
+        if (ImGui::Checkbox("Ray-Traced Technique##rts", &rayTraced))
+        {
+            settings.Technique = rayTraced ? ShadowTechnique::RayTraced : ShadowTechnique::ShadowMap;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Arms the ray-query shadow tier. Each light ALSO has to opt in\n"
+                              "(its 'Ray-Traced Shadows' checkbox), and at most four lights fit\n"
+                              "the mask's four channels.\n\n"
+                              "Needs the Vulkan backend, a hardware ray-tracing device and the\n"
+                              "Deferred path. Anything missing falls back to the shadow map -\n"
+                              "the counters below say which, per light.");
+        }
+
+        if (rayTraced)
+        {
+            int rays = static_cast<int>(rt.RaysPerPixel);
+            if (ImGui::SliderInt("Rays / Pixel##rts", &rays, 1, 8))
+            {
+                rt.RaysPerPixel = static_cast<u32>(std::clamp(rays, 1, 8));
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("One is the design point: the temporal + spatial denoiser is what\n"
+                                  "turns a single stochastic sample into a smooth penumbra, so\n"
+                                  "raising this multiplies the trace cost linearly for a signal the\n"
+                                  "denoiser already reaches.");
+            }
+
+            if (ImGui::SliderFloat("Light Angular Radius (deg)##rts", &rt.LightAngularRadiusDegrees, 0.0f,
+                                   10.0f, "%.3f"))
+            {
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("The source's apparent half-angle, and the ONLY thing that sets the\n"
+                                  "penumbra width - the ray is jittered inside this cone, so a distant\n"
+                                  "occluder softens on its own. The real sun is 0.265 deg.\n\n"
+                                  "Sphere area lights ignore this and use their authored radius.");
+            }
+
+            if (ImGui::SliderFloat("Ray Normal Bias (m)##rts", &rt.RayOriginNormalBias, 0.0f, 0.25f, "%.4f"))
+                changed = true;
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Offset along the geometric normal before tracing. Too small\n"
+                                  "self-shadows (acne); too large detaches contact shadows.");
+            }
+
+            if (ImGui::SliderFloat("Max Ray Distance (m)##rts", &rt.MaxRayDistance, 0.0f, 2000.0f, "%.0f"))
+                changed = true;
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("0 = unbounded. This is NOT Max Shadow Distance: that one bounds the\n"
+                                  "cascades, and the point here is that an occluder beyond it still\n"
+                                  "casts.");
+            }
+
+            ImGui::Spacing();
+            if (ImGui::Checkbox("Temporal Accumulation##rts", &rt.TemporalAccumulation))
+                changed = true;
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Off shows the raw one-sample-per-pixel trace. Useful for judging\n"
+                                  "the trace itself; wrong for shipping.");
+            }
+            if (rt.TemporalAccumulation)
+            {
+                if (ImGui::SliderFloat("Temporal Feedback##rts", &rt.TemporalFeedback, 0.0f, 0.98f, "%.3f"))
+                    changed = true;
+                if (ImGui::SliderFloat("Clip Gamma##rts", &rt.TemporalClipGamma, 0.1f, 8.0f, "%.2f"))
+                    changed = true;
+            }
+
+            if (ImGui::Checkbox("Variance-Guided Spatial Filter##rts", &rt.SpatialFilter))
+                changed = true;
+            if (rt.SpatialFilter)
+            {
+                if (ImGui::SliderFloat("Filter Radius (px)##rts", &rt.SpatialFilterRadius, 0.0f, 8.0f, "%.2f"))
+                    changed = true;
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Maximum radius, reached only where the accumulated variance is\n"
+                                      "at its worst. A converged penumbra is left alone, so contact\n"
+                                      "hardening survives the filter.");
+                }
+            }
+        }
+
+        // The counters. This is the part that answers "I turned it on and
+        // nothing happened": a per-reason breakdown of every light that asked.
+        //
+        // Only while the technique is SELECTED. A disabled pass may not be
+        // executed at all, in which case its stats are whatever the last armed
+        // frame left — and a stale "3 lights fell back" shown while the feature
+        // is off is worse than no number, because it reads as a live failure.
+        if (const RayTracedShadowPass* pass = rayTraced ? Renderer3D::GetRayTracedShadowPass() : nullptr;
+            pass != nullptr)
+        {
+            const ShadowTechniqueStats& stats = pass->GetStats();
+            ImGui::Separator();
+            ImGui::Text("ray-traced lights %u / %u channels", stats.RayTracedLights,
+                        kRayTracedShadowMaskChannels);
+            if (stats.RayTracedLights > 0)
+            {
+                // Upper bound, and labelled as one: the trace early-outs on sky
+                // pixels and back-facing surfaces, so the rays actually traversed
+                // are fewer by an amount only a GPU counter could say.
+                ImGui::Text("shadow rays <= %llu / frame",
+                            static_cast<unsigned long long>(stats.ShadowRaysDispatchedUpperBound));
+                ImGui::TextDisabled("per-stage GPU time: RayTracedShadowTrace / "
+                                    "TemporalResolve / SpatialFilter (Statistics panel)");
+            }
+            if (stats.FallbackLights > 0)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "fell back %u - %s", stats.FallbackLights,
+                                   std::string(ToString(stats.DominantFallbackReason())).c_str());
+                for (sizet i = 0; i < stats.ByReason.size(); ++i)
+                {
+                    const auto reason = static_cast<ShadowTechniqueFallbackReason>(i);
+                    if (stats.ByReason[i] == 0 || reason == ShadowTechniqueFallbackReason::None ||
+                        reason == ShadowTechniqueFallbackReason::NotRequested ||
+                        reason == ShadowTechniqueFallbackReason::LightNotShadowCasting)
+                    {
+                        continue;
+                    }
+                    ImGui::BulletText("%u x %s", stats.ByReason[i], std::string(ToString(reason)).c_str());
+                }
+            }
+            if (stats.MaskedOccludersShadowedAsSolid > 0)
+            {
+                // Not an error, and not hidden either: it is why an alpha-cutout
+                // leaf casts the shadow of its quad. Unblocked by #805.
+                ImGui::TextDisabled("%u masked occluder BLAS shadow as solid (needs #805)",
+                                    stats.MaskedOccludersShadowedAsSolid);
+            }
+        }
+
+        if (changed)
+        {
+            shadowMap.SetSettings(settings);
+            OLO_CORE_INFO("RendererSettingsPanel: shadow technique {} (rays {}, angular radius {:.3f} deg)",
+                          ToString(settings.Technique), settings.RayTraced.RaysPerPixel,
+                          settings.RayTraced.LightAngularRadiusDegrees);
+        }
     }
 
     void RendererSettingsPanel::DrawVirtualShadowMapControls()

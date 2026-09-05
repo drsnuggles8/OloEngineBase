@@ -382,6 +382,17 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SSGIMomentsSecond = "SSGIMomentsSecond";
     inline constexpr std::string_view SSGIHistoryDiagnostics = "SSGIHistoryDiagnostics";
     inline constexpr std::string_view SSGIReprojectionDiagnostics = "SSGIReprojectionDiagnostics";
+    // Hybrid ray-traced shadows (issue #1056). Three targets, one per draw of
+    // RayTracedShadowPass, all RGBA16F at the scene band: ONE CHANNEL PER
+    // LIGHT, 1 = lit and 0 = occluded. Signal is the raw stochastic trace,
+    // Resolved is the temporal accumulation (and the RayTracedShadowHistory
+    // source), Mask is the variance-guided spatial filter's output — the only
+    // one anything outside the pass reads.
+    inline constexpr std::string_view RayTracedShadowSignal = "RayTracedShadowSignal";
+    inline constexpr std::string_view RayTracedShadowResolved = "RayTracedShadowResolved";
+    inline constexpr std::string_view RayTracedShadowMoments = "RayTracedShadowMoments";
+    inline constexpr std::string_view RayTracedShadowMask = "RayTracedShadowMask";
+    inline constexpr std::string_view RayTracedShadowMaskTexture = "RayTracedShadowMaskTexture";
     inline constexpr std::string_view SSRSignal = "SSRSignal";                                       // Raw stochastic reflection delta, rgb = (reflection - base) * blend, a = view depth (SSR draw A output, issue #902)
     inline constexpr std::string_view SSRResolved = "SSRResolved";                                   // Temporally-resolved SSR signal (SSR draw B output; the SSRHistory source)
     inline constexpr std::string_view ContactShadowColor = "ContactShadowColor";                     // After screen-space contact-shadow composite (only valid when ContactShadow is enabled, deferred path)
@@ -445,6 +456,13 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SSGIMomentsFirstHistory = "SSGIMomentsFirstHistory";
     inline constexpr std::string_view SSGIMomentsSecondHistory = "SSGIMomentsSecondHistory";
     inline constexpr std::string_view SSRHistory = "SSRHistory"; // Previous resolved SSR signal (issue #902)
+    // Ray-traced shadow temporal state (issue #1056). Visibility is the
+    // previous frame's resolved mask, Surface the packed normal/roughness
+    // plane its disocclusion test compares against, Moments the first/second
+    // moments the variance-guided spatial filter is driven by.
+    inline constexpr std::string_view RayTracedShadowHistory = "RayTracedShadowHistory";
+    inline constexpr std::string_view RayTracedShadowSurfaceHistory = "RayTracedShadowSurfaceHistory";
+    inline constexpr std::string_view RayTracedShadowMomentsHistory = "RayTracedShadowMomentsHistory";
 
     // Weighted-blended OIT accumulation targets (particles and forward
     // transparent decals write these; OITResolvePass reads them and

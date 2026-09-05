@@ -80,6 +80,7 @@ namespace OloEngine::MCP::RendererSettings
         HZBOcclusion,      // LeverState::HZBOcclusion      (Renderer3D::EnableHZBOcclusionCulling)
         VirtualShadowMaps, // LeverState::VirtualShadowMaps (ShadowSettings::VSM.Enabled, issue #702)
         VSMDebug,          // LeverState::VSMDebugMode (VirtualShadowMapSettings::DebugMode)
+        RayTracedShadows,  // LeverState::RayTracedShadows (ShadowSettings::Technique, issue #1056)
         DDGICascades,      // RendererSettings::DDGICascadesEnabled (issue #707)
     };
 
@@ -103,6 +104,14 @@ namespace OloEngine::MCP::RendererSettings
         // fell back to CSM shows as 'off' here rather than as 'on'.
         bool VirtualShadowMaps = false;
         i32 VSMDebugMode = 0;
+        // live ShadowSettings::Technique == RayTraced (issue #1056). Like
+        // VirtualShadowMaps above this reports the REQUEST, not what any one
+        // light got: a device without ray tracing still reads back 'on' here
+        // while every light falls back. The per-light truth is the
+        // RayTracedShadowPass fallback counters, which olo_shadow_atlas_layout
+        // and the renderer settings panel surface — reporting 'off' here
+        // instead would make the lever unable to say what it was set to.
+        bool RayTracedShadows = false;
     };
 
     // Engine integers of the depthprepass tri-token. 'off'/'on' mirror the live
@@ -123,6 +132,9 @@ namespace OloEngine::MCP::RendererSettings
 
     inline constexpr i32 kVirtualShadowMapsOff = 0;
     inline constexpr i32 kVirtualShadowMapsOn = 1;
+
+    inline constexpr i32 kRayTracedShadowsOff = 0;
+    inline constexpr i32 kRayTracedShadowsOn = 1;
 
     inline constexpr i32 kDDGICascadesOff = 0;
     inline constexpr i32 kDDGICascadesOn = 1;
@@ -196,6 +208,15 @@ namespace OloEngine::MCP::RendererSettings
           "unshadowed" },
     } };
 
+    inline constexpr std::array<EnumValue, 2> kRayTracedShadowValues = { {
+        { "off", kRayTracedShadowsOff, "Every light shadows from its shadow map (CSM / atlas / VSM)" },
+        { "on", kRayTracedShadowsOn,
+          "Arm the ray-query shadow tier (issue #1056). A light ALSO needs its own m_RayTracedShadows flag, and at "
+          "most four lights fit the mask's four channels. Needs Vulkan + a hardware ray-tracing device + the "
+          "Deferred path; anything missing falls back per light with a counted reason. This lever reports what was "
+          "REQUESTED, so use it as the A/B switch and read the fallback counters for what actually happened" },
+    } };
+
     inline constexpr std::array<EnumValue, 8> kVSMDebugValues = { {
         { "off", 0, "Normal shadowed rendering" },
         { "cliplevel", 1, "Tint by selected virtual clip level" },
@@ -236,7 +257,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 12> kSettings = { {
+    inline constexpr std::array<SettingInfo, 13> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -268,6 +289,11 @@ namespace OloEngine::MCP::RendererSettings
           "voxel and virtualized-geometry casters still render through CSM, so enabling it in a scene that relies on "
           "those leaves them unshadowed. Reads back the EFFECTIVE value — a request that failed to initialise reports "
           "'off'." },
+        { "raytracedshadows", Setting::RayTracedShadows,
+          "Shadow technique (ShadowSettings.Technique, issue #1056): 'on' = ray-query visibility mask with a "
+          "temporal + variance-guided denoiser, 'off' = the raster shadow-map tier. THE A/B lever for the hybrid "
+          "shadow work: it changes only which mechanism answers the visibility question, so a paired capture "
+          "isolates the technique from every other renderer setting." },
         { "vsmdebug", Setting::VSMDebug,
           "Virtual Shadow Map diagnostic view: clip level, page address, residency, comparison and depth stages." },
         { "ddgicascades", Setting::DDGICascades,
@@ -327,6 +353,8 @@ namespace OloEngine::MCP::RendererSettings
                 return kHZBOcclusionValues;
             case Setting::VirtualShadowMaps:
                 return kVirtualShadowMapValues;
+            case Setting::RayTracedShadows:
+                return kRayTracedShadowValues;
             case Setting::VSMDebug:
                 return kVSMDebugValues;
             case Setting::DDGICascades:
@@ -543,6 +571,8 @@ namespace OloEngine::MCP::RendererSettings
                 return lever.HZBOcclusion ? kHZBOcclusionOn : kHZBOcclusionOff;
             case Setting::VirtualShadowMaps:
                 return lever.VirtualShadowMaps ? kVirtualShadowMapsOn : kVirtualShadowMapsOff;
+            case Setting::RayTracedShadows:
+                return lever.RayTracedShadows ? kRayTracedShadowsOn : kRayTracedShadowsOff;
             case Setting::VSMDebug:
                 return lever.VSMDebugMode;
             case Setting::DDGICascades:
@@ -619,6 +649,9 @@ namespace OloEngine::MCP::RendererSettings
                 break;
             case Setting::VirtualShadowMaps:
                 lever.VirtualShadowMaps = value == kVirtualShadowMapsOn;
+                break;
+            case Setting::RayTracedShadows:
+                lever.RayTracedShadows = value == kRayTracedShadowsOn;
                 break;
             case Setting::VSMDebug:
                 lever.VSMDebugMode = value;

@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderConstants.h"
 #include "OloEngine/Renderer/Shadow/ShadowAtlas.h"
+#include "OloEngine/Renderer/Shadow/ShadowTechnique.h"
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -54,6 +55,19 @@ namespace OloEngine
         // Off by default — see VirtualShadowMapSettings::Enabled for the caster
         // types VSM does not yet cover.
         VirtualShadowMapSettings VSM{};
+
+        // Hybrid ray-traced shadows (issue #1056). Which MECHANISM answers
+        // "is this point in shadow?" — every field above selects a variant
+        // WITHIN the shadow-map tier (which projection, which filter), so the
+        // one knob that switches tiers lives in its own type. See
+        // ShadowTechnique.h for why this is not a RenderingPath.
+        //
+        // ShadowMap by default and permanently supported: #979 is explicit
+        // that raster shadow maps stay a tier and the ray-traced fallback, not
+        // code on the way out. Asking for RayTraced on a device that cannot
+        // deliver it is not an error — it falls back, counted, with a reason.
+        ShadowTechnique Technique = ShadowTechnique::ShadowMap;
+        RayTracedShadowSettings RayTraced{};
     };
 
     // @brief Manages shadow map textures, light-space matrices, and UBO uploads
@@ -343,6 +357,19 @@ namespace OloEngine
         {
             m_UBOData.CascadeDebugEnabled = enabled ? 1 : 0;
         }
+
+        // Publish which light reads which channel of the ray-traced shadow mask
+        // (issue #1056). Called by RayTracedShadowPass from INSIDE the frame,
+        // after its draws — that pass is the only place that knows whether the
+        // mask was really produced, so it is the only place allowed to turn the
+        // branch on. Writes just the two routing lanes rather than re-uploading
+        // the 4 KB block; every other field went up with UploadUBO already.
+        //
+        // `active` false is the FALLBACK, and it is the default state: the
+        // block is uploaded with the branch off, so a frame where this is never
+        // called leaves the lighting shader on the shadow-map path by
+        // construction rather than by remembering to reset a flag.
+        void SetRayTracedShadowRouting(const std::array<i32, 4>& lightIndicesByChannel, bool active);
         [[nodiscard]] bool IsCascadeDebugEnabled() const
         {
             return m_UBOData.CascadeDebugEnabled != 0;

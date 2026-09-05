@@ -168,6 +168,20 @@ namespace OloEngine::RenderPipelineBuilderInternal
         if (!inputs.Deferred)
             return;
 
+        // Hybrid ray-traced shadows (#1056). Deferred-only — the mask is
+        // reconstructed from the G-Buffer's depth and world normal, so there is
+        // nothing to trace from on the forward paths. Registered here, after
+        // every G-Buffer writer and immediately before DeferredLightingPass, so
+        // the builder derives the read edge on the mask in registration order
+        // exactly the way it derives AOBuffer's. Its OTHER edge — on
+        // RayTracingScenePass, which builds the acceleration structure it
+        // traces against — cannot be derived that way because an acceleration
+        // structure is not a graph resource, so the pass declares it by name.
+        if (inputs.Passes->RayTracedShadow)
+        {
+            graph.AddNode(PrepareGraphNode("RayTracedShadowPass", inputs.Passes->RayTracedShadow));
+        }
+
         graph.AddNode(PrepareGraphNode("DeferredLightingPass", inputs.Passes->DeferredLighting));
     }
 } // namespace OloEngine::RenderPipelineBuilderInternal

@@ -79,6 +79,30 @@ namespace OloEngine
             .Resolution = TemporalHistoryResolution::Scene,
             .Plane = TemporalHistoryPlane::MomentsSecond,
         };
+        // Hybrid ray-traced shadows (issue #1056). Three planes, the same
+        // shape SSGI uses: the resolved visibility, the packed surface plane
+        // its disocclusion test compares against, and the moment pair that
+        // drives the spatial filter's radius.
+        constexpr u32 kRayTracedShadowHistoryLayoutVersion = 1u;
+        constexpr TemporalHistoryKey kRayTracedShadowHistoryKey{
+            .Effect = TemporalHistoryEffect::RayTracedShadow,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::Signal,
+        };
+        constexpr TemporalHistoryKey kRayTracedShadowSurfaceHistoryKey{
+            .Effect = TemporalHistoryEffect::RayTracedShadow,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::SurfaceGeometry,
+        };
+        constexpr TemporalHistoryKey kRayTracedShadowMomentsHistoryKey{
+            .Effect = TemporalHistoryEffect::RayTracedShadow,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::MomentsFirst,
+        };
+
         constexpr TemporalHistoryDependency kSSGIHistoryDependencies =
             TemporalHistoryDependency::ViewTransform |
             TemporalHistoryDependency::Projection |
@@ -892,6 +916,66 @@ namespace OloEngine
             proxyPass.SetProxySourceBounds(proxyEnabled ? std::span<const BoundingBox>(data.AOProxyBounds)
                                                         : std::span<const BoundingBox>{});
             data.AOProxyCollecting = false;
+        }
+
+        // Hybrid ray-traced shadows (issue #1056). Configured HERE for the same
+        // reason SphereProxyAO above is: Setup() is fingerprint-cached and does
+        // not re-run every frame, so a light list gathered there would freeze
+        // at whatever the first frame saw — and a shadow that freezes on a
+        // moving light is precisely the artefact this feature exists to avoid.
+        //
+        // The enable gate is the SETTING and the deferred path, not the
+        // capability: a pass gated on "is ray tracing available" would leave
+        // the request list unconsumed on a machine without a device, and then
+        // nothing would count the fallback. The pass runs, finds it cannot
+        // trace, and says so — which is the whole point of the counters.
+        if (SceneCompositePasses.RayTracedShadow)
+        {
+            auto& rtShadowPass = *SceneCompositePasses.RayTracedShadow;
+            const auto& shadowSettings = Renderer3D::GetShadowMap().GetSettings();
+            const bool deferred = data.Settings.Path == RenderingPath::Deferred;
+            const bool techniqueRequested = shadowSettings.Enabled &&
+                                            shadowSettings.Technique == ShadowTechnique::RayTraced;
+
+            // WHEN LIGHTS ASKED AND THE PASS WILL NOT RUN, SAY WHY — with the
+            // values, not a verdict. This gate is upstream of the pass's own
+            // counters: a pass that is never enabled is never executed, so
+            // ShadowTechniqueStats stays all-zero and "I ticked the box and
+            // nothing happened" has no answer anywhere else. Naming the three
+            // inputs is what turns that into a five-second diagnosis instead of
+            // a bisect. (Learned the hard way bringing this feature up on
+            // Courtyard: the technique read back as armed while the master
+            // shadow switch was off, and every counter read a truthful,
+            // useless zero.)
+            //
+            // Once per change of verdict, not per frame.
+            const sizet requestedLightCount = Renderer3D::GetRayTracedShadowLightRequests().size();
+            if (requestedLightCount > 0 && !(deferred && techniqueRequested))
+            {
+                static bool s_ReportedGate = false;
+                if (!s_ReportedGate)
+                {
+                    s_ReportedGate = true;
+                    OLO_CORE_WARN("RayTracedShadowPass: {} light(s) asked for it, but the pass will not run — "
+                                  "ShadowSettings::Enabled={} Technique={} RenderingPath={}",
+                                  requestedLightCount, shadowSettings.Enabled,
+                                  ToString(shadowSettings.Technique), deferred ? "Deferred" : "not Deferred");
+                }
+            }
+
+            rtShadowPass.SetEnabled(deferred && techniqueRequested);
+            rtShadowPass.SetSettings(shadowSettings.RayTraced);
+            rtShadowPass.SetShadowMap(&Renderer3D::GetShadowMap());
+            rtShadowPass.SetCameraMatrices(data.ViewMatrix, data.ProjectionMatrix);
+            rtShadowPass.SetFrameIndex(data.StochasticFrameIndex);
+            rtShadowPass.SetLightRequests(Renderer3D::GetRayTracedShadowLightRequests());
+            // Masked TLAS geometry shadows as SOLID (no shader-visible sampler
+            // heap yet, #805). Counting the population rather than the artefact
+            // is what makes "why does that leaf cast a rectangle?" answerable.
+            rtShadowPass.SetMaskedOccluderCount(
+                Renderer3D::GetRayTracingScene()
+                    .GetStats()
+                    .Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Masked)]);
         }
         if (PostProcessPasses.SSS)
         {
@@ -2223,6 +2307,20 @@ namespace OloEngine
         HashBool(h, data.PostProcess.VRCSGTAO);
         HashBool(h, data.PostProcess.SSREnabled);
         HashBool(h, data.PostProcess.ContactShadowEnabled);
+        // The shadow TECHNIQUE (issue #1056). It gates whether PopulateBlackboard
+        // declares RayTracedShadowMask and therefore whether RayTracedShadowPass
+        // declares anything at all — a topology change, not a uniform.
+        //
+        // HashPassState above deliberately does NOT cover it: it hashes the pass
+        // pointer and IsReadyForExecution(), and its own comment says per-pass
+        // ENABLED state is folded in here instead. Without this line the
+        // ShadowTechnique::RayTraced flips arm the pass, PopulateBlackboard
+        // declares the mask, and the cached topology still holds the version
+        // where the node declared nothing — so it stays culled, Execute never
+        // runs, every counter reads a truthful zero, and the feature looks
+        // simply absent. That is exactly what happened bringing this up on
+        // Courtyard; it cost a live-session bisect to find.
+        HashBool(h, Renderer3D::GetShadowMap().GetSettings().Technique == ShadowTechnique::RayTraced);
         // Overdraw debug view (#519) declares/drops the OverdrawColor resource, so
         // it MUST be hashed — otherwise toggling it would not rebuild the graph.
         HashBool(h, data.PostProcess.OverdrawDebugView);
@@ -2399,6 +2497,7 @@ namespace OloEngine
         HashPassState(h, SceneCompositePasses.SSAO);
         HashPassState(h, SceneCompositePasses.GTAO);
         HashPassState(h, SceneCompositePasses.SphereProxyAO);
+        HashPassState(h, SceneCompositePasses.RayTracedShadow);
         HashPassState(h, SceneCompositePasses.Particle);
         HashPassState(h, SceneCompositePasses.OITPrepare);
         HashPassState(h, SceneCompositePasses.OITResolve);
@@ -2509,6 +2608,8 @@ namespace OloEngine
                         pipeline.SceneCompositePasses.GTAO->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.SceneCompositePasses.SphereProxyAO)
                         pipeline.SceneCompositePasses.SphereProxyAO->ResizeFramebuffer(sceneW, sceneH);
+                    if (pipeline.SceneCompositePasses.RayTracedShadow)
+                        pipeline.SceneCompositePasses.RayTracedShadow->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.RenderStreamPasses.FluidIntermediates)
                         pipeline.RenderStreamPasses.FluidIntermediates->ResizeFramebuffer(sceneW, sceneH);
 
@@ -3322,6 +3423,86 @@ namespace OloEngine
             }
         }
 
+        // Hybrid ray-traced shadow targets (issue #1056). Deferred-only and
+        // gated on the pass being enabled AND ready — "ready" here means the
+        // three ray-query shaders were actually created, which only happens on
+        // a backend with GL_EXT_ray_query. On every other machine (which is
+        // every CI runner) this block does not run, no mask is declared, and
+        // RayTracedShadowPass counts every opted-in light as a fallback with
+        // reason RayTracingUnavailable. That is the fallback path, and it is
+        // structural: there is no mask to sample, not a flag to remember.
+        if (pipeline.SceneCompositePasses.RayTracedShadow)
+        {
+            const auto& rtShadowPass = *pipeline.SceneCompositePasses.RayTracedShadow;
+            const bool rtShadowEnabled = rtShadowPass.IsEnabled();
+            const bool rtShadowReady = rtShadowPass.IsReadyForExecution();
+            const bool rtShadowHasDepth = board.Scene.SceneDepth.IsValid();
+            const bool rtShadowHasNormal = board.GBuffer.GBufferNormal.IsValid();
+
+            // WITHOUT THIS, ARMING THE TECHNIQUE AND GETTING NOTHING IS SILENT.
+            // The counters live in the PASS, and a pass whose mask was never
+            // declared writes no graph resource, so backward reachability culls
+            // the node and Execute — the only thing that counts a fallback —
+            // never runs. Every counter then reads zero, which is
+            // indistinguishable from "no light asked". This is the one place
+            // that can see the gate itself, so it is the one place that can
+            // say which half of it failed.
+            //
+            // Once per change of verdict, not per frame: a per-frame version of
+            // a message about a setting that is not moving is spam, and spam is
+            // read as noise.
+            if (rtShadowEnabled && !(rtShadowReady && rtShadowHasDepth && rtShadowHasNormal))
+            {
+                static bool s_ReportedMaskGate = false;
+                if (!s_ReportedMaskGate)
+                {
+                    s_ReportedMaskGate = true;
+                    OLO_CORE_WARN("RayTracedShadowPass: the technique is armed but the graph declared no shadow "
+                                  "mask this frame, so the pass is culled and every opted-in light silently "
+                                  "keeps its shadow map. shadersReady={} sceneDepth={} gbufferNormal={}",
+                                  rtShadowReady, rtShadowHasDepth, rtShadowHasNormal);
+                }
+            }
+
+            if (rtShadowEnabled && rtShadowReady && rtShadowHasDepth && rtShadowHasNormal)
+            {
+                const auto maskOutput = declareSceneBandOutput(
+                    ResourceNames::RayTracedShadowMask,
+                    ResourceNames::RayTracedShadowMaskTexture,
+                    RGResourceFormat::RGBA16Float);
+                board.Shadows.RayTracedShadowMask = maskOutput.Framebuffer;
+                board.Shadows.RayTracedShadowMaskTexture = maskOutput.Texture;
+
+                // Draw A's pair: attachment 0 = per-light visibility,
+                // attachment 1 = per-light blocker distance. Declared under the
+                // same gate as the mask so the three can never exist apart; the
+                // pass bails if any is missing rather than silently skipping a
+                // stage.
+                RGResourceDesc signalDesc;
+                signalDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+                signalDesc.Format = RGResourceFormat::RGBA16Float;
+                signalDesc.Width = sceneBandWidth;
+                signalDesc.Height = sceneBandHeight;
+                signalDesc.Attachments = {
+                    RGResourceFormat::RGBA16Float,
+                    RGResourceFormat::RGBA16Float,
+                };
+                signalDesc.DebugName = std::string(ResourceNames::RayTracedShadowSignal);
+                board.Scratch.RayTracedShadowSignal =
+                    declareGraphOnlyFramebuffer(ResourceNames::RayTracedShadowSignal, signalDesc);
+
+                // Draw B's pair: attachment 0 = resolved visibility (the
+                // RayTracedShadowHistory source), attachment 1 = the moment
+                // summary plus the view depth and blocker distance next frame's
+                // disocclusion test compares against.
+                signalDesc.DebugName = std::string(ResourceNames::RayTracedShadowResolved);
+                board.Scratch.RayTracedShadowResolved =
+                    declareGraphOnlyFramebuffer(ResourceNames::RayTracedShadowResolved, signalDesc);
+                board.Scratch.RayTracedShadowMoments = graph.CreateFramebufferAttachmentView(
+                    ResourceNames::RayTracedShadowMoments, board.Scratch.RayTracedShadowResolved, 1u);
+            }
+        }
+
         // SSRColor exists only on the deferred path when SSR is enabled, ready,
         // and the G-Buffer normal + scene depth it ray-marches against are
         // available. Forward / forward+ never declares it, so downstream aliases
@@ -3982,6 +4163,35 @@ namespace OloEngine
             board.Temporal.SSGIMomentsSecondHistory = secondMomentsBinding.Previous;
         }
 
+        // Ray-traced shadow history (issue #1056), gated on the pass having
+        // declared its scratch this frame for exactly the reason SSGI's is: the
+        // technique is off by default and deferred-only, so an unconditional
+        // acquire would hold three scene-band RGBA16F textures for every scene
+        // that never asks for a ray-traced shadow.
+        if (board.Scratch.RayTracedShadowResolved.IsValid())
+        {
+            TemporalHistoryDescriptor descriptor;
+            descriptor.Width = sceneBandWidth;
+            descriptor.Height = sceneBandHeight;
+            descriptor.Format = kTemporalHistoryFormat;
+            descriptor.LayoutVersion = kRayTracedShadowHistoryLayoutVersion;
+
+            const auto visibilityBinding =
+                graph.AcquireTemporalHistory(kRayTracedShadowHistoryKey, descriptor, kSSGIHistoryDependencies,
+                                             ResourceNames::RayTracedShadowHistory);
+            board.Temporal.RayTracedShadowHistory = visibilityBinding.Previous;
+
+            const auto surfaceBinding =
+                graph.AcquireTemporalHistory(kRayTracedShadowSurfaceHistoryKey, descriptor, kSSGIHistoryDependencies,
+                                             ResourceNames::RayTracedShadowSurfaceHistory);
+            board.Temporal.RayTracedShadowSurfaceHistory = surfaceBinding.Previous;
+
+            const auto momentsBinding =
+                graph.AcquireTemporalHistory(kRayTracedShadowMomentsHistoryKey, descriptor, kSSGIHistoryDependencies,
+                                             ResourceNames::RayTracedShadowMomentsHistory);
+            board.Temporal.RayTracedShadowMomentsHistory = momentsBinding.Previous;
+        }
+
         if (board.Scratch.SSRResolved.IsValid())
         {
             EnsureHistoryStorage(pipeline.SSRHistoryTexture, pipeline.SSRHistoryValid, sceneBandWidth, sceneBandHeight);
@@ -4132,6 +4342,7 @@ namespace OloEngine
         inputs.Passes.SSAO = SceneCompositePasses.SSAO.Raw();
         inputs.Passes.GTAO = SceneCompositePasses.GTAO.Raw();
         inputs.Passes.SphereProxyAO = SceneCompositePasses.SphereProxyAO.Raw();
+        inputs.Passes.RayTracedShadow = SceneCompositePasses.RayTracedShadow.Raw();
         inputs.Passes.Particle = SceneCompositePasses.Particle.Raw();
         inputs.Passes.OITPrepare = SceneCompositePasses.OITPrepare.Raw();
         inputs.Passes.OITResolve = SceneCompositePasses.OITResolve.Raw();
@@ -4315,6 +4526,14 @@ namespace OloEngine
         SceneCompositePasses.SphereProxyAO->Init(scenePassSpec);
         // Proxy bounds, matrices and the enable gate are all per-frame handoff
         // in ConfigurePassesForFrame().
+
+        SceneCompositePasses.RayTracedShadow = Ref<RayTracedShadowPass>::Create();
+        SceneCompositePasses.RayTracedShadow->SetName("RayTracedShadowPass");
+        SceneCompositePasses.RayTracedShadow->Init(scenePassSpec);
+        SceneCompositePasses.RayTracedShadow->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
+        SceneCompositePasses.RayTracedShadow->SetParamsUBO(data.PostProcessGPU.RayTracedShadow);
+        // The light list, the settings, the camera and the ShadowMap pointer
+        // are per-frame handoff in ConfigurePassesForFrame().
 
         SceneCompositePasses.OITPrepare = Ref<OITPrepareRenderPass>::Create();
         SceneCompositePasses.OITPrepare->SetName("OITPreparePass");

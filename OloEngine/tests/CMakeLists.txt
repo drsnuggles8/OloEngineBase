@@ -309,6 +309,12 @@ add_executable(OloEngine-Tests
 		# bar as every other Vulkan tenant.
 		Rendering/RayTracing/RayTracingSceneTest.cpp
 		Rendering/RayTracing/RayTracingDeviceTest.cpp
+		# #1056 hybrid ray-traced soft shadows. The technique SELECTION and its
+		# fallback counters are backend-neutral and run everywhere; the rendered
+		# mask is checked by the GPU visual-evidence tenant beside it, which skips
+		# without a GL 4.6 context.
+		Rendering/Shadow/ShadowTechniqueSelectionTest.cpp
+		Rendering/PropertyTests/RayTracedShadowVisualEvidenceTest.cpp
 		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
 		Rendering/BackendSelectionTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`

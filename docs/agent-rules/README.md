@@ -19,6 +19,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 - [cpp-coding-quality.md](cpp-coding-quality.md): the coding rules, including float comparison, `auto`, IWYU, and the defaulted `operator==` MSVC quirk.
 - [glsl-shaders.md](glsl-shaders.md): the SPIR-V rules a shader must follow to compile: no bare uniforms, UBO bindings, MRT outputs, and never `.length()` on a storage buffer (§6b — Vulkan rejects it at pipeline creation, long after the SPIR-V validated).
+- [technique-selection-seams.md](technique-selection-seams.md): when a subsystem grows a second way of computing the same number, the choice is a value carrying the reason it is not what was asked for — not another shader `if`, and not a new row in a path enum.
 - [sonarqube-review-alignment.md](sonarqube-review-alignment.md): read before `/code-review` so local findings match the cloud profile.
 
 ## Testing and verification
@@ -252,6 +253,7 @@ No crash, no error, no log line; work or data disappears and the system keeps ru
 | [configure-time-variable-visibility.md](configure-time-variable-visibility.md) | A DLL copy step for the test executable, on the first configure only. |
 | [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) | A texture, from the second load onward. |
 | [shared-atlas-allocator.md](shared-atlas-allocator.md) | A budget claim, when `vector::resize()` or a `= T{}` reset discards a non-RAII handle. |
+| [technique-selection-seams.md](technique-selection-seams.md) | The REASON a light did not get the technique it asked for, when the choice is a shader branch: by the time the shader runs it is one uniform, and nothing on the CPU made the decision. |
 
 **The counter-move:** ask what the absence would look like. If nothing would differ, you need a
 coverage test, not a unit test.

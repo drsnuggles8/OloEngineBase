@@ -47,6 +47,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         AdvanceDecalVisibilityFrame();
+        // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
+        // HERE so an empty list can only mean "no light asked this frame" —
+        // a scene that stops publishing them must not keep the last frame's.
+        s_Data.RayTracedShadowLightRequests.clear();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
@@ -66,6 +70,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         AdvanceDecalVisibilityFrame();
+        // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
+        // HERE so an empty list can only mean "no light asked this frame" —
+        // a scene that stops publishing them must not keep the last frame's.
+        s_Data.RayTracedShadowLightRequests.clear();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
@@ -85,6 +93,10 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         AdvanceDecalVisibilityFrame();
+        // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
+        // HERE so an empty list can only mean "no light asked this frame" —
+        // a scene that stops publishing them must not keep the last frame's.
+        s_Data.RayTracedShadowLightRequests.clear();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);

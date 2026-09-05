@@ -23,7 +23,23 @@ namespace OloEngine
 
         // ----- Future paths (reserved, not yet implemented) -----
         // VisibilityBuffer, // Visibility buffer + material resolve
-        // HybridRT,         // Forward+ with ray-traced shadows/GI
+        //
+        // HybridRT was reserved here for ray-traced shadows/GI and is NOT
+        // being promoted (issue #1056). Hybrid ray tracing turned out not to
+        // be a PATH: the ray-traced shadow tier keeps the deferred G-Buffer,
+        // the deferred lighting shader and every pass around them, and changes
+        // only which mechanism answers the visibility question. Encoding that
+        // here would multiply the enum combinatorially (Deferred x shadow
+        // technique x a future reflections tier) and, concretely, would change
+        // the meaning of the ~70 `Path == RenderingPath::Deferred` predicates
+        // in the tree, each of which means "is there a G-Buffer" and would
+        // silently start answering "no" on the hybrid path.
+        //
+        // The seam that DID need to exist is OloEngine::ShadowTechnique
+        // (Renderer/Shadow/ShadowTechnique.h), on ShadowSettings — the same
+        // call Virtual Shadow Maps made, for the same reason. The row stays
+        // commented out to record that, rather than being deleted as if the
+        // question had never been asked.
     };
 
     // @brief Deferred renderer configuration.
