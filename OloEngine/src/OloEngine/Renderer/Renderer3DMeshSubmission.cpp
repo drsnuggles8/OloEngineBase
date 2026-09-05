@@ -2077,7 +2077,9 @@ namespace OloEngine
             return totalSubmitted;
         }
 
-        // Parallel path using ParallelForWithTaskContext.
+        // The scheduler may expose more tasks than the renderer's fixed worker
+        // slots (including the calling thread). Existing contexts bound both
+        // the worker tasks and the caller to valid allocator/bucket indices.
         BeginParallelSubmission();
 
         // Per-worker accumulator to track statistics.
@@ -2089,21 +2091,17 @@ namespace OloEngine
         };
 
         TArray<WorkerStats> workerStats;
+        workerStats.SetNum(MAX_RENDER_WORKERS);
+        for (u32 worker = 0; worker < MAX_RENDER_WORKERS; ++worker)
+        {
+            workerStats[worker].Context = GetWorkerContext(worker);
+        }
 
-        ParallelForWithTaskContext(
+        ParallelForWithExistingTaskContext(
             "SubmitMeshesParallel",
-            workerStats,
+            TArrayView<WorkerStats>(workerStats),
             numMeshes,
             minBatchSize,
-            // Context constructor - initialize worker context for each task slot.
-            // Use explicit contextIndex to avoid std::thread::id lookup.
-            [](i32 contextIndex, i32 /*numContexts*/) -> WorkerStats
-            {
-                WorkerStats stats;
-                // Use the optimized path with explicit worker index.
-                stats.Context = Renderer3D::GetWorkerContext(static_cast<u32>(contextIndex));
-                return stats;
-            },
             // Body - process one mesh descriptor.
             [&meshes](WorkerStats& stats, i32 index)
             {
