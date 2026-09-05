@@ -3036,6 +3036,49 @@ namespace OloEngine
 		}
 	}
 
+	public partial class TilemapComponent : Component
+	{
+		public ulong TilesetHandle
+		{
+			get => InternalCalls.TilemapComponent_GetTilesetHandle(Entity.ID);
+			set => InternalCalls.TilemapComponent_SetTilesetHandle(Entity.ID, value);
+		}
+
+		public float TileSize
+		{
+			get => InternalCalls.TilemapComponent_GetTileSize(Entity.ID);
+			set => InternalCalls.TilemapComponent_SetTileSize(Entity.ID, value);
+		}
+
+		public Vector4 Color
+		{
+			get
+			{
+				InternalCalls.TilemapComponent_GetColor(Entity.ID, out Vector4 value);
+				return value;
+			}
+			set => InternalCalls.TilemapComponent_SetColor(Entity.ID, ref value);
+		}
+
+		public bool GenerateColliders
+		{
+			get => InternalCalls.TilemapComponent_GetGenerateColliders(Entity.ID);
+			set => InternalCalls.TilemapComponent_SetGenerateColliders(Entity.ID, value);
+		}
+
+		public float ColliderFriction
+		{
+			get => InternalCalls.TilemapComponent_GetColliderFriction(Entity.ID);
+			set => InternalCalls.TilemapComponent_SetColliderFriction(Entity.ID, value);
+		}
+
+		public float ColliderRestitution
+		{
+			get => InternalCalls.TilemapComponent_GetColliderRestitution(Entity.ID);
+			set => InternalCalls.TilemapComponent_SetColliderRestitution(Entity.ID, value);
+		}
+	}
+
 	public partial class TimeOfDayComponent : Component
 	{
 		public bool Enabled

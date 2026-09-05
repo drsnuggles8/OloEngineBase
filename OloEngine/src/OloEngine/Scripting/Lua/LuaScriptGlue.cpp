@@ -334,6 +334,7 @@ namespace OloEngine
             REGISTER_COMPONENT(CameraComponent),
             REGISTER_COMPONENT(SpriteRendererComponent),
             REGISTER_COMPONENT(CircleRendererComponent),
+            REGISTER_COMPONENT(TilemapComponent),
             REGISTER_COMPONENT(TextComponent),
             REGISTER_COMPONENT(MeshComponent),
             REGISTER_COMPONENT(InstancedMeshComponent),
@@ -2092,6 +2093,36 @@ namespace OloEngine
                                                   "fade", sol::property([](const CircleRendererComponent& c)
                                                                         { return c.Fade; }, [](CircleRendererComponent& c, f32 v)
                                                                         { if (std::isfinite(v) && v >= 0.0f) c.Fade = v; }));
+
+        // --- TilemapComponent ---
+        // Tiles are addressed through getTile/setTile rather than an exposed
+        // vector: the biased encoding (0 = empty) and the bounds check belong in
+        // one place, and a script that indexed Layers directly could resize a
+        // layer out of step with Width/Height.
+        lua.new_usertype<TilemapComponent>("TilemapComponent", "tilesetHandle", sol::property([](const TilemapComponent& c)
+                                                                                              { return static_cast<u64>(c.TilesetHandle); }, [](TilemapComponent& c, u64 v)
+                                                                                              { c.TilesetHandle = AssetHandle(v); }),
+                                           "width", sol::readonly_property([](const TilemapComponent& c)
+                                                                           { return c.Width; }),
+                                           "height", sol::readonly_property([](const TilemapComponent& c)
+                                                                            { return c.Height; }),
+                                           "tileSize", sol::property([](const TilemapComponent& c)
+                                                                     { return c.TileSize; }, [](TilemapComponent& c, f32 v)
+                                                                     { if (std::isfinite(v) && v > 0.0f) c.TileSize = v; }),
+                                           "color", sol::property([](const TilemapComponent& c)
+                                                                  { return c.Color; }, [](TilemapComponent& c, const glm::vec4& v)
+                                                                  { if (IsFiniteVec4(v)) c.Color = v; }),
+                                           "generateColliders", &TilemapComponent::GenerateColliders, "layerCount", sol::readonly_property([](const TilemapComponent& c)
+                                                                                                                                           { return static_cast<u32>(c.Layers.size()); }),
+                                           "resize", [](TilemapComponent& c, u32 w, u32 h)
+                                           { c.Resize(w, h); }, "addLayer", [](TilemapComponent& c, const std::string& name)
+                                           { return static_cast<u32>(c.AddLayer(name)); },
+                                           // Lua indexes are 1-based by convention, but a tile grid is not a
+                                           // Lua table — these stay 0-based so they match the editor's tile
+                                           // coordinates and the serialized layout.
+                                           "getTile", [](const TilemapComponent& c, u32 layer, u32 x, u32 y)
+                                           { return c.GetTile(layer, x, y); }, "setTile", [](TilemapComponent& c, u32 layer, u32 x, u32 y, u32 value)
+                                           { return c.SetTile(layer, x, y, value); });
 
         // --- TextComponent ---
         lua.new_usertype<TextComponent>("TextComponent",

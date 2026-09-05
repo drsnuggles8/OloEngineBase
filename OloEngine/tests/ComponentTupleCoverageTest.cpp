@@ -122,6 +122,7 @@ namespace OloEngine::Tests
                 base / "Renderer" / "Instancing" / "InstancedMeshComponent.h",
                 base / "Localization" / "LocalizedTextComponent.h",
                 base / "Cinematic" / "CinematicComponent.h",
+                base / "Tilemap" / "TilemapComponent.h",
             };
         }
 

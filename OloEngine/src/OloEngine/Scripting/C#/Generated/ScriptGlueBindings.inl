@@ -9817,6 +9817,139 @@ static void TextComponent_SetLineSpacing(UUID entityID, float value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// TilemapComponent                                                               //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static u64 TilemapComponent_GetTilesetHandle(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    return comp.TilesetHandle;
+}
+
+static void TilemapComponent_SetTilesetHandle(UUID entityID, u64 value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    comp.TilesetHandle = value;
+}
+
+static float TilemapComponent_GetTileSize(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    return comp.TileSize;
+}
+
+static void TilemapComponent_SetTileSize(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    comp.TileSize = value;
+}
+
+static void TilemapComponent_GetColor(UUID entityID, glm::vec4* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    *outValue = comp.Color;
+}
+
+static void TilemapComponent_SetColor(UUID entityID, glm::vec4 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.Color = *value;
+}
+
+static bool TilemapComponent_GetGenerateColliders(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    return comp.GenerateColliders;
+}
+
+static void TilemapComponent_SetGenerateColliders(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    comp.GenerateColliders = value;
+}
+
+static float TilemapComponent_GetColliderFriction(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    return comp.ColliderFriction;
+}
+
+static void TilemapComponent_SetColliderFriction(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    comp.ColliderFriction = value;
+}
+
+static float TilemapComponent_GetColliderRestitution(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    return comp.ColliderRestitution;
+}
+
+static void TilemapComponent_SetColliderRestitution(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TilemapComponent>();
+    comp.ColliderRestitution = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // TimeOfDayComponent                                                             //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

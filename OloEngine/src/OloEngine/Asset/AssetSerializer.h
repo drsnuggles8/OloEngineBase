@@ -655,6 +655,22 @@ namespace OloEngine
         [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<InstancePlacementAsset>& asset) const;
     };
 
+    class Tileset; // Forward declaration
+
+    class TilesetSerializer : public AssetSerializer
+    {
+      public:
+        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
+        // Public so TilesetSerializerTest can round-trip without a project on disk.
+        [[nodiscard]] std::string SerializeToYAML(const Ref<Tileset>& tileset) const;
+        [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<Tileset>& tileset) const;
+    };
+
     class ShaderGraphAsset; // Forward declaration
 
     class ShaderGraphSerializer : public AssetSerializer
