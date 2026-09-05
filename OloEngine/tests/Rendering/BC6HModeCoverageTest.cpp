@@ -177,3 +177,64 @@ TEST(BC6HModeCoverage, TheAutomaticEncoderPicksAModeThatBeatsModeTenAlone)
     EXPECT_LT(blockError(autoBlock), blockError(modeTenBlock))
         << "the multi-mode search did not beat mode 10 on a two-cluster block";
 }
+
+TEST(BC6HModeCoverage, NegativeZeroDoesNotDecodeAsWhiteInTheUnsignedVariant)
+{
+    // -0.0f is not LESS than 0.0f, so it survives a clamp to [0, max] and packs to the
+    // half bit pattern 0x8000 — whose UNSIGNED reading is a huge magnitude. Before this
+    // was fixed, one -0.0f texel decoded as 65504 (full white) and dragged its block's
+    // endpoint fit with it. A signed source is unaffected: there 0x8000 is negative zero.
+    std::array<f32, 48> block{};
+    for (u32 t = 0; t < 16; ++t)
+    {
+        f32* p = &block[t * 3];
+        p[0] = (t % 2 == 0) ? -0.0f : 0.0f;
+        p[1] = 0.25f;
+        p[2] = 0.5f;
+    }
+
+    std::array<u8, 16> packed{};
+    BC6H::EncodeBlock(packed.data(), block.data(), /*isSigned*/ false);
+
+    std::vector<f32> decoded;
+    u32 dw = 0;
+    u32 dh = 0;
+    ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(AsSingleBlockImage(packed, false), 0, decoded, dw, dh));
+    for (u32 t = 0; t < 16; ++t)
+    {
+        EXPECT_NEAR(decoded[t * 4 + 0], 0.0f, 1e-3f) << "texel " << t << " red";
+        EXPECT_NEAR(decoded[t * 4 + 1], 0.25f, 0.01f) << "texel " << t << " green";
+        EXPECT_NEAR(decoded[t * 4 + 2], 0.5f, 0.01f) << "texel " << t << " blue";
+    }
+}
+
+TEST(BC6HModeCoverage, EveryHalfValueSurvivesAFlatBlockExactly)
+{
+    // The interpolation-space target is the inverse of the decoder's finish_unquantize,
+    // which FLOORS. Rounding that inverse to nearest instead of taking the ceiling put
+    // 15360 of the 31744 half magnitudes one ULP low — invisible in any PSNR tolerance,
+    // and the reason a "lossless" 16-bit-endpoint mode was not actually lossless.
+    //
+    // A constant block has coincident endpoints, so every texel must come back bit-exact.
+    // Sweeping every 64th half exponent/mantissa pattern covers the range cheaply.
+    for (u32 halfBits = 1; halfBits <= 0x7BFFu; halfBits += 37)
+    {
+        const f32 value = ::glm::unpackHalf1x16(static_cast<u16>(halfBits));
+        std::array<f32, 48> block{};
+        block.fill(value);
+
+        std::array<u8, 16> packed{};
+        BC6H::EncodeBlock(packed.data(), block.data(), /*isSigned*/ false);
+
+        std::vector<f32> decoded;
+        u32 dw = 0;
+        u32 dh = 0;
+        ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(AsSingleBlockImage(packed, false), 0, decoded, dw, dh));
+        u32 sourceBits = 0;
+        u32 decodedBits = 0;
+        std::memcpy(&sourceBits, &value, sizeof(sourceBits));
+        std::memcpy(&decodedBits, &decoded[0], sizeof(decodedBits));
+        ASSERT_EQ(sourceBits, decodedBits)
+            << "half 0x" << std::hex << halfBits << std::dec << " (" << value << ") did not survive a flat block";
+    }
+}

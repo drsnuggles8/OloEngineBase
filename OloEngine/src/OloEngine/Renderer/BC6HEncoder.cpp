@@ -159,22 +159,36 @@ namespace OloEngine::BC6H
 
         // Source float -> interpolation space. Unsigned BC6H cannot store negatives, so
         // they clamp to 0; non-finite values clamp to the largest finite half.
+        // Smallest integer >= a/b, for non-negative a and positive b. finish_unquantize
+        // FLOORS (it is a shift), so inverting it needs the ceiling: rounding to nearest
+        // lands one below the target for 15360 of the 31744 half magnitudes, and the
+        // decoder's floor then gives back a value one ULP low.
+        i64 CeilDiv(i64 a, i64 b)
+        {
+            return (a + b - 1) / b;
+        }
+
         i32 FloatToInterp(f32 value, bool isSigned)
         {
             if (!std::isfinite(value))
                 value = value > 0.0f ? kMaxFiniteHalf : (isSigned && value < 0.0f ? -kMaxFiniteHalf : 0.0f);
             value = std::clamp(value, isSigned ? -kMaxFiniteHalf : 0.0f, kMaxFiniteHalf);
+            // -0.0f survives that clamp (it is not LESS than 0.0f) and packs to 0x8000,
+            // whose unsigned reading is the sign bit interpreted as magnitude: the texel
+            // would come back as full white and drag the block's whole endpoint fit.
+            if (!isSigned && !(value > 0.0f))
+                value = 0.0f;
 
             const u32 halfBits = static_cast<u32>(::glm::packHalf1x16(value)) & 0xFFFFu;
             if (!isSigned)
             {
                 // finish_unquantize (unsigned): half = (interp * 31) >> 6.
-                const i32 interp = static_cast<i32>((static_cast<i64>(halfBits) * 64 + 15) / 31);
+                const auto interp = static_cast<i32>(CeilDiv(static_cast<i64>(halfBits) * 64, 31));
                 return std::clamp(interp, 0, kInterpMaxUnsigned);
             }
             // finish_unquantize (signed): magnitude = (|interp| * 31) >> 5, sign kept apart.
-            const i32 magnitude = static_cast<i32>(halfBits & 0x7FFFu);
-            const i32 interp = static_cast<i32>((static_cast<i64>(magnitude) * 32 + 15) / 31);
+            const auto magnitude = static_cast<i32>(halfBits & 0x7FFFu);
+            const auto interp = static_cast<i32>(CeilDiv(static_cast<i64>(magnitude) * 32, 31));
             const i32 clamped = std::clamp(interp, 0, kInterpMaxSigned);
             return (halfBits & 0x8000u) != 0 ? -clamped : clamped;
         }
