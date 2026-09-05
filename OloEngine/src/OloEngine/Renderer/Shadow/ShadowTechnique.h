@@ -101,6 +101,7 @@ namespace OloEngine
         MaskUnavailable,            ///< The graph produced no shadow mask this frame (disabled / no target).
         MaskChannelBudgetExhausted, ///< More lights opted in than the mask has channels.
         LightNotShadowCasting,      ///< The light casts no shadow at all; neither technique runs.
+        LightNotInLightBuffer,      ///< The light has no multi-light UBO slot, so no channel can be routed to it.
 
         Count
     };
@@ -125,6 +126,9 @@ namespace OloEngine
                 return "more lights opted into ray-traced shadows than the mask has channels";
             case ShadowTechniqueFallbackReason::LightNotShadowCasting:
                 return "this light casts no shadow at all";
+            case ShadowTechniqueFallbackReason::LightNotInLightBuffer:
+                return "this light has no multi-light UBO slot, so the lighting shader could never read its "
+                       "mask channel";
             case ShadowTechniqueFallbackReason::Count:
                 break;
         }
@@ -291,7 +295,13 @@ namespace OloEngine
     {
         ShadowTechnique Requested = ShadowTechnique::ShadowMap;
 
-        bool LightCastsShadows = true;    ///< The light's own shadow toggle.
+        bool LightCastsShadows = true; ///< The light's own shadow toggle.
+        // The light occupies a slot in the multi-light UBO. Without one there is
+        // no index for the routing lane to name, so the lighting shader could
+        // never match this light to a mask channel however well the trace went —
+        // and counting it as ray traced would make the statistics disagree with
+        // the shader, which is the one thing this whole seam exists to prevent.
+        bool LightHasBufferSlot = true;
         bool DeferredPathActive = false;  ///< A G-Buffer exists this frame.
         bool RayTracingAvailable = false; ///< RayTracingScene::IsAvailable().
         bool TlasReady = false;           ///< GetTlasDeviceAddress() != 0.
@@ -346,6 +356,13 @@ namespace OloEngine
             return fallback(ShadowTechniqueFallbackReason::AccelerationStructureEmpty);
         if (!inputs.MaskAvailable)
             return fallback(ShadowTechniqueFallbackReason::MaskUnavailable);
+        // Last of the prerequisites, not first: every guard above it names
+        // something global that a user can act on (the render path, the device,
+        // the scene's geometry), and reporting a per-light bookkeeping detail in
+        // front of "this device has no ray tracing" would bury the reason that
+        // actually explains the frame.
+        if (!inputs.LightHasBufferSlot)
+            return fallback(ShadowTechniqueFallbackReason::LightNotInLightBuffer);
         if (channelsAlreadyAssigned >= kRayTracedShadowMaskChannels)
             return fallback(ShadowTechniqueFallbackReason::MaskChannelBudgetExhausted);
 

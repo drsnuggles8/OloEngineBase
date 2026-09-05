@@ -179,6 +179,14 @@ namespace OloEngine
         // scalars.
         std::array<RayTracedShadowLightRequest, kRayTracedShadowMaskChannels> m_ChannelLights{};
         ShadowTechniqueStats m_Stats{};
+        // The last fallback reason this pass reported, so the log line fires on
+        // a CHANGE of reason rather than once per frame. A member, not a
+        // function-local static: a static is shared by every instance for the
+        // whole process, so a second graph's pass would swallow the first's
+        // report and neither would say so. Cleared again the frame no light
+        // falls back, so a fallback that is fixed and later returns is reported
+        // a second time rather than staying silent forever.
+        ShadowTechniqueFallbackReason m_LastReportedFallback = ShadowTechniqueFallbackReason::None;
 
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedGBufferNormalTexture{};

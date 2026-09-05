@@ -200,6 +200,12 @@ namespace OloEngine
                 // opted in; the field is still passed rather than hard-coded
                 // true so the policy function has one caller-independent shape.
                 .LightCastsShadows = true,
+                // A light with no multi-light UBO slot has no index for the
+                // routing lane to name, so the lighting shader could never read
+                // its channel. It goes through the SELECTOR rather than being
+                // filtered after it, so the counted verdict and the shader
+                // branch stay the same event — the property this seam exists for.
+                .LightHasBufferSlot = request.UboLightIndex >= 0,
                 // The mask is a G-Buffer consumer, so it only exists on the
                 // deferred path — and this pass is only registered there, so
                 // reaching Execute at all IS that fact.
@@ -211,7 +217,7 @@ namespace OloEngine
             const auto decision = SelectShadowTechnique(inputs, assigned);
             m_Stats.Record(decision);
 
-            if (decision.IsRayTraced() && request.UboLightIndex >= 0)
+            if (decision.IsRayTraced())
             {
                 m_ChannelLights[static_cast<sizet>(decision.MaskChannel)] = request;
                 ++assigned;
@@ -224,14 +230,21 @@ namespace OloEngine
             // that tells a user why their sun is not ray traced, and a
             // per-frame version of it would be indistinguishable from spam and
             // therefore ignored.
-            static ShadowTechniqueFallbackReason s_LastReported = ShadowTechniqueFallbackReason::None;
             const auto reason = m_Stats.DominantFallbackReason();
-            if (reason != s_LastReported)
+            if (reason != m_LastReportedFallback)
             {
-                s_LastReported = reason;
+                m_LastReportedFallback = reason;
                 OLO_CORE_WARN("RayTracedShadowPass: {} of {} light(s) fell back to shadow maps — {}",
                               m_Stats.FallbackLights, m_LightRequests.size(), ToString(reason));
             }
+        }
+        else
+        {
+            // Nothing fell back this frame, so the next one that does is news
+            // again. Without this the throttle would report a given reason once
+            // per process: a user who fixes the cause and then reintroduces it
+            // would get silence the second time.
+            m_LastReportedFallback = ShadowTechniqueFallbackReason::None;
         }
 
         return assigned;
@@ -303,6 +316,23 @@ namespace OloEngine
             // overwhelmingly common case is a scene where no light opted in,
             // and ResolveTechniqueForFrame already spoke for the cases that are
             // a genuine fallback.
+            //
+            // But returning is not enough: Setup declared the two history
+            // extractions unconditionally, and RenderGraph::FlushExtractions
+            // runs after the plan whether this node drew or not. Leaving the
+            // resolved framebuffer unwritten would publish a transient's
+            // leftover contents as a VALID shadow history, which the next frame
+            // that does trace would then reproject and blend. So write the
+            // neutral state explicitly — the same values RayTracedShadowResolve
+            // writes for a sky pixel: fully lit, moments of a constant-1 signal,
+            // and a view depth of 0 that no real surface matches, so
+            // OloEvaluateSurfaceHistory rejects these texels on reprojection
+            // instead of trusting them.
+            if (resolvedFramebuffer)
+            {
+                resolvedFramebuffer->ClearAttachment(0, glm::vec4(1.0f));
+                resolvedFramebuffer->ClearAttachment(1, glm::vec4(1.0f, 1.0f, 0.0f, 0.0f));
+            }
             m_Target = nullptr;
             return;
         }

@@ -98,7 +98,15 @@ namespace OloEngine
     //      so a save that let EnsureStableIDs re-derive the ids would stale the
     //      bake on load whenever the list had a gap. v25 and older omit all
     //      three and keep the defaults, which is the pre-#867 behaviour.
-    static constexpr u32 kSaveGameFormatVersion = 26; // 26: lightmap receivers on Model/Instanced (#867)
+    // v27: the four light components gained m_RayTracedShadows (#1056), the
+    //      per-light opt-in for the hybrid ray-traced shadow tier. It is the
+    //      LAST field of each light's payload, but it is version-gated rather
+    //      than AtEnd()-probed because AtEnd() cannot tell "this save predates
+    //      the field" from "this save is truncated here", and a light silently
+    //      losing its opt-in is indistinguishable from one that never had it.
+    //      v26 and older omit it and keep the default false, which is the
+    //      pre-#1056 behaviour exactly.
+    static constexpr u32 kSaveGameFormatVersion = 27; // 27: per-light ray-traced shadow opt-in (#1056)
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

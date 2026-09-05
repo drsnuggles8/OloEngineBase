@@ -153,6 +153,28 @@ namespace OloEngine::Tests
         EXPECT_EQ(SelectShadowTechnique(inputs, 0).Reason, ShadowTechniqueFallbackReason::LightNotShadowCasting);
     }
 
+    // A light outside the multi-light UBO has no index for the routing lane to
+    // name, so the lighting shader could never match it to a mask channel. It
+    // goes through the SELECTOR rather than being filtered out after it, so the
+    // counted verdict and the shader's branch stay the same event — and unlike
+    // a non-casting light this one DID ask for ray tracing and did not get it,
+    // so it is a genuine fallback and is counted as one.
+    TEST(ShadowTechniqueSelection, ALightWithNoBufferSlotFallsBackAndIsCounted)
+    {
+        auto inputs = MakeReadyInputs();
+        inputs.LightHasBufferSlot = false;
+
+        const auto decision = SelectShadowTechnique(inputs, 0);
+        EXPECT_EQ(decision.Effective, ShadowTechnique::ShadowMap);
+        EXPECT_EQ(decision.Reason, ShadowTechniqueFallbackReason::LightNotInLightBuffer);
+        EXPECT_EQ(decision.MaskChannel, kNoRayTracedShadowChannel);
+
+        ShadowTechniqueStats stats;
+        stats.Record(decision);
+        EXPECT_EQ(stats.FallbackLights, 1u);
+        EXPECT_EQ(stats.DominantFallbackReason(), ShadowTechniqueFallbackReason::LightNotInLightBuffer);
+    }
+
     TEST(ShadowTechniqueSelection, NotAskingForRayTracingIsNotAFallback)
     {
         auto inputs = MakeReadyInputs();
@@ -184,6 +206,14 @@ namespace OloEngine::Tests
         inputs.LightCastsShadows = false;
         EXPECT_EQ(SelectShadowTechnique(inputs, 0).Reason,
                   ShadowTechniqueFallbackReason::LightNotShadowCasting);
+
+        // The buffer slot is the LAST prerequisite, so it never outranks a
+        // global reason: a slotless light on a forward path still reports the
+        // path, because that is the thing the user can act on.
+        inputs.LightCastsShadows = true;
+        inputs.LightHasBufferSlot = false;
+        EXPECT_EQ(SelectShadowTechnique(inputs, 0).Reason,
+                  ShadowTechniqueFallbackReason::RenderingPathUnsupported);
     }
 
     // Every reason must produce a distinct, non-empty sentence — a counter whose

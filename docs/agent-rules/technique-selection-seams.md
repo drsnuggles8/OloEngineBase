@@ -2,7 +2,9 @@
 
 **Rule.** When a subsystem grows a second way of computing the same number, make the choice a
 **pure function returning a value plus the reason it is not what was asked for**, and put the
-counters next to it. Do not add a branch to the shader, and do not add a row to a path enum.
+counters next to it. The shader may still branch on the routing the CPU published — the
+structural fallback below needs exactly that — but it must not SELECT the technique or own the
+reasoning about why it did not get one. And do not add a row to a path enum.
 
 The value has three parts, and all three are load-bearing:
 
