@@ -142,6 +142,13 @@ namespace OloEngine::Tests
         constexpr glm::vec3 eye{ 0.0f, 5.0f, 10.0f };
         camera.SetPosition(eye);
         ExpectVec3Near(camera.GetPosition(), eye, "SetPosition eye");
+        // The VIEW matrix, not just the reported eye: the original bug assigned
+        // m_Position and stopped, so an implementation that stores the eye and
+        // skips its own UpdateView would satisfy the line above while still
+        // rendering from the previous pose. Transforming the eye by the view has
+        // to land on the origin.
+        ExpectVec3Near(glm::vec3(camera.GetViewMatrix() * glm::vec4(eye, 1.0f)), glm::vec3(0.0f),
+                       "SetPosition eye in view space");
 
         // The trap that made the old implementation unfixable by simply adding a
         // rebuild: UpdateView re-derives the eye from the focal point, so an

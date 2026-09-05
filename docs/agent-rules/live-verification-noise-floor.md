@@ -84,13 +84,23 @@ distinctness guard one pose captured twice and requires it to fail.
 
 ## The suite's own evidence PNGs are nondeterministic — measured values
 
-`OloEngine-Tests.exe` **rewrites** the visual-evidence PNGs under
-`OloEditor/assets/tests/visual/` on every run (they are evidence, not goldens —
-nothing compares them). So `git status` after a test run routinely shows a
-handful of modified PNGs that have **nothing to do with your change**, and the
-tempting readings are both wrong: committing them as "regenerated evidence"
-launders noise into the repo, and reading them as a regression sends you
-debugging a change you did not make.
+`OloEngine-Tests.exe` **rewrites** many of the PNGs under
+`OloEditor/assets/tests/visual/` on every run. So `git status` after a test run
+routinely shows a handful of modified PNGs that have **nothing to do with your
+change**, and the tempting readings are both wrong: committing them as
+"regenerated evidence" launders noise into the repo, and reading them as a
+regression sends you debugging a change you did not make.
+
+**That directory holds two kinds of file, and only one of them is disposable.**
+A test that writes unconditionally is producing *evidence* — nothing compares it,
+and a modified one after a run is noise. A test that writes only under
+`--olo-golden-rebase` (`Water_*`, `Drift_*`, `MeshVisibility_*`, and the rest of
+the sibling set) is producing a *golden*: a normal run reads it back and fails on
+drift, so deleting or overwriting one removes a baseline the suite needs. The
+`git checkout --` advice below is safe for both, because a golden is never
+written by a normal run in the first place — a golden that shows as modified
+means you passed `--olo-golden-rebase`, and then the question is whether you
+meant to.
 
 Measured on one machine (RTX 4090, Debug) by running the identical binary
 twice and diffing run 1 against run 2 — i.e. with *no code change at all*:

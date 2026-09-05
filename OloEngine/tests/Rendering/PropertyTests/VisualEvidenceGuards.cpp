@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "VisualEvidenceGuards.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>

@@ -36,7 +36,8 @@
 //
 // Goldens follow the sibling convention (WaterVisualEvidenceTest): a normal run
 // COMPARES against the committed PNGs and writes nothing; --olo-golden-rebase
-// (re)writes them. Runs in the normal suite; SKIPs cleanly without a GL 4.6
+// (re)writes them — but only if every guard above passed, so a rebase can never
+// bake the very frames the guards exist to reject. Runs in the normal suite; SKIPs cleanly without a GL 4.6
 // context. The CPU half of this contract — that the pose calls move the view
 // matrix at all — is Rendering/EditorCameraPoseTest.cpp.
 // =============================================================================
@@ -300,25 +301,50 @@ namespace OloEngine::Tests
         const f64 noiseFloor = VisualEvidence::Rgba8Rmse(floorA, floorB);
         std::cout << "[MeshVisibility] measured noise floor RMSE = " << noiseFloor << std::endl;
 
-        // 2. The three angles.
+        // 2. The three angles. Captured FIRST, and every guard runs BEFORE any
+        //    golden is touched — see the refusal below for why that ordering is
+        //    the whole point rather than a tidiness preference.
         std::vector<std::vector<u8>> captures;
         std::vector<std::string> names;
         for (const Pose& pose : kPoses)
         {
             std::vector<u8> pixels = (&pose == &kPoses[0]) ? floorB : Capture(pose);
             ASSERT_FALSE(pixels.empty()) << "pose '" << pose.Name << "'";
-
-            // 3. The subject is actually on screen in THIS frame.
-            VisualEvidence::ExpectFrameHasSubject(pixels, pose.Name, IsControlCubeRed);
-
-            CompareOrRebaseGolden(pose.Name, pixels);
             captures.push_back(std::move(pixels));
             names.emplace_back(pose.Name);
         }
 
-        // 4. The frames are three different pictures, not one picture three
-        //    times. This is the assertion #931's test did not have.
+        // 3. The subject is actually on screen in each frame, and 4. the frames
+        //    are three different pictures rather than one picture three times —
+        //    the assertion #931's test did not have.
+        for (sizet i = 0; i < captures.size(); ++i)
+        {
+            VisualEvidence::ExpectFrameHasSubject(captures[i], names[i], IsControlCubeRed);
+        }
         VisualEvidence::ExpectCapturesAreDistinct(captures, names, noiseFloor);
+
+        // 5. Only now the goldens — and a rebase REFUSES to write if either
+        //    guard failed.
+        //
+        //    Both guards are non-fatal by design (a run should report every bad
+        //    pose, not just the first), so without this the rebase path would
+        //    bake three identical, subject-less frames to disk and only THEN go
+        //    red. The test would be failing while the committed baselines it
+        //    just wrote became the #931 artefact this whole file exists to
+        //    prevent — and a rebase is exactly the moment a human is least
+        //    likely to re-read the output.
+        if (::testing::Test::HasNonfatalFailure())
+        {
+            ADD_FAILURE() << "refusing to touch the goldens: a capture guard failed above. "
+                             "Fix the poses or the scene, then rebase — never rebase over a "
+                             "frozen camera or a missing subject (issue #931).";
+            return;
+        }
+
+        for (sizet i = 0; i < captures.size(); ++i)
+        {
+            CompareOrRebaseGolden(names[i], captures[i]);
+        }
     }
 
     // The guard is only worth having if it actually fires, and a guard that
