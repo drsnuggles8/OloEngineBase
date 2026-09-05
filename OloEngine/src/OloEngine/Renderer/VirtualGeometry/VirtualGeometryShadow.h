@@ -1,8 +1,12 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <glm/mat4x4.hpp>
+#include <span>
 
 namespace OloEngine
 {
@@ -15,8 +19,9 @@ namespace OloEngine
     // rasterize back faces — and no software-raster routing), then replays each
     // shadow-casting instance's compacted command segment with the depth-only
     // VirtualMeshShadowDepth shader into the currently bound target + viewport.
-    // Reuses the per-frame instance/command/args buffers the main pass also uses
-    // (the cull overwrites them per view; the main pass re-culls afterwards).
+    // Shares immutable mesh/instance inputs and retains view-owned cull outputs
+    // and parameter uploads. Residency requests are GPU atomic ORs accumulated
+    // in the registry across GPU-ordered shadow views and the main view.
     //
     // The ortho error scale is exact for the cascades' orthographic VPs and a
     // conservative approximation for the atlas' perspective VPs; the DAG cut is
@@ -27,11 +32,24 @@ namespace OloEngine
     // uploads before invoking this.
     namespace VirtualGeometryShadow
     {
+        struct ViewResources
+        {
+            Ref<StorageBuffer> Commands;
+            Ref<StorageBuffer> Args;
+            Ref<StorageBuffer> Visible;
+            Ref<UniformBuffer> CullParams;
+            Ref<UniformBuffer> DrawInfo;
+        };
+
+        // Primary-only: resolve frame instances/residency and allocate every
+        // view's output and upload objects before a recording region opens.
+        [[nodiscard]] bool PrepareViews(std::span<ViewResources> views);
+
         // Renders this frame's virtual-mesh shadow casters into the currently
         // bound target + viewport. lightVPRel is the render-origin-relative light
         // view-projection; shadowResolution is the target (cascade or atlas tile)
         // size in texels, used only to scale the ortho LOD error to pixels.
-        void RenderCascade(const glm::mat4& lightVPRel, u32 shadowResolution);
+        void RenderCascade(const glm::mat4& lightVPRel, u32 shadowResolution, ViewResources& resources);
 
         // Releases the lazily-created shaders (Renderer3D::Shutdown).
         void Shutdown();

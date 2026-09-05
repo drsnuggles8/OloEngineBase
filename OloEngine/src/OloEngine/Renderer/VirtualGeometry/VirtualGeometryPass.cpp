@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
@@ -411,6 +412,13 @@ namespace OloEngine
         const auto& instances = registry.GetFrameInstances();
 
         u32 const instanceCount = static_cast<u32>(instances.size());
+        const u32 itemCount = std::clamp(instanceCount / 32, 1u, MAX_RENDER_WORKERS);
+        while (m_RecordingUploads.size() < itemCount)
+        {
+            auto& item = m_RecordingUploads.emplace_back();
+            item.Cull = UniformBuffer::Create(sizeof(UBOStructures::VirtualClusterCullUBO), ShaderBindingLayout::UBO_VIRTUAL_CLUSTER_CULL);
+            item.DrawInfo = UniformBuffer::Create(sizeof(VirtualDrawInfoGpu), ShaderBindingLayout::UBO_VIRTUAL_DRAW);
+        }
         u32 const frameClusterCount = registry.GetTotalFrameClusterCount();
         bool const swEnabled = swThresholdPixels > 0.0f && registry.GetVisbufferBuffer();
 
@@ -465,13 +473,19 @@ namespace OloEngine
         // single time above, so re-publishing it per instance uploaded the same
         // unchanged table N times (issue #691).
         HeapBinding::FlushOffsets();
-        for (sizet i = 0; i < instances.size(); ++i)
-        {
-            cullParams.InstanceIndex = static_cast<u32>(i);
-            UploadCullParams(cullParams);
-            u32 const groups = (instances[i].Gpu.ClusterCount + 63u) / 64u;
-            RenderCommand::DispatchCompute(groups, 1, 1);
-        }
+        RenderCommand::RecordParallel(itemCount, [&](u32 itemIndex)
+                                      {
+            auto params = cullParams;
+            auto& upload = m_RecordingUploads[itemIndex].Cull;
+            const sizet end = instances.size() * (itemIndex + 1) / itemCount;
+            for (sizet i = instances.size() * itemIndex / itemCount; i < end; ++i)
+            {
+                params.InstanceIndex = static_cast<u32>(i);
+                upload->SetData(&params, sizeof(params));
+                upload->Bind();
+                u32 const groups = (instances[i].Gpu.ClusterCount + 63u) / 64u;
+                RenderCommand::DispatchCompute(groups, 1, 1);
+            } });
 
         // Command for the indirect-args read, ShaderStorage for the vertex-
         // pulling reads of the visible/instance/vertex buffers.
@@ -485,11 +499,6 @@ namespace OloEngine
                                                              : gbuffer->GetFramebuffer();
         if (!targetFB)
             targetFB = gbuffer->GetFramebuffer();
-
-        if (!m_DrawInfoUBO)
-        {
-            m_DrawInfoUBO = UniformBuffer::Create(sizeof(VirtualDrawInfoGpu), ShaderBindingLayout::UBO_VIRTUAL_DRAW);
-        }
 
         // Bind the G-Buffer target + the raster state every draw block needs.
         // Replayed before phase 1 and again before phase 2 / the resolve, because
@@ -570,81 +579,85 @@ namespace OloEngine
                 RenderCommand::BindImageTexture(1, registry.GetDebugCountTexture(), 0, false, 0,
                                                 RHI::Access::StorageReadWrite, RHI::Format::R32UInt);
             }
-            m_DrawInfoUBO->Bind();
 
             const RHI::ResourceHandle commandBuffer = registry.GetCommandBuffer()->GetRHIHandle();
             const RHI::ResourceHandle argsBuffer = registry.GetArgsBuffer()->GetRHIHandle();
             // Which G-Buffer program is bound right now. Instances can route
             // to different pipelines (a non-meshlet-compatible mesh stays on
             // MDI), so the loop re-binds only when the route actually changes.
-            bool meshShaderBound = false;
-            sizet const instanceCount = instances.size();
-            for (sizet i = 0; i < instanceCount; ++i)
-            {
-                // Per-instance route — see ShouldUseMeshRaster for why the
-                // cluster ceiling is a per-FRAME gate here and not folded into
-                // the per-part IsMeshletCompatible stamp.
-                bool const useMesh = ShouldUseMeshRaster(meshRaster, instances[i].MeshletCompatible,
-                                                         instances[i].Gpu.ClusterCount);
-                if (useMesh != meshShaderBound)
+            RenderCommand::RecordParallel(itemCount, [&](u32 itemIndex)
+                                          {
+                m_GBufferShader->Bind();
+                auto& upload = m_RecordingUploads[itemIndex].DrawInfo;
+                bool meshShaderBound = false;
+                const sizet end = instances.size() * (itemIndex + 1) / itemCount;
+                for (sizet i = instances.size() * itemIndex / itemCount; i < end; ++i)
                 {
-                    (useMesh ? m_MeshletShader : m_GBufferShader)->Bind();
-                    meshShaderBound = useMesh;
-                }
+                    // Per-instance route — see ShouldUseMeshRaster for why the
+                    // cluster ceiling is a per-FRAME gate here and not folded into
+                    // the per-part IsMeshletCompatible stamp.
+                    bool const useMesh = ShouldUseMeshRaster(meshRaster, instances[i].MeshletCompatible,
+                                                             instances[i].Gpu.ClusterCount);
+                    if (useMesh != meshShaderBound)
+                    {
+                        (useMesh ? m_MeshletShader : m_GBufferShader)->Bind();
+                        meshShaderBound = useMesh;
+                    }
 
-                const auto& mat = FrameDataBufferManager::Get().GetMaterialData(
-                    static_cast<u16>(instances[i].MaterialDataIndex));
-                CommandDispatch::UploadMaterialForDirectDraw(mat, static_cast<u16>(instances[i].MaterialDataIndex));
+                    const auto& mat = FrameDataBufferManager::Get().GetMaterialData(
+                        static_cast<u16>(instances[i].MaterialDataIndex));
+                    CommandDispatch::UploadMaterialForDirectDraw(mat, static_cast<u16>(instances[i].MaterialDataIndex));
 
-                u32 const segmentBase = commandSlotBase + instances[i].Gpu.CommandBase;
-                // ArgsSlot is where the TASK stage reads its DrawCount (the MDI
-                // vertex stage never reads it) and MaxClusters is its launch
-                // clamp — both uploaded identically on both routes so the two
-                // paths see the same block contents. The viewport fields belong
-                // to the resolve/shadow stages and stay 0 here.
-                VirtualDrawInfoGpu drawInfo{};
-                drawInfo.InstanceIndex = static_cast<u32>(i);
-                drawInfo.CommandBase = segmentBase;
-                drawInfo.ArgsSlot = static_cast<u32>(argsInstanceBase + i);
-                drawInfo.MaxClusters = instances[i].Gpu.ClusterCount;
-                // Where the baked lightmap uv2 tail starts inside the vertex
-                // arena (issue #867); 0 when this arena carries none, which is
-                // the shaders' don't-fetch signal.
-                drawInfo.LightmapUVBase = registry.GetLightmapUVBaseElement();
-                m_DrawInfoUBO->SetData(&drawInfo, sizeof(drawInfo));
+                    u32 const segmentBase = commandSlotBase + instances[i].Gpu.CommandBase;
+                    // ArgsSlot is where the TASK stage reads its DrawCount (the MDI
+                    // vertex stage never reads it) and MaxClusters is its launch
+                    // clamp — both uploaded identically on both routes so the two
+                    // paths see the same block contents. The viewport fields belong
+                    // to the resolve/shadow stages and stay 0 here.
+                    VirtualDrawInfoGpu drawInfo{};
+                    drawInfo.InstanceIndex = static_cast<u32>(i);
+                    drawInfo.CommandBase = segmentBase;
+                    drawInfo.ArgsSlot = static_cast<u32>(argsInstanceBase + i);
+                    drawInfo.MaxClusters = instances[i].Gpu.ClusterCount;
+                    // Where the baked lightmap uv2 tail starts inside the vertex
+                    // arena (issue #867); 0 when this arena carries none, which is
+                    // the shaders' don't-fetch signal.
+                    drawInfo.LightmapUVBase = registry.GetLightmapUVBaseElement();
+                    upload->SetData(&drawInfo, sizeof(drawInfo));
+                    upload->Bind();
 
-                // Two-sided materials must not backface-cull. Foliage is a single sheet of quads
-                // meant to be seen from both sides, so culling drops half of every leaf — which is
-                // what shredded Sponza's plants. The classic path does the same thing via
-                // Renderer3DDrawHelpers::BuildRenderState; this loop drives raw GL, so it has to
-                // toggle the state itself.
-                if (instances[i].TwoSided)
-                {
-                    RenderCommand::DisableCulling();
-                }
-                else
-                {
-                    RenderCommand::EnableCulling();
-                }
+                    // Two-sided materials must not backface-cull. Foliage is a single sheet of quads
+                    // meant to be seen from both sides, so culling drops half of every leaf — which is
+                    // what shredded Sponza's plants. The classic path does the same thing via
+                    // Renderer3DDrawHelpers::BuildRenderState; this loop drives raw GL, so it has to
+                    // toggle the state itself.
+                    if (instances[i].TwoSided)
+                    {
+                        RenderCommand::DisableCulling();
+                    }
+                    else
+                    {
+                        RenderCommand::EnableCulling();
+                    }
 
-                if (useMesh)
-                {
-                    // One task workgroup: it reads args[drawInfo.z].DrawCount
-                    // and launches one mesh workgroup per visible cluster —
-                    // the GPU-side count never touches the CPU, same property
-                    // as the MDI parameter buffer.
-                    RenderCommand::DrawMeshTasks(1u, 1u, 1u);
-                }
-                else
-                {
-                    RenderCommand::MultiDrawElementsIndirectCountRaw(
-                        registry.GetVao(), commandBuffer,
-                        segmentBase * 32u, // this instance's command segment, in this phase's region
-                        argsBuffer,
-                        static_cast<u32>((argsInstanceBase + i) * sizeof(VirtualDrawArgs)),
-                        instances[i].Gpu.ClusterCount, 32u);
-                }
-            }
+                    if (useMesh)
+                    {
+                        // One task workgroup: it reads args[drawInfo.z].DrawCount
+                        // and launches one mesh workgroup per visible cluster —
+                        // the GPU-side count never touches the CPU, same property
+                        // as the MDI parameter buffer.
+                        RenderCommand::DrawMeshTasks(1u, 1u, 1u);
+                    }
+                    else
+                    {
+                        RenderCommand::MultiDrawElementsIndirectCountRaw(
+                            registry.GetVao(), commandBuffer,
+                            segmentBase * 32u, // this instance's command segment, in this phase's region
+                            argsBuffer,
+                            static_cast<u32>((argsInstanceBase + i) * sizeof(VirtualDrawArgs)),
+                            instances[i].Gpu.ClusterCount, 32u);
+                    }
+                } });
             RenderCommand::EnableCulling(); // restore the pass-wide default
         };
 
@@ -813,29 +826,34 @@ namespace OloEngine
                 registry.GetVisbufferBuffer()->Bind();
 
                 const auto fullscreen = MeshPrimitives::GetFullscreenTriangle();
-                for (sizet i = 0; i < instances.size(); ++i)
-                {
-                    const auto& mat = FrameDataBufferManager::Get().GetMaterialData(
-                        static_cast<u16>(instances[i].MaterialDataIndex));
-                    CommandDispatch::UploadMaterialForDirectDraw(mat, static_cast<u16>(instances[i].MaterialDataIndex));
+                RenderCommand::RecordParallel(itemCount, [&](u32 itemIndex)
+                                              {
+                    auto& upload = m_RecordingUploads[itemIndex].DrawInfo;
+                    const sizet end = instances.size() * (itemIndex + 1) / itemCount;
+                    for (sizet i = instances.size() * itemIndex / itemCount; i < end; ++i)
+                    {
+                        const auto& mat = FrameDataBufferManager::Get().GetMaterialData(
+                            static_cast<u16>(instances[i].MaterialDataIndex));
+                        CommandDispatch::UploadMaterialForDirectDraw(mat, static_cast<u16>(instances[i].MaterialDataIndex));
 
-                    VirtualDrawInfoGpu drawInfo{};
-                    drawInfo.InstanceIndex = static_cast<u32>(i);
-                    drawInfo.CommandBase = instances[i].Gpu.CommandBase;
-                    drawInfo.ViewportWidth = registry.GetVisbufferWidth();
-                    drawInfo.ViewportHeight = registry.GetVisbufferHeight();
-                    // The resolve reconstructs uv2 from the same tail (issue #867).
-                    drawInfo.LightmapUVBase = registry.GetLightmapUVBaseElement();
-                    m_DrawInfoUBO->SetData(&drawInfo, sizeof(drawInfo));
+                        VirtualDrawInfoGpu drawInfo{};
+                        drawInfo.InstanceIndex = static_cast<u32>(i);
+                        drawInfo.CommandBase = instances[i].Gpu.CommandBase;
+                        drawInfo.ViewportWidth = registry.GetVisbufferWidth();
+                        drawInfo.ViewportHeight = registry.GetVisbufferHeight();
+                        // The resolve reconstructs uv2 from the same tail (issue #867).
+                        drawInfo.LightmapUVBase = registry.GetLightmapUVBaseElement();
+                        upload->SetData(&drawInfo, sizeof(drawInfo));
+                        upload->Bind();
 
-                    fullscreen->Bind();
-                    // UploadMaterialForDirectDraw above writes this instance's
-                    // per-material heap offsets into the material UBO; publish
-                    // whatever it also staged on the shared table before the draw
-                    // reads it (issue #691).
-                    context.FlushHeapOffsets();
-                    context.DrawIndexed(fullscreen);
-                }
+                        fullscreen->Bind();
+                        // UploadMaterialForDirectDraw above writes this instance's
+                        // per-material heap offsets into the material UBO; publish
+                        // whatever it also staged on the shared table before the draw
+                        // reads it (issue #691).
+                        context.FlushHeapOffsets();
+                        context.DrawIndexed(fullscreen);
+                    } });
                 RenderCommand::EnableCulling();
                 GPUPassTimerPool::GetInstance().EndSubPass();
             }

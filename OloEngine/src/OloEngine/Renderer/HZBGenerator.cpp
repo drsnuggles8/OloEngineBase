@@ -44,12 +44,15 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_HZBShader = ComputeShader::Create("assets/shaders/compute/HZB.comp");
+        m_ParamsUBO = UniformBuffer::Create(UBOStructures::HZBParamsUBO::GetSize(),
+                                            ShaderBindingLayout::UBO_HZB);
         OLO_CORE_INFO("HZBGenerator: Initialized");
     }
 
     void HZBGenerator::Shutdown()
     {
         m_HZBShader.Reset();
+        m_ParamsUBO.Reset();
         m_HZBTexture.Reset();
         m_ExternalHZBTexture = RHI::NullResource;
         m_ExternalMipCount = 0;
@@ -243,11 +246,7 @@ namespace OloEngine
         // #691). Per-batch SetData is legal on both backends (GL
         // re-uploads the bound buffer; Vulkan's arena-versioned UBOs mint a
         // fresh per-dispatch address on every SetData).
-        if (!m_ParamsUBO)
-        {
-            m_ParamsUBO = UniformBuffer::Create(UBOStructures::HZBParamsUBO::GetSize(),
-                                                ShaderBindingLayout::UBO_HZB);
-        }
+
         UBOStructures::HZBParamsUBO hzbParams{};
         if (isFirstPass)
         {

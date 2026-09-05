@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
@@ -165,6 +166,9 @@ namespace OloEngine
         f32 cameraNear = 0.1f;
         f32 cameraFar = 1000.0f;
         ClusteredLighting::ExtractClipPlanes(Renderer3D::GetProjectionMatrix(), cameraNear, cameraFar);
+        const u32 itemCount = std::clamp(static_cast<u32>(draws.size() / 32), 1u, MAX_RENDER_WORKERS);
+        while (m_RecordingUploads.size() < itemCount)
+            m_RecordingUploads.push_back(UniformBuffer::Create(UBOStructures::FluidRenderUBO::GetSize(), ShaderBindingLayout::UBO_FLUID_RENDER));
 
         // The pass renders into raw pass-owned FBOs, so the viewport must be
         // set (and restored) by hand — engine Framebuffer::Bind() would
@@ -181,11 +185,20 @@ namespace OloEngine
                                                  RHI::HeapSlotLifetime::FrameTransient);
         HeapBinding::FlushOffsets();
 
-        auto bindDrawBuffers = [](const FluidRenderData& draw)
+        const auto recordDraws = [&]
         {
-            RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_POSITIONS, draw.PositionsSSBOId);
-            RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_VELOCITIES, draw.VelocitiesSSBOId);
-            RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_COUNTERS, draw.CountersSSBOId);
+            RenderCommand::RecordParallel(itemCount, [&](u32 itemIndex)
+                                          {
+                const sizet end = draws.size() * (itemIndex + 1) / itemCount;
+                for (sizet i = draws.size() * itemIndex / itemCount; i < end; ++i)
+                {
+                    const auto& draw = draws[i];
+                    UploadDrawUBO(draw, cameraNear, cameraFar, *m_RecordingUploads[itemIndex]);
+                    RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_POSITIONS, draw.PositionsSSBOId);
+                    RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_VELOCITIES, draw.VelocitiesSSBOId);
+                    RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_COUNTERS, draw.CountersSSBOId);
+                    RenderCommand::DrawIndexedInstanced(m_SplatVAO, 6, draw.ParticleUpperBound);
+                } });
         };
 
         // --- 1. Depth splat: nearest sphere-impostor view depth into A ------
@@ -209,12 +222,7 @@ namespace OloEngine
 
         m_DepthSplatShader->Bind();
         m_SplatVAO->Bind();
-        for (const auto& draw : draws)
-        {
-            UploadDrawUBO(draw, cameraNear, cameraFar);
-            bindDrawBuffers(draw);
-            RenderCommand::DrawIndexedInstanced(m_SplatVAO, 6, draw.ParticleUpperBound);
-        }
+        recordDraws();
 
         // --- 2. Thickness: additive chord accumulation --------------------
         RenderCommand::BindFramebuffer(m_ThicknessFBO);
@@ -230,19 +238,14 @@ namespace OloEngine
 
         m_ThicknessShader->Bind();
         m_SplatVAO->Bind();
-        for (const auto& draw : draws)
-        {
-            UploadDrawUBO(draw, cameraNear, cameraFar);
-            bindDrawBuffers(draw);
-            RenderCommand::DrawIndexedInstanced(m_SplatVAO, 6, draw.ParticleUpperBound);
-        }
+        recordDraws();
 
         RenderCommand::BindDefaultFramebuffer();
 
         // --- 3. Bilateral smooth: A -> B -> A ------------------------------
-        // The last-uploaded FluidRenderUBO stays bound; with multiple fluids
-        // the final draw's SmoothParams win for every fluid (v1 limitation,
-        // matching the composite's single-appearance shading).
+        // Publish the final draw's SmoothParams on the caller after joining;
+        // this preserves the existing multi-fluid appearance policy.
+        UploadDrawUBO(draws.back(), cameraNear, cameraFar, *m_FluidRenderUBO);
         m_SmoothShader->Bind();
         const u32 groupsX = (m_Width + kSmoothLocalSize - 1) / kSmoothLocalSize;
         const u32 groupsY = (m_Height + kSmoothLocalSize - 1) / kSmoothLocalSize;
@@ -293,7 +296,7 @@ namespace OloEngine
         m_RanThisFrame = true;
     }
 
-    void FluidIntermediatesPass::UploadDrawUBO(const FluidRenderData& draw, f32 cameraNear, f32 cameraFar)
+    void FluidIntermediatesPass::UploadDrawUBO(const FluidRenderData& draw, f32 cameraNear, f32 cameraFar, UniformBuffer& upload) const
     {
         UBOStructures::FluidRenderUBO ubo{};
         ubo.TintRadius = glm::vec4(draw.Tint, draw.ParticleRadius);
@@ -310,8 +313,8 @@ namespace OloEngine
         // Counts.z (env-map flag) is only meaningful in the composite, which
         // re-uploads this UBO with its own value.
         ubo.Counts = glm::uvec4(draw.ParticleUpperBound, static_cast<u32>(draw.EntityID), 0u, 0u);
-        m_FluidRenderUBO->SetData(&ubo, sizeof(ubo));
-        m_FluidRenderUBO->Bind();
+        upload.SetData(&ubo, sizeof(ubo));
+        upload.Bind();
     }
 
     void FluidIntermediatesPass::SetupFramebuffer(u32 width, u32 height)

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/PreparedFullscreenPass.h"
 #include "OloEngine/Renderer/Passes/FXAARenderPass.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -85,6 +86,13 @@ namespace OloEngine
 
     void FXAARenderPass::Execute(RGCommandContext& context)
     {
+        auto prepared = PrepareParallelRecording(context);
+        if (prepared.Record)
+            prepared.Record(context);
+    }
+
+    RGPreparedPass FXAARenderPass::PrepareParallelRecording(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         // Sample-only consumer: input framebuffer is intentionally not
@@ -103,64 +111,19 @@ namespace OloEngine
         if (!m_Enabled)
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         if (!inputColorTextureID.IsValid() || !outputFramebuffer || !m_FXAAShader)
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         m_Target = outputFramebuffer;
-
-        // PostProcessUBO (binding 7) is uploaded once per frame by Renderer3D
-        // before the post-process chain runs. SetData() does not restore
-        // the indexed binding and other passes (IBL precompute, bloom mip
-        // updates) bind binding 7 transiently, so re-bind here so the FXAA
-        // shader reads the expected `u_TexelSize` / gamma values.
-        if (m_PostProcessUBO)
-            m_PostProcessUBO->Bind();
-
-        outputFramebuffer->Bind();
-
-        const auto& outSpec = outputFramebuffer->GetSpecification();
-        context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
-        // Mirror the shared fullscreen colour-pass state setup — prefer
-        // RGCommandContext setters where available (so graph hazard tracking
-        // stays accurate) and fall back to RenderCommand for state the
-        // context does not currently expose (stencil / scissor / polygon
-        // mode / colour mask).
-        context.SetDepthTest(false);
-        context.SetDepthMask(false);
-        context.SetBlendState(false);
-        context.SetCulling(false);
-        RenderCommand::DisableStencilTest();
-        RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
-        RenderCommand::SetColorMask(true, true, true, true);
-
-        constexpr u32 colorAttachment = 0;
-        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
-
-        context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-        context.Clear();
-
-        m_FXAAShader->Bind();
-
-        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
-        m_FXAAShader->SetInt("u_Texture", 0);
-
-        // Publish the heap offsets recorded above. No-op on the slot-based path,
-        // so a converted pass costs nothing when the heap is off (issue #691).
-        context.FlushHeapOffsets();
-
-        const auto va = MeshPrimitives::GetFullscreenTriangle();
-        va->Bind();
-        context.DrawIndexed(va);
-
-        context.SetDepthMask(true);
-        outputFramebuffer->Unbind();
+        return PrepareFullscreenPass(outputFramebuffer, m_FXAAShader,
+                                     { { 0, inputColorTextureID, "u_Texture" } },
+                                     { m_PostProcessUBO });
     }
 
     void FXAARenderPass::SetupFramebuffer(u32 width, u32 height)

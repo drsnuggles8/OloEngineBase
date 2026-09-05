@@ -8,7 +8,9 @@
 #include <glm/glm.hpp>
 #include <functional>
 #include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace OloEngine
 {
@@ -303,23 +305,64 @@ namespace OloEngine
         {
             return false;
         }
-        virtual void RecordParallel(u32 itemCount, const std::function<void(u32 item)>& body)
+        virtual void RecordParallel(u32 itemCount, const std::function<void(u32 item)>& body, u32 /*instanceCapacity*/ = 1u)
         {
             for (u32 item = 0; item < itemCount; ++item)
             {
                 body(item);
             }
         }
+        // Whole-pass recording uses the same isolated items, with caller-owned
+        // brackets around each item's ordered GPU execution. Timestamp queries
+        // and publication stay in these brackets, outside worker recording.
+        virtual void RecordParallelOrdered(u32 itemCount, const std::function<void(u32)>& body,
+                                           const std::function<void(u32)>& beforeExecute,
+                                           const std::function<void(u32)>& afterExecute,
+                                           u32 /*instanceCapacity*/ = 1u,
+                                           std::span<const std::string> /*itemPassNames*/ = {})
+        {
+            for (u32 item = 0; item < itemCount; ++item)
+            {
+                if (beforeExecute)
+                    beforeExecute(item);
+                body(item);
+                if (afterExecute)
+                    afterExecute(item);
+            }
+        }
+        // Release retained item upload objects while the device is alive.
+        virtual void ReleaseParallelRecordingResources() {}
+
+        struct ParallelRecordingRegionStats
+        {
+            std::string PassName;
+            bool Parallel = false;
+            f64 WorkerRecordMs = 0.0;
+            f64 RegionWallMs = 0.0;
+            // Time after the caller finished its last item until ParallelFor
+            // returned, including scheduler and join bookkeeping.
+            f64 JoinWaitMs = 0.0;
+            std::vector<f64> ItemRecordMs;
+            std::vector<std::string> ItemPassNames;
+            // Optional micro-cost probe: OLO_VK_RECORDING_COSTS=1 at process start.
+            f64 SelectionSeedMs = 0.0;
+            f64 AttachmentPrepareMs = 0.0;
+            f64 SampledImagePrepareMs = 0.0;
+            f64 PipelineLookupMs = 0.0;
+        };
+
         // Frame-level telemetry for the parallel recorder, reset per frame by
-        // the backend's frame bracket. Zeros on backends that never fork.
+        // the backend's frame bracket. Vulkan reports inline regions too.
         struct ParallelRecordingFrameStats
         {
             u32 Regions = 0;             ///< RecordParallel calls that forked this frame.
             u32 InlineRegions = 0;       ///< RecordParallel calls that ran inline (unsupported, declined, or item count < 2).
             u32 SecondariesExecuted = 0; ///< Secondary command buffers executed into the primary.
             u32 MergeConflicts = 0;      ///< Subresources two items transitioned non-identically (amendment (92) rule 5).
-            f64 WorkerRecordMs = 0.0;    ///< Sum of per-item recording time across workers.
+            f64 WorkerRecordMs = 0.0;    ///< Sum of per-item recording time, including caller items.
             f64 RegionWallMs = 0.0;      ///< Sum of fork-to-join wall time on the render thread.
+            f64 JoinWaitMs = 0.0;
+            std::vector<ParallelRecordingRegionStats> RegionTimings;
         };
         [[nodiscard]] virtual ParallelRecordingFrameStats GetParallelRecordingStats() const
         {

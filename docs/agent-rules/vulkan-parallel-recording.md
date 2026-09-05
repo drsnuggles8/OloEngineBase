@@ -2,30 +2,32 @@
 
 **Rule:** a pass that wants its independent work items recorded on task workers calls
 `RenderCommand::RecordParallel(count, body)` and gives every item its own resource objects.
-Everything the Vulkan backend keeps per command buffer is per *recording context*, resolved
-through a thread-local; everything the backend keeps per process is either read-only inside a
-region or behind a mutex. The contract is ADR 0011 amendment (92); this file is the working
-checklist and the reasons.
+Command-buffer state lives in a *recording context*, selected through a thread-local.
+Process-wide backend state is frozen or protected by a mutex. The contract is ADR 0011
+amendments (92) and (94).
 
-Issue #806. First conversion: `ShadowRenderPass` (CSM cascades and shadow-atlas entries).
+Issues #806 and #1013. See the [pass audit](vulkan-parallel-pass-audit.md) for
+implementation coverage and the evidence still required for each family.
 
 ## 1. What is per thread, what is per process
 
 | State | Where it lives now | Who may touch it inside a region |
 |---|---|---|
 | Command buffer, rendering scope, pending clear, bind caches, recorded pipeline state, viewport, scissor, framebuffer selections (draw buffers **and** the depth-array layer), draw tallies | `VulkanRecordingContext` — one per item, one for the render thread (`VulkanRendererAPI::m_Main`) | the item that owns it |
-| Bind-point mirror (`VulkanBindingState`), current program (`VulkanShader` / `VulkanComputeShader`) | the item's context; the process-wide object stays the render thread's | same |
+| Bind-point mirror (`VulkanBindingState`), current program (`VulkanShader` / `VulkanComputeShader`) | `VulkanWorkerRecordingContext` for items; the process-wide accessors are the caller's only copy | same |
+| Dispatcher caches, camera override, per-draw material/camera/bone/terrain/decal/foliage/water uploads and model instances | `CommandDispatchRecordingState` within the item's `FrontendRecordingContext` | item; upload objects and capacity prepared before fork |
+| Heap offsets, epoch and offset-table UBO | item-owned `HeapBinding::RecordingState` | item |
+| Dispatcher statistics, profiler counters and instanced-draw records | item tally, published in item order after join | item until join, then caller |
+| Dispatcher frame flags, committed frame data, GPU Scene records and shadow handles | shared and frozen during the region | reads only |
 | Image layouts (`VulkanImageLayoutTracker`) | an overlay per item over the render thread's tracker, merged at the join in item order | same; the base is frozen |
 | Frame arena cursor | one atomic per slot; an item claims a 64 KiB block once and bumps inside it | any thread |
 | Descriptor slot cache, sampler heap, pipeline builder, descriptor-heap null-slot memo, framebuffer depth-layer view cache, texture attachment view | key hashed outside the lock; a shared lock on the hit path, exclusive on a miss | any thread |
 | Image info / root object / raw buffer registries, device limits, capabilities | read-only inside a region | any thread, reads only |
 | Backbuffer, queries, conditional rendering, readbacks, mid-frame flush, one-shots, resource creation | render thread only | refused on an item: Debug asserts, otherwise warn-once |
 
-`Ctx()` inside `VulkanRendererAPI` is the only place that decides which context a call is on.
-It reads `CurrentVulkanWorkerContext()`; a `ScopedVulkanWorkerContext` sets that thread-local
-for the duration of one item body. The render thread runs items too (`ParallelFor` gives the
-calling thread a worker slot), which is why the test is "is a worker context set", never "am I
-the render thread".
+`Ctx()` reads the `CurrentVulkanWorkerContext()` installed by `ScopedVulkanWorkerContext`.
+The caller also runs items through `ParallelFor`, so test whether a worker context is set,
+not whether the current thread is the render thread.
 
 ## 2. The fork, the join, and why the order is what it is
 
@@ -33,6 +35,9 @@ the render thread".
    pass requested *before* the fork lands before any item's work. The bound target's
    attachments are transitioned to their attachment layouts on the primary. Each item context is
    seeded with the render thread's recorded state and its tracker is made an overlay.
+   Seeded sampled bindings are transitioned except images also selected for attachment or
+   storage writes. Shared bound UBO addresses and null sampled slots are prepared on the caller;
+   item frontend upload objects are created/reused with empty dispatcher caches.
 2. **Record.** Every item's secondary command buffer is acquired and begun on the render thread
    first, from that item's own (frame slot, item) pool — a pool that cannot deliver declines the
    region into the one inline path. Then `ParallelFor` over the items: the body runs with the
@@ -42,105 +47,111 @@ the render thread".
    are executed with one `vkCmdExecuteCommands` in **item order**; tallies are summed; the
    primary's command-buffer caches are reset (state is undefined after execute); the render
    thread adopts the last item's framebuffer selections, which is GL's sticky attachment state
-   after a loop.
+   after a loop. Frontend statistics publish in item order and caller dispatcher caches are
+   invalidated. A nested region executes inline inside its parent item and contributes to that
+   parent's timing without touching the shared item pool or frame statistics.
 
-Item order everywhere is what makes the recorded stream identical to the inline loop, so a
-pass can be checked on OpenGL (always inline) against Vulkan (forked) and must match.
+GPU item order matches the inline loop. Verify that OpenGL inline and Vulkan off/on agree.
 
 ## 3. The layout rule, and the pre-transition that makes shared targets legal
 
-An item's barrier names an `oldLayout` read from the pre-fork state. If two items transition
-the same subresource, the later one's `oldLayout` is stale. So: **two items may write the same
-subresource only when every such write is an identity transition** (the layout it was in ==
-the layout written). A non-identity write claims the subresource for the region at record time,
-and a second item's claim asserts right there with both item indices (`VulkanLayoutClaimTable`);
-the merge counts anything that slipped past, logs it every frame, and reports it in
-`ParallelRecordingFrameStats::MergeConflicts` (visible through `olo_perf_pass_timings`). A
-conflict is a bug in the pass that forked, never a backend condition to tolerate.
+Barriers read `oldLayout` from the frozen base. **Several items may write one subresource
+only when every write preserves its layout.** Otherwise a later barrier names stale state.
+`VulkanLayoutClaimTable` rejects incompatible claims with both item indices; ordered overlay
+merge also reports conflicts through `ParallelRecordingFrameStats::MergeConflicts` and MCP.
+Every conflict is a pass bug.
 
-Cascades are disjoint by construction (one layer each). The atlas is not: every entry renders
-into layer 0 with its own viewport. That is why the fork transitions the bound target's
-attachments first: every entry's scope-open then finds the layer already in
-`DEPTH_STENCIL_ATTACHMENT_OPTIMAL` and records an identity barrier. Materialise the atlas clear
-**before** the fork for the same reason; a clear inside an item would fold into that item's
-`loadOp` and wipe the other entries' tiles.
+Cascades own distinct layers. Atlas entries share layer zero, so transition that attachment
+and materialise its clear **before** forking. Every item then opens in the existing depth
+attachment layout. Clearing inside an atlas item would erase other entries' tiles.
 
 ## 4. Converting a pass: the checklist
 
-1. **Find every object the loop body writes.** `UniformBuffer::SetData`, `StorageBuffer::SetData`,
-   `InstanceBuffer::Upload` version bytes per *object* (amendments (78), (80)); one object
-   written from two items interleaves. Give the pass one object per item, created **outside**
-   the region. The shadow pass keeps a camera UBO, an animation UBO and an instance buffer per
-   cascade / entry.
-2. **Find every process-wide thing the body touches.** `grep` the body for `static`, `s_`,
-   `GetInstance`, `::Get()`. Then look one level down for lazy per-object builders: the first
-   race the device test found was `VulkanShader::GetRootDataLayout`, built on first ask and
-   asked by every draw, so four items drawing with one shader raced its `std::unique_ptr`.
-   A lazy builder on a shared object needs the double-checked flag + mutex shape that one
-   has now. Not parallel-safe at all: `HeapBinding::FlushOffsets` (one offset table, one UBO),
-   `RendererProfiler`, a subsystem's own shared UBO (`FoliageRenderer::RenderShadows`), compute
-   dispatch with file-static parameter UBOs (`VirtualGeometryShadow`). Move that work to a
-   sequential tail after the join, or accumulate per item and publish after.
-3. **Size every per-item buffer before the fork.** `InstanceBuffer::Upload` grows its storage
-   when a batch outgrows it, and growing creates and reclaims GPU memory: refused on an item
-   (`StorageBuffer::Resize` asserts). The shadow pass sizes each item's instance buffer to the
-   caster count on the render thread every frame.
+1. **Find every written object.** UBO/SSBO `SetData` and `InstanceBuffer::Upload` version bytes
+   per object (amendments (78), (80)). Give each item private upload objects created before
+   the region; shadow views own camera, animation and instance buffers.
+2. **Audit transitive shared state.** Search for `static`, `s_`, `GetInstance` and `::Get()`.
+   Include lazy per-object builders: `VulkanShader::GetRootDataLayout` needed guarded first
+   construction because every item can ask for it. Dispatcher replay, heap-offset flush,
+   profiler counters and instanced-draw records
+   use the scoped frontend context. This does not make arbitrary profiler methods, subsystem
+   setters, lazy builders or upload objects safe. Shadow foliage receives time as a frozen
+   argument and uses the item's foliage UBO; virtual-geometry shadows receive prepared
+   per-view command/argument/visible buffers and parameter UBOs.
+3. **Size buffers before the fork.** `InstanceBuffer::Upload` can grow storage, but resource
+   creation and reclamation are refused on items. Prepare enough capacity for the largest
+   batch that item can upload.
 4. **Order the clears.** A clear that covers what several items share goes before the fork. A
    clear that covers one item's own subresource goes inside that item. The fork pre-transitions
    the target that is *selected at the fork*; a region whose items select their own targets
    (the cascades) relies on those targets being disjoint instead.
 5. **Textures an item samples must already be in their read layout at the fork.** Declare them
    as graph reads (the planner transitions them before the pass) or bind them once before the
-   fork; a texture written earlier in the frame and first sampled inside two items is a
-   rule-5 conflict, and the record-time claim names both items.
+   fork. The fork pretransitions all seeded sampled-image slots except images also bound for
+   writes; it cannot discover textures that exist only in packets until replay. A texture
+   written earlier in the frame and first sampled inside two items is a rule-5 conflict, and
+   the record-time claim names both items. Join between a shared write and a later sampling
+   region; a stale sampler must never move the current output into a read layout.
 6. **Do not target the backbuffer, query, read back, flush or create resources inside an item.**
-   Each is refused; in Debug it asserts. The engine side asserts too: `HeapBinding::FlushOffsets`
-   and the profiler's writers check `RenderCommand::IsRecordingParallelItem()`, and a Vulkan
-   buffer object written by two items in one region asserts at the second `SetData`.
+   Each is refused; in Debug it asserts. Frame-scoped dispatcher setters also reject item
+   calls, and a Vulkan buffer object written by two items in one region asserts at the
+   second `SetData`. GPU timestamp scopes belong outside worker bodies.
 7. **Keep the item bodies independent of iteration order.** Depth-only rendering is
-   order-independent; blended colour is not. State an item sets (viewport, cull mode) is its
-   own; state it expects from a previous iteration is a bug, because every item starts from
-   the fork's seed.
+   order-independent. Blended draws may use contiguous ranges of the already sorted packet
+   stream because secondary execution preserves that stream's GPU order. CPU state an item
+   expects from a previous iteration is still a bug: every item starts from the fork's seed.
+   Explicitly establish item-local shader/mode caches at the start of every body, including
+   the inline path where backend state carries over from the preceding item.
 8. **Verify on both backends.** OpenGL runs the same code inline. A Vulkan frame recorded with
    `OLO_VK_PARALLEL_RECORDING=0` (the lever forces inline) must match one recorded with it on,
    and the validation layer must stay clean.
 
 ## 5. What a measurement in a Debug build tells you
 
-Nothing about the win. MSVC's debug iterators (`/MDd`, `_ITERATOR_DEBUG_LEVEL=2`) serialise
-every container operation on one global lock, so a forked region's summed worker time comes out
-around twelve times the inline time and the wall time does not move. Measure in `Release`; the
-numbers in the #806 PR body are the ones to compare against.
+Debug validates correctness, not speedup. MSVC debug iterators serialise container operations
+on a global lock. Measure in Release; the #806 PR records the earlier baseline.
+The [#1013 measurements and evidence](../analysis/vulkan-parallel-recording-1013.md)
+record the dense-scene benefit, small-scene overhead, control drift and fork costs.
 
 ## 6. Where the frame clock comes from
 
-The secondary pools reset when `VulkanFrameArena`'s generation advances, because
-`VulkanFrameArena::BeginFrame(slot)` is only ever called after the frame fence proved that
-slot's submissions retired. That is deliberate: it reuses the one per-slot clock every other
-per-frame cache already keys on, so the headless fixtures that already call `BeginFrame(0)` fork
-without a second call site. With no frame begun a region records inline.
+Secondary pools reset with `VulkanFrameArena`'s generation. `BeginFrame(slot)` occurs only
+after that slot's fence retires its submissions. Headless fixtures use the same clock;
+without a begun frame, regions execute inline.
 
-## 7. What is not built, on purpose
+## 7. Bucket replay and region diagnostics
 
-- **`CommandBucket` replay on an item.** The dispatcher's bind cache and the material /
-  instance UBOs it uploads are per process; rule 1 applied to `Renderer3D` means per-context
-  copies of its resources. Recorded as the next step, not done here.
-- **Per-pass worker assignment.** The graph executor stays a sequential walk; passes share
-  `Renderer3D` state, and "which passes may run concurrently" is a much larger contract than
-  "which cascades of one pass are independent".
-- **Async compute** is #808 and orthogonal.
+`CommandBucket::ExecuteParallel` and `RecordPackets` partition immutable, sorted packets into
+contiguous ranges, at least 32 packets per item and at most `MAX_RENDER_WORKERS` items.
+The dispatcher classifier rejects query-bearing meshes, observed decals and unsupported
+packet kinds; any rejected packet keeps the whole span inline. Instance capacity is computed
+before the fork. Each item owns replay statistics and a scoped view override. The caller
+merges statistics after the join. `ExecuteWithGPUTiming` uses ordinary replay inside an item
+because GPU query pools remain caller-owned.
 
-The phase-2 tracker for the first two, the shadow pass's sequential tail and the remaining
-passes is #1013.
+`olo_perf_pass_timings` and the renderer profiler expose named regions, the inline/parallel
+decision, each item's recording duration, summed worker time, total region wall time and
+join wait. The region name comes from the enclosing backend debug group. Join wait measures
+the interval from the caller finishing its last item until `ParallelFor` returns, including
+remaining scheduler bookkeeping; it is not a GPU wait. Inline regions have item and wall
+timings too. Compare Release runs interleaved off/on with an untouched control pass, and
+report the control's drift alongside the candidate's change.
 
-## Appendix: the two findings that shaped this
+Set `OLO_VK_RECORDING_COSTS=1` before launching a diagnostic process to add
+`selectionSeedMs`, `attachmentPrepareMs`, `sampledImagePrepareMs` and
+`pipelineLookupMs` to each region. These time the framebuffer-selection copies,
+bound attachment preparation, seeded sampled-image preparation and graphics PSO
+lookup respectively. Pipeline lookup is summed across items, so it is worker CPU
+time rather than elapsed region time. The probe adds clock reads per draw; leave
+it unset for the final off/on frame-time comparison. Normal runs report zero for
+these optional fields.
 
-*The handover's plan (b), "forbid layout transitions inside a parallel pass", was not viable.*
-Every draw's lazy scope-open transitions its attachments, every `BindTexture` may
-auto-transition, and a deferred clear from one cascade is materialised by the next. A pass body
-on Vulkan transitions layouts on every draw; the design had to make that safe, not forbid it.
+Whole-pass regions additionally report `itemPassNames`, aligned with `itemRecordMs`; the
+region label is `RenderGraph`. Each GPU pass bracket encloses the corresponding secondary's
+execution on the primary, so GPU durations retain the original pass boundaries.
 
-*The API object was never the hard part.* Its per-recording members moved into a struct in one
-scripted pass. The hazards that needed design were the resource objects a pass writes per
-iteration and the depth-layer selection that lived on the shared framebuffer object. Rule 6 of
-the amendment and the selection's move onto the recording context are the actual fixes.
+## 8. Whole-pass recording
+
+See [whole-pass parallel recording](vulkan-parallel-graph-recording.md) for the
+prepared-pass contract, topological grouping, resource lifetimes, fence boundaries
+and ordered publication.

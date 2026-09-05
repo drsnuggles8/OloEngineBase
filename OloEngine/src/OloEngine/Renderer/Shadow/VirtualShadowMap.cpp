@@ -1,8 +1,11 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Debug/GPUReadbackStats.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
@@ -301,6 +304,7 @@ namespace OloEngine
 
     void VirtualShadowMap::DestroyResources()
     {
+        m_RasterItems.clear();
         // Free the staging buffer HERE, while the context is alive, not from
         // ~StagedBufferReadback. This VirtualShadowMap lives inside
         // Renderer3D::s_Data, a process static destroyed at atexit — by which
@@ -343,6 +347,7 @@ namespace OloEngine
         m_HasStatistics = false;
 
         m_GlobalsUBO.Reset();
+        m_MarkGlobalsUBO.Reset();
         m_PassUBO.Reset();
 
         m_FreeWrappedShader.Reset();
@@ -1594,48 +1599,7 @@ namespace OloEngine
         RenderCommand::EnableCulling();
         RenderCommand::FrontCull();
 
-        u32 drawnBatches = 0;
-        if (m_DepthShader && !m_Batches.empty())
-        {
-            m_DepthShader->Bind();
-            // After the shader bind, not before — see BindPhysicalPoolImage().
-            BindPhysicalPoolImage();
-            bool cullingDisabled = false;
-            for (sizet i = 0; i < m_Batches.size(); ++i)
-            {
-                const auto& batch = m_Batches[i];
-                if (batch.TwoSided != cullingDisabled)
-                {
-                    if (batch.TwoSided)
-                        RenderCommand::DisableCulling();
-                    else
-                    {
-                        RenderCommand::EnableCulling();
-                        RenderCommand::FrontCull();
-                    }
-                    cullingDisabled = batch.TwoSided;
-                }
-
-                VSM::PassUBO pass{};
-                pass.Params.x = batch.RunBase;
-                m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
-                m_PassUBO->Bind();
-
-                // One command per batch, its instance count GPU-written. The count
-                // source is a constant 1; what varies is the instance count inside
-                // the command, which is exactly what must not round-trip the CPU.
-                RenderCommand::MultiDrawElementsIndirectCountRaw(
-                    batch.Vao, m_DrawCommands->GetRHIHandle(),
-                    static_cast<u32>(i * sizeof(VSM::DrawCommand)),
-                    m_DrawCountBuffer->GetRHIHandle(), 0, 1, sizeof(VSM::DrawCommand));
-                ++drawnBatches;
-            }
-            if (cullingDisabled)
-            {
-                RenderCommand::EnableCulling();
-                RenderCommand::FrontCull();
-            }
-        }
+        u32 drawnBatches = RenderBatches(false);
 
         drawnBatches += RenderSkinnedCasters(skinnedCasters, renderOrigin, skinnedBase, uploadBones);
 
@@ -1676,6 +1640,105 @@ namespace OloEngine
         return drawnBatches > 0;
     }
 
+    void VirtualShadowMap::PrepareRasterItems(u32 count)
+    {
+        while (m_RasterItems.size() < count)
+        {
+            auto& item = m_RasterItems.emplace_back();
+            item.Pass = UniformBuffer::Create(VSM::PassUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW_DRAW);
+            item.Animation = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
+            item.Instances = StorageBuffer::Create(
+                std::max(VSM::kClipLevels, VSM::kLocalLayersPerCaster) * sizeof(VSM::DrawInstance),
+                ShaderBindingLayout::SSBO_VSM_DRAW_INSTANCES);
+        }
+    }
+
+    u32 VirtualShadowMap::RenderBatches(bool local)
+    {
+        const auto& shader = local ? m_DepthLocalShader : m_DepthShader;
+        if (!shader || m_Batches.empty())
+            return 0;
+        const u32 count = std::clamp(static_cast<u32>(m_Batches.size() / 32), 1u, MAX_RENDER_WORKERS);
+        PrepareRasterItems(count);
+        shader->Bind();
+        BindPhysicalPoolImage();
+        m_DrawInstances->Bind();
+        RenderCommand::EnableCulling();
+        RenderCommand::FrontCull();
+        std::array<u32, MAX_RENDER_WORKERS> drawn{};
+        RenderCommand::RecordParallel(count, [&](u32 itemIndex)
+                                      {
+            auto& params = m_RasterItems[itemIndex].Pass;
+            RenderCommand::EnableCulling();
+            RenderCommand::FrontCull();
+            bool cullingDisabled = false;
+            const sizet end = m_Batches.size() * (itemIndex + 1) / count;
+            for (sizet i = m_Batches.size() * itemIndex / count; i < end; ++i)
+            {
+                const auto& batch = m_Batches[i];
+                if (local && batch.LocalRunCapacity == 0)
+                    continue;
+                if (batch.TwoSided != cullingDisabled)
+                {
+                    if (batch.TwoSided)
+                        RenderCommand::DisableCulling();
+                    else
+                    {
+                        RenderCommand::EnableCulling();
+                        RenderCommand::FrontCull();
+                    }
+                    cullingDisabled = batch.TwoSided;
+                }
+                VSM::PassUBO pass{};
+                pass.Params.x = local ? batch.LocalRunBase : batch.RunBase;
+                params->SetData(&pass, VSM::PassUBO::GetSize());
+                params->Bind();
+                // The cull owns instance counts. The draw-count source remains
+                // constant one, with no CPU readback of culling results.
+                const sizet command = local ? m_Batches.size() + i : i;
+                RenderCommand::MultiDrawElementsIndirectCountRaw(
+                    batch.Vao, m_DrawCommands->GetRHIHandle(),
+                    static_cast<u32>(command * sizeof(VSM::DrawCommand)),
+                    m_DrawCountBuffer->GetRHIHandle(), 0, 1, sizeof(VSM::DrawCommand));
+                ++drawn[itemIndex];
+            } });
+        RenderCommand::EnableCulling();
+        RenderCommand::FrontCull();
+        u32 total = 0;
+        for (u32 i = 0; i < count; ++i)
+            total += drawn[i];
+        return total;
+    }
+
+    u32 VirtualShadowMap::RecordSkinnedDraws(const std::vector<ShadowSkinnedCaster>& casters,
+                                             const BoneUploader& uploadBones)
+    {
+        if (m_PreparedSkinnedDraws.empty())
+            return 0;
+        const u32 count = std::clamp(static_cast<u32>(m_PreparedSkinnedDraws.size() / 32), 1u, MAX_RENDER_WORKERS);
+        PrepareRasterItems(count);
+        RenderCommand::RecordParallel(count, [&](u32 itemIndex)
+                                      {
+            auto& item = m_RasterItems[itemIndex];
+            const sizet end = m_PreparedSkinnedDraws.size() * (itemIndex + 1) / count;
+            for (sizet i = m_PreparedSkinnedDraws.size() * itemIndex / count; i < end; ++i)
+            {
+                const auto& draw = m_PreparedSkinnedDraws[i];
+                const auto& caster = casters[draw.CasterIndex];
+                item.Instances->SetData(m_PreparedSkinnedInstances.data() + draw.InstanceOffset,
+                                        draw.InstanceCount * sizeof(VSM::DrawInstance));
+                item.Instances->Bind();
+                // Each item reuses a small private instance upload at offset zero.
+                VSM::PassUBO pass{};
+                item.Pass->SetData(&pass, VSM::PassUBO::GetSize());
+                item.Pass->Bind();
+                if (uploadBones)
+                    uploadBones(caster, *item.Animation);
+                RenderCommand::DrawIndexedInstancedRaw(caster.vaoID, caster.indexCount, caster.baseIndex, draw.InstanceCount);
+            } });
+        return static_cast<u32>(m_PreparedSkinnedDraws.size());
+    }
+
     u32 VirtualShadowMap::RenderSkinnedCasters(const std::vector<ShadowSkinnedCaster>& skinnedCasters,
                                                const glm::vec3& renderOrigin, u32 instanceBase,
                                                const BoneUploader& uploadBones)
@@ -1694,7 +1757,8 @@ namespace OloEngine
         // imageAtomicMin here a no-op with no diagnostic.
         BindPhysicalPoolImage();
 
-        u32 drawn = 0;
+        m_PreparedSkinnedDraws.clear();
+        m_PreparedSkinnedInstances.clear();
         u32 cursor = instanceBase;
         m_SkinnedInstanceStaging.clear();
 
@@ -1747,75 +1811,21 @@ namespace OloEngine
             if (cursor + instanceCount > VSM::kMaxDrawInstances)
                 break;
 
-            m_DrawInstances->SetData(m_SkinnedInstanceStaging.data(),
-                                     instanceCount * static_cast<u32>(sizeof(VSM::DrawInstance)),
-                                     cursor * static_cast<u32>(sizeof(VSM::DrawInstance)));
-
-            VSM::PassUBO pass{};
-            pass.Params.x = cursor;
-            m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
-            m_PassUBO->Bind();
-
-            if (uploadBones)
-                uploadBones(caster);
-
-            RenderCommand::DrawIndexedInstancedRaw(caster.vaoID, caster.indexCount, caster.baseIndex, instanceCount);
+            m_PreparedSkinnedDraws.push_back({ static_cast<u32>(&caster - skinnedCasters.data()),
+                                               static_cast<u32>(m_PreparedSkinnedInstances.size()), instanceCount });
+            m_PreparedSkinnedInstances.insert(m_PreparedSkinnedInstances.end(),
+                                              m_SkinnedInstanceStaging.begin(), m_SkinnedInstanceStaging.end());
             cursor += instanceCount;
-            ++drawn;
         }
 
-        return drawn;
+        return RecordSkinnedDraws(skinnedCasters, uploadBones);
     }
 
     u32 VirtualShadowMap::RenderLocalCasters(const std::vector<ShadowSkinnedCaster>& skinnedCasters,
                                              const glm::vec3& renderOrigin, u32 instanceBase,
                                              const BoneUploader& uploadBones)
     {
-        u32 drawn = 0;
-        const auto batchCount = static_cast<u32>(m_Batches.size());
-
-        if (m_DepthLocalShader && batchCount > 0)
-        {
-            m_DepthLocalShader->Bind();
-            // After the shader bind, not before — see BindPhysicalPoolImage().
-            BindPhysicalPoolImage();
-
-            bool cullingDisabled = false;
-            for (u32 i = 0; i < batchCount; ++i)
-            {
-                const auto& batch = m_Batches[i];
-                if (batch.LocalRunCapacity == 0)
-                    continue;
-
-                if (batch.TwoSided != cullingDisabled)
-                {
-                    if (batch.TwoSided)
-                        RenderCommand::DisableCulling();
-                    else
-                    {
-                        RenderCommand::EnableCulling();
-                        RenderCommand::FrontCull();
-                    }
-                    cullingDisabled = batch.TwoSided;
-                }
-
-                VSM::PassUBO pass{};
-                pass.Params.x = batch.LocalRunBase;
-                m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
-                m_PassUBO->Bind();
-
-                RenderCommand::MultiDrawElementsIndirectCountRaw(
-                    batch.Vao, m_DrawCommands->GetRHIHandle(),
-                    static_cast<u32>((batchCount + i) * sizeof(VSM::DrawCommand)),
-                    m_DrawCountBuffer->GetRHIHandle(), 0, 1, sizeof(VSM::DrawCommand));
-                ++drawn;
-            }
-            if (cullingDisabled)
-            {
-                RenderCommand::EnableCulling();
-                RenderCommand::FrontCull();
-            }
-        }
+        u32 drawn = RenderBatches(true);
 
         // Skinned casters, CPU-scheduled exactly as in RenderSkinnedCasters: a
         // per-caster bone palette cannot share an instanced batch. The CPU test
@@ -1829,6 +1839,8 @@ namespace OloEngine
             m_DepthLocalSkinnedShader->Bind();
             BindPhysicalPoolImage();
 
+            m_PreparedSkinnedDraws.clear();
+            m_PreparedSkinnedInstances.clear();
             u32 cursor = instanceBase;
             for (const auto& caster : skinnedCasters)
             {
@@ -1873,23 +1885,13 @@ namespace OloEngine
                 if (cursor + instanceCount > instanceBase + m_LocalInstanceCapacity)
                     break;
 
-                m_DrawInstances->SetData(m_LocalSkinnedStaging.data(),
-                                         instanceCount * static_cast<u32>(sizeof(VSM::DrawInstance)),
-                                         cursor * static_cast<u32>(sizeof(VSM::DrawInstance)));
-
-                VSM::PassUBO pass{};
-                pass.Params.x = cursor;
-                m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
-                m_PassUBO->Bind();
-
-                if (uploadBones)
-                    uploadBones(caster);
-
-                RenderCommand::DrawIndexedInstancedRaw(caster.vaoID, caster.indexCount, caster.baseIndex,
-                                                       instanceCount);
+                m_PreparedSkinnedDraws.push_back({ static_cast<u32>(&caster - skinnedCasters.data()),
+                                                   static_cast<u32>(m_PreparedSkinnedInstances.size()), instanceCount });
+                m_PreparedSkinnedInstances.insert(m_PreparedSkinnedInstances.end(),
+                                                  m_LocalSkinnedStaging.begin(), m_LocalSkinnedStaging.end());
                 cursor += instanceCount;
-                ++drawn;
             }
+            drawn += RecordSkinnedDraws(skinnedCasters, uploadBones);
         }
 
         return drawn;
@@ -1932,10 +1934,22 @@ namespace OloEngine
                                              const glm::mat4& inverseViewProjection,
                                              const glm::vec3& cameraPositionRelative)
     {
+        auto prepared = PreparePageMarking(sceneDepth, depthWidth, depthHeight, inverseViewProjection, cameraPositionRelative);
+        RGCommandContext context;
+        if (prepared.Record)
+            prepared.Record(context);
+        if (prepared.Publish)
+            prepared.Publish();
+    }
+
+    RGPreparedPass VirtualShadowMap::PreparePageMarking(RHI::ResourceHandle sceneDepth, u32 depthWidth, u32 depthHeight,
+                                                        const glm::mat4& inverseViewProjection,
+                                                        const glm::vec3& cameraPositionRelative)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!IsActive() || !m_MarkShader || !sceneDepth.IsValid() || depthWidth == 0 || depthHeight == 0)
-            return;
+            return {};
 
         // Stride 2: one mark per 2x2 depth quad. A page covers roughly its own
         // size in screen pixels at the level the heuristic picks, so halving the
@@ -1943,31 +1957,54 @@ namespace OloEngine
         // page — it reduces the atomics, not the coverage.
         constexpr i32 kMarkStride = 2;
 
-        m_Globals.InverseViewProjection = inverseViewProjection;
-        m_Globals.CameraPosition = glm::vec4(cameraPositionRelative, 0.0f);
-        m_Globals.Params3 = glm::ivec4(static_cast<i32>(depthWidth), static_cast<i32>(depthHeight), kMarkStride, 0);
+        auto globals = m_Globals;
+        globals.InverseViewProjection = inverseViewProjection;
+        globals.CameraPosition = glm::vec4(cameraPositionRelative, 0.0f);
+        globals.Params3 = glm::ivec4(static_cast<i32>(depthWidth), static_cast<i32>(depthHeight), kMarkStride, 0);
 
-        BindWorkingSet();
+        if (!m_MarkGlobalsUBO)
+            m_MarkGlobalsUBO = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
+        m_MarkGlobalsUBO->SetData(&globals, VSM::GlobalsUBO::GetSize());
+        m_MarkGlobalsUBO->PrepareForParallelRead();
+        RGPreparedPass prepared;
+        prepared.Resources = { { sceneDepth, false }, { m_MarkGlobalsUBO->GetRHIHandle(), false }, { m_LocalLights->GetRHIHandle(), false }, { GPUReadbackStats::GetDispatchBufferHandle(), true } };
+        // The marker writes page/request/diagnostic atomics. Other working-set
+        // buffers are not referenced by this kernel and need no bind here.
+        for (const auto& buffer : { m_PageTable, m_MetaTable, m_Requests, m_StatsBuffers[m_StatsWriteIndex] })
+            prepared.Resources.push_back({ buffer->GetRHIHandle(), true });
+        prepared.Record = [this, sceneDepth, depthWidth, depthHeight](RGCommandContext&)
+        {
+            m_MarkGlobalsUBO->Bind();
+            m_PageTable->Bind();
+            m_MetaTable->Bind();
+            m_Requests->Bind();
+            m_LocalLights->Bind();
+            m_StatsBuffers[m_StatsWriteIndex]->Bind();
+            GPUReadbackStats::BindForDispatch();
 
-        // Publish-AND-bind, not the forking BindTextureOrOffset: this runs before
-        // the mark shader is bound, so the fork would answer for whatever program
-        // was last in flight. PublishTextureOffsetAndBind is route-agnostic — it
-        // stages the offset AND issues the bind — so the order does not matter and
-        // the slot-declared `layout(binding = 19) uniform sampler2D` in
-        // VSM_MarkRequiredPages.comp is served either way. Same call, same reason,
-        // as BindForSampling's publish of the physical pool.
-        // The default SamplerDesc is deliberate here (unlike BindForSampling's
-        // explicit one): it means INHERIT the texture object's own state, which is
-        // exactly what the plain bind this replaced did, so the depth buffer is
-        // still sampled with whatever the G-Buffer gave it.
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepth,
-                                                 RHI::HeapSlotLifetime::FrameTransient);
+            // Publish-AND-bind, not the forking BindTextureOrOffset: this runs before
+            // the mark shader is bound, so the fork would answer for whatever program
+            // was last in flight. PublishTextureOffsetAndBind is route-agnostic — it
+            // stages the offset AND issues the bind — so the order does not matter and
+            // the slot-declared `layout(binding = 19) uniform sampler2D` in
+            // VSM_MarkRequiredPages.comp is served either way. Same call, same reason,
+            // as BindForSampling's publish of the physical pool.
+            // The default SamplerDesc is deliberate here (unlike BindForSampling's
+            // explicit one): it means INHERIT the texture object's own state, which is
+            // exactly what the plain bind this replaced did, so the depth buffer is
+            // still sampled with whatever the G-Buffer gave it.
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepth,
+                                                     RHI::HeapSlotLifetime::FrameTransient);
 
-        m_MarkShader->Bind();
-        const u32 groupsX = DivideRoundUp(DivideRoundUp(depthWidth, static_cast<u32>(kMarkStride)), 8u);
-        const u32 groupsY = DivideRoundUp(DivideRoundUp(depthHeight, static_cast<u32>(kMarkStride)), 8u);
-        RenderCommand::DispatchCompute(groupsX, groupsY, 1);
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+            m_MarkShader->Bind();
+            const u32 groupsX = DivideRoundUp(DivideRoundUp(depthWidth, static_cast<u32>(kMarkStride)), 8u);
+            const u32 groupsY = DivideRoundUp(DivideRoundUp(depthHeight, static_cast<u32>(kMarkStride)), 8u);
+            RenderCommand::DispatchCompute(groupsX, groupsY, 1);
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+        };
+        prepared.Publish = [this, globals]
+        { m_Globals = globals; };
+        return prepared;
     }
 
     // -------------------------------------------------------------------------
@@ -1984,8 +2021,9 @@ namespace OloEngine
         auto globals = m_Globals;
         globals.Params2.x = IsActive() ? 1 : 0;
         globals.Params4.x = (IsActive() && m_Settings.LocalLights) ? 1 : 0;
-        m_GlobalsUBO->SetData(&globals, VSM::GlobalsUBO::GetSize());
-        m_GlobalsUBO->Bind();
+        auto samplingUBO = CommandDispatch::ResolveRecordingUpload(ShaderBindingLayout::UBO_VIRTUAL_SHADOW, m_GlobalsUBO);
+        samplingUBO->SetData(&globals, VSM::GlobalsUBO::GetSize());
+        samplingUBO->Bind();
 
         m_PageTable->Bind();
         // The lit pass needs the layer projections to sample a local light, so

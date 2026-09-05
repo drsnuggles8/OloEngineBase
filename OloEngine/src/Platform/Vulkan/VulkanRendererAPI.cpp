@@ -38,14 +38,32 @@
 #include <array>
 #include <bit>
 #include <cstring>
+#include "OloEngine/Core/Environment.h"
 #include <limits>
 #include <span>
 #include <vector>
+#include <thread>
 
 namespace OloEngine
 {
     namespace
     {
+        bool MeasureRecordingCosts()
+        {
+            static const bool enabled = Env::IsExactly("OLO_VK_RECORDING_COSTS", "1");
+            return enabled;
+        }
+
+        using CostClock = std::chrono::steady_clock;
+        CostClock::time_point StartRecordingCost()
+        {
+            return MeasureRecordingCosts() ? CostClock::now() : CostClock::time_point{};
+        }
+        f64 RecordingCostMs(CostClock::time_point start)
+        {
+            return MeasureRecordingCosts() ? std::chrono::duration<f64, std::milli>(CostClock::now() - start).count() : 0.0;
+        }
+
         // Conservative both-ways masks for the debug clears and the
         // flags-only global barrier: the poison instrument and a
         // transitions-empty batch have no per-resource truth to be precise
@@ -1120,6 +1138,7 @@ namespace OloEngine
     void VulkanRendererAPI::PushDebugGroup(u32 /*id*/, const std::string_view label)
     {
         auto& ctx = Ctx();
+        ctx.DebugLabels.emplace_back(label);
         // vkCmdBeginDebugUtilsLabelEXT is loaded only when the debug-utils
         // extension was enabled (debug builds with the validation layer) —
         // the pointer probe IS the capability check under volk.
@@ -1135,6 +1154,8 @@ namespace OloEngine
     void VulkanRendererAPI::PopDebugGroup()
     {
         auto& ctx = Ctx();
+        if (!ctx.DebugLabels.empty())
+            ctx.DebugLabels.pop_back();
         if (ctx.Cmd == VK_NULL_HANDLE || vkCmdEndDebugUtilsLabelEXT == nullptr)
             return;
         vkCmdEndDebugUtilsLabelEXT(ctx.Cmd);
@@ -2115,8 +2136,10 @@ namespace OloEngine
         }
 
         const auto& layout = shader->GetRootDataLayout();
+        const auto lookupStart = StartRecordingCost();
         const VkPipeline pipeline =
             VulkanPipelineBuilder::Get().GetOrCreateGraphics(*shader, layout, ctx.State, ctx.ScopeTargets);
+        ctx.PipelineLookupMs += RecordingCostMs(lookupStart);
         if (pipeline == VK_NULL_HANDLE)
         {
             // This was the ONE fully silent drop in the chain — a PSO
@@ -6632,7 +6655,49 @@ namespace OloEngine
         }
     }
 
-    void VulkanRendererAPI::RecordParallelItem(VulkanRecordingContext& item,
+    void VulkanRendererAPI::TransitionSeededSampledImagesForFork()
+    {
+        const auto& binding = VulkanBindingState::Global();
+        auto& slots = VulkanDescriptorSlotCache::Get();
+        // Published bindings outlive the draw that used them. In particular a
+        // stale sampler must never move this region's output or a bound storage
+        // image out of its write layout. Items with an explicit write-to-sample
+        // dependency still need a primary join and transition at that boundary.
+        std::vector<VkImage> writableImages;
+        if (const auto* target = binding.GetCurrentFramebuffer())
+        {
+            for (u32 attachment = 0; attachment < target->GetColorAttachmentCount(); ++attachment)
+                if (const auto image = target->GetColorAttachmentImage(attachment))
+                    writableImages.push_back(image->GetVkImage());
+            if (const auto depth = GetFramebufferDepthArraySelection(target->GetRHIHandle()); depth.Active)
+                writableImages.push_back(depth.Image);
+            else if (const auto image = target->GetDepthAttachmentImage())
+                writableImages.push_back(image->GetVkImage());
+        }
+        if (m_Backbuffer.IsValid())
+            writableImages.push_back(m_Backbuffer.Image);
+        // A retained numeric slot can have been recycled for the other
+        // descriptor kind. Only a current storage descriptor names a writer.
+        for (u32 unit = 0; unit < VulkanBindingState::kMaxTextureSlots; ++unit)
+            if (const auto image = slots.LookupImage(binding.GetImageHeapSlot(unit));
+                image && image->Type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                writableImages.push_back(image->Image);
+        for (u32 unit = 0; unit < VulkanBindingState::kMaxTextureSlots; ++unit)
+        {
+            const auto sampled = slots.LookupImage(binding.GetTextureHeapSlot(unit));
+            if (!sampled || sampled->Type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ||
+                std::ranges::find(writableImages, sampled->Image) != writableImages.end())
+                continue;
+            auto range = sampled->Range;
+            // Sampled depth views name one aspect; barriers must include both
+            // aspects of combined depth/stencil images, as in BindTexture.
+            if (const auto* info = VulkanImageInfoRegistry::Get().Lookup(sampled->Image))
+                range.aspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*info));
+            EnsureImageLayoutForDescriptor(sampled->Image, sampled->Layout, range);
+        }
+    }
+
+    void VulkanRendererAPI::RecordParallelItem(VulkanWorkerRecordingContext& item,
                                                const std::function<void(u32 item)>& body,
                                                std::exception_ptr& firstFailure, std::mutex& failureMutex)
     {
@@ -6640,6 +6705,7 @@ namespace OloEngine
         {
             // Everything the body records now resolves to `item`.
             const ScopedVulkanWorkerContext scope(&item);
+            const ScopedFrontendRecordingContext frontendScope(item.Frontend);
             try
             {
                 body(item.ItemIndex);
@@ -6671,13 +6737,47 @@ namespace OloEngine
         item.RecordMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
     }
 
-    void VulkanRendererAPI::RecordParallel(const u32 itemCount, const std::function<void(u32 item)>& body)
+    void VulkanRendererAPI::ReleaseParallelRecordingResources()
+    {
+        OLO_CORE_ASSERT(!OnWorkerContext() && !m_InParallelRegion, "Release recording resources after joining");
+        m_Items.clear();
+    }
+
+    void VulkanRendererAPI::RecordParallel(const u32 itemCount, const std::function<void(u32 item)>& body, u32 instanceCapacity)
+    {
+        RecordParallelOrdered(itemCount, body, {}, {}, instanceCapacity);
+    }
+
+    void VulkanRendererAPI::RecordParallelOrdered(const u32 itemCount, const std::function<void(u32)>& body,
+                                                  const std::function<void(u32)>& beforeExecute,
+                                                  const std::function<void(u32)>& afterExecute,
+                                                  u32 instanceCapacity, std::span<const std::string> itemPassNames)
     {
         OLO_PROFILE_FUNCTION();
         if (itemCount == 0u)
         {
             return;
         }
+
+        // A nested region is part of its parent item's timing and never writes
+        // the main frame's telemetry or reuses the outer region's item pool.
+        if (OnWorkerContext())
+        {
+            OLO_CORE_ASSERT(!beforeExecute && !afterExecute, "Whole-pass execution brackets are caller-only");
+            for (u32 item = 0; item < itemCount; ++item)
+                body(item);
+            return;
+        }
+        const auto wallStart = std::chrono::steady_clock::now();
+        ParallelRecordingRegionStats timing;
+        m_Main.PipelineLookupMs = 0.0;
+        if (!m_Main.DebugLabels.empty())
+            timing.PassName = m_Main.DebugLabels.back();
+        timing.ItemRecordMs.resize(itemCount);
+        OLO_CORE_ASSERT(itemPassNames.empty() || itemPassNames.size() == itemCount, "One label per recording item");
+        timing.ItemPassNames.assign(itemPassNames.begin(), itemPassNames.end());
+        if (!itemPassNames.empty())
+            timing.PassName = "RenderGraph";
 
         // --- decide: fork, or the ONE inline path -----------------------------
         // One item has nothing to overlap with; the predicate covers the
@@ -6691,7 +6791,7 @@ namespace OloEngine
         {
             while (m_Items.size() < itemCount)
             {
-                m_Items.push_back(CreateScope<VulkanRecordingContext>());
+                m_Items.push_back(CreateScope<VulkanWorkerRecordingContext>());
             }
             for (u32 index = 0; index < itemCount; ++index)
             {
@@ -6713,12 +6813,24 @@ namespace OloEngine
             ++m_ParallelStats.InlineRegions;
             for (u32 item = 0; item < itemCount; ++item)
             {
+                if (beforeExecute)
+                    beforeExecute(item);
+                const auto itemStart = std::chrono::steady_clock::now();
                 body(item);
+                timing.ItemRecordMs[item] = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - itemStart).count();
+                timing.WorkerRecordMs += timing.ItemRecordMs[item];
+                if (afterExecute)
+                    afterExecute(item);
             }
+            timing.PipelineLookupMs = m_Main.PipelineLookupMs;
+            timing.RegionWallMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - wallStart).count();
+            m_ParallelStats.WorkerRecordMs += timing.WorkerRecordMs;
+            m_ParallelStats.RegionWallMs += timing.RegionWallMs;
+            m_ParallelStats.RegionTimings.push_back(std::move(timing));
             return;
         }
 
-        const auto wallStart = std::chrono::steady_clock::now();
+        timing.Parallel = true;
         auto& main = m_Main;
         const u64 regionId = ++m_RegionSerial;
 
@@ -6730,8 +6842,18 @@ namespace OloEngine
         // scope-opens are identity transitions (rule 5).
         EndRenderingScope();
         MaterializePendingClear();
+        const auto attachmentStart = StartRecordingCost();
         TransitionBoundTargetAttachmentsForFork();
+        timing.AttachmentPrepareMs = RecordingCostMs(attachmentStart);
+        const auto sampledStart = StartRecordingCost();
+        TransitionSeededSampledImagesForFork();
+        timing.SampledImagePrepareMs = RecordingCostMs(sampledStart);
         m_LayoutClaims.Reset();
+        // Vulkan uses root-data texture slots, including when the first shader
+        // bind of a backend switch happens inside an item. Freeze these legacy
+        // GL program flags before workers enter HeapBinding.
+        Shader::SetBoundProgramBindless(false);
+        Shader::SetBoundProgramMaterialOffsets(false);
         // Two lazy paths every item's draw may take are primed here so no
         // item ever creates or pushes on a shared object: the null sampled
         // slots (a miss submits a one-shot, refused on an item) and the
@@ -6746,9 +6868,16 @@ namespace OloEngine
             }
         }
 
+        // Buffer constructors claim their binding points. Preserve the exact
+        // pre-fork mirror while creating/reusing the frontend's upload objects.
+        const auto seededBinding = VulkanBindingState::Global();
+        for (u32 index = 0; index < itemCount; ++index)
+            m_Items[index]->Frontend.Prepare(instanceCapacity);
+        VulkanBindingState::Global() = seededBinding;
+
         for (u32 index = 0; index < itemCount; ++index)
         {
-            VulkanRecordingContext& item = *m_Items[index];
+            VulkanWorkerRecordingContext& item = *m_Items[index];
             item.ItemIndex = index;
             item.RegionId = regionId;
             // Rule 4: an item sees what iteration 0 of the sequential loop saw.
@@ -6756,7 +6885,10 @@ namespace OloEngine
             item.RecordedViewport = main.RecordedViewport;
             item.ScissorRect = main.ScissorRect;
             item.ScissorRectSet = main.ScissorRectSet;
+            const auto selectionStart = StartRecordingCost();
             item.Selections = main.Selections;
+            timing.SelectionSeedMs += RecordingCostMs(selectionStart);
+            item.DebugLabels = main.DebugLabels;
             item.BoundVertexArray = main.BoundVertexArray;
             item.Binding = VulkanBindingState::Global();
             item.CurrentShader = VulkanShader::GetCurrentlyBound();
@@ -6768,6 +6900,8 @@ namespace OloEngine
         // --- record ---------------------------------------------------------
         std::exception_ptr firstFailure;
         std::mutex failureMutex;
+        const auto callerThread = std::this_thread::get_id();
+        auto callerFinished = std::chrono::steady_clock::now();
         {
             // RAII: an exception escaping ParallelFor itself must not leave the
             // region flag stuck (every later fork and mid-frame flush would
@@ -6776,9 +6910,16 @@ namespace OloEngine
             ParallelFor(
                 "VulkanRendererAPI::RecordParallel", static_cast<i32>(itemCount), /*MinBatchSize=*/1,
                 [&](const i32 itemIndex)
-                { RecordParallelItem(*m_Items[static_cast<sizet>(itemIndex)], body, firstFailure, failureMutex); },
+                {
+                    RecordParallelItem(*m_Items[static_cast<sizet>(itemIndex)], body, firstFailure, failureMutex);
+                    // Only the caller writes this timestamp. Other items can
+                    // finish concurrently without sharing a timing accumulator.
+                    if (std::this_thread::get_id() == callerThread)
+                        callerFinished = std::chrono::steady_clock::now();
+                },
                 EParallelForFlags::None);
         }
+        timing.JoinWaitMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - callerFinished).count();
 
         // --- join: merge layouts in item order, execute in item order --------
         VulkanImageLayoutTracker::MergeBatch batch;
@@ -6789,7 +6930,9 @@ namespace OloEngine
         u64 arenaAllocations = 0;
         for (u32 index = 0; index < itemCount; ++index)
         {
-            VulkanRecordingContext& item = *m_Items[index];
+            VulkanWorkerRecordingContext& item = *m_Items[index];
+            timing.ItemRecordMs[index] = item.RecordMs;
+            timing.PipelineLookupMs += item.PipelineLookupMs;
             arenaAllocations += item.ArenaAllocations;
             if (!item.Recorded)
             {
@@ -6797,6 +6940,7 @@ namespace OloEngine
                 continue;
             }
             item.Tracker.MergeOverlayInto(main.Tracker, batch);
+            item.Frontend.Publish();
             secondaries.push_back(item.Cmd);
             main.PreparedDraws += item.PreparedDraws;
             main.DroppedDraws += item.DroppedDraws;
@@ -6805,7 +6949,20 @@ namespace OloEngine
             workerMs += item.RecordMs;
             lastRecorded = &item;
         }
-        if (!secondaries.empty())
+        if (beforeExecute || afterExecute)
+        {
+            for (u32 index = 0; index < itemCount; ++index)
+            {
+                if (beforeExecute)
+                    beforeExecute(index);
+                if (m_Items[index]->Recorded)
+                    vkCmdExecuteCommands(main.Cmd, 1u, &m_Items[index]->Cmd);
+                main.ForgetCommandBufferBinds();
+                if (afterExecute)
+                    afterExecute(index);
+            }
+        }
+        else if (!secondaries.empty())
         {
             vkCmdExecuteCommands(main.Cmd, static_cast<u32>(secondaries.size()), secondaries.data());
         }
@@ -6828,8 +6985,11 @@ namespace OloEngine
         m_ParallelStats.SecondariesExecuted += static_cast<u32>(secondaries.size());
         m_ParallelStats.MergeConflicts += batch.Conflicts;
         m_ParallelStats.WorkerRecordMs += workerMs;
-        m_ParallelStats.RegionWallMs +=
-            std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - wallStart).count();
+        timing.WorkerRecordMs = workerMs;
+        timing.RegionWallMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - wallStart).count();
+        m_ParallelStats.RegionWallMs += timing.RegionWallMs;
+        m_ParallelStats.JoinWaitMs += timing.JoinWaitMs;
+        m_ParallelStats.RegionTimings.push_back(std::move(timing));
         if (batch.Conflicts != 0u)
         {
             // Not warn-once: a conflict is a pass bug, and its frequency is

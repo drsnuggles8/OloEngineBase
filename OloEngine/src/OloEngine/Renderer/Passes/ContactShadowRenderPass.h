@@ -47,6 +47,11 @@ namespace OloEngine
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
+        [[nodiscard]] bool SupportsWholePassRecording() const noexcept override
+        {
+            return true;
+        }
+        [[nodiscard]] RGPreparedPass PrepareParallelRecording(RGCommandContext& context) override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;

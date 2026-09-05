@@ -141,7 +141,7 @@ namespace OloEngine
             m_CommandBucket.SortCommands();
             if (capturing)
                 captureManager.OnPostSort(m_CommandBucket);
-            m_CommandBucket.Execute(rendererAPI);
+            m_CommandBucket.ExecuteParallel(rendererAPI);
         }
 
         // Restore multi-attachment draw buffers built dynamically from the

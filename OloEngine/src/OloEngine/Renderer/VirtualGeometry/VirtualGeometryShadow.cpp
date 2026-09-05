@@ -21,64 +21,69 @@ namespace OloEngine::VirtualGeometryShadow
 {
     namespace
     {
-        // Lazily-created GL resources. Separate ComputeShader instance from the
+        // Primary-created shader resources. Separate ComputeShader instance from the
         // main pass's so the ortho-mode uniforms never leak between the two
         // program objects.
         Ref<ComputeShader> s_CullShader;
-        // VirtualClusterCull.comp's former bare uniforms (issue #691),
-        // at UBO_VIRTUAL_CLUSTER_CULL. Refilled per instance dispatch.
-        Ref<UniformBuffer> s_CullParamsUBO;
         Ref<Shader> s_DepthShader;
-        Ref<UniformBuffer> s_DrawInfoUBO;
     } // namespace
 
-    void RenderCascade(const glm::mat4& lightVPRel, u32 shadowResolution)
+    bool PrepareViews(std::span<ViewResources> views)
     {
         OLO_PROFILE_FUNCTION();
-
+        OLO_CORE_ASSERT(!RenderCommand::GetRendererAPI().IsRecordingParallelItem(), "Prepare virtual shadow resources before the fork");
         auto& registry = VirtualMeshRegistry::Get();
-        if (!registry.PrepareFrame(Renderer3D::GetRenderOrigin()))
-            return;
-        registry.ProcessResidency(); // idempotent — first caller this frame wins
-
+        if (views.empty() || !registry.PrepareFrame(Renderer3D::GetRenderOrigin()))
+            return false;
+        registry.ProcessResidency();
         const auto& instances = registry.GetFrameInstances();
-        bool anyCaster = false;
-        for (const auto& instance : instances)
-        {
-            anyCaster = anyCaster || instance.CastShadows;
-        }
-        if (!anyCaster)
-            return;
-
+        if (std::ranges::none_of(instances, [](const auto& instance)
+                                 { return instance.CastShadows; }))
+            return false;
         if (!s_CullShader)
-        {
             s_CullShader = ComputeShader::Create("assets/shaders/compute/VirtualClusterCull.comp");
-        }
         if (!s_DepthShader)
-        {
             s_DepthShader = Shader::Create("assets/shaders/VirtualMeshShadowDepth.glsl");
-        }
-        if (!s_DrawInfoUBO)
-        {
-            s_DrawInfoUBO = UniformBuffer::Create(sizeof(VirtualDrawInfoGpu), ShaderBindingLayout::UBO_VIRTUAL_DRAW);
-        }
         if (!s_CullShader || !s_DepthShader)
-            return;
+            return false;
+        const auto ensureOutput = [](Ref<StorageBuffer>& buffer, const Ref<StorageBuffer>& source)
+        {
+            if (!buffer)
+                buffer = StorageBuffer::Create(source->GetSize(), source->GetBinding(), StorageBufferUsage::DynamicCopy);
+            else if (buffer->GetSize() < source->GetSize())
+                buffer->Resize(source->GetSize());
+        };
+        for (auto& view : views)
+        {
+            ensureOutput(view.Commands, registry.GetCommandBuffer());
+            ensureOutput(view.Args, registry.GetArgsBuffer());
+            ensureOutput(view.Visible, registry.GetVisibleBuffer());
+            if (!view.CullParams)
+                view.CullParams = UniformBuffer::Create(UBOStructures::VirtualClusterCullUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_CLUSTER_CULL);
+            if (!view.DrawInfo)
+                view.DrawInfo = UniformBuffer::Create(sizeof(VirtualDrawInfoGpu), ShaderBindingLayout::UBO_VIRTUAL_DRAW);
+        }
+        return true;
+    }
 
-        // Zero this cascade's draw counts (the same args buffer the main view
-        // uses later — it re-zeros + re-culls after the shadow pass).
-        Ref<StorageBuffer> argsStorage = registry.GetArgsBuffer();
-        std::vector<VirtualDrawArgs> const zeroArgs(instances.size());
-        argsStorage->SetData(zeroArgs.data(),
-                             static_cast<u32>(zeroArgs.size() * sizeof(VirtualDrawArgs)), 0);
-
+    void RenderCascade(const glm::mat4& lightVPRel, u32 shadowResolution, ViewResources& resources)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto& registry = VirtualMeshRegistry::Get();
+        const auto& instances = registry.GetFrameInstances();
+        // A command-stream clear keeps compute writes and indirect consumers on
+        // the persistent buffer; CPU SetData would publish a draw-time snapshot.
+        resources.Args->ClearData();
         registry.GetClusterBuffer()->Bind();
         registry.GetGroupBuffer()->Bind();
         registry.GetInstanceBuffer()->Bind();
-        registry.GetCommandBuffer()->Bind();
-        registry.GetArgsBuffer()->Bind();
-        registry.GetVisibleBuffer()->Bind();
-        registry.GetSwListBuffer()->Bind();
+        resources.Commands->Bind();
+        resources.Args->Bind();
+        resources.Visible->Bind();
+        registry.GetSwListBuffer()->Bind(); // OrthoMode disables all SW writes.
+        // These GPU atomic ORs preserve residency requests/touches from every
+        // view. No recording item uploads this shared object. The cull barrier
+        // below orders its GPU accesses before the next view's cull.
         registry.GetGroupStatesBuffer()->Bind();
 
         // Ortho pixels-per-world-unit from the light VP rows (X/Y scale of the
@@ -93,11 +98,6 @@ namespace OloEngine::VirtualGeometryShadow
         // two-phase / debug control this path never set is a deterministic 0 —
         // which is exactly the single-phase, no-debug behaviour the shadow cull
         // relied on when it simply skipped those Set* calls.
-        if (!s_CullParamsUBO)
-        {
-            s_CullParamsUBO = UniformBuffer::Create(UBOStructures::VirtualClusterCullUBO::GetSize(),
-                                                    ShaderBindingLayout::UBO_VIRTUAL_CLUSTER_CULL);
-        }
         UBOStructures::VirtualClusterCullUBO cullParams{};
         cullParams.OrthoMode = 1;
         cullParams.OcclusionEnabled = 0; // shadows rasterize every caster (also gated by ortho mode)
@@ -109,8 +109,8 @@ namespace OloEngine::VirtualGeometryShadow
             if (!instances[i].CastShadows)
                 continue;
             cullParams.InstanceIndex = static_cast<u32>(i);
-            s_CullParamsUBO->SetData(&cullParams, sizeof(cullParams));
-            s_CullParamsUBO->Bind();
+            resources.CullParams->SetData(&cullParams, sizeof(cullParams));
+            resources.CullParams->Bind();
             u32 const groups = (instances[i].Gpu.ClusterCount + 63u) / 64u;
             RenderCommand::DispatchCompute(groups, 1, 1);
         }
@@ -120,9 +120,9 @@ namespace OloEngine::VirtualGeometryShadow
         // FBO, viewport, front-face culling and color masks; only the program,
         // per-draw UBO and SSBO bindings are ours.
         s_DepthShader->Bind();
-        s_DrawInfoUBO->Bind();
-        const RHI::ResourceHandle commandBuffer = registry.GetCommandBuffer()->GetRHIHandle();
-        const RHI::ResourceHandle argsBuffer = registry.GetArgsBuffer()->GetRHIHandle();
+        resources.DrawInfo->Bind();
+        const RHI::ResourceHandle commandBuffer = resources.Commands->GetRHIHandle();
+        const RHI::ResourceHandle argsBuffer = resources.Args->GetRHIHandle();
         for (sizet i = 0; i < instances.size(); ++i)
         {
             if (!instances[i].CastShadows)
@@ -130,7 +130,7 @@ namespace OloEngine::VirtualGeometryShadow
             VirtualDrawInfoGpu drawInfo{};
             drawInfo.InstanceIndex = static_cast<u32>(i);
             drawInfo.CommandBase = instances[i].Gpu.CommandBase;
-            s_DrawInfoUBO->SetData(&drawInfo, sizeof(drawInfo));
+            resources.DrawInfo->SetData(&drawInfo, sizeof(drawInfo));
             RenderCommand::MultiDrawElementsIndirectCountRaw(
                 registry.GetVao(), commandBuffer,
                 instances[i].Gpu.CommandBase * 32u,
@@ -143,8 +143,6 @@ namespace OloEngine::VirtualGeometryShadow
     void Shutdown()
     {
         s_CullShader = nullptr;
-        s_CullParamsUBO = nullptr;
         s_DepthShader = nullptr;
-        s_DrawInfoUBO = nullptr;
     }
 } // namespace OloEngine::VirtualGeometryShadow

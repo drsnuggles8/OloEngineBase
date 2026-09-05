@@ -100,8 +100,18 @@ namespace OloEngine
         }
 
         m_SlotByKey[key] = SlotEntry{ .Slot = slot, .Type = type };
+        m_ImagesBySlot[slot] = ImageBinding{ image, viewInfo.subresourceRange, layout, type };
         m_KeysByImage[image].push_back(key);
         return slot;
+    }
+
+    std::optional<VulkanDescriptorSlotCache::ImageBinding> VulkanDescriptorSlotCache::LookupImage(u32 slot) const
+    {
+        const std::shared_lock lock(m_Mutex);
+        const auto entry = m_ImagesBySlot.find(slot);
+        if (entry == m_ImagesBySlot.end())
+            return std::nullopt;
+        return entry->second;
     }
 
     void VulkanDescriptorSlotCache::ReleaseSlotsForImage(VkImage image)
@@ -125,6 +135,7 @@ namespace OloEngine
                 // (the lock-order note in the header).
                 (void)VulkanDescriptorHeapBackend::Get().WriteNullAt(slotIt->second.Slot, slotIt->second.Type);
                 m_FreeSlots.push_back(slotIt->second.Slot);
+                m_ImagesBySlot.erase(slotIt->second.Slot);
                 m_SlotByKey.erase(slotIt);
             }
         }
@@ -136,6 +147,7 @@ namespace OloEngine
         std::lock_guard<std::shared_mutex> lock(m_Mutex);
         m_SlotByKey.clear();
         m_KeysByImage.clear();
+        m_ImagesBySlot.clear();
         m_FreeSlots.clear();
     }
 } // namespace OloEngine

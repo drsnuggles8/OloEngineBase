@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/RGPreparedPass.h"
 
 #include <span>
 #include <string>
@@ -112,6 +113,18 @@ namespace OloEngine
         }
 
         virtual void Execute(RGCommandContext& context) = 0;
+
+        // Static eligibility for planner-assigned CPU recording lanes. GPU
+        // queue lanes and submission order are unchanged. Preparation may
+        // decline a frame by returning an empty Record callback.
+        [[nodiscard]] virtual bool SupportsWholePassRecording() const noexcept
+        {
+            return false;
+        }
+        [[nodiscard]] virtual RGPreparedPass PrepareParallelRecording(RGCommandContext& /*context*/)
+        {
+            return {};
+        }
 
         // Init is the resource-loading hook (shaders, UBOs, owned framebuffers).
         // The default implementation stores the framebuffer spec so resize/setup

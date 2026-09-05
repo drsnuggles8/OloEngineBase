@@ -33,6 +33,7 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+#include <memory>
 
 namespace OloEngine
 {
@@ -41,6 +42,35 @@ namespace OloEngine
 
 namespace OloEngine::HeapBinding
 {
+    struct HeapOffsetTable;
+
+    class RecordingState
+    {
+      public:
+        RecordingState();
+        ~RecordingState();
+        RecordingState(const RecordingState&) = delete;
+        RecordingState& operator=(const RecordingState&) = delete;
+        void Prepare();
+        void Publish();
+
+      private:
+        friend class ScopedRecordingState;
+        std::unique_ptr<HeapOffsetTable> m_Table;
+    };
+
+    class ScopedRecordingState
+    {
+      public:
+        explicit ScopedRecordingState(RecordingState& state);
+        ~ScopedRecordingState();
+        ScopedRecordingState(const ScopedRecordingState&) = delete;
+        ScopedRecordingState& operator=(const ScopedRecordingState&) = delete;
+
+      private:
+        HeapOffsetTable* m_Previous;
+    };
+
     // The heap-bindless form of `RenderCommand::BindTexture`.
     //
     //   * heap enabled and the bound program is the bindless variant -> mints or

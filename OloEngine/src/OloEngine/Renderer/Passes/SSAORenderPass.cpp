@@ -147,13 +147,22 @@ namespace OloEngine
 
     void SSAORenderPass::Execute(RGCommandContext& context)
     {
+        auto prepared = PrepareParallelRecording(context);
+        if (prepared.Record)
+            prepared.Record(context);
+        if (prepared.Publish)
+            prepared.Publish();
+    }
+
+    RGPreparedPass SSAORenderPass::PrepareParallelRecording(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         m_Target = nullptr;
 
         if (!m_Settings.SSAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::SSAO || !IsReadyForExecution())
         {
-            return;
+            return {};
         }
 
         // Self-resolving SceneDepth and SceneNormals: look
@@ -180,8 +189,11 @@ namespace OloEngine
             // AOTargetIdentity.h and issue #771. (The clear-to-white further
             // down only covers this pass's own SSAORaw/SSAOBlur scratch, and it
             // sits AFTER these returns, so it never protected AOBuffer.)
-            PublishAOTargetAsFullyVisible(aoOutputTexture);
-            return;
+            RGPreparedPass skipped;
+            skipped.Resources.push_back({ aoOutputTexture, true });
+            skipped.Record = [aoOutputTexture](RGCommandContext&)
+            { PublishAOTargetAsFullyVisible(aoOutputTexture); };
+            return skipped;
         }
 
         // Follow-up: resolve the raw SSAO scratch framebuffer from
@@ -196,8 +208,11 @@ namespace OloEngine
             blurFB = context.ResolveFramebuffer(m_SelectedBlurFramebuffer);
         if (!rawFB || !blurFB)
         {
-            PublishAOTargetAsFullyVisible(aoOutputTexture);
-            return;
+            RGPreparedPass skipped;
+            skipped.Resources.push_back({ aoOutputTexture, true });
+            skipped.Record = [aoOutputTexture](RGCommandContext&)
+            { PublishAOTargetAsFullyVisible(aoOutputTexture); };
+            return skipped;
         }
 
         m_Target = blurFB;
@@ -207,113 +222,126 @@ namespace OloEngine
         // never held — fired ~60 times per second. Same broken pattern as the
         // GTAORenderPass / AOApplyRenderPass logs that were removed earlier.)
 
-        // Upload SSAO parameters to UBO
-        if (m_SSAOUBO && m_GPUData)
+        SSAOUBOData parameters = m_GPUData ? *m_GPUData : SSAOUBOData{};
+        if (!m_RecordingSSAOUBO)
+            m_RecordingSSAOUBO = UniformBuffer::Create(SSAOUBOData::GetSize(), ShaderBindingLayout::UBO_SSAO);
+        parameters.Radius = m_Settings.SSAORadius;
+        parameters.Bias = m_Settings.SSAOBias;
+        parameters.Intensity = m_Settings.SSAOIntensity;
+        parameters.Samples = m_Settings.SSAOSamples;
+        parameters.ScreenWidth = static_cast<i32>(m_HalfWidth);
+        parameters.ScreenHeight = static_cast<i32>(m_HalfHeight);
+        m_RecordingSSAOUBO->SetData(&parameters, SSAOUBOData::GetSize());
+        m_RecordingSSAOUBO->PrepareForParallelRead();
+        auto triangle = MeshPrimitives::GetFullscreenTriangle();
+        RGPreparedPass prepared;
+        prepared.Resources = { { depthTexture, false }, { normalsTexture, false }, { m_NoiseTexture, false }, { m_RecordingSSAOUBO->GetRHIHandle(), false }, { aoOutputTexture, true }, { rawFB->GetColorAttachmentHandle(0), true }, { blurFB->GetColorAttachmentHandle(0), true } };
+        if (m_SSAOUBO)
+            prepared.Resources.push_back({ m_SSAOUBO->GetRHIHandle(), true });
+        prepared.Record = [this, rawFB, blurFB, depthTexture, normalsTexture, aoOutputTexture, triangle](RGCommandContext& context) mutable
         {
-            m_GPUData->Radius = m_Settings.SSAORadius;
-            m_GPUData->Bias = m_Settings.SSAOBias;
-            m_GPUData->Intensity = m_Settings.SSAOIntensity;
-            m_GPUData->Samples = m_Settings.SSAOSamples;
-            m_GPUData->ScreenWidth = static_cast<i32>(m_HalfWidth);
-            m_GPUData->ScreenHeight = static_cast<i32>(m_HalfHeight);
-            m_SSAOUBO->SetData(m_GPUData, SSAOUBOData::GetSize());
-            m_SSAOUBO->Bind();
-        }
+            m_RecordingSSAOUBO->Bind();
+            // --- Pass 1: Generate raw SSAO ---
+            rawFB->Bind();
+            context.SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
+            context.SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f }); // White = no occlusion
+            context.Clear();
+            context.SetDepthTest(false);
+            context.SetBlendState(false);
 
-        // --- Pass 1: Generate raw SSAO ---
-        rawFB->Bind();
-        context.SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
-        context.SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f }); // White = no occlusion
-        context.Clear();
-        context.SetDepthTest(false);
-        context.SetBlendState(false);
+            m_SSAOShader->Bind();
 
-        m_SSAOShader->Bind();
+            // Heap-bindless where available, slot-based otherwise — one call, and the
+            // slot constant keeps its meaning either way (issue #691). The
+            // LIFETIME argument is the only judgement each site needs, and it is not
+            // cosmetic: a FrameTransient view is retired at the frame boundary so a
+            // held offset reports stale, while a Persistent one is memoised and its
+            // offset is stable for the object's life.
+            //
+            // Depth and normals are graph-owned attachments that can be reallocated
+            // or aliased between frames, so they are transient. The noise texture is
+            // created once in Init and lives as long as the pass.
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture,
+                                            RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTexture,
+                                            RHI::HeapSlotLifetime::FrameTransient);
 
-        // Heap-bindless where available, slot-based otherwise — one call, and the
-        // slot constant keeps its meaning either way (issue #691). The
-        // LIFETIME argument is the only judgement each site needs, and it is not
-        // cosmetic: a FrameTransient view is retired at the frame boundary so a
-        // held offset reports stale, while a Persistent one is memoised and its
-        // offset is stable for the object's life.
-        //
-        // Depth and normals are graph-owned attachments that can be reallocated
-        // or aliased between frames, so they are transient. The noise texture is
-        // created once in Init and lives as long as the pass.
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture,
-                                        RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTexture,
-                                        RHI::HeapSlotLifetime::FrameTransient);
+            // Nearest+Repeat — the combination the original two-bool sampler could
+            // not express, and the reason RHI::Filter / RHI::AddressMode exist. Under
+            // the heap this sampler state rides in the descriptor rather than on the
+            // texture object, which is what a split sampler heap will need.
+            RHI::SamplerDesc noiseSampler;
+            noiseSampler.Source = RHI::SamplerSource::Explicit;
+            noiseSampler.MinFilter = RHI::Filter::Nearest;
+            noiseSampler.MagFilter = RHI::Filter::Nearest;
+            noiseSampler.LinearMipFilter = false;
+            noiseSampler.AddressU = RHI::AddressMode::Repeat;
+            noiseSampler.AddressV = RHI::AddressMode::Repeat;
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSAO_NOISE, m_NoiseTexture,
+                                            RHI::HeapSlotLifetime::Persistent, noiseSampler);
 
-        // Nearest+Repeat — the combination the original two-bool sampler could
-        // not express, and the reason RHI::Filter / RHI::AddressMode exist. Under
-        // the heap this sampler state rides in the descriptor rather than on the
-        // texture object, which is what a split sampler heap will need.
-        RHI::SamplerDesc noiseSampler;
-        noiseSampler.Source = RHI::SamplerSource::Explicit;
-        noiseSampler.MinFilter = RHI::Filter::Nearest;
-        noiseSampler.MagFilter = RHI::Filter::Nearest;
-        noiseSampler.LinearMipFilter = false;
-        noiseSampler.AddressU = RHI::AddressMode::Repeat;
-        noiseSampler.AddressV = RHI::AddressMode::Repeat;
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSAO_NOISE, m_NoiseTexture,
-                                        RHI::HeapSlotLifetime::Persistent, noiseSampler);
+            context.FlushHeapOffsets();
 
-        context.FlushHeapOffsets();
+            triangle->Bind();
+            context.DrawIndexed(triangle);
+            rawFB->Unbind();
 
-        DrawFullscreenTriangle();
-        rawFB->Unbind();
+            // --- Pass 2: Bilateral blur ---
+            blurFB->Bind();
+            context.SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
+            context.SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+            context.Clear();
+            context.SetDepthTest(false);
+            context.SetBlendState(false);
 
-        // --- Pass 2: Bilateral blur ---
-        blurFB->Bind();
-        context.SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
-        context.SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f });
-        context.Clear();
-        context.SetDepthTest(false);
-        context.SetBlendState(false);
+            m_SSAOBlurShader->Bind();
 
-        m_SSAOBlurShader->Bind();
+            // Bind raw SSAO result at slot 0 (texture from the transient or fallback FB).
+            // The attachment's identity, not its GL name — attachments started
+            // minting handles in slice 3, so this consumer can take one.
+            // FrameTransient: it is a graph-pooled attachment either way
+            // (issue #691).
+            context.BindTextureOrHeapOffset(0, rawFB->GetColorAttachmentHandle(0),
+                                            RHI::HeapSlotLifetime::FrameTransient);
 
-        // Bind raw SSAO result at slot 0 (texture from the transient or fallback FB).
-        // The attachment's identity, not its GL name — attachments started
-        // minting handles in slice 3, so this consumer can take one.
-        // FrameTransient: it is a graph-pooled attachment either way
-        // (issue #691).
-        context.BindTextureOrHeapOffset(0, rawFB->GetColorAttachmentHandle(0),
-                                        RHI::HeapSlotLifetime::FrameTransient);
+            // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19) for bilateral edge detection
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture,
+                                            RHI::HeapSlotLifetime::FrameTransient);
 
-        // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19) for bilateral edge detection
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture,
-                                        RHI::HeapSlotLifetime::FrameTransient);
+            // A flush per DRAW, not per pass: this is the pass's second draw and it
+            // rebinds slot 0 to a different texture than pass 1 did, so the offsets
+            // staged above are unpublished until here.
+            context.FlushHeapOffsets();
 
-        // A flush per DRAW, not per pass: this is the pass's second draw and it
-        // rebinds slot 0 to a different texture than pass 1 did, so the offsets
-        // staged above are unpublished until here.
-        context.FlushHeapOffsets();
+            triangle->Bind();
+            context.DrawIndexed(triangle);
+            blurFB->Unbind();
 
-        DrawFullscreenTriangle();
-        blurFB->Unbind();
+            // Both operands are identities now, so the self-copy guard compares
+            // OBJECTS rather than driver names — a recycled name can no longer make
+            // two distinct textures look like the same one and skip a real copy.
+            if (const RHI::ResourceHandle blurredAO = blurFB->GetColorAttachmentHandle(0);
+                blurredAO.IsValid() && blurredAO != aoOutputTexture)
+            {
+                RenderCommand::CopyImageSubData(blurredAO, RendererAPI::TextureTargetType::Texture2D,
+                                                aoOutputTexture, RendererAPI::TextureTargetType::Texture2D,
+                                                m_HalfWidth, m_HalfHeight);
+            }
 
-        // Both operands are identities now, so the self-copy guard compares
-        // OBJECTS rather than driver names — a recycled name can no longer make
-        // two distinct textures look like the same one and skip a real copy.
-        if (const RHI::ResourceHandle blurredAO = blurFB->GetColorAttachmentHandle(0);
-            blurredAO.IsValid() && blurredAO != aoOutputTexture)
+            // Restore full-res viewport (will be set by next pass anyway, but be clean)
+            context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
+        };
+        prepared.Publish = [this, parameters]
         {
-            RenderCommand::CopyImageSubData(blurredAO, RendererAPI::TextureTargetType::Texture2D,
-                                            aoOutputTexture, RendererAPI::TextureTargetType::Texture2D,
-                                            m_HalfWidth, m_HalfHeight);
-        }
-
-        // Restore full-res viewport (will be set by next pass anyway, but be clean)
-        context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
-    }
-
-    void SSAORenderPass::DrawFullscreenTriangle() const
-    {
-        auto va = MeshPrimitives::GetFullscreenTriangle();
-        va->Bind();
-        RenderCommand::DrawIndexed(va);
+            if (m_GPUData)
+                *m_GPUData = parameters;
+            if (m_SSAOUBO)
+            {
+                m_SSAOUBO->SetData(&parameters, SSAOUBOData::GetSize());
+                m_SSAOUBO->Bind();
+            }
+        };
+        return prepared;
     }
 
     void SSAORenderPass::SetupFramebuffer(u32 width, u32 height)

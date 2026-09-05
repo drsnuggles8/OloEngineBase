@@ -9,6 +9,11 @@
 #include <string>
 #include <vector>
 
+namespace OloEngine
+{
+    class RendererAPI;
+}
+
 namespace OloEngine::RenderGraphPlanExecutor
 {
     // Backend executor extracted from the IR walk loop in
@@ -52,6 +57,9 @@ namespace OloEngine::RenderGraphPlanExecutor
         // Test/alternate-owner seam for the otherwise backend-selected fence
         // factory. Production leaves this empty and uses GpuFence::Create().
         std::function<Ref<RHI::GpuFence>()> CreateGpuFence;
+        // Alternate/offscreen owner of the recording command stream. The live
+        // renderer uses the facade when this is null, as for fence submission.
+        RendererAPI* RecordingAPI = nullptr;
     };
 
     // Runs the IR walk and returns per-pass CPU timings (one entry per

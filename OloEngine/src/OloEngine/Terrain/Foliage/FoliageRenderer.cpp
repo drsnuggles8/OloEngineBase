@@ -392,7 +392,7 @@ namespace OloEngine
         }
     }
 
-    void FoliageRenderer::RenderShadows(const Ref<Shader>& depthShader)
+    void FoliageRenderer::RenderShadows(const Ref<Shader>& depthShader, f32 time) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -427,12 +427,13 @@ namespace OloEngine
 
             // Upload per-layer foliage UBO for depth pass
             ShaderBindingLayout::FoliageUBO foliageUBOData{};
-            foliageUBOData.Time = m_Time;
+            foliageUBOData.Time = time;
             foliageUBOData.WindStrength = layer.WindStrength;
             foliageUBOData.WindSpeed = layer.WindSpeed;
             foliageUBOData.AlphaCutoff = layer.AlphaCutoff;
             auto foliageUBO = Renderer3D::GetFoliageUBO();
             foliageUBO->SetData(&foliageUBOData, ShaderBindingLayout::FoliageUBO::GetSize());
+            foliageUBO->Bind();
 
             // Bind albedo for alpha test in shadow pass (see the seam note above).
             if (layer.AlbedoTexture)

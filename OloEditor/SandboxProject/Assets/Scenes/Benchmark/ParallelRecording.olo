@@ -1,0 +1,126 @@
+Scene: ParallelRecording
+Entities:
+  - Entity: 1013000001000000
+    TagComponent:
+      Tag: BenchmarkCamera
+    TransformComponent:
+      Translation: [0, 50, 85]
+      Rotation: [-0.61, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.05
+        PerspectiveFar: 300
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 1013000001000001
+    TagComponent:
+      Tag: UniqueShadowCasters3600
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ModelComponent:
+      FilePath: SandboxProject/Assets/Models/Benchmark/RecordingCasters.glb
+      Visible: true
+  - Entity: 1013000001000002
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -0.15, 0]
+      Rotation: [0, 0, 0]
+      Scale: [110, 0.2, 110]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.42, 0.42, 0.42]
+      Metallic: 0
+      Roughness: 0.9
+      PBRModel: 1
+  - Entity: 1013000001000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.6, -1, -0.3]
+      Color: [1, 1, 1]
+      Intensity: 3
+      CastShadows: true
+      ShadowBias: 0.0015
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 180
+      CascadeSplitLambda: 0.8
+  - Entity: 1013000001000004
+    TagComponent:
+      Tag: PointShadow0
+    TransformComponent:
+      Translation: [-24, 7, -12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.55]
+      Intensity: 35
+      Range: 38
+      Attenuation: 1
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 1013000001000005
+    TagComponent:
+      Tag: SpotShadow0
+    TransformComponent:
+      Translation: [-24, 18, 28]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0, -1, -0.25]
+      Color: [0.55, 0.75, 1]
+      Intensity: 45
+      Range: 65
+      InnerCutoff: 32
+      OuterCutoff: 48
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 1013000001000006
+    TagComponent:
+      Tag: PointShadow1
+    TransformComponent:
+      Translation: [24, 7, -12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.8, 0.55]
+      Intensity: 35
+      Range: 38
+      Attenuation: 1
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+  - Entity: 1013000001000007
+    TagComponent:
+      Tag: SpotShadow1
+    TransformComponent:
+      Translation: [24, 18, 28]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0, -1, -0.25]
+      Color: [0.55, 0.75, 1]
+      Intensity: 45
+      Range: 65
+      InnerCutoff: 32
+      OuterCutoff: 48
+      Attenuation: 0.03
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1

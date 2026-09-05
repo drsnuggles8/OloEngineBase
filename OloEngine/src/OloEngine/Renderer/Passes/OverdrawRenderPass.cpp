@@ -152,7 +152,7 @@ namespace OloEngine
         // shader swap + additive/depth-off state active.
         CommandDispatch::BindSceneResources();
         CommandDispatch::SetOverdrawActive(true);
-        m_ScenePass->GetCommandBucket().Execute(rendererAPI);
+        m_ScenePass->GetCommandBucket().ExecuteParallel(rendererAPI);
         CommandDispatch::SetOverdrawActive(false);
         CommandDispatch::InvalidateRenderStateCache();
         m_AccumFramebuffer->Unbind();

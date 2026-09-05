@@ -7,10 +7,19 @@
 #type vertex
 #version 450 core
 
+#ifdef OLO_VULKAN
+// Engine V1 stream: position, normal and UV occupy eight float lanes.
+layout(std430, binding = 57) readonly buffer OloVertexPull
+{
+	float v[];
+} b_Vertices;
+#define OLO_PULLED_VERTEX 1
+#else
 // Per-vertex (from mesh)
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec3 a_Normal;
 layout(location = 2) in vec2 a_TexCoord;
+#endif
 
 layout(std140, binding = 0) uniform Camera
 {
@@ -42,6 +51,11 @@ layout(location = 4) out vec4 v_ClipPosPrev;
 
 void main()
 {
+#ifdef OLO_PULLED_VERTEX
+	int vertBase = gl_VertexIndex * 8;
+	vec3 a_Position = vec3(b_Vertices.v[vertBase], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
+	vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
+#endif
 	vec4 worldPos = u_Model     * vec4(a_Position, 1.0);
 	vec4 worldPosPrev = u_PrevModel * vec4(a_Position, 1.0);
 	vec4 clipCurr = u_ViewProjection     * worldPos;

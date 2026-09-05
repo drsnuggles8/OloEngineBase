@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/PreparedFullscreenPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -65,6 +66,13 @@ namespace OloEngine
 
     void SSSRenderPass::Execute(RGCommandContext& context)
     {
+        auto prepared = PrepareParallelRecording(context);
+        if (prepared.Record)
+            prepared.Record(context);
+    }
+
+    RGPreparedPass SSSRenderPass::PrepareParallelRecording(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         // Sample-only consumer: input framebuffer is intentionally not
@@ -88,73 +96,25 @@ namespace OloEngine
         if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled)
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         if (!inputColorTextureID.IsValid() || !outputFramebuffer || !depthID.IsValid())
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         if (!IsReadyForExecution())
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         m_Target = outputFramebuffer;
-
-        const auto& targetSpec = outputFramebuffer->GetSpecification();
-        constexpr u32 colorAttachment = 0;
-
-        // SSS UBO data is uploaded by Renderer3D::EndScene, but SetData()
-        // doesn't refresh the indexed binding — other passes (IBL precompute,
-        // Bloom mip updates) may have displaced binding 14 between EndScene
-        // and this Execute. Rebind here.
-        if (m_SSSUBO)
-            m_SSSUBO->Bind();
-
-        outputFramebuffer->Bind();
-
-        context.SetViewport(0, 0, targetSpec.Width, targetSpec.Height);
-        context.SetDepthTest(false);
-        context.SetDepthMask(false);
-        context.SetBlendState(false);
-        RenderCommand::DisableStencilTest();
-        RenderCommand::DisableCulling();
-        RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
-        RenderCommand::SetColorMask(true, true, true, true);
-        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
-
-        m_SSSBlurShader->Bind();
-
-        // Bind input scene color as texture — no read-write hazard since the
-        // input is sampled and we write to the graph-owned SSSColor target.
-        // FrameTransient: graph-resolved, so the descriptor comes from the
-        // per-frame ring rather than being memoised onto a pooled object the
-        // planner may reassign next frame (issue #691).
-        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
-
-        // Bind scene depth for bilateral filtering
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID,
-                                        RHI::HeapSlotLifetime::FrameTransient);
-
-        DrawFullscreenTriangle(context);
-
-        context.SetDepthMask(true);
-        outputFramebuffer->Unbind();
-    }
-
-    void SSSRenderPass::DrawFullscreenTriangle(RGCommandContext& context) const
-    {
-        const auto va = MeshPrimitives::GetFullscreenTriangle();
-        va->Bind();
-        // The flush lives with the draw — see OITResolveRenderPass for why
-        // (issue #691).
-        context.FlushHeapOffsets();
-        context.DrawIndexed(va);
+        return PrepareFullscreenPass(outputFramebuffer, m_SSSBlurShader,
+                                     { { 0, inputColorTextureID, {} }, { ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID, {} } },
+                                     { m_SSSUBO }, false);
     }
 
     Ref<Framebuffer> SSSRenderPass::GetTarget() const

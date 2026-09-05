@@ -18,6 +18,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         SetName("VirtualShadowMapMarkPass");
+        SetPassWorkType(PassWorkType::Compute);
+        SetAsyncComputeCandidate(true);
         // NeverCull, because this pass's only output is an SSBO the graph does
         // not model: it writes the VSM page table, which the NEXT frame's shadow
         // pass consumes. To reachability analysis that looks like a node whose
@@ -80,20 +82,29 @@ namespace OloEngine
 
     void VirtualShadowMapMarkPass::Execute(RGCommandContext& context)
     {
+        auto prepared = PrepareParallelRecording(context);
+        if (prepared.Record)
+            prepared.Record(context);
+        if (prepared.Publish)
+            prepared.Publish();
+    }
+
+    RGPreparedPass VirtualShadowMapMarkPass::PrepareParallelRecording(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!VirtualShadowMapActive() || !m_SceneDepth.IsValid())
-            return;
+            return {};
 
         const RHI::ResourceHandle sceneDepth = context.ResolveTextureHandle(m_SceneDepth);
         if (!sceneDepth.IsValid())
-            return;
+            return {};
 
         u32 width = 0;
         u32 height = 0;
         RenderCommand::GetTextureDimensions(sceneDepth, 0, width, height);
         if (width == 0 || height == 0)
-            return;
+            return {};
 
         // Depth NDC -> render-relative world. The RECONSTRUCTION flavour of the
         // projection, not the rasterizer one: this shader does its own
@@ -120,8 +131,8 @@ namespace OloEngine
         const glm::vec3 cameraWorld = glm::vec3(glm::inverse(view)[3]);
         const glm::vec3 cameraRelative = cameraWorld - Renderer3D::GetRenderOrigin();
 
-        m_ShadowMap->GetVirtualShadowMap().MarkRequiredPages(sceneDepth, width, height,
-                                                             inverseViewProjection, cameraRelative);
+        return m_ShadowMap->GetVirtualShadowMap().PreparePageMarking(sceneDepth, width, height,
+                                                                     inverseViewProjection, cameraRelative);
     }
 
     Ref<Framebuffer> VirtualShadowMapMarkPass::GetTarget() const

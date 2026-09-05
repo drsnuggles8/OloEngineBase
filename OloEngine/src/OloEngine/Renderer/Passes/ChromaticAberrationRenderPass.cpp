@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/PreparedFullscreenPass.h"
 #include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -80,6 +81,13 @@ namespace OloEngine
 
     void ChromaticAberrationRenderPass::Execute(RGCommandContext& context)
     {
+        auto prepared = PrepareParallelRecording(context);
+        if (prepared.Record)
+            prepared.Record(context);
+    }
+
+    RGPreparedPass ChromaticAberrationRenderPass::PrepareParallelRecording(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         // Sample-only consumer: input framebuffer is intentionally not
@@ -98,54 +106,19 @@ namespace OloEngine
         if (!m_Enabled)
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         if (!inputColorTextureID.IsValid() || !outputFramebuffer || !m_Shader)
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         m_Target = outputFramebuffer;
-
-        if (m_PostProcessUBO)
-            m_PostProcessUBO->Bind();
-
-        outputFramebuffer->Bind();
-
-        const auto& outSpec = outputFramebuffer->GetSpecification();
-        context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
-        context.SetDepthTest(false);
-        context.SetDepthMask(false);
-        context.SetBlendState(false);
-        context.SetCulling(false);
-        RenderCommand::DisableStencilTest();
-        RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
-        RenderCommand::SetColorMask(true, true, true, true);
-
-        constexpr u32 colorAttachment = 0;
-        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
-
-        context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-        context.Clear();
-
-        m_Shader->Bind();
-
-        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
-        m_Shader->SetInt("u_Texture", 0);
-
-        // Publish the heap offsets recorded above. No-op on the slot-based path,
-        // so a converted pass costs nothing when the heap is off (issue #691).
-        context.FlushHeapOffsets();
-
-        const auto va = MeshPrimitives::GetFullscreenTriangle();
-        va->Bind();
-        context.DrawIndexed(va);
-
-        context.SetDepthMask(true);
-        outputFramebuffer->Unbind();
+        return PrepareFullscreenPass(outputFramebuffer, m_Shader,
+                                     { { 0, inputColorTextureID, "u_Texture" } },
+                                     { m_PostProcessUBO });
     }
 
     void ChromaticAberrationRenderPass::SetupFramebuffer(u32 width, u32 height)
