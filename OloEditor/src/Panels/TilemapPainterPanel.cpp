@@ -137,6 +137,12 @@ namespace OloEngine
             return false;
 
         const f32 tileSize = tilemap.TileSize;
+        // A non-positive or non-finite tile size makes the division below produce
+        // inf (rejected by the bounds test) or NaN (which is NOT rejected, because
+        // every NaN comparison is false — and the static_cast<u32> that follows
+        // would then be undefined). Refuse it up front.
+        if (!std::isfinite(tileSize) || tileSize <= 0.0f)
+            return false;
         if (local.x < 0.0f || local.y < 0.0f)
             return false;
 
@@ -173,6 +179,39 @@ namespace OloEngine
             for (u32 x = minX; x <= maxX; ++x)
                 ApplyTile(x, y, value);
         }
+    }
+
+    void TilemapPainterPanel::SetContext(const Ref<Scene>& scene)
+    {
+        // Called every frame with the SAME scene while the panel is open, so the
+        // reset has to be conditional — an unconditional one would cancel the
+        // stroke currently being painted.
+        if (m_Context == scene)
+            return;
+
+        // The scene changed under us (load, Play entry/exit). An in-flight stroke
+        // belongs to the old scene: settle it there before switching, or its undo
+        // entry is stranded and the edit cannot be reverted.
+        EndStroke();
+        m_Context = scene;
+        m_TargetEntity = {};
+        m_PendingSizeEntity = 0;
+        m_PrevMouseDown = false;
+        m_HasRectAnchor = false;
+    }
+
+    void TilemapPainterPanel::OnFrameTick(bool eligible)
+    {
+        // Mirrors TerrainEditorPanel::OnFrameTick and is called unconditionally
+        // for the same reason: a stroke interrupted by anything other than a mouse
+        // release — a throttled frame that skips OnUpdate, the cursor leaving the
+        // viewport, Play being pressed, the panel being closed — still has to
+        // SETTLE and push its undo entry. Without this it stays half-applied with
+        // no way to Ctrl+Z it.
+        if (!eligible && m_StrokeActive)
+            EndStroke();
+        if (!eligible)
+            m_PrevMouseDown = false;
     }
 
     void TilemapPainterPanel::BeginStroke()

@@ -680,8 +680,7 @@ namespace OloEngine
             // A save is not authoring input, but it is still a file on disk: cap
             // the layer count the same way the container operator caps element
             // counts, rather than reserving whatever the bytes claim.
-            constexpr u32 kMaxLayers = 4096;
-            if (layerCount > kMaxLayers)
+            if (layerCount > TilemapComponent::kMaxLayers)
             {
                 OLO_CORE_ERROR("SaveGame: TilemapComponent claims {} layers; refusing to restore.", layerCount);
                 ar.SetError();

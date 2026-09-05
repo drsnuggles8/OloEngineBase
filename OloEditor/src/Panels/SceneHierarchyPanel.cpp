@@ -2572,6 +2572,12 @@ namespace OloEngine
                 }
                 ImGui::EndDragDropTarget();
             }
+            if (component.TilesetHandle != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##Tileset"))
+                    component.TilesetHandle = 0;
+            }
 
             ImGui::ColorEdit4("Color", glm::value_ptr(component.Color));
             ImGui::DragFloat("Tile Size", &component.TileSize, 0.01f, 0.0001f, 10000.0f);

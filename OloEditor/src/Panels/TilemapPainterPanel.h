@@ -38,10 +38,9 @@ namespace OloEngine
 
         TilemapPainterPanel() = default;
 
-        void SetContext(const Ref<Scene>& scene)
-        {
-            m_Context = scene;
-        }
+        // Swapping scenes settles any in-flight stroke and drops per-scene state;
+        // a repeat call with the same scene is a no-op (it is called every frame).
+        void SetContext(const Ref<Scene>& scene);
         void SetCommandHistory(CommandHistory* history)
         {
             m_CommandHistory = history;
@@ -60,6 +59,11 @@ namespace OloEngine
         // @param mouseDown left button held, with the editor's own suppressions
         //                  (gizmo hover, alt-orbit) already applied.
         void OnUpdate(const Ray& mouseRay, bool hasRay, bool mouseDown);
+
+        // Called every frame regardless of whether the painter is eligible to
+        // paint, so an interrupted stroke can settle instead of being stranded.
+        // `eligible` is the same condition that gates OnUpdate.
+        void OnFrameTick(bool eligible);
 
         [[nodiscard]] Mode GetMode() const
         {

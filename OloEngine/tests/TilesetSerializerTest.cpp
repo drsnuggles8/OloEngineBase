@@ -94,8 +94,18 @@ namespace OloEngine::Tests
         auto source = Ref<Tileset>::Create();
         source->SetTextureSize(256, 128);
 
-        auto loaded = RoundTrip(source);
+        std::string yaml;
+        auto loaded = RoundTrip(source, &yaml);
         ASSERT_TRUE(loaded);
+
+        // Assert on the EMITTED YAML too. Checking only the loaded zeros would
+        // still pass if the writer emitted the dimensions and the reader simply
+        // ignored them — the file would carry a value that goes stale the moment
+        // the atlas is re-exported.
+        EXPECT_EQ(yaml.find("TextureWidth"), std::string::npos) << yaml;
+        EXPECT_EQ(yaml.find("TextureHeight"), std::string::npos) << yaml;
+        EXPECT_EQ(yaml.find("256"), std::string::npos) << yaml;
+
         EXPECT_EQ(loaded->GetTextureWidth(), 0u);
         EXPECT_EQ(loaded->GetTextureHeight(), 0u);
     }

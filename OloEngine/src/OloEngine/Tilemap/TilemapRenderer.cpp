@@ -115,9 +115,16 @@ namespace OloEngine
                                 const glm::vec3 center{ (static_cast<f32>(x) + 0.5f) * tileSize,
                                                         (static_cast<f32>(y) + 0.5f) * tileSize,
                                                         layer.ZOffset };
-                                const glm::mat4 tileTransform = transform *
-                                                                glm::translate(glm::mat4(1.0f), center) *
-                                                                glm::scale(glm::mat4(1.0f), { tileSize, tileSize, 1.0f });
+                                // translate(center) * scale(tileSize) written out: for a
+                                // pure translate+scale the product is just a scaled
+                                // diagonal with the centre in the last column. Built
+                                // directly to keep two temporary mat4s and two 4x4
+                                // multiplies out of the innermost per-tile loop.
+                                glm::mat4 local(1.0f);
+                                local[0][0] = tileSize;
+                                local[1][1] = tileSize;
+                                local[3] = glm::vec4(center, 1.0f);
+                                const glm::mat4 tileTransform = transform * local;
 
                                 Renderer2D::DrawQuad(tileTransform, texture, uvMin, uvMax, tint, entityID);
                                 ++stats.TilesSubmitted;

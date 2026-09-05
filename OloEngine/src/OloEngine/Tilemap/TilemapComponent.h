@@ -145,9 +145,15 @@ namespace OloEngine
             return true;
         }
 
-        // Adds a layer sized to the current grid and returns its index.
+        // Adds a layer sized to the current grid and returns its index, or
+        // Layers.size() unchanged when the cap has been reached.
         sizet AddLayer(std::string name)
         {
+            if (Layers.size() >= kMaxLayers)
+            {
+                OLO_CORE_WARN("TilemapComponent::AddLayer - refusing to exceed {} layers.", kMaxLayers);
+                return Layers.empty() ? 0 : Layers.size() - 1;
+            }
             TileLayer layer;
             layer.Name = std::move(name);
             layer.Tiles.assign(static_cast<sizet>(Width) * static_cast<sizet>(Height), kEmptyTile);
@@ -159,6 +165,11 @@ namespace OloEngine
         // 4096x4096 tiles is already 16.7M entries per layer; beyond it a caller
         // (a script, a corrupt file) is asking for an allocation failure, not a map.
         static constexpr u32 kMaxExtent = 4096;
+
+        // Largest layer count AddLayer will create and a load will restore. Lua
+        // exposes addLayer, so without a cap a script loop allocates Width*Height
+        // per call until it throws.
+        static constexpr sizet kMaxLayers = 4096;
 
         // Re-sizes the grid, preserving the tiles that still fall inside it. A
         // no-op when the extent is unchanged or out of [1, kMaxExtent].

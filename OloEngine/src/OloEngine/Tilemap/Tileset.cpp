@@ -6,17 +6,30 @@ namespace OloEngine
     namespace
     {
         // Tiles that fit along one axis of `extent` pixels given the Tiled-style
-        // margin/spacing layout: margin + n*tile + (n-1)*spacing <= extent.
+        // margin/spacing layout. `Margin` is a border around the WHOLE image, so it
+        // is subtracted at both ends:
+        //     2*margin + n*tile + (n-1)*spacing <= extent
+        // Counting only the leading margin overcounts by one whenever the trailing
+        // border is what runs out, and that tile then slices into the border.
+        // Matches Tiled's own (imageWidth - 2*margin + spacing) / (tileWidth + spacing).
+        //
         // Returns 0 rather than a negative count when the atlas is too small.
         u32 AxisCount(u32 extent, u32 tile, u32 spacing, u32 margin)
         {
-            if (tile == 0 || extent <= margin)
+            if (tile == 0)
                 return 0;
-            const u32 usable = extent - margin;
+            // Widened before any addition: these come from an asset file, so
+            // `tile + spacing` can wrap to 0 in u32 and divide by zero, and
+            // `usable + spacing` can wrap on its own.
+            const u64 border = 2ull * margin;
+            if (extent <= border)
+                return 0;
+            const u64 usable = static_cast<u64>(extent) - border;
             if (usable < tile)
                 return 0;
             // The last tile has no trailing spacing, so add one span back before dividing.
-            return (usable + spacing) / (tile + spacing);
+            const u64 stride = static_cast<u64>(tile) + spacing;
+            return static_cast<u32>((usable + spacing) / stride);
         }
     } // namespace
 

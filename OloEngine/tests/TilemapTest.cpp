@@ -63,6 +63,29 @@ namespace OloEngine::Tests
         EXPECT_EQ(tileset->GetRows(), 3u);
     }
 
+    TEST(TilesetSlicing, MarginIsSubtractedAtBothEndsNotJustTheLeadingOne)
+    {
+        // 78 px, 16 px tiles, 4 px spacing, 2 px margin.
+        //   4 tiles need 2 + 4*16 + 3*4 + 2 = 80 px  -> does not fit
+        //   3 tiles need 2 + 3*16 + 2*4  + 2 = 60 px  -> fits
+        // Counting only the LEADING margin gives (78-2+4)/20 = 4 and slices a
+        // fourth tile straight into the trailing border. Tiled's own formula,
+        // (extent - 2*margin + spacing) / (tile + spacing), gives 3.
+        auto tileset = MakeTileset(/*texW=*/78, /*texH=*/78, /*tile=*/16, /*spacing=*/4, /*margin=*/2);
+        EXPECT_EQ(tileset->GetColumns(), 3u);
+        EXPECT_EQ(tileset->GetRows(), 3u);
+    }
+
+    TEST(TilesetSlicing, AbsurdSpacingReportsAnEmptyAtlasRatherThanWrapping)
+    {
+        // Spacing comes from an asset file. In u32, `tile + spacing` wraps to 0
+        // here and the division is by zero; the count is computed wide instead.
+        auto tileset = MakeTileset(/*texW=*/64, /*texH=*/64, /*tile=*/16,
+                                   /*spacing=*/0xFFFFFFF0u, /*margin=*/0);
+        EXPECT_EQ(tileset->GetColumns(), 1u);
+        EXPECT_EQ(tileset->GetRows(), 1u);
+    }
+
     TEST(TilesetSlicing, ReportsAnEmptyAtlasRatherThanDividingByZero)
     {
         auto tileset = MakeTileset();

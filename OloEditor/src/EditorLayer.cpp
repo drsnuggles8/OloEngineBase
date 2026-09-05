@@ -1781,6 +1781,12 @@ namespace OloEngine
         // releasing the terrain it holds. Skipping the call would strand it.
         m_TerrainEditorPanel.OnFrameTick(m_ShowTerrainEditor && m_SceneState == SceneState::Edit);
 
+        // Same rationale as the terrain tick above: a paint stroke interrupted by a
+        // throttled frame, by the cursor leaving the viewport, or by leaving Edit
+        // mode still has to settle and push its undo entry.
+        m_TilemapPainterPanel.OnFrameTick(m_ShowTilemapPainter && m_TilemapPainterPanel.IsActive() &&
+                                          m_ViewportHovered && m_SceneState == SceneState::Edit);
+
         if (!skipRender)
         {
             auto [mx, my] = ImGui::GetMousePos();
@@ -2322,12 +2328,7 @@ namespace OloEngine
             ImGui::MenuItem("Renderer Settings", nullptr, &m_ShowRendererSettings);
             ImGui::MenuItem("Terrain Editor", nullptr, &m_ShowTerrainEditor);
             ImGui::MenuItem("Instance Scatter Brush", nullptr, &m_ShowInstanceScatterBrush);
-            // Drive the panel's own Visible flag from the menu as well. OnImGuiRender
-            // early-returns while Visible is false and EditorLayer copies Visible back
-            // into m_ShowTilemapPainter afterwards, so without this a window closed by
-            // its X could never be reopened for the rest of the session.
-            if (ImGui::MenuItem("Tilemap Painter", nullptr, &m_ShowTilemapPainter))
-                m_TilemapPainterPanel.Visible = m_ShowTilemapPainter;
+            ImGui::MenuItem("Tilemap Painter", nullptr, &m_ShowTilemapPainter);
             ImGui::MenuItem("Scene Streaming", nullptr, &m_ShowStreamingPanel);
             ImGui::MenuItem("Input Settings", nullptr, &m_ShowInputSettings);
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
@@ -2894,6 +2895,13 @@ namespace OloEngine
 
         if (m_ShowTilemapPainter)
         {
+            // m_ShowTilemapPainter is flipped on from the View menu and over MCP
+            // (McpPanelVisibility), while the panel owns its own Visible flag and
+            // OnImGuiRender early-returns on it. Re-syncing here covers every
+            // toggler at once: without it, a window closed by its X can never be
+            // reopened, because the reopen is immediately overwritten by the
+            // `= Visible` copy at the end of this block.
+            m_TilemapPainterPanel.Visible = true;
             m_TilemapPainterPanel.SetContext(m_ActiveScene);
             m_TilemapPainterPanel.SetTargetEntity(m_SceneHierarchyPanel.GetSelectedEntity());
             m_TilemapPainterPanel.OnImGuiRender();
@@ -3563,6 +3571,7 @@ namespace OloEngine
         // Same pattern again for the tilemap painter: a click in a paint mode
         // writes a tile instead of changing the selection.
         if (m_ShowTilemapPainter && m_TilemapPainterPanel.IsActive() &&
+            m_SceneState == SceneState::Edit &&
             e.GetMouseButton() == Mouse::ButtonLeft && m_ViewportHovered &&
             !Input::IsKeyPressed(Key::LeftAlt))
         {
@@ -4529,6 +4538,8 @@ namespace OloEngine
         m_NavMeshPanel.SetContext(scene);
         m_BehaviorTreeEditorPanel.SetContext(scene);
         m_FSMEditorPanel.SetContext(scene);
+        m_TilemapPainterPanel.SetContext(scene);
+        m_TilemapPainterPanel.SetCommandHistory(history);
         m_AudioEventsPanel.SetActiveScene(scene);
     }
 
@@ -4646,8 +4657,6 @@ namespace OloEngine
         m_TerrainEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_InstanceScatterBrushPanel.SetContext(m_EditorScene);
         m_InstanceScatterBrushPanel.SetCommandHistory(&m_CommandHistory);
-        m_TilemapPainterPanel.SetContext(m_EditorScene);
-        m_TilemapPainterPanel.SetCommandHistory(&m_CommandHistory);
         m_StreamingPanel.SetContext(m_EditorScene);
         m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
         m_StatisticsPanel.SetContext(m_EditorScene);
