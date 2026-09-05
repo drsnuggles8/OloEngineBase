@@ -115,6 +115,25 @@ Two mechanical traps on the way:
   *every* shader in the repo, so a failure there is the validator, not your shader — A/B
   against an existing one before chasing it.
 
+**Getting the work to the context thread is the other half.** A compute encoder is only
+useful if the thing that cooks can call it, and in this engine the thing that cooks —
+`AssetPackBuilder` — runs its whole build on a worker thread (`Tasks::Launch` in
+`EditorLayer`, an `FThread` in `AssetPackBuilderPanel`). A GL context belongs to one
+thread, so an encode call from there cannot touch the GPU.
+
+Do not add a pump for this. `Application::Run` already drains the game thread's task
+queue at the top of every frame, so the encoder queues the job, enqueues a
+`FNamedThreadManager` task that drains its queue, and blocks — no new call site in the
+frame loop, and a test can play the game thread by calling the drain itself, which is how
+`BC6HGpuEncoder.AWorkerThreadsEncodeIsMarshalledToTheContextThread` verifies the real
+path headlessly.
+
+Bound the wait, and latch on the first timeout. A host where nothing drains the queue
+(no frame loop, a context that never came up) must not hang the cook, and must not pay
+the timeout once per mip level either — one give-up turns the whole path off and the
+bake finishes on the CPU. The job also has to OWN its input, because a waiter that gives
+up leaves the context thread holding the only reference.
+
 **The binding trick is the reusable part.** `ShaderBindingLayout` records UBO 65 as the last
 free UBO number engine-wide and the storage-buffer namespace is effectively full, so a new
 compute pass that wants to return bulk data has nowhere obvious to put it. This one takes

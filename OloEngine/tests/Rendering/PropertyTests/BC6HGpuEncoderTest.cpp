@@ -24,12 +24,14 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <system_error>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
@@ -196,6 +198,7 @@ TEST(BC6HGpuEncoder, MatchesTheCpuEncoderOnUnsignedHDR)
 {
     OLO_ENSURE_GPU_OR_SKIP();
     ScopedEditorWorkingDirectory cwd;
+    BC6HGpu::SetContextThreadToCurrent();
     if (!BC6HGpu::IsAvailable())
         GTEST_SKIP() << "BC6H compute shaders unavailable on this context.";
 
@@ -206,6 +209,7 @@ TEST(BC6HGpuEncoder, MatchesTheCpuEncoderOnSignedHDR)
 {
     OLO_ENSURE_GPU_OR_SKIP();
     ScopedEditorWorkingDirectory cwd;
+    BC6HGpu::SetContextThreadToCurrent();
     if (!BC6HGpu::IsAvailable())
         GTEST_SKIP() << "BC6H compute shaders unavailable on this context.";
 
@@ -218,6 +222,7 @@ TEST(BC6HGpuEncoder, HandlesAPartialEdgeBlock)
     // it re-implements a CPU behaviour (GatherBlockRGBFloat) rather than porting it.
     OLO_ENSURE_GPU_OR_SKIP();
     ScopedEditorWorkingDirectory cwd;
+    BC6HGpu::SetContextThreadToCurrent();
     if (!BC6HGpu::IsAvailable())
         GTEST_SKIP() << "BC6H compute shaders unavailable on this context.";
 
@@ -252,6 +257,7 @@ TEST(BC6HGpuEncoder, TheRegisteredHookRoutesEncodeBC6HThroughTheGpuAndIsCounted)
     // only show up as a slow bake.
     OLO_ENSURE_GPU_OR_SKIP();
     ScopedEditorWorkingDirectory cwd;
+    BC6HGpu::SetContextThreadToCurrent();
     if (!BC6HGpu::IsAvailable())
         GTEST_SKIP() << "BC6H compute shaders unavailable on this context.";
 
@@ -294,6 +300,7 @@ TEST(BC6HGpuEncoder, ReportsTheEncodeTimeOfBothPaths)
     // roughly what order.
     OLO_ENSURE_GPU_OR_SKIP();
     ScopedEditorWorkingDirectory cwd;
+    BC6HGpu::SetContextThreadToCurrent();
     if (!BC6HGpu::IsAvailable())
         GTEST_SKIP() << "BC6H compute shaders unavailable on this context.";
 
@@ -336,4 +343,93 @@ TEST(BC6HGpuEncoder, ReportsTheEncodeTimeOfBothPaths)
     ::testing::Test::RecordProperty("EncodeGpu_ms", std::to_string(gpuMs));
 
     EXPECT_EQ(gpuBlocks.size(), cpuImage.Mips[0].size());
+}
+
+TEST(BC6HGpuEncoder, AWorkerThreadsEncodeIsMarshalledToTheContextThread)
+{
+    // This is the path a real cook takes. AssetPackBuilder runs the whole build on a
+    // worker (Tasks::Launch / FThread), so the encode call does NOT arrive on the thread
+    // holding the GL context — it is queued, and the context thread runs it.
+    //
+    // The test plays both parts: this thread is the context thread and drains the queue,
+    // a spawned thread does what the cook's worker does. Without the marshalling the
+    // worker's call refuses and every level silently finishes on the CPU, which is exactly
+    // the failure this is here to catch — so the counters are asserted, not just the
+    // pixels.
+    OLO_ENSURE_GPU_OR_SKIP();
+    ScopedEditorWorkingDirectory cwd;
+    BC6HGpu::SetContextThreadToCurrent();
+    if (!BC6HGpu::IsAvailable())
+        GTEST_SKIP() << "BC6H compute shaders unavailable on this context.";
+
+    const std::vector<f32> source = MakeMixedHDR(8.0f);
+
+    TextureCompression::ResetBC6HEncodeCounts();
+    BC6HGpu::RegisterWithTextureCompression();
+
+    std::atomic<bool> finished{ false };
+    CompressedTextureImage image;
+    std::thread worker([&]
+                       {
+                           image = TextureCompression::EncodeBC6H(source.data(), kDim, kDim, 3,
+                                                                  /*isSigned*/ false, /*mips*/ true);
+                           finished.store(true, std::memory_order_release); });
+
+    // Stand in for Application::Run's per-frame ProcessTasks drain. Bounded so a
+    // regression that stops queuing fails the test instead of hanging the suite.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    u32 pumped = 0;
+    while (!finished.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline)
+        pumped += BC6HGpu::PumpPendingJobs();
+    worker.join();
+    BC6HGpu::UnregisterFromTextureCompression();
+
+    ASSERT_TRUE(finished.load(std::memory_order_acquire)) << "the worker never finished encoding";
+    ASSERT_TRUE(image.IsValid());
+
+    const auto counts = TextureCompression::GetBC6HEncodeCounts();
+    std::printf("[ BC6H GPU ] marshalled from a worker: %llu level(s) on the GPU, %llu on the CPU (%u batches)\n",
+                static_cast<unsigned long long>(counts.GpuLevels),
+                static_cast<unsigned long long>(counts.CpuLevels), pumped);
+    EXPECT_EQ(counts.GpuLevels, static_cast<u64>(image.MipLevels()))
+        << "a worker's levels must reach the GPU through the queue, not fall back to the CPU";
+    EXPECT_EQ(counts.CpuLevels, 0u);
+    EXPECT_GT(pumped, 0u) << "nothing was ever drained — the job never reached the queue";
+
+    // And the marshalled result must be the same encode, not merely a valid one.
+    std::vector<u8> direct;
+    ASSERT_TRUE(BC6HGpu::EncodeLevel(source.data(), kDim, kDim, false, direct));
+    EXPECT_EQ(image.Mips[0], direct) << "marshalled blocks differ from the same encode run inline";
+}
+
+TEST(BC6HGpuEncoder, AnUndrainedQueueGivesUpOnceInsteadOfHanging)
+{
+    // The safety valve. If nothing drains the queue — a host with no frame loop, a
+    // context thread that never came up — a blocked worker must not wait forever, and it
+    // must not pay the timeout again on the next level. One give-up, then the whole path
+    // latches off and the bake finishes on the CPU encoder.
+    //
+    // No GPU needed: this exercises the queue and the latch, not the shader.
+    BC6HGpu::Shutdown(); // clears the context thread, so nothing can drain
+    TextureCompression::ResetBC6HEncodeCounts();
+    BC6HGpu::RegisterWithTextureCompression();
+
+    constexpr u32 kSmall = 8;
+    const std::vector<f32> source(static_cast<sizet>(kSmall) * kSmall * 3, 1.0f);
+
+    const auto start = std::chrono::steady_clock::now();
+    const CompressedTextureImage image =
+        TextureCompression::EncodeBC6H(source.data(), kSmall, kSmall, 3, /*isSigned*/ false, /*mips*/ true);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    BC6HGpu::UnregisterFromTextureCompression();
+
+    ASSERT_TRUE(image.IsValid()) << "the cook must still produce a chain";
+    const auto counts = TextureCompression::GetBC6HEncodeCounts();
+    EXPECT_EQ(counts.GpuLevels, 0u);
+    EXPECT_EQ(counts.CpuLevels, static_cast<u64>(image.MipLevels()))
+        << "every level should have finished on the CPU encoder";
+    // With no context thread recorded the encoder refuses outright rather than queueing,
+    // so this is fast; the assertion is that it is not N x the 5 s job timeout.
+    EXPECT_LT(std::chrono::duration_cast<std::chrono::seconds>(elapsed).count(), 10)
+        << "an undrained queue must not cost a timeout per mip level";
 }

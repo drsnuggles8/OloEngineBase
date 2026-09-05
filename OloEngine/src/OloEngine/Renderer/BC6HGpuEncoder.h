@@ -21,15 +21,26 @@
 // frame. TextureCompression::EncodeBC6H uses it only when SetGpuBC6HEncoder has been
 // handed the hook below, so the CPU-only cook (and every headless test) is unaffected.
 //
-// WHO MAY REGISTER IT, and why nothing in-tree does yet. Every call here is a GL call,
-// so the hook must be registered from the thread that owns the graphics context, and
-// EncodeLevel refuses (loudly, once) on any other — the counters in TextureCompression
-// then show the levels that fell back. The engine's only bulk texture cook today is
-// AssetPackBuilder's, and BOTH of its entry points run the build on a worker thread
-// (EditorLayer's Tasks::Launch and AssetPackBuilderPanel's FThread), so registering it
-// there would be inert at best. Making the pack build use this needs the texture cook
-// moved onto the context-owning thread, which is its own piece of work; until then this
-// is a ready fast path with an explicit switch rather than an automatic one.
+// THREADING. Every call in here is a GL call, so all of it happens on the thread that
+// owns the graphics context — the one that called SetContextThreadToCurrent(), which
+// Renderer::Init does. The engine's only bulk texture cook is AssetPackBuilder's, and
+// BOTH of its entry points run the build on a WORKER thread (EditorLayer's
+// Tasks::Launch, AssetPackBuilderPanel's FThread), so an encode call from a cook does
+// not arrive on the context thread.
+//
+// Rather than refuse it, an off-thread call is marshalled: the job goes on a queue and
+// the caller blocks until the context thread runs it. The context thread picks it up
+// through the game thread's existing task queue — Application::Run already drains that
+// at the top of every frame — so no new pump and no new call site in the frame loop.
+// PumpPendingJobs() is that drain, and is also what a test calls to play the part of
+// the game thread.
+//
+// AssetPackBuilder's TextureCookScope registers the hook for the length of a build, so
+// an asset-pack bake with compression on encodes its HDR textures this way.
+//
+// If the queue is never drained (a host with no frame loop, a context thread that
+// never came up), the wait is bounded: the job gives up, the level finishes on the CPU,
+// and the whole GPU path latches off so the next level does not pay the timeout again.
 
 namespace OloEngine::BC6HGpu
 {
@@ -47,8 +58,22 @@ namespace OloEngine::BC6HGpu
     [[nodiscard]] bool EncodeLevel(const f32* rgb, u32 width, u32 height, bool isSigned,
                                    std::vector<u8>& outBlocks);
 
-    // Releases the cached shaders and scratch textures. Safe to call without a context
-    // and safe to call twice.
+    // Records the CALLING thread as the one holding the graphics context. Called by
+    // Renderer::Init; a test that brings up its own context calls it directly. Until it
+    // is called, EncodeLevel has nowhere to marshal to and refuses off-thread work.
+    void SetContextThreadToCurrent();
+
+    // Runs any encode jobs queued by other threads. MUST be called on the context
+    // thread; it is a no-op anywhere else and a no-op when the queue is empty.
+    // Returns how many jobs it ran.
+    //
+    // In the editor this is reached through a game-thread task the encoder enqueues
+    // itself, so the existing per-frame drain in Application::Run services it. A test
+    // calls it directly.
+    u32 PumpPendingJobs();
+
+    // Releases the cached shaders and scratch textures, and fails any queued jobs so
+    // their waiters are not left blocked. Safe to call without a context and twice.
     void Shutdown();
 
     // Registers EncodeLevel as TextureCompression's BC6H GPU hook, and records the

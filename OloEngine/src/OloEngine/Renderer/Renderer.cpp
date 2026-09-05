@@ -23,6 +23,12 @@ namespace OloEngine
         RenderCommand::Init();
         s_RendererType = type;
 
+        // This thread owns the graphics context, and is therefore the only one the GPU
+        // BC6H encoder may issue GL from (#624). Recorded here rather than at first use
+        // because the cook that reaches for it runs on a worker and has to know where to
+        // marshal to. No GL work and no hook installed by this — see BC6HGpuEncoder.h.
+        BC6HGpu::SetContextThreadToCurrent();
+
         // Symmetric with the Shutdown() call at the bottom of Renderer::Shutdown(),
         // which is the only half that existed: Initialize() had NO callers, so the
         // tracker never sized its history buffers and — worse — never cleared the
