@@ -163,8 +163,38 @@ fi
 #     run looks like it is making progress through a flake.
 #
 # Job count is capped rather than $(nproc) — see CLAUDE.md's "never uncapped" rule.
-# This box reports 28 CPUs and also hosts CI runners for another repo.
-_make_jobs="${OLO_FFMPEG_JOBS:-6}"
+# This box reports 28 CPUs and also hosts CI runners for another repo. The env
+# override is validated and clamped rather than trusted: an unvalidated
+# OLO_FFMPEG_JOBS would reintroduce exactly the uncapped build this cap exists to
+# prevent (and a non-numeric value would reach make as a bad -j argument). Same
+# discipline as OLO_HEAVY_COMPILE_JOBS / OLO_LINK_JOBS in the root CMakeLists.
+_make_jobs_default=6
+_make_jobs_max=12
+_make_jobs="${OLO_FFMPEG_JOBS:-$_make_jobs_default}"
+case "$_make_jobs" in
+    ''|*[!0-9]*)
+        echo "warn: OLO_FFMPEG_JOBS='$_make_jobs' is not a positive integer — using $_make_jobs_default" >&2
+        _make_jobs="$_make_jobs_default"
+        ;;
+esac
+if [ "$_make_jobs" -lt 1 ]; then
+    echo "warn: OLO_FFMPEG_JOBS=$_make_jobs is below 1 — using $_make_jobs_default" >&2
+    _make_jobs="$_make_jobs_default"
+fi
+if [ "$_make_jobs" -gt "$_make_jobs_max" ]; then
+    echo "warn: OLO_FFMPEG_JOBS=$_make_jobs exceeds the cap — using $_make_jobs_max" >&2
+    _make_jobs="$_make_jobs_max"
+fi
+
+# The ONLY failure worth retrying, matched explicitly. Retrying on the ABSENCE of
+# a recognised diagnostic would be the same mistake in a new shape: an OOM-killed
+# compiler, or a bare `make: *** [x] Error 1`, prints nothing this classifier
+# knows and would quietly earn five more rounds.
+_transient_re='Device or resource busy|Text file busy|Resource temporarily unavailable'
+# What to show when the build really failed. One regex, used by nothing else, so
+# the excerpt cannot drift out of step with the decision to fail.
+_diag_re='error [A-Z][0-9]{4}|error:|Error [0-9]+|No such file or directory|Killed|\*\*\*'
+
 _make_log="$(pwd)/ffbuild-make.log"
 _make_attempt=1
 _make_max=5
@@ -174,21 +204,24 @@ while :; do
         break
     fi
 
-    # Classify before retrying. A compiler/assembler diagnostic or a missing tool is
-    # ours to fix; only the symlink/copy race gets another go.
-    if grep -qE 'error [A-Z][0-9]{4}|error:|Error 127|No such file or directory' "$_make_log"; then
+    if ! grep -qE "$_transient_re" "$_make_log"; then
         echo "=== ffmpeg build failed with a real error (not a retryable race) ===" >&2
-        grep -nE 'error [A-Z][0-9]{4}|error:|Error 127|\*\*\*' "$_make_log" | head -20 >&2
+        # -m20 rather than `| head -20`: under `set -o pipefail` head closing the
+        # pipe early gives grep SIGPIPE (141) and `set -e` would kill the script
+        # here, before the log path below is printed. `|| true` covers the other
+        # half — grep exits 1 when it matches nothing, which is not a reason to
+        # skip the one line telling the reader where the full log is.
+        grep -m20 -nE "$_diag_re" "$_make_log" >&2 || true
         echo "=== full log: $_make_log ===" >&2
         exit 1
     fi
     if [ "$_make_attempt" -ge "$_make_max" ]; then
-        echo "make failed after $_make_attempt attempts; last 40 lines:" >&2
+        echo "make failed after $_make_attempt attempts, each with a transient signature; last 40 lines:" >&2
         tail -40 "$_make_log" >&2
         echo "=== full log: $_make_log ===" >&2
         exit 1
     fi
-    echo "=== make attempt $_make_attempt failed, no diagnostic in the log (transient EBUSY symlink?) — retrying in 3s ===" >&2
+    echo "=== make attempt $_make_attempt hit a transient copy/symlink race — retrying in 3s ===" >&2
     _make_attempt=$((_make_attempt + 1))
     sleep 3
 done
