@@ -17,6 +17,9 @@
 #include "SystemScheduler.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/InstancePlacementAsset.h"
+#include "OloEngine/Tilemap/TilemapRenderer.h"
+#include "OloEngine/Tilemap/TilemapColliderBuilder.h"
+#include "OloEngine/Tilemap/Tileset.h"
 #include "OloEngine/Asset/VolumeAsset.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
@@ -4507,6 +4510,8 @@ namespace OloEngine
                                                              // World-space 2D overlays (sprites, circles, text)
                                                              Renderer2D::BeginScene(*mainCamera, cameraTransform);
 
+                                                             RenderTilemaps(mainCamera->GetProjection() * glm::inverse(cameraTransform));
+
                                                              for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
                                                              {
                                                                  const auto& sprite = group.get<SpriteRendererComponent>(entity);
@@ -4546,6 +4551,8 @@ namespace OloEngine
 
                 // 2D mode - render directly (no render graph)
                 Renderer2D::BeginScene(*mainCamera, cameraTransform);
+
+                RenderTilemaps(mainCamera->GetProjection() * glm::inverse(cameraTransform));
 
                 for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
                 {
@@ -4809,6 +4816,12 @@ namespace OloEngine
                 Renderer3D::SetUICompositeRenderCallback([this, &camera]()
                                                          {
                                                              Renderer2D::BeginScene(camera);
+
+                                                             // Tilemaps are 2D content but authors edit them in whichever
+                                                             // mode the viewport is in, so they draw here too — otherwise a
+                                                             // map painted in 2D mode vanishes the moment the editor is
+                                                             // switched to 3D.
+                                                             RenderTilemaps(camera.GetViewProjection());
 
                                                              for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                                                              {
@@ -5550,6 +5563,80 @@ namespace OloEngine
 
                 b2Circle circle = { b2Vec2(cc2d.Offset.x, cc2d.Offset.y), transform.Scale.x * cc2d.Radius };
                 b2CreateCircleShape(body, &shapeDef, &circle);
+            }
+        }
+
+        BuildTilemapColliders();
+    }
+
+    void Scene::BuildTilemapColliders()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // One static body per tilemap entity, carrying one polygon shape per
+        // merged run of solid tiles. A tilemap entity needs no Rigidbody2D of its
+        // own: the map IS the static world, so the body is created here rather
+        // than in the Rigidbody2D loop above.
+        for (const auto view = m_Registry.view<TransformComponent, TilemapComponent>(); const auto e : view)
+        {
+            const auto& tilemap = view.get<TilemapComponent>(e);
+            if (!tilemap.GenerateColliders)
+                continue;
+
+            auto tileset = AssetManager::GetAsset<Tileset>(tilemap.TilesetHandle);
+            if (!tileset)
+            {
+                OLO_CORE_WARN("Scene::BuildTilemapColliders - entity {} has GenerateColliders set but tileset {} is unavailable; no collision was created.",
+                              static_cast<u32>(std::to_underlying(e)), static_cast<u64>(tilemap.TilesetHandle));
+                continue;
+            }
+
+            const auto rects = TilemapCollider::BuildColliderRects(tilemap, tileset);
+            if (rects.empty())
+                continue;
+
+            // Place the body from the WORLD transform, matching RenderTilemaps.
+            // Reading the local TransformComponent (as the Rigidbody2D loop above
+            // does) would draw a parented tilemap in one place and collide with it
+            // in another.
+            glm::vec3 worldTranslation{ 0.0f };
+            glm::vec3 worldRotation{ 0.0f };
+            glm::vec3 worldScale{ 1.0f };
+            if (!Math::DecomposeTransform(GetWorldTransform(e), worldTranslation, worldRotation, worldScale))
+            {
+                OLO_CORE_WARN("Scene::BuildTilemapColliders - entity {} has a non-decomposable world transform; skipping its collision.",
+                              static_cast<u32>(std::to_underlying(e)));
+                continue;
+            }
+
+            b2BodyDef bodyDef = b2DefaultBodyDef();
+            bodyDef.type = b2_staticBody;
+            bodyDef.position = { worldTranslation.x, worldTranslation.y };
+            bodyDef.rotation = b2MakeRot(worldRotation.z);
+            b2BodyId body = b2CreateBody(m_PhysicsWorld, &bodyDef);
+
+            b2ShapeDef shapeDef = b2DefaultShapeDef();
+            shapeDef.material.friction = tilemap.ColliderFriction;
+            shapeDef.material.restitution = tilemap.ColliderRestitution;
+
+            const f32 tileSize = tilemap.TileSize;
+            for (const auto& rect : rects)
+            {
+                // b2MakeOffsetBox takes half-extents and a centre, both in the
+                // body's local frame. The tile grid starts at the body origin and
+                // grows +X / +Y, so the run's centre is its lower-left corner plus
+                // half its extent, scaled by the entity's own scale.
+                // Half-extents must stay positive: a mirrored tilemap (negative
+                // scale) would otherwise hand b2MakeOffsetBox a negative extent,
+                // inverting the polygon winding against fixed normals. The centre
+                // keeps the sign, so a mirrored map still collides where it draws.
+                const f32 halfW = 0.5f * static_cast<f32>(rect.Width) * tileSize * std::abs(worldScale.x);
+                const f32 halfH = 0.5f * static_cast<f32>(rect.Height) * tileSize * std::abs(worldScale.y);
+                const f32 centerX = (static_cast<f32>(rect.X) * tileSize + 0.5f * static_cast<f32>(rect.Width) * tileSize) * worldScale.x;
+                const f32 centerY = (static_cast<f32>(rect.Y) * tileSize + 0.5f * static_cast<f32>(rect.Height) * tileSize) * worldScale.y;
+
+                b2Polygon polygon = b2MakeOffsetBox(halfW, halfH, { centerX, centerY }, b2MakeRot(0.0f));
+                b2CreatePolygonShape(body, &shapeDef, &polygon);
             }
         }
     }
@@ -6463,9 +6550,36 @@ namespace OloEngine
         RenderCommand::SetDepthMask(true);
     }
 
+    void Scene::RenderTilemaps(const glm::mat4& viewProjection)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto view = m_Registry.view<TransformComponent, TilemapComponent>();
+        if (view.begin() == view.end())
+            return;
+
+        const Frustum frustum(viewProjection);
+        for (const auto entity : view)
+        {
+            const auto& tilemap = view.get<TilemapComponent>(entity);
+            auto tileset = AssetManager::GetAsset<Tileset>(tilemap.TilesetHandle);
+            if (!tileset)
+                continue;
+            auto texture = AssetManager::GetAsset<Texture2D>(tileset->GetTextureHandle());
+            if (!texture)
+                continue;
+            TilemapRenderer::Draw(tilemap, tileset, texture, GetWorldTransform(entity), frustum,
+                                  static_cast<int>(std::to_underlying(entity)));
+        }
+    }
+
     void Scene::RenderScene(EditorCamera const& camera)
     {
         Renderer2D::BeginScene(camera);
+
+        // Tilemaps first: they are the background layers every other 2D
+        // primitive is painted on top of.
+        RenderTilemaps(camera.GetViewProjection());
 
         // Draw sprites
         {
