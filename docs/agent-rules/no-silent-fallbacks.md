@@ -77,8 +77,10 @@ crash today" as "safe".
 ## The second mechanism: the fallback lives in the CALLER, and the stub's return value triggers it
 
 The rest of #1052 — why virtual geometry still rendered nothing on Vulkan after the device loss was
-fixed — is the same rule with the fallback one level up, and it is harder to see because *no* code
-in the backend is doing anything wrong.
+fixed — is the same rule with the fallback one level up, and it is harder to see because the code
+that *takes* the fallback is blameless. The defect is entirely in the backend: two operations left
+as unlowered `#691` stubs. The caller reads their return values exactly as its contract says to,
+which is what makes the stub invisible from the call site.
 
 **An unlowered function that returns `nullptr`, `false` or an empty range does not read as unlowered
 at the call site. It reads as the condition that value encodes.**
