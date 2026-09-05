@@ -4198,17 +4198,22 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Fast-path: skip the reorder when no async-compute candidate exists.
+        // Only Setup-active prepared nodes influence grouping. Disabled nodes
+        // have empty declarations and must not postpone useful work indefinitely.
+        std::unordered_map<std::string, RenderGraphNode*> recordingCandidates;
         bool hasCandidate = false;
         for (const auto& name : m_ExecutionOrder)
         {
-            if (IsGraphEntryAsyncComputeCandidate(name))
-            {
-                hasCandidate = true;
-                break;
-            }
+            hasCandidate = hasCandidate || IsGraphEntryAsyncComputeCandidate(name);
+            const auto node = m_NodeLookup.find(name);
+            const auto accesses = m_PassAccessDeclarations.find(name);
+            if (node != m_NodeLookup.end() && node->second &&
+                node->second->IsEnabled() &&
+                node->second->SupportsWholePassRecording() &&
+                accesses != m_PassAccessDeclarations.end() && !accesses->second.empty())
+                recordingCandidates.emplace(name, node->second.Raw());
         }
-        if (!hasCandidate)
+        if (!hasCandidate && recordingCandidates.size() < 2)
             return;
 
         // Modified Kahn's algorithm over m_ExecutionOrder:
@@ -4320,42 +4325,58 @@ namespace OloEngine
         std::vector<std::string> reordered;
         reordered.reserve(m_ExecutionOrder.size());
 
+        const auto emit = [&](const std::string& name)
+        {
+            auto& ready = IsGraphEntryAsyncComputeCandidate(name) ? computeReady : graphicsReady;
+            ready.erase(std::ranges::find(ready, name));
+            reordered.push_back(name);
+            if (const auto successorsIt = successors.find(name); successorsIt != successors.end())
+                for (const auto& successor : successorsIt->second)
+                    if (--inDegree[successor] == 0)
+                        classify(successor);
+        };
         while (!computeReady.empty() || !graphicsReady.empty())
         {
-            // Drain all ready compute passes before advancing any graphics pass.
-            while (!computeReady.empty())
+            std::vector<std::string> ready(computeReady.begin(), computeReady.end());
+            ready.insert(ready.end(), graphicsReady.begin(), graphicsReady.end());
+            std::vector<std::string> group;
+            for (const auto& first : ready)
             {
-                std::string name = std::move(computeReady.front());
-                computeReady.pop_front();
-                reordered.push_back(name);
-
-                auto succIt = successors.find(name);
-                if (succIt != successors.end())
+                const auto candidate = recordingCandidates.find(first);
+                if (candidate == recordingCandidates.end())
+                    continue;
+                group.clear();
+                for (const auto& name : ready)
                 {
-                    for (const auto& succ : succIt->second)
+                    const auto partner = recordingCandidates.find(name);
+                    if (partner != recordingCandidates.end() &&
+                        candidate->second->GetPassWorkType() == partner->second->GetPassWorkType() &&
+                        IsGraphEntryAsyncComputeCandidate(first) == IsGraphEntryAsyncComputeCandidate(name))
                     {
-                        if (--inDegree[succ] == 0)
-                            classify(succ);
+                        group.push_back(name);
+                        if (group.size() == 16)
+                            break;
                     }
                 }
+                if (group.size() >= 2)
+                    break;
             }
-
-            if (!graphicsReady.empty())
+            if (group.size() >= 2)
             {
-                std::string name = std::move(graphicsReady.front());
-                graphicsReady.pop_front();
-                reordered.push_back(name);
-
-                auto succIt = successors.find(name);
-                if (succIt != successors.end())
-                {
-                    for (const auto& succ : succIt->second)
-                    {
-                        if (--inDegree[succ] == 0)
-                            classify(succ);
-                    }
-                }
+                // All members were ready before any was emitted: no member can
+                // consume another. Unlock successors only after fixing this group.
+                for (const auto& name : group)
+                    emit(name);
+                continue;
             }
+
+            // A lone prepared pass may be independent of a producer which will
+            // unlock its partner (depth/velocity upscale versus particle color).
+            // Advance that ordinary work first. If only prepared nodes remain,
+            // drain the first one to guarantee progress and preserve dependencies.
+            const auto ordinary = std::ranges::find_if(ready, [&](const auto& name)
+                                                       { return !recordingCandidates.contains(name); });
+            emit(ordinary != ready.end() ? *ordinary : ready.front());
         }
 
         // Commit the reordered sequence only when it's complete.
@@ -4420,6 +4441,8 @@ namespace OloEngine
                     return const_cast<RenderGraphNode*>(nodeIt->second.Raw());
                 return nullptr;
             },
+            .IsPassReachable = [this](const std::string& passName)
+            { return IsPassReachable(passName); },
         });
     }
 

@@ -21,7 +21,10 @@
 // Device-gated; SKIPs cleanly headless (the VulkanShaderPipelineTest ladder).
 // =============================================================================
 
+// Initialize the HAL before gtest can introduce Windows Yield/MemoryBarrier macros.
+#include "OloEnginePCH.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/DebugLevers.h"
 
 #include <gtest/gtest.h>
 
@@ -44,6 +47,8 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
+#include "OloEngine/Task/NamedThreads.h"
+#include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/Passes/BloomRenderPass.h"
@@ -3034,6 +3039,109 @@ TEST_F(VulkanPassSuite, FluidIntermediatesBuildsRawTargetsAndPinsTheNoDrawEarlyO
 // wider than itself (core saturated, ring outside the blob lit, far corner
 // near-black and darker than the ring), and an all-black input stays black
 // through the whole chain (threshold-of-black = 0, additive chain of zeros).
+TEST_F(VulkanPassSuite, FluidSplatRangesMatchInlineDepthAndThickness)
+{
+    constexpr u32 kSize = 64;
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    struct RestoreLever
+    {
+        Levers::Tristate Previous = Levers::VulkanParallelRecording();
+        ~RestoreLever()
+        {
+            Levers::SetVulkanParallelRecording(Previous);
+        }
+    } restoreLever;
+    auto fluid = Ref<FluidIntermediatesPass>::Create();
+    FramebufferSpecification spec;
+    spec.Width = spec.Height = kSize;
+    fluid->Init(spec);
+    fluid->SetupFramebuffer(kSize, kSize);
+    fluid->SetEnabled(true);
+    ASSERT_TRUE(fluid->IsReadyForExecution());
+    auto sceneDepth = MakeSolidTexture(kSize, 255, 255, 255, 255);
+    ASSERT_TRUE(sceneDepth);
+    ShaderBindingLayout::CameraUBO camera{};
+    camera.View = glm::mat4(1.0f);
+    camera.Projection = glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 1000.0f);
+    camera.ViewProjection = camera.Projection;
+    camera.PrevViewProjection = camera.ViewProjection;
+    auto cameraUpload = UniformBuffer::Create(sizeof(camera), ShaderBindingLayout::UBO_CAMERA);
+    cameraUpload->SetData(&camera, sizeof(camera));
+    const glm::vec4 velocity(0.0f);
+    const std::array<u32, 8> counters{ 1u };
+    auto velocities = StorageBuffer::Create(sizeof(velocity), ShaderBindingLayout::SSBO_FLUID_VELOCITIES);
+    auto counts = StorageBuffer::Create(sizeof(counters), ShaderBindingLayout::SSBO_FLUID_COUNTERS);
+    velocities->SetData(&velocity, sizeof(velocity));
+    counts->SetData(counters.data(), sizeof(counters));
+    std::array<Ref<StorageBuffer>, 3> positions;
+    std::vector<FluidRenderData> draws;
+    for (u32 range = 0; range < positions.size(); ++range)
+    {
+        const glm::vec4 position(-0.65f + static_cast<f32>(range) * 0.65f, 0.0f, -2.0f, 1.0f);
+        positions[range] = StorageBuffer::Create(sizeof(position), ShaderBindingLayout::SSBO_FLUID_POSITIONS);
+        positions[range]->SetData(&position, sizeof(position));
+        FluidRenderData draw{};
+        draw.PositionsSSBOId = positions[range]->GetRHIHandle();
+        draw.VelocitiesSSBOId = velocities->GetRHIHandle();
+        draw.CountersSSBOId = counts->GetRHIHandle();
+        draw.ParticleUpperBound = 1;
+        draw.ParticleRadius = 0.14f + static_cast<f32>(range) * 0.04f;
+        draws.insert(draws.end(), 32, draw);
+    }
+    std::vector<f32> referenceDepth;
+    std::vector<u8> referenceThickness;
+    for (const auto lever : { Levers::Tristate::Off, Levers::Tristate::On })
+    {
+        Levers::SetVulkanParallelRecording(lever);
+        VulkanFrameArena::Get().BeginFrame(0);
+        fluid->SetFrameDraws(draws);
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        RGResourceDesc depthDesc;
+        depthDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        depthDesc.Format = RGResourceFormat::RGBA8UNorm;
+        depthDesc.Width = depthDesc.Height = kSize;
+        graph.GetBlackboard().Scene.SceneDepthAttachment =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, sceneDepth->GetRHIHandle(), depthDesc);
+        graph.AddNode(fluid);
+        graph.SetFinalPass("FluidIntermediatesPass");
+        graph.BuildFrameGraph();
+        SubmitFrame([&]
+                    {
+                        api.SetViewport(0, 0, kSize, kSize);
+                        cameraUpload->Bind();
+                        graph.Execute(); });
+        ASSERT_TRUE(fluid->RanThisFrame());
+        std::vector<f32> depth(kSize * kSize);
+        std::vector<u8> thickness(kSize * kSize * 4);
+        ASSERT_TRUE(api.ReadTextureImage(fluid->GetSmoothedDepthTextureID(), 0, RHI::Format::R32Float,
+                                         depth.size() * sizeof(f32), depth.data()));
+        ASSERT_TRUE(api.ReadTextureImage(fluid->GetThicknessTextureID(), 0, RHI::Format::RG16Float,
+                                         thickness.size(), thickness.data()));
+        if (lever == Levers::Tristate::Off)
+        {
+            referenceDepth = depth;
+            referenceThickness = thickness;
+            EXPECT_GT(std::ranges::count_if(depth, [](f32 value)
+                                            { return value > 0.5f; }),
+                      100);
+            EXPECT_TRUE(std::ranges::any_of(thickness, [](u8 value)
+                                            { return value != 0; }));
+        }
+        else
+        {
+            ASSERT_EQ(depth.size(), referenceDepth.size());
+            for (sizet i = 0; i < depth.size(); ++i)
+                EXPECT_FLOAT_EQ(depth[i], referenceDepth[i]);
+            EXPECT_EQ(thickness, referenceThickness);
+            const auto stats = api.GetParallelRecordingStats();
+            EXPECT_EQ(stats.Regions, 2u);
+            EXPECT_EQ(stats.SecondariesExecuted, 6u);
+            EXPECT_EQ(stats.MergeConflicts, 0u);
+        }
+    }
+}
+
 TEST_F(VulkanPassSuite, BloomSpreadsABrightBlobIntoAHaloAndKeepsBlackBlack)
 {
     constexpr u32 kSize = 128;
@@ -10522,6 +10630,21 @@ TEST_F(VulkanPassSuite, InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDr
 // =============================================================================
 TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
 {
+    struct RestoreLever
+    {
+        Levers::Tristate Previous = Levers::VulkanParallelRecording();
+        ~RestoreLever()
+        {
+            Levers::SetVulkanParallelRecording(Previous);
+        }
+    } restoreLever;
+    Levers::SetVulkanParallelRecording(Levers::Tristate::On);
+    if (LowLevelTasks::FScheduler::Get().GetNumWorkers() == 0u)
+    {
+        LowLevelTasks::InitGameThreadId();
+        Tasks::FNamedThreadManager::Get().AttachToThread(Tasks::ENamedThread::GameThread);
+        LowLevelTasks::FScheduler::Get().StartWorkers();
+    }
     VulkanFrameArena::Get().BeginFrame(0);
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
@@ -10584,7 +10707,9 @@ TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
     }
     const glm::vec3 lightDirection = glm::normalize(glm::vec3(0.7f, -0.45f, 0.0f));
 
-    // One static caster: a cube from the shared primitive cache.
+    // Coincident cubes retain the original known depth coverage. Distinct
+    // vertex arrays keep 96 raster batches, enough to exercise three recording
+    // items and their private parameter uploads rather than one instanced draw.
     Ref<Mesh> cube = MeshPrimitives::CreateCube();
     ASSERT_TRUE(cube) << "MeshPrimitives::CreateCube returned null on Vulkan";
     const Ref<VertexArray> vao = cube->GetVertexArray();
@@ -10603,9 +10728,19 @@ TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
     }
     ASSERT_GT(meshCasters[0].indexCount, 0u);
     ASSERT_TRUE(meshCasters[0].vaoID.IsValid());
+    std::vector<Ref<Mesh>> additionalCubes;
+    for (u32 index = 1; index < 96; ++index)
+    {
+        auto mesh = MeshPrimitives::CreateCube();
+        ASSERT_TRUE(mesh);
+        auto caster = meshCasters.front();
+        caster.vaoID = mesh->GetVertexArray()->GetRHIHandle();
+        meshCasters.push_back(caster);
+        additionalCubes.push_back(std::move(mesh));
+    }
 
     const std::vector<ShadowSkinnedCaster> skinnedCasters;
-    const auto noBones = [](const ShadowSkinnedCaster&) {};
+    const auto noBones = [](const ShadowSkinnedCaster&, UniformBuffer&) {};
 
     // INSIDE SubmitFrame's recording bracket, which is not optional and not
     // obvious: on Vulkan every DispatchCompute/Draw issued outside a bracket is
@@ -10625,6 +10760,14 @@ TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
                 vsm.UpdatePages();
                 vsm.RenderCasters(meshCasters, skinnedCasters, glm::vec3(0.0f), noBones);
                 vsm.EndFrame();
+                // Real forward draws rebind VSM sampling in every bucket item.
+                // This used to upload one shared globals UBO, even with VSM
+                // disabled; raster-only coverage never exercised the race.
+                // Scene's caller preparation publishes the sampled pool before
+                // the fork, so its transition is shared by every item.
+                vsm.BindForSampling();
+                api.RecordParallel(4u, [&](u32)
+                                   { vsm.BindForSampling(); });
                 if (mark)
                 {
                     vsm.MarkRequiredPages(sceneDepth, kDepthRes, kDepthRes, inverseViewProjection,
@@ -10643,6 +10786,10 @@ TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
     runFrame(true);
     runFrame(true);
     runFrame(false);
+
+    EXPECT_GT(api.GetParallelRecordingStats().Regions, 0u);
+    EXPECT_GE(api.GetParallelRecordingStats().SecondariesExecuted, 7u);
+    EXPECT_EQ(api.GetParallelRecordingStats().MergeConflicts, 0u);
 
     const VSM::Statistics stats = vsm.GetStatistics();
     GTEST_LOG_(INFO) << "Vulkan VSM: resident=" << stats.PagesResident << " drawn=" << stats.PagesDrawn

@@ -76,6 +76,11 @@ namespace OloEngine
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
+        [[nodiscard]] bool SupportsWholePassRecording() const noexcept override
+        {
+            return true;
+        }
+        [[nodiscard]] RGPreparedPass PrepareParallelRecording(RGCommandContext& context) override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
 
@@ -148,6 +153,8 @@ namespace OloEngine
         Ref<Texture3D> m_DensityVolumePlaceholder;
 
         Ref<UniformBuffer> m_FroxelUBO;
+        Ref<UniformBuffer> m_RecordingFroxelUBO;
+        Ref<UniformBuffer> m_RecordingForwardPlusUBO;
 
         // Previous frame's ABSOLUTE-world view-projection for 3D reprojection
         glm::mat4 m_PrevViewProjection = glm::mat4(1.0f);

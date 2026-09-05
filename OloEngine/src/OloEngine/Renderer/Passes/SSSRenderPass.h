@@ -18,6 +18,11 @@ namespace OloEngine
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
+        [[nodiscard]] bool SupportsWholePassRecording() const noexcept override
+        {
+            return true;
+        }
+        [[nodiscard]] RGPreparedPass PrepareParallelRecording(RGCommandContext& context) override;
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
@@ -26,6 +31,10 @@ namespace OloEngine
         void SetSettings(const SnowSettings& settings)
         {
             m_Settings = settings;
+        }
+        [[nodiscard]] bool IsEnabled() const noexcept override
+        {
+            return m_Settings.Enabled && m_Settings.SSSBlurEnabled;
         }
         [[nodiscard]] bool IsReadyForExecution() const noexcept override
         {
@@ -38,7 +47,6 @@ namespace OloEngine
         }
 
       private:
-        void DrawFullscreenTriangle(RGCommandContext& context) const;
         void CreateOutputFramebuffer(u32 width, u32 height);
 
         Ref<Shader> m_SSSBlurShader;

@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include <glm/glm.hpp>
 #include <vector>
+#include <array>
 
 namespace OloEngine
 {
@@ -65,6 +66,15 @@ namespace OloEngine
 
         // Bind light grid + light data SSBOs for the forward color pass
         void BindForShading();
+
+        struct ShadingSnapshot
+        {
+            UBOStructures::ForwardPlusUBO Parameters{};
+            std::array<Ref<StorageBuffer>, 5> Buffers;
+        };
+        // Caller snapshot for a prepared pass; recording only binds these
+        // immutable resources and a pass-owned copy of Parameters.
+        [[nodiscard]] ShadingSnapshot CaptureShadingBindings() const;
 
         // Unbind after color pass
         void UnbindAfterShading() const;
@@ -181,6 +191,8 @@ namespace OloEngine
         }
 
       private:
+        [[nodiscard]] UBOStructures::ForwardPlusUBO GetShadingParameters() const;
+
         LightGrid m_LightGrid;
         LightCullingBuffer m_LightBuffer;
         LightCullingPass m_CullingPass;

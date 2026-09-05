@@ -4,6 +4,7 @@
 
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGBuilder.h"
@@ -610,6 +611,7 @@ namespace OloEngine
         m_VisibilityFB[1] = nullptr;
         m_RadianceFB = nullptr;
         m_HitFB = nullptr;
+        m_CaptureItems.clear();
         m_CaptureFB = nullptr;
         m_ProbeAuxSSBO = nullptr;
         if (m_ProbeDataTexture.IsValid())
@@ -881,7 +883,7 @@ namespace OloEngine
         m_DDGIUBO->Bind();
     }
 
-    void DDGIProbeUpdatePass::UploadComputeParams(i32 probeIndexOrTotal, i32 flags)
+    void DDGIProbeUpdatePass::UploadComputeParams(i32 probeIndexOrTotal, i32 flags, UniformBuffer* target)
     {
         DDGIPassDataUBO data{};
         data.Model = glm::mat4(1.0f);
@@ -899,13 +901,14 @@ namespace OloEngine
         {
             data.PrevLattice[level] = glm::ivec4(m_PrevLattice[static_cast<sizet>(level)], 0);
         }
-        m_PassDataUBO->SetData(&data, sizeof(data));
-        m_PassDataUBO->Bind();
+        UniformBuffer* output = target ? target : m_PassDataUBO.Raw();
+        output->SetData(&data, sizeof(data));
+        output->Bind();
     }
 
-    void DDGIProbeUpdatePass::SetPassDataProbe(i32 probeIdx)
+    void DDGIProbeUpdatePass::SetPassDataProbe(i32 probeIdx, UniformBuffer* params)
     {
-        UploadComputeParams(probeIdx, 0);
+        UploadComputeParams(probeIdx, 0, params);
     }
 
     void DDGIProbeUpdatePass::BindProbeBuffers() const
@@ -1249,7 +1252,43 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
     }
 
-    void DDGIProbeUpdatePass::CaptureProbe(i32 probeIdx)
+    void DDGIProbeUpdatePass::PrepareCaptureResources(u32 count)
+    {
+        if (m_CaptureItems.size() < count)
+            m_CaptureItems.resize(count);
+        if (count == 0u)
+            return;
+        m_CaptureItems[0] = { m_CaptureFB, m_CaptureCameraUBO, m_PassDataUBO };
+        for (u32 item = 1u; item < count; ++item)
+        {
+            auto& resources = m_CaptureItems[item];
+            if (resources.Target)
+                continue;
+            resources.Target = Framebuffer::Create(m_CaptureFB->GetSpecification());
+            SetAtlasTextureParams(resources.Target->GetColorAttachmentHandle(0), RHI::Filter::Nearest);
+            SetAtlasTextureParams(resources.Target->GetColorAttachmentHandle(1), RHI::Filter::Nearest);
+            resources.Camera = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+            resources.PassData = UniformBuffer::Create(sizeof(DDGIPassDataUBO), ShaderBindingLayout::UBO_USER_0);
+        }
+        (void)MeshPrimitives::GetFullscreenTriangle(); // prime the shared lazy builder before workers
+    }
+
+    void DDGIProbeUpdatePass::RecordProbeRanges(const std::vector<i32>& probes, u32 minProbesPerItem,
+                                                const std::function<void(i32, CaptureResources&)>& body)
+    {
+        if (probes.empty())
+            return;
+        const u32 count = static_cast<u32>(std::clamp<sizet>(probes.size() / minProbesPerItem, 1u, MAX_RENDER_WORKERS));
+        OLO_CORE_ASSERT(m_CaptureItems.size() >= count, "Prepare DDGI recording items before the region");
+        RenderCommand::RecordParallel(count, [&](u32 item)
+                                      {
+            const sizet begin = probes.size() * item / count;
+            const sizet end = probes.size() * (item + 1u) / count;
+            for (sizet probe = begin; probe < end; ++probe)
+                body(probes[probe], m_CaptureItems[item]); });
+    }
+
+    void DDGIProbeUpdatePass::CaptureProbe(i32 probeIdx, CaptureResources& resources)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1270,11 +1309,11 @@ namespace OloEngine
         // radius is widened by the worst case rather than by the actual offset.
         const f32 cullRadius = farPlane + DDGI::kMaxProbeOffsetFraction * glm::length(spacing);
 
-        m_CaptureFB->Bind();
+        resources.Target->Bind();
         // Whole-grid clears (glClearTexImage under the hood — viewport-free):
         // RT0 -> (0,0,0,0), RT1 -> (0,0,-1,0) so unrendered texels read as sky.
-        m_CaptureFB->ClearAttachment(0, glm::vec4(0.0f));
-        m_CaptureFB->ClearAttachment(1, glm::vec4(0.0f, 0.0f, -1.0f, 0.0f));
+        resources.Target->ClearAttachment(0, glm::vec4(0.0f));
+        resources.Target->ClearAttachment(1, glm::vec4(0.0f, 0.0f, -1.0f, 0.0f));
         RenderCommand::ClearDepthOnly();
 
         // Capture render state: depth-tested opaque mini-G-buffer. Culling is
@@ -1291,8 +1330,8 @@ namespace OloEngine
         RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
 
         m_CaptureShader->Bind();
-        m_CaptureCameraUBO->Bind();
-        m_PassDataUBO->Bind();
+        resources.Camera->Bind();
+        resources.PassData->Bind();
         // The vertex stage reads the probe's relocated position from here.
         HeapBinding::BindTextureOrOffset(1, m_ProbeDataTexture, RHI::HeapSlotLifetime::Persistent);
 
@@ -1324,7 +1363,7 @@ namespace OloEngine
             camera.RenderOrigin = m_RenderOrigin;
             // Capture flavour's reconstruction sibling = the raw matrix (#691).
             camera.ProjectionForReconstruction = proj;
-            m_CaptureCameraUBO->SetData(&camera, UBOStructures::CameraUBO::GetSize());
+            resources.Camera->SetData(&camera, UBOStructures::CameraUBO::GetSize());
 
             RenderCommand::SetViewport(static_cast<u32>((face % 3u) * static_cast<u32>(faceRes)),
                                        static_cast<u32>((face / 3u) * static_cast<u32>(faceRes)),
@@ -1351,7 +1390,7 @@ namespace OloEngine
                 data.NormalMatrix = glm::transpose(glm::inverse(data.Model));
                 data.BaseColor = caster.baseColor;
                 data.ProbePosition = glm::vec4(probeGridWorld - m_RenderOrigin, static_cast<f32>(probeIdx));
-                m_PassDataUBO->SetData(&data, sizeof(data));
+                resources.PassData->SetData(&data, sizeof(data));
 
                 HeapBinding::FlushOffsets();
                 RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount, caster.baseIndex);
@@ -1359,7 +1398,7 @@ namespace OloEngine
         }
     }
 
-    void DDGIProbeUpdatePass::ResampleProbe(i32 probeIdx)
+    void DDGIProbeUpdatePass::ResampleProbe(i32 probeIdx, CaptureResources& resources)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1372,9 +1411,9 @@ namespace OloEngine
                                    static_cast<u32>(t), static_cast<u32>(t));
 
         m_ResampleShader->Bind();
-        HeapBinding::BindTextureOrOffset(0, m_CaptureFB->GetColorAttachmentHandle(0), RHI::HeapSlotLifetime::Persistent);
-        HeapBinding::BindTextureOrOffset(1, m_CaptureFB->GetColorAttachmentHandle(1), RHI::HeapSlotLifetime::Persistent);
-        SetPassDataProbe(probeIdx);
+        HeapBinding::BindTextureOrOffset(0, resources.Target->GetColorAttachmentHandle(0), RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::BindTextureOrOffset(1, resources.Target->GetColorAttachmentHandle(1), RHI::HeapSlotLifetime::Persistent);
+        SetPassDataProbe(probeIdx, resources.PassData.Raw());
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
@@ -1382,7 +1421,7 @@ namespace OloEngine
         RenderCommand::DrawIndexed(va);
     }
 
-    void DDGIProbeUpdatePass::RelocateProbeGPU(i32 probeIdx, bool refreshCapture)
+    void DDGIProbeUpdatePass::RelocateProbeGPU(i32 probeIdx, bool refreshCapture, UniformBuffer* params)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1393,7 +1432,7 @@ namespace OloEngine
 
         m_RelocateCompute->Bind();
         BindProbeBuffers();
-        UploadComputeParams(probeIdx, refreshCapture ? kPassFlagRefreshCapture : 0);
+        UploadComputeParams(probeIdx, refreshCapture ? kPassFlagRefreshCapture : 0, params);
         HeapBinding::BindImageOrOffset(0, m_ProbeDataTexture, 0, false, 0, RHI::Access::StorageReadWrite,
                                        RHI::Format::RGBA16Float, RHI::HeapSlotLifetime::Persistent);
         HeapBinding::BindTextureOrOffset(1, m_HitFB->GetColorAttachmentHandle(1), RHI::HeapSlotLifetime::Persistent);
@@ -1430,17 +1469,16 @@ namespace OloEngine
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
 
-        for (const i32 probeIdx : capturedProbes)
-        {
+        RecordProbeRanges(capturedProbes, 32u, [&](i32 probeIdx, CaptureResources& resources)
+                          {
             const glm::ivec2 tile = DDGI::CascadedProbeTileCoord(probeIdx, m_Desc.Resolution);
             RenderCommand::SetViewport(static_cast<u32>(tile.x * DDGI::kVisibilityTileTexels),
                                        static_cast<u32>(tile.y * DDGI::kVisibilityTileTexels),
                                        static_cast<u32>(DDGI::kVisibilityTileTexels),
                                        static_cast<u32>(DDGI::kVisibilityTileTexels));
-            SetPassDataProbe(probeIdx);
+            SetPassDataProbe(probeIdx, resources.PassData.Raw());
             HeapBinding::FlushOffsets();
-            RenderCommand::DrawIndexed(va);
-        }
+            RenderCommand::DrawIndexed(va); });
 
         // Swap AFTER all tiles so consumers see one coherent atlas.
         m_VisibilityCurrent = currIdx;
@@ -1651,25 +1689,34 @@ namespace OloEngine
         const std::vector<i32> captureSet = PickCaptureSet(m_Desc.CaptureBudget);
         if (!captureSet.empty())
         {
-            for (const i32 probeIdx : captureSet)
-            {
-                CaptureProbe(probeIdx);
-                ResampleProbe(probeIdx);
-            }
+            PrepareCaptureResources(static_cast<u32>(std::min<sizet>(captureSet.size(), MAX_RENDER_WORKERS)));
+            // The hit atlas is shared by disjoint probe tiles. Settle its
+            // attachment layout and the relocated-position sample before any
+            // item captures into its own target and then resamples into it.
+            m_HitFB->Bind();
+            HeapBinding::BindTextureOrOffset(1, m_ProbeDataTexture, RHI::HeapSlotLifetime::Persistent);
+            RecordProbeRanges(captureSet, 1u, [&](i32 probeIdx, CaptureResources& resources)
+                              {
+                CaptureProbe(probeIdx, resources);
+                ResampleProbe(probeIdx, resources); });
 
             // The resample wrote the hit atlas through the raster pipeline; the
             // relocation compute samples it. Framebuffer writes are coherent
             // for later texture fetches, but the probe-data IMAGE the compute
             // then writes is not, so the barrier after the dispatches below is
             // the one that matters.
-            for (const i32 probeIdx : captureSet)
-            {
+            m_HitFB->Unbind();
+            HeapBinding::BindImageOrOffset(0, m_ProbeDataTexture, 0, false, 0, RHI::Access::StorageReadWrite,
+                                           RHI::Format::RGBA16Float, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(1, m_HitFB->GetColorAttachmentHandle(1), RHI::HeapSlotLifetime::Persistent);
+            RecordProbeRanges(captureSet, 32u, [&](i32 probeIdx, CaptureResources& resources)
+                              {
                 ProbeRecord& rec = m_Records[static_cast<sizet>(probeIdx)];
                 // A probe that has exhausted its placement refinements is
                 // SETTLED; this capture is a geometry refresh, so the spring
                 // must leave its position alone.
                 const bool refreshCapture = rec.Captured && rec.RelocationIteration >= kMaxRelocationIterations;
-                RelocateProbeGPU(probeIdx, refreshCapture);
+                RelocateProbeGPU(probeIdx, refreshCapture, resources.PassData.Raw());
                 rec.Captured = true;
                 rec.LastCaptureFrame = m_FrameIndex;
                 // The spring needs a few iterations, and the CPU cannot see
@@ -1683,8 +1730,7 @@ namespace OloEngine
                 else
                 {
                     rec.PendingRelocationRecapture = false;
-                }
-            }
+                } });
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch |
                                          MemoryBarrierFlags::ShaderStorage);
 

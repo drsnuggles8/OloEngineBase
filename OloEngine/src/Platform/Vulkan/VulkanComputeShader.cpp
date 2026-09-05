@@ -316,7 +316,7 @@ namespace OloEngine
     {
         // Per recording context (#806): a RecordParallel item binds into its
         // own slot; the process-wide selection is the render thread's.
-        if (VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        if (VulkanWorkerRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
         {
             worker->CurrentComputeShader = const_cast<VulkanComputeShader*>(this);
             return;
@@ -326,7 +326,7 @@ namespace OloEngine
 
     void VulkanComputeShader::Unbind() const
     {
-        if (VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        if (VulkanWorkerRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
         {
             if (worker->CurrentComputeShader == this)
             {
@@ -342,7 +342,7 @@ namespace OloEngine
 
     VulkanComputeShader* VulkanComputeShader::GetCurrentlyBound()
     {
-        if (const VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        if (const VulkanWorkerRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
         {
             return worker->CurrentComputeShader;
         }

@@ -248,6 +248,10 @@ namespace OloEngine
         // frame arena. 0 on arena overflow (the draw's root writer treats
         // that as a dropped draw, mirroring the arena's own contract).
         [[nodiscard]] VkDeviceAddress GetRootDataAddress();
+        void PrepareForParallelRead() override
+        {
+            (void)GetRootDataAddress();
+        }
 
       private:
         // Grows the base-class shadow to at least `requiredSize`, zero-filling

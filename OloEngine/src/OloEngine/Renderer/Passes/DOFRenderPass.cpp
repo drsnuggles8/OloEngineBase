@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/PreparedFullscreenPass.h"
 #include "OloEngine/Renderer/Passes/DOFRenderPass.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -83,6 +84,13 @@ namespace OloEngine
 
     void DOFRenderPass::Execute(RGCommandContext& context)
     {
+        auto prepared = PrepareParallelRecording(context);
+        if (prepared.Record)
+            prepared.Record(context);
+    }
+
+    RGPreparedPass DOFRenderPass::PrepareParallelRecording(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         // Sample-only consumer: input framebuffer is intentionally not
@@ -100,13 +108,13 @@ namespace OloEngine
         if (!m_Enabled)
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         if (!inputColorTextureID.IsValid() || !outputFramebuffer || !m_DOFShader)
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         const RHI::ResourceHandle sceneDepthTextureID = m_SelectedSceneDepthTexture.IsValid()
@@ -116,51 +124,13 @@ namespace OloEngine
         if (!sceneDepthTextureID.IsValid())
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         m_Target = outputFramebuffer;
-
-        if (m_PostProcessUBO)
-            m_PostProcessUBO->Bind();
-
-        outputFramebuffer->Bind();
-
-        const auto& outSpec = outputFramebuffer->GetSpecification();
-        context.SetViewport(0, 0, outSpec.Width, outSpec.Height);
-        context.SetDepthTest(false);
-        context.SetDepthMask(false);
-        context.SetBlendState(false);
-        context.SetCulling(false);
-        RenderCommand::DisableStencilTest();
-        RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
-        RenderCommand::SetColorMask(true, true, true, true);
-
-        constexpr u32 colorAttachment = 0;
-        context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
-
-        context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-        context.Clear();
-
-        m_DOFShader->Bind();
-
-        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
-        m_DOFShader->SetInt("u_Texture", 0);
-
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID,
-                                        RHI::HeapSlotLifetime::FrameTransient);
-        m_DOFShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
-
-        // Publish the heap offsets recorded above (no-op with the heap off).
-        context.FlushHeapOffsets();
-
-        const auto va = MeshPrimitives::GetFullscreenTriangle();
-        va->Bind();
-        context.DrawIndexed(va);
-
-        context.SetDepthMask(true);
-        outputFramebuffer->Unbind();
+        return PrepareFullscreenPass(outputFramebuffer, m_DOFShader,
+                                     { { 0, inputColorTextureID, "u_Texture" }, { ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID, "u_DepthTexture" } },
+                                     { m_PostProcessUBO });
     }
 
     void DOFRenderPass::SetupFramebuffer(u32 width, u32 height)

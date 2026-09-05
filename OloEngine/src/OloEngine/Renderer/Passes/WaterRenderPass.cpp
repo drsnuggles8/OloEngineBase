@@ -276,7 +276,7 @@ namespace OloEngine
             // during a clear, debug id 131218).
             RenderCommand::ClearDepthOnly(); // far = "no water at this pixel"
             CommandDispatch::SetWaterDepthCaptureActive(true);
-            m_CommandBucket.Execute(rendererAPI);
+            m_CommandBucket.ExecuteParallel(rendererAPI);
             CommandDispatch::SetWaterDepthCaptureActive(false);
             CommandDispatch::InvalidateRenderStateCache();
             m_WaterDepthFB->Unbind();
@@ -289,7 +289,7 @@ namespace OloEngine
             Renderer3D::SetWaterSurfaceDepthTextureID(RHI::NullResource);
         }
 
-        m_CommandBucket.Execute(rendererAPI);
+        m_CommandBucket.ExecuteParallel(rendererAPI);
 
         // Restore render state after water (water uses blending + depth write off)
         context.SetDepthMask(true);

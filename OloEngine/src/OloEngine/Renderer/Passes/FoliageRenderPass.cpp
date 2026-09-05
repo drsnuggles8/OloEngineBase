@@ -83,7 +83,7 @@ namespace OloEngine
             captureManager.OnPostSort(m_CommandBucket);
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
-        m_CommandBucket.Execute(rendererAPI);
+        m_CommandBucket.ExecuteParallel(rendererAPI);
 
         // Restore defaults for subsequent passes
         RenderCommand::SetDepthFunc(RHI::CompareOp::Less);

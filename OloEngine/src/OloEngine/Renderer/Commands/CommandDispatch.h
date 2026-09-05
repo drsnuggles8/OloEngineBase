@@ -114,6 +114,7 @@ namespace OloEngine
         // pass that re-renders the opaque scene from an alternate camera (the
         // planar reflection) can swap the camera, replay the bucket, and restore.
         static void UploadCameraUBO();
+        static void UploadCameraUBO(RendererAPI& api);
 
         // Shadow texture binding — set per-frame from Renderer3D/Scene.
         // The *Raw ids are the comparison-OFF views of the CSM array / shadow
@@ -212,6 +213,11 @@ namespace OloEngine
         static void DrawWater(const void* data, RendererAPI& api);
 
         static Statistics& GetStatistics();
+
+        // Renderer3D's direct draw helpers use the same item-owned uploads as
+        // bucket replay. Outside an item these return the supplied main object.
+        static Ref<UniformBuffer> ResolveRecordingUpload(u32 binding, const Ref<UniformBuffer>& mainBuffer);
+        static Ref<InstanceBuffer> ResolveRecordingInstances(const Ref<InstanceBuffer>& mainBuffer);
 
       private:
         static void UpdateMaterialTextureFlag(bool useTextures);

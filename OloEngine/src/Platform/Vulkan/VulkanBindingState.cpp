@@ -16,7 +16,7 @@ namespace OloEngine
 
     VulkanBindingState& VulkanBindingState::Get()
     {
-        if (VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        if (VulkanWorkerRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
         {
             return worker->Binding;
         }

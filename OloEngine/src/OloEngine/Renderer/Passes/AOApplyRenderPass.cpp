@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/PreparedFullscreenPass.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -80,6 +81,13 @@ namespace OloEngine
 
     void AOApplyRenderPass::Execute(RGCommandContext& context)
     {
+        auto prepared = PrepareParallelRecording(context);
+        if (prepared.Record)
+            prepared.Record(context);
+    }
+
+    RGPreparedPass AOApplyRenderPass::PrepareParallelRecording(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         // Sample-only consumer: input framebuffer is intentionally not
@@ -104,7 +112,7 @@ namespace OloEngine
         if (!m_Enabled)
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         if (!inputColorTextureID.IsValid() || !outputFramebuffer)
@@ -119,7 +127,7 @@ namespace OloEngine
                               sceneDepthID);
             }
             OLO_CORE_ASSERT(false, "AOApplyRenderPass enabled without resolved graph input/output");
-            return;
+            return {};
         }
 
         if (const bool shaderReady = m_SSAOApplyShader && m_SSAOApplyShader->IsReady(); !shaderReady || !aoTextureID.IsValid() || !sceneDepthID.IsValid())
@@ -131,65 +139,13 @@ namespace OloEngine
                               shaderReady, aoTextureID, sceneDepthID);
             }
             OLO_CORE_ASSERT(false, "AOApplyRenderPass enabled without ready shader or resolved AO/depth inputs");
-            return;
+            return {};
         }
 
         m_Target = outputFramebuffer;
-
-        // (Dropped the per-frame "applying AO with aoTex=N" trace: the AO
-        // producer's output is double-buffered, so the texture ID flips every
-        // frame and the dedup never held — it fired ~60 times per second.
-        // Drop a one-shot OLO_CORE_TRACE here if you need to inspect inputs.)
-
-        // Rebind the PostProcessUBO before any fullscreen shader reads it.
-        // SetData() updates the buffer object but does not restore the
-        // indexed binding (IBL precompute also uses binding 7).
-        if (m_PostProcessUBO)
-            m_PostProcessUBO->Bind();
-        // Rebind SSAOUBO (binding 9) — other passes may displace this binding
-        // between EndScene()'s upload and this Execute() call.
-        if (m_SSAOUBO)
-            m_SSAOUBO->Bind();
-
-        constexpr u32 colorAttachment = 0;
-        outputFramebuffer->Bind();
-
-        // (Dropped the per-frame inputFB/outputFB trace: transient framebuffers
-        // are double-buffered so the GL IDs flip every frame and the dedup
-        // never held — fired ~60 times/sec. Same broken pattern as the
-        // GTAO/SSAO/BloomPass logs that were removed earlier.)
-
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetDepthMask(false);
-        RenderCommand::DisableStencilTest();
-        RenderCommand::SetBlendState(false);
-        RenderCommand::DisableCulling();
-        RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
-        RenderCommand::SetColorMask(true, true, true, true);
-        RenderCommand::SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
-
-        context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-        context.Clear();
-
-        m_SSAOApplyShader->Bind();
-        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSAO, aoTextureID,
-                                        RHI::HeapSlotLifetime::FrameTransient);
-        // Scene depth is used by the apply shader for bilateral upsampling.
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID,
-                                        RHI::HeapSlotLifetime::FrameTransient);
-
-        // Publish the heap offsets recorded above. No-op on the slot-based path,
-        // so a converted pass costs nothing when the heap is off (issue #691).
-        context.FlushHeapOffsets();
-
-        const auto va = MeshPrimitives::GetFullscreenTriangle();
-        va->Bind();
-        RenderCommand::DrawIndexed(va);
-
-        RenderCommand::SetDepthMask(true);
-        outputFramebuffer->Unbind();
+        return PrepareFullscreenPass(outputFramebuffer, m_SSAOApplyShader,
+                                     { { 0, inputColorTextureID, {} }, { ShaderBindingLayout::TEX_SSAO, aoTextureID, {} }, { ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID, {} } },
+                                     { m_PostProcessUBO, m_SSAOUBO });
     }
 
     void AOApplyRenderPass::SetupFramebuffer(u32 width, u32 height)

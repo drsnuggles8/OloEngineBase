@@ -2,6 +2,7 @@
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <cstring>
+#include <span>
 #include <type_traits>
 #include <utility>
 #include "OloEngine/Renderer/Buffer.h"
@@ -30,6 +31,11 @@ namespace OloEngine
         // Re-bind this buffer to its original binding point
         virtual void Bind() const = 0;
 
+        // Freeze backend upload caches before sharing this read-only object
+        // across recording items. Call on the primary after the last SetData;
+        // the captured buffer need not occupy a currently seeded binding slot.
+        virtual void PrepareForParallelRead() {}
+
         // Releases this buffer's binding point. `StorageBuffer` has always had
         // this; `UniformBuffer` did not, which left the only way to clear a UBO
         // slot a raw `glBindBufferBase(..., 0)` in engine-layer code -- exactly
@@ -53,6 +59,14 @@ namespace OloEngine
         virtual u32 GetSize() const
         {
             return m_Size;
+        }
+
+        // Read only while the source object has no writer (e.g. before a
+        // recording fork). Used to seed an item-owned upload object.
+        [[nodiscard]] std::span<const u8> GetCachedData() const
+        {
+            return m_LocalData ? std::span<const u8>(static_cast<const u8*>(m_LocalData), m_Size)
+                               : std::span<const u8>{};
         }
 
         // New convenience method to set data directly

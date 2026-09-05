@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+#include "OloEngine/Renderer/RGPreparedPass.h"
 // Included, not forward-declared: `Ref<T>`'s destructor calls RefUtils::Release,
 // which needs T complete wherever ~VirtualShadowMap is instantiated. Since
 // ShadowMap.h includes this header, "wherever" is every consumer of the shadow
@@ -686,11 +687,9 @@ namespace OloEngine
         // frame. Returns false when there was nothing to do.
         //
         // `uploadBones` is invoked once per skinned caster, immediately before its
-        // draw, to publish that caster's bone palette. It is a callback rather
-        // than something this class does itself because the animation UBO belongs
-        // to ShadowMap — inlining it here would give VSM a second owner of shadow
-        // pass state.
-        using BoneUploader = std::function<void(const ShadowSkinnedCaster&)>;
+        // draw, to publish that caster's bone palette into the supplied item-owned
+        // upload buffer. The callback resolves the frame's immutable bone data.
+        using BoneUploader = std::function<void(const ShadowSkinnedCaster&, UniformBuffer&)>;
         bool RenderCasters(const std::vector<ShadowMeshCaster>& meshCasters,
                            const std::vector<ShadowSkinnedCaster>& skinnedCasters,
                            const glm::vec3& renderOrigin,
@@ -705,6 +704,8 @@ namespace OloEngine
         // matrix that takes its NDC back to render-relative world space.
         void MarkRequiredPages(RHI::ResourceHandle sceneDepth, u32 depthWidth, u32 depthHeight,
                                const glm::mat4& inverseViewProjection, const glm::vec3& cameraPositionRelative);
+        RGPreparedPass PreparePageMarking(RHI::ResourceHandle sceneDepth, u32 depthWidth, u32 depthHeight,
+                                          const glm::mat4& inverseViewProjection, const glm::vec3& cameraPositionRelative);
 
         // Marks every allocated page a moving caster's swept bounds touch, so a
         // cached page containing a dynamic object is redrawn. Submitted during the
@@ -829,6 +830,23 @@ namespace OloEngine
                                                f32& outNear, f32& outFar);
 
       private:
+        struct RasterItemResources
+        {
+            Ref<UniformBuffer> Pass;
+            Ref<UniformBuffer> Animation;
+            Ref<StorageBuffer> Instances;
+        };
+        struct PreparedSkinnedDraw
+        {
+            u32 CasterIndex;
+            u32 InstanceOffset;
+            u32 InstanceCount;
+        };
+        void PrepareRasterItems(u32 count);
+        u32 RenderBatches(bool local);
+        u32 RecordSkinnedDraws(const std::vector<ShadowSkinnedCaster>& casters,
+                               const BoneUploader& uploadBones);
+
         // One (VAO, index range, cull mode) group of static casters — the same key
         // ShadowRenderPass's CSM path batches on, so a scene batches identically
         // whichever directional technique is active.
@@ -965,6 +983,7 @@ namespace OloEngine
         StagedBufferReadback m_StatsReadback;
 
         Ref<UniformBuffer> m_GlobalsUBO;
+        Ref<UniformBuffer> m_MarkGlobalsUBO;
         Ref<UniformBuffer> m_PassUBO;
 
         Ref<ComputeShader> m_FreeWrappedShader;
@@ -1022,6 +1041,9 @@ namespace OloEngine
         std::vector<VSM::CullInstance> m_CullInput;
         std::vector<VSM::DrawCommand> m_DrawCommandStaging;
         std::vector<VSM::DrawInstance> m_SkinnedInstanceStaging;
+        std::vector<PreparedSkinnedDraw> m_PreparedSkinnedDraws;
+        std::vector<VSM::DrawInstance> m_PreparedSkinnedInstances;
+        std::vector<RasterItemResources> m_RasterItems;
 
         // --- Local-light layer state (issue #703) -----------------------------
         LocalLayerPool m_LocalPool;

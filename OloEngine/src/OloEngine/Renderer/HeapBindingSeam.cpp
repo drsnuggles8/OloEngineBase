@@ -13,43 +13,50 @@
 
 namespace OloEngine::HeapBinding
 {
+    // The shared heap-offset table (issue #691). One std140 UBO,
+    // indexed by the very `TEX_*` constant — or, above HEAP_IMAGE_SLOT_BASE,
+    // the very image unit — the caller used to bind with, so the bindless and
+    // slot-based variants of a shader cannot disagree about which resource is
+    // which.
+    //
+    // Function-local rather than a member of anything because the sites that
+    // write it range from a render pass holding a per-frame context to a
+    // process-lifetime compute system, while this buffer must outlive both.
+    // Render passes and the compute systems both execute on the game thread,
+    // so the unsynchronised scratch is safe; a `.Parallelizable()` caller
+    // would need its own.
+    struct HeapOffsetTable
+    {
+        // std140 pads a `uint` array to 16-byte stride, so the CPU side is
+        // uvec4-shaped and the shader indexes [i >> 2][i & 3]. Getting this
+        // wrong is the classic std140 trap: the array would read every fourth
+        // offset and sample three wrong resources out of four.
+        static constexpr u32 kSlots = ShaderBindingLayout::HEAP_OFFSET_TABLE_SLOTS;
+        static constexpr u32 kVec4s = ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S;
+
+        std::array<u32, kVec4s * 4u> Scratch{};
+        Ref<UniformBuffer> Buffer;
+        bool Dirty = false;
+        // The heap epoch this Buffer was created under. A function-local
+        // static outlives a device teardown, so without this the buffer is a
+        // dangling name from the previous context after any heap
+        // re-initialisation — and the offsets silently stop arriving.
+        u64 Epoch = 0u;
+    };
+
     namespace
     {
-        // The shared heap-offset table (issue #691). One std140 UBO,
-        // indexed by the very `TEX_*` constant — or, above HEAP_IMAGE_SLOT_BASE,
-        // the very image unit — the caller used to bind with, so the bindless and
-        // slot-based variants of a shader cannot disagree about which resource is
-        // which.
-        //
-        // Function-local rather than a member of anything because the sites that
-        // write it range from a render pass holding a per-frame context to a
-        // process-lifetime compute system, while this buffer must outlive both.
-        // Render passes and the compute systems both execute on the game thread,
-        // so the unsynchronised scratch is safe; a `.Parallelizable()` caller
-        // would need its own.
-        struct HeapOffsetTable
-        {
-            // std140 pads a `uint` array to 16-byte stride, so the CPU side is
-            // uvec4-shaped and the shader indexes [i >> 2][i & 3]. Getting this
-            // wrong is the classic std140 trap: the array would read every fourth
-            // offset and sample three wrong resources out of four.
-            static constexpr u32 kSlots = ShaderBindingLayout::HEAP_OFFSET_TABLE_SLOTS;
-            static constexpr u32 kVec4s = ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S;
+        thread_local HeapOffsetTable* s_RecordingTable = nullptr;
 
-            std::array<u32, kVec4s * 4u> Scratch{};
-            Ref<UniformBuffer> Buffer;
-            bool Dirty = false;
-            // The heap epoch this Buffer was created under. A function-local
-            // static outlives a device teardown, so without this the buffer is a
-            // dangling name from the previous context after any heap
-            // re-initialisation — and the offsets silently stop arriving.
-            u64 Epoch = 0u;
-        };
-
-        HeapOffsetTable& OffsetTable()
+        HeapOffsetTable& MainOffsetTable()
         {
             static HeapOffsetTable s_Table;
             return s_Table;
+        }
+
+        HeapOffsetTable& OffsetTable()
+        {
+            return s_RecordingTable ? *s_RecordingTable : MainOffsetTable();
         }
 
         // Put every slot at its OWN kind's reserved null.
@@ -455,13 +462,43 @@ namespace OloEngine::HeapBinding
         return {};
     }
 
+    RecordingState::RecordingState() : m_Table(std::make_unique<HeapOffsetTable>()) {}
+    RecordingState::~RecordingState() = default;
+
+    void RecordingState::Prepare()
+    {
+        OLO_CORE_ASSERT(!s_RecordingTable, "Prepare heap offsets before the fork");
+        auto& main = MainOffsetTable();
+        SyncEpoch(main);
+        auto& item = *m_Table;
+        SyncEpoch(item);
+        item.Scratch = main.Scratch;
+        item.Dirty = true;
+        if (RHI::DescriptorHeap::Get().IsEnabled() && !item.Buffer)
+            item.Buffer = UniformBuffer::Create(static_cast<u32>(item.Scratch.size() * sizeof(u32)),
+                                                ShaderBindingLayout::UBO_HEAP_OFFSETS);
+    }
+
+    void RecordingState::Publish()
+    {
+        // Keep published primary offsets; the next primary flush must rebind
+        // its own UBO even if no slot value changed since the fork.
+        MainOffsetTable().Dirty = true;
+    }
+
+    ScopedRecordingState::ScopedRecordingState(RecordingState& state)
+        : m_Previous(s_RecordingTable)
+    {
+        s_RecordingTable = state.m_Table.get();
+    }
+
+    ScopedRecordingState::~ScopedRecordingState()
+    {
+        s_RecordingTable = m_Previous;
+    }
+
     void FlushOffsets()
     {
-        // One process-wide table and one UBO: not callable from a
-        // RecordParallel item (amendment (92) rule 6) — a pass that needs it
-        // records that work after the join (ShadowRenderPass's tail).
-        OLO_CORE_ASSERT(!RenderCommand::IsRecordingParallelItem(),
-                        "HeapBinding::FlushOffsets from a RecordParallel item — move the caller to the sequential tail");
         auto& table = OffsetTable();
         if (!RHI::DescriptorHeap::Get().IsEnabled())
         {
@@ -499,11 +536,13 @@ namespace OloEngine::HeapBinding
 
         if (!table.Buffer)
         {
+            OLO_CORE_ASSERT(!s_RecordingTable, "Create an item offset UBO before the fork");
             table.Buffer = UniformBuffer::Create(static_cast<u32>(table.Scratch.size() * sizeof(u32)),
                                                  ShaderBindingLayout::UBO_HEAP_OFFSETS);
         }
 
         table.Buffer->SetData(table.Scratch.data(), static_cast<u32>(table.Scratch.size() * sizeof(u32)));
+        table.Buffer->Bind();
         table.Dirty = false;
     }
 

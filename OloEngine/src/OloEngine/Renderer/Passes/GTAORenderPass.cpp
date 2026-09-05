@@ -280,11 +280,34 @@ namespace OloEngine
 
     void GTAORenderPass::Execute(RGCommandContext& context)
     {
+        auto prepared = PrepareParallelRecording(context);
+        if (prepared.Record)
+            prepared.Record(context);
+        if (prepared.Publish)
+            prepared.Publish();
+    }
+
+    RGPreparedPass GTAORenderPass::PrepareNoOcclusion(RHI::ResourceHandle texture, const char* reason)
+    {
+        // Resolve failures are diagnosed on the caller; the identity clear is
+        // recorded only after the graph has issued the incoming transitions.
+        if (reason != nullptr)
+        {
+            if (static u32 warnings = 0; warnings++ < 10)
+                OLO_CORE_WARN("GTAORenderPass: {} (publishing fully visible AO)", reason);
+        }
+        return { .Record = [texture](RGCommandContext&)
+                 { PublishNoOcclusion(texture, nullptr); },
+                 .Resources = { { texture, true } } };
+    }
+
+    RGPreparedPass GTAORenderPass::PrepareParallelRecording(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!m_Settings.GTAOEnabled || m_Settings.ActiveAOTechnique != AOTechnique::GTAO || !IsReadyForExecution())
         {
-            return;
+            return {};
         }
 
         // Follow-up: resolve the GTAO edge scratch texture from
@@ -326,8 +349,7 @@ namespace OloEngine
             normalsID = context.ResolveTextureHandle(m_SelectedSceneNormalsTexture);
         if (!depthID.IsValid() || !normalsID.IsValid())
         {
-            PublishNoOcclusion(aoOutputTexID, "scene depth/normals did not resolve");
-            return;
+            return PrepareNoOcclusion(aoOutputTexID, "scene depth/normals did not resolve");
         }
 
         // From here on the AO target is RESOLVED, which means AOApplyPass will
@@ -337,13 +359,11 @@ namespace OloEngine
         // handed us — see PublishNoOcclusion (issue #771).
         if (!edgeTexID.IsValid() || !aoOutputTexID.IsValid() || !denoisePingTexID.IsValid())
         {
-            PublishNoOcclusion(aoOutputTexID, "edge/AO/denoise-ping scratch did not resolve");
-            return;
+            return PrepareNoOcclusion(aoOutputTexID, "edge/AO/denoise-ping scratch did not resolve");
         }
         if (willDispatchDenoise && !denoisePongTexID.IsValid())
         {
-            PublishNoOcclusion(aoOutputTexID, "denoise-pong scratch did not resolve");
-            return;
+            return PrepareNoOcclusion(aoOutputTexID, "denoise-pong scratch did not resolve");
         }
 
         // Phase D / H follow-up: resolve transient HZB scratch from the render
@@ -354,11 +374,48 @@ namespace OloEngine
         if (!transientHZBID.IsValid())
         {
             m_HZBGenerator.ClearExternalHZBTexture();
-            PublishNoOcclusion(aoOutputTexID, "HZB scratch did not resolve");
-            return;
+            return PrepareNoOcclusion(aoOutputTexID, "HZB scratch did not resolve");
         }
         m_HZBGenerator.SetExternalHZBTexture(transientHZBID, m_HZBGenerator.GetMipCount());
 
+        if (!m_RecordingGTAOUBO)
+            m_RecordingGTAOUBO = UniformBuffer::Create(UBOStructures::GTAOUBO::GetSize(), ShaderBindingLayout::UBO_GTAO);
+        if (!m_DenoiseUBO)
+            m_DenoiseUBO = UniformBuffer::Create(UBOStructures::GTAODenoiseUBO::GetSize(), ShaderBindingLayout::UBO_GTAO_DENOISE);
+        RHI::ResourceHandle previousColorID{};
+        if (m_Settings.VRCSEnabled && m_Settings.VRCSGTAO)
+        {
+            m_ShadingRateClassifier.Resize(m_Width, m_Height);
+            if (m_SelectedPreviousColorTexture.IsValid())
+                previousColorID = context.ResolveTextureHandle(m_SelectedPreviousColorTexture);
+        }
+        auto inputs = std::make_shared<RecordingInputs>(RecordingInputs{
+            .Depth = depthID, .Normals = normalsID, .PreviousColor = previousColorID, .AO = aoOutputTexID, .Edge = edgeTexID, .Ping = denoisePingTexID, .Pong = denoisePongTexID, .Denoise = willDispatchDenoise, .GPUData = m_GPUData ? *m_GPUData : UBOStructures::GTAOUBO{} });
+        RGPreparedPass prepared;
+        if (m_GTAOUBO)
+            prepared.Resources.push_back({ m_GTAOUBO->GetRHIHandle(), true });
+        for (auto resource : { depthID, normalsID, previousColorID, m_HilbertLUT->GetRHIHandle() })
+            prepared.Resources.push_back({ resource, false });
+        for (auto resource : { aoOutputTexID, edgeTexID, denoisePingTexID, denoisePongTexID, transientHZBID,
+                               m_ShadingRateClassifier.GetRateTexture(), m_RecordingGTAOUBO->GetRHIHandle(), m_DenoiseUBO->GetRHIHandle() })
+            prepared.Resources.push_back({ resource, true });
+        prepared.Record = [this, inputs](RGCommandContext&)
+        { RecordPrepared(*inputs); };
+        prepared.Publish = [this, inputs]
+        {
+            if (m_GPUData)
+                *m_GPUData = inputs->GPUData;
+            if (m_GTAOUBO)
+            {
+                m_GTAOUBO->SetData(&inputs->GPUData, UBOStructures::GTAOUBO::GetSize());
+                m_GTAOUBO->Bind();
+            }
+        };
+        return prepared;
+    }
+
+    void GTAORenderPass::RecordPrepared(RecordingInputs& inputs)
+    {
         // The structural event (issue #771). A render-band change — the FSR1
         // `Upscale` toggle is the one that bites — resizes every GTAO scratch
         // target, and RenderPipeline::PopulateBlackboard evicts the transient
@@ -378,7 +435,7 @@ namespace OloEngine
         // CopyImageSubData covers only m_Width x m_Height of it.
         if (m_Width != m_LastExecutedWidth || m_Height != m_LastExecutedHeight)
         {
-            PublishNoOcclusion(aoOutputTexID, nullptr);
+            PublishNoOcclusion(inputs.AO, nullptr);
             m_LastExecutedWidth = m_Width;
             m_LastExecutedHeight = m_Height;
         }
@@ -397,10 +454,12 @@ namespace OloEngine
         // HZB.comp regress under the swizzle (see ThreadGroupSwizzle.glsl) —
         // both dispatches below are therefore UNSWIZZLED; only GTAO_Denoise
         // adopted it. The brackets stay regardless, for future profiling.
-        auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
-        gpuSubTimers.BeginSubPass("HZB");
-        m_HZBGenerator.Generate(depthID);
-        gpuSubTimers.EndSubPass();
+        auto* gpuSubTimers = RenderCommand::IsRecordingParallelItem() ? nullptr : &GPUPassTimerPool::GetInstance();
+        if (gpuSubTimers)
+            gpuSubTimers->BeginSubPass("HZB");
+        m_HZBGenerator.Generate(inputs.Depth);
+        if (gpuSubTimers)
+            gpuSubTimers->EndSubPass();
 
         // Step 1b: Variable Rate Compute Shading classification (issue #683).
         //
@@ -417,36 +476,22 @@ namespace OloEngine
         m_VRCSActiveLastExecute = false;
         if (m_Settings.VRCSEnabled && m_Settings.VRCSGTAO)
         {
-            // Defensive re-size against THIS Execute's band, not against
-            // whatever the last Resize hook saw. The rate grid is indexed by
-            // `pixel / 8` in the consuming shader, so a classifier sized to a
-            // different viewport than GTAO is dispatching at does not fail —
-            // it silently reads the wrong tile for every pixel, which is a
-            // plausible-looking frame with the coarse blocks in the wrong
-            // places. The call early-returns when the tile grid is unchanged,
-            // which is every frame but a resize.
-            m_ShadingRateClassifier.Resize(m_Width, m_Height);
-
-            RHI::ResourceHandle previousColorID{};
-            if (m_SelectedPreviousColorTexture.IsValid())
-                previousColorID = context.ResolveTextureHandle(m_SelectedPreviousColorTexture);
-
-            ShadingRateClassifier::Inputs inputs;
-            inputs.SceneDepth = depthID;
-            inputs.ViewNormals = normalsID;
-            inputs.PreviousColor = previousColorID;
+            ShadingRateClassifier::Inputs rateInputs;
+            rateInputs.SceneDepth = inputs.Depth;
+            rateInputs.ViewNormals = inputs.Normals;
+            rateInputs.PreviousColor = inputs.PreviousColor;
             // Both come from the render graph's transient pool, so a Persistent
             // view would memoise an offset onto an object the planner may
             // reassign next frame (issue #691). The lifetime follows the
             // RESOURCE, not the slot.
-            inputs.SceneDepthLifetime = RHI::HeapSlotLifetime::FrameTransient;
-            inputs.ViewNormalsLifetime = RHI::HeapSlotLifetime::FrameTransient;
-            inputs.PreviousColorLifetime = RHI::HeapSlotLifetime::FrameTransient;
+            rateInputs.SceneDepthLifetime = RHI::HeapSlotLifetime::FrameTransient;
+            rateInputs.ViewNormalsLifetime = RHI::HeapSlotLifetime::FrameTransient;
+            rateInputs.PreviousColorLifetime = RHI::HeapSlotLifetime::FrameTransient;
             // The same two projection coefficients GTAO uploads; computed once
             // in UploadGTAOUniforms, but that runs after this, so derive them
             // here from the same matrix rather than reading stale UBO state.
-            inputs.DepthLinearizeA = m_Projection[2][2];
-            inputs.DepthLinearizeB = m_Projection[3][2];
+            rateInputs.DepthLinearizeA = m_Projection[2][2];
+            rateInputs.DepthLinearizeB = m_Projection[3][2];
 
             ShadingRateClassifier::Thresholds thresholds;
             thresholds.Depth = m_Settings.VRCSDepthThreshold;
@@ -455,13 +500,15 @@ namespace OloEngine
             thresholds.Coarse4x4Scale = m_Settings.VRCS4x4ToleranceScale;
             thresholds.Allow4x4 = m_Settings.VRCSAllow4x4;
 
-            gpuSubTimers.BeginSubPass("VRCSClassify");
-            m_VRCSActiveLastExecute = m_ShadingRateClassifier.Classify(m_FrameCounter, inputs, thresholds);
-            gpuSubTimers.EndSubPass();
+            if (gpuSubTimers)
+                gpuSubTimers->BeginSubPass("VRCSClassify");
+            m_VRCSActiveLastExecute = m_ShadingRateClassifier.Classify(m_FrameCounter, rateInputs, thresholds);
+            if (gpuSubTimers)
+                gpuSubTimers->EndSubPass();
         }
 
         // Step 2: Upload GTAO uniforms
-        UploadGTAOUniforms();
+        UploadGTAOUniforms(inputs.GPUData, *m_RecordingGTAOUBO);
 
         // The rate heatmap suppresses the denoise (issue #683): GTAO.comp
         // writes a per-tile block pattern into the AO term instead of AO, and
@@ -476,30 +523,30 @@ namespace OloEngine
         // suppression then left the shader writing REAL AO with the denoise
         // switched off, compositing a raw noisy AO buffer with no heatmap to
         // explain it and no diagnostic anywhere.
-        // m_GPUData is null-checked because UploadGTAOUniforms bails on it, in
-        // which case the shader reads whatever the UBO last held — and "no
-        // heatmap" is the right assumption for an unknown state, since it keeps
-        // the denoise running.
-        const bool vrcsHeatmapActive = m_GPUData && m_GPUData->VRCSParams.y != 0;
-        const bool dispatchDenoise = willDispatchDenoise && !vrcsHeatmapActive;
+        const bool vrcsHeatmapActive = inputs.GPUData.VRCSParams.y != 0;
+        const bool dispatchDenoise = inputs.Denoise && !vrcsHeatmapActive;
 
         // Step 3: Dispatch GTAO main pass
-        gpuSubTimers.BeginSubPass("GTAO");
-        DispatchGTAO(denoisePingTexID, normalsID, edgeTexID);
-        gpuSubTimers.EndSubPass();
+        if (gpuSubTimers)
+            gpuSubTimers->BeginSubPass("GTAO");
+        DispatchGTAO(inputs.Ping, inputs.Normals, inputs.Edge);
+        if (gpuSubTimers)
+            gpuSubTimers->EndSubPass();
 
         // Step 4: Denoise (if enabled)
         if (dispatchDenoise)
         {
-            gpuSubTimers.BeginSubPass("GTAO_Denoise");
-            DispatchDenoise(edgeTexID, denoisePingTexID, denoisePongTexID);
-            gpuSubTimers.EndSubPass();
+            if (gpuSubTimers)
+                gpuSubTimers->BeginSubPass("GTAO_Denoise");
+            DispatchDenoise(inputs.Edge, inputs.Ping, inputs.Pong);
+            if (gpuSubTimers)
+                gpuSubTimers->EndSubPass();
         }
 
         const RHI::ResourceHandle finalAOTextureID = (dispatchDenoise && (m_Settings.GTAODenoisePasses % 2 != 0))
-                                                         ? denoisePongTexID
-                                                         : denoisePingTexID;
-        if (finalAOTextureID.IsValid() && finalAOTextureID != aoOutputTexID)
+                                                         ? inputs.Pong
+                                                         : inputs.Ping;
+        if (finalAOTextureID.IsValid() && finalAOTextureID != inputs.AO)
         {
             RenderCommand::MemoryBarrier(
                 MemoryBarrierFlags::ShaderImageAccess |
@@ -507,7 +554,7 @@ namespace OloEngine
                 MemoryBarrierFlags::TextureUpdate);
 
             RenderCommand::CopyImageSubData(finalAOTextureID, RendererAPI::TextureTargetType::Texture2D,
-                                            aoOutputTexID, RendererAPI::TextureTargetType::Texture2D,
+                                            inputs.AO, RendererAPI::TextureTargetType::Texture2D,
                                             m_Width, m_Height);
         }
     }
@@ -540,13 +587,8 @@ namespace OloEngine
         }
     }
 
-    void GTAORenderPass::UploadGTAOUniforms()
+    void GTAORenderPass::UploadGTAOUniforms(UBOStructures::GTAOUBO& data, UniformBuffer& upload)
     {
-        if (!m_GTAOUBO || !m_GPUData)
-        {
-            return;
-        }
-
         f32 projScale00 = m_Projection[0][0];
         f32 projScale11 = m_Projection[1][1];
 
@@ -564,32 +606,32 @@ namespace OloEngine
         // horizontal plane: invisible looking straight down (symmetric), a
         // full-frame visibility collapse to the 0.03 floor at grazing views
         // (the sea / quay "goosebumps" weave rode on that collapsed AO).
-        m_GPUData->NDCToViewMul = glm::vec2(2.0f / projScale00, 2.0f / projScale11);
-        m_GPUData->NDCToViewAdd = glm::vec2(-1.0f / projScale00, -1.0f / projScale11);
+        data.NDCToViewMul = glm::vec2(2.0f / projScale00, 2.0f / projScale11);
+        data.NDCToViewAdd = glm::vec2(-1.0f / projScale00, -1.0f / projScale11);
 
         f32 pixelSizeX = 1.0f / static_cast<f32>(m_Width);
         f32 pixelSizeY = 1.0f / static_cast<f32>(m_Height);
-        m_GPUData->NDCToViewMul_x_PixelSize = m_GPUData->NDCToViewMul * glm::vec2(pixelSizeX, pixelSizeY);
+        data.NDCToViewMul_x_PixelSize = data.NDCToViewMul * glm::vec2(pixelSizeX, pixelSizeY);
 
-        m_GPUData->EffectRadius = m_Settings.GTAORadius;
-        m_GPUData->FinalValuePower = m_Settings.GTAOPower;
-        m_GPUData->EffectFalloffRange = m_Settings.GTAOFalloffRange;
-        m_GPUData->SampleDistributionPower = m_Settings.GTAOSampleDistribution;
-        m_GPUData->ThinOccluderCompensation = m_Settings.GTAOThinCompensation;
-        m_GPUData->DepthMIPSamplingOffset = m_Settings.GTAODepthMipOffset;
-        m_GPUData->DenoiseBlurBeta = m_Settings.GTAODenoiseBeta;
+        data.EffectRadius = m_Settings.GTAORadius;
+        data.FinalValuePower = m_Settings.GTAOPower;
+        data.EffectFalloffRange = m_Settings.GTAOFalloffRange;
+        data.SampleDistributionPower = m_Settings.GTAOSampleDistribution;
+        data.ThinOccluderCompensation = m_Settings.GTAOThinCompensation;
+        data.DepthMIPSamplingOffset = m_Settings.GTAODepthMipOffset;
+        data.DenoiseBlurBeta = m_Settings.GTAODenoiseBeta;
 
         // Depth linearization: proj[2][2] and proj[3][2]
-        m_GPUData->DepthLinearizeA = m_Projection[2][2];
-        m_GPUData->DepthLinearizeB = m_Projection[3][2];
+        data.DepthLinearizeA = m_Projection[2][2];
+        data.DepthLinearizeB = m_Projection[3][2];
 
-        m_GPUData->HZBUVFactor = m_HZBGenerator.GetUVFactor();
-        m_GPUData->ScreenWidth = static_cast<i32>(m_Width);
-        m_GPUData->ScreenHeight = static_cast<i32>(m_Height);
+        data.HZBUVFactor = m_HZBGenerator.GetUVFactor();
+        data.ScreenWidth = static_cast<i32>(m_Width);
+        data.ScreenHeight = static_cast<i32>(m_Height);
 
-        m_GPUData->DenoiseEnabled = m_Settings.GTAODenoiseEnabled ? 1 : 0;
-        m_GPUData->DenoisePasses = m_Settings.GTAODenoisePasses;
-        m_GPUData->DebugView = m_Settings.GTAODebugView ? 1 : 0;
+        data.DenoiseEnabled = m_Settings.GTAODenoiseEnabled ? 1 : 0;
+        data.DenoisePasses = m_Settings.GTAODenoisePasses;
+        data.DebugView = m_Settings.GTAODebugView ? 1 : 0;
 
         // Transforms world-space G-Buffer normals to view space. When the source is
         // ALREADY view space (the forward path's scene-colour RT2, written as
@@ -597,7 +639,7 @@ namespace OloEngine
         // instead — applying the view matrix a second time rotates every normal out
         // of the hemisphere the horizon search assumes and drives AO to zero
         // everywhere, swimming as the camera turns.
-        m_GPUData->ViewMatrix = m_SceneNormalsAreViewSpace ? glm::mat4(1.0f) : m_ViewMatrix;
+        data.ViewMatrix = m_SceneNormalsAreViewSpace ? glm::mat4(1.0f) : m_ViewMatrix;
 
         // VRCS (issue #683). Keyed on what classification ACTUALLY produced
         // this frame, never on the settings alone: if Classify() declined —
@@ -606,11 +648,11 @@ namespace OloEngine
         // to consume it anyway would coarsen off whatever it happened to
         // contain. The heatmap follows the same gate, so a debug view that
         // shows nothing means "no rates", not "all tiles full rate".
-        m_GPUData->VRCSParams = glm::ivec4(m_VRCSActiveLastExecute ? 1 : 0,
-                                           (m_VRCSActiveLastExecute && m_Settings.VRCSDebugOverlay) ? 1 : 0, 0, 0);
+        data.VRCSParams = glm::ivec4(m_VRCSActiveLastExecute ? 1 : 0,
+                                     (m_VRCSActiveLastExecute && m_Settings.VRCSDebugOverlay) ? 1 : 0, 0, 0);
 
-        m_GTAOUBO->SetData(m_GPUData, UBOStructures::GTAOUBO::GetSize());
-        m_GTAOUBO->Bind();
+        upload.SetData(&data, UBOStructures::GTAOUBO::GetSize());
+        upload.Bind();
     }
 
     void GTAORenderPass::DispatchGTAO(RHI::ResourceHandle aoOutputTextureID, RHI::ResourceHandle normalsTextureID,
@@ -715,11 +757,6 @@ namespace OloEngine
         // Former bare uniform via ComputeShader::SetInt — a no-op on the
         // Vulkan route (issue #691). Refilled per pass: each SetData
         // is a fresh per-dispatch address on the arena-versioned backend.
-        if (!m_DenoiseUBO)
-        {
-            m_DenoiseUBO = UniformBuffer::Create(UBOStructures::GTAODenoiseUBO::GetSize(),
-                                                 ShaderBindingLayout::UBO_GTAO_DENOISE);
-        }
 
         for (i32 pass = 0; pass < passes; ++pass)
         {

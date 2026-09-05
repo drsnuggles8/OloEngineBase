@@ -842,29 +842,30 @@ namespace OloEngine
         m_LastBatchTimeMs = std::chrono::duration<f64, std::milli>(batchEnd - batchStart).count();
     }
 
-    void CommandBucket::Execute(RendererAPI& rendererAPI)
+    CommandBucket::Statistics CommandBucket::ReplayRange(RendererAPI& rendererAPI, sizet begin, sizet end) const
+    {
+        OLO_CORE_ASSERT(begin <= end && end <= m_Packets.size(), "Invalid replay range");
+        return ReplayPackets(rendererAPI, std::span<CommandPacket* const>(m_Packets).subspan(begin, end - begin), m_ViewState);
+    }
+
+    CommandBucket::Statistics CommandBucket::ReplayPackets(RendererAPI& rendererAPI, std::span<CommandPacket* const> packets, const std::optional<BucketViewState>& view)
     {
         OLO_PROFILE_FUNCTION();
 
-        auto execStart = std::chrono::high_resolution_clock::now();
-
-        // No lock needed — Execute runs exclusively on the main thread
-        // during EndScene, after all submission is complete.
-        m_Stats.DrawCalls = 0;
-        m_Stats.StateChanges = 0;
+        Statistics stats;
 
         // Bind per-bucket view state if set, saving the previous state for restoration
         BucketViewState savedState;
         bool restoreState = false;
-        if (m_ViewState.has_value() && s_ViewStateReader && s_ViewStateWriter)
+        if (view.has_value() && s_ViewStateReader && s_ViewStateWriter)
         {
             s_ViewStateReader(savedState);
             restoreState = true;
-            s_ViewStateWriter(*m_ViewState);
+            s_ViewStateWriter(*view);
         }
 
         // Execute all commands in order from the flat array
-        for (const auto* packet : m_Packets)
+        for (const auto* packet : packets)
         {
             if (!packet)
                 continue;
@@ -884,11 +885,11 @@ namespace OloEngine
                 type == CommandType::DrawIndexedInstanced ||
                 type == CommandType::DrawLines)
             {
-                ++m_Stats.DrawCalls;
+                ++stats.DrawCalls;
             }
             else if (type != CommandType::Invalid)
             {
-                ++m_Stats.StateChanges;
+                ++stats.StateChanges;
             }
             else
             {
@@ -904,13 +905,81 @@ namespace OloEngine
             s_ViewStateWriter(savedState);
         }
 
-        auto execEnd = std::chrono::high_resolution_clock::now();
-        m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(execEnd - execStart).count();
+        return stats;
+    }
+
+    void CommandBucket::Execute(RendererAPI& rendererAPI)
+    {
+        OLO_PROFILE_FUNCTION();
+        const auto start = std::chrono::steady_clock::now();
+        const auto stats = ReplayRange(rendererAPI, 0, m_Packets.size());
+        m_Stats.DrawCalls = stats.DrawCalls;
+        m_Stats.StateChanges = stats.StateChanges;
+        m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
+    }
+
+    CommandBucket::ParallelReplayPlan CommandBucket::PlanParallelReplay(std::span<CommandPacket* const> packets, u32 minCommandsPerItem)
+    {
+        ParallelReplayPlan plan;
+        if (!s_ParallelReplayClassifier)
+            return plan;
+        plan.ItemCount = static_cast<u32>(std::clamp<sizet>(packets.size() / std::max(1u, minCommandsPerItem), 1u, MAX_RENDER_WORKERS));
+        if (plan.ItemCount < 2u)
+            return plan;
+        for (const auto* packet : packets)
+        {
+            if (!packet)
+                continue;
+            const u32 capacity = s_ParallelReplayClassifier(*packet);
+            if (capacity == 0u)
+                return {};
+            plan.InstanceCapacity = std::max(plan.InstanceCapacity, capacity);
+        }
+        return plan;
+    }
+
+    CommandBucket::Statistics CommandBucket::RecordPackets(RendererAPI& rendererAPI, std::span<CommandPacket* const> packets,
+                                                           const std::optional<BucketViewState>& view, u32 minCommandsPerItem)
+    {
+        if (packets.empty())
+            return {};
+        const auto plan = PlanParallelReplay(packets, minCommandsPerItem);
+        std::array<Statistics, MAX_RENDER_WORKERS> results;
+        rendererAPI.RecordParallel(plan.ItemCount, [&](u32 item)
+                                   {
+            const sizet begin = packets.size() * item / plan.ItemCount;
+            const sizet end = packets.size() * (item + 1u) / plan.ItemCount;
+            results[item] = ReplayPackets(rendererAPI, packets.subspan(begin, end - begin), view); }, plan.InstanceCapacity);
+        Statistics stats;
+        for (u32 item = 0; item < plan.ItemCount; ++item)
+        {
+            stats.DrawCalls += results[item].DrawCalls;
+            stats.StateChanges += results[item].StateChanges;
+        }
+        return stats;
+    }
+
+    void CommandBucket::ExecuteParallel(RendererAPI& rendererAPI, u32 minCommandsPerItem)
+    {
+        OLO_PROFILE_FUNCTION();
+        const auto start = std::chrono::steady_clock::now();
+        const auto stats = RecordPackets(rendererAPI, m_Packets, m_ViewState, minCommandsPerItem);
+        m_Stats.DrawCalls = stats.DrawCalls;
+        m_Stats.StateChanges = stats.StateChanges;
+        m_LastExecuteTimeMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
     }
 
     void CommandBucket::ExecuteWithGPUTiming(RendererAPI& rendererAPI)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Timestamp pools are primary-only. A recording item remains a legal
+        // replay, with CPU item timing reported by the recording context.
+        if (rendererAPI.IsRecordingParallelItem())
+        {
+            Execute(rendererAPI);
+            return;
+        }
 
         auto& gpuTimer = GPUTimerQueryPool::GetInstance();
 
@@ -921,7 +990,7 @@ namespace OloEngine
 
         auto execStart = std::chrono::high_resolution_clock::now();
 
-        // No lock needed — ExecuteWithGPUTiming runs exclusively on the main thread
+        // Timestamp recording and this bucket are owned by the primary thread here.
         m_Stats.DrawCalls = 0;
         m_Stats.StateChanges = 0;
 

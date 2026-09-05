@@ -54,6 +54,22 @@ namespace OloEngine::MCP::PassTimings
     // last-completed-frame snapshot in. All zero on OpenGL, whose facade
     // default reports nothing; on Vulkan with OLO_VK_PARALLEL_RECORDING off
     // only InlineRegions counts (every RecordParallel call ran inline).
+    struct ParallelRegionStats
+    {
+        std::string PassName;
+        bool Parallel = false;
+        f64 WorkerRecordMs = 0.0;
+        f64 RegionWallMs = 0.0;
+        f64 JoinWaitMs = 0.0;
+        std::vector<f64> ItemRecordMs;
+        std::vector<std::string> ItemPassNames;
+        // Optional micro-cost probe: OLO_VK_RECORDING_COSTS=1 at process start.
+        f64 SelectionSeedMs = 0.0;
+        f64 AttachmentPrepareMs = 0.0;
+        f64 SampledImagePrepareMs = 0.0;
+        f64 PipelineLookupMs = 0.0;
+    };
+
     struct ParallelRecordingStats
     {
         u32 Regions = 0;             // RecordParallel calls that forked onto task workers
@@ -62,6 +78,8 @@ namespace OloEngine::MCP::PassTimings
         u32 MergeConflicts = 0;      // subresources two items transitioned differently (rule 5): a bug in the forking pass
         f64 WorkerRecordMs = 0.0;    // sum of per-item recording time across workers
         f64 RegionWallMs = 0.0;      // sum of fork-to-join wall time on the render thread
+        f64 JoinWaitMs = 0.0;
+        std::vector<ParallelRegionStats> RegionTimings;
     };
 
     struct FrameTotals
@@ -176,7 +194,17 @@ namespace OloEngine::MCP::PassTimings
                                        { "secondariesExecuted", pr.SecondariesExecuted },
                                        { "mergeConflicts", pr.MergeConflicts },
                                        { "workerRecordMs", Round3(pr.WorkerRecordMs) },
-                                       { "regionWallMs", Round3(pr.RegionWallMs) } };
+                                       { "regionWallMs", Round3(pr.RegionWallMs) },
+                                       { "joinWaitMs", Round3(pr.JoinWaitMs) },
+                                       { "regionTimings", Json::array() } };
+        for (const auto& region : pr.RegionTimings)
+        {
+            Json items = Json::array();
+            for (const f64 itemMs : region.ItemRecordMs)
+                items.push_back(Round3(itemMs));
+            o["parallelRecording"]["regionTimings"].push_back(
+                Json{ { "pass", region.PassName }, { "parallel", region.Parallel }, { "workerRecordMs", Round3(region.WorkerRecordMs) }, { "regionWallMs", Round3(region.RegionWallMs) }, { "joinWaitMs", Round3(region.JoinWaitMs) }, { "itemRecordMs", std::move(items) }, { "itemPassNames", region.ItemPassNames }, { "selectionSeedMs", Round3(region.SelectionSeedMs) }, { "attachmentPrepareMs", Round3(region.AttachmentPrepareMs) }, { "sampledImagePrepareMs", Round3(region.SampledImagePrepareMs) }, { "pipelineLookupMs", Round3(region.PipelineLookupMs) } });
+        }
         o["passes"] = std::move(passes);
         o["passGpuTotalMs"] = Round3(passGpuTotal);
         // GPU time inside the frame span but between/outside timed passes

@@ -30,6 +30,17 @@ namespace OloEngine
     class RGCommandContext
     {
       public:
+        [[nodiscard]] RGCommandContext CreateRecordingLane(u32 lane) const
+        {
+            RGCommandContext context;
+            context.m_RenderGraph = m_RenderGraph;
+            context.m_RecordingLane = lane;
+            return context;
+        }
+        [[nodiscard]] u32 GetRecordingLane() const noexcept
+        {
+            return m_RecordingLane;
+        }
         void BeginPass(std::string_view passName)
         {
             m_ActivePassName = passName;
@@ -153,5 +164,6 @@ namespace OloEngine
         std::string m_ActivePassName;
         bool m_IsPassActive = false;
         RenderGraph* m_RenderGraph = nullptr;
+        u32 m_RecordingLane = UINT32_MAX;
     };
 } // namespace OloEngine

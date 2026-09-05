@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>
@@ -69,6 +70,7 @@ namespace OloEngine
         // Mesh particle resources
         Ref<Shader> MeshParticleShader;
         Ref<UniformBuffer> MeshInstanceUBO;
+        std::vector<Ref<UniformBuffer>> MeshRecordingUploads;
 
         // Trail rendering resources
         static constexpr u32 MaxTrailQuads = 10000;
@@ -199,6 +201,7 @@ namespace OloEngine
 
     void ParticleBatchRenderer::Shutdown()
     {
+        s_Data.MeshRecordingUploads.clear();
         OLO_PROFILE_FUNCTION();
 
         s_Data.InstanceBase.reset();
@@ -456,6 +459,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Populate ParticleParams UBO (reuse the same UBO at binding 2)
+        const u32 itemCount = std::clamp(static_cast<u32>(instances.size() / 32), 1u, MAX_RENDER_WORKERS);
+        while (s_Data.MeshRecordingUploads.size() < itemCount)
+            s_Data.MeshRecordingUploads.push_back(UniformBuffer::Create(sizeof(MeshParticleInstance), 3));
         bool hasTexture = (texture != nullptr);
         UploadParticleParams(hasTexture);
 
@@ -478,14 +484,18 @@ namespace OloEngine
         // working example). Migrating this mesh-particle path to a real
         // DrawMeshInstanced + ModelInstanceBuffer upload is a future
         // optimisation — see GPU instancing (#173).
-        for (u32 i = 0; i < instances.size(); ++i)
-        {
-            s_Data.MeshInstanceUBO->SetData(&instances[i], sizeof(MeshParticleInstance));
-            RenderCommand::DrawIndexed(vao, indexCount);
-
-            ++s_Data.Stats.DrawCalls;
-            ++s_Data.Stats.InstanceCount;
-        }
+        RenderCommand::RecordParallel(itemCount, [&](u32 itemIndex)
+                                      {
+            auto& upload = s_Data.MeshRecordingUploads[itemIndex];
+            const sizet end = instances.size() * (itemIndex + 1) / itemCount;
+            for (sizet i = instances.size() * itemIndex / itemCount; i < end; ++i)
+            {
+                upload->SetData(&instances[i], sizeof(MeshParticleInstance));
+                upload->Bind();
+                RenderCommand::DrawIndexed(vao, indexCount);
+            } });
+        s_Data.Stats.DrawCalls += static_cast<u32>(instances.size());
+        s_Data.Stats.InstanceCount += static_cast<u32>(instances.size());
     }
 
     void ParticleBatchRenderer::SubmitTrailQuad(std::span<const glm::vec3, 4> positions,

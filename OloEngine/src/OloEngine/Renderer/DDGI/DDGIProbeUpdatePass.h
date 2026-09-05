@@ -17,6 +17,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <functional>
 #include <vector>
 
 namespace OloEngine
@@ -322,7 +323,7 @@ namespace OloEngine
         void DestroyResources();
         void BuildCascades();
         void UploadVolumeUBO(bool enabled);
-        void UploadComputeParams(i32 probeIndexOrTotal, i32 flags);
+        void UploadComputeParams(i32 probeIndexOrTotal, i32 flags, UniformBuffer* target = nullptr);
         void BindProbeBuffers() const;
 
         [[nodiscard]] std::vector<i32> PickCaptureSet(i32 budget);
@@ -333,13 +334,22 @@ namespace OloEngine
         void DispatchProbeMaintain();
         void DispatchScreenRequests();
         void DispatchProbeRequests();
-        void CaptureProbe(i32 probeIdx);
-        void ResampleProbe(i32 probeIdx);
-        void RelocateProbeGPU(i32 probeIdx, bool refreshCapture);
+        struct CaptureResources
+        {
+            Ref<Framebuffer> Target;
+            Ref<UniformBuffer> Camera;
+            Ref<UniformBuffer> PassData;
+        };
+        void PrepareCaptureResources(u32 count);
+        void RecordProbeRanges(const std::vector<i32>& probes, u32 minProbesPerItem,
+                               const std::function<void(i32, CaptureResources&)>& body);
+        void CaptureProbe(i32 probeIdx, CaptureResources& resources);
+        void ResampleProbe(i32 probeIdx, CaptureResources& resources);
+        void RelocateProbeGPU(i32 probeIdx, bool refreshCapture, UniformBuffer* params = nullptr);
         void BlendVisibility(const std::vector<i32>& capturedProbes);
         void RelightProbes();
         void BlendIrradiance();
-        void SetPassDataProbe(i32 probeIdx);
+        void SetPassDataProbe(i32 probeIdx, UniformBuffer* params = nullptr);
 
         [[nodiscard]] f32 ComputeCapturedFraction() const;
         [[nodiscard]] glm::vec3 ProbeGridWorldPosition(i32 probeIdx) const;
@@ -359,6 +369,7 @@ namespace OloEngine
         Ref<UniformBuffer> m_DDGIUBO;          // binding 51 (UBO_DDGI)
         Ref<UniformBuffer> m_PassDataUBO;      // binding 7  (UBO_USER_0) — per-draw/per-dispatch data
         Ref<UniformBuffer> m_CaptureCameraUBO; // binding 0  (UBO_CAMERA) — per-face overwrite, ShadowRenderPass style
+        std::vector<CaptureResources> m_CaptureItems;
 
         // SSBO (issue #707; one buffer since #1015)
         Ref<StorageBuffer> m_ProbeAuxSSBO; // SSBO_DDGI_PROBE_AUX (6) — ProbeStats header, then one record per probe

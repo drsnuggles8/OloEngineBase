@@ -33,6 +33,11 @@ namespace OloEngine
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
+        bool SupportsWholePassRecording() const noexcept override
+        {
+            return true;
+        }
+        RGPreparedPass PrepareParallelRecording(RGCommandContext& context) override;
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -113,6 +118,13 @@ namespace OloEngine
         }
 
       private:
+        struct RecordingInputs
+        {
+            RHI::ResourceHandle Depth, Normals, PreviousColor, AO, Edge, Ping, Pong;
+            bool Denoise = false;
+            UBOStructures::GTAOUBO GPUData;
+        };
+        void RecordPrepared(RecordingInputs& inputs);
         void GenerateHilbertLUT();
         // Clear the AO target to "fully visible" (1.0). The identity for a
         // frame GTAO could not produce; a zero-initialised transient reads as
@@ -120,7 +132,8 @@ namespace OloEngine
         // `skipReason` non-null also emits a rate-limited warning naming the
         // early return that fired; pass nullptr for the routine seeding case.
         static void PublishNoOcclusion(RHI::ResourceHandle aoOutputTexture, const char* skipReason);
-        void UploadGTAOUniforms();
+        static RGPreparedPass PrepareNoOcclusion(RHI::ResourceHandle texture, const char* reason);
+        void UploadGTAOUniforms(UBOStructures::GTAOUBO& data, UniformBuffer& upload);
         void DispatchGTAO(RHI::ResourceHandle aoOutputTexture, RHI::ResourceHandle normalsTexture,
                           RHI::ResourceHandle edgeTexture);
         void DispatchDenoise(RHI::ResourceHandle edgeTexture, RHI::ResourceHandle pingTexture,
@@ -131,13 +144,14 @@ namespace OloEngine
 
         Ref<ComputeShader> m_GTAOShader;
         Ref<ComputeShader> m_DenoiseShader;
-        // Per-ping-pong-pass blur axis (former bare uniform — no-op Set* on
-        // the Vulkan route, issue #691); lazily created at first denoise.
+        // Per-ping-pong-pass blur axis; allocated by primary preparation.
+        // Each dispatch uploads a new private version (issue #691).
         Ref<UniformBuffer> m_DenoiseUBO;
 
         Ref<Texture2D> m_HilbertLUT; // 64×64 R16UI Hilbert curve index
 
         Ref<UniformBuffer> m_GTAOUBO;
+        Ref<UniformBuffer> m_RecordingGTAOUBO;
         UBOStructures::GTAOUBO* m_GPUData = nullptr;
 
         PostProcessSettings m_Settings;

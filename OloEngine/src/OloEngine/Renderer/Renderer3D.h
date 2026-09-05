@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/FluidRenderData.h"
@@ -1355,19 +1357,19 @@ namespace OloEngine
         }
         static Ref<UniformBuffer> GetDecalUBO()
         {
-            return s_Data.DecalUBO;
+            return CommandDispatch::ResolveRecordingUpload(ShaderBindingLayout::UBO_DECAL, s_Data.DecalUBO);
         }
         static Ref<UniformBuffer> GetTerrainUBO()
         {
-            return s_Data.TerrainUBO;
+            return CommandDispatch::ResolveRecordingUpload(ShaderBindingLayout::UBO_TERRAIN, s_Data.TerrainUBO);
         }
         static Ref<UniformBuffer> GetFoliageUBO()
         {
-            return s_Data.FoliageUBO;
+            return CommandDispatch::ResolveRecordingUpload(ShaderBindingLayout::UBO_FOLIAGE, s_Data.FoliageUBO);
         }
         static Ref<UniformBuffer> GetWaterUBO()
         {
-            return s_Data.WaterUBO;
+            return CommandDispatch::ResolveRecordingUpload(ShaderBindingLayout::UBO_WATER, s_Data.WaterUBO);
         }
         // Per-draw instance data SSBO (binding = 15). Every mesh / shadow /
         // decal / foliage / water shader reads its model transform from here
@@ -1375,7 +1377,7 @@ namespace OloEngine
         // been retired.
         static Ref<InstanceBuffer> GetModelInstanceBuffer()
         {
-            return s_Data.ModelInstanceBuffer;
+            return CommandDispatch::ResolveRecordingInstances(s_Data.ModelInstanceBuffer);
         }
 
         static PostProcessSettings& GetPostProcessSettings()
@@ -1637,6 +1639,7 @@ namespace OloEngine
         // Command-dispatch hooks for the targeted diagnostic above. They are
         // no-ops unless an MCP caller has armed this exact entity.
         [[nodiscard]] static bool BeginDecalReceiverIntersectionQuery(i32 entityID);
+        [[nodiscard]] static bool IsDecalVisibilityObserved(i32 entityID);
         static void EndDecalReceiverIntersectionQuery();
         [[nodiscard]] static bool BeginDecalVisibilityQuery(i32 entityID);
         static void EndDecalVisibilityQuery();

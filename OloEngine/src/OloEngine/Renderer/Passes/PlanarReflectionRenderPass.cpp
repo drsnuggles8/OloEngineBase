@@ -217,7 +217,7 @@ namespace OloEngine
         // UBO binding, shadow maps, IBL) and replay the already-batched opaque
         // bucket (skybox + meshes + terrain + voxels) into the mirror target.
         CommandDispatch::BindSceneResources();
-        m_ScenePass->GetCommandBucket().Execute(rendererAPI);
+        m_ScenePass->GetCommandBucket().ExecuteParallel(rendererAPI);
 
         RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);
         m_ReflectionFB->Unbind();

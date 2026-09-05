@@ -209,6 +209,9 @@ TEST(McpPassTimingsTest, EmitsParallelRecordingBlock)
     totals.ParallelRecording.MergeConflicts = 2;
     totals.ParallelRecording.WorkerRecordMs = 4.5678;
     totals.ParallelRecording.RegionWallMs = 1.2346;
+    totals.ParallelRecording.JoinWaitMs = 0.1236;
+    totals.ParallelRecording.RegionTimings.push_back({ "ShadowPass", true, 4.5678, 1.2346, 0.1236, { 2.3456, 2.2222 }, { "First", "Second" }, 0.0216, 0.0051, 0.0406, 0.1256 });
+    totals.ParallelRecording.RegionTimings.push_back({ "ScenePass", false, 0.4321, 0.4567, 0.0, { 0.4321 } });
 
     const Json o = BuildPassTimings({}, {}, totals);
 
@@ -220,6 +223,17 @@ TEST(McpPassTimingsTest, EmitsParallelRecordingBlock)
     EXPECT_EQ(pr["mergeConflicts"].get<std::uint32_t>(), 2u);
     EXPECT_DOUBLE_EQ(pr["workerRecordMs"].get<double>(), 4.568);
     EXPECT_DOUBLE_EQ(pr["regionWallMs"].get<double>(), 1.235);
+    EXPECT_DOUBLE_EQ(pr["joinWaitMs"].get<double>(), 0.124);
+    ASSERT_EQ(pr["regionTimings"].size(), 2u);
+    EXPECT_EQ(pr["regionTimings"][0]["pass"], "ShadowPass");
+    EXPECT_EQ(pr["regionTimings"][0]["parallel"], true);
+    EXPECT_DOUBLE_EQ(pr["regionTimings"][0]["itemRecordMs"][0].get<double>(), 2.346);
+    EXPECT_DOUBLE_EQ(pr["regionTimings"][0]["selectionSeedMs"].get<double>(), 0.022);
+    EXPECT_DOUBLE_EQ(pr["regionTimings"][0]["pipelineLookupMs"].get<double>(), 0.126);
+    EXPECT_EQ(pr["regionTimings"][0]["itemPassNames"], (Json::array({ "First", "Second" })));
+    EXPECT_EQ(pr["regionTimings"][1]["pass"], "ScenePass");
+    EXPECT_EQ(pr["regionTimings"][1]["parallel"], false);
+    EXPECT_DOUBLE_EQ(pr["regionTimings"][1]["joinWaitMs"].get<double>(), 0.0);
 
     // The block is a sibling of "frame", not nested inside it - the frame
     // totals keep the exact shape older callers parse.
