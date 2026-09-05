@@ -869,6 +869,47 @@ if (auto node = entity["SpringBoneComponent"]; node)
         comp.Weight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
 }
 
+if (auto node = entity["TilemapComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<TilemapComponent>();
+    comp.TilesetHandle = node["TilesetHandle"].as<u64>(static_cast<u64>(comp.TilesetHandle));
+    if (const u32 v = node["Width"].as<u32>(comp.Width); v >= static_cast<u32>(1u) && v <= static_cast<u32>(4096u))
+        comp.Width = v;
+    if (const u32 v = node["Height"].as<u32>(comp.Height); v >= static_cast<u32>(1u) && v <= static_cast<u32>(4096u))
+        comp.Height = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TileSize"], v))
+        comp.TileSize = std::clamp(v, static_cast<f32>(0.0001f), static_cast<f32>(10000.0f));
+    comp.Color = node["Color"].as<glm::vec4>(comp.Color);
+    if (auto seqNode = node["Layers"]; seqNode && seqNode.IsSequence())
+    {
+        comp.Layers.clear();
+        for (auto const& e : seqNode)
+        {
+            decltype(comp.Layers)::value_type tmp0{};
+            tmp0.Name = e["Name"].as<std::string>(tmp0.Name);
+            if (auto seqNode1 = e["Tiles"]; seqNode1 && seqNode1.IsSequence())
+            {
+                tmp0.Tiles.clear();
+                for (auto const& e1 : seqNode1)
+                    if (decltype(tmp0.Tiles)::value_type v{}; ::YAML::convert<decltype(tmp0.Tiles)::value_type>::decode(e1, v))
+                        tmp0.Tiles.push_back(v);
+            }
+            tmp0.Visible = e["Visible"].as<bool>(tmp0.Visible);
+            tmp0.Solid = e["Solid"].as<bool>(tmp0.Solid);
+            if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(e["Opacity"], v))
+                tmp0.Opacity = v;
+            if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(e["ZOffset"], v))
+                tmp0.ZOffset = v;
+            comp.Layers.push_back(tmp0);
+        }
+    }
+    comp.GenerateColliders = node["GenerateColliders"].as<bool>(comp.GenerateColliders);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ColliderFriction"], v))
+        comp.ColliderFriction = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ColliderRestitution"], v))
+        comp.ColliderRestitution = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+}
+
 if (auto node = entity["TimeOfDayComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<TimeOfDayComponent>();

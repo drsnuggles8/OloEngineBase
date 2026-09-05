@@ -57,13 +57,16 @@ namespace OloEngine
         // dependency; OpenVDB itself is confined to the editor-only
         // OloEngine-VolumeCook target.
         Volume = 41,
+        // Texture atlas + per-tile metadata for the 2D tilemap system (issue
+        // #646) — see OloEngine/src/OloEngine/Tilemap/Tileset.h.
+        Tileset = 42,
     };
 
-    // If AssetType grows past Volume, bump kMaxKnownValue in
+    // If AssetType grows past Tileset, bump kMaxKnownValue in
     // OloEngine/tests/AssetExtensionsCoverageTest.cpp or that test will
     // silently skip the new entries.
-    static_assert(std::to_underlying(AssetType::Volume) == 41,
-                  "AssetType::Volume moved; update kMaxKnownValue in "
+    static_assert(std::to_underlying(AssetType::Tileset) == 42,
+                  "AssetType::Tileset moved; update kMaxKnownValue in "
                   "AssetExtensionsCoverageTest.cpp to match the new max value.");
 
     enum class AssetFlag : u16
@@ -213,6 +216,8 @@ namespace OloEngine
                     return "Lightmap";
                 case AssetType::Volume:
                     return "Volume";
+                case AssetType::Tileset:
+                    return "Tileset";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -312,6 +317,8 @@ namespace OloEngine
                 return AssetType::Lightmap;
             if (assetType == "Volume")
                 return AssetType::Volume;
+            if (assetType == "Tileset")
+                return AssetType::Tileset;
 
             return AssetType::None;
         }

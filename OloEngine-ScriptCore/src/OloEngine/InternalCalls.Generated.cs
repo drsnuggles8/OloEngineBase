@@ -1970,6 +1970,33 @@ namespace OloEngine
 		internal static extern void TextComponent_SetLineSpacing(ulong entityID, float value);
 		#endregion
 
+		#region TilemapComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong TilemapComponent_GetTilesetHandle(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TilemapComponent_SetTilesetHandle(ulong entityID, ulong value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TilemapComponent_GetTileSize(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TilemapComponent_SetTileSize(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TilemapComponent_GetColor(ulong entityID, out Vector4 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TilemapComponent_SetColor(ulong entityID, ref Vector4 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool TilemapComponent_GetGenerateColliders(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TilemapComponent_SetGenerateColliders(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TilemapComponent_GetColliderFriction(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TilemapComponent_SetColliderFriction(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TilemapComponent_GetColliderRestitution(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TilemapComponent_SetColliderRestitution(ulong entityID, float value);
+		#endregion
+
 		#region TimeOfDayComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool TimeOfDayComponent_GetEnabled(ulong entityID);

@@ -1239,6 +1239,16 @@
 		"OloEngine/Terrain/Foliage/FoliageRenderer.h"
 		"OloEngine/Terrain/Foliage/FoliageRenderer.cpp"
 
+		"OloEngine/Tilemap/Tileset.h"
+		"OloEngine/Tilemap/Tileset.cpp"
+		"OloEngine/Tilemap/TilesetSerializer.cpp"
+		"OloEngine/Tilemap/TilemapComponent.h"
+		"OloEngine/Tilemap/TilemapComponent.cpp"
+		"OloEngine/Tilemap/TilemapRenderer.h"
+		"OloEngine/Tilemap/TilemapRenderer.cpp"
+		"OloEngine/Tilemap/TilemapColliderBuilder.h"
+		"OloEngine/Tilemap/TilemapColliderBuilder.cpp"
+
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/TransformComponent.cpp"
 		"OloEngine/Scene/Entity.cpp"

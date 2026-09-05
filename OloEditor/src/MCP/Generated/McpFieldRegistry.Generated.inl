@@ -1013,6 +1013,16 @@ registry.push_back(OLO_GFW_FIELD(TileRendererComponent, "Width", Width));
 registry.push_back(OLO_GFW_FIELD(TileRendererComponent, "Height", Height));
 registry.push_back(OLO_GFW_FIELD(TileRendererComponent, "TileSize", TileSize));
 
+// TilemapComponent
+registry.push_back(OLO_GFW_FIELD(TilemapComponent, "TilesetHandle", TilesetHandle));
+registry.push_back(OLO_GFW_FIELD_RANGE(TilemapComponent, "Width", Width, OLO_GFW_BOUND(1u), OLO_GFW_BOUND(4096u)));
+registry.push_back(OLO_GFW_FIELD_RANGE(TilemapComponent, "Height", Height, OLO_GFW_BOUND(1u), OLO_GFW_BOUND(4096u)));
+registry.push_back(OLO_GFW_FIELD_RANGE(TilemapComponent, "TileSize", TileSize, OLO_GFW_BOUND(0.0001f), OLO_GFW_BOUND(10000.0f)));
+registry.push_back(OLO_GFW_FIELD(TilemapComponent, "Color", Color));
+registry.push_back(OLO_GFW_FIELD(TilemapComponent, "GenerateColliders", GenerateColliders));
+registry.push_back(OLO_GFW_FIELD_RANGE(TilemapComponent, "ColliderFriction", ColliderFriction, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(TilemapComponent, "ColliderRestitution", ColliderRestitution, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+
 // TimeOfDayComponent
 registry.push_back(OLO_GFW_FIELD(TimeOfDayComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD_RANGE(TimeOfDayComponent, "TimeOfDayHours", m_TimeOfDayHours, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(24.0f)));
@@ -1054,6 +1064,10 @@ registry.push_back(OLO_GFW_FIELD(UICanvasComponent, "ScaleMode", m_ScaleMode));
 registry.push_back(OLO_GFW_FIELD(UICanvasComponent, "SortOrder", m_SortOrder));
 registry.push_back(OLO_GFW_FIELD(UICanvasComponent, "ReferenceResolution", m_ReferenceResolution));
 
+}
+
+static void BuildRegistryChunk14(std::vector<FieldEntry>& registry)
+{
 // UICheckboxComponent
 registry.push_back(OLO_GFW_FIELD(UICheckboxComponent, "IsChecked", m_IsChecked));
 registry.push_back(OLO_GFW_FIELD(UICheckboxComponent, "UncheckedColor", m_UncheckedColor));
@@ -1070,10 +1084,6 @@ registry.push_back(OLO_GFW_FIELD(UIDropdownComponent, "FontSize", m_FontSize));
 registry.push_back(OLO_GFW_FIELD(UIDropdownComponent, "ItemHeight", m_ItemHeight));
 registry.push_back(OLO_GFW_FIELD(UIDropdownComponent, "Interactable", m_Interactable));
 
-}
-
-static void BuildRegistryChunk14(std::vector<FieldEntry>& registry)
-{
 // UIGridLayoutComponent
 registry.push_back(OLO_GFW_FIELD(UIGridLayoutComponent, "CellSize", m_CellSize));
 registry.push_back(OLO_GFW_FIELD(UIGridLayoutComponent, "Spacing", m_Spacing));
@@ -1126,6 +1136,10 @@ registry.push_back(OLO_GFW_FIELD(UIScrollViewComponent, "ShowVerticalScrollbar",
 registry.push_back(OLO_GFW_FIELD(UIScrollViewComponent, "ScrollbarColor", m_ScrollbarColor));
 registry.push_back(OLO_GFW_FIELD(UIScrollViewComponent, "ScrollbarTrackColor", m_ScrollbarTrackColor));
 
+}
+
+static void BuildRegistryChunk15(std::vector<FieldEntry>& registry)
+{
 // UISliderComponent
 registry.push_back(OLO_GFW_FIELD(UISliderComponent, "Value", m_Value));
 registry.push_back(OLO_GFW_FIELD(UISliderComponent, "MinValue", m_MinValue));
@@ -1144,10 +1158,6 @@ registry.push_back(OLO_GFW_FIELD(UITextComponent, "Alignment", m_Alignment));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "Kerning", m_Kerning));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "LineSpacing", m_LineSpacing));
 
-}
-
-static void BuildRegistryChunk15(std::vector<FieldEntry>& registry)
-{
 // UIToggleComponent
 registry.push_back(OLO_GFW_FIELD(UIToggleComponent, "IsOn", m_IsOn));
 registry.push_back(OLO_GFW_FIELD(UIToggleComponent, "OffColor", m_OffColor));
@@ -1190,6 +1200,10 @@ registry.push_back(OLO_GFW_FIELD(VideoOverlayComponent, "SkipOnInput", SkipOnInp
 registry.push_back(OLO_GFW_FIELD(VideoOverlayComponent, "Looping", Looping));
 registry.push_back(OLO_GFW_FIELD(VideoOverlayComponent, "Volume", Volume));
 
+}
+
+static void BuildRegistryChunk16(std::vector<FieldEntry>& registry)
+{
 // VideoSurfaceComponent
 registry.push_back(OLO_GFW_FIELD(VideoSurfaceComponent, "VideoPath", VideoPath));
 registry.push_back(OLO_GFW_FIELD(VideoSurfaceComponent, "AutoPlay", AutoPlay));
@@ -1331,7 +1345,7 @@ registry.push_back(OLO_GFW_FIELD_RANGE(WaterComponent, "RainRippleFadeEnd", m_Ra
 
 }
 
-static void BuildRegistryChunk16(std::vector<FieldEntry>& registry)
+static void BuildRegistryChunk17(std::vector<FieldEntry>& registry)
 {
 // WeaponComponent
 registry.push_back(OLO_GFW_FIELD(WeaponComponent, "WeaponItemID", m_WeaponItemID));
@@ -1462,7 +1476,7 @@ registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.SnowAccum
 
 }
 
-static void BuildRegistryChunk17(std::vector<FieldEntry>& registry)
+static void BuildRegistryChunk18(std::vector<FieldEntry>& registry)
 {
 // AudioSourceComponent (OLO_PROPERTY setter-based — private authored fields)
 registry.push_back(MakeSetterField<AudioSourceComponent, float>(
@@ -1646,4 +1660,5 @@ static void BuildRegistryChunks(std::vector<FieldEntry>& registry)
     BuildRegistryChunk15(registry);
     BuildRegistryChunk16(registry);
     BuildRegistryChunk17(registry);
+    BuildRegistryChunk18(registry);
 }

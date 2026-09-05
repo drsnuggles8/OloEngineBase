@@ -798,6 +798,38 @@ if (entity.HasComponent<SpringBoneComponent>())
     out << YAML::EndMap; // SpringBoneComponent
 }
 
+if (entity.HasComponent<TilemapComponent>())
+{
+    out << YAML::Key << "TilemapComponent";
+    out << YAML::BeginMap; // TilemapComponent
+    auto const& comp = entity.GetComponent<TilemapComponent>();
+    out << YAML::Key << "TilesetHandle" << YAML::Value << static_cast<u64>(comp.TilesetHandle);
+    out << YAML::Key << "Width" << YAML::Value << comp.Width;
+    out << YAML::Key << "Height" << YAML::Value << comp.Height;
+    out << YAML::Key << "TileSize" << YAML::Value << comp.TileSize;
+    out << YAML::Key << "Color" << YAML::Value << comp.Color;
+    out << YAML::Key << "Layers" << YAML::Value << YAML::BeginSeq;
+    for (auto const& e : comp.Layers)
+    {
+        out << YAML::BeginMap;
+        out << YAML::Key << "Name" << YAML::Value << e.Name;
+        out << YAML::Key << "Tiles" << YAML::Value << YAML::BeginSeq;
+        for (auto const& e1 : e.Tiles)
+            out << e1;
+        out << YAML::EndSeq;
+        out << YAML::Key << "Visible" << YAML::Value << e.Visible;
+        out << YAML::Key << "Solid" << YAML::Value << e.Solid;
+        out << YAML::Key << "Opacity" << YAML::Value << e.Opacity;
+        out << YAML::Key << "ZOffset" << YAML::Value << e.ZOffset;
+        out << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+    out << YAML::Key << "GenerateColliders" << YAML::Value << comp.GenerateColliders;
+    out << YAML::Key << "ColliderFriction" << YAML::Value << comp.ColliderFriction;
+    out << YAML::Key << "ColliderRestitution" << YAML::Value << comp.ColliderRestitution;
+    out << YAML::EndMap; // TilemapComponent
+}
+
 if (entity.HasComponent<TimeOfDayComponent>())
 {
     out << YAML::Key << "TimeOfDayComponent";

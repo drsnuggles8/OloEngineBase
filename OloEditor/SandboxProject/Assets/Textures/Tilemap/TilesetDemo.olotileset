@@ -1,0 +1,54 @@
+Tileset:
+  Texture: 4896684622676915327
+  TileWidth: 32
+  TileHeight: 32
+  Spacing: 0
+  Margin: 0
+  Tiles:
+    - Index: 0
+      Solid: true
+      Type: grass
+    - Index: 1
+      Solid: true
+      Type: dirt
+    - Index: 2
+      Solid: true
+      Type: stone
+    - Index: 3
+      Solid: true
+      Type: sand
+    - Index: 4
+      Solid: true
+      Type: grass-edge
+    - Index: 5
+      Solid: true
+      Type: grass-edge
+    - Index: 6
+      Solid: true
+      Type: grass-edge
+    - Index: 7
+      Solid: true
+      Type: grass-edge
+    - Index: 8
+      Solid: true
+      Type: brick
+    - Index: 9
+      Solid: true
+      Type: plank
+    - Index: 10
+      Solid: false
+      Flags: 1
+      Type: ladder
+    - Index: 11
+      Solid: false
+      Flags: 2
+      Type: water
+    - Index: 12
+      Solid: false
+      Type: tree
+    - Index: 13
+      Solid: false
+      Type: rock
+    - Index: 14
+      Solid: false
+      Type: flowers
