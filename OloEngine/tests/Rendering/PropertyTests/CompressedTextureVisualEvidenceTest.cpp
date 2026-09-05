@@ -11,6 +11,11 @@
 //      the format we think it does. That decompressed frame is written to a PNG and
 //      read back, so there is a human-inspectable pixel artifact per the project's
 //      visual-verification rule.
+//
+// Plus, since #624, a before/after capture of the sRGB mip chain: the same source
+// cooked with the gamma-naive and the linear-light reduction, sampled off the GPU and
+// written side by side, because "the mips got less dark" is a claim that has to be
+// looked at rather than only asserted.
 
 #include "RenderPropertyTest.h"
 
@@ -255,7 +260,7 @@ TEST(CompressedTextureVisualEvidence, BC6HUploadStoresBlocksAndDecompressesOnGPU
     const std::vector<f32> source = MakeGradientHDR(kW, kH, kPeak);
 
     // Encode HDR RGB -> BC6H (unsigned), base mip only for a clean 1:1 comparison.
-    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*mips*/ false);
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, /*isSigned*/ false, /*mips*/ false);
     ASSERT_TRUE(image.IsValid());
     EXPECT_EQ(image.Format, TextureCompressionFormat::BC6H);
 
@@ -320,4 +325,105 @@ TEST(CompressedTextureVisualEvidence, BC6HUploadStoresBlocksAndDecompressesOnGPU
         // Keep the tonemapped evidence PNG in the temp dir for human inspection.
         OLO_CORE_INFO("CompressedTextureVisualEvidence: wrote BC6H tonemapped evidence to {}", pngPath.string());
     }
+}
+
+TEST(CompressedTextureVisualEvidence, SRGBMipChainIsBrighterInLinearLightThanGammaNaive)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    // Before/after evidence for #624 item 4. A high-contrast sRGB checkerboard is the case
+    // where averaging code values instead of light is most visible: every reduction step
+    // pulls the result toward 128/255 when half the LIGHT is 188/255.
+    constexpr u32 kW = 64;
+    constexpr u32 kH = 64;
+    std::vector<u8> checker(static_cast<sizet>(kW) * kH * 4, 255);
+    for (u32 y = 0; y < kH; ++y)
+    {
+        for (u32 x = 0; x < kW; ++x)
+        {
+            const u8 value = ((x + y) % 2 == 0) ? 255 : 0;
+            u8* p = &checker[(static_cast<sizet>(y) * kW + x) * 4];
+            p[0] = value;
+            p[1] = value;
+            p[2] = value;
+            p[3] = 255;
+        }
+    }
+
+    // srgb=true takes the linear-light reduction; srgb=false is the gamma-naive one this
+    // cook used before, on the identical texels. Two chains, one difference.
+    const CompressedTextureImage linearLight = TextureCompression::EncodeBC7(checker.data(), kW, kH, 4, /*srgb*/ true, /*mips*/ true);
+    const CompressedTextureImage gammaNaive = TextureCompression::EncodeBC7(checker.data(), kW, kH, 4, /*srgb*/ false, /*mips*/ true);
+    ASSERT_TRUE(linearLight.IsValid());
+    ASSERT_TRUE(gammaNaive.IsValid());
+    ASSERT_GT(linearLight.MipLevels(), 2u);
+
+    // Level 1 of each, decompressed by the GPU (an oracle independent of our CPU decoder).
+    constexpr u32 kMipLevel = 1;
+    constexpr u32 kMipW = kW >> kMipLevel;
+    constexpr u32 kMipH = kH >> kMipLevel;
+
+    const auto gpuDecompressMip = [](const CompressedTextureImage& image) -> std::vector<u8>
+    {
+        Ref<Texture2D> texture = Texture2D::Create(image);
+        EXPECT_TRUE(texture);
+        if (!texture || !texture->IsLoaded())
+            return {};
+        while (glGetError() != GL_NO_ERROR)
+        {
+        }
+        std::vector<u8> pixels(static_cast<sizet>(kMipW) * kMipH * 4);
+        glGetTextureImage(texture->GetRendererID(), static_cast<GLint>(kMipLevel), GL_RGBA, GL_UNSIGNED_BYTE,
+                          static_cast<GLsizei>(pixels.size()), pixels.data());
+        EXPECT_EQ(glGetError(), GL_NO_ERROR) << "glGetTextureImage on the mip level failed";
+        return pixels;
+    };
+
+    const std::vector<u8> linearPixels = gpuDecompressMip(linearLight);
+    const std::vector<u8> naivePixels = gpuDecompressMip(gammaNaive);
+    ASSERT_EQ(linearPixels.size(), static_cast<sizet>(kMipW) * kMipH * 4);
+    ASSERT_EQ(naivePixels.size(), linearPixels.size());
+
+    const auto meanRGB = [](const std::vector<u8>& pixels) -> double
+    {
+        double sum = 0.0;
+        sizet samples = 0;
+        for (sizet texel = 0; texel + 4 <= pixels.size(); texel += 4)
+        {
+            for (u32 c = 0; c < 3; ++c)
+            {
+                sum += static_cast<double>(pixels[texel + c]);
+                ++samples;
+            }
+        }
+        return samples == 0 ? 0.0 : sum / static_cast<double>(samples);
+    };
+
+    const double linearMean = meanRGB(linearPixels);
+    const double naiveMean = meanRGB(naivePixels);
+    OLO_CORE_INFO("CompressedTextureVisualEvidence: sRGB mip 1 mean — linear-light {:.1f}, gamma-naive {:.1f}",
+                  linearMean, naiveMean);
+    // ~188 vs ~128: half the light, versus half the code value.
+    EXPECT_NEAR(linearMean, 188.0, 8.0);
+    EXPECT_NEAR(naiveMean, 128.0, 8.0);
+
+    // Side-by-side PNG (gamma-naive left, linear-light right) so the difference is looked
+    // at, not just asserted.
+    constexpr u32 kOutW = kMipW * 2;
+    std::vector<u8> sideBySide(static_cast<sizet>(kOutW) * kMipH * 4, 255);
+    for (u32 y = 0; y < kMipH; ++y)
+    {
+        for (u32 x = 0; x < kMipW; ++x)
+        {
+            const sizet src = (static_cast<sizet>(y) * kMipW + x) * 4;
+            std::copy_n(&naivePixels[src], 4, &sideBySide[(static_cast<sizet>(y) * kOutW + x) * 4]);
+            std::copy_n(&linearPixels[src], 4, &sideBySide[(static_cast<sizet>(y) * kOutW + kMipW + x) * 4]);
+        }
+    }
+    const std::filesystem::path pngPath = OloEngine::Tests::TempFile("srgb_mip_before_after.png");
+    const int wrote = ::stbi_write_png(pngPath.string().c_str(), static_cast<int>(kOutW), static_cast<int>(kMipH), 4,
+                                       sideBySide.data(), static_cast<int>(kOutW) * 4);
+    EXPECT_NE(wrote, 0) << "failed to write the sRGB mip before/after PNG";
+    if (wrote != 0)
+        OLO_CORE_INFO("CompressedTextureVisualEvidence: wrote sRGB mip before/after (naive | linear) to {}", pngPath.string());
 }

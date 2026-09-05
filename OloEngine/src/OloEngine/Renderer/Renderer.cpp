@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/BC6HGpuEncoder.h"
 
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -21,6 +22,12 @@ namespace OloEngine
 
         RenderCommand::Init();
         s_RendererType = type;
+
+        // This thread owns the graphics context, and is therefore the only one the GPU
+        // BC6H encoder may issue GL from (#624). Recorded here rather than at first use
+        // because the cook that reaches for it runs on a worker and has to know where to
+        // marshal to. No GL work and no hook installed by this — see BC6HGpuEncoder.h.
+        BC6HGpu::SetContextThreadToCurrent();
 
         // Symmetric with the Shutdown() call at the bottom of Renderer::Shutdown(),
         // which is the only half that existed: Initialize() had NO callers, so the
@@ -74,6 +81,13 @@ namespace OloEngine
         // shared-resource pool of its own (#691).
         if (RendererAPI::GetAPI() == RendererAPI::API::OpenGL)
             OpenGLFramebuffer::ShutdownSharedResources();
+
+        // The GPU BC6H encoder's cached compute shaders and scratch textures (#624).
+        // It is registered explicitly by whoever cooks, and may never have been used
+        // at all — Shutdown is a no-op then. It has to happen HERE rather than at
+        // static destruction, because that runs after the context is gone and the
+        // memory tracker has reported.
+        BC6HGpu::Shutdown();
 
         // Boot + fallback shaders were initialized in Renderer::Init() before
         // any sub-renderer. Shut them down after all renderers are gone.

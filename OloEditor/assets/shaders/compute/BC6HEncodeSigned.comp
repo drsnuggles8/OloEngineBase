@@ -1,0 +1,17 @@
+#version 460 core
+
+// =============================================================================
+// BC6HEncodeSigned.comp — GPU BC6H block encoder, SIGNED variant (#624 item 3).
+//
+// Identical to BC6HEncode.comp but for OLO_BC6H_SIGNED, which switches the
+// interpolation space to sign-magnitude and the endpoint fields to signed.
+// A separate file rather than a params uniform on purpose: the encoder's whole
+// binding footprint is two image units, and a UBO for one bit would have taken
+// one of the last free binding numbers.
+// =============================================================================
+
+#define OLO_BC6H_SIGNED 1
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "../include/BC6HEncodeCommon.glsl"
