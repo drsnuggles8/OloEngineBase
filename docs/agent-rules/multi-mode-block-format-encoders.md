@@ -24,7 +24,9 @@ Two moves, both cheap:
 - **Derive the tables mechanically** from the reference decoder's read sequence (here: bcdec's
   `bcdec_bc6h_half()` switch), so packing is that sequence run backwards. `BC6HEncoder.cpp` stores
   them as data — `{slot, shift, bits, reversed}` per field — and one packer walks the table for every
-  mode, instead of fourteen hand-written packers.
+  mode, instead of fourteen hand-written packers. The derivation is a committed script,
+  `tools/bc6h/generate_cpp_mode_tables.py`, not a one-off: a table you cannot regenerate is a table
+  nobody dares touch when the decoder is bumped.
 - **Make the encoder state what it expects to be decoded**, and compare that against the reference
   decoder bit-for-bit, per mode. `BC6H::EncodeBlockForModeForTest` packs a block using one mode and
   returns the 48 half-float values it predicts; `BC6HModeCoverageTest` decodes the same bytes with
@@ -87,9 +89,10 @@ shader (`BC6HEncodeCommon.glsl`). Three things made that port verifiable rather 
 implementation to keep in sync.
 
 **Generate the GLSL tables from the C++, not from the spec again.** The shader's mode words,
-field tables and partition masks are emitted by a script that reads `BC6HEncoder.cpp`, which
-itself derives them from bcdec. Three hand transcriptions of the same fourteen layouts would
-have been three chances to differ.
+field tables and partition masks are emitted by `tools/bc6h/generate_glsl_tables.py`, which
+reads `BC6HEncoder.cpp`, which itself derives them from bcdec. Three hand transcriptions of
+the same fourteen layouts would have been three chances to differ; two mechanical
+derivations of one source are none.
 
 **Port the integer half exactly and let only the fit differ.** Quantization, unquantization,
 interpolation, index selection and bit packing are all integer arithmetic and translate

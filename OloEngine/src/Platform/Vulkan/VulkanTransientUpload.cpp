@@ -134,6 +134,11 @@ namespace OloEngine::VulkanUpload
             case ImageFormat::BC6HS:
             case ImageFormat::BC4:
                 return 0;
+            case ImageFormat::RGBA32UI:
+                // 4 x 32-bit unsigned. Not zero: zero means "no client pixel format",
+                // which is true of the block-compressed formats above and false of an
+                // integer texel format.
+                return 16;
             case ImageFormat::R8:
             case ImageFormat::R8UI:
                 return 1;

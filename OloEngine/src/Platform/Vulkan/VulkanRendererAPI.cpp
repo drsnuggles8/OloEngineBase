@@ -4883,9 +4883,15 @@ namespace OloEngine
                 case RHI::Format::BC7SRGB:
                     return { ImageFormat::BC7, true };
                 case RHI::Format::RGBA32UInt:
-                    // Gained an ImageFormat member with the GPU BC6H encoder (#624),
-                    // which writes its 16-byte blocks as RGBA32UI texels.
-                    return { ImageFormat::RGBA32UI, false };
+                    // ImageFormat::RGBA32UI exists since #624, but the rest of the
+                    // Vulkan raw-texture chain does not carry it yet — the readback
+                    // path rejects VK_FORMAT_R32G32B32A32_UINT before the identity
+                    // copy. Answering with a format here would be claiming a
+                    // capability that then fails deeper in, so this keeps the
+                    // R32UInt/#702 precedent: fall through to None, and let the
+                    // create warn and return the null handle rather than lie. The GPU
+                    // BC6H encoder is OpenGL-only and does not come through here.
+                    break;
             }
             return {};
         }

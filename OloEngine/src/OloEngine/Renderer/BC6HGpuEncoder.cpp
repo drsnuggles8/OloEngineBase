@@ -54,19 +54,36 @@ namespace OloEngine::BC6HGpu
             Ref<ComputeShader> SignedShader;
             Ref<Texture2D> SourceTexture; // RGBA32F, reused across levels
             Ref<Texture2D> BlocksTexture; // RGBA32UI, one texel per block
-            // The thread holding the graphics context. Every GL call below happens
-            // there; anything else marshals to it.
-            std::thread::id ContextThread{};
-            bool HasContextThread = false;
-            bool WarnedOffThread = false;
-            bool Initialized = false;
+            bool Initialized = false;     // context thread only
+
+            // ---- Shared across threads --------------------------------------------
+            // A cook worker reads all of these and writes the two flags; the context
+            // thread writes ContextThread and reads Unavailable. So each is either
+            // atomic or taken under QueueMutex. As plain bools they were a data race,
+            // and the latch was unreliable with it: a worker that failed to observe
+            // Unavailable would pay the full timeout again on the next mip level —
+            // exactly the cost the latch exists to prevent.
+            //
+            // Latched, not retried: a context without compute (or a missing shader
+            // file) will not start working between mip levels.
+            std::atomic<bool> HasContextThread{ false };
+            std::atomic<bool> Unavailable{ false };
+            std::atomic<bool> WarnedOffThread{ false };
             std::mutex QueueMutex;
+            std::thread::id ContextThread{}; // guarded by QueueMutex
             std::deque<std::shared_ptr<EncodeJob>> Queue;
-            // Latched: a context without compute (or a missing shader file) is not
-            // going to start working between mip levels, and retrying would log the
-            // same failure once per level of every texture in the bake.
-            bool Unavailable = false;
         };
+
+        // True when the caller owns the graphics context. Reads ContextThread under
+        // the mutex; the HasContextThread check short-circuits the common
+        // nothing-registered case without taking it.
+        bool CallerIsContextThread(GpuEncoderState& state)
+        {
+            if (!state.HasContextThread.load(std::memory_order_acquire))
+                return false;
+            std::lock_guard<std::mutex> lock(state.QueueMutex);
+            return state.ContextThread == std::this_thread::get_id();
+        }
 
         GpuEncoderState& State()
         {
@@ -77,7 +94,7 @@ namespace OloEngine::BC6HGpu
         bool EnsureShaders()
         {
             GpuEncoderState& state = State();
-            if (state.Unavailable)
+            if (state.Unavailable.load(std::memory_order_acquire))
                 return false;
             if (state.Initialized)
                 return true;
@@ -90,7 +107,7 @@ namespace OloEngine::BC6HGpu
                 OLO_CORE_WARN("BC6HGpu: compute shaders unavailable — BC6H cooks stay on the CPU encoder");
                 state.UnsignedShader.Reset();
                 state.SignedShader.Reset();
-                state.Unavailable = true;
+                state.Unavailable.store(true, std::memory_order_release);
                 return false;
             }
             state.Initialized = true;
@@ -220,7 +237,7 @@ namespace OloEngine::BC6HGpu
     u32 PumpPendingJobs()
     {
         GpuEncoderState& state = State();
-        if (!state.HasContextThread || state.ContextThread != std::this_thread::get_id())
+        if (!CallerIsContextThread(state))
             return 0;
 
         u32 ran = 0;
@@ -252,9 +269,12 @@ namespace OloEngine::BC6HGpu
     void SetContextThreadToCurrent()
     {
         GpuEncoderState& state = State();
-        state.ContextThread = std::this_thread::get_id();
-        state.HasContextThread = true;
-        state.WarnedOffThread = false;
+        {
+            std::lock_guard<std::mutex> lock(state.QueueMutex);
+            state.ContextThread = std::this_thread::get_id();
+        }
+        state.HasContextThread.store(true, std::memory_order_release);
+        state.WarnedOffThread.store(false, std::memory_order_relaxed);
     }
 
     bool EncodeLevel(const f32* rgb, u32 width, u32 height, bool isSigned, std::vector<u8>& outBlocks)
@@ -266,16 +286,16 @@ namespace OloEngine::BC6HGpu
         }
 
         GpuEncoderState& state = State();
-        if (state.HasContextThread && state.ContextThread == std::this_thread::get_id())
+        if (CallerIsContextThread(state))
             return EncodeOnContextThread(rgb, width, height, isSigned, outBlocks);
 
-        if (!state.HasContextThread || state.Unavailable)
+        if (!state.HasContextThread.load(std::memory_order_acquire) ||
+            state.Unavailable.load(std::memory_order_acquire))
         {
             // Nowhere to marshal to. One warning, then quiet: the caller falls back to
             // the CPU encoder and TextureCompression counts the level.
-            if (!state.WarnedOffThread)
+            if (!state.WarnedOffThread.exchange(true, std::memory_order_acq_rel))
             {
-                state.WarnedOffThread = true;
                 OLO_CORE_WARN("BC6HGpu::EncodeLevel called with no context thread available - "
                               "BC6H stays on the CPU encoder for this run (further calls not logged)");
             }
@@ -313,10 +333,23 @@ namespace OloEngine::BC6HGpu
                                  { return job->Done; }))
         {
             lock.unlock();
+
+            // Drop the abandoned job. Nobody will consume its result, so leaving it for a
+            // context thread that wakes up later would spend a full GPU encode — upload,
+            // dispatch and readback — producing blocks the caller already re-encoded on
+            // the CPU. If the pump took it in the meantime, it is gone from the queue and
+            // there is nothing to erase.
+            {
+                std::lock_guard<std::mutex> queueLock(state.QueueMutex);
+                const auto it = std::find(state.Queue.begin(), state.Queue.end(), job);
+                if (it != state.Queue.end())
+                    state.Queue.erase(it);
+            }
+
             // Latch the whole path off: whatever should have drained the queue is not
             // doing it, and paying five seconds per mip level to rediscover that would be
             // worse than any speed-up the GPU could have given.
-            state.Unavailable = true;
+            state.Unavailable.store(true, std::memory_order_release);
             OLO_CORE_WARN("BC6HGpu::EncodeLevel - no context thread drained the queue within {} s; "
                           "BC6H falls back to the CPU encoder for the rest of this run",
                           kJobTimeout.count());
@@ -354,7 +387,7 @@ namespace OloEngine::BC6HGpu
         state.SourceTexture.Reset();
         state.BlocksTexture.Reset();
         state.Initialized = false;
-        state.HasContextThread = false;
+        state.HasContextThread.store(false, std::memory_order_release);
         // Deliberately NOT clearing Unavailable: if the shaders could not load once in
         // this process they will not load later, and re-arming would re-log per level.
     }

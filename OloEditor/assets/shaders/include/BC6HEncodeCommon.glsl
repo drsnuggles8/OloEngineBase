@@ -7,9 +7,10 @@
 // bindings it takes are two image units.
 //
 // This is a faithful port of Renderer/BC6HEncoder.cpp. Every table below is
-// GENERATED from that file (scripts under the PR description), which in turn
-// derives them from bcdec's per-mode read sequence, so the three cannot drift:
-// change the C++ and regenerate. The quantization, interpolation, index selection
+// GENERATED from that file by tools/bc6h/generate_glsl_tables.py, which in turn
+// derives them from bcdec's per-mode read sequence (tools/bc6h/
+// generate_cpp_mode_tables.py), so the three cannot drift: change the C++ and
+// regenerate. The quantization, interpolation, index selection
 // and bit packing are integer arithmetic and translate one-for-one.
 //
 // TWO places the two paths can legitimately disagree, and both are small:

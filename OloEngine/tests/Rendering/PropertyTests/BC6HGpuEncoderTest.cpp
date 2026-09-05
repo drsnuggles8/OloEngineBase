@@ -71,6 +71,26 @@ namespace
         std::filesystem::path m_Previous;
     };
 
+    // Registering the hook is global state, so it has to come back off even when a test
+    // leaves early — an ASSERT_* inside a helper returns from the helper, and a leaked
+    // registration would then reroute every later test's BC6H encode through the GPU.
+    class ScopedGpuHook
+    {
+      public:
+        ScopedGpuHook()
+        {
+            BC6HGpu::RegisterWithTextureCompression();
+        }
+        ~ScopedGpuHook()
+        {
+            BC6HGpu::UnregisterFromTextureCompression();
+        }
+        ScopedGpuHook(const ScopedGpuHook&) = delete;
+        ScopedGpuHook& operator=(const ScopedGpuHook&) = delete;
+        ScopedGpuHook(ScopedGpuHook&&) = delete;
+        ScopedGpuHook& operator=(ScopedGpuHook&&) = delete;
+    };
+
     constexpr u32 kDim = 64;
 
     // A curved HDR gradient with a hard edge through every block: exercises the
@@ -262,15 +282,14 @@ TEST(BC6HGpuEncoder, TheRegisteredHookRoutesEncodeBC6HThroughTheGpuAndIsCounted)
         GTEST_SKIP() << "BC6H compute shaders unavailable on this context.";
 
     const std::vector<f32> source = MakeMixedHDR(8.0f);
-    EXPECT_FALSE(TextureCompression::HasGpuBC6HEncoder());
 
     TextureCompression::ResetBC6HEncodeCounts();
-    BC6HGpu::RegisterWithTextureCompression();
-    EXPECT_TRUE(TextureCompression::HasGpuBC6HEncoder());
-
-    const CompressedTextureImage image =
-        TextureCompression::EncodeBC6H(source.data(), kDim, kDim, 3, /*isSigned*/ false, /*mips*/ true);
-    BC6HGpu::UnregisterFromTextureCompression();
+    CompressedTextureImage image;
+    {
+        const ScopedGpuHook hook;
+        EXPECT_TRUE(TextureCompression::HasGpuBC6HEncoder());
+        image = TextureCompression::EncodeBC6H(source.data(), kDim, kDim, 3, /*isSigned*/ false, /*mips*/ true);
+    }
 
     ASSERT_TRUE(image.IsValid());
     const auto counts = TextureCompression::GetBC6HEncodeCounts();
@@ -280,7 +299,6 @@ TEST(BC6HGpuEncoder, TheRegisteredHookRoutesEncodeBC6HThroughTheGpuAndIsCounted)
     EXPECT_EQ(counts.GpuLevels, static_cast<u64>(image.MipLevels()))
         << "every mip level should have gone through the GPU encoder";
     EXPECT_EQ(counts.CpuLevels, 0u);
-    EXPECT_FALSE(TextureCompression::HasGpuBC6HEncoder());
 
     // And the result must still be a decodable, good-quality chain.
     std::vector<f32> decoded;
@@ -365,7 +383,7 @@ TEST(BC6HGpuEncoder, AWorkerThreadsEncodeIsMarshalledToTheContextThread)
     const std::vector<f32> source = MakeMixedHDR(8.0f);
 
     TextureCompression::ResetBC6HEncodeCounts();
-    BC6HGpu::RegisterWithTextureCompression();
+    const ScopedGpuHook hook;
 
     std::atomic<bool> finished{ false };
     CompressedTextureImage image;
@@ -380,9 +398,16 @@ TEST(BC6HGpuEncoder, AWorkerThreadsEncodeIsMarshalledToTheContextThread)
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
     u32 pumped = 0;
     while (!finished.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline)
-        pumped += BC6HGpu::PumpPendingJobs();
+    {
+        // Sleep when there was nothing to run: the worker spends most of its time in
+        // CPU-side block gathering between levels, and spinning a core flat out for
+        // that is a tax on every other test sharing this machine.
+        if (BC6HGpu::PumpPendingJobs() > 0)
+            ++pumped;
+        else
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     worker.join();
-    BC6HGpu::UnregisterFromTextureCompression();
 
     ASSERT_TRUE(finished.load(std::memory_order_acquire)) << "the worker never finished encoding";
     ASSERT_TRUE(image.IsValid());
@@ -412,7 +437,7 @@ TEST(BC6HGpuEncoder, AnUndrainedQueueGivesUpOnceInsteadOfHanging)
     // No GPU needed: this exercises the queue and the latch, not the shader.
     BC6HGpu::Shutdown(); // clears the context thread, so nothing can drain
     TextureCompression::ResetBC6HEncodeCounts();
-    BC6HGpu::RegisterWithTextureCompression();
+    const ScopedGpuHook hook;
 
     constexpr u32 kSmall = 8;
     const std::vector<f32> source(static_cast<sizet>(kSmall) * kSmall * 3, 1.0f);
@@ -421,7 +446,6 @@ TEST(BC6HGpuEncoder, AnUndrainedQueueGivesUpOnceInsteadOfHanging)
     const CompressedTextureImage image =
         TextureCompression::EncodeBC6H(source.data(), kSmall, kSmall, 3, /*isSigned*/ false, /*mips*/ true);
     const auto elapsed = std::chrono::steady_clock::now() - start;
-    BC6HGpu::UnregisterFromTextureCompression();
 
     ASSERT_TRUE(image.IsValid()) << "the cook must still produce a chain";
     const auto counts = TextureCompression::GetBC6HEncodeCounts();

@@ -1007,6 +1007,12 @@ namespace OloEngine
         GLenum dataType = GL_UNSIGNED_BYTE;
         switch (m_Specification.Format)
         {
+            case ImageFormat::RGBA32UI:
+                // Without this arm the default GL_UNSIGNED_BYTE reinterprets a
+                // 16-byte integer texel as four bytes — the same silent-mismatch
+                // shape the R32I case below documents.
+                dataType = GL_UNSIGNED_INT;
+                break;
             case ImageFormat::R16UI:
                 dataType = GL_UNSIGNED_SHORT;
                 break;

@@ -111,7 +111,14 @@ namespace OloEngine
                     }
                 }
                 if (const YAML::Node generateMips = node["GenerateMips"]; generateMips)
-                    out.GenerateMips = generateMips.as<bool>(true);
+                {
+                    // as<bool>(fallback) SWALLOWS a bad value and hands back the
+                    // fallback, so "GenerateMips: banana" would quietly mean true —
+                    // the opposite of this file's contract, which is that a malformed
+                    // sidecar is rejected rather than half-applied. The no-fallback
+                    // form throws, and the catch below turns that into a rejection.
+                    out.GenerateMips = generateMips.as<bool>();
+                }
 
                 return true;
             }
