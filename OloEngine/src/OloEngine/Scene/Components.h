@@ -2746,10 +2746,22 @@ namespace OloEngine
         OLO_PROPERTY()
         bool m_CastShadows = true;
         bool m_CascadeDebugVisualization = false;
+        OLO_PROPERTY()
+        // Per-light opt-in for hybrid ray-traced shadows (issue #1056). Only
+        // meaningful when ShadowSettings::Technique is RayTraced; on a device
+        // without hardware ray tracing, on the forward paths, or once the
+        // four-channel mask budget is spent, this light falls back to its shadow
+        // map with a counted reason (Renderer/Shadow/ShadowTechnique.h). It is
+        // per-light rather than global because #979 keeps raster shadow maps as
+        // a permanent tier: a scene mixes the two deliberately.
+        //
+        // Takes over one of the explicit padding bytes below rather than growing
+        // the component, so the BitwiseEqualLayoutTest size assertion is unchanged.
+        bool m_RayTracedShadows = false;
         // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
         // no byte may be unnamed. See BitwiseEqualLayoutTest.
         OLO_SERIALIZE(Skip)
-        u16 Pad0 = 0;
+        u8 Pad0 = 0;
 
         // Shadow settings
         f32 m_ShadowBias = 0.005f;
@@ -2778,10 +2790,20 @@ namespace OloEngine
         f32 m_Attenuation = 2.0f; // Attenuation power
         OLO_PROPERTY()
         bool m_CastShadows = false;
+        OLO_PROPERTY()
+        // Per-light opt-in for hybrid ray-traced shadows (issue #1056). Only
+        // meaningful when ShadowSettings::Technique is RayTraced; on a device
+        // without hardware ray tracing, on the forward paths, or once the
+        // four-channel mask budget is spent, this light falls back to its shadow
+        // map with a counted reason (Renderer/Shadow/ShadowTechnique.h). It is
+        // per-light rather than global because #979 keeps raster shadow maps as
+        // a permanent tier: a scene mixes the two deliberately.
+        //
+        // Takes over one of the explicit padding bytes below rather than growing
+        // the component, so the BitwiseEqualLayoutTest size assertion is unchanged.
+        bool m_RayTracedShadows = false;
         // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
         // no byte may be unnamed. See BitwiseEqualLayoutTest.
-        OLO_SERIALIZE(Skip)
-        u8 Pad0 = 0;
         OLO_SERIALIZE(Skip)
         u16 Pad1 = 0;
 
@@ -2815,10 +2837,20 @@ namespace OloEngine
         f32 m_Attenuation = 2.0f;
         OLO_PROPERTY()
         bool m_CastShadows = false;
+        OLO_PROPERTY()
+        // Per-light opt-in for hybrid ray-traced shadows (issue #1056). Only
+        // meaningful when ShadowSettings::Technique is RayTraced; on a device
+        // without hardware ray tracing, on the forward paths, or once the
+        // four-channel mask budget is spent, this light falls back to its shadow
+        // map with a counted reason (Renderer/Shadow/ShadowTechnique.h). It is
+        // per-light rather than global because #979 keeps raster shadow maps as
+        // a permanent tier: a scene mixes the two deliberately.
+        //
+        // Takes over one of the explicit padding bytes below rather than growing
+        // the component, so the BitwiseEqualLayoutTest size assertion is unchanged.
+        bool m_RayTracedShadows = false;
         // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
         // no byte may be unnamed. See BitwiseEqualLayoutTest.
-        OLO_SERIALIZE(Skip)
-        u8 Pad0 = 0;
         OLO_SERIALIZE(Skip)
         u16 Pad1 = 0;
 
@@ -2857,10 +2889,20 @@ namespace OloEngine
         // m_Radius (PCSS) is a Phase-2 follow-up. Like point/spot shadows, the
         // shadow only applies on the non-Forward+ shading path (<8 active lights).
         bool m_CastShadows = false;
+        OLO_PROPERTY()
+        // Per-light opt-in for hybrid ray-traced shadows (issue #1056). Only
+        // meaningful when ShadowSettings::Technique is RayTraced; on a device
+        // without hardware ray tracing, on the forward paths, or once the
+        // four-channel mask budget is spent, this light falls back to its shadow
+        // map with a counted reason (Renderer/Shadow/ShadowTechnique.h). It is
+        // per-light rather than global because #979 keeps raster shadow maps as
+        // a permanent tier: a scene mixes the two deliberately.
+        //
+        // Takes over one of the explicit padding bytes below rather than growing
+        // the component, so the BitwiseEqualLayoutTest size assertion is unchanged.
+        bool m_RayTracedShadows = false;
         // Explicit padding (issue #1019): operator== is a whole-object memcmp, so
         // no byte may be unnamed. See BitwiseEqualLayoutTest.
-        OLO_SERIALIZE(Skip)
-        u8 Pad0 = 0;
         OLO_SERIALIZE(Skip)
         u16 Pad1 = 0;
 

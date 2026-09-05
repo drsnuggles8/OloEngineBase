@@ -353,6 +353,8 @@ OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_GetIntensity);
 OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_SetIntensity);
 OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_GetCastShadows);
 OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_SetCastShadows);
+OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_GetRayTracedShadows);
+OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_SetRayTracedShadows);
 
 // DiscoverableComponent
 OLO_ADD_INTERNAL_CALL(DiscoverableComponent_GetDisplayName);
@@ -719,6 +721,8 @@ OLO_ADD_INTERNAL_CALL(PointLightComponent_GetRange);
 OLO_ADD_INTERNAL_CALL(PointLightComponent_SetRange);
 OLO_ADD_INTERNAL_CALL(PointLightComponent_GetCastShadows);
 OLO_ADD_INTERNAL_CALL(PointLightComponent_SetCastShadows);
+OLO_ADD_INTERNAL_CALL(PointLightComponent_GetRayTracedShadows);
+OLO_ADD_INTERNAL_CALL(PointLightComponent_SetRayTracedShadows);
 
 // ProceduralSkyComponent
 OLO_ADD_INTERNAL_CALL(ProceduralSkyComponent_GetSunDirection);
@@ -841,6 +845,8 @@ OLO_ADD_INTERNAL_CALL(SphereAreaLightComponent_GetRange);
 OLO_ADD_INTERNAL_CALL(SphereAreaLightComponent_SetRange);
 OLO_ADD_INTERNAL_CALL(SphereAreaLightComponent_GetCastShadows);
 OLO_ADD_INTERNAL_CALL(SphereAreaLightComponent_SetCastShadows);
+OLO_ADD_INTERNAL_CALL(SphereAreaLightComponent_GetRayTracedShadows);
+OLO_ADD_INTERNAL_CALL(SphereAreaLightComponent_SetRayTracedShadows);
 
 // SphereCollider3DComponent
 OLO_ADD_INTERNAL_CALL(SphereCollider3DComponent_GetRadius);
@@ -861,6 +867,8 @@ OLO_ADD_INTERNAL_CALL(SpotLightComponent_GetOuterCutoff);
 OLO_ADD_INTERNAL_CALL(SpotLightComponent_SetOuterCutoff);
 OLO_ADD_INTERNAL_CALL(SpotLightComponent_GetCastShadows);
 OLO_ADD_INTERNAL_CALL(SpotLightComponent_SetCastShadows);
+OLO_ADD_INTERNAL_CALL(SpotLightComponent_GetRayTracedShadows);
+OLO_ADD_INTERNAL_CALL(SpotLightComponent_SetRayTracedShadows);
 
 // SpringBoneComponent
 OLO_ADD_INTERNAL_CALL(SpringBoneComponent_GetEnabled);

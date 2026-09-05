@@ -97,6 +97,7 @@ namespace OloEngine
 
         // Raw-depth views alias the array storage tracked via the handles below,
         // so they need no separate Read()/barrier — just carry the GL ids.
+        m_SelectedInputs.RayTracedShadowMask = {};
         m_SelectedInputs.ShadowMapCSMRawID = blackboard.Shadows.ShadowMapCSMRawID;
         m_SelectedInputs.ShadowMapAtlasRawID = blackboard.Shadows.ShadowMapAtlasRawID;
         if (blackboard.Shadows.ShadowMapCSM.IsValid())
@@ -108,6 +109,12 @@ namespace OloEngine
         {
             m_SelectedInputs.ShadowMapAtlas = blackboard.Shadows.ShadowMapAtlas;
             [[maybe_unused]] const auto shadowAtlasRead = builder.Read(blackboard.Shadows.ShadowMapAtlas, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.Shadows.RayTracedShadowMaskTexture.IsValid())
+        {
+            m_SelectedInputs.RayTracedShadowMask = blackboard.Shadows.RayTracedShadowMaskTexture;
+            [[maybe_unused]] const auto rtShadowRead =
+                builder.Read(blackboard.Shadows.RayTracedShadowMaskTexture, RGReadUsage::ShaderSample);
         }
         if (blackboard.AO.AOBuffer.IsValid())
         {
@@ -404,6 +411,20 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasShadowID,
                                         RHI::HeapSlotLifetime::FrameTransient, shadowSampler,
                                         RHI::NullSamplerKind::Texture2DArrayShadow);
+        // Ray-traced shadow mask (issue #1056). Bound to a WHITE 1x1 when the
+        // pass did not produce one, never left unbound: a dangling sampler is
+        // undefined behaviour rather than a zero read, and white is "fully lit",
+        // so even if the routing lanes were somehow on with no mask the frame
+        // would be unshadowed rather than black. The routing in the ShadowData
+        // block — not this binding — is what decides whether it is sampled.
+        const RHI::ResourceHandle rayTracedShadowMaskID =
+            m_SelectedInputs.RayTracedShadowMask.IsValid()
+                ? context.ResolveTextureHandle(m_SelectedInputs.RayTracedShadowMask)
+                : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
+                                                 : RHI::ResourceHandle{});
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RAY_TRACED_SHADOW, rayTracedShadowMaskID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain
         // sampler2DArray). Fall back to the raw placeholder so the declared
         // sampler always has a valid same-type binding.

@@ -155,6 +155,7 @@ TEST(ShadowUBO, SizeConsistency)
     // 4 mat4s (cascades) + vec4 (cascade distances) + vec4 (params)
     // + 48 mat4s (atlas entry matrices) + 48 vec4s (atlas entry scale/offset)
     // + 8 ints (flags/counts/resolutions + padding) — issue #435 atlas layout
+    // + ivec4 + vec4 ray-traced routing — issue #1056
     constexpr u32 expectedSize =
         4 * sizeof(glm::mat4)    // DirectionalLightSpaceMatrices
         + sizeof(glm::vec4)      // CascadePlaneDistances
@@ -162,7 +163,11 @@ TEST(ShadowUBO, SizeConsistency)
         + 48 * sizeof(glm::mat4) // AtlasEntryMatrices
         + 48 * sizeof(glm::vec4) // AtlasEntryScaleOffset
         + 4 * sizeof(i32)        // DirectionalShadowEnabled, AtlasEntryCount, ShadowMapResolution, AtlasResolution
-        + 4 * sizeof(i32);       // CascadeDebugEnabled, SoftShadowMode + 2 padding
+        + 4 * sizeof(i32)        // CascadeDebugEnabled, SoftShadowMode + 2 padding
+        // Hybrid ray-traced shadow routing (issue #1056): which light reads
+        // which channel of the mask, and whether the branch is live at all.
+        + sizeof(glm::ivec4) // RayTracedShadowLightIndices
+        + sizeof(glm::vec4); // RayTracedShadowParams
 
     EXPECT_EQ(ShadowUBO::GetSize(), expectedSize);
 }
