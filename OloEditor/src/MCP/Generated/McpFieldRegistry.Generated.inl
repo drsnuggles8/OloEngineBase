@@ -854,10 +854,6 @@ registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "SailSetInput", m_SailSetI
 // ScriptComponent
 registry.push_back(OLO_GFW_FIELD(ScriptComponent, "ClassName", ClassName));
 
-}
-
-static void BuildRegistryChunk11(std::vector<FieldEntry>& registry)
-{
 // SnowDeformerComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "DeformRadius", m_DeformRadius, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(50.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "DeformDepth", m_DeformDepth, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
@@ -865,6 +861,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "FalloffExponent",
 registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "CompactionFactor", m_CompactionFactor, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 registry.push_back(OLO_GFW_FIELD(SnowDeformerComponent, "EmitEjecta", m_EmitEjecta));
 
+}
+
+static void BuildRegistryChunk11(std::vector<FieldEntry>& registry)
+{
 // SphereAreaLightComponent
 registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "Color", m_Color));
 registry.push_back(OLO_GFW_FIELD_RANGE(SphereAreaLightComponent, "Intensity", m_Intensity, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
@@ -922,10 +922,6 @@ registry.push_back(OLO_GFW_FIELD(StarNestSkyComponent, "EnableIBL", m_EnableIBL)
 registry.push_back(OLO_GFW_FIELD(StarNestSkyComponent, "IBLIntensity", m_IBLIntensity));
 registry.push_back(OLO_GFW_FIELD(StarNestSkyComponent, "CubemapResolution", m_CubemapResolution));
 
-}
-
-static void BuildRegistryChunk12(std::vector<FieldEntry>& registry)
-{
 // StateMachineComponent
 registry.push_back(OLO_GFW_FIELD(StateMachineComponent, "StateMachineAssetHandle", StateMachineAssetHandle));
 
@@ -935,6 +931,10 @@ registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "ActivationMode", Act
 registry.push_back(OLO_GFW_FIELD_RANGE(StreamingVolumeComponent, "LoadRadius", LoadRadius, OLO_GFW_BOUND(1.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "UnloadRadius", UnloadRadius));
 
+}
+
+static void BuildRegistryChunk12(std::vector<FieldEntry>& registry)
+{
 // SubmeshComponent
 registry.push_back(OLO_GFW_FIELD(SubmeshComponent, "SubmeshIndex", m_SubmeshIndex));
 registry.push_back(OLO_GFW_FIELD(SubmeshComponent, "Visible", m_Visible));

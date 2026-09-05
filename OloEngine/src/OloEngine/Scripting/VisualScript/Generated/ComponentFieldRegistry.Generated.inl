@@ -288,6 +288,7 @@ registry.push_back(OLO_VSF_FIELD(DirectionalLightComponent, "Color", m_Color, Ve
 registry.push_back(OLO_VSF_FIELD(DirectionalLightComponent, "Intensity", m_Intensity, Float));
 registry.push_back(OLO_VSF_FIELD(DirectionalLightComponent, "CastShadows", m_CastShadows, Bool));
 registry.push_back(OLO_VSF_FIELD(DirectionalLightComponent, "CascadeDebugVisualization", m_CascadeDebugVisualization, Bool));
+registry.push_back(OLO_VSF_FIELD(DirectionalLightComponent, "RayTracedShadows", m_RayTracedShadows, Bool));
 registry.push_back(OLO_VSF_FIELD(DirectionalLightComponent, "ShadowBias", m_ShadowBias, Float));
 registry.push_back(OLO_VSF_FIELD(DirectionalLightComponent, "ShadowNormalBias", m_ShadowNormalBias, Float));
 registry.push_back(OLO_VSF_FIELD(DirectionalLightComponent, "MaxShadowDistance", m_MaxShadowDistance, Float));
@@ -760,6 +761,7 @@ registry.push_back(OLO_VSF_FIELD(PointLightComponent, "Intensity", m_Intensity, 
 registry.push_back(OLO_VSF_FIELD(PointLightComponent, "Range", m_Range, Float));
 registry.push_back(OLO_VSF_FIELD(PointLightComponent, "Attenuation", m_Attenuation, Float));
 registry.push_back(OLO_VSF_FIELD(PointLightComponent, "CastShadows", m_CastShadows, Bool));
+registry.push_back(OLO_VSF_FIELD(PointLightComponent, "RayTracedShadows", m_RayTracedShadows, Bool));
 registry.push_back(OLO_VSF_FIELD(PointLightComponent, "ShadowBias", m_ShadowBias, Float));
 registry.push_back(OLO_VSF_FIELD(PointLightComponent, "ShadowNormalBias", m_ShadowNormalBias, Float));
 
@@ -791,13 +793,13 @@ registry.push_back(OLO_VSF_FIELD(ProgressionComponent, "ClassDatabaseHandle", Cl
 registry.push_back(OLO_VSF_FIELD(ProgressionComponent, "SkillTreeHandle", SkillTreeHandle, Asset));
 registry.push_back(OLO_VSF_FIELD(ProgressionComponent, "ClassID", ClassID, String));
 
-// QuestGiverComponent
-registry.push_back(OLO_VSF_FIELD(QuestGiverComponent, "QuestMarkerIcon", QuestMarkerIcon, String));
-
 }
 
 static void BuildRegistryChunk10(std::vector<ComponentFieldEntry>& registry)
 {
+// QuestGiverComponent
+registry.push_back(OLO_VSF_FIELD(QuestGiverComponent, "QuestMarkerIcon", QuestMarkerIcon, String));
+
 // RagdollComponent
 registry.push_back(OLO_VSF_FIELD(RagdollComponent, "SkeletonEntity", m_SkeletonEntity, Entity));
 registry.push_back(OLO_VSF_FIELD(RagdollComponent, "Enabled", m_Enabled, Bool));
@@ -875,6 +877,7 @@ registry.push_back(OLO_VSF_FIELD_RANGE(SphereAreaLightComponent, "Intensity", m_
 registry.push_back(OLO_VSF_FIELD_RANGE(SphereAreaLightComponent, "Radius", m_Radius, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_NO_BOUND));
 registry.push_back(OLO_VSF_FIELD_RANGE(SphereAreaLightComponent, "Range", m_Range, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_NO_BOUND));
 registry.push_back(OLO_VSF_FIELD(SphereAreaLightComponent, "CastShadows", m_CastShadows, Bool));
+registry.push_back(OLO_VSF_FIELD(SphereAreaLightComponent, "RayTracedShadows", m_RayTracedShadows, Bool));
 
 // SphereCollider3DComponent
 registry.push_back(OLO_VSF_FIELD(SphereCollider3DComponent, "Radius", m_Radius, Float));
@@ -889,6 +892,7 @@ registry.push_back(OLO_VSF_FIELD(SpotLightComponent, "InnerCutoff", m_InnerCutof
 registry.push_back(OLO_VSF_FIELD(SpotLightComponent, "OuterCutoff", m_OuterCutoff, Float));
 registry.push_back(OLO_VSF_FIELD(SpotLightComponent, "Attenuation", m_Attenuation, Float));
 registry.push_back(OLO_VSF_FIELD(SpotLightComponent, "CastShadows", m_CastShadows, Bool));
+registry.push_back(OLO_VSF_FIELD(SpotLightComponent, "RayTracedShadows", m_RayTracedShadows, Bool));
 registry.push_back(OLO_VSF_FIELD(SpotLightComponent, "ShadowBias", m_ShadowBias, Float));
 registry.push_back(OLO_VSF_FIELD(SpotLightComponent, "ShadowNormalBias", m_ShadowNormalBias, Float));
 
