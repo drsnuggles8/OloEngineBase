@@ -60,6 +60,28 @@ it.
    it see real data, does the reply make sense"; deterministic tests answer "is
    the math right".
 
+## The same rule, inside a capture test
+
+A multi-angle visual-evidence test must measure its own noise floor and assert
+against it, for the same reason a live diagnostic must: without it, a set of
+captures that are all the *same frame* is indistinguishable from a set that
+covers the scene. Issue #931 is that failure. A test posed its camera with
+`EditorCamera::SetPosition`/`SetYaw`/`SetPitch`, which at the time only stashed
+the members and never rebuilt the view matrix, so every "angle" rendered from
+the constructor's default orbit view. Over an open sea the result is a perfectly
+plausible frame of sky and water with the subject a quarter of a kilometre
+off-screen — three identical PNGs that would have been baked as goldens and gone
+green forever. It was caught only because that test happened to measure its floor
+and happened to mask for its subject's colour.
+
+Both checks now live in
+[`VisualEvidenceGuards.h`](../../OloEngine/tests/Rendering/PropertyTests/VisualEvidenceGuards.h):
+`ExpectCapturesAreDistinct` (every pair of poses differs by more than a multiple
+of the *measured* floor) and `ExpectFrameHasSubject` (a content mask finds the
+subject). Call both from any capture test with more than one pose. Rule 2 above
+applies to the guards themselves — `MeshVisibilityEvidenceTest` hands the
+distinctness guard one pose captured twice and requires it to fail.
+
 ## The suite's own evidence PNGs are nondeterministic — measured values
 
 `OloEngine-Tests.exe` **rewrites** the visual-evidence PNGs under

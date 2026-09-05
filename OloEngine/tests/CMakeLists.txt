@@ -406,6 +406,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/OceanFFTVisualEvidenceTest.cpp
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
+		Rendering/PropertyTests/MeshVisibilityEvidenceTest.cpp
+		Rendering/PropertyTests/VisualEvidenceGuards.cpp
 		Rendering/PropertyTests/BloomVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ObserverCameraVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FogVisualEvidenceTest.cpp
