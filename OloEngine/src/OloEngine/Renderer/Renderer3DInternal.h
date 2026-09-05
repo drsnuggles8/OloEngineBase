@@ -300,6 +300,8 @@ namespace OloEngine
             m_PreviousSSGIHalfResolution = true;
             m_HasJitterMode = false;
             m_PreviousJitterMode = 0u;
+            m_ReportedRayTracedShadowGateVerdict = kNoRayTracedShadowVerdict;
+            m_ReportedRayTracedShadowMaskVerdict = kNoRayTracedShadowVerdict;
             InvalidateBlackboardCache();
         }
 
@@ -319,6 +321,17 @@ namespace OloEngine
         // the cache key for both layers so they short-circuit consistently
         // whenever the inputs match the previous frame.
         [[nodiscard]] u64 ComputeBlackboardFingerprint(const Renderer3DData& data) const;
+
+        // The two ray-traced-shadow diagnostics (issue #1056) warn once per
+        // CHANGE of verdict rather than once per frame. Members, not
+        // function-local statics: a static would be shared by every pipeline for
+        // the life of the process, and it must also be CLEARED when the gate it
+        // describes becomes healthy, or a user who fixes the cause and later
+        // reintroduces it gets silence the second time. Both are reset on the
+        // frame their own gate passes.
+        static constexpr u32 kNoRayTracedShadowVerdict = ~0u;
+        u32 m_ReportedRayTracedShadowGateVerdict = kNoRayTracedShadowVerdict;
+        u32 m_ReportedRayTracedShadowMaskVerdict = kNoRayTracedShadowVerdict;
 
       private:
         void ApplyGlobalResources(Renderer3DData& data) const;

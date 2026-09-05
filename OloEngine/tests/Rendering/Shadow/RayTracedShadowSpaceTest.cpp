@@ -44,6 +44,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <array>
+#include <bit>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -291,17 +292,33 @@ namespace OloEngine::Tests
         const glm::vec3 origin(0.0f);
         const glm::mat4 worldView = MakeTestView(glm::vec3(1.0f, 2.0f, 3.0f));
 
+        // Compared as BIT PATTERNS, which is what this test's name claims and
+        // what the assertion has to be for it to mean anything: an approximate
+        // compare would also pass if the conversion perturbed the matrix by an
+        // ulp, and an ulp at the origin is exactly the drift this file exists to
+        // catch. Translating by a zero vector must return the input untouched,
+        // not merely something close to it. bit_cast to u32 rather than `==` on
+        // floats: the house rule bans the operator, not the identity it cannot
+        // express.
         const glm::mat4 relative = MakeRayTracedShadowView(worldView, origin);
         for (int column = 0; column < 4; ++column)
         {
             for (int row = 0; row < 4; ++row)
-                EXPECT_FLOAT_EQ(relative[column][row], worldView[column][row]);
+            {
+                EXPECT_EQ(std::bit_cast<u32>(relative[column][row]),
+                          std::bit_cast<u32>(worldView[column][row]))
+                    << "view matrix element [" << column << "][" << row << "] changed at the world origin";
+            }
         }
 
         RayTracedShadowLightRequest punctual;
         punctual.Directional = false;
         punctual.Vector = glm::vec3(5.0f, -6.0f, 7.0f);
-        ExpectNear(MakeRayTracedShadowLightVector(punctual, origin), punctual.Vector,
-                   "punctual light at the world origin");
+        const glm::vec3 shifted = MakeRayTracedShadowLightVector(punctual, origin);
+        for (int component = 0; component < 3; ++component)
+        {
+            EXPECT_EQ(std::bit_cast<u32>(shifted[component]), std::bit_cast<u32>(punctual.Vector[component]))
+                << "punctual light component " << component << " changed at the world origin";
+        }
     }
 } // namespace OloEngine::Tests

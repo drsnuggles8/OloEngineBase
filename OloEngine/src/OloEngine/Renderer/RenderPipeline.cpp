@@ -964,15 +964,22 @@ namespace OloEngine
                 // and a one-shot static would have swallowed it.
                 const u32 verdict = (deferred ? 1u : 0u) | (techniqueRequested ? 2u : 0u) |
                                     (shadowSettings.Enabled ? 4u : 0u);
-                static u32 s_ReportedVerdict = ~0u;
-                if (s_ReportedVerdict != verdict)
+                if (m_ReportedRayTracedShadowGateVerdict != verdict)
                 {
-                    s_ReportedVerdict = verdict;
+                    m_ReportedRayTracedShadowGateVerdict = verdict;
                     OLO_CORE_WARN("RayTracedShadowPass: {} light(s) asked for it, but the pass will not run — "
                                   "ShadowSettings::Enabled={} Technique={} RenderingPath={}",
                                   requestedLightCount, shadowSettings.Enabled,
                                   ToString(shadowSettings.Technique), deferred ? "Deferred" : "not Deferred");
                 }
+            }
+            else
+            {
+                // The gate is healthy (or nothing asked), so the next failure is
+                // news again. Without this the latch would hold the last bad
+                // verdict forever and a user who fixes the cause and later
+                // reintroduces the SAME one would never be told a second time.
+                m_ReportedRayTracedShadowGateVerdict = kNoRayTracedShadowVerdict;
             }
 
             rtShadowPass.SetEnabled(deferred && techniqueRequested);
@@ -2525,6 +2532,21 @@ namespace OloEngine
             HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(firstMomentsToken));
             HashU32(h, secondMomentsToken.Generation);
             HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(secondMomentsToken));
+            // ...and the ray-traced shadow denoiser's three (issue #1056), for
+            // exactly the same reason: PopulateBlackboard imports them behind
+            // `Scratch.RayTracedShadowResolved.IsValid()`, and each binding's
+            // Previous only becomes valid after the first frame has written it.
+            // Without these tokens a scene that moves no other hashed input
+            // keeps the cached blackboard across that false->true flip, the
+            // import never lands, and the resolve runs history-less forever
+            // while looking like it is accumulating.
+            for (const auto& rtHistoryKey : { kRayTracedShadowHistoryKey, kRayTracedShadowSurfaceHistoryKey,
+                                              kRayTracedShadowMomentsHistoryKey })
+            {
+                const auto rtToken = data.RGraph->GetTemporalHistoryRegistry().Find(rtHistoryKey);
+                HashU32(h, rtToken.Generation);
+                HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(rtToken));
+            }
         }
         else
         {
@@ -3593,15 +3615,21 @@ namespace OloEngine
             {
                 const u32 maskVerdict = (rtShadowReady ? 1u : 0u) | (rtShadowHasDepth ? 2u : 0u) |
                                         (rtShadowHasNormal ? 4u : 0u);
-                static u32 s_ReportedMaskVerdict = ~0u;
-                if (s_ReportedMaskVerdict != maskVerdict)
+                if (pipeline.m_ReportedRayTracedShadowMaskVerdict != maskVerdict)
                 {
-                    s_ReportedMaskVerdict = maskVerdict;
+                    pipeline.m_ReportedRayTracedShadowMaskVerdict = maskVerdict;
                     OLO_CORE_WARN("RayTracedShadowPass: the technique is armed but the graph declared no shadow "
                                   "mask this frame, so the pass is culled and every opted-in light silently "
                                   "keeps its shadow map. shadersReady={} sceneDepth={} gbufferNormal={}",
                                   rtShadowReady, rtShadowHasDepth, rtShadowHasNormal);
                 }
+            }
+            else
+            {
+                // Same recovery as the gate latch above: the pass is disabled or
+                // all three inputs are present, so a later failure is a new event
+                // and must warn again rather than being swallowed by the latch.
+                pipeline.m_ReportedRayTracedShadowMaskVerdict = kNoRayTracedShadowVerdict;
             }
 
             if (rtShadowEnabled && rtShadowReady && rtShadowHasDepth && rtShadowHasNormal)
