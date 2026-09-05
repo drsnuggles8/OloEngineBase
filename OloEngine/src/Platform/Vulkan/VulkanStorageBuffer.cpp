@@ -41,7 +41,10 @@ namespace OloEngine
         // process exit, which beats std::terminate.
         try
         {
+            // Both mirrors — see ~VulkanUniformBuffer: clearing only the
+            // calling thread's leaves the process-wide one dangling.
             VulkanBindingState::Get().ClearBuffer(this);
+            VulkanBindingState::Global().ClearBuffer(this);
             VulkanRootObjectRegistry::Get().Unregister(m_RHIHandle.Get());
             m_RHIHandle.Reset();
             ReleaseBuffer();

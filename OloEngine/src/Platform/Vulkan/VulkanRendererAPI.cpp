@@ -50,7 +50,7 @@ namespace OloEngine
     {
         bool MeasureRecordingCosts()
         {
-            static const bool enabled = Env::IsExactly("OLO_VK_RECORDING_COSTS", "1");
+            static const bool enabled = Levers::VulkanRecordingCosts();
             return enabled;
         }
 
@@ -7149,14 +7149,23 @@ namespace OloEngine
             }
         }
 
-        // Buffer constructors claim their binding points. Preserve the exact
-        // pre-fork mirror while creating/reusing the frontend's upload objects.
-        const auto seededBinding = VulkanBindingState::Global();
+        // Buffer constructors claim their binding points, so creating the
+        // frontend's per-item upload objects would rewrite the process-wide
+        // mirror. SUPPRESS the claim rather than snapshotting the mirror and
+        // assigning it back: Prepare also DESTROYS retained item buffers (the
+        // clone helper takes its retained Ref by value, so the last reference
+        // to a buffer whose source went away dies inside it), and a destructor
+        // correctly nulls that buffer's slot — which the old restore then
+        // resurrected from a snapshot taken before the destruction. The
+        // prologue above walks every binding, so the next fork dereferenced the
+        // freed buffer and memcpy'd from it inside VulkanFrameArena::Push.
         const auto frontendStart = StartRecordingCost();
-        for (u32 index = 0; index < itemCount; ++index)
-            m_Items[index]->Frontend.Prepare(instanceCapacity);
+        {
+            const VulkanBindingState::ScopedClaimSuppression suppressClaims;
+            for (u32 index = 0; index < itemCount; ++index)
+                m_Items[index]->Frontend.Prepare(instanceCapacity);
+        }
         timing.FrontendPrepareMs = RecordingCostMs(frontendStart);
-        VulkanBindingState::Global() = seededBinding;
 
         for (u32 index = 0; index < itemCount; ++index)
         {

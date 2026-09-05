@@ -28,10 +28,20 @@ class CommandDispatchRecording : public ::testing::Test
 
     void TearDown() override
     {
-        auto& profiler = RendererProfiler::GetInstance();
-        profiler.SetRecordInstancedDraws(false);
-        profiler.Shutdown();
-        CommandDispatch::Shutdown();
+        // Undo the FLAG this fixture set, and nothing else.
+        //
+        // RendererProfiler and CommandDispatch are process-wide singletons this
+        // fixture did not create, and the whole suite runs in one process
+        // (gtest_discover_tests gives CI a process per case, so CI never sees
+        // what this costs). Shutting them down here left the profiler's frame
+        // history EMPTY — the next test to render a frame subscripted an empty
+        // vector inside RendererProfiler::EndFrame — and dropped the
+        // dispatcher's UBO references, which Renderer3D publishes once at
+        // Init() and cannot be asked to publish again. Every later rendering
+        // test then drew with no camera/material UBO bound, so ~100 visual
+        // evidence assertions failed with the feature-on and feature-off
+        // captures identical.
+        RendererProfiler::GetInstance().SetRecordInstancedDraws(false);
     }
 };
 

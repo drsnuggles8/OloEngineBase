@@ -437,13 +437,21 @@ namespace OloEngine
         VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::UniformBuffer, this);
         // GL twins occupy their binding point from creation (glBindBufferBase
         // in the ctor); mirror that so a pass that never re-Bind()s still
-        // resolves.
-        VulkanBindingState::Get().SetUniformBuffer(m_Binding, this);
+        // resolves. Skipped while claims are suppressed — the parallel
+        // recorder allocates its per-item upload objects without wanting the
+        // process-wide mirror rewritten (VulkanBindingState::ScopedClaimSuppression).
+        if (!VulkanBindingState::ClaimsSuppressed())
+            VulkanBindingState::Get().SetUniformBuffer(m_Binding, this);
     }
 
     VulkanUniformBuffer::~VulkanUniformBuffer()
     {
+        // BOTH mirrors. Get() is the caller thread's — a worker's own mirror
+        // while a RecordParallel item runs on it — and clearing only that one
+        // leaves the process-wide mirror pointing at freed memory for every
+        // later fork to walk.
         VulkanBindingState::Get().ClearBuffer(this);
+        VulkanBindingState::Global().ClearBuffer(this);
         VulkanRootObjectRegistry::Get().Unregister(m_RHIHandle.Get());
         // m_RHIHandle retires via RAII; the base class frees the shadow.
     }

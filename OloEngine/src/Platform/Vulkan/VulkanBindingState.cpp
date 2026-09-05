@@ -53,6 +53,29 @@ namespace OloEngine
         return m_ImageHeapSlots[unit];
     }
 
+    namespace
+    {
+        // Render-thread scoped in practice (the recorder's prepare loop), but
+        // thread_local so a buffer created on any other thread is unaffected.
+        thread_local u32 t_ClaimSuppression = 0u;
+    } // namespace
+
+    VulkanBindingState::ScopedClaimSuppression::ScopedClaimSuppression()
+    {
+        ++t_ClaimSuppression;
+    }
+
+    VulkanBindingState::ScopedClaimSuppression::~ScopedClaimSuppression()
+    {
+        OLO_CORE_ASSERT(t_ClaimSuppression > 0u, "unbalanced binding-claim suppression");
+        --t_ClaimSuppression;
+    }
+
+    bool VulkanBindingState::ClaimsSuppressed()
+    {
+        return t_ClaimSuppression != 0u;
+    }
+
     void VulkanBindingState::SetUniformBuffer(u32 binding, VulkanUniformBuffer* buffer)
     {
         if (binding >= kMaxBufferBindings)

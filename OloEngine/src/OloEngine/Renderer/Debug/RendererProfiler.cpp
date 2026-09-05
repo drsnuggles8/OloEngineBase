@@ -219,6 +219,26 @@ namespace OloEngine
         m_CurrentFrame.m_GPUSceneConsumedDraws = CommandDispatch::GetGPUSceneConsumedDrawCount();
         m_CurrentFrame.m_GPUSceneFallbackDraws = CommandDispatch::GetGPUSceneFallbackDrawCount();
 
+        // The ring only exists between Initialize() and Shutdown(): Shutdown()
+        // CLEARS m_FrameHistory and only Initialize() sizes it again, so a frame
+        // ended after a renderer teardown that was not followed by a matching
+        // init indexes an empty vector. That is a lifecycle bug in the caller,
+        // not something to absorb — but it used to surface as a raw
+        // out-of-range subscript inside operator[], one frame deep in whatever
+        // scene happened to be rendering, with nothing naming the profiler.
+        // Say so, restore the invariant, and keep the frame.
+        if (m_FrameHistory.size() != OLO_FRAME_HISTORY_SIZE)
+        {
+            OLO_CORE_ERROR("RendererProfiler::EndFrame with a frame history of {0} entries (expected {1}): "
+                           "EndFrame ran after Shutdown() with no matching Initialize(). Re-sizing the ring; "
+                           "the history before this frame is gone.",
+                           m_FrameHistory.size(), OLO_FRAME_HISTORY_SIZE);
+            m_FrameHistory.clear();
+            m_FrameHistory.resize(OLO_FRAME_HISTORY_SIZE);
+            m_HistoryIndex = 0;
+            m_LastWrittenHistoryIndex = 0;
+        }
+
         // Store frame data in history. FrameTime and any post-frame GPU wait
         // (SwapBuffers etc.) aren't known yet — the next BeginFrame() patches
         // both fields into this exact slot and into m_PreviousFrame once they
