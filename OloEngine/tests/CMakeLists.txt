@@ -126,6 +126,7 @@ add_executable(OloEngine-Tests
 		Rendering/ReflectionProbeSelectionTest.cpp
 		Rendering/ReflectionProbeDistanceFieldTest.cpp
 		Rendering/PlanarReflectionMathTest.cpp
+		Rendering/EditorCameraPoseTest.cpp
 		Rendering/CameraRelativeTest.cpp
 		Rendering/Renderer2DCameraRelativeTest.cpp
 		Rendering/TerrainCameraRelativeLODTest.cpp

@@ -28,36 +28,61 @@ namespace OloEngine
             m_ViewportHeight = height;
             UpdateProjection();
         }
+        // EVERY setter below rebuilds the view matrix. They used to only stash the
+        // member, which made them silent no-ops for any caller that does not also
+        // drive OnUpdate — the whole editor-preferences bookmark restore, the
+        // editor's own default 3D pose, and every screenshot test that posed a
+        // camera this way. A capture test that did so rendered its whole set from
+        // the constructor's default orbit view: identical frames, sky and water
+        // but no subject, and nothing anywhere reporting a problem (issue #931).
         void SetDistance(const f32 distance)
         {
             m_Distance = distance;
+            UpdateView();
         }
+        // The orbit model derives the eye from the focal point, so an eye position
+        // is stored by moving the FOCAL POINT to keep the current orbit distance
+        // ahead of the requested eye. Assigning m_Position directly (what this did
+        // before) is discarded by the very next UpdateView.
         void SetPosition(const glm::vec3& position)
         {
-            m_Position = position;
+            m_FocalPoint = position + (GetForwardDirection() * m_Distance);
+            UpdateView();
         }
         void SetYaw(const f32 yaw)
         {
             m_Yaw = yaw;
+            UpdateView();
         }
         void SetPitch(const f32 pitch)
         {
             m_Pitch = pitch;
+            UpdateView();
         }
 
         // Pose the camera at an explicit eye position looking along (yaw, pitch)
-        // and rebuild the view matrix immediately. The plain SetPosition/SetYaw/
-        // SetPitch setters only stash members — they don't recompute the view, and
-        // the next OnUpdate/UpdateView re-derives the eye from the orbit focal
-        // point, discarding a SetPosition. This collapses the orbit (focal point =
-        // eye, distance 0) so the requested pose is exactly what gets rendered.
-        // Used for deterministic captures/bookmarks where there is no live input.
+        // and rebuild the view matrix immediately. This collapses the orbit (focal
+        // point = eye, distance 0) so the requested pose is exactly what gets
+        // rendered. Used for deterministic captures where there is no live input.
+        // Positive pitch tilts the view down.
         void SetPose(const glm::vec3& eyePosition, const f32 yaw, const f32 pitch)
+        {
+            SetPose(eyePosition, yaw, pitch, 0.0f);
+        }
+
+        // As above, but keeping `orbitDistance` as the pivot distance so a later
+        // orbit/dolly turns about a point in front of the camera rather than about
+        // the eye. One atomic call rather than four setters whose ORDER decides
+        // where the eye ends up — restoring a saved (position, yaw, pitch,
+        // distance) camera bookmark is exactly this and nothing else.
+        void SetPose(const glm::vec3& eyePosition, const f32 yaw, const f32 pitch, const f32 orbitDistance)
         {
             m_Yaw = yaw;
             m_Pitch = pitch;
-            m_Distance = 0.0f;
-            m_FocalPoint = eyePosition;
+            m_Distance = orbitDistance;
+            // GetForwardDirection() reads m_Yaw/m_Pitch, which are already the
+            // final ones — so the eye lands exactly on `eyePosition`.
+            m_FocalPoint = eyePosition + (GetForwardDirection() * orbitDistance);
             UpdateView();
         }
 
