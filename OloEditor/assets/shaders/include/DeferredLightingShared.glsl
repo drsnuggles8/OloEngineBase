@@ -211,7 +211,18 @@ vec3 ComputeDeferredLit(
         {
             lightContrib *= cloudShadow;
         }
-        if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
+        // The ray-traced branch is tested BEFORE u_DirectionalShadowEnabled,
+        // not inside it. That flag belongs to the CSM: only the FIRST
+        // directional light sets it, because only one light gets the cascades.
+        // The ray-traced tier has no such limit and Scene.cpp will hand a mask
+        // channel to a second sun — gating on the flag would trace that
+        // channel, count it as a success, and never read it.
+        float rayTracedDirectional;
+        if (lightType == DIRECTIONAL_LIGHT && oloRayTracedShadowFactor(i, rayTracedDirectional))
+        {
+            lightContrib *= rayTracedDirectional;
+        }
+        else if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
             // Virtual Shadow Maps own the directional light when active (issue
             // #702); the CSM cascades are not even rendered in that case, so this
@@ -220,14 +231,7 @@ vec3 ComputeDeferredLit(
             // when the system is off — so this branch is safe to compile in
             // unconditionally and needs no second shader variant.
             float shadow;
-            if (oloRayTracedShadowFactor(i, shadow))
-            {
-                // Ray-traced visibility answers for this light. Nothing else
-                // runs: the mask IS the shadow term, and blending it with a
-                // projected one would reintroduce the shadow map's resolution
-                // limit on top of a geometrically correct penumbra.
-            }
-            else if (VSM_ENABLED != 0)
+            if (VSM_ENABLED != 0)
             {
                 shadow = vsmShadowFactor(worldPos, N);
             }

@@ -925,10 +925,17 @@ namespace OloEngine
         // moving light is precisely the artefact this feature exists to avoid.
         //
         // The enable gate is the SETTING and the deferred path, not the
-        // capability: a pass gated on "is ray tracing available" would leave
-        // the request list unconsumed on a machine without a device, and then
-        // nothing would count the fallback. The pass runs, finds it cannot
-        // trace, and says so — which is the whole point of the counters.
+        // capability, so that a machine WITHOUT a ray-tracing device still
+        // enables the pass, still declares nothing, and still reaches the
+        // warning below rather than silence.
+        //
+        // Note what this does NOT buy: on such a machine the mask is never
+        // declared, so the node is culled and Execute — which owns
+        // ShadowTechniqueStats — never runs. The per-reason breakdown in the
+        // settings panel is therefore EMPTY there, and the warning below is the
+        // only thing that speaks. Counting outside the pass would fix that; it
+        // is deliberately not done here because the counters' other job is
+        // per-light channel routing, which only Execute can know.
         if (SceneCompositePasses.RayTracedShadow)
         {
             auto& rtShadowPass = *SceneCompositePasses.RayTracedShadow;
@@ -952,10 +959,15 @@ namespace OloEngine
             const sizet requestedLightCount = Renderer3D::GetRayTracedShadowLightRequests().size();
             if (requestedLightCount > 0 && !(deferred && techniqueRequested))
             {
-                static bool s_ReportedGate = false;
-                if (!s_ReportedGate)
+                // Keyed on the VERDICT, not a one-shot bool: a user who fixes one
+                // half of the gate and trips the other must get the second message,
+                // and a one-shot static would have swallowed it.
+                const u32 verdict = (deferred ? 1u : 0u) | (techniqueRequested ? 2u : 0u) |
+                                    (shadowSettings.Enabled ? 4u : 0u);
+                static u32 s_ReportedVerdict = ~0u;
+                if (s_ReportedVerdict != verdict)
                 {
-                    s_ReportedGate = true;
+                    s_ReportedVerdict = verdict;
                     OLO_CORE_WARN("RayTracedShadowPass: {} light(s) asked for it, but the pass will not run — "
                                   "ShadowSettings::Enabled={} Technique={} RenderingPath={}",
                                   requestedLightCount, shadowSettings.Enabled,
@@ -966,7 +978,8 @@ namespace OloEngine
             rtShadowPass.SetEnabled(deferred && techniqueRequested);
             rtShadowPass.SetSettings(shadowSettings.RayTraced);
             rtShadowPass.SetShadowMap(&Renderer3D::GetShadowMap());
-            rtShadowPass.SetCameraMatrices(data.ViewMatrix, data.ProjectionMatrix);
+            rtShadowPass.SetCameraMatrices(data.ViewMatrix, data.ProjectionMatrix,
+                                           Renderer3D::GetRenderOrigin());
             rtShadowPass.SetFrameIndex(data.StochasticFrameIndex);
             rtShadowPass.SetLightRequests(Renderer3D::GetRayTracedShadowLightRequests());
             // Masked TLAS geometry shadows as SOLID (no shader-visible sampler
@@ -2320,7 +2333,15 @@ namespace OloEngine
         // runs, every counter reads a truthful zero, and the feature looks
         // simply absent. That is exactly what happened bringing this up on
         // Courtyard; it cost a live-session bisect to find.
-        HashBool(h, Renderer3D::GetShadowMap().GetSettings().Technique == ShadowTechnique::RayTraced);
+        {
+            const auto& fingerprintShadowSettings = Renderer3D::GetShadowMap().GetSettings();
+            HashBool(h, fingerprintShadowSettings.Technique == ShadowTechnique::RayTraced);
+            // Enabled is the OTHER half of the same gate (ConfigurePassesForFrame
+            // requires both), so it has to be here too — otherwise flipping the
+            // master shadow switch while the technique is armed leaves exactly
+            // the stale topology this block exists to prevent.
+            HashBool(h, fingerprintShadowSettings.Enabled);
+        }
         // Overdraw debug view (#519) declares/drops the OverdrawColor resource, so
         // it MUST be hashed — otherwise toggling it would not rebuild the graph.
         HashBool(h, data.PostProcess.OverdrawDebugView);
@@ -3453,10 +3474,12 @@ namespace OloEngine
             // read as noise.
             if (rtShadowEnabled && !(rtShadowReady && rtShadowHasDepth && rtShadowHasNormal))
             {
-                static bool s_ReportedMaskGate = false;
-                if (!s_ReportedMaskGate)
+                const u32 maskVerdict = (rtShadowReady ? 1u : 0u) | (rtShadowHasDepth ? 2u : 0u) |
+                                        (rtShadowHasNormal ? 4u : 0u);
+                static u32 s_ReportedMaskVerdict = ~0u;
+                if (s_ReportedMaskVerdict != maskVerdict)
                 {
-                    s_ReportedMaskGate = true;
+                    s_ReportedMaskVerdict = maskVerdict;
                     OLO_CORE_WARN("RayTracedShadowPass: the technique is armed but the graph declared no shadow "
                                   "mask this frame, so the pass is culled and every opted-in light silently "
                                   "keeps its shadow map. shadersReady={} sceneDepth={} gbufferNormal={}",

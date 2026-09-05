@@ -111,10 +111,18 @@ namespace OloEngine
         {
             m_Settings = settings;
         }
-        void SetCameraMatrices(const glm::mat4& view, const glm::mat4& projection) noexcept
+        // `view` is the WORLD view matrix and `renderOrigin` the camera-relative
+        // origin GPU Scene encoded this frame's transforms against (issue #429).
+        // Both are needed: the TLAS is built from render-relative instance
+        // transforms, so a ray traced from an absolute world position misses by
+        // exactly the origin — silently, and only once the camera is far enough
+        // from the world origin for the grid to have snapped.
+        void SetCameraMatrices(const glm::mat4& view, const glm::mat4& projection,
+                               const glm::vec3& renderOrigin) noexcept
         {
             m_View = view;
             m_Projection = projection;
+            m_RenderOrigin = renderOrigin;
         }
         void SetFrameIndex(u32 frameIndex) noexcept
         {
@@ -160,6 +168,7 @@ namespace OloEngine
         RayTracedShadowSettings m_Settings{};
         glm::mat4 m_View{ 1.0f };
         glm::mat4 m_Projection{ 1.0f };
+        glm::vec3 m_RenderOrigin{ 0.0f };
         u32 m_FrameIndex = 0;
         u32 m_MaskedOccluderCount = 0;
 

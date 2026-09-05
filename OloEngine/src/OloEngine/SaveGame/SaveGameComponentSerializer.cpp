@@ -1471,6 +1471,7 @@ namespace OloEngine
         ar << c.m_Direction << c.m_Color << c.m_Intensity;
         ar << c.m_CastShadows << c.m_ShadowBias << c.m_ShadowNormalBias;
         ar << c.m_MaxShadowDistance << c.m_CascadeSplitLambda << c.m_CascadeDebugVisualization;
+        ar << c.m_RayTracedShadows;
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, DestructibleComponent& c)
@@ -1512,6 +1513,7 @@ namespace OloEngine
     {
         ar << c.m_Color << c.m_Intensity << c.m_Range << c.m_Attenuation;
         ar << c.m_CastShadows << c.m_ShadowBias << c.m_ShadowNormalBias;
+        ar << c.m_RayTracedShadows;
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, SpotLightComponent& c)
@@ -1519,11 +1521,13 @@ namespace OloEngine
         ar << c.m_Direction << c.m_Color << c.m_Intensity;
         ar << c.m_Range << c.m_InnerCutoff << c.m_OuterCutoff << c.m_Attenuation;
         ar << c.m_CastShadows << c.m_ShadowBias << c.m_ShadowNormalBias;
+        ar << c.m_RayTracedShadows;
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, SphereAreaLightComponent& c)
     {
         ar << c.m_Color << c.m_Intensity << c.m_Radius << c.m_Range << c.m_CastShadows;
+        ar << c.m_RayTracedShadows;
 
         if (ar.IsLoading())
         {

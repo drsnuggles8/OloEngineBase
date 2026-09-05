@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Passes/RayTracedShadowPass.h"
 
 #include "OloEngine/Renderer/BlueNoiseTexture.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/FrameBlackboard.h"
@@ -317,9 +318,18 @@ namespace OloEngine
         const auto height = static_cast<f32>(std::max(outSpec.Height, 1u));
 
         UBOStructures::RayTracingShadowUBO params{};
-        params.InvView = glm::inverse(m_View);
+        // RENDER-RELATIVE, not world (issue #429). The TLAS is built from GPU
+        // Scene's render-relative instance transforms, and every other shader's
+        // reconstructed "world position" is render-relative too because the
+        // camera UBO is made relative in CommandDispatch. Handing this pass the
+        // absolute view matrix put the ray origin a whole render-origin away
+        // from the geometry it was tracing against — a no-op near the world
+        // origin, which is exactly why no test on a small scene could see it,
+        // and a 1024 m displacement the moment the origin grid snaps.
+        const glm::mat4 relativeView = MakeViewRelative(m_View, m_RenderOrigin);
+        params.InvView = glm::inverse(relativeView);
         params.InvProjection = glm::inverse(m_Projection);
-        params.View = m_View;
+        params.View = relativeView;
 
         const u64 tlasAddress = m_RayTracingScene != nullptr ? m_RayTracingScene->GetTlasDeviceAddress() : 0u;
         params.TlasAddressAndCounts = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
@@ -328,7 +338,13 @@ namespace OloEngine
         for (u32 channel = 0; channel < channelCount; ++channel)
         {
             const RayTracedShadowLightRequest& light = m_ChannelLights[channel];
-            params.LightVectors[channel] = glm::vec4(light.Vector, light.Directional ? 1.0f : 2.0f);
+            // A punctual light's Vector is a world POSITION and has to move into
+            // the same render-relative space as the ray origin; a directional
+            // light's is a direction, which is translation-invariant and must
+            // NOT be shifted.
+            const glm::vec3 lightVector =
+                light.Directional ? light.Vector : (light.Vector - m_RenderOrigin);
+            params.LightVectors[channel] = glm::vec4(lightVector, light.Directional ? 1.0f : 2.0f);
             // A directional light's angular radius is converted to a tangent
             // here rather than in the shader: it is a per-light constant, so
             // doing it per pixel would be a transcendental per ray for a value
