@@ -1,5 +1,12 @@
 #pragma once
 
+// Self-containment: the inline template at CreateRenderStreamDrawCall uses
+// OLO_PROFILE_FUNCTION(), so this header owes the macro rather than borrowing
+// it from whatever the includer happened to pull in first. Every existing
+// includer already had it (the PCH, or a sibling header), which is why a
+// missing include here compiled everywhere for so long — until a test TU
+// included this header on its own and Linux/Clang named it.
+#include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/FluidRenderData.h"
