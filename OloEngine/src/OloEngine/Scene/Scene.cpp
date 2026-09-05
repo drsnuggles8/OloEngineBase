@@ -7209,6 +7209,10 @@ namespace OloEngine
         {
             UBOStructures::MultiLightUBO multiLightData{};
             i32 lightIndex = 0;
+            // Hybrid ray-traced shadow candidates (issue #1056), gathered
+            // alongside the raster ones. Every light type appends to it, and it
+            // is published to the renderer once at the end of this block.
+            std::vector<RayTracedShadowLightRequest> rayTracedShadowRequests;
 
             // Canonical light record first (issue #993): the registry gets the
             // authored input, and every raster entry below is derived from the
@@ -7240,6 +7244,43 @@ namespace OloEngine
                 }
 
                 multiLightData.Lights[lightIndex] = GPUSceneLightAdapter::ToMultiLightData(canonical);
+
+                // Hybrid ray-traced shadows (issue #1056): the request, not the
+                // decision. Only RayTracedShadowPass knows whether the trace can
+                // actually run; publishing a candidate here is what lets it count
+                // the fallback with a reason instead of the light going silently
+                // unshadowed.
+                //
+                // Deliberately OUTSIDE the `lightIndex == 0` block below. That
+                // block exists because the CSM cascades only ever cover ONE
+                // directional light; the ray-traced tier has no such limit, so a
+                // second sun can opt in and gets a mask channel on the same terms
+                // as any other light.
+                if (dirLight.m_CastShadows && dirLight.m_RayTracedShadows)
+                {
+                    // The component stores the direction light TRAVELS; the ray
+                    // goes the other way. A zero or non-finite authored direction
+                    // would normalize to NaN and poison the whole mask channel, so
+                    // an unusable one drops the request rather than tracing it —
+                    // the light then falls back with the raster path's own
+                    // behaviour for a degenerate direction.
+                    const glm::vec3 towardLight = -dirLight.m_Direction;
+                    const f32 directionLengthSquared = glm::dot(towardLight, towardLight);
+                    if (std::isfinite(directionLengthSquared) && directionLengthSquared > 1.0e-8f)
+                    {
+                        RayTracedShadowLightRequest request;
+                        request.UboLightIndex = lightIndex;
+                        request.Directional = true;
+                        request.Vector = towardLight / std::sqrt(directionLengthSquared);
+                        // The sun's angular RADIUS as seen from Earth is about
+                        // 0.265 degrees. Taken from the shadow settings rather than
+                        // the component so one scene-wide sun size drives both the
+                        // penumbra here and any future PCSS parity.
+                        request.Shape =
+                            Renderer3D::GetShadowMap().GetSettings().RayTraced.LightAngularRadiusDegrees;
+                        rayTracedShadowRequests.push_back(request);
+                    }
+                }
 
                 // The first directional light drives the camera view position
                 // (used by shading/specular) and the directional CSM shadow setup.
@@ -7331,6 +7372,22 @@ namespace OloEngine
                     multiLightData.Lights[lightIndex] = GPUSceneLightAdapter::ToMultiLightData(canonical);
                 }
 
+                if (inUbo && pointLight.m_CastShadows && pointLight.m_RayTracedShadows)
+                {
+                    RayTracedShadowLightRequest request;
+                    request.UboLightIndex = lightIndex;
+                    request.Directional = false;
+                    request.Vector = transform.Translation;
+                    // A point light has no authored emitter size, so its
+                    // penumbra comes from the shadow settings' angular radius
+                    // reinterpreted as a metre radius. Stated rather than
+                    // silently zero: a zero here gives a pin-sharp shadow,
+                    // which is a defensible default but not an obvious one.
+                    request.Shape = Renderer3D::GetShadowMap().GetSettings().RayTraced.LightAngularRadiusDegrees;
+                    request.Range = pointLight.m_Range;
+                    rayTracedShadowRequests.push_back(request);
+                }
+
                 if (pointLight.m_CastShadows)
                 {
                     LocalShadowCandidate candidate;
@@ -7375,6 +7432,17 @@ namespace OloEngine
                     multiLightData.Lights[lightIndex] = GPUSceneLightAdapter::ToMultiLightData(canonical);
                 }
 
+                if (inUbo && spotLight.m_CastShadows && spotLight.m_RayTracedShadows)
+                {
+                    RayTracedShadowLightRequest request;
+                    request.UboLightIndex = lightIndex;
+                    request.Directional = false;
+                    request.Vector = transform.Translation;
+                    request.Shape = Renderer3D::GetShadowMap().GetSettings().RayTraced.LightAngularRadiusDegrees;
+                    request.Range = spotLight.m_Range;
+                    rayTracedShadowRequests.push_back(request);
+                }
+
                 if (spotLight.m_CastShadows)
                 {
                     LocalShadowCandidate candidate;
@@ -7415,6 +7483,20 @@ namespace OloEngine
                 if (inUbo)
                 {
                     multiLightData.Lights[lightIndex] = GPUSceneLightAdapter::ToMultiLightData(canonical);
+                }
+
+                // A sphere area light is the one case where the emitter has a
+                // REAL authored radius, so its ray-traced penumbra is
+                // geometrically correct rather than a stand-in for one.
+                if (inUbo && areaLight.m_CastShadows && areaLight.m_RayTracedShadows)
+                {
+                    RayTracedShadowLightRequest request;
+                    request.UboLightIndex = lightIndex;
+                    request.Directional = false;
+                    request.Vector = transform.Translation;
+                    request.Shape = areaLight.m_Radius;
+                    request.Range = areaLight.m_Range;
+                    rayTracedShadowRequests.push_back(request);
                 }
 
                 // Sphere area lights cast hard shadows by treating the emitter
@@ -7654,6 +7736,12 @@ namespace OloEngine
                 shadowMap.SetAtlasEntryCount(totalEntries);
                 shadowMap.SetAtlasLayout(std::move(layout));
             }
+
+            // Publish this frame's ray-traced shadow candidates (issue #1056).
+            // After the atlas allocation, because a light that lost its atlas
+            // tile is still a legitimate ray-tracing candidate — the two tiers
+            // are independent, which is the point of the technique seam.
+            Renderer3D::SetRayTracedShadowLightRequests(std::move(rayTracedShadowRequests));
 
             // Shadow sampling matrices go up camera-relative (issue #429) so
             // they match the render-relative world positions the lit pass uses.

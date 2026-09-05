@@ -34,6 +34,7 @@
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/VirtualShadowMapMarkPass.h"
+#include "OloEngine/Renderer/Passes/RayTracedShadowPass.h"
 #include "OloEngine/Renderer/Passes/RayTracingScenePass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SphereProxyAORenderPass.h"
@@ -133,6 +134,11 @@ namespace OloEngine
         // producer and before DeferredLightingPass, so its multiply lands in
         // AOBuffer before anything reads it.
         Ref<SphereProxyAORenderPass> SphereProxyAO;
+        // Hybrid ray-traced shadows (#1056). Registered after the last
+        // G-Buffer writer (it reads scene depth + the world normal) and before
+        // DeferredLightingPass (which samples the mask it produces), with a
+        // by-name execution edge on RayTracingScenePass.
+        Ref<RayTracedShadowPass> RayTracedShadow;
         Ref<ParticleRenderPass> Particle;
         Ref<OITPrepareRenderPass> OITPrepare;
         Ref<OITResolveRenderPass> OITResolve;
@@ -146,6 +152,7 @@ namespace OloEngine
             SSAO.Reset();
             GTAO.Reset();
             SphereProxyAO.Reset();
+            RayTracedShadow.Reset();
             Particle.Reset();
             OITPrepare.Reset();
             OITResolve.Reset();
@@ -290,8 +297,11 @@ namespace OloEngine
             AtmosphereShadingUBO.Reset();
             m_HasSSGIEnableState = false;
             m_PreviousSSGIEnabled = false;
+            m_PreviousSSGIHalfResolution = true;
             m_HasJitterMode = false;
             m_PreviousJitterMode = 0u;
+            m_ReportedRayTracedShadowGateVerdict = kNoRayTracedShadowVerdict;
+            m_ReportedRayTracedShadowMaskVerdict = kNoRayTracedShadowVerdict;
             InvalidateBlackboardCache();
         }
 
@@ -312,6 +322,17 @@ namespace OloEngine
         // whenever the inputs match the previous frame.
         [[nodiscard]] u64 ComputeBlackboardFingerprint(const Renderer3DData& data) const;
 
+        // The two ray-traced-shadow diagnostics (issue #1056) warn once per
+        // CHANGE of verdict rather than once per frame. Members, not
+        // function-local statics: a static would be shared by every pipeline for
+        // the life of the process, and it must also be CLEARED when the gate it
+        // describes becomes healthy, or a user who fixes the cause and later
+        // reintroduces it gets silence the second time. Both are reset on the
+        // frame their own gate passes.
+        static constexpr u32 kNoRayTracedShadowVerdict = ~0u;
+        u32 m_ReportedRayTracedShadowGateVerdict = kNoRayTracedShadowVerdict;
+        u32 m_ReportedRayTracedShadowMaskVerdict = kNoRayTracedShadowVerdict;
+
       private:
         void ApplyGlobalResources(Renderer3DData& data) const;
         void CreateFramePasses(Renderer3DData& data,
@@ -325,6 +346,11 @@ namespace OloEngine
         bool m_HasValidBlackboardCache = false;
         bool m_HasSSGIEnableState = false;
         bool m_PreviousSSGIEnabled = false;
+        // Tracked alongside the enable because the #708 half-resolution toggle
+        // resizes every SSGI history; see the invalidation in RenderPipeline.cpp.
+        // Defaults to PostProcessSettings::SSGIHalfResolution's own default so
+        // the first frame after a reset does not read as a change.
+        bool m_PreviousSSGIHalfResolution = true;
         bool m_HasJitterMode = false;
         u8 m_PreviousJitterMode = 0u; // 0=none, 1=TAA, 2=temporal upscale
     };

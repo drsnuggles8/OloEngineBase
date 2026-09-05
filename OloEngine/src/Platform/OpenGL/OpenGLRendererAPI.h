@@ -313,6 +313,16 @@ namespace OloEngine
             return false;
         }
 
+        // glClientWaitSync is called with GL_SYNC_FLUSH_COMMANDS_BIT, so a
+        // fence whose commands were never submitted still completes — which is
+        // what lets a persistent-mapped ring wrap and wait inside one frame
+        // (GPUCircularBuffer, #704). The base class defaults to false for
+        // backends that stage the signal instead (issue #1052).
+        [[nodiscard]] bool SupportsIntraFrameFenceCompletion() const override
+        {
+            return true;
+        }
+
       private:
         // Per-attachment colour write masks, mirrored from glColorMaski so a
         // colour clear can lift them (glClear obeys the colour mask exactly as

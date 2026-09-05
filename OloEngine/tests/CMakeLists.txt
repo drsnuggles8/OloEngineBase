@@ -126,6 +126,7 @@ add_executable(OloEngine-Tests
 		Rendering/ReflectionProbeSelectionTest.cpp
 		Rendering/ReflectionProbeDistanceFieldTest.cpp
 		Rendering/PlanarReflectionMathTest.cpp
+		Rendering/EditorCameraPoseTest.cpp
 		Rendering/CameraRelativeTest.cpp
 		Rendering/Renderer2DCameraRelativeTest.cpp
 		Rendering/TerrainCameraRelativeLODTest.cpp
@@ -211,6 +212,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VolumetricShadowVisualEvidenceTest.cpp
 		Rendering/AutoExposureMathTest.cpp
 		Rendering/ScreenSpaceReflectionMathTest.cpp
+		Rendering/ScreenSpaceDenoiseMathTest.cpp
 		Rendering/ScreenSpaceGIMathTest.cpp
 		Rendering/StochasticSamplerTest.cpp
 		Rendering/SurfaceHistoryTest.cpp
@@ -295,6 +297,7 @@ add_executable(OloEngine-Tests
 		# rendering scope. Same SKIP ladder + zero-validation bar.
 		Rendering/VulkanDrawPathTest.cpp
 		Rendering/VulkanRawBufferStorageBindingTest.cpp
+		Rendering/VulkanRawBufferUploadTest.cpp
 		# #691 Phase 7 Stage 1.6b: REAL passes through the REAL render graph on
 		# a device — transients, planner barriers, pass bodies recording via
 		# the process-global backend; first tenant is the golden-gated FXAA
@@ -309,6 +312,16 @@ add_executable(OloEngine-Tests
 		# bar as every other Vulkan tenant.
 		Rendering/RayTracing/RayTracingSceneTest.cpp
 		Rendering/RayTracing/RayTracingDeviceTest.cpp
+		# #1056 hybrid ray-traced soft shadows. The technique SELECTION and its
+		# fallback counters are backend-neutral and run everywhere; the rendered
+		# mask is checked by the GPU visual-evidence tenant beside it, which skips
+		# without a GL 4.6 context.
+		Rendering/Shadow/ShadowTechniqueSelectionTest.cpp
+		# The space a shadow ray is traced in. Its own tenant because the defect
+		# it pins is a byte-identical no-op at the world origin, which is where
+		# every rendered-frame check in this repo happens to sit.
+		Rendering/Shadow/RayTracedShadowSpaceTest.cpp
+		Rendering/PropertyTests/RayTracedShadowVisualEvidenceTest.cpp
 		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
 		Rendering/BackendSelectionTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`
@@ -405,6 +418,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/OceanFFTVisualEvidenceTest.cpp
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
+		Rendering/PropertyTests/MeshVisibilityEvidenceTest.cpp
+		Rendering/PropertyTests/VisualEvidenceGuards.cpp
 		Rendering/PropertyTests/BloomVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ObserverCameraVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FogVisualEvidenceTest.cpp
@@ -414,6 +429,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeParallaxVisualEvidenceTest.cpp
+		Rendering/PropertyTests/SSGIDenoiserVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ScreenSpaceTemporalResolveEvidenceTest.cpp
 		Rendering/DDGI/DDGIVisualEvidenceTest.cpp

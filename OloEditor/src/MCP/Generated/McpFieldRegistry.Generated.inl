@@ -282,6 +282,7 @@ registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "Color", m_Color));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "Intensity", m_Intensity));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CastShadows", m_CastShadows));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CascadeDebugVisualization", m_CascadeDebugVisualization));
+registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "RayTracedShadows", m_RayTracedShadows));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "ShadowBias", m_ShadowBias));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "ShadowNormalBias", m_ShadowNormalBias));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "MaxShadowDistance", m_MaxShadowDistance));
@@ -754,6 +755,7 @@ registry.push_back(OLO_GFW_FIELD(PointLightComponent, "Intensity", m_Intensity))
 registry.push_back(OLO_GFW_FIELD(PointLightComponent, "Range", m_Range));
 registry.push_back(OLO_GFW_FIELD(PointLightComponent, "Attenuation", m_Attenuation));
 registry.push_back(OLO_GFW_FIELD(PointLightComponent, "CastShadows", m_CastShadows));
+registry.push_back(OLO_GFW_FIELD(PointLightComponent, "RayTracedShadows", m_RayTracedShadows));
 registry.push_back(OLO_GFW_FIELD(PointLightComponent, "ShadowBias", m_ShadowBias));
 registry.push_back(OLO_GFW_FIELD(PointLightComponent, "ShadowNormalBias", m_ShadowNormalBias));
 
@@ -785,13 +787,13 @@ registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "ClassDatabaseHandle", Cl
 registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "SkillTreeHandle", SkillTreeHandle));
 registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "ClassID", ClassID));
 
-// QuestGiverComponent
-registry.push_back(OLO_GFW_FIELD(QuestGiverComponent, "QuestMarkerIcon", QuestMarkerIcon));
-
 }
 
 static void BuildRegistryChunk10(std::vector<FieldEntry>& registry)
 {
+// QuestGiverComponent
+registry.push_back(OLO_GFW_FIELD(QuestGiverComponent, "QuestMarkerIcon", QuestMarkerIcon));
+
 // RagdollComponent
 registry.push_back(OLO_GFW_FIELD(RagdollComponent, "SkeletonEntity", m_SkeletonEntity));
 registry.push_back(OLO_GFW_FIELD(RagdollComponent, "Enabled", m_Enabled));
@@ -852,6 +854,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "SailSetInput", m_SailSetI
 // ScriptComponent
 registry.push_back(OLO_GFW_FIELD(ScriptComponent, "ClassName", ClassName));
 
+}
+
+static void BuildRegistryChunk11(std::vector<FieldEntry>& registry)
+{
 // SnowDeformerComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "DeformRadius", m_DeformRadius, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(50.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "DeformDepth", m_DeformDepth, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
@@ -859,16 +865,13 @@ registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "FalloffExponent",
 registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "CompactionFactor", m_CompactionFactor, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 registry.push_back(OLO_GFW_FIELD(SnowDeformerComponent, "EmitEjecta", m_EmitEjecta));
 
-}
-
-static void BuildRegistryChunk11(std::vector<FieldEntry>& registry)
-{
 // SphereAreaLightComponent
 registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "Color", m_Color));
 registry.push_back(OLO_GFW_FIELD_RANGE(SphereAreaLightComponent, "Intensity", m_Intensity, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD_RANGE(SphereAreaLightComponent, "Radius", m_Radius, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD_RANGE(SphereAreaLightComponent, "Range", m_Range, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "CastShadows", m_CastShadows));
+registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "RayTracedShadows", m_RayTracedShadows));
 
 // SphereCollider3DComponent
 registry.push_back(OLO_GFW_FIELD(SphereCollider3DComponent, "Radius", m_Radius));
@@ -883,6 +886,7 @@ registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "InnerCutoff", m_InnerCutof
 registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "OuterCutoff", m_OuterCutoff));
 registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "Attenuation", m_Attenuation));
 registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "CastShadows", m_CastShadows));
+registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "RayTracedShadows", m_RayTracedShadows));
 registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "ShadowBias", m_ShadowBias));
 registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "ShadowNormalBias", m_ShadowNormalBias));
 
@@ -918,6 +922,10 @@ registry.push_back(OLO_GFW_FIELD(StarNestSkyComponent, "EnableIBL", m_EnableIBL)
 registry.push_back(OLO_GFW_FIELD(StarNestSkyComponent, "IBLIntensity", m_IBLIntensity));
 registry.push_back(OLO_GFW_FIELD(StarNestSkyComponent, "CubemapResolution", m_CubemapResolution));
 
+}
+
+static void BuildRegistryChunk12(std::vector<FieldEntry>& registry)
+{
 // StateMachineComponent
 registry.push_back(OLO_GFW_FIELD(StateMachineComponent, "StateMachineAssetHandle", StateMachineAssetHandle));
 
@@ -927,10 +935,6 @@ registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "ActivationMode", Act
 registry.push_back(OLO_GFW_FIELD_RANGE(StreamingVolumeComponent, "LoadRadius", LoadRadius, OLO_GFW_BOUND(1.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "UnloadRadius", UnloadRadius));
 
-}
-
-static void BuildRegistryChunk12(std::vector<FieldEntry>& registry)
-{
 // SubmeshComponent
 registry.push_back(OLO_GFW_FIELD(SubmeshComponent, "SubmeshIndex", m_SubmeshIndex));
 registry.push_back(OLO_GFW_FIELD(SubmeshComponent, "Visible", m_Visible));

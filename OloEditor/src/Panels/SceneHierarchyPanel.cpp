@@ -3570,6 +3570,12 @@ namespace OloEngine
             ImGui::ColorEdit3("Color", glm::value_ptr(component.m_Color));
             ImGui::DragFloat("Intensity##DirectionalLight", &component.m_Intensity, 0.1f, 0.0f, 10.0f);
             ImGui::Checkbox("Cast Shadows##DirectionalLight", &component.m_CastShadows);
+            ImGui::Checkbox("Ray-Traced Shadows##DirectionalLight", &component.m_RayTracedShadows);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Opt this light into the hybrid ray-traced shadow mask (issue #1056).\n"
+                                  "Needs ShadowSettings::Technique = RayTraced, the deferred path\n"
+                                  "and a hardware ray-tracing device; otherwise it falls back to\n"
+                                  "the shadow map, counted with a reason.");
             if (component.m_CastShadows)
             {
                 ImGui::Indent();
@@ -3588,6 +3594,12 @@ namespace OloEngine
             ImGui::DragFloat("Range##PointLight", &component.m_Range, 0.1f, 0.1f, 100.0f);
             ImGui::DragFloat("Attenuation##PointLight", &component.m_Attenuation, 0.1f, 0.1f, 4.0f);
             ImGui::Checkbox("Cast Shadows##PointLight", &component.m_CastShadows);
+            ImGui::Checkbox("Ray-Traced Shadows##PointLight", &component.m_RayTracedShadows);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Opt this light into the hybrid ray-traced shadow mask (issue #1056).\n"
+                                  "Needs ShadowSettings::Technique = RayTraced, the deferred path\n"
+                                  "and a hardware ray-tracing device; otherwise it falls back to\n"
+                                  "the shadow map, counted with a reason.");
             if (component.m_CastShadows)
             {
                 ImGui::Indent();
@@ -3606,6 +3618,12 @@ namespace OloEngine
             ImGui::DragFloat("Outer Cutoff##SpotLight", &component.m_OuterCutoff, 0.1f, 0.0f, 90.0f);
             ImGui::DragFloat("Attenuation##SpotLight", &component.m_Attenuation, 0.1f, 0.1f, 4.0f);
             ImGui::Checkbox("Cast Shadows##SpotLight", &component.m_CastShadows);
+            ImGui::Checkbox("Ray-Traced Shadows##SpotLight", &component.m_RayTracedShadows);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Opt this light into the hybrid ray-traced shadow mask (issue #1056).\n"
+                                  "Needs ShadowSettings::Technique = RayTraced, the deferred path\n"
+                                  "and a hardware ray-tracing device; otherwise it falls back to\n"
+                                  "the shadow map, counted with a reason.");
             if (component.m_CastShadows)
             {
                 ImGui::Indent();
@@ -3625,6 +3643,12 @@ namespace OloEngine
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Falloff distance (lighting contribution clamps to zero beyond).");
             ImGui::Checkbox("Cast Shadows##SphereArea", &component.m_CastShadows);
+            ImGui::Checkbox("Ray-Traced Shadows##SphereArea", &component.m_RayTracedShadows);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Opt this light into the hybrid ray-traced shadow mask (issue #1056).\n"
+                                  "Needs ShadowSettings::Technique = RayTraced, the deferred path\n"
+                                  "and a hardware ray-tracing device; otherwise it falls back to\n"
+                                  "the shadow map, counted with a reason.");
             if (component.m_CastShadows)
             {
                 ImGui::Indent();

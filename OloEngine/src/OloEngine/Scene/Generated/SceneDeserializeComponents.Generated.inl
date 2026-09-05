@@ -341,6 +341,7 @@ if (auto node = entity["DirectionalLightComponent"]; node)
         comp.m_Intensity = v;
     comp.m_CastShadows = node["CastShadows"].as<bool>(comp.m_CastShadows);
     comp.m_CascadeDebugVisualization = node["CascadeDebugVisualization"].as<bool>(comp.m_CascadeDebugVisualization);
+    comp.m_RayTracedShadows = node["RayTracedShadows"].as<bool>(comp.m_RayTracedShadows);
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowBias"], v))
         comp.m_ShadowBias = v;
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowNormalBias"], v))
@@ -686,6 +687,7 @@ if (auto node = entity["PointLightComponent"]; node)
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Attenuation"], v))
         comp.m_Attenuation = v;
     comp.m_CastShadows = node["CastShadows"].as<bool>(comp.m_CastShadows);
+    comp.m_RayTracedShadows = node["RayTracedShadows"].as<bool>(comp.m_RayTracedShadows);
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowBias"], v))
         comp.m_ShadowBias = v;
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowNormalBias"], v))
@@ -845,6 +847,7 @@ if (auto node = entity["SpotLightComponent"]; node)
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Attenuation"], v))
         comp.m_Attenuation = v;
     comp.m_CastShadows = node["CastShadows"].as<bool>(comp.m_CastShadows);
+    comp.m_RayTracedShadows = node["RayTracedShadows"].as<bool>(comp.m_RayTracedShadows);
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowBias"], v))
         comp.m_ShadowBias = v;
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowNormalBias"], v))

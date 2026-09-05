@@ -74,6 +74,41 @@ crash today" as "safe".
 - **In review, treat `if (!x) { setDefault(); return; }` with no diagnostic as a finding**, the same
   way a swallowed exception would be. Ask what the caller does next with the default.
 
+## The second mechanism: the fallback lives in the CALLER, and the stub's return value triggers it
+
+The rest of #1052 — why virtual geometry still rendered nothing on Vulkan after the device loss was
+fixed — is the same rule with the fallback one level up, and it is harder to see because the code
+that *takes* the fallback is blameless. The defect is entirely in the backend: two operations left
+as unlowered `#691` stubs. The caller reads their return values exactly as its contract says to,
+which is what makes the stub invisible from the call site.
+
+**An unlowered function that returns `nullptr`, `false` or an empty range does not read as unlowered
+at the call site. It reads as the condition that value encodes.**
+`VirtualMeshRegistry::CopyThroughRing` stages page geometry through a persistent-mapped ring and
+degrades to a direct upload when the ring did not map — a correct, well-commented branch, because
+`glMapNamedBufferRange` genuinely can fail. On Vulkan both ends were `#691` no-ops:
+
+| stub | what the caller made of it |
+|---|---|
+| `AllocatePersistentUploadStorage` returned `nullptr` | `GPUCircularBuffer::Create` read it, correctly by its own contract, as *"mapping failed — use the other path"* and never created a ring |
+| `UploadBufferSubData` discarded its payload | that other path, now taken for **every** page load, wrote nothing |
+
+So the vertex arena and the index arena were empty regardless of which raster arm ran, which is why
+even software raster — 84–98% of clusters — drew nothing. Everything that *counts work* counted it:
+`4143 clusters drawn`, `silentlyDrewNothing: false`, `pageUploads: 23`, `residentPages: 23/23`,
+0 shader errors, 0 dropped draws, 0 validation errors. Nothing measured whether the bytes arrived.
+
+Three more counter-moves from that half:
+
+- **Lower the fallback with the primary.** A degradation branch is part of the contract of the
+  function it degrades from. Read the call site, not just the vtable row, before declaring one entry
+  point done.
+- **When a feature renders nothing, prove its inputs are non-empty before investigating its draw
+  call.** "Did the data arrive?" is cheaper to answer and upstream of "is the draw correct?".
+- **Fixing a stub can wake its neighbours.** `UnmapBuffer` was stubbed too and had never fired,
+  because the ring it belonged to was never created. Re-run the stub-count assertion *after* the
+  fix, not before it.
+
 ## What stayed green
 
 Two Vulkan virtual-geometry tests, both passing, for as long as the bug existed — they hand-author
@@ -83,7 +118,7 @@ that would have caught it exists and is asserted — but only on the draw path, 
 virtual-geometry tenant. And `RendererAttachedTest`, which every virtual-geometry evidence test
 rides, creates a GL context only, so the real pass had never executed on Vulkan in any test.
 
-Found on #1052 / PR #1054.
+Found on #1052 / PR #1054; the second mechanism while finishing #1052.
 
 ## Related
 

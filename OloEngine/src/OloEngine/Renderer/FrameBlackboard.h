@@ -201,13 +201,47 @@ namespace OloEngine
             // SSGIRenderPass / SSRRenderPass. This split is what makes the
             // signal accumulable at all — the composited colour is not.
             RGFramebufferHandle SSGISignal;
+            // The five-stage denoiser chain's own scratch (issue #708). All at
+            // the TRACE band, which is half the scene band when
+            // SSGIHalfResolution is on:
+            //   SSGISignal[0] raw signal -> SSGIPreBlurred -> SSGIResolved[0]
+            //   -> SSGIDenoised -> (guided upscale inside the composite draw).
+            // SSGIGuide is SSGISignal's second attachment, the trace-band
+            // surface plane every guided stage weights taps against and the
+            // source SSGISurfaceHistory is extracted from. The passes reach it
+            // through the framebuffer rather than this view; the view exists so
+            // the chain's intermediates are addressable by name from
+            // olo_render_capture_target, which is how the half-resolution band
+            // and the guide were verified in the live editor.
+            RGTextureHandle SSGIGuide;
+            RGFramebufferHandle SSGIPreBlurred;
+            RGFramebufferHandle SSGIDenoised;
             RGFramebufferHandle SSGIResolved;
             RGTextureHandle SSGIMomentsFirst;
             RGTextureHandle SSGIMomentsSecond;
             RGTextureHandle SSGIHistoryDiagnostics;
             RGTextureHandle SSGIReprojectionDiagnostics;
             RGFramebufferHandle SSRSignal;
+            // SSR's half of the denoiser chain (issue #708). Full resolution,
+            // unlike SSGI's: a reflection carries the sharpest detail in the
+            // frame, so there is no half-res trace and no upscale here.
+            // SSRGuide is SSRSignal's second attachment, the surface plane
+            // whose ROUGHNESS sets both blur radii.
+            RGTextureHandle SSRGuide;
+            RGFramebufferHandle SSRPreBlurred;
             RGFramebufferHandle SSRResolved;
+            RGFramebufferHandle SSRDenoised;
+
+            // Ray-traced shadow scratch (issue #1056). RGBA16F at the scene
+            // band; one channel per ray-traced light, 1 = lit. Signal is draw
+            // A's raw one-sample-per-pixel trace, Resolved is draw B's
+            // temporal accumulation (attachment 0) plus its moments
+            // (attachment 1) — draw C reads both and writes the graph-visible
+            // RayTracedShadowMask. All three live inside one Execute; same
+            // idiom as SSGISignal / SSGIResolved.
+            RGFramebufferHandle RayTracedShadowSignal;
+            RGFramebufferHandle RayTracedShadowResolved;
+            RGTextureHandle RayTracedShadowMoments;
         };
 
         // -----------------------------------------------------------------------
@@ -228,6 +262,15 @@ namespace OloEngine
             // tracking); 0 when the ShadowMap is uninitialised.
             RHI::ResourceHandle ShadowMapCSMRawID{};
             RHI::ResourceHandle ShadowMapAtlasRawID{};
+
+            // Ray-traced shadow visibility mask (issue #1056). RGBA16F,
+            // one channel per ray-traced light, 1 = lit. Written by
+            // RayTracedShadowPass's final draw and sampled by the deferred
+            // lighting shaders at TEX_RAY_TRACED_SHADOW. Invalid whenever the
+            // technique fell back — which is what makes the fallback visible
+            // to the graph rather than only to the shader.
+            RGFramebufferHandle RayTracedShadowMask;
+            RGTextureHandle RayTracedShadowMaskTexture;
         };
 
         // -----------------------------------------------------------------------
@@ -314,6 +357,10 @@ namespace OloEngine
             RGTextureHandle SSGIMomentsFirstHistory;
             RGTextureHandle SSGIMomentsSecondHistory;
             RGTextureHandle SSRHistory; // Previous resolved SSR signal (issue #902)
+            // Ray-traced shadow temporal state (issue #1056).
+            RGTextureHandle RayTracedShadowHistory;
+            RGTextureHandle RayTracedShadowSurfaceHistory;
+            RGTextureHandle RayTracedShadowMomentsHistory;
             // (Fog's temporal history moved into VolumetricFogPass's own 3D
             // scatter volume with the froxel fog rework — issue #435.)
         };

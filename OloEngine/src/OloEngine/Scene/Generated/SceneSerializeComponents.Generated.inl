@@ -272,6 +272,7 @@ if (entity.HasComponent<DirectionalLightComponent>())
     out << YAML::Key << "Intensity" << YAML::Value << comp.m_Intensity;
     out << YAML::Key << "CastShadows" << YAML::Value << comp.m_CastShadows;
     out << YAML::Key << "CascadeDebugVisualization" << YAML::Value << comp.m_CascadeDebugVisualization;
+    out << YAML::Key << "RayTracedShadows" << YAML::Value << comp.m_RayTracedShadows;
     out << YAML::Key << "ShadowBias" << YAML::Value << comp.m_ShadowBias;
     out << YAML::Key << "ShadowNormalBias" << YAML::Value << comp.m_ShadowNormalBias;
     out << YAML::Key << "MaxShadowDistance" << YAML::Value << comp.m_MaxShadowDistance;
@@ -621,6 +622,7 @@ if (entity.HasComponent<PointLightComponent>())
     out << YAML::Key << "Range" << YAML::Value << comp.m_Range;
     out << YAML::Key << "Attenuation" << YAML::Value << comp.m_Attenuation;
     out << YAML::Key << "CastShadows" << YAML::Value << comp.m_CastShadows;
+    out << YAML::Key << "RayTracedShadows" << YAML::Value << comp.m_RayTracedShadows;
     out << YAML::Key << "ShadowBias" << YAML::Value << comp.m_ShadowBias;
     out << YAML::Key << "ShadowNormalBias" << YAML::Value << comp.m_ShadowNormalBias;
     out << YAML::EndMap; // PointLightComponent
@@ -775,6 +777,7 @@ if (entity.HasComponent<SpotLightComponent>())
     out << YAML::Key << "OuterCutoff" << YAML::Value << comp.m_OuterCutoff;
     out << YAML::Key << "Attenuation" << YAML::Value << comp.m_Attenuation;
     out << YAML::Key << "CastShadows" << YAML::Value << comp.m_CastShadows;
+    out << YAML::Key << "RayTracedShadows" << YAML::Value << comp.m_RayTracedShadows;
     out << YAML::Key << "ShadowBias" << YAML::Value << comp.m_ShadowBias;
     out << YAML::Key << "ShadowNormalBias" << YAML::Value << comp.m_ShadowNormalBias;
     out << YAML::EndMap; // SpotLightComponent

@@ -71,6 +71,52 @@ deliberate scope edges:
 Tenant: `VulkanPassSuite.InterleavedInstanceBufferUploadsKeepCommandOrderAcrossDraws`
 (upload LEFT, draw, upload RIGHT, draw — both quads must land).
 
+## The mirror-image failure: snapshotting a buffer the GPU produces (#1052 / #1058)
+
+The versioning above is only correct for a buffer whose **producer is the CPU**.
+Applied to a GPU-produced one it inverts, and the inversion is still open — read
+this before touching `PushSnapshot`.
+
+Draws read `VulkanStorageBuffer::GetRootDataAddress()` — the snapshot when one is
+live. Compute dispatches read `GetDeviceAddress()`, always the persistent buffer
+(`AssembleRootData`'s `commandOrderedBufferReads` flag). So a CPU `SetData` on a
+GPU-output buffer leaves the two halves disagreeing: the dispatch writes
+persistent, and every later draw keeps reading the CPU's stale snapshot.
+
+`VirtualMeshRegistry::PrepareFrame` zeroes the virtual-geometry draw-args buffer
+every frame before the cull dispatches, which is exactly that shape. The
+consequences split three ways, and only one of them showed:
+
+| consumer | how it reads the count | result |
+|---|---|---|
+| hardware MDI | `vkCmdDrawIndexedIndirectCount` on the parameter `VkBuffer` | persistent — **correct** |
+| software raster | it is a dispatch | persistent — **correct** |
+| mesh-shader task stage | it is a **draw**, so root data | the zero snapshot → `EmitMeshTasksEXT(0)` — **rasterizes nothing** |
+
+Nothing warned. `EmitMeshTasksEXT(0)` is a legal launch, so there was no dropped
+draw, no validation error, no unfed binding and no stub hit — 4072 clusters
+"drawn" into an empty frame. The class comment asserted the case away
+("GPU-written buffers never SetData mid-frame"); zero-init before a dispatch *is*
+a mid-frame SetData.
+
+**Why the obvious fix is not in the tree.** Skipping the snapshot for
+`StorageBufferUsage::DynamicCopy` — which already means "GPU writes, GPU reads
+(compute output)" — does make the mesh arm run and render correctly. It also
+turns the scene into a **`VK_ERROR_DEVICE_LOST`**, reproducibly, on the sequence
+"switch to Deferred, then open the scene" (3/3 with the guard, 0/3 without it, one
+build apart). The snapshot was masking an out-of-bounds SSBO read: a frame-arena
+block is large, mapped and zero-filled, so an over-range index lands inside it,
+while the real device-local buffer is small and the same index faults. Same
+mechanism as #1052's original null-block analysis, one level over. Tracked in
+**#1058** with the patch and the A/B attached.
+
+**The generalisable half:** a per-draw versioning mechanism must know which side
+produces the data — ask it of every buffer the mechanism covers, not just the one
+that motivated it. And note the second-order trap: a mechanism that hands shaders
+a *large mapped* stand-in can hide an out-of-bounds read for years, so removing it
+looks like it caused the fault it revealed. A/B one build apart before believing
+either direction.
+
 ## The rule
 
 When porting any GL-shaped facade to a deferred-execution backend, audit every

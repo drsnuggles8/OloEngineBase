@@ -81,15 +81,22 @@ layout(location = 0) in vec2 v_TexCoord;
 #define u_SurfaceHistory OLO_HEAP_TEX_2D(2)
 #define u_FirstMomentsHistory OLO_HEAP_TEX_2D(3)
 #define u_SecondMomentsHistory OLO_HEAP_TEX_2D(4)
-#define u_GBufferNormal OLO_HEAP_TEX_2D(44) // TEX_GBUFFER_NORMAL
+#define u_Guide OLO_HEAP_TEX_2D(5)
 #define u_GVelocity OLO_HEAP_TEX_2D(46) // TEX_GBUFFER_VELOCITY
 #else
-layout(binding = 0) uniform sampler2D u_StochasticSignal;   // this frame's raw signal (rgb) + view depth (a)
+layout(binding = 0) uniform sampler2D u_StochasticSignal;   // this frame's PRE-BLURRED signal (rgb) + view depth (a)
 layout(binding = 1) uniform sampler2D u_History;  // last frame's resolved signal (rgb) + its view depth (a)
 layout(binding = 2) uniform sampler2D u_SurfaceHistory; // last frame's oct normal + roughness + AO
 layout(binding = 3) uniform sampler2D u_FirstMomentsHistory;
 layout(binding = 4) uniform sampler2D u_SecondMomentsHistory;
-layout(binding = 44) uniform sampler2D u_GBufferNormal; // current oct normal + roughness + AO
+// The current frame's guide plane at the TRACE band (issue #708), not the
+// full-resolution G-Buffer this used to read. With a half-resolution trace the
+// two are different resolutions, and a surface test run against full-res
+// silhouettes the signal cannot see rejects history along every edge — a
+// permanent noisy fringe that no amount of history length ever fixes. The trace
+// writes this attachment and the graph extracts SSGISurfaceHistory from it, so
+// both sides of the test are the same quantity at the same resolution.
+layout(binding = 5) uniform sampler2D u_Guide;
 layout(binding = 46) uniform sampler2D u_GVelocity; // G-Buffer RT3: current-minus-previous UV motion
 #endif
 
@@ -105,9 +112,12 @@ layout(std140, binding = 40) uniform SSGIParams
     mat4 u_View;
     vec4 u_RayParams;
     vec4 u_ShadeParams;
-    vec4 u_ScreenParams;    // x = width, y = height, z = 1/width, w = 1/height
+    vec4 u_ScreenParams;    // x = FULL-res width, y = height, z = 1/width, w = 1/height
     vec4 u_Flags;
     vec4 u_TemporalParams;  // x = Feedback, y = HasVelocity, z = HistoryUsable, w = ClipGamma
+    vec4 u_TraceParams;     // x = trace width, y = trace height, z = 1/width, w = 1/height
+    vec4 u_DenoiseParams;
+    vec4 u_DenoiseGuide;
 };
 
 // Relative view-depth tolerance for the disocclusion test. 5% of the shading
@@ -171,7 +181,11 @@ void main()
     vec2 uv = v_TexCoord;
     vec4 current = texture(u_StochasticSignal, uv);
     bool historyAvailable = u_TemporalParams.z >= 0.5;
-    vec2 texel = u_ScreenParams.zw;
+    // The TRACE band's texel, not the screen's: with a half-resolution trace
+    // every neighbourhood gather and every velocity-dilation step below is
+    // walking this pass's own targets, and stepping them by a full-res texel
+    // would sample the same texel nine times and quietly disable both.
+    vec2 texel = u_TraceParams.zw;
     vec2 velocity = vec2(0.0);
     if (historyAvailable && u_TemporalParams.y > 0.5)
         velocity = texture(u_GVelocity, DilatedVelocityUV(uv, texel)).rg;
@@ -179,7 +193,7 @@ void main()
     vec2 prevUV = uv - velocity;
     bool historySampleAvailable = historyAvailable && OloTemporalHistoryUVValid(prevUV);
     vec4 history = historySampleAvailable ? texture(u_History, prevUV) : current;
-    vec4 currentSurfacePacked = texture(u_GBufferNormal, uv);
+    vec4 currentSurfacePacked = texture(u_Guide, uv);
     vec4 previousSurfacePacked = historySampleAvailable ? texture(u_SurfaceHistory, prevUV) : currentSurfacePacked;
     OloSurfaceHistoryRecord currentSurface = MakeSSGISurface(current.a, currentSurfacePacked, velocity);
     OloSurfaceHistoryRecord previousSurface = MakeSSGISurface(history.a, previousSurfacePacked, vec2(0.0));

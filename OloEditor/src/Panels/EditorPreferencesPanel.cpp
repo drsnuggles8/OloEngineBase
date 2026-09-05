@@ -162,10 +162,10 @@ namespace OloEngine
             const auto& bm = m_Draft.Bookmarks[static_cast<sizet>(i)];
             if (ImGui::Button(bm.Name.c_str()) && m_Camera)
             {
-                m_Camera->SetPosition(bm.Position);
-                m_Camera->SetPitch(bm.Pitch);
-                m_Camera->SetYaw(bm.Yaw);
-                m_Camera->SetDistance(bm.Distance);
+                // One atomic call: four separate setters make the eye position
+                // depend on the ORDER they run in, and before #931 they were
+                // silent no-ops besides — clicking a bookmark moved nothing.
+                m_Camera->SetPose(bm.Position, bm.Yaw, bm.Pitch, bm.Distance);
             }
             ImGui::SameLine();
             if (ImGui::SmallButton("X"))

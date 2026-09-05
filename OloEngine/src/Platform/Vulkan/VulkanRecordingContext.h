@@ -333,6 +333,12 @@ namespace OloEngine
         VulkanRenderTargetDesc ScopeTargets; ///< Valid while Scope.Active.
         PendingClear Pending;                ///< At most one outstanding clear request (see PendingClear).
         VkBuffer BoundIndexBuffer = VK_NULL_HANDLE;
+        /// Extent the cached bind used (#809's real-size vkCmdBindIndexBuffer2).
+        /// Part of the cache key because a RAW element arena (issue #1052) can be
+        /// re-allocated at a new size under the same identity, and VMA may hand
+        /// back the same VkBuffer for the replacement — in which case the buffer
+        /// alone no longer distinguishes the two binds.
+        VkDeviceSize BoundIndexBufferSize = 0;
         bool HeapBoundThisRecording = false;
         VulkanVertexArray* BoundVertexArray = nullptr; ///< BindVertexArrayRaw's publication.
         std::vector<u8> RootScratch;
@@ -399,6 +405,7 @@ namespace OloEngine
         void ForgetCommandBufferBinds()
         {
             BoundIndexBuffer = VK_NULL_HANDLE;
+            BoundIndexBufferSize = 0;
             HeapBoundThisRecording = false;
             ScissorRectSet = false;
         }

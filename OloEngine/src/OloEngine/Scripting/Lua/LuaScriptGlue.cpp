@@ -3699,6 +3699,7 @@ namespace OloEngine
                                                                                { return l.m_Intensity; }, [](DirectionalLightComponent& l, f32 v)
                                                                                { if (std::isfinite(v) && v >= 0.0f) l.m_Intensity = v; }),
                                                     "castShadows", &DirectionalLightComponent::m_CastShadows,
+                                                    "rayTracedShadows", &DirectionalLightComponent::m_RayTracedShadows,
                                                     "shadowBias", sol::property([](const DirectionalLightComponent& l)
                                                                                 { return l.m_ShadowBias; }, [](DirectionalLightComponent& l, f32 v)
                                                                                 { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowBias = v; }),
@@ -3728,6 +3729,7 @@ namespace OloEngine
                                                                            { return l.m_Attenuation; }, [](PointLightComponent& l, f32 v)
                                                                            { if (std::isfinite(v) && v >= 0.0f) l.m_Attenuation = v; }),
                                               "castShadows", &PointLightComponent::m_CastShadows,
+                                              "rayTracedShadows", &PointLightComponent::m_RayTracedShadows,
                                               "shadowBias", sol::property([](const PointLightComponent& l)
                                                                           { return l.m_ShadowBias; }, [](PointLightComponent& l, f32 v)
                                                                           { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowBias = v; }),
@@ -3759,6 +3761,7 @@ namespace OloEngine
                                                                           { return l.m_Attenuation; }, [](SpotLightComponent& l, f32 v)
                                                                           { if (std::isfinite(v) && v >= 0.0f) l.m_Attenuation = v; }),
                                              "castShadows", &SpotLightComponent::m_CastShadows,
+                                             "rayTracedShadows", &SpotLightComponent::m_RayTracedShadows,
                                              "shadowBias", sol::property([](const SpotLightComponent& l)
                                                                          { return l.m_ShadowBias; }, [](SpotLightComponent& l, f32 v)
                                                                          { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowBias = v; }),
@@ -3780,7 +3783,8 @@ namespace OloEngine
                                                    "range", sol::property([](const SphereAreaLightComponent& l)
                                                                           { return l.m_Range; }, [](SphereAreaLightComponent& l, f32 v)
                                                                           { if (std::isfinite(v) && v >= 0.0f) l.m_Range = v; }),
-                                                   "castShadows", &SphereAreaLightComponent::m_CastShadows);
+                                                   "castShadows", &SphereAreaLightComponent::m_CastShadows,
+                                                   "rayTracedShadows", &SphereAreaLightComponent::m_RayTracedShadows);
 
         // --- ProceduralSkyComponent ---
         // Bake hash + cached EnvironmentMap stay internal: script writes mark
