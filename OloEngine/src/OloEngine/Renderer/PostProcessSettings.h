@@ -456,7 +456,10 @@ namespace OloEngine
         //     radius 1 : 0.802   mean 143.35   (blobs faint)
         //     radius 2 : 0.800   mean 143.37   (blobs clearly visible)
         //
-        // Radius 1 keeps 99.7% of radius 2's noise reduction. The blobs are the
+        // Radius 1 keeps 97% of the noise reduction radius 2 buys, measured
+        // against the radius-0 arm — (0.875 - 0.802) / (0.875 - 0.800) — which
+        // is the baseline that isolates this stage's own contribution. The
+        // blobs are the
         // symptom of the one reference stage this chain does not have — an
         // energy-preserving firefly pre-filter ahead of the pre-blur — so the
         // radius is kept small rather than the stage made stronger.

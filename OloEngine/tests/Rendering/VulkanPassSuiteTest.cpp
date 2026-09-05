@@ -1909,11 +1909,20 @@ TEST_F(VulkanPassSuite, SsgiAddsGatheredBounceLightOnlyWithIntensity)
         // scaffolding — it is the pass's contract. RGBA16F, not the RGBA8UNorm
         // the stand-in inputs use: alpha carries the view depth every geometry
         // test in the chain reconstructs its positions from.
+        // THE TRACE BAND, not kSize. Production defaults SSGIHalfResolution to
+        // true, so the whole chain is allocated at rounded-up half resolution
+        // and only the composite draw runs at the scene band. Declaring these
+        // at kSize would make the six-draw assertion below pass while covering
+        // a configuration the engine never ships, and would never exercise the
+        // guided upscale — the one stage whose whole job is crossing between
+        // the two bands. Same `(n + 1) / 2` rounding as PopulateBlackboard.
+        constexpr u32 kTraceSize = (kSize + 1u) / 2u;
+
         RGResourceDesc signalDesc;
         signalDesc.Kind = RGResourceHandle::Kind::Framebuffer;
         signalDesc.Format = RGResourceFormat::RGBA16Float;
-        signalDesc.Width = kSize;
-        signalDesc.Height = kSize;
+        signalDesc.Width = kTraceSize;
+        signalDesc.Height = kTraceSize;
         signalDesc.DebugName = std::string(ResourceNames::SSGISignal);
         // Two attachments: the signal, and the trace-band guide plane (#708)
         // whose normal and roughness weight every later stage's taps.

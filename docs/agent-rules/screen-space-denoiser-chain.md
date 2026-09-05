@@ -124,6 +124,27 @@ For the same reason SSR gets **no half-resolution trace and no upscale** (a refl
 signal half resolution destroys) and **no quad ray distribution** (it draws one VNDF sample per
 pixel, so there are no strata to subdivide across the quad).
 
+### 7a. A specular tap needs a ROUGHNESS test as well as a geometric one
+
+**Rule: both SSR spatial stages weight taps by `OloDenoiseSpecularTapWeight`, not by plane distance
+and normal alone.**
+
+`PostProcess_SSR.glsl` early-outs to a **zero delta** above its roughness cutoff while still writing
+a valid depth and normal into the guide. A purely geometric filter therefore reads those pixels as a
+legitimate "no reflection here" and averages the zeros in. Across a polished/rough material seam on
+ONE coplanar floor every geometric test passes, so the reflective side gets a dark band the width of
+the blur radius — and nothing in the geometry weights is wrong, which is what makes it hard to find.
+
+Two rejections, both needed: a tap past the trace's cutoff contributed nothing by construction, and
+a tap whose roughness is far from the centre's belongs to a different specular lobe even when it is
+on the same plane. The tolerance scales with the centre's own lobe width, so a mirror rejects far
+more aggressively than a rough surface — which is what keeps a sharp reflection sharp right up to
+the seam.
+
+Pinned by `ScreenSpaceDenoiseMath.SpecularTapWeightRejectsWhatTheTraceExcluded`. The trace's cutoff
+reaches the shaders in `DenoiseGuide.w`, so a stage that forgets to read it silently reverts to the
+geometry-only filter and the seam comes back.
+
 ## 8. A pre-blur turns sparse-hemisphere noise into blobs; keep its radius small
 
 **Rule: without an energy-preserving firefly pre-filter ahead of it, keep the pre-blur radius at
@@ -143,7 +164,14 @@ high-pass noise, against an 8-ray unfiltered baseline of 1.215):
 | 1 | 0.802 | 143.35 | blobs faint |
 | 2 | 0.800 | 143.37 | blobs clearly visible |
 
-Radius 1 keeps 99.7% of radius 2's noise reduction. The reference avoids this differently — it runs
+Radius 1 keeps **97%** of the noise reduction radius 2 buys, measured against the radius-0 arm:
+`(0.875 - 0.802) / (0.875 - 0.800)`. That is the baseline that isolates the pre-blur's own
+contribution, since radius 0 is the same chain with only this stage off. (Against the 1.215
+unfiltered baseline the same comparison is 99.5%, because most of the reduction there comes from
+the temporal resolve rather than from the pre-blur. Do not quote `0.800 / 0.802` — that is the ratio
+of noise LEVELS, not of reductions, and it flatters the wider radius.)
+
+The reference avoids this differently — it runs
 an energy-preserving firefly clamp (`rtgi_pre_filter`) *before* its pre-blur, which is what lets it
 use a base width of 64. This chain has no such stage, so it keeps the radius small instead.
 
