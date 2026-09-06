@@ -5,6 +5,7 @@
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
+#include "Rendering/PropertyTests/RendererStateCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
 #include "TestOptions.h"
 #include "TestTempDir.h"
@@ -69,6 +70,14 @@ int main(int argc, char** argv)
     // pollutes the shared, process-wide GL context is pinned to its source
     // rather than misattributed to a later unrelated GPU test (issue #485).
     OloEngine::Tests::GLErrorState::RegisterListener();
+    // Restore the process-global renderer CONFIGURATION after every test, and
+    // account for every test that left it changed (issue #1074). GL state and
+    // renderer configuration are different hazards: the guard above catches a
+    // dirty `glGetError()` queue, this one catches a rendering path or settings
+    // struct left switched to something the next test never asked for — which
+    // has no GL-level symptom at all and instead makes a later visual-evidence
+    // test quietly measure the wrong pipeline.
+    OloEngine::Tests::RendererState::RegisterListener();
     // Give every test a freshly-emptied scratch directory on its first
     // TempDir()/TempFile() call — the clean slate the per-fixture `SetUp`
     // remove_all blocks used to provide, and which `--gtest_repeat` (same case,

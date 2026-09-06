@@ -154,7 +154,7 @@ namespace OloEngine::Tests
             // need an active project + asset manager — mount a throwaway temp
             // project, mirroring LightmapVisualEvidenceTest /
             // VirtualGeometryVisualEvidenceTest.
-            if (!Project::GetActive() || !Project::GetAssetManager())
+            if (!Project::GetActive() || !Project::HasAssetManager())
             {
                 std::error_code ec;
                 fs::path const projectDir = TempDir("project");

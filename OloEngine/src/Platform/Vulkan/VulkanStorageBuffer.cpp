@@ -222,6 +222,37 @@ namespace OloEngine
 
     void VulkanStorageBuffer::PushSnapshot(const void* data, u32 size, u32 offset)
     {
+        // A GPU-PRODUCED buffer never snapshots (issue #1058). DynamicCopy
+        // means "GPU writes, GPU reads": its authoritative producer is a
+        // compute dispatch, which resolves GetDeviceAddress and therefore
+        // writes the PERSISTENT allocation. A CPU SetData on such a buffer is
+        // a seed or a zero-init in front of that dispatch, never a value a
+        // draw is meant to read command-ordered — so versioning it into the
+        // frame arena does not order two CPU writes, it SPLITS the buffer in
+        // two: dispatches write persistent while every later draw reads a CPU
+        // snapshot that the dispatch's results can never reach.
+        //
+        // That is exactly how virtual geometry's mesh-shader arm went dark.
+        // VirtualMeshRegistry::PrepareFrame zeroes the draw-args buffer before
+        // the cull dispatches; the cull wrote the real DrawCount into the
+        // persistent buffer; the task stage is a DRAW, so it read the CPU's
+        // zero snapshot and issued EmitMeshTasksEXT(0) — a legal launch into
+        // an empty frame, with no dropped draw, no stub and no validation
+        // error to name it. (The MDI arm reads its count through the indirect
+        // parameter VkBuffer and the software raster is a dispatch, so both
+        // read persistent and both stayed correct.)
+        //
+        // StorageBuffer::ClearData(offset, size) exists for the same hazard one
+        // level up (#1015) and stays the better call site-side: a fill inside
+        // the command stream needs no CPU staging at all. This guard is what
+        // makes a plain SetData safe on the buffers that did not get that
+        // treatment.
+        if (m_Usage == StorageBufferUsage::DynamicCopy)
+        {
+            InvalidateSnapshot();
+            return;
+        }
+
         // Only a write that lands between recorded draws needs command-
         // ordering; outside a recording bracket (load time, scene opens
         // between frames) the persistent write-through IS the ordered value,

@@ -248,6 +248,35 @@ namespace OloEngine
         // render" gates only.
         static bool HasInitialized();
 
+        /// Re-publish the process-global `CommandDispatch` bindings that `Init`
+        /// established: the shared camera / material / bone UBOs, the model
+        /// instance buffer and the Forward+ pointer.
+        ///
+        /// `Init` publishes these exactly once, so anything that calls
+        /// `CommandDispatch::Shutdown()` while this renderer is still live
+        /// silently drops them and every later draw runs with no camera or
+        /// material UBO bound — geometry stops appearing, with no GL error and
+        /// no log line to point at. There was previously no way back from that
+        /// short of a full renderer restart.
+        ///
+        /// Today's caller is the Vulkan device test in the single-process suite
+        /// (issue #1074): its buffers are allocated against a device it then
+        /// destroys, so it MUST shut the dispatcher down, and this is how the
+        /// GL renderer that outlives it gets its bindings back. The same
+        /// sequence is what device-lost recovery or a runtime RHI switch would
+        /// need, which is why this lives here rather than in the test.
+        ///
+        /// No-op when `Init` has not run. Safe to call repeatedly.
+        static void RepublishCommandDispatchBindings();
+
+      private:
+        /// Re-take ownership of the process-wide singletons `Init` brought up
+        /// (the command dispatcher's shared buffers, the GPU pass-timer pool)
+        /// when something has shut them down while this renderer stayed live.
+        /// Called at the top of every `BeginScene`; cheap when nothing moved.
+        static void ReclaimSharedRenderState();
+
+      public:
         // Diagnostics: which GPU-resource-holding members of s_Data are still alive?
         //
         // Shutdown() must release every one of them. A Ref<> it forgets survives into

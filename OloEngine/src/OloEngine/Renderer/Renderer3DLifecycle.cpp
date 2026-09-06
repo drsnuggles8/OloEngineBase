@@ -475,13 +475,7 @@ namespace OloEngine
             s_Data.LightProbeSHBuffer->SetData(zeros.data(), dummySSBOSize);
         }
 
-        CommandDispatch::SetUBOReferences(
-            s_Data.SharedSceneUBOs.Camera,
-            s_Data.SharedSceneUBOs.Material,
-            s_Data.BoneMatricesUBO,
-            s_Data.ModelInstanceBuffer,
-            s_Data.PrevBoneMatricesUBO,
-            &s_Data.ForwardPlus);
+        RepublishCommandDispatchBindings();
 
         EnvironmentMap::InitializeIBLSystem(m_ShaderLibrary);
         OLO_CORE_INFO("IBL system initialized.");
@@ -585,6 +579,29 @@ namespace OloEngine
     bool Renderer3D::HasInitialized()
     {
         return s_Data.CoreInitialized;
+    }
+
+    void Renderer3D::RepublishCommandDispatchBindings()
+    {
+        OLO_PROFILE_FUNCTION();
+        // Guard on HasInitialized, not IsInitialized: the latter means "the
+        // render graph is built and we are ready to draw", which is not the
+        // question here — Init calls this before the graph exists.
+        if (!HasInitialized())
+            return;
+
+        // Both halves are idempotent, and together they are what lets a caller
+        // that shut the dispatcher down recover: Initialize re-establishes the
+        // dispatch-function resolver, SetUBOReferences re-publishes the buffers
+        // that Init otherwise binds exactly once.
+        CommandDispatch::Initialize();
+        CommandDispatch::SetUBOReferences(
+            s_Data.SharedSceneUBOs.Camera,
+            s_Data.SharedSceneUBOs.Material,
+            s_Data.BoneMatricesUBO,
+            s_Data.ModelInstanceBuffer,
+            s_Data.PrevBoneMatricesUBO,
+            &s_Data.ForwardPlus);
     }
 
     std::vector<std::string> Renderer3D::DebugLiveGpuOwningStatics()

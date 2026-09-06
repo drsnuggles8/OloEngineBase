@@ -62,6 +62,7 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanShader.h"
+#include "Platform/Vulkan/VulkanStorageBuffer.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include "VulkanTestSupport.h"
@@ -1257,6 +1258,91 @@ void main()
         api.ResetBlendStateForAttachment(i);
     api.SetBlendState(false);
     api.SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+}
+
+// =============================================================================
+// The command-ordered snapshot seam applies to CPU-fed buffers ONLY (#1058).
+//
+// VulkanStorageBuffer::SetData versions a mid-frame write into the frame arena
+// so draws recorded after it read the new bytes and earlier ones keep what they
+// recorded — GL's glNamedBufferSubData ordering, and the reason the auto-batched
+// instanced draws stopped all sampling the last upload (#691). That mechanism is
+// correct for a buffer whose ONLY producer is the CPU, and actively wrong for one
+// the GPU produces: a compute dispatch resolves GetDeviceAddress and writes the
+// PERSISTENT allocation, so a CPU snapshot hands every later draw a second copy
+// the dispatch can never reach.
+//
+// That split is what made virtual geometry's mesh-shader arm draw nothing.
+// PrepareFrame zeroes the draw-args buffer before the cull dispatches; the cull
+// wrote the real DrawCount into the persistent buffer; the task stage is a DRAW,
+// so it read the CPU's zero snapshot and issued EmitMeshTasksEXT(0) — a legal
+// launch into an empty frame, invisible to every counter the backend keeps.
+//
+// BOTH directions are asserted from one recording, because either alone passes on
+// a broken build: the DynamicCopy half is the fix, and the DynamicDraw half is
+// what stops a future change from disabling the #691 mechanism outright to get it.
+// The SubmitFrame bracket is load-bearing — PushSnapshot deliberately no-ops
+// outside a recording bracket (load-time uploads ARE the ordered value), so the
+// seam only engages here.
+// =============================================================================
+TEST_F(VulkanDrawPath, GpuProducedStorageBufferNeverServesADrawFromACpuSnapshot)
+{
+    // ScopedVulkanRenderCommandSelection, not the bare API-enum switch: the
+    // snapshot seam probes the LIVE api through RenderCommand::GetRendererAPI()
+    // (VulkanUpload::TryGetRecordingVulkanAPI), so a local VulkanRendererAPI the
+    // facade does not publish leaves every SetData outside a recording bracket
+    // and both halves resolve persistent — the fix's assertion would pass for
+    // the wrong reason.
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kBytes = 64u;
+    auto gpuProduced = StorageBuffer::Create(kBytes, 30u, StorageBufferUsage::DynamicCopy);
+    auto cpuProduced = StorageBuffer::Create(kBytes, 31u, StorageBufferUsage::DynamicDraw);
+    ASSERT_TRUE(gpuProduced && cpuProduced);
+
+    auto* vkGpuProduced = static_cast<VulkanStorageBuffer*>(gpuProduced.Raw());
+    auto* vkCpuProduced = static_cast<VulkanStorageBuffer*>(cpuProduced.Raw());
+    const VkDeviceAddress gpuPersistent = vkGpuProduced->GetDeviceAddress();
+    const VkDeviceAddress cpuPersistent = vkCpuProduced->GetDeviceAddress();
+    ASSERT_NE(gpuPersistent, VkDeviceAddress{ 0 });
+    ASSERT_NE(cpuPersistent, VkDeviceAddress{ 0 });
+
+    const std::array<u32, kBytes / sizeof(u32)> payload{};
+
+    auto& api = renderCommandSelection.Get();
+    VkDeviceAddress gpuRootDuringFrame = 0;
+    VkDeviceAddress cpuRootDuringFrame = 0;
+    SubmitFrame(api,
+                [&]()
+                {
+                    // The virtual-geometry shape: a whole-buffer CPU zero-init in
+                    // front of the dispatch that will fill it.
+                    gpuProduced->SetData(payload.data(), kBytes, 0);
+                    cpuProduced->SetData(payload.data(), kBytes, 0);
+                    gpuRootDuringFrame = vkGpuProduced->GetRootDataAddress();
+                    cpuRootDuringFrame = vkCpuProduced->GetRootDataAddress();
+                });
+
+    EXPECT_EQ(gpuRootDuringFrame, gpuPersistent)
+        << "a DynamicCopy (GPU-produced) buffer must resolve the PERSISTENT address for a draw — a frame-arena "
+           "snapshot is a copy the compute dispatch that owns this buffer can never write, which is how the "
+           "virtual-geometry task stage read a zeroed DrawCount and launched EmitMeshTasksEXT(0) (issue #1058)";
+    EXPECT_NE(cpuRootDuringFrame, cpuPersistent)
+        << "a DynamicDraw (CPU-fed) buffer written mid-frame must still hand later draws a fresh arena "
+           "snapshot — without it every draw in the frame reads the LAST SetData at execute time, which is "
+           "the batched-instance failure of issue #691";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+
+    // A snapshot is scoped to the arena FRAME, not to the recording bracket, so
+    // it is still live here — and must not be after the next BeginFrame, whose
+    // arena ranges recycle out from under it.
+    EXPECT_NE(vkCpuProduced->GetRootDataAddress(), cpuPersistent);
+    VulkanFrameArena::Get().BeginFrame(1);
+    EXPECT_EQ(vkCpuProduced->GetRootDataAddress(), cpuPersistent)
+        << "a snapshot from a previous frame generation must not outlive it — the arena range it points at "
+           "has been rewound";
+    EXPECT_EQ(vkGpuProduced->GetRootDataAddress(), gpuPersistent);
 }
 
 #endif // OLO_WITH_VULKAN
