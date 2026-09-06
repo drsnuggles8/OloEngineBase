@@ -177,6 +177,7 @@ add_executable(OloEngine-Tests
 		Rendering/ShaderPackBakeTest.cpp
 		Rendering/ShaderBinaryCacheRoundTripTest.cpp
 		Rendering/ShaderResourceRegistrySelfRefTest.cpp
+		Rendering/ShaderRegistryTeardownOrderTest.cpp
 		Rendering/GLDebugMessageParseTest.cpp
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
