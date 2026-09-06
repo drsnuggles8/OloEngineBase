@@ -142,6 +142,12 @@ namespace OloEngine
         static const glm::vec3& GetViewPosition();
 
         // Shared scene/runtime bindings supplied by the renderer frontend at init.
+        /// Whether the shared scene buffers are currently published here.
+        /// False after `Shutdown()`, and the signal `Renderer3D::BeginScene`
+        /// uses to re-home its own buffers when something tore the dispatcher
+        /// down underneath it (issue #1074).
+        [[nodiscard]] static bool HasUBOReferences();
+
         static void SetUBOReferences(
             const Ref<UniformBuffer>& cameraUBO,
             const Ref<UniformBuffer>& materialUBO,

@@ -252,7 +252,7 @@ namespace OloEngine::Tests
             // + asset manager. Mount a throwaway temp project, mirroring
             // FunctionalTest::EnableAssetManager (incl. its "leave the manager
             // installed at teardown" rationale — SetAssetManager asserts non-null).
-            if (!Project::GetActive() || !Project::GetAssetManager())
+            if (!Project::GetActive() || !Project::HasAssetManager())
             {
                 namespace fs = std::filesystem;
                 std::error_code ec;
