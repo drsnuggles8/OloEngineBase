@@ -6134,6 +6134,12 @@ namespace OloEngine::MCP
                 // zeros — an unsupported GPU and an empty scene must not
                 // produce the same payload.
                 snapshot.State.HasData = snapshot.Capabilities.Supported && scene.GetTlasDeviceAddress() != 0u;
+                // The canonical scene the structures are built from (issue
+                // #1065). Reported whatever the RT status is: "nothing was
+                // offered" and "nothing could be built" produce the same RT
+                // payload and need different fixes.
+                snapshot.GPUSceneAvailable = true;
+                snapshot.GPUScene = Renderer3D::GetGPUSceneStats();
             }
             snapshot.State.Freshness = StatsSnapshot::FreshnessModel::PreviousFrame;
             return RayTracingStats::BuildReport(snapshot);
@@ -7975,7 +7981,11 @@ namespace OloEngine::MCP
                 "compaction savings, and this frame's build/refit/compaction/retire counts. Status distinguishes "
                 "'unavailable' (no ray tracing on this device or backend) from 'noData' (ray tracing is live but no "
                 "TLAS has been built yet, e.g. a scene with no traceable geometry) — an all-zero payload from those "
-                "two causes means different things.";
+                "two causes means different things. The 'gpuScene' block reports the canonical scene the structures "
+                "are BUILT FROM and is emitted whatever the status is: how many instance records are live, and how "
+                "much renderable geometry produced none ('notStagedTotal'). Read it before trusting any ray-traced "
+                "evidence — a small tlasInstances beside a large notStagedTotal means most of the scene is not in "
+                "the acceleration structure at all (issue #1065).";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema =
                 Schema::Object()
@@ -8024,7 +8034,16 @@ namespace OloEngine::MCP
                                        .Prop("blasBuildGpuNs", Schema::Int().Min(0).Desc("Nanoseconds; 0 means no sample has resolved yet, not that it was free."))
                                        .Prop("tlasBuildGpuNs", Schema::Int().Min(0)))
                     .Prop("lastTlasReason", Schema::String())
-                    .Required({ "availability", "freshness", "capability" });
+                    .Prop("gpuScene", Schema::Object()
+                                          .Prop("available", Schema::Bool().Desc("False when the renderer is not up — NOT 'the scene is empty'."))
+                                          .Prop("instances", Schema::Int().Min(0).Desc("Live canonical instance records: the population the TLAS is built from. Compare with resident.tlasInstances."))
+                                          .Prop("geometries", Schema::Int().Min(0))
+                                          .Prop("materials", Schema::Int().Min(0))
+                                          .Prop("lights", Schema::Int().Min(0))
+                                          .Prop("notStagedTotal", Schema::Int().Min(0).Desc("Renderable geometry this frame that produced NO canonical instance. Large next to a small 'instances' means the ray tracer is tracing a fraction of the scene (issue #1065)."))
+                                          .Prop("notStagedByCategory", Schema::Object().Desc("The same total split by diagnostics category; 'notExtractable' is geometry that was offered and rejected, the rest is geometry a path knows it cannot represent."))
+                                          .Required({ "available" }))
+                    .Required({ "availability", "freshness", "capability", "gpuScene" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RayTracingStats;
             server.RegisterTool(std::move(tool));

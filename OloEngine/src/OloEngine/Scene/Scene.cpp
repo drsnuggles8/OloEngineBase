@@ -7127,6 +7127,39 @@ namespace OloEngine
         Renderer3D::AddDDGICaster(caster);
     }
 
+    // Stage ONE submesh into the canonical GPU Scene: its material record, then
+    // the geometry + instance record that ray tracing and every other record
+    // consumer read (issues #977, #994, #1065).
+    //
+    // Shared by the classic MeshComponent path and the ModelComponent path
+    // rather than transcribed into each, for exactly the reason
+    // SubmitMeshSourceClassic below is shared: the two paths differ ONLY in
+    // where the imported material comes from (the mesh source's own table
+    // versus the Model's), and a second copy is how they drift.
+    //
+    // `importedMaterial` / `importedSlot` name the material this submesh was
+    // imported with — nullptr / 0 for none — and `resolvedMaterial` must be what
+    // ResolveSubmeshMaterial makes of the SAME (override, imported) pair, so the
+    // record cannot name one material while the draw shades with another.
+    //
+    // Returns the draw link the caller hands to DrawMesh, or
+    // GPUSceneDrawLinkNone when no link was requested or the source was not
+    // extractable. The second case is never a silent drop: ExtractGPUSceneMesh
+    // counts it as GPUSceneUnsupportedCategory::NotExtractable.
+    [[nodiscard]] static u32 StageGPUSceneSubmesh(u64 stableEntityId, const Ref<MeshSource>& meshSource,
+                                                  u32 submeshIndex, const glm::mat4& worldTransform,
+                                                  const Material* overrideMaterial,
+                                                  const Material* importedMaterial, u32 importedSlot,
+                                                  const Material& resolvedMaterial,
+                                                  GPUSceneDrawLinkRequest linkRequest)
+    {
+        const GPUSceneMaterialKey materialKey = Renderer3D::ResolveGPUSceneMaterialKey(
+            overrideMaterial, stableEntityId, meshSource, importedMaterial, importedSlot);
+        Renderer3D::ExtractGPUSceneMaterial(materialKey, resolvedMaterial);
+        return Renderer3D::ExtractGPUSceneMesh(stableEntityId, 0, meshSource, submeshIndex, worldTransform,
+                                               materialKey, linkRequest);
+    }
+
     // Called from TWO places, and deliberately shared rather than copied: the MeshComponent
     // loop, and the VirtualMeshComponent loop's fallback when virtual geometry is globally
     // disabled (RendererSettings::VirtualGeometryEnabled). The entire point of that toggle is
@@ -7147,19 +7180,16 @@ namespace OloEngine
         for (i32 i = 0; i < meshSource->GetSubmeshes().Num(); ++i)
         {
             auto submesh = Ref<Mesh>::Create(meshSource, i);
-            const Material& material = ResolveSubmeshMaterial(overrideMaterial, meshSource.get(),
-                                                              static_cast<u32>(i), GetDefaultMaterial());
-            // Canonical material record (issue #992): visited once per key per
-            // frame; the instance record points at its slot.
-            const GPUSceneMaterialKey materialKey = Renderer3D::ResolveGPUSceneMaterialKey(
-                overrideMaterial, stableEntityId, meshSource, static_cast<u32>(i));
-            Renderer3D::ExtractGPUSceneMaterial(materialKey, material);
-            // The migrated raster path (issue #994): the submesh is staged as a
-            // canonical instance and the draw carries the LINK to it, so the
-            // dispatcher takes this draw's current/previous transform and its
-            // material slot from the record instead of from the copies below.
-            const u32 gpuSceneDrawLink = Renderer3D::ExtractGPUSceneMesh(
-                stableEntityId, 0, meshSource, static_cast<u32>(i), worldTransform, materialKey);
+            const Material* importedMaterial = meshSource->GetImportedMaterialPtrForSubmesh(static_cast<u32>(i));
+            const Material& material = ResolveSubmeshMaterial(overrideMaterial, importedMaterial, GetDefaultMaterial());
+            // Canonical material record (issue #992), visited once per key per
+            // frame, plus the migrated raster path (issue #994): the submesh is
+            // staged as a canonical instance and the draw carries the LINK to
+            // it, so the dispatcher takes this draw's current/previous transform
+            // and its material slot from the record instead of the copies below.
+            const u32 gpuSceneDrawLink = StageGPUSceneSubmesh(
+                stableEntityId, meshSource, static_cast<u32>(i), worldTransform, overrideMaterial, importedMaterial,
+                meshSource->GetSubmeshes()[i].m_MaterialIndex, material, GPUSceneDrawLinkRequest::Link);
 
             if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, material, true, entityID, lodGroup,
                                                     gpuSceneDrawLink);
@@ -11102,7 +11132,7 @@ namespace OloEngine
 
                 // Pass entity ID for mouse picking support
                 const auto modelTransform = GetWorldTransform(entity);
-                Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::LegacyModel);
+                const u64 stableEntityId = GetStableGPUSceneEntityId(m_Registry, entity);
 
                 // Baked lightmap regions, one per model mesh (issue #867). The
                 // sub-key is recovered with the SAME scan the bake gather used
@@ -11132,42 +11162,90 @@ namespace OloEngine
                                             static_cast<int>(std::to_underlying(entity)),
                                             lightmapRegionForMesh);
 
-                // Submit each submesh as a shadow caster — Model::DrawParallel
-                // only enqueues color draws, so without this loop ModelComponent
-                // meshes never reach ShadowRenderPass. The loop also feeds the
-                // DDGI capture (which must not depend on the shadow toggle),
-                // hence the widened gate.
-                if (meshHasActiveShadows || Renderer3D::IsDDGICollectingCasters())
+                // ONE pass over the model's meshes, feeding three consumers:
+                // the canonical GPU Scene records, the DDGI capture, and the
+                // shadow caster list. Model::DrawParallel only enqueues colour
+                // draws, so without this loop a ModelComponent reaches neither
+                // ShadowRenderPass nor — before issue #1065 — the GPU Scene at
+                // all.
+                //
+                // The loop itself is no longer gated on the shadow / DDGI
+                // toggles: ray tracing must see this geometry whether or not
+                // the scene casts shadows. Each of those two consumers keeps
+                // its own gate inside.
+                const bool collectCasters = meshHasActiveShadows || Renderer3D::IsDDGICollectingCasters();
+                const auto& meshes = model.m_Model->GetMeshes();
+                const auto& materials = model.m_Model->GetMaterials();
+                for (const auto& submesh : meshes)
                 {
-                    const auto& meshes = model.m_Model->GetMeshes();
-                    const auto& materials = model.m_Model->GetMaterials();
-                    for (const auto& submesh : meshes)
+                    if (!submesh)
                     {
-                        if (!submesh)
-                            continue;
-
-                        const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex;
-                        const Material* imported = (matIdx < materials.size() && materials[matIdx]) ? materials[matIdx].get() : nullptr;
-                        const Material& shadowMaterial = ResolveSubmeshMaterial(overrideMaterial, imported, GetDefaultMaterial());
-
-                        SubmitDDGICasterIfCollecting(submesh, modelTransform, shadowMaterial);
-
-                        // ShadowDepth.glsl has no UV/albedo sampling, so an alpha-masked
-                        // banner would otherwise project its full geometry as a solid
-                        // shadow. Skip until a separate alpha-aware shadow shader exists.
-                        if (!meshHasActiveShadows || !MaterialCastsShadows(shadowMaterial))
-                            continue;
-
-                        auto va = submesh->GetVertexArray();
-                        if (!va)
-                            continue;
-
-                        Renderer3D::AddMeshShadowCaster(
-                            va->GetRHIHandle(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
-                            modelTransform, GetShadowVaoID(submesh),
-                            submesh->GetTransformedBoundingBox(modelTransform),
-                            shadowMaterial.GetFlag(MaterialFlag::TwoSided));
+                        // Model::ProcessMesh returns null on a mesh it refuses
+                        // (index or vertex count past u32, no material mapping)
+                        // and ProcessNode pushes that null into m_Meshes
+                        // unfiltered, so this is real authored geometry that
+                        // produced no record. It never reaches
+                        // ExtractGPUSceneMesh to be counted there, and the
+                        // per-entity LegacyModel report that used to cover it
+                        // is gone — so count it here or the scene inventory
+                        // silently loses a mesh.
+                        Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::NotExtractable);
+                        continue;
                     }
+
+                    // A model keeps its material table on the Model, not on the
+                    // mesh source — a cold-loaded model's per-mesh sources carry
+                    // no imported materials at all — so the resolved material
+                    // and its slot are handed to the staging helper explicitly.
+                    // Resolving it off the mesh source instead would stage every
+                    // Sponza submesh under the flat engine default.
+                    const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex;
+                    const Material* imported = (matIdx < materials.size() && materials[matIdx]) ? materials[matIdx].get() : nullptr;
+                    const Material& submeshMaterial = ResolveSubmeshMaterial(overrideMaterial, imported, GetDefaultMaterial());
+
+                    // The model's node transforms are baked into its vertices
+                    // (Assimp's aiProcess_PreTransformVertices) and
+                    // Model::DrawParallel draws every mesh with the entity
+                    // transform alone, so the entity transform IS each
+                    // submesh's world transform. Anything else here would put
+                    // the traced geometry where the raster frame did not draw
+                    // it — counters up, shadows in the wrong place.
+                    //
+                    // GPUSceneDrawLinkRequest::None: the record is staged for
+                    // ray tracing and diagnostics, but the raster draw still
+                    // goes out through Model::DrawParallel /
+                    // SubmitMeshesParallel, which carries no draw-link lane
+                    // yet. Giving it one is the raster half of #994
+                    // (Renderer3DMeshSubmission.cpp is the named adapter), not
+                    // this fix — and asking for a link nothing consumes would
+                    // report a permanently unlinked draw every frame.
+                    (void)StageGPUSceneSubmesh(stableEntityId, submesh->GetMeshSource(),
+                                               submesh->GetSubmeshIndex(), modelTransform, overrideMaterial,
+                                               imported, matIdx, submeshMaterial,
+                                               GPUSceneDrawLinkRequest::None);
+
+                    if (!collectCasters)
+                    {
+                        continue;
+                    }
+
+                    SubmitDDGICasterIfCollecting(submesh, modelTransform, submeshMaterial);
+
+                    // ShadowDepth.glsl has no UV/albedo sampling, so an alpha-masked
+                    // banner would otherwise project its full geometry as a solid
+                    // shadow. Skip until a separate alpha-aware shadow shader exists.
+                    if (!meshHasActiveShadows || !MaterialCastsShadows(submeshMaterial))
+                        continue;
+
+                    auto va = submesh->GetVertexArray();
+                    if (!va)
+                        continue;
+
+                    Renderer3D::AddMeshShadowCaster(
+                        va->GetRHIHandle(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
+                        modelTransform, GetShadowVaoID(submesh),
+                        submesh->GetTransformedBoundingBox(modelTransform),
+                        submeshMaterial.GetFlag(MaterialFlag::TwoSided));
                 }
             }
         }

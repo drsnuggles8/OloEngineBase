@@ -282,6 +282,18 @@ namespace OloEngine
             const Material* overrideMaterial, u64 stableEntityId, const Ref<MeshSource>& meshSource,
             u32 submeshIndex,
             GPUSceneMaterialOverrideLane overrideLane = GPUSceneMaterialOverrideLane::MaterialComponent);
+        // Same key, for a path whose imported-material table does NOT live on
+        // the mesh source (issue #1065). A ModelComponent keeps its materials on
+        // the Model and its submeshes' m_MaterialIndex addresses THAT table, so
+        // the caller hands the resolved imported material and its slot in
+        // directly; the owner half of the key still comes from the mesh source,
+        // so two entities sharing one model share one material record.
+        // `importedMaterial == nullptr` means "this submesh imported none" and
+        // falls through to override-or-default exactly as above.
+        [[nodiscard]] static GPUSceneMaterialKey ResolveGPUSceneMaterialKey(
+            const Material* overrideMaterial, u64 stableEntityId, const Ref<MeshSource>& meshSource,
+            const Material* importedMaterial, u32 importedSlot,
+            GPUSceneMaterialOverrideLane overrideLane = GPUSceneMaterialOverrideLane::MaterialComponent);
         // Visits a material once per frame: the first call for a key builds the
         // record input (factors, flags, RHI texture identities and their
         // persistent heap offsets); later calls with the same key are no-ops.
