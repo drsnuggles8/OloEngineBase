@@ -20,25 +20,85 @@
 # `refs/heads/master` entry every other branch restores from -- which is exactly
 # the property the rest of #1009 is built on, undone nightly by its own cleanup.
 #
+# THE CAP IS A WALL, NOT AN EVICTION THRESHOLD (#1073)
+# ----------------------------------------------------
+# The paragraph above says GitHub "was already LRU-evicting". It is not, and that
+# misreading is why this workflow was believed to be sufficient. Past the cap the
+# store goes READ-ONLY:
+#
+#   ##[warning]Cache reservation failed: You have reached your configured budget,
+#              your cache is now read only to prevent additional charges.
+#   Failed to save: Unable to reserve cache with key sccache-windows-2025-release-…
+#
+# Nothing is evicted to make room. Every save in the repository is refused until
+# something is deleted, and `actions/cache/save` reports that as a warning and exits
+# ZERO, so nobody finds out. The measured consequence: the entry
+# `sccache-windows-2025-release-*` did not exist at all for weeks and the Windows
+# build compiled all 1630 TUs from scratch on every run, reporting 0.00 %, green.
+#
 # WHAT IT DELIBERATELY DOES NOT DO
 # --------------------------------
-# It never deletes the newest entry for a (ref, prefix), whatever its age -- a
+# It never deletes the newest LIVE entry for a (ref, prefix), whatever its age -- a
 # cache that is merely old is not a cache that is wrong, and deleting the last
 # snapshot of a 40-minute vcpkg install to reclaim quota would cost far more than
-# it saves. A prefix that has genuinely gone away (a renamed key) therefore leaves
-# one orphan behind; one entry per dead prefix is a rounding error against the
-# cap, and the alternative is a rule that can delete a live cache.
+# it saves.
+#
+# It used to say the same of an entry whose prefix had gone away:
+#
+#   > A prefix that has genuinely gone away (a renamed key) therefore leaves one
+#   > orphan behind; one entry per dead prefix is a rounding error against the cap
+#
+# That was false, and by the largest item in the store (#1073). The vcpkg key embeds
+# the MANIFEST HASH -- `vcpkg-Windows-<triplet>-<64 hex>-<run_id>-<attempt>` -- so
+# stripping only the run id made every vcpkg.json bump a brand-new prefix, and each
+# bump orphaned a ~2 GB entry FOREVER. On 2026-09-06 the single biggest cache entry
+# in the repo was 1988 MiB of a superseded manifest hash, created 2026-09-03 and
+# never read once (`last_accessed_at` never moved off its creation time), while the
+# Windows sccache snapshot it was crowding out could not be written at all.
+#
+# So the prefix now drops a trailing content hash as well as the run id, which makes
+# a hash bump SUPERSEDE its predecessor instead of orphaning it -- correct for every
+# key of that shape here, because a restore reaches at most one of them anyway
+# (`ffmpeg-…` restores by exact key; `vcpkg-…` falls back to the bare
+# `vcpkg-<os>-<triplet>-` prefix, which GitHub answers with the newest match).
+#
+# AN ENTRY WHOSE REF IS GONE is deleted before the newest-per-group rule sees it. That
+# already applied to a closed PR (#1015); it now applies to a DELETED BRANCH too. This
+# repo makes a `feature/*` branch per task and deletes it on merge, and a
+# `workflow_dispatch` run on such a branch banks its caches against that ref -- entries
+# that "newest per ref" would otherwise keep forever, unreadable by anything.
+#
+# A LAST-ACCESS AGE-OUT catches what remains: a genuinely renamed prefix, whose orphan
+# no longer matches anything and is therefore never restored. `last_accessed_at` is the
+# honest signal -- a live entry is read by every run that keys off it, so its timestamp
+# keeps moving. 30 days, because the read cadence is NOT daily for every prefix and
+# assuming it was is how a rule like this deletes something live -- see the measurement
+# in the sweep. It is a long-tail backstop only; the recurring leak is handled above.
 name: Prune Actions cache
 
 on:
   schedule:
-    # 06:41 UTC — after the two heaviest nightlies have saved (Sanitizers 01:23 and
-    # Windows 01:53, each up to ~3 h). It cannot be after ALL of them: SonarCloud
-    # and the weekly dist-archive can run past 09:00. That is fine and not worth
-    # chasing — this job only ever deletes SUPERSEDED entries, so running before a
-    # nightly has saved simply means that entry is not there yet and is collected
-    # tomorrow instead. Running *never* after a save would be the problem; running
-    # a few hours early is not.
+    # TWICE daily, and the times are chosen against the two heaviest savers rather
+    # than against the clock (#1073).
+    #
+    # 01:05 — BEFORE the Sanitizers nightly (01:23) and the Windows nightly (01:53).
+    # This is the one that matters. The keys are append-only, so on the night the
+    # nightlies run the store briefly holds an old AND a new snapshot of each: the three
+    # Linux sanitizer sccache entries measure ~1.25 GiB apiece, so that is ~3.7 GiB of
+    # duplicate before the Windows job even reaches its save, on top of a ~5 GiB steady
+    # set, against a ~9.3 GiB wall. Whichever job saves last is the one refused.
+    # Sweeping first gives them room.
+    #
+    # 06:41 — after both have saved, to collect what they superseded. (It cannot be
+    # after ALL of them: SonarCloud and the weekly dist-archive can run past 09:00.
+    # That is fine — this job only deletes SUPERSEDED entries, so running before a
+    # save simply means that entry is collected on the next sweep.)
+    #
+    # Between sweeps, each heavy job also prunes its own lineage on its own ref if
+    # its save is refused (.github/actions/save-cache-pruned). A twice-daily janitor
+    # cannot fix a breach that happens between two saves thirty minutes apart; that
+    # action can, and this workflow collects everything it does not own.
+    - cron: '5 1 * * *'
     - cron: '41 6 * * *'
   workflow_dispatch:
 
@@ -80,15 +140,45 @@ jobs:
           gh api --paginate "repos/${GH_REPO}/actions/caches?per_page=100" --slurp \
             | jq -r '[.[].actions_caches[]]
                      | sort_by(.created_at) | reverse
-                     | .[] | [.id, .ref, .key, .size_in_bytes] | @tsv' \
+                     | .[] | [.id, .ref, .key, .size_in_bytes, .last_accessed_at] | @tsv' \
             > /tmp/caches.tsv
 
           # The prefix is the key with its trailing `-<run_id>[-<run_attempt>]`
-          # stripped. Keys that carry no run id (the content-addressed FFmpeg and
-          # Vulkan SDK entries) collapse to themselves, so each is its own prefix
-          # and its single entry is always the newest -- they are never deleted.
+          # stripped, AND THEN a trailing content hash (#1073). Both strips matter:
+          #
+          #   sccache-windows-2025-release-33993528874-1  -> sccache-windows-2025-release
+          #   vcpkg-Windows-x64-windows-static-md-<64hex>-34021696485-1
+          #                                              -> vcpkg-Windows-x64-windows-static-md
+          #   ffmpeg-Windows-n7.1-<64hex>                 -> ffmpeg-Windows-n7.1
+          #   Windows-vulkan-prebuilt-sdk-true-1.4.321.0  -> (unchanged; no run id, no hash)
+          #
+          # Without the second strip a manifest-hash bump starts a NEW group whose sole
+          # member is immortal, and the entry it superseded is immortal too -- see the
+          # header. With it, the newest hash supersedes the older ones, which matches how
+          # a restore behaves: it reaches at most one entry of a lineage anyway.
           # Entries arrive newest-first, so the first sighting of a group is the
           # keeper and every later one is superseded.
+          #
+          # AGE-OUT (#1073): an entry not READ in 30 days is dead whatever its group.
+          # A live cache is restored by every run that keys off it, so its
+          # `last_accessed_at` keeps moving; a genuinely renamed prefix leaves an orphan
+          # that matches nothing and whose timestamp never moves again.
+          #
+          # 30, not 14. The read cadence is NOT daily for every prefix, and assuming it
+          # was is how a rule like this deletes something live. Measured:
+          # `Linux-vulkan-prebuilt-sdk-true-1.4.321.0` was created 2026-08-19 and last
+          # read 2026-09-02 -- a 14-day gap with no read in it -- and it went unread
+          # again for the four days after that, while the Sanitizers nightly ran every
+          # one of them. The nightly AMD (cross-vendor, gpu-*) jobs sit on a self-hosted
+          # box that can be offline for a stretch, which widens the gap further.
+          #
+          # Nothing is lost by waiting: the orphans this catches are permanent, so
+          # collecting them a fortnight later costs nothing, whereas deleting a live
+          # entry costs a cold build for somebody who changed nothing. The big recurring
+          # leak -- a vcpkg manifest bump -- is handled by the hash strip above, not by
+          # this, so this is purely a long-tail backstop and can afford to be patient.
+          age_out_days=30
+          age_out_before=$(date -u -d "${age_out_days} days ago" +%s)
           # A PR ref's entries die with the PR (#1015). "Newest per ref" keeps one
           # entry per prefix on `refs/pull/N/merge` FOREVER, and nothing can ever
           # read it once the PR is merged or closed: 3.1 GB of the 10 GB cap was two
@@ -110,19 +200,59 @@ jobs:
             [ "${pr_closed[$n]}" = yes ]
           }
 
+          # A DELETED BRANCH's entries are unreachable, exactly like a closed PR's
+          # (#1073). "Newest per ref" keeps one entry per prefix on
+          # `refs/heads/feature/whatever` FOREVER, and nothing can read it once the
+          # branch is gone. This repo creates a `feature/*` worktree per task and deletes
+          # the branch on merge, and a `workflow_dispatch` run on one of those branches
+          # banks a full ~700 MiB vcpkg entry plus an sccache snapshot against its ref --
+          # so this is not a corner case, it is the normal shape of work here. The
+          # default branch is never checked, because it is never gone.
+          # `|| echo master` so an API hiccup cannot abort the sweep under `set -e` and
+          # trip the "needs a human" alarm at the end for no reason. Guessing the default
+          # branch wrong only costs one wasted branch lookup that answers "present".
+          default_branch=$(gh api "repos/${GH_REPO}" --jq .default_branch || echo master)
+          declare -A branch_gone=()
+          branch_is_gone() {
+            local b="$1"
+            [ "$b" != "$default_branch" ] || return 1
+            if [ -z "${branch_gone[$b]:-}" ]; then
+              # Unknown (an API hiccup) is treated as PRESENT: the conservative side,
+              # same as pr_is_closed above. A slash in the branch name is fine on this
+              # endpoint -- verified against `feature/ci-windows-sccache-1073`.
+              if gh api "repos/${GH_REPO}/branches/${b}" --jq .name >/dev/null 2>&1; then
+                branch_gone[$b]=no
+              else
+                branch_gone[$b]=yes
+              fi
+            fi
+            [ "${branch_gone[$b]}" = yes ]
+          }
+
           declare -A seen=()
           kept=0
           deleted=0
           freed=0
-          while IFS=$'\t' read -r id ref key size; do
+          stale=0
+          while IFS=$'\t' read -r id ref key size accessed; do
             [ -n "${id:-}" ] || continue
-            prefix=$(printf '%s' "$key" | sed -E 's/-[0-9]{6,}(-[0-9]+)?$//')
+            prefix=$(printf '%s' "$key" | sed -E 's/-[0-9]{6,}(-[0-9]+)?$//; s/-[0-9a-f]{32,}$//')
             group="${ref}|${prefix}"
             closed_pr=0
             if [[ "$ref" =~ ^refs/pull/([0-9]+)/merge$ ]] && pr_is_closed "${BASH_REMATCH[1]}"; then
               closed_pr=1
             fi
-            if [ "$closed_pr" -eq 0 ] && [ -z "${seen[$group]:-}" ]; then
+            dead_branch=0
+            if [[ "$ref" =~ ^refs/heads/(.+)$ ]] && branch_is_gone "${BASH_REMATCH[1]}"; then
+              dead_branch=1
+            fi
+            unread=0
+            accessed_at=$(date -u -d "${accessed}" +%s 2>/dev/null || echo 0)
+            # A timestamp we cannot parse counts as fresh: never delete on a bad parse.
+            if [ "$accessed_at" -gt 0 ] && [ "$accessed_at" -lt "$age_out_before" ]; then
+              unread=1
+            fi
+            if [ "$closed_pr" -eq 0 ] && [ "$dead_branch" -eq 0 ] && [ "$unread" -eq 0 ] && [ -z "${seen[$group]:-}" ]; then
               seen[$group]=1
               kept=$((kept + 1))
               printf 'keep    %6s MiB  %-28s %s\n' "$((size / 1048576))" "$ref" "$key"
@@ -130,6 +260,11 @@ jobs:
             fi
             if [ "$closed_pr" -eq 1 ]; then
               printf 'DELETE  %6s MiB  %-28s %s  (PR closed)\n' "$((size / 1048576))" "$ref" "$key"
+            elif [ "$dead_branch" -eq 1 ]; then
+              printf 'DELETE  %6s MiB  %-28s %s  (branch deleted)\n' "$((size / 1048576))" "$ref" "$key"
+            elif [ "$unread" -eq 1 ]; then
+              stale=$((stale + 1))
+              printf 'DELETE  %6s MiB  %-28s %s  (not read since %s)\n' "$((size / 1048576))" "$ref" "$key" "$accessed"
             else
               printf 'DELETE  %6s MiB  %-28s %s\n' "$((size / 1048576))" "$ref" "$key"
             fi
@@ -143,8 +278,41 @@ jobs:
             fi
           done < /tmp/caches.tsv
 
-          echo "kept $kept (newest per ref+prefix), deleted $deleted, freed $((freed / 1048576)) MiB"
+          echo "kept $kept (newest per ref+prefix), deleted $deleted ($stale of them unread for ${age_out_days}+ days), freed $((freed / 1048576)) MiB"
 
           echo "after:"
           gh api "repos/${GH_REPO}/actions/cache/usage" \
             --jq '"  \(.active_caches_count) entries, \(.active_caches_size_in_bytes/1048576|floor) MiB"'
+
+          # FAIL WHEN THE STORE IS STILL NEARLY FULL (#1073). Everything above deletes
+          # only what is provably superseded or unread; if what remains still does not
+          # leave room for a night of saves, the fleet has outgrown the 10 GB cap and a
+          # human has to shrink something -- an SCCACHE_CACHE_SIZE, a job's cache, or the
+          # cap itself. The alternative is what actually happened: the store sat read-only
+          # for weeks, every save was refused with a warning nobody read, and the only
+          # visible symptom was a Windows build that had quietly stopped caching. This
+          # job failing is the alarm that was missing.
+          #
+          # WHERE THE NUMBER COMES FROM. The cap is 10 GB DECIMAL, not 10 GiB, and that
+          # is measured rather than read off the docs: saves were being refused with the
+          # store at 9,713,535,876 bytes = 9264 MiB. Had the cap been 10 GiB (10737 MiB)
+          # there would have been 1.4 GiB free and the 706 MiB vcpkg save in the same run
+          # would have landed. It did not. So the wall is ~9537 MiB.
+          #
+          # Post-sweep the steady set measures ~7.9 GiB (2.0 Windows sccache, 3.7 across
+          # the three Linux sanitizer sccaches, 0.7 vcpkg, 0.5 Vulkan SDKs, and 0.9 of
+          # `sccache-flaky-281` which ages out now that its nightly is gone). 8800 MiB
+          # leaves that a working margin and still fires ~700 MiB before the wall --
+          # early enough that a human can act before the store goes read-only.
+          #
+          # Raise it only together with a re-measurement of the steady set. Raising it to
+          # silence the alarm is how #1073 happened.
+          headroom_floor_mib=8800
+          used_mib=$(gh api "repos/${GH_REPO}/actions/cache/usage" \
+            --jq '.active_caches_size_in_bytes/1048576|floor')
+          if [ "${used_mib}" -gt "${headroom_floor_mib}" ]; then
+            echo "::error::Actions cache store is ${used_mib} MiB after pruning, over the ${headroom_floor_mib} MiB working ceiling."
+            echo "::error::Past the 10 GB cap GitHub does not evict -- it makes the whole store READ-ONLY and refuses every save in the repo, silently (actions/cache/save warns and exits 0). Nothing left here is superseded, so this needs a human: docs/agent-rules/actions-cache-budget.md."
+            exit 1
+          fi
+          echo "headroom: $((headroom_floor_mib - used_mib)) MiB below the working ceiling."
