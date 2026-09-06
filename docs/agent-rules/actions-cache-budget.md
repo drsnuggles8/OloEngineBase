@@ -154,7 +154,14 @@ re-creates this bug.
 - Save through `save-cache-pruned`, with `prefix` set to the key minus its
   `-<run_id>-<attempt>` tail, and grant the job `actions: write`.
 - Gate the save on `github.event_name != 'pull_request'` unless the entry is small
-  (a few MiB) or genuinely PR-specific.
+  (a few MiB) or genuinely PR-specific. "PR-specific" means the run produced something the
+  default-branch snapshot does not already hold — **not** merely that a PR ran. vcpkg is
+  the worked example: a PR that does not touch `vcpkg.json` restores master's snapshot and
+  would re-bank a byte-identical copy, so `setup-vcpkg` now emits an empty `cache-key`
+  when the restore already matched the hash-specific prefix. Measured on PR #1075 before
+  the fix: eight entries on one PR ref in two hours (two per push — Windows.yml and
+  asan.yml each save one), ~3.0 GiB of a ~9.3 GiB store, every one a copy of what master
+  already had. Count `saves per push × open PRs`, not `saves per PR`.
 - **A `workflow_dispatch` run on a `feature/*` branch banks its caches against that
   branch's ref**, and those entries outlive the branch. `cache-prune.yml` now deletes
   entries whose branch is gone, mirroring the closed-PR rule — but if you dispatch a
