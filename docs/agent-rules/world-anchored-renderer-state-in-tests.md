@@ -84,3 +84,12 @@ Related: [runtime-scene-switching.md](runtime-scene-switching.md) for the produc
 rule this is the test-side corollary of, and
 [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) for when
 a golden legitimately moves.
+
+[cross-test-renderer-state.md](cross-test-renderer-state.md) is the near neighbour and the
+two are easy to confuse, so: that one is about **configuration** — a test leaving renderer
+*settings* changed, or shutting down a singleton it did not start — and `RendererStateCheck`
+snapshots and restores those settings. This one is about **accumulated field contents**,
+which no settings snapshot covers: the disturbance field's pixels and its `m_NeedsClear`
+flag are not settings, so a fixture can restore every setting faithfully and still hand the
+next test a sea full of the previous one's foam. Check both axes when a visual test is
+order-dependent.
