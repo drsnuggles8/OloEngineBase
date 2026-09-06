@@ -367,6 +367,13 @@ exactly how #497 was first mis-diagnosed. `asan.yml` binds the pin by absolute
 path and fails the job on a version mismatch; check that assertion before
 touching test code.
 
+**Locally, check `clang-cl --version` first.** The `clangcl-asan` preset takes
+whatever `clang-cl` is on PATH — `cmake/ClangCLToolchain.cmake` pins nothing and
+asserts nothing, unlike the CI job — and `ilammy/msvc-dev-cmd`-style environments
+and Visual Studio both put a bundled LLVM ahead of `C:\Program Files\LLVM`. On
+anything before 23.1.0 these tests will AV again, and that is the toolchain, not
+the branch.
+
 A standalone probe settles it in seconds without an engine build — compile a TU
 that throws and catches (`std::runtime_error` for the #497 shape, `YAML::Load` on
 unterminated flow for #661's) with `clang-cl -EHsc -MD -O2 -fsanitize=address`,
@@ -385,9 +392,12 @@ shipped substituted a well-formed file with the wrong root key, which takes the
 same rejection path without throwing. Check what the surviving assertions rest on
 before you guard anything.
 
-Not every `OLO_ASAN_ENABLED` in the test tree belonged to this bug:
-`ServerAuthoritativeLoopTest` guards on it for the unrelated GameNetworkingSockets
-stack-buffer-overflow (issue #317), and that one stays.
+With those four gone there is now no `OLO_ASAN_ENABLED` left under
+`OloEngine/tests` at all. The other Windows-ASan exclusion in the tree is not a
+source guard: `NetworkIntegrationTest` and `WorkerRestartTest` are dropped by
+`asan.yml`'s own `--exclude-regex`, for the unrelated GameNetworkingSockets
+problem. Grep the workflow as well as the sources before concluding a suite runs
+under ASan.
 
 The #642 case is worth keeping for how the bug hid. The suite already had
 `SceneSerializerFuzzRegressionTest` firing a dozen malformed payloads at

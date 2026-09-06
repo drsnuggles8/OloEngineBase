@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Timer.h"
+#include "OloEngine/Debug/Instrumentor.h" // OLO_FUNC_SIG
 #include "OloEngine/Threading/Mutex.h"
 #include "OloEngine/Threading/UniqueLock.h"
 

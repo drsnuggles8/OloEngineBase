@@ -42,10 +42,18 @@ Measured on #1071 across the 31 headers that use `OLO_PROFILE_*`: 18 failed befo
 
 `scripts/check_header_profiling_include.py` (pre-commit hook `header-profiling-include`) is a
 textual guard for this one macro family: a header under `OloEngine/src` that expands a macro
-`Instrumentor.h` defines must include `Instrumentor.h`, or opt out with
-`// OLO_PROFILING_INCLUDE_OK: <reason>`. It reads the macro set out of `Instrumentor.h` so it cannot
-drift. It is deliberately narrow — it is a ratchet on the class that already bit us, not a
-self-containment check.
+`Instrumentor.h` defines must include `Instrumentor.h` (or `Debug/Profiler.h`, which includes it),
+or opt out with `// OLO_PROFILING_INCLUDE_OK: <reason>`. It reads the macro set out of
+`Instrumentor.h` so it cannot drift. It is deliberately narrow — it is a ratchet on the class that
+already bit us, not a self-containment check.
+
+**Keep the configuration flags in the checked set, not just the call macros.** `OLO_PROFILE` and
+`OLO_FUNC_SIG` are the silent half of this bug: an undefined name in `#if` evaluates to 0 with no
+diagnostic, so a header testing `#if OLO_PROFILE` without the include does not fail to compile — it
+changes shape between translation units. `Task/InheritedContext.h` gated `FInheritedContextScope`'s
+members and its move constructor's initializer list on `#if OLO_PROFILE && TRACY_ENABLE`, which is
+an ODR mismatch that links clean. Widening the checked set from the two call macros the issue named
+to every macro `Instrumentor.h` defines found that one and `Core/PerformanceProfiler.h`.
 
 ## Two things the textual grep and the compile check disagree about, and why both are right
 

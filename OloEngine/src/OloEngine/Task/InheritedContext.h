@@ -5,6 +5,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/TaskTag.h"
+#include "OloEngine/Debug/Instrumentor.h" // OLO_PROFILE
 
 #include <optional>
 #include <utility>

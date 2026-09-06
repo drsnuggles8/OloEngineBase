@@ -32,21 +32,32 @@ SRC_ROOT = Path("OloEngine/src")
 INSTRUMENTOR = SRC_ROOT / "OloEngine/Debug/Instrumentor.h"
 SUFFIXES = {".h", ".hpp", ".inl"}
 
-# Instrumentor.h *defines* the macros, so it is not a client of itself.
+# Instrumentor.h *defines* the macros, so it is not a client of itself. Profiler.h
+# is a thin wrapper that includes it and re-exports the macros under
+# OLO_ASSET_PROFILE_*, so it is exempt as a file and satisfies the check as an
+# include.
 EXEMPT = {INSTRUMENTOR.as_posix()}
 
-# Configuration flags rather than call sites: a header may legitimately test
-# `#if OLO_PROFILE` or paste OLO_FUNC_SIG into an unrelated log line.
-NOT_CALL_SITES = {"OLO_PROFILE", "OLO_FUNC_SIG"}
-
 DEFINE_RE = re.compile(r"^[ \t]*#[ \t]*define[ \t]+(OLO_[A-Z0-9_]+)", re.MULTILINE)
-INCLUDE_RE = re.compile(r'^[ \t]*#[ \t]*include[ \t]+"OloEngine/Debug/Instrumentor\.h"[ \t]*$', re.MULTILINE)
+# A trailing comment on the include line is normal style here, so do not anchor at
+# end-of-line. Either header brings the macros in.
+INCLUDE_RE = re.compile(
+    r'^[ \t]*#[ \t]*include[ \t]+"OloEngine/Debug/(?:Instrumentor|Profiler)\.h"', re.MULTILINE
+)
 OPT_OUT_RE = re.compile(r"//[ \t]*OLO_PROFILING_INCLUDE_OK:")
+# `OLO_PROFILE` and `OLO_FUNC_SIG` stay in the checked set on purpose: they are the
+# SILENT half of the bug. An undefined name in `#if` is 0 with no diagnostic, so a
+# header testing `#if OLO_PROFILE` without the include changes shape between TUs
+# instead of failing to compile -- which is worse, not better. Both were real
+# offenders when the set was widened (Task/InheritedContext.h, where the flag gates
+# FInheritedContextScope's members, and Core/PerformanceProfiler.h).
+LINE_COMMENT_RE = re.compile(r"//[^\n]*")
+BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 
 
 def macro_names() -> set[str]:
     text = INSTRUMENTOR.read_text(encoding="utf-8", errors="replace")
-    return {m for m in DEFINE_RE.findall(text) if m not in NOT_CALL_SITES}
+    return set(DEFINE_RE.findall(text))
 
 
 def main() -> int:
@@ -65,10 +76,12 @@ def main() -> int:
         if path.suffix not in SUFFIXES or path.as_posix() in EXEMPT:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        # `#define OLO_PROFILE_SCOPE(...)` names the macro, it does not call it, so drop
-        # that prefix before looking for call sites. Whatever is left on the line -- a
+        # Comments name these macros constantly ("guarded by OLO_PROFILE_SCOPE"), and a
+        # `#define OLO_PROFILE_SCOPE(...)` names the macro rather than calling it. Drop
+        # both before looking for call sites; whatever is left on a #define line -- a
         # macro body that expands to one -- still counts as a use.
-        body = "\n".join(DEFINE_RE.sub("", line, count=1) for line in text.splitlines())
+        body = BLOCK_COMMENT_RE.sub(" ", LINE_COMMENT_RE.sub("", text))
+        body = "\n".join(DEFINE_RE.sub("", line, count=1) for line in body.splitlines())
         if not use_re.search(body):
             continue
         if INCLUDE_RE.search(text) or OPT_OUT_RE.search(text):
