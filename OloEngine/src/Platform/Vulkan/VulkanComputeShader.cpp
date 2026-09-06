@@ -213,6 +213,7 @@ namespace OloEngine
         }
 
         std::vector<VulkanShaderBinding> newBindings;
+        try
         {
             const spirv_cross::Compiler reflector(spirv);
             const spirv_cross::ShaderResources resources = reflector.get_shader_resources();
@@ -270,6 +271,18 @@ namespace OloEngine
             {
                 append(resource, VulkanShaderBinding::Kind::StorageImage);
             }
+        }
+        catch (const std::exception& e)
+        {
+            // Reflection refuses an array shape this backend cannot map
+            // (#1078), and spirv_cross can throw on a corrupt cached blob.
+            // Either way the module built above must not leak and the
+            // COMMITTED state must survive untouched — the graphics twin has
+            // had this guard since #691; this path never did, so an exception
+            // here leaked a VkShaderModule and propagated out of the build.
+            OLO_CORE_ERROR("VulkanComputeShader '{}': reflection failed ({})", m_Name, e.what());
+            vkDestroyShaderModule(device->GetDevice(), newModule, nullptr);
+            return false;
         }
 
         // Commit.

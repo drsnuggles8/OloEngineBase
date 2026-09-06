@@ -14,6 +14,14 @@ If you add an array binding, `VulkanShaderBinding::ArrayCount` must be reflected
 element *i* from texture unit `binding + i`. All four move together; three of the four compile
 and render fine on their own.
 
+**An array shape the backend cannot map fails the shader build.** Runtime-sized,
+specialization-constant-sized, and anything past `kMaxBindingArrayCount` all throw out of
+reflection. Clamping such a declaration to a count of 1 — the obvious defensive move, and the
+first thing tried here — selects the *scalar* mapping, so the shader loads and renders and
+samples an unrelated descriptor for every element past `[0]`. That is this very bug,
+reintroduced for exactly the declarations that could not be read. A loud log does not stop a
+wrong frame; refusing the build does.
+
 ## The failure it caused (issue #1078)
 
 `Renderer2D_Quad.glsl` is the engine's only sampler-array shader, and it is what draws every 2D

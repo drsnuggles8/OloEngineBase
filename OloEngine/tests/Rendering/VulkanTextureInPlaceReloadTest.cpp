@@ -171,6 +171,42 @@ void main()
     o_Color = texture(u_Textures[1], v_TexCoord);
 }
 )";
+
+    // Array shapes this backend cannot map. Each must FAIL the shader build
+    // rather than quietly binding as a single descriptor — a count of 1 selects
+    // the scalar adjacency mapping, which is #1078 reintroduced for exactly the
+    // declarations we could not read.
+    //
+    // Past kMaxBindingArrayCount (256).
+    constexpr const char* kOversizedArrayFragmentSrc = R"(
+#version 460 core
+layout(location = 0) in vec2 v_TexCoord;
+layout(location = 0) out vec4 o_Color;
+
+layout(binding = 0) uniform sampler2D u_Textures[512];
+
+void main()
+{
+    o_Color = texture(u_Textures[1], v_TexCoord);
+}
+)";
+
+    // Specialization-constant-sized: spirv-cross reports the CONSTANT'S ID in
+    // `type.array`, not a length, and `array_size_literal` is the only tell.
+    // Read as a literal it yields a plausible-looking nonsense count.
+    constexpr const char* kSpecConstantArrayFragmentSrc = R"(
+#version 460 core
+layout(location = 0) in vec2 v_TexCoord;
+layout(location = 0) out vec4 o_Color;
+
+layout(constant_id = 0) const int c_Count = 4;
+layout(binding = 0) uniform sampler2D u_Textures[c_Count];
+
+void main()
+{
+    o_Color = texture(u_Textures[1], v_TexCoord);
+}
+)";
 } // namespace
 
 namespace OloEngine::Tests
@@ -528,6 +564,43 @@ namespace OloEngine::Tests
                                          "actually staged for unit 1 (issue #1078)";
             EXPECT_EQ(green[1], 0xFF) << "u_Textures[1] did not sample the texture bound to unit 1";
             EXPECT_EQ(green[2], 0x00);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // An array shape the backend cannot map must FAIL the shader build.
+    //
+    // The first version of this fix logged an error and returned a count of 1,
+    // which selects the SCALAR mapping — so the shader loaded, rendered, and
+    // sampled an unrelated descriptor for every element past [0]. That is #1078
+    // reintroduced for precisely the declarations that could not be read, and a
+    // loud log does not stop a wrong frame from being drawn. Refusing the build
+    // is what makes it unrepresentable.
+    //
+    // (A runtime-sized `sampler2D u[]` is the third unsupported shape. It needs
+    // GL_EXT_nonuniform_qualifier and is rejected by the SPIR-V compile before
+    // reflection ever sees it, so there is nothing for this file to assert
+    // about it — noted rather than silently omitted.)
+    // -------------------------------------------------------------------------
+    TEST_F(VulkanTextureInPlaceReload, RefusesToBuildAShaderWhoseArrayShapeCannotBeMapped)
+    {
+        ScopedVulkanApiSelection vulkanApi;
+        VulkanFrameArena::Get().BeginFrame(0);
+
+        {
+            auto oversized = Ref<VulkanShader>::Create("OversizedSamplerArray", kVertexSrc,
+                                                       kOversizedArrayFragmentSrc);
+            EXPECT_NE(oversized->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+                << "a sampler array past kMaxBindingArrayCount must not build — bound as a single descriptor "
+                   "it silently samples the wrong resource for every element past [0]";
+        }
+
+        {
+            auto specConstant = Ref<VulkanShader>::Create("SpecConstantSamplerArray", kVertexSrc,
+                                                          kSpecConstantArrayFragmentSrc);
+            EXPECT_NE(specConstant->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+                << "a specialization-constant-sized sampler array must not build — spirv-cross reports the "
+                   "constant's ID, not a length, so any count read from it is nonsense";
         }
     }
 } // namespace OloEngine::Tests

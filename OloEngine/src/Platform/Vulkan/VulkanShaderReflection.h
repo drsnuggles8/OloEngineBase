@@ -19,6 +19,8 @@
 #include <spirv_cross/spirv_cross.hpp>
 
 #include <algorithm>
+#include <format>
+#include <stdexcept>
 
 namespace OloEngine::VulkanReflection
 {
@@ -33,10 +35,17 @@ namespace OloEngine::VulkanReflection
     // The declared array length of a binding, as the root-data layout needs it
     // (#1078). 1 for a scalar declaration.
     //
-    // REFUSES rather than guesses, and says so, because every refusal falls
-    // back to the SCALAR mapping — which resolves array element i by heap-slot
-    // ADJACENCY and renders the wrong image when the slots are not adjacent.
-    // A silent 1 here is the #1078 defect handed back:
+    // THROWS on an array shape this backend cannot map, and the shader build
+    // FAILS. Returning 1 and carrying on was the first attempt and it is wrong:
+    // a count of 1 selects the SCALAR mapping, which resolves array element i
+    // by heap-slot ADJACENCY — so the shader would load, render, and sample an
+    // unrelated descriptor for every element past [0]. That is #1078 itself,
+    // silently reintroduced for exactly the declarations we could not read. A
+    // shader that cannot be mapped correctly must not run.
+    //
+    // Both callers already restore their previous committed state and destroy
+    // the modules they built, so the throw is the sanctioned failure path
+    // rather than a new one.
     //
     //   * a runtime-sized (unsized) array — descriptor indexing, which this
     //     backend does not implement;
@@ -61,23 +70,21 @@ namespace OloEngine::VulkanReflection
             const u32 extent = type.array[dimension];
             if (!isLiteral || extent == 0u)
             {
-                OLO_CORE_ERROR("[RHI/Vulkan] '{}' binding '{}' declares a {} array — this backend maps only "
-                               "literal-sized arrays, so it will be bound as a SINGLE descriptor and every "
-                               "element past [0] will sample the wrong resource. Give it a literal size.",
-                               shaderName, resource.name,
-                               extent == 0u ? "runtime-sized" : "specialization-constant-sized");
-                return 1u;
+                throw std::runtime_error(
+                    std::format("'{}' binding '{}' declares a {} array; this backend maps only literal-sized "
+                                "arrays. Give it a literal size.",
+                                shaderName, resource.name,
+                                extent == 0u ? "runtime-sized" : "specialization-constant-sized"));
             }
             count *= extent;
         }
 
         if (count > kMaxBindingArrayCount)
         {
-            OLO_CORE_ERROR("[RHI/Vulkan] '{}' binding '{}' declares an array of {} — past the {} this backend "
-                           "maps. It will be bound as a SINGLE descriptor; raise kMaxBindingArrayCount if this "
-                           "is legitimate.",
-                           shaderName, resource.name, count, kMaxBindingArrayCount);
-            return 1u;
+            throw std::runtime_error(std::format(
+                "'{}' binding '{}' declares an array of {}; this backend maps at most {}. Raise "
+                "kMaxBindingArrayCount if this is legitimate.",
+                shaderName, resource.name, count, kMaxBindingArrayCount));
         }
         return static_cast<u32>(count);
     }
