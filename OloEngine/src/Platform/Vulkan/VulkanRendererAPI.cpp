@@ -3686,6 +3686,17 @@ namespace OloEngine
         if (width == 0u || height == 0u || !src.IsValid() || !dst.IsValid() || srcLevel < 0 || dstLevel < 0 ||
             srcX < 0 || srcY < 0 || srcZ < 0 || dstX < 0 || dstY < 0 || dstZ < 0)
         {
+            // Warn-once per reason. These three returns used to be silent, and
+            // a silent no-op copy is indistinguishable from a copy that worked:
+            // the destination simply keeps whatever it had, which for a fresh
+            // image is nothing at all.
+            static std::atomic<bool> s_WarnedArgs{ false };
+            if (!s_WarnedArgs.exchange(true, std::memory_order_relaxed))
+            {
+                OLO_CORE_WARN("[RHI/Vulkan] CopyImageSubDataRegion: refused on arguments ({}x{}, srcValid={}, "
+                              "dstValid={}, levels {}/{}); no-op (further calls not logged)",
+                              width, height, src.IsValid(), dst.IsValid(), srcLevel, dstLevel);
+            }
             return;
         }
 
@@ -3697,6 +3708,13 @@ namespace OloEngine
         const u64 dstNative = registry.ResolveNativeForBackend(dst);
         if (srcNative == 0u || dstNative == 0u)
         {
+            static std::atomic<bool> s_WarnedNative{ false };
+            if (!s_WarnedNative.exchange(true, std::memory_order_relaxed))
+            {
+                OLO_CORE_WARN("[RHI/Vulkan] CopyImageSubDataRegion: no native image behind the handles "
+                              "(src={}, dst={}); no-op (further calls not logged)",
+                              srcNative, dstNative);
+            }
             return;
         }
         const auto srcImage = reinterpret_cast<VkImage>(srcNative);
@@ -3705,6 +3723,13 @@ namespace OloEngine
         const auto* dstInfo = VulkanImageInfoRegistry::Get().Lookup(dstImage);
         if (srcInfo == nullptr || dstInfo == nullptr)
         {
+            static std::atomic<bool> s_WarnedInfo{ false };
+            if (!s_WarnedInfo.exchange(true, std::memory_order_relaxed))
+            {
+                OLO_CORE_WARN("[RHI/Vulkan] CopyImageSubDataRegion: image not in the info registry "
+                              "(srcInfo={}, dstInfo={}); no-op (further calls not logged)",
+                              srcInfo != nullptr, dstInfo != nullptr);
+            }
             return;
         }
         // ArrayLayers carries the DEPTH for a 3D image (see VulkanImageInfo),
@@ -3771,6 +3796,73 @@ namespace OloEngine
         region.extent = { width, height, 1u };
         vkCmdCopyImage(ctx.Cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+
+        // Settle the destination back to the RESTING layout and tell the image
+        // registry about it — the same two steps every other write path takes
+        // (VulkanTextureCubemap::SetFaceDataMip barriers the image to
+        // SHADER_READ_ONLY_OPTIMAL and then calls SetInitialLayout).
+        //
+        // Without this the registry keeps the creation-time UNDEFINED while the
+        // image really sits in TRANSFER_DST_OPTIMAL, and two things break. The
+        // descriptor's recorded layout and the actual layout disagree, which is
+        // the IBL bake's pair of VUID-vkCmdDraw-None-09600 validation errors;
+        // and any later one-shot readback — which reads the REGISTRY, not this
+        // frame's tracker, because it submits outside the frame — sees
+        // UNDEFINED and refuses. That refusal is what made the IBL cache
+        // unwritable on Vulkan: TextureCubemap::GetFaceData returned false, so
+        // IBLCache::Save bailed after writing its 44-byte header, and the next
+        // run failed to LOAD the truncated file it had left behind. The error
+        // surfaced on the read; the omission was here.
+        //
+        // The registry layout is per IMAGE while this copy touches one
+        // subresource. That approximation is the file's existing convention,
+        // not a new one — SetFaceDataMip makes the identical whole-image claim
+        // after writing a single face — and it holds for the copy's real
+        // callers, which write every subresource before anything samples them.
+        // The WHOLE destination image, not just the copied subresource. The
+        // registry stores one layout per image, so settling only the copied
+        // range and then claiming the image is SHADER_READ_ONLY is a lie for
+        // every subresource the caller has not written yet — and the validator
+        // catches it: a prefilter cubemap baked to mip 4 reported
+        // "expects SHADER_READ_ONLY_OPTIMAL, current is UNDEFINED" for mips 5+
+        // on all six faces. ForEachLayoutRun emits one barrier per layout run
+        // with that run's real oldLayout, so transitioning the whole image is
+        // valid whatever mix of layouts it is currently in; the never-written
+        // mips hold garbage either way, and now they at least hold it in a
+        // layout the descriptor agrees with. Same whole-image discipline as
+        // VulkanTextureCubemap::SetFaceDataMip.
+        const VkImageSubresourceRange dstWholeRange{
+            dstAspect, 0u, std::max(dstInfo->MipLevels, 1u), 0u,
+            dstInfo->ViewType == VK_IMAGE_VIEW_TYPE_3D ? 1u : std::max(dstInfo->ArrayLayers, 1u)
+        };
+        std::vector<VkImageMemoryBarrier2> toResting;
+        ctx.Tracker.ForEachLayoutRun(dstImage, dstWholeRange,
+                                     [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
+                                     {
+                                         VkImageMemoryBarrier2 b{};
+                                         b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                                         b.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                                         b.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                                         b.dstStageMask = kAllStages;
+                                         b.dstAccessMask = kAllAccess;
+                                         b.oldLayout = trackedLayout;
+                                         b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                                         b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                                         b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                                         b.image = dstImage;
+                                         b.subresourceRange = run;
+                                         toResting.push_back(b);
+                                     });
+        if (!toResting.empty())
+        {
+            VkDependencyInfo restingDep{};
+            restingDep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            restingDep.imageMemoryBarrierCount = static_cast<u32>(toResting.size());
+            restingDep.pImageMemoryBarriers = toResting.data();
+            vkCmdPipelineBarrier2(ctx.Cmd, &restingDep);
+        }
+        ctx.Tracker.SetLayout(dstImage, dstWholeRange, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        VulkanImageInfoRegistry::Get().SetInitialLayout(dstImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 
     void VulkanRendererAPI::CopyFramebufferToTexture(RHI::ResourceHandle /*texture*/, u32 /*width*/, u32 /*height*/)
