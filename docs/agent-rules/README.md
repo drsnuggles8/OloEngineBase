@@ -36,6 +36,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [timed-wait-test-assertions.md](timed-wait-test-assertions.md): measure timed waits in microseconds and assert one-sided.
 - [thread-local-lifetime-at-exit.md](thread-local-lifetime-at-exit.md): keep the "is it still alive?" signal in a trivially destructible `thread_local`; a destroyed one is not readable.
 - [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md): use `TestTempDir.h`, never a fixed temp path; every test case is its own process.
+- [cross-test-renderer-state.md](cross-test-renderer-state.md): never shut down a process-wide singleton you did not start, and leave the renderer configuration as you found it; plus the two traps that make single-process bisection lie.
 
 ## Build and dependencies
 
@@ -281,6 +282,7 @@ The check passes for a correct implementation and for a broken one.
 | [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) | Capture targets show the editor camera; include-only shader edits do not hot-reload; "darker" passes for every uniform veil. |
 | [timed-wait-test-assertions.md](timed-wait-test-assertions.md) | `duration_cast<milliseconds>` truncates toward zero. |
 | [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md) | A CI comment asserted a safety property nobody had measured. |
+| [cross-test-renderer-state.md](cross-test-renderer-state.md) | A visual test that passes 10/10 in isolation and draws nothing in the full run, with identical engine logs; two poisoners are each necessary and neither sufficient, and a reduced repro reproduces a different bug. |
 | [reference-path-tracer.md](reference-path-tracer.md) | A golden answers "did it change", never "is it correct". |
 | [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | A per-vendor baseline validates itself; a small cross-vendor RMSE measures portability, not correctness. |
 | [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) | Every obvious noise metric passes on white noise; only the error spectrum separates blue from white. |

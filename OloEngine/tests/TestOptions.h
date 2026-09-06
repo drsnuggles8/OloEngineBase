@@ -63,6 +63,15 @@ namespace OloEngine::Tests
         bool PerfStrict = false;
         // --olo-perf-machine=<name> : baseline key, overriding the hostname.
         std::string PerfMachine;
+        // --olo-strict-renderer-state : fail a test that leaves the
+        // process-global renderer configuration different from how it found it
+        // (issue #1074). The leak is restored regardless — see
+        // Rendering/PropertyTests/RendererStateCheck.h; this flag only controls
+        // whether the polluting test is also FAILED. Off by default because a
+        // restored leak is harmless, and reporting every one of them would bury
+        // the run's real failures. Turn it on when you are hunting a leak, or
+        // when a fixture you are writing needs to prove it does not have one.
+        bool StrictRendererState = false;
         // --olo-bench-assert : make the micro-benchmarks assert their budgets
         // rather than only reporting.
         bool BenchAssert = false;
