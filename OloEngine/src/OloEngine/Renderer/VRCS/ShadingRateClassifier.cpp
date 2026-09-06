@@ -27,6 +27,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_Shader = ComputeShader::Create("assets/shaders/compute/VRCSClassify.comp");
+        m_ParamsUBO = UniformBuffer::Create(UBOStructures::ShadingRateUBO::GetSize(),
+                                            ShaderBindingLayout::UBO_USER_0);
         OLO_CORE_INFO("ShadingRateClassifier: initialized (tile {}x{})", kTileSize, kTileSize);
     }
 
@@ -126,12 +128,6 @@ namespace OloEngine
             // that reuse is the whole reason this is one shared utility rather
             // than a classification pass per consumer.
             return true;
-        }
-
-        if (!m_ParamsUBO)
-        {
-            m_ParamsUBO = UniformBuffer::Create(UBOStructures::ShadingRateUBO::GetSize(),
-                                                ShaderBindingLayout::UBO_USER_0);
         }
 
         const bool hasPreviousColor = inputs.PreviousColor.IsValid();

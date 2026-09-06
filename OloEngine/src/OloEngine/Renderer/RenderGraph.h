@@ -1302,6 +1302,8 @@ namespace OloEngine
             u32 BatchIndex = 0;                                                   ///< for BatchBegin/BatchEnd: which async batch
             RenderGraphPassWorkType WorkType = RenderGraphPassWorkType::Graphics; ///< for Pass commands
             QueueLane Lane = QueueLane::Graphics;                                 ///< queue lane assignment for this command
+            u32 RecordingGroup = UINT32_MAX;                                      ///< independent CPU recordings; never a GPU queue assignment
+            u32 RecordingLane = UINT32_MAX;                                       ///< dense item index inside RecordingGroup (Pass commands only)
 
             // For MemoryBarrier commands: the per-resource transitions this
             // barrier covers, deduplicated on (resource, range, from, to) —

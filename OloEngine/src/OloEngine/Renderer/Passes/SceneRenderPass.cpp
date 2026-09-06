@@ -290,7 +290,7 @@ namespace OloEngine
             // Pass 1: depth only — CommandDispatch overrides per-command state
             gpuSubTimers.BeginSubPass("DepthPrepass");
             CommandDispatch::SetDepthPrepassActive(true);
-            m_CommandBucket.Execute(rendererAPI);
+            m_CommandBucket.ExecuteParallel(rendererAPI);
             CommandDispatch::SetDepthPrepassActive(false);
             gpuSubTimers.EndSubPass();
         }
@@ -381,7 +381,7 @@ namespace OloEngine
         if (capturing)
             m_CommandBucket.ExecuteWithGPUTiming(rendererAPI);
         else
-            m_CommandBucket.Execute(rendererAPI);
+            m_CommandBucket.ExecuteParallel(rendererAPI);
         gpuSubTimers.EndSubPass();
 
         // Restore depth state after prepass

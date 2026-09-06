@@ -23,6 +23,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         SetName("VolumetricFogPass");
+        SetPassWorkType(PassWorkType::Compute);
+        SetAsyncComputeCandidate(true);
         // The integrated volume is consumed OUTSIDE the graph's resource
         // tracking (FogRenderPass binds it as a plain sampler3D), so the
         // graph's reachability cull must never drop this pass while enabled.
@@ -131,6 +133,15 @@ namespace OloEngine
 
     void VolumetricFogPass::Execute(RGCommandContext& context)
     {
+        auto prepared = PrepareParallelRecording(context);
+        if (prepared.Record)
+            prepared.Record(context);
+        if (prepared.Publish)
+            prepared.Publish();
+    }
+
+    RGPreparedPass VolumetricFogPass::PrepareParallelRecording(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         (void)context;
@@ -140,7 +151,7 @@ namespace OloEngine
         if (!m_Enabled || !IsReadyForExecution() ||
             !m_ScatterVolume[0] || !m_ScatterVolume[1] || !m_IntegratedVolume)
         {
-            return;
+            return {};
         }
 
         const auto& fog = Renderer3D::GetFogSettings();
@@ -182,17 +193,15 @@ namespace OloEngine
         ubo.DepthParams = glm::vec4(fogNear, fogFar, std::log2(fogFar / fogNear),
                                     static_cast<f32>(m_FrameIndex));
         ubo.RenderOrigin = glm::vec4(renderOrigin, 1.0f);
-        m_FroxelUBO->SetData(&ubo, sizeof(ubo));
-        m_FroxelUBO->Bind();
-
-        // The clustered light lists were unbound after the scene color pass —
-        // re-bind them (and the enabled Forward+ UBO) for the scatter compute.
-        // When clustering is inactive the last-uploaded Forward+ UBO is the
-        // disabled baseline, so the shader's cluster loop self-gates.
-        auto& forwardPlus = Renderer3D::GetForwardPlus();
-        const bool clusteredActive = forwardPlus.ShouldUseForwardPlus();
-        if (clusteredActive)
-            forwardPlus.BindForShading();
+        if (!m_RecordingFroxelUBO)
+            m_RecordingFroxelUBO = UniformBuffer::Create(sizeof(ubo), ShaderBindingLayout::UBO_FROXEL_FOG);
+        if (!m_RecordingForwardPlusUBO)
+            m_RecordingForwardPlusUBO = UniformBuffer::Create(sizeof(UBOStructures::ForwardPlusUBO), ShaderBindingLayout::UBO_FORWARD_PLUS);
+        const auto lighting = Renderer3D::GetForwardPlus().CaptureShadingBindings();
+        m_RecordingFroxelUBO->SetData(&ubo, sizeof(ubo));
+        m_RecordingForwardPlusUBO->SetData(&lighting.Parameters, sizeof(lighting.Parameters));
+        m_RecordingFroxelUBO->PrepareForParallelRead();
+        m_RecordingForwardPlusUBO->PrepareForParallelRead();
 
         // Shadow maps (compute-local sampler units 0/1; placeholders keep the
         // declared samplers valid when no real map exists this frame)
@@ -205,101 +214,128 @@ namespace OloEngine
                                                 : ShadowMap::GetAtlasPlaceholderHandle();
         const u32 historyIndex = 1u - m_CurrentScatter;
 
-        // --- Scatter (inject + light scattering + temporal) ---
-        // SHADER FIRST. These three sampler binds used to precede it; the seam
-        // forks on the program in flight, so bound ahead of the shader they would
-        // take the slot-path fallback while the shader — a bindless variant
-        // because its output image is converted — read offsets nobody wrote
-        // (issue #691).
-        m_ScatterShader->Bind();
-        // Persistent: the shadow maps are renderer-owned (or fixed placeholders)
-        // and the froxel volumes are pass-owned and double-buffered across frames,
-        // so none comes from the graph's transient pool.
-        // FroxelFogScatter.comp reads both of these as `sampler2DArrayShadow`, so
-        // the descriptor has to carry the comparison state — the seam's default
-        // SamplerDesc{} has Compare = Never and mints a compare-DISABLED handle,
-        // which makes that read undefined (it lands on "unshadowed" in practice,
-        // so the fog was silently unshadowed rather than visibly broken). Found
-        // while chasing the same defect in the material path; see
-        // HeapBinding::ShadowDepthSampler.
-        //
-        // Sub-pass brackets (issue #720) isolate Scatter's and Integrate's GPU-ms
-        // under GPUPassTimerPool's "VolumetricFogPass" bracket, needed to measure
-        // the thread-group swizzle adopted in each shader independently.
-        auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
-        gpuSubTimers.BeginSubPass("FroxelFogScatter");
-        const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
-        HeapBinding::BindTextureOrOffset(0, csmID, RHI::HeapSlotLifetime::Persistent, shadowSampler,
-                                         RHI::NullSamplerKind::Texture2DArrayShadow);
-        HeapBinding::BindTextureOrOffset(1, atlasID, RHI::HeapSlotLifetime::Persistent, shadowSampler,
-                                         RHI::NullSamplerKind::Texture2DArrayShadow);
-        HeapBinding::BindTextureOrOffset(2, m_ScatterVolume[historyIndex]->GetRHIHandle(),
-                                         RHI::HeapSlotLifetime::Persistent);
-        // OpenVDB-imported density volume (#724), compute-local unit 3 —
-        // Renderer3D-owned (an asset's Texture3D) or the pass-owned
-        // placeholder, neither acquired from RenderGraph's per-frame
-        // transient pool, so Persistent — same reasoning as the shadow maps
-        // just above.
-        const Ref<Texture3D>& densityVolume = Renderer3D::GetFogVolumeDensityTexture();
-        const RHI::ResourceHandle densityVolumeID =
-            densityVolume ? densityVolume->GetRHIHandle() : m_DensityVolumePlaceholder->GetRHIHandle();
-        HeapBinding::BindTextureOrOffset(3, densityVolumeID, RHI::HeapSlotLifetime::Persistent);
-        // Persistent: the froxel volumes are pass-owned and double-buffered across
-        // frames for the temporal filter, not acquired from the transient pool.
-        HeapBinding::BindImageOrOffset(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle(), 0, true, 0,
-                                       RHI::Access::StorageWrite, RHI::Format::RGBA16Float,
-                                       RHI::HeapSlotLifetime::Persistent);
-        HeapBinding::FlushOffsets();
-        RenderCommand::DispatchCompute((kVolumeWidth + 3) / 4, (kVolumeHeight + 3) / 4, (kVolumeDepth + 3) / 4);
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
-        gpuSubTimers.EndSubPass();
+        const auto densityVolume = Renderer3D::GetFogVolumeDensityTexture();
+        const auto densityVolumeID = densityVolume ? densityVolume->GetRHIHandle() : m_DensityVolumePlaceholder->GetRHIHandle();
+        const auto scatterID = m_ScatterVolume[m_CurrentScatter]->GetRHIHandle();
+        const auto historyID = m_ScatterVolume[historyIndex]->GetRHIHandle();
+        const auto integratedID = m_IntegratedVolume->GetRHIHandle();
+        RGPreparedPass prepared;
+        prepared.Resources = { { csmID, false }, { atlasID, false }, { densityVolumeID, false }, { historyID, false }, { scatterID, true }, { integratedID, true }, { m_RecordingFroxelUBO->GetRHIHandle(), false }, { m_RecordingForwardPlusUBO->GetRHIHandle(), false } };
+        prepared.Resources.push_back({ m_FroxelUBO->GetRHIHandle(), true });
+        for (const auto& buffer : lighting.Buffers)
+            if (buffer)
+                prepared.Resources.push_back({ buffer->GetRHIHandle(), false });
+        prepared.Record = [this, csmID, atlasID, densityVolumeID, scatterID, historyID, integratedID, lighting](RGCommandContext&)
+        {
+            m_RecordingFroxelUBO->Bind();
+            m_RecordingForwardPlusUBO->Bind();
+            for (const auto& buffer : lighting.Buffers)
+                if (buffer)
+                    buffer->Bind();
+            // --- Scatter (inject + light scattering + temporal) ---
+            // SHADER FIRST. These three sampler binds used to precede it; the seam
+            // forks on the program in flight, so bound ahead of the shader they would
+            // take the slot-path fallback while the shader — a bindless variant
+            // because its output image is converted — read offsets nobody wrote
+            // (issue #691).
+            m_ScatterShader->Bind();
+            // Persistent: the shadow maps are renderer-owned (or fixed placeholders)
+            // and the froxel volumes are pass-owned and double-buffered across frames,
+            // so none comes from the graph's transient pool.
+            // FroxelFogScatter.comp reads both of these as `sampler2DArrayShadow`, so
+            // the descriptor has to carry the comparison state — the seam's default
+            // SamplerDesc{} has Compare = Never and mints a compare-DISABLED handle,
+            // which makes that read undefined (it lands on "unshadowed" in practice,
+            // so the fog was silently unshadowed rather than visibly broken). Found
+            // while chasing the same defect in the material path; see
+            // HeapBinding::ShadowDepthSampler.
+            //
+            // Sub-pass brackets (issue #720) isolate Scatter's and Integrate's GPU-ms
+            // under GPUPassTimerPool's "VolumetricFogPass" bracket, needed to measure
+            // the thread-group swizzle adopted in each shader independently.
+            auto* gpuSubTimers = RenderCommand::IsRecordingParallelItem() ? nullptr : &GPUPassTimerPool::GetInstance();
+            if (gpuSubTimers)
+                gpuSubTimers->BeginSubPass("FroxelFogScatter");
+            const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
+            HeapBinding::BindTextureOrOffset(0, csmID, RHI::HeapSlotLifetime::Persistent, shadowSampler,
+                                             RHI::NullSamplerKind::Texture2DArrayShadow);
+            HeapBinding::BindTextureOrOffset(1, atlasID, RHI::HeapSlotLifetime::Persistent, shadowSampler,
+                                             RHI::NullSamplerKind::Texture2DArrayShadow);
+            HeapBinding::BindTextureOrOffset(2, historyID,
+                                             RHI::HeapSlotLifetime::Persistent);
+            // OpenVDB-imported density volume (#724), compute-local unit 3 —
+            // Renderer3D-owned (an asset's Texture3D) or the pass-owned
+            // placeholder, neither acquired from RenderGraph's per-frame
+            // transient pool, so Persistent — same reasoning as the shadow maps
+            // just above.
+            HeapBinding::BindTextureOrOffset(3, densityVolumeID, RHI::HeapSlotLifetime::Persistent);
+            // Persistent: the froxel volumes are pass-owned and double-buffered across
+            // frames for the temporal filter, not acquired from the transient pool.
+            HeapBinding::BindImageOrOffset(0, scatterID, 0, true, 0,
+                                           RHI::Access::StorageWrite, RHI::Format::RGBA16Float,
+                                           RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::FlushOffsets();
+            RenderCommand::DispatchCompute((kVolumeWidth + 3) / 4, (kVolumeHeight + 3) / 4, (kVolumeDepth + 3) / 4);
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
+            if (gpuSubTimers)
+                gpuSubTimers->EndSubPass();
 
-        // --- Integrate (front-to-back accumulation per column) ---
-        gpuSubTimers.BeginSubPass("FroxelFogIntegrate");
-        m_IntegrateShader->Bind();
-        // Pass-owned froxel volume sampled as a texture — Persistent, same as above.
-        HeapBinding::BindTextureOrOffset(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle(),
-                                         RHI::HeapSlotLifetime::Persistent);
-        HeapBinding::BindImageOrOffset(0, m_IntegratedVolume->GetRHIHandle(), 0, true, 0,
-                                       RHI::Access::StorageWrite, RHI::Format::RGBA16Float,
-                                       RHI::HeapSlotLifetime::Persistent);
-        HeapBinding::FlushOffsets();
-        RenderCommand::DispatchCompute((kVolumeWidth + 7) / 8, (kVolumeHeight + 7) / 8, 1);
-        // The composite pass samples the integrated volume as a texture.
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
-        m_IntegrateShader->Unbind();
-        gpuSubTimers.EndSubPass();
+            // --- Integrate (front-to-back accumulation per column) ---
+            if (gpuSubTimers)
+                gpuSubTimers->BeginSubPass("FroxelFogIntegrate");
+            m_IntegrateShader->Bind();
+            // Pass-owned froxel volume sampled as a texture — Persistent, same as above.
+            HeapBinding::BindTextureOrOffset(0, scatterID,
+                                             RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindImageOrOffset(0, integratedID, 0, true, 0,
+                                           RHI::Access::StorageWrite, RHI::Format::RGBA16Float,
+                                           RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::FlushOffsets();
+            RenderCommand::DispatchCompute((kVolumeWidth + 7) / 8, (kVolumeHeight + 7) / 8, 1);
+            // The composite pass samples the integrated volume as a texture.
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
+            m_IntegrateShader->Unbind();
+            if (gpuSubTimers)
+                gpuSubTimers->EndSubPass();
 
-        if (clusteredActive)
-            forwardPlus.UnbindAfterShading();
+            for (const auto& buffer : lighting.Buffers)
+                if (buffer)
+                    buffer->Unbind();
+        };
+        prepared.Publish = [this, fogNear, fogFar, viewRelative, projection, renderOrigin, ubo, historyIndex, viewProjectionAbsolute]
+        {
+            m_FroxelUBO->SetData(&ubo, sizeof(ubo));
+            m_FroxelUBO->Bind();
 
-        // Publish the froxel mapping this dispatch used (issue #607). Recorded
-        // BEFORE the ping-pong swap below, so ScatterTextureID is the volume the
-        // scatter dispatch just WROTE, not the one that becomes history next
-        // frame — a probe reading the other buffer would silently answer from
-        // the previous frame's scattering.
-        m_VolumeState.Valid = true;
-        m_VolumeState.DimX = kVolumeWidth;
-        m_VolumeState.DimY = kVolumeHeight;
-        m_VolumeState.DimZ = kVolumeDepth;
-        m_VolumeState.Near = fogNear;
-        m_VolumeState.Far = fogFar;
-        m_VolumeState.LogFarOverNear = std::log2(fogFar / fogNear);
-        m_VolumeState.View = viewRelative;
-        m_VolumeState.InverseView = ubo.InverseView;
-        m_VolumeState.Projection = projection;
-        m_VolumeState.InverseProjection = ubo.InverseProjection;
-        m_VolumeState.RenderOrigin = renderOrigin;
-        m_VolumeState.ScatterTextureID = m_ScatterVolume[m_CurrentScatter]->GetRHIHandle();
-        m_VolumeState.IntegratedTextureID = m_IntegratedVolume->GetRHIHandle();
+            // Publish the froxel mapping this dispatch used (issue #607). Recorded
+            // BEFORE the ping-pong swap below, so ScatterTextureID is the volume the
+            // scatter dispatch just WROTE, not the one that becomes history next
+            // frame — a probe reading the other buffer would silently answer from
+            // the previous frame's scattering.
+            m_VolumeState.Valid = true;
+            m_VolumeState.DimX = kVolumeWidth;
+            m_VolumeState.DimY = kVolumeHeight;
+            m_VolumeState.DimZ = kVolumeDepth;
+            m_VolumeState.Near = fogNear;
+            m_VolumeState.Far = fogFar;
+            m_VolumeState.LogFarOverNear = std::log2(fogFar / fogNear);
+            m_VolumeState.View = viewRelative;
+            m_VolumeState.InverseView = ubo.InverseView;
+            m_VolumeState.Projection = projection;
+            m_VolumeState.InverseProjection = ubo.InverseProjection;
+            m_VolumeState.RenderOrigin = renderOrigin;
+            m_VolumeState.ScatterTextureID = m_ScatterVolume[m_CurrentScatter]->GetRHIHandle();
+            m_VolumeState.IntegratedTextureID = m_IntegratedVolume->GetRHIHandle();
 
-        // Bookkeeping for the next frame
-        m_CurrentScatter = historyIndex;
-        m_HistoryValid = true;
-        m_PrevViewProjection = viewProjectionAbsolute;
-        m_PrevViewProjectionValid = true;
-        ++m_FrameIndex;
-        m_RanThisFrame = true;
+            // Bookkeeping for the next frame
+            m_CurrentScatter = historyIndex;
+            m_HistoryValid = true;
+            m_PrevViewProjection = viewProjectionAbsolute;
+            m_PrevViewProjectionValid = true;
+            ++m_FrameIndex;
+            m_RanThisFrame = true;
+        };
+        return prepared;
     }
 
     void VolumetricFogPass::UploadDisabledUBO()

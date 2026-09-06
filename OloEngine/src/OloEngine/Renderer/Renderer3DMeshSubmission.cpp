@@ -79,10 +79,6 @@ namespace OloEngine
     {
         if (!shader)
             return false;
-        const u64 handle = static_cast<u64>(shader->GetHandle());
-        if (handle == 0)
-            return false;
-
         // Primary path: ask the shader itself. `Shader::IsDeferredCapable()`
         // is populated by the backend's reflection pass (for OpenGL, at
         // Reflect() time by scanning the fragment stage's declared outputs
@@ -101,12 +97,15 @@ namespace OloEngine
         // set so those queries don't misclassify a not-yet-reflected shader
         // as forward-only.
         //
-        // Compare by AssetHandle rather than RendererID — the latter is
-        // re-issued on hot-reload whereas the handle is stable across the
-        // asset lifetime.
-        const auto matches = [handle](const Ref<Shader>& candidate)
+        // Built-in shaders can exist without an asset registration. Their
+        // object identity is authoritative even when the asset handle is zero.
+        // Registered aliases may also match by nonzero AssetHandle; never
+        // equate two unrelated unregistered shaders through their zero handles.
+        const u64 handle = static_cast<u64>(shader->GetHandle());
+        const auto matches = [&shader, handle](const Ref<Shader>& candidate)
         {
-            return candidate && static_cast<u64>(candidate->GetHandle()) == handle;
+            return candidate && (candidate == shader ||
+                                 (handle != 0 && static_cast<u64>(candidate->GetHandle()) == handle));
         };
         return matches(s_Data.PBRGBufferShader) || matches(s_Data.PBRGBufferSkinnedShader) ||
                matches(s_Data.SkyboxGBufferShader) || matches(s_Data.LightCubeGBufferShader) ||
@@ -2078,7 +2077,9 @@ namespace OloEngine
             return totalSubmitted;
         }
 
-        // Parallel path using ParallelForWithTaskContext.
+        // The scheduler may expose more tasks than the renderer's fixed worker
+        // slots (including the calling thread). Existing contexts bound both
+        // the worker tasks and the caller to valid allocator/bucket indices.
         BeginParallelSubmission();
 
         // Per-worker accumulator to track statistics.
@@ -2090,21 +2091,17 @@ namespace OloEngine
         };
 
         TArray<WorkerStats> workerStats;
+        workerStats.SetNum(MAX_RENDER_WORKERS);
+        for (u32 worker = 0; worker < MAX_RENDER_WORKERS; ++worker)
+        {
+            workerStats[worker].Context = GetWorkerContext(worker);
+        }
 
-        ParallelForWithTaskContext(
+        ParallelForWithExistingTaskContext(
             "SubmitMeshesParallel",
-            workerStats,
+            TArrayView<WorkerStats>(workerStats),
             numMeshes,
             minBatchSize,
-            // Context constructor - initialize worker context for each task slot.
-            // Use explicit contextIndex to avoid std::thread::id lookup.
-            [](i32 contextIndex, i32 /*numContexts*/) -> WorkerStats
-            {
-                WorkerStats stats;
-                // Use the optimized path with explicit worker index.
-                stats.Context = Renderer3D::GetWorkerContext(static_cast<u32>(contextIndex));
-                return stats;
-            },
             // Body - process one mesh descriptor.
             [&meshes](WorkerStats& stats, i32 index)
             {

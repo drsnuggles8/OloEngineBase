@@ -184,6 +184,7 @@ namespace OloEngine
 
     u32 RGCommandContext::ResolveTexture(const RGTextureHandle handle) const
     {
+        OLO_CORE_ASSERT(!RenderCommand::IsRecordingParallelItem(), "Resolve graph resources before the recording fork");
         if (!m_RenderGraph)
             return 0;
 
@@ -208,6 +209,7 @@ namespace OloEngine
 
     RHI::ResourceHandle RGCommandContext::ResolveTextureHandle(const RGTextureHandle handle) const
     {
+        OLO_CORE_ASSERT(!RenderCommand::IsRecordingParallelItem(), "Resolve graph resources before the recording fork");
         if (!m_RenderGraph)
             return {};
 
@@ -232,6 +234,7 @@ namespace OloEngine
 
     Ref<Framebuffer> RGCommandContext::ResolveFramebuffer(const RGFramebufferHandle handle) const
     {
+        OLO_CORE_ASSERT(!RenderCommand::IsRecordingParallelItem(), "Resolve graph resources before the recording fork");
         if (!m_RenderGraph)
             return nullptr;
 

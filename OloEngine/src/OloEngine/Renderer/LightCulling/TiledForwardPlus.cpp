@@ -155,25 +155,44 @@ namespace OloEngine
         // Upload Forward+ clustered parameters UBO
         if (m_ForwardPlusUBO)
         {
-            const f32 screenW = static_cast<f32>(m_LightGrid.GetScreenWidth());
-            const f32 screenH = static_cast<f32>(m_LightGrid.GetScreenHeight());
-            const auto slicing = ClusteredLighting::ComputeDepthSliceParams(
-                m_LightGrid.GetClusterCountZ(), m_NearPlane, m_FarPlane);
-
-            UBOStructures::ForwardPlusUBO uboData{};
-            uboData.Params = glm::uvec4(
-                m_LightGrid.GetClusterCountX(),
-                m_LightGrid.GetClusterCountY(),
-                1u, // Enabled
-                m_LightGrid.GetClusterCountZ());
-            uboData.TileScale = glm::vec4(
-                screenW > 0.0f ? static_cast<f32>(m_LightGrid.GetClusterCountX()) / screenW : 0.0f,
-                screenH > 0.0f ? static_cast<f32>(m_LightGrid.GetClusterCountY()) / screenH : 0.0f,
-                screenW, screenH);
-            uboData.DepthSlicing = glm::vec4(slicing.Scale, slicing.Bias, m_NearPlane, m_FarPlane);
+            const auto uboData = GetShadingParameters();
             m_ForwardPlusUBO->SetData(&uboData, sizeof(uboData));
             m_ForwardPlusUBO->Bind();
         }
+    }
+
+    UBOStructures::ForwardPlusUBO TiledForwardPlus::GetShadingParameters() const
+    {
+        if (!ShouldUseForwardPlus())
+            return {};
+        const f32 screenW = static_cast<f32>(m_LightGrid.GetScreenWidth());
+        const f32 screenH = static_cast<f32>(m_LightGrid.GetScreenHeight());
+        const auto slicing = ClusteredLighting::ComputeDepthSliceParams(
+            m_LightGrid.GetClusterCountZ(), m_NearPlane, m_FarPlane);
+
+        UBOStructures::ForwardPlusUBO uboData{};
+        uboData.Params = glm::uvec4(
+            m_LightGrid.GetClusterCountX(),
+            m_LightGrid.GetClusterCountY(),
+            1u, // Enabled
+            m_LightGrid.GetClusterCountZ());
+        uboData.TileScale = glm::vec4(
+            screenW > 0.0f ? static_cast<f32>(m_LightGrid.GetClusterCountX()) / screenW : 0.0f,
+            screenH > 0.0f ? static_cast<f32>(m_LightGrid.GetClusterCountY()) / screenH : 0.0f,
+            screenW, screenH);
+        uboData.DepthSlicing = glm::vec4(slicing.Scale, slicing.Bias, m_NearPlane, m_FarPlane);
+        return uboData;
+    }
+
+    TiledForwardPlus::ShadingSnapshot TiledForwardPlus::CaptureShadingBindings() const
+    {
+        ShadingSnapshot snapshot;
+        snapshot.Parameters = GetShadingParameters();
+        if (ShouldUseForwardPlus())
+            snapshot.Buffers = { m_LightBuffer.GetPointLightSSBO(), m_LightBuffer.GetSpotLightSSBO(),
+                                 m_LightBuffer.GetSphereAreaLightSSBO(), m_LightGrid.GetLightIndexSSBO(),
+                                 m_LightGrid.GetLightGridSSBO() };
+        return snapshot;
     }
 
     void TiledForwardPlus::UnbindAfterShading() const

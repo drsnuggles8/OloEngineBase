@@ -31,10 +31,14 @@
 //      the view-ray extinction the fog already had. Enabling it must cost the
 //      far (shadowed) end more brightness than the near (sunward) end.
 //
-// Both fixtures snapshot and restore the process-global FogSettings and
-// cloudscape render state: RendererAttachedTest's snapshot does NOT cover them,
-// and a leaked dense fog / storm deck breaks unrelated goldens later in the
-// suite (docs/agent-rules/volumetric-cloud-debugging.md, fifth cause).
+// Both fixtures snapshot and restore the process-global FogSettings, the
+// RendererSettings and the cloudscape render state: RendererAttachedTest's
+// snapshot does NOT cover them, and a leaked dense fog / storm deck breaks
+// unrelated goldens later in the suite
+// (docs/agent-rules/volumetric-cloud-debugging.md, fifth cause). RendererSettings
+// was the same trap one level up — the fog-volume fixture switches Path to
+// ForwardPlus, and leaking that left ~100 later visual-evidence tests rendering
+// down a pipeline where the feature they assert on does not run at all.
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -149,6 +153,7 @@ namespace OloEngine::Tests
         void SetUp() override
         {
             m_SavedFog = Renderer3D::GetFogSettings();
+            m_SavedSettings = Renderer3D::GetRendererSettings();
             RendererAttachedTest::SetUp();
         }
 
@@ -156,6 +161,14 @@ namespace OloEngine::Tests
         {
             RendererAttachedTest::TearDown();
             Renderer3D::GetFogSettings() = m_SavedFog;
+            // RendererSettings is process-global too, and these fixtures write
+            // it — the fog-volume one switches Path to ForwardPlus for its own
+            // experiment. Restoring it is not optional in a single-process
+            // suite: a leaked Path left every later visual-evidence test
+            // rendering down the wrong pipeline, where the feature under test
+            // is simply absent and its on/off captures come out identical.
+            Renderer3D::GetRendererSettings() = m_SavedSettings;
+            Renderer3D::ApplyRendererSettings();
             Renderer3D::SetCloudscapeState(CloudscapeRenderState{});
         }
 
@@ -217,6 +230,7 @@ namespace OloEngine::Tests
         }
 
         FogSettings m_SavedFog{};
+        RendererSettings m_SavedSettings{};
     };
 
     // =========================================================================

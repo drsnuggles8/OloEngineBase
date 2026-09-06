@@ -111,7 +111,12 @@ namespace OloEngine
         Ref<Shader> m_ResolveShader;         // fullscreen visibility-buffer -> G-Buffer material resolve
         Ref<ComputeShader> m_ColorizeShader; // overdraw count -> heat colour (debug capture)
         Ref<SceneRenderPass> m_ScenePass;
-        Ref<UniformBuffer> m_DrawInfoUBO; // UBO_VIRTUAL_DRAW, one update per MDI/resolve draw
+        struct RecordingUploads
+        {
+            Ref<UniformBuffer> Cull;
+            Ref<UniformBuffer> DrawInfo;
+        };
+        std::vector<RecordingUploads> m_RecordingUploads;
         // VirtualClusterCull.comp's former bare uniforms (issue #691),
         // at UBO_VIRTUAL_CLUSTER_CULL — refilled PER instance dispatch (the
         // loop varies u_InstanceIndex). C++ twin:

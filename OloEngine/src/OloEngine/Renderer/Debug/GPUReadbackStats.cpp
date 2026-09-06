@@ -139,6 +139,12 @@ namespace OloEngine
         return Get().Latest;
     }
 
+    RHI::ResourceHandle GPUReadbackStats::GetDispatchBufferHandle()
+    {
+        const auto& data = Get();
+        return data.StatsBuffer ? data.StatsBuffer->GetRHIHandle() : RHI::ResourceHandle{};
+    }
+
     void GPUReadbackStats::BindForDispatch()
     {
         auto& data = Get();

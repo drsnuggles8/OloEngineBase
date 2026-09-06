@@ -866,4 +866,35 @@ TEST_F(VulkanResourceFactory, StorageBufferDataPathsRoundTrip)
     EXPECT_NE(static_cast<VulkanStorageBuffer*>(gpuOwned.Raw())->GetDeviceAddress(), 0u);
 }
 
+TEST_F(VulkanResourceFactory, LinearColourArraysSupportComputeStorageDescriptors)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    for (const auto format : { Texture2DArrayFormat::RGBA8, Texture2DArrayFormat::RGBA16F,
+                               Texture2DArrayFormat::RGBA32F, Texture2DArrayFormat::RGBA32UI })
+    {
+        SCOPED_TRACE(static_cast<u32>(format));
+        Texture2DArraySpecification spec;
+        spec.Width = 4;
+        spec.Height = 4;
+        spec.Layers = 2;
+        spec.Format = format;
+        spec.GenerateMipmaps = false;
+        auto array = Texture2DArray::Create(spec);
+        ASSERT_NE(array, nullptr);
+        const auto image = static_cast<VulkanTexture2DArray*>(array.get())->GetVkImage();
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+        ASSERT_NE(info, nullptr);
+        VkImageViewCreateInfo view{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        view.image = image;
+        view.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        view.format = info->Format;
+        view.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 2 };
+        const auto slot = VulkanDescriptorSlotCache::Get().AcquireSlot(
+            image, view, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_IMAGE_LAYOUT_GENERAL);
+        EXPECT_NE(slot, VulkanResourceHeap::InvalidSlot);
+        // TearDown asserts no validation errors: without STORAGE usage the
+        // descriptor write itself triggers VUID-type-11459 (ocean FFT / VT).
+    }
+}
+
 #endif // OLO_WITH_VULKAN

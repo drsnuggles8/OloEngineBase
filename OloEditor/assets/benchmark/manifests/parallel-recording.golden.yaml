@@ -1,0 +1,68 @@
+# Independent mesh index windows keep the 3600-caster workload unbatched.
+ManifestVersion: 1
+Id: parallel-recording-golden
+Product: golden
+Scene: Scenes/Benchmark/ParallelRecording.olo
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+Cameras:
+  # Near view places casters in cascade zero; the overview stresses draw count.
+  - Id: near
+    Position: [0, 9, 14]
+    YawDegrees: 0
+    PitchDegrees: 35
+    FovDegrees: 60
+    Near: 0.05
+    Far: 300
+  - Id: overview
+    Position: [0, 50, 85]
+    YawDegrees: 0
+    PitchDegrees: 35
+    FovDegrees: 60
+    Near: 0.05
+    Far: 300
+  - Id: side
+    Position: [55, 24, 15]
+    YawDegrees: -70
+    PitchDegrees: 25
+    FovDegrees: 60
+    Near: 0.05
+    Far: 300
+Output:
+  Resolution: [1280, 720]
+  RenderScale: 1.0
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: false
+  TAAEnabled: false
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+Determinism:
+  Seed: 1013
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+Warmup:
+  Frames: 32
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneDepth
+    Source: SceneDepth
+    Format: png
+    Normalize: auto
+  - Name: ShadowMapCSMCascade0
+    Source: ShadowMapCSMCascade0
+    Format: png
+    Normalize: auto
+Tolerance:
+  # All nine Vulkan off/on attachment pairs matched exactly in local validation.
+  RepeatRmse: 0.0
+Assets:
+  - Path: SandboxProject/Assets/Models/Benchmark/RecordingCasters.glb
+    Origin: generated in-repo by generate_recording_benchmark.py
+    License: repository license (no third-party rights)

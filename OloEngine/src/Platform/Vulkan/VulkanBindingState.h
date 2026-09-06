@@ -77,6 +77,32 @@ namespace OloEngine
         static_assert(ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS <= kMaxTextureSlots,
                       "every engine texture slot must fit the bind-state mirror");
 
+        // Construction-time slot claims are suppressed while one of these is
+        // alive on this thread.
+        //
+        // A UniformBuffer claims its binding point in its CONSTRUCTOR (the GL
+        // twin's glBindBufferBase), which means merely allocating the parallel
+        // recorder's per-item upload objects rewrites the process-wide mirror.
+        // That used to be undone by snapshotting the mirror before the
+        // allocation loop and assigning the snapshot back afterwards — but a
+        // buffer DESTROYED inside that window (a retained item buffer whose
+        // last reference dies) correctly nulls its live slot, and the restore
+        // then put the dangling pointer back. The next fork walked every
+        // binding to pre-push root data and dereferenced it.
+        //
+        // Suppressing the claim instead means the mirror is never disturbed, so
+        // there is nothing to restore and nothing to resurrect: a destruction
+        // inside the window is the only edit, and it is the edit we want.
+        class ScopedClaimSuppression
+        {
+          public:
+            ScopedClaimSuppression();
+            ~ScopedClaimSuppression();
+            ScopedClaimSuppression(const ScopedClaimSuppression&) = delete;
+            ScopedClaimSuppression& operator=(const ScopedClaimSuppression&) = delete;
+        };
+        [[nodiscard]] static bool ClaimsSuppressed();
+
         // --- buffer bind points (glBindBufferBase mirror) --------------------
         void SetUniformBuffer(u32 binding, VulkanUniformBuffer* buffer);
         void SetStorageBuffer(u32 binding, VulkanStorageBuffer* buffer);

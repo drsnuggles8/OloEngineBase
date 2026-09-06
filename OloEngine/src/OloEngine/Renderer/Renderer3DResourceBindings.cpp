@@ -75,6 +75,12 @@ namespace OloEngine
         next.EntityID = s_Data.DecalVisibilityTarget;
     }
 
+    bool Renderer3D::IsDecalVisibilityObserved(i32 entityID)
+    {
+        return entityID == s_Data.DecalVisibilityTarget &&
+               entityID == s_Data.DecalVisibilityFrames[s_Data.DecalVisibilityWriteBuffer].EntityID;
+    }
+
     bool Renderer3D::BeginDecalVisibilityQuery(i32 entityID)
     {
         auto& active = s_Data.DecalVisibilityFrames[s_Data.DecalVisibilityWriteBuffer];

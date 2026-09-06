@@ -26,6 +26,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <gtest/gtest.h>
+#include <filesystem>
 
 #if !OLO_WITH_VULKAN
 
@@ -37,9 +38,21 @@ TEST(VulkanParallelRecording, SkipsWhenNotCompiledIn)
 #else
 
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Particle/ParticleBatchRenderer.h"
+#include "OloEngine/Renderer/Camera/Camera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Commands/CommandAllocator.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/PreparedFullscreenPass.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
+#include "OloEngine/Renderer/RenderGraphPlanExecutor.h"
+#include "OloEngine/Renderer/RenderGraphSubmissionPlan.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -68,6 +81,8 @@ TEST(VulkanParallelRecording, SkipsWhenNotCompiledIn)
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <barrier>
+#include <string>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -356,6 +371,68 @@ TEST(VulkanParallelRecording, DiscardedOverlayLeavesTheBaseAlone)
     EXPECT_EQ(base.CurrentLayout(image, Layer(0)), kUndefined);
 }
 
+// No Vulkan device: these threads exercise the same claims, frozen base and
+// overlay mutation used by recording workers, including in the Linux TSan job.
+TEST(VulkanParallelRecording, ConcurrentClaimsAndOverlaysMergeDeterministically)
+{
+    constexpr u32 itemCount = 8;
+    constexpr u32 imageCount = 32;
+    VulkanImageLayoutTracker base;
+    VulkanLayoutClaimTable claims;
+    std::array<VulkanImageLayoutTracker, itemCount> overlays;
+    for (u32 image = 0; image < imageCount; ++image)
+        base.RegisterImage(FakeImage(0x1000u + image), 1, itemCount + 1u, 1, kDepthAttachment);
+    for (u32 item = 0; item < itemCount; ++item)
+        overlays[item].SetReadThroughBase(&base, &claims, item);
+
+    std::barrier start(static_cast<std::ptrdiff_t>(itemCount));
+    std::vector<std::jthread> threads;
+    for (u32 item = 0; item < itemCount; ++item)
+    {
+        threads.emplace_back([&, item]
+                             {
+            start.arrive_and_wait();
+            for (u32 image = 0; image < imageCount; ++image)
+            {
+                const auto handle = FakeImage(0x1000u + image);
+                // Contend the claim map, with one owner per real transition.
+                overlays[item].SetLayout(handle, Layer(item), kTransferDst);
+                overlays[item].SetLayout(handle, Layer(item), kShaderRead);
+                // Every worker also writes the same identity-only layer.
+                overlays[item].SetLayout(handle, Layer(itemCount), kDepthAttachment);
+            } });
+    }
+    threads.clear(); // join all workers before touching the frozen base
+    VulkanImageLayoutTracker::MergeBatch batch;
+    for (auto& overlay : overlays)
+        overlay.MergeOverlayInto(base, batch);
+    EXPECT_EQ(batch.Conflicts, 0u);
+    for (u32 image = 0; image < imageCount; ++image)
+    {
+        for (u32 item = 0; item < itemCount; ++item)
+            EXPECT_EQ(base.CurrentLayout(FakeImage(0x1000u + image), Layer(item)), kShaderRead);
+        EXPECT_EQ(base.CurrentLayout(FakeImage(0x1000u + image), Layer(itemCount)), kDepthAttachment);
+    }
+
+    // Same-key contention has exactly one winner and every loser names it.
+    claims.Reset();
+    std::array<u32, itemCount> owners{};
+    std::barrier claimStart(static_cast<std::ptrdiff_t>(itemCount));
+    for (u32 item = 0; item < itemCount; ++item)
+        threads.emplace_back([&, item]
+                             {
+            claimStart.arrive_and_wait();
+            owners[item] = claims.Claim(FakeImage(0x2000), 0, item); });
+    threads.clear();
+    const auto winner = std::find(owners.begin(), owners.end(), VulkanLayoutClaimTable::kNone);
+    ASSERT_NE(winner, owners.end());
+    const auto winnerIndex = static_cast<u32>(std::distance(owners.begin(), winner));
+    EXPECT_EQ(std::count(owners.begin(), owners.end(), VulkanLayoutClaimTable::kNone), 1);
+    for (u32 item = 0; item < itemCount; ++item)
+        if (item != winnerIndex)
+            EXPECT_EQ(owners[item], winnerIndex);
+}
+
 // The facade contract every backend shares: without support the items run
 // inline, in ascending order, on the calling thread. The shared GPU-test
 // process runs on OpenGL here, which never overrides RecordParallel.
@@ -574,10 +651,10 @@ class VulkanParallelRecordingDevice : public ::testing::Test
     // Count the pixels of `target`'s attachment that are NOT `color` (8-bit,
     // exact: the tint is 0/1 per channel and the texel is white).
     [[nodiscard]] static u32 CountWrongPixels(const Ref<Framebuffer>& target, const std::array<f32, 4>& color,
-                                              const u32 x0, const u32 x1)
+                                              const u32 x0, const u32 x1, const u32 attachmentIndex = 0)
     {
         const auto* vkFramebuffer = static_cast<const VulkanFramebuffer*>(target.Raw());
-        const auto attachment = vkFramebuffer->GetColorAttachmentImage(0);
+        const auto attachment = vkFramebuffer->GetColorAttachmentImage(attachmentIndex);
         if (attachment == nullptr)
             return 0xFFFFFFFFu;
         std::vector<u8> pixels;
@@ -656,6 +733,206 @@ class VulkanParallelRecordingDevice : public ::testing::Test
     VkFence m_Fence = VK_NULL_HANDLE;
 };
 
+TEST_F(VulkanParallelRecordingDevice, GraphRecordsSharedUnboundUniformAndTimesOrderedPasses)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    EnsureTaskWorkers();
+    auto& api = renderCommandSelection.Get();
+    const DrawKit kit = MakeDrawKit();
+    // The production fullscreen primitive has five floats per vertex.
+    std::string vertexSource(kVertexSrc);
+    vertexSource.replace(vertexSource.find("gl_VertexIndex * 2"), std::string("gl_VertexIndex * 2").size(), "gl_VertexIndex * 5");
+    auto shader = Ref<VulkanShader>::Create("PreparedSharedUniform", vertexSource, kFragmentSrc);
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    auto firstTarget = MakeTintedTarget(32, { 1, 0, 0, 1 });
+    auto secondTarget = MakeTintedTarget(32, { 0, 0, 0, 1 });
+
+    auto mrtSpec = secondTarget.Target->GetSpecification();
+    mrtSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA8 };
+    secondTarget.Target = Framebuffer::Create(mrtSpec);
+    std::string mrtFragment(kFragmentSrc);
+    mrtFragment.insert(mrtFragment.find("layout(binding"), "layout(location = 1) out vec4 o_Second;\n");
+    mrtFragment.insert(mrtFragment.find("    o_Color ="), "    o_Second = vec4(0, 1, 0, 1);\n");
+    auto mrtShader = Ref<VulkanShader>::Create("PreparedMRT", vertexSource, mrtFragment);
+
+    class FullscreenNode final : public RenderGraphNode
+    {
+      public:
+        Ref<Framebuffer> Target;
+        Ref<Shader> Program;
+        Ref<UniformBuffer> Uniform;
+        RHI::ResourceHandle Texture;
+        std::vector<u32> DrawBuffers{ 0u };
+        bool SupportsWholePassRecording() const noexcept override
+        {
+            return true;
+        }
+        RGPreparedPass PrepareParallelRecording(RGCommandContext&) override
+        {
+            return PrepareFullscreenPass(Target, Program, { { 0, Texture, "u_Texture", RHI::HeapSlotLifetime::Persistent } }, { Uniform }, true, DrawBuffers);
+        }
+        void Execute(RGCommandContext& context) override
+        {
+            auto prepared = PrepareParallelRecording(context);
+            prepared.Record(context);
+        }
+    } first, second;
+    first.SetName("PreparedFirst");
+    second.SetName("PreparedSecond");
+    first.Target = firstTarget.Target;
+    second.Target = secondTarget.Target;
+    for (auto* node : { &first, &second })
+    {
+        node->Program = shader;
+        node->Uniform = firstTarget.Tint;
+        node->Texture = kit.White->GetRHIHandle();
+    }
+    second.Program = mrtShader;
+    second.DrawBuffers = { 0u, 1u };
+    const std::vector<std::string> order{ first.GetName(), second.GetName() };
+    const auto plan = RenderGraphSubmissionPlan::BuildPlan({ .ExecutionOrder = order, .Dependencies = {}, .PlannedBarriers = {}, .Transitions = {}, .Batches = {}, .EnableSplitBarriers = false, .GetPassWorkType = [](const std::string&)
+                                                                                                                                                                                                 { return RenderGraphPassWorkType::Graphics; },
+                                                             .ResolveNodePointer = [&](const std::string& name) -> RenderGraphNode*
+                                                             { return name == first.GetName() ? &first : &second; } });
+    ASSERT_EQ(plan.size(), 2u);
+    ASSERT_EQ(plan[0].RecordingGroup, plan[1].RecordingGroup);
+    ASSERT_NE(plan[0].RecordingGroup, UINT32_MAX);
+    auto& timers = GPUPassTimerPool::GetInstance();
+    timers.Initialize(8);
+    struct Cleanup
+    {
+        ~Cleanup()
+        {
+            GPUPassTimerPool::GetInstance().Shutdown();
+            MeshPrimitives::Shutdown();
+        }
+    } cleanup;
+    std::array targets{ first.Target, second.Target };
+    RGCommandContext context;
+    for (u32 frame = 0; frame < 3; ++frame)
+    {
+        VulkanFrameArena::Get().BeginFrame(0);
+        SubmitPassFrame(api, targets, [&]
+                        {
+            // Displace the shared red UBO with a black UBO at the SAME binding.
+            // Seed-only priming cannot reach the prepared passes' shared input.
+            secondTarget.Tint->Bind();
+            RHI::Barrier extraTarget{};
+            extraTarget.Resource = second.Target->GetColorAttachmentHandle(1);
+            extraTarget.Before = RHI::Access::Undefined;
+            extraTarget.After = RHI::Access::ColorAttachmentWrite;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &extraTarget, 1 });
+            timers.BeginFrame();
+            const auto cpu = RenderGraphPlanExecutor::ExecutePlan({
+                .SubmissionPlan = plan, .Context = context, .RuntimeBarrierExecutionEnabled = false,
+                .IsPassReachable = [](const std::string&) { return true; } });
+            EXPECT_EQ(cpu.size(), 2u);
+            timers.EndFrame();
+            extraTarget.Before = RHI::Access::ColorAttachmentWrite;
+            extraTarget.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &extraTarget, 1 }); });
+    }
+    EXPECT_EQ(CountWrongPixels(first.Target, firstTarget.Color, 0, 32), 0u);
+    EXPECT_EQ(CountWrongPixels(second.Target, firstTarget.Color, 0, 32), 0u);
+    EXPECT_EQ(CountWrongPixels(second.Target, { 0, 1, 0, 1 }, 0, 32, 1), 0u);
+    const auto stats = api.GetParallelRecordingStats();
+    ASSERT_EQ(stats.Regions, 1u);
+    EXPECT_EQ(stats.SecondariesExecuted, 2u);
+    EXPECT_EQ(stats.MergeConflicts, 0u);
+    ASSERT_EQ(stats.RegionTimings.size(), 1u);
+    EXPECT_EQ(stats.RegionTimings[0].ItemPassNames, order);
+    const auto gpu = timers.GetLastPassTimingsCopy();
+    ASSERT_EQ(gpu.size(), 2u);
+    EXPECT_EQ(gpu[0].Name, first.GetName());
+    EXPECT_EQ(gpu[1].Name, second.GetName());
+}
+
+TEST_F(VulkanParallelRecordingDevice, MeshParticleRangesMatchInlinePixels)
+{
+    struct RestoreDirectory
+    {
+        std::filesystem::path Previous = std::filesystem::current_path();
+        ~RestoreDirectory()
+        {
+            std::filesystem::current_path(Previous);
+        }
+    } restoreDirectory;
+    if (std::filesystem::exists("OloEditor/assets/shaders/Particle_Mesh.glsl"))
+        std::filesystem::current_path("OloEditor");
+    ASSERT_TRUE(std::filesystem::exists("assets/shaders/Particle_Mesh.glsl"));
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    EnsureTaskWorkers();
+    auto& api = renderCommandSelection.Get();
+    ParticleBatchRenderer::Init();
+    struct Cleanup
+    {
+        ~Cleanup()
+        {
+            ParticleBatchRenderer::Shutdown();
+        }
+    } cleanup;
+    auto cube = MeshPrimitives::CreateCube();
+    ASSERT_TRUE(cube && cube->IsValid());
+    auto target = MakeTintedTarget(32, { 1, 1, 1, 1 });
+    FramebufferSpecification particleTarget;
+    particleTarget.Width = particleTarget.Height = 32;
+    particleTarget.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER,
+                                   FramebufferTextureFormat::RG16F, FramebufferTextureFormat::RG16F };
+    target.Target = Framebuffer::Create(particleTarget);
+    std::array targets{ target.Target };
+    std::array<MeshParticleInstance, 96> instances;
+    for (u32 i = 0; i < instances.size(); ++i)
+    {
+        auto& instance = instances[i];
+        instance.Model = glm::mat4(0.14f);
+        instance.Model[3] = glm::vec4(-0.88f + static_cast<f32>(i % 12) * 0.16f,
+                                      -0.7f + static_cast<f32>(i / 12) * 0.2f, 0.5f, 1.0f);
+        instance.PrevModel = instance.Model;
+        instance.Color = i < 32 ? glm::vec4(1, 0, 0, 1) : (i < 64 ? glm::vec4(0, 1, 0, 1) : glm::vec4(0, 0, 1, 1));
+        instance.IDs = glm::ivec4(static_cast<i32>(i), 0, 0, 0);
+    }
+    std::vector<u8> reference;
+    for (const auto lever : { Levers::Tristate::Off, Levers::Tristate::On })
+    {
+        Levers::SetVulkanParallelRecording(lever);
+        VulkanFrameArena::Get().BeginFrame(0);
+        SubmitPassFrame(api, targets, [&]
+                        {
+            target.Target->Bind();
+            api.SetViewport(0, 0, 32, 32);
+            api.SetDepthTest(false);
+            api.SetDepthMask(false);
+            api.SetBlendState(false);
+            api.DisableCulling();
+            api.SetClearColor({ 0, 0, 0, 1 });
+            api.Clear();
+            ParticleBatchRenderer::BeginBatch(Camera(glm::mat4(1.0f)), glm::mat4(1.0f));
+            ParticleBatchRenderer::RenderMeshParticles(cube, instances, nullptr);
+            target.Target->Unbind(); });
+        const auto* framebuffer = static_cast<const VulkanFramebuffer*>(target.Target.Raw());
+        std::vector<u8> pixels;
+        ASSERT_TRUE(framebuffer->GetColorAttachmentImage(0)->GetData(pixels, 0));
+        if (lever == Levers::Tristate::Off)
+        {
+            reference = pixels;
+            std::array<u32, 3> colorPixels{};
+            for (sizet i = 0; i < pixels.size(); i += 4)
+                for (u32 channel = 0; channel < 3; ++channel)
+                    colorPixels[channel] += pixels[i + channel] > 128 ? 1u : 0u;
+            for (const auto count : colorPixels)
+                EXPECT_GT(count, 20u) << "each range must contribute visible particles";
+        }
+        else
+        {
+            EXPECT_EQ(pixels, reference);
+            const auto stats = api.GetParallelRecordingStats();
+            EXPECT_EQ(stats.Regions, 1u);
+            EXPECT_EQ(stats.SecondariesExecuted, 3u);
+            EXPECT_EQ(stats.MergeConflicts, 0u);
+        }
+    }
+}
+
 // Four items, four targets, one vkCmdExecuteCommands. Each item binds its own
 // framebuffer, clears, and draws with its own tint UBO (rule 6); the join
 // executes them in item order; every target reads back its own colour.
@@ -731,6 +1008,130 @@ TEST_F(VulkanParallelRecordingDevice, ForkRecordsEachItemIntoItsOwnTargetThrough
                   kItems, distinct, LowLevelTasks::FScheduler::Get().GetNumWorkers());
 }
 
+// Bucket replay must isolate both the material UBO and the model-instance
+// SSBO, even when the same material index is replayed repeatedly on an item.
+TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInstanceUploads)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    EnsureTaskWorkers();
+    VulkanFrameArena::Get().BeginFrame(0);
+    CommandDispatch::Initialize();
+    const bool ownsFrameData = !FrameDataBufferManager::IsInitialized();
+    if (ownsFrameData)
+        FrameDataBufferManager::Init();
+    struct Restore
+    {
+        bool OwnsFrameData;
+        ~Restore()
+        {
+            CommandDispatch::Shutdown();
+            if (OwnsFrameData)
+                FrameDataBufferManager::Shutdown();
+        }
+    } restore{ ownsFrameData };
+    auto& frameData = FrameDataBufferManager::Get();
+    frameData.Reset();
+
+    auto kit = MakeDrawKit();
+    std::string fragment = kFragmentSrc;
+    fragment.replace(fragment.find("binding = 3"), std::string("binding = 3").size(), "binding = 2");
+    fragment.insert(fragment.find("void main()"),
+                    "layout(std430, binding = 15) readonly buffer InstanceWords { float words[]; };\n");
+    const std::string output = "o_Color = texture(u_Texture, v_TexCoord) * u_Tint;";
+    fragment.replace(fragment.find(output), output.size(),
+                     "o_Color = abs(words[0] - u_Tint.a) < 0.25 ? vec4(texture(u_Texture, v_TexCoord).rgb * u_Tint.rgb, 1.0) : vec4(1.0, 0.0, 1.0, 1.0);");
+    kit.Shader = Ref<VulkanShader>::Create("ParallelBucketUploads", kVertexSrc, fragment);
+    ASSERT_EQ(kit.Shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    auto materialBuffer = UniformBuffer::Create(ShaderBindingLayout::PBRMaterialUBO::GetSize(), ShaderBindingLayout::UBO_MATERIAL);
+    auto instances = Ref<InstanceBuffer>::Create(1u);
+    CommandDispatch::SetUBOReferences(nullptr, materialBuffer, nullptr, instances);
+
+    constexpr u32 itemCount = 4;
+    const std::array<std::array<f32, 4>, itemCount> colors = { { { 1, 0, 0, 1 }, { 0, 1, 0, 1 }, { 0, 0, 1, 1 }, { 1, 1, 0, 1 } } };
+    std::array<CommandBucket, itemCount> buckets;
+    CommandAllocator allocator;
+    std::vector<TintedTarget> targets;
+    std::vector<Ref<Framebuffer>> framebuffers;
+    PODRenderState state{};
+    state.depthTestEnabled = false;
+    state.depthWriteMask = false;
+    const u16 stateIndex = frameData.AllocateRenderState(state);
+    for (u32 item = 0; item < itemCount; ++item)
+    {
+        targets.push_back(MakeTintedTarget(32, colors[item]));
+        framebuffers.push_back(targets.back().Target);
+        PODMaterialData material{};
+        material.enablePBR = true;
+        material.shaderRendererID = kit.Shader->GetRHIHandle();
+        material.albedoMapID = kit.White->GetRHIHandle();
+        material.baseColorFactor = glm::vec4(colors[item][0], colors[item][1], colors[item][2], static_cast<f32>(item + 1u));
+        const u16 materialIndex = frameData.AllocateMaterialData(material);
+        ASSERT_NE(materialIndex, INVALID_MATERIAL_DATA_INDEX);
+        DrawMeshCommand draw{};
+        draw.header.type = CommandType::DrawMesh;
+        draw.vertexArrayID = kit.Triangle->GetRHIHandle();
+        draw.indexCount = 3;
+        draw.transform = glm::mat4(1.0f);
+        draw.transform[0][0] = static_cast<f32>(item + 1u);
+        draw.prevTransform = draw.transform;
+        draw.materialDataIndex = materialIndex;
+        draw.renderStateIndex = stateIndex;
+        ASSERT_NE(buckets[item].Submit(draw, {}, &allocator), nullptr);
+        ASSERT_NE(buckets[item].Submit(draw, {}, &allocator), nullptr);
+    }
+    auto& api = renderCommandSelection.Get();
+    // A newly generated cloud-shadow image has only a storage binding. Scene
+    // preparation must publish its sampled binding before PBR packet workers
+    // encounter it; the fork cannot discover an input that was never seeded.
+    const auto cloudShadow = api.CreateTexture2DHandle(4u, 4u, RHI::Format::R32Float);
+    CommandDispatch::SetCloudShadowTexture(cloudShadow);
+    SubmitPassFrame(api, framebuffers, [&]
+                    {
+        api.BindImageTexture(0u, cloudShadow, 0u, false, 0u, RHI::Access::StorageWrite, RHI::Format::R32Float);
+        CommandDispatch::BindSceneResources();
+        api.RecordParallel(itemCount, [&](u32 item)
+                                         {
+            targets[item].Target->Bind();
+            api.SetViewport(0, 0, 32, 32);
+            api.SetClearColor({0, 0, 0, 1});
+            api.Clear();
+            // Both public entry points must be legal on an item. Timed replay
+            // falls back to CPU item timing without opening worker GPU queries.
+            if (item % 2u == 0u)
+                buckets[item].Execute(api);
+            else
+                buckets[item].ExecuteWithGPUTiming(api);
+            targets[item].Target->Unbind(); }); });
+    EXPECT_EQ(api.GetParallelRecordingStats().SecondariesExecuted, itemCount);
+    EXPECT_EQ(api.GetParallelRecordingStats().MergeConflicts, 0u);
+    EXPECT_EQ(CommandDispatch::GetStatistics().DrawCalls, itemCount * 2u);
+    for (u32 item = 0; item < itemCount; ++item)
+        EXPECT_EQ(CountWrongPixels(targets[item].Target, colors[item], 0, 32), 0u) << item;
+
+    // The same packets can also be partitioned within one bucket. Each range
+    // changes materials repeatedly, and the final packet must win on a shared
+    // target regardless of CPU completion order.
+    CommandBucket combined;
+    for (u32 draw = 0; draw < 128u; ++draw)
+        combined.AddCommand(buckets[draw % itemCount].GetPackets()[0]);
+    VulkanFrameArena::Get().BeginFrame(1);
+    const std::array<Ref<Framebuffer>, 1> sharedTarget{ targets[0].Target };
+    SubmitPassFrame(api, sharedTarget, [&]
+                    {
+        targets[0].Target->Bind();
+        api.SetViewport(0, 0, 32, 32);
+        api.SetClearColor({ 0, 0, 0, 1 });
+        api.Clear();
+        combined.ExecuteParallel(api);
+        targets[0].Target->Unbind(); });
+    EXPECT_EQ(combined.GetStatistics().DrawCalls, 128u);
+    EXPECT_EQ(api.GetParallelRecordingStats().SecondariesExecuted, 4u);
+    EXPECT_EQ(api.GetParallelRecordingStats().MergeConflicts, 0u);
+    EXPECT_EQ(CountWrongPixels(targets[0].Target, colors.back(), 0, 32), 0u);
+    CommandDispatch::SetCloudShadowTexture({});
+    api.DeleteTexture(cloudShadow);
+}
+
 // The shadow-atlas shape: two items into ONE target, separated by viewport.
 // The clear happens before the fork (it covers both items' pixels), the fork
 // pre-transitions the attachment, and each item's scope-open is an identity
@@ -757,9 +1158,23 @@ TEST_F(VulkanParallelRecordingDevice, SharedTargetItemsOpenIdentityScopesWithout
                     {
                         // Pre-fork: the target and the whole-target clear.
                         shared.Target->Bind();
+                        // The sampled source was published before a GPU write.
+                        // Both items must inherit the settled read layout. A
+                        // stale sampler of the output must not undo its fork
+                        // attachment transition.
+                        api.BindTexture(0, kit.White->GetRHIHandle());
+                        // Storage bindings can retain a slot that the heap has
+                        // since recycled as sampled. Its actual descriptor kind
+                        // must prevent it from hiding this read input at fork.
+                        auto& bindings = VulkanBindingState::Global();
+                        const u32 previousImageSlot = bindings.GetImageHeapSlot(31u);
+                        bindings.SetImageHeapSlot(31u, bindings.GetTextureHeapSlot(0u));
+                        api.ClearTextureFloat(kit.White->GetRHIHandle(), 0, { 1, 1, 1, 1 });
+                        api.BindTexture(1, shared.Target->GetColorAttachmentHandle(0));
                         api.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
                         api.Clear();
 
+                        api.PushDebugGroup(0, "SharedTargetTest");
                         api.RecordParallel(2,
                                            [&](const u32 item)
                                            {
@@ -769,6 +1184,8 @@ TEST_F(VulkanParallelRecordingDevice, SharedTargetItemsOpenIdentityScopesWithout
                                                api.BindTexture(0, kit.White->GetRHIHandle());
                                                api.DrawIndexed(kit.Triangle, 3);
                                            });
+                        api.PopDebugGroup();
+                        bindings.SetImageHeapSlot(31u, previousImageSlot);
                         shared.Target->Unbind();
                     });
 
@@ -777,6 +1194,11 @@ TEST_F(VulkanParallelRecordingDevice, SharedTargetItemsOpenIdentityScopesWithout
     EXPECT_EQ(stats.Regions, 1u);
     EXPECT_EQ(stats.SecondariesExecuted, 2u);
     EXPECT_EQ(stats.MergeConflicts, 0u) << "identity scope-opens on a shared attachment are not a conflict";
+    ASSERT_EQ(stats.RegionTimings.size(), 1u);
+    EXPECT_EQ(stats.RegionTimings[0].PassName, "SharedTargetTest");
+    EXPECT_TRUE(stats.RegionTimings[0].Parallel);
+    EXPECT_EQ(stats.RegionTimings[0].ItemRecordMs.size(), 2u);
+    EXPECT_GE(stats.RegionTimings[0].JoinWaitMs, 0.0);
     EXPECT_EQ(CountWrongPixels(shared.Target, left, 0, 16), 0u) << "left half: item 0's tint";
     EXPECT_EQ(CountWrongPixels(shared.Target, right, 16, 32), 0u) << "right half: item 1's tint";
 }

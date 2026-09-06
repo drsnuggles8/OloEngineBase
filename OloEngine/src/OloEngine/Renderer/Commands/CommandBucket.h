@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <atomic>
 #include <functional>
+#include <span>
 
 #include "OloEngine/Threading/Mutex.h"
 // TUniqueLock — used by the parallel-submission paths below. Not transitively
@@ -184,6 +185,11 @@ namespace OloEngine
 
         void Execute(RendererAPI& rendererAPI);
 
+        // Prepared, self-contained draw packets are partitioned into contiguous
+        // ranges. GPU execution retains packet order; queries/stateful packets
+        // and small buckets replay inline. One owner publishes bucket timings.
+        void ExecuteParallel(RendererAPI& rendererAPI, u32 minCommandsPerItem = 32u);
+
         // Execute with per-command GPU timing (used during capture)
         void ExecuteWithGPUTiming(RendererAPI& rendererAPI);
 
@@ -201,6 +207,19 @@ namespace OloEngine
             u32 DrawCalls = 0;       // Actual draw calls executed
             u32 StateChanges = 0;    // State changes performed
         };
+
+        // Immutable replay for an already prepared range. Concurrent replays of
+        // this bucket keep statistics in their callers, never in the bucket.
+        [[nodiscard]] Statistics ReplayRange(RendererAPI& rendererAPI, sizet begin, sizet end) const;
+        struct ParallelReplayPlan
+        {
+            u32 ItemCount = 1;
+            u32 InstanceCapacity = 1;
+        };
+        [[nodiscard]] static ParallelReplayPlan PlanParallelReplay(std::span<CommandPacket* const> packets,
+                                                                   u32 minCommandsPerItem = 32u);
+        [[nodiscard]] static Statistics RecordPackets(RendererAPI& rendererAPI, std::span<CommandPacket* const> packets,
+                                                      const std::optional<BucketViewState>& view = {}, u32 minCommandsPerItem = 32u);
 
         // Get execution statistics
         Statistics GetStatistics() const
@@ -325,10 +344,21 @@ namespace OloEngine
         // Register callbacks so Execute() can save/bind/restore view state
         // without a compile-time dependency on CommandDispatch.
         static void SetViewStateCallbacks(ViewStateReadFn readFn, ViewStateWriteFn writeFn);
+        // Returns the required instance capacity, or zero for a primary-only
+        // packet. Installed by CommandDispatch to keep the queue independent
+        // of renderer services and diagnostic-query state.
+        using ParallelReplayClassifier = u32 (*)(const CommandPacket&);
+        static void SetParallelReplayClassifier(ParallelReplayClassifier classifier)
+        {
+            s_ParallelReplayClassifier = classifier;
+        }
 
       private:
+        [[nodiscard]] static Statistics ReplayPackets(RendererAPI& rendererAPI, std::span<CommandPacket* const> packets,
+                                                      const std::optional<BucketViewState>& view);
         static inline ViewStateReadFn s_ViewStateReader = nullptr;
         static inline ViewStateWriteFn s_ViewStateWriter = nullptr;
+        static inline ParallelReplayClassifier s_ParallelReplayClassifier = nullptr;
         // Transform buffer for instanced rendering
         class InstancedTransformBuffer
         {

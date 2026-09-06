@@ -142,6 +142,43 @@ namespace
             return 99.0;
         return 10.0 * std::log10((peak * peak) / mse);
     }
+    // Mean of the RGB channels of one decoded mip level. A namespace-scope
+    // function, not a lambda inside the test, and it REPORTS decode failure
+    // through its return value rather than asserting internally.
+    //
+    // Both of those are deliberate. As a test-local lambda that returned a
+    // double and called EXPECT_TRUE on the decode, MSVC Release computed one
+    // value for the EXPECT_NEAR comparison and a different one for the
+    // streamed `<< mean` in the same statement — the assertion reported "0"
+    // while its own failure message printed "188". Adding an unrelated
+    // printf made it pass. The engine was never wrong: a probe encoding the
+    // same checkerboard and decoding mip 1 in the same binary read 188.0,
+    // exactly as this test expects. clang-cl was unaffected in Debug and
+    // Release, which is why it only ever showed up on CI (#1064).
+    [[nodiscard]] bool MipMeanRGB(const CompressedTextureImage& image, u32 mipLevel, double& outMean)
+    {
+        outMean = 0.0;
+        std::vector<u8> decoded;
+        u32 dw = 0;
+        u32 dh = 0;
+        if (!TextureCompression::DecodeToRGBA8(image, mipLevel, decoded, dw, dh))
+            return false;
+
+        double sum = 0.0;
+        sizet samples = 0;
+        for (sizet texel = 0; texel + 4 <= decoded.size(); texel += 4)
+        {
+            for (u32 c = 0; c < 3; ++c)
+            {
+                sum += static_cast<double>(decoded[texel + c]);
+                ++samples;
+            }
+        }
+        if (samples == 0)
+            return false;
+        outMean = sum / static_cast<double>(samples);
+        return true;
+    }
 } // namespace
 
 TEST(TextureCompression, BlockGeometry)
@@ -319,29 +356,11 @@ TEST(TextureCompression, SRGBMipChainIsFilteredInLinearLight)
         }
     }
 
-    const auto mipOneMean = [](const CompressedTextureImage& image) -> double
-    {
-        std::vector<u8> decoded;
-        u32 dw = 0;
-        u32 dh = 0;
-        EXPECT_TRUE(TextureCompression::DecodeToRGBA8(image, 1, decoded, dw, dh));
-        double sum = 0.0;
-        sizet samples = 0;
-        for (sizet texel = 0; texel + 4 <= decoded.size(); texel += 4)
-        {
-            for (u32 c = 0; c < 3; ++c)
-            {
-                sum += static_cast<double>(decoded[texel + c]);
-                ++samples;
-            }
-        }
-        return samples == 0 ? 0.0 : sum / static_cast<double>(samples);
-    };
-
     const CompressedTextureImage srgbImage = TextureCompression::EncodeBC7(checker.data(), kW, kH, 4, /*srgb*/ true, true);
     ASSERT_TRUE(srgbImage.IsValid());
     ASSERT_GT(srgbImage.MipLevels(), 1u);
-    const double srgbMean = mipOneMean(srgbImage);
+    double srgbMean = 0.0;
+    ASSERT_TRUE(MipMeanRGB(srgbImage, 1, srgbMean)) << "sRGB mip 1 did not decode";
     // BC7 is lossy, so allow a few code values of slack around the exact 188.
     EXPECT_NEAR(srgbMean, 188.0, 6.0) << "sRGB mip 1 mean " << srgbMean << " — expected linear-light averaging";
 
@@ -349,7 +368,8 @@ TEST(TextureCompression, SRGBMipChainIsFilteredInLinearLight)
     // quantity to average, and "correcting" them would brighten every roughness/AO mip.
     const CompressedTextureImage linearImage = TextureCompression::EncodeBC7(checker.data(), kW, kH, 4, /*srgb*/ false, true);
     ASSERT_TRUE(linearImage.IsValid());
-    const double linearMean = mipOneMean(linearImage);
+    double linearMean = 0.0;
+    ASSERT_TRUE(MipMeanRGB(linearImage, 1, linearMean)) << "linear mip 1 did not decode";
     EXPECT_NEAR(linearMean, 128.0, 6.0) << "linear mip 1 mean " << linearMean << " — expected a plain average";
 }
 

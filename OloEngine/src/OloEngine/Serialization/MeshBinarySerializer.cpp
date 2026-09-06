@@ -1052,14 +1052,12 @@ namespace OloEngine
                         return nullptr;
                     }
 
-                    meshSource->AddSubmesh(sub);
-                    // AddSubmesh() invalidates the authored bounds via
-                    // CalculateSubmeshBounds(), which expands skinned meshes
-                    // using vertex-only positions — an approximation that
-                    // discards the DCC-authored bounds we just read back.
-                    // Restore them so round-trip preserves disk state.
-                    auto& submeshes = meshSource->GetSubmeshes();
-                    submeshes[submeshes.Num() - 1].m_BoundingBox = sub.m_BoundingBox;
+                    // This source is still unbuilt and the serialized ranges
+                    // and bounds were validated above. Append the authored data
+                    // directly: AddSubmesh recalculates EVERY preceding bound,
+                    // discarding earlier authored boxes and repeatedly scanning
+                    // all vertices as a many-submesh cache is decoded.
+                    meshSource->GetSubmeshes().Add(MoveTemp(sub));
                 }
 
                 if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "Submesh", path))

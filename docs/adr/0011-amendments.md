@@ -2245,6 +2245,9 @@ Narrative, and the gate's test shape:
 
 ### (92) A parallel region records one secondary per work item and executes them in item order; every draw-path fact that was "render thread only" is now "per recording context"
 
+Amendment (94) extends this original intra-pass grain under an explicit whole-pass
+preparation/publication contract. The remaining ownership rules still apply.
+
 The decision, in the order a reader needs it:
 
 1. **The grain is a fork/join INSIDE a pass, not a pass per worker.**
@@ -2421,3 +2424,52 @@ criterion and a blocking read of an unexecuted query never returns at all.
 
 Rules, traps and the measured device numbers:
 [vulkan-ray-tracing-acceleration-structures.md](../agent-rules/vulkan-ray-tracing-acceleration-structures.md).
+
+
+### (94) Whole-pass recording requires caller preparation and ordered publication
+
+Issue #1013 extends amendment (92)'s intra-pass grain. A graph node may opt into
+`SupportsWholePassRecording` only when `PrepareParallelRecording` produces a
+self-contained `RGPreparedPass`. Preparation resolves logical resources to physical
+identities, prepares lazy objects and immutable uploads, and snapshots inputs on
+the caller. Recording may bind those resources and issue its dependent internal
+chain; it cannot resolve graph resources or publish shared CPU state. `Publish`
+runs on the caller at that pass's original execution boundary after recording joins.
+
+Preparation is repeatable and does not advance history or counters. A later
+candidate may decline or reveal a physical alias, requiring ordinary execution to
+prepare earlier candidates again. Read-only UBO references must be primed even
+when another object currently occupies their binding slot. GPU queries, captures,
+readbacks and allocator growth remain caller operations.
+
+Planner-assigned `RecordingGroup` and `RecordingLane` identify CPU ownership,
+independently of GPU queue lanes. Adjacent eligible nodes can share a recording
+region only without a dependency between them; resolved physical read/write
+conflicts also decline the group. Each lane owns its graph command context,
+frontend binding/heap/profiler state and backend command state. Secondary command
+buffers execute in original pass order, with GPU timestamps on the primary around
+each secondary. Internal raw-to-blur or scatter-to-integrate edges remain ordered
+inside their owning secondary. This does not introduce async GPU execution.
+
+The topological scheduler forms fixed cohorts of simultaneously ready prepared
+nodes with matching work type and async-compute classification. It may advance
+ordinary producers while a lone prepared node waits for an independent partner;
+when only prepared nodes remain, it drains a ready node to guarantee progress.
+Explicit and resource-derived dependencies remain authoritative. This scheduling
+runs before barrier, transient-lifetime and submission planning; reordering the
+final submission list would invalidate those plans. Disabled or culled nodes do
+not count toward a recording group.
+
+External compute-batch fence waits may move before the batch and signals after it
+only when every edge proves an outside producer or outside consumer respectively.
+Internal edges, unknown endpoints, mixed batches and unrecognized commands retain
+the original boundaries. Every resource barrier and fence edge remains present.
+
+Verified production groups include GTAO plus VSM page marking, froxel fog with
+those two compute nodes, EASU plus depth/velocity upscale, and SSAO plus
+depth/velocity upscale. Eligibility still depends on the active graph and its
+dependencies. Post-pass capture hooks retain the sequential executor and its
+original observation boundaries.
+
+Implementation rules and evidence: [parallel recording guide](../agent-rules/vulkan-parallel-recording.md)
+and [pass audit](../agent-rules/vulkan-parallel-pass-audit.md).

@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryShadow.h"
 
 #include <functional>
 #include <glm/glm.hpp>
@@ -157,13 +158,6 @@ namespace OloEngine
         void AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 
       private:
-        // Which half of a cascade / entry RenderCascadeOrFace records (issue #806).
-        enum class ShadowCasterHalf : u8
-        {
-            ParallelSafe,  // static mesh batches, skinned casters, voxel casters — runs as a RecordParallel item
-            SequentialTail // terrain, foliage, virtual geometry — runs on the render thread after the join
-        };
-
         // The GPU objects one item writes (amendment (92) rule 6): created by
         // EnsureItemResources on the render thread, indexed by item, shared by
         // the CSM region and the atlas region of one Execute (the two regions
@@ -201,6 +195,7 @@ namespace OloEngine
             Ref<Shader> Skinned;   // "ShadowDepthSkinned" — null when there are no skinned casters
             Ref<Shader> Voxel;     // Renderer3D::GetVoxelDepthShader()
             Ref<Shader> VoxelQuad; // Renderer3D::GetVoxelGreedyDepthShader()
+            Ref<Shader> Terrain;
         };
 
         // One cascade or atlas entry that will actually render this frame —
@@ -225,31 +220,19 @@ namespace OloEngine
         // casters were virtual meshes was skipped outright and Nanite geometry cast no shadow.
         [[nodiscard]] static bool AnyVirtualShadowCaster();
 
-        // Records one half (see ShadowCasterHalf) of one cascade / atlas entry
-        // into the currently selected target + viewport. `resources` are this
-        // item's objects; `tally` is where the parallel-safe half puts its
-        // profiler records (null = the profiler is not recording). The
-        // sequential tail only re-binds the camera UBO the parallel-safe half
-        // of the SAME item uploaded, so the two halves must run for the same
-        // (lightVP, resources) pair, parallel-safe half first.
+        // Records every caster category of one view using item-owned uploads
+        // and cull outputs. All shader lookups and resource growth precede it.
         void RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
-                                 const Frustum* cullFrustum, ShadowCasterHalf half,
+                                 const Frustum* cullFrustum,
                                  const ShadowCasterShaders& shaders, ItemResources& resources,
-                                 ItemProfilerTally* tally) const;
+                                 ItemProfilerTally* tally, VirtualGeometryShadow::ViewResources* virtualResources) const;
 
         // Grow the per-item pool to `count` entries. Render thread, before the
         // fork: rule 7 refuses resource creation on an item context.
         void EnsureItemResources(u32 count, u32 instanceCapacity);
-        // The fork / replay / tail protocol shared by the CSM and atlas
-        // regions: record the parallel-safe half of every view in
-        // m_ActiveViews as a RecordParallel item (after `selectTarget`), hand
-        // the profiler tallies over in item order, then — when any sequential
-        // caster exists — walk the same views on the render thread for the
-        // tail, re-selecting the target each time. `selectTarget` is the only
-        // thing the two regions do differently (a layer + clear per cascade,
-        // a viewport per atlas entry).
+        // One item per active CSM layer or atlas viewport, joined in view order.
         void RecordShadowRegion(ShadowPassType type, const ShadowCasterShaders& shaders, bool recordingInstancedDraws,
-                                bool hasSequentialCasters, u32 instanceCapacity,
+                                u32 instanceCapacity,
                                 const std::function<void(const ActiveShadowView&)>& selectTarget,
                                 bool clearPerItem);
 
@@ -271,6 +254,7 @@ namespace OloEngine
         // the largest region seen; never resized while a region is open, so
         // item i touches element i and nothing else.
         std::vector<ItemResources> m_ItemResources;
+        std::vector<VirtualGeometryShadow::ViewResources> m_VirtualItemResources;
         std::vector<ItemProfilerTally> m_ItemTallies;
         std::vector<ActiveShadowView> m_ActiveViews; // the current region's items, in item order
 

@@ -8,6 +8,7 @@
 #include <vector>
 #include <unordered_map>
 #include <chrono>
+#include <array>
 
 namespace OloEngine
 {
@@ -184,6 +185,28 @@ namespace OloEngine
             u32 m_DrawCallCount = 0;
             std::vector<DrawCallInfo> m_DrawCalls;
             sizet m_MemoryUsed = 0;
+        };
+
+        // Workers only append to their own record. The render thread publishes
+        // counters and records in item order after every worker has joined.
+        struct RecordingStats
+        {
+            std::array<u32, static_cast<sizet>(MetricType::COUNT)> Counters{};
+            std::vector<InstancedDrawRecord> InstancedDraws;
+            void Reset();
+            void Publish();
+        };
+
+        class ScopedRecordingStats
+        {
+          public:
+            explicit ScopedRecordingStats(RecordingStats& stats);
+            ~ScopedRecordingStats();
+            ScopedRecordingStats(const ScopedRecordingStats&) = delete;
+            ScopedRecordingStats& operator=(const ScopedRecordingStats&) = delete;
+
+          private:
+            RecordingStats* m_Previous;
         };
 
         struct CapturedFrame

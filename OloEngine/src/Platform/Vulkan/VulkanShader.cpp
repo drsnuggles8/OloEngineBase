@@ -645,7 +645,7 @@ namespace OloEngine
         // A RecordParallel item binds into ITS context's slot (#806): the
         // draw-time lookup on that worker reads the same slot, and the
         // process-wide selection stays what the render thread last bound.
-        if (VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        if (VulkanWorkerRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
         {
             worker->CurrentShader = const_cast<VulkanShader*>(this);
         }
@@ -681,7 +681,7 @@ namespace OloEngine
 
     void VulkanShader::Unbind() const
     {
-        if (VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        if (VulkanWorkerRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
         {
             if (worker->CurrentShader == this)
             {
@@ -704,7 +704,7 @@ namespace OloEngine
 
     VulkanShader* VulkanShader::GetCurrentlyBound()
     {
-        if (const VulkanRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
+        if (const VulkanWorkerRecordingContext* worker = CurrentVulkanWorkerContext(); worker != nullptr)
         {
             return worker->CurrentShader;
         }

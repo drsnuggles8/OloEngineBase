@@ -54,6 +54,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 #include <vector>
+#include <optional>
 
 namespace OloEngine
 {
@@ -68,6 +69,16 @@ namespace OloEngine
         // VulkanResourceHeap::InvalidSlot on failure.
         [[nodiscard]] u32 AcquireSlot(VkImage image, const VkImageViewCreateInfo& viewInfo, VkDescriptorType type,
                                       VkImageLayout layout);
+
+        struct ImageBinding
+        {
+            VkImage Image = VK_NULL_HANDLE;
+            VkImageSubresourceRange Range{};
+            VkImageLayout Layout = VK_IMAGE_LAYOUT_UNDEFINED;
+            VkDescriptorType Type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+        };
+        // A value copy: callers never retain a cache entry across its lock.
+        [[nodiscard]] std::optional<ImageBinding> LookupImage(u32 slot) const;
 
         // Free every cached slot for `image` into the free list. Called from
         // VulkanDeferredReclaim's destroy pass (see the recycling note above
@@ -105,6 +116,7 @@ namespace OloEngine
         mutable std::shared_mutex m_Mutex; ///< Shared on the hit path, exclusive on a miss and for release/reset. ///< Guards everything below (see the thread-safety note).
         std::unordered_map<u64, SlotEntry> m_SlotByKey;
         std::unordered_map<VkImage, std::vector<u64>> m_KeysByImage;
+        std::unordered_map<u32, ImageBinding> m_ImagesBySlot;
         std::vector<u32> m_FreeSlots;
     };
 } // namespace OloEngine

@@ -83,11 +83,133 @@ namespace OloEngine::RenderGraphPlanExecutor
             hasPendingFenceWaits = false;
         };
 
+        const auto executeRecordingGroup = [&](std::span<const SubmissionCommand> commands)
+        {
+            auto& api = input.RecordingAPI ? *input.RecordingAPI : RenderCommand::GetRendererAPI();
+            // Mid-frame capture must observe the exact pass boundary. The
+            // ordinary executor preserves that hook's full ownership contract.
+            if (input.PostPassHook || !api.SupportsParallelRecording())
+                return false;
+
+            std::vector<const SubmissionCommand*> passes;
+            for (const auto& command : commands)
+            {
+                if (command.CommandKind == SubmissionCommand::Kind::Pass)
+                {
+                    if (!command.NodePointer || !input.IsPassReachable(command.NodeName))
+                        return false;
+                    passes.push_back(&command);
+                }
+            }
+            if (passes.size() < 2)
+                return false;
+
+            // Declining AFTER this point costs the group twice: the fallback
+            // re-runs every member through Execute(), which prepares it again.
+            // The decline cannot be predicted without preparing (the physical
+            // resource uses are what PrepareParallelRecording returns), so it
+            // is counted and named instead of being absorbed silently — a
+            // group that declines in steady state is a planner bug, and only a
+            // number that moves will say so.
+            const auto decline = [&api, &passes](const char* reason, const std::string& passName)
+            {
+                api.NoteDeclinedRecordingGroup();
+                // Warn once — the per-frame count is the metric; the log line
+                // only has to name the pass and the reason the first time.
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    OLO_CORE_WARN("[RenderGraph] recording group of {} passes declined at '{}' ({}); its members are "
+                                  "prepared twice per frame and recorded sequentially",
+                                  passes.size(), passName, reason);
+                }
+                return false;
+            };
+
+            std::vector<RGPreparedPass> prepared;
+            std::vector<RGCommandContext> contexts;
+            prepared.reserve(passes.size());
+            contexts.reserve(passes.size());
+            u32 instanceCapacity = 1u;
+            for (const auto* pass : passes)
+            {
+                // Resolve lazy graph state and snapshot mutable uploads on the
+                // caller. Each worker receives an independent active-pass label.
+                auto context = input.Context.CreateRecordingLane(pass->RecordingLane);
+                context.BeginPass(pass->NodeName);
+                auto recording = pass->NodePointer->PrepareParallelRecording(context);
+                if (!recording.Record)
+                    return decline("pass prepared no recording body", pass->NodeName);
+                for (const auto& previous : prepared)
+                    if (RecordingResourcesConflict(previous, recording))
+                        return decline("physical resource use conflicts with an earlier member", pass->NodeName);
+                instanceCapacity = std::max(instanceCapacity, recording.InstanceCapacity);
+                prepared.push_back(std::move(recording));
+                contexts.push_back(std::move(context));
+            }
+
+            // The planner proved these passes independent; the physical-use
+            // check above additionally ruled out transient aliasing. Therefore
+            // all incoming transitions can precede the fork. A consumer's
+            // transition is outside this group and remains after the join.
+            if (input.RuntimeBarrierExecutionEnabled)
+            {
+                for (const auto& command : commands)
+                {
+                    if (command.CommandKind != SubmissionCommand::Kind::MemoryBarrier)
+                        continue;
+                    std::vector<RHI::Barrier> resolved;
+                    if (input.GraphForBarrierResolution && !command.Transitions.empty())
+                        resolved = input.GraphForBarrierResolution->ResolveTransitionsToBarriers(command.Transitions);
+                    input.Context.IssueBarrierBatch(command.Barriers, resolved);
+                }
+            }
+
+            std::vector<f64> recordMs(passes.size());
+            std::vector<std::string> passNames;
+            for (const auto* pass : passes)
+                passNames.push_back(pass->NodeName);
+            api.RecordParallelOrdered(static_cast<u32>(passes.size()), [&](u32 lane)
+                                      {
+                    const auto start = std::chrono::steady_clock::now();
+                    api.PushDebugGroup(0u, passes[lane]->NodeName);
+                    struct EndDebugGroup
+                    {
+                        RendererAPI& API;
+                        ~EndDebugGroup() { API.PopDebugGroup(); }
+                    } endDebugGroup{ api };
+                    prepared[lane].Record(contexts[lane]);
+                    recordMs[lane] = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
+                    contexts[lane].EndPass(); }, [&](u32 lane)
+                                      { GPUPassTimerPool::GetInstance().BeginPass(passes[lane]->NodeName); }, [&](u32 lane)
+                                      {
+                    GPUPassTimerPool::GetInstance().EndPass();
+                    if (prepared[lane].Publish)
+                        prepared[lane].Publish(); }, instanceCapacity, passNames);
+            for (u32 lane = 0; lane < passes.size(); ++lane)
+                timings.push_back({ .NodeName = passes[lane]->NodeName, .CpuMs = recordMs[lane] });
+            return true;
+        };
+
         // Each command kind maps to a distinct action; barrier placement and
         // async-compute batch boundaries are encoded in the plan so this
         // loop requires no topology lookups or per-frame map probes.
-        for (const auto& cmd : input.SubmissionPlan)
+        for (sizet commandIndex = 0; commandIndex < input.SubmissionPlan.size(); ++commandIndex)
         {
+            const auto& cmd = input.SubmissionPlan[commandIndex];
+            if (cmd.RecordingGroup != UINT32_MAX &&
+                (commandIndex == 0 || input.SubmissionPlan[commandIndex - 1].RecordingGroup != cmd.RecordingGroup))
+            {
+                sizet end = commandIndex + 1;
+                while (end < input.SubmissionPlan.size() && input.SubmissionPlan[end].RecordingGroup == cmd.RecordingGroup)
+                    ++end;
+                if (executeRecordingGroup(input.SubmissionPlan.subspan(commandIndex, end - commandIndex)))
+                {
+                    commandIndex = end - 1;
+                    continue;
+                }
+            }
             switch (cmd.CommandKind)
             {
                 case SubmissionCommand::Kind::BatchBegin:

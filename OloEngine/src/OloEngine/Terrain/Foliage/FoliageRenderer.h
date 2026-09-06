@@ -91,7 +91,7 @@ namespace OloEngine
             const Ref<Shader>& shader);
 
         // Render shadow depth pass for all layers
-        void RenderShadows(const Ref<Shader>& depthShader);
+        void RenderShadows(const Ref<Shader>& depthShader, f32 time) const;
 
         // The owning terrain entity's world transform. GenerateInstances emits
         // instance positions in TERRAIN-LOCAL space (x/z in [0, WorldSize], y

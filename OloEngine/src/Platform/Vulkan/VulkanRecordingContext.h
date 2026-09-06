@@ -27,6 +27,7 @@
 #if OLO_WITH_VULKAN
 
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/FrontendRecordingContext.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
 
 #include <atomic>
@@ -40,6 +41,7 @@
 #include <array>
 #include <unordered_map>
 #include <vector>
+#include <string>
 
 namespace OloEngine
 {
@@ -358,23 +360,14 @@ namespace OloEngine
         VulkanRecordedPipelineState State;
         Viewport RecordedViewport{};
         std::unordered_map<u64, FramebufferAttachmentSelection> Selections;
+        std::vector<std::string> DebugLabels;
 
         // --- per-recording tallies -----------------------------------------
         u32 PreparedDraws = 0;
         u32 DroppedDraws = 0;
+        f64 PipelineLookupMs = 0.0;
         u32 GpuWrittenRootDraws = 0;
         u32 ConditionallySkippedDraws = 0;
-
-        // --- the two formerly process-global mirrors ------------------------
-        // Meaningful on WORKER contexts only: the main context keeps using
-        // the process-wide VulkanBindingState singleton and the shader
-        // classes' file statics, so a test-local API instance still shares
-        // bind state with the process (the fixture contract documented in
-        // VulkanBindingState.h). A worker's copies are seeded from those at
-        // the fork.
-        VulkanBindingState Binding;
-        VulkanShader* CurrentShader = nullptr;
-        VulkanComputeShader* CurrentComputeShader = nullptr;
 
         // --- image layouts ------------------------------------------------
         // Main: the frame's tracker. Worker: an overlay over the main
@@ -425,6 +418,7 @@ namespace OloEngine
             Pending = PendingClear{};
             PreparedDraws = 0;
             DroppedDraws = 0;
+            PipelineLookupMs = 0.0;
             GpuWrittenRootDraws = 0;
             ConditionallySkippedDraws = 0;
             NextDrawRootDataAddress = 0;
@@ -437,12 +431,23 @@ namespace OloEngine
         }
     };
 
+    // Only items own copies of the binding/program mirrors. The main context
+    // uses the process mirrors (also shared by test-local API instances), so it
+    // cannot carry an unused, divergent second copy of that state.
+    struct VulkanWorkerRecordingContext : VulkanRecordingContext
+    {
+        FrontendRecordingContext Frontend;
+        VulkanBindingState Binding;
+        VulkanShader* CurrentShader = nullptr;
+        VulkanComputeShader* CurrentComputeShader = nullptr;
+    };
+
     // The worker context whose RecordParallel item is running on the calling
     // thread, or nullptr: on the render thread outside a region, and on any
     // thread that is not executing an item. VulkanBindingState::Get(),
     // VulkanShader::GetCurrentlyBound() and VulkanRendererAPI::Ctx() all key
     // off this one thread-local.
-    [[nodiscard]] VulkanRecordingContext* CurrentVulkanWorkerContext();
+    [[nodiscard]] VulkanWorkerRecordingContext* CurrentVulkanWorkerContext();
 
     // Amendment (92) rule 6 at record time: one writer per resource object per
     // region. `stamp` is the object's (region << 32 | item) writer token.
@@ -462,11 +467,11 @@ namespace OloEngine
     class ScopedVulkanWorkerContext
     {
       public:
-        explicit ScopedVulkanWorkerContext(VulkanRecordingContext* context);
+        explicit ScopedVulkanWorkerContext(VulkanWorkerRecordingContext* context);
         ~ScopedVulkanWorkerContext() = default;
 
       private:
-        TGuardValue<VulkanRecordingContext*> m_Guard;
+        TGuardValue<VulkanWorkerRecordingContext*> m_Guard;
     };
 } // namespace OloEngine
 

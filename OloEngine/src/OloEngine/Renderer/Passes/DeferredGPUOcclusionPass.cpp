@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
 
 #include <array>
 
@@ -156,9 +157,7 @@ namespace OloEngine
                 Renderer3D::DispatchOcclusionPhase2(cull, currentHZB);
 
             bindGBufferForDraw();
-            for (CommandPacket* packet : m_Phase2Packets)
-                if (packet)
-                    packet->Execute(rendererAPI);
+            (void)CommandBucket::RecordPackets(rendererAPI, m_Phase2Packets);
 
             targetFB->Unbind();
 

@@ -5,6 +5,7 @@
 // RenderPathDrift.EveryMeshSubmissionPathUsesTheSharedMaterialResolver.
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/CommandDispatchRecordingState.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
@@ -23,6 +24,7 @@
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 #include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
 #include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
@@ -53,6 +55,50 @@
 
 namespace OloEngine
 {
+    // Frozen for a recording region. Pass setup updates this on the primary;
+    // bucket view overrides and every bind/cache/upload live in Data() below.
+    struct CommandDispatchFrameData
+    {
+        TiledForwardPlus* ForwardPlus = nullptr;
+        // Shadow texture identities (set per-frame)
+        RHI::ResourceHandle CSMShadowTexture{};
+        RHI::ResourceHandle AtlasShadowTexture{};
+        // Comparison-OFF raw-depth views of the CSM array / shadow atlas (PCSS blocker search)
+        RHI::ResourceHandle CSMRawShadowTexture{};
+        RHI::ResourceHandle AtlasRawShadowTexture{};
+
+        // Snow accumulation depth texture (set per-frame)
+        RHI::ResourceHandle SnowDepthTexture{};
+
+        // Cloud shadow transmittance map (set per-frame, issue #633)
+        RHI::ResourceHandle CloudShadowTexture{};
+
+        // Depth prepass override: when true, ApplyPODRenderState forces depth-only state
+        bool DepthPrepassActive = false;
+        // Renderer-ID snapshot for the prepass depth-only shader swap, refreshed
+        // in SetDepthPrepassActive(true) so shader hot-reloads are picked up.
+        Renderer3D::DepthPrepassShaderIDs DepthPrepassShaders;
+        // Color pass of depth prepass: override depth func to GL_LEQUAL + depth mask false
+        bool DepthPrepassColorPassActive = false;
+        // Overdraw debug view (#519): when true, ApplyPODRenderState forces
+        // additive (GL_ONE, GL_ONE) blending with depth testing DISABLED and the
+        // colour mask ON, and the batchable opaque draws are swapped for the
+        // depth-only DepthPrepass* programs (reusing DepthPrepassShaders) whose
+        // fragment stage emits 1.0 — so every covered fragment adds 1 to the
+        // accumulation target's red channel. Geometry with no depth-only variant
+        // (skybox / terrain / voxel / custom shaders) is skipped so its full
+        // material shader can't pollute the counter.
+        bool OverdrawActive = false;
+        // Water surface-depth capture: forces depth-only state even for the blended
+        // water draw so the nearest water surface is written to its own depth target.
+        bool WaterDepthCaptureActive = false;
+        // Depth-only water program swapped in during the capture (snapshot in
+        // SetWaterDepthCaptureActive so shader hot-reloads are picked up).
+        RHI::ResourceHandle WaterDepthShaderID{};
+    };
+
+    static CommandDispatchFrameData s_FrameData;
+
     struct CommandDispatchData
     {
         Ref<UniformBuffer> CameraUBO = nullptr;
@@ -60,7 +106,6 @@ namespace OloEngine
         Ref<UniformBuffer> BoneMatricesUBO = nullptr;
         Ref<UniformBuffer> PrevBoneMatricesUBO = nullptr;
         Ref<InstanceBuffer> ModelInstanceBuffer = nullptr;
-        TiledForwardPlus* ForwardPlus = nullptr;
         glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
         glm::mat4 ViewMatrix = glm::mat4(1.0f);
         glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
@@ -126,52 +171,155 @@ namespace OloEngine
         static constexpr u32 MAX_TRACKED_UBO_BINDINGS = 8;
         std::array<RHI::ResourceHandle, MAX_TRACKED_UBO_BINDINGS> BoundUBOs{};
 
-        // Shadow texture identities (set per-frame)
-        RHI::ResourceHandle CSMShadowTexture{};
-        RHI::ResourceHandle AtlasShadowTexture{};
-        // Comparison-OFF raw-depth views of the CSM array / shadow atlas (PCSS blocker search)
-        RHI::ResourceHandle CSMRawShadowTexture{};
-        RHI::ResourceHandle AtlasRawShadowTexture{};
-
-        // Snow accumulation depth texture (set per-frame)
-        RHI::ResourceHandle SnowDepthTexture{};
-
-        // Cloud shadow transmittance map (set per-frame, issue #633)
-        RHI::ResourceHandle CloudShadowTexture{};
-
-        // Depth prepass override: when true, ApplyPODRenderState forces depth-only state
-        bool DepthPrepassActive = false;
-        // Renderer-ID snapshot for the prepass depth-only shader swap, refreshed
-        // in SetDepthPrepassActive(true) so shader hot-reloads are picked up.
-        Renderer3D::DepthPrepassShaderIDs DepthPrepassShaders;
-        // Color pass of depth prepass: override depth func to GL_LEQUAL + depth mask false
-        bool DepthPrepassColorPassActive = false;
-        // Overdraw debug view (#519): when true, ApplyPODRenderState forces
-        // additive (GL_ONE, GL_ONE) blending with depth testing DISABLED and the
-        // colour mask ON, and the batchable opaque draws are swapped for the
-        // depth-only DepthPrepass* programs (reusing DepthPrepassShaders) whose
-        // fragment stage emits 1.0 — so every covered fragment adds 1 to the
-        // accumulation target's red channel. Geometry with no depth-only variant
-        // (skybox / terrain / voxel / custom shaders) is skipped so its full
-        // material shader can't pollute the counter.
-        bool OverdrawActive = false;
-        // Water surface-depth capture: forces depth-only state even for the blended
-        // water draw so the nearest water surface is written to its own depth target.
-        bool WaterDepthCaptureActive = false;
-        // Depth-only water program swapped in during the capture (snapshot in
-        // SetWaterDepthCaptureActive so shader hot-reloads are picked up).
-        RHI::ResourceHandle WaterDepthShaderID{};
+        Ref<UniformBuffer> TerrainUBO;
+        Ref<UniformBuffer> DecalUBO;
+        Ref<UniformBuffer> FoliageUBO;
+        Ref<UniformBuffer> WaterUBO;
+        Ref<UniformBuffer> VirtualShadowUBO;
 
         CommandDispatch::Statistics Stats;
     };
 
-    static CommandDispatchData s_Data;
+    static CommandDispatchData s_MainData;
+    static thread_local CommandDispatchData* s_RecordingData = nullptr;
+
+    static CommandDispatchData& Data()
+    {
+        return s_RecordingData ? *s_RecordingData : s_MainData;
+    }
+
+    CommandDispatchRecordingState::CommandDispatchRecordingState()
+        : m_Data(std::make_unique<CommandDispatchData>())
+    {
+    }
+
+    CommandDispatchRecordingState::~CommandDispatchRecordingState() = default;
+
+    void CommandDispatchRecordingState::Prepare(u32 instanceCapacity)
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Prepare recording uploads before the fork");
+        auto previous = std::move(*m_Data);
+        *m_Data = s_MainData;
+        auto& item = *m_Data;
+        // Empty caches: each secondary starts with no emitted bindings, and
+        // its upload objects have identities distinct from the primary's.
+        item.CurrentBoundShader = {};
+        item.CurrentBoundVAO = {};
+        item.BoundUBOs.fill({});
+        item.BoundTextures.fill({});
+        item.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+        item.LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+        item.LastMaterialOffsetsLive = false;
+        item.GPUSceneMaterialsBound = false;
+        item.GPUSceneConsumedDraws = 0;
+        item.GPUSceneFallbackDraws = 0;
+        item.Stats.Reset();
+
+        const auto clone = [](Ref<UniformBuffer> retained, const Ref<UniformBuffer>& source,
+                              u32 size, u32 binding) -> Ref<UniformBuffer>
+        {
+            if (!source)
+                return nullptr;
+            // Size from the SOURCE, not only from the layout constant: the
+            // shared object is what the copy has to hold, and a Debug-only
+            // assert on the layout size would leave a Release build writing
+            // past the item's buffer if the two ever diverged.
+            const auto bytes = source->GetCachedData();
+            const u32 required = std::max(size, static_cast<u32>(bytes.size()));
+            if (retained && retained->GetSize() < required)
+                retained.Reset();
+            if (!retained)
+                retained = UniformBuffer::Create(required, binding);
+            if (!bytes.empty())
+                retained->SetData(bytes.data(), static_cast<u32>(bytes.size()));
+            return retained;
+        };
+        item.CameraUBO = clone(previous.CameraUBO, s_MainData.CameraUBO, ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+        item.MaterialUBO = clone(previous.MaterialUBO, s_MainData.MaterialUBO,
+                                 std::max(ShaderBindingLayout::PBRMaterialUBO::GetSize(), ShaderBindingLayout::MaterialUBO::GetSize()), ShaderBindingLayout::UBO_MATERIAL);
+        item.BoneMatricesUBO = clone(previous.BoneMatricesUBO, s_MainData.BoneMatricesUBO, ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
+        item.PrevBoneMatricesUBO = clone(previous.PrevBoneMatricesUBO, s_MainData.PrevBoneMatricesUBO, ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION_PREV);
+        item.TerrainUBO = clone(previous.TerrainUBO, Renderer3D::GetTerrainUBO(), ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
+        item.DecalUBO = clone(previous.DecalUBO, Renderer3D::GetDecalUBO(), ShaderBindingLayout::DecalUBO::GetSize(), ShaderBindingLayout::UBO_DECAL);
+        item.FoliageUBO = clone(previous.FoliageUBO, Renderer3D::GetFoliageUBO(), ShaderBindingLayout::FoliageUBO::GetSize(), ShaderBindingLayout::UBO_FOLIAGE);
+        item.WaterUBO = clone(previous.WaterUBO, Renderer3D::GetWaterUBO(), ShaderBindingLayout::WaterUBO::GetSize(), ShaderBindingLayout::UBO_WATER);
+        // BindForSampling uploads the complete block, including the disabled
+        // state, for every forward draw. Reserve its item-owned destination
+        // even when no Renderer3D VSM exists (standalone pass consumers too).
+        item.VirtualShadowUBO = std::move(previous.VirtualShadowUBO);
+        if (RenderCommand::SupportsParallelRecording() && !item.VirtualShadowUBO)
+            item.VirtualShadowUBO = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
+        item.ModelInstanceBuffer = std::move(previous.ModelInstanceBuffer);
+        if (s_MainData.ModelInstanceBuffer)
+        {
+            if (!item.ModelInstanceBuffer)
+                item.ModelInstanceBuffer = Ref<InstanceBuffer>::Create(std::max(1u, instanceCapacity));
+            item.ModelInstanceBuffer->EnsureCapacity(std::max(1u, instanceCapacity));
+        }
+    }
+
+    void CommandDispatchRecordingState::Publish()
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Publish recording statistics after the join");
+        const auto& item = *m_Data;
+        s_MainData.Stats.ShaderBinds += item.Stats.ShaderBinds;
+        s_MainData.Stats.TextureBinds += item.Stats.TextureBinds;
+        s_MainData.Stats.DrawCalls += item.Stats.DrawCalls;
+        s_MainData.Stats.ConditionalDraws += item.Stats.ConditionalDraws;
+        s_MainData.GPUSceneConsumedDraws += item.GPUSceneConsumedDraws;
+        s_MainData.GPUSceneFallbackDraws += item.GPUSceneFallbackDraws;
+        s_MainData.CurrentBoundShader = {};
+        s_MainData.CurrentBoundVAO = {};
+        s_MainData.BoundUBOs.fill({});
+        s_MainData.BoundTextures.fill({});
+        s_MainData.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+        s_MainData.LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+        s_MainData.GPUSceneMaterialsBound = false;
+    }
+
+    ScopedCommandDispatchRecordingState::ScopedCommandDispatchRecordingState(CommandDispatchRecordingState& state)
+        : m_Previous(s_RecordingData)
+    {
+        s_RecordingData = state.m_Data.get();
+    }
+
+    ScopedCommandDispatchRecordingState::~ScopedCommandDispatchRecordingState()
+    {
+        s_RecordingData = m_Previous;
+    }
+
+    Ref<UniformBuffer> CommandDispatch::ResolveRecordingUpload(u32 binding, const Ref<UniformBuffer>& mainBuffer)
+    {
+        if (!s_RecordingData)
+            return mainBuffer;
+        switch (binding)
+        {
+            case ShaderBindingLayout::UBO_TERRAIN:
+                return Data().TerrainUBO;
+            case ShaderBindingLayout::UBO_DECAL:
+                return Data().DecalUBO;
+            case ShaderBindingLayout::UBO_FOLIAGE:
+                return Data().FoliageUBO;
+            case ShaderBindingLayout::UBO_WATER:
+                return Data().WaterUBO;
+            case ShaderBindingLayout::UBO_VIRTUAL_SHADOW:
+                return Data().VirtualShadowUBO;
+            default:
+                OLO_CORE_ASSERT(false, "Unprepared recording upload binding {}", binding);
+                return nullptr;
+        }
+    }
+
+    Ref<InstanceBuffer> CommandDispatch::ResolveRecordingInstances(const Ref<InstanceBuffer>& mainBuffer)
+    {
+        return s_RecordingData ? Data().ModelInstanceBuffer : mainBuffer;
+    }
 
     void CommandDispatch::InvalidateUBOCache(u32 bindingPoint)
     {
         if (bindingPoint < CommandDispatchData::MAX_TRACKED_UBO_BINDINGS)
         {
-            s_Data.BoundUBOs[bindingPoint] = RHI::NullResource;
+            Data().BoundUBOs[bindingPoint] = RHI::NullResource;
         }
     }
 
@@ -189,9 +337,9 @@ namespace OloEngine
         // Still required after the identity migration: the raw binder bypasses this cache
         // entirely, so the cache's claim about the slot is simply untrue and no keying
         // scheme can detect that from the inside.
-        if (slot < s_Data.BoundTextures.size())
+        if (slot < Data().BoundTextures.size())
         {
-            s_Data.BoundTextures[slot] = RHI::NullResource;
+            Data().BoundTextures[slot] = RHI::NullResource;
         }
     }
 
@@ -217,7 +365,7 @@ namespace OloEngine
         // keying that self-corrected, because the name changed.
         //
         // So: every site that recreates a texture's storage MUST call this.
-        for (auto& slot : s_Data.BoundTextures)
+        for (auto& slot : Data().BoundTextures)
         {
             if (slot == texture)
                 slot = RHI::NullResource;
@@ -226,15 +374,15 @@ namespace OloEngine
 
     // Conditionally bind a UBO only when the binding point has changed,
     // avoiding a redundant binding-point update each draw.
-    static void BindUBOIfNeeded(u32 bindingPoint, RHI::ResourceHandle buffer)
+    static void BindUBOIfNeeded(RendererAPI& api, u32 bindingPoint, RHI::ResourceHandle buffer)
     {
         if (bindingPoint < CommandDispatchData::MAX_TRACKED_UBO_BINDINGS)
         {
-            if (s_Data.BoundUBOs[bindingPoint] == buffer)
+            if (Data().BoundUBOs[bindingPoint] == buffer)
                 return;
-            s_Data.BoundUBOs[bindingPoint] = buffer;
+            Data().BoundUBOs[bindingPoint] = buffer;
         }
-        RenderCommand::BindUniformBuffer(bindingPoint, buffer);
+        api.BindUniformBuffer(bindingPoint, buffer);
     }
 
     // The GPU Scene material table at SSBO_INSTANCE_DRAW_INDIRECT (17). The
@@ -248,22 +396,22 @@ namespace OloEngine
     // while every later draw believed it held material records.
     static bool BindGPUSceneMaterialsIfNeeded()
     {
-        if (s_Data.GPUSceneMaterialsBound)
+        if (Data().GPUSceneMaterialsBound)
             return true;
-        s_Data.GPUSceneMaterialsBound = Renderer3D::BindGPUSceneMaterials();
-        return s_Data.GPUSceneMaterialsBound;
+        Data().GPUSceneMaterialsBound = Renderer3D::BindGPUSceneMaterials();
+        return Data().GPUSceneMaterialsBound;
     }
 
     // Conditionally bind a VAO only when it differs from the currently bound one.
     // This cache is why the draws below use the DrawBound* family rather than the
     // DrawIndexedRaw(vaoID, ...) one: the latter binds the VAO itself, which would
     // make the cache pointless.
-    static void BindVAOIfNeeded(RHI::ResourceHandle vertexArray)
+    static void BindVAOIfNeeded(RendererAPI& api, RHI::ResourceHandle vertexArray)
     {
-        if (s_Data.CurrentBoundVAO != vertexArray)
+        if (Data().CurrentBoundVAO != vertexArray)
         {
-            RenderCommand::BindVertexArrayRaw(vertexArray);
-            s_Data.CurrentBoundVAO = vertexArray;
+            api.BindVertexArrayRaw(vertexArray);
+            Data().CurrentBoundVAO = vertexArray;
         }
     }
 
@@ -277,7 +425,7 @@ namespace OloEngine
         if (renderStateIndex == INVALID_RENDER_STATE_INDEX)
         {
             // Apply safe defaults so no stale GL state persists
-            s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+            Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
             static const PODRenderState s_Default{};
             api.SetBlendState(s_Default.blendEnabled);
             api.SetDepthTest(s_Default.depthTestEnabled);
@@ -299,7 +447,7 @@ namespace OloEngine
                 api.DisableMultisampling();
 
             // During depth prepass, enforce depth-only state even for default render state
-            if (s_Data.DepthPrepassActive)
+            if (s_FrameData.DepthPrepassActive)
             {
                 api.SetColorMask(false, false, false, false);
                 api.SetDepthTest(true);
@@ -308,7 +456,7 @@ namespace OloEngine
                 api.SetBlendState(false);
             }
             // During color pass of depth prepass, override depth to GL_LEQUAL + no writes
-            else if (s_Data.DepthPrepassColorPassActive)
+            else if (s_FrameData.DepthPrepassColorPassActive)
             {
                 api.SetDepthFunc(RHI::CompareOp::LessOrEqual);
                 api.SetDepthMask(false);
@@ -316,7 +464,7 @@ namespace OloEngine
             // During the overdraw debug view, count every covered fragment:
             // additive blend, depth test off (so occluded fragments count too),
             // colour writes on, depth writes off.
-            else if (s_Data.OverdrawActive)
+            else if (s_FrameData.OverdrawActive)
             {
                 api.SetColorMask(true, true, true, true);
                 api.SetDepthTest(false);
@@ -332,9 +480,9 @@ namespace OloEngine
             return;
         }
 
-        if (renderStateIndex == s_Data.LastRenderStateIndex)
+        if (renderStateIndex == Data().LastRenderStateIndex)
             return;
-        s_Data.LastRenderStateIndex = renderStateIndex;
+        Data().LastRenderStateIndex = renderStateIndex;
 
         const auto& state = FrameDataBufferManager::Get().GetRenderState(renderStateIndex);
         api.SetBlendState(state.blendEnabled);
@@ -456,7 +604,7 @@ namespace OloEngine
         // For transparent commands we disable both color and depth writes so
         // the draw becomes a no-op during the depth prepass; the full command
         // still runs normally in the following color pass.
-        if (s_Data.DepthPrepassActive)
+        if (s_FrameData.DepthPrepassActive)
         {
             if (state.blendEnabled)
             {
@@ -477,7 +625,7 @@ namespace OloEngine
             }
         }
         // During color pass of depth prepass, override depth to GL_LEQUAL + no writes
-        else if (s_Data.DepthPrepassColorPassActive)
+        else if (s_FrameData.DepthPrepassColorPassActive)
         {
             api.SetDepthFunc(RHI::CompareOp::LessOrEqual);
             api.SetDepthMask(false);
@@ -488,7 +636,7 @@ namespace OloEngine
         // The per-command cull face is kept (from the state applied above) so a
         // back-face-culled opaque mesh still counts one layer per pixel, matching
         // what the real forward/G-Buffer pass would shade.
-        else if (s_Data.OverdrawActive)
+        else if (s_FrameData.OverdrawActive)
         {
             api.SetColorMask(true, true, true, true);
             api.SetDepthTest(false);
@@ -505,7 +653,7 @@ namespace OloEngine
 
         // Water surface-depth capture: force depth-only even though water is
         // blended, so the nearest water surface lands in the dedicated depth target.
-        if (s_Data.WaterDepthCaptureActive)
+        if (s_FrameData.WaterDepthCaptureActive)
         {
             api.SetColorMask(false, false, false, false);
             api.SetDepthTest(true);
@@ -553,19 +701,19 @@ namespace OloEngine
         return staged.IsValid() ? RHI::NullResource : texture;
     }
 
-    static void BindTrackedTexture(RHI::ResourceHandle texture, u32 slot,
+    static void BindTrackedTexture(RendererAPI& api, RHI::ResourceHandle texture, u32 slot,
                                    RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D,
                                    const RHI::SamplerDesc& sampler = {})
     {
         if (!texture.IsValid())
             return;
-        if (s_Data.BoundTextures[slot] == texture && !HeapBinding::WritesOffsetsForBoundProgram())
+        if (Data().BoundTextures[slot] == texture && !HeapBinding::WritesOffsetsForBoundProgram())
             return;
 
         // Persistent: material and IBL textures are asset-owned and outlive the
         // frame, so their descriptors are memoised rather than drawn from the ring.
         const RHI::HeapOffset staged =
-            HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent, sampler, kind);
+            HeapBinding::BindTextureOrOffset(api, slot, texture, RHI::HeapSlotLifetime::Persistent, sampler, kind);
 
         // ONLY CLAIM A GL BINDING WHEN ONE ACTUALLY HAPPENED. The cache's
         // invariant, stated above, is "this slot's GL BINDING is already
@@ -577,8 +725,8 @@ namespace OloEngine
         // sampling whatever that unit last held. Latent until a shader sharing a
         // slot with an unconverted one converts, which is precisely what the
         // shadow arrays and the IBL trio do (issue #691).
-        s_Data.BoundTextures[slot] = CacheEntryAfterSeam(staged, texture);
-        ++s_Data.Stats.TextureBinds;
+        Data().BoundTextures[slot] = CacheEntryAfterSeam(staged, texture);
+        ++Data().Stats.TextureBinds;
     }
 
     // Resolve a material's nine textures to heap offsets for the material UBO.
@@ -710,7 +858,7 @@ namespace OloEngine
     // Gated on the PROGRAM, not on the heap toggle: a slot-based shader in a
     // bindless-enabled build still needs every one of these
     // (HeapBinding::WritesOffsetsForBoundProgram, issue #691).
-    static void BindPBRTextures(const PODMaterialData& mat)
+    static void BindPBRTextures(RendererAPI& api, const PODMaterialData& mat)
     {
         // THE NARROW QUESTION, not the broad one. WritesOffsetsForBoundProgram()
         // answers "is this a bindless variant", which is true for a program that
@@ -727,30 +875,30 @@ namespace OloEngine
         // exactly what BindTrackedTexture stages (issue #691).
         if (const bool materialLocalFromHeap = Shader::ReadsMaterialHeapOffsets(); !materialLocalFromHeap)
         {
-            BindTrackedTexture(mat.albedoMapID, ShaderBindingLayout::TEX_DIFFUSE);
-            BindTrackedTexture(mat.metallicRoughnessMapID, ShaderBindingLayout::TEX_SPECULAR);
-            BindTrackedTexture(mat.normalMapID, ShaderBindingLayout::TEX_NORMAL);
-            BindTrackedTexture(mat.aoMapID, ShaderBindingLayout::TEX_AMBIENT);
-            BindTrackedTexture(mat.emissiveMapID, ShaderBindingLayout::TEX_EMISSIVE);
+            BindTrackedTexture(api, mat.albedoMapID, ShaderBindingLayout::TEX_DIFFUSE);
+            BindTrackedTexture(api, mat.metallicRoughnessMapID, ShaderBindingLayout::TEX_SPECULAR);
+            BindTrackedTexture(api, mat.normalMapID, ShaderBindingLayout::TEX_NORMAL);
+            BindTrackedTexture(api, mat.aoMapID, ShaderBindingLayout::TEX_AMBIENT);
+            BindTrackedTexture(api, mat.emissiveMapID, ShaderBindingLayout::TEX_EMISSIVE);
         }
         // TEX_USER_0/1 are samplerCube here (irradiance, prefilter) and plain 2D in
         // other consumers — which is why the kind cannot be derived from the SLOT
         // and has to come from the call site that knows what it is binding.
-        BindTrackedTexture(mat.environmentMapID, ShaderBindingLayout::TEX_ENVIRONMENT,
+        BindTrackedTexture(api, mat.environmentMapID, ShaderBindingLayout::TEX_ENVIRONMENT,
                            RHI::NullSamplerKind::Cube);
-        BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0, RHI::NullSamplerKind::Cube);
-        BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1, RHI::NullSamplerKind::Cube);
-        BindTrackedTexture(mat.brdfLutMapID, ShaderBindingLayout::TEX_USER_2);
+        BindTrackedTexture(api, mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0, RHI::NullSamplerKind::Cube);
+        BindTrackedTexture(api, mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1, RHI::NullSamplerKind::Cube);
+        BindTrackedTexture(api, mat.brdfLutMapID, ShaderBindingLayout::TEX_USER_2);
     }
 
     // Helper: Bind legacy material textures (diffuse, specular).
-    static void BindLegacyTextures(const PODMaterialData& mat)
+    static void BindLegacyTextures(RendererAPI& api, const PODMaterialData& mat)
     {
-        BindTrackedTexture(mat.diffuseMapID, ShaderBindingLayout::TEX_DIFFUSE);
-        BindTrackedTexture(mat.specularMapID, ShaderBindingLayout::TEX_SPECULAR);
+        BindTrackedTexture(api, mat.diffuseMapID, ShaderBindingLayout::TEX_DIFFUSE);
+        BindTrackedTexture(api, mat.specularMapID, ShaderBindingLayout::TEX_SPECULAR);
     }
 
-    static void UploadMaterialState(const PODMaterialData& mat, u16 materialDataIndex)
+    static void UploadMaterialState(RendererAPI& api, const PODMaterialData& mat, u16 materialDataIndex)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -760,18 +908,18 @@ namespace OloEngine
         // dropped across a heap re-initialisation, though: the offsets in it index
         // the PREVIOUS heap, and unlike a stale texture bind that reads as a
         // plausible wrong image rather than an obvious one (issue #691).
-        if (const u64 heapEpoch = RHI::DescriptorHeap::Get().GetInitEpoch(); heapEpoch != s_Data.HeapEpoch)
+        if (const u64 heapEpoch = RHI::DescriptorHeap::Get().GetInitEpoch(); heapEpoch != Data().HeapEpoch)
         {
-            s_Data.HeapEpoch = heapEpoch;
-            s_Data.LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+            Data().HeapEpoch = heapEpoch;
+            Data().LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         }
 
         // Part of the cache key, not an afterthought — see LastMaterialOffsetsLive.
         const bool offsetsLive = Shader::ReadsMaterialHeapOffsets();
-        const bool sameIndex = (materialDataIndex == s_Data.LastMaterialDataIndex) &&
-                               (offsetsLive == s_Data.LastMaterialOffsetsLive);
-        s_Data.LastMaterialDataIndex = materialDataIndex;
-        s_Data.LastMaterialOffsetsLive = offsetsLive;
+        const bool sameIndex = (materialDataIndex == Data().LastMaterialDataIndex) &&
+                               (offsetsLive == Data().LastMaterialOffsetsLive);
+        Data().LastMaterialDataIndex = materialDataIndex;
+        Data().LastMaterialOffsetsLive = offsetsLive;
 
         if (mat.enablePBR)
         {
@@ -813,19 +961,19 @@ namespace OloEngine
                 // happen and nothing changes on the default path.
                 WriteMaterialHeapOffsets(mat, pbrMaterialData);
 
-                if (s_Data.MaterialUBO)
+                if (Data().MaterialUBO)
                 {
                     constexpr u32 expectedSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
                     static_assert(sizeof(ShaderBindingLayout::PBRMaterialUBO) == expectedSize, "PBRMaterialUBO size mismatch");
-                    s_Data.MaterialUBO->SetData(&pbrMaterialData, expectedSize);
-                    BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRHIHandle());
+                    Data().MaterialUBO->SetData(&pbrMaterialData, expectedSize);
+                    BindUBOIfNeeded(api, ShaderBindingLayout::UBO_MATERIAL, Data().MaterialUBO->GetRHIHandle());
                 }
             }
-            else if (s_Data.MaterialUBO)
+            else if (Data().MaterialUBO)
             {
                 // Even when material data hasn't changed, re-establish the binding
                 // point (other subsystems may have overwritten it).
-                BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRHIHandle());
+                BindUBOIfNeeded(api, ShaderBindingLayout::UBO_MATERIAL, Data().MaterialUBO->GetRHIHandle());
             }
             else
             {
@@ -834,7 +982,7 @@ namespace OloEngine
 
             // Always rebind textures — an intervening pass (e.g. DecalPass)
             // may have changed texture slots since the last material upload.
-            BindPBRTextures(mat);
+            BindPBRTextures(api, mat);
         }
         else
         {
@@ -850,20 +998,20 @@ namespace OloEngine
                 materialData.DoubleSided = 0;
                 materialData.Pad = 0;
 
-                if (s_Data.MaterialUBO)
+                if (Data().MaterialUBO)
                 {
                     constexpr u32 expectedSize = ShaderBindingLayout::MaterialUBO::GetSize();
                     static_assert(sizeof(ShaderBindingLayout::MaterialUBO) == expectedSize, "MaterialUBO size mismatch");
-                    s_Data.MaterialUBO->SetData(&materialData, expectedSize);
-                    BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRHIHandle());
+                    Data().MaterialUBO->SetData(&materialData, expectedSize);
+                    BindUBOIfNeeded(api, ShaderBindingLayout::UBO_MATERIAL, Data().MaterialUBO->GetRHIHandle());
                 }
             }
-            else if (s_Data.MaterialUBO)
+            else if (Data().MaterialUBO)
             {
                 // Even when material data hasn't changed, re-establish the
                 // binding point — other subsystems (e.g. ParticleBatchRenderer)
                 // may have overwritten UBO_MATERIAL.
-                BindUBOIfNeeded(ShaderBindingLayout::UBO_MATERIAL, s_Data.MaterialUBO->GetRHIHandle());
+                BindUBOIfNeeded(api, ShaderBindingLayout::UBO_MATERIAL, Data().MaterialUBO->GetRHIHandle());
             }
             else
             {
@@ -872,7 +1020,7 @@ namespace OloEngine
 
             if (mat.useTextureMaps)
             {
-                BindLegacyTextures(mat);
+                BindLegacyTextures(api, mat);
             }
         }
     }
@@ -881,28 +1029,28 @@ namespace OloEngine
     // binding, updating the redundant-bind tracker and the bind stat. A 0 id is a
     // no-op (no texture for that slot this frame). Shared by every tracked bind so
     // the check/update/increment logic lives in exactly one place.
-    static void BindTrackedTextureUnit(u32 slot, RHI::ResourceHandle texture,
+    static void BindTrackedTextureUnit(RendererAPI& api, u32 slot, RHI::ResourceHandle texture,
                                        const RHI::SamplerDesc& sampler = {},
                                        RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D)
     {
         if (!texture.IsValid())
             return;
         // Same cache/offset split as BindTrackedTexture above — see the note there.
-        if (s_Data.BoundTextures[slot] == texture && !HeapBinding::WritesOffsetsForBoundProgram())
+        if (Data().BoundTextures[slot] == texture && !HeapBinding::WritesOffsetsForBoundProgram())
             return;
 
         // Persistent: shadow maps, the snow clipmap and the cloud-shadow map are
         // system-owned and survive the frame, like the material textures above.
         const RHI::HeapOffset staged =
-            HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent, sampler, kind);
+            HeapBinding::BindTextureOrOffset(api, slot, texture, RHI::HeapSlotLifetime::Persistent, sampler, kind);
         // Same correction as BindTrackedTexture — see the note there.
-        s_Data.BoundTextures[slot] = CacheEntryAfterSeam(staged, texture);
-        ++s_Data.Stats.TextureBinds;
+        Data().BoundTextures[slot] = CacheEntryAfterSeam(staged, texture);
+        ++Data().Stats.TextureBinds;
     }
 
     // Helper: Bind per-frame shadow and snow depth textures (only relevant for PBR paths).
     // Relies on BoundTextureIDs tracking to avoid redundant binds.
-    static void BindShadowTextures()
+    static void BindShadowTextures(RendererAPI& api)
     {
         // Shared with every other site that stages a shadow-map offset — the
         // state has to be identical or whichever pass ran last silently wins.
@@ -912,16 +1060,16 @@ namespace OloEngine
         // The KIND travels with the bind, not just the sampler: these four are the
         // array-typed inputs on the shared table, so a retired one must poison to
         // its own typed null rather than the 2D one (issue #691).
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTexture, kShadowCompare,
+        BindTrackedTextureUnit(api, ShaderBindingLayout::TEX_SHADOW, s_FrameData.CSMShadowTexture, kShadowCompare,
                                RHI::NullSamplerKind::Texture2DArrayShadow);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS, s_Data.AtlasShadowTexture, kShadowCompare,
+        BindTrackedTextureUnit(api, ShaderBindingLayout::TEX_SHADOW_ATLAS, s_FrameData.AtlasShadowTexture, kShadowCompare,
                                RHI::NullSamplerKind::Texture2DArrayShadow);
 
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain
         // sampler2DArray at TEX_SHADOW_CSM_RAW / TEX_SHADOW_ATLAS_RAW).
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTexture, kShadowRaw,
+        BindTrackedTextureUnit(api, ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_FrameData.CSMRawShadowTexture, kShadowRaw,
                                RHI::NullSamplerKind::Texture2DArray);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, s_Data.AtlasRawShadowTexture, kShadowRaw,
+        BindTrackedTextureUnit(api, ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, s_FrameData.AtlasRawShadowTexture, kShadowRaw,
                                RHI::NullSamplerKind::Texture2DArray);
 
         // Virtual Shadow Maps (issue #702) — the forward path's half of the same
@@ -930,7 +1078,7 @@ namespace OloEngine
         // branch resolves to CSM without a second shader variant.
         Renderer3D::GetShadowMap().GetVirtualShadowMap().BindForSampling();
 
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTexture);
+        BindTrackedTextureUnit(api, ShaderBindingLayout::TEX_SNOW_DEPTH, s_FrameData.SnowDepthTexture);
 
         // Cloud shadow transmittance map (issue #633). A 0 id binds nothing —
         // the AtmosphereShadingUBO enabled flag gates the shader-side sample,
@@ -944,10 +1092,10 @@ namespace OloEngine
         // route, since the header's own `#ifdef OLO_BINDLESS` IS the opt-in
         // token. Staging the offset AND binding serves both readers, which is
         // exactly what this seam entry point exists for.
-        if (s_Data.CloudShadowTexture.IsValid())
+        if (s_FrameData.CloudShadowTexture.IsValid())
         {
             HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_CLOUD_SHADOW,
-                                                     s_Data.CloudShadowTexture,
+                                                     s_FrameData.CloudShadowTexture,
                                                      RHI::HeapSlotLifetime::Persistent);
         }
     }
@@ -964,7 +1112,7 @@ namespace OloEngine
     // unknown, so only it is guaranteed to reproduce its color-pass depth.
     static RHI::ResourceHandle ResolveDepthPrepassShader(const PODMaterialData& mat)
     {
-        const auto& ids = s_Data.DepthPrepassShaders;
+        const auto& ids = s_FrameData.DepthPrepassShaders;
         const bool isStatic = (mat.shaderRendererID == ids.PBRStatic ||
                                mat.shaderRendererID == ids.GBufferStatic);
         const bool isSkinned = !isStatic &&
@@ -981,9 +1129,9 @@ namespace OloEngine
     }
 
     // Helper: Upload bone matrices from FrameDataBuffer.
-    static void UploadBoneMatrices(bool isAnimated, u32 boneBufferOffset, u32 boneCount, u32 prevBoneBufferOffset = UINT32_MAX)
+    static void UploadBoneMatrices(RendererAPI& api, bool isAnimated, u32 boneBufferOffset, u32 boneCount, u32 prevBoneBufferOffset = UINT32_MAX)
     {
-        if (!isAnimated || !s_Data.BoneMatricesUBO || boneCount == 0)
+        if (!isAnimated || !Data().BoneMatricesUBO || boneCount == 0)
             return;
 
         using namespace UBOStructures;
@@ -999,8 +1147,8 @@ namespace OloEngine
         const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(boneBufferOffset);
         if (boneMatrices)
         {
-            s_Data.BoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_ANIMATION, s_Data.BoneMatricesUBO->GetRHIHandle());
+            Data().BoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
+            BindUBOIfNeeded(api, ShaderBindingLayout::UBO_ANIMATION, Data().BoneMatricesUBO->GetRHIHandle());
         }
 
         // Previous-frame bone matrices for per-bone velocity. Both the forward
@@ -1008,7 +1156,7 @@ namespace OloEngine
         // (G-Buffer RT3) variants bind this UBO at binding 31. Upload only when
         // the caller provided a distinct offset (UINT32_MAX sentinel means
         // "reuse current", which matches static / first-frame animated meshes).
-        if (s_Data.PrevBoneMatricesUBO)
+        if (Data().PrevBoneMatricesUBO)
         {
             const glm::mat4* prevBoneMatrices = nullptr;
             if (prevBoneBufferOffset != UINT32_MAX)
@@ -1022,8 +1170,8 @@ namespace OloEngine
             const glm::mat4* sourceData = prevBoneMatrices ? prevBoneMatrices : boneMatrices;
             if (sourceData)
             {
-                s_Data.PrevBoneMatricesUBO->SetData(sourceData, static_cast<u32>(count * sizeof(glm::mat4)));
-                BindUBOIfNeeded(ShaderBindingLayout::UBO_ANIMATION_PREV, s_Data.PrevBoneMatricesUBO->GetRHIHandle());
+                Data().PrevBoneMatricesUBO->SetData(sourceData, static_cast<u32>(count * sizeof(glm::mat4)));
+                BindUBOIfNeeded(api, ShaderBindingLayout::UBO_ANIMATION_PREV, Data().PrevBoneMatricesUBO->GetRHIHandle());
             }
         }
     }
@@ -1096,6 +1244,28 @@ namespace OloEngine
         // Register the dispatch resolver so CommandPacket::Execute() can look
         // up dispatch functions without a compile-time dependency on this TU.
         CommandPacket::SetDispatchResolver(CommandDispatch::GetDispatchFunction);
+        CommandBucket::SetParallelReplayClassifier([](const CommandPacket& packet) -> u32
+                                                   {
+            switch (packet.GetCommandType())
+            {
+                case CommandType::DrawMesh:
+                    return packet.GetCommandData<DrawMeshCommand>()->occlusionQueryIndex == UINT32_MAX ? 1u : 0u;
+                case CommandType::DrawMeshInstanced:
+                    return std::clamp(packet.GetCommandData<DrawMeshInstancedCommand>()->transformCount,
+                                      1u, CommandBucketConfig{}.MaxMeshInstances);
+                case CommandType::DrawDecal:
+                    return Renderer3D::IsDecalVisibilityObserved(packet.GetCommandData<DrawDecalCommand>()->entityID) ? 0u : 1u;
+                case CommandType::DrawQuad:
+                case CommandType::DrawSkybox:
+                case CommandType::DrawInfiniteGrid:
+                case CommandType::DrawTerrainPatch:
+                case CommandType::DrawVoxelMesh:
+                case CommandType::DrawFoliageLayer:
+                case CommandType::DrawWater:
+                    return 1u;
+                default:
+                    return 0u;
+            } });
 
         // Register view state callbacks so CommandBucket::Execute() can
         // save/bind/restore view state without depending on this TU.
@@ -1103,10 +1273,10 @@ namespace OloEngine
             // Read: capture current global view state
             [](BucketViewState& out)
             {
-                out.ViewMatrix = s_Data.ViewMatrix;
-                out.ProjectionMatrix = s_Data.ProjectionMatrix;
-                out.ViewProjectionMatrix = s_Data.ViewProjectionMatrix;
-                out.ViewPosition = s_Data.ViewPos;
+                out.ViewMatrix = Data().ViewMatrix;
+                out.ProjectionMatrix = Data().ProjectionMatrix;
+                out.ViewProjectionMatrix = Data().ViewProjectionMatrix;
+                out.ViewPosition = Data().ViewPos;
             },
             // Write: apply a view state to global state
             [](const BucketViewState& in)
@@ -1123,12 +1293,13 @@ namespace OloEngine
     void CommandDispatch::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
-        s_Data.CameraUBO.Reset();
-        s_Data.MaterialUBO.Reset();
-        s_Data.BoneMatricesUBO.Reset();
-        s_Data.PrevBoneMatricesUBO.Reset();
-        s_Data.ModelInstanceBuffer.Reset();
-        s_Data.ForwardPlus = nullptr;
+        RenderCommand::ReleaseParallelRecordingResources();
+        Data().CameraUBO.Reset();
+        Data().MaterialUBO.Reset();
+        Data().BoneMatricesUBO.Reset();
+        Data().PrevBoneMatricesUBO.Reset();
+        Data().ModelInstanceBuffer.Reset();
+        s_FrameData.ForwardPlus = nullptr;
     }
 
     void CommandDispatch::SetUBOReferences(
@@ -1139,12 +1310,12 @@ namespace OloEngine
         const Ref<UniformBuffer>& prevBoneMatricesUBO,
         TiledForwardPlus* forwardPlus)
     {
-        s_Data.CameraUBO = cameraUBO;
-        s_Data.MaterialUBO = materialUBO;
-        s_Data.BoneMatricesUBO = boneMatricesUBO;
-        s_Data.ModelInstanceBuffer = modelInstanceBuffer;
-        s_Data.PrevBoneMatricesUBO = prevBoneMatricesUBO;
-        s_Data.ForwardPlus = forwardPlus;
+        Data().CameraUBO = cameraUBO;
+        Data().MaterialUBO = materialUBO;
+        Data().BoneMatricesUBO = boneMatricesUBO;
+        Data().ModelInstanceBuffer = modelInstanceBuffer;
+        Data().PrevBoneMatricesUBO = prevBoneMatricesUBO;
+        s_FrameData.ForwardPlus = forwardPlus;
     }
 
     namespace
@@ -1218,7 +1389,7 @@ namespace OloEngine
                     inst.GPUSceneRef.z = 0u;
                     inst.GPUSceneRef.w = GPUSceneDrawRefUnlinked;
                 }
-                ++s_Data.GPUSceneConsumedDraws;
+                ++Data().GPUSceneConsumedDraws;
             }
             else
             {
@@ -1226,7 +1397,7 @@ namespace OloEngine
                 {
                     // A link that was carried but did not resolve: the record
                     // was rejected at extraction or retired before the commit.
-                    ++s_Data.GPUSceneFallbackDraws;
+                    ++Data().GPUSceneFallbackDraws;
                 }
                 // Camera-relative (issue #429): shift the world transform (and
                 // its previous-frame counterpart, for motion vectors) into
@@ -1245,77 +1416,86 @@ namespace OloEngine
 
     void CommandDispatch::BindSceneResources()
     {
-        if (s_Data.CameraUBO)
+        auto& api = RenderCommand::GetRendererAPI();
+        if (Data().CameraUBO)
         {
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRHIHandle());
+            BindUBOIfNeeded(api, ShaderBindingLayout::UBO_CAMERA, Data().CameraUBO->GetRHIHandle());
         }
 
-        if (s_Data.ForwardPlus)
+        if (s_FrameData.ForwardPlus)
         {
-            s_Data.ForwardPlus->UploadDisabledUBO();
+            s_FrameData.ForwardPlus->UploadDisabledUBO();
         }
+
+        // Publish all shared PBR sampled inputs before the fork, including
+        // freshly compute-written cloud shadows and the VSM physical pool.
+        // Their first sampled transitions must belong to the caller.
+        BindShadowTextures(api);
     }
 
     void CommandDispatch::UploadMaterialForDirectDraw(const PODMaterialData& mat, u16 materialDataIndex)
     {
-        UploadMaterialState(mat, materialDataIndex);
+        auto& api = RenderCommand::GetRendererAPI();
+        UploadMaterialState(api, mat, materialDataIndex);
     }
 
     void CommandDispatch::InvalidateGPUSceneMaterialBinding()
     {
-        s_Data.GPUSceneMaterialsBound = false;
+        Data().GPUSceneMaterialsBound = false;
     }
 
     u32 CommandDispatch::GetGPUSceneConsumedDrawCount()
     {
-        return s_Data.GPUSceneConsumedDraws;
+        return Data().GPUSceneConsumedDraws;
     }
 
     u32 CommandDispatch::GetGPUSceneFallbackDrawCount()
     {
-        return s_Data.GPUSceneFallbackDraws;
+        return Data().GPUSceneFallbackDraws;
     }
 
     void CommandDispatch::ResetState()
     {
-        s_Data.CurrentBoundShader = {};
-        s_Data.CurrentBoundVAO = {};
-        s_Data.GPUSceneMaterialsBound = false;
-        s_Data.GPUSceneConsumedDraws = 0;
-        s_Data.GPUSceneFallbackDraws = 0;
-        s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
-        s_Data.LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
-        s_Data.BoundTextures.fill(RHI::NullResource);
-        s_Data.CurrentViewportWidth = 0;
-        s_Data.CurrentViewportHeight = 0;
-        s_Data.BoundUBOs.fill(RHI::NullResource);
-        s_Data.CSMShadowTexture = {};
-        s_Data.AtlasShadowTexture = {};
-        s_Data.CSMRawShadowTexture = {};
-        s_Data.AtlasRawShadowTexture = {};
-        s_Data.SnowDepthTexture = {};
-        s_Data.CloudShadowTexture = {};
-        s_Data.DepthPrepassActive = false;
-        s_Data.DepthPrepassColorPassActive = false;
-        s_Data.OverdrawActive = false;
-        s_Data.Stats.Reset();
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        Data().CurrentBoundShader = {};
+        Data().CurrentBoundVAO = {};
+        Data().GPUSceneMaterialsBound = false;
+        Data().GPUSceneConsumedDraws = 0;
+        Data().GPUSceneFallbackDraws = 0;
+        Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+        Data().LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+        Data().BoundTextures.fill(RHI::NullResource);
+        Data().CurrentViewportWidth = 0;
+        Data().CurrentViewportHeight = 0;
+        Data().BoundUBOs.fill(RHI::NullResource);
+        s_FrameData.CSMShadowTexture = {};
+        s_FrameData.AtlasShadowTexture = {};
+        s_FrameData.CSMRawShadowTexture = {};
+        s_FrameData.AtlasRawShadowTexture = {};
+        s_FrameData.SnowDepthTexture = {};
+        s_FrameData.CloudShadowTexture = {};
+        s_FrameData.DepthPrepassActive = false;
+        s_FrameData.DepthPrepassColorPassActive = false;
+        s_FrameData.OverdrawActive = false;
+        Data().Stats.Reset();
     }
 
     void CommandDispatch::InvalidateRenderStateCache()
     {
-        s_Data.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
+        Data().LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
     }
 
     void CommandDispatch::SetDepthPrepassActive(bool active)
     {
-        s_Data.DepthPrepassActive = active;
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.DepthPrepassActive = active;
         if (active)
         {
-            s_Data.DepthPrepassColorPassActive = false;
+            s_FrameData.DepthPrepassColorPassActive = false;
             // Snapshot the depth-only swap programs once per prepass — cheap,
             // and keeps the swap correct across shader hot-reloads (renderer
             // IDs can change when a program is recompiled).
-            s_Data.DepthPrepassShaders = Renderer3D::GetDepthPrepassShaderIDs();
+            s_FrameData.DepthPrepassShaders = Renderer3D::GetDepthPrepassShaderIDs();
         }
         // Invalidate cache so the next command re-applies state
         InvalidateRenderStateCache();
@@ -1323,10 +1503,11 @@ namespace OloEngine
 
     void CommandDispatch::SetDepthPrepassColorPassActive(bool active)
     {
-        s_Data.DepthPrepassColorPassActive = active;
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.DepthPrepassColorPassActive = active;
         if (active)
         {
-            s_Data.DepthPrepassActive = false;
+            s_FrameData.DepthPrepassActive = false;
         }
         // Invalidate cache so the next command re-applies state
         InvalidateRenderStateCache();
@@ -1334,17 +1515,18 @@ namespace OloEngine
 
     void CommandDispatch::SetOverdrawActive(bool active)
     {
-        s_Data.OverdrawActive = active;
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.OverdrawActive = active;
         if (active)
         {
             // Overdraw is mutually exclusive with the depth-prepass modes.
-            s_Data.DepthPrepassActive = false;
-            s_Data.DepthPrepassColorPassActive = false;
+            s_FrameData.DepthPrepassActive = false;
+            s_FrameData.DepthPrepassColorPassActive = false;
             // Snapshot the depth-only swap programs once (same rationale as
             // SetDepthPrepassActive) — overdraw reuses them so every batchable
             // opaque geometry type keeps its correct vertex transform while its
             // fragment stage emits the constant overdraw count.
-            s_Data.DepthPrepassShaders = Renderer3D::GetDepthPrepassShaderIDs();
+            s_FrameData.DepthPrepassShaders = Renderer3D::GetDepthPrepassShaderIDs();
         }
         // Invalidate cache so the next command re-applies state.
         InvalidateRenderStateCache();
@@ -1352,12 +1534,13 @@ namespace OloEngine
 
     void CommandDispatch::SetWaterDepthCaptureActive(bool active)
     {
-        s_Data.WaterDepthCaptureActive = active;
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.WaterDepthCaptureActive = active;
         if (active)
         {
             // Snapshot the depth-only water program once per capture — same
             // hot-reload rationale as SetDepthPrepassActive.
-            s_Data.WaterDepthShaderID = Renderer3D::GetWaterDepthShaderID();
+            s_FrameData.WaterDepthShaderID = Renderer3D::GetWaterDepthShaderID();
         }
         // Invalidate so the next command — and the post-capture color command —
         // re-applies state; otherwise a same-render-state water command would
@@ -1367,62 +1550,67 @@ namespace OloEngine
 
     void CommandDispatch::SetViewProjectionMatrix(const glm::mat4& vp)
     {
-        s_Data.ViewProjectionMatrix = vp;
+        Data().ViewProjectionMatrix = vp;
     }
 
     void CommandDispatch::SetViewMatrix(const glm::mat4& view)
     {
-        s_Data.ViewMatrix = view;
+        Data().ViewMatrix = view;
     }
 
     void CommandDispatch::SetProjectionMatrix(const glm::mat4& projection)
     {
-        s_Data.ProjectionMatrix = projection;
+        Data().ProjectionMatrix = projection;
     }
 
     void CommandDispatch::SetPrevViewProjectionMatrix(const glm::mat4& prevVP)
     {
-        s_Data.PrevViewProjectionMatrix = prevVP;
+        Data().PrevViewProjectionMatrix = prevVP;
     }
 
     const glm::mat4& CommandDispatch::GetViewMatrix()
     {
-        return s_Data.ViewMatrix;
+        return Data().ViewMatrix;
     }
 
     const glm::mat4& CommandDispatch::GetProjectionMatrix()
     {
-        return s_Data.ProjectionMatrix;
+        return Data().ProjectionMatrix;
     }
 
     const glm::mat4& CommandDispatch::GetViewProjectionMatrix()
     {
-        return s_Data.ViewProjectionMatrix;
+        return Data().ViewProjectionMatrix;
     }
 
     const glm::vec3& CommandDispatch::GetViewPosition()
     {
-        return s_Data.ViewPos;
+        return Data().ViewPos;
     }
 
     void CommandDispatch::SetViewPosition(const glm::vec3& viewPos)
     {
-        s_Data.ViewPos = viewPos;
+        Data().ViewPos = viewPos;
     }
 
     void CommandDispatch::SetRenderOrigin(const glm::vec3& origin)
     {
-        s_Data.RenderOrigin = origin;
+        Data().RenderOrigin = origin;
     }
 
     const glm::vec3& CommandDispatch::GetRenderOrigin()
     {
-        return s_Data.RenderOrigin;
+        return Data().RenderOrigin;
     }
 
     void CommandDispatch::UploadCameraUBO()
     {
-        if (!s_Data.CameraUBO)
+        UploadCameraUBO(RenderCommand::GetRendererAPI());
+    }
+
+    void CommandDispatch::UploadCameraUBO(RendererAPI& api)
+    {
+        if (!Data().CameraUBO)
             return;
 
         // Camera-relative (issue #429): the stored matrices are world-space, so
@@ -1430,13 +1618,13 @@ namespace OloEngine
         // the camera position relative to it before upload. This one path covers
         // the shared re-upload *and* the planar-reflection mirror camera (which
         // sets world mirror matrices via Set* then calls this).
-        const glm::vec3 origin = s_Data.RenderOrigin;
-        const glm::mat4 relView = MakeViewRelative(s_Data.ViewMatrix, origin);
+        const glm::vec3 origin = Data().RenderOrigin;
+        const glm::mat4 relView = MakeViewRelative(Data().ViewMatrix, origin);
         // Use the stored projection directly. Reconstructing it as VP * inverse(V)
         // is algebraically valid but not bit-stable in f32; terrain and voxel
         // draws re-upload this shared UBO between the depth and colour replays,
         // so even a small reconstruction error can make GL_LEQUAL reject pixels.
-        const glm::mat4& projection = s_Data.ProjectionMatrix;
+        const glm::mat4& projection = Data().ProjectionMatrix;
 
         // A8 projection seam: the stored matrices stay GL-convention; the
         // GPU-visible copies flip at upload (identity on GL). This one seam
@@ -1446,50 +1634,53 @@ namespace OloEngine
         // rasterized position, and the two flip flavours agree on .xy.
         ShaderBindingLayout::CameraUBO cameraData{};
         cameraData.ViewProjection = RHI::AdjustProjectionForBackend(
-            MakeViewProjectionRelative(projection, s_Data.ViewMatrix, origin));
+            MakeViewProjectionRelative(projection, Data().ViewMatrix, origin));
         cameraData.View = relView;
         cameraData.Projection = RHI::AdjustProjectionForBackend(projection);
-        cameraData.Position = MakePositionRelative(s_Data.ViewPos, origin);
+        cameraData.Position = MakePositionRelative(Data().ViewPos, origin);
         cameraData.Pad0 = 0.0f;
         cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(
-            MakeViewProjectionRelative(s_Data.PrevViewProjectionMatrix, origin));
+            MakeViewProjectionRelative(Data().PrevViewProjectionMatrix, origin));
         cameraData.RenderOrigin = origin; // for pattern shaders (triplanar/noise/etc.)
         // Reconstruction flavour (#691): terrain tessellation scale,
         // water depth math and the culling compute read this member.
         cameraData.ProjectionForReconstruction = RHI::AdjustProjectionForShaderReconstruction(projection);
-        s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
-        BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRHIHandle());
+        Data().CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+        BindUBOIfNeeded(api, ShaderBindingLayout::UBO_CAMERA, Data().CameraUBO->GetRHIHandle());
     }
 
     void CommandDispatch::SetShadowTextures(RHI::ResourceHandle csmTexture, RHI::ResourceHandle atlasTexture,
                                             RHI::ResourceHandle csmRawTexture, RHI::ResourceHandle atlasRawTexture)
     {
-        s_Data.CSMShadowTexture = csmTexture;
-        s_Data.AtlasShadowTexture = atlasTexture;
-        s_Data.CSMRawShadowTexture = csmRawTexture;
-        s_Data.AtlasRawShadowTexture = atlasRawTexture;
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.CSMShadowTexture = csmTexture;
+        s_FrameData.AtlasShadowTexture = atlasTexture;
+        s_FrameData.CSMRawShadowTexture = csmRawTexture;
+        s_FrameData.AtlasRawShadowTexture = atlasRawTexture;
     }
 
     void CommandDispatch::SetSnowDepthTexture(RHI::ResourceHandle texture)
     {
-        s_Data.SnowDepthTexture = texture;
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.SnowDepthTexture = texture;
     }
 
     void CommandDispatch::SetCloudShadowTexture(RHI::ResourceHandle texture)
     {
-        s_Data.CloudShadowTexture = texture;
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.CloudShadowTexture = texture;
     }
 
     CommandDispatch::Statistics& CommandDispatch::GetStatistics()
     {
-        return s_Data.Stats;
+        return Data().Stats;
     }
 
     void CommandDispatch::UpdateMaterialTextureFlag(bool useTextures)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.MaterialUBO)
+        if (!Data().MaterialUBO)
         {
             OLO_CORE_WARN("CommandDispatch::UpdateMaterialTextureFlag: MaterialUBO not initialized");
             return;
@@ -1499,7 +1690,7 @@ namespace OloEngine
         i32 flag = useTextures ? 1 : 0;
         u32 offset = static_cast<u32>(offsetof(ShaderBindingLayout::MaterialUBO, UseTextureMaps));
 
-        s_Data.MaterialUBO->SetData(&flag, sizeof(i32), offset);
+        Data().MaterialUBO->SetData(&flag, sizeof(i32), offset);
     }
 
     CommandDispatchFn CommandDispatch::GetDispatchFunction(CommandType type)
@@ -1516,8 +1707,8 @@ namespace OloEngine
     void CommandDispatch::SetViewport(const void* data, RendererAPI& api)
     {
         auto const* cmd = static_cast<const SetViewportCommand*>(data);
-        s_Data.CurrentViewportWidth = cmd->width;
-        s_Data.CurrentViewportHeight = cmd->height;
+        Data().CurrentViewportWidth = cmd->width;
+        Data().CurrentViewportHeight = cmd->height;
         api.SetViewport(cmd->x, cmd->y, cmd->width, cmd->height);
     }
 
@@ -1729,7 +1920,7 @@ namespace OloEngine
         // not happen. What remains is `DescriptorHeap::Flush`'s heap rebind, which
         // is deliberately unconditional for a reason of its own, and one
         // glBindBufferBase per draw against the up-to-nine texture binds it removes.
-        BindVAOIfNeeded(cmd->vertexArrayID);
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
         api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, cmd->indexType, 0);
     }
@@ -1745,7 +1936,7 @@ namespace OloEngine
         }
 
         // Bind VAO (cached) and draw instanced
-        BindVAOIfNeeded(cmd->vertexArrayID);
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
         api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, cmd->indexType,
                                       0, cmd->instanceCount);
@@ -1762,7 +1953,7 @@ namespace OloEngine
         }
 
         // Bind VAO (cached) and draw arrays
-        BindVAOIfNeeded(cmd->vertexArrayID);
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
         api.DrawBoundArrays(cmd->primitiveType, 0, cmd->vertexCount);
     }
@@ -1778,7 +1969,7 @@ namespace OloEngine
         }
 
         // Bind VAO (cached) and draw lines
-        BindVAOIfNeeded(cmd->vertexArrayID);
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
         api.DrawBoundArrays(RHI::PrimitiveTopology::LineList, 0, cmd->vertexCount);
     }
@@ -1811,12 +2002,12 @@ namespace OloEngine
         // once more per covered fragment.
         RHI::ResourceHandle shaderToBind = mat.shaderRendererID;
         bool prepassDepthOnly = false;
-        if (s_Data.DepthPrepassActive)
+        if (s_FrameData.DepthPrepassActive)
         {
             shaderToBind = ResolveDepthPrepassShader(mat);
             prepassDepthOnly = (shaderToBind != mat.shaderRendererID);
         }
-        else if (s_Data.OverdrawActive)
+        else if (s_FrameData.OverdrawActive)
         {
             // Overdraw counts coverage via the depth-only programs (their fragment
             // stage emits 1.0). Reuse the prepass shader resolve so every batchable
@@ -1836,26 +2027,26 @@ namespace OloEngine
                material's own shaderToBind and prepassDepthOnly=false set above
                already describe the normal colour-pass draw. */
         }
-        if (s_Data.CurrentBoundShader != shaderToBind)
+        if (Data().CurrentBoundShader != shaderToBind)
         {
             api.BindShaderProgram(shaderToBind);
-            s_Data.CurrentBoundShader = shaderToBind;
-            ++s_Data.Stats.ShaderBinds;
+            Data().CurrentBoundShader = shaderToBind;
+            ++Data().Stats.ShaderBinds;
         }
 
         // During the depth prepass OR the overdraw view, only the model matrix and
         // bones are needed (vertex transform). Skip material, textures, normal
         // matrix, and light UBOs — the overdraw fragment stage emits a constant,
         // and MASK materials still get their UBO + albedo below for the alpha test.
-        if (s_Data.DepthPrepassActive || s_Data.OverdrawActive)
+        if (s_FrameData.DepthPrepassActive || s_FrameData.OverdrawActive)
         {
             // Camera UBO is still needed for vertex transform (u_ViewProjection)
-            if (s_Data.CameraUBO)
+            if (Data().CameraUBO)
             {
-                BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRHIHandle());
+                BindUBOIfNeeded(api, ShaderBindingLayout::UBO_CAMERA, Data().CameraUBO->GetRHIHandle());
             }
 
-            if (s_Data.ModelInstanceBuffer)
+            if (Data().ModelInstanceBuffer)
             {
                 ShaderBindingLayout::ModelUBO modelData;
                 modelData.Model = cmd->transform;
@@ -1872,7 +2063,7 @@ namespace OloEngine
                 // so it consumes the same link rather than the command's copy.
                 // The prepass reads no material, so it takes the link for its
                 // transforms only and never binds the material table.
-                UploadModelInstance(modelData, s_Data.ModelInstanceBuffer, glm::vec4(0.0f),
+                UploadModelInstance(modelData, Data().ModelInstanceBuffer, glm::vec4(0.0f),
                                     Renderer3D::GetGPUSceneDrawLink(cmd->gpuSceneDrawLink), false);
                 // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
             }
@@ -1884,14 +2075,14 @@ namespace OloEngine
             // state the previous draw left bound.)
             if (prepassDepthOnly && mat.alphaMode == 1)
             {
-                UploadMaterialState(mat, cmd->materialDataIndex);
+                UploadMaterialState(api, mat, cmd->materialDataIndex);
             }
 
             // Bone matrices are still needed for skinned mesh vertex positions.
             // prevBoneBufferOffset uses UINT32_MAX as a sentinel meaning "alias current"
             // (static / first-frame / non-Deferred path) — the helper then skips the second
             // upload and the skinned shader reads the same data for both current and prev.
-            UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount, cmd->prevBoneBufferOffset);
+            UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount, cmd->prevBoneBufferOffset);
         }
         else
         {
@@ -1900,13 +2091,13 @@ namespace OloEngine
             // binding points may be overwritten by other subsystem UBOs (e.g.
             // ShadowMap creates its own Camera UBO at the same binding point).
             // Re-establish the binding so shaders read the correct scene-camera buffer.
-            if (s_Data.CameraUBO)
+            if (Data().CameraUBO)
             {
-                BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRHIHandle());
+                BindUBOIfNeeded(api, ShaderBindingLayout::UBO_CAMERA, Data().CameraUBO->GetRHIHandle());
             }
 
             // Update model matrix UBO
-            if (s_Data.ModelInstanceBuffer)
+            if (Data().ModelInstanceBuffer)
             {
                 ShaderBindingLayout::ModelUBO modelData;
                 modelData.Model = cmd->transform;
@@ -1931,20 +2122,20 @@ namespace OloEngine
                 const GPUSceneDrawLink* gpuSceneLink = Renderer3D::GetGPUSceneDrawLink(cmd->gpuSceneDrawLink);
                 const bool gpuSceneMaterialsBound =
                     gpuSceneLink && gpuSceneLink->m_Resolved && BindGPUSceneMaterialsIfNeeded();
-                UploadModelInstance(modelData, s_Data.ModelInstanceBuffer, cmd->lightmapScaleOffset, gpuSceneLink,
+                UploadModelInstance(modelData, Data().ModelInstanceBuffer, cmd->lightmapScaleOffset, gpuSceneLink,
                                     gpuSceneMaterialsBound);
                 // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
             }
 
             // Material UBO + texture bindings (skipped when material unchanged)
-            UploadMaterialState(mat, cmd->materialDataIndex);
+            UploadMaterialState(api, mat, cmd->materialDataIndex);
 
             // Shadow/snow textures (per-frame, outside material diffing)
             if (mat.enablePBR)
-                BindShadowTextures();
+                BindShadowTextures(api);
 
             // Bone matrices
-            UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount, cmd->prevBoneBufferOffset);
+            UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount, cmd->prevBoneBufferOffset);
         }
 
         if (cmd->indexCount == 0)
@@ -1954,7 +2145,7 @@ namespace OloEngine
         }
 
         // Bind VAO (cached) and draw
-        BindVAOIfNeeded(cmd->vertexArrayID);
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
 
         // Conditional rendering: GPU skips draw if occlusion query indicates fully occluded
         bool startedConditionalRender = false;
@@ -1988,11 +2179,11 @@ namespace OloEngine
         // the backend, which is the only layer that knows the index stride.
         api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
                              RHI::IndexType::UInt32, cmd->baseIndex);
-        ++s_Data.Stats.DrawCalls;
+        ++Data().Stats.DrawCalls;
 
         if (startedConditionalRender)
         {
-            ++s_Data.Stats.ConditionalDraws;
+            ++Data().Stats.ConditionalDraws;
             api.EndConditionalRender();
         }
     }
@@ -2024,12 +2215,12 @@ namespace OloEngine
         // ResolveDepthPrepassShader (mirrors DrawMesh).
         RHI::ResourceHandle shaderToBind = mat.shaderRendererID;
         bool prepassDepthOnly = false;
-        if (s_Data.DepthPrepassActive)
+        if (s_FrameData.DepthPrepassActive)
         {
             shaderToBind = ResolveDepthPrepassShader(mat);
             prepassDepthOnly = (shaderToBind != mat.shaderRendererID);
         }
-        else if (s_Data.OverdrawActive)
+        else if (s_FrameData.OverdrawActive)
         {
             // Overdraw counts coverage via the depth-only programs (their fragment
             // stage emits 1.0). Reuse the prepass shader resolve so every batchable
@@ -2049,18 +2240,18 @@ namespace OloEngine
                material's own shaderToBind and prepassDepthOnly=false set above
                already describe the normal colour-pass draw. */
         }
-        if (s_Data.CurrentBoundShader != shaderToBind)
+        if (Data().CurrentBoundShader != shaderToBind)
         {
             api.BindShaderProgram(shaderToBind);
-            s_Data.CurrentBoundShader = shaderToBind;
-            ++s_Data.Stats.ShaderBinds;
+            Data().CurrentBoundShader = shaderToBind;
+            ++Data().Stats.ShaderBinds;
         }
 
         // Camera UBO: re-bind in case a prior pass (e.g. ShadowMap)
         // overwrote the binding point.  Mirrors the logic in DrawMesh's color path.
-        if (s_Data.CameraUBO)
+        if (Data().CameraUBO)
         {
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRHIHandle());
+            BindUBOIfNeeded(api, ShaderBindingLayout::UBO_CAMERA, Data().CameraUBO->GetRHIHandle());
         }
 
         // Material UBO + texture bindings (skipped when material unchanged).
@@ -2068,7 +2259,7 @@ namespace OloEngine
         // alpha test (cutoff + albedo); opaque depth-only draws skip it.
         if (!prepassDepthOnly || mat.alphaMode == 1)
         {
-            UploadMaterialState(mat, cmd->materialDataIndex);
+            UploadMaterialState(api, mat, cmd->materialDataIndex);
         }
 
         // GPU-frustum-cull fast path: the cull compute already wrote
@@ -2079,17 +2270,17 @@ namespace OloEngine
         if (const bool useGPUCull = cmd->cullIndirectBufferID.IsValid() && cmd->cullOutputInstanceBufferID.IsValid(); useGPUCull)
         {
             // Rebind slot 15 to the per-submission output buffer. The engine-
-            // wide `s_Data.ModelInstanceBuffer` is unchanged so it can be
+            // wide `Data().ModelInstanceBuffer` is unchanged so it can be
             // reused by subsequent CPU-path draws in the same frame.
             api.BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_DATA, cmd->cullOutputInstanceBufferID);
 
             // Shadow/snow textures (per-frame, outside material diffing).
             // Depth-only prepass draws never sample shadows.
             if (mat.enablePBR && !prepassDepthOnly)
-                BindShadowTextures();
+                BindShadowTextures(api);
 
             // Bone matrices (no-op for non-animated GPU-cull submissions)
-            UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance);
+            UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance);
 
             if (cmd->indexCount == 0)
             {
@@ -2097,8 +2288,8 @@ namespace OloEngine
                 return;
             }
 
-            BindVAOIfNeeded(cmd->vertexArrayID);
-            ++s_Data.Stats.DrawCalls;
+            BindVAOIfNeeded(api, cmd->vertexArrayID);
+            ++Data().Stats.DrawCalls;
             // Publish before the indirect draw, same as the two direct paths.
             // UploadMaterialState and BindShadowTextures have staged offsets by
             // here; an indirect draw reads them exactly as a direct one does.
@@ -2190,7 +2381,7 @@ namespace OloEngine
         if (cmd->lightmapRegionBufferOffset != UINT32_MAX)
             lightmapRegions = frameBuffer.GetColorPtr(cmd->lightmapRegionBufferOffset);
 
-        if (transforms && s_Data.ModelInstanceBuffer)
+        if (transforms && Data().ModelInstanceBuffer)
         {
             // Thread-local scratch — heap-backed so MaxMeshInstances can scale
             // to thousands without blowing the stack (16384 * 240 B = 3.75 MB
@@ -2205,7 +2396,7 @@ namespace OloEngine
             // transform (and its prev-frame transform) into render-relative
             // space. The normal matrix is translation-invariant, so it is still
             // derived from the world transform. No-op when origin is (0,0,0).
-            const glm::vec3 origin = s_Data.RenderOrigin;
+            const glm::vec3 origin = Data().RenderOrigin;
             for (sizet i = 0; i < instanceCount; ++i)
             {
                 InstanceData& inst = scratch[i];
@@ -2225,17 +2416,17 @@ namespace OloEngine
                 inst.LightmapScaleOffset = lightmapRegions ? lightmapRegions[i] : glm::vec4(0.0f);
             }
             const std::span<const InstanceData> instances(scratch.data(), instanceCount);
-            s_Data.ModelInstanceBuffer->Upload(instances);
-            s_Data.ModelInstanceBuffer->Bind();
+            Data().ModelInstanceBuffer->Upload(instances);
+            Data().ModelInstanceBuffer->Bind();
         }
 
         // Shadow/snow textures (per-frame, outside material diffing).
         // Depth-only prepass draws never sample shadows.
         if (mat.enablePBR && !prepassDepthOnly)
-            BindShadowTextures();
+            BindShadowTextures(api);
 
         // Bone matrices
-        UploadBoneMatrices(cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance);
+        UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance);
 
         if (cmd->indexCount == 0)
         {
@@ -2258,8 +2449,8 @@ namespace OloEngine
         // and DescriptorHeap::Flush uploads only the dirty span.
         HeapBinding::FlushOffsets();
         // Bind VAO (cached) and draw instanced
-        BindVAOIfNeeded(cmd->vertexArrayID);
-        ++s_Data.Stats.DrawCalls;
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
+        ++Data().Stats.DrawCalls;
         api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
                                       RHI::IndexType::UInt32, cmd->baseIndex, instanceCount);
 
@@ -2321,27 +2512,27 @@ namespace OloEngine
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind skybox shader using renderer ID directly
-        if (s_Data.CurrentBoundShader != cmd->shaderRendererID)
+        if (Data().CurrentBoundShader != cmd->shaderRendererID)
         {
             api.BindShaderProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShader = cmd->shaderRendererID;
-            ++s_Data.Stats.ShaderBinds;
+            Data().CurrentBoundShader = cmd->shaderRendererID;
+            ++Data().Stats.ShaderBinds;
         }
 
         // Re-establish camera UBO binding (may be overwritten by shadow pass)
-        if (s_Data.CameraUBO)
+        if (Data().CameraUBO)
         {
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRHIHandle());
+            BindUBOIfNeeded(api, ShaderBindingLayout::UBO_CAMERA, Data().CameraUBO->GetRHIHandle());
         }
 
         // Bind skybox cubemap texture using renderer ID directly
         // The offset write must survive a cache hit — see BindTrackedTexture's note.
-        if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] != cmd->skyboxTextureID ||
+        if (Data().BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] != cmd->skyboxTextureID ||
             HeapBinding::WritesOffsetsForBoundProgram())
         {
             const RHI::HeapOffset staged = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, cmd->skyboxTextureID, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
-            s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = CacheEntryAfterSeam(staged, cmd->skyboxTextureID);
-            ++s_Data.Stats.TextureBinds;
+            Data().BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = CacheEntryAfterSeam(staged, cmd->skyboxTextureID);
+            ++Data().Stats.TextureBinds;
         }
 
         // See the note above the flush in DrawIndexed: every draw in this file
@@ -2349,11 +2540,11 @@ namespace OloEngine
         HeapBinding::FlushOffsets();
 
         // Bind VAO (cached) and draw
-        BindVAOIfNeeded(cmd->vertexArrayID);
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
         api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
 
         // Update statistics
-        ++s_Data.Stats.DrawCalls;
+        ++Data().Stats.DrawCalls;
     }
 
     void CommandDispatch::DrawQuad(const void* data, RendererAPI& api)
@@ -2379,15 +2570,15 @@ namespace OloEngine
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind shader using renderer ID directly
-        if (s_Data.CurrentBoundShader != cmd->shaderRendererID)
+        if (Data().CurrentBoundShader != cmd->shaderRendererID)
         {
             api.BindShaderProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShader = cmd->shaderRendererID;
-            ++s_Data.Stats.ShaderBinds;
+            Data().CurrentBoundShader = cmd->shaderRendererID;
+            ++Data().Stats.ShaderBinds;
         }
 
         // Update model matrix UBO
-        if (s_Data.ModelInstanceBuffer)
+        if (Data().ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData;
             modelData.Model = cmd->transform;
@@ -2398,22 +2589,22 @@ namespace OloEngine
             modelData.PadEntity[2] = 0;
             modelData.PrevModel = cmd->transform; // static quad: no motion contribution
 
-            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+            UploadModelInstance(modelData, Data().ModelInstanceBuffer);
         }
 
         // Bind texture using renderer ID directly
         // The offset write must survive a cache hit — see BindTrackedTexture's note.
-        if (s_Data.BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] != cmd->textureID ||
+        if (Data().BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] != cmd->textureID ||
             HeapBinding::WritesOffsetsForBoundProgram())
         {
             const RHI::HeapOffset staged = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_DIFFUSE, cmd->textureID, RHI::HeapSlotLifetime::Persistent);
-            s_Data.BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] = CacheEntryAfterSeam(staged, cmd->textureID);
-            ++s_Data.Stats.TextureBinds;
+            Data().BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] = CacheEntryAfterSeam(staged, cmd->textureID);
+            ++Data().Stats.TextureBinds;
         }
 
         // Bind VAO (cached) and draw quad
-        BindVAOIfNeeded(cmd->quadVAID);
-        ++s_Data.Stats.DrawCalls;
+        BindVAOIfNeeded(api, cmd->quadVAID);
+        ++Data().Stats.DrawCalls;
         HeapBinding::FlushOffsets();
         api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, 6, RHI::IndexType::UInt32, 0);
     }
@@ -2435,18 +2626,18 @@ namespace OloEngine
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind grid shader using renderer ID directly
-        if (s_Data.CurrentBoundShader != cmd->shaderRendererID)
+        if (Data().CurrentBoundShader != cmd->shaderRendererID)
         {
             api.BindShaderProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShader = cmd->shaderRendererID;
-            ++s_Data.Stats.ShaderBinds;
+            Data().CurrentBoundShader = cmd->shaderRendererID;
+            ++Data().Stats.ShaderBinds;
         }
 
         // Note: Grid shader reads view/projection from Camera UBO (binding 0)
         // Re-establish the binding (may be overwritten by shadow pass)
-        if (s_Data.CameraUBO)
+        if (Data().CameraUBO)
         {
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRHIHandle());
+            BindUBOIfNeeded(api, ShaderBindingLayout::UBO_CAMERA, Data().CameraUBO->GetRHIHandle());
         }
 
         // Set grid scale uniform if the shader supports it.
@@ -2459,11 +2650,11 @@ namespace OloEngine
         api.SetProgramUniformFloat(cmd->shaderRendererID, "u_GridScale", cmd->gridScale);
 
         // Bind fullscreen quad VAO (cached) and draw
-        BindVAOIfNeeded(cmd->quadVAOID);
+        BindVAOIfNeeded(api, cmd->quadVAOID);
         HeapBinding::FlushOffsets();
         api.DrawBoundArrays(RHI::PrimitiveTopology::TriangleList, 0, 6);
 
-        ++s_Data.Stats.DrawCalls;
+        ++Data().Stats.DrawCalls;
     }
 
     void CommandDispatch::DrawTerrainPatch(const void* data, RendererAPI& api)
@@ -2482,19 +2673,19 @@ namespace OloEngine
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind shader
-        if (s_Data.CurrentBoundShader != cmd->shaderRendererID)
+        if (Data().CurrentBoundShader != cmd->shaderRendererID)
         {
             api.BindShaderProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShader = cmd->shaderRendererID;
-            ++s_Data.Stats.ShaderBinds;
+            Data().CurrentBoundShader = cmd->shaderRendererID;
+            ++Data().Stats.ShaderBinds;
         }
 
         // Upload camera UBO (camera-relative packing, issue #429 — origin
         // subtraction happens inside UploadCameraUBO).
-        UploadCameraUBO();
+        UploadCameraUBO(api);
 
         // Upload model matrix UBO
-        if (s_Data.ModelInstanceBuffer)
+        if (Data().ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData;
             modelData.Model = cmd->transform;
@@ -2504,7 +2695,7 @@ namespace OloEngine
             modelData.PadEntity[1] = 0;
             modelData.PadEntity[2] = 0;
             modelData.PrevModel = cmd->transform; // terrain: routed through ForwardOverlayPass, no motion tracking
-            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+            UploadModelInstance(modelData, Data().ModelInstanceBuffer);
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
@@ -2568,10 +2759,10 @@ namespace OloEngine
         // with the mesh path; the point cubemaps were previously omitted here, so
         // terrain point shadows relied on an earlier mesh draw having bound units
         // 14-17 in the same frame.
-        BindShadowTextures();
+        BindShadowTextures(api);
 
         // Bind VAO (cached) and draw with GL_PATCHES
-        BindVAOIfNeeded(cmd->vertexArrayID);
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
         api.SetPatchVertexCount(cmd->patchVertexCount);
 
         // GPU-driven LOD (issue #714): one instanced indirect draw over the
@@ -2583,13 +2774,13 @@ namespace OloEngine
             api.BindStorageBuffer(ShaderBindingLayout::SSBO_TERRAIN_VISIBLE_NODES, cmd->terrainVisibleNodesID);
             HeapBinding::FlushOffsets();
             api.DrawBoundElementsIndirect(cmd->terrainIndirectArgsID, RHI::PrimitiveTopology::PatchList);
-            ++s_Data.Stats.DrawCalls;
+            ++Data().Stats.DrawCalls;
             return;
         }
 
         HeapBinding::FlushOffsets();
         api.DrawBoundIndexed(RHI::PrimitiveTopology::PatchList, cmd->indexCount, RHI::IndexType::UInt32, 0);
-        ++s_Data.Stats.DrawCalls;
+        ++Data().Stats.DrawCalls;
     }
 
     void CommandDispatch::DrawVoxelMesh(const void* data, RendererAPI& api)
@@ -2608,19 +2799,19 @@ namespace OloEngine
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind shader
-        if (s_Data.CurrentBoundShader != cmd->shaderRendererID)
+        if (Data().CurrentBoundShader != cmd->shaderRendererID)
         {
             api.BindShaderProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShader = cmd->shaderRendererID;
-            ++s_Data.Stats.ShaderBinds;
+            Data().CurrentBoundShader = cmd->shaderRendererID;
+            ++Data().Stats.ShaderBinds;
         }
 
         // Upload camera UBO (camera-relative packing, issue #429 — origin
         // subtraction happens inside UploadCameraUBO).
-        UploadCameraUBO();
+        UploadCameraUBO(api);
 
         // Upload model matrix UBO
-        if (s_Data.ModelInstanceBuffer)
+        if (Data().ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData;
             modelData.Model = cmd->transform;
@@ -2630,7 +2821,7 @@ namespace OloEngine
             modelData.PadEntity[1] = 0;
             modelData.PadEntity[2] = 0;
             modelData.PrevModel = cmd->transform; // voxel: routed through ForwardOverlayPass, no motion tracking
-            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+            UploadModelInstance(modelData, Data().ModelInstanceBuffer);
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
@@ -2651,10 +2842,10 @@ namespace OloEngine
         // Bind the shadow contract Terrain_Voxel.glsl samples (CSM + spot + PCSS
         // raw-depth views + point cubemaps). Previously absent here, so voxel
         // shadows depended entirely on a prior mesh draw having bound them.
-        BindShadowTextures();
+        BindShadowTextures(api);
 
         // Bind VAO (cached) and draw
-        BindVAOIfNeeded(cmd->vertexArrayID);
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
         if (cmd->instanceCount > 0)
         {
@@ -2681,7 +2872,7 @@ namespace OloEngine
         {
             api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
         }
-        ++s_Data.Stats.DrawCalls;
+        ++Data().Stats.DrawCalls;
     }
 
     void CommandDispatch::DrawDecal(const void* data, RendererAPI& api)
@@ -2708,15 +2899,15 @@ namespace OloEngine
         const RHI::ResourceHandle decalProgram = cmd->oitProgramOverride.IsValid()
                                                      ? cmd->oitProgramOverride
                                                      : cmd->shaderRendererID;
-        if (s_Data.CurrentBoundShader != decalProgram)
+        if (Data().CurrentBoundShader != decalProgram)
         {
             api.BindShaderProgram(decalProgram);
-            s_Data.CurrentBoundShader = decalProgram;
-            ++s_Data.Stats.ShaderBinds;
+            Data().CurrentBoundShader = decalProgram;
+            ++Data().Stats.ShaderBinds;
         }
 
         // Upload model UBO
-        if (s_Data.ModelInstanceBuffer)
+        if (Data().ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData{};
             modelData.Model = cmd->decalTransform;
@@ -2728,7 +2919,7 @@ namespace OloEngine
             // `modelData{}` would otherwise leave, which produces bogus
             // per-fragment velocity for every decal under TAA/motion blur.
             modelData.PrevModel = cmd->decalTransform;
-            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+            UploadModelInstance(modelData, Data().ModelInstanceBuffer);
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
@@ -2753,12 +2944,12 @@ namespace OloEngine
             // note. The three decal slots were the last redundancy checks still
             // missing this: a second decal with the same texture skipped the call
             // entirely, leaving whatever another pass had staged in TEX_USER_0..2.
-            if (s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_0] != cmd->albedoTextureID ||
+            if (Data().BoundTextures[ShaderBindingLayout::TEX_USER_0] != cmd->albedoTextureID ||
                 HeapBinding::WritesOffsetsForBoundProgram())
             {
                 const RHI::HeapOffset staged = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_USER_0, cmd->albedoTextureID, RHI::HeapSlotLifetime::Persistent);
-                s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_0] = CacheEntryAfterSeam(staged, cmd->albedoTextureID);
-                ++s_Data.Stats.TextureBinds;
+                Data().BoundTextures[ShaderBindingLayout::TEX_USER_0] = CacheEntryAfterSeam(staged, cmd->albedoTextureID);
+                ++Data().Stats.TextureBinds;
             }
         }
 
@@ -2766,24 +2957,24 @@ namespace OloEngine
         // and Decal_GBuffer_RMA variants). Unused modes pass 0 and the slot is
         // left alone — the variant shader only samples the slot it needs.
         if (cmd->normalTextureID.IsValid() &&
-            (s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_1] != cmd->normalTextureID ||
+            (Data().BoundTextures[ShaderBindingLayout::TEX_USER_1] != cmd->normalTextureID ||
              HeapBinding::WritesOffsetsForBoundProgram()))
         {
             const RHI::HeapOffset stagedNormal = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_USER_1, cmd->normalTextureID, RHI::HeapSlotLifetime::Persistent);
-            s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_1] = CacheEntryAfterSeam(stagedNormal, cmd->normalTextureID);
-            ++s_Data.Stats.TextureBinds;
+            Data().BoundTextures[ShaderBindingLayout::TEX_USER_1] = CacheEntryAfterSeam(stagedNormal, cmd->normalTextureID);
+            ++Data().Stats.TextureBinds;
         }
         if (cmd->rmaTextureID.IsValid() &&
-            (s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_2] != cmd->rmaTextureID ||
+            (Data().BoundTextures[ShaderBindingLayout::TEX_USER_2] != cmd->rmaTextureID ||
              HeapBinding::WritesOffsetsForBoundProgram()))
         {
             const RHI::HeapOffset stagedRma = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_USER_2, cmd->rmaTextureID, RHI::HeapSlotLifetime::Persistent);
-            s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_2] = CacheEntryAfterSeam(stagedRma, cmd->rmaTextureID);
-            ++s_Data.Stats.TextureBinds;
+            Data().BoundTextures[ShaderBindingLayout::TEX_USER_2] = CacheEntryAfterSeam(stagedRma, cmd->rmaTextureID);
+            ++Data().Stats.TextureBinds;
         }
 
         // Bind VAO (cached) and draw decal cube
-        BindVAOIfNeeded(cmd->vertexArrayID);
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
 
         // When olo_render_why_not_visible has armed this entity, issue one
@@ -2810,7 +3001,7 @@ namespace OloEngine
         api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
         if (visibilityQuery)
             Renderer3D::EndDecalVisibilityQuery();
-        ++s_Data.Stats.DrawCalls;
+        ++Data().Stats.DrawCalls;
     }
 
     void CommandDispatch::DrawFoliageLayer(const void* data, RendererAPI& api)
@@ -2831,22 +3022,22 @@ namespace OloEngine
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
         // Bind shader (cached)
-        if (s_Data.CurrentBoundShader != cmd->shaderRendererID)
+        if (Data().CurrentBoundShader != cmd->shaderRendererID)
         {
             api.BindShaderProgram(cmd->shaderRendererID);
-            s_Data.CurrentBoundShader = cmd->shaderRendererID;
-            ++s_Data.Stats.ShaderBinds;
+            Data().CurrentBoundShader = cmd->shaderRendererID;
+            ++Data().Stats.ShaderBinds;
         }
 
         // Upload model UBO (parent terrain transform)
-        if (s_Data.ModelInstanceBuffer)
+        if (Data().ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData{};
             modelData.Model = cmd->modelTransform;
             modelData.Normal = cmd->normalMatrix;
             modelData.EntityID = cmd->entityID;
             modelData.PrevModel = cmd->modelTransform; // foliage: no per-instance prev history — alias current for zero motion
-            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+            UploadModelInstance(modelData, Data().ModelInstanceBuffer);
             // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
         }
 
@@ -2874,25 +3065,25 @@ namespace OloEngine
         if (cmd->albedoTextureID.IsValid())
         {
             // The offset write must survive a cache hit — see BindTrackedTexture's note.
-            if (s_Data.BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] != cmd->albedoTextureID ||
+            if (Data().BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] != cmd->albedoTextureID ||
                 HeapBinding::WritesOffsetsForBoundProgram())
             {
                 const RHI::HeapOffset staged = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_DIFFUSE, cmd->albedoTextureID, RHI::HeapSlotLifetime::Persistent);
-                s_Data.BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] = CacheEntryAfterSeam(staged, cmd->albedoTextureID);
-                ++s_Data.Stats.TextureBinds;
+                Data().BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] = CacheEntryAfterSeam(staged, cmd->albedoTextureID);
+                ++Data().Stats.TextureBinds;
             }
         }
 
         // Bind the octahedral normal+depth atlas (impostor path only).
         // BindTrackedTextureUnit skips a 0 id and does the redundancy check.
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_USER_0, cmd->impostorNormalDepthTextureID);
+        BindTrackedTextureUnit(api, ShaderBindingLayout::TEX_USER_0, cmd->impostorNormalDepthTextureID);
 
         // Bind VAO (cached) and draw instanced foliage
-        BindVAOIfNeeded(cmd->vertexArrayID);
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
         api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
                                       RHI::IndexType::UInt32, 0, cmd->instanceCount);
-        ++s_Data.Stats.DrawCalls;
+        ++Data().Stats.DrawCalls;
     }
     void CommandDispatch::DrawWater(const void* data, RendererAPI& api)
     {
@@ -2916,34 +3107,34 @@ namespace OloEngine
         // depth-only capture target needs no scene-MRT attachment mirroring
         // (the depth-prepass shader-swap shape, #691).
         RHI::ResourceHandle shaderToBind = cmd->shaderRendererID;
-        if (s_Data.WaterDepthCaptureActive && s_Data.WaterDepthShaderID.IsValid())
+        if (s_FrameData.WaterDepthCaptureActive && s_FrameData.WaterDepthShaderID.IsValid())
         {
-            shaderToBind = s_Data.WaterDepthShaderID;
+            shaderToBind = s_FrameData.WaterDepthShaderID;
         }
-        if (s_Data.CurrentBoundShader != shaderToBind)
+        if (Data().CurrentBoundShader != shaderToBind)
         {
             api.BindShaderProgram(shaderToBind);
-            s_Data.CurrentBoundShader = shaderToBind;
-            ++s_Data.Stats.ShaderBinds;
+            Data().CurrentBoundShader = shaderToBind;
+            ++Data().Stats.ShaderBinds;
         }
 
         // Upload model UBO
-        if (s_Data.ModelInstanceBuffer)
+        if (Data().ModelInstanceBuffer)
         {
             ShaderBindingLayout::ModelUBO modelData{};
             modelData.Model = cmd->modelTransform;
             modelData.Normal = cmd->normalMatrix;
             modelData.EntityID = cmd->entityID;
             modelData.PrevModel = cmd->modelTransform; // water: surface is animated in-shader; mesh transform stable — alias for zero rigid motion
-            UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
+            UploadModelInstance(modelData, Data().ModelInstanceBuffer);
             // Legacy ModelMatrixUBO bind removed — water shader reads transforms from the InstanceBuffer SSBO at binding 15.
         }
 
         // Upload water UBO
         if (auto waterUBO = Renderer3D::GetWaterUBO(); waterUBO)
         {
-            const f32 viewportWidth = static_cast<f32>(s_Data.CurrentViewportWidth);
-            const f32 viewportHeight = static_cast<f32>(s_Data.CurrentViewportHeight);
+            const f32 viewportWidth = static_cast<f32>(Data().CurrentViewportWidth);
+            const f32 viewportHeight = static_cast<f32>(Data().CurrentViewportHeight);
 
             ShaderBindingLayout::WaterUBO waterData{};
             waterData.WaveParams = cmd->waveParams;
@@ -3026,18 +3217,18 @@ namespace OloEngine
         }
 
         // Bind normal map and noise textures (tracked for redundancy elimination and stats)
-        BindTrackedTexture(cmd->normalMap0ID, ShaderBindingLayout::TEX_WATER_NORMAL_0);
-        BindTrackedTexture(cmd->normalMap1ID, ShaderBindingLayout::TEX_WATER_NORMAL_1);
-        BindTrackedTexture(cmd->noiseTextureID, ShaderBindingLayout::TEX_WATER_NOISE);
-        BindTrackedTexture(cmd->foamTextureID, ShaderBindingLayout::TEX_WATER_FOAM);
+        BindTrackedTexture(api, cmd->normalMap0ID, ShaderBindingLayout::TEX_WATER_NORMAL_0);
+        BindTrackedTexture(api, cmd->normalMap1ID, ShaderBindingLayout::TEX_WATER_NORMAL_1);
+        BindTrackedTexture(api, cmd->noiseTextureID, ShaderBindingLayout::TEX_WATER_NOISE);
+        BindTrackedTexture(api, cmd->foamTextureID, ShaderBindingLayout::TEX_WATER_FOAM);
         // FFT ocean cascade textures (sampled when u_FFTParams.x > 0.5). 2D
         // ARRAYS since issue #969 — one layer per band — so the null-sampler
         // kind must be the array one: the fallback descriptor a heap miss lands
         // on has to have the type the shader declares, or the sampler reads a
         // sampler2D through a sampler2DArray handle.
-        BindTrackedTexture(cmd->fftDisplacementID, ShaderBindingLayout::TEX_WATER_FFT_DISPLACEMENT,
+        BindTrackedTexture(api, cmd->fftDisplacementID, ShaderBindingLayout::TEX_WATER_FFT_DISPLACEMENT,
                            RHI::NullSamplerKind::Texture2DArray);
-        BindTrackedTexture(cmd->fftDerivativesID, ShaderBindingLayout::TEX_WATER_FFT_DERIVATIVES,
+        BindTrackedTexture(api, cmd->fftDerivativesID, ShaderBindingLayout::TEX_WATER_FFT_DERIVATIVES,
                            RHI::NullSamplerKind::Texture2DArray);
         // Seabed depth field (issue #1033). Published rather than plain-bound
         // for the reason WaterDisturbanceSystem::BindFieldTexture records: the
@@ -3057,12 +3248,12 @@ namespace OloEngine
         // so clear it directly and update the tracking).
         if (const auto envMap = Renderer3D::GetGlobalEnvironmentMapHandle(); envMap.IsValid())
         {
-            BindTrackedTexture(envMap, ShaderBindingLayout::TEX_ENVIRONMENT);
+            BindTrackedTexture(api, envMap, ShaderBindingLayout::TEX_ENVIRONMENT);
         }
-        else if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT].IsValid())
+        else if (Data().BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT].IsValid())
         {
             HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
-            s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = {};
+            Data().BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = {};
         }
 
         // Bind VAO (cached) and draw water.
@@ -3074,10 +3265,10 @@ namespace OloEngine
         // The user-facing tessellation toggle still works: u_TessParams.x is
         // consumed by TCS to collapse tess factors toward 1.0 when disabled,
         // so we can keep a single, valid primitive mode at draw time.
-        BindVAOIfNeeded(cmd->vertexArrayID);
+        BindVAOIfNeeded(api, cmd->vertexArrayID);
         api.SetPatchVertexCount(3);
         HeapBinding::FlushOffsets();
         api.DrawBoundIndexed(RHI::PrimitiveTopology::PatchList, cmd->indexCount, RHI::IndexType::UInt32, 0);
-        ++s_Data.Stats.DrawCalls;
+        ++Data().Stats.DrawCalls;
     }
 } // namespace OloEngine

@@ -13,17 +13,17 @@ namespace OloEngine
         // executes items itself (ParallelFor's calling thread takes the top
         // worker slot), which is why Ctx() cannot simply test "am I the
         // render thread".
-        thread_local VulkanRecordingContext* t_CurrentWorkerContext = nullptr;
+        thread_local VulkanWorkerRecordingContext* t_CurrentWorkerContext = nullptr;
     } // namespace
 
-    VulkanRecordingContext* CurrentVulkanWorkerContext()
+    VulkanWorkerRecordingContext* CurrentVulkanWorkerContext()
     {
         return t_CurrentWorkerContext;
     }
 
     bool ClaimParallelWriter(std::atomic<u64>& stamp, const char* objectKind)
     {
-        const VulkanRecordingContext* worker = CurrentVulkanWorkerContext();
+        const VulkanWorkerRecordingContext* worker = CurrentVulkanWorkerContext();
         if (worker == nullptr)
         {
             return true;
@@ -59,7 +59,7 @@ namespace OloEngine
         }
     }
 
-    ScopedVulkanWorkerContext::ScopedVulkanWorkerContext(VulkanRecordingContext* context)
+    ScopedVulkanWorkerContext::ScopedVulkanWorkerContext(VulkanWorkerRecordingContext* context)
         : m_Guard(t_CurrentWorkerContext, context)
     {
     }

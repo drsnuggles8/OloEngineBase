@@ -1554,6 +1554,17 @@ namespace OloEngine
         // UpdateSectorReadiness just produced, so the stats tool and this gate
         // cannot disagree.
         m_ShadingReady = m_Stats.m_SectorsReady > 0u;
+        if (m_ShadingReady)
+        {
+            // Publish the compute/copy outputs as sampled images on the caller.
+            // Many terrain packets share them; their worker recordings must
+            // start from the same already-settled layout for every mip/layer.
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_TERRAIN_VT_INDIRECTION,
+                                                     m_IndirectionTexture->GetRHIHandle(), RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_TERRAIN_VT_CACHE,
+                                                     m_CacheTexture->GetRHIHandle(), RHI::HeapSlotLifetime::Persistent,
+                                                     {}, RHI::NullSamplerKind::Texture2DArray);
+        }
         return m_ShadingReady;
     }
 } // namespace OloEngine

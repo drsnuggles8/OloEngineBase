@@ -26,6 +26,136 @@ namespace OloEngine::RenderGraphSubmissionPlan
                     return RenderGraph::QueueLane::Graphics;
             }
         }
+
+        bool CanPlaceBatchFencesAtBoundaries(std::span<const RenderGraph::SubmissionCommand> plan,
+                                             const std::unordered_map<std::string, sizet>& positions,
+                                             sizet begin, sizet end)
+        {
+            using Kind = RenderGraph::SubmissionCommand::Kind;
+            bool movable = end < plan.size() && plan[end].BatchIndex == plan[begin].BatchIndex;
+            u32 eligible = 0;
+            for (sizet index = begin + 1; movable && index < end; ++index)
+            {
+                const auto& command = plan[index];
+                if (command.CommandKind == Kind::Pass)
+                {
+                    movable = command.WorkType == RenderGraphPassWorkType::Compute;
+                    eligible += command.NodePointer && command.NodePointer->SupportsWholePassRecording() ? 1u : 0u;
+                }
+                else if (command.CommandKind == Kind::FenceWait || command.CommandKind == Kind::FenceSignal)
+                {
+                    for (const auto& edge : command.FenceEdges)
+                    {
+                        const auto producer = positions.find(edge.ProducerPass);
+                        const auto consumer = positions.find(edge.ConsumerPass);
+                        if (producer == positions.end() || consumer == positions.end())
+                        {
+                            movable = false;
+                            continue;
+                        }
+                        // Inputs are already produced before this contiguous
+                        // batch; outputs cannot be consumed until after it.
+                        const bool externalEdge = command.CommandKind == Kind::FenceWait
+                                                      ? producer->second < begin && consumer->second > begin && consumer->second < end
+                                                      : producer->second > begin && producer->second < end && consumer->second > end;
+                        movable = movable && externalEdge;
+                    }
+                }
+                else
+                    movable = command.CommandKind == Kind::MemoryBarrier;
+            }
+            return movable && eligible >= 2u;
+        }
+
+        void PlaceRecordingBatchFencesAtBoundaries(std::vector<RenderGraph::SubmissionCommand>& plan)
+        {
+            using Command = RenderGraph::SubmissionCommand;
+            using Kind = Command::Kind;
+            std::unordered_map<std::string, sizet> positions;
+            for (sizet index = 0; index < plan.size(); ++index)
+                if (plan[index].CommandKind == Kind::Pass)
+                    positions.emplace(plan[index].NodeName, index);
+
+            std::vector<Command> normalized;
+            normalized.reserve(plan.size());
+            for (sizet begin = 0; begin < plan.size(); ++begin)
+            {
+                if (plan[begin].CommandKind != Kind::BatchBegin)
+                {
+                    normalized.push_back(std::move(plan[begin]));
+                    continue;
+                }
+                sizet end = begin + 1;
+                while (end < plan.size() && plan[end].CommandKind != Kind::BatchEnd)
+                    ++end;
+                if (!CanPlaceBatchFencesAtBoundaries(plan, positions, begin, end))
+                {
+                    normalized.push_back(std::move(plan[begin]));
+                    continue;
+                }
+
+                // Keep every edge and every member's resource barrier. Moving
+                // only external waits/signals to batch boundaries also prevents
+                // a producer submit from splitting an open batch debug label.
+                for (sizet index = begin + 1; index < end; ++index)
+                    if (plan[index].CommandKind == Kind::FenceWait)
+                        normalized.push_back(std::move(plan[index]));
+                normalized.push_back(std::move(plan[begin]));
+                for (sizet index = begin + 1; index < end; ++index)
+                    if (plan[index].CommandKind != Kind::FenceWait && plan[index].CommandKind != Kind::FenceSignal)
+                        normalized.push_back(std::move(plan[index]));
+                normalized.push_back(std::move(plan[end]));
+                for (sizet index = begin + 1; index < end; ++index)
+                    if (plan[index].CommandKind == Kind::FenceSignal)
+                        normalized.push_back(std::move(plan[index]));
+                begin = end;
+            }
+            plan = std::move(normalized);
+        }
+
+        void AssignRecordingGroups(std::vector<RenderGraph::SubmissionCommand>& plan,
+                                   const std::unordered_map<std::string, std::vector<std::string>>& dependencies,
+                                   const std::function<bool(const std::string&)>& isPassReachable)
+        {
+            using Kind = RenderGraph::SubmissionCommand::Kind;
+            constexpr sizet maxPasses = 16;
+            u32 group = 0;
+            for (sizet begin = 0; begin < plan.size();)
+            {
+                std::vector<sizet> passes;
+                passes.reserve(maxPasses);
+                sizet cursor = begin;
+                for (; cursor < plan.size() && passes.size() < maxPasses; ++cursor)
+                {
+                    const auto& command = plan[cursor];
+                    if (command.CommandKind == Kind::MemoryBarrier)
+                        continue;
+                    // Submission/fence/debug-batch boundaries require a join.
+                    if (command.CommandKind != Kind::Pass || !command.NodePointer ||
+                        !command.NodePointer->IsEnabled() || !command.NodePointer->SupportsWholePassRecording() ||
+                        (isPassReachable && !isPassReachable(command.NodeName)))
+                        break;
+                    const auto incoming = dependencies.find(command.NodeName);
+                    const bool consumesGroup = incoming != dependencies.end() &&
+                                               std::ranges::any_of(passes, [&](sizet producer)
+                                                                   { return std::ranges::find(incoming->second, plan[producer].NodeName) != incoming->second.end(); });
+                    if (consumesGroup)
+                        break;
+                    passes.push_back(cursor);
+                }
+                if (passes.size() >= 2)
+                {
+                    // Include only the barriers before members of this group;
+                    // a following consumer's barrier stays after the join.
+                    for (sizet command = begin; command <= passes.back(); ++command)
+                        plan[command].RecordingGroup = group;
+                    for (u32 lane = 0; lane < passes.size(); ++lane)
+                        plan[passes[lane]].RecordingLane = lane;
+                    ++group;
+                }
+                begin = passes.empty() ? cursor + 1 : passes.back() + 1;
+            }
+        }
     } // namespace
 
     auto ComputeBatches(const BatchesInput& input) -> std::vector<RenderGraph::AsyncComputeBatch>
@@ -496,6 +626,8 @@ namespace OloEngine::RenderGraphSubmissionPlan
             plan.push_back(std::move(end));
         }
 
+        PlaceRecordingBatchFencesAtBoundaries(plan);
+        AssignRecordingGroups(plan, input.Dependencies, input.IsPassReachable);
         return plan;
     }
 } // namespace OloEngine::RenderGraphSubmissionPlan

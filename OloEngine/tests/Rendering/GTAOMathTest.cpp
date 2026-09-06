@@ -562,26 +562,46 @@ TEST(GTAOMath, GtaoAoTargetIsNeverLeftUnwrittenForTheApplyPass)
                                              "Renderer" / "Passes" / "GTAORenderPass.cpp");
     ASSERT_FALSE(passSrc.empty());
 
-    // Every `return;` in Execute() from the moment the AO target is RESOLVED
-    // (i.e. from the moment AOApplyPass is guaranteed to sample it this frame)
-    // must publish the identity first.
+    // EVERY early exit from the moment the AO target is RESOLVED (i.e. from the
+    // moment AOApplyPass is guaranteed to sample it this frame) must leave the
+    // identity published. Two spellings satisfy that, because #1013 moved the
+    // body out of Execute() and into PrepareParallelRecording(): a bare
+    // `return;` preceded by a PublishNoOcclusion() call, and a
+    // `return PrepareNoOcclusion(...);` whose prepared body records the clear.
+    //
+    // The LAST return in the window is the success path — it hands back the
+    // real prepared pass, which writes the AO target for real — so it is
+    // exempt. Anything textually after it is a different (void) function, so a
+    // newly added early-out cannot hide in that exemption: it would no longer
+    // be last.
     const auto resolvePos = passSrc.find("aoOutputTexID = context.ResolveTextureHandle(");
-    ASSERT_NE(resolvePos, std::string::npos) << "AO target resolve not found in GTAORenderPass::Execute";
+    ASSERT_NE(resolvePos, std::string::npos) << "AO target resolve not found in GTAORenderPass";
     const auto executeEnd = passSrc.find("void GTAORenderPass::PublishNoOcclusion");
     ASSERT_NE(executeEnd, std::string::npos) << "PublishNoOcclusion definition not found";
     ASSERT_GT(executeEnd, resolvePos);
 
     const std::string tail = passSrc.substr(resolvePos, executeEnd - resolvePos);
+    std::vector<std::size_t> returns;
+    for (std::size_t at = tail.find("return"); at != std::string::npos; at = tail.find("return", at + 1))
+        returns.push_back(at);
+    ASSERT_FALSE(returns.empty()) << "no returns found to check — the scan anchor probably moved";
+
     u32 guardedReturns = 0;
-    for (std::size_t at = tail.find("return;"); at != std::string::npos; at = tail.find("return;", at + 1))
+    for (std::size_t i = 0; i + 1 < returns.size(); ++i)
     {
+        const std::size_t at = returns[i];
+        const std::size_t statementEnd = std::min(tail.find(';', at) + 1u, tail.size());
+        const std::string statement = tail.substr(at, statementEnd - at);
         const std::size_t windowStart = at > 400u ? at - 400u : 0u;
-        const std::string window = tail.substr(windowStart, at - windowStart);
-        EXPECT_NE(window.find("PublishNoOcclusion("), std::string::npos)
-            << "GTAORenderPass::Execute has an early return after the AO target is resolved that does "
-               "NOT publish the no-occlusion identity first — AOApplyPass will multiply the scene by "
-               "whatever the transient pool handed us, and on fresh (zeroed) storage that is an "
-               "exactly black frame (#771)";
+        const std::string before = tail.substr(windowStart, at - windowStart);
+        const bool publishesInline = before.find("PublishNoOcclusion(") != std::string::npos;
+        const bool returnsThePreparedIdentity = statement.find("PrepareNoOcclusion(") != std::string::npos;
+        EXPECT_TRUE(publishesInline || returnsThePreparedIdentity)
+            << "GTAORenderPass has an early return after the AO target is resolved that does NOT leave "
+               "the no-occlusion identity published — AOApplyPass will multiply the scene by whatever "
+               "the transient pool handed us, and on fresh (zeroed) storage that is an exactly black "
+               "frame (#771). Offending statement: "
+            << statement;
         ++guardedReturns;
     }
     EXPECT_GT(guardedReturns, 0u) << "no early returns found to check — the scan anchor probably moved";

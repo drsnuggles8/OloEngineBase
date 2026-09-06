@@ -134,7 +134,7 @@ namespace OloEngine
       private:
         void CreateTargets(u32 width, u32 height);
         void ReleaseTargets();
-        void UploadDrawUBO(const FluidRenderData& draw, f32 cameraNear, f32 cameraFar);
+        void UploadDrawUBO(const FluidRenderData& draw, f32 cameraNear, f32 cameraFar, UniformBuffer& upload) const;
 
         // Even iteration count keeps the smoothed result in m_DepthTexA.
         static constexpr u32 kSmoothIterations = 2;
@@ -153,6 +153,7 @@ namespace OloEngine
         Ref<Shader> m_ThicknessShader;
         Ref<ComputeShader> m_SmoothShader;
         Ref<UniformBuffer> m_FluidRenderUBO;
+        std::vector<Ref<UniformBuffer>> m_RecordingUploads;
         Ref<VertexArray> m_SplatVAO;
 
         RGTextureHandle m_SelectedSceneDepthTexture{};

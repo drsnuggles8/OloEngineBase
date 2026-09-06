@@ -15,6 +15,42 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        thread_local RendererProfiler::RecordingStats* s_RecordingStats = nullptr;
+    }
+
+    void RendererProfiler::RecordingStats::Reset()
+    {
+        Counters.fill(0);
+        InstancedDraws.clear();
+    }
+
+    void RendererProfiler::RecordingStats::Publish()
+    {
+        OLO_CORE_ASSERT(!s_RecordingStats, "Publish profiler writes after the join");
+        auto& profiler = RendererProfiler::GetInstance();
+        for (sizet index = 0; index < Counters.size(); ++index)
+        {
+            if (Counters[index] != 0u)
+                profiler.IncrementCounter(static_cast<MetricType>(index), Counters[index]);
+        }
+        for (auto& record : InstancedDraws)
+            profiler.m_InstancedDrawRecords.push_back(std::move(record));
+        Reset();
+    }
+
+    RendererProfiler::ScopedRecordingStats::ScopedRecordingStats(RecordingStats& stats)
+        : m_Previous(s_RecordingStats)
+    {
+        s_RecordingStats = &stats;
+    }
+
+    RendererProfiler::ScopedRecordingStats::~ScopedRecordingStats()
+    {
+        s_RecordingStats = m_Previous;
+    }
+
     RendererProfiler& RendererProfiler::GetInstance()
     {
         static RendererProfiler s_Instance;
@@ -183,6 +219,26 @@ namespace OloEngine
         m_CurrentFrame.m_GPUSceneConsumedDraws = CommandDispatch::GetGPUSceneConsumedDrawCount();
         m_CurrentFrame.m_GPUSceneFallbackDraws = CommandDispatch::GetGPUSceneFallbackDrawCount();
 
+        // The ring only exists between Initialize() and Shutdown(): Shutdown()
+        // CLEARS m_FrameHistory and only Initialize() sizes it again, so a frame
+        // ended after a renderer teardown that was not followed by a matching
+        // init indexes an empty vector. That is a lifecycle bug in the caller,
+        // not something to absorb — but it used to surface as a raw
+        // out-of-range subscript inside operator[], one frame deep in whatever
+        // scene happened to be rendering, with nothing naming the profiler.
+        // Say so, restore the invariant, and keep the frame.
+        if (m_FrameHistory.size() != OLO_FRAME_HISTORY_SIZE)
+        {
+            OLO_CORE_ERROR("RendererProfiler::EndFrame with a frame history of {0} entries (expected {1}): "
+                           "EndFrame ran after Shutdown() with no matching Initialize(). Re-sizing the ring; "
+                           "the history before this frame is gone.",
+                           m_FrameHistory.size(), OLO_FRAME_HISTORY_SIZE);
+            m_FrameHistory.clear();
+            m_FrameHistory.resize(OLO_FRAME_HISTORY_SIZE);
+            m_HistoryIndex = 0;
+            m_LastWrittenHistoryIndex = 0;
+        }
+
         // Store frame data in history. FrameTime and any post-frame GPU wait
         // (SwapBuffers etc.) aren't known yet — the next BeginFrame() patches
         // both fields into this exact slot and into m_PreviousFrame once they
@@ -235,8 +291,12 @@ namespace OloEngine
 
     void RendererProfiler::IncrementCounter(MetricType type, u32 value)
     {
-        OLO_CORE_ASSERT(!RenderCommand::IsRecordingParallelItem(),
-                        "RendererProfiler::IncrementCounter from a RecordParallel item");
+        if (s_RecordingStats)
+        {
+            s_RecordingStats->Counters[static_cast<sizet>(type)] += value;
+            return;
+        }
+        OLO_CORE_ASSERT(!RenderCommand::IsRecordingParallelItem(), "Recording item has no profiler state");
         switch (type)
         {
             case MetricType::DrawCalls:
@@ -472,6 +532,28 @@ namespace OloEngine
             ImGui::Text("Regions: %u forked / %u inline", parallel.Regions, parallel.InlineRegions);
             ImGui::Text("Secondaries executed: %u", parallel.SecondariesExecuted);
             ImGui::Text("Worker record: %.3f ms summed; region wall: %.3f ms", parallel.WorkerRecordMs, parallel.RegionWallMs);
+            ImGui::Text("Join wait: %.3f ms", parallel.JoinWaitMs);
+            if (ImGui::TreeNode("Recording regions and items"))
+            {
+                for (sizet regionIndex = 0; regionIndex < parallel.RegionTimings.size(); ++regionIndex)
+                {
+                    const auto& region = parallel.RegionTimings[regionIndex];
+                    ImGui::PushID(static_cast<int>(regionIndex));
+                    if (ImGui::TreeNode("region", "%s (%s): %.3f ms wall, %.3f ms join",
+                                        region.PassName.empty() ? "Unlabelled" : region.PassName.c_str(),
+                                        region.Parallel ? "parallel" : "inline", region.RegionWallMs, region.JoinWaitMs))
+                    {
+                        for (sizet item = 0; item < region.ItemRecordMs.size(); ++item)
+                        {
+                            const char* name = item < region.ItemPassNames.size() ? region.ItemPassNames[item].c_str() : "Item";
+                            ImGui::BulletText("%s %zu: %.3f ms", name, item, region.ItemRecordMs[item]);
+                        }
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::TreePop();
+            }
             if (parallel.MergeConflicts > 0)
             {
                 // Two items transitioned one subresource differently
@@ -1145,10 +1227,8 @@ namespace OloEngine
                                                u32 instanceCount, const i32* entityIDs, bool fromAutoBatching,
                                                const char* source)
     {
-        // The profiler is one unsynchronised object: an item tallies locally
-        // and publishes after the join (amendment (92) rule 6).
-        OLO_CORE_ASSERT(!RenderCommand::IsRecordingParallelItem(),
-                        "RendererProfiler::RecordInstancedDraw from a RecordParallel item");
+        OLO_CORE_ASSERT(s_RecordingStats || !RenderCommand::IsRecordingParallelItem(),
+                        "Recording item has no profiler state");
         if (!m_RecordInstancedDraws)
             return;
 
@@ -1164,7 +1244,10 @@ namespace OloEngine
         {
             record.m_EntityIDs.assign(entityIDs, entityIDs + instanceCount);
         }
-        m_InstancedDrawRecords.push_back(std::move(record));
+        if (s_RecordingStats)
+            s_RecordingStats->InstancedDraws.push_back(std::move(record));
+        else
+            m_InstancedDrawRecords.push_back(std::move(record));
     }
 
     std::string RendererProfiler::CompareFrames(const CapturedFrame& frame1, const CapturedFrame& frame2) const

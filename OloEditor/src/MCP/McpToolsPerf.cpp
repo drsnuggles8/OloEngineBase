@@ -331,8 +331,17 @@ namespace OloEngine::MCP
                 totals.ParallelRecording.InlineRegions = pr.InlineRegions;
                 totals.ParallelRecording.SecondariesExecuted = pr.SecondariesExecuted;
                 totals.ParallelRecording.MergeConflicts = pr.MergeConflicts;
+                totals.ParallelRecording.DeclinedGroups = pr.DeclinedGroups;
                 totals.ParallelRecording.WorkerRecordMs = pr.WorkerRecordMs;
                 totals.ParallelRecording.RegionWallMs = pr.RegionWallMs;
+                totals.ParallelRecording.JoinWaitMs = pr.JoinWaitMs;
+                for (const auto& region : pr.RegionTimings)
+                {
+                    totals.ParallelRecording.RegionTimings.push_back({ region.PassName, region.Parallel,
+                        region.WorkerRecordMs, region.RegionWallMs, region.JoinWaitMs, region.ItemRecordMs, region.ItemPassNames,
+                        region.SelectionSeedMs, region.AttachmentPrepareMs, region.SampledImagePrepareMs, region.PipelineLookupMs,
+                        region.FrontendPrepareMs });
+                }
                 totals.GpuResultsAgeFrames =
                     (pool.GetLastResolvedFrameNumber() > 0 && pool.GetCurrentFrameNumber() >= pool.GetLastResolvedFrameNumber())
                         ? pool.GetCurrentFrameNumber() - pool.GetLastResolvedFrameNumber()
@@ -568,7 +577,7 @@ namespace OloEngine::MCP
                 "unrepresentative frame. parallelRecording is the parallel command recorder's telemetry "
                 "for the same frame (issue #806): regions (RecordParallel calls that forked) vs inlineRegions, "
                 "secondariesExecuted, workerRecordMs (summed per-item record time) vs regionWallMs "
-                "(fork-to-join wall time); all zero on OpenGL, whose facade default reports nothing; on Vulkan with OLO_VK_PARALLEL_RECORDING off only inlineRegions counts. "
+                "(fork-to-join wall time); all zero on OpenGL, whose facade default reports nothing. Vulkan reports item and region timings for both inline and parallel execution. "
                 "mergeConflicts > 0 means two items transitioned the same subresource "
                 "differently - a bug in the pass that forked, never a driver condition.";
             tool.InputSchema = Schema::EmptyObject();
@@ -583,9 +592,22 @@ namespace OloEngine::MCP
                                                                    .Prop("inlineRegions", Schema::Int().Min(0).Desc("RecordParallel calls that ran inline on the render thread (backend unsupported, declined, or fewer than 2 items)."))
                                                                    .Prop("secondariesExecuted", Schema::Int().Min(0).Desc("Secondary command buffers executed into the primary at the join."))
                                                                    .Prop("mergeConflicts", Schema::Int().Min(0).Desc("Subresources two items transitioned differently (ADR 0011 amendment (92) rule 5). Any non-zero value is a bug in the pass that forked."))
-                                                                   .Prop("workerRecordMs", Schema::Number().Desc("Sum of per-item recording time across workers."))
+                                                                   .Prop("workerRecordMs", Schema::Number().Desc("Sum of per-item recording time, including caller items and inline regions."))
                                                                    .Prop("regionWallMs", Schema::Number().Desc("Sum of fork-to-join wall time on the render thread."))
-                                                                   .Desc("Parallel command recorder telemetry for the same frame as `frame` (issue #806); all zero on OpenGL, whose facade default reports nothing; on Vulkan with OLO_VK_PARALLEL_RECORDING off only inlineRegions counts."))
+                                                                   .Prop("joinWaitMs", Schema::Number().Desc("Time after the caller's last item until the parallel loop returned, including scheduler/join bookkeeping."))
+                                                                   .Prop("regionTimings", Schema::Array(Schema::Object()
+                                                                                                            .Prop("pass", Schema::String())
+                                                                                                            .Prop("parallel", Schema::Bool())
+                                                                                                            .Prop("workerRecordMs", Schema::Number())
+                                                                                                            .Prop("regionWallMs", Schema::Number())
+                                                                                                            .Prop("joinWaitMs", Schema::Number())
+                                                                                                            .Prop("itemRecordMs", Schema::Array(Schema::Number()))
+                                                                                                            .Prop("itemPassNames", Schema::Array(Schema::String()))
+                                                                                                            .Prop("selectionSeedMs", Schema::Number())
+                                                                                                            .Prop("attachmentPrepareMs", Schema::Number())
+                                                                                                            .Prop("sampledImagePrepareMs", Schema::Number())
+                                                                                                            .Prop("pipelineLookupMs", Schema::Number())))
+                                                                   .Desc("Parallel recorder telemetry for the same frame as `frame`; Vulkan reports both inline and parallel regions in execution order. OpenGL reports zeros."))
                                     .Prop("passes", Schema::Array(Schema::Object()
                                                                       .Prop("pass", Schema::String())
                                                                       .Prop("gpuMs", Schema::Number())

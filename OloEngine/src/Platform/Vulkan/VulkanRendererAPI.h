@@ -487,7 +487,16 @@ namespace OloEngine
 
         // --- Parallel command recording (#806, amendment (92)) ---------------
         [[nodiscard]] bool SupportsParallelRecording() const override;
-        void RecordParallel(u32 itemCount, const std::function<void(u32 item)>& body) override;
+        void RecordParallel(u32 itemCount, const std::function<void(u32 item)>& body, u32 instanceCapacity = 1u) override;
+        void RecordParallelOrdered(u32 itemCount, const std::function<void(u32)>& body,
+                                   const std::function<void(u32)>& beforeExecute,
+                                   const std::function<void(u32)>& afterExecute,
+                                   u32 instanceCapacity = 1u, std::span<const std::string> itemPassNames = {}) override;
+        void ReleaseParallelRecordingResources() override;
+        void NoteDeclinedRecordingGroup() override
+        {
+            ++m_ParallelStats.DeclinedGroups;
+        }
         [[nodiscard]] ParallelRecordingFrameStats GetParallelRecordingStats() const override
         {
             return m_ParallelStats;
@@ -655,7 +664,7 @@ namespace OloEngine
         VulkanRecordingContext m_Main;
         // Item contexts of the parallel recorder, reused across regions and
         // grown on demand (a context never moves: its tracker self-registers).
-        std::vector<Scope<VulkanRecordingContext>> m_Items;
+        std::vector<Scope<VulkanWorkerRecordingContext>> m_Items;
         bool m_InParallelRegion = false;
         u64 m_RegionSerial = 0;                ///< Stamps each region (the buffer writer check, amendment (92) rule 6).
         VulkanLayoutClaimTable m_LayoutClaims; ///< Record-time rule-5 claims for the region in flight.
@@ -692,13 +701,14 @@ namespace OloEngine
         [[nodiscard]] bool RefuseOnWorker(const char* entryPoint) const;
         // The per-item half of RecordParallel: runs on whichever thread
         // ParallelFor hands the item to.
-        void RecordParallelItem(VulkanRecordingContext& item, const std::function<void(u32 item)>& body,
+        void RecordParallelItem(VulkanWorkerRecordingContext& item, const std::function<void(u32 item)>& body,
                                 std::exception_ptr& firstFailure, std::mutex& failureMutex);
         // The fork's attachment pre-transition (amendment (92) rule 5): bring
         // the bound target's colour / depth / selected depth-array layer to
         // their attachment layouts on the primary, so items open their scopes
         // with identity transitions.
         void TransitionBoundTargetAttachmentsForFork();
+        void TransitionSeededSampledImagesForFork();
 
         FrameBackbuffer m_Backbuffer;     ///< Live only inside a frame-callback recording.
         bool m_BackbufferWritten = false; ///< A backbuffer scope opened this recording.

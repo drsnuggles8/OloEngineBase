@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/PreparedFullscreenPass.h"
 #include "OloEngine/Renderer/FrameBlackboard.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
@@ -81,12 +82,19 @@ namespace OloEngine
 
     void DepthVelocityUpscalePass::Execute(RGCommandContext& context)
     {
+        auto prepared = PrepareParallelRecording(context);
+        if (prepared.Record)
+            prepared.Record(context);
+    }
+
+    RGPreparedPass DepthVelocityUpscalePass::PrepareParallelRecording(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         if (!m_Enabled || !m_ReducedDepth.IsValid() || !m_Shader || !m_UBO)
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         const RHI::ResourceHandle depthTextureID = context.ResolveTextureHandle(m_ReducedDepth);
@@ -102,49 +110,13 @@ namespace OloEngine
         if (!depthTextureID.IsValid() || !outputFramebuffer)
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         m_Target = outputFramebuffer;
-        outputFramebuffer->Bind();
-
         const auto& outSpec = outputFramebuffer->GetSpecification();
         const auto outW = outSpec.Width;
         const auto outH = outSpec.Height;
-        context.SetViewport(0, 0, outW, outH);
-        context.SetDepthTest(false);
-        context.SetDepthMask(false);
-        context.SetBlendState(false);
-        context.SetCulling(false);
-        RenderCommand::DisableStencilTest();
-        RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
-        RenderCommand::SetColorMask(true, true, true, true);
-
-        constexpr std::array<u32, 2> drawBuffers = { 0u, 1u };
-        context.SetDrawBuffers(std::span<const u32>(drawBuffers.data(), drawBuffers.size()));
-
-        context.SetClearColor({ 1.0f, 0.0f, 0.0f, 0.0f }); // depth cleared to far, velocity to zero
-        context.Clear();
-
-        m_Shader->Bind();
-
-        // Slots match the shader's layout bindings + the engine reuse
-        // conventions: depth on slot 1, velocity on slot 2.
-        //
-        // The `SetInt("u_Depth", 1)` / `SetInt("u_Velocity", 2)` companions are
-        // gone. They were already redundant — the shader declares
-        // `layout(binding = N)` and glsl-shaders.md §5 forbids glUniform1i for
-        // samplers — and under the bindless variant the name is a #define rather
-        // than a uniform, so each would log "uniform not found" every frame.
-        // Converting a sampler means deleting its SetInt, not just moving the
-        // declaration (issue #691).
-        //
-        // FrameTransient: both are graph-resolved. velocityTextureID may be
-        // NullResource, which the seam stages as the reserved null offset.
-        context.BindTextureOrHeapOffset(1, depthTextureID, RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(2, velocityTextureID, RHI::HeapSlotLifetime::FrameTransient);
-
         const f32 scale = std::clamp(m_RenderScale, 0.25f, 1.0f);
         const auto renderW = std::max(1u, static_cast<u32>(std::floor(static_cast<f32>(outW) * scale)));
         const auto renderH = std::max(1u, static_cast<u32>(std::floor(static_cast<f32>(outH) * scale)));
@@ -154,15 +126,9 @@ namespace OloEngine
                                            1.0f / static_cast<f32>(renderW), 1.0f / static_cast<f32>(renderH));
         data.SampleBounds = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
         m_UBO->SetData(&data, EASUUBOData::GetSize());
-        m_UBO->Bind();
-
-        const auto va = MeshPrimitives::GetFullscreenTriangle();
-        va->Bind();
-        context.FlushHeapOffsets();
-        context.DrawIndexed(va);
-
-        context.SetDepthMask(true);
-        outputFramebuffer->Unbind();
+        return PrepareFullscreenPass(outputFramebuffer, m_Shader,
+                                     { { 1, depthTextureID, {} }, { 2, velocityTextureID, {} } },
+                                     { m_UBO }, true, { 0u, 1u }, { 1, 0, 0, 0 });
     }
 
     void DepthVelocityUpscalePass::SetupFramebuffer(u32 width, u32 height)

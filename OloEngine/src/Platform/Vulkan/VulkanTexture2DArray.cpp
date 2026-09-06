@@ -83,11 +83,13 @@ namespace OloEngine
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         // Sampled everywhere (shadow arrays feed sampler2DArrayShadow);
         // depth formats render as layered depth attachments (the CSM/atlas
-        // passes), colour formats copy in/out for uploads and debug reads.
+        // passes). Uncompressed colour arrays also serve as storage images
+        // for ocean FFT and terrain VT compute outputs. All supported colour
+        // formats here are single-sampled, linear storage-capable formats.
         imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                           VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                           (isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-                                   : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+                                   : (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT));
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO;

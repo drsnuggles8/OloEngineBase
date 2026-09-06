@@ -61,6 +61,9 @@ namespace OloEngine::RenderGraphSubmissionPlan
         // Returns the node pointer for the named pass, or nullptr if the
         // pass is unknown / external.
         std::function<RenderGraphNode*(const std::string&)> ResolveNodePointer;
+        // Compiled reachability, when building a real graph. A culled member
+        // must not make an otherwise valid recording group decline at runtime.
+        std::function<bool(const std::string&)> IsPassReachable;
     };
 
     [[nodiscard]] auto BuildPlan(const PlanInput& input) -> std::vector<RenderGraph::SubmissionCommand>;

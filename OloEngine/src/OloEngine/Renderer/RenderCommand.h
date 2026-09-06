@@ -399,16 +399,33 @@ namespace OloEngine
         {
             return s_RendererAPI && s_RendererAPI->IsRecordingParallelItem();
         }
-        static void RecordParallel(const u32 itemCount, const std::function<void(u32 item)>& body)
+        static void RecordParallel(const u32 itemCount, const std::function<void(u32 item)>& body, u32 instanceCapacity = 1u)
         {
             if (s_RendererAPI)
             {
-                s_RendererAPI->RecordParallel(itemCount, body);
+                s_RendererAPI->RecordParallel(itemCount, body, instanceCapacity);
                 return;
             }
             for (u32 item = 0; item < itemCount; ++item)
             {
                 body(item);
+            }
+        }
+        // Guarded like RecordParallel above. CommandDispatch::Shutdown is the
+        // caller, and fixtures reach it after dropping their API; the plain
+        // GetRendererAPI() accessor dereferences unconditionally.
+        static void ReleaseParallelRecordingResources()
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->ReleaseParallelRecordingResources();
+            }
+        }
+        static void NoteDeclinedRecordingGroup()
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->NoteDeclinedRecordingGroup();
             }
         }
         [[nodiscard]] static RendererAPI::ParallelRecordingFrameStats GetParallelRecordingStats()

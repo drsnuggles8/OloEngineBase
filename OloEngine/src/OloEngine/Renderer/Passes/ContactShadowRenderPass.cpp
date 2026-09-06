@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/PreparedFullscreenPass.h"
 #include "OloEngine/Renderer/Passes/ContactShadowRenderPass.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -78,6 +79,13 @@ namespace OloEngine
 
     void ContactShadowRenderPass::Execute(RGCommandContext& context)
     {
+        auto prepared = PrepareParallelRecording(context);
+        if (prepared.Record)
+            prepared.Record(context);
+    }
+
+    RGPreparedPass ContactShadowRenderPass::PrepareParallelRecording(RGCommandContext& context)
+    {
         OLO_PROFILE_FUNCTION();
 
         // Sample-only consumer: the input framebuffer is intentionally not
@@ -102,7 +110,7 @@ namespace OloEngine
         if (!m_Enabled)
         {
             m_Target = nullptr;
-            return;
+            return {};
         }
 
         if (!inputColorTextureID.IsValid() || !outputFramebuffer)
@@ -117,7 +125,7 @@ namespace OloEngine
                               gbufferNormalID);
             }
             OLO_CORE_ASSERT(false, "ContactShadowRenderPass enabled without resolved graph input/output");
-            return;
+            return {};
         }
 
         if (const bool shaderReady = m_ContactShadowShader && m_ContactShadowShader->IsReady();
@@ -130,46 +138,13 @@ namespace OloEngine
                               shaderReady, sceneDepthID, gbufferNormalID);
             }
             OLO_CORE_ASSERT(false, "ContactShadowRenderPass enabled without ready shader or resolved G-Buffer/depth inputs");
-            return;
+            return {};
         }
 
         m_Target = outputFramebuffer;
-
-        // Rebind the contact-shadow UBO (binding 41) — other passes may displace
-        // this indexed binding between EndScene()'s upload and this Execute() call.
-        if (m_ContactShadowUBO)
-            m_ContactShadowUBO->Bind();
-
-        constexpr u32 colorAttachment = 0;
-        outputFramebuffer->Bind();
-
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetDepthMask(false);
-        RenderCommand::DisableStencilTest();
-        RenderCommand::SetBlendState(false);
-        RenderCommand::DisableCulling();
-        RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
-        RenderCommand::SetColorMask(true, true, true, true);
-        RenderCommand::SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
-
-        context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
-        context.Clear();
-
-        m_ContactShadowShader->Bind();
-        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID, RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID, RHI::HeapSlotLifetime::FrameTransient);
-
-        // Publish the heap offsets recorded above (no-op with the heap off).
-        context.FlushHeapOffsets();
-
-        const auto va = MeshPrimitives::GetFullscreenTriangle();
-        va->Bind();
-        RenderCommand::DrawIndexed(va);
-
-        RenderCommand::SetDepthMask(true);
-        outputFramebuffer->Unbind();
+        return PrepareFullscreenPass(outputFramebuffer, m_ContactShadowShader,
+                                     { { 0, inputColorTextureID, {} }, { ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID, {} }, { ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID, {} } },
+                                     { m_ContactShadowUBO });
     }
 
     void ContactShadowRenderPass::SetupFramebuffer(u32 width, u32 height)

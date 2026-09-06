@@ -180,6 +180,15 @@ namespace OloEngine
             const auto* dc = p->GetCommandData<DrawDecalCommand>();
             return dc && dc->transparent != 0;
         };
+        const auto replaySelected = [&](RendererAPI& api)
+        {
+            std::vector<CommandPacket*> selected;
+            selected.reserve(m_CommandBucket.GetCommandCount());
+            for (auto* packet : m_CommandBucket.GetPackets())
+                if (shouldDrawHere(packet))
+                    selected.push_back(packet);
+            (void)CommandBucket::RecordPackets(api, selected, m_CommandBucket.GetViewState());
+        };
 
         if (!m_SceneFramebuffer)
         {
@@ -264,11 +273,7 @@ namespace OloEngine
             if (capturing)
                 captureManager.OnPostSort(m_CommandBucket);
             auto& rendererAPI = RenderCommand::GetRendererAPI();
-            for (const auto* packet : m_CommandBucket.GetPackets())
-            {
-                if (shouldDrawHere(packet))
-                    packet->Execute(rendererAPI);
-            }
+            replaySelected(rendererAPI);
 
             // Withdraw the per-attachment opinions this path stated — see
             // issue #896: `false` is a standing DISABLE, not a restore.
@@ -303,11 +308,7 @@ namespace OloEngine
             captureManager.OnPostSort(m_CommandBucket);
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
-        for (const auto* packet : m_CommandBucket.GetPackets())
-        {
-            if (shouldDrawHere(packet))
-                packet->Execute(rendererAPI);
-        }
+        replaySelected(rendererAPI);
 
         // Restore render state after decals
         context.SetDepthMask(true);
@@ -410,95 +411,106 @@ namespace OloEngine
         const std::array<u32, kGBufferCount> drawEmissiveOnly = { kNone, kNone, 2, kNone, kNone, kNone };
         const std::array<u32, kGBufferCount> fullDrawBufs = { 0, 1, 2, 3, 4, 5 };
 
-        using DecalMode = DrawDecalCommand::DecalMode;
-        // Sentinel outside the valid enumerator range — forces the first
-        // packet to reconfigure the draw buffers + masks.
-        auto currentMode = static_cast<DecalMode>(0xFF);
         bool anyTransparentQueued = false;
-
-        for (const auto* packet : m_CommandBucket.GetPackets())
+        std::vector<CommandPacket*> opaquePackets;
+        opaquePackets.reserve(m_CommandBucket.GetCommandCount());
+        for (auto* packet : m_CommandBucket.GetPackets())
         {
             if (!packet)
                 continue;
-
-            DecalMode packetMode = DecalMode::Albedo;
-            bool packetTransparent = false;
-            if (packet->GetCommandType() == CommandType::DrawDecal)
-            {
-                const auto* decalCmd = packet->GetCommandData<DrawDecalCommand>();
-                packetMode = decalCmd ? decalCmd->mode : DecalMode::Albedo;
-                packetTransparent = decalCmd && decalCmd->transparent != 0;
-            }
-
-            // Transparent decals don't belong in the G-Buffer overlay drain;
-            // leave them for the graph-scheduled Execute() to composite over
-            // the lit scene colour after DeferredLightingPass.
-            if (packetTransparent)
-            {
+            if (packet->GetCommandType() == CommandType::DrawDecal &&
+                packet->GetCommandData<DrawDecalCommand>()->transparent != 0)
                 anyTransparentQueued = true;
-                continue;
-            }
-
-            if (packetMode != currentMode)
-            {
-                // Emissive mode additively accumulates into RT2.rgb so
-                // overlapping emissive decals sum their contributions; all
-                // other modes overwrite (the previous value is preserved for
-                // channels outside the colour mask).
-                const bool wantAdditive = (packetMode == DecalMode::Emissive);
-                RenderCommand::SetBlendFuncForAttachment(2, RHI::BlendFactor::One, RHI::BlendFactor::One);
-                RenderCommand::SetBlendStateForAttachment(2, wantAdditive);
-
-                switch (packetMode)
-                {
-                    case DecalMode::Normal: // RT1 only, xy writable, zw preserved
-                        RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawNormalOnly);
-                        break;
-                    case DecalMode::RMA: // RT0.a + RT1.zw writable
-                        RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawAlbedoAndNormal);
-                        break;
-                    case DecalMode::Emissive: // RT2.rgb writable, RT2.a (unlit flag) preserved
-                        RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawEmissiveOnly);
-                        break;
-                    case DecalMode::Albedo:
-                    default: // RT0.rgb writable, RT0.a preserved
-                        RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawAlbedoOnly);
-                        break;
-                }
-
-                // The mode's per-attachment CHANNEL routing, read out of the
-                // one shared table (issue #853). These calls used to be four
-                // literal SetColorMaskForAttachment lines per mode inside the
-                // switch above; they now come from DecalGBufferChannelMask,
-                // which is also what Renderer3D::DrawDecal stamps onto each
-                // packet's PODRenderState -- so the masks the pass installs and
-                // the masks the draw re-asserts cannot drift apart. Only the
-                // four RGBA colour attachments are touched: RT4 is R32I (entity
-                // id), where a colour mask is a no-op, and no decal mode's draw
-                // map attaches it anyway.
-                //
-                // Setting them HERE is still load-bearing: it is what a draw
-                // that does not route through ApplyPODRenderState would see,
-                // and it is the state the pass restores from at the end.
-                const u32 modeChannelMask = DecalGBufferChannelMask(packetMode);
-                for (u32 rt = 0; rt < 4u; ++rt)
-                {
-                    const u8 channels = GetColorChannelMask(modeChannelMask, rt);
-                    RenderCommand::SetColorMaskForAttachment(rt, (channels & 0x1u) != 0u,
-                                                             (channels & 0x2u) != 0u,
-                                                             (channels & 0x4u) != 0u,
-                                                             (channels & 0x8u) != 0u);
-                }
-                currentMode = packetMode;
-
-                // The per-attachment state above bypasses our cached render-state
-                // tracking; invalidate so the next dispatched packet
-                // re-applies its POD state instead of skipping as a no-op.
-                CommandDispatch::InvalidateRenderStateCache();
-            }
-
-            packet->Execute(rendererAPI);
+            else
+                opaquePackets.push_back(packet);
         }
+        // Every mode may select a different subset. Settle all attachment
+        // layouts on the primary; the per-item mode cache then changes only
+        // routing and channel masks, preserving sorted blend order.
+        RenderCommand::SetFramebufferDrawAttachments(gbufferID, fullDrawBufs);
+        const auto plan = CommandBucket::PlanParallelReplay(opaquePackets);
+        RenderCommand::RecordParallel(opaquePackets.empty() ? 0u : plan.ItemCount, [&](u32 item)
+                                      {
+                                          using DecalMode = DrawDecalCommand::DecalMode;
+                                          // Sentinel outside the valid enumerator range — forces the first
+                                          // packet to reconfigure the draw buffers + masks.
+                                          auto currentMode = static_cast<DecalMode>(0xFF);
+
+                                          const sizet begin = opaquePackets.size() * item / plan.ItemCount;
+                                          const sizet end = opaquePackets.size() * (item + 1u) / plan.ItemCount;
+                                          for (sizet index = begin; index < end; ++index)
+                                          {
+                                              const auto* packet = opaquePackets[index];
+                                              if (!packet)
+                                                  continue;
+
+                                              DecalMode packetMode = DecalMode::Albedo;
+                                              if (packet->GetCommandType() == CommandType::DrawDecal)
+                                              {
+                                                  const auto* decalCmd = packet->GetCommandData<DrawDecalCommand>();
+                                                  packetMode = decalCmd ? decalCmd->mode : DecalMode::Albedo;
+                                              }
+
+                                              if (packetMode != currentMode)
+                                              {
+                                                  // Emissive mode additively accumulates into RT2.rgb so
+                                                  // overlapping emissive decals sum their contributions; all
+                                                  // other modes overwrite (the previous value is preserved for
+                                                  // channels outside the colour mask).
+                                                  const bool wantAdditive = (packetMode == DecalMode::Emissive);
+                                                  RenderCommand::SetBlendFuncForAttachment(2, RHI::BlendFactor::One, RHI::BlendFactor::One);
+                                                  RenderCommand::SetBlendStateForAttachment(2, wantAdditive);
+
+                                                  switch (packetMode)
+                                                  {
+                                                      case DecalMode::Normal: // RT1 only, xy writable, zw preserved
+                                                          RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawNormalOnly);
+                                                          break;
+                                                      case DecalMode::RMA: // RT0.a + RT1.zw writable
+                                                          RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawAlbedoAndNormal);
+                                                          break;
+                                                      case DecalMode::Emissive: // RT2.rgb writable, RT2.a (unlit flag) preserved
+                                                          RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawEmissiveOnly);
+                                                          break;
+                                                      case DecalMode::Albedo:
+                                                      default: // RT0.rgb writable, RT0.a preserved
+                                                          RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawAlbedoOnly);
+                                                          break;
+                                                  }
+
+                                                  // The mode's per-attachment CHANNEL routing, read out of the
+                                                  // one shared table (issue #853). These calls used to be four
+                                                  // literal SetColorMaskForAttachment lines per mode inside the
+                                                  // switch above; they now come from DecalGBufferChannelMask,
+                                                  // which is also what Renderer3D::DrawDecal stamps onto each
+                                                  // packet's PODRenderState -- so the masks the pass installs and
+                                                  // the masks the draw re-asserts cannot drift apart. Only the
+                                                  // four RGBA colour attachments are touched: RT4 is R32I (entity
+                                                  // id), where a colour mask is a no-op, and no decal mode's draw
+                                                  // map attaches it anyway.
+                                                  //
+                                                  // Setting them HERE is still load-bearing: it is what a draw
+                                                  // that does not route through ApplyPODRenderState would see,
+                                                  // and it is the state the pass restores from at the end.
+                                                  const u32 modeChannelMask = DecalGBufferChannelMask(packetMode);
+                                                  for (u32 rt = 0; rt < 4u; ++rt)
+                                                  {
+                                                      const u8 channels = GetColorChannelMask(modeChannelMask, rt);
+                                                      RenderCommand::SetColorMaskForAttachment(rt, (channels & 0x1u) != 0u,
+                                                                                               (channels & 0x2u) != 0u,
+                                                                                               (channels & 0x4u) != 0u,
+                                                                                               (channels & 0x8u) != 0u);
+                                                  }
+                                                  currentMode = packetMode;
+
+                                                  // The per-attachment state above bypasses our cached render-state
+                                                  // tracking; invalidate so the next dispatched packet
+                                                  // re-applies its POD state instead of skipping as a no-op.
+                                                  CommandDispatch::InvalidateRenderStateCache();
+                                              }
+
+                                              packet->Execute(rendererAPI);
+                                          } }, plan.InstanceCapacity);
 
         RenderCommand::SetDepthMask(true);
         RenderCommand::SetBlendState(false);

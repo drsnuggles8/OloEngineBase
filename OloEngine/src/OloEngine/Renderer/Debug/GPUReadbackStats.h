@@ -130,6 +130,7 @@ namespace OloEngine
         // unrelated buffer, which reads as "the channel reports zero" with no
         // other symptom. Cheap enough to be unconditional.
         static void BindForDispatch();
+        [[nodiscard]] static RHI::ResourceHandle GetDispatchBufferHandle();
 
       private:
         // The live SSBO's layout. GLSL twin: the OloGpuReadbackStats block in

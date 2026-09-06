@@ -149,7 +149,7 @@ namespace OloEngine
         m_CommandBucket.SortCommands();
         if (capturing)
             captureManager.OnPostSort(m_CommandBucket);
-        m_CommandBucket.Execute(rendererAPI);
+        m_CommandBucket.ExecuteParallel(rendererAPI);
 
         // Phase 2 (#431): the phase-1 draws are now in the depth buffer.
         // Rebuild a Hi-Z from the live framebuffer depth (occluders + phase-1
@@ -177,9 +177,7 @@ namespace OloEngine
                     Renderer3D::DispatchOcclusionPhase2(cull, currentHZB);
 
                 bindSceneForDraw();
-                for (CommandPacket* packet : m_Phase2Packets)
-                    if (packet)
-                        packet->Execute(rendererAPI);
+                (void)CommandBucket::RecordPackets(rendererAPI, m_Phase2Packets);
             }
             else
             {

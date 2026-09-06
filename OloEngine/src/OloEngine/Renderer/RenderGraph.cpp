@@ -4198,17 +4198,22 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Fast-path: skip the reorder when no async-compute candidate exists.
+        // Only Setup-active prepared nodes influence grouping. Disabled nodes
+        // have empty declarations and must not postpone useful work indefinitely.
+        std::unordered_map<std::string, RenderGraphNode*> recordingCandidates;
         bool hasCandidate = false;
         for (const auto& name : m_ExecutionOrder)
         {
-            if (IsGraphEntryAsyncComputeCandidate(name))
-            {
-                hasCandidate = true;
-                break;
-            }
+            hasCandidate = hasCandidate || IsGraphEntryAsyncComputeCandidate(name);
+            const auto node = m_NodeLookup.find(name);
+            const auto accesses = m_PassAccessDeclarations.find(name);
+            if (node != m_NodeLookup.end() && node->second &&
+                node->second->IsEnabled() &&
+                node->second->SupportsWholePassRecording() &&
+                accesses != m_PassAccessDeclarations.end() && !accesses->second.empty())
+                recordingCandidates.emplace(name, node->second.Raw());
         }
-        if (!hasCandidate)
+        if (!hasCandidate && recordingCandidates.size() < 2)
             return;
 
         // Modified Kahn's algorithm over m_ExecutionOrder:
@@ -4320,42 +4325,65 @@ namespace OloEngine
         std::vector<std::string> reordered;
         reordered.reserve(m_ExecutionOrder.size());
 
+        const auto emit = [&](const std::string& name)
+        {
+            auto& ready = IsGraphEntryAsyncComputeCandidate(name) ? computeReady : graphicsReady;
+            ready.erase(std::ranges::find(ready, name));
+            reordered.push_back(name);
+            if (const auto successorsIt = successors.find(name); successorsIt != successors.end())
+                for (const auto& successor : successorsIt->second)
+                    if (--inDegree[successor] == 0)
+                        classify(successor);
+        };
         while (!computeReady.empty() || !graphicsReady.empty())
         {
-            // Drain all ready compute passes before advancing any graphics pass.
-            while (!computeReady.empty())
+            std::vector<std::string> ready(computeReady.begin(), computeReady.end());
+            ready.insert(ready.end(), graphicsReady.begin(), graphicsReady.end());
+            std::vector<std::string> group;
+            for (const auto& first : ready)
             {
-                std::string name = std::move(computeReady.front());
-                computeReady.pop_front();
-                reordered.push_back(name);
-
-                auto succIt = successors.find(name);
-                if (succIt != successors.end())
+                const auto candidate = recordingCandidates.find(first);
+                if (candidate == recordingCandidates.end())
+                    continue;
+                group.clear();
+                for (const auto& name : ready)
                 {
-                    for (const auto& succ : succIt->second)
+                    const auto partner = recordingCandidates.find(name);
+                    if (partner != recordingCandidates.end() &&
+                        candidate->second->GetPassWorkType() == partner->second->GetPassWorkType() &&
+                        IsGraphEntryAsyncComputeCandidate(first) == IsGraphEntryAsyncComputeCandidate(name))
                     {
-                        if (--inDegree[succ] == 0)
-                            classify(succ);
+                        group.push_back(name);
+                        if (group.size() == 16)
+                            break;
                     }
                 }
+                if (group.size() >= 2)
+                    break;
             }
-
-            if (!graphicsReady.empty())
+            if (group.size() >= 2)
             {
-                std::string name = std::move(graphicsReady.front());
-                graphicsReady.pop_front();
-                reordered.push_back(name);
-
-                auto succIt = successors.find(name);
-                if (succIt != successors.end())
-                {
-                    for (const auto& succ : succIt->second)
-                    {
-                        if (--inDegree[succ] == 0)
-                            classify(succ);
-                    }
-                }
+                // All members were ready before any was emitted: no member can
+                // consume another. Unlock successors only after fixing this group.
+                for (const auto& name : group)
+                    emit(name);
+                continue;
             }
+
+            // A lone prepared pass may be independent of a producer which will
+            // unlock its partner (depth/velocity upscale versus particle color).
+            // Advance that ordinary work first. If only prepared nodes remain,
+            // drain the first one to guarantee progress and preserve dependencies.
+            //
+            // This deferral applies to a prepared COMPUTE pass too, and there it
+            // also grows the async batch rather than splitting it: waiting for
+            // the partner is what makes the candidates contiguous, which is the
+            // run GetAsyncComputeBatches partitions on
+            // (SchedulingGroupsEarlyComputeWithLaterReadyPeersAndDrainsDisabledNodes
+            // pins exactly that).
+            const auto ordinary = std::ranges::find_if(ready, [&](const auto& name)
+                                                       { return !recordingCandidates.contains(name); });
+            emit(ordinary != ready.end() ? *ordinary : ready.front());
         }
 
         // Commit the reordered sequence only when it's complete.
@@ -4363,6 +4391,43 @@ namespace OloEngine
         // be conservative in case of any unforeseen edge case.
         if (reordered.size() == m_ExecutionOrder.size())
         {
+            // Every edge this function derived must still point forwards.
+            //
+            // The size check above only proves no pass was dropped or
+            // duplicated, which is what a cycle looks like — it says nothing
+            // about the ORDER, and both new emission paths (a group emitted as
+            // a block, a lone candidate deferred behind ordinary work) move
+            // passes past each other. A bookkeeping slip in either — a
+            // successor whose in-degree was decremented twice, a group member
+            // that was not in fact ready — produces a complete sequence with a
+            // consumer ahead of its producer, which this catches and the size
+            // check does not.
+            //
+            // Note the scope: the guarantee is over the edges in `successors`,
+            // which are m_Dependencies plus the last-writer edges derived
+            // above. An ordering that only ever existed as registration order,
+            // with no edge to express it, is outside what any check here can
+            // see — that is what DependsOnPass is for.
+#if !defined(OLO_DIST)
+            {
+                std::unordered_map<std::string_view, sizet> position;
+                position.reserve(reordered.size());
+                for (sizet index = 0; index < reordered.size(); ++index)
+                    position.emplace(reordered[index], index);
+                for (const auto& [producer, consumers] : successors)
+                {
+                    const auto producerAt = position.find(producer);
+                    if (producerAt == position.end())
+                        continue;
+                    for (const auto& consumer : consumers)
+                    {
+                        const auto consumerAt = position.find(consumer);
+                        OLO_CORE_ASSERT(consumerAt == position.end() || producerAt->second < consumerAt->second,
+                                        "RenderGraph reorder placed a consumer before its producer");
+                    }
+                }
+            }
+#endif
             m_ExecutionOrder = std::move(reordered);
             if (Levers::RenderGraphDiagnostics())
                 OLO_CORE_TRACE("RenderGraph: Compute-hoist applied to execution order");
@@ -4420,6 +4485,8 @@ namespace OloEngine
                     return const_cast<RenderGraphNode*>(nodeIt->second.Raw());
                 return nullptr;
             },
+            .IsPassReachable = [this](const std::string& passName)
+            { return IsPassReachable(passName); },
         });
     }
 
