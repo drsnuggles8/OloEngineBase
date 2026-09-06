@@ -19,6 +19,15 @@ Issue [#1073](https://github.com/drsnuggles8/OloEngineBase/issues/1073).
 4. **Before redesigning a cache, add up what the fleet already stores.** The cap is
    ~9537 MiB. If the steady set does not leave room for the largest single snapshot, no
    key design will help.
+5. **The store exists to speed up GITHUB-HOSTED jobs on a PULL REQUEST. Nothing else has
+   a claim on it.** Everything else either has a better cache or has no one waiting:
+   a self-hosted job caches on local disk, which has no save step to refuse, no ref
+   scoping and no cap; a nightly is not on anyone's critical path. Spending the cap on
+   those is spending it on latency nobody experiences — and it is how the Windows ASan
+   job came to have no compiler cache at all while 3741 MiB sat in entries returning
+   0.00 % (see *A cache can be worth removing*). Work out which jobs are hosted **and**
+   PR-triggered before allocating anything; that list is much shorter than the workflow
+   list.
 
 ---
 
@@ -131,22 +140,106 @@ before compression:
 
 | Entry | Size |
 |---|---|
-| `sccache-asan-lsan-linux` / `sccache-ubsan-linux` / `sccache-tsan-linux` | 1252 / 1231 / 1258 MiB |
+| ~~`sccache-asan-lsan-linux` / `sccache-ubsan-linux` / `sccache-tsan-linux`~~ | ~~1252 / 1231 / 1258 MiB~~ — **removed 2026-09-06 (#1082)**, see *A cache can be worth removing* below |
 | `vcpkg-Windows-x64-windows-static-md` | 692 MiB |
 | `Linux-` / `Windows-vulkan-prebuilt-sdk` | 291 + 229 MiB |
 | `ffmpeg-Windows-n7.1` | 4 MiB |
-| **measured subtotal** | **4957 MiB** |
-| `sccache-windows-2025-release` | **not measured — no entry has ever existed to measure.** `SCCACHE_CACHE_SIZE` caps the local dir at 2 GiB; `sccache-flaky-281`, same cap and the same build, compressed to 886 MiB. Expect 0.9–2.0 GiB; plan against 2.0 until a real one lands. |
-| **steady set** | **5.7 GiB likely, 6.8 GiB worst case** (4.84 GiB measured + 0.87–2.0), against a ~9.3 GiB wall — so 2.5 GiB of margin even at the bound |
+| **measured subtotal** | **1216 MiB** (was 4957 MiB with the three Linux entries in it) |
+| `sccache-windows-2025-release` | **1825 MiB** — measured 2026-09-06 17:00 UTC, the day the fix landed. The row that used to sit here said "not measured, no entry has ever existed to measure" and guessed 0.9–2.0 GiB from `sccache-flaky-281`. The guess held; the entry came in at the top of it. |
+| `sccache-asan-windows-2025` | **not yet measured** — the job's first successful run has not banked one. `SCCACHE_CACHE_SIZE` is provisional; the workflow `du -sm`s `SCCACHE_DIR` so the cap can be set from a real footprint. Plan against the cap, per the 82–91 % rule below. |
+| **steady set** | **3041 MiB** measured, plus the pending ASan-Windows entry — against a ~9.3 GiB wall and `cache-prune.yml`'s 8800 MiB working ceiling. Was 6782 MiB before the three Linux entries came out. |
 
-Do not quote the sccache row as a measurement until an entry has been written and listed.
-The number that mattered here was one nobody had ever read.
+`SCCACHE_CACHE_SIZE` bounds the local directory **before** compression, so it is not the
+entry size — but do not read that as "the entry will be much smaller". Every measured
+sccache entry here lands at **82–91 % of its cap**: 2 G → 1825 MiB, 1500M → 1231–1258 MiB.
+sccache already stores each object compressed, so the tarball has almost nothing left to
+squeeze. Treat the cap as the bill, and size a new one by what it is allowed to cost.
 
 That is why `cache-prune.yml` now **fails** when
 the post-sweep store is over 8800 MiB: everything it deletes is provably superseded or
 unread, so if what remains is still that close to the wall, the fleet has outgrown the
 cap and a human has to shrink something. Raising the ceiling to silence the alarm
 re-creates this bug.
+
+## A cache can be worth removing, and this one was worth 3741 MiB
+
+Measured 2026-09-06 while looking for room for a fourth large Windows entry (#1082).
+The three Linux sanitizer sccache entries were **3741 MiB — 55 % of the steady set** —
+and on the nightly, the only runs that read them, all three reported:
+
+```
+Compile requests   1558      Cache hits          0
+Cache misses       1558      Cache hits rate     0.00 %
+Cache read errors     0      Cache write errors  0
+```
+
+The restore was healthy. `Cache restored from key: sccache-ubsan-linux-32225872289`,
+1232 MB at 180 MB/s. It restored perfectly and hit nothing, three jobs out of three.
+
+**The compiler was rolling underneath the key.** sccache hashes the compiler binary into
+every cache key, and the hosted arm builds with apt.llvm.org's *snapshot* clang-23:
+
+```
+nightly 09-04   Ubuntu clang 23.1.1 (++20260901122056+5340f7cc8814)
+nightly 09-05   Ubuntu clang 23.1.1 (++20260903063729+47bafb752202)
+```
+
+so every entry died at the next apt refresh — while still restoring, still downloading
+1.2 GB, and still holding quota. This is the same failure `Windows.yml`'s header
+documents for `windows-latest` image rolls (§ *the key carries the runner IMAGE*),
+reproduced on Linux by an unpinned rolling compiler. **A pinned image is only half the
+rule: pin whatever the key is hashed over, and on Linux that is the compiler package.**
+
+Two things made it invisible. The hit rate was printed on every run and nobody read it —
+which `ci-cache-that-looks-alive.md` already warns about. And almost nothing read the
+entries at all: `OLO_LINUX_SELF_HOSTED` is true, so a same-repo PR routes these jobs to
+the box, where they use local-disk ccache and skip every sccache step. Only the nightly
+(a `schedule` run forces hosted) and fork PRs ever touched the store, and neither is on
+the per-PR critical path.
+
+So the store was spending 55 % of its steady set on jobs nobody waits for, for a measured
+zero, while the Windows ASan job that *is* on the critical path had no cache at all for
+want of room. The entries were removed and deleted.
+
+**What was given up, stated honestly:** at 1558 compilations × 6.283 s average, a
+*working* cache there would remove most of ~2 h 43 m of compiler time per job. That value
+is real and currently unreachable, because the key cannot be stable while the compiler is
+a rolling snapshot. Recovering it means pinning the hosted clang — the self-hosted box
+already pins `/opt/llvm-23.1.0` by absolute path — or keying the entry on the clang build
+id. That is issue [#1095](https://github.com/drsnuggles8/OloEngineBase/issues/1095).
+Re-adding the restore/save without doing one of those reproduces the 0.00 %.
+
+**The rule:** before adding a cache, check what the existing ones actually return. A
+0 %-hit entry is not neutral; it costs quota, download time, and the room a working cache
+needed. Read `created_at`, `last_accessed_at` **and the hit rate** — the first two only
+tell you the entry is being written and read, not that it is worth anything.
+
+## Who actually has a claim on the cap
+
+Measured 2026-09-06 by reading every workflow's triggers and `runs-on`. Rule 5 above only
+means something once this table exists, and it is much shorter than the 17 workflow files
+suggest:
+
+| Job | Runner | Runs on a PR when | Cache it justifies |
+|---|---|---|---|
+| `Windows.yml / build` | windows-2025 | every native change | `sccache-windows-2025-release`, `vcpkg-Windows`, `Windows-vulkan-prebuilt-sdk`, `ffmpeg-Windows` |
+| `asan.yml / asan-windows` | windows-2025 | every native change | `sccache-asan-windows-2025` (#1082); shares the vcpkg and Vulkan entries above |
+| `dist-archive.yml / archive` | windows-2025 | only 4 paths (`CMakeLists.txt`, two `cmake/*.cmake`, its own file) | vcpkg only. A full Dist build with **no compiler cache**, and that is correct — a job that runs on a few percent of PRs should not hold ~2 GiB. |
+| `steam-stub.yml / single-valve-tu` | ubuntu-24.04 | only Steam-seam changes | none; it compiles one TU |
+| `pre-commit`, `detect-changes`, `cancel-merged-pr-runs` | ubuntu-latest | every PR | none; seconds |
+
+Everything else that runs on a PR is **self-hosted** — `asan.yml`'s three Linux sanitizer
+jobs, `vulkan-off.yml`, `steam-stub.yml / stub-build` — and caches on the box's local disk.
+Note the trap: a self-hosted runner still talks to the **remote** Actions cache service, so
+an `actions/cache` step there spends the shared cap exactly like a hosted one does. Being
+self-hosted does not make a cache free; using local disk does.
+
+And everything else in the fleet — `SonarCloud`, `cross-vendor`, `fuzz`, `video-ffmpeg`,
+`gpu-*`, `flaky-repro-281`, `release` — is `schedule` or `workflow_dispatch` only. It has no
+claim. `Linux-vulkan-prebuilt-sdk` (291 MiB) is the one survivor of that category: it is
+created solely by `video-ffmpeg.yml`'s linux matrix arm, which never runs on a PR. Left in
+place at 3 % of the cap because it works and removing it only slows a nightly — but it is
+the first thing to cut if the store gets tight again.
 
 ## Adding a cache to this repo
 

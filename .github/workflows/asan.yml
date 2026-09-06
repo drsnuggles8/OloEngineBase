@@ -79,6 +79,45 @@ env:
   # caches (the four sccache dirs here, Windows.yml's, Vulkan, FFmpeg) share the
   # repo's single 10 GB Actions-cache cap.
   SCCACHE_CACHE_SIZE: "1500M"
+  # NEVER let the sccache server time out. This is the whole of #1082's crash, and it
+  # is not what the crash was believed to be for two months.
+  #
+  # sccache's server exits after SCCACHE_IDLE_TIMEOUT seconds without a client request
+  # (`DEFAULT_IDLE_TIMEOUT: u64 = 600` in its src/server.rs). LINK STEPS DO NOT GO
+  # THROUGH SCCACHE, so a link longer than ten minutes is ten minutes of silence, and
+  # the server shuts down in the middle of a running build. The next compile then
+  # connects to the socket the exiting server still holds and is dropped mid-handshake:
+  #
+  #     sccache: error: failed to execute compile
+  #     caused by: error reading compile response from server
+  #     caused by: Failed to read response header
+  #     caused by: An existing connection was forcibly closed by the remote host.
+  #                (os error 10054)
+  #
+  # sccache recovers from "no server running" by starting one. It does not recover from
+  # "server accepted my connection and then closed it", so this kills the build.
+  #
+  # MEASURED ON RUN 34048670103, which reproduced it exactly:
+  #
+  #     [1593/1596] Linking CXX static library ...   19:41:05
+  #     [1594/1596] Building CXX ...                 19:54:18   <- 13m 13s later, dead
+  #
+  # 793 s of link against a 600 s timeout. `sccache --show-stats` immediately afterwards
+  # reported "Compile requests 0" -- not 1593 -- because it had started a BRAND NEW
+  # server; that zero is the proof the original one was gone rather than merely unhappy.
+  #
+  # This retires the folklore in d93b5af5b, which blamed "an extra in-memory consumer
+  # that tips the huge instrumented TUs over" and named GameNetworkingSockets. The TU
+  # that died here is OloEditor/src/MCP/McpFieldRegistry.cpp: 100 lines, 5 KB, entirely
+  # unremarkable. It was not big. It was merely THE FIRST COMPILE AFTER A LONG LINK.
+  # That also explains the observation that made the memory theory convincing -- three
+  # retries each dying on a different TU. Every retry resumes near the end of the build,
+  # which is where the long links are, so each one hit the same race at whatever TU
+  # happened to follow the next >10-minute link.
+  #
+  # Set for all four sanitizer jobs, not just the Windows one. The race needs only a
+  # slow link, and every job here links sanitizer-instrumented binaries.
+  SCCACHE_IDLE_TIMEOUT: "0"
 
 permissions:
   contents: read
@@ -138,8 +177,22 @@ jobs:
       # actions/checkout@v6 would fail on fork PRs.
       contents: read
       checks: write
+      # Needed by the sccache save (#1082, same reason as Windows.yml and the Linux
+      # sanitizer jobs): when the repo's Actions cache store is full every save is
+      # refused, and the only way to land this job's snapshot is to delete the entry
+      # it supersedes first. Scoped to this ref by `save-cache-pruned`.
+      actions: write
 
     env:
+      # OVERRIDES the workflow-level 1500M (#1082). This job's objects are the
+      # largest in the fleet: ASan instrumentation plus /Z7 (the compiler cache
+      # switches MSVC debug info from a shared PDB to embedded — see
+      # cmake/CompilerCache.cmake) makes every .obj carry its own debug info.
+      # MEASURE BEFORE TRUSTING THIS NUMBER: the entry that lands in the Actions
+      # cache store is charged against a shared ~9.3 GiB cap, and the measured
+      # entries so far compress to 82-91 % of this cap, not far below it
+      # (docs/agent-rules/actions-cache-budget.md). Raising it raises the bill.
+      SCCACHE_CACHE_SIZE: "3G"
       # Disable ASan's ODR-violation checker for every instrumented binary run in
       # this job. Vendored protobuf trips a known false positive — its narrow and
       # wide "." string-literal globals (`"."` vs `L"."`, io_win32.cc vs
@@ -242,6 +295,49 @@ jobs:
         version: "23.1.0"
         sha256: "1aebf024b959b3835c3bd936da2fa58cd002c61ccf47fce1714447b900bd9837"
 
+    # RE-ADDED BY #1082, after d93b5af5b removed it on 2026-07-02. The removal was
+    # sound about the symptom and wrong about the cause, and the cause is now known:
+    # the sccache server was idling out during long link steps. The mechanism, the
+    # measurement and the fix all live on SCCACHE_IDLE_TIMEOUT in the workflow `env`
+    # block at the top of this file. Read that before touching anything here.
+    #
+    # Two beliefs died with it, both worth naming so they are not rediscovered:
+    #
+    #   "A NEWER SCCACHE MIGHT FIX IT." There was never a version delta to test.
+    #   d93b5af5b was ALREADY pinned to v0.15.0, which is still the fleet pin --
+    #   the issue's premise that "the removal predates several releases" is simply
+    #   not what the diff says. v0.17.0's client-side mode (SCCACHE_CLIENT_SIDE) was
+    #   the planned second arm on the theory that the server was running out of
+    #   memory. It is not needed: the server was not out of memory, it was gone.
+    #
+    #   "IT IS THE HUGE INSTRUMENTED GNS TUs." The TU that died on the reproduce run
+    #   was OloEditor/src/MCP/McpFieldRegistry.cpp -- 100 lines, 5 KB. Size had
+    #   nothing to do with it.
+    #
+    # A RETRY WRAPPER IS STILL THE WRONG ANSWER, for a new reason. d93b5af5b's retry
+    # failed because each attempt resumed near the end of the build and met the next
+    # long link, so it re-armed the same race every time. With the timeout disabled
+    # there is nothing left to retry.
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      with:
+        version: "v0.15.0"
+
+    # Explicit restore + an `if: always()` save after the build, not the combined
+    # action — same reasoning as every other job here (#1009; see the save step).
+    # The key carries the runner IMAGE and the SANITIZER: sccache hashes the
+    # compiler binary, so a windows-2025 image roll invalidates every entry while
+    # still restoring it, and `-fsanitize=address` is part of the command line, so
+    # this job's objects can never collide with `sccache-windows-2025-release-`.
+    # When `runs-on` is bumped, bump this string with it.
+    - name: Restore sccache storage
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-windows-2025-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          sccache-asan-windows-2025-
+
     - name: Setup vcpkg
       id: vcpkg
       uses: ./.github/actions/setup-vcpkg
@@ -256,12 +352,23 @@ jobs:
       # -G "Ninja Multi-Config": the build/ctest steps select Release via --config / -C.
       #   (Also avoids the VS/MSBuild generator, which would drag in the C# ScriptCore
       #   project; OloEngine-Tests never links it, so ASan coverage is intact.)
-      # OLO_ENABLE_COMPILER_CACHE is intentionally OMITTED here — see the note above the
-      #   (removed) sccache steps: the Windows sccache server crashes on large ASan TUs, so
-      #   this job compiles directly. debug info stays /Zi (a PDB), which is fine without a
-      #   cache to key on.
+      # -DOLO_ENABLE_COMPILER_CACHE=ON (#1082): wires sccache as the launcher. Read the
+      #   header on the Setup sccache step above for why this was off, and what changed.
+      #   Two side effects come with it, both from cmake/CompilerCache.cmake, and the
+      #   first makes a COLD build here SLOWER than the uncached one it replaces:
+      #     - PCH is forced off (sccache reports a /Yu compile non-cacheable), so a cold
+      #       run pays full per-TU header re-parsing that the 87.2 min baseline did not.
+      #       (Unity builds are forced off too, but OLO_ENABLE_UNITY_BUILD already
+      #       defaults OFF, so that one is a no-op for this job.)
+      #     - MSVC debug info switches /Zi -> /Z7, so each .obj carries its own debug
+      #       info and is self-contained enough to cache. That is what makes this
+      #       job's objects the largest in the fleet — see SCCACHE_CACHE_SIZE above.
+      #   The trade is deliberate and is the same one Windows.yml already took: the
+      #   cache optimizes the WARM case, which is every run after the nightly has
+      #   banked a master snapshot. Judge it on the warm hit rate, never on one run.
       # -DOLO_ENABLE_LTO=OFF: Release defaults LTO on; /GL + ASan is unsupported. CI binaries
-      #   are for testing, not shipping, so dropping LTO is free here.
+      #   are for testing, not shipping, so dropping LTO is free here. It also keeps /GL
+      #   away from sccache, which cannot cache an object compiled with it.
       run: >
         cmake -S . -B build
         -G "Ninja Multi-Config"
@@ -274,6 +381,7 @@ jobs:
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DOLO_ENABLE_LTO=OFF
+        -DOLO_ENABLE_COMPILER_CACHE=ON
         -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
@@ -327,9 +435,145 @@ jobs:
     - name: Build (Release)
       # --parallel 2 matches the Linux sanitizer jobs: clang-cl under ASan uses several GB per
       # translation unit, and full concurrency exhausts runner memory on the largest instrumented
-      # TUs (GameNetworkingSockets' steamnetworkingsockets_*.cpp). Direct compile, no sccache
-      # (see the note above the removed sccache steps) — so a plain build, no retry needed.
+      # TUs (GameNetworkingSockets' steamnetworkingsockets_*.cpp).
+      #
+      # NO RETRY WRAPPER, deliberately (#1082). d93b5af5b removed one that retried on the
+      # "os error 10054" sccache-server-drop signature, having measured that it hit the
+      # crash on all three attempts. Re-adding it here would convert the reproduce arm's
+      # answer from "it crashed, on this TU" into "it went red after 3× the runner
+      # minutes", which is strictly less information for strictly more cost. If the crash
+      # does come back, the fix is the client-side mode named on the Setup sccache step,
+      # not a retry that was already measured not to work.
       run: cmake --build build --config Release --target OloEngine-Tests --parallel 2
+
+    # THE NUMBER THIS CHANGE IS JUDGED ON, and it is printed unconditionally because a
+    # cache that restores and hits on nothing looks exactly like a working one — that is
+    # the whole of docs/agent-rules/ci-cache-that-looks-alive.md. Two lines matter beyond
+    # the hit rate on this job specifically:
+    #   "Non-cacheable compilations" — whether clang-cl's ASan flags are cacheable at all;
+    #   "Cache size" vs "Max cache size" — whether SCCACHE_CACHE_SIZE above is evicting,
+    #     which silently caps the achievable hit rate no matter how warm the restore was.
+    # `if: always()` so a build that DID crash still reports where it got to.
+    - name: Show sccache stats
+      if: always()
+      run: sccache --show-stats
+
+    # THE SIZE THIS ENTRY WILL COST THE STORE, measured off the directory rather than
+    # asked of sccache. `--show-stats` cannot answer it reliably: if the server has
+    # exited, the client silently STARTS A NEW ONE and reports its zeros instead --
+    # which is exactly what happened on run 34048670103 ("Compile requests 0" after
+    # 1593 successful compiles). The directory is on disk either way.
+    #
+    # Needed because SCCACHE_CACHE_SIZE above is provisional (#1082): this job's
+    # objects carry embedded /Z7 debug info on top of ASan instrumentation, and the
+    # compressed actions/cache entry lands at 82-91 % of the cap, so the cap has to be
+    # set from a real footprint before this is charged to a shared ~9.3 GiB store.
+    - name: Measure the sccache directory
+      if: always()
+      shell: bash
+      run: |
+        du -sm "${SCCACHE_DIR}" 2>/dev/null || echo "SCCACHE_DIR not present"
+
+    # Paired with the restore above. `if: always()` because the combined actions/cache
+    # action saves in a POST-JOB step, which a CANCELLED job skips — and most PR runs in
+    # this repo are cancelled (`cancel-in-progress`), so every one of them recompiled
+    # everything and banked nothing.
+    #
+    # NOT ON PULL REQUESTS (#1073's rule, and this job is the reason it is now load-
+    # bearing). A PR-run entry is scoped to `refs/pull/N/merge`, readable by that one PR,
+    # and charged to the whole repository for as long as the PR stays open. This is the
+    # FOURTH large Windows entry in a store with a ~9.3 GiB wall; see the arithmetic in
+    # docs/agent-rules/actions-cache-budget.md, which this change had to re-do before
+    # turning the cache on. The save is kept on `workflow_dispatch` so the cold/warm A/B
+    # can be measured on a branch — that is how #1073 was verified and how this was.
+    - name: Save sccache storage
+      if: always() && github.event_name != 'pull_request'
+      # `save-cache-pruned` swallows its own failures: a cache save must never fail the
+      # job it is attached to. `if: always()` means it also runs on a CANCEL, where the
+      # path may not exist yet, and actions/cache/save treats a missing path as a
+      # validation error rather than a no-op. What it adds over a bare save is noticing
+      # that the store REFUSED the write (which `actions/cache/save` reports as a warning
+      # and exits zero for), deleting this ref's superseded entries, and retrying.
+      uses: ./.github/actions/save-cache-pruned
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-windows-2025-${{ github.run_id }}-${{ github.run_attempt }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    # ============================================================================
+    # TEMPORARY MEASUREMENT SCAFFOLDING (#1083) — DELETE BEFORE THIS PR MERGES.
+    # ============================================================================
+    # #1083 requires `--parallel` to be "chosen from a measurement across at least
+    # three widths ... not raised on the assumption that startup-bound implies
+    # oversubscribe". This step is that measurement, and it is a step rather than
+    # six workflow runs for one reason: six runs are six different runners. A
+    # windows-2025 runner's disk and CPU vary enough between allocations that a
+    # 15 % difference between two runs says nothing, and the effect being looked
+    # for here is exactly that size at the margin. Timing all widths inside ONE
+    # job removes the runner from the comparison entirely.
+    #
+    # THE ORDER IS A PALINDROME (2,3,4,4,3,2), not 2,3,4 repeated. The first pass
+    # over a subset is measurably slower than the second — the OS file cache is
+    # cold for the test binary, and the engine's repo-relative mesh cache is
+    # empty, so the RESOURCE_LOCK'd cases pay a real cold build. A monotonic drift
+    # like that biases an ascending sweep in favour of the LAST width tried, which
+    # is the answer this measurement most wants to be true. A palindrome cancels
+    # it: each width is sampled once early and once late, so their means carry the
+    # same amount of warm-up.
+    #
+    # `-I 1,,20` samples every 20th ctest entry (~345 of ~6,900) rather than
+    # running the full suite six times, which would add ~9 h to this job. The
+    # sample is strided, not a contiguous block, so it is spread across the whole
+    # ordered test list instead of over-weighting whichever suites happen to sort
+    # first. `-I` intersects with `--exclude-regex` (ctest unions them only under
+    # `-U`), so the exclusions below still apply.
+    #
+    # EXIT CODE AND FAILURE COUNT ARE PART OF THE MEASUREMENT, not noise to
+    # suppress: #1083 asks for flake behaviour at each width, not just the clock,
+    # because a wider `-j` on a 4-vCPU runner is exactly what #281 and the
+    # mesh-cache RESOURCE_LOCK are sensitive to. A width that is 30 % faster and
+    # flaky is not faster. `$ErrorActionPreference = 'Continue'` and the explicit
+    # `exit 0` are what let a failing pass be RECORDED rather than ending the job.
+    - name: "Measure ctest --parallel widths (#1083, temporary)"
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      shell: pwsh
+      env:
+        ASAN_OPTIONS: halt_on_error=1:detect_odr_violation=0
+      run: |
+        $ErrorActionPreference = 'Continue'
+        $widths = @(2, 3, 4, 4, 3, 2)
+        $rows = @()
+        foreach ($w in $widths) {
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          $out = & ctest -I '1,,20' --parallel $w -C Release --timeout 120 `
+                   --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.' 2>&1
+          $sw.Stop()
+          $code = $LASTEXITCODE
+          $tally = ($out | Select-String -Pattern 'tests passed' | Select-Object -Last 1)
+          $tally = if ($tally) { $tally.ToString().Trim() } else { '(no ctest summary line)' }
+          $row = ("width={0}  seconds={1}  exit={2}  {3}" -f `
+                  $w, [math]::Round($sw.Elapsed.TotalSeconds, 1), $code, $tally)
+          Write-Host "::notice title=ctest width sweep::$row"
+          $rows += $row
+          # Name every failing case, so a width that trades speed for flakes is
+          # identifiable rather than just a non-zero exit code.
+          if ($code -ne 0) {
+            # ctest's "The following tests FAILED:" block, whose lines are
+            # "<tab><n> - <Suite.Case> (Failed)". NOT the inline progress lines,
+            # which read "n/N Test #n: Suite.Case ...***Failed" -- an earlier
+            # revision of this step matched on `***` and would have printed
+            # nothing, silently turning "which cases flaked at this width" into
+            # "some did". Checked against real ctest output before it ran.
+            $out | Select-String -Pattern '^\s*\d+ - \S+ \(' | ForEach-Object {
+              Write-Host "    FAILED at width $w : $($_.ToString().Trim())"
+            }
+          }
+        }
+        Write-Host ''
+        Write-Host '=== ctest --parallel sweep, ASan (Windows/clang-cl) - sample: every 20th entry ==='
+        $rows | ForEach-Object { Write-Host $_ }
+        # Never fail the job on the sweep: the real test run below is the gate.
+        exit 0
 
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
@@ -491,11 +735,10 @@ jobs:
       # actions/checkout@v6 would fail on fork PRs.
       contents: read
       checks: write
-      # Needed by the sccache save (#1073): when the repo's 10 GB cache store is
-      # full every save is refused, and the only way to land this job's snapshot
-      # is to delete the entry it supersedes first. Scoped to this ref by
-      # `save-cache-pruned`.
-      actions: write
+      # No `actions: write` here. It was granted for the sccache save, and that
+      # save is gone (#1082 -- see the note above this job's Setup sccache step).
+      # A permission kept past the step that needed it is a permission nobody will
+      # ever remove, so it goes with the step.
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -536,19 +779,53 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # Persist sccache's local-disk cache as one actions/cache entry, split into an
-    # explicit restore here and an `if: always()` save after the build (#1009 --
-    # see the save step for why the combined action loses it). Unique key per run
-    # attempt so every save writes a fresh snapshot; restore-keys warms from the
-    # most recent prior one. Key is per-sanitizer.
-    - name: Restore sccache storage
-      if: runner.environment == 'github-hosted'
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ env.SCCACHE_DIR }}
-        key: sccache-asan-lsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: |
-          sccache-asan-lsan-linux-
+    # NO ACTIONS-CACHE ENTRY FOR THIS JOB (#1082). There used to be a restore here and
+    # a `save-cache-pruned` after the build, persisting SCCACHE_DIR as a ~1.25 GiB
+    # entry. They are gone, and the reason is measured rather than assumed.
+    #
+    # Nightly 34004436875, all three Linux sanitizer jobs, the ONLY runs that read
+    # these entries:
+    #
+    #     Compile requests   1558      Cache hits          0
+    #     Cache misses       1558      Cache hits rate     0.00 %
+    #     Cache read errors     0      Cache write errors  0
+    #
+    # The restore was not broken -- "Cache restored from key: sccache-ubsan-linux-...",
+    # 1232 MB pulled at 180 MB/s. It restored perfectly and hit NOTHING, three jobs out
+    # of three.
+    #
+    # WHY: sccache hashes the compiler binary into every cache key, and the hosted arm
+    # compiles with apt.llvm.org's SNAPSHOT clang-23, which rolls every few days:
+    #
+    #     nightly 09-04   Ubuntu clang 23.1.1 (++20260901122056+5340f7cc8814)
+    #     nightly 09-05   Ubuntu clang 23.1.1 (++20260903063729+47bafb752202)
+    #
+    # Every entry is therefore invalidated by the next apt refresh while still
+    # restoring, still downloading 1.2 GB, and still occupying the shared quota. It is
+    # the same failure Windows.yml's own header documents for `windows-latest` image
+    # rolls, reproduced here by an unpinned rolling compiler.
+    #
+    # AND ALMOST NOTHING READ THEM ANYWAY. `OLO_LINUX_SELF_HOSTED` is true, so a
+    # same-repo PR routes this job to the box, where it uses local-disk ccache and
+    # skips every sccache step. Only the nightly (a `schedule` run forces hosted) and
+    # fork PRs ever touched the store -- neither is on the per-PR critical path.
+    #
+    # THE BUDGET IS THE POINT. Three entries, 3741 MiB, 55 % of a 6782 MiB steady set
+    # against a ~9.3 GiB wall, buying a measured zero -- while the Windows ASan job
+    # that IS on the critical path had no cache at all for want of room (#1082).
+    # docs/agent-rules/actions-cache-budget.md has the arithmetic.
+    #
+    # THIS IS NOT "THE LINUX CACHE IS WORTHLESS". At 1558 compilations x 6.283 s
+    # average, a WORKING cache here would remove most of ~2 h 43 m of compiler time per
+    # job. That value is real and it is currently unreachable, because the key cannot
+    # be stable while the compiler underneath it is a rolling snapshot. Recovering it
+    # means pinning the hosted clang (the self-hosted box already pins /opt/llvm-23.1.0
+    # by absolute path) or keying the entry on the clang build id -- issue #1095.
+    # Do NOT simply re-add the restore/save: that is what measured 0.00 %.
+    #
+    # sccache itself is still the launcher on the hosted arm, so `Show compiler cache
+    # stats` below keeps working and keeps printing the hit rate. It will read 0 % on
+    # every hosted run now, by construction rather than by accident.
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
     # sanitizer-instrumented, which is what these jobs want — see the note in the
@@ -633,35 +910,6 @@ jobs:
         else
           ccache --show-stats
         fi
-
-    # Paired with the restore above (#1009). `if: always()` is the point: the
-    # combined actions/cache action saves in a POST-JOB step, and post-job steps
-    # do NOT run when a job is cancelled -- which is how most PR runs in this repo
-    # end (`cancel-in-progress`; 17 of 27 Windows and 15 of 24 Sanitizer PR runs
-    # over the window measured in #1009). Every one of those recompiled everything
-    # and banked nothing, so the next run started just as cold.
-    - name: Save sccache storage
-      # NOT ON PULL REQUESTS (#1073), and `runner.environment` does not already imply
-      # that: this job routes to the self-hosted box only while OLO_LINUX_SELF_HOSTED
-      # is true and the PR is not from a fork. Flip that variable, or open a fork PR,
-      # and a PR run lands on a hosted runner and saves a ~1.25 GiB snapshot scoped to
-      # `refs/pull/N/merge` that only that one PR can read -- charged to a 10 GB store
-      # shared with every other job. Say the condition instead of inheriting it from a
-      # routing expression three hundred lines away.
-      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
-      # `save-cache-pruned` swallows every failure of its own (#1073): a cache save
-      # must never fail the job it is attached to. `if: always()` means this runs on
-      # a CANCEL, where the path it is asked to save may not exist yet -- and
-      # actions/cache/save treats a missing path as a validation error, not a no-op.
-      # Turning a cancelled run into a FAILED one would be a strictly worse outcome
-      # than the cold cache this is fixing. What the action adds over a bare
-      # actions/cache/save is noticing that the store refused the write, deleting
-      # this ref's superseded snapshot, and retrying -- see its own header.
-      uses: ./.github/actions/save-cache-pruned
-      with:
-        path: ${{ env.SCCACHE_DIR }}
-        key: sccache-asan-lsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
-        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -748,11 +996,10 @@ jobs:
       # actions/checkout@v6 would fail on fork PRs.
       contents: read
       checks: write
-      # Needed by the sccache save (#1073): when the repo's 10 GB cache store is
-      # full every save is refused, and the only way to land this job's snapshot
-      # is to delete the entry it supersedes first. Scoped to this ref by
-      # `save-cache-pruned`.
-      actions: write
+      # No `actions: write` here. It was granted for the sccache save, and that
+      # save is gone (#1082 -- see the note above this job's Setup sccache step).
+      # A permission kept past the step that needed it is a permission nobody will
+      # ever remove, so it goes with the step.
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -784,19 +1031,53 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # Persist sccache's local-disk cache as one actions/cache entry, split into an
-    # explicit restore here and an `if: always()` save after the build (#1009 --
-    # see the save step for why the combined action loses it). Unique key per run
-    # attempt so every save writes a fresh snapshot; restore-keys warms from the
-    # most recent prior one. Key is per-sanitizer.
-    - name: Restore sccache storage
-      if: runner.environment == 'github-hosted'
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ env.SCCACHE_DIR }}
-        key: sccache-ubsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: |
-          sccache-ubsan-linux-
+    # NO ACTIONS-CACHE ENTRY FOR THIS JOB (#1082). There used to be a restore here and
+    # a `save-cache-pruned` after the build, persisting SCCACHE_DIR as a ~1.25 GiB
+    # entry. They are gone, and the reason is measured rather than assumed.
+    #
+    # Nightly 34004436875, all three Linux sanitizer jobs, the ONLY runs that read
+    # these entries:
+    #
+    #     Compile requests   1558      Cache hits          0
+    #     Cache misses       1558      Cache hits rate     0.00 %
+    #     Cache read errors     0      Cache write errors  0
+    #
+    # The restore was not broken -- "Cache restored from key: sccache-ubsan-linux-...",
+    # 1232 MB pulled at 180 MB/s. It restored perfectly and hit NOTHING, three jobs out
+    # of three.
+    #
+    # WHY: sccache hashes the compiler binary into every cache key, and the hosted arm
+    # compiles with apt.llvm.org's SNAPSHOT clang-23, which rolls every few days:
+    #
+    #     nightly 09-04   Ubuntu clang 23.1.1 (++20260901122056+5340f7cc8814)
+    #     nightly 09-05   Ubuntu clang 23.1.1 (++20260903063729+47bafb752202)
+    #
+    # Every entry is therefore invalidated by the next apt refresh while still
+    # restoring, still downloading 1.2 GB, and still occupying the shared quota. It is
+    # the same failure Windows.yml's own header documents for `windows-latest` image
+    # rolls, reproduced here by an unpinned rolling compiler.
+    #
+    # AND ALMOST NOTHING READ THEM ANYWAY. `OLO_LINUX_SELF_HOSTED` is true, so a
+    # same-repo PR routes this job to the box, where it uses local-disk ccache and
+    # skips every sccache step. Only the nightly (a `schedule` run forces hosted) and
+    # fork PRs ever touched the store -- neither is on the per-PR critical path.
+    #
+    # THE BUDGET IS THE POINT. Three entries, 3741 MiB, 55 % of a 6782 MiB steady set
+    # against a ~9.3 GiB wall, buying a measured zero -- while the Windows ASan job
+    # that IS on the critical path had no cache at all for want of room (#1082).
+    # docs/agent-rules/actions-cache-budget.md has the arithmetic.
+    #
+    # THIS IS NOT "THE LINUX CACHE IS WORTHLESS". At 1558 compilations x 6.283 s
+    # average, a WORKING cache here would remove most of ~2 h 43 m of compiler time per
+    # job. That value is real and it is currently unreachable, because the key cannot
+    # be stable while the compiler underneath it is a rolling snapshot. Recovering it
+    # means pinning the hosted clang (the self-hosted box already pins /opt/llvm-23.1.0
+    # by absolute path) or keying the entry on the clang build id -- issue #1095.
+    # Do NOT simply re-add the restore/save: that is what measured 0.00 %.
+    #
+    # sccache itself is still the launcher on the hosted arm, so `Show compiler cache
+    # stats` below keeps working and keeps printing the hit rate. It will read 0 % on
+    # every hosted run now, by construction rather than by accident.
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
     # sanitizer-instrumented, which is what these jobs want — see the note in the
@@ -868,35 +1149,6 @@ jobs:
         else
           ccache --show-stats
         fi
-
-    # Paired with the restore above (#1009). `if: always()` is the point: the
-    # combined actions/cache action saves in a POST-JOB step, and post-job steps
-    # do NOT run when a job is cancelled -- which is how most PR runs in this repo
-    # end (`cancel-in-progress`; 17 of 27 Windows and 15 of 24 Sanitizer PR runs
-    # over the window measured in #1009). Every one of those recompiled everything
-    # and banked nothing, so the next run started just as cold.
-    - name: Save sccache storage
-      # NOT ON PULL REQUESTS (#1073), and `runner.environment` does not already imply
-      # that: this job routes to the self-hosted box only while OLO_LINUX_SELF_HOSTED
-      # is true and the PR is not from a fork. Flip that variable, or open a fork PR,
-      # and a PR run lands on a hosted runner and saves a ~1.25 GiB snapshot scoped to
-      # `refs/pull/N/merge` that only that one PR can read -- charged to a 10 GB store
-      # shared with every other job. Say the condition instead of inheriting it from a
-      # routing expression three hundred lines away.
-      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
-      # `save-cache-pruned` swallows every failure of its own (#1073): a cache save
-      # must never fail the job it is attached to. `if: always()` means this runs on
-      # a CANCEL, where the path it is asked to save may not exist yet -- and
-      # actions/cache/save treats a missing path as a validation error, not a no-op.
-      # Turning a cancelled run into a FAILED one would be a strictly worse outcome
-      # than the cold cache this is fixing. What the action adds over a bare
-      # actions/cache/save is noticing that the store refused the write, deleting
-      # this ref's superseded snapshot, and retrying -- see its own header.
-      uses: ./.github/actions/save-cache-pruned
-      with:
-        path: ${{ env.SCCACHE_DIR }}
-        key: sccache-ubsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
-        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -993,11 +1245,10 @@ jobs:
       # actions/checkout@v6 would fail on fork PRs.
       contents: read
       checks: write
-      # Needed by the sccache save (#1073): when the repo's 10 GB cache store is
-      # full every save is refused, and the only way to land this job's snapshot
-      # is to delete the entry it supersedes first. Scoped to this ref by
-      # `save-cache-pruned`.
-      actions: write
+      # No `actions: write` here. It was granted for the sccache save, and that
+      # save is gone (#1082 -- see the note above this job's Setup sccache step).
+      # A permission kept past the step that needed it is a permission nobody will
+      # ever remove, so it goes with the step.
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1029,23 +1280,53 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # Persist sccache's local-disk cache. Explicit restore + save steps instead of
-    # the combined actions/cache action: the combined action saves in a POST-JOB
-    # step, and post-job steps are skipped when the job is cancelled — so a run
-    # that hit `timeout-minutes` saved nothing and left the next run just as cold
-    # (the cold → timeout → no-save → cold loop, see the timeout comment above).
-    # The explicit save below runs `if: always()`, which DOES execute on a
-    # timeout-cancel, banking even a partial build's objects. Key is unique per
-    # attempt so every save writes a fresh snapshot; restore-keys warms from the
-    # most recent prior one. Key is per-sanitizer.
-    - name: Restore sccache storage
-      if: runner.environment == 'github-hosted'
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ env.SCCACHE_DIR }}
-        key: sccache-tsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: |
-          sccache-tsan-linux-
+    # NO ACTIONS-CACHE ENTRY FOR THIS JOB (#1082). There used to be a restore here and
+    # a `save-cache-pruned` after the build, persisting SCCACHE_DIR as a ~1.25 GiB
+    # entry. They are gone, and the reason is measured rather than assumed.
+    #
+    # Nightly 34004436875, all three Linux sanitizer jobs, the ONLY runs that read
+    # these entries:
+    #
+    #     Compile requests   1558      Cache hits          0
+    #     Cache misses       1558      Cache hits rate     0.00 %
+    #     Cache read errors     0      Cache write errors  0
+    #
+    # The restore was not broken -- "Cache restored from key: sccache-ubsan-linux-...",
+    # 1232 MB pulled at 180 MB/s. It restored perfectly and hit NOTHING, three jobs out
+    # of three.
+    #
+    # WHY: sccache hashes the compiler binary into every cache key, and the hosted arm
+    # compiles with apt.llvm.org's SNAPSHOT clang-23, which rolls every few days:
+    #
+    #     nightly 09-04   Ubuntu clang 23.1.1 (++20260901122056+5340f7cc8814)
+    #     nightly 09-05   Ubuntu clang 23.1.1 (++20260903063729+47bafb752202)
+    #
+    # Every entry is therefore invalidated by the next apt refresh while still
+    # restoring, still downloading 1.2 GB, and still occupying the shared quota. It is
+    # the same failure Windows.yml's own header documents for `windows-latest` image
+    # rolls, reproduced here by an unpinned rolling compiler.
+    #
+    # AND ALMOST NOTHING READ THEM ANYWAY. `OLO_LINUX_SELF_HOSTED` is true, so a
+    # same-repo PR routes this job to the box, where it uses local-disk ccache and
+    # skips every sccache step. Only the nightly (a `schedule` run forces hosted) and
+    # fork PRs ever touched the store -- neither is on the per-PR critical path.
+    #
+    # THE BUDGET IS THE POINT. Three entries, 3741 MiB, 55 % of a 6782 MiB steady set
+    # against a ~9.3 GiB wall, buying a measured zero -- while the Windows ASan job
+    # that IS on the critical path had no cache at all for want of room (#1082).
+    # docs/agent-rules/actions-cache-budget.md has the arithmetic.
+    #
+    # THIS IS NOT "THE LINUX CACHE IS WORTHLESS". At 1558 compilations x 6.283 s
+    # average, a WORKING cache here would remove most of ~2 h 43 m of compiler time per
+    # job. That value is real and it is currently unreachable, because the key cannot
+    # be stable while the compiler underneath it is a rolling snapshot. Recovering it
+    # means pinning the hosted clang (the self-hosted box already pins /opt/llvm-23.1.0
+    # by absolute path) or keying the entry on the clang build id -- issue #1095.
+    # Do NOT simply re-add the restore/save: that is what measured 0.00 %.
+    #
+    # sccache itself is still the launcher on the hosted arm, so `Show compiler cache
+    # stats` below keeps working and keeps printing the hit rate. It will read 0 % on
+    # every hosted run now, by construction rather than by accident.
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
     # sanitizer-instrumented, which is what these jobs want — see the note in the
@@ -1117,33 +1398,6 @@ jobs:
         else
           ccache --show-stats
         fi
-
-    # Deliberately BEFORE the test step (and `if: always()`): the tests don't
-    # write compile-cache entries, and saving here means a run whose TEST step
-    # later times out has already banked its build cache — while a cancel during
-    # the BUILD step still saves the partial objects via always().
-    - name: Save sccache storage
-      # NOT ON PULL REQUESTS (#1073), and `runner.environment` does not already imply
-      # that: this job routes to the self-hosted box only while OLO_LINUX_SELF_HOSTED
-      # is true and the PR is not from a fork. Flip that variable, or open a fork PR,
-      # and a PR run lands on a hosted runner and saves a ~1.25 GiB snapshot scoped to
-      # `refs/pull/N/merge` that only that one PR can read -- charged to a 10 GB store
-      # shared with every other job. Say the condition instead of inheriting it from a
-      # routing expression three hundred lines away.
-      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
-      # `save-cache-pruned` swallows every failure of its own (#1073): a cache save
-      # must never fail the job it is attached to. `if: always()` means this runs on
-      # a CANCEL, where the path it is asked to save may not exist yet -- and
-      # actions/cache/save treats a missing path as a validation error, not a no-op.
-      # Turning a cancelled run into a FAILED one would be a strictly worse outcome
-      # than the cold cache this is fixing. What the action adds over a bare
-      # actions/cache/save is noticing that the store refused the write, deleting
-      # this ref's superseded snapshot, and retrying -- see its own header.
-      uses: ./.github/actions/save-cache-pruned
-      with:
-        path: ${{ env.SCCACHE_DIR }}
-        key: sccache-tsan-linux-${{ github.run_id }}-${{ github.run_attempt }}
-        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"

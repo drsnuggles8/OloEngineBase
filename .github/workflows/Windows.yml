@@ -89,6 +89,21 @@ env:
   # The budget arithmetic and the rules that keep it solvent:
   # docs/agent-rules/actions-cache-budget.md.
   SCCACHE_CACHE_SIZE: "2G"
+  # PREVENTIVE, and copied from asan.yml where the same setting is a bug fix (#1082 --
+  # that file's env block carries the full mechanism and the measurement).
+  #
+  # In short: sccache's server exits after SCCACHE_IDLE_TIMEOUT seconds with no client
+  # request (default 600), link steps do not go through sccache, and a link longer than
+  # ten minutes therefore shuts the server down mid-build. The next compile connects to
+  # the socket the exiting server still holds, gets dropped, and fails the build with
+  # "os error 10054". sccache starts a server when none is running; it does not recover
+  # from one that accepts and then closes.
+  #
+  # This job has not hit it. That is a margin, not an immunity -- it links the same
+  # binaries, just without ASan inflating the link -- and the margin is unmeasured. The
+  # failure is silent until it is fatal and costs a whole ~3 h round to diagnose, so
+  # spend the one line.
+  SCCACHE_IDLE_TIMEOUT: "0"
 
 jobs:
   build:
@@ -388,6 +403,43 @@ jobs:
         }
         if ($failed) { exit 1 }
         Write-Host 'All shipped binaries passed the launch smoke test.'
+
+    # ============================================================================
+    # TEMPORARY MEASUREMENT SCAFFOLDING (#1083) - DELETE BEFORE THIS PR MERGES.
+    # ============================================================================
+    # The sibling of the sweep in asan.yml; that step's header owns the reasoning
+    # (why one job rather than six runs, why the width order is a palindrome, why
+    # a strided sample, and why a failing pass is recorded instead of fatal).
+    # Read it there. Only the numbers differ: this job is not sanitizer-
+    # instrumented, so its shard width is bounded by the 4 vCPUs rather than by
+    # RAM, and #1083 names 4 / 6 / 8 as the widths to try here.
+    - name: "Measure ctest --parallel widths (#1083, temporary)"
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      shell: bash
+      run: |
+        set -u
+        rows=()
+        for w in 4 6 8 8 6 4; do
+          start=$(date +%s)
+          out=$(ctest -I '1,,20' --parallel "$w" --timeout 120 -C "${BUILD_TYPE}" \
+                  --exclude-regex '^NetworkIntegrationTest\.' 2>&1) && code=0 || code=$?
+          elapsed=$(( $(date +%s) - start ))
+          tally=$(printf '%s\n' "$out" | grep -E 'tests passed' | tail -n 1 || true)
+          row="width=${w}  seconds=${elapsed}  exit=${code}  ${tally:-(no ctest summary line)}"
+          echo "::notice title=ctest width sweep::${row}"
+          rows+=("$row")
+          if [ "$code" -ne 0 ]; then
+            # See the asan.yml sibling for why this matches ctest's
+            # "The following tests FAILED:" block and not the `***` progress lines.
+            printf '%s\n' "$out" | grep -E '^[[:space:]]*[0-9]+ - [^ ]+ [(]' \
+              | sed "s/^/    FAILED at width ${w} : /" || true
+          fi
+        done
+        echo
+        echo "=== ctest --parallel sweep, Windows / build - sample: every 20th entry ==="
+        printf '%s\n' "${rows[@]}"
+        # Never fail the job on the sweep: the real test run below is the gate.
+        exit 0
 
     - name: Run tests with CTest
       working-directory: ${{github.workspace}}/build/OloEngine/tests
