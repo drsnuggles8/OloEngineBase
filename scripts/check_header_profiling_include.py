@@ -13,6 +13,11 @@ it cost a CI round on PR #1062 before anyone noticed the class.
 
 The macro set is read out of Instrumentor.h itself, so it cannot drift.
 
+Position counts, not just presence: an include that sits BELOW the first expansion is
+not in scope at that expansion, so the header still does not compile on its own. A use
+inside a `#define` body is the exception -- it expands wherever the macro is called, so
+it obliges the header to own the include but places no constraint on where.
+
 Opt out on a line of its own with:
 
     // OLO_PROFILING_INCLUDE_OK: <reason>
@@ -60,6 +65,41 @@ def macro_names() -> set[str]:
     return set(DEFINE_RE.findall(text))
 
 
+def _blank(match: re.Match[str]) -> str:
+    """Replace a match with spaces, keeping newlines so offsets and line numbers hold."""
+    return re.sub(r"[^\n]", " ", match.group(0))
+
+
+def mask_comments(text: str) -> str:
+    """Blank out comments in place. Same length as `text`, so offsets still map.
+
+    Block comments first, then line comments: a `//` inside a block comment must not
+    eat the block's terminator. The reverse case (`/*` inside a line comment) is not
+    handled, and neither are the sequences inside string literals -- this is a
+    textual ratchet, and neither shape occurs in these headers.
+    """
+    return LINE_COMMENT_RE.sub(_blank, BLOCK_COMMENT_RE.sub(_blank, text))
+
+
+def logical_lines(text: str) -> list[tuple[int, int]]:
+    """(start, end) offsets of logical lines, with backslash continuations joined."""
+    spans: list[tuple[int, int]] = []
+    start = pos = 0
+    while pos < len(text):
+        newline = text.find("\n", pos)
+        if newline == -1:
+            spans.append((start, len(text)))
+            return spans
+        if text[pos:newline].rstrip().endswith("\\"):
+            pos = newline + 1  # continuation: same logical line
+            continue
+        spans.append((start, newline))
+        pos = start = newline + 1
+    if start < len(text):
+        spans.append((start, len(text)))
+    return spans
+
+
 def main() -> int:
     if not INSTRUMENTOR.is_file():
         print(f"{INSTRUMENTOR} not found -- run from the repository root", file=sys.stderr)
@@ -71,32 +111,72 @@ def main() -> int:
         return 2
     use_re = re.compile(r"\b(?:%s)\b" % "|".join(sorted(names)))
 
-    offenders: list[str] = []
+    missing: list[str] = []
+    late: list[tuple[str, int, int]] = []
     for path in sorted(SRC_ROOT.rglob("*")):
         if path.suffix not in SUFFIXES or path.as_posix() in EXEMPT:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        # Comments name these macros constantly ("guarded by OLO_PROFILE_SCOPE"), and a
-        # `#define OLO_PROFILE_SCOPE(...)` names the macro rather than calling it. Drop
-        # both before looking for call sites; whatever is left on a #define line -- a
-        # macro body that expands to one -- still counts as a use.
-        body = BLOCK_COMMENT_RE.sub(" ", LINE_COMMENT_RE.sub("", text))
-        body = "\n".join(DEFINE_RE.sub("", line, count=1) for line in body.splitlines())
-        if not use_re.search(body):
-            continue
-        if INCLUDE_RE.search(text) or OPT_OUT_RE.search(text):
-            continue
-        offenders.append(path.as_posix())
+        # Comments name these macros constantly ("guarded by OLO_PROFILE_SCOPE"), so
+        # blank them before looking for uses -- in place, to keep offsets usable below.
+        masked = mask_comments(text)
 
-    if not offenders:
+        # Two kinds of use, and they answer different questions.
+        #
+        #   * An EFFECTIVE use expands here, so the include has to be in scope BEFORE it.
+        #   * A use inside a `#define` body expands at the caller, wherever that is, so
+        #     it obliges this header to own the include but says nothing about where.
+        #
+        # The defined name itself (the token right after `#define`) is neither.
+        first_effective: int | None = None
+        uses_at_all = False
+        for start, end in logical_lines(masked):
+            line = masked[start:end]
+            define = DEFINE_RE.match(line)
+            # Skip past the defined name so `#define OLO_PROFILE_SCOPE(x)` is not read
+            # as a call to itself; a body after it still counts.
+            hit = use_re.search(line, define.end(1) if define else 0)
+            if not hit:
+                continue
+            uses_at_all = True
+            if define:
+                continue  # expands at the caller: obliges the include, not its position
+            if first_effective is None:
+                first_effective = start + hit.start()
+
+        if not uses_at_all or OPT_OUT_RE.search(text):
+            continue
+
+        include = INCLUDE_RE.search(masked)
+        if include is None:
+            missing.append(path.as_posix())
+        elif first_effective is not None and include.start() > first_effective:
+            late.append(
+                (
+                    path.as_posix(),
+                    masked.count("\n", 0, first_effective) + 1,
+                    masked.count("\n", 0, include.start()) + 1,
+                )
+            )
+
+    if not missing and not late:
         return 0
 
-    print("Headers use a profiling macro without including the header that defines it:")
-    for f in offenders:
-        print(f"  {f}")
-    print()
-    print('Add  #include "OloEngine/Debug/Instrumentor.h"  to each, in the project-header')
-    print("block. It is a leaf header (Core/Log.h + tracy), so there is no cycle risk.")
+    if missing:
+        print("Headers use a profiling macro without including the header that defines it:")
+        for f in missing:
+            print(f"  {f}")
+        print()
+    if late:
+        print("Headers include the defining header only AFTER their first use of a macro:")
+        for f, use_line, include_line in late:
+            print(f"  {f}:{use_line} uses it; the include is at line {include_line}")
+        print()
+        print("Move the include above the first use -- an include below it is not in scope")
+        print("there, so the file still does not compile on its own.")
+        print()
+    print('Add  #include "OloEngine/Debug/Instrumentor.h"  in the project-header block.')
+    print("It is a leaf header (Core/Log.h + tracy), so there is no cycle risk.")
     print("A header that genuinely must not include it opts out with a line reading")
     print("  // OLO_PROFILING_INCLUDE_OK: <reason>")
     print("See issue #1071 and docs/agent-rules/pch-masked-missing-includes.md.")

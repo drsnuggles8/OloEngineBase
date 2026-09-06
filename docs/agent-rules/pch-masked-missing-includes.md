@@ -47,6 +47,12 @@ or opt out with `// OLO_PROFILING_INCLUDE_OK: <reason>`. It reads the macro set 
 `Instrumentor.h` so it cannot drift. It is deliberately narrow — it is a ratchet on the class that
 already bit us, not a self-containment check.
 
+**Check where the include is, not just that it is there.** An include below the first expansion is
+not in scope at that expansion; the header still fails to compile alone, and a presence-only grep
+calls it clean. The exception is a use inside a `#define` body — that expands at the call site in
+some other file, so it obliges this header to own the include but says nothing about its position
+(`Core/PerformanceProfiler.h` is the case in the tree).
+
 **Keep the configuration flags in the checked set, not just the call macros.** `OLO_PROFILE` and
 `OLO_FUNC_SIG` are the silent half of this bug: an undefined name in `#if` evaluates to 0 with no
 diagnostic, so a header testing `#if OLO_PROFILE` without the include does not fail to compile — it
