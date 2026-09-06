@@ -306,7 +306,7 @@ namespace OloEngine::Tests
             // project, mirroring VirtualGeometryVisualEvidenceTest (incl. its
             // "leave the manager installed at teardown" rationale —
             // SetAssetManager asserts non-null).
-            if (!Project::GetActive() || !Project::GetAssetManager())
+            if (!Project::GetActive() || !Project::HasAssetManager())
             {
                 std::error_code ec;
                 fs::path const projectDir = TempDir("project");

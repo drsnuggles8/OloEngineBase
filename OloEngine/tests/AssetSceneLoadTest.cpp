@@ -258,6 +258,32 @@ namespace OloEngine::Tests
             {
                 if (Mgr)
                     Mgr->Shutdown();
+
+                // Shutting the manager down is not the same as uninstalling it.
+                // `Project` holds the active project and the asset manager in
+                // two statics, and without this the process is left with a
+                // SHUT-DOWN manager and a project whose directory `cleanup`
+                // deletes a moment later — both still non-null.
+                //
+                // That corpse poisons every later test in a single-process run
+                // (issue #1074). The renderer fixtures install their own temp
+                // project guarded by `if (!Project::GetActive() ||
+                // !Project::HasAssetManager())`; both are non-null here, so
+                // they skip their own setup and adopt this one instead. Their
+                // `AssetManager::AddMemoryOnlyAsset` calls then register into a
+                // dead manager, `GetAsset<T>` hands back nothing, and the
+                // subject of the test never renders — a visual-evidence test
+                // measuring an empty frame ~2,000 tests later, with nothing
+                // pointing back here. This single test accounted for 21 of the
+                // 102 monolithic-run failures.
+                //
+                // `Unload()` drops both statics, which is the pristine state
+                // every fixture is written to handle. Deliberately not "restore
+                // whatever was there before": the previous value could itself
+                // be a corpse, and `GetAssetManager()` asserts on null, so a
+                // caller that forgets to check now fails loudly instead of
+                // silently reading a dead manager.
+                Project::Unload();
             }
         } assetManagerShutdown{ assetManager };
 
@@ -542,6 +568,32 @@ namespace OloEngine::Tests
             {
                 if (Mgr)
                     Mgr->Shutdown();
+
+                // Shutting the manager down is not the same as uninstalling it.
+                // `Project` holds the active project and the asset manager in
+                // two statics, and without this the process is left with a
+                // SHUT-DOWN manager and a project whose directory `cleanup`
+                // deletes a moment later — both still non-null.
+                //
+                // That corpse poisons every later test in a single-process run
+                // (issue #1074). The renderer fixtures install their own temp
+                // project guarded by `if (!Project::GetActive() ||
+                // !Project::HasAssetManager())`; both are non-null here, so
+                // they skip their own setup and adopt this one instead. Their
+                // `AssetManager::AddMemoryOnlyAsset` calls then register into a
+                // dead manager, `GetAsset<T>` hands back nothing, and the
+                // subject of the test never renders — a visual-evidence test
+                // measuring an empty frame ~2,000 tests later, with nothing
+                // pointing back here. This single test accounted for 21 of the
+                // 102 monolithic-run failures.
+                //
+                // `Unload()` drops both statics, which is the pristine state
+                // every fixture is written to handle. Deliberately not "restore
+                // whatever was there before": the previous value could itself
+                // be a corpse, and `GetAssetManager()` asserts on null, so a
+                // caller that forgets to check now fails loudly instead of
+                // silently reading a dead manager.
+                Project::Unload();
             }
         } assetManagerShutdown{ assetManager };
 

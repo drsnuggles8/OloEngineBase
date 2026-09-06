@@ -34,6 +34,8 @@ namespace OloEngine::Tests
                 "  --olo-perf-rebase              overwrite this machine's perf baseline\n"
                 "  --olo-perf-strict              fail on a perf regression instead of warning\n"
                 "  --olo-perf-machine=<name>      perf baseline key, overriding the hostname\n"
+                "  --olo-strict-renderer-state    fail a test that leaks process-global renderer\n"
+                "                                 configuration (it is restored either way)\n"
                 "  --olo-bench-assert             make micro-benchmarks assert their budgets\n"
                 "  --olo-soundgraph-perf          run the SoundGraph throughput measurement\n"
                 "  --olo-gl-backend=<egl|glfw|none|auto> force the context-creation path; `none` creates\n"
@@ -139,6 +141,10 @@ namespace OloEngine::Tests
             else if (arg == "--olo-perf-strict")
             {
                 s_Options.PerfStrict = true;
+            }
+            else if (arg == "--olo-strict-renderer-state")
+            {
+                s_Options.StrictRendererState = true;
             }
             else if (arg == "--olo-bench-assert")
             {

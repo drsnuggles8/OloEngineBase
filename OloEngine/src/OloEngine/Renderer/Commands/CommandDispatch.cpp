@@ -1302,6 +1302,13 @@ namespace OloEngine
         s_FrameData.ForwardPlus = nullptr;
     }
 
+    bool CommandDispatch::HasUBOReferences()
+    {
+        // The camera UBO stands for the set: SetUBOReferences publishes them
+        // together and Shutdown resets them together.
+        return Data().CameraUBO != nullptr;
+    }
+
     void CommandDispatch::SetUBOReferences(
         const Ref<UniformBuffer>& cameraUBO,
         const Ref<UniformBuffer>& materialUBO,

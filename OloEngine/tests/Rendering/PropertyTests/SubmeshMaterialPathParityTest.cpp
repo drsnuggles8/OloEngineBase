@@ -648,7 +648,7 @@ namespace OloEngine::Tests
         {
             // AssetManager::AddMemoryOnlyAsset needs an active project + asset manager
             // (same temp-project bootstrap as VirtualGeometryVisualEvidenceTest).
-            if (!Project::GetActive() || !Project::GetAssetManager())
+            if (!Project::GetActive() || !Project::HasAssetManager())
             {
                 namespace fs = std::filesystem;
                 std::error_code ec;

@@ -979,6 +979,47 @@ $f = (python OloEngine/tests/scripts/generate_test_catalogue.py --gtest-filter -
 .\build\OloEngine\tests\Debug\OloEngine-Tests.exe --olo-help
 ```
 
+### 8.1 The single-process run — what CI structurally cannot see
+
+Every workflow above runs the tests through `gtest_discover_tests`, which registers each case as its
+own ctest entry. **CI therefore runs one process per test**, and no two tests ever share an address
+space. That is good isolation and a real blind spot: cross-test state pollution — a test that leaves
+the process-global renderer configured differently from how it found it — cannot exist in that
+configuration, so nothing in the PR gate can catch it.
+
+The monolithic run is the only place it shows up, and it is not automated:
+
+```powershell
+# Every test in ONE process. ~20 minutes; holds the test binary, so a
+# concurrent rebuild dies LNK1104.
+.\build-cached\OloEngine\tests\Debug\OloEngine-Tests.exe
+
+# Same run, but FAIL each test that leaks process-global renderer state
+# rather than only listing it in the end-of-run summary.
+.\build-cached\OloEngine\tests\Debug\OloEngine-Tests.exe --olo-strict-renderer-state
+```
+
+Run it before merging anything that touches a renderer fixture, a `Renderer3D` settings struct, or a
+`Shutdown()` call on an engine singleton. The failure it finds looks nothing like its cause: the
+victim is a visual-evidence test whose feature-on and feature-off captures come out identical, it
+passes 10/10 under its own filter, and its engine logs are identical to a passing run.
+
+Two rules keep tests out of this, both in
+[`agent-rules/cross-test-renderer-state.md`](agent-rules/cross-test-renderer-state.md):
+
+- **Never leave a process-wide renderer singleton dead** (`CommandDispatch`, `GPUPassTimerPool`,
+  `ParticleBatchRenderer`, `MeshPrimitives` are all owned by `Renderer3D::Init`). Standalone, your
+  test owns them and the teardown is right; in one process it is a teardown of someone else's. This
+  caused issue #1074. **But if your test made its own Vulkan device, still release backend-owned
+  resources before destroying it** — skipping the teardown trades the leak for a VMA abort, and
+  freeing on the wrong backend is its own bug. Tear down as required, then let
+  `Renderer3D::BeginScene` re-arm the shared state lazily on the renderer's backend.
+- **Leave the renderer configuration as you found it.** A listener restores it and reports leaks in a
+  `[ RENDERER STATE ]` summary; `--olo-strict-renderer-state` turns each into a failure.
+
+That doc also records the two traps that make bisecting this class produce confident wrong answers —
+worth reading *before* you start bisecting, not after.
+
 The `--olo-*` flags are the suite's own, declared in
 [`OloEngine/tests/TestOptions.h`](../OloEngine/tests/TestOptions.h) and consumed
 in `main` before gtest parses `argv`. They were twelve environment variables
