@@ -73,7 +73,7 @@ namespace OloEngine
     //      4     4  CommandBase
     //      8     8  ViewportWidth / ViewportHeight (resolve + shadow)
     //     16     8  ArgsSlot / MaxClusters         (mesh task stage, #813)
-    //     24     8  Pad0 / Pad1
+    //     24     8  LightmapUVBase / SwListCapacity
     struct VirtualDrawInfoGpu
     {
         u32 InstanceIndex = 0;
@@ -87,7 +87,14 @@ namespace OloEngine
         // first pad word, which is exactly what VirtualDrawInfo.glsl says the
         // pads are there for.
         u32 LightmapUVBase = 0;
-        u32 Pad1 = 0;
+        // Records the software-raster work list can actually hold (issue #1058).
+        // The visibility resolve bounds its record index by THIS rather than by
+        // the list's own Count: Count is an unguarded atomicAdd, so it is the one
+        // number in the block a GPU overflow could inflate, and it addresses a
+        // buffer. 0 = "the pass has no software raster", which reads as an empty
+        // list. Claimed out of the block's second pad word, same as
+        // LightmapUVBase claimed the first.
+        u32 SwListCapacity = 0;
     };
     static_assert(sizeof(VirtualDrawInfoGpu) == 32,
                   "std140 mirror in include/VirtualDrawInfo.glsl expects a 32-byte block");

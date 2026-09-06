@@ -45,9 +45,12 @@ layout(std140, binding = 49) uniform VirtualDrawInfo {
     //      must treat it as don't-fetch: a buffer-device-address read past the
     //      arena has no bounds (ADR 0011 amendment (89)).
     uint u_VirtualLightmapUVBase;
-    // 28 — std140 rounds the block to a 16-byte multiple; the pad is explicit so
-    //      the C++ mirror can be a plain struct with the same size.
-    uint u_VirtualDrawInfoPad1;
+    // 28 — records the software-raster work list can hold (issue #1058). The
+    //      visibility resolve bounds its record index by THIS and not by the
+    //      list's own Count: Count is an unguarded atomicAdd, so it is the one
+    //      value here a GPU overflow could inflate, and it addresses a buffer.
+    //      0 means "no software raster in this pass", i.e. an empty list.
+    uint u_VirtualSwListCapacity;
 };
 
 // ---- the packed uv2 tail: ONE spelling of the addressing math --------------

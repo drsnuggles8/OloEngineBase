@@ -843,6 +843,12 @@ namespace OloEngine
                         drawInfo.ViewportHeight = registry.GetVisbufferHeight();
                         // The resolve reconstructs uv2 from the same tail (issue #867).
                         drawInfo.LightmapUVBase = registry.GetLightmapUVBaseElement();
+                        // What the SW list can hold — the SAME number the cull
+                        // dispatches bound their appends by (u_SwCapacity). The
+                        // resolve bounds its record index by this rather than by
+                        // the list's own Count, which is an unguarded atomicAdd
+                        // (issue #1058).
+                        drawInfo.SwListCapacity = frameClusterCount;
                         upload->SetData(&drawInfo, sizeof(drawInfo));
                         upload->Bind();
 
