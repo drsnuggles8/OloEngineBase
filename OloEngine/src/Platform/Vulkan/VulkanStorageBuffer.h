@@ -94,14 +94,14 @@ namespace OloEngine
         // sampling the final ModelInstanceBuffer upload — #691).
         // Falls back to the persistent address when no snapshot is live.
         //
-        // KNOWN DEFECT, issue #1058: a `DynamicCopy` (GPU-produced) buffer that
-        // the CPU also writes — the virtual-geometry draw-args buffer is zeroed
-        // each frame before the cull dispatches — keeps serving DRAWS that CPU
-        // snapshot while the dispatch writes the persistent buffer. The
-        // virtual-geometry mesh-shader task stage reads its launch count that
-        // way, gets 0, and rasterizes nothing. Not fixed here: suppressing the
-        // snapshot for DynamicCopy makes the mesh arm run and then exposes an
-        // out-of-bounds SSBO read that loses the device. See the issue.
+        // A `DynamicCopy` buffer NEVER has a live snapshot to fall back from:
+        // PushSnapshot refuses one outright (issue #1058). The producer of a
+        // GPU-written buffer is a compute dispatch, which resolves
+        // GetDeviceAddress, so a CPU snapshot would hand draws a second copy
+        // the dispatch can never write — which is precisely how virtual
+        // geometry's mesh-shader task stage read a zeroed draw-args snapshot
+        // and launched EmitMeshTasksEXT(0) every frame. The reasoning lives at
+        // the guard in PushSnapshot; do not re-derive it here.
         [[nodiscard]] VkDeviceAddress GetRootDataAddress();
 
         // Drop any live snapshot because someone wrote the PERSISTENT buffer
