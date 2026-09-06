@@ -89,6 +89,21 @@ env:
   # The budget arithmetic and the rules that keep it solvent:
   # docs/agent-rules/actions-cache-budget.md.
   SCCACHE_CACHE_SIZE: "2G"
+  # PREVENTIVE, and copied from asan.yml where the same setting is a bug fix (#1082 --
+  # that file's env block carries the full mechanism and the measurement).
+  #
+  # In short: sccache's server exits after SCCACHE_IDLE_TIMEOUT seconds with no client
+  # request (default 600), link steps do not go through sccache, and a link longer than
+  # ten minutes therefore shuts the server down mid-build. The next compile connects to
+  # the socket the exiting server still holds, gets dropped, and fails the build with
+  # "os error 10054". sccache starts a server when none is running; it does not recover
+  # from one that accepts and then closes.
+  #
+  # This job has not hit it. That is a margin, not an immunity -- it links the same
+  # binaries, just without ASan inflating the link -- and the margin is unmeasured. The
+  # failure is silent until it is fatal and costs a whole ~3 h round to diagnose, so
+  # spend the one line.
+  SCCACHE_IDLE_TIMEOUT: "0"
 
 jobs:
   build:

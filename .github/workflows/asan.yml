@@ -79,6 +79,45 @@ env:
   # caches (the four sccache dirs here, Windows.yml's, Vulkan, FFmpeg) share the
   # repo's single 10 GB Actions-cache cap.
   SCCACHE_CACHE_SIZE: "1500M"
+  # NEVER let the sccache server time out. This is the whole of #1082's crash, and it
+  # is not what the crash was believed to be for two months.
+  #
+  # sccache's server exits after SCCACHE_IDLE_TIMEOUT seconds without a client request
+  # (`DEFAULT_IDLE_TIMEOUT: u64 = 600` in its src/server.rs). LINK STEPS DO NOT GO
+  # THROUGH SCCACHE, so a link longer than ten minutes is ten minutes of silence, and
+  # the server shuts down in the middle of a running build. The next compile then
+  # connects to the socket the exiting server still holds and is dropped mid-handshake:
+  #
+  #     sccache: error: failed to execute compile
+  #     caused by: error reading compile response from server
+  #     caused by: Failed to read response header
+  #     caused by: An existing connection was forcibly closed by the remote host.
+  #                (os error 10054)
+  #
+  # sccache recovers from "no server running" by starting one. It does not recover from
+  # "server accepted my connection and then closed it", so this kills the build.
+  #
+  # MEASURED ON RUN 34048670103, which reproduced it exactly:
+  #
+  #     [1593/1596] Linking CXX static library ...   19:41:05
+  #     [1594/1596] Building CXX ...                 19:54:18   <- 13m 13s later, dead
+  #
+  # 793 s of link against a 600 s timeout. `sccache --show-stats` immediately afterwards
+  # reported "Compile requests 0" -- not 1593 -- because it had started a BRAND NEW
+  # server; that zero is the proof the original one was gone rather than merely unhappy.
+  #
+  # This retires the folklore in d93b5af5b, which blamed "an extra in-memory consumer
+  # that tips the huge instrumented TUs over" and named GameNetworkingSockets. The TU
+  # that died here is OloEditor/src/MCP/McpFieldRegistry.cpp: 100 lines, 5 KB, entirely
+  # unremarkable. It was not big. It was merely THE FIRST COMPILE AFTER A LONG LINK.
+  # That also explains the observation that made the memory theory convincing -- three
+  # retries each dying on a different TU. Every retry resumes near the end of the build,
+  # which is where the long links are, so each one hit the same race at whatever TU
+  # happened to follow the next >10-minute link.
+  #
+  # Set for all four sanitizer jobs, not just the Windows one. The race needs only a
+  # slow link, and every job here links sanitizer-instrumented binaries.
+  SCCACHE_IDLE_TIMEOUT: "0"
 
 permissions:
   contents: read
@@ -256,36 +295,29 @@ jobs:
         version: "23.1.0"
         sha256: "1aebf024b959b3835c3bd936da2fa58cd002c61ccf47fce1714447b900bd9837"
 
-    # RE-ADDED BY #1082, after d93b5af5b removed it on 2026-07-02. Read that commit
-    # before touching this: the Windows sccache SERVER died mid-build on the large
-    # ASan-instrumented GameNetworkingSockets TUs —
+    # RE-ADDED BY #1082, after d93b5af5b removed it on 2026-07-02. The removal was
+    # sound about the symptom and wrong about the cause, and the cause is now known:
+    # the sccache server was idling out during long link steps. The mechanism, the
+    # measurement and the fix all live on SCCACHE_IDLE_TIMEOUT in the workflow `env`
+    # block at the top of this file. Read that before touching anything here.
     #
-    #     sccache: error: failed to execute compile
-    #     caused by: An existing connection was forcibly closed by the remote host.
-    #                (os error 10054)
+    # Two beliefs died with it, both worth naming so they are not rediscovered:
     #
-    # — on three consecutive retries, each on a different TU (tier0/dbg.cpp,
-    # steamnetworkingsockets_connections.cpp, _spew.cpp), so the retry wrapper that
-    # preceded the removal never cleared it. The diagnosis recorded there was memory:
-    # the server is an extra in-memory consumer on a 4-vCPU runner already holding
-    # several GB per instrumented TU.
+    #   "A NEWER SCCACHE MIGHT FIX IT." There was never a version delta to test.
+    #   d93b5af5b was ALREADY pinned to v0.15.0, which is still the fleet pin --
+    #   the issue's premise that "the removal predates several releases" is simply
+    #   not what the diff says. v0.17.0's client-side mode (SCCACHE_CLIENT_SIDE) was
+    #   the planned second arm on the theory that the server was running out of
+    #   memory. It is not needed: the server was not out of memory, it was gone.
     #
-    # THE ISSUE'S OWN PREMISE — "the removal predates several releases" — IS WRONG,
-    # and it is worth stating so nobody re-runs the same experiment expecting a
-    # different answer: d93b5af5b was already pinned to sccache v0.15.0, which is
-    # still the fleet pin. What HAS changed since is the toolchain, not sccache:
-    # this job now builds with an absolute-path-pinned LLVM 23.1.0 (5b3a24d39,
-    # fde5e9d5a, 0277e2a0d) instead of whatever clang-cl the windows-2025 image
-    # shipped, and GNS moved to a post-1.6.0 snapshot (01fdffb70). That is why the
-    # first arm re-tests the pinned version unchanged rather than jumping straight
-    # to v0.17.0: if it no longer reproduces, the smallest possible diff is the fix.
+    #   "IT IS THE HUGE INSTRUMENTED GNS TUs." The TU that died on the reproduce run
+    #   was OloEditor/src/MCP/McpFieldRegistry.cpp -- 100 lines, 5 KB. Size had
+    #   nothing to do with it.
     #
-    # If it DOES reproduce, the next arm is sccache v0.17.0 with SCCACHE_CLIENT_SIDE,
-    # which moves the compile and the cache lookup out of the server process
-    # entirely (the server keeps only compiler info, dist client and stats) and so
-    # removes the exact consumer d93b5af5b blamed. Do not skip the retry-free arm to
-    # get there — "it still crashes" and "it crashes for the reason we assumed" are
-    # different findings.
+    # A RETRY WRAPPER IS STILL THE WRONG ANSWER, for a new reason. d93b5af5b's retry
+    # failed because each attempt resumed near the end of the build and met the next
+    # long link, so it re-armed the same race every time. With the timeout disabled
+    # there is nothing left to retry.
     - name: Setup sccache
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       with:
@@ -425,6 +457,22 @@ jobs:
     - name: Show sccache stats
       if: always()
       run: sccache --show-stats
+
+    # THE SIZE THIS ENTRY WILL COST THE STORE, measured off the directory rather than
+    # asked of sccache. `--show-stats` cannot answer it reliably: if the server has
+    # exited, the client silently STARTS A NEW ONE and reports its zeros instead --
+    # which is exactly what happened on run 34048670103 ("Compile requests 0" after
+    # 1593 successful compiles). The directory is on disk either way.
+    #
+    # Needed because SCCACHE_CACHE_SIZE above is provisional (#1082): this job's
+    # objects carry embedded /Z7 debug info on top of ASan instrumentation, and the
+    # compressed actions/cache entry lands at 82-91 % of the cap, so the cap has to be
+    # set from a real footprint before this is charged to a shared ~9.3 GiB store.
+    - name: Measure the sccache directory
+      if: always()
+      shell: bash
+      run: |
+        du -sm "${SCCACHE_DIR}" 2>/dev/null || echo "SCCACHE_DIR not present"
 
     # Paired with the restore above. `if: always()` because the combined actions/cache
     # action saves in a POST-JOB step, which a CANCELLED job skips — and most PR runs in
