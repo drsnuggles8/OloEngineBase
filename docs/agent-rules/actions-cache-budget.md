@@ -136,11 +136,14 @@ before compression:
 | `Linux-` / `Windows-vulkan-prebuilt-sdk` | 291 + 229 MiB |
 | `ffmpeg-Windows-n7.1` | 4 MiB |
 | **measured subtotal** | **4957 MiB** |
-| `sccache-windows-2025-release` | **not measured — no entry has ever existed to measure.** `SCCACHE_CACHE_SIZE` caps the local dir at 2 GiB; `sccache-flaky-281`, same cap and the same build, compressed to 886 MiB. Expect 0.9–2.0 GiB; plan against 2.0 until a real one lands. |
-| **steady set** | **5.7 GiB likely, 6.8 GiB worst case** (4.84 GiB measured + 0.87–2.0), against a ~9.3 GiB wall — so 2.5 GiB of margin even at the bound |
+| `sccache-windows-2025-release` | **1825 MiB** — measured 2026-09-06 17:00 UTC, the day the fix landed. The row that used to sit here said "not measured, no entry has ever existed to measure" and guessed 0.9–2.0 GiB from `sccache-flaky-281`. The guess held; the entry came in at the top of it. |
+| **steady set** | **6782 MiB**, against a ~9.3 GiB wall — 2.7 GiB of margin, and ~2.0 GiB below `cache-prune.yml`'s 8800 MiB working ceiling |
 
-Do not quote the sccache row as a measurement until an entry has been written and listed.
-The number that mattered here was one nobody had ever read.
+`SCCACHE_CACHE_SIZE` bounds the local directory **before** compression, so it is not the
+entry size — but do not read that as "the entry will be much smaller". Every measured
+sccache entry here lands at **82–91 % of its cap**: 2 G → 1825 MiB, 1500M → 1231–1258 MiB.
+sccache already stores each object compressed, so the tarball has almost nothing left to
+squeeze. Treat the cap as the bill, and size a new one by what it is allowed to cost.
 
 That is why `cache-prune.yml` now **fails** when
 the post-sweep store is over 8800 MiB: everything it deletes is provably superseded or

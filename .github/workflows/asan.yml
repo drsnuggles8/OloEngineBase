@@ -452,6 +452,75 @@ jobs:
         key: sccache-asan-windows-2025-${{ github.run_id }}-${{ github.run_attempt }}
         token: ${{ secrets.GITHUB_TOKEN }}
 
+    # ============================================================================
+    # TEMPORARY MEASUREMENT SCAFFOLDING (#1083) — DELETE BEFORE THIS PR MERGES.
+    # ============================================================================
+    # #1083 requires `--parallel` to be "chosen from a measurement across at least
+    # three widths ... not raised on the assumption that startup-bound implies
+    # oversubscribe". This step is that measurement, and it is a step rather than
+    # six workflow runs for one reason: six runs are six different runners. A
+    # windows-2025 runner's disk and CPU vary enough between allocations that a
+    # 15 % difference between two runs says nothing, and the effect being looked
+    # for here is exactly that size at the margin. Timing all widths inside ONE
+    # job removes the runner from the comparison entirely.
+    #
+    # THE ORDER IS A PALINDROME (2,3,4,4,3,2), not 2,3,4 repeated. The first pass
+    # over a subset is measurably slower than the second — the OS file cache is
+    # cold for the test binary, and the engine's repo-relative mesh cache is
+    # empty, so the RESOURCE_LOCK'd cases pay a real cold build. A monotonic drift
+    # like that biases an ascending sweep in favour of the LAST width tried, which
+    # is the answer this measurement most wants to be true. A palindrome cancels
+    # it: each width is sampled once early and once late, so their means carry the
+    # same amount of warm-up.
+    #
+    # `-I 1,,20` samples every 20th ctest entry (~345 of ~6,900) rather than
+    # running the full suite six times, which would add ~9 h to this job. The
+    # sample is strided, not a contiguous block, so it is spread across the whole
+    # ordered test list instead of over-weighting whichever suites happen to sort
+    # first. `-I` intersects with `--exclude-regex` (ctest unions them only under
+    # `-U`), so the exclusions below still apply.
+    #
+    # EXIT CODE AND FAILURE COUNT ARE PART OF THE MEASUREMENT, not noise to
+    # suppress: #1083 asks for flake behaviour at each width, not just the clock,
+    # because a wider `-j` on a 4-vCPU runner is exactly what #281 and the
+    # mesh-cache RESOURCE_LOCK are sensitive to. A width that is 30 % faster and
+    # flaky is not faster. `$ErrorActionPreference = 'Continue'` and the explicit
+    # `exit 0` are what let a failing pass be RECORDED rather than ending the job.
+    - name: "Measure ctest --parallel widths (#1083, temporary)"
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      shell: pwsh
+      env:
+        ASAN_OPTIONS: halt_on_error=1:detect_odr_violation=0
+      run: |
+        $ErrorActionPreference = 'Continue'
+        $widths = @(2, 3, 4, 4, 3, 2)
+        $rows = @()
+        foreach ($w in $widths) {
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          $out = & ctest -I '1,,20' --parallel $w -C Release --timeout 120 `
+                   --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.' 2>&1
+          $sw.Stop()
+          $code = $LASTEXITCODE
+          $tally = ($out | Select-String -Pattern 'tests passed' | Select-Object -Last 1)
+          $tally = if ($tally) { $tally.ToString().Trim() } else { '(no ctest summary line)' }
+          $row = ("width={0}  seconds={1}  exit={2}  {3}" -f `
+                  $w, [math]::Round($sw.Elapsed.TotalSeconds, 1), $code, $tally)
+          Write-Host "::notice title=ctest width sweep::$row"
+          $rows += $row
+          # Name every failing case, so a width that trades speed for flakes is
+          # identifiable rather than just a non-zero exit code.
+          if ($code -ne 0) {
+            $out | Select-String -Pattern '^\s*\d+ - .*\*\*\*' | ForEach-Object {
+              Write-Host "    FAILED at width $w : $($_.ToString().Trim())"
+            }
+          }
+        }
+        Write-Host ''
+        Write-Host '=== ctest --parallel sweep, ASan (Windows/clang-cl) - sample: every 20th entry ==='
+        $rows | ForEach-Object { Write-Host $_ }
+        # Never fail the job on the sweep: the real test run below is the gate.
+        exit 0
+
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
       shell: pwsh

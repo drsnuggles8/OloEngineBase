@@ -389,6 +389,41 @@ jobs:
         if ($failed) { exit 1 }
         Write-Host 'All shipped binaries passed the launch smoke test.'
 
+    # ============================================================================
+    # TEMPORARY MEASUREMENT SCAFFOLDING (#1083) - DELETE BEFORE THIS PR MERGES.
+    # ============================================================================
+    # The sibling of the sweep in asan.yml; that step's header owns the reasoning
+    # (why one job rather than six runs, why the width order is a palindrome, why
+    # a strided sample, and why a failing pass is recorded instead of fatal).
+    # Read it there. Only the numbers differ: this job is not sanitizer-
+    # instrumented, so its shard width is bounded by the 4 vCPUs rather than by
+    # RAM, and #1083 names 4 / 6 / 8 as the widths to try here.
+    - name: "Measure ctest --parallel widths (#1083, temporary)"
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      shell: bash
+      run: |
+        set -u
+        rows=()
+        for w in 4 6 8 8 6 4; do
+          start=$(date +%s)
+          out=$(ctest -I '1,,20' --parallel "$w" --timeout 120 -C "${BUILD_TYPE}" \
+                  --exclude-regex '^NetworkIntegrationTest\.' 2>&1) && code=0 || code=$?
+          elapsed=$(( $(date +%s) - start ))
+          tally=$(printf '%s\n' "$out" | grep -E 'tests passed' | tail -n 1 || true)
+          row="width=${w}  seconds=${elapsed}  exit=${code}  ${tally:-(no ctest summary line)}"
+          echo "::notice title=ctest width sweep::${row}"
+          rows+=("$row")
+          if [ "$code" -ne 0 ]; then
+            printf '%s\n' "$out" | grep -E '^[[:space:]]*[0-9]+ - .*\*\*\*' \
+              | sed "s/^/    FAILED at width ${w} : /" || true
+          fi
+        done
+        echo
+        echo "=== ctest --parallel sweep, Windows / build - sample: every 20th entry ==="
+        printf '%s\n' "${rows[@]}"
+        # Never fail the job on the sweep: the real test run below is the gate.
+        exit 0
+
     - name: Run tests with CTest
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # Execute tests defined by the CMake configuration.
