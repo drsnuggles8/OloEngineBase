@@ -121,6 +121,15 @@ namespace OloEngine
         // matching the GL twin's recreate-in-place semantics.
         void Resize(u32 width, u32 height) override;
 
+        // In-place hot reload (#544 for GL, #1078 here): re-read the source
+        // file and refresh this object's image, PRESERVING object identity so
+        // a Material's cached Ref<Texture2D> shows the new pixels without
+        // being re-pointed. Refuses (false) when there is nothing re-readable
+        // — no source path, an unresolvable one, or a cooked block-compressed
+        // container — and the asset manager then falls back to replacing the
+        // object.
+        bool Reload() override;
+
         [[nodiscard]] VkImage GetVkImage() const
         {
             return m_Image;

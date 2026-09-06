@@ -7,6 +7,7 @@
 #include "Platform/Vulkan/VulkanPipelineCache.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanSamplerHeap.h"
+#include "Platform/Vulkan/VulkanShaderReflection.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <algorithm>
@@ -206,15 +207,32 @@ namespace OloEngine
         // [398] The root layout drives every binding mapping baked into the
         // pipeline; it is derived from the shader's reflection today, but the
         // key must stand on its own inputs, not on that invariant.
+        // The field's binding with its array length clamped to what Build
+        // actually reserved room for. The MAPPING and the root-data WRITER both
+        // read ArrayCount off the stored field, so storing the raw reflected
+        // value while laying out the clamped one would have them write past the
+        // field they were given (#1078).
+        [[nodiscard]] VulkanShaderBinding ClampedArrayCount(const VulkanShaderBinding& binding, u32 count)
+        {
+            VulkanShaderBinding clamped = binding;
+            clamped.ArrayCount = count;
+            return clamped;
+        }
+
         [[nodiscard]] u64 HashLayout(const VulkanRootDataLayout& layout)
         {
             u64 hash = layout.SizeBytes;
             for (const auto& field : layout.Fields)
             {
                 hash = HashCombine(hash, field.Offset);
+                hash = HashCombine(hash, field.SamplerOffset);
                 hash = HashCombine(hash, field.Binding.Set);
                 hash = HashCombine(hash, field.Binding.Binding);
                 hash = HashCombine(hash, static_cast<u64>(field.Binding.BindingKind));
+                // #1078: the array length selects the MAPPING SOURCE, so two
+                // layouts that differ only here produce different pipelines
+                // and must not share a cache entry.
+                hash = HashCombine(hash, field.Binding.ArrayCount);
             }
             return hash == 0 ? 1 : hash;
         }
@@ -256,18 +274,33 @@ namespace OloEngine
             else if (binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler)
             {
                 // #691: two u32s — the image heap index at Offset and
-                // the SAMPLER heap index at Offset + kSamplerIndexOffset. The
-                // mapping's samplerAddressOffset and the root-data writer both
-                // derive from this one layout, so they cannot disagree.
+                // the SAMPLER heap index at SamplerOffset. The mapping's
+                // samplerAddressOffset and the root-data writer both derive
+                // from this one layout, so they cannot disagree.
+                //
+                // #1078: an ARRAY binding needs one index PER ELEMENT, because
+                // the array mapping reads element i's index from the root
+                // struct instead of deriving it from a heap stride. Images
+                // first, then samplers — two contiguous u32 runs.
+                // Clamped, not trusted. Reflection already refuses a length
+                // past kMaxBindingArrayCount, but this is the arithmetic that
+                // would wrap: `offset += 4 * count` on an unchecked u32 leaves
+                // SizeBytes small while AssembleRootData still writes 4*count
+                // bytes into the scratch buffer sized from it.
+                const u32 count = std::clamp(binding.ArrayCount, 1u, VulkanReflection::kMaxBindingArrayCount);
                 offset = (offset + 3u) & ~3u;
-                layout.Fields.push_back({ .Binding = binding, .Offset = offset });
-                offset += 8;
+                const u32 imageOffset = offset;
+                offset += 4u * count;
+                layout.Fields.push_back(
+                    { .Binding = ClampedArrayCount(binding, count), .Offset = imageOffset, .SamplerOffset = offset });
+                offset += 4u * count;
             }
             else
             {
-                offset = (offset + 3u) & ~3u; // u32 heap index field
-                layout.Fields.push_back({ .Binding = binding, .Offset = offset });
-                offset += 4;
+                const u32 count = std::clamp(binding.ArrayCount, 1u, VulkanReflection::kMaxBindingArrayCount);
+                offset = (offset + 3u) & ~3u; // u32 heap index field(s)
+                layout.Fields.push_back({ .Binding = ClampedArrayCount(binding, count), .Offset = offset });
+                offset += 4u * count;
             }
         }
         layout.SizeBytes = (offset + 15u) & ~15u; // 16-aligned total, arena-friendly
@@ -370,7 +403,7 @@ namespace OloEngine
                                VK_SPIRV_RESOURCE_TYPE_READ_WRITE_IMAGE_BIT_EXT);
                     // Heap slot index lives in the root struct at Field.Offset.
                     // The sampler half comes from the SAMPLER heap, indexed by
-                    // the u32 at Field.Offset + kSamplerIndexOffset (#691)
+                    // the u32 at Field.SamplerOffset (#691)
                     // Per-draw sampler state with no PSO axis,
                     // replacing the per-pipeline embedded sampler that baked
                     // linear/clamp into every texture read.
@@ -378,6 +411,39 @@ namespace OloEngine
                         field.Binding.BindingKind == VulkanShaderBinding::Kind::CombinedImageSampler;
                     const u32 samplerStride =
                         combined ? static_cast<u32>(VulkanSamplerHeap::Get().GetDescriptorStride()) : 0u;
+
+                    // #1078: an ARRAY binding must NOT use the scalar source.
+                    // INDIRECT_INDEX derives element i's descriptor as
+                    // `base + i * heapArrayStride`, i.e. it demands that the
+                    // array's N textures occupy N CONSECUTIVE heap slots. The
+                    // slot cache allocates from a free list and a bump
+                    // allocator and guarantees no such thing — it merely
+                    // happened to hand out consecutive slots to a freshly
+                    // built batch, which is why Renderer2D's 32-sampler array
+                    // rendered correctly right up until any one of its
+                    // textures got a recycled slot. INDIRECT_INDEX_ARRAY reads
+                    // element i's index from the root struct instead (no
+                    // heapArrayStride field at all), so the slots may be
+                    // anywhere.
+                    if (field.Binding.ArrayCount > 1u)
+                    {
+                        mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_INDIRECT_INDEX_ARRAY_EXT;
+                        mapping.sourceData.indirectIndexArray = {
+                            .heapOffset = static_cast<u32>(VulkanResourceHeap::Get().GetSlotRegionOffset()),
+                            .pushOffset = 0,
+                            .addressOffset = field.Offset,
+                            .heapIndexStride = heapStride,
+                            .pEmbeddedSampler = nullptr,
+                            .useCombinedImageSamplerIndex = VK_FALSE,
+                            .samplerHeapOffset =
+                                combined ? static_cast<u32>(VulkanSamplerHeap::Get().GetSlotRegionOffset()) : 0u,
+                            .samplerPushOffset = 0,
+                            .samplerAddressOffset = combined ? field.SamplerOffset : 0u,
+                            .samplerHeapIndexStride = samplerStride,
+                        };
+                        break;
+                    }
+
                     mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_INDIRECT_INDEX_EXT;
                     mapping.sourceData.indirectIndex = {
                         .heapOffset = static_cast<u32>(VulkanResourceHeap::Get().GetSlotRegionOffset()),
@@ -390,8 +456,7 @@ namespace OloEngine
                         .samplerHeapOffset =
                             combined ? static_cast<u32>(VulkanSamplerHeap::Get().GetSlotRegionOffset()) : 0u,
                         .samplerPushOffset = 0,
-                        .samplerAddressOffset =
-                            combined ? field.Offset + VulkanRootDataLayout::kSamplerIndexOffset : 0u,
+                        .samplerAddressOffset = combined ? field.SamplerOffset : 0u,
                         .samplerHeapIndexStride = samplerStride,
                         .samplerHeapArrayStride = samplerStride,
                     };

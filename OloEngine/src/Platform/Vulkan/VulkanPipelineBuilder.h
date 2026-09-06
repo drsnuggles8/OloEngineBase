@@ -66,12 +66,20 @@ namespace OloEngine
         {
             VulkanShaderBinding Binding;
             u32 Offset = 0; ///< Byte offset of this field inside the root struct.
+            // Byte offset of this field's SAMPLER index (or index array) inside
+            // the root struct; 0 for a non-combined field. Explicit rather than
+            // `Offset + kSamplerIndexOffset` because an ARRAY field's samplers
+            // follow N image indices, not one (#1078) — the mapping and
+            // AssembleAndPushRootData both read this, so they cannot disagree.
+            u32 SamplerOffset = 0;
         };
 
-        // A CombinedImageSampler field is TWO u32s (#691): the image
+        // A scalar CombinedImageSampler field is TWO u32s (#691): the image
         // heap index at Offset and the sampler heap index at
-        // Offset + kSamplerIndexOffset — the mapping's samplerAddressOffset
-        // and AssembleAndPushRootData both add this same constant.
+        // Offset + kSamplerIndexOffset. An ARRAY field instead lays out
+        // ArrayCount image indices followed by ArrayCount sampler indices, so
+        // use Field::SamplerOffset rather than this constant when it may be an
+        // array.
         static constexpr u32 kSamplerIndexOffset = 4u;
 
         std::vector<Field> Fields;

@@ -7,6 +7,7 @@
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanRecordingContext.h"
+#include "Platform/Vulkan/VulkanShaderReflection.h"
 
 // Shared preprocessing, same Platform-to-Platform reuse VulkanShader records.
 #include "Platform/OpenGL/OpenGLShader.h"
@@ -212,6 +213,7 @@ namespace OloEngine
         }
 
         std::vector<VulkanShaderBinding> newBindings;
+        try
         {
             const spirv_cross::Compiler reflector(spirv);
             const spirv_cross::ShaderResources resources = reflector.get_shader_resources();
@@ -239,11 +241,18 @@ namespace OloEngine
                             break;
                     }
                 }
+                // Declared array length (#1078), through the SAME helper the
+                // graphics reflector uses. Without it a compute sampler/image
+                // array takes the scalar adjacency mapping and reads the wrong
+                // resource for every element past [0].
+                const u32 arrayCount =
+                    VulkanReflection::ReflectBindingArrayCount(reflector, resource, m_Name.c_str());
                 newBindings.push_back({ .Set = reflector.get_decoration(resource.id, spv::DecorationDescriptorSet),
                                         .Binding = reflector.get_decoration(resource.id, spv::DecorationBinding),
                                         .BindingKind = kind,
                                         .ImageDim = imageDim,
                                         .Stages = VK_SHADER_STAGE_COMPUTE_BIT,
+                                        .ArrayCount = arrayCount,
                                         .Name = resource.name });
             };
             for (const auto& resource : resources.uniform_buffers)
@@ -262,6 +271,18 @@ namespace OloEngine
             {
                 append(resource, VulkanShaderBinding::Kind::StorageImage);
             }
+        }
+        catch (const std::exception& e)
+        {
+            // Reflection refuses an array shape this backend cannot map
+            // (#1078), and spirv_cross can throw on a corrupt cached blob.
+            // Either way the module built above must not leak and the
+            // COMMITTED state must survive untouched — the graphics twin has
+            // had this guard since #691; this path never did, so an exception
+            // here leaked a VkShaderModule and propagated out of the build.
+            OLO_CORE_ERROR("VulkanComputeShader '{}': reflection failed ({})", m_Name, e.what());
+            vkDestroyShaderModule(device->GetDevice(), newModule, nullptr);
+            return false;
         }
 
         // Commit.

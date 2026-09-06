@@ -90,6 +90,23 @@ namespace OloEngine
         Kind BindingKind = Kind::UniformBuffer;
         TexDim ImageDim = TexDim::Tex2D;
         VkShaderStageFlags Stages = 0;
+        // Declared array length of this binding — `sampler2D u_Textures[32]`
+        // is ONE binding with 32 elements, not 32 bindings (#1078). 1 for a
+        // scalar declaration, which is every binding but Renderer2D_Quad's
+        // texture array today.
+        //
+        // Load-bearing, not informational. A binding with ArrayCount > 1 is
+        // mapped through VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_INDIRECT_INDEX_ARRAY_EXT,
+        // where each element reads its OWN heap index out of the root struct.
+        // The scalar INDIRECT_INDEX source cannot express that: it derives
+        // element i's descriptor from `heapArrayStride`, i.e. it requires the
+        // array's N textures to occupy N CONSECUTIVE heap slots — which
+        // nothing allocates or guarantees. That mismatch is #1078: a batch
+        // rendered correctly only while the slot cache happened to hand out
+        // consecutive slots, and any texture that got a recycled slot (an
+        // in-place hot reload being the easy way) made every element but [0]
+        // sample an unrelated slot.
+        u32 ArrayCount = 1;
         std::string Name;
     };
 

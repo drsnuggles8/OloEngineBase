@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -446,6 +447,60 @@ namespace OloEngine
         // against the new image (amendment (22) — a reload must PUSH; the
         // view's generation is unchanged, so OffsetOf cannot detect this).
         RHI::DescriptorHeap::Get().InvalidateResource(m_RHIHandle.Get());
+    }
+
+    bool VulkanTexture2D::Reload()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Cooked block-compressed containers (.olotex) are build artifacts, not
+        // hand-edited live assets, and Invalidate only knows the uncompressed
+        // upload path — refuse so the caller replaces the object instead.
+        // (The GL twin refuses for the same reason.)
+        if (IsCompressedFormat(m_Specification.Format))
+            return false;
+
+        if (m_Path.empty())
+            return false;
+
+        // m_Path is the texture's *identity*, not necessarily something this
+        // process can open — the asset system stores a project-relative
+        // spelling. The shared helper resolves it (and logs if it can't); see
+        // its comment for #1067.
+        const std::filesystem::path readPath = ResolveStoredSourcePath(m_Path);
+        if (readPath.empty())
+            return false;
+
+        const std::string readPathString = readPath.string();
+
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        // Match the path constructor's thread-local flip handling exactly so a
+        // reloaded texture isn't vertically mirrored.
+        ::stbi_set_flip_vertically_on_load_thread(1);
+        stbi_uc* data = nullptr;
+        {
+            OLO_PROFILE_SCOPE("stbi_load - VulkanTexture2D::Reload");
+            data = ::stbi_load(readPathString.c_str(), &width, &height, &channels, 0);
+        }
+        ::stbi_set_flip_vertically_on_load_thread(0);
+
+        if (data == nullptr)
+        {
+            OLO_CORE_ERROR("VulkanTexture2D::Reload: failed to re-read texture '{}' (from '{}')", m_Path,
+                           readPathString);
+            return false;
+        }
+
+        // Invalidate releases the previous image through VulkanDeferredReclaim
+        // and creates + uploads a new one onto this SAME object; m_RHIHandle
+        // is rebound, not re-minted, so every consumer's Ref and every cached
+        // handle stay valid.
+        Invalidate(m_Path, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
+
+        ::stbi_image_free(data);
+        return m_IsLoaded;
     }
 
     u64 VulkanTexture2D::GetHostImageCopyUploadCount()
