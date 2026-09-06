@@ -110,9 +110,11 @@ letting a green suite imply coverage it does not have.
 
 ## The guard, and why a dynamic one is not enough
 
-`ShaderRegistryTeardownOrderTest` (`OloEngine/tests/Rendering/`) uses two, because **no CI
-configuration builds Windows with ASan** — a purely dynamic guard would be green in every
-configuration where the regression could be reintroduced.
+`ShaderRegistryTeardownOrderTest` (`OloEngine/tests/Rendering/`) uses two, and the reason is worth
+getting right because the obvious version of it is wrong. `asan.yml` **does** run a Windows
+clang-cl ASan job over the full `ctest` suite. What it does not have is a **GPU**: every test that
+creates a GL shader skips there, so the registries are never populated and the teardown fault
+cannot arise. That — not the absence of an ASan build — is why #1088 reached master.
 
 1. **A source scan** over a seeded roster of all six sites, asserting each accessor keeps the
    `static auto* x = new ...` form. Runs everywhere, no GPU, no sanitizer. Seeded rather than
@@ -122,7 +124,9 @@ configuration where the regression could be reintroduced.
 2. **A static-destruction probe** — a namespace-scope object whose destructor does a
    `Register`/`Find`/`Unregister` round trip, so it runs *after* the registry's would-be destructor.
    It makes the fault deterministic for **any** invocation of the test binary rather than only the
-   process shapes that populated both statics, which is what made #1088 read as a flake.
+   process shapes that populated both statics, which is what made #1088 read as a flake. It
+   populates the map itself and needs no GL context, which is precisely what lets it fire in the
+   GPU-less CI ASan job that the original bug walked straight past.
 
 Both were red-checked, and the probe **in the compiled binary** rather than in a scratch copy of the
 scan — the failure mode that shipped once already in this repo's history. Built against pre-fix

@@ -24,29 +24,43 @@
 // GetProgramLabelRegistry already use for exactly this reason. See
 // docs/agent-rules/lazy-static-release-ownership.md.
 //
-// THE MAP WAS NOT ALONE. ASan halts at the first fault, so the report named
-// only the registry that happened to be torn down first. Tracing the rest of
-// ~OpenGLShader found five more registries on the same path with the same
-// defect, none of which the report could reach while the first one aborted:
-// FrameResourceManager, RendererMemoryTracker, ShaderDebugger (OLO_DEBUG only,
-// which is why a Release repro can never see it), and Shader.cpp's two
-// program-capability sets. kRegistrySites below is that whole roster, and the
-// source check runs over all of it — a dynamic guard can only ever prove the
-// absence of the fault that aborts first.
+// THE MAP WAS NOT ALONE. Tracing the rest of ~OpenGLShader found five more
+// registries on the same path with the same defect: FrameResourceManager,
+// RendererMemoryTracker, ShaderDebugger and Shader.cpp's two
+// program-capability sets. kRegistrySites below is that whole roster.
+//
+// Only SOME of them can ever produce a report, and that is worth knowing before
+// trusting a green sanitizer run. A Meyers singleton lives in static storage,
+// which is never freed — only heap memory it OWNS is — so the fault needs the
+// teardown call to reach heap-owning state. The map and the two sets reach
+// find()/erase() on freed buckets; RendererMemoryTracker early-returns on
+// m_IsShutdown (true after Renderer::Shutdown()), and ShaderDebugger
+// early-returns on !m_IsInitialized, which Application.cpp alone ever sets.
+// All six are unsafe by construction; an early-out just makes a real lifetime
+// bug invisible to ASan rather than absent. Hence a SOURCE check over the whole
+// roster, not a dynamic one over whichever fault aborts first.
 //
 // TWO GUARDS, because neither alone is enough:
 //
-//   1. A SOURCE-TEXT check on the accessor. The fault itself only manifests
-//      under ASan, and no CI configuration builds Windows with ASan — so a
-//      purely dynamic guard would be green everywhere the regression could be
-//      introduced. This one fails in every configuration, on every platform,
-//      with no GPU.
+//   1. A SOURCE-TEXT check on the accessor. The fault only manifests under
+//      ASan, so every configuration that is NOT an ASan build — the msvc and
+//      dev-cached trees, the plain CI build job — could reintroduce it and stay
+//      green. This one fails in every configuration, on every platform, with no
+//      GPU and no sanitizer.
 //
 //   2. A TEARDOWN PROBE, below, whose destructor runs during static
 //      destruction after the map's would-be destructor. It makes the fault
 //      deterministic under ASan for ANY invocation of this binary, instead of
 //      only for the process shapes that happened to populate both statics —
 //      which is what made #1088 look like a flake for as long as it did.
+//
+//      This is the half that gates CI, and the reason it needs no GPU is the
+//      whole point. asan.yml DOES run a Windows clang-cl ASan job over the full
+//      ctest suite — but on a GPU-less runner, so every test that creates a GL
+//      shader skips, the registries are never populated, and the teardown fault
+//      cannot arise. That is why #1088 reached master. The probe populates the
+//      map itself and touches it from a static destructor, so it reproduces
+//      there with no GL context at all.
 // =============================================================================
 
 #include "OloEnginePCH.h"
