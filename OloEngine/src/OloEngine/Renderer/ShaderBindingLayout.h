@@ -1285,9 +1285,9 @@ namespace OloEngine
             // read is bounded by, and Records[] is reached by a bare device
             // address with no bounds. 0 = an empty list.
             u32 SwListCapacity;
-            u32 Pad0;           // 20 — std140 rounds the block to a 16-byte multiple;
-            u32 Pad1;           // 24   the pads are explicit so this stays a plain
-            u32 Pad2;           // 28   struct the GLSL twins mirror byte for byte.
+            u32 Pad0; // 20 — std140 rounds the block to a 16-byte multiple;
+            u32 Pad1; // 24   the pads are explicit so this stays a plain
+            u32 Pad2; // 28   struct the GLSL twins mirror byte for byte.
 
             static constexpr u32 GetSize()
             {
