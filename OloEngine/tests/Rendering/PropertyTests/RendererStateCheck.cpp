@@ -16,17 +16,32 @@ namespace OloEngine::Tests::RendererState
 {
     namespace
     {
-        // Every entry in a Snapshot is compared byte-for-byte. That is only
-        // sound for trivially copyable types: for those, the copy that built
-        // the snapshot reproduced the object representation exactly, padding
-        // included, so two snapshots taken the same way differ in their padding
-        // only if something actually wrote it. A type with a std::string or a
-        // Ref<T> in it would compare pointer values and report a spurious leak,
-        // so it is rejected here rather than silently mis-measured.
+        // Every entry in a Snapshot is compared byte-for-byte, and `Capture`
+        // fills each one with `std::memcpy` from the live object rather than by
+        // assignment. That pairing is what makes the comparison sound.
         //
-        // If one of these fires, the settings struct grew a non-trivial member.
-        // Give it an `operator==` and compare it explicitly instead of adding
-        // it to the memcmp path.
+        // Assignment would not be enough: the implicitly-defined copy assignment
+        // operator is specified as MEMBERWISE, so it need not carry a struct's
+        // padding bytes across, and most of these structs are padded — a leading
+        // `bool Enabled` followed by an `f32` leaves three bytes that no member
+        // owns. Every mainstream compiler implements a trivial copy as a byte
+        // copy and it works out, but relying on that is relying on something the
+        // standard does not promise. `memcpy` promises it: both snapshots are
+        // verbatim images of the same object, so they differ in a padding byte
+        // only if something actually wrote one.
+        //
+        // Byte comparison rather than field-by-field is also the deliberate
+        // choice for WHAT this measures. These structs are mostly `f32` and
+        // `glm::vec3`, and CLAUDE.md forbids `==` on both; a semantic comparison
+        // would need epsilons, and an epsilon is exactly how a small real leak
+        // stops being reported. "Not one bit moved" is the contract a test is
+        // being held to here.
+        //
+        // A type with a `std::string` or a `Ref<T>` in it would compare pointer
+        // values and report a spurious leak, so it is rejected outright rather
+        // than silently mis-measured. If this fires, the settings struct grew a
+        // non-trivial member: give it an `operator==` and compare it explicitly
+        // instead of adding it to the memcmp path.
         template<typename T>
         [[nodiscard]] bool BytesEqual(const T& a, const T& b)
         {
@@ -95,7 +110,13 @@ namespace OloEngine::Tests::RendererState
         if (!Renderer3D::IsInitialized())
             return false;
 
-#define OLO_CAPTURE_STRUCT(member, label, accessor) out.member = (accessor);
+        // memcpy, not assignment — see BytesEqual: the comparison is byte-wise,
+        // so the capture has to carry padding bytes too or two snapshots of an
+        // unchanged struct could differ in bytes no member owns.
+#define OLO_CAPTURE_STRUCT(member, label, accessor)                            \
+    static_assert(std::is_trivially_copyable_v<decltype(out.member)>,          \
+                  "RendererState::Snapshot entries are captured with memcpy"); \
+    std::memcpy(&out.member, &(accessor), sizeof(out.member));
         OLO_RENDERER_STATE_STRUCT_ENTRIES(OLO_CAPTURE_STRUCT)
 #undef OLO_CAPTURE_STRUCT
 

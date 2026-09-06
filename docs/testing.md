@@ -1007,10 +1007,13 @@ passes 10/10 under its own filter, and its engine logs are identical to a passin
 Two rules keep tests out of this, both in
 [`agent-rules/cross-test-renderer-state.md`](agent-rules/cross-test-renderer-state.md):
 
-- **Never shut down a process-wide singleton you did not start** (`CommandDispatch`,
-  `GPUPassTimerPool`, `ParticleBatchRenderer`, `MeshPrimitives` are all owned by `Renderer3D::Init`).
-  Standalone, your test owns them and the teardown is right; in one process it is a teardown of
-  someone else's. This caused issue #1074.
+- **Never leave a process-wide renderer singleton dead** (`CommandDispatch`, `GPUPassTimerPool`,
+  `ParticleBatchRenderer`, `MeshPrimitives` are all owned by `Renderer3D::Init`). Standalone, your
+  test owns them and the teardown is right; in one process it is a teardown of someone else's. This
+  caused issue #1074. **But if your test made its own Vulkan device, still release backend-owned
+  resources before destroying it** — skipping the teardown trades the leak for a VMA abort, and
+  freeing on the wrong backend is its own bug. Tear down as required, then let
+  `Renderer3D::BeginScene` re-arm the shared state lazily on the renderer's backend.
 - **Leave the renderer configuration as you found it.** A listener restores it and reports leaks in a
   `[ RENDERER STATE ]` summary; `--olo-strict-renderer-state` turns each into a failure.
 

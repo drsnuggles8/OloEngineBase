@@ -2,10 +2,18 @@
 
 Two rules, in the order they cost us time:
 
-1. **Never shut down a process-wide singleton you did not start.** `Renderer3D::Init` owns
+1. **Never leave a process-wide renderer singleton dead.** `Renderer3D::Init` owns
    `CommandDispatch`, `GPUPassTimerPool`, `ParticleBatchRenderer` and `MeshPrimitives`. A test that
-   tears one down leaves every later rendering test in the process running against a dead one. Guard
-   every `Shutdown()` with whether *you* brought it up.
+   tears one down leaves every later rendering test in the process running against a dead one.
+
+   The rule is *not* "guard every `Shutdown()` with whether you brought it up" — that is the obvious
+   fix and it aborts the process. **A test that creates its own Vulkan device MUST still release
+   backend-owned resources before destroying it**, or VMA fires *"Some allocations were not freed
+   before destruction of this memory block"*. Do the teardown, and let the shared state be re-armed
+   lazily afterwards: `Renderer3D::BeginScene` calls `ReclaimSharedRenderState()`, which rebuilds
+   what it finds missing on the renderer's own backend. Release order matters too — free on the
+   backend that created it (the timer pool's queries are GL objects, so its `Shutdown()` belongs
+   *before* the Vulkan selection, not inside it).
 2. **Leave the process-global renderer configuration as you found it.** The rendering path, the
    settings structs and the culling toggles are all one static. A guard now restores these
    automatically, so a leak is repaired rather than propagated — but it is still a bug in your test,
