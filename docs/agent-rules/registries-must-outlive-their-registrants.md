@@ -77,12 +77,36 @@ line by line found **six** with the same defect:
 | `Shader.cpp`'s `MaterialOffsetPrograms` | same |
 
 Fixing the first and re-running gave a **clean full ASan suite**, which is easy to read as "there
-was one bug". There were six; five were simply unreachable while the first aborted. **Enumerate the
-destructor's call graph by reading it — a green sanitizer run after a lifetime fix is evidence about
-one path, not about the class.**
+was one bug". **Enumerate the destructor's call graph by reading it — a green sanitizer run after a
+lifetime fix is evidence about one path, not about the class.**
 
-`ShaderDebugger` makes the point sharply: `OLO_SHADER_UNREGISTER` compiles to nothing outside
-`OLO_DEBUG`, so no amount of Release ASan running will ever reach it.
+## Not every member of the set can produce a report, and that is the point
+
+A Meyers singleton lives in **static storage, which is never freed** — only heap memory the object
+*owns* is. So the fault needs the call to reach heap-owning state after the destructor ran:
+`unordered_map`'s buckets are heap, and that is what `_Find_last` walked.
+
+Run down the six with that in mind and they split:
+
+| registry | on the teardown call |
+|---|---|
+| `ShaderResourceRegistry`'s map | reaches `find()` on freed buckets — **the observed fault** |
+| `Shader.cpp`'s two sets | reach `erase()` on freed buckets — same shape |
+| `RendererMemoryTracker` | `TrackDeallocation` early-returns on `m_IsShutdown`, true after `Renderer::Shutdown()` |
+| `ShaderDebugger` | `UnregisterShader` early-returns on `!m_IsInitialized`; `Initialize()` runs only from `Application.cpp`, never in the test binary |
+
+All six are unsafe **by construction** — each is touched from a static destructor that runs after
+its own would have. But only some can produce an ASan report, and only in a process that reaches
+past the early-out. That is the honest reason the report named exactly one, and it is a sharper
+lesson than "the others were hidden behind the abort": **an early-out can make a real lifetime bug
+permanently invisible to the sanitizer while leaving it just as wrong.** Fix by reading the
+lifetime, not by waiting for a report.
+
+`ShaderDebugger` is the sharp end of this. `OLO_SHADER_UNREGISTER` compiles to nothing outside
+`OLO_DEBUG`, so a Release ASan run cannot reach it at all; and in a Debug ASan run of the *test*
+binary the debugger is never initialised, so it early-outs. Reproducing it needs an ASan Debug
+**editor** session. Its fix rests on construction and the source guard — say so rather than
+letting a green suite imply coverage it does not have.
 
 ## The guard, and why a dynamic one is not enough
 
