@@ -133,6 +133,7 @@ namespace OloEngine::VisualScript
     void RegisterMathNodes(NodeRegistry& registry);
     void RegisterVariableNodes(NodeRegistry& registry);
     void RegisterEntityNodes(NodeRegistry& registry);
+    void RegisterComponentFieldNodes(NodeRegistry& registry);
     void RegisterUtilityNodes(NodeRegistry& registry);
     void RegisterFunctionNodes(NodeRegistry& registry);
     /// Graph -> text-script bridge (Lua + C#). Its own TU because it is the only
@@ -157,6 +158,8 @@ namespace OloEngine::VisualScript
         inline constexpr std::string_view kGetVariable = "Variable.Get";
         inline constexpr std::string_view kSetVariable = "Variable.Set";
         inline constexpr std::string_view kSequence = "Flow.Sequence";
+        inline constexpr std::string_view kGetComponentField = "Component.GetField";
+        inline constexpr std::string_view kSetComponentField = "Component.SetField";
     } // namespace NodeTypes
 
     //-- Property keys used by the resolvers -------------------------------------
@@ -166,6 +169,12 @@ namespace OloEngine::VisualScript
         inline constexpr std::string_view kEventName = "Event";
         inline constexpr std::string_view kFunctionName = "Function";
         inline constexpr std::string_view kOutputCount = "Outputs";
+        /// The struct name ("TransformComponent") or its short form
+        /// ("Transform") — ComponentFieldRegistry::Find accepts both.
+        inline constexpr std::string_view kComponentName = "Component";
+        /// The m_-stripped field key, dotted for a nested record
+        /// ("Translation", "HeightShaping.IslandFalloff").
+        inline constexpr std::string_view kFieldName = "Field";
     } // namespace NodeProps
 
 } // namespace OloEngine::VisualScript

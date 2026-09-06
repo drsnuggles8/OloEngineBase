@@ -617,6 +617,7 @@ add_executable(OloEngine-Tests
 		Serialization/VisualScriptSerializerTest.cpp
 		Scripting/VisualScriptVMTest.cpp
 		Scripting/VisualScriptNodeLibraryTest.cpp
+		Scripting/ComponentFieldRegistryTest.cpp
 		Serialization/SoundConfigSerializerTest.cpp
 		Serialization/EnvironmentSerializerTest.cpp
 		Serialization/FontAssetPackSerializerTest.cpp

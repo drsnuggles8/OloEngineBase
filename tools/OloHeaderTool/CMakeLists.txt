@@ -27,6 +27,11 @@ set(OHT_SAVEGAME_OUT "${CMAKE_SOURCE_DIR}/OloEngine/src/OloEngine/SaveGame/Gener
 # BuildRegistry(). This is the one generated artefact that lands in OloEditor/
 # rather than OloEngine/; the editor and the test binary both compile the header.
 set(OHT_MCP_OUT "${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/Generated" CACHE PATH "Editor MCP generated output directory (writable-field registry)")
+# Visual-script generated output (the engine-side component-field registry behind
+# the Get/Set Field nodes, issue #793) - the ENGINE sibling of OHT_MCP_OUT above.
+# It cannot share that directory: a graph runs in OloRuntime and OloServer, which
+# do not link OloEditor, so the registry has to live under OloEngine/src.
+set(OHT_VS_OUT "${CMAKE_SOURCE_DIR}/OloEngine/src/OloEngine/Scripting/VisualScript/Generated" CACHE PATH "Visual-script generated output directory (engine-side component-field registry)")
 
 # ── Fail-fast guards (issue #758) ────────────────────────────────────────────
 # The issue asks for `find_program`; the honest equivalent here is a target check,
@@ -68,6 +73,7 @@ set(OHT_GENERATED_FILES
     "${OHT_CS_OUT}/Scene/Components.Generated.cs"
     "${OHT_CS_OUT}/InternalCalls.Generated.cs"
     "${OHT_MCP_OUT}/McpFieldRegistry.Generated.inl"
+    "${OHT_VS_OUT}/ComponentFieldRegistry.Generated.inl"
 )
 
 # ── Build-graph integration (issue #758) ─────────────────────────────────────
@@ -190,12 +196,12 @@ message(STATUS
 
 add_custom_command(
     OUTPUT "${OHT_STAMP}"
-    COMMAND OloHeaderTool "${OHT_SCAN_DIR}" "${OHT_CPP_OUT}" "${OHT_CS_OUT}" "${OHT_SCENE_OUT}" "${OHT_SAVEGAME_OUT}" "${OHT_MCP_OUT}"
+    COMMAND OloHeaderTool "${OHT_SCAN_DIR}" "${OHT_CPP_OUT}" "${OHT_CS_OUT}" "${OHT_SCENE_OUT}" "${OHT_SAVEGAME_OUT}" "${OHT_MCP_OUT}" "${OHT_VS_OUT}"
             --depfile "${OHT_DEPFILE}" --stamp "${OHT_STAMP}"
     DEPENDS OloHeaderTool "${OHT_INPUT_MANIFEST}" ${OHT_DEPFILE_UNREPRESENTABLE}
     DEPFILE "${OHT_DEPFILE}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "Running OloHeaderTool to generate scripting bindings, the AllComponents tuple, the save-game component lists, and the MCP field registry..."
+    COMMENT "Running OloHeaderTool to generate scripting bindings, the AllComponents tuple, the save-game component lists, and the MCP + visual-script field registries..."
     VERBATIM
 )
 

@@ -85,6 +85,7 @@ namespace OloEngine::VisualScript
             RegisterMathNodes(registry);
             RegisterVariableNodes(registry);
             RegisterEntityNodes(registry);
+            RegisterComponentFieldNodes(registry);
             RegisterUtilityNodes(registry);
             RegisterFunctionNodes(registry);
             RegisterScriptBridgeNodes(registry);

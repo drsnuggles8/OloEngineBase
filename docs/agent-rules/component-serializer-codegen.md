@@ -281,9 +281,12 @@ Kept because it is the evidence for the diff-the-`.inl` rule: every slice flippe
 ## 7. Every generated touch-point, its exclusion set, and what stays hand-maintained
 
 OloHeaderTool ([tools/OloHeaderTool/](../../tools/OloHeaderTool/)) scans `OloEngine/src/` for every
-`struct *Component` definition and emits six artefacts. Five have an exclusion set in
+`struct *Component` definition and emits seven artefacts. Six have an exclusion set in
 `tools/OloHeaderTool/main.cpp`; the sets are deliberately different and each is mirrored by a
-coverage test that must be kept in sync.
+coverage test that must be kept in sync. Two of the sets are deliberately SHARED between the
+MCP and visual-script field registries — `kComponentsNotFieldEditable` and
+`kHandWrittenFieldClamps` are spelled without an `Mcp` prefix for that reason. Split one only
+when the two consumers genuinely need to differ, and say why in the same commit.
 
 | Artefact | Lands in | Exclusion set | Coverage test |
 |---|---|---|---|
@@ -291,7 +294,8 @@ coverage test that must be kept in sync.
 | `OnComponentAdded<T>` / `OnComponentRemoved<T>` no-ops | `Scene/Generated/OnComponent{Added,Removed}.Generated.inl`, included by `Scene.cpp` | `kComponentsCustomOnAdd` / `kComponentsCustomOnRemove`: components with a real hand-written body. The two sets differ (`CameraComponent` does work on add only; `Rigidbody2DComponent` on remove only). `Skeleton` is not a `*Component` and stays hand-written. | `ComponentHandlerCoverageTest` |
 | Scene YAML serialize/deserialize blocks | `Scene/Generated/Scene{Serialize,Deserialize}Components.Generated.inl`, included by `SceneSerializer.cpp` | `kComponentsCustomSerialize`: hand-written blocks (§4). A non-trivial or non-public member skips the component automatically with no exclusion. | `ComponentSerializerCoverageTest` |
 | Save-game capture/restore lists | `SaveGame/Generated/SaveGameComponent{Capture,Restore}.Generated.inl`, included by `SaveGameSerializer.cpp` | `kComponentsNotInSaveGame`: everything without a `Serialize` overload. Keeps `IDComponent`/`TagComponent`, drops the per-tick components plus `AudioSoundGraphComponent` / `LocalizedTextComponent`. | `SaveGameComponentSerializerCoverageTest` |
-| Editor MCP writable-field registry (issue #607) | `OloEditor/src/MCP/Generated/McpFieldRegistry.Generated.inl`, included by `McpGenericFieldWrite.h` | `kComponentsNotMcpEditable`: the `*StateComponent` family, `AnimationStateComponent`, `UIResolvedRectComponent`, `WorldTransformComponent`, `IDComponent`. One entry per public JSON-coercible member; `OLO_SERIALIZE(Clamp)` and the `kMcpFieldClamps` table make writes clamp like a scene load. | `McpFieldRegistryTest` |
+| Editor MCP writable-field registry (issue #607) | `OloEditor/src/MCP/Generated/McpFieldRegistry.Generated.inl`, included by `McpGenericFieldWrite.h` | `kComponentsNotFieldEditable`: the `*StateComponent` family, `AnimationStateComponent`, `UIResolvedRectComponent`, `WorldTransformComponent`, `IDComponent`. One entry per public JSON-coercible member; `OLO_SERIALIZE(Clamp)` and the `kHandWrittenFieldClamps` table make writes clamp like a scene load. | `McpFieldRegistryTest` |
+| Engine visual-script field registry (issue #793) | `OloEngine/src/OloEngine/Scripting/VisualScript/Generated/ComponentFieldRegistry.Generated.inl`, included by `ComponentFieldRegistry.cpp` | the SAME `kComponentsNotFieldEditable` and `kHandWrittenFieldClamps` as the MCP row — one scan, two consumers. One entry per public member with a `PinType` shape, so a `u64` / `ivec` / `quat` / `mat` / `Ref<T>` / container field is dropped rather than approximated. Lives under `OloEngine/src` because a graph runs in `OloRuntime` and `OloServer`, which do not link the editor. | `ComponentFieldRegistryTest` |
 | C++ / C# scripting glue | `Scripting/C#/Generated/`, `OloEngine-ScriptCore/src/OloEngine/` | none; driven by `OLO_PROPERTY` annotations, not the struct scan | |
 
 Failure modes are loud on purpose. A component in a custom-handler set without a body is a link

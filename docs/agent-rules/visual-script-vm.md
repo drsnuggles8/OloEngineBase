@@ -97,3 +97,50 @@ command first. See
 - **`Function.Call` is not recursive.** Each function graph has one set of value
   slots per instance; re-entry is refused with a reported error rather than
   silently sharing them.
+
+## 6. The component-field registry is generated — do not hand-maintain a second one
+
+`Component.GetField` / `Component.SetField` address a component field by two
+strings, resolved through `Scripting/VisualScript/ComponentFieldRegistry.h`. Its
+~1.1k entries are **generated** by OloHeaderTool from the same data-member scan
+that drives the scene serializer, so a new component is graph-addressable as soon
+as it compiles. Three rules follow.
+
+**Do not add a curated table for a component you want reachable.** The older
+`Entity.AddComponent` / `Entity.HasComponent` nodes still use one (16 rows, in
+`EntityNodes.cpp`) because an EnTT *type* is not reachable from a runtime string;
+*fields* are, so nothing here needs a list. To expose a field: make it a public
+member of a supported type and rebuild `GenerateBindings`. To keep a runtime-only
+field out, tag it `OLO_SERIALIZE(Skip)`; to keep a whole component out, add it to
+`kComponentsNotFieldEditable` in `tools/OloHeaderTool/main.cpp` — the set the MCP
+registry shares.
+
+**The registry lives under `OloEngine/src`, not `OloEditor/src`, and must stay
+there.** The editor's `McpFieldRegistry` is the same idea a layer up, but a graph
+runs in `OloRuntime` and `OloServer`, neither of which links the editor.
+
+**`PropType` is lossy in exactly one place that matters here.** `SceneSerType`
+folds both `AssetHandle` and `UUID` onto `PropType::AssetHandle`, because scene
+YAML round-trips them identically. `PinType` does **not**: an asset reference is
+`PinType::Asset` and an entity reference is `PinType::Entity`. `SerField::cppType`
+carries the written spelling so the emitter can tell them apart. Get this wrong
+and `CheckLinkCompatibility` will happily accept a wire between an entity
+reference and an asset slot that the runtime can never satisfy — a graph that
+compiles clean and silently does nothing. Pinned by
+`ComponentFieldRegistryTest.MappingEntityReferenceIsNotExposedAsAnAsset`.
+
+A write goes through the field's serializer-declared range (the
+`OLO_SERIALIZE(Clamp, …)` annotation, or `kHandWrittenFieldClamps`) and then
+through a second clamp into the member's own integer width, in that order. Both
+are load-bearing: the first keeps a graph from producing a component state a
+scene load could not, the second keeps a `9999` written into a `u8` field from
+wrapping to `15`. A non-finite float is **refused**, not stored.
+
+That refusal has one trap in it, and it is the kind that tests pass over. Check
+`PinValue::IsFinite()`, never `std::isfinite(value.AsFloat())`: the accessor
+already maps a non-finite Float to `0.0f`, so the second form can never fail and
+a NaN is stored as a plausible-looking `0` and reported as a successful change.
+Only `IsFinite` looks at the value that was actually handed over. (Coming through
+the VM the guard is belt-and-braces — `NodeContext::SetOutput` sanitizes on the
+way into a value slot — but the registry is a public API the editor and tests
+call directly, and it has to keep its own promise.)

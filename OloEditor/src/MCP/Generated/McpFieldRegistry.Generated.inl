@@ -4,21 +4,21 @@
 // The MCP `olo_entity_set_field` / `olo_entity_list_fields` field registry
 // (issue #607). One entry per public, JSON-coercible data member of every
 // `struct *Component` under OloEngine/src, minus the runtime-only components
-// in the generator's kComponentsNotMcpEditable set and minus every field the
+// in the generator's kComponentsNotFieldEditable set and minus every field the
 // shared field scan drops (non-public, OLO_SERIALIZE(Skip), or a type with no
 // scalar JSON shape: u64 / ivec / quat / mat / struct / Ref<T> / container).
 //
 // A ranged entry (OLO_GFW_FIELD_RANGE) carries the SAME bounds the scene
 // serializer enforces on load — from the field's OLO_SERIALIZE(Clamp, …)
 // annotation, or (for a component the serializer keeps hand-written) from the
-// generator's kMcpFieldClamps table. A write outside the range is CLAMPED and
+// generator's kHandWrittenFieldClamps table. A write outside the range is CLAMPED and
 // reported as `clamped: true` with the original `requestedValue`.
 //
 // #include'd at anonymous-namespace scope in McpFieldRegistry.cpp, where
 // FieldEntry and the OLO_GFW_* macros are in scope. The entries are split
 // across BuildRegistryChunkN functions (driver: BuildRegistryChunks) so no
 // single function is large enough to run clang-cl Release+ASan out of
-// memory — see McpChunkWriter in tools/OloHeaderTool/main.cpp.
+// memory — see ChunkWriter in tools/OloHeaderTool/main.cpp.
 
 static void BuildRegistryChunk0(std::vector<FieldEntry>& registry)
 {
@@ -809,9 +809,6 @@ registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "Resolution", m
 registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "Intensity", m_Intensity, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(ReflectionProbeComponent, "Active", m_Active));
 
-// RelationshipComponent
-registry.push_back(OLO_GFW_FIELD(RelationshipComponent, "ParentHandle", m_ParentHandle));
-
 // RetargetingComponent
 registry.push_back(OLO_GFW_FIELD(RetargetingComponent, "Enabled", Enabled));
 registry.push_back(OLO_GFW_FIELD(RetargetingComponent, "SourcePath", m_SourcePath));
@@ -857,10 +854,6 @@ registry.push_back(OLO_GFW_FIELD_RANGE(SailComponent, "SailSetInput", m_SailSetI
 // ScriptComponent
 registry.push_back(OLO_GFW_FIELD(ScriptComponent, "ClassName", ClassName));
 
-}
-
-static void BuildRegistryChunk11(std::vector<FieldEntry>& registry)
-{
 // SnowDeformerComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "DeformRadius", m_DeformRadius, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(50.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "DeformDepth", m_DeformDepth, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
@@ -868,6 +861,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "FalloffExponent",
 registry.push_back(OLO_GFW_FIELD_RANGE(SnowDeformerComponent, "CompactionFactor", m_CompactionFactor, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 registry.push_back(OLO_GFW_FIELD(SnowDeformerComponent, "EmitEjecta", m_EmitEjecta));
 
+}
+
+static void BuildRegistryChunk11(std::vector<FieldEntry>& registry)
+{
 // SphereAreaLightComponent
 registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "Color", m_Color));
 registry.push_back(OLO_GFW_FIELD_RANGE(SphereAreaLightComponent, "Intensity", m_Intensity, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
@@ -925,10 +922,6 @@ registry.push_back(OLO_GFW_FIELD(StarNestSkyComponent, "EnableIBL", m_EnableIBL)
 registry.push_back(OLO_GFW_FIELD(StarNestSkyComponent, "IBLIntensity", m_IBLIntensity));
 registry.push_back(OLO_GFW_FIELD(StarNestSkyComponent, "CubemapResolution", m_CubemapResolution));
 
-}
-
-static void BuildRegistryChunk12(std::vector<FieldEntry>& registry)
-{
 // StateMachineComponent
 registry.push_back(OLO_GFW_FIELD(StateMachineComponent, "StateMachineAssetHandle", StateMachineAssetHandle));
 
@@ -938,6 +931,10 @@ registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "ActivationMode", Act
 registry.push_back(OLO_GFW_FIELD_RANGE(StreamingVolumeComponent, "LoadRadius", LoadRadius, OLO_GFW_BOUND(1.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "UnloadRadius", UnloadRadius));
 
+}
+
+static void BuildRegistryChunk12(std::vector<FieldEntry>& registry)
+{
 // SubmeshComponent
 registry.push_back(OLO_GFW_FIELD(SubmeshComponent, "SubmeshIndex", m_SubmeshIndex));
 registry.push_back(OLO_GFW_FIELD(SubmeshComponent, "Visible", m_Visible));
