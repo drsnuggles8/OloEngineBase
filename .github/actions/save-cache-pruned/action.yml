@@ -11,10 +11,11 @@ description: >
   The repo's Actions cache store is capped at 10 GB, and past the cap GitHub does not
   evict -- it turns the WHOLE STORE READ-ONLY ("Cache reservation failed: You have
   reached your configured budget, your cache is now read only"). The steady set of live
-  entries is ~7 GB, so the moment two or three heavy jobs each hold an old AND a new
-  snapshot at once, the cap is breached and every save in the repo is refused until the
-  next daily sweep. A daily sweep cannot fix that: the breach happens between two saves
-  minutes apart, not between two days.
+  entries measured ~5 GB before this job's own snapshot is counted, and the three Linux
+  sanitizer entries are ~1.25 GB apiece -- so the moment two or three heavy jobs each hold
+  an old AND a new snapshot at once, the cap is breached and every save in the repo is
+  refused until the next sweep. A twice-daily sweep cannot fix that: the breach happens
+  between two saves minutes apart, not between two days.
 
   It is not a hypothetical. It is the measured state that made
   `sccache-windows-2025-release-*` cease to exist ENTIRELY -- which is why the Windows
@@ -34,13 +35,6 @@ description: >
 inputs:
   key:
     description: 'Full cache key to save under, including the trailing -<run_id>-<attempt>.'
-    required: true
-  prefix:
-    description: >
-      Key prefix identifying this cache's lineage on this ref -- normally `key` minus its
-      trailing `-<run_id>-<attempt>`. On the retry path every entry on THIS ref matching
-      this prefix (other than `key` itself) is deleted. Must not be empty, and must not be
-      a prefix of an unrelated cache's key.
     required: true
   path:
     description: 'Path to save, as passed to actions/cache/save.'
@@ -65,13 +59,61 @@ runs:
         path: ${{ inputs.path }}
         key: ${{ inputs.key }}
 
+    # THE RECOVERY PATH MUST NOT RUN WHEN THERE WAS NOTHING TO SAVE.
+    #
+    # This action is called from an `if: always()` step so a CANCELLED run still banks
+    # what it built. A run cancelled EARLY has no `SCCACHE_DIR` yet, and then
+    # `actions/cache/save` fails on the missing path -- for a reason that deleting the
+    # previous snapshot cannot fix. Without this guard the sequence is: save fails, the
+    # API confirms no entry, the recovery path deletes the warm snapshot to make room,
+    # the retry fails on the same missing path, and the next run starts COLD. That is
+    # precisely the outcome the save-then-prune ordering exists to prevent, walked into
+    # through a different door.
+    #
+    # Asking the filesystem is the only reliable test. `actions/cache/save` catches its
+    # own errors and can report success regardless, so `steps.<save>.outcome` cannot
+    # distinguish "nothing to save" from "refused" from "saved".
+    #
+    # Inconclusive counts as NO payload: never delete a warm entry on a guess.
+    - name: Is there anything to save?
+      id: payload
+      if: always()
+      shell: bash
+      env:
+        CACHE_PATH: ${{ inputs.path }}
+      run: |
+        set -uo pipefail
+        found=false
+        # `path` may be multi-line in actions/cache; any one non-empty entry counts.
+        while IFS= read -r line; do
+          entry=$(printf '%s' "$line" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          [ -n "$entry" ] || continue
+          if [ -d "$entry" ]; then
+            if [ -n "$(find "$entry" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+              found=true
+              break
+            fi
+          elif [ -s "$entry" ]; then
+            found=true
+            break
+          fi
+        done <<< "${CACHE_PATH}"
+        echo "haspayload=${found}" >> "$GITHUB_OUTPUT"
+        if [ "$found" = true ]; then
+          echo "'${CACHE_PATH}' holds something to save."
+        else
+          echo "'${CACHE_PATH}' is missing or empty -- nothing to save, so the prune/retry path stays off."
+        fi
+
     # `actions/cache/save` treats a refused reservation as a WARNING and exits 0
     # (observed: "##[warning]Cache reservation failed ..." then "Failed to save: Unable
     # to reserve cache with key ..., another job may be creating this cache", step
     # outcome SUCCESS). The step's own status therefore cannot answer this -- ask the API.
+    # Skipped when there was no payload, which cascades: every later step keys off
+    # `steps.check.outputs.landed`, and a skipped step's output is empty, not 'false'.
     - name: Did the entry land?
       id: check
-      if: always()
+      if: always() && steps.payload.outputs.haspayload == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
@@ -119,28 +161,60 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.token }}
         GH_REPO: ${{ github.repository }}
-        PREFIX: ${{ inputs.prefix }}
         KEY: ${{ inputs.key }}
         REF: ${{ github.ref }}
+        # Passed explicitly rather than relying on the runner's default environment, so
+        # the derivation below reads from the same source the caller built the key from.
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
       run: |
         set -uo pipefail
-        if [ -z "${PREFIX}" ]; then
-          echo "::warning::empty prefix; refusing to delete anything."
+        # DERIVE the lineage prefix from the key rather than taking it as a second input.
+        # A prefix passed alongside the key is the same string written twice, and the two
+        # drift: bump the runner image and you must edit `key`, `restore-keys` AND the
+        # prefix in lockstep, in four workflows. Miss one and this action either prunes
+        # nothing (a silently full store) or prunes a lineage that is not its own. Both
+        # are #1073 again. Deriving it makes them impossible to disagree.
+        PREFIX="${KEY%-${RUN_ID}-${RUN_ATTEMPT}}"
+        if [ "${PREFIX}" = "${KEY}" ] || [ -z "${PREFIX}" ]; then
+          # The key does not end in `-<run id>-<attempt>`, so it is not the append-only
+          # shape this prune understands. Do nothing rather than guess.
+          echo "::warning::key '${KEY}' does not end in '-${RUN_ID}-${RUN_ATTEMPT}'; skipping the prune."
           exit 0
         fi
-        # `key` on this endpoint is a PREFIX match; `ref` restricts the scope.
+        echo "lineage prefix derived from the key: '${PREFIX}'"
+        # `key` on this endpoint is a PREFIX match and `ref` restricts the scope. Both
+        # verified against the live API rather than assumed -- `key=sccache` returns
+        # three unrelated lineages, `ref=refs/heads/does-not-exist` returns none, and
+        # OMITTING key returns EVERYTHING. That last one is why the loop below re-checks
+        # every row locally: a delete must never depend on a remote filter behaving.
         if ! gh api -X GET "repos/${GH_REPO}/actions/caches" \
                -f "key=${PREFIX}" -f "ref=${REF}" -f per_page=100 \
-               --jq '.actions_caches[] | [.id, .size_in_bytes, .key] | @tsv' > superseded.tsv 2>err.txt; then
+               --jq '.actions_caches[] | [.id, .size_in_bytes, .key, .ref] | @tsv' > superseded.tsv 2>err.txt; then
           echo "::warning::could not list cache entries for '${PREFIX}' on ${REF}: $(cat err.txt)"
           exit 0
         fi
         freed=0
         n=0
-        while IFS=$'\t' read -r id size key; do
+        while IFS=$'\t' read -r id size key ref; do
           [ -n "${id:-}" ] || continue
           # Never delete the key we are trying to write (it is not there, but be exact).
           if [ "$key" = "${KEY}" ]; then continue; fi
+          # Delete ONLY entries of literally this lineage: `<prefix>-<run_id>[-<attempt>]`.
+          # A bare prefix match is not good enough. `key=` is a plain string prefix, so if
+          # a sibling key `sccache-windows-2025-release-debug-…` is ever added, a prefix
+          # match would eat it -- and a cache this action deletes by mistake is a cold
+          # four-hour build for somebody who changed nothing.
+          if ! [[ "$key" =~ ^"${PREFIX}"-[0-9]+(-[0-9]+)?$ ]]; then
+            printf 'skip (not this lineage)  %s\n' "$key"
+            continue
+          fi
+          # The API scopes by ref; verify it anyway, because DELETE takes a cache id and
+          # will happily delete an entry on any ref if the listing ever hands us one.
+          if [ "$ref" != "${REF}" ]; then
+            printf 'skip (wrong ref: %s)  %s\n' "$ref" "$key"
+            continue
+          fi
           if gh api -X DELETE "repos/${GH_REPO}/actions/caches/${id}" >/dev/null 2>&1; then
             printf 'deleted %6s MiB  %s\n' "$((size / 1048576))" "$key"
             freed=$((freed + size))

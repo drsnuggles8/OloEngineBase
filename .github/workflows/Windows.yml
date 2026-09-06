@@ -312,7 +312,6 @@ jobs:
       with:
         path: ${{ env.SCCACHE_DIR }}
         key: sccache-windows-2025-release-${{ github.run_id }}-${{ github.run_attempt }}
-        prefix: sccache-windows-2025-release
         token: ${{ secrets.GITHUB_TOKEN }}
 
     # Banked here rather than by the combined actions/cache action's post-job

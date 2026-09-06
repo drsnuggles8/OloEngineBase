@@ -62,12 +62,18 @@
 # (`ffmpeg-…` restores by exact key; `vcpkg-…` falls back to the bare
 # `vcpkg-<os>-<triplet>-` prefix, which GitHub answers with the newest match).
 #
+# AN ENTRY WHOSE REF IS GONE is deleted before the newest-per-group rule sees it. That
+# already applied to a closed PR (#1015); it now applies to a DELETED BRANCH too. This
+# repo makes a `feature/*` branch per task and deletes it on merge, and a
+# `workflow_dispatch` run on such a branch banks its caches against that ref -- entries
+# that "newest per ref" would otherwise keep forever, unreadable by anything.
+#
 # A LAST-ACCESS AGE-OUT catches what remains: a genuinely renamed prefix, whose orphan
 # no longer matches anything and is therefore never restored. `last_accessed_at` is the
 # honest signal -- a live entry is read by every run that keys off it, so its timestamp
-# moves daily, and 14 days is comfortably longer than the slowest cadence in the fleet
-# (the weekly dist-archive / steam-stub / vulkan-off / video-ffmpeg jobs all read
-# prefixes that the daily Windows and Sanitizers nightlies also read).
+# keeps moving. 30 days, because the read cadence is NOT daily for every prefix and
+# assuming it was is how a rule like this deletes something live -- see the measurement
+# in the sweep. It is a long-tail backstop only; the recurring leak is handled above.
 name: Prune Actions cache
 
 on:
@@ -77,10 +83,11 @@ on:
     #
     # 01:05 — BEFORE the Sanitizers nightly (01:23) and the Windows nightly (01:53).
     # This is the one that matters. The keys are append-only, so on the night the
-    # nightlies run the store briefly holds an old AND a new snapshot of each: about
-    # 6 GB of duplicate on top of a ~7 GB steady set, against a 10 GB wall. Whichever
-    # job saves second is refused -- and the Windows snapshot, at 2 GB the largest
-    # entry in the store, is the one that loses. Sweeping first gives them room.
+    # nightlies run the store briefly holds an old AND a new snapshot of each: the three
+    # Linux sanitizer sccache entries measure ~1.25 GiB apiece, so that is ~3.7 GiB of
+    # duplicate before the Windows job even reaches its save, on top of a ~5 GiB steady
+    # set, against a ~9.3 GiB wall. Whichever job saves last is the one refused.
+    # Sweeping first gives them room.
     #
     # 06:41 — after both have saved, to collect what they superseded. (It cannot be
     # after ALL of them: SonarCloud and the weekly dist-archive can run past 09:00.
@@ -152,13 +159,25 @@ jobs:
           # Entries arrive newest-first, so the first sighting of a group is the
           # keeper and every later one is superseded.
           #
-          # AGE-OUT (#1073): an entry not READ in 14 days is dead whatever its group.
+          # AGE-OUT (#1073): an entry not READ in 30 days is dead whatever its group.
           # A live cache is restored by every run that keys off it, so its
-          # `last_accessed_at` moves daily; a genuinely renamed prefix leaves an orphan
-          # that matches nothing and whose timestamp never moves again. 14 days is well
-          # past the slowest read cadence in the fleet -- every weekly workflow keys off
-          # a prefix the daily Windows/Sanitizers nightlies also read.
-          age_out_days=14
+          # `last_accessed_at` keeps moving; a genuinely renamed prefix leaves an orphan
+          # that matches nothing and whose timestamp never moves again.
+          #
+          # 30, not 14. The read cadence is NOT daily for every prefix, and assuming it
+          # was is how a rule like this deletes something live. Measured:
+          # `Linux-vulkan-prebuilt-sdk-true-1.4.321.0` was created 2026-08-19 and last
+          # read 2026-09-02 -- a 14-day gap with no read in it -- and it went unread
+          # again for the four days after that, while the Sanitizers nightly ran every
+          # one of them. The nightly AMD (cross-vendor, gpu-*) jobs sit on a self-hosted
+          # box that can be offline for a stretch, which widens the gap further.
+          #
+          # Nothing is lost by waiting: the orphans this catches are permanent, so
+          # collecting them a fortnight later costs nothing, whereas deleting a live
+          # entry costs a cold build for somebody who changed nothing. The big recurring
+          # leak -- a vcpkg manifest bump -- is handled by the hash strip above, not by
+          # this, so this is purely a long-tail backstop and can afford to be patient.
+          age_out_days=30
           age_out_before=$(date -u -d "${age_out_days} days ago" +%s)
           # A PR ref's entries die with the PR (#1015). "Newest per ref" keeps one
           # entry per prefix on `refs/pull/N/merge` FOREVER, and nothing can ever
@@ -181,6 +200,35 @@ jobs:
             [ "${pr_closed[$n]}" = yes ]
           }
 
+          # A DELETED BRANCH's entries are unreachable, exactly like a closed PR's
+          # (#1073). "Newest per ref" keeps one entry per prefix on
+          # `refs/heads/feature/whatever` FOREVER, and nothing can read it once the
+          # branch is gone. This repo creates a `feature/*` worktree per task and deletes
+          # the branch on merge, and a `workflow_dispatch` run on one of those branches
+          # banks a full ~700 MiB vcpkg entry plus an sccache snapshot against its ref --
+          # so this is not a corner case, it is the normal shape of work here. The
+          # default branch is never checked, because it is never gone.
+          # `|| echo master` so an API hiccup cannot abort the sweep under `set -e` and
+          # trip the "needs a human" alarm at the end for no reason. Guessing the default
+          # branch wrong only costs one wasted branch lookup that answers "present".
+          default_branch=$(gh api "repos/${GH_REPO}" --jq .default_branch || echo master)
+          declare -A branch_gone=()
+          branch_is_gone() {
+            local b="$1"
+            [ "$b" != "$default_branch" ] || return 1
+            if [ -z "${branch_gone[$b]:-}" ]; then
+              # Unknown (an API hiccup) is treated as PRESENT: the conservative side,
+              # same as pr_is_closed above. A slash in the branch name is fine on this
+              # endpoint -- verified against `feature/ci-windows-sccache-1073`.
+              if gh api "repos/${GH_REPO}/branches/${b}" --jq .name >/dev/null 2>&1; then
+                branch_gone[$b]=no
+              else
+                branch_gone[$b]=yes
+              fi
+            fi
+            [ "${branch_gone[$b]}" = yes ]
+          }
+
           declare -A seen=()
           kept=0
           deleted=0
@@ -194,13 +242,17 @@ jobs:
             if [[ "$ref" =~ ^refs/pull/([0-9]+)/merge$ ]] && pr_is_closed "${BASH_REMATCH[1]}"; then
               closed_pr=1
             fi
+            dead_branch=0
+            if [[ "$ref" =~ ^refs/heads/(.+)$ ]] && branch_is_gone "${BASH_REMATCH[1]}"; then
+              dead_branch=1
+            fi
             unread=0
             accessed_at=$(date -u -d "${accessed}" +%s 2>/dev/null || echo 0)
             # A timestamp we cannot parse counts as fresh: never delete on a bad parse.
             if [ "$accessed_at" -gt 0 ] && [ "$accessed_at" -lt "$age_out_before" ]; then
               unread=1
             fi
-            if [ "$closed_pr" -eq 0 ] && [ "$unread" -eq 0 ] && [ -z "${seen[$group]:-}" ]; then
+            if [ "$closed_pr" -eq 0 ] && [ "$dead_branch" -eq 0 ] && [ "$unread" -eq 0 ] && [ -z "${seen[$group]:-}" ]; then
               seen[$group]=1
               kept=$((kept + 1))
               printf 'keep    %6s MiB  %-28s %s\n' "$((size / 1048576))" "$ref" "$key"
@@ -208,6 +260,8 @@ jobs:
             fi
             if [ "$closed_pr" -eq 1 ]; then
               printf 'DELETE  %6s MiB  %-28s %s  (PR closed)\n' "$((size / 1048576))" "$ref" "$key"
+            elif [ "$dead_branch" -eq 1 ]; then
+              printf 'DELETE  %6s MiB  %-28s %s  (branch deleted)\n' "$((size / 1048576))" "$ref" "$key"
             elif [ "$unread" -eq 1 ]; then
               stale=$((stale + 1))
               printf 'DELETE  %6s MiB  %-28s %s  (not read since %s)\n' "$((size / 1048576))" "$ref" "$key" "$accessed"

@@ -63,6 +63,15 @@ env:
 jobs:
   hunt:
     runs-on: windows-2025
+
+    # `actions: write` is needed by the sccache save (#1073): when the repo's 10 GB
+    # cache store is full every save is refused, and the only way to land a snapshot is
+    # to delete the entry it supersedes first. `contents: read` is re-declared because a
+    # job-level block REPLACES the default set rather than adding to it; checkout,
+    # setup-python and upload-artifact need nothing beyond it.
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 110
 
     steps:
@@ -174,16 +183,19 @@ jobs:
     # the combined action banked nothing on any run that actually did its job.
     - name: Save sccache storage
       if: always()
-      # A cache save must never fail the job it is attached to. `if: always()`
-      # means this runs on a CANCEL, where the path it is asked to save may not
-      # exist yet -- and actions/cache/save treats a missing path as a validation
-      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
-      # strictly worse outcome than the cold cache this is fixing.
-      continue-on-error: true
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # `save-cache-pruned` swallows every failure of its own (#1073): a cache save must
+      # never fail the job it is attached to, and `if: always()` means this runs on a
+      # CANCEL, where the path may not exist yet. What it adds over a bare
+      # actions/cache/save is noticing that the store REFUSED the write, deleting this
+      # ref's superseded snapshot, and retrying -- and skipping all of that when there
+      # was nothing to save, which for this job is the common case: a cancel at
+      # `timeout-minutes: 110` is its expected exit, so it is the one job here most
+      # likely to reach this step with an empty SCCACHE_DIR.
+      uses: ./.github/actions/save-cache-pruned
       with:
         path: ${{ env.SCCACHE_DIR }}
         key: sccache-flaky-281-${{ github.run_id }}-${{ github.run_attempt }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     # Banked here rather than by the combined actions/cache action's post-job
     # step, which a CANCELLED job skips (#1009). FFmpeg is a ~10-15 min from-source

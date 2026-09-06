@@ -34,7 +34,10 @@ Cache hits rate     0.00 %
 Average compiler   24.690 s
 ```
 
-1630 × 24.7 s is essentially the whole 2 h 31 m build step. Every step was green.
+1630 requests × 24.69 s is **11 h 10 m of compiler time**, against a measured build step
+of **2 h 31 m** — the difference is Ninja's parallelism, about 4.4× on a 4-vCPU runner.
+Both numbers matter: the wall clock is what a PR waits for, and the compiler time is what
+a working cache would have removed almost all of. Every step was green.
 
 The cause was not a hash input, not `SCCACHE_CACHE_SIZE`, not `/Zi` vs `/Z7`. **The cache
 entry did not exist.** A full listing of the repository's cache store contained no
@@ -98,9 +101,17 @@ The prefix now strips a trailing content hash as well as the run id, so a hash b
 supersedes instead of orphaning. That is correct for every key of this shape here,
 because a restore reaches at most one entry of a lineage anyway — `ffmpeg-…` restores by
 exact key, and `vcpkg-…` falls back to the bare `vcpkg-<os>-<triplet>-` prefix, which
-GitHub answers with the newest match. A **14-day `last_accessed_at` age-out** catches
+GitHub answers with the newest match. A **30-day `last_accessed_at` age-out** catches
 what remains: a genuinely renamed prefix leaves an orphan that matches nothing, so its
-read timestamp never moves again, while a live entry is read daily.
+read timestamp never moves again, while a live entry keeps being read.
+
+Thirty days, not fourteen, and the difference is the whole safety of the rule. The read
+cadence is **not** daily for every prefix: `Linux-vulkan-prebuilt-sdk-true-1.4.321.0` was
+created 2026-08-19 and last read 2026-09-02 — a fortnight with no read in it — and went
+unread for four days after that while the Sanitizers nightly ran every one of them. An
+age-out shorter than a prefix's real read interval deletes live caches. Nothing is lost
+by waiting: the orphans this catches are permanent, and the recurring leak is handled by
+the hash strip, not by this.
 
 ### Six open PRs do not fit in a 10 GB store
 
@@ -114,18 +125,24 @@ cold.** They now restore and never save.
 
 ## The arithmetic, so the next person does not have to re-derive it
 
-Measured 2026-09-06, after the sweep:
+Measured 2026-09-06, after the sweep. Sizes are the **compressed tarball**, which is what
+counts against the cap — not `SCCACHE_CACHE_SIZE`, which bounds the local directory
+before compression:
 
 | Entry | Size |
 |---|---|
-| `sccache-windows-2025-release` | 2.0 GiB |
-| `sccache-asan-lsan-linux` / `sccache-ubsan-linux` / `sccache-tsan-linux` | 1.2 GiB each |
-| `vcpkg-Windows-x64-windows-static-md` | 0.7 GiB |
-| `Windows-` / `Linux-vulkan-prebuilt-sdk` | 0.5 GiB together |
+| `sccache-asan-lsan-linux` / `sccache-ubsan-linux` / `sccache-tsan-linux` | 1252 / 1231 / 1258 MiB |
+| `vcpkg-Windows-x64-windows-static-md` | 692 MiB |
+| `Linux-` / `Windows-vulkan-prebuilt-sdk` | 291 + 229 MiB |
 | `ffmpeg-Windows-n7.1` | 4 MiB |
-| **steady set** | **~7.9 GiB against a ~9.3 GiB wall** |
+| **measured subtotal** | **4957 MiB** |
+| `sccache-windows-2025-release` | **not measured — no entry has ever existed to measure.** `SCCACHE_CACHE_SIZE` caps the local dir at 2 GiB; `sccache-flaky-281`, same cap and the same build, compressed to 886 MiB. Expect 0.9–2.0 GiB; plan against 2.0 until a real one lands. |
+| **steady set** | **5.7 GiB likely, 6.8 GiB worst case** (4.84 GiB measured + 0.87–2.0), against a ~9.3 GiB wall — so 2.5 GiB of margin even at the bound |
 
-The margin is one Windows snapshot wide. That is why `cache-prune.yml` now **fails** when
+Do not quote the sccache row as a measurement until an entry has been written and listed.
+The number that mattered here was one nobody had ever read.
+
+That is why `cache-prune.yml` now **fails** when
 the post-sweep store is over 8800 MiB: everything it deletes is provably superseded or
 unread, so if what remains is still that close to the wall, the fleet has outgrown the
 cap and a human has to shrink something. Raising the ceiling to silence the alarm
@@ -138,7 +155,17 @@ re-creates this bug.
   `-<run_id>-<attempt>` tail, and grant the job `actions: write`.
 - Gate the save on `github.event_name != 'pull_request'` unless the entry is small
   (a few MiB) or genuinely PR-specific.
-- If the key embeds a content hash, confirm `cache-prune.yml`'s prefix regex strips it.
+- **A `workflow_dispatch` run on a `feature/*` branch banks its caches against that
+  branch's ref**, and those entries outlive the branch. `cache-prune.yml` now deletes
+  entries whose branch is gone, mirroring the closed-PR rule — but if you dispatch a
+  heavy workflow on a branch to measure something, expect ~1.7 GiB of branch-scoped
+  entries to exist until it sweeps.
+- If the key embeds a content hash, confirm `cache-prune.yml`'s prefix regex strips it
+  (`-[0-9a-f]{32,}$`). A key whose varying part is **not** hex — the Vulkan SDK entries end
+  in a version, `…-prebuilt-sdk-true-1.4.321.0` — is not stripped, so a version bump
+  orphans the old entry and only the 30-day age-out collects it. Acceptable at 229 MiB;
+  it would not be at 2 GiB. Size the key shape to the entry.
+- **Check the read cadence before relying on the age-out** (see the 30-day note above).
 - **A workflow that is finished is a cache that is still charged.** The nightly
   `flaky-repro-281` hunt held 886 MiB for an investigation closed months earlier; its
   schedule is gone. Retire the schedule when you retire the question.
