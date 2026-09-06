@@ -407,13 +407,13 @@ What is writable:
 **Ranges are enforced, and a clamp is reported.** A field whose scene-load path
 clamps or rejects out-of-range values carries the same bounds here — from its
 `OLO_SERIALIZE(Clamp, Min=…, Max=…)` annotation, or (for a component whose serializer
-is hand-written) from the generator's `kMcpFieldClamps` table. So MCP can never put a
+is hand-written) from the generator's `kHandWrittenFieldClamps` table. So MCP can never put a
 component into a state a scene load could not produce. Bounds are visible up front in
 `olo_entity_list_fields` (`min`/`max` per field). `LightProbeVolumeComponent::Spacing`
 and `ReflectionProbeComponent::InfluenceRadius` — previously a hand-written strict
 `> 0` guard approximated by nothing here — are now `OLO_SERIALIZE(Clamp, Min=0.01f)`
 annotated, so MCP inherits their range the same way any other annotated field does
-(no `kMcpFieldClamps` entry needed); both components still keep their hand-written
+(no `kHandWrittenFieldClamps` entry needed); both components still keep their hand-written
 `SceneSerializer.cpp` block for unrelated reasons (cross-field invariants a
 single-field `Clamp` can't express), so the two components did not flip to
 fully-generated serialization, only the two named fields' range semantics changed

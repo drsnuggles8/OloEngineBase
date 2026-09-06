@@ -220,6 +220,14 @@ namespace OloEngine
         bool m_BoxSelecting = false;
         ImVec2 m_BoxStart{ 0.0f, 0.0f };
 
+        /// Filter text for the Get/Set Component Field pickers. The registry
+        /// carries ~1.1k fields across ~130 components, so a plain combo is a
+        /// scroll, not a choice. Held on the panel rather than as function-local
+        /// statics so two panels (or a panel reopened on a different node) do not
+        /// share one another's typing.
+        char m_FieldPickerComponentSearch[64] = {};
+        char m_FieldPickerFieldSearch[64] = {};
+
         bool m_ContextMenuOpen = false;
         glm::vec2 m_ContextMenuGraphPos{ 0.0f, 0.0f };
         char m_NodeSearch[128] = {};

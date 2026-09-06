@@ -260,7 +260,7 @@ TEST(McpFieldRegistry, InRangeWriteIsNotClamped)
 
 // SphereAreaLightComponent's HAND-WRITTEN deserialize rejects a negative radius /
 // intensity / range (keeping the default). That range is re-declared in the
-// generator's kMcpFieldClamps table, so MCP clamps to the same floor.
+// generator's kHandWrittenFieldClamps table, so MCP clamps to the same floor.
 TEST(McpFieldRegistry, ClampsHandWrittenSerializerRange)
 {
     Fixture f;
