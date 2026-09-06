@@ -24,6 +24,16 @@
 // GetProgramLabelRegistry already use for exactly this reason. See
 // docs/agent-rules/lazy-static-release-ownership.md.
 //
+// THE MAP WAS NOT ALONE. ASan halts at the first fault, so the report named
+// only the registry that happened to be torn down first. Tracing the rest of
+// ~OpenGLShader found five more registries on the same path with the same
+// defect, none of which the report could reach while the first one aborted:
+// FrameResourceManager, RendererMemoryTracker, ShaderDebugger (OLO_DEBUG only,
+// which is why a Release repro can never see it), and Shader.cpp's two
+// program-capability sets. kRegistrySites below is that whole roster, and the
+// source check runs over all of it — a dynamic guard can only ever prove the
+// absence of the fault that aborts first.
+//
 // TWO GUARDS, because neither alone is enough:
 //
 //   1. A SOURCE-TEXT check on the accessor. The fault itself only manifests
@@ -295,37 +305,87 @@ namespace OloEngine::Tests
             return {};
         }
 
-        constexpr const char* kRegistrySource = "OloEngine/src/OloEngine/Renderer/ShaderResourceRegistry.cpp";
-        constexpr const char* kAccessorSignature = "GetRegisteredShaderRegistryMap()";
+        // Every process-wide registry a shader destructor reaches on its way
+        // out. All of them are touched during static destruction, because the
+        // ShaderLibrary statics that own shaders (Renderer2D::m_ShaderLibrary,
+        // Renderer3D::m_ShaderLibrary) are namespace-scope and outlive any
+        // lazily-created singleton.
+        //
+        // SEEDED deliberately rather than discovered. A scan that discovers
+        // what to check can stop checking — the lesson
+        // docs/agent-rules/lazy-static-release-ownership.md learned twice. A
+        // new registry on this path means a new row here.
+        struct RegistrySite
+        {
+            const char* m_Source;
+            const char* m_Signature;
+            const char* m_ReachedBy;
+        };
+
+        constexpr RegistrySite kRegistrySites[] = {
+            { "OloEngine/src/OloEngine/Renderer/ShaderResourceRegistry.cpp",
+              "GetRegisteredShaderRegistryMap()",
+              "~OpenGLShader -> ShaderResourceRegistry::Unregister (the #1088 report)" },
+            { "OloEngine/src/OloEngine/Renderer/Commands/FrameResourceManager.cpp",
+              "FrameResourceManager::Get()",
+              "~OpenGLShader / ~OpenGLComputeShader -> Get().SubmitForDeletion" },
+            { "OloEngine/src/OloEngine/Renderer/Debug/RendererMemoryTracker.cpp",
+              "RendererMemoryTracker::GetInstance()",
+              "~OpenGLShader -> OLO_TRACK_DEALLOC" },
+            { "OloEngine/src/OloEngine/Renderer/Debug/ShaderDebugger.cpp",
+              "ShaderDebugger::GetInstance()",
+              "~OpenGLShader -> OLO_SHADER_UNREGISTER (OLO_DEBUG only)" },
+            { "OloEngine/src/OloEngine/Renderer/Shader.cpp",
+              "BindlessPrograms()",
+              "~OpenGLShader -> deletion lambda -> Shader::UnregisterProgram" },
+            { "OloEngine/src/OloEngine/Renderer/Shader.cpp",
+              "MaterialOffsetPrograms()",
+              "~OpenGLShader -> deletion lambda -> Shader::UnregisterProgram" },
+        };
     } // namespace
 
     // The invariant, checked in every configuration: the accessor must hand
     // back a never-destroyed object. A `static std::unordered_map<...> m;`
     // there compiles, passes every non-ASan test, and reinstates #1088.
-    TEST(ShaderRegistryTeardownOrderTest, ProcessRegistryMapIsNeverDestroyed)
+    TEST(ShaderRegistryTeardownOrderTest, EveryRegistryAShaderDestructorReachesIsNeverDestroyed)
     {
-        const std::filesystem::path path = RepoFile(kRegistrySource);
-        const std::string source = ReadFile(path);
-        ASSERT_FALSE(source.empty()) << "could not read " << path.string();
-
-        const std::string body = ExtractFunctionBody(StripCommentsAndLiterals(source), kAccessorSignature);
-        ASSERT_FALSE(body.empty())
-            << "could not find the body of " << kAccessorSignature << " in " << path.string()
-            << " — this guard has stopped checking anything. If the accessor was renamed or "
-               "moved, update kAccessorSignature here rather than deleting the test.";
-
         // The leaked form: a static POINTER initialised from `new`. Nothing
-        // else gives the map a lifetime that outlives static destruction.
+        // else gives the object a lifetime that outlives static destruction.
         static const std::regex kLeakedSingleton(R"(static\s+[^;{}]*\*\s*\w+\s*=\s*new\b)");
-        EXPECT_TRUE(std::regex_search(body, kLeakedSingleton))
-            << "ShaderResourceRegistry's process-wide registry map is no longer a deliberately "
-               "leaked singleton.\n\nIts accessor body is now:\n"
-            << body
-            << "\n\nA plain `static std::unordered_map<...>` here is destroyed during static "
-               "destruction BEFORE the namespace-scope ShaderLibrary statics that own the "
-               "shaders, so ~OpenGLShader::Unregister reads freed buckets (issue #1088, ASan "
-               "heap-use-after-free). Keep the `static auto* x = new ...` form. See "
-               "docs/agent-rules/lazy-static-release-ownership.md.";
+
+        for (const RegistrySite& site : kRegistrySites)
+        {
+            const std::filesystem::path path = RepoFile(site.m_Source);
+            const std::string source = ReadFile(path);
+            ASSERT_FALSE(source.empty()) << "could not read " << path.string();
+
+            const std::string body =
+                ExtractFunctionBody(StripCommentsAndLiterals(source), site.m_Signature);
+            ASSERT_FALSE(body.empty())
+                << "could not find the body of " << site.m_Signature << " in " << path.string()
+                << " — this guard has stopped checking that site. If the accessor was renamed or "
+                   "moved, update kRegistrySites here rather than deleting the row.";
+
+            EXPECT_TRUE(std::regex_search(body, kLeakedSingleton))
+                << site.m_Signature << " in " << site.m_Source
+                << " is no longer a deliberately leaked singleton.\n\nIts body is now:\n"
+                << body << "\n\nThis registry is reached by " << site.m_ReachedBy
+                << ", which runs during STATIC DESTRUCTION for any shader still owned by the "
+                   "namespace-scope ShaderLibrary statics. A plain `static T x;` here is torn "
+                   "down before they are, so the destructor reads freed memory (issue #1088, "
+                   "ASan heap-use-after-free). Keep the `static auto* x = new ...` form. See "
+                   "docs/agent-rules/lazy-static-release-ownership.md.";
+        }
+    }
+
+    // Non-vacuity: a typo in a signature would make the loop above pass with
+    // fewer sites than intended, and the per-site ASSERT only fires for rows
+    // that ARE reached.
+    TEST(ShaderRegistryTeardownOrderTest, TheRegistrySiteRosterIsNotEmptyOrTruncated)
+    {
+        ASSERT_GE(std::size(kRegistrySites), 6u)
+            << "rows have been removed from kRegistrySites. Every registry a shader destructor "
+               "reaches must stay listed; deleting a row silently stops checking it.";
     }
 
     // The extraction above must survive an edit to the accessor's comment.
