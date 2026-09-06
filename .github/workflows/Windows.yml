@@ -414,7 +414,9 @@ jobs:
           echo "::notice title=ctest width sweep::${row}"
           rows+=("$row")
           if [ "$code" -ne 0 ]; then
-            printf '%s\n' "$out" | grep -E '^[[:space:]]*[0-9]+ - .*\*\*\*' \
+            # See the asan.yml sibling for why this matches ctest's
+            # "The following tests FAILED:" block and not the `***` progress lines.
+            printf '%s\n' "$out" | grep -E '^[[:space:]]*[0-9]+ - [^ ]+ [(]' \
               | sed "s/^/    FAILED at width ${w} : /" || true
           fi
         done

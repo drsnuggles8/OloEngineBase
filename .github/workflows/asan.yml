@@ -510,7 +510,13 @@ jobs:
           # Name every failing case, so a width that trades speed for flakes is
           # identifiable rather than just a non-zero exit code.
           if ($code -ne 0) {
-            $out | Select-String -Pattern '^\s*\d+ - .*\*\*\*' | ForEach-Object {
+            # ctest's "The following tests FAILED:" block, whose lines are
+            # "<tab><n> - <Suite.Case> (Failed)". NOT the inline progress lines,
+            # which read "n/N Test #n: Suite.Case ...***Failed" -- an earlier
+            # revision of this step matched on `***` and would have printed
+            # nothing, silently turning "which cases flaked at this width" into
+            # "some did". Checked against real ctest output before it ran.
+            $out | Select-String -Pattern '^\s*\d+ - \S+ \(' | ForEach-Object {
               Write-Host "    FAILED at width $w : $($_.ToString().Trim())"
             }
           }
