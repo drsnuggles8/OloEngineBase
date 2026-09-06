@@ -275,7 +275,7 @@ namespace OloEngine::Tests
       public:
         void BuildScene() override
         {
-            if (!Project::GetActive() || !Project::GetAssetManager())
+            if (!Project::GetActive() || !Project::HasAssetManager())
             {
                 namespace fs = std::filesystem;
                 std::error_code ec;

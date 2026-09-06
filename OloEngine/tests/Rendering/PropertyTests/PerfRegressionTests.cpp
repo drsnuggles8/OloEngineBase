@@ -1458,7 +1458,7 @@ namespace OloEngine::Tests
         void BuildScene() override
         {
             // AssetManager::AddMemoryOnlyAsset needs an active project + asset manager.
-            if (!Project::GetActive() || !Project::GetAssetManager())
+            if (!Project::GetActive() || !Project::HasAssetManager())
             {
                 std::error_code ec;
                 fs::path const projectDir = OloEngine::Tests::TempDir("project");
