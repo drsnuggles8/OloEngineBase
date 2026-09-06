@@ -404,6 +404,15 @@ namespace OloEngine
         if (m_Path.empty())
             return false;
 
+        // m_Path is the texture's *identity*, not necessarily something this process
+        // can open — the asset system stores a project-relative spelling. The shared
+        // helper resolves it (and logs if it can't); see its comment for #1067.
+        const std::filesystem::path readPath = ResolveStoredSourcePath(m_Path);
+        if (readPath.empty())
+            return false;
+
+        const std::string readPathString = readPath.string();
+
         int width = 0;
         int height = 0;
         int channels = 0;
@@ -413,13 +422,13 @@ namespace OloEngine
         stbi_uc* data = nullptr;
         {
             OLO_PROFILE_SCOPE("stbi_load - OpenGLTexture2D::Reload");
-            data = ::stbi_load(m_Path.c_str(), &width, &height, &channels, 0);
+            data = ::stbi_load(readPathString.c_str(), &width, &height, &channels, 0);
         }
         ::stbi_set_flip_vertically_on_load_thread(0);
 
         if (!data)
         {
-            OLO_CORE_ERROR("OpenGLTexture2D::Reload: failed to re-read texture '{}'", m_Path);
+            OLO_CORE_ERROR("OpenGLTexture2D::Reload: failed to re-read texture '{}' (from '{}')", m_Path, readPathString);
             return false;
         }
 

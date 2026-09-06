@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/RendererResource.h"
 
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -210,6 +211,27 @@ namespace OloEngine
         {
             return false;
         }
+
+        // Resolve a stored source path (what GetPath() reports) to a path the
+        // process can actually open. Used by Reload()'s re-read and by the
+        // asset-pack serializer, which stores the same spelling and re-reads the
+        // loose file at cook and load time.
+        //
+        // The two spellings that reach here are NOT interchangeable (#1067).
+        // Texture2D::Create(path) stores whatever the caller passed — usually
+        // absolute. The asset system instead stores the PROJECT-RELATIVE spelling
+        // ("Assets/Textures/Foo.png"), deliberately, so saved scenes stay portable
+        // across machines; but the editor's working directory is OloEditor/, one
+        // level above the project, so re-reading that spelling verbatim resolves
+        // against the wrong base and can never find the file. Relative paths are
+        // therefore resolved against Project::GetProjectDirectory(), exactly as
+        // every AssetSerializer does.
+        //
+        // Returns an empty path when the source cannot be resolved — no source
+        // path, or a relative one that exists neither under the active project nor
+        // relative to the working directory — having logged why. Callers refuse the
+        // reload rather than reading from a base that happens to be the CWD.
+        [[nodiscard("Store this!")]] static std::filesystem::path ResolveStoredSourcePath(std::string_view sourcePath);
 
         static Ref<Texture2D> Create(const TextureSpecification& specification);
         // Create a GPU texture from an offline block-compressed (BC7/BC5) mip chain,
