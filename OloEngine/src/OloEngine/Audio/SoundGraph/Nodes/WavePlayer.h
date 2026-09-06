@@ -7,6 +7,7 @@
 #include "OloEngine/Audio/AudioLoader.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Task/Task.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <glm/glm.hpp>
 

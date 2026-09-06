@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Audio/SampleBufferOperations.h"
+#include "OloEngine/Debug/Instrumentor.h"
 #include <miniaudio.h>
 #include <choc/audio/choc_SampleBuffers.h>
 #include <choc/audio/choc_SampleBufferUtilities.h>

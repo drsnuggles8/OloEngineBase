@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Audio/Buffer/CircularBuffer.h"
+#include "OloEngine/Debug/Instrumentor.h"
 #include <functional>
 #include <atomic>
 

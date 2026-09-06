@@ -3,6 +3,7 @@
 #include "OloEngine/Audio/SoundGraph/NodeDescriptors.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/FastRandom.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <glm/glm.hpp>
 #include <numbers>

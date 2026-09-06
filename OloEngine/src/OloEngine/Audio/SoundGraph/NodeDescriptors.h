@@ -2,6 +2,7 @@
 
 #include "NodeProcessor.h"
 #include "OloEngine/Core/Reflection/Reflection.h"
+#include "OloEngine/Debug/Instrumentor.h"
 #include <functional>
 #include <memory>
 #include <string>

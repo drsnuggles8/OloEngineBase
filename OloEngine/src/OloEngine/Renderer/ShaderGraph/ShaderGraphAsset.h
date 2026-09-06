@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraph.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphCompiler.h"
 #include "OloEngine/Renderer/Shader.h"

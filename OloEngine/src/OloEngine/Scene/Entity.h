@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Debug/Instrumentor.h"
 #include "Scene.h"
 #include "Components.h"
 
