@@ -80,21 +80,34 @@ runs:
         REF: ${{ github.ref }}
       run: |
         set -uo pipefail
-        if keys=$(gh api -X GET "repos/${GH_REPO}/actions/caches" \
-                    -f "key=${KEY}" -f "ref=${REF}" \
-                    --jq '.actions_caches[].key' 2>/dev/null); then
-          if printf '%s\n' "$keys" | grep -Fxq "${KEY}"; then
-            echo "landed=true" >> "$GITHUB_OUTPUT"
-            echo "cache entry '${KEY}' is present on ${REF}."
+        # Poll rather than ask once. A cache entry does not appear in the listing the
+        # instant the upload finishes, and reading "absent" during that window would
+        # delete a perfectly good predecessor and raise a false alarm -- turning the
+        # signal this action exists to provide into one that cries wolf. A refused
+        # reservation, by contrast, is refused immediately and stays absent, so a few
+        # seconds of patience separates the two cleanly.
+        landed=unknown
+        for attempt in 1 2 3; do
+          if keys=$(gh api -X GET "repos/${GH_REPO}/actions/caches" \
+                      -f "key=${KEY}" -f "ref=${REF}" \
+                      --jq '.actions_caches[].key' 2>/dev/null); then
+            if printf '%s\n' "$keys" | grep -Fxq "${KEY}"; then
+              landed=true
+              break
+            fi
+            landed=false
           else
-            echo "landed=false" >> "$GITHUB_OUTPUT"
-            echo "cache entry '${KEY}' is NOT present on ${REF} -- the save was refused."
+            # An API hiccup must never trigger a delete. Unknown is treated as landed.
+            landed=unknown
           fi
-        else
-          # An API hiccup must never trigger a delete. Unknown is treated as landed.
-          echo "landed=unknown" >> "$GITHUB_OUTPUT"
-          echo "::warning::could not query the cache store; skipping the prune/retry path."
-        fi
+          [ "$attempt" -lt 3 ] && sleep 10
+        done
+        echo "landed=${landed}" >> "$GITHUB_OUTPUT"
+        case "$landed" in
+          true)  echo "cache entry '${KEY}' is present on ${REF}." ;;
+          false) echo "cache entry '${KEY}' is NOT present on ${REF} after 3 checks -- the save was refused." ;;
+          *)     echo "::warning::could not query the cache store; skipping the prune/retry path." ;;
+        esac
 
     # Scoped to THIS ref on purpose. GitHub scopes a cache entry to the ref that wrote
     # it -- a PR run's entry is visible to that PR alone, and only default-branch entries
