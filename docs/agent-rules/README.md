@@ -50,6 +50,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md): a CI cache that restores is not
   one that works.
 - [actions-cache-budget.md](actions-cache-budget.md): the Actions cache store is a fixed budget every key must fit in; past the cap it goes read-only and refuses every save in the repo, silently.
+- [cache-entry-version-is-the-path-string.md](cache-entry-version-is-the-path-string.md): a cache's restore and its save must be handed the same path string, character for character; two spellings of one directory are two caches.
 - [compiler-cache-uncacheable-compiles.md](compiler-cache-uncacheable-compiles.md): print the cache statistics after every CI build and read the uncacheable line; a PCH without `CCACHE_SLOPPINESS` and a per-commit macro each made every engine object a miss.
 - [shader-pack-bake.md](shader-pack-bake.md): the CI-baked `.osp` pack, its content-hash invalidation, and why a fresh worktree does not fetch it.
 - [steamworks-platform-integration.md](steamworks-platform-integration.md): the SDK is developer-supplied, CI builds a stub, and exactly one TU may include a Valve header.
@@ -292,6 +293,7 @@ The check passes for a correct implementation and for a broken one.
 | [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md) | A correct fix that a live rebuild kept "disproving"; the binary was stale, not the source. |
 | [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) | A cache has no wrong-looking failure state: it fails by being slow. Every save in the repo had been refused for six days and every run stayed green. |
 | [actions-cache-budget.md](actions-cache-budget.md) | The Windows sccache entry had not existed for weeks. Restore said "Cache not found", save said "your cache is now read only" and exited 0, and the only visible symptom was a build that took four hours. |
+| [cache-entry-version-is-the-path-string.md](cache-entry-version-is-the-path-string.md) | The vcpkg key matched exactly and the entry was still invisible: restore and save spelled the same directory two ways, so every entry ever written had `last_accessed_at == created_at`. |
 | [compiler-cache-uncacheable-compiles.md](compiler-cache-uncacheable-compiles.md) | The build step takes compile time on a shader-only change while the cache directory is warm. A PCH-using compile is uncacheable without `CCACHE_SLOPPINESS`; a per-commit macro on every TU misses every run. |
 
 **The counter-move:** measure the noise floor first, and construct a case the instrument must fail

@@ -170,6 +170,17 @@ re-creates this bug.
   `flaky-repro-281` hunt held 886 MiB for an investigation closed months earlier; its
   schedule is gone. Retire the schedule when you retire the question.
 
+## The other half of #1073
+
+The sccache entry did not exist because the store was read-only. The **vcpkg** entries did
+exist, in quantity, and had never once been read — a separate fault entirely: the restore
+and the save spelled the same directory two different ways, and `actions/cache` hashes the
+path string into each entry's version. See
+[cache-entry-version-is-the-path-string.md](cache-entry-version-is-the-path-string.md).
+Do not assume one cause explains every cold cache in a repo; check each prefix's
+`created_at` (is anything written?) and `created_at == last_accessed_at` (is anything
+read?) separately.
+
 ## See also
 
 - [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) — the same store, one

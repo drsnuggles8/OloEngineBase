@@ -506,11 +506,37 @@ runs:
     # Skipped entirely on self-hosted runners: there the cache directory is durable
     # local disk, so a restore would only overwrite the live cache with an older
     # snapshot of itself.
+
+    # THE PATH MUST BE THE SAME STRING THE SAVE USES, CHARACTER FOR CHARACTER (#1073).
+    #
+    # `actions/cache` derives a `version` for every entry by hashing the `path` strings
+    # it was handed -- the RAW strings, not the resolved directories. Two spellings of
+    # one directory are two different versions, and a restore only ever sees entries
+    # whose version matches. The key can match perfectly and the entry stays invisible.
+    #
+    # This step used to spell the path `${{ github.workspace }}/.vcpkg-binary-cache`. On
+    # a Windows runner `github.workspace` expands with BACKSLASH separators, so that
+    # produced a mixed-separator string. The SAVE goes through `cache-path`, i.e.
+    # `steps.cachecfg.outputs.dir`, which puts GITHUB_WORKSPACE through a
+    # backslash-to-forward-slash substitution first and produced an all-forward-slash
+    # string. One directory, two spellings, two versions, guaranteed miss -- on Windows
+    # ONLY, because on Linux the two spellings are already identical. Which is exactly
+    # the shape of the complaint: a 53-minute Windows configure step, no Linux twin.
+    #
+    # It was write-only for its whole existence, and the cache listing proves it without
+    # reading a single log: EVERY vcpkg entry in the store had `last_accessed_at` equal
+    # to `created_at` -- six of them written in one morning by five different workflows --
+    # while the Vulkan SDK entry created in July showed a read that same hour. A cache
+    # nothing has ever read is not a cold cache, it is a cache with no reader, and
+    # nothing about the key or the green step says so.
+    #
+    # Taking the path from the same output the save uses makes the two impossible to
+    # disagree. Do not re-inline the expression here for readability.
     - name: Restore vcpkg binary archives
       if: steps.cachecfg.outputs.persistent != 'true'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ github.workspace }}/.vcpkg-binary-cache
+        path: ${{ steps.cachecfg.outputs.dir }}
         key: vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-
