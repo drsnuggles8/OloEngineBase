@@ -234,6 +234,7 @@ jobs:
           deleted=0
           freed=0
           stale=0
+          kept_bytes=0
           while IFS=$'\t' read -r id ref key size accessed; do
             [ -n "${id:-}" ] || continue
             prefix=$(printf '%s' "$key" | sed -E 's/-[0-9]{6,}(-[0-9]+)?$//; s/-[0-9a-f]{32,}$//')
@@ -255,6 +256,7 @@ jobs:
             if [ "$closed_pr" -eq 0 ] && [ "$dead_branch" -eq 0 ] && [ "$unread" -eq 0 ] && [ -z "${seen[$group]:-}" ]; then
               seen[$group]=1
               kept=$((kept + 1))
+              kept_bytes=$((kept_bytes + size))
               printf 'keep    %6s MiB  %-28s %s\n' "$((size / 1048576))" "$ref" "$key"
               continue
             fi
@@ -280,9 +282,11 @@ jobs:
 
           echo "kept $kept (newest per ref+prefix), deleted $deleted ($stale of them unread for ${age_out_days}+ days), freed $((freed / 1048576)) MiB"
 
+          # From the sweep's own arithmetic, not `cache/usage`, for the reason given at
+          # the ceiling check below. The "before" line above still uses the endpoint --
+          # it is only ever indicative, and a stale reading there misleads nobody.
           echo "after:"
-          gh api "repos/${GH_REPO}/actions/cache/usage" \
-            --jq '"  \(.active_caches_count) entries, \(.active_caches_size_in_bytes/1048576|floor) MiB"'
+          echo "  $kept entries, $((kept_bytes / 1048576)) MiB"
 
           # FAIL WHEN THE STORE IS STILL NEARLY FULL (#1073). Everything above deletes
           # only what is provably superseded or unread; if what remains still does not
@@ -308,8 +312,19 @@ jobs:
           # Raise it only together with a re-measurement of the steady set. Raising it to
           # silence the alarm is how #1073 happened.
           headroom_floor_mib=8800
-          used_mib=$(gh api "repos/${GH_REPO}/actions/cache/usage" \
-            --jq '.active_caches_size_in_bytes/1048576|floor')
+
+          # SUM THE LISTING, NOT `/actions/cache/usage` -- that endpoint LAGS behind
+          # deletions, badly. Measured on run 34039757109: this sweep freed 5567 MiB and
+          # the listing summed to 6491 MiB immediately afterwards, while `cache/usage`
+          # still reported the pre-sweep 10231 MiB -- the identical number it had just
+          # printed as "before". The ceiling check read that stale value and FAILED the
+          # job, on a store that was comfortably healthy.
+          #
+          # A false alarm is worse than no alarm: a job that cries wolf daily is a job
+          # everyone learns to ignore, which is exactly the blindness #1073 was about.
+          # `kept_bytes` is the sum of the entries this sweep decided to keep, so it is
+          # the post-sweep total by construction and costs no extra API call.
+          used_mib=$((kept_bytes / 1048576))
           if [ "${used_mib}" -gt "${headroom_floor_mib}" ]; then
             echo "::error::Actions cache store is ${used_mib} MiB after pruning, over the ${headroom_floor_mib} MiB working ceiling."
             echo "::error::Past the 10 GB cap GitHub does not evict -- it makes the whole store READ-ONLY and refuses every save in the repo, silently (actions/cache/save warns and exits 0). Nothing left here is superseded, so this needs a human: docs/agent-rules/actions-cache-budget.md."
