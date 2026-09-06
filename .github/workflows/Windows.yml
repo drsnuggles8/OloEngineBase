@@ -78,6 +78,16 @@ env:
   # Bound the on-disk cache so the saved actions/cache entry stays small — every
   # cache (this, Vulkan, FFmpeg, the sanitizer jobs' sccache dirs) shares the
   # repo's single 10 GB Actions-cache cap.
+  #
+  # That cap is a HARD WALL, not an eviction threshold (#1073). Past it GitHub does
+  # not make room by dropping the oldest entry; it turns the entire store read-only
+  # ("Cache reservation failed: You have reached your configured budget, your cache
+  # is now read only") and refuses every save in the repository until something is
+  # deleted. This job's snapshot is the single largest entry in the store, so it is
+  # the first casualty and the last thing to come back — for weeks the entry did not
+  # exist AT ALL, which is what a 0.00 % hit rate on 1630 compilations actually meant.
+  # The budget arithmetic and the rules that keep it solvent:
+  # docs/agent-rules/actions-cache-budget.md.
   SCCACHE_CACHE_SIZE: "2G"
 
 jobs:
@@ -96,6 +106,15 @@ jobs:
     # makes an image bump a deliberate, reviewable commit that we can pair with the
     # cache-key bump below.
     runs-on: windows-2025
+
+    # `actions: write` is needed by the sccache save (#1073): when the repo's 10 GB
+    # cache store is full every save is refused, and the only way to land this job's
+    # snapshot is to delete the entry it supersedes first. Scoped to this ref by
+    # `save-cache-pruned`. `contents: read` is re-declared because a job-level block
+    # REPLACES the default set rather than adding to it.
+    permissions:
+      contents: read
+      actions: write
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -273,18 +292,28 @@ jobs:
     # end (`cancel-in-progress`; 17 of 27 Windows and 15 of 24 Sanitizer PR runs
     # over the window measured in #1009). Every one of those recompiled everything
     # and banked nothing, so the next run started just as cold.
+    #
+    # NOT ON PULL REQUESTS (#1073). A cache entry written by a PR run is scoped to
+    # `refs/pull/N/merge` and is readable by that ONE pull request; only default-branch
+    # entries are visible fleet-wide, which is exactly why the nightly cron exists (see
+    # the trigger note at the top of this file). So a PR's 2 GB snapshot buys a single
+    # PR a marginal delta over the master snapshot it already restores -- and charges
+    # the whole repository 2 GB of a 10 GB cap for it, for as long as that PR stays
+    # open. Six concurrent PRs is a routine day here and 12 GB of PR-private sccache
+    # does not fit in a 10 GB store: it holds the store read-only, which stops the
+    # NIGHTLY from writing the one snapshot every branch actually restores from. The
+    # PR runs were paying for the mechanism that was making them cold. They now
+    # restore and never save; `cache-prune` still collects the entries they left
+    # behind. The save is kept on workflow_dispatch so a warm/cold A/B can be measured
+    # on a branch (that is how the fix for #1073 was verified).
     - name: Save sccache storage
-      if: always()
-      # A cache save must never fail the job it is attached to. `if: always()`
-      # means this runs on a CANCEL, where the path it is asked to save may not
-      # exist yet -- and actions/cache/save treats a missing path as a validation
-      # error, not a no-op. Turning a cancelled run into a FAILED one would be a
-      # strictly worse outcome than the cold cache this is fixing.
-      continue-on-error: true
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      if: always() && github.event_name != 'pull_request'
+      uses: ./.github/actions/save-cache-pruned
       with:
         path: ${{ env.SCCACHE_DIR }}
         key: sccache-windows-2025-release-${{ github.run_id }}-${{ github.run_attempt }}
+        prefix: sccache-windows-2025-release
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     # Banked here rather than by the combined actions/cache action's post-job
     # step, which a CANCELLED job skips (#1009). FFmpeg is a ~10-15 min from-source

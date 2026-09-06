@@ -166,16 +166,24 @@ can be written.
 redesigning anything.** `created_at` on the newest entry answers it, and a
 frozen `created_at` across every prefix at once is not a bug in your keys.
 
-## 4. LRU eviction cannot tell current from superseded
+## 4. Over the cap, nothing is evicted — the store stops accepting writes
 
-The repo held 11.6 GB against a 10 GB cap, so GitHub was already evicting. Its
-policy is least-recently-used, and LRU has no idea which entry is the live
-snapshot: it will happily evict the newest 2 GB Windows sccache to make room,
-having just seen a superseded 786 MB one get touched by a restore-keys prefix
-match.
+The repo held 11.6 GB against a 10 GB cap. **Correction, from
+[#1073](https://github.com/drsnuggles8/OloEngineBase/issues/1073): GitHub does not
+evict.** This section used to say the policy was LRU and would happily drop the
+newest 2 GB Windows sccache to make room for a superseded 786 MB one. It does not
+do that, because it does not make room at all — it flips the store to read-only,
+which is §3b above. The two sections were describing one mechanism and only §3b
+had it right.
 
-If you are over the cap, the eviction policy is already yours whether you wrote
-one or not. `.github/workflows/cache-prune.yml` keeps one entry per key prefix.
+The distinction is the whole difference between "the cache is churning" and "the
+cache is frozen", and it changes what you do: eviction self-corrects and you tune
+key design; read-only does not self-correct and you must delete something.
+
+So the eviction policy has to be yours. `.github/workflows/cache-prune.yml` keeps
+one entry per key prefix per ref — and that turned out to be necessary and not
+sufficient. See [actions-cache-budget.md](actions-cache-budget.md) for the three
+ways the store filled anyway, and the budget arithmetic that keeps it solvent.
 
 ---
 
@@ -205,6 +213,10 @@ own.
 
 ## See also
 
+- [actions-cache-budget.md](actions-cache-budget.md) — what happened next: the rule in
+  §3b was written down and the store filled anyway, because an append-only key with a
+  once-daily janitor, a prefix rule that could not collect a hash-keyed orphan, and six
+  PRs each banking 2 GB do not fit in 10 GB. Includes the fleet's size table.
 - [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §6 — the
   same genre one level down: a ccache hit that restored the object but not its
   dependency file, so 699 of 701 objects had no header dependencies recorded and

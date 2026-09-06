@@ -8,16 +8,23 @@ name: Flaky repro (#281)
 # CPU-affinity + 2-worker squeeze, stops on the first crash/deadlock, and
 # captures a symbolised stack + full minidump as an artifact.
 #
-# Manual / scheduled only — it is a hunt, never a merge gate. See
-# scripts/repro-flaky-test.ps1 and docs/agent-rules/testing-architecture.md §5.
+# MANUAL ONLY — it is a hunt, never a merge gate. See scripts/repro-flaky-test.ps1
+# and docs/agent-rules/testing-architecture.md §5.
+#
+# THE NIGHTLY IS GONE (#1073), and so is the branch `push:` trigger it shipped with.
+# #281 is fixed at the root — JoltJobSystemAdapter::WaitForOutstandingTasks blocks
+# instead of busy-spinning, and this very workflow is what proved it, running the
+# test under the 2-core squeeze for a full step with zero failures (see the CTest
+# note in Windows.yml). A hunt for a bug that has been found is a nightly Windows
+# engine build charged to the account for nothing, and it was not free: its 886 MiB
+# `sccache-flaky-281-*` snapshot was sitting in a 10 GB cache store that had gone
+# read-only, crowding out the Windows build's own sccache entry, which is why that
+# build had been compiling all 1630 TUs from scratch on every run.
+#
+# Reinstate the schedule only alongside REOPENING #281 — a hunt with no open quarry
+# is how this came back the first time.
 
 on:
-  # Branch-scoped push trigger: lets the hunt run from this feature branch
-  # (workflow_dispatch alone needs the workflow on the default branch). Remove
-  # this block once the workflow lands on master and dispatch/schedule suffice.
-  push:
-    branches:
-      - fix/flaky-jolt-physics-race-281
   workflow_dispatch:
     inputs:
       iterations:
@@ -39,10 +46,6 @@ on:
         description: "OLO_TASK_GRAPH_NUM_WORKERS (CI 2-core regime = 2)"
         required: false
         default: "2"
-  # Nightly hunt so a real repro (and its dump) accumulates over time without a
-  # human kicking it off. Comment out if too noisy.
-  schedule:
-    - cron: "0 7 * * *"
 
 concurrency:
   group: flaky-repro-281
