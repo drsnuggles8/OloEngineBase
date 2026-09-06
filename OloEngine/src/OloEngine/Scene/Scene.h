@@ -982,6 +982,17 @@ namespace OloEngine
         void ApplyReflectionProbeOverride(const glm::vec3& cameraPosition);
         void RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip);
         void RenderUIOverlay();
+        // Submit every TilemapComponent's visible chunks into the batch that is
+        // already open (issue #646). Called from all three 2D draw sites — the
+        // editor camera, the 2D-only runtime frame and the 3D UI-composite
+        // overlay — so a tilemap is never visible in one and missing from
+        // another. `viewProjection` is whatever BeginScene was given, and is the
+        // frustum the chunk culler tests against.
+        void RenderTilemaps(const glm::mat4& viewProjection);
+        // Create the static Box2D bodies backing every TilemapComponent with
+        // GenerateColliders set (issue #646). Called at the end of
+        // OnPhysics2DStart, once the world exists.
+        void BuildTilemapColliders();
         void ProcessSnowDeformers(Timestep ts, TMap<u64, glm::vec3>& prevPositions);
 
         // Sub-stages of the runtime tick, shared by OnUpdateRuntime (single

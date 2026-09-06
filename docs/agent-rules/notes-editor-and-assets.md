@@ -283,3 +283,46 @@ splat PLY imported as a point mesh and silently lost everything but `x y z`. Tha
 reading `AssetExtensions.cpp` and never tested; running the file through assimp with the engine's
 flags took about ten minutes and produced the opposite answer. A claim about what an importer *does*
 is cheap to verify and easy to get backwards.
+
+## An asset serializer that resolves a second asset deadlocks the whole editor, silently
+
+`AssetImporter::TryLoadData` looks the serializer up in a registry guarded by an `FMutex`. That
+mutex is **not recursive**. Until #646 it was held for the entire duration of the serializer call,
+so any serializer that resolved a dependent asset re-entered the same function and blocked forever:
+
+```
+Scene::RenderTilemaps
+  -> AssetManager::GetAsset<Tileset>
+    -> AssetImporter::TryLoadData          <- takes the registry mutex
+      -> TilesetSerializer::TryLoadData
+        -> AssetManager::GetAsset<Texture2D>
+          -> AssetImporter::TryLoadData    <- same mutex, blocks forever
+```
+
+**The symptom gives you nothing.** No crash, no assert, no log line — the editor window stays on the
+shader-warmup title, the log simply stops mid-frame, and every automated capture reads as "black
+screen". It looks exactly like a slow shader warmup on a loaded box, which is what it was mistaken
+for first. The tell is that the log's last line is a render-pass entry and nothing follows it, ever.
+
+The lock scope is now narrowed to the lookup itself — the registry is a function-local static
+populated once by `Init()` and never mutated (`Shutdown()` is an intentional no-op), so the
+serializer pointer stays valid after the lock drops. `MeshSerializer::TryLoadData` had been
+resolving its `MeshSource` under exactly this hazard and was one dependency-ordering accident away
+from the same freeze.
+
+Two rules follow:
+
+- **Prefer not to resolve a dependent asset inside `TryLoadData` at all.** Take what you need from
+  the caller instead. `TilesetSerializer` used to resolve its atlas texture just to cache the pixel
+  size; the render path was changed to slice against the texture it is already about to sample
+  (`Tileset::GetTileUVForAtlas`), which removed the dependency *and* fixed a staleness bug when an
+  atlas is re-exported at a different size.
+- **If you must, know that the lock no longer protects you from ordering.** A cycle between two
+  serializers is now infinite recursion instead of a deadlock. Neither is nice; don't build one.
+
+**Debugging this shape:** attach `cdb` to the live process and dump the main thread — the nested
+`AssetImporter::TryLoadData` frames name the culprit immediately. See
+[windbg/cdb on this box](../../CLAUDE.md) for the package path; a `~0k 40` on the hung editor is a
+30-second answer to a bug that is otherwise invisible.
+
+Found on #646 (2D tilemap / tileset system).

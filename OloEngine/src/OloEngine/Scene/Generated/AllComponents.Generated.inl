@@ -112,6 +112,7 @@ using AllComponents = ComponentGroup<
     TerrainComponent,
     TextComponent,
     TileRendererComponent,
+    TilemapComponent,
     TimeOfDayComponent,
     TransformComponent,
     TriangleMeshCollider3DComponent,

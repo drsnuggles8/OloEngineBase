@@ -870,6 +870,60 @@ case 1568934385u: // SpringBoneComponent
     comp.Weight = std::clamp(comp.Weight, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     break;
 }
+case 4161997664u: // TilemapComponent
+{
+    auto& comp = deserializedEntity.AddComponent<TilemapComponent>();
+    if (!SceneBinIO::Read(reader, comp.TilesetHandle)) return false;
+    {
+        decltype(comp.Width) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (v >= static_cast<decltype(comp.Width)>(1u) && v <= static_cast<decltype(comp.Width)>(4096u))
+            comp.Width = v;
+    }
+    {
+        decltype(comp.Height) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (v >= static_cast<decltype(comp.Height)>(1u) && v <= static_cast<decltype(comp.Height)>(4096u))
+            comp.Height = v;
+    }
+    if (!SceneBinIO::Read(reader, comp.TileSize)) return false;
+    comp.TileSize = std::clamp(comp.TileSize, static_cast<f32>(0.0001f), static_cast<f32>(10000.0f));
+    if (!SceneBinIO::Read(reader, comp.Color)) return false;
+    {
+        u32 bn0 = 0;
+        if (!SceneBinIO::ReadU32(reader, bn0) || bn0 > SceneBinIO::MaxContainerElements) return false;
+        comp.Layers.clear();
+        comp.Layers.reserve(bn0);
+        for (u32 bi0 = 0; bi0 < bn0; ++bi0)
+        {
+            decltype(comp.Layers)::value_type btmp0{};
+            if (!SceneBinIO::Read(reader, btmp0.Name)) return false;
+            {
+                u32 bn1 = 0;
+                if (!SceneBinIO::ReadU32(reader, bn1) || bn1 > SceneBinIO::MaxContainerElements) return false;
+                btmp0.Tiles.clear();
+                btmp0.Tiles.reserve(bn1);
+                for (u32 bi1 = 0; bi1 < bn1; ++bi1)
+                {
+                    decltype(btmp0.Tiles)::value_type bv1{};
+                    if (!SceneBinIO::Read(reader, bv1)) return false;
+                    btmp0.Tiles.push_back(std::move(bv1));
+                }
+            }
+            if (!SceneBinIO::Read(reader, btmp0.Visible)) return false;
+            if (!SceneBinIO::Read(reader, btmp0.Solid)) return false;
+            if (!SceneBinIO::Read(reader, btmp0.Opacity)) return false;
+            if (!SceneBinIO::Read(reader, btmp0.ZOffset)) return false;
+            comp.Layers.push_back(std::move(btmp0));
+        }
+    }
+    if (!SceneBinIO::Read(reader, comp.GenerateColliders)) return false;
+    if (!SceneBinIO::Read(reader, comp.ColliderFriction)) return false;
+    comp.ColliderFriction = std::clamp(comp.ColliderFriction, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.ColliderRestitution)) return false;
+    comp.ColliderRestitution = std::clamp(comp.ColliderRestitution, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    break;
+}
 case 3023319560u: // TimeOfDayComponent
 {
     auto& comp = deserializedEntity.AddComponent<TimeOfDayComponent>();

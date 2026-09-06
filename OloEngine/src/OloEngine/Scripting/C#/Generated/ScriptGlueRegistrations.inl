@@ -1010,6 +1010,20 @@ OLO_ADD_INTERNAL_CALL(TextComponent_SetKerning);
 OLO_ADD_INTERNAL_CALL(TextComponent_GetLineSpacing);
 OLO_ADD_INTERNAL_CALL(TextComponent_SetLineSpacing);
 
+// TilemapComponent
+OLO_ADD_INTERNAL_CALL(TilemapComponent_GetTilesetHandle);
+OLO_ADD_INTERNAL_CALL(TilemapComponent_SetTilesetHandle);
+OLO_ADD_INTERNAL_CALL(TilemapComponent_GetTileSize);
+OLO_ADD_INTERNAL_CALL(TilemapComponent_SetTileSize);
+OLO_ADD_INTERNAL_CALL(TilemapComponent_GetColor);
+OLO_ADD_INTERNAL_CALL(TilemapComponent_SetColor);
+OLO_ADD_INTERNAL_CALL(TilemapComponent_GetGenerateColliders);
+OLO_ADD_INTERNAL_CALL(TilemapComponent_SetGenerateColliders);
+OLO_ADD_INTERNAL_CALL(TilemapComponent_GetColliderFriction);
+OLO_ADD_INTERNAL_CALL(TilemapComponent_SetColliderFriction);
+OLO_ADD_INTERNAL_CALL(TilemapComponent_GetColliderRestitution);
+OLO_ADD_INTERNAL_CALL(TilemapComponent_SetColliderRestitution);
+
 // TimeOfDayComponent
 OLO_ADD_INTERNAL_CALL(TimeOfDayComponent_GetEnabled);
 OLO_ADD_INTERNAL_CALL(TimeOfDayComponent_SetEnabled);

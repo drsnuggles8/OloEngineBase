@@ -659,6 +659,77 @@ namespace OloEngine
         ar << c.Color << c.Thickness << c.Fade;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, TilemapComponent& c)
+    {
+        ar << c.TilesetHandle;
+        ar << c.Width << c.Height << c.TileSize;
+        ar << c.Color;
+        ar << c.GenerateColliders << c.ColliderFriction << c.ColliderRestitution;
+
+        // TileLayer has no FArchive overload of its own (it is not a component),
+        // so the layer vector is written by hand: a count, then each layer's
+        // fields. The per-layer Tiles vector goes through the generic
+        // std::vector<u32> operator, which already caps a corrupt count.
+        u32 layerCount = static_cast<u32>(c.Layers.size());
+        ar << layerCount;
+        if (ar.IsError())
+            return;
+
+        if (ar.IsLoading())
+        {
+            // A save is not authoring input, but it is still a file on disk: cap
+            // the layer count the same way the container operator caps element
+            // counts, rather than reserving whatever the bytes claim.
+            if (layerCount > TilemapComponent::kMaxLayers)
+            {
+                OLO_CORE_ERROR("SaveGame: TilemapComponent claims {} layers; refusing to restore.", layerCount);
+                ar.SetError();
+                return;
+            }
+            c.Layers.assign(layerCount, TileLayer{});
+        }
+
+        for (u32 i = 0; i < layerCount && !ar.IsError(); ++i)
+        {
+            auto& layer = c.Layers[i];
+            ar << layer.Name;
+            ar << layer.Tiles;
+            ar << layer.Visible << layer.Solid;
+            ar << layer.Opacity << layer.ZOffset;
+        }
+
+        if (ar.IsLoading())
+        {
+            // Saturate what the file claims into the same ranges the scene
+            // serializer enforces, so a corrupt save cannot leave a tilemap the
+            // renderer would iterate past.
+            if (!std::isfinite(c.TileSize))
+                c.TileSize = 1.0f;
+            c.TileSize = std::clamp(c.TileSize, 0.0001f, 10000.0f);
+            c.Width = std::clamp(c.Width, 1u, TilemapComponent::kMaxExtent);
+            c.Height = std::clamp(c.Height, 1u, TilemapComponent::kMaxExtent);
+            // The collider floats feed b2ShapeDef.material directly, so a NaN here
+            // reaches Box2D. Saturate them the same way the scene serializer's
+            // generated Clamp does.
+            if (!std::isfinite(c.ColliderFriction))
+                c.ColliderFriction = 0.5f;
+            c.ColliderFriction = std::clamp(c.ColliderFriction, 0.0f, 1.0f);
+            if (!std::isfinite(c.ColliderRestitution))
+                c.ColliderRestitution = 0.0f;
+            c.ColliderRestitution = std::clamp(c.ColliderRestitution, 0.0f, 1.0f);
+            if (!Math::IsFinite(c.Color))
+                c.Color = glm::vec4(1.0f);
+            for (auto& layer : c.Layers)
+            {
+                if (!std::isfinite(layer.Opacity))
+                    layer.Opacity = 1.0f;
+                layer.Opacity = std::clamp(layer.Opacity, 0.0f, 1.0f);
+                if (!std::isfinite(layer.ZOffset))
+                    layer.ZOffset = 0.0f;
+            }
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, CameraComponent& c)
     {
         SerializeSceneCamera(ar, c.Camera);
@@ -4785,6 +4856,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(RelationshipComponent);
         REGISTER_SAVE_COMPONENT(SpriteRendererComponent);
         REGISTER_SAVE_COMPONENT(CircleRendererComponent);
+        REGISTER_SAVE_COMPONENT(TilemapComponent);
         REGISTER_SAVE_COMPONENT(CameraComponent);
         REGISTER_SAVE_COMPONENT(Rigidbody2DComponent);
         REGISTER_SAVE_COMPONENT(BoxCollider2DComponent);
