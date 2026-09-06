@@ -138,8 +138,22 @@ jobs:
       # actions/checkout@v6 would fail on fork PRs.
       contents: read
       checks: write
+      # Needed by the sccache save (#1082, same reason as Windows.yml and the Linux
+      # sanitizer jobs): when the repo's Actions cache store is full every save is
+      # refused, and the only way to land this job's snapshot is to delete the entry
+      # it supersedes first. Scoped to this ref by `save-cache-pruned`.
+      actions: write
 
     env:
+      # OVERRIDES the workflow-level 1500M (#1082). This job's objects are the
+      # largest in the fleet: ASan instrumentation plus /Z7 (the compiler cache
+      # switches MSVC debug info from a shared PDB to embedded — see
+      # cmake/CompilerCache.cmake) makes every .obj carry its own debug info.
+      # MEASURE BEFORE TRUSTING THIS NUMBER: the entry that lands in the Actions
+      # cache store is charged against a shared ~9.3 GiB cap, and the measured
+      # entries so far compress to 82-91 % of this cap, not far below it
+      # (docs/agent-rules/actions-cache-budget.md). Raising it raises the bill.
+      SCCACHE_CACHE_SIZE: "3G"
       # Disable ASan's ODR-violation checker for every instrumented binary run in
       # this job. Vendored protobuf trips a known false positive — its narrow and
       # wide "." string-literal globals (`"."` vs `L"."`, io_win32.cc vs
@@ -242,6 +256,56 @@ jobs:
         version: "23.1.0"
         sha256: "1aebf024b959b3835c3bd936da2fa58cd002c61ccf47fce1714447b900bd9837"
 
+    # RE-ADDED BY #1082, after d93b5af5b removed it on 2026-07-02. Read that commit
+    # before touching this: the Windows sccache SERVER died mid-build on the large
+    # ASan-instrumented GameNetworkingSockets TUs —
+    #
+    #     sccache: error: failed to execute compile
+    #     caused by: An existing connection was forcibly closed by the remote host.
+    #                (os error 10054)
+    #
+    # — on three consecutive retries, each on a different TU (tier0/dbg.cpp,
+    # steamnetworkingsockets_connections.cpp, _spew.cpp), so the retry wrapper that
+    # preceded the removal never cleared it. The diagnosis recorded there was memory:
+    # the server is an extra in-memory consumer on a 4-vCPU runner already holding
+    # several GB per instrumented TU.
+    #
+    # THE ISSUE'S OWN PREMISE — "the removal predates several releases" — IS WRONG,
+    # and it is worth stating so nobody re-runs the same experiment expecting a
+    # different answer: d93b5af5b was already pinned to sccache v0.15.0, which is
+    # still the fleet pin. What HAS changed since is the toolchain, not sccache:
+    # this job now builds with an absolute-path-pinned LLVM 23.1.0 (5b3a24d39,
+    # fde5e9d5a, 0277e2a0d) instead of whatever clang-cl the windows-2025 image
+    # shipped, and GNS moved to a post-1.6.0 snapshot (01fdffb70). That is why the
+    # first arm re-tests the pinned version unchanged rather than jumping straight
+    # to v0.17.0: if it no longer reproduces, the smallest possible diff is the fix.
+    #
+    # If it DOES reproduce, the next arm is sccache v0.17.0 with SCCACHE_CLIENT_SIDE,
+    # which moves the compile and the cache lookup out of the server process
+    # entirely (the server keeps only compiler info, dist client and stats) and so
+    # removes the exact consumer d93b5af5b blamed. Do not skip the retry-free arm to
+    # get there — "it still crashes" and "it crashes for the reason we assumed" are
+    # different findings.
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      with:
+        version: "v0.15.0"
+
+    # Explicit restore + an `if: always()` save after the build, not the combined
+    # action — same reasoning as every other job here (#1009; see the save step).
+    # The key carries the runner IMAGE and the SANITIZER: sccache hashes the
+    # compiler binary, so a windows-2025 image roll invalidates every entry while
+    # still restoring it, and `-fsanitize=address` is part of the command line, so
+    # this job's objects can never collide with `sccache-windows-2025-release-`.
+    # When `runs-on` is bumped, bump this string with it.
+    - name: Restore sccache storage
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-windows-2025-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          sccache-asan-windows-2025-
+
     - name: Setup vcpkg
       id: vcpkg
       uses: ./.github/actions/setup-vcpkg
@@ -256,12 +320,23 @@ jobs:
       # -G "Ninja Multi-Config": the build/ctest steps select Release via --config / -C.
       #   (Also avoids the VS/MSBuild generator, which would drag in the C# ScriptCore
       #   project; OloEngine-Tests never links it, so ASan coverage is intact.)
-      # OLO_ENABLE_COMPILER_CACHE is intentionally OMITTED here — see the note above the
-      #   (removed) sccache steps: the Windows sccache server crashes on large ASan TUs, so
-      #   this job compiles directly. debug info stays /Zi (a PDB), which is fine without a
-      #   cache to key on.
+      # -DOLO_ENABLE_COMPILER_CACHE=ON (#1082): wires sccache as the launcher. Read the
+      #   header on the Setup sccache step above for why this was off, and what changed.
+      #   Two side effects come with it, both from cmake/CompilerCache.cmake, and the
+      #   first makes a COLD build here SLOWER than the uncached one it replaces:
+      #     - PCH is forced off (sccache reports a /Yu compile non-cacheable), so a cold
+      #       run pays full per-TU header re-parsing that the 87.2 min baseline did not.
+      #       (Unity builds are forced off too, but OLO_ENABLE_UNITY_BUILD already
+      #       defaults OFF, so that one is a no-op for this job.)
+      #     - MSVC debug info switches /Zi -> /Z7, so each .obj carries its own debug
+      #       info and is self-contained enough to cache. That is what makes this
+      #       job's objects the largest in the fleet — see SCCACHE_CACHE_SIZE above.
+      #   The trade is deliberate and is the same one Windows.yml already took: the
+      #   cache optimizes the WARM case, which is every run after the nightly has
+      #   banked a master snapshot. Judge it on the warm hit rate, never on one run.
       # -DOLO_ENABLE_LTO=OFF: Release defaults LTO on; /GL + ASan is unsupported. CI binaries
-      #   are for testing, not shipping, so dropping LTO is free here.
+      #   are for testing, not shipping, so dropping LTO is free here. It also keeps /GL
+      #   away from sccache, which cannot cache an object compiled with it.
       run: >
         cmake -S . -B build
         -G "Ninja Multi-Config"
@@ -274,6 +349,7 @@ jobs:
         -DOLO_VIDEO_FFMPEG=OFF
         -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DOLO_ENABLE_LTO=OFF
+        -DOLO_ENABLE_COMPILER_CACHE=ON
         -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
@@ -327,9 +403,54 @@ jobs:
     - name: Build (Release)
       # --parallel 2 matches the Linux sanitizer jobs: clang-cl under ASan uses several GB per
       # translation unit, and full concurrency exhausts runner memory on the largest instrumented
-      # TUs (GameNetworkingSockets' steamnetworkingsockets_*.cpp). Direct compile, no sccache
-      # (see the note above the removed sccache steps) — so a plain build, no retry needed.
+      # TUs (GameNetworkingSockets' steamnetworkingsockets_*.cpp).
+      #
+      # NO RETRY WRAPPER, deliberately (#1082). d93b5af5b removed one that retried on the
+      # "os error 10054" sccache-server-drop signature, having measured that it hit the
+      # crash on all three attempts. Re-adding it here would convert the reproduce arm's
+      # answer from "it crashed, on this TU" into "it went red after 3× the runner
+      # minutes", which is strictly less information for strictly more cost. If the crash
+      # does come back, the fix is the client-side mode named on the Setup sccache step,
+      # not a retry that was already measured not to work.
       run: cmake --build build --config Release --target OloEngine-Tests --parallel 2
+
+    # THE NUMBER THIS CHANGE IS JUDGED ON, and it is printed unconditionally because a
+    # cache that restores and hits on nothing looks exactly like a working one — that is
+    # the whole of docs/agent-rules/ci-cache-that-looks-alive.md. Two lines matter beyond
+    # the hit rate on this job specifically:
+    #   "Non-cacheable compilations" — whether clang-cl's ASan flags are cacheable at all;
+    #   "Cache size" vs "Max cache size" — whether SCCACHE_CACHE_SIZE above is evicting,
+    #     which silently caps the achievable hit rate no matter how warm the restore was.
+    # `if: always()` so a build that DID crash still reports where it got to.
+    - name: Show sccache stats
+      if: always()
+      run: sccache --show-stats
+
+    # Paired with the restore above. `if: always()` because the combined actions/cache
+    # action saves in a POST-JOB step, which a CANCELLED job skips — and most PR runs in
+    # this repo are cancelled (`cancel-in-progress`), so every one of them recompiled
+    # everything and banked nothing.
+    #
+    # NOT ON PULL REQUESTS (#1073's rule, and this job is the reason it is now load-
+    # bearing). A PR-run entry is scoped to `refs/pull/N/merge`, readable by that one PR,
+    # and charged to the whole repository for as long as the PR stays open. This is the
+    # FOURTH large Windows entry in a store with a ~9.3 GiB wall; see the arithmetic in
+    # docs/agent-rules/actions-cache-budget.md, which this change had to re-do before
+    # turning the cache on. The save is kept on `workflow_dispatch` so the cold/warm A/B
+    # can be measured on a branch — that is how #1073 was verified and how this was.
+    - name: Save sccache storage
+      if: always() && github.event_name != 'pull_request'
+      # `save-cache-pruned` swallows its own failures: a cache save must never fail the
+      # job it is attached to. `if: always()` means it also runs on a CANCEL, where the
+      # path may not exist yet, and actions/cache/save treats a missing path as a
+      # validation error rather than a no-op. What it adds over a bare save is noticing
+      # that the store REFUSED the write (which `actions/cache/save` reports as a warning
+      # and exits zero for), deleting this ref's superseded entries, and retrying.
+      uses: ./.github/actions/save-cache-pruned
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-windows-2025-${{ github.run_id }}-${{ github.run_attempt }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
