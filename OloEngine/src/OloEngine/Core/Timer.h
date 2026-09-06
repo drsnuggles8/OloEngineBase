@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h" // f32
+
 #include <chrono>
 
 namespace OloEngine

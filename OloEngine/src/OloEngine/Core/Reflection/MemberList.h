@@ -1,6 +1,7 @@
 #pragma once
 
 #include "TypeUtils.h"
+#include "OloEngine/Debug/Instrumentor.h"
 #include <tuple>
 #include <utility>
 #include <variant>

@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Debug/Instrumentor.h"
 #include <choc/audio/choc_SampleBuffers.h>
 
 // SIMD intrinsics support detection and includes

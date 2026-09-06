@@ -19,7 +19,6 @@
 
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Gameplay/Progression/ExperienceCurve.h"
-#include "WinAsanYamlThrow.h"
 
 #include <cmath>
 #include <limits>
@@ -336,15 +335,9 @@ TEST(ExperienceCurveTest, SerializerRejectsMalformedYAML)
 {
     ExperienceCurveSerializer serializer;
 
-    // The syntax-error branch is skipped under Windows ASan — a toolchain
-    // bug in the clang-cl ASan throw dispatch, not a defect here. Evidence
-    // trail and retirement criteria live in WinAsanYamlThrow.h (issue #661);
-    // every other configuration still runs this branch.
-#if !OLO_SKIP_YAML_THROW_UNDER_WIN_ASAN
     auto curve = Ref<ExperienceCurve>::Create();
     EXPECT_FALSE(serializer.TestDeserializeFromYAML("key: [unclosed sequence", curve))
         << "a YAML syntax error must be rejected";
-#endif
 
     auto curve2 = Ref<ExperienceCurve>::Create();
     EXPECT_FALSE(serializer.TestDeserializeFromYAML("SomethingElse: 1\n", curve2))

@@ -7,6 +7,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Identifier.h"
 #include "OloEngine/Audio/LockFreeEventQueue.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <choc/containers/choc_SingleReaderSingleWriterFIFO.h>
 

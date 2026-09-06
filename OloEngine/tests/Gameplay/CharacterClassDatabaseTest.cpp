@@ -16,7 +16,6 @@
 
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Gameplay/Progression/CharacterClassDatabase.h"
-#include "WinAsanYamlThrow.h"
 
 #include <string>
 
@@ -291,13 +290,9 @@ TEST(CharacterClassDatabaseTest, SerializerRejectsMalformedYAML)
 {
     CharacterClassDatabaseSerializer serializer;
 
-    // The syntax-error branch is skipped under Windows ASan — see
-    // WinAsanYamlThrow.h (issue #661) for the evidence trail.
-#if !OLO_SKIP_YAML_THROW_UNDER_WIN_ASAN
     auto scratch = Ref<CharacterClassDatabase>::Create();
     EXPECT_FALSE(serializer.TestDeserializeFromYAML("key: [unclosed", scratch))
         << "a YAML syntax error must be rejected";
-#endif
 
     auto scratch2 = Ref<CharacterClassDatabase>::Create();
     EXPECT_FALSE(serializer.TestDeserializeFromYAML("SomethingElse: 1\n", scratch2))

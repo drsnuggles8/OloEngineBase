@@ -25,17 +25,11 @@
 //      has no editor camera to fall back on. That refusal is a deliberate
 //      "stay where we are" rather than a black screen, so it is a contract,
 //      not an implementation detail.
-//
-// One sub-assertion — the unparseable-scene-file branch of
-// AMissingOrMalformedTargetFailsWithoutASceneAndWithAReason — is compiled out
-// under Windows ASan for known toolchain bug #661. See the comment at that
-// branch; it is the only skipped assertion in this file.
 // =============================================================================
 
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
 
-#include "OloEngine/Memory/Platform.h" // OLO_ASAN_ENABLED
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/SaveGame/SaveGameFile.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
@@ -301,33 +295,21 @@ TEST_F(SceneTransitionTest, AMissingOrMalformedTargetFailsWithoutASceneAndWithAR
     // the host tears the running scene down only AFTER this returns, so a
     // parse failure here has to be reported rather than half-applied.
     //
-    // Skipped under Windows ASan (issue #661, and see
-    // docs/agent-rules/build-trees-and-windows-asan.md §4): clang-cl +
-    // /fsanitize=address crashes with SEH 0xc0000005 INSIDE the C++
-    // exception-dispatch machinery when yaml-cpp throws through certain
-    // sanitizer-instrumented frame shapes, before any catch clause runs.
-    // Unparseable bytes here reach `YAML::LoadFile` inside
+    // Unparseable bytes reach `YAML::LoadFile` inside
     // `SceneSerializer::Deserialize`, which throws and catches
     // `YAML::Exception` — a frame shape nothing else in the suite exercises
-    // (every SceneSerializerFuzzRegression input PARSES cleanly and fails
-    // later in the schema walk, so none of them throw). Which frame shapes
-    // trip the bug is clang-version dependent and neither the input bytes nor
-    // the catch type matter — both were experimentally eliminated in #661 —
-    // so do NOT try to dodge it by reshaping the payload. yaml-cpp
-    // throw/catch keeps Windows-ASan coverage through
-    // EngineSubsystemSmoke.ProjectLoadMalformedYAMLFailsCleanly. Every other
-    // configuration still runs this branch, and the missing-file and
-    // wrong-extension branches above — the ones that guard the
-    // fail-without-side-effects contract on the paths that do NOT throw —
-    // stay active everywhere.
-#if !(OLO_ASAN_ENABLED && defined(_WIN32))
+    // (every SceneSerializerFuzzRegression input PARSES cleanly and fails later
+    // in the schema walk, so none of them throw). That made this the branch the
+    // clang-cl ASan throw-dispatch bug crashed on (issue #661); the LLVM 23.1.0
+    // pin in asan.yml fixes it and the guard that used to wrap this block is
+    // gone. If it comes back as SEH 0xc0000005 with no ASan report, the question
+    // is which clang the job resolved, not whether the engine regressed.
     const auto corrupt = m_Root / "Scenes" / "Corrupt.olo";
     std::ofstream(corrupt) << "\t\tthis: [is, not, a: scene\n";
     auto broken = SceneTransition::LoadSceneFile(corrupt, true);
     EXPECT_FALSE(static_cast<bool>(broken))
         << "a corrupt scene file was accepted; the host would have stopped the running scene for it.";
     EXPECT_FALSE(broken.Error.empty());
-#endif
 }
 
 // -----------------------------------------------------------------------------

@@ -320,95 +320,93 @@ fine), while **8 or higher** sets the "some files/dirs could not be copied" or
 robocopy exit code as an error the way you would for every other tool — check
 the actual value against that threshold instead.
 
-## 4. Known toolchain bug: C++ throws through instrumented frames can AV (issue #661)
+## 4. Fixed toolchain bug: C++ throws through instrumented frames used to AV (issue #661)
 
-clang-cl + `/fsanitize=address` on Windows crashes **inside the C++
+**Pin the LLVM version in any Windows clang-cl job. Do not guard a throwing test
+out of the ASan build any more — the guards are gone and re-adding one hides the
+real question, which is which clang the job resolved.**
+
+clang-cl + `/fsanitize=address` on Windows used to crash **inside the C++
 exception-dispatch machinery** (access-violation reading near null, with
-`0x19930520` — the MSVC C++ throw magic — in the registers, before any
-catch clause runs) when an exception is thrown through certain
-sanitizer-instrumented frame shapes. In this codebase the trigger is
-yaml-cpp throwing `ParserException` on malformed input, but the input
-shape and the catch type are both irrelevant (experimentally eliminated),
-and which call paths crash is frame-layout and clang-version dependent.
+`0x19930520` — the MSVC C++ throw magic — in the registers, before any catch
+clause ran) when an exception was thrown through certain sanitizer-instrumented
+frame shapes. gtest's SEH catcher intercepts first, so it read as `SEH exception
+with code 0xc0000005 thrown in the test body` with no ASan report and no stack.
+In this codebase the trigger was yaml-cpp throwing on malformed input; neither
+the input shape nor the catch type mattered (both experimentally eliminated),
+and which call paths crashed was frame-layout and clang-version dependent.
 
-### The guard: `OLO_SKIP_YAML_THROW_UNDER_WIN_ASAN`
+This is the same defect as #497 — ASan put redzones on the compiler-emitted EH
+metadata globals (`_ThrowInfo`, `_CatchableTypeArray`, the type descriptors) and
+the MSVC EH runtime read across them. **The LLVM 23.1.0 pin in `asan.yml` fixes
+it**, and the four sites that were guarded are unguarded again:
 
-**Do not hand-roll `#if !(OLO_ASAN_ENABLED && defined(_WIN32))` any more.** The
-fourth occurrence (#458, guarded in PR #802) was the point at which #661's own
-follow-up list said to centralise, so the guard now lives in
-`OloEngine/tests/WinAsanYamlThrow.h`, which owns the macro *and* the single
-evidence trail — the "what does SEH 0xc0000005 with no ASan report and no stack
-mean" explanation is written down once, in the header, rather than re-derived
-each time. Include it and guard **only** the sub-assertion that makes the
-third-party library throw:
+| Test | Throwing entry point |
+| --- | --- |
+| `ExperienceCurveTest.SerializerRejectsMalformedYAML` | `ExperienceCurveSerializer::TestDeserializeFromYAML` |
+| `CharacterClassDatabaseTest.SerializerRejectsMalformedYAML` | `CharacterClassDatabaseSerializer` |
+| `AccessibilitySettingsTest.LoadOfACorruptFileFailsWithoutCorruptingSettings` | `Accessibility::LoadFromFile` → `YAML::LoadFile` (issue #458) |
+| `SceneTransitionTest.AMissingOrMalformedTargetFailsWithoutASceneAndWithAReason` | `SceneSerializer::Deserialize` → `YAML::LoadFile` (issue #642) |
 
-```cpp
-#include "WinAsanYamlThrow.h"
-...
-#if !OLO_SKIP_YAML_THROW_UNDER_WIN_ASAN
-    EXPECT_FALSE(Parse("key: [unclosed"));      // the throwing case
-#endif
-    EXPECT_FALSE(Parse("WrongRootKey: 1\n"));   // ours, always runs
-```
+`InputActionSerializerTest.MalformedYAML`, recorded on #661 as the next victim
+because it crashed on LLVM 21 locally, also passes. `OloEngine/tests/WinAsanYamlThrow.h`
+and its `OLO_SKIP_YAML_THROW_UNDER_WIN_ASAN` macro are deleted.
 
-Keep every non-throwing assertion active, and note which still-passing test
-carries the Windows-ASan coverage of the same throw/catch plumbing. Do NOT
-"fix" this by changing the malformed input or widening the catch — both were
-tried and both still crash; input-shuffling is version roulette. Track state and
-the list of known-vulnerable tests in issue #661; the header carries the
-retirement criteria (delete it and every use once the upstream LLVM fix lands).
+Measured locally on clang 23.1.0 (the same version `asan.yml` pins), `clangcl-asan`
+preset, Release, `--gtest_catch_exceptions=0`, ASan runtime on PATH: all four
+sites plus `InputActionSerializerTest.*` pass with every guard removed.
 
-**Both polarities are in the tree, deliberately — read the sign before copying.**
-`#if !OLO_SKIP_…` wraps a branch that is simply *dropped* under the guard;
-`#if OLO_SKIP_…` selects a **substitute** non-throwing branch. Which one you want
-depends on the next trap:
+### If it comes back
 
-> **A skipped throw can leave the rest of the test vacuously true.** In
-> `AccessibilitySettingsTest` the assertion after the load is "the previous
-> settings survived" — but the test *set* those settings two lines earlier, so
-> skipping the load outright reduces it to re-reading the value it just wrote:
-> green, and proving nothing. The fix is to substitute a **well-formed file with
-> the wrong root key**, which takes the same `LoadFromFile` rejection path
-> *without* throwing, so the preservation assertion still means something under
-> ASan. Before you guard, check what the surviving assertions are still resting
-> on.
+The failure signature is unchanged: `SEH exception with code 0xc0000005 thrown in
+the test body`, no ASan report, no stack. **The first question is which clang the
+job resolved, not whether the engine regressed** — PATH order is not enough to pin
+a toolchain on the GitHub Windows image, and a green "Using cached LLVM 23.1.0"
+install step sitting above a build that used the image's preinstalled clang is
+exactly how #497 was first mis-diagnosed. `asan.yml` binds the pin by absolute
+path and fails the job on a version mismatch; check that assertion before
+touching test code.
 
-**Expect this to bite whenever you add the FIRST test that throws through a
-given entry point**, not only when you touch known-vulnerable code. The
-guarded set so far:
+**Locally, check `clang-cl --version` first.** The `clangcl-asan` preset takes
+whatever `clang-cl` is on PATH — `cmake/ClangCLToolchain.cmake` pins nothing and
+asserts nothing, unlike the CI job — and `ilammy/msvc-dev-cmd`-style environments
+and Visual Studio both put a bundled LLVM ahead of `C:\Program Files\LLVM`. On
+anything before 23.1.0 these tests will AV again, and that is the toolchain, not
+the branch.
 
-| Test | Throwing entry point | Guard |
-| --- | --- | --- |
-| `ExperienceCurveTest.SerializerRejectsMalformedYAML` | `ExperienceCurveSerializer::TestDeserializeFromYAML` | helper |
-| `CharacterClassDatabaseTest` (malformed-YAML branch) | `CharacterClassDatabaseSerializer` | helper |
-| `AccessibilitySettingsTest.LoadOfACorruptFileFailsWithoutCorruptingSettings` | `Accessibility::LoadFromFile` → `YAML::LoadFile` (issue #458) | helper (substitute branch) |
-| `SceneTransitionTest.AMissingOrMalformedTargetFailsWithoutASceneAndWithAReason` | `SceneSerializer::Deserialize` → `YAML::LoadFile` (issue #642) | **still hand-rolled** |
+A standalone probe settles it in seconds without an engine build — compile a TU
+that throws and catches (`std::runtime_error` for the #497 shape, `YAML::Load` on
+unterminated flow for #661's) with `clang-cl -EHsc -MD -O2 -fsanitize=address`,
+link `yaml-cpp.lib` out of `<buildDir>/vcpkg_installed/x64-windows-static-md/lib`,
+and run it with the ASan runtime dir on PATH. Two things it needs that are easy to
+miss: `-D_DISABLE_STL_ANNOTATION` (without it lld-link rejects the mix of an
+instrumented TU against an uninstrumented vcpkg lib with `/failifmismatch:
+annotate_string`), and clang-cl refuses ASan with the debug CRT, so build Release.
 
-The `SceneTransitionTest` row is the one straggler: PR #802 migrated the two
-`Gameplay/` sites onto the helper but left this one on the raw
-`#if !(OLO_ASAN_ENABLED && defined(_WIN32))`. It is not broken — the condition is
-identical — but it is the copy a future author is most likely to find and clone.
-Migrate it the next time that file is touched.
+**A note on writing such a guard should you ever need one again.** A skipped
+throw can leave the rest of the test vacuously true: in `AccessibilitySettingsTest`
+the assertion after the load is "the previous settings survived", and the test
+*set* those settings two lines earlier, so skipping the load reduced it to
+re-reading the value it just wrote — green, proving nothing. The version that
+shipped substituted a well-formed file with the wrong root key, which takes the
+same rejection path without throwing. Check what the surviving assertions rest on
+before you guard anything.
 
-Note that not every `OLO_ASAN_ENABLED` in the test tree belongs to this bug:
-`ServerAuthoritativeLoopTest` guards on it for the unrelated
-GameNetworkingSockets stack-buffer-overflow (issue #317). Grepping the macro
-over-reports the guarded set; grep `OLO_SKIP_YAML_THROW_UNDER_WIN_ASAN` instead.
+With those four gone there is now no `OLO_ASAN_ENABLED` left under
+`OloEngine/tests` at all. The other Windows-ASan exclusion in the tree is not a
+source guard: `NetworkIntegrationTest` and `WorkerRestartTest` are dropped by
+`asan.yml`'s own `--exclude-regex`, for the unrelated GameNetworkingSockets
+problem. Grep the workflow as well as the sources before concluding a suite runs
+under ASan.
 
-The #642 case is instructive about how the bug hides: the suite already had
+The #642 case is worth keeping for how the bug hid. The suite already had
 `SceneSerializerFuzzRegressionTest` firing a dozen malformed payloads at
-`SceneSerializer::DeserializeFromYAML` under ASan without trouble — because
-every one of those inputs **parses** cleanly and fails later in the schema
-walk, so yaml-cpp never throws. The first genuinely *unparseable* bytes handed
-to the sibling file-path overload crashed immediately. So "a nearby
-malformed-input test already passes under ASan" is not evidence your new one
-will: check whether the existing inputs actually reach a `throw`.
-
-A corollary for writing the guard comment: don't claim a same-plumbing sibling
-carries the coverage unless one really does. For `SceneSerializer::Deserialize`
-none does — nothing else in the suite throws through it — so the honest note is
-that the file-path throw is uncovered under Windows ASan while the
-non-throwing branches of the same test stay active everywhere.
+`SceneSerializer::DeserializeFromYAML` under ASan without trouble — because every
+one of those inputs **parses** cleanly and fails later in the schema walk, so
+yaml-cpp never threw. The first genuinely *unparseable* bytes handed to the
+sibling file-path overload crashed immediately. So "a nearby malformed-input test
+already passes under ASan" is not evidence about a new one: check whether the
+existing inputs actually reach a `throw`.
 
 ## 5. Instrumenting a build, and a per-file-set compile job pool (issues #759, #822)
 

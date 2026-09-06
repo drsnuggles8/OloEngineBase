@@ -64,3 +64,22 @@ repos:
       language: system
       pass_filenames: false
       files: '(OloEngine/tests/.*\.(cpp|h|hpp|inl)|OloEngine/tests/scripts/check_temp_dir_isolation\.py)$'
+
+    - id: header-profiling-include
+      name: headers that profile include Instrumentor.h
+      description: >-
+        Fails if a header under OloEngine/src expands OLO_PROFILE_FUNCTION() /
+        OLO_PROFILE_SCOPE() (or any other macro Instrumentor.h defines) without
+        including OloEngine/Debug/Instrumentor.h. Such a header compiles today only
+        because every current includer happens to have the macro in scope already —
+        from OloEnginePCH.h, or from a sibling header pulled in first. Windows cannot
+        see the omission; the Linux jobs turn it into a hard compile error the moment
+        somebody adds the FIRST include of that header from a TU without the macro,
+        and the blame lands on their unrelated one-line include (issue #1071, cost a
+        CI round on PR #1062). A header that genuinely must not include it opts out
+        with '// OLO_PROFILING_INCLUDE_OK: <reason>'. See
+        docs/agent-rules/pch-masked-missing-includes.md.
+      entry: python scripts/check_header_profiling_include.py
+      language: system
+      pass_filenames: false
+      files: '(OloEngine/src/.*\.(h|hpp|inl)|scripts/check_header_profiling_include\.py)$'

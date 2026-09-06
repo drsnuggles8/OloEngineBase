@@ -47,6 +47,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [asset-import-usd-alembic.md](asset-import-usd-alembic.md): the importer registry seam, and vendoring OpenUSD / Alembic / MaterialX statically.
 - [asset-import-openvdb-volumetric.md](asset-import-openvdb-volumetric.md): keep OpenVDB editor-only; derive the grid transform without hand-transposing; extend every exhaustive `switch`.
 - [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md): when a correct fix makes no sense live, suspect a stale incremental object before the code.
+- [pch-masked-missing-includes.md](pch-masked-missing-includes.md): a header must include what it uses even when the build is green; the PCH hides the omission on Windows and only the Linux jobs name it.
 - [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md): a CI cache that restores is not
   one that works.
 - [actions-cache-budget.md](actions-cache-budget.md): the Actions cache store is a fixed budget every key must fit in; past the cap it goes read-only and refuses every save in the repo, silently.
@@ -291,6 +292,7 @@ The check passes for a correct implementation and for a broken one.
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) §5e, §6 | A CI job that said `--config Release` built no config; a cache hit restored objects without dependency files, so header edits rebuilt nothing. |
 | [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | GL has no allocator-teardown assertion, so a clean GL close proves nothing about teardown. |
 | [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md) | A correct fix that a live rebuild kept "disproving"; the binary was stale, not the source. |
+| [pch-masked-missing-includes.md](pch-masked-missing-includes.md) | A green Windows build says nothing about a header's self-containment: the PCH is in scope everywhere, so 18 of 31 headers that failed a standalone compile built clean. |
 | [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) | A cache has no wrong-looking failure state: it fails by being slow. Every save in the repo had been refused for six days and every run stayed green. |
 | [actions-cache-budget.md](actions-cache-budget.md) | The Windows sccache entry had not existed for weeks. Restore said "Cache not found", save said "your cache is now read only" and exited 0, and the only visible symptom was a build that took four hours. |
 | [cache-entry-version-is-the-path-string.md](cache-entry-version-is-the-path-string.md) | The vcpkg key matched exactly and the entry was still invisible: restore and save spelled the same directory two ways, so every entry ever written had `last_accessed_at == created_at`. |

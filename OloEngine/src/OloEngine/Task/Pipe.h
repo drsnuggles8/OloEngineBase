@@ -8,6 +8,7 @@
 #include "OloEngine/HAL/EventCount.h"
 #include "OloEngine/Templates/RefCounting.h"
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <atomic>
 #include <memory>

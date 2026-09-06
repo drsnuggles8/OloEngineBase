@@ -2,6 +2,7 @@
 #include "OloEngine/Audio/SoundGraph/NodeProcessor.h"
 #include "OloEngine/Audio/SoundGraph/NodeDescriptors.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 #include <numbers>
 #include <cmath>

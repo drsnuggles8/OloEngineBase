@@ -4,6 +4,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Debug/Instrumentor.h"
 
 namespace OloEngine::LowLevelTasks
 {

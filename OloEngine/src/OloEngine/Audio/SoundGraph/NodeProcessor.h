@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Debug/Instrumentor.h"
 #include <choc/containers/choc_Value.h>
 
 #include <cmath>
