@@ -74,8 +74,8 @@ Tenant: `VulkanPassSuite.InterleavedInstanceBufferUploadsKeepCommandOrderAcrossD
 ## The mirror-image failure: snapshotting a buffer the GPU produces (#1052 / #1058)
 
 The versioning above is only correct for a buffer whose **producer is the CPU**.
-Applied to a GPU-produced one it inverts, and the inversion is still open — read
-this before touching `PushSnapshot`.
+Applied to a GPU-produced one it inverts. `PushSnapshot` now refuses outright for
+`StorageBufferUsage::DynamicCopy`; this section is why.
 
 Draws read `VulkanStorageBuffer::GetRootDataAddress()` — the snapshot when one is
 live. Compute dispatches read `GetDeviceAddress()`, always the persistent buffer
@@ -99,23 +99,33 @@ draw, no validation error, no unfed binding and no stub hit — 4072 clusters
 ("GPU-written buffers never SetData mid-frame"); zero-init before a dispatch *is*
 a mid-frame SetData.
 
-**Why the obvious fix is not in the tree.** Skipping the snapshot for
-`StorageBufferUsage::DynamicCopy` — which already means "GPU writes, GPU reads
-(compute output)" — does make the mesh arm run and render correctly. It also
-turns the scene into a **`VK_ERROR_DEVICE_LOST`**, reproducibly, on the sequence
-"switch to Deferred, then open the scene" (3/3 with the guard, 0/3 without it, one
-build apart). The snapshot was masking an out-of-bounds SSBO read: a frame-arena
-block is large, mapped and zero-filled, so an over-range index lands inside it,
-while the real device-local buffer is small and the same index faults. Same
-mechanism as #1052's original null-block analysis, one level over. Tracked in
-**#1058** with the patch and the A/B attached.
+The fix is the `DynamicCopy` guard, and it did make the mesh arm render — and it
+also lost the device, 3/3, on the sequence "switch to Deferred, then open the
+scene". **That second fault is worth reading carefully, because the obvious
+reading of it is wrong.**
 
-**The generalisable half:** a per-draw versioning mechanism must know which side
-produces the data — ask it of every buffer the mechanism covers, not just the one
-that motivated it. And note the second-order trap: a mechanism that hands shaders
-a *large mapped* stand-in can hide an out-of-bounds read for years, so removing it
-looks like it caused the fault it revealed. A/B one build apart before believing
-either direction.
+A third consumer is missing from the table above: the software-raster
+**visibility resolve** is a fullscreen *draw*, and the pass zeroes the SW work
+list's 16-byte header mid-frame. So the resolve was reading a **16-byte** snapshot
+of that list, finding `Count == 0`, and discarding every pixel — it had **never
+executed on Vulkan at all**. Removing the snapshot ran it for the first time, and
+what it did then had nothing to do with the mesh arm: `hwRasterMode=forcemdi`
+faulted just as reliably, and `swRasterMode=disabled` was stable. See
+[discard-is-not-a-bounds-check.md](discard-is-not-a-bounds-check.md) for the
+actual defect.
+
+**Three generalisable halves:**
+
+1. A per-draw versioning mechanism must know which side produces the data — ask
+   it of every buffer the mechanism covers, not just the one that motivated it.
+2. A mechanism that hands shaders a *large mapped* stand-in hides bugs for years,
+   so removing it looks like it caused the fault it revealed. A/B one build apart
+   before believing either direction.
+3. **A buffer whose CPU write is small can be worse than one that is wrong.** The
+   16-byte snapshot of the SW list was not a stale value a shader misread; it was
+   a whole consumer switched off in a way no counter could see. When auditing this
+   seam, compare the snapshot's SIZE against the buffer's, not just its contents —
+   which is its own open defect, #1080.
 
 ## The rule
 
