@@ -774,6 +774,11 @@ namespace OloEngine
             UBOStructures::VirtualRasterUBO rasterParams{};
             rasterParams.ViewportWidth = registry.GetVisbufferWidth();
             rasterParams.ViewportHeight = registry.GetVisbufferHeight();
+            // The SAME number the cull bound its appends by (u_SwCapacity), and
+            // the same one the resolve draw gets in VirtualDrawInfo — the raster
+            // bounds its work-list index by this rather than by the list's own
+            // unguarded Count (issue #1058).
+            rasterParams.SwListCapacity = maxSwRecords;
             if (useInt64)
             {
                 // One atomicMin per covered pixel resolves depth + payload
@@ -843,6 +848,12 @@ namespace OloEngine
                         drawInfo.ViewportHeight = registry.GetVisbufferHeight();
                         // The resolve reconstructs uv2 from the same tail (issue #867).
                         drawInfo.LightmapUVBase = registry.GetLightmapUVBaseElement();
+                        // What the SW list can hold — the SAME number the cull
+                        // dispatches bound their appends by (u_SwCapacity). The
+                        // resolve bounds its record index by this rather than by
+                        // the list's own Count, which is an unguarded atomicAdd
+                        // (issue #1058).
+                        drawInfo.SwListCapacity = frameClusterCount;
                         upload->SetData(&drawInfo, sizeof(drawInfo));
                         upload->Bind();
 

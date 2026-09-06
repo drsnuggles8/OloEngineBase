@@ -71,7 +71,12 @@ struct VirtualCluster {
     uint IndexCount;
     uint GroupIndex;
     uint RefinedGroup;
-    uint Lod; uint _p1; uint _p2;
+    uint Lod;
+    // Was `_p1` here until issue #1058. It has been a real field since #813 (see
+    // VirtualClusterGpuRecord); this pass needs it to bound the cluster-local
+    // vertex indices it pulls, so it is spelled out rather than left as padding.
+    uint VertexCount;
+    uint _p2;
 };
 
 // Mirrors OloEngine::VirtualInstanceGpuRecord (240 B std430)
@@ -249,24 +254,55 @@ void main()
 
     uint swRecordIndex = packedPixel.x >> 9u;
     uint triangleIndex = packedPixel.x & 0x1FFu;
-    if (swRecordIndex >= swList.Count)
+    // CLAMP, don't merely `discard` (issue #1058). Every index below comes out
+    // of a GPU-written buffer, and each one addresses the NEXT buffer, so the
+    // guard has to stop the ADDRESS being formed and not just stop the fragment
+    // being written. `discard` is not a portable guarantee of that: at this
+    // tier (vulkan_1_4 / SPIR-V 1.6) it may lower to OpDemoteToHelperInvocation,
+    // which explicitly does NOT terminate -- the invocation continues as a
+    // helper and the loads after it still execute -- rather than to
+    // OpTerminateInvocation, which does. A driver may also speculate the load
+    // ahead of the branch. Under a bare device address (ADR 0011 section 4) such
+    // a load has no bounds, so it is a device fault rather than a wrong pixel,
+    // and the sentinel makes it the common case rather than an edge case: a
+    // CLEARED visibility-buffer pixel is all-ones, which decodes to
+    // swRecordIndex 0x7FFFFF, and on any frame most of the screen is cleared.
+    // See docs/agent-rules/discard-is-not-a-bounds-check.md.
+    // Bounded by the list's CAPACITY, not by its Count: Count is an unguarded
+    // atomicAdd in VirtualClusterCull.comp (the append itself is bounded, the
+    // counter is not), so a GPU overflow would inflate the very number the read
+    // is bounded by. The capacity is CPU-known and is the same u_SwCapacity the
+    // cull appended under.
+    const uint swRecordLimit = min(swList.Count, u_VirtualSwListCapacity);
+    if (swRecordIndex >= swRecordLimit)
         discard;
+    swRecordIndex = min(swRecordIndex, max(swRecordLimit, 1u) - 1u);
 
     VisibleCluster record = swList.Records[swRecordIndex];
     if (record.InstanceIndex != u_VirtualInstanceIndex)
         discard; // another instance's pixel — resolved by its own draw
 
-    VirtualInstance inst = instances[record.InstanceIndex];
-    VirtualCluster cluster = clusters[record.ClusterIndex];
+    VirtualInstance inst = instances[u_VirtualInstanceIndex];
+    // The record names one of THIS instance's clusters or it names nothing: the
+    // instance's own window is the tightest bound available here, and it is the
+    // same one the hardware arm gets for free from its command segment.
+    uint clusterIndex = record.ClusterIndex - inst.ClusterBase;
+    if (clusterIndex >= inst.ClusterCount)
+        discard;
+    VirtualCluster cluster = clusters[inst.ClusterBase + min(clusterIndex, max(inst.ClusterCount, 1u) - 1u)];
     if (triangleIndex * 3u + 2u >= cluster.IndexCount)
         discard;
+    triangleIndex = min(triangleIndex, max(cluster.IndexCount / 3u, 1u) - 1u);
 
     uint i0 = localIndices[cluster.IndexBase + triangleIndex * 3u + 0u];
     uint i1 = localIndices[cluster.IndexBase + triangleIndex * 3u + 1u];
     uint i2 = localIndices[cluster.IndexBase + triangleIndex * 3u + 2u];
-    VirtualGpuVertex v0 = vertices[cluster.VertexBase + i0];
-    VirtualGpuVertex v1 = vertices[cluster.VertexBase + i1];
-    VirtualGpuVertex v2 = vertices[cluster.VertexBase + i2];
+    // Cluster-LOCAL indices: in range by construction of the cook, clamped for
+    // the same reason as above — vertices[] is addressed by them.
+    const uint vMax = max(cluster.VertexCount, 1u) - 1u;
+    VirtualGpuVertex v0 = vertices[cluster.VertexBase + min(i0, vMax)];
+    VirtualGpuVertex v1 = vertices[cluster.VertexBase + min(i1, vMax)];
+    VirtualGpuVertex v2 = vertices[cluster.VertexBase + min(i2, vMax)];
 
     mat4 mvp = u_ViewProjection * inst.Transform;
     vec4 c0 = mvp * vec4(v0.PositionU.xyz, 1.0);

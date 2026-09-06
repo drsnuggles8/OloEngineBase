@@ -140,6 +140,15 @@ layout(std140, binding = 70) uniform VirtualRasterParams
     uint  u_Phase;          // 8  — portable raster: 0 = depth atomicMin, 1 = payload write
                             //      (ignored in INT64 mode)
     float u_OverdrawScale;  // 12 — colorize: count that maps to the hot end of the ramp
+    // 16 — records the software-raster work list can hold (issue #1058). The
+    //      raster bounds its work-list index by THIS and not by the list's own
+    //      Count: the cull's atomicAdd on Count is unguarded (#862 bounded the
+    //      append, not the counter), so a GPU overflow would inflate the very
+    //      number the read is bounded by. 0 = an empty list.
+    uint  u_SwListCapacity;
+    uint  _vrPad0;          // 20 — std140 rounds the block to a 16-byte multiple;
+    uint  _vrPad1;          // 24   explicit so the C++ mirror is a plain struct.
+    uint  _vrPad2;          // 28
 };
 
 // Bounded micro-triangle raster: SW-routed clusters have small projected
@@ -284,8 +293,16 @@ void main()
 {
     // 2D dispatch flattening keeps large work lists under the 65535 per-axis cap
     uint swRecordIndex = gl_WorkGroupID.x + gl_WorkGroupID.y * gl_NumWorkGroups.x;
-    if (swRecordIndex >= swList.Count)
-        return; // dispatched at a conservative upper bound (issue #551 idiom)
+    // Bounded by the list's CAPACITY as well as its Count (issue #1058). Count
+    // is an unguarded atomicAdd in VirtualClusterCull.comp -- #862 bounded the
+    // APPEND, so an overflow drops the record but still inflates the counter --
+    // and Records[] is reached by a bare device address, which has no bounds.
+    // Bounding only by Count would therefore let the one value an overflow can
+    // corrupt decide how far past the allocation this reads. The 2D dispatch is
+    // flattened at a conservative upper bound (the #551 idiom), so most
+    // workgroups leave here regardless.
+    if (swRecordIndex >= min(swList.Count, u_SwListCapacity))
+        return;
 
     VisibleCluster record = swList.Records[swRecordIndex];
     VirtualCluster cluster = clusters[record.ClusterIndex];
