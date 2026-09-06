@@ -19,6 +19,15 @@ Issue [#1073](https://github.com/drsnuggles8/OloEngineBase/issues/1073).
 4. **Before redesigning a cache, add up what the fleet already stores.** The cap is
    ~9537 MiB. If the steady set does not leave room for the largest single snapshot, no
    key design will help.
+5. **The store exists to speed up GITHUB-HOSTED jobs on a PULL REQUEST. Nothing else has
+   a claim on it.** Everything else either has a better cache or has no one waiting:
+   a self-hosted job caches on local disk, which has no save step to refuse, no ref
+   scoping and no cap; a nightly is not on anyone's critical path. Spending the cap on
+   those is spending it on latency nobody experiences — and it is how the Windows ASan
+   job came to have no compiler cache at all while 3741 MiB sat in entries returning
+   0.00 % (see *A cache can be worth removing*). Work out which jobs are hosted **and**
+   PR-triggered before allocating anything; that list is much shorter than the workflow
+   list.
 
 ---
 
@@ -204,6 +213,33 @@ Re-adding the restore/save without doing one of those reproduces the 0.00 %.
 0 %-hit entry is not neutral; it costs quota, download time, and the room a working cache
 needed. Read `created_at`, `last_accessed_at` **and the hit rate** — the first two only
 tell you the entry is being written and read, not that it is worth anything.
+
+## Who actually has a claim on the cap
+
+Measured 2026-09-06 by reading every workflow's triggers and `runs-on`. Rule 5 above only
+means something once this table exists, and it is much shorter than the 17 workflow files
+suggest:
+
+| Job | Runner | Runs on a PR when | Cache it justifies |
+|---|---|---|---|
+| `Windows.yml / build` | windows-2025 | every native change | `sccache-windows-2025-release`, `vcpkg-Windows`, `Windows-vulkan-prebuilt-sdk`, `ffmpeg-Windows` |
+| `asan.yml / asan-windows` | windows-2025 | every native change | `sccache-asan-windows-2025` (#1082); shares the vcpkg and Vulkan entries above |
+| `dist-archive.yml / archive` | windows-2025 | only 4 paths (`CMakeLists.txt`, two `cmake/*.cmake`, its own file) | vcpkg only. A full Dist build with **no compiler cache**, and that is correct — a job that runs on a few percent of PRs should not hold ~2 GiB. |
+| `steam-stub.yml / single-valve-tu` | ubuntu-24.04 | only Steam-seam changes | none; it compiles one TU |
+| `pre-commit`, `detect-changes`, `cancel-merged-pr-runs` | ubuntu-latest | every PR | none; seconds |
+
+Everything else that runs on a PR is **self-hosted** — `asan.yml`'s three Linux sanitizer
+jobs, `vulkan-off.yml`, `steam-stub.yml / stub-build` — and caches on the box's local disk.
+Note the trap: a self-hosted runner still talks to the **remote** Actions cache service, so
+an `actions/cache` step there spends the shared cap exactly like a hosted one does. Being
+self-hosted does not make a cache free; using local disk does.
+
+And everything else in the fleet — `SonarCloud`, `cross-vendor`, `fuzz`, `video-ffmpeg`,
+`gpu-*`, `flaky-repro-281`, `release` — is `schedule` or `workflow_dispatch` only. It has no
+claim. `Linux-vulkan-prebuilt-sdk` (291 MiB) is the one survivor of that category: it is
+created solely by `video-ffmpeg.yml`'s linux matrix arm, which never runs on a PR. Left in
+place at 3 % of the cap because it works and removing it only slows a nightly — but it is
+the first thing to cut if the store gets tight again.
 
 ## Adding a cache to this repo
 
