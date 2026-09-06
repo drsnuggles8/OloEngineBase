@@ -36,9 +36,9 @@ namespace OloEngine::Tests
     // permanently guilty of a leak it did not cause.
     TEST(RendererStateCheckTest, InvalidSnapshotPairIsNotALeak)
     {
-        RendererState::Snapshot invalid;   // Valid == false
-        RendererState::Snapshot valid;     //
-        valid.Valid = true;                //
+        RendererState::Snapshot invalid; // Valid == false
+        RendererState::Snapshot valid;   //
+        valid.Valid = true;              //
         valid.Fog.Enabled = !valid.Fog.Enabled;
 
         std::string detail;

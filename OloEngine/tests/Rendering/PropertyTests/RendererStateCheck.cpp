@@ -27,7 +27,7 @@ namespace OloEngine::Tests::RendererState
         // If one of these fires, the settings struct grew a non-trivial member.
         // Give it an `operator==` and compare it explicitly instead of adding
         // it to the memcmp path.
-        template <typename T>
+        template<typename T>
         [[nodiscard]] bool BytesEqual(const T& a, const T& b)
         {
             static_assert(std::is_trivially_copyable_v<T>,
@@ -40,19 +40,19 @@ namespace OloEngine::Tests::RendererState
         // Describe and Restore all walk this list, so an entry added to one is
         // an entry added to all three — the failure mode that produced this
         // whole issue was a save/restore pair that covered different sets.
-#define OLO_RENDERER_STATE_STRUCT_ENTRIES(X)                                                       \
-    X(Renderer, "RendererSettings", Renderer3D::GetRendererSettings())                             \
-    X(PostProcess, "PostProcessSettings", Renderer3D::GetPostProcessSettings())                    \
-    X(Snow, "SnowSettings", Renderer3D::GetSnowSettings())                                         \
-    X(Fog, "FogSettings", Renderer3D::GetFogSettings())                                            \
-    X(Wind, "WindSettings", Renderer3D::GetWindSettings())                                         \
-    X(SnowAccumulation, "SnowAccumulationSettings", Renderer3D::GetSnowAccumulationSettings())     \
-    X(WaterDisturbance, "WaterDisturbanceSettings", Renderer3D::GetWaterDisturbanceSettings())     \
-    X(WaterWakeShape, "WaterWakeSettings", Renderer3D::GetWaterWakeSettings())                     \
-    X(WaterFoamAdvection, "WaterFoamSettings", Renderer3D::GetWaterFoamSettings())                 \
-    X(SnowEjecta, "SnowEjectaSettings", Renderer3D::GetSnowEjectaSettings())                       \
-    X(Precipitation, "PrecipitationSettings", Renderer3D::GetPrecipitationSettings())              \
-    X(Cloudscape, "CloudscapeRenderState", Renderer3D::GetCloudscapeState())                       \
+#define OLO_RENDERER_STATE_STRUCT_ENTRIES(X)                                                   \
+    X(Renderer, "RendererSettings", Renderer3D::GetRendererSettings())                         \
+    X(PostProcess, "PostProcessSettings", Renderer3D::GetPostProcessSettings())                \
+    X(Snow, "SnowSettings", Renderer3D::GetSnowSettings())                                     \
+    X(Fog, "FogSettings", Renderer3D::GetFogSettings())                                        \
+    X(Wind, "WindSettings", Renderer3D::GetWindSettings())                                     \
+    X(SnowAccumulation, "SnowAccumulationSettings", Renderer3D::GetSnowAccumulationSettings()) \
+    X(WaterDisturbance, "WaterDisturbanceSettings", Renderer3D::GetWaterDisturbanceSettings()) \
+    X(WaterWakeShape, "WaterWakeSettings", Renderer3D::GetWaterWakeSettings())                 \
+    X(WaterFoamAdvection, "WaterFoamSettings", Renderer3D::GetWaterFoamSettings())             \
+    X(SnowEjecta, "SnowEjectaSettings", Renderer3D::GetSnowEjectaSettings())                   \
+    X(Precipitation, "PrecipitationSettings", Renderer3D::GetPrecipitationSettings())          \
+    X(Cloudscape, "CloudscapeRenderState", Renderer3D::GetCloudscapeState())                   \
     X(UnderwaterFog, "UnderwaterFogState", Renderer3D::GetUnderwaterFogState())
 
         // The scalar toggles, which have distinct getters and setters rather
@@ -118,15 +118,15 @@ namespace OloEngine::Tests::RendererState
 
         std::vector<std::string> changed;
 
-#define OLO_DIFF_STRUCT(member, label, accessor)                                                   \
-    if (!BytesEqual(before.member, after.member))                                                  \
+#define OLO_DIFF_STRUCT(member, label, accessor)  \
+    if (!BytesEqual(before.member, after.member)) \
         changed.emplace_back(label);
         OLO_RENDERER_STATE_STRUCT_ENTRIES(OLO_DIFF_STRUCT)
 #undef OLO_DIFF_STRUCT
 
-#define OLO_DIFF_SCALAR(member, label, getter, setter)                                             \
-    if (before.member != after.member)                                                             \
-        changed.emplace_back(std::string(label) + " (" + (before.member ? "true" : "false") +      \
+#define OLO_DIFF_SCALAR(member, label, getter, setter)                                        \
+    if (before.member != after.member)                                                        \
+        changed.emplace_back(std::string(label) + " (" + (before.member ? "true" : "false") + \
                              " -> " + (after.member ? "true" : "false") + ")");
         OLO_RENDERER_STATE_SCALAR_ENTRIES(OLO_DIFF_SCALAR)
 #undef OLO_DIFF_SCALAR

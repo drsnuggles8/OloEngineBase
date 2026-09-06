@@ -277,7 +277,6 @@ namespace OloEngine
         static void ReclaimSharedRenderState();
 
       public:
-
         // Diagnostics: which GPU-resource-holding members of s_Data are still alive?
         //
         // Shutdown() must release every one of them. A Ref<> it forgets survives into
