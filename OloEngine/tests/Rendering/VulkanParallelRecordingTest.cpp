@@ -53,6 +53,7 @@ TEST(VulkanParallelRecording, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/RenderGraphPlanExecutor.h"
 #include "OloEngine/Renderer/RenderGraphSubmissionPlan.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -735,6 +736,20 @@ class VulkanParallelRecordingDevice : public ::testing::Test
 
 TEST_F(VulkanParallelRecordingDevice, GraphRecordsSharedUnboundUniformAndTimesOrderedPasses)
 {
+    // This test asserts on the EXACT set of pass timings it recorded, so it
+    // needs a pool of its own. `Initialize` early-outs when the pool is already
+    // up, so in a single-process run it would otherwise inherit the renderer's
+    // pool and read that frame's ~16 accumulated timings instead of its 2
+    // (issue #1074).
+    //
+    // Released HERE, before the Vulkan backend is selected below, because
+    // `Shutdown` destroys its query objects through `RenderCommand` — the
+    // renderer's queries are GL objects and must be freed on the GL backend that
+    // created them, not through a Vulkan device that never owned them.
+    // `Renderer3D::BeginScene` re-creates the pool on its own backend when it
+    // next draws.
+    GPUPassTimerPool::GetInstance().Shutdown();
+
     ScopedVulkanRenderCommandSelection renderCommandSelection;
     EnsureTaskWorkers();
     auto& api = renderCommandSelection.Get();
@@ -797,6 +812,23 @@ TEST_F(VulkanParallelRecordingDevice, GraphRecordsSharedUnboundUniformAndTimesOr
     ASSERT_EQ(plan.size(), 2u);
     ASSERT_EQ(plan[0].RecordingGroup, plan[1].RecordingGroup);
     ASSERT_NE(plan[0].RecordingGroup, UINT32_MAX);
+    // MeshPrimitives::Shutdown stays UNCONDITIONAL despite being a process-wide
+    // singleton the renderer also owns: the primitives this test builds are
+    // backed by Vulkan buffers, and they must be released before this test's
+    // Vulkan device tears its memory blocks down. Skipping it trades the
+    // cross-test leak for a hard VMA abort — "Some allocations were not freed
+    // before destruction of this memory block". The primitive cache rebuilds
+    // lazily, so the later-test cost is a rebuild rather than a dead singleton.
+    // Initialize unconditionally: this test asserts on the EXACT set of pass
+    // timings it recorded, so it needs a pool of its own. Inheriting the
+    // renderer's carries ~16 accumulated timings and the assertion reads 18
+    // instead of 2.
+    //
+    // Shutdown likewise stays unconditional — the pool's query objects belong to
+    // the Vulkan device selected here. Leaving it dead used to stop every later
+    // GPU-timing test from measuring anything (issue #1074);
+    // `Renderer3D::BeginScene` now re-initializes it when it next draws, on the
+    // renderer's own backend rather than on this device.
     auto& timers = GPUPassTimerPool::GetInstance();
     timers.Initialize(8);
     struct Cleanup
@@ -860,9 +892,19 @@ TEST_F(VulkanParallelRecordingDevice, MeshParticleRangesMatchInlinePixels)
     if (std::filesystem::exists("OloEditor/assets/shaders/Particle_Mesh.glsl"))
         std::filesystem::current_path("OloEditor");
     ASSERT_TRUE(std::filesystem::exists("assets/shaders/Particle_Mesh.glsl"));
+
     ScopedVulkanRenderCommandSelection renderCommandSelection;
     EnsureTaskWorkers();
     auto& api = renderCommandSelection.Get();
+    // Init/Shutdown both stay unconditional: this builds the batch renderer's
+    // buffers against the VULKAN backend selected just above, so reusing the GL
+    // renderer's instance would draw Vulkan work through GL-backed buffers, and
+    // skipping the Shutdown strands Vulkan allocations past device teardown
+    // ("Some allocations were not freed before destruction of this memory
+    // block"). Rebuilding the GL renderer's instance here would not help either:
+    // VulkanPassSuiteTest's own fixture shuts ParticleBatchRenderer down again
+    // a few suites later, so the durable fix for particle rendering after a
+    // Vulkan excursion belongs there, not here.
     ParticleBatchRenderer::Init();
     struct Cleanup
     {
@@ -1012,6 +1054,19 @@ TEST_F(VulkanParallelRecordingDevice, ForkRecordsEachItemIntoItsOwnTargetThrough
 // SSBO, even when the same material index is replayed repeatedly on an item.
 TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInstanceUploads)
 {
+    // The Shutdown below is NOT optional: this test's dispatcher state is bound
+    // to buffers allocated against the Vulkan device selected here, and they
+    // must be released before that device tears its memory blocks down.
+    // Skipping it aborts the process on a VMA assertion ("Some allocations were
+    // not freed before destruction of this memory block").
+    //
+    // It also drops the shared camera / material / bone UBOs that
+    // `Renderer3D::Init` publishes exactly once, which used to leave every later
+    // rendering test in a single-process run drawing with no camera or material
+    // UBO bound (issue #1074). Nothing is restored here on purpose: republishing
+    // at this point would leave GL-currency handles in the dispatcher across the
+    // Vulkan suites that follow — the hazard VulkanPassSuiteTest documents.
+    // `Renderer3D::BeginScene` re-homes its own buffers when it next draws.
     ScopedVulkanRenderCommandSelection renderCommandSelection;
     EnsureTaskWorkers();
     VulkanFrameArena::Get().BeginFrame(0);

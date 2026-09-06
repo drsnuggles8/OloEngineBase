@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 
@@ -43,9 +45,29 @@ namespace OloEngine
         s_Data.CullFarClip = s_Data.CameraFarClip;
     }
 
+    void Renderer3D::ReclaimSharedRenderState()
+    {
+        // Re-take ownership of the process-wide singletons Init brought up, if
+        // anything shut them down while this renderer stayed live. A Vulkan
+        // device test does exactly that, and must: their GPU objects belong to
+        // the device it is about to destroy. Left dead, the dispatcher hands
+        // every later draw no camera or material UBO and the timer pool measures
+        // nothing — with no GL error and no log line to point at (issue #1074).
+        //
+        // Lazy on purpose. Restoring at the point of teardown would republish
+        // GL-currency handles across the Vulkan suites that follow, which is the
+        // hazard VulkanPassSuiteTest documents; doing it as we begin a frame
+        // re-arms them on OUR backend, at the moment we are about to need them.
+        if (!CommandDispatch::HasUBOReferences())
+            RepublishCommandDispatchBindings();
+        if (auto& passTimers = GPUPassTimerPool::GetInstance(); !passTimers.IsInitialized())
+            passTimers.Initialize();
+    }
+
     void Renderer3D::BeginScene(const PerspectiveCamera& camera)
     {
         OLO_PROFILE_FUNCTION();
+        ReclaimSharedRenderState();
         AdvanceDecalVisibilityFrame();
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
         // HERE so an empty list can only mean "no light asked this frame" —
@@ -69,6 +91,7 @@ namespace OloEngine
     void Renderer3D::BeginScene(const EditorCamera& camera)
     {
         OLO_PROFILE_FUNCTION();
+        ReclaimSharedRenderState();
         AdvanceDecalVisibilityFrame();
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
         // HERE so an empty list can only mean "no light asked this frame" —
@@ -92,6 +115,7 @@ namespace OloEngine
     void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& transform)
     {
         OLO_PROFILE_FUNCTION();
+        ReclaimSharedRenderState();
         AdvanceDecalVisibilityFrame();
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
         // HERE so an empty list can only mean "no light asked this frame" —
