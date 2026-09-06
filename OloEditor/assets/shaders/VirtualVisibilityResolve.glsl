@@ -255,15 +255,19 @@ void main()
     uint swRecordIndex = packedPixel.x >> 9u;
     uint triangleIndex = packedPixel.x & 0x1FFu;
     // CLAMP, don't merely `discard` (issue #1058). Every index below comes out
-    // of a GPU-written buffer, and each one addresses the NEXT buffer — so the
-    // guard has to stop the ADDRESS being formed, not just stop the fragment
-    // being written. `discard` does not do that: it kills the fragment's
-    // output, while the invocation (and its helper lanes) keeps running and the
-    // dependent loads are still issued. Under a bare device address (ADR 0011
-    // §4) such a load has no bounds, so it is a device fault rather than a
-    // wrong pixel. The sentinel makes it certain rather than unlikely: a
+    // of a GPU-written buffer, and each one addresses the NEXT buffer, so the
+    // guard has to stop the ADDRESS being formed and not just stop the fragment
+    // being written. `discard` is not a portable guarantee of that: at this
+    // tier (vulkan_1_4 / SPIR-V 1.6) it may lower to OpDemoteToHelperInvocation,
+    // which explicitly does NOT terminate -- the invocation continues as a
+    // helper and the loads after it still execute -- rather than to
+    // OpTerminateInvocation, which does. A driver may also speculate the load
+    // ahead of the branch. Under a bare device address (ADR 0011 section 4) such
+    // a load has no bounds, so it is a device fault rather than a wrong pixel,
+    // and the sentinel makes it the common case rather than an edge case: a
     // CLEARED visibility-buffer pixel is all-ones, which decodes to
     // swRecordIndex 0x7FFFFF, and on any frame most of the screen is cleared.
+    // See docs/agent-rules/discard-is-not-a-bounds-check.md.
     // Bounded by the list's CAPACITY, not by its Count: Count is an unguarded
     // atomicAdd in VirtualClusterCull.comp (the append itself is bounded, the
     // counter is not), so a GPU overflow would inflate the very number the read

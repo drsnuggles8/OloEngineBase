@@ -1,14 +1,29 @@
 # `discard` is not a bounds check
 
 **In a fragment shader, bound a GPU-driven index by clamping it, not by
-`discard`ing above it.** `discard` stops the fragment being *written*; it does
-not stop the invocation continuing, so a load that depends on the index is still
-issued. Under the root-data model every storage buffer reaches the shader as a
-bare `VkDeviceAddress` with no length (ADR 0011 §4), so that load has no bounds:
-it is a device fault, not a wrong pixel.
+`discard`ing above it.** `discard` is about the fragment's *output*; on Vulkan it
+is **not** a portable guarantee that the dependent load never issues. Under the
+root-data model every storage buffer reaches the shader as a bare
+`VkDeviceAddress` with no length (ADR 0011 §4), so if that load does issue it has
+no bounds — a device fault, not a wrong pixel.
+
+Why the guarantee is not portable, on the tier this engine actually targets
+(`VulkanShader.cpp` compiles at `vulkan_1_4`, i.e. SPIR-V 1.6):
+
+- `discard` may lower to **`OpDemoteToHelperInvocation`** — core in SPIR-V 1.6,
+  and `shaderDemoteToHelperInvocation` is a core Vulkan 1.3+ feature. Demote
+  explicitly does **not** terminate: the invocation carries on as a helper, and
+  the loads after it still execute.
+- It may instead lower to **`OpTerminateInvocation`**, which does terminate the
+  invocation (`OpKill`'s SPIR-V 1.6 replacement).
+
+Which one you get is a property of the compiler, the target env and the shader's
+declared capabilities, not of the GLSL you wrote — and a driver may still
+speculate the load ahead of the branch. So do not make memory safety depend on
+the answer. Clamp, and let `discard` do the one job it is unambiguously for.
 
 ```glsl
-// WRONG — the load below still happens for a rejected index
+// WRONG — the load below may still happen for a rejected index
 if (i >= count)
     discard;
 Record r = records[i];
@@ -35,7 +50,10 @@ pixels[] → swRecordIndex → swList.Records[] → ClusterIndex → clusters[] 
 ```
 
 Every step was guarded — and every guard was a `discard`. The pass device-faulted
-with `VK_EXT_device_fault` reporting a READ of invalid address, 3/3.
+with `VK_EXT_device_fault` reporting a READ of invalid address, 3/3. Clamping the
+indices fixed it; I did not disassemble the SPIR-V to establish *which* of the
+lowerings above (or plain load speculation) let the reads through, and the fix is
+the same either way.
 
 **The data was fine.** A CPU readback of one frame gave `swList.Count` 604
 against a capacity of 4860, and across all 604 records: zero bad instance
@@ -65,9 +83,10 @@ second.
 
 - **`discard` makes bisecting unreliable.** Moving a `discard` up and down the
   shader to find the faulting line gives answers that contradict each other,
-  because the thing you are moving is exactly the thing that does not stop
-  execution. Bisect with a **constant write plus `return`** instead, and the
-  partition becomes trustworthy.
+  because the thing you are moving is exactly the thing whose stopping power is
+  in question. Bisect with a **constant write to every output plus `return`**
+  instead — `return` from `main()` is unambiguous — and the partition becomes
+  trustworthy.
 - **Blaming the arm named in the issue.** The fault was predicted for the
   mesh-shader raster arm. The three-cell matrix settled it in three runs:
   `forcemdi` faulted identically (exonerating the mesh arm) and
