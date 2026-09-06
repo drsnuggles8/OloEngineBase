@@ -154,8 +154,114 @@ namespace OloEngine::Tests
             return ss.str();
         }
 
+        // Blank out comments and string/char literals, preserving length and
+        // newlines so nothing else shifts.
+        //
+        // Load-bearing, not tidiness: the accessor this guard parses is mostly
+        // a long explanatory comment, including a quoted ASan stack. Brace
+        // matching over the raw text would let a single `}` written into that
+        // comment — another stack frame, a `s_Data{}` — close the body early
+        // and fail the check with a "#1088 has regressed" message while the fix
+        // is perfectly intact. A stray `{` mirrors it, running the match past
+        // the real closing brace.
+        [[nodiscard]] std::string StripCommentsAndLiterals(const std::string& source)
+        {
+            std::string out = source;
+            enum class State
+            {
+                Code,
+                LineComment,
+                BlockComment,
+                String,
+                Char
+            };
+            State state = State::Code;
+
+            for (sizet i = 0; i < out.size(); ++i)
+            {
+                const char c = out[i];
+                const char next = (i + 1 < out.size()) ? out[i + 1] : '\0';
+
+                switch (state)
+                {
+                    case State::Code:
+                        if (c == '/' && next == '/')
+                        {
+                            state = State::LineComment;
+                            out[i] = out[i + 1] = ' ';
+                            ++i;
+                        }
+                        else if (c == '/' && next == '*')
+                        {
+                            state = State::BlockComment;
+                            out[i] = out[i + 1] = ' ';
+                            ++i;
+                        }
+                        else if (c == '"')
+                        {
+                            state = State::String;
+                        }
+                        else if (c == '\'')
+                        {
+                            state = State::Char;
+                        }
+                        break;
+
+                    case State::LineComment:
+                        if (c == '\n')
+                        {
+                            state = State::Code;
+                        }
+                        else
+                        {
+                            out[i] = ' ';
+                        }
+                        break;
+
+                    case State::BlockComment:
+                        if (c == '*' && next == '/')
+                        {
+                            state = State::Code;
+                            out[i] = out[i + 1] = ' ';
+                            ++i;
+                        }
+                        else if (c != '\n')
+                        {
+                            out[i] = ' ';
+                        }
+                        break;
+
+                    case State::String:
+                    case State::Char:
+                    {
+                        const char closing = (state == State::String) ? '"' : '\'';
+                        if (c == '\\')
+                        {
+                            out[i] = ' ';
+                            if (i + 1 < out.size() && next != '\n')
+                            {
+                                out[i + 1] = ' ';
+                                ++i;
+                            }
+                        }
+                        else if (c == closing)
+                        {
+                            state = State::Code;
+                        }
+                        else if (c != '\n')
+                        {
+                            out[i] = ' ';
+                        }
+                        break;
+                    }
+                }
+            }
+
+            return out;
+        }
+
         // The body of a function, from its signature to the matching closing
-        // brace at brace-depth 0.
+        // brace at brace-depth 0. Call with comment-stripped source.
         [[nodiscard]] std::string ExtractFunctionBody(const std::string& source,
                                                       const std::string& signature)
         {
@@ -202,7 +308,7 @@ namespace OloEngine::Tests
         const std::string source = ReadFile(path);
         ASSERT_FALSE(source.empty()) << "could not read " << path.string();
 
-        const std::string body = ExtractFunctionBody(source, kAccessorSignature);
+        const std::string body = ExtractFunctionBody(StripCommentsAndLiterals(source), kAccessorSignature);
         ASSERT_FALSE(body.empty())
             << "could not find the body of " << kAccessorSignature << " in " << path.string()
             << " — this guard has stopped checking anything. If the accessor was renamed or "
@@ -220,6 +326,31 @@ namespace OloEngine::Tests
                "shaders, so ~OpenGLShader::Unregister reads freed buckets (issue #1088, ASan "
                "heap-use-after-free). Keep the `static auto* x = new ...` form. See "
                "docs/agent-rules/lazy-static-release-ownership.md.";
+    }
+
+    // The extraction above must survive an edit to the accessor's comment.
+    // Without comment stripping a single `}` written into that (long, and
+    // brace-free only by luck) comment truncates the body and reports the fix
+    // as regressed — a false red on a correct tree, which is the worst kind of
+    // guard failure because the obvious response is to "fix" working code.
+    TEST(ShaderRegistryTeardownOrderTest, BodyExtractionIgnoresBracesInCommentsAndLiterals)
+    {
+        const std::string decoy =
+            "auto Accessor()\n"
+            "{\n"
+            "    // a closing brace in prose: }\n"
+            "    /* and a block one: } plus an opener { */\n"
+            "    const char* s = \"} { \\\" }\";\n"
+            "    static auto* s_Thing = new std::unordered_map<u32, int>();\n"
+            "    return *s_Thing;\n"
+            "}\n";
+
+        const std::string body = ExtractFunctionBody(StripCommentsAndLiterals(decoy), "Accessor()");
+        ASSERT_FALSE(body.empty()) << "extraction found no body at all";
+        EXPECT_NE(body.find("s_Thing"), std::string::npos)
+            << "extraction stopped at a brace inside a comment or string literal, so the guard "
+               "would read a truncated body and report a regression that is not there. Extracted:\n"
+            << body;
     }
 
     // Non-vacuity for guard 2: an unconstructed or elided probe silently
