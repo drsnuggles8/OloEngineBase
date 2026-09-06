@@ -36,6 +36,15 @@ layout(std140, binding = 70) uniform VirtualRasterParams
     uint  u_Phase;          // 8  — portable raster: 0 = depth atomicMin, 1 = payload write
                             //      (ignored in INT64 mode)
     float u_OverdrawScale;  // 12 — colorize: count that maps to the hot end of the ramp
+    // 16 — records the software-raster work list can hold (issue #1058). The
+    //      raster bounds its work-list index by THIS and not by the list's own
+    //      Count: the cull's atomicAdd on Count is unguarded (#862 bounded the
+    //      append, not the counter), so a GPU overflow would inflate the very
+    //      number the read is bounded by. 0 = an empty list.
+    uint  u_SwListCapacity;
+    uint  _vrPad0;          // 20 — std140 rounds the block to a 16-byte multiple;
+    uint  _vrPad1;          // 24   explicit so the C++ mirror is a plain struct.
+    uint  _vrPad2;          // 28
 };
 
 // blue (low) -> green (mid) -> red (high)

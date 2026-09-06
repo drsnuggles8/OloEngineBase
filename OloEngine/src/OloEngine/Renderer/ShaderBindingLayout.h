@@ -1277,6 +1277,17 @@ namespace OloEngine
             u32 ViewportHeight; // 4
             u32 Phase;          // 8 — portable raster: 0 = depth atomicMin, 1 = payload write
             f32 OverdrawScale;  // 12 — colorize: count mapping to the hot end of the ramp
+            // 16 — records the software-raster work list can hold (issue #1058).
+            // The raster bounds its work-list index by THIS and not by the list's
+            // own Count: the cull's `atomicAdd(swList.Count, 1)` is unguarded
+            // (issue #862 bounded the append, not the counter), so bounding the
+            // read by Count would let a GPU overflow inflate the very number the
+            // read is bounded by, and Records[] is reached by a bare device
+            // address with no bounds. 0 = an empty list.
+            u32 SwListCapacity;
+            u32 Pad0;           // 20 — std140 rounds the block to a 16-byte multiple;
+            u32 Pad1;           // 24   the pads are explicit so this stays a plain
+            u32 Pad2;           // 28   struct the GLSL twins mirror byte for byte.
 
             static constexpr u32 GetSize()
             {
@@ -1285,8 +1296,8 @@ namespace OloEngine
         };
 
         static_assert(sizeof(VirtualRasterUBO) % 16 == 0, "VirtualRasterUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(VirtualRasterUBO) == 16,
-                      "VirtualRasterUBO std140 size drifted from GLSL expectation (16 B)");
+        static_assert(sizeof(VirtualRasterUBO) == 32,
+                      "VirtualRasterUBO std140 size drifted from GLSL expectation (32 B)");
 
         // @brief GPU instance-cull parameters, uploaded at UBO_INSTANCE_CULL
         // (71). GLSL twin: the InstanceCullParams block shared verbatim by

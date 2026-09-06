@@ -774,6 +774,11 @@ namespace OloEngine
             UBOStructures::VirtualRasterUBO rasterParams{};
             rasterParams.ViewportWidth = registry.GetVisbufferWidth();
             rasterParams.ViewportHeight = registry.GetVisbufferHeight();
+            // The SAME number the cull bound its appends by (u_SwCapacity), and
+            // the same one the resolve draw gets in VirtualDrawInfo — the raster
+            // bounds its work-list index by this rather than by the list's own
+            // unguarded Count (issue #1058).
+            rasterParams.SwListCapacity = maxSwRecords;
             if (useInt64)
             {
                 // One atomicMin per covered pixel resolves depth + payload
