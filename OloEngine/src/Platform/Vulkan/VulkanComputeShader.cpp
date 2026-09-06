@@ -7,6 +7,7 @@
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanRecordingContext.h"
+#include "Platform/Vulkan/VulkanShaderReflection.h"
 
 // Shared preprocessing, same Platform-to-Platform reuse VulkanShader records.
 #include "Platform/OpenGL/OpenGLShader.h"
@@ -239,11 +240,18 @@ namespace OloEngine
                             break;
                     }
                 }
+                // Declared array length (#1078), through the SAME helper the
+                // graphics reflector uses. Without it a compute sampler/image
+                // array takes the scalar adjacency mapping and reads the wrong
+                // resource for every element past [0].
+                const u32 arrayCount =
+                    VulkanReflection::ReflectBindingArrayCount(reflector, resource, m_Name.c_str());
                 newBindings.push_back({ .Set = reflector.get_decoration(resource.id, spv::DecorationDescriptorSet),
                                         .Binding = reflector.get_decoration(resource.id, spv::DecorationBinding),
                                         .BindingKind = kind,
                                         .ImageDim = imageDim,
                                         .Stages = VK_SHADER_STAGE_COMPUTE_BIT,
+                                        .ArrayCount = arrayCount,
                                         .Name = resource.name });
             };
             for (const auto& resource : resources.uniform_buffers)

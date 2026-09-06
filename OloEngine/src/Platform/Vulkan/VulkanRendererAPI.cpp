@@ -2387,57 +2387,70 @@ namespace OloEngine
                 // amendment (29): image units and texture slots are DISJOINT
                 // namespaces — source by the binding's KIND.
                 const bool storageImage = binding.BindingKind == VulkanShaderBinding::Kind::StorageImage;
-                u32 slot = storageImage ? bindingState.GetImageHeapSlot(binding.Binding)
-                                        : bindingState.GetTextureHeapSlot(binding.Binding);
-                if (slot == VulkanBindingState::kNoHeapSlot)
+
+                // One index PER ARRAY ELEMENT (#1078). `sampler2D u[32]` is one
+                // binding whose element i is fed by texture UNIT
+                // binding.Binding + i — the same unit numbering GL gives it
+                // through glUniform1iv, and the numbering Renderer2D binds
+                // with. Writing only element 0 and letting the mapping derive
+                // the rest from a heap stride is what required the array's
+                // slots to be consecutive; they are not.
+                const u32 elementCount = std::max(binding.ArrayCount, 1u);
+                for (u32 element = 0; element < elementCount; ++element)
                 {
-                    // Sampled bindings resolve to the zero-filled null
-                    // texture of the declaration's dimensionality — GL's
-                    // "unbound sampler reads black" (#691; slot 0
-                    // leaked the first-registered texture into every unfed
-                    // sampler). Storage images keep the slot-0 fallback: a
-                    // write target has no safe neutral image, and no
-                    // production shader dispatches with an unfed image unit.
-                    u32 nullSlot = VulkanResourceHeap::InvalidSlot;
-                    // Multisampled declarations (sampler2DMS) have no null MS
-                    // image to fall back to, and a single-sample null under an
-                    // MS sampler is the wrong-view-type bug the typed fallback
-                    // exists to prevent — leave the slot invalid so the
-                    // warn-once below names the shader and binding instead.
-                    const bool multisampled = binding.ImageDim == VulkanShaderBinding::TexDim::Tex2DMS ||
-                                              binding.ImageDim == VulkanShaderBinding::TexDim::Tex2DMSArray;
-                    if (!storageImage && !multisampled)
+                    const u32 unit = binding.Binding + element;
+                    u32 slot = storageImage ? bindingState.GetImageHeapSlot(unit)
+                                            : bindingState.GetTextureHeapSlot(unit);
+                    if (slot == VulkanBindingState::kNoHeapSlot)
                     {
-                        nullSlot =
-                            VulkanDescriptorHeapBackend::Get().GetNullSampledHeapSlot(ToNullViewType(binding.ImageDim));
-                    }
-                    static VulkanWarnOnceSet s_WarnedSlots; // items may fail concurrently (#806)
-                    if (s_WarnedSlots.Insert(std::string(shaderName) + ":" + std::to_string(binding.Binding)))
-                    {
-                        // The sampled fallback is SILENT: reading black from an
-                        // unfed optional sampler is the GL contract (GL warns
-                        // about nothing here), and every editor scene has a few
-                        // by design (u_Use*Map-gated material maps, optional
-                        // water inputs) — logging it is pure noise. The
-                        // storage-image arm stays a WARN — slot 0 as a WRITE
-                        // target is never by design.
-                        if (nullSlot == VulkanResourceHeap::InvalidSlot)
+                        // Sampled bindings resolve to the zero-filled null
+                        // texture of the declaration's dimensionality — GL's
+                        // "unbound sampler reads black" (#691; slot 0
+                        // leaked the first-registered texture into every unfed
+                        // sampler). Storage images keep the slot-0 fallback: a
+                        // write target has no safe neutral image, and no
+                        // production shader dispatches with an unfed image unit.
+                        u32 nullSlot = VulkanResourceHeap::InvalidSlot;
+                        // Multisampled declarations (sampler2DMS) have no null MS
+                        // image to fall back to, and a single-sample null under an
+                        // MS sampler is the wrong-view-type bug the typed fallback
+                        // exists to prevent — leave the slot invalid so the
+                        // warn-once below names the shader and binding instead.
+                        const bool multisampled = binding.ImageDim == VulkanShaderBinding::TexDim::Tex2DMS ||
+                                                  binding.ImageDim == VulkanShaderBinding::TexDim::Tex2DMSArray;
+                        if (!storageImage && !multisampled)
                         {
-                            OLO_CORE_WARN("[RHI/Vulkan] '{}' {} binding {} has no staged heap slot — slot 0",
-                                          shaderName, storageImage ? "image" : "texture", binding.Binding);
+                            nullSlot =
+                                VulkanDescriptorHeapBackend::Get().GetNullSampledHeapSlot(ToNullViewType(binding.ImageDim));
                         }
+                        static VulkanWarnOnceSet s_WarnedSlots; // items may fail concurrently (#806)
+                        if (s_WarnedSlots.Insert(std::string(shaderName) + ":" + std::to_string(unit)))
+                        {
+                            // The sampled fallback is SILENT: reading black from an
+                            // unfed optional sampler is the GL contract (GL warns
+                            // about nothing here), and every editor scene has a few
+                            // by design (u_Use*Map-gated material maps, optional
+                            // water inputs) — logging it is pure noise. The
+                            // storage-image arm stays a WARN — slot 0 as a WRITE
+                            // target is never by design.
+                            if (nullSlot == VulkanResourceHeap::InvalidSlot)
+                            {
+                                OLO_CORE_WARN("[RHI/Vulkan] '{}' {} binding {} has no staged heap slot — slot 0",
+                                              shaderName, storageImage ? "image" : "texture", unit);
+                            }
+                        }
+                        slot = nullSlot != VulkanResourceHeap::InvalidSlot ? nullSlot : 0u;
                     }
-                    slot = nullSlot != VulkanResourceHeap::InvalidSlot ? nullSlot : 0u;
-                }
-                std::memcpy(ctx.RootScratch.data() + field.Offset, &slot, sizeof(slot));
-                if (!storageImage)
-                {
-                    // The sampler half (#691): the SAMPLER-heap slot
-                    // BindTexture staged beside the texture slot. Zero (the
-                    // default linear/clamp sampler) when nothing was staged.
-                    const u32 samplerSlot = bindingState.GetTextureSamplerSlot(binding.Binding);
-                    std::memcpy(ctx.RootScratch.data() + field.Offset + VulkanRootDataLayout::kSamplerIndexOffset,
-                                &samplerSlot, sizeof(samplerSlot));
+                    std::memcpy(ctx.RootScratch.data() + field.Offset + 4u * element, &slot, sizeof(slot));
+                    if (!storageImage)
+                    {
+                        // The sampler half (#691): the SAMPLER-heap slot
+                        // BindTexture staged beside the texture slot. Zero (the
+                        // default linear/clamp sampler) when nothing was staged.
+                        const u32 samplerSlot = bindingState.GetTextureSamplerSlot(unit);
+                        std::memcpy(ctx.RootScratch.data() + field.SamplerOffset + 4u * element, &samplerSlot,
+                                    sizeof(samplerSlot));
+                    }
                 }
             }
         }

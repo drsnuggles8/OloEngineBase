@@ -8,6 +8,7 @@
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
+#include "Platform/Vulkan/VulkanShaderReflection.h"
 
 // Shared preprocessing: the #include resolution (and its include-path capture
 // for staleness) is shader-generic and deliberately reused from the GL class
@@ -550,6 +551,9 @@ namespace OloEngine
             // fallback (#691) — the null view type must match the
             // sampler declaration.
             auto imageDim = VulkanShaderBinding::TexDim::Tex2D;
+            // Declared array length (#1078) — shared with the compute
+            // reflector so the two cannot drift.
+            const u32 arrayCount = VulkanReflection::ReflectBindingArrayCount(compiler, resource, m_Name.c_str());
             if (kind == VulkanShaderBinding::Kind::CombinedImageSampler ||
                 kind == VulkanShaderBinding::Kind::StorageImage)
             {
@@ -581,6 +585,7 @@ namespace OloEngine
                                    .BindingKind = kind,
                                    .ImageDim = imageDim,
                                    .Stages = static_cast<VkShaderStageFlags>(stage),
+                                   .ArrayCount = arrayCount,
                                    .Name = resource.name });
         };
 
