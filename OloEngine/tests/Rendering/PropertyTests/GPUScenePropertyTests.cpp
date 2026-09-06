@@ -143,9 +143,10 @@ namespace OloEngine::Tests
         scene.ReportUnsupported(GPUSceneUnsupportedCategory::LegacySubmesh, 1);
         scene.ReportUnsupported(GPUSceneUnsupportedCategory::Tiles, 4);
         scene.ReportUnsupported(GPUSceneUnsupportedCategory::Cloth, 1);
+        scene.ReportUnsupported(GPUSceneUnsupportedCategory::NotExtractable, 6);
 
         const GPUSceneFrameUpdate update = scene.EndExtraction();
-        EXPECT_EQ(update.m_Stats.m_UnsupportedTotal, 14u);
+        EXPECT_EQ(update.m_Stats.m_UnsupportedTotal, 20u);
         EXPECT_EQ(update.m_Stats.m_UnsupportedCounts[static_cast<sizet>(
                       GPUSceneUnsupportedCategory::Virtualized)],
                   2u);
@@ -160,8 +161,15 @@ namespace OloEngine::Tests
                   4u);
         EXPECT_STREQ(GetGPUSceneUnsupportedCategoryName(GPUSceneUnsupportedCategory::SoftwareRaster),
                      "Software raster");
+        EXPECT_EQ(update.m_Stats.m_UnsupportedCounts[static_cast<sizet>(
+                      GPUSceneUnsupportedCategory::NotExtractable)],
+                  6u);
         EXPECT_STREQ(GetGPUSceneUnsupportedCategoryName(GPUSceneUnsupportedCategory::LegacyModel),
                      "Legacy model");
+        // Geometry that was OFFERED and rejected, as opposed to geometry a path
+        // knew in advance it could not represent (issue #1065).
+        EXPECT_STREQ(GetGPUSceneUnsupportedCategoryName(GPUSceneUnsupportedCategory::NotExtractable),
+                     "Not extractable");
     }
 
     TEST(GPUScene, OwnerChangeInvalidatesTemporalIdentityEvenForTheSameKeys)

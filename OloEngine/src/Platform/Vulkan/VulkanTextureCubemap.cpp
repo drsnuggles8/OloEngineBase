@@ -369,6 +369,13 @@ namespace OloEngine
         if (device == nullptr || m_Image == VK_NULL_HANDLE || clientBpp == 0u || faceCount == 0u || baseFace >= 6u ||
             faceCount > 6u - baseFace || mipLevel >= m_MipLevels)
         {
+            // Every refusal below says which one it was. A bare `return false`
+            // here cost a whole debugging session on the IBL cache: the caller
+            // reports "failed to read face 0 mip 0" and the reason — bad
+            // inputs, an unwritten image, a refused submit — was unknowable.
+            OLO_CORE_ERROR("{}: refused (device={}, image={}, clientBpp={}, baseFace={}, faceCount={}, mip={}/{})",
+                           what, device != nullptr, m_Image != VK_NULL_HANDLE, clientBpp, baseFace, faceCount,
+                           mipLevel, m_MipLevels);
             return false;
         }
         // Mid-frame: the faces' content may still sit unsubmitted in the
@@ -413,6 +420,7 @@ namespace OloEngine
         if (vmaCreateBuffer(device->GetAllocator(), &readbackInfo, &readbackAlloc, &readback, &readbackAllocation,
                             &readbackOut) != VK_SUCCESS)
         {
+            OLO_CORE_ERROR("{}: readback buffer allocation failed ({} bytes)", what, storedSize);
             return false;
         }
 
@@ -421,6 +429,9 @@ namespace OloEngine
         if (priorLayout == VK_IMAGE_LAYOUT_UNDEFINED)
         {
             // Nothing was ever uploaded/rendered — a read would be garbage.
+            OLO_CORE_ERROR("{}: the image registry still reports VK_IMAGE_LAYOUT_UNDEFINED (info={}, image={}), so "
+                           "nothing has written this cubemap through a path that publishes a resting layout",
+                           what, info != nullptr, reinterpret_cast<u64>(m_Image));
             vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
             return false;
         }
@@ -471,6 +482,11 @@ namespace OloEngine
             {
                 outData.assign(stored, stored + storedSize);
             }
+        }
+        else
+        {
+            OLO_CORE_ERROR("{}: the readback one-shot never reached the queue (priorLayout={})", what,
+                           static_cast<i32>(priorLayout));
         }
         vmaDestroyBuffer(device->GetAllocator(), readback, readbackAllocation);
         return ok;

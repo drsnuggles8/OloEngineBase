@@ -4,6 +4,9 @@
 
 #include "MCP/McpRayTracingStats.h"
 
+#include <set>
+#include <string>
+
 namespace
 {
     using namespace OloEngine::MCP;
@@ -102,6 +105,91 @@ namespace
         EXPECT_TRUE(report.at("capability").at("supported").get<bool>())
             << "noData must still say ray tracing IS available";
         EXPECT_FALSE(report.contains("resident"));
+    }
+
+    // ---------------------------------------------------------------------
+    // The canonical scene beside the structures built from it (issue #1065).
+    //
+    // The bug this block exists for: Courtyard reported 49 TLAS instances,
+    // 0 unsupported instances and 0 unsupported BLAS — a payload that reads as
+    // "everything traced fine" — while Sponza's ~25 model submeshes were never
+    // offered to the canonical scene at all. Counters that record what the RT
+    // scene REJECTED cannot see records that never arrived; only the GPU Scene
+    // side can.
+    // ---------------------------------------------------------------------
+
+    TEST(McpRayTracingStats, TheGpuSceneBlockSeparatesNothingArrivedFromNothingRejected)
+    {
+        RayTracingStats::Snapshot snapshot = ReadySnapshot();
+        snapshot.Stats.Resident.TlasInstances = 49u;
+        snapshot.Stats.Resident.UnsupportedInstances = 0u;
+        snapshot.GPUSceneAvailable = true;
+        snapshot.GPUScene.m_Instances.m_Live = 49u;
+        snapshot.GPUScene.m_UnsupportedTotal = 425u;
+        snapshot.GPUScene
+            .m_UnsupportedCounts[static_cast<sizet>(OloEngine::GPUSceneUnsupportedCategory::LegacyModel)] = 425u;
+
+        const auto report = RayTracingStats::BuildReport(snapshot);
+
+        // The RT half alone is the misleading picture the issue describes...
+        EXPECT_EQ(report.at("resident").at("unsupportedInstances").get<u32>(), 0u);
+        // ...and this is the number that makes it readable.
+        EXPECT_TRUE(report.at("gpuScene").at("available").get<bool>());
+        EXPECT_EQ(report.at("gpuScene").at("instances").get<u32>(), 49u);
+        EXPECT_EQ(report.at("gpuScene").at("notStagedTotal").get<u32>(), 425u);
+        EXPECT_EQ(report.at("gpuScene").at("notStagedByCategory").at("legacyModel").get<u32>(), 425u);
+        EXPECT_EQ(report.at("gpuScene").at("notStagedByCategory").at("notExtractable").get<u32>(), 0u);
+    }
+
+    TEST(McpRayTracingStats, EveryDiagnosticsCategoryGetsItsOwnKey)
+    {
+        // A category the report cannot name is a category whose count is
+        // invisible, which is the failure mode this whole block exists to
+        // close. Every enumerator must produce a distinct, non-"unknown" key.
+        std::set<std::string> keys;
+        for (sizet i = 0; i < OloEngine::GPUSceneUnsupportedCategoryCount; ++i)
+        {
+            const std::string key =
+                RayTracingStats::UnsupportedCategoryKey(static_cast<OloEngine::GPUSceneUnsupportedCategory>(i));
+            EXPECT_NE(key, "unknown") << "category " << i << " has no JSON key";
+            EXPECT_TRUE(keys.insert(key).second) << "duplicate key '" << key << "'";
+        }
+        EXPECT_EQ(keys.size(), OloEngine::GPUSceneUnsupportedCategoryCount);
+    }
+
+    TEST(McpRayTracingStats, TheGpuSceneBlockSurvivesANonReadyRayTracingStatus)
+    {
+        // The case that matters most: no TLAS was built. "Ray tracing had
+        // nothing to build from" and "nothing was ever offered" are different
+        // bugs with the same RT payload, so the GPU Scene counters must be
+        // present even though `resident` is not.
+        RayTracingStats::Snapshot snapshot = ReadySnapshot();
+        snapshot.State.HasData = false;
+        snapshot.GPUSceneAvailable = true;
+        snapshot.GPUScene.m_UnsupportedTotal = 12u;
+        snapshot.GPUScene
+            .m_UnsupportedCounts[static_cast<sizet>(OloEngine::GPUSceneUnsupportedCategory::NotExtractable)] = 12u;
+
+        const auto report = RayTracingStats::BuildReport(snapshot);
+
+        EXPECT_EQ(report.at("availability").at("status"), "noData");
+        EXPECT_FALSE(report.contains("resident"));
+        EXPECT_EQ(report.at("gpuScene").at("notStagedTotal").get<u32>(), 12u);
+        EXPECT_EQ(report.at("gpuScene").at("notStagedByCategory").at("notExtractable").get<u32>(), 12u);
+    }
+
+    TEST(McpRayTracingStats, AMissingRendererReportsAnUnavailableGpuSceneRatherThanZeros)
+    {
+        // Renderer down: the block says so instead of reporting zero live
+        // instances, which would read as "the scene is empty".
+        RayTracingStats::Snapshot snapshot;
+        snapshot.State.Available = false;
+
+        const auto report = RayTracingStats::BuildReport(snapshot);
+
+        EXPECT_FALSE(report.at("gpuScene").at("available").get<bool>());
+        EXPECT_FALSE(report.at("gpuScene").contains("instances"));
+        EXPECT_FALSE(report.at("gpuScene").contains("notStagedTotal"));
     }
 
     TEST(McpRayTracingStats, AMissingRendererIsUnavailable)

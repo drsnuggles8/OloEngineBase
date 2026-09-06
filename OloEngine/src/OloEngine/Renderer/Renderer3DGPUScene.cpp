@@ -134,13 +134,14 @@ namespace OloEngine
     }
 
     GPUSceneMaterialKey Renderer3D::ResolveGPUSceneMaterialKey(const Material* overrideMaterial, u64 stableEntityId,
-                                                               const Ref<MeshSource>& meshSource, u32 submeshIndex,
+                                                               const Ref<MeshSource>& meshSource,
+                                                               const Material* importedMaterial, u32 importedSlot,
                                                                GPUSceneMaterialOverrideLane overrideLane)
     {
         // The same decision that picks the material the draw shades with
         // (SubmeshMaterialResolve.h), so the key cannot name one source while
         // the draw uses another.
-        switch (ResolveSubmeshMaterialOrigin(overrideMaterial, meshSource.get(), submeshIndex))
+        switch (ResolveSubmeshMaterialOrigin(overrideMaterial, importedMaterial))
         {
             case SubmeshMaterialOrigin::Override:
                 return GPUSceneMaterialKey{
@@ -150,10 +151,10 @@ namespace OloEngine
                 };
             case SubmeshMaterialOrigin::Imported:
             {
-                const u64 owner = ImportedMaterialOwner(meshSource);
+                const u64 owner = meshSource ? ImportedMaterialOwner(meshSource) : 0;
                 return GPUSceneMaterialKey{
                     .m_Owner = owner,
-                    .m_Slot = meshSource->GetSubmeshes()[static_cast<i32>(submeshIndex)].m_MaterialIndex,
+                    .m_Slot = importedSlot,
                     .m_Source = std::to_underlying(owner != 0 ? GPUSceneMaterialSource::Imported
                                                               : GPUSceneMaterialSource::Unresolvable),
                 };
@@ -167,6 +168,23 @@ namespace OloEngine
             .m_Slot = 0,
             .m_Source = std::to_underlying(GPUSceneMaterialSource::Default),
         };
+    }
+
+    GPUSceneMaterialKey Renderer3D::ResolveGPUSceneMaterialKey(const Material* overrideMaterial, u64 stableEntityId,
+                                                               const Ref<MeshSource>& meshSource, u32 submeshIndex,
+                                                               GPUSceneMaterialOverrideLane overrideLane)
+    {
+        // The mesh source IS the material table on this path: the submesh's
+        // m_MaterialIndex addresses the source's own imported materials. A
+        // ModelComponent keeps its table on the Model instead, which is why the
+        // overload above takes the imported material and its slot explicitly
+        // (issue #1065) rather than each path re-deriving them.
+        const Material* imported =
+            meshSource ? meshSource->GetImportedMaterialPtrForSubmesh(submeshIndex) : nullptr;
+        const u32 slot = (meshSource && submeshIndex < static_cast<u32>(meshSource->GetSubmeshes().Num()))
+                             ? meshSource->GetSubmeshes()[static_cast<i32>(submeshIndex)].m_MaterialIndex
+                             : 0u;
+        return ResolveGPUSceneMaterialKey(overrideMaterial, stableEntityId, meshSource, imported, slot, overrideLane);
     }
 
     void Renderer3D::ExtractGPUSceneMaterial(const GPUSceneMaterialKey& key, const Material& material)
@@ -185,8 +203,19 @@ namespace OloEngine
                                         const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
                                         GPUSceneDrawLinkRequest linkRequest)
     {
-        if (!s_Data.GPUSceneExtractionActive || !meshSource || !meshSource->GetVertexArray() || submeshIndex >= static_cast<u32>(meshSource->GetSubmeshes().Num()))
+        if (!s_Data.GPUSceneExtractionActive)
         {
+            // Not a rejection: nobody is extracting, so there is nothing to
+            // count. Every branch BELOW this one is a rejection and reports
+            // itself (issue #1065) — a caller that offers geometry the records
+            // cannot take must not be able to make it vanish silently.
+            return GPUSceneDrawLinkNone;
+        }
+
+        if (!meshSource || !meshSource->GetVertexArray() ||
+            submeshIndex >= static_cast<u32>(meshSource->GetSubmeshes().Num()))
+        {
+            s_Data.SceneGPU.ReportUnsupported(GPUSceneUnsupportedCategory::NotExtractable);
             return GPUSceneDrawLinkNone;
         }
 
@@ -194,6 +223,7 @@ namespace OloEngine
         const Ref<IndexBuffer>& indexBuffer = meshSource->GetIndexBuffer();
         if (!vertexBuffer || !indexBuffer)
         {
+            s_Data.SceneGPU.ReportUnsupported(GPUSceneUnsupportedCategory::NotExtractable);
             return GPUSceneDrawLinkNone;
         }
 
@@ -201,6 +231,7 @@ namespace OloEngine
         const RHI::ResourceHandle indexHandle = indexBuffer->GetRHIHandle();
         if (!vertexHandle.IsValid() || !indexHandle.IsValid())
         {
+            s_Data.SceneGPU.ReportUnsupported(GPUSceneUnsupportedCategory::NotExtractable);
             return GPUSceneDrawLinkNone;
         }
 

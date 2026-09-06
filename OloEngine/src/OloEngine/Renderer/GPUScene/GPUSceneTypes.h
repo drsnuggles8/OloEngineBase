@@ -489,6 +489,14 @@ namespace OloEngine
         LegacySubmesh,
         Tiles,
         Cloth,
+        // Renderable geometry that was OFFERED to the canonical scene and
+        // produced no instance (issue #1065): no vertex array, no GPU buffers,
+        // a submesh index the source does not hold. Reported by
+        // Renderer3D::ExtractGPUSceneMesh itself rather than by each caller, so
+        // a path that starts extracting cannot forget to count its own
+        // rejections. The categories above name geometry a path knows in
+        // advance it cannot represent; this one names geometry that was tried.
+        NotExtractable,
         Count,
     };
 
@@ -524,6 +532,8 @@ namespace OloEngine
                 return "Tiles";
             case GPUSceneUnsupportedCategory::Cloth:
                 return "Cloth";
+            case GPUSceneUnsupportedCategory::NotExtractable:
+                return "Not extractable";
             case GPUSceneUnsupportedCategory::Count:
                 break;
         }

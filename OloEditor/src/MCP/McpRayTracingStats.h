@@ -18,6 +18,7 @@
 
 #include "MCP/McpStatsSnapshot.h"
 
+#include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingStats.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
 
@@ -32,7 +33,55 @@ namespace OloEngine::MCP::RayTracingStats
         StatsSnapshot::State State;
         OloEngine::RayTracing::Capabilities Capabilities;
         OloEngine::RayTracing::SceneStats Stats;
+        // The canonical scene the acceleration structures are BUILT FROM
+        // (issue #1065). Reported beside them because the two numbers are only
+        // meaningful together: a TLAS with 49 instances is either the whole
+        // scene or a rounding error on it, and the RT counters alone cannot
+        // tell those apart. `GPUSceneAvailable` false means the renderer is not
+        // up, not that the scene is empty.
+        bool GPUSceneAvailable = false;
+        OloEngine::GPUSceneFrameStats GPUScene;
     };
+
+    // The JSON key for each diagnostics category. A switch, not a table lookup,
+    // so a category added to the enum without a name here fails to compile
+    // instead of silently reporting as "unknown".
+    [[nodiscard]] constexpr const char* UnsupportedCategoryKey(OloEngine::GPUSceneUnsupportedCategory category)
+    {
+        using enum OloEngine::GPUSceneUnsupportedCategory;
+        switch (category)
+        {
+            case Virtualized:
+                return "virtualized";
+            case SoftwareRaster:
+                return "softwareRaster";
+            case Procedural:
+                return "procedural";
+            case Terrain:
+                return "terrain";
+            case Foliage:
+                return "foliage";
+            case Particles:
+                return "particles";
+            case Fluids:
+                return "fluids";
+            case Skinned:
+                return "skinned";
+            case LegacyModel:
+                return "legacyModel";
+            case LegacySubmesh:
+                return "legacySubmesh";
+            case Tiles:
+                return "tiles";
+            case Cloth:
+                return "cloth";
+            case NotExtractable:
+                return "notExtractable";
+            case Count:
+                break;
+        }
+        return "unknown";
+    }
 
     [[nodiscard("this builds the response; it does not send it")]] inline Json BuildReport(const Snapshot& snapshot)
     {
@@ -57,6 +106,28 @@ namespace OloEngine::MCP::RayTracingStats
                 { "maxGeometryCount", snapshot.Capabilities.Properties.MaxGeometryCount },
                 { "maxPrimitiveCount", snapshot.Capabilities.Properties.MaxPrimitiveCount },
             };
+        }
+
+        // BEFORE the readiness early-return, on purpose. "No TLAS was built"
+        // and "nothing was ever offered to build one from" are different bugs
+        // with the same RT payload, and the second one is only visible here:
+        // the block below says how much renderable geometry reached the
+        // canonical scene and how much was counted as not reaching it.
+        out["gpuScene"] = Json{ { "available", snapshot.GPUSceneAvailable } };
+        if (snapshot.GPUSceneAvailable)
+        {
+            Json byCategory = Json::object();
+            for (sizet i = 0; i < OloEngine::GPUSceneUnsupportedCategoryCount; ++i)
+            {
+                byCategory[UnsupportedCategoryKey(static_cast<OloEngine::GPUSceneUnsupportedCategory>(i))] =
+                    snapshot.GPUScene.m_UnsupportedCounts[i];
+            }
+            out["gpuScene"]["instances"] = snapshot.GPUScene.m_Instances.m_Live;
+            out["gpuScene"]["geometries"] = snapshot.GPUScene.m_Geometries.m_Live;
+            out["gpuScene"]["materials"] = snapshot.GPUScene.m_Materials.m_Live;
+            out["gpuScene"]["lights"] = snapshot.GPUScene.m_Lights.m_Live;
+            out["gpuScene"]["notStagedTotal"] = snapshot.GPUScene.m_UnsupportedTotal;
+            out["gpuScene"]["notStagedByCategory"] = std::move(byCategory);
         }
 
         if (StatsSnapshot::Status(snapshot.State) != "ready")
