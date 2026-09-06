@@ -163,6 +163,7 @@ add_executable(OloEngine-Tests
 		Rendering/Baking/LightmapAtlasPagingTest.cpp
 		Rendering/Baking/LightProbePathTracedBakeTest.cpp
 		Asset/LightmapAssetSerializationTest.cpp
+		Asset/TextureSourcePathResolutionTest.cpp
 		Rendering/FoliageImpostorPlacementTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp

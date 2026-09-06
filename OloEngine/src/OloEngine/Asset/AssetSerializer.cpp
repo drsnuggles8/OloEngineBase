@@ -350,16 +350,21 @@ namespace OloEngine
         // so the build never fails just because one texture couldn't be compressed.
         CompressedTextureImage cooked;
         bool haveCooked = false;
-        // Non-throwing existence check: a filesystem error (permissions, bad path) must
-        // fall through to the uncompressed raw record, never propagate an exception up to
+        // `path` is GetPath() — the PROJECT-RELATIVE spelling for every texture that came
+        // through the asset system, which does not resolve against the process cwd (#1067).
+        // Resolving it here is what makes the cook reachable at all: the bare relative path
+        // failed the existence check below for every such texture, so the BC7 cook was
+        // silently skipped and the pack shipped them uncompressed. The helper's existence
+        // check is non-throwing, which this path requires — a filesystem error (permissions,
+        // bad path) must fall through to the uncompressed raw record, never propagate up to
         // BuildImpl and abort the whole pack build over one texture.
-        std::error_code existsEc;
+        const std::filesystem::path cookSource = Texture2D::ResolveStoredSourcePath(path);
         if (IsAssetPackCompressionEnabled() && !IsCompressedFormat(spec.Format) &&
-            !path.empty() && !IsOloTexPath(path) && std::filesystem::exists(path, existsEc))
+            !path.empty() && !IsOloTexPath(path) && !cookSource.empty())
         {
             TextureCompression::CompressOptions opts;
             opts.GenerateMips = spec.GenerateMips;
-            if (TextureCompression::CompressImageFile(path, opts, cooked) && cooked.IsValid())
+            if (TextureCompression::CompressImageFile(cookSource.string(), opts, cooked) && cooked.IsValid())
                 haveCooked = true;
             else
                 OLO_CORE_WARN("TextureSerializer::SerializeToAssetPack - cook failed for '{}'; shipping it uncompressed", path);
@@ -549,7 +554,14 @@ namespace OloEngine
         Ref<Texture2D> texture;
         if (!path.empty())
         {
-            texture = Texture2D::Create(path, srgb);
+            // Same project-relative spelling as the cook side (#1067): an uncompressed
+            // record embeds no pixels, so this re-reads the loose file and must resolve
+            // the path the same way. Keep `path` as the identity so GetPath() still
+            // reports the portable spelling. When it cannot be resolved the helper has
+            // already logged why; fall through with the original so the existing
+            // failure handling below reports the load error as before.
+            const std::filesystem::path resolved = Texture2D::ResolveStoredSourcePath(path);
+            texture = Texture2D::Create(resolved.empty() ? path : resolved.string(), srgb, path);
         }
         else
         {
