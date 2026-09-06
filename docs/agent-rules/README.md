@@ -36,6 +36,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [timed-wait-test-assertions.md](timed-wait-test-assertions.md): measure timed waits in microseconds and assert one-sided.
 - [thread-local-lifetime-at-exit.md](thread-local-lifetime-at-exit.md): keep the "is it still alive?" signal in a trivially destructible `thread_local`; a destroyed one is not readable.
 - [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md): use `TestTempDir.h`, never a fixed temp path; every test case is its own process.
+- [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md): a fixture that builds a `Scene` per test must also reset the process-static renderer state scene load resets.
 
 ## Build and dependencies
 
@@ -170,6 +171,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) | Three separate bugs each rendered a plausible frame that read as "impostors missing". |
 | [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md) | A bright material rendered near-black and the test asserted nothing about it. |
 | [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) | Settings reset on Play, and headless tests never call `Scene::Copy()`. |
+| [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md) | A visual golden passes in file order and fails in a shard, because it encoded the previous test's residue. |
 | [light-path-photometric-parity.md](light-path-photometric-parity.md) | Two lighting bugs survived 4300 green tests. |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | A corrupt drive mode clamped to a different valid mode, and the car still drove. |
 | [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md) | "Load the scene, does it crash?" passes because the trigger is resolution, not loading. |

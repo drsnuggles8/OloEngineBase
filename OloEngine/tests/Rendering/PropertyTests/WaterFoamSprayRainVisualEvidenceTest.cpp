@@ -65,8 +65,10 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 #include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
 #include "OloEngine/Renderer/Water/WaterSpraySystem.h"
+#include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Utils/PlatformUtils.h" // Time::SetMockTime
@@ -151,6 +153,28 @@ namespace OloEngine::Tests
       protected:
         void BuildScene() override
         {
+            // Issue #1086. The disturbance field these four systems write is
+            // WORLD-anchored and lives in Renderer3D's process statics, not in
+            // the Scene — so the fresh Scene this fixture builds per test does
+            // NOT clear it, and each test inherits whatever foam the previous
+            // one deposited at the same world coordinates. Production is not
+            // affected: Scene::OnRuntimeStart and Scene::OnSimulationStart both
+            // reset exactly these four (Scene.cpp, "Drop any wake foam and hull
+            // history left by a previous scene"), and RendererAttachedTest
+            // drives OnUpdate* directly without passing through either.
+            //
+            // Left unreset, the spray poses were captured with the foam field
+            // FoamDriftSequenceFromAFixedCamera had already built up, so they
+            // matched only while that test ran first in the same process and
+            // diverged by RMSE 12.1 / 8.7 whenever the spray test ran alone —
+            // which is what a --gtest_filter or a ctest shard does. Resetting
+            // here makes every pose in this file self-contained, so the goldens
+            // encode the same frame in any execution order.
+            WaterDisturbanceSystem::Reset();
+            WaterWakeSystem::Reset();
+            WaterRainRippleSystem::Reset();
+            WaterSpraySystem::Reset();
+
             Scene& scene = GetScene();
             EnableRendering(kWidth, kHeight);
 
