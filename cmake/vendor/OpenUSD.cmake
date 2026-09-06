@@ -8,8 +8,10 @@
 #      into a per-user cache keyed on the pinned versions (so every worktree/clone on the machine
 #      reuses the same build). To make USD "just work" in ANY engine config, BOTH Debug and Release
 #      are built and installed into per-config prefixes (install/Debug, install/Release), and the
-#      engine links the CRT-matching one (Debug engine -> Debug USD; Release/RelWithDebInfo/MinSizeRel
-#      -> Release USD). First build adds ~30-45 min + ~10 GB; later builds are cache hits.
+#      engine links the one matching the CRT IT IS ACTUALLY COMPILED WITH — Debug engine -> Debug
+#      USD normally, but -> Release USD under ASan/fuzzing, which force the release CRT in every
+#      config (issue #1096; see the selector below). First build adds ~30-45 min + ~10 GB; later
+#      builds are cache hits.
 #
 # Exports (consumed by OloEngine/CMakeLists.txt), each possibly carrying a $<CONFIG> generator
 # expression so the right per-config artifact is picked at build time:
@@ -70,9 +72,29 @@ else()
 endif()
 set(_olo_usd_install "${_olo_usd_cache}/install")
 
-# Per-config layout: install/{Debug,Release}. The engine links the CRT-matching config
-# (Debug -> Debug; everything else uses the release CRT -> Release).
-set(_olo_usd_cfg "$<IF:$<CONFIG:Debug>,Debug,Release>")
+# Per-config layout: install/{Debug,Release}. The engine links the config whose CRT it is
+# ACTUALLY compiled against — which is not the same question as `$<CONFIG:Debug>` (issue #1096).
+#
+# Sanitizers.cmake and Fuzzing.cmake force CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL in EVERY
+# config, because the ASan/libFuzzer runtimes link against the release CRT. So an ASan Debug build
+# compiles with /MD and _ITERATOR_DEBUG_LEVEL=0, while install/Debug/lib/usd_m.lib is a genuine
+# debug-CRT build at level 2. Selecting it by config alone made `clangcl-asan --config Debug`
+# compile all ~1595 TUs and then die at the link:
+#
+#   lld-link: error: /failifmismatch: mismatch detected for '_ITERATOR_DEBUG_LEVEL':
+#   >>> ...McpFieldRegistry.cpp.obj has value 0
+#   >>> usd_m.lib(pch.obj) has value 2
+#
+# /WHOLEARCHIVE:usd_m.lib is on the link line, so it cannot be dropped to sidestep this. The rule,
+# stated so the next vendored dependency gets it right: pick a debug variant by the CRT in use,
+# never by $<CONFIG:Debug> — the latter is only a PROXY for the former, and the sanitizer options
+# break the correspondence.
+if(OLO_ENABLE_ASAN OR OLO_ENABLE_FUZZING)
+    set(_olo_usd_debug_crt "0")            # release CRT in every config, Debug included
+else()
+    set(_olo_usd_debug_crt "$<CONFIG:Debug>")
+endif()
+set(_olo_usd_cfg "$<IF:${_olo_usd_debug_crt},Debug,Release>")
 file(MAKE_DIRECTORY
     "${_olo_usd_install}/Debug/include"   "${_olo_usd_install}/Debug/lib"
     "${_olo_usd_install}/Release/include" "${_olo_usd_install}/Release/lib")
@@ -81,8 +103,10 @@ set(OloEngine_USD_INCLUDE_DIR "${_olo_usd_install}/${_olo_usd_cfg}/include" CACH
 set(OloEngine_USD_LIB_DIR     "${_olo_usd_install}/${_olo_usd_cfg}/lib"     CACHE INTERNAL "")
 set(OloEngine_USD_LIB         "${_olo_usd_install}/${_olo_usd_cfg}/lib/${_olo_usd_libfile}" CACHE INTERNAL "")
 # oneTBB names its Debug import lib tbb12_debug; Release is tbb12 (platform prefix/suffix above).
+# Keyed on the same effective-CRT condition as _olo_usd_cfg, not on $<CONFIG:Debug>: a debug-CRT
+# TBB alongside a release-CRT USD is the same /failifmismatch, one library later (#1096).
 set(OloEngine_USD_TBB_LIB
-    "$<IF:$<CONFIG:Debug>,${_olo_usd_install}/Debug/lib/${_olo_tbb_dbg_libfile},${_olo_usd_install}/Release/lib/${_olo_tbb_rel_libfile}>"
+    "$<IF:${_olo_usd_debug_crt},${_olo_usd_install}/Debug/lib/${_olo_tbb_dbg_libfile},${_olo_usd_install}/Release/lib/${_olo_tbb_rel_libfile}>"
     CACHE INTERNAL "")
 set(OloEngine_USD_PLUGIN_TREE "${_olo_usd_install}/${_olo_usd_cfg}/lib/usd" CACHE INTERNAL "")
 

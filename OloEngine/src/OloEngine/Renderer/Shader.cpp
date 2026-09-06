@@ -41,11 +41,35 @@ namespace OloEngine
         // Keyed on the NATIVE id because that is what both BindShaderProgram
         // overloads funnel into, and it is the only identity available at the
         // point the publication has to happen.
-        std::unordered_set<u32> s_BindlessPrograms;
+        // Both sets are deliberately LEAKED (never destroyed) rather than
+        // namespace-scope objects — issue #1088's ordering hazard, in the one
+        // shape that is worse than a Meyers singleton.
+        //
+        // Shader::UnregisterProgram erases from both, and it is called from the
+        // FrameResourceManager deletion lambda that ~OpenGLShader submits. When
+        // a shader is released during STATIC DESTRUCTION that lambda runs
+        // synchronously (the manager is already shut down), so these sets are
+        // touched from a static destructor.
+        //
+        // As namespace-scope objects their teardown order against the
+        // ShaderLibrary statics in OTHER translation units is not merely late,
+        // it is UNSPECIFIED — the standard does not order dynamic
+        // initialisation across TUs at all. That is unfixable by moving code
+        // around; the only reliable answer is for these to outlive every
+        // shader. They hold plain u32 ids, so there is nothing to release.
+        std::unordered_set<u32>& BindlessPrograms()
+        {
+            static auto* s_Set = new std::unordered_set<u32>();
+            return *s_Set;
+        }
 
-        // Parallel to s_BindlessPrograms and deliberately SEPARATE â€” see
+        // Parallel to BindlessPrograms and deliberately SEPARATE â€” see
         // Shader::ReadsMaterialHeapOffsets for why one set cannot answer both.
-        std::unordered_set<u32> s_MaterialOffsetPrograms;
+        std::unordered_set<u32>& MaterialOffsetPrograms()
+        {
+            static auto* s_Set = new std::unordered_set<u32>();
+            return *s_Set;
+        }
         bool s_BoundProgramReadsMaterialOffsets = false;
     } // namespace
 
@@ -67,14 +91,14 @@ namespace OloEngine
         }
         if (bindless)
         {
-            s_BindlessPrograms.insert(programID);
+            BindlessPrograms().insert(programID);
         }
         else
         {
             // Erase rather than skip: a reload can turn a bindless program back
             // into a slot-based one, and GL reissues freed program names â€” so a
             // stale entry would mark an unrelated future program bindless.
-            s_BindlessPrograms.erase(programID);
+            BindlessPrograms().erase(programID);
         }
     }
 
@@ -82,8 +106,8 @@ namespace OloEngine
     {
         // BOTH sets, unconditionally. GL reissues freed program names, so an entry
         // left in either would mark an unrelated future program.
-        s_BindlessPrograms.erase(programID);
-        s_MaterialOffsetPrograms.erase(programID);
+        BindlessPrograms().erase(programID);
+        MaterialOffsetPrograms().erase(programID);
     }
 
     auto Shader::ReadsMaterialHeapOffsets() -> bool
@@ -104,27 +128,27 @@ namespace OloEngine
         }
         if (reads)
         {
-            s_MaterialOffsetPrograms.insert(programID);
+            MaterialOffsetPrograms().insert(programID);
         }
         else
         {
-            s_MaterialOffsetPrograms.erase(programID);
+            MaterialOffsetPrograms().erase(programID);
         }
     }
 
     auto Shader::ProgramReadsMaterialOffsets(const u32 programID) -> bool
     {
-        return s_MaterialOffsetPrograms.contains(programID);
+        return MaterialOffsetPrograms().contains(programID);
     }
 
     auto Shader::IsProgramBindless(const u32 programID) -> bool
     {
-        return s_BindlessPrograms.contains(programID);
+        return BindlessPrograms().contains(programID);
     }
 
     auto Shader::AnyBindlessProgramsExist() -> bool
     {
-        return !s_BindlessPrograms.empty();
+        return !BindlessPrograms().empty();
     }
 
     Ref<Shader> Shader::Create(const std::string& filepath)

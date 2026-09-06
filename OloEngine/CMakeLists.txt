@@ -468,11 +468,19 @@ if(MSVC)
 				"the Vulkan SDK from https://vulkan.lunarg.com/sdk/home and make sure "
 				"the shaderc_shared + spirv-cross-{core,glsl} components are present.")
 		endif()
-		if(EXISTS "${_dbg}")
-			list(APPEND _vk_shader_libs debug "${_dbg}" optimized "${_rel}")
-		else()
+		# The `debug`/`optimized` keywords select by CONFIG, which is only a PROXY for the
+		# CRT — and ASan/fuzzing force the release CRT in EVERY config, Debug included
+		# (cmake/Sanitizers.cmake). Taking the debug SDK libs there produces
+		# `/failifmismatch: '_ITERATOR_DEBUG_LEVEL': ... spirv-cross-cored.lib has value 2`
+		# at link (issue #1096). CMAKE_MAP_IMPORTED_CONFIG_DEBUG cannot cover these: they
+		# are raw paths from find_library, not imported targets.
+		if(NOT EXISTS "${_dbg}")
 			message(STATUS "Vulkan SDK debug lib not found (${_base}d.lib), using release for all configs")
 			list(APPEND _vk_shader_libs "${_rel}")
+		elseif(OLO_ENABLE_ASAN OR OLO_ENABLE_FUZZING)
+			list(APPEND _vk_shader_libs "${_rel}")
+		else()
+			list(APPEND _vk_shader_libs debug "${_dbg}" optimized "${_rel}")
 		endif()
 	endforeach()
 
