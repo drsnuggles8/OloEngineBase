@@ -182,7 +182,21 @@ jobs:
     name: ASan (Windows/clang-cl) build
     needs: detect-changes
     if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
-    runs-on: windows-2025
+    # SELF-HOSTED WHEN THE CODE IS OURS AND THE SWITCH IS ON (#1076) -- the same
+    # expression, the same kill switch and the same fork boundary as Windows.yml's
+    # `build` job, whose comment owns the reasoning. DEFAULT OFF: the variable is
+    # unset and no Windows runner is registered, so every run today lands on
+    # windows-2025 exactly as before.
+    #
+    # windows-2025 is PINNED rather than windows-latest on the hosted arm: sccache
+    # hashes the compiler binary into every cache key, so an image roll invalidates
+    # the entire cache in one step -- silently, because it still restores and the
+    # build still goes green. The key below carries the image string for the same
+    # reason; when `runs-on` is bumped, bump it with it.
+    runs-on: ${{ vars.OLO_WINDOWS_SELF_HOSTED == 'true'
+                 && github.event_name != 'schedule'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","windows","x64","olo-ci-win"]') || 'windows-2025' }}
 
     # The unsharded case count, measured after the build and consumed by
     # `asan-windows-tests-verify` (#1083). It is a JOB OUTPUT rather than a file in
@@ -354,6 +368,21 @@ jobs:
     # failed because each attempt resumed near the end of the build and met the next
     # long link, so it re-armed the same race every time. With the timeout disabled
     # there is nothing left to retry.
+    # SCCACHE_DIR is a WORKSPACE path and actions/checkout wipes the workspace, so on
+    # a persistent runner it has to move out of the way or the cache is discarded on
+    # every checkout while looking perfectly healthy. Same step, same reasoning, as
+    # Windows.yml's -- read the longer note there, including the per-user-daemon
+    # constraint it puts on provisioning.
+    - name: Point sccache at persistent disk (self-hosted)
+      if: runner.environment != 'github-hosted'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $dir = Join-Path $env:USERPROFILE '.cache\olo\sccache-asan'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        "SCCACHE_DIR=$dir" >> $env:GITHUB_ENV
+        Write-Host "persistent sccache: $dir"
+
     - name: Setup sccache
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       with:
@@ -367,6 +396,10 @@ jobs:
     # this job's objects can never collide with `sccache-windows-2025-release-`.
     # When `runs-on` is bumped, bump this string with it.
     - name: Restore sccache storage
+      # HOSTED ONLY (#1076): a persistent runner keeps SCCACHE_DIR on local disk, with
+      # no upload, no download, no slice of the shared cap and no post-job save for a
+      # cancellation to skip.
+      if: runner.environment == 'github-hosted'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -529,7 +562,7 @@ jobs:
     # turning the cache on. The save is kept on `workflow_dispatch` so the cold/warm A/B
     # can be measured on a branch — that is how #1073 was verified and how this was.
     - name: Save sccache storage
-      if: always() && github.event_name != 'pull_request'
+      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
       # `save-cache-pruned` swallows its own failures: a cache save must never fail the
       # job it is attached to. `if: always()` means it also runs on a CANCEL, where the
       # path may not exist yet, and actions/cache/save treats a missing path as a
@@ -663,7 +696,16 @@ jobs:
   asan-windows-tests:
     name: ASan (Windows) tests ${{ matrix.shard }}/4
     needs: asan-windows
-    runs-on: windows-2025
+    # THE SHARDS FOLLOW THE BUILD JOB (#1076 x #1083). gtest_discover_tests bakes the
+    # absolute exe and WORKING_DIRECTORY paths into the generated test list, so a
+    # shard on a different runner kind would be pointing at a path that is not there.
+    # The `Assert this runner matches the build job's layout` step turns that into one
+    # line; the routing is what prevents it. Four shards want four runner SLOTS -- on
+    # a box with fewer they queue and the sharding win is handed back. See the ADR.
+    runs-on: ${{ vars.OLO_WINDOWS_SELF_HOSTED == 'true'
+                 && github.event_name != 'schedule'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","windows","x64","olo-ci-win"]') || 'windows-2025' }}
     strategy:
       # A red shard must not cancel its siblings. Four shards are four independent
       # samples of the same suite, and cancelling three of them to react to the

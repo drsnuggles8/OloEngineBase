@@ -127,7 +127,47 @@ jobs:
     # requests / 0 hits against a snapshot taken six days earlier. A pinned image
     # makes an image bump a deliberate, reviewable commit that we can pair with the
     # cache-key bump below.
-    runs-on: windows-2025
+    # SELF-HOSTED WHEN THE CODE IS OURS AND THE SWITCH IS ON, hosted windows-2025
+    # otherwise -- the same expression shape asan.yml's Linux jobs have used since
+    # #1009, and the security reasoning is theirs verbatim: the fork boundary is
+    # `head.repo.full_name`, never a `pull_request_target` that checks out the PR
+    # head, and `vars.OLO_WINDOWS_SELF_HOSTED` is the kill switch that comes FIRST so
+    # it can only ever move a job OFF the box.
+    #
+    # WHY (#1076). These two Windows jobs are the per-PR critical path on every PR --
+    # the Linux sanitizers finish 86 minutes earlier -- and almost everything that has
+    # gone wrong with their caches is a property of the Actions cache STORE rather
+    # than of caching: a 10 GB cap that turns the whole store read-only when exceeded
+    # and reports the refusal as a warning with exit 0 (#1073); entries scoped to
+    # refs/pull/N/merge that six concurrent PRs cannot fit inside; a post-job save
+    # that a cancelled run skips, which is 60 %+ of PR runs here. A persistent runner
+    # has none of those, because its disk IS the cache. It also takes the two largest
+    # Windows entries out of a store that the four-entry steady set already fills to
+    # ~6.1 GiB of a ~9.3 GiB wall.
+    #
+    # DEFAULT OFF, AND HONESTLY SO. `vars.OLO_WINDOWS_SELF_HOSTED` is unset, and no
+    # Windows runner is registered on this repository -- `gh api .../actions/runners`
+    # lists three Linux ones. Everything below is the routing, the gating and the
+    # guard; NONE of it has run on a self-hosted Windows runner, and the measurements
+    # #1076 asks for cannot exist until one is provisioned. See
+    # docs/adr/0019-windows-ci-self-hosted-routing-lands-switched-off.md for what
+    # provisioning it involves and what it costs.
+    #
+    # `olo-ci-win`, not `olo-ci`: runner GROUPS are unavailable on a user account, so
+    # isolation from the Linux runners is by LABEL only. A Windows engine build peaks
+    # high enough that it must not land on a box already running Linux sanitizer jobs
+    # by accident, and a distinct label is the only thing that prevents it.
+    #
+    # THE NIGHTLY STAYS HOSTED, deliberately, and for the same reason the Linux
+    # sanitizers keep theirs there: it is this workflow's ONLY fleet-wide cache
+    # warmer. actions/cache entries created on a PR branch are scoped to that ref;
+    # only default-branch entries are readable by every branch. Route the cron to the
+    # box and the hosted fallback -- every fork PR, and every run with the switch off
+    # -- goes permanently cold.
+    runs-on: ${{ vars.OLO_WINDOWS_SELF_HOSTED == 'true'
+                 && github.event_name != 'schedule'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","windows","x64","olo-ci-win"]') || 'windows-2025' }}
 
     # The unsharded case count, measured after the build and consumed by
     # `tests-verify` (#1083). A JOB OUTPUT rather than a file inside the test-tree
@@ -187,6 +227,10 @@ jobs:
     # (scripts/build-ffmpeg.sh). That needs nasm + a bash + Visual Studio; windows-2025
     # has Git-bash + Strawberry Perl (gmake), and we provision nasm here.
     - name: Install nasm
+      # Hosted only (#1076). `choco install` needs an elevated shell and mutates the
+      # machine; on a persistent runner nasm is provisioned once and the preflight
+      # above fails the job loudly if it is not.
+      if: runner.environment == 'github-hosted'
       run: choco install nasm -y --no-progress
 
     # Cache the built FFmpeg so only the first (or post-bump) run pays the ~10-15 min build.
@@ -207,6 +251,57 @@ jobs:
     # read: ... services aren't available") and, because sccache is the compiler
     # launcher, every compile fails. v0.10.0+ speaks the new cache service (ghac
     # v2, via opendal 0.52); we pin the current stable release for reproducibility.
+    # SCCACHE_DIR IS INSIDE THE WORKSPACE, AND actions/checkout WIPES THE WORKSPACE.
+    # On a hosted runner that costs nothing -- the VM dies anyway and actions/cache is
+    # what carries the directory across runs. On a persistent runner it would throw
+    # the cache away on every checkout while looking exactly like a working one, which
+    # is the whole subject of docs/agent-rules/ci-cache-that-looks-alive.md. So point
+    # it at the runner user's home instead, the same shape setup-linux-build uses for
+    # ccache on the Linux box.
+    #
+    # THE CONSTRAINT THIS CARRIES INTO PROVISIONING: sccache is a per-USER DAEMON. The
+    # first client to start it fixes the server's environment, and every later client
+    # on that account is served by it whatever SCCACHE_DIR that client set. Two runner
+    # instances sharing one Windows account would therefore silently share one
+    # directory -- tolerable, since the key space is disjoint by command line, but not
+    # something to discover. The Linux box avoids it by using ccache, which has no
+    # daemon; there is no equivalent drop-in for clang-cl here. One compiling runner
+    # instance per account. See the ADR.
+    - name: Point sccache at persistent disk (self-hosted)
+      if: runner.environment != 'github-hosted'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $dir = Join-Path $env:USERPROFILE '.cache\olo\sccache'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        "SCCACHE_DIR=$dir" >> $env:GITHUB_ENV
+        Write-Host "persistent sccache: $dir"
+
+    # VERIFY, NEVER INSTALL -- the convention .github/actions/setup-linux-build states
+    # for the Linux box, applied here for the same reason: a self-hosted runner is
+    # provisioned system-wide, ahead of time, and a step that installs mutates a
+    # machine nobody meant to touch. This one only reports, and it reports EARLY: each
+    # of these missing surfaces otherwise as a confusing failure tens of minutes into
+    # a configure or a link.
+    - name: Preflight -- toolchain (self-hosted)
+      if: runner.environment != 'github-hosted'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Continue'
+        $missing = @()
+        foreach ($tool in @('cmake', 'ninja', 'nasm', 'python', 'cl')) {
+          $found = (Get-Command $tool -ErrorAction SilentlyContinue)
+          if ($found) { Write-Host ('  {0,-8} {1}' -f $tool, $found.Source) }
+          else { Write-Host "::error::$tool is not on PATH"; $missing += $tool }
+        }
+        if (-not $env:VULKAN_SDK) { Write-Host '::error::VULKAN_SDK is not set'; $missing += 'VULKAN_SDK' }
+        python -c 'import jinja2' 2>$null
+        if ($LASTEXITCODE -ne 0) { Write-Host '::error::python module jinja2 is not importable'; $missing += 'jinja2' }
+        if ($missing.Count -gt 0) {
+          Write-Host '::error::Provision the runner -- see docs/adr/0019-windows-ci-self-hosted-routing-lands-switched-off.md'
+          exit 1
+        }
+
     - name: Setup sccache
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       with:
@@ -228,6 +323,11 @@ jobs:
     # image; when it is bumped, bump this string with it so the dead entries age
     # out instead of being restored forever.
     - name: Restore sccache storage
+      # HOSTED ONLY (#1076). On a persistent runner the sccache directory below is on
+      # local disk and simply stays there between runs: no upload, no download, no
+      # slice of the shared cap, and -- the part that matters most here -- no post-job
+      # save for a cancellation to skip.
+      if: runner.environment == 'github-hosted'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -337,7 +437,7 @@ jobs:
     # behind. The save is kept on workflow_dispatch so a warm/cold A/B can be measured
     # on a branch (that is how the fix for #1073 was verified).
     - name: Save sccache storage
-      if: always() && github.event_name != 'pull_request'
+      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
       uses: ./.github/actions/save-cache-pruned
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -563,7 +663,19 @@ jobs:
   tests:
     name: Windows tests ${{ matrix.shard }}/3
     needs: build
-    runs-on: windows-2025
+    # THE SHARDS FOLLOW THE BUILD JOB, and they have to: gtest_discover_tests bakes
+    # the absolute exe and WORKING_DIRECTORY paths into the generated test list, and
+    # a self-hosted runner's `_work` tree is not at the hosted runner's path. The
+    # `Assert this runner matches the build job's layout` step below turns a mismatch
+    # into one line rather than thousands, but the routing is what prevents it.
+    #
+    # PROVISIONING NOTE, and it is the one that decides whether #1076 and #1083 can
+    # coexist: three shards want three runner SLOTS. On a box with one, they queue and
+    # the sharding win is handed straight back. See the ADR.
+    runs-on: ${{ vars.OLO_WINDOWS_SELF_HOSTED == 'true'
+                 && github.event_name != 'schedule'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","windows","x64","olo-ci-win"]') || 'windows-2025' }}
     permissions:
       contents: read
     env:

@@ -87,6 +87,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md](adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md) — destructible objects swap in pre-authored debris assets; no runtime mesh fracture.
 - [adr/0017-windows-ci-critical-path-measure-before-a-self-hosted-runner.md](adr/0017-windows-ci-critical-path-measure-before-a-self-hosted-runner.md) — the Windows CI critical path is measured on a writable cache before any self-hosted Windows runner is built, and never on the interactive workstation.
 - [adr/0018-gaussian-splats-gpu-ordering-and-merge-lod.md](adr/0018-gaussian-splats-gpu-ordering-and-merge-lod.md) — Gaussian splats order per view on the GPU and coarsen by merging; a CPU sort and a selection budget are both dead ends.
+- [adr/0019-windows-ci-self-hosted-routing-lands-switched-off.md](adr/0019-windows-ci-self-hosted-routing-lands-switched-off.md) — the Windows jobs can be routed to a self-hosted runner behind a `vars.` kill switch and a fork guard; the switch stays off until a runner exists and both paths are measured.
 
 ## bug-investigations/ — postmortems & deep-dives
 

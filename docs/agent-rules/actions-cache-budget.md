@@ -247,6 +247,14 @@ suggest:
 | `steam-stub.yml / single-valve-tu` | ubuntu-24.04 | only Steam-seam changes | none; it compiles one TU |
 | `pre-commit`, `detect-changes`, `cancel-merged-pr-runs` | ubuntu-latest | every PR | none; seconds |
 
+The two `windows-2025` rows are conditional as of #1076: `Windows.yml` and `asan.yml` carry the
+routing to send them to a self-hosted runner behind `vars.OLO_WINDOWS_SELF_HOSTED`, and every
+Windows sccache step is gated on `runner.environment == 'github-hosted'`. The variable is unset and
+no Windows runner is registered, so today they are hosted and the entries above are real. **If that
+switch is ever flipped, `sccache-windows-2025-release` (1825 MiB) and `sccache-asan-windows-2025`
+(~660 MiB) leave the store on the PR path, and this table has to be redone** — see
+[ADR 0019](../adr/0019-windows-ci-self-hosted-routing-lands-switched-off.md).
+
 Everything else that runs on a PR is **self-hosted** — `asan.yml`'s three Linux sanitizer
 jobs, `vulkan-off.yml`, `steam-stub.yml / stub-build` — and caches on the box's local disk.
 Note the trap: a self-hosted runner still talks to the **remote** Actions cache service, so
