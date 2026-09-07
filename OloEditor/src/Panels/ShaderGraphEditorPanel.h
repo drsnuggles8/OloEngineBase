@@ -5,10 +5,12 @@
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphCompiler.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphCommand.h"
 #include "OloEngine/Asset/Asset.h"
+#include "Panels/Graph/GraphCanvas.h"
 
 #include <glm/glm.hpp>
 #include <imgui.h>
 #include <filesystem>
+#include <optional>
 
 namespace OloEngine
 {
@@ -55,14 +57,13 @@ namespace OloEngine
 
       private:
         // Canvas
-        void DrawCanvas();
-        void DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const;
-        void DrawNodes(ImDrawList* drawList, const ImVec2& canvasOrigin);
-        void DrawConnections(ImDrawList* drawList, const ImVec2& canvasOrigin);
-        void DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin);
+        void DrawCanvas(f32 width);
+        void DrawNodes();
+        void DrawConnections();
+        void DrawConnectionInProgress();
 
         // Node rendering
-        void DrawNode(ImDrawList* drawList, const ImVec2& canvasOrigin, ShaderGraphNode& node);
+        void DrawNode(ShaderGraphNode& node);
         ImVec2 GetNodeSize(const ShaderGraphNode& node) const;
         ImU32 GetNodeColor(ShaderGraphNodeCategory category) const;
         ImU32 GetNodeHeaderColor(ShaderGraphNodeCategory category) const;
@@ -80,10 +81,41 @@ namespace OloEngine
         };
         std::vector<PinInfo> GetNodePins(const ShaderGraphNode& node, const ImVec2& nodeScreenPos) const;
 
+        enum class PinDirectionFilter
+        {
+            Any,
+            InputsOnly,
+            OutputsOnly
+        };
+        /// The pin NEAREST `screenPos` within the hit radius, or nullptr. Nearest
+        /// rather than first-found because the radius has a screen-pixel floor,
+        /// so adjacent pins' hit circles overlap once zoomed out far enough.
+        /// The result points at a member scratch slot and is invalidated by the
+        /// next call.
+        [[nodiscard]] const PinInfo* HitTestPin(ImVec2 screenPos, PinDirectionFilter filter = PinDirectionFilter::Any) const;
+
+        /// A link resolved to the two SCREEN points its wire runs between.
+        struct WireEndpoints
+        {
+            ImVec2 Source{};
+            ImVec2 Target{};
+            ShaderGraphPinType SourceType = ShaderGraphPinType::Float;
+        };
+        /// False when either end names a pin that no longer exists, in which case
+        /// `out` is untouched and the wire is neither drawn nor clickable — the
+        /// two must agree, which is why they share this lookup.
+        [[nodiscard]] bool GetLinkEndpoints(const ShaderGraphLink& link, WireEndpoints& out) const;
+
         // Interaction
-        void HandleCanvasInput(const ImVec2& canvasOrigin, const ImVec2& canvasSize);
-        void HandleNodeInteraction(const ImVec2& canvasOrigin);
-        void HandleConnectionDrag(const ImVec2& canvasOrigin);
+        /// Returns true when the click was consumed here (a wire was cut), so
+        /// the caller skips node hit-testing for this frame.
+        bool HandleCanvasInput();
+        void HandleNodeInteraction();
+        void HandleConnectionDrag();
+        /// The link whose wire passes nearest `screenPos`, or 0 if none is close
+        /// enough to have been aimed at. Uses the canvas' own bezier sampling so
+        /// the hit curve is the curve that was drawn.
+        [[nodiscard]] UUID HitTestLink(ImVec2 screenPos) const;
 
         // Toolbar & property panel
         void DrawToolbar();
@@ -92,7 +124,7 @@ namespace OloEngine
         void DrawPreviewPanel();
 
         // Context menu
-        void DrawContextMenu(const ImVec2& canvasOrigin);
+        void DrawContextMenu();
 
         // Serialization
         void SaveShaderGraph();
@@ -115,10 +147,6 @@ namespace OloEngine
         // Auto-layout
         void AutoLayoutNodes();
 
-        // Coordinate transforms
-        ImVec2 WorldToScreen(const glm::vec2& worldPos, const ImVec2& canvasOrigin) const;
-        glm::vec2 ScreenToWorld(const ImVec2& screenPos, const ImVec2& canvasOrigin) const;
-
       private:
         bool m_IsOpen = true;
         bool m_IsFocused = false;
@@ -134,13 +162,16 @@ namespace OloEngine
         AssetHandle m_PendingLoadHandle = 0;
         int m_PendingLoadFrameDelay = 0;
 
-        // Canvas state
-        glm::vec2 m_ScrollOffset = { 0.0f, 0.0f };
-        f32 m_Zoom = 1.0f;
-        bool m_IsPanning = false;
+        // Canvas view: pan, zoom, grid, the screen<->graph transforms and wire
+        // drawing/hit-testing all live in the shared widget, not here.
+        EditorUI::GraphCanvas m_Canvas;
 
         // Selection
         UUID m_SelectedNodeID = 0;
+
+        /// Storage behind the pointer HitTestPin returns; not state, just a slot
+        /// that outlives the call.
+        mutable std::optional<PinInfo> m_HitPin;
 
         // Connection dragging
         bool m_IsDraggingConnection = false;
@@ -156,7 +187,10 @@ namespace OloEngine
 
         // Context menu
         bool m_ShowContextMenu = false;
-        ImVec2 m_ContextMenuPos = {};
+        // Captured in GRAPH space at click time. Storing the screen position and
+        // converting it when the popup is drawn placed the new node wrongly
+        // whenever the view moved between the two.
+        glm::vec2 m_ContextMenuGraphPos = {};
         char m_NodeSearchFilter[128] = {};
 
         // Compile preview
@@ -183,12 +217,17 @@ namespace OloEngine
         bool m_HasCopiedNode = false;
 
         // Layout constants
-        static constexpr f32 s_GridSize = 32.0f;
         static constexpr f32 s_NodeWidth = 180.0f;
         static constexpr f32 s_PinRadius = 5.0f;
         static constexpr f32 s_PinSpacing = 22.0f;
         static constexpr f32 s_HeaderHeight = 26.0f;
         static constexpr f32 s_PropertyPanelWidth = 300.0f;
+        /// Screen pixels. A pin hit box that scales with zoom shrinks to 1.5px at
+        /// the canvas' minimum zoom, which no mouse can hit; a floor keeps every
+        /// pin reachable at every zoom.
+        static constexpr f32 s_PinHitRadiusMin = 9.0f;
+        /// Screen pixels from a wire that still counts as clicking it.
+        static constexpr f32 s_WireHitDistance = 8.0f;
     };
 
 } // namespace OloEngine

@@ -84,7 +84,7 @@ layout(std140, binding = 38) uniform SSRParams
     vec4 u_DenoiseGuide;  // #708: x = PlaneTolerance, y = NormalPower, z = RoughnessKnee, w = MaxRoughness
 };
 
-// The reflection hierarchy's debug view (issue #1057, ADR 0019 7): which tier
+// The reflection hierarchy's debug view (issue #1057, ADR 0020 7): which tier
 // answered this pixel. It lives HERE and nowhere else because this draw is the
 // only point in the frame where every tier's confidence is simultaneously
 // reachable — SSR's from the guide plane's alpha, the ray tier's from the alpha
@@ -106,10 +106,10 @@ vec3 OloReflectionTierDebugColor(float ssrConfidence, float rayConfidence)
     // its result is consumed only by Water.glsl, while SSR is deferred-only. So
     // the two never coexist in a frame. The tier keeps its seat and its colour
     // so the view does not silently renumber if a deferred planar resolve ever
-    // lands. ADR 0019 6 is the long version.
+    // lands. ADR 0020 6 is the long version.
     const float planarConfidence = 0.0;
 
-    // ADR 0019 1's weights, top tier first:
+    // ADR 0020 1's weights, top tier first:
     //     w_t = c_t * PRODUCT over the tiers ABOVE t of (1 - c_u)
     // with the bottom tier taking the entire remaining residual, which is what
     // makes the four weights sum to exactly one.
@@ -122,22 +122,28 @@ vec3 OloReflectionTierDebugColor(float ssrConfidence, float rayConfidence)
     residual -= wRay;
     float wProbeIBL = residual;
 
-    // The dominant tier, ties going to the higher one (it claimed first).
-    vec3 color = kTierColorProbeIBL;
-    float best = wProbeIBL;
-    if (wRay > best)
-    {
-        best = wRay;
-        color = kTierColorRayQuery;
-    }
+    // The dominant tier, ties going to the HIGHER one because it claimed first.
+    // The scan therefore starts at the top tier and only a STRICTLY greater
+    // weight displaces it — scanning bottom-up with the same `>` would hand ties
+    // to the lower tier instead, and disagree with DominantReflectionTier() in
+    // ReflectionTier.h, which is the specification this mirrors. The tie is not
+    // hypothetical: c_ssr = 0.5 with a confident ray hit splits the pixel
+    // exactly 0.5 / 0.5.
+    vec3 color = kTierColorPlanar;
+    float best = wPlanar;
     if (wSSR > best)
     {
         best = wSSR;
         color = kTierColorSSR;
     }
-    if (wPlanar > best)
+    if (wRay > best)
     {
-        color = kTierColorPlanar;
+        best = wRay;
+        color = kTierColorRayQuery;
+    }
+    if (wProbeIBL > best)
+    {
+        color = kTierColorProbeIBL;
     }
     return color;
 }

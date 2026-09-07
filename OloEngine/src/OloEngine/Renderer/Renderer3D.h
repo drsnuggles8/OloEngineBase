@@ -67,6 +67,7 @@ namespace OloEngine
     class DeferredGPUOcclusionPass;
     class DDGIProbeUpdatePass;
     class RayTracedShadowPass;
+    class RayTracedReflectionPass;
     struct DDGIVolumeDesc;
     struct DDGIMeshCaster;
     class RenderCommand;
@@ -1234,6 +1235,12 @@ namespace OloEngine
         // panel MUST handle that: on a machine without ray tracing the pass
         // still exists, but before Init there is no pipeline at all.
         [[nodiscard]] static RayTracedShadowPass* GetRayTracedShadowPass();
+        // The ray-query reflection tier (issue #1057), for the post-process
+        // panel's fallback and ray counters. Same null contract as above —
+        // and the same reason the counters exist at all: both of this slice's
+        // quality limits are invisible in a still frame, so a number is the
+        // only way a user learns about them without reading the source.
+        [[nodiscard]] static RayTracedReflectionPass* GetRayTracedReflectionPass();
 
         // Auxiliary mesh-caster sink (issue #705). While set, the scene's
         // SubmitDDGICasterIfCollecting sites ALSO append to this vector, so a

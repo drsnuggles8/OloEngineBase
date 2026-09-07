@@ -66,7 +66,7 @@ namespace OloEngine
         Ref<SSSRenderPass> SSS;
         Ref<AOApplyRenderPass> AOApply;
         Ref<SSGIRenderPass> SSGI;
-        // The ray-query reflection tier (#1057). Registered BEFORE SSR: ADR 0019
+        // The ray-query reflection tier (#1057). Registered BEFORE SSR: ADR 0020
         // composites the hierarchy bottom-up, so this tier lays its answer down
         // and SSR — the tier above it — lerps over the result by its own
         // confidence. Reversing the two would double-count both.

@@ -20,9 +20,9 @@ namespace OloEngine
     }
 
     // @brief The RAY-QUERY tier of the reflection hierarchy (issue #1057).
-    // One draw, one node. The contract it implements is ADR 0019.
+    // One draw, one node. The contract it implements is ADR 0020.
     //
-    // WHERE IT SITS, AND WHY THAT IS THE DESIGN. ADR 0019 evaluates the
+    // WHERE IT SITS, AND WHY THAT IS THE DESIGN. ADR 0020 evaluates the
     // hierarchy BOTTOM-UP — every tier lerps over the colour it was handed, so
     // no tier needs the confidence of a tier ABOVE it. This pass therefore runs
     // AFTER DeferredLightingPass (whose output already carries the probe-over-IBL
@@ -51,7 +51,7 @@ namespace OloEngine
     // counted in GetStats() and reported once per change, never silently
     // (docs/agent-rules/no-silent-fallbacks.md).
     //
-    // FIRST-SLICE LIMITS, both deliberate and both recorded in ADR 0019 §4:
+    // FIRST-SLICE LIMITS, both deliberate and both recorded in ADR 0020 §4:
     // hits are shaded from UNTEXTURED material factors (arbitrary-material
     // sampling is blocked on the shader-visible sampler heap, #805), and masked
     // geometry reflects as solid (the same trade RayTracedShadowPass makes).

@@ -8,7 +8,7 @@
 namespace OloEngine
 {
     // =========================================================================
-    // The reflection hierarchy's shared vocabulary — issue #1057, ADR 0019.
+    // The reflection hierarchy's shared vocabulary — issue #1057, ADR 0020.
     //
     // The contract in one line: every tier estimates the SAME quantity (the
     // radiance along the specular lobe) and reports a CONFIDENCE in [0,1] saying
@@ -58,7 +58,7 @@ namespace OloEngine
     // alongside it, so the two cannot disagree.
     using ReflectionTierConfidences = std::array<f32, kReflectionTierCount>;
 
-    // The effective weight of every tier, per ADR 0019 §1:
+    // The effective weight of every tier, per ADR 0020 §1:
     //
     //     w_t = c_t * PRODUCT over u ABOVE t of (1 - c_u)
     //
@@ -94,7 +94,7 @@ namespace OloEngine
 
         // THE BOTTOM TIER TAKES THE WHOLE REMAINDER, whatever its own reported
         // confidence says. That is not a shortcut, it is the invariant the
-        // guarantee rests on (ADR 0019 §7): a probe/IBL tier allowed to "admit
+        // guarantee rests on (ADR 0020 §7): a probe/IBL tier allowed to "admit
         // it doesn't know" would leave energy unclaimed and darken the frame.
         // Uncertainty at the bottom widens the lobe; it never lowers the weight.
         weights[kReflectionTierCount - 1u] = residual;
@@ -210,7 +210,7 @@ namespace OloEngine
 
         // "Which tier answered this pixel", drawn in place of the composite.
         // Part of the contract, not a nicety — a hierarchy whose selection
-        // cannot be seen per pixel is one nobody can review (ADR 0019 §7).
+        // cannot be seen per pixel is one nobody can review (ADR 0020 §7).
         bool TierDebugView = false;
 
         // Required, not optional: PostProcessSettings holds this struct by value

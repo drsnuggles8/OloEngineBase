@@ -47,7 +47,7 @@ namespace OloEngine
         // intentionally NOT a candidate — its alias is repointed to SSRColor
         // downstream, so reading it here would form a cycle.
         //
-        // RTReflectionColor FIRST is what makes ADR 0019's hierarchy work.
+        // RTReflectionColor FIRST is what makes ADR 0020's hierarchy work.
         // SSR's composite is `base + (reflection - base) * blend`, which is a
         // lerp toward the reflection by SSR's own confidence — i.e. an "over".
         // Handing it the ray-query tier's output as `base` therefore composites

@@ -10,7 +10,7 @@
 #include <vector>
 
 // =============================================================================
-// The reflection hierarchy's no-double-count ratchet — issue #1057, ADR 0019.
+// The reflection hierarchy's no-double-count ratchet — issue #1057, ADR 0020.
 //
 // #979's non-goal is "do not silently double-count DDGI/SSGI/RT/PT
 // contributions", and the issue's own words are that such a double-count is
@@ -170,7 +170,7 @@ TEST(ReflectionTierContractTest, TheRayTierPicksUpExactlyWhatSSRLeavesAtTheScree
 
 TEST(ReflectionTierContractTest, ADisabledRayTierReproducesTodaysSSRToProbeHierarchyExactly)
 {
-    // ADR 0019 §5's promise, and the reason the raster-only output is
+    // ADR 0020 §5's promise, and the reason the raster-only output is
     // byte-identical when the tier is off: it is not a tested coincidence, it is
     // mix(x, y, 0) == x. Every weight must match the three-tier hierarchy that
     // shipped before this issue.
@@ -192,7 +192,7 @@ TEST(ReflectionTierContractTest, ADisabledRayTierReproducesTodaysSSRToProbeHiera
 
 TEST(ReflectionTierContractTest, TheBottomTierTakesTheResidualEvenWhenItReportsLessThanOne)
 {
-    // ADR 0019 §7's single invariant. A probe/IBL tier allowed to "admit it does
+    // ADR 0020 §7's single invariant. A probe/IBL tier allowed to "admit it does
     // not know" would leave energy unclaimed and darken the frame — so the
     // bottom tier's reported confidence is deliberately ignored. This test
     // exists to make that a decision rather than an accident: if someone later

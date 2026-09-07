@@ -137,6 +137,11 @@ namespace OloEngine
         return s_Data.Pipeline ? s_Data.Pipeline->SceneCompositePasses.RayTracedShadow.Raw() : nullptr;
     }
 
+    RayTracedReflectionPass* Renderer3D::GetRayTracedReflectionPass()
+    {
+        return s_Data.Pipeline ? s_Data.Pipeline->PostProcessPasses.RayTracedReflection.Raw() : nullptr;
+    }
+
     void Renderer3D::SetViewPosition(const glm::vec3& position)
     {
         s_Data.ViewPos = position;

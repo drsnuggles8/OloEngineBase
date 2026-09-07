@@ -1043,5 +1043,5 @@ and #1057 walked into it anyway — it cost a live-session bisect both times. If
 resource conditionally, hash the condition.
 
 Found on #1057 (hybrid reflection hierarchy). The contract itself is
-[ADR 0019](../adr/0019-reflection-tier-selection-contract.md); `ReflectionTierContractTest` is the
+[ADR 0020](../adr/0020-reflection-tier-selection-contract.md); `ReflectionTierContractTest` is the
 ratchet that keeps the weights summing to one.

@@ -375,7 +375,7 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SSGIColor = "SSGIColor";                     // After screen-space GI composite (only valid when SSGI is enabled, deferred path)
     inline constexpr std::string_view SSGIColorTexture = "SSGIColorTexture";       // Color attachment view of SSGIColor
     // The ray-query reflection tier (#1057). It sits BELOW SSR in the
-    // hierarchy of ADR 0019, so in the frame it runs BEFORE SSRPass and its
+    // hierarchy of ADR 0020, so in the frame it runs BEFORE SSRPass and its
     // output is what SSR then composites over.
     inline constexpr std::string_view RTReflectionColor = "RTReflectionColor";             // After the ray-query reflection tier (deferred path, RT device only)
     inline constexpr std::string_view RTReflectionColorTexture = "RTReflectionColorTexture"; // Color attachment view of RTReflectionColor

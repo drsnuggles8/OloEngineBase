@@ -127,8 +127,16 @@ namespace OloEngine
         // Ordered most-fundamental first, so the reported reason names the
         // ROOT cause rather than the first symptom: "no RT device" must not be
         // reported as "no TLAS", which is what it also implies.
+        //
+        // m_Settings.Enabled is the USER'S INTENT and is tested first and alone.
+        // m_Enabled is not a synonym for it: the pipeline folds the deferred-path
+        // check and IsReadyForExecution() into it, so testing m_Enabled here
+        // would report a non-RT device — where the shader was never created — as
+        // "switched off in the render settings", and ShaderUnavailable and
+        // RayTracingUnavailable would be unreachable. That is precisely the
+        // countable fallback this issue asks for, reported as a lie.
         ReflectionTierFallbackReason reason = ReflectionTierFallbackReason::None;
-        if (!m_Enabled || !m_Settings.Enabled)
+        if (!m_Settings.Enabled)
             reason = ReflectionTierFallbackReason::NotRequested;
         else if (!m_ReflectionShader || !m_ReflectionShader->IsReady() || !m_ParamsUBO)
             reason = ReflectionTierFallbackReason::ShaderUnavailable;
@@ -144,7 +152,9 @@ namespace OloEngine
             reason = ReflectionTierFallbackReason::AccelerationStructureEmpty;
         else if (m_GPUScene == nullptr || m_GPUScene->GetInstanceSlotCount() == 0u)
             reason = ReflectionTierFallbackReason::GPUSceneUnavailable;
-        else if (!graphResourcesResolved)
+        else if (!m_Enabled || !graphResourcesResolved)
+            // The tier is wanted and able, but the pipeline did not arm it (the
+            // forward path) or the graph declared no target this frame.
             reason = ReflectionTierFallbackReason::TargetUnavailable;
 
         m_Stats.Fallback = reason;
@@ -354,12 +364,17 @@ namespace OloEngine
                                         RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, normalID,
                                         RHI::HeapSlotLifetime::FrameTransient);
-        // A dangling sampler is undefined behaviour, not a zero read, so the
-        // cube unit is bound even when there is no environment — the shader
-        // decides whether to sample it from the LOD lane, not from the binding.
-        if (prefilterID.IsValid())
-            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_1, prefilterID,
-                                            RHI::HeapSlotLifetime::FrameTransient);
+        // UNCONDITIONALLY, with a null handle when there is no environment —
+        // exactly what DeferredLightingPass does at this same unit. Skipping the
+        // bind does not leave the unit empty, it leaves whatever the previous
+        // draw put there, and TEX_USER_1 is a general-purpose slot that other
+        // passes fill with a sampler2D. A samplerCube declaration reading a
+        // sampler2D binding is a type mismatch for the whole draw, not just for
+        // the branch that samples it, so the guard has to be in the SHADER (the
+        // hasEnvironment lane) and the bind has to always happen.
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_1,
+                                        prefilterID.IsValid() ? prefilterID : RHI::NullResource,
+                                        RHI::HeapSlotLifetime::FrameTransient);
 
         {
             const auto va = MeshPrimitives::GetFullscreenTriangle();
@@ -368,6 +383,11 @@ namespace OloEngine
             RenderCommand::DrawIndexed(va);
         }
 
+        // Restore the depth mask the fullscreen state turned off. Every
+        // neighbouring post pass does this; without it, a frame where this tier
+        // runs and SSR does not leaves depth writes disabled for the rest of the
+        // chain.
+        RenderCommand::SetDepthMask(true);
         outputFramebuffer->Unbind();
         gpuTimers.EndSubPass();
     }

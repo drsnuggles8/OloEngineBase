@@ -1,0 +1,171 @@
+name: 'Install a pinned LLVM toolchain (Linux)'
+description: >
+  Download, checksum-verify and unpack an official LLVM release for Linux at the
+  SAME absolute prefix the self-hosted box uses, then PROVE the resulting clang is
+  the version that was asked for and can actually link a sanitized binary.
+
+  IT EXISTS TO MAKE A CACHE KEY STOP MOVING (#1095). sccache hashes the compiler
+  binary into every cache key. The hosted Linux sanitizer arm compiled with
+  apt.llvm.org's SNAPSHOT clang-23, whose build id rolls every few days:
+
+      nightly 09-04   Ubuntu clang 23.1.1 (++20260901122056+5340f7cc8814)
+      nightly 09-05   Ubuntu clang 23.1.1 (++20260903063729+47bafb752202)
+
+  so every cache entry was invalidated by the next apt refresh -- while still
+  restoring 1.2 GB and still holding quota against a shared ~9.3 GiB store. Three
+  jobs, three nightlies, 1558 compile requests, 0 hits, 0.00 %. #1082 removed the
+  entries rather than keep paying for that; this action is how they come back.
+
+  A PINNED IMAGE IS ONLY HALF THE RULE. Windows.yml already pins `windows-2025`
+  because rolling the image swaps cl.exe. The same rule on Linux means pinning the
+  COMPILER PACKAGE, because that is what the key is hashed over -- and apt.llvm.org
+  publishes only the newest snapshot of a branch, so no apt version pin can hold.
+  The official release tarball can.
+
+  IT ALSO MAKES THE TWO ARMS TWINS. scripts/setup-olo-ci-host.sh unpacks this exact
+  release at /opt/llvm-<version> on the self-hosted box, and this action installs it
+  at the same path on a hosted runner, so `setup-linux-build` resolves ONE prefix on
+  both and the `toolchain:` line a same-commit A/B reads first reports the same
+  build on both. #1015/#1036 went to real trouble to make those arms comparable and
+  a rolling snapshot quietly undid it.
+
+  The bytes live on /mnt -- the runner's large scratch disk -- with a symlink at the
+  /opt path. The unpacked tree is ~12 GB and the root filesystem is where the build,
+  vcpkg and the sccache directory already compete; asan.yml records "No space left
+  on device" during the OloEngine-Tests link on this image, so this is not a
+  hypothetical.
+
+inputs:
+  version:
+    description: 'Full LLVM release version, e.g. 23.1.0. Must match scripts/setup-olo-ci-host.sh.'
+    required: true
+  sha256:
+    description: >
+      SHA256 of LLVM-<version>-Linux-X64.tar.xz, lowercase hex. Pinned rather than
+      trusted from the URL: a re-tagged or replaced asset would otherwise change a
+      sanitizer gate's compiler with nothing saying so. LLVM publishes no
+      SHA256SUMS, but it does publish a sigstore bundle whose SLSA in-toto statement
+      carries the artifact digest -- that is where this value comes from, and
+      scripts/setup-olo-ci-host.sh carries the same one.
+    required: true
+  fallback-lld:
+    description: >
+      Absolute path to an ld.lld to use if the tarball's own will not start. The
+      release is built on an Ubuntu with ICU 70 and its ld.lld drags ICU in through
+      a statically linked libxml2; ubuntu-24.04 has ICU 74, whose symbols are
+      suffixed per major, so no soname bridge exists. It surfaces at the FIRST LINK
+      as `clang++: error: unable to execute command`, forty minutes into a build,
+      not at configure -- which is exactly why this action checks it up front.
+
+      DEFAULTS TO `/usr/bin/ld.lld-<major of `version`>`, derived rather than
+      written down, because the two must not be able to drift: apt's `lld-NN` comes
+      from setup-llvm-apt's own `version` default, and pairing clang 24 with LLD 23
+      because one literal moved and another did not is the exact class of silent
+      mismatch this action exists to remove. Override only to point at an lld that
+      is not from apt.llvm.org.
+    required: false
+    default: ''
+
+outputs:
+  prefix:
+    description: 'Absolute prefix the pinned toolchain is installed at.'
+    value: ${{ steps.install.outputs.prefix }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install pinned LLVM ${{ inputs.version }}
+      id: install
+      shell: bash
+      env:
+        OLO_LLVM_VERSION: ${{ inputs.version }}
+        OLO_LLVM_SHA256: ${{ inputs.sha256 }}
+        OLO_FALLBACK_LLD: ${{ inputs.fallback-lld }}
+      run: |
+        set -euo pipefail
+        major="${OLO_LLVM_VERSION%%.*}"
+        # Derived, not written down -- see the input's description.
+        fallback_lld="${OLO_FALLBACK_LLD:-/usr/bin/ld.lld-${major}}"
+        dirname="LLVM-${OLO_LLVM_VERSION}-Linux-X64"
+        tarball="${dirname}.tar.xz"
+        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-${OLO_LLVM_VERSION}/${tarball}"
+        # The /opt path is the CONTRACT with setup-linux-build and with the box:
+        # both arms resolve the same absolute prefix. /mnt holds the bytes.
+        prefix="/opt/llvm-${OLO_LLVM_VERSION}"
+        store="/mnt/olo-llvm-${OLO_LLVM_VERSION}"
+
+        if [ -x "${prefix}/bin/clang++" ]; then
+          echo "already provisioned: ${prefix}"
+          echo "prefix=${prefix}" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        df -h / /mnt || true
+        # /mnt IS ROOT-OWNED on this image, so the staging directory has to be made
+        # with sudo and handed over -- an unprivileged `mktemp -d /mnt/...` fails, and
+        # under `set -e` that takes out every hosted Linux job in the fleet at once.
+        # Staging under /mnt rather than $RUNNER_TEMP is what makes the final move a
+        # rename on one filesystem instead of a 12 GB copy that can half-finish.
+        sudo mkdir -p /mnt/olo-work
+        sudo chown "$(id -u):$(id -g)" /mnt/olo-work
+        work=$(mktemp -d /mnt/olo-work/llvm.XXXXXX)
+        trap 'rm -rf "$work"' EXIT
+
+        echo "downloading ${url} (~2 GB) ..."
+        curl -fL --retry 3 --retry-delay 5 -o "${work}/${tarball}" "$url"
+        # The checksum IS the pin. Without it the "pin" is only a URL, and a
+        # replaced asset would swap a sanitizer gate's compiler silently.
+        echo "${OLO_LLVM_SHA256}  ${work}/${tarball}" | sha256sum -c -
+
+        echo "unpacking (~12 GB, a few minutes) ..."
+        tar --no-same-owner -xf "${work}/${tarball}" -C "${work}"
+        rm -f "${work}/${tarball}"
+        test -x "${work}/${dirname}/bin/clang++" \
+          || { echo "::error::${tarball} did not contain ${dirname}/bin/clang++"; exit 1; }
+
+        sudo rm -rf "${store}"
+        sudo mv "${work}/${dirname}" "${store}"
+        sudo ln -sfn "${store}" "${prefix}"
+        echo "prefix=${prefix}" >> "$GITHUB_OUTPUT"
+        df -h / /mnt || true
+
+        # ---------------------------------------------------------------- assert
+        #
+        # EVERY WRONG COMPILER IS GREEN UNTIL SOMETHING ASSERTS. That is the whole
+        # lesson of .github/actions/setup-llvm-windows, whose two failed attempts
+        # both installed nothing and said so in a way that read like success. The
+        # checks below are the same three this repository already learned to make:
+        # the compiler is the version asked for, the LINKER beside it runs, and the
+        # sanitizer runtimes exist -- a clang without compiler-rt configures fine
+        # and fails every sanitizer link on "cannot find libclang_rt.asan.a".
+        got=$("${prefix}/bin/clang++" -dumpversion)
+        if [ "${got}" != "${OLO_LLVM_VERSION}" ]; then
+          echo "::error::${prefix}/bin/clang++ reports '${got}', not ${OLO_LLVM_VERSION}"
+          exit 1
+        fi
+
+        if ! "${prefix}/bin/ld.lld" --version >/dev/null 2>&1; then
+          # Not a warning and not a failure: a documented, expected substitution.
+          # clang resolves ld.lld from its OWN bin directory before PATH, so the
+          # replacement has to live there -- putting the fallback on PATH does
+          # nothing. LLD from apt.llvm.org is the same major as this clang, so it
+          # accepts its bitcode; the mismatch that cost the self-hosted box LTO
+          # (LLD 21 against clang 23) does not apply.
+          if [ ! -x "${fallback_lld}" ]; then
+            echo "::error::${prefix}/bin/ld.lld does not run (the release links ICU 70; this image has a newer one) and the fallback ${fallback_lld} is not installed. Every -fuse-ld=lld link would fail at the first link, ~40 minutes in. setup-llvm-apt installs lld-${major}; if its version default no longer matches ${OLO_LLVM_VERSION}, that is the mismatch to fix."
+            exit 1
+          fi
+          echo "the release's ld.lld does not start here; pointing ${prefix}/bin/ld.lld at ${fallback_lld}"
+          sudo ln -sfn "${fallback_lld}" "${prefix}/bin/ld.lld"
+          "${prefix}/bin/ld.lld" --version
+        fi
+
+        rt=$("${prefix}/bin/clang++" -print-runtime-dir)
+        for san in asan tsan ubsan; do
+          ls "${rt}"/libclang_rt.${san}*.a >/dev/null 2>&1 \
+            || { echo "::error::no libclang_rt.${san}*.a under ${rt}; every sanitizer link would fail"; exit 1; }
+        done
+
+        echo "pinned clang: $("${prefix}/bin/clang++" --version | head -1)"
+        echo "        lld: $("${prefix}/bin/ld.lld" --version)"
+        echo "  compiler-rt: ${rt}"

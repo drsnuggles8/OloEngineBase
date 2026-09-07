@@ -49,7 +49,7 @@ namespace OloEngine
         RenderGraphNode* AOApply = nullptr;
         RenderGraphNode* SSGI = nullptr;
         // The ray-query reflection tier (#1057). Registered between SSGI and
-        // SSR: ADR 0019 composites the hierarchy bottom-up, so the lower
+        // SSR: ADR 0020 composites the hierarchy bottom-up, so the lower
         // tier runs first and SSR lerps over its output.
         RenderGraphNode* RayTracedReflection = nullptr;
         RenderGraphNode* SSR = nullptr;

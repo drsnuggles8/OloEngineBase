@@ -1,4 +1,4 @@
-# Self-hosted Linux runners: the box builds with a pinned clang-23, and a job verifies but never installs
+# Both Linux arms build with a pinned clang-23 from one tarball; on the box a job verifies but never installs
 
 Issues [#1015](https://github.com/drsnuggles8/OloEngineBase/issues/1015) item A and
 [#1036](https://github.com/drsnuggles8/OloEngineBase/issues/1036). Applies to every job that
@@ -12,12 +12,20 @@ regression.
 
 ## The rule
 
-1. **Both Linux arms build with clang-23.** Hosted takes it from apt.llvm.org; the box takes it
-   from the official LLVM release tarball, unpacked at **`/opt/llvm-23.1.0`** by
-   [`scripts/setup-olo-ci-host.sh`](../../scripts/setup-olo-ci-host.sh) and referenced by
-   absolute path. The prefix is versioned and is **not** on the system `PATH`: Rocky's clang
-   21.1.8 stays the default for everything else on the host, including another repository's
-   runners.
+1. **Both Linux arms build with the same clang, from the same tarball, at the same path.**
+   `/opt/llvm-23.1.0`, unpacked from the official LLVM release: on the box by
+   [`scripts/setup-olo-ci-host.sh`](../../scripts/setup-olo-ci-host.sh), and on a GitHub-hosted
+   runner by [`setup-llvm-linux`](../../.github/actions/setup-llvm-linux/action.yml) (bytes on
+   `/mnt`, symlinked to the `/opt` path). Both are referenced by absolute path. The prefix is
+   versioned and is **not** on the system `PATH`: Rocky's clang 21.1.8 stays the default for
+   everything else on the host, including another repository's runners.
+
+   The hosted arm took it from **apt.llvm.org until #1095**, and that is worth knowing rather
+   than forgetting: apt.llvm.org publishes only the newest *snapshot* of a branch, so the
+   compiler rolled every few days. sccache hashes the compiler binary into every cache key, so
+   three sanitizer cache entries restored 1.2 GB each and returned **0.00 %** — measured, on
+   three jobs, on three nightlies. A pinned runner image is only half the rule: **pin whatever
+   the key is hashed over, and on Linux that is the compiler.**
 2. **A package pin is impossible; that is not the same as no pin.** EPEL on Rocky 10 tops out at
    `clang20` (20.1.8) and ships no `clang22`/`clang23`. This doc previously concluded from that
    that the skew was permanent. It was not -- LLVM publishes prebuilt tarballs, so the skew was
@@ -154,9 +162,25 @@ the toolchain is no longer on the list of explanations.
 One number in three places, in this order: `llvm_version` in `scripts/setup-olo-ci-host.sh` plus
 its `llvm_sha256` (take the digest from the release's `.jsonl` sigstore bundle, then confirm it
 against a `sha256sum` of the download); `llvm_prefix` and `llvm_major` in
-[`setup-linux-build`](../../.github/actions/setup-linux-build/action.yml); and the `version`
-default in [`setup-llvm-apt`](../../.github/actions/setup-llvm-apt/action.yml) for the hosted
-arm. Run the script on the box **before** merging the action change: the old prefix keeps working
+[`setup-linux-build`](../../.github/actions/setup-linux-build/action.yml), which is also where
+the hosted arm's `version` + `sha256` inputs to
+[`setup-llvm-linux`](../../.github/actions/setup-llvm-linux/action.yml) live; and the `version`
+default in [`setup-llvm-apt`](../../.github/actions/setup-llvm-apt/action.yml), which is where
+the hosted arm's `lld-NN` package comes from — the fallback linker
+`setup-llvm-linux` falls back to when the release tarball's own `ld.lld` will not start on the
+runner image. (That fallback path is *derived* from the LLVM version rather than written down,
+so it cannot silently drift from this one; the apt `version` still has to move.) Move all of them
+together: the two arms sharing one prefix is what makes a hosted/self-hosted A/B mean anything,
+and a half-done bump splits them silently.
+
+**And `OLO_LINUX_LLVM_VERSION` in [`asan.yml`](../../.github/workflows/asan.yml)'s workflow
+`env`.** The three Linux sccache keys carry the LLVM version, deliberately — sccache hashes the
+compiler binary, so an entry taken with a different clang is a guaranteed miss that still
+restores, still downloads 1.2 GB and still holds quota, which is exactly the 0.00 % #1095 fixed.
+It is one value rather than the nine literals it started as (a restore key, a `restore-keys`
+prefix and a save key per job), so this is one line — but **forgetting it re-creates the bug the
+pin exists to remove, and the run stays green while it does.** Run the script on the box
+**before** merging the action change: the old prefix keeps working
 until then, and the warn-and-fall-back path means a mismatch degrades rather than breaks.
 
 A bump changes the prefix path, so the previous one is orphaned rather than replaced — 12 GB

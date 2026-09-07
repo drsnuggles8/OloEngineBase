@@ -18,7 +18,7 @@ namespace OloEngine::RenderPipelineBuilderInternal
             graph.AddNode(PrepareGraphNode("SSGIPass", inputs.Passes->SSGI));
         }
         // The ray-query reflection tier (#1057), registered BEFORE SSR and after
-        // SSGI. ADR 0019 composites the reflection hierarchy BOTTOM-UP — planar >
+        // SSGI. ADR 0020 composites the reflection hierarchy BOTTOM-UP — planar >
         // SSR > ray query > probe/IBL — and evaluating it in that direction is
         // what lets each tier lerp over the colour it was handed without ever
         // needing the confidence of a tier above it. So the LOWER tier runs

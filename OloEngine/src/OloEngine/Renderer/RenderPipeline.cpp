@@ -1152,7 +1152,7 @@ namespace OloEngine
             }
         }
         // Wire the ray-query reflection tier (#1057) — registered BEFORE SSR,
-        // because ADR 0019 composites the hierarchy bottom-up and SSR lerps over
+        // because ADR 0020 composites the hierarchy bottom-up and SSR lerps over
         // this tier's output. Deferred-only for the same reason SSR is: it reads
         // the G-Buffer. On a non-RT device the pass's shader never loaded, so
         // IsReadyForExecution() is false and the tier reports itself unavailable
@@ -4920,7 +4920,7 @@ namespace OloEngine
         PostProcessPasses.SSGI->Init(finalPassSpec);
 
         // The ray-query reflection tier (#1057). Sits between SSGI and SSR:
-        // ADR 0019 composites the hierarchy bottom-up, so the LOWER tier runs
+        // ADR 0020 composites the hierarchy bottom-up, so the LOWER tier runs
         // FIRST and SSR lerps over its output.
         PostProcessPasses.RayTracedReflection = Ref<RayTracedReflectionPass>::Create();
         PostProcessPasses.RayTracedReflection->SetName("RayTracedReflectionPass");

@@ -38,9 +38,9 @@ void main()
 
 // =============================================================================
 // RayTracedReflection.glsl — the RAY-QUERY tier of the reflection hierarchy.
-// Issue #1057 (#979 Phase 2). The contract this implements is ADR 0019.
+// Issue #1057 (#979 Phase 2). The contract this implements is ADR 0020.
 //
-// WHERE THIS SITS, AND WHY THAT IS THE WHOLE DESIGN. ADR 0019 evaluates the
+// WHERE THIS SITS, AND WHY THAT IS THE WHOLE DESIGN. ADR 0020 evaluates the
 // hierarchy BOTTOM-UP: every tier lerps over whatever is already in the colour
 // it was handed, so no tier ever has to know the confidence of a tier ABOVE it.
 // This pass therefore runs AFTER DeferredLighting (whose output already carries
@@ -90,7 +90,7 @@ void main()
 // .rgb) — and it is written ONLY when the debug view is on, so no production
 // frame ever carries a non-1.0 alpha down the chain.
 //
-// TWO LIMITS OF THIS FIRST SLICE, both deliberate and both stated in ADR 0019:
+// TWO LIMITS OF THIS FIRST SLICE, both deliberate and both stated in ADR 0020:
 //
 //   * UNTEXTURED HITS (#805). Shading a hit needs arbitrary-material sampling,
 //     which needs the shader-visible sampler heap (ADR 0011 §1.2a, issue #805,
@@ -110,7 +110,7 @@ void main()
 // the specular lobe is wide enough for one deterministic ray to misrepresent
 // it, and rough surfaces stay on the probes, where a ray budget buys nothing.
 // The consequence is that the top of the transition band is slightly over-sharp.
-// A VNDF sample plus a denoiser is the follow-up, and ADR 0019's algebra means
+// A VNDF sample plus a denoiser is the follow-up, and ADR 0020's algebra means
 // it lands by raising this tier's L, with no weight anywhere else changing.
 // =============================================================================
 
@@ -263,7 +263,7 @@ void main()
     const vec3 baseColor = texture(u_SceneColor, v_TexCoord).rgb;
 
     // Everything below can early-out, and every early-out must leave the colour
-    // EXACTLY as it found it. That is not politeness: ADR 0019 §5 says the
+    // EXACTLY as it found it. That is not politeness: ADR 0020 §5 says the
     // raster-only output is byte-identical when this tier is off, and the
     // reason it is byte-identical is that a zero-confidence pixel is a copy,
     // not a blend by a small number.
@@ -291,7 +291,7 @@ void main()
     const vec4 gN = texture(u_GBufferNormal, v_TexCoord);
     const float roughness = gN.z;
 
-    // The roughness gate, ADR 0019 §4: rays are spent only where the lobe is
+    // The roughness gate, ADR 0020 §4: rays are spent only where the lobe is
     // narrow enough for one deterministic sample to mean something. Above the
     // gate the confidence is exactly 0 and the probes answer.
     const float gateStart = u_RoughnessGate.x;
@@ -397,7 +397,7 @@ void main()
     const vec3 reflTint = mix(vec3(1.0), albedo, metallic);
     const vec3 reflTarget = hitRadiance * reflTint;
 
-    // ADR 0019 §4: c_ray = hitValid * fresnel * roughnessGate, times the artist
+    // ADR 0020 §4: c_ray = hitValid * fresnel * roughnessGate, times the artist
     // intensity. Clamped to [0,1] because a confidence outside it is what the
     // contract's Sigma(w) = 1 identity forbids.
     const float confidence = clamp(fresnelScalar * roughnessGate * u_RayParams.z, 0.0, 1.0);

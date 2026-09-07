@@ -119,6 +119,27 @@ env:
   # slow link, and every job here links sanitizer-instrumented binaries.
   SCCACHE_IDLE_TIMEOUT: "0"
 
+  # ONE DEFINITION OF WHAT THE WINDOWS ASan RUN EXCLUDES (#1083). It is read in three
+  # places -- the `ctest -N` total in the build job, each shard's `ctest -N` count,
+  # and each shard's actual run -- and the coverage proof compares the first against
+  # the sum of the second. A shard filtering differently from the total would present
+  # as an arithmetic failure with no obvious cause, so the regex cannot be allowed to
+  # exist in three copies. The reasoning for each exclusion is on the run step.
+  # THE LLVM VERSION THE THREE LINUX sccache KEYS CARRY (#1095), in ONE place.
+  # sccache hashes the compiler binary into every key, so an entry taken with a
+  # different clang is a guaranteed miss that still restores, still downloads 1.2 GB
+  # and still holds quota -- the exact 0.00 % this issue is about. Putting the version
+  # in the key makes a toolchain bump a deliberate, reviewable commit instead of a run
+  # that quietly returns nothing.
+  #
+  # It was NINE literals (a restore key, a restore-keys prefix and a save key for each
+  # of the three jobs) and is now one, because a bump that moves setup-linux-build and
+  # forgets these keys reintroduces the bug it fixes. Move it WITH the version/sha256
+  # inputs in .github/actions/setup-linux-build; the full bump checklist is in
+  # docs/ops/self-hosted-linux-toolchain.md.
+  OLO_LINUX_LLVM_VERSION: "23.1.0"
+  OLO_ASAN_WINDOWS_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+
 permissions:
   contents: read
   # dorny/paths-filter@v4 falls back to the GitHub REST API for PR-base
@@ -164,19 +185,54 @@ jobs:
             - 'cmake/**'
             - '.github/actions/**'
             - '.github/workflows/asan.yml'
+            # The shard coverage proof and the artifact's DLL staging are part of this
+            # gate (#1083); a change to either has to run the jobs it guards.
+            - 'scripts/verify_test_shards.py'
+            - 'scripts/Copy-ImportedDlls.ps1'
             - '.github/sanitizer-suppressions/**'
 
   asan-windows:
-    name: ASan (Windows/clang-cl)
+    # " build" since #1083: this job no longer runs the suite, it builds the tree the
+    # `ASan (Windows) tests N/4` jobs execute. The name says so, because a check named
+    # for a sanitizer run that only compiles is exactly the kind of green nobody reads
+    # twice.
+    name: ASan (Windows/clang-cl) build
     needs: detect-changes
     if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
-    runs-on: windows-2025
+    # SELF-HOSTED WHEN THE CODE IS OURS AND THE SWITCH IS ON (#1076) -- the same
+    # expression, the same kill switch and the same fork boundary as Windows.yml's
+    # `build` job, whose comment owns the reasoning. DEFAULT OFF: the variable is
+    # unset and no Windows runner is registered, so every run today lands on
+    # windows-2025 exactly as before.
+    #
+    # windows-2025 is PINNED rather than windows-latest on the hosted arm: sccache
+    # hashes the compiler binary into every cache key, so an image roll invalidates
+    # the entire cache in one step -- silently, because it still restores and the
+    # build still goes green. The key below carries the image string for the same
+    # reason; when `runs-on` is bumped, bump it with it.
+    runs-on: ${{ vars.OLO_WINDOWS_SELF_HOSTED == 'true'
+                 && github.event_name != 'schedule'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","windows","x64","olo-ci-win"]') || 'windows-2025' }}
+
+    # The unsharded case count, measured after the build and consumed by
+    # `asan-windows-tests-verify` (#1083). It is a JOB OUTPUT rather than a file in
+    # the test-tree artifact so that the coverage proof reads it from the job that
+    # measured it, not from the same artifact the shards were fed -- a number that
+    # travels with the thing it is meant to check is not a check.
+    outputs:
+      ctest-total: ${{ steps.ctest-total.outputs.total }}
+
     permissions:
-      # Job-level permissions replace the workflow-level block entirely,
-      # so re-declare contents: read alongside checks: write. Without it
-      # actions/checkout@v6 would fail on fork PRs.
+      # Job-level permissions replace the workflow-level block entirely, so
+      # contents: read is re-declared here. Without it actions/checkout would fail on
+      # fork PRs.
+      #
+      # NO `checks: write` any more (#1083). It was here for dorny/test-reporter, and
+      # the reporter moved to `asan-windows-tests-verify` with the test run. A
+      # permission kept past the step that needed it is a permission nobody will ever
+      # remove.
       contents: read
-      checks: write
       # Needed by the sccache save (#1082, same reason as Windows.yml and the Linux
       # sanitizer jobs): when the repo's Actions cache store is full every save is
       # refused, and the only way to land this job's snapshot is to delete the entry
@@ -329,6 +385,21 @@ jobs:
     # failed because each attempt resumed near the end of the build and met the next
     # long link, so it re-armed the same race every time. With the timeout disabled
     # there is nothing left to retry.
+    # SCCACHE_DIR is a WORKSPACE path and actions/checkout wipes the workspace, so on
+    # a persistent runner it has to move out of the way or the cache is discarded on
+    # every checkout while looking perfectly healthy. Same step, same reasoning, as
+    # Windows.yml's -- read the longer note there, including the per-user-daemon
+    # constraint it puts on provisioning.
+    - name: Point sccache at persistent disk (self-hosted)
+      if: runner.environment != 'github-hosted'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $dir = Join-Path $env:USERPROFILE '.cache\olo\sccache-asan'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        "SCCACHE_DIR=$dir" >> $env:GITHUB_ENV
+        Write-Host "persistent sccache: $dir"
+
     - name: Setup sccache
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       with:
@@ -342,6 +413,10 @@ jobs:
     # this job's objects can never collide with `sccache-windows-2025-release-`.
     # When `runs-on` is bumped, bump this string with it.
     - name: Restore sccache storage
+      # HOSTED ONLY (#1076): a persistent runner keeps SCCACHE_DIR on local disk, with
+      # no upload, no download, no slice of the shared cap and no post-job save for a
+      # cancellation to skip.
+      if: runner.environment == 'github-hosted'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
@@ -424,6 +499,12 @@ jobs:
         }
         Write-Host "clang-cl ASan runtime dir: $rtDir"
         echo "$rtDir" >> $env:GITHUB_PATH
+        # Also exported as a variable because the test SHARDS (#1083) run in
+        # separate jobs that never install LLVM: the packaging step below copies
+        # this DLL next to the instrumented exe so a shard needs nothing but the
+        # artifact. GITHUB_PATH would not survive the job boundary; a DLL beside
+        # the exe does, and Windows resolves it from there first.
+        echo "OLO_ASAN_RUNTIME_DIR=$rtDir" >> $env:GITHUB_ENV
 
     # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
     # is the whole point: the combined actions/cache action saves in a POST-JOB
@@ -498,7 +579,7 @@ jobs:
     # turning the cache on. The save is kept on `workflow_dispatch` so the cold/warm A/B
     # can be measured on a branch — that is how #1073 was verified and how this was.
     - name: Save sccache storage
-      if: always() && github.event_name != 'pull_request'
+      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
       # `save-cache-pruned` swallows its own failures: a cache save must never fail the
       # job it is attached to. `if: always()` means it also runs on a CANCEL, where the
       # path may not exist yet, and actions/cache/save treats a missing path as a
@@ -511,9 +592,261 @@ jobs:
         key: sccache-asan-windows-2025-${{ github.run_id }}-${{ github.run_attempt }}
         token: ${{ secrets.GITHUB_TOKEN }}
 
+    # ---------------------------------------------------------------- #1083
+    #
+    # THE TEST RUN LEFT THIS JOB. It used to be a `Run tests under ASan` step here
+    # that took 89.0 MINUTES of a 236-minute job (measured, #1084's table). It is now
+    # the `asan-windows-tests` matrix below: this job builds and hands the
+    # instrumented tree over, and N separate runners each execute a stride of it.
+    #
+    # WHY SHARDING RATHER THAN BATCHING. gtest_discover_tests registers every gtest
+    # case as its own ctest entry, so the suite is ~7,600 PROCESS LAUNCHES, each
+    # paying full engine static-init. Batching many cases into one process is the
+    # bigger win and it REMOVES the isolation that currently hides cross-test state
+    # corruption -- that is #1074's territory and must not be done from here.
+    # Sharding splits the same one-process-per-case run across more runners and
+    # changes the semantics not at all.
+    #
+    # WHAT IT COSTS. Each shard is a whole runner: it pays job startup, a checkout
+    # and an artifact download before it runs a single case. This TRADES
+    # RUNNER-MINUTES FOR WALL-CLOCK and the exchange rate is stated on the PR.
+    # ---------------------------------------------------------------------------
+
+    # THE NUMBER THE SHARDS HAVE TO ADD UP TO. Measured here, in the job that owns
+    # the build, with the same --exclude-regex every shard uses -- so the coverage
+    # proof in `asan-windows-tests-verify` compares like with like. `ctest -N` only
+    # LISTS: discovery already happened at build time (gtest_discover_tests'
+    # POST_BUILD mode writes the entries into the generated *_tests.cmake), so this
+    # launches no test process and costs seconds.
+    - name: Measure the unsharded case count
+      id: ctest-total
+      shell: bash
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N -C Release --exclude-regex "${OLO_ASAN_WINDOWS_CTEST_EXCLUDE}")
+        total=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        # A ctest that lists nothing is the same failure archetype the shards guard
+        # against, one level up: it would make each shard's "count > 0" check the only
+        # thing between a broken discovery and a green matrix.
+        #
+        # DIGITS-ONLY BEFORE THE NUMERIC COMPARISON, and the order is the whole point:
+        # `[ "$x" -le 0 ]` on a non-numeric $x ERRORS rather than returning false, and
+        # a command that errors inside an `if` condition is exempt from `set -e` -- so
+        # anything that is not a number fell straight through this guard and got
+        # published as the total. A guard that exists for the case where discovery
+        # printed something unexpected must not be the thing that trusts its output.
+        case "${total}" in
+          ''|*[!0-9]*) valid=no ;;
+          *) if [ "${total}" -gt 0 ]; then valid=yes; else valid=no; fi ;;
+        esac
+        if [ "${valid}" != yes ]; then
+          echo "::error::ctest -N did not report a positive test count (got '${total}'). Discovery did not produce a usable test list, so nothing below can be trusted."
+          printf '%s\n' "$listing" | tail -20
+          exit 1
+        fi
+        echo "unsharded ctest entries: ${total}"
+        echo "total=${total}" >> "$GITHUB_OUTPUT"
+
+    # THE SHARDS INSTALL NO TOOLCHAIN, so everything they need to RUN the suite has
+    # to be inside the artifact. Two things are not there by default:
+    #
+    #   * clang_rt.asan_dynamic-x86_64.dll. clang-cl links the DYNAMIC ASan runtime,
+    #     so the instrumented exe does not start without it. This job has it on PATH
+    #     from the LLVM install; a shard job does not, and re-installing a 2 GB LLVM
+    #     four times to obtain one DLL would eat the saving. Windows resolves a DLL
+    #     from the executable's own directory first, so copying it beside the exe is
+    #     both sufficient and version-correct -- it is the runtime of the very
+    #     clang-cl that instrumented these objects.
+    #   * the workspace path this tree was built at. gtest_discover_tests bakes
+    #     ABSOLUTE paths into the generated *_tests.cmake (the exe, and the
+    #     WORKING_DIRECTORY that makes assets/shaders resolvable). Both runners are
+    #     `windows-2025` checking out the same repository, so the path is identical
+    #     in practice -- but "in practice" is exactly the kind of assumption that
+    #     turns into a silent 100 %-skip later, so the shard asserts it.
+    - name: Package the instrumented test tree
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $outDir = Join-Path '${{github.workspace}}' 'build/OloEngine/tests/Release'
+        $dll = Join-Path "$env:OLO_ASAN_RUNTIME_DIR" 'clang_rt.asan_dynamic-x86_64.dll'
+        if (-not (Test-Path $dll)) { Write-Error "ASan runtime DLL not at $dll"; exit 1 }
+        Copy-Item $dll -Destination $outDir -Force
+        Write-Host "copied $(Split-Path -Leaf $dll) next to the test exe"
+        & "${{github.workspace}}/scripts/Copy-ImportedDlls.ps1" `
+            -Exe (Join-Path $outDir 'OloEngine-Tests.exe') -Destination $outDir
+        if ($LASTEXITCODE -ne 0) { throw "could not stage the exe's imported DLLs" }
+        # Recorded, not asserted here -- the shard is where a mismatch matters.
+        $wsFile = Join-Path '${{github.workspace}}' 'build/OloEngine/tests/olo-build-workspace.txt'
+        Set-Content -Path $wsFile -Value '${{github.workspace}}' -NoNewline
+        Get-ChildItem $outDir | ForEach-Object { '{0,12:N0}  {1}' -f $_.Length, $_.Name }
+
+    # ONLY WHAT CTEST READS. The PDB is deliberately absent: the ASan Release tree's
+    # OloEngine-Tests.pdb is the largest single file in the build (the local Debug
+    # tree measures ~1.9 GB) and ctest never opens it. The ASan runtime symbolises
+    # from it when present, so a failing shard's stack is less readable than the
+    # unsharded step's was -- the one real regression in this change, named on the
+    # PR. `*.lib` and `CMakeFiles/` are dropped for the same reason.
+    #
+    # compression-level 1: the exe is a few hundred MB and this transfer happens once
+    # up and once per shard down, so it sits directly on the wall-clock this issue is
+    # about. Level 1 on an already-packed PE gives up little and is several times
+    # faster than the default 6.
+    #
+    # retention-days 1: this is scratch, not a deliverable. A multi-hundred-MB
+    # artifact per run held for 90 days is a storage bill for nothing.
+    - name: Upload the instrumented test tree
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: asan-windows-test-tree
+        path: |
+          build/OloEngine/tests/*.cmake
+          build/OloEngine/tests/olo-build-workspace.txt
+          build/OloEngine/tests/Release/*.exe
+          build/OloEngine/tests/Release/*.dll
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 1
+
+  # ---------------------------------------------------------------------------
+  # #1083: the ASan test run, spread across runners.
+  #
+  # The stride count lives in TWO places that must agree -- `matrix.shard` below and
+  # OLO_CTEST_SHARDS -- because GitHub offers no way to derive one from the other in
+  # an expression. That is a real hazard, so it is not defended by a comment: every
+  # shard reports the count it believed it was part of, and
+  # `asan-windows-tests-verify` fails if they disagree or if 1..N is not exactly
+  # covered. Edit one without the other and the matrix goes red, not green.
+  #
+  # WHY 4. The unsharded step measured 89.0 min. Four shards keeps the per-shard
+  # fixed cost (job startup + checkout + artifact download, a few minutes) small
+  # against the per-shard test time. The right number is re-measurable from the shard
+  # durations in any run; it was NOT tuned by a sweep, because a sweep here costs a
+  # full CI round each.
+  # ---------------------------------------------------------------------------
+  asan-windows-tests:
+    name: ASan (Windows) tests ${{ matrix.shard }}/4
+    needs: asan-windows
+    # THE SHARDS FOLLOW THE BUILD JOB (#1076 x #1083). gtest_discover_tests bakes the
+    # absolute exe and WORKING_DIRECTORY paths into the generated test list, so a
+    # shard on a different runner kind would be pointing at a path that is not there.
+    # The `Assert this runner matches the build job's layout` step turns that into one
+    # line; the routing is what prevents it. Four shards want four runner SLOTS -- on
+    # a box with fewer they queue and the sharding win is handed back. See the ADR.
+    runs-on: ${{ vars.OLO_WINDOWS_SELF_HOSTED == 'true'
+                 && github.event_name != 'schedule'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","windows","x64","olo-ci-win"]') || 'windows-2025' }}
+    strategy:
+      # A red shard must not cancel its siblings. Four shards are four independent
+      # samples of the same suite, and cancelling three of them to react to the
+      # first failure is how a run comes back knowing about one bug instead of four
+      # -- the same reasoning as docs/process/task-loop.md's "do not act on the
+      # first red".
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      # ONE stride, read by the `ctest -N` count AND by the run below. Keeping them in
+      # separate literals is how a shard comes to COUNT one partition and RUN another
+      # -- the counts would still add up and a quarter of the suite would never
+      # execute. The matrix list is the other half of the pair; `asan-windows-tests-verify`
+      # catches a drift between the two.
+      OLO_CTEST_SHARDS: 4
+      # detect_odr_violation=0 for the same reason as the build job: vendored
+      # protobuf trips a known ASan false positive on its narrow/wide "." literals,
+      # which aborts the instrumented exe at startup. Repeated on the run step below,
+      # because a step-level ASAN_OPTIONS REPLACES this rather than merging.
+      ASAN_OPTIONS: detect_odr_violation=0
+    steps:
+    # The checkout is not optional and it is not for the build: every test's
+    # WORKING_DIRECTORY is <workspace>/OloEditor, and the suite loads shaders,
+    # scenes and models from the source tree by repo-relative path.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Download the instrumented test tree
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: asan-windows-test-tree
+        path: build/OloEngine/tests
+
+    # THE ASSERTION THE BAKED ABSOLUTE PATHS DESERVE. If the build job's workspace
+    # differed from this one's, every add_test() would name an exe that is not there
+    # and ctest would fail loudly -- but it would fail thousands of times with a
+    # confusing message, and a future runner-image or path change would land as "the
+    # ASan tests are all broken" rather than as this one line.
+    - name: Assert this runner matches the build job's layout
+      shell: bash
+      run: |
+        set -euo pipefail
+        built_at=$(cat build/OloEngine/tests/olo-build-workspace.txt)
+        here="${GITHUB_WORKSPACE}"
+        # Compare with both separators normalised: GITHUB_WORKSPACE reaches bash as a
+        # Windows path here, and the recorded one was written by pwsh.
+        if [ "${built_at//\\//}" != "${here//\\//}" ]; then
+          echo "::error::This tree was built at '${built_at}' but this runner checked out at '${here}'. gtest_discover_tests bakes absolute paths into the generated test list, so the tree cannot be moved. Run the shards on the same runner image and path as the build job, or re-run discovery here."
+          exit 1
+        fi
+        exe=build/OloEngine/tests/Release/OloEngine-Tests.exe
+        test -f "$exe" || { echo "::error::$exe missing from the artifact"; exit 1; }
+        test -f build/OloEngine/tests/Release/clang_rt.asan_dynamic-x86_64.dll \
+          || { echo "::error::ASan runtime DLL missing from the artifact; the instrumented exe will not start"; exit 1; }
+        echo "workspace matches: ${here}"
+
+        # AND PROVE IT STARTS. A missing runtime DLL fails in the OS loader before
+        # main(), so it would arrive as ~1,900 identical ctest failures with no
+        # message worth reading. One launch, seconds, and the failure names itself.
+        # `--gtest_list_tests` pays the same static-init the real cases do and runs
+        # no test body.
+        if ! "$exe" --gtest_list_tests > /dev/null; then
+          echo "::error::$exe does not start on this runner. Either the artifact is missing something it needs at load time (a runtime DLL), or the tree does not match this runner."
+          exit 1
+        fi
+        echo "the instrumented test binary starts here"
+
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
       shell: pwsh
+
+    # GUARD 1 OF 2: A SHARD THAT MATCHED NOTHING MUST FAIL. `ctest -I` selects by
+    # index, so a stride that does not line up with the list silently produces an
+    # empty run -- which passes in about a second and is indistinguishable in the
+    # check list from a shard that ran 1,900 cases. The count is also written out
+    # for guard 2, the union check in `asan-windows-tests-verify`.
+    - name: Select this shard's cases
+      id: select
+      shell: bash
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N -C Release \
+                    -I "${OLO_CTEST_SHARD},,${OLO_CTEST_SHARDS}" \
+                    --exclude-regex "${OLO_ASAN_WINDOWS_CTEST_EXCLUDE}")
+        count=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        # Digits-only before the numeric comparison -- see the same guard on the build
+        # job's total. `[ "$x" -le 0 ]` errors on a non-number and an erroring `if`
+        # condition is exempt from `set -e`, so garbage would pass this check and then
+        # be written into the shard count the coverage proof adds up.
+        case "${count}" in
+          ''|*[!0-9]*) valid=no ;;
+          *) if [ "${count}" -gt 0 ]; then valid=yes; else valid=no; fi ;;
+        esac
+        if [ "${valid}" != yes ]; then
+          echo "::error::shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS} did not match a positive number of ctest entries (got '${count}')."
+          printf '%s\n' "$listing" | tail -20
+          exit 1
+        fi
+        echo "shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS}: ${count} ctest entries"
+        mkdir -p "${GITHUB_WORKSPACE}/shard_counts"
+        {
+          echo "shard=${OLO_CTEST_SHARD}"
+          echo "shards=${OLO_CTEST_SHARDS}"
+          echo "count=${count}"
+        } > "${GITHUB_WORKSPACE}/shard_counts/shard-${OLO_CTEST_SHARD}.txt"
+      env:
+        OLO_CTEST_SHARD: ${{ matrix.shard }}
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
@@ -528,14 +861,14 @@ jobs:
       # FIXED UPSTREAM: ValveSoftware/GameNetworkingSockets#418, by PR #420 (merged
       # to master 2026-08-24). The overlay port now pins a post-1.6.0 master
       # snapshot carrying it (cmake/overlay-ports/gamenetworkingsockets/portfile.cmake
-      # — v1.6.0 is still the newest tag and predates the fix), and both the
+      # -- v1.6.0 is still the newest tag and predates the fix), and both the
       # NetworkManager::Init gate and ServerAuthoritativeLoopTest's GTEST_SKIP are
       # gone, so the live init runs here and ServerAuthoritativeLoopTest's 17 cases
       # execute instead of skipping.
       #
       # BE PRECISE ABOUT WHAT THAT COVERS. GNS is a vcpkg port built with cl.exe and
-      # no sanitizer flags -- see the triplet note on the vcpkg step above, "vcpkg
-      # ports are NOT sanitizer-instrumented", which is deliberate. So ASan
+      # no sanitizer flags -- see the triplet note on the vcpkg step in the build job,
+      # "vcpkg ports are NOT sanitizer-instrumented", which is deliberate. So ASan
       # instruments the engine and the test process, NOT GNS internals: allocations
       # and interceptors crossing the boundary are covered, stack and global redzones
       # inside GNS are not. What this change buys is sanitizer coverage of OloEngine's
@@ -547,16 +880,20 @@ jobs:
       # gate back.
       #
       # The Task* and Shader* suites were excluded here on a since-disproven "the
-      # task system starts the Steam service thread" theory — they never touched
+      # task system starts the Steam service thread" theory -- they never touched
       # GNS (the ICF-folded stacks just looked like it) and all pass under MSVC
       # ASan, so they are no longer excluded. See issue #317.
       #
-      # Remaining exclusions match the Linux ASan job exactly:
-      #   NetworkIntegrationTest — needs real client/server socket plumbing that CI
+      # Remaining exclusions live in OLO_ASAN_WINDOWS_CTEST_EXCLUDE at the top of this
+      # file -- ONE definition, read by this step and by the `ctest -N` total the
+      # coverage proof compares against, because a shard filtering differently from
+      # the total is a coverage hole that presents as an arithmetic bug. They match
+      # the Linux ASan job exactly:
+      #   NetworkIntegrationTest -- needs real client/server socket plumbing that CI
       #     environments do not provide; excluded on EVERY job in this repo, the
       #     non-sanitizer ones included (Windows.yml, gpu-conformance-amd.yml). Not
       #     related to the removed ASan gate, and not something the GNS pin changes.
-      #   WorkerRestartTest — a tight 100-iteration worker-pool teardown/recreate
+      #   WorkerRestartTest -- a tight 100-iteration worker-pool teardown/recreate
       #     stress test that exceeds the 120 s timeout under sanitizer
       #     instrumentation; excluded on every sanitizer job.
       #
@@ -576,22 +913,27 @@ jobs:
       #
       # Doubling the width buys ~15 %, not the ~2x "startup-bound" predicted. So this
       # is much closer to CPU/memory-bandwidth bound than to launch-latency bound, and
-      # anyone tempted to go wider again should re-measure rather than reason.
+      # anyone tempted to go wider again should re-measure rather than reason. THAT
+      # MEASUREMENT IS ALSO WHY SHARDING IS THE REMAINING LEVER: a step that is
+      # CPU-bound on a 4-vCPU runner does not get much faster by asking that runner
+      # for more, it gets faster by adding runners.
       # 100 % passed at every width -- 380 of 380, six passes, zero flakes -- so the
       # raise costs no stability at this width.
       #
       # THE OLD CAP WAS AN ASSUMPTION. It read "capped at 2 (not 4) because ASan shadow
       # memory inflates each test process's resident footprint; 2-wide stays comfortably
       # inside the windows-2025 ~16 GB budget" -- plausible, and never measured. 4-wide
-      # ran 380 instrumented cases for 216 s here without incident. If a future run does
+      # ran 380 instrumented cases for 216 s without incident. If a future run does
       # start OOMing or timing out, 3 is the measured fallback and buys 7.1 %.
       #
       # The suite is parallel-safe by construction: tests key their temp paths by
       # PID / gtest case name, and the handful that share the engine's repo-relative
       # mesh cache are serialized against each other with a ctest RESOURCE_LOCK
-      # (OloEngine/tests/CMakeLists.txt). Note what the sample could NOT exercise: a
-      # 1-in-20 stride rarely co-schedules the RESOURCE_LOCK'd cases, so lock
-      # contention at this width is validated by the full run, not by the sweep.
+      # (OloEngine/tests/CMakeLists.txt). SHARDING DOES NOT WEAKEN THAT LOCK and in
+      # one respect strengthens it: each shard is a separate runner with its own
+      # checkout, so two shards cannot contend over one mesh cache at all, and within
+      # a shard ctest serializes the locked cases exactly as before.
+      #
       # TEN EH cases used to be excluded here and are not any more (issue #497).
       # They are the tests that trigger a real C++ throw+catch (malformed-input
       # robustness + MCP error handling), and clang-cl + ASan miscompiled MSVC-style
@@ -603,18 +945,100 @@ jobs:
       # -asan-globals=0, -fno-strict-aliasing, /Od, detect_stack_use_after_return=0,
       # driver-vs-lld-link), and the old MSVC-cl.exe ASan job passed all of them.
       #
-      # FIXED by the LLVM 23.1.0 pin added above -- see that step for the measured
+      # FIXED by the LLVM 23.1.0 pin in the build job -- see that step for the measured
       # before/after on #497's own three-line repro. If these cases start failing
-      # again, the question is which clang the job resolved, not whether the engine
-      # regressed.
+      # again, the question is which clang the build job resolved, not whether the
+      # engine regressed.
       run: >
         ctest --parallel 4 -C Release --output-on-failure --timeout 120
-        --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+        -I ${{ matrix.shard }},,${OLO_CTEST_SHARDS}
+        --exclude-regex "${OLO_ASAN_WINDOWS_CTEST_EXCLUDE}"
+      shell: bash
       env:
-        # detect_odr_violation=0 must be repeated here — a step-level ASAN_OPTIONS
+        # detect_odr_violation=0 must be repeated here -- a step-level ASAN_OPTIONS
         # replaces the job-level one rather than merging (see the job `env` above).
         ASAN_OPTIONS: halt_on_error=1:detect_odr_violation=0
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
+
+    # `if: always()` on both uploads: a shard that FAILED is the one whose XML the
+    # reporter most needs, and its count is what proves the failure was not simply an
+    # empty run.
+    - name: Upload this shard's test results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: asan-windows-test-results-shard-${{ matrix.shard }}
+        path: ${{github.workspace}}/test_results/*.xml
+        if-no-files-found: 'warn'
+
+    - name: Upload this shard's case count
+      if: always() && steps.select.outcome == 'success'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: asan-windows-shard-count-${{ matrix.shard }}
+        path: ${{github.workspace}}/shard_counts/shard-${{ matrix.shard }}.txt
+        if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # #1083 GUARD 2 OF 2, and the report.
+  #
+  # `ctest -I <shard>,,<N>` partitions the list by construction -- on paper. What
+  # this job checks is that the run that actually happened WAS that partition: every
+  # shard reported, all agreeing on N, none empty, and the counts summing to the
+  # unsharded `ctest -N` total the build job measured. Without it, sharding
+  # introduces a way for the suite to shrink silently, which is the failure this
+  # repository has the most history with.
+  #
+  # `if: always()` so a RED shard still gets reported and still gets its coverage
+  # checked. It cannot launder a failure: the shard job itself stays red.
+  # ---------------------------------------------------------------------------
+  asan-windows-tests-verify:
+    name: ASan (Windows) shard coverage
+    needs: [asan-windows, asan-windows-tests]
+    # `!cancelled()` rather than `always()`: a cancelled run (cancel-in-progress on
+    # the next push) can leave asan-windows already 'success' while the shards were
+    # killed mid-flight, and `always()` would then run this job and post a red
+    # "a shard did not complete" on a run nobody abandoned for a reason worth
+    # reading. Braced because a bare leading `!` is a YAML tag indicator.
+    if: ${{ !cancelled() && needs.asan-windows.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Download the shard case counts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: asan-windows-shard-count-*
+        path: shard_counts
+      # A shard that died before writing its count uploads nothing, and this step
+      # would then fail on "no artifacts found" -- a worse message than the script's.
+      # Let it through and let the union check name the missing shard.
+      continue-on-error: true
+
+    - name: Prove the shards covered the whole suite
+      run: >
+        python3 scripts/verify_test_shards.py
+        --dir shard_counts
+        --label "ASan (Windows)"
+        --expected-total ${{ needs.asan-windows.outputs.ctest-total }}
+
+    # NO `merge-multiple`, deliberately. GTEST_OUTPUT writes into a directory and
+    # gtest names the files itself -- OloEngine-Tests.xml, then _1, _2, ... per
+    # process -- so all four shards produce the SAME filenames. Merging them into one
+    # directory would have shards silently overwrite each other and the report would
+    # be missing real failures while looking complete. One directory per artifact,
+    # and a `**` glob below.
+    - name: Download the shard test results
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: asan-windows-test-results-shard-*
+        path: test_results
+      continue-on-error: true
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded
@@ -624,10 +1048,22 @@ jobs:
       uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
         name: ASan (Windows)
-        path: test_results/*.xml
+        path: test_results/**/*.xml
         reporter: java-junit
         fail-on-error: false
         list-tests: 'failed'
+
+    # THE COUNTS ARE RECORDED BEFORE THE RUN, so the check above proves the shards'
+    # SELECTIONS partition the suite -- not that every selected case executed. A shard
+    # whose ctest died a third of the way through still uploaded a full count. The
+    # shard job is red in that case and so is the run, but this check must not read
+    # green beside it, because "shard coverage" going green is precisely the sentence
+    # someone will trust later. Last step, so the report above still gets posted.
+    - name: Fail if any shard did not complete
+      if: needs.asan-windows-tests.result != 'success'
+      run: |
+        echo "::error::A test shard did not complete (matrix result: ${{ needs.asan-windows-tests.result }}). The counts prove the selection partitioned the suite; they cannot prove every selected case ran."
+        exit 1
 
   asan-lsan-linux:
     name: ASan + LSan (Linux/Clang)
@@ -655,17 +1091,24 @@ jobs:
     #      a separate scheduled job with its own baseline (gpu-sanitizers-amd.yml).
     #   2. The box's compiler was clang 21 against gcc-toolset-15's libstdc++,
     #      not the hosted arm's clang, and UBSan reported inside the standard
-    #      library. Both arms now build with clang-23 (#1036): hosted from
-    #      apt.llvm.org, the box from an LLVM release tarball pinned by absolute
-    #      path at /opt/llvm-23.1.0, since Rocky 10's EPEL tops out at clang20
-    #      and no package can match. setup-linux-build ASSERTS that pin -- present,
-    #      executable, reporting major 23 -- and warns down to the system clang
-    #      rather than failing when it is not, because a hard failure would block
-    #      every same-repo PR's sanitizer jobs. It also verifies compiler-rt for
+    #      library. Both arms now build with THE SAME clang -- the official LLVM
+    #      23.1.0 release tarball at /opt/llvm-23.1.0, on the box since #1036 and
+    #      on the hosted runner since #1095. Rocky 10's EPEL tops out at clang20,
+    #      so no package pin was ever possible on the box; and apt.llvm.org, which
+    #      the hosted arm used to install from, publishes only the newest SNAPSHOT
+    #      of a branch, so no package pin was possible there either. The tarball is
+    #      what both can hold still.
+    #
+    #      setup-linux-build ASSERTS that pin on the box -- present, executable,
+    #      reporting major 23 -- and warns down to the system clang rather than
+    #      failing when it is not, because a hard failure would block every
+    #      same-repo PR's sanitizer jobs. It also verifies compiler-rt for
     #      whichever compiler it chose: an incomplete asan/tsan/ubsan set WARNS
-    #      too. Read the "toolchain:" line of a self-hosted job before comparing
-    #      it with a hosted one -- it names the absolute path when the pin is in
-    #      effect, and a bare clang++ when it fell back.
+    #      too. The hosted arm has no ladder: the prefix is installed in the same
+    #      run and its absence is a hard error. Read the "toolchain:" line of a
+    #      self-hosted job before comparing it with a hosted one -- it names the
+    #      absolute path when the pin is in effect, and a bare clang++ when it fell
+    #      back. Since #1095 the two lines should be identical on a green run.
     #
     # The acceptance test for this routing is a same-commit A/B: dispatch the
     # workflow once normally and once with `force_hosted: true`, then compare
@@ -694,10 +1137,33 @@ jobs:
       # actions/checkout@v6 would fail on fork PRs.
       contents: read
       checks: write
-      # No `actions: write` here. It was granted for the sccache save, and that
-      # save is gone (#1082 -- see the note above this job's Setup sccache step).
-      # A permission kept past the step that needed it is a permission nobody will
-      # ever remove, so it goes with the step.
+      # `actions: write` is BACK (#1095), with the sccache save it belongs to.
+      # #1082 removed both when the entries were measured returning 0.00 %; the
+      # compiler underneath them is pinned now, so the save is worth having again
+      # and `save-cache-pruned` needs the permission to delete the entry it
+      # supersedes when the store is full.
+      actions: write
+
+    env:
+      # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
+      # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
+      # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
+      # of docs/agent-rules/actions-cache-budget.md is that the store exists for
+      # GITHUB-HOSTED jobs on a PULL REQUEST, and these are neither: same-repo PRs
+      # route them to the box, so only the nightly and fork PRs read these entries and
+      # nobody waits on either.
+      #
+      # So they come back at a smaller share: ~800 MiB each, ~2400 MiB for the set,
+      # leaving the fleet ~2.7 GiB under the ceiling instead of ~1.4.
+      #
+      # BE HONEST ABOUT WHAT THAT COSTS. sccache evicts LRU at the cap, and the object
+      # set at 1500M filled 1500M, so a 900M cache cannot hold all of it and the
+      # ACHIEVABLE hit rate is capped below 100 % by this line, not by the pin. That is
+      # a budget decision, not a measurement, and the entry to watch is "Cache size" vs
+      # "Max cache size" in the stats step. If a measured run shows the eviction is
+      # costing more than the room is worth, the argument to make is which existing
+      # entry gives way -- not that this one should quietly grow.
+      SCCACHE_CACHE_SIZE: "900M"
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -738,53 +1204,49 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # NO ACTIONS-CACHE ENTRY FOR THIS JOB (#1082). There used to be a restore here and
-    # a `save-cache-pruned` after the build, persisting SCCACHE_DIR as a ~1.25 GiB
-    # entry. They are gone, and the reason is measured rather than assumed.
+    # THE ACTIONS-CACHE ENTRY IS BACK, AND THE REASON IT WAS GONE IS FIXED (#1095).
     #
-    # Nightly 34004436875, all three Linux sanitizer jobs, the ONLY runs that read
-    # these entries:
+    # #1082 deleted the restore and the save here after measuring what they returned
+    # on nightly 34004436875 -- all three Linux sanitizer jobs, the only runs that read
+    # them:
     #
     #     Compile requests   1558      Cache hits          0
     #     Cache misses       1558      Cache hits rate     0.00 %
-    #     Cache read errors     0      Cache write errors  0
     #
-    # The restore was not broken -- "Cache restored from key: sccache-ubsan-linux-...",
-    # 1232 MB pulled at 180 MB/s. It restored perfectly and hit NOTHING, three jobs out
-    # of three.
+    # The restore was healthy: 1232 MB at 180 MB/s, "Cache restored from key: ...".
+    # It restored perfectly and hit NOTHING, three jobs out of three. THE COMPILER WAS
+    # ROLLING UNDERNEATH THE KEY -- sccache hashes the compiler binary into every key
+    # and the hosted arm built with apt.llvm.org's SNAPSHOT clang-23, whose build id
+    # moves every few days.
     #
-    # WHY: sccache hashes the compiler binary into every cache key, and the hosted arm
-    # compiles with apt.llvm.org's SNAPSHOT clang-23, which rolls every few days:
+    # WHAT CHANGED: setup-linux-build now installs the official LLVM 23.1.0 release
+    # tarball at /opt/llvm-23.1.0 on the hosted arm -- the same build, at the same
+    # path, as the self-hosted box. Re-adding these steps WITHOUT that would reproduce
+    # the 0.00 % exactly, which is why #1082's note said not to.
     #
-    #     nightly 09-04   Ubuntu clang 23.1.1 (++20260901122056+5340f7cc8814)
-    #     nightly 09-05   Ubuntu clang 23.1.1 (++20260903063729+47bafb752202)
+    # THE LLVM VERSION IS IN THE KEY, on the same rule Windows.yml applies to the
+    # runner image: put whatever the key is hashed over into the key, so a bump is a
+    # deliberate, reviewable commit and not a silent 0 % run. Bumping it starts a new
+    # prefix and orphans the old entry; cache-prune.yml's 30-day unread age-out
+    # collects that.
     #
-    # Every entry is therefore invalidated by the next apt refresh while still
-    # restoring, still downloading 1.2 GB, and still occupying the shared quota. It is
-    # the same failure Windows.yml's own header documents for `windows-latest` image
-    # rolls, reproduced here by an unpinned rolling compiler.
+    # HOSTED ONLY. On the self-hosted box this job caches to a persistent local ccache
+    # directory with no save step, no ref scoping and no cap -- and a self-hosted
+    # runner still talks to the REMOTE Actions cache service, so an actions/cache step
+    # there would spend the shared ~9.3 GiB cap for nothing.
     #
-    # AND ALMOST NOTHING READ THEM ANYWAY. `OLO_LINUX_SELF_HOSTED` is true, so a
-    # same-repo PR routes this job to the box, where it uses local-disk ccache and
-    # skips every sccache step. Only the nightly (a `schedule` run forces hosted) and
-    # fork PRs ever touched the store -- neither is on the per-PR critical path.
-    #
-    # THE BUDGET IS THE POINT. Three entries, 3741 MiB, 55 % of a 6782 MiB steady set
-    # against a ~9.3 GiB wall, buying a measured zero -- while the Windows ASan job
-    # that IS on the critical path had no cache at all for want of room (#1082).
-    # docs/agent-rules/actions-cache-budget.md has the arithmetic.
-    #
-    # THIS IS NOT "THE LINUX CACHE IS WORTHLESS". At 1558 compilations x 6.283 s
-    # average, a WORKING cache here would remove most of ~2 h 43 m of compiler time per
-    # job. That value is real and it is currently unreachable, because the key cannot
-    # be stable while the compiler underneath it is a rolling snapshot. Recovering it
-    # means pinning the hosted clang (the self-hosted box already pins /opt/llvm-23.1.0
-    # by absolute path) or keying the entry on the clang build id -- issue #1095.
-    # Do NOT simply re-add the restore/save: that is what measured 0.00 %.
-    #
-    # sccache itself is still the launcher on the hosted arm, so `Show compiler cache
-    # stats` below keeps working and keeps printing the hit rate. It will read 0 % on
-    # every hosted run now, by construction rather than by accident.
+    # NOT ON PULL REQUESTS: a PR-run entry is scoped to refs/pull/N/merge, readable by
+    # that one PR, and charged to the repository for as long as the PR stays open.
+    # These jobs route to the box for same-repo PRs anyway; the writer is the nightly.
+    - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-lsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          sccache-asan-lsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-
+
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
     # sanitizer-instrumented, which is what these jobs want — see the note in the
@@ -869,6 +1331,28 @@ jobs:
         else
           ccache --show-stats
         fi
+
+    # THE NUMBER THIS CHANGE IS JUDGED ON is the "Cache hits rate" line printed
+    # immediately above, on the SECOND nightly after this lands -- not on a green
+    # check. #1095's whole subject is an entry that restored perfectly, went green
+    # every run and returned zero; see docs/agent-rules/ci-cache-that-looks-alive.md.
+    #
+    # `save-cache-pruned` rather than a bare save: actions/cache/save reports a
+    # REFUSED write (the store past its cap goes read-only) as a warning and exits
+    # zero, so the step's own status cannot tell you. This one asks the API whether
+    # the save landed and, if it did not, deletes this ref's superseded entries under
+    # the same prefix and retries.
+    #
+    # `if: always()` because most PR runs here are cancelled and a post-job step is
+    # skipped on a cancel -- though on this gate that mostly matters for the
+    # workflow_dispatch A/B, since pull_request runs do not save at all.
+    - name: Save sccache storage
+      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
+      uses: ./.github/actions/save-cache-pruned
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-lsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -955,10 +1439,33 @@ jobs:
       # actions/checkout@v6 would fail on fork PRs.
       contents: read
       checks: write
-      # No `actions: write` here. It was granted for the sccache save, and that
-      # save is gone (#1082 -- see the note above this job's Setup sccache step).
-      # A permission kept past the step that needed it is a permission nobody will
-      # ever remove, so it goes with the step.
+      # `actions: write` is BACK (#1095), with the sccache save it belongs to.
+      # #1082 removed both when the entries were measured returning 0.00 %; the
+      # compiler underneath them is pinned now, so the save is worth having again
+      # and `save-cache-pruned` needs the permission to delete the entry it
+      # supersedes when the store is full.
+      actions: write
+
+    env:
+      # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
+      # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
+      # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
+      # of docs/agent-rules/actions-cache-budget.md is that the store exists for
+      # GITHUB-HOSTED jobs on a PULL REQUEST, and these are neither: same-repo PRs
+      # route them to the box, so only the nightly and fork PRs read these entries and
+      # nobody waits on either.
+      #
+      # So they come back at a smaller share: ~800 MiB each, ~2400 MiB for the set,
+      # leaving the fleet ~2.7 GiB under the ceiling instead of ~1.4.
+      #
+      # BE HONEST ABOUT WHAT THAT COSTS. sccache evicts LRU at the cap, and the object
+      # set at 1500M filled 1500M, so a 900M cache cannot hold all of it and the
+      # ACHIEVABLE hit rate is capped below 100 % by this line, not by the pin. That is
+      # a budget decision, not a measurement, and the entry to watch is "Cache size" vs
+      # "Max cache size" in the stats step. If a measured run shows the eviction is
+      # costing more than the room is worth, the argument to make is which existing
+      # entry gives way -- not that this one should quietly grow.
+      SCCACHE_CACHE_SIZE: "900M"
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -990,53 +1497,49 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # NO ACTIONS-CACHE ENTRY FOR THIS JOB (#1082). There used to be a restore here and
-    # a `save-cache-pruned` after the build, persisting SCCACHE_DIR as a ~1.25 GiB
-    # entry. They are gone, and the reason is measured rather than assumed.
+    # THE ACTIONS-CACHE ENTRY IS BACK, AND THE REASON IT WAS GONE IS FIXED (#1095).
     #
-    # Nightly 34004436875, all three Linux sanitizer jobs, the ONLY runs that read
-    # these entries:
+    # #1082 deleted the restore and the save here after measuring what they returned
+    # on nightly 34004436875 -- all three Linux sanitizer jobs, the only runs that read
+    # them:
     #
     #     Compile requests   1558      Cache hits          0
     #     Cache misses       1558      Cache hits rate     0.00 %
-    #     Cache read errors     0      Cache write errors  0
     #
-    # The restore was not broken -- "Cache restored from key: sccache-ubsan-linux-...",
-    # 1232 MB pulled at 180 MB/s. It restored perfectly and hit NOTHING, three jobs out
-    # of three.
+    # The restore was healthy: 1232 MB at 180 MB/s, "Cache restored from key: ...".
+    # It restored perfectly and hit NOTHING, three jobs out of three. THE COMPILER WAS
+    # ROLLING UNDERNEATH THE KEY -- sccache hashes the compiler binary into every key
+    # and the hosted arm built with apt.llvm.org's SNAPSHOT clang-23, whose build id
+    # moves every few days.
     #
-    # WHY: sccache hashes the compiler binary into every cache key, and the hosted arm
-    # compiles with apt.llvm.org's SNAPSHOT clang-23, which rolls every few days:
+    # WHAT CHANGED: setup-linux-build now installs the official LLVM 23.1.0 release
+    # tarball at /opt/llvm-23.1.0 on the hosted arm -- the same build, at the same
+    # path, as the self-hosted box. Re-adding these steps WITHOUT that would reproduce
+    # the 0.00 % exactly, which is why #1082's note said not to.
     #
-    #     nightly 09-04   Ubuntu clang 23.1.1 (++20260901122056+5340f7cc8814)
-    #     nightly 09-05   Ubuntu clang 23.1.1 (++20260903063729+47bafb752202)
+    # THE LLVM VERSION IS IN THE KEY, on the same rule Windows.yml applies to the
+    # runner image: put whatever the key is hashed over into the key, so a bump is a
+    # deliberate, reviewable commit and not a silent 0 % run. Bumping it starts a new
+    # prefix and orphans the old entry; cache-prune.yml's 30-day unread age-out
+    # collects that.
     #
-    # Every entry is therefore invalidated by the next apt refresh while still
-    # restoring, still downloading 1.2 GB, and still occupying the shared quota. It is
-    # the same failure Windows.yml's own header documents for `windows-latest` image
-    # rolls, reproduced here by an unpinned rolling compiler.
+    # HOSTED ONLY. On the self-hosted box this job caches to a persistent local ccache
+    # directory with no save step, no ref scoping and no cap -- and a self-hosted
+    # runner still talks to the REMOTE Actions cache service, so an actions/cache step
+    # there would spend the shared ~9.3 GiB cap for nothing.
     #
-    # AND ALMOST NOTHING READ THEM ANYWAY. `OLO_LINUX_SELF_HOSTED` is true, so a
-    # same-repo PR routes this job to the box, where it uses local-disk ccache and
-    # skips every sccache step. Only the nightly (a `schedule` run forces hosted) and
-    # fork PRs ever touched the store -- neither is on the per-PR critical path.
-    #
-    # THE BUDGET IS THE POINT. Three entries, 3741 MiB, 55 % of a 6782 MiB steady set
-    # against a ~9.3 GiB wall, buying a measured zero -- while the Windows ASan job
-    # that IS on the critical path had no cache at all for want of room (#1082).
-    # docs/agent-rules/actions-cache-budget.md has the arithmetic.
-    #
-    # THIS IS NOT "THE LINUX CACHE IS WORTHLESS". At 1558 compilations x 6.283 s
-    # average, a WORKING cache here would remove most of ~2 h 43 m of compiler time per
-    # job. That value is real and it is currently unreachable, because the key cannot
-    # be stable while the compiler underneath it is a rolling snapshot. Recovering it
-    # means pinning the hosted clang (the self-hosted box already pins /opt/llvm-23.1.0
-    # by absolute path) or keying the entry on the clang build id -- issue #1095.
-    # Do NOT simply re-add the restore/save: that is what measured 0.00 %.
-    #
-    # sccache itself is still the launcher on the hosted arm, so `Show compiler cache
-    # stats` below keeps working and keeps printing the hit rate. It will read 0 % on
-    # every hosted run now, by construction rather than by accident.
+    # NOT ON PULL REQUESTS: a PR-run entry is scoped to refs/pull/N/merge, readable by
+    # that one PR, and charged to the repository for as long as the PR stays open.
+    # These jobs route to the box for same-repo PRs anyway; the writer is the nightly.
+    - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-ubsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          sccache-ubsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-
+
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
     # sanitizer-instrumented, which is what these jobs want — see the note in the
@@ -1108,6 +1611,28 @@ jobs:
         else
           ccache --show-stats
         fi
+
+    # THE NUMBER THIS CHANGE IS JUDGED ON is the "Cache hits rate" line printed
+    # immediately above, on the SECOND nightly after this lands -- not on a green
+    # check. #1095's whole subject is an entry that restored perfectly, went green
+    # every run and returned zero; see docs/agent-rules/ci-cache-that-looks-alive.md.
+    #
+    # `save-cache-pruned` rather than a bare save: actions/cache/save reports a
+    # REFUSED write (the store past its cap goes read-only) as a warning and exits
+    # zero, so the step's own status cannot tell you. This one asks the API whether
+    # the save landed and, if it did not, deletes this ref's superseded entries under
+    # the same prefix and retries.
+    #
+    # `if: always()` because most PR runs here are cancelled and a post-job step is
+    # skipped on a cancel -- though on this gate that mostly matters for the
+    # workflow_dispatch A/B, since pull_request runs do not save at all.
+    - name: Save sccache storage
+      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
+      uses: ./.github/actions/save-cache-pruned
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-ubsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -1204,10 +1729,33 @@ jobs:
       # actions/checkout@v6 would fail on fork PRs.
       contents: read
       checks: write
-      # No `actions: write` here. It was granted for the sccache save, and that
-      # save is gone (#1082 -- see the note above this job's Setup sccache step).
-      # A permission kept past the step that needed it is a permission nobody will
-      # ever remove, so it goes with the step.
+      # `actions: write` is BACK (#1095), with the sccache save it belongs to.
+      # #1082 removed both when the entries were measured returning 0.00 %; the
+      # compiler underneath them is pinned now, so the save is worth having again
+      # and `save-cache-pruned` needs the permission to delete the entry it
+      # supersedes when the store is full.
+      actions: write
+
+    env:
+      # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
+      # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
+      # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
+      # of docs/agent-rules/actions-cache-budget.md is that the store exists for
+      # GITHUB-HOSTED jobs on a PULL REQUEST, and these are neither: same-repo PRs
+      # route them to the box, so only the nightly and fork PRs read these entries and
+      # nobody waits on either.
+      #
+      # So they come back at a smaller share: ~800 MiB each, ~2400 MiB for the set,
+      # leaving the fleet ~2.7 GiB under the ceiling instead of ~1.4.
+      #
+      # BE HONEST ABOUT WHAT THAT COSTS. sccache evicts LRU at the cap, and the object
+      # set at 1500M filled 1500M, so a 900M cache cannot hold all of it and the
+      # ACHIEVABLE hit rate is capped below 100 % by this line, not by the pin. That is
+      # a budget decision, not a measurement, and the entry to watch is "Cache size" vs
+      # "Max cache size" in the stats step. If a measured run shows the eviction is
+      # costing more than the room is worth, the argument to make is which existing
+      # entry gives way -- not that this one should quietly grow.
+      SCCACHE_CACHE_SIZE: "900M"
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1239,53 +1787,49 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # NO ACTIONS-CACHE ENTRY FOR THIS JOB (#1082). There used to be a restore here and
-    # a `save-cache-pruned` after the build, persisting SCCACHE_DIR as a ~1.25 GiB
-    # entry. They are gone, and the reason is measured rather than assumed.
+    # THE ACTIONS-CACHE ENTRY IS BACK, AND THE REASON IT WAS GONE IS FIXED (#1095).
     #
-    # Nightly 34004436875, all three Linux sanitizer jobs, the ONLY runs that read
-    # these entries:
+    # #1082 deleted the restore and the save here after measuring what they returned
+    # on nightly 34004436875 -- all three Linux sanitizer jobs, the only runs that read
+    # them:
     #
     #     Compile requests   1558      Cache hits          0
     #     Cache misses       1558      Cache hits rate     0.00 %
-    #     Cache read errors     0      Cache write errors  0
     #
-    # The restore was not broken -- "Cache restored from key: sccache-ubsan-linux-...",
-    # 1232 MB pulled at 180 MB/s. It restored perfectly and hit NOTHING, three jobs out
-    # of three.
+    # The restore was healthy: 1232 MB at 180 MB/s, "Cache restored from key: ...".
+    # It restored perfectly and hit NOTHING, three jobs out of three. THE COMPILER WAS
+    # ROLLING UNDERNEATH THE KEY -- sccache hashes the compiler binary into every key
+    # and the hosted arm built with apt.llvm.org's SNAPSHOT clang-23, whose build id
+    # moves every few days.
     #
-    # WHY: sccache hashes the compiler binary into every cache key, and the hosted arm
-    # compiles with apt.llvm.org's SNAPSHOT clang-23, which rolls every few days:
+    # WHAT CHANGED: setup-linux-build now installs the official LLVM 23.1.0 release
+    # tarball at /opt/llvm-23.1.0 on the hosted arm -- the same build, at the same
+    # path, as the self-hosted box. Re-adding these steps WITHOUT that would reproduce
+    # the 0.00 % exactly, which is why #1082's note said not to.
     #
-    #     nightly 09-04   Ubuntu clang 23.1.1 (++20260901122056+5340f7cc8814)
-    #     nightly 09-05   Ubuntu clang 23.1.1 (++20260903063729+47bafb752202)
+    # THE LLVM VERSION IS IN THE KEY, on the same rule Windows.yml applies to the
+    # runner image: put whatever the key is hashed over into the key, so a bump is a
+    # deliberate, reviewable commit and not a silent 0 % run. Bumping it starts a new
+    # prefix and orphans the old entry; cache-prune.yml's 30-day unread age-out
+    # collects that.
     #
-    # Every entry is therefore invalidated by the next apt refresh while still
-    # restoring, still downloading 1.2 GB, and still occupying the shared quota. It is
-    # the same failure Windows.yml's own header documents for `windows-latest` image
-    # rolls, reproduced here by an unpinned rolling compiler.
+    # HOSTED ONLY. On the self-hosted box this job caches to a persistent local ccache
+    # directory with no save step, no ref scoping and no cap -- and a self-hosted
+    # runner still talks to the REMOTE Actions cache service, so an actions/cache step
+    # there would spend the shared ~9.3 GiB cap for nothing.
     #
-    # AND ALMOST NOTHING READ THEM ANYWAY. `OLO_LINUX_SELF_HOSTED` is true, so a
-    # same-repo PR routes this job to the box, where it uses local-disk ccache and
-    # skips every sccache step. Only the nightly (a `schedule` run forces hosted) and
-    # fork PRs ever touched the store -- neither is on the per-PR critical path.
-    #
-    # THE BUDGET IS THE POINT. Three entries, 3741 MiB, 55 % of a 6782 MiB steady set
-    # against a ~9.3 GiB wall, buying a measured zero -- while the Windows ASan job
-    # that IS on the critical path had no cache at all for want of room (#1082).
-    # docs/agent-rules/actions-cache-budget.md has the arithmetic.
-    #
-    # THIS IS NOT "THE LINUX CACHE IS WORTHLESS". At 1558 compilations x 6.283 s
-    # average, a WORKING cache here would remove most of ~2 h 43 m of compiler time per
-    # job. That value is real and it is currently unreachable, because the key cannot
-    # be stable while the compiler underneath it is a rolling snapshot. Recovering it
-    # means pinning the hosted clang (the self-hosted box already pins /opt/llvm-23.1.0
-    # by absolute path) or keying the entry on the clang build id -- issue #1095.
-    # Do NOT simply re-add the restore/save: that is what measured 0.00 %.
-    #
-    # sccache itself is still the launcher on the hosted arm, so `Show compiler cache
-    # stats` below keeps working and keeps printing the hit rate. It will read 0 % on
-    # every hosted run now, by construction rather than by accident.
+    # NOT ON PULL REQUESTS: a PR-run entry is scoped to refs/pull/N/merge, readable by
+    # that one PR, and charged to the repository for as long as the PR stays open.
+    # These jobs route to the box for same-repo PRs anyway; the writer is the nightly.
+    - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-tsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          sccache-tsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-
+
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
     # sanitizer-instrumented, which is what these jobs want — see the note in the
@@ -1357,6 +1901,28 @@ jobs:
         else
           ccache --show-stats
         fi
+
+    # THE NUMBER THIS CHANGE IS JUDGED ON is the "Cache hits rate" line printed
+    # immediately above, on the SECOND nightly after this lands -- not on a green
+    # check. #1095's whole subject is an entry that restored perfectly, went green
+    # every run and returned zero; see docs/agent-rules/ci-cache-that-looks-alive.md.
+    #
+    # `save-cache-pruned` rather than a bare save: actions/cache/save reports a
+    # REFUSED write (the store past its cap goes read-only) as a warning and exits
+    # zero, so the step's own status cannot tell you. This one asks the API whether
+    # the save landed and, if it did not, deletes this ref's superseded entries under
+    # the same prefix and retries.
+    #
+    # `if: always()` because most PR runs here are cancelled and a post-job step is
+    # skipped on a cancel -- though on this gate that mostly matters for the
+    # workflow_dispatch A/B, since pull_request runs do not save at all.
+    - name: Save sccache storage
+      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
+      uses: ./.github/actions/save-cache-pruned
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-tsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"

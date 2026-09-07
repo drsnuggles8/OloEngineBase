@@ -10,6 +10,13 @@ is what the critical-path question is about; the remaining 62 are `push` runs of
 workflows (Windows 30, Sanitizers 28, medians 171 and 170), and they are what the nightly
 cache-warming argument rests on.
 
+> **Extended by [ADR 0019](0019-windows-ci-self-hosted-routing-lands-switched-off.md) (#1076).**
+> The `runs-on` routing, the `vars.` kill switch, the fork guard and the `runner.environment`
+> cache gating described in §2.3 below now exist in `Windows.yml` and `asan.yml` —
+> **switched off**, because no Windows runner is registered. The decision in §2.1 is
+> unchanged and §3 still stands. 0019 records what provisioning one would cost and what
+> has to be measured before the switch is flipped.
+
 ---
 
 ## 1. What the post-#1010 runs actually measured

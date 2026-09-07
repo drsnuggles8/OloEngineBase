@@ -3,6 +3,7 @@
 #include "SettingsChangeLog.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Passes/RayTracedReflectionPass.h"
 #include "OloEngine/Renderer/SphereProxyAO.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
@@ -374,7 +375,7 @@ namespace OloEngine
 
             // The ray-query tier (issue #1057) lives under the SSR header
             // because it is the tier immediately BELOW SSR in the hierarchy of
-            // ADR 0019, and it only means anything next to it: it answers
+            // ADR 0020, and it only means anything next to it: it answers
             // exactly the pixels SSR cannot (off-screen and occluded) and
             // composites UNDER SSR, so a pixel SSR already owns is untouched.
             ImGui::SeparatorText("Ray-query tier (hardware RT)");
@@ -422,7 +423,37 @@ namespace OloEngine
                                       "composite draw, the one point in the frame where every\n"
                                       "tier's confidence is known at once.");
 
-                ImGui::TextDisabled("Hits are shaded UNTEXTURED (blocked on #805)");
+                // What the tier actually did last frame. Read only while the
+                // tier is ENABLED: a disabled pass may not execute at all, so
+                // its stats would be whatever the last armed frame left, and a
+                // stale "stood down" shown while the feature is off reads as a
+                // live failure. Same rule the ray-traced shadow counters follow.
+                if (const RayTracedReflectionPass* pass = Renderer3D::GetRayTracedReflectionPass();
+                    pass != nullptr)
+                {
+                    const ReflectionTierStats& stats = pass->GetStats();
+                    ImGui::Separator();
+                    if (stats.RayQueryTierActive)
+                    {
+                        // An upper bound, and labelled as one: pixels above the
+                        // roughness gate or at sky depth dispatch no ray, and
+                        // only a GPU counter could say how many actually did.
+                        ImGui::Text("reflection rays <= %llu / frame",
+                                    static_cast<unsigned long long>(stats.ReflectionRaysDispatchedUpperBound));
+                        if (stats.HitsShadedUntextured)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "hits shaded UNTEXTURED - blocked on #805");
+                        if (stats.MaskedGeometryReflectsAsSolid)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "masked geometry reflects as solid");
+                    }
+                    else
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "stood down - %s",
+                                           std::string(ToString(stats.Fallback)).c_str());
+                    }
+                }
+
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("A ray hit is shaded from its material's base-colour,\n"
                                       "metallic, roughness and emissive FACTORS. Sampling its\n"

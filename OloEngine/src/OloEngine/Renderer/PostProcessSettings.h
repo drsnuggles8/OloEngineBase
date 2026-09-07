@@ -398,7 +398,7 @@ namespace OloEngine
         f32 SSRPostBlurRadius = 3.0f;
 
         // The RAY-QUERY reflection tier (issue #1057), one tier BELOW SSR in the
-        // hierarchy ADR 0019 specifies: planar > SSR > ray query > probe/IBL.
+        // hierarchy ADR 0020 specifies: planar > SSR > ray query > probe/IBL.
         // It fills exactly the gap SSR structurally cannot — off-screen and
         // occluded hits — and it composites UNDER SSR, so enabling it changes
         // nothing on a pixel SSR was already confident about.

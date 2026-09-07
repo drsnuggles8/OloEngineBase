@@ -234,7 +234,7 @@ void main()
     //
     // Its only consumer is the tier debug view in PostProcess_SSRComposite.glsl,
     // which needs the whole hierarchy's confidences at one point in the frame.
-    // Nothing in the composite's PRODUCTION path reads it: ADR 0019 evaluates
+    // Nothing in the composite's PRODUCTION path reads it: ADR 0020 evaluates
     // the hierarchy bottom-up precisely so that no tier has to.
     o_Guide = vec4(gN.xyz, 0.0);
 

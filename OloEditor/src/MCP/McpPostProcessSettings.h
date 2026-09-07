@@ -386,7 +386,7 @@ namespace OloEngine::MCP::PostProcess
         OLO_PP_NUM(SSRTemporalFeedback, "ssr", FieldType::Float, 0.0, 0.98, "History weight per frame for the SSR temporal resolve."),
 
         // ---- the ray-query reflection tier (#1057) -----------------------------
-        // One tier BELOW SSR in the hierarchy of ADR 0019: it answers exactly the
+        // One tier BELOW SSR in the hierarchy of ADR 0020: it answers exactly the
         // pixels SSR structurally cannot (off screen, or hidden behind geometry)
         // and composites UNDER SSR, so it cannot change a pixel SSR already owns.
         OLO_RTR_BOOL("RTReflectionEnabled", Enabled,

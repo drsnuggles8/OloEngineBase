@@ -138,13 +138,36 @@ runs:
         # by libvulkan-dev/vulkan-validationlayers, which cost seconds; a single
         # list is worth far more than those seconds, because a per-job list is how
         # one job quietly acquires a dependency the others do not have.
+        # NO `clang-23` HERE ANY MORE (#1095). The compiler now comes from the
+        # official LLVM release tarball in the step below, at the same absolute
+        # prefix the self-hosted box uses. apt.llvm.org publishes only the newest
+        # SNAPSHOT of a branch, so the package rolls every few days -- and sccache
+        # hashes the compiler binary into every cache key, which is how three Linux
+        # sanitizer cache entries came to restore 1.2 GB each and return 0.00 %.
+        #
+        # `lld-23` STAYS, and not for linking in the normal case: it is the fallback
+        # the pinned prefix needs when the release's own ld.lld will not start on
+        # this image. See .github/actions/setup-llvm-linux.
         sudo apt-get install -y \
-          clang-23 lld-23 \
+          lld-23 \
           libvulkan-dev vulkan-validationlayers \
           libgl-dev libglu1-mesa-dev \
           libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
           libwayland-dev wayland-protocols libxkbcommon-dev \
           glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools
+
+    # THE PIN THE CACHE KEY NEEDS (#1095), and the one that makes the two arms
+    # twins. Installs the same official LLVM release the box carries, at the same
+    # /opt/llvm-<version> path, so the ladder below resolves one prefix on either
+    # runner kind and a same-commit hosted/self-hosted A/B compares like with like.
+    # The version and checksum are kept in step with scripts/setup-olo-ci-host.sh;
+    # moving one without the other splits the arms again, silently.
+    - name: Install pinned LLVM (hosted)
+      if: runner.environment == 'github-hosted'
+      uses: ./.github/actions/setup-llvm-linux
+      with:
+        version: "23.1.0"
+        sha256: "18da30f77f475688a18f7704d23f9f155ae007ed9922dbed6850a9419d9fec8c"
 
     # ----------------------------------------------------------- self-hosted
     #
@@ -272,10 +295,30 @@ runs:
       run: |
         set -euo pipefail
         if [ "$OLO_RUNNER_ENVIRONMENT" = "github-hosted" ]; then
-          # clang-23 from apt.llvm.org. The engine needs a C++23 STANDARD LIBRARY,
-          # not merely a C++23 compiler: Core/Reflection uses std::forward_like,
-          # which ubuntu-24.04's default libstdc++ does not provide.
-          cc=clang-23; cxx=clang++-23
+          # THE PINNED LLVM RELEASE, at the same absolute prefix the box uses
+          # (#1095). It used to be `clang-23` from apt.llvm.org, which is a rolling
+          # snapshot: it built fine and it made every sccache entry unreachable,
+          # because sccache hashes the compiler binary into the key.
+          #
+          # NO FALLBACK LADDER HERE, and that asymmetry with the self-hosted branch
+          # below is deliberate. The pin on the box degrades to the system clang
+          # because a hard failure there would block every same-repo PR's sanitizer
+          # jobs on one maintainer running one script. A hosted runner has no
+          # provisioning to preserve: the action installs the prefix in this same
+          # run and ASSERTS it -- version, a linker that starts, and a complete
+          # compiler-rt -- so if it is not here, the right outcome is a red step
+          # naming that, not a quiet fall back to whatever clang the image ships.
+          #
+          # (The engine needs a C++23 STANDARD LIBRARY, not merely a C++23
+          # compiler: Core/Reflection uses std::forward_like. That comes from the
+          # image's libstdc++, unchanged by this.)
+          llvm_prefix=/opt/llvm-23.1.0
+          cc="$llvm_prefix/bin/clang"
+          cxx="$llvm_prefix/bin/clang++"
+          if [ ! -x "$cxx" ]; then
+            echo "::error::$cxx is missing. .github/actions/setup-llvm-linux should have installed it earlier in this job; a job that calls this action without it cannot build."
+            exit 1
+          fi
           python_exe="$OLO_HOSTED_PYTHON"
           extra=""
         else
