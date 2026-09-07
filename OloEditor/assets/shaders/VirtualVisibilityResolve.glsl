@@ -117,7 +117,7 @@ layout(std430, binding = 39) readonly buffer VirtualVertices { VirtualGpuVertex 
 layout(std430, binding = 42) readonly buffer VirtualIndices { uint localIndices[]; };
 layout(std430, binding = 40) readonly buffer VirtualSwList {
     uint Count;
-    uint _h0; uint _h1; uint _h2;
+    uint DispatchX; uint DispatchY; uint DispatchZ; // indirect dispatch args, written by VirtualRasterArgs.comp (#1048)
     VisibleCluster Records[];
 } swList;
 // The atlas sampler + the sentinel-gated decode, shared verbatim with the

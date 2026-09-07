@@ -20,6 +20,7 @@
 
 #include "RenderPropertyTest.h"
 #include "VirtualRasterCoverageMirror.h"
+#include "VirtualRasterDispatchArgsMirror.h"
 
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -1497,6 +1498,89 @@ namespace OloEngine::Tests
         // comparison above passed against one branch of the rule.
         EXPECT_GT(kept, 0u);
         EXPECT_LT(kept, count);
+    }
+
+    // Layer-2 for the virtual-geometry raster's indirect-dispatch flattening
+    // (issue #1048). The probe includes the SHIPPED
+    // VirtualRasterDispatchArgs.glsl, so this is what fails when the GLSL and
+    // the CPU mirror in VirtualRasterDispatchArgsMirror.h drift — the rule's own
+    // correctness is pinned, without a GL context, by
+    // VirtualRasterDispatchArgsTest.
+    //
+    // Worth running on the GPU rather than trusting the mirror alone: the count
+    // that reaches this function in production is GPU-written and never read
+    // back, so a divergence between the shipped GLSL and anything the CPU
+    // believes shows up only as silently missing clusters.
+    TEST(ShaderUnitVirtualRasterArgsTest, DispatchArgsMatchTheCpuMirror)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        namespace Mirror = OloEngine::Tests::VirtualRasterDispatchArgs;
+
+        // Both sides of the 4096 x-split, the sizes #1048 measured on
+        // VirtualGeometryStress (3,165 software records out of 2,834,448
+        // clusters), and the empty list that must dispatch nothing.
+        const std::vector<u32> counts{ 0u,
+                                       1u,
+                                       2u,
+                                       64u,
+                                       3165u,
+                                       9632u,
+                                       Mirror::kMaxGroupsX - 1u,
+                                       Mirror::kMaxGroupsX,
+                                       Mirror::kMaxGroupsX + 1u,
+                                       Mirror::kMaxGroupsX * 2u,
+                                       Mirror::kMaxGroupsX * 2u + 1u,
+                                       2834448u };
+
+        const auto count = static_cast<u32>(counts.size());
+        const auto inputBytes = static_cast<GLsizeiptr>(counts.size() * sizeof(u32));
+        ScopedBuffer input(inputBytes, GL_DYNAMIC_STORAGE_BIT);
+        ::glNamedBufferSubData(input.m_Id, 0, inputBytes, counts.data());
+        ScopedBuffer args(static_cast<GLsizeiptr>(count * sizeof(glm::uvec4)),
+                          GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+
+        auto shader = ComputeShader::Create("assets/shaders/tests/ShaderUnit_VirtualRasterArgs.comp");
+        ASSERT_TRUE(shader && shader->IsValid())
+            << "ShaderUnit_VirtualRasterArgs failed to compile/link — "
+               "include/VirtualRasterDispatchArgs.glsl does not build as included";
+
+        shader->Bind();
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, input.m_Id);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, args.m_Id);
+        ::glDispatchCompute(count, 1, 1);
+        ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+        std::vector<glm::uvec4> gpuArgs(count);
+        ::glGetNamedBufferSubData(args.m_Id, 0,
+                                  static_cast<GLsizeiptr>(count * sizeof(glm::uvec4)),
+                                  gpuArgs.data());
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
+        shader->Unbind();
+
+        u32 twoDimensional = 0;
+        for (u32 i = 0; i < count; ++i)
+        {
+            SCOPED_TRACE(::testing::Message() << "count " << counts[i]);
+            const Mirror::DispatchArgs expected = Mirror::FromCount(counts[i]);
+            EXPECT_EQ(gpuArgs[i].x, expected.X);
+            EXPECT_EQ(gpuArgs[i].y, expected.Y);
+            EXPECT_EQ(gpuArgs[i].z, expected.Z);
+
+            // Restated on the GPU's own numbers rather than the mirror's: this
+            // is the property that keeps clusters from being dropped, and it
+            // must hold for what the DEVICE computed.
+            EXPECT_GE(static_cast<u64>(gpuArgs[i].x) * static_cast<u64>(gpuArgs[i].y),
+                      static_cast<u64>(counts[i]));
+            if (gpuArgs[i].y > 1u)
+                ++twoDimensional;
+        }
+
+        // Anti-vacuous: the table must exercise the 2D split, or every
+        // comparison above passed against the trivial one-row branch.
+        EXPECT_GT(twoDimensional, 0u);
+        EXPECT_LT(twoDimensional, count);
     }
 
 } // namespace OloEngine::Tests

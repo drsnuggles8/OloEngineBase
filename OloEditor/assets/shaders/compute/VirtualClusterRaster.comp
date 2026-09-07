@@ -102,7 +102,7 @@ layout(std430, binding = 42) readonly buffer VirtualIndices { uint localIndices[
 // ClusterIndex} with the record's own slot stored by the cull.
 layout(std430, binding = 40) buffer VirtualSwList {
     uint Count;
-    uint _h0; uint _h1; uint _h2;
+    uint DispatchX; uint DispatchY; uint DispatchZ; // indirect dispatch args, written by VirtualRasterArgs.comp (#1048)
     VisibleCluster Records[];
 } swList;
 
@@ -146,9 +146,20 @@ layout(std140, binding = 70) uniform VirtualRasterParams
     //      append, not the counter), so a GPU overflow would inflate the very
     //      number the read is bounded by. 0 = an empty list.
     uint  u_SwListCapacity;
-    uint  _vrPad0;          // 20 — std140 rounds the block to a 16-byte multiple;
-    uint  _vrPad1;          // 24   explicit so the C++ mirror is a plain struct.
-    uint  _vrPad2;          // 28
+    // 20/24 — ndc.z -> window depth as (scale, bias), from
+    //         RHI::NdcToWindowDepthScaleBias(). The software raster does its own
+    //         perspective divide, so it applies the mapping fixed function would
+    //         have: GL 0.5/0.5 (ndc z is [-1,1]); Vulkan 1/0 (the seam already
+    //         mapped clip z to [0,w], so ndc.z IS the window depth). Data, not a
+    //         backend #ifdef, so this file stays source-identical.
+    float u_DepthScale;
+    float u_DepthBias;
+    // 28 — +1 on GL, -1 on Vulkan, from RHI::WindowSpaceFrontFaceSign(). This
+    //      shader builds its own window-space area determinant, and on Vulkan
+    //      that space is the FRAMEBUFFER's (y down) instead of GL's window space
+    //      (y up) — one mirror, which negates the sign. Fixed function gets a
+    //      second, cancelling inversion; a manual rasterizer does not.
+    float u_FrontFaceSign;
 };
 
 // Bounded micro-triangle raster: SW-routed clusters have small projected
@@ -205,7 +216,30 @@ void RasterizeTriangle(uint swRecordIndex, uint triangleIndex)
     // geometry we ship — is alpha-masked and never reaches this shader.
     bool twoSided = (inst.Flags & 4u) != 0u;
     float signedArea = OloVirtualSignedArea2(s0, s1, s2);
-    if (signedArea < 0.0 && !twoSided)
+    // The CULL sense is backend-dependent (u_FrontFaceSign); the ORIENT below is
+    // not. On Vulkan this determinant is computed in framebuffer space, whose y
+    // runs opposite to GL's window space, so the same triangle reports the
+    // opposite sign — and culling on the GL sense there throws away the FRONT
+    // faces and keeps the back ones. That does not blank the frame: a closed
+    // mesh still fills its own silhouette, so it reads as missing patches and
+    // inside-out shading (issue #1105).
+    // A SELECT rather than `signedArea * u_FrontFaceSign < 0.0`: multiplying the
+    // determinant is algebraically a no-op on GL (the sign is +1 there) but not
+    // a numerical one, and the select keeps the GL comparison spelled exactly as
+    // it was. The branch is uniform across the dispatch, so it costs no
+    // divergence.
+    //
+    // MEASURED, because "no visual change" was claimed and then checked: reading
+    // this uniform at all shifts the GL path's floating-point codegen slightly.
+    // Against the pre-#1105 shader, 25-126 pixels per 230,400 (0.01-0.06%) move
+    // by a MAXIMUM CHANNEL DELTA OF 1 -- one least-significant bit on
+    // micro-triangle boundaries, no geometry gained or lost, every golden test
+    // still green. Both the multiply and the select forms shift it identically,
+    // so the shift comes from the uniform read, not from the arithmetic; a
+    // compile-time #define per backend would avoid it, at the cost of the
+    // source-identical property this seam exists to preserve.
+    bool backFacing = (u_FrontFaceSign > 0.0) ? (signedArea < 0.0) : (signedArea > 0.0);
+    if (backFacing && !twoSided)
         return; // back-facing, single-sided material
     float orient = (signedArea < 0.0) ? -1.0 : 1.0;
     float area = signedArea * orient;
@@ -243,9 +277,18 @@ void RasterizeTriangle(uint swRecordIndex, uint triangleIndex)
     float invArea = 1.0 / area;
     // Window depth in [0,1], interpolated with screen-space barycentrics —
     // the same interpolation the hardware rasterizer applies to gl_FragCoord.z.
-    float z0 = ndc0.z * 0.5 + 0.5;
-    float z1 = ndc1.z * 0.5 + 0.5;
-    float z2 = ndc2.z * 0.5 + 0.5;
+    // Window depth via the backend's ndc.z mapping (u_DepthScale/u_DepthBias from
+    // RHI::NdcToWindowDepthScaleBias), NOT a hard-coded *0.5+0.5. This shader
+    // projects with the SAME adjusted matrix the hardware path uses, and on
+    // Vulkan that matrix has already mapped clip z into [0, w] — so ndc.z is
+    // ALREADY the window depth there, and remapping it again compressed every
+    // software depth into [0.5, 1]. The software clusters then lost the depth
+    // test against the hardware-rasterized ones almost everywhere and the mesh
+    // rendered in shredded fragments, while every CPU-side counter (cut size,
+    // software-rasterized count, dispatch size) still read exactly right.
+    float z0 = ndc0.z * u_DepthScale + u_DepthBias;
+    float z1 = ndc1.z * u_DepthScale + u_DepthBias;
+    float z2 = ndc2.z * u_DepthScale + u_DepthBias;
 
     uint payload = (swRecordIndex << 9u) | (triangleIndex & 0x1FFu);
 

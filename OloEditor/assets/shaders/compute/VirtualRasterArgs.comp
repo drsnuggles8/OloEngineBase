@@ -1,0 +1,80 @@
+#version 460 core
+
+// =============================================================================
+// VirtualRasterArgs.comp — the 1-thread kernel that turns the GPU-written
+// software-raster work-list count into VirtualClusterRaster.comp's indirect
+// dispatch arguments (issue #1048).
+//
+// Before this existed, the raster was dispatched at the frame's TOTAL cluster
+// count, because the count of clusters actually routed to software is written
+// by VirtualClusterCull.comp and never read back. Every workgroup past the live
+// count early-outs on `swRecordIndex >= swList.Count` — correct (the #551
+// idiom), and on VirtualGeometryStress it dispatched 2,834,448 workgroups for
+// 3,165 records with work. The measurement in #1048 shows that overdispatch IS
+// the pass: a raster whose main() returns immediately cost the same 0.1321 ms
+// as the real one, so the bracket was timing workgroup launch, not rasterizing.
+//
+// The work list's header was already the right shape. VirtualSwList is
+// `{ uint Count; uint DispatchX, DispatchY, DispatchZ; VisibleCluster[] }`, so
+// the three words at byte offset 4 are a (numGroupsX, numGroupsY, numGroupsZ)
+// triple that DispatchComputeIndirect can read in place — no second buffer, no
+// new binding, and the arguments sit in the same 16 bytes the CPU already
+// zeroes each frame.
+//
+// Runs after BOTH cull phases: phase 1 and phase 2 append to the same list, and
+// the raster consumes their union in one dispatch.
+// =============================================================================
+
+// The flattening rule itself, shared with its L2 probe and its CPU mirror.
+#include "../include/VirtualRasterDispatchArgs.glsl"
+
+layout(local_size_x = 1) in;
+
+// Mirrors OloEngine::VirtualVisibleCluster (16 B std430)
+struct VisibleCluster {
+    uint InstanceIndex;
+    uint ClusterIndex;
+    uint _p0; uint _p1;
+};
+
+// Declared verbatim in VirtualClusterCull.comp, VirtualClusterRaster.comp
+// (both variants) and VirtualVisibilityResolve.glsl. C++ twin:
+// OloEngine::VirtualSwListHeader in VirtualGeometryPass.cpp, whose
+// static_asserts pin the DispatchX offset this shader writes to the byte offset
+// the CPU passes to DispatchComputeIndirect.
+layout(std430, binding = 40) buffer VirtualSwList {
+    uint Count;
+    uint DispatchX; uint DispatchY; uint DispatchZ;
+    VisibleCluster Records[];
+} swList;
+
+// The raster's own parameter block, declared verbatim — this kernel needs
+// exactly one field from it, u_SwListCapacity, and reusing the block keeps the
+// engine's last free UBO binding free.
+layout(std140, binding = 70) uniform VirtualRasterParams
+{
+    uint  u_ViewportWidth;
+    uint  u_ViewportHeight;
+    uint  u_Phase;
+    float u_OverdrawScale;
+    uint  u_SwListCapacity;
+    float u_DepthScale;
+    float u_DepthBias;
+    float u_FrontFaceSign;
+};
+
+void main()
+{
+    // CLAMPED, for the same reason the raster clamps its own index (issue
+    // #1058): Count is an unguarded atomicAdd in VirtualClusterCull.comp —
+    // #862 bounded the APPEND, so an overflow drops the record but still
+    // inflates the counter. Feeding that raw counter to an indirect dispatch
+    // would let the one value an overflow can corrupt decide how many
+    // workgroups launch, and a wrong bound on the GPU is silent.
+    uint count = min(swList.Count, u_SwListCapacity);
+
+    uvec3 args = OloVirtualRasterDispatchArgs(count);
+    swList.DispatchX = args.x;
+    swList.DispatchY = args.y;
+    swList.DispatchZ = args.z;
+}

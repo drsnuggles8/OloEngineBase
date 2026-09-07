@@ -59,6 +59,21 @@ namespace OloEngine::RHI
         return glm::inverse(AdjustProjectionForShaderReconstruction(forward));
     }
 
+    f32 WindowSpaceFrontFaceSign()
+    {
+        // Same predicate as the matrices and the depth mapping, so a backend
+        // cannot be flipped in one of the three and not the others.
+        return BackendFlips() ? -1.0f : 1.0f;
+    }
+
+    glm::vec2 NdcToWindowDepthScaleBias()
+    {
+        // Derived from the SAME predicate the matrices use, so the depth mapping
+        // and the projection that produced it can never disagree about which
+        // convention is live.
+        return BackendFlips() ? glm::vec2(1.0f, 0.0f) : glm::vec2(0.5f, 0.5f);
+    }
+
     glm::mat4 AdjustCaptureProjectionForBackend(const glm::mat4& projection)
     {
         // See the header: the z remap WITHOUT the y flip, so a

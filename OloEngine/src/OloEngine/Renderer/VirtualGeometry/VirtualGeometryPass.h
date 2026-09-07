@@ -98,7 +98,12 @@ namespace OloEngine
         Ref<ComputeShader> m_CullShader;
         Ref<ComputeShader> m_RasterShader;      // portable two-pass 2x32 visibility-buffer rasterizer
         Ref<ComputeShader> m_RasterShaderInt64; // single-pass 64-bit atomic-min variant (null if unsupported)
-        bool m_Int64AtomicsSupported = false;   // driver exposes GL_ARB_gpu_shader_int64 + GL_NV_shader_atomic_int64
+        // 1-thread kernel that turns the GPU-written SW work-list count into the
+        // raster's indirect dispatch arguments (issue #1048). Null only if it
+        // failed to compile, which forces the CPU-side conservative bound back
+        // on rather than skipping the raster.
+        Ref<ComputeShader> m_RasterArgsShader;
+        bool m_Int64AtomicsSupported = false; // driver exposes GL_ARB_gpu_shader_int64 + GL_NV_shader_atomic_int64
         Ref<Shader> m_GBufferShader;
         // Mesh-shader raster path (issue #813, VK_EXT_mesh_shader): a
         // task+mesh+fragment pipeline that replays the same per-instance
