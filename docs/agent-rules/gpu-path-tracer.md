@@ -124,7 +124,8 @@ credit the path with environment radiance through an occluder.
 
 - **Editor:** Post-Process panel → "GPU Path Tracer (reference)", or the MCP field registry group
   `pathtracer` (`GpuPathTracerEnabled`, `…SamplesPerFrame`, `…MaxSamples`, `…DebugView` …). Vulkan
-  only; the panel shows the accumulated sample count and why the tracer stood down.
+  only; the panel and `olo_pathtracer_stats` show the sample count, the counted limits and why the
+  tracer stood down.
 - **AOVs:** `OloEditor/assets/benchmark/manifests/material-lab-furnace.pathtracer.yaml` captures
   `PathTracerAccum` (rgb = sum, a = count), `PathTracerAlbedo`, `PathTracerNormal`,
   `PathTracerVariance` as `.hdr` through `olo_benchmark_capture` under `--rhi=vulkan`. The warm-up
