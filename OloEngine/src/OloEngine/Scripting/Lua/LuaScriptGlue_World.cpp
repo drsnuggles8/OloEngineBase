@@ -685,7 +685,11 @@ namespace OloEngine
             return true;
         };
 
-        visualScriptTable["get_variable"] = [&lua](u64 entityID, const std::string& name) -> sol::object
+        // sol::this_state rather than a captured `lua`: this was the ONE binding in
+        // the whole glue holding a reference to the registering state (17 others
+        // take this_state), and a lambda stored in the state it captures is a
+        // lifetime coupling with nothing to gain.
+        visualScriptTable["get_variable"] = [](u64 entityID, const std::string& name, sol::this_state s) -> sol::object
         {
             Scene* scene = ScriptEngine::GetSceneContext();
             auto* system = scene ? scene->GetVisualScripts() : nullptr;
@@ -696,7 +700,7 @@ namespace OloEngine
             if (!system->TryGetVariable(UUID(entityID), name, value))
                 return sol::lua_nil;
 
-            sol::state_view view(lua.lua_state());
+            sol::state_view view(s);
             switch (value.GetType())
             {
                 case VisualScript::PinType::Bool:

@@ -62,15 +62,23 @@ namespace OloEngine
 
                         // Strip the proxy "self" (first arg from colon-call syntax)
                         // and forward only the real arguments after it.
+                        //
+                        // ONLY THE FIRST argument can be `self`. This used to scan
+                        // for the first LuaComponentProxy anywhere in the list, so
+                        // a dot-call that passed a component proxy AS AN ARGUMENT
+                        // — `comp.method(otherComp)` — had that argument silently
+                        // eaten as if it were the receiver, and the callee saw one
+                        // fewer argument than the script wrote.
                         std::vector<sol::object> args;
                         args.reserve(va.size());
-                        bool skippedSelf = false;
+                        bool first = true;
                         for (auto const& arg : va)
                         {
-                            if (!skippedSelf && arg.is<LuaComponentProxy*>())
+                            if (first)
                             {
-                                skippedSelf = true;
-                                continue;
+                                first = false;
+                                if (arg.is<LuaComponentProxy*>())
+                                    continue;
                             }
                             args.emplace_back(arg.get<sol::object>());
                         }
