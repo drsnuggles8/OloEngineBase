@@ -488,6 +488,5 @@ namespace OloEngine
                                                                                  { return c.m_Scale; }, [](TriangleMeshCollider3DComponent& c, const glm::vec3& v)
                                                                                  { if (IsFiniteVec3(v) && v.x > 0.0f && v.y > 0.0f && v.z > 0.0f) c.m_Scale = v; }),
                                                           "material", &TriangleMeshCollider3DComponent::m_Material);
-
     }
 } // namespace OloEngine

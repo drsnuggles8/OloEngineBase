@@ -587,6 +587,5 @@ namespace OloEngine
                                          "attachmentBone", sol::property([](const ClothComponent& c)
                                                                          { return c.m_AttachmentBone; }, [](ClothComponent& c, const std::string& v)
                                                                          { c.m_AttachmentBone = v; }));
-
     }
 } // namespace OloEngine

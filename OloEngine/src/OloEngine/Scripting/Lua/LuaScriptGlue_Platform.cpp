@@ -828,6 +828,5 @@ namespace OloEngine
             buttonStateTable["Pressed"] = static_cast<i32>(UIButtonState::Pressed);
             buttonStateTable["Disabled"] = static_cast<i32>(UIButtonState::Disabled);
         }
-
     }
 } // namespace OloEngine

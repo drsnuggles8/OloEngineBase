@@ -379,6 +379,5 @@ namespace OloEngine
                                                                               { return static_cast<int>(std::to_underlying(c.Authority)); }, [](NetworkIdentityComponent& c, int v)
                                                                               { if (v >= 0 && v <= 2) c.Authority = static_cast<ENetworkAuthority>(v); }),
                                                    "isReplicated", &NetworkIdentityComponent::IsReplicated);
-
     }
 } // namespace OloEngine

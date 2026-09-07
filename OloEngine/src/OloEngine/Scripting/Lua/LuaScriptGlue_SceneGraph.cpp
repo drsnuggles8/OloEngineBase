@@ -427,6 +427,5 @@ namespace OloEngine
                                                                        { return c.m_KnobColor; }, [](UIToggleComponent& c, const glm::vec4& v)
                                                                        { if (IsFiniteVec4(v)) c.m_KnobColor = v; }),
                                             "interactable", &UIToggleComponent::m_Interactable);
-
     }
 } // namespace OloEngine

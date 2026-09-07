@@ -860,6 +860,5 @@ namespace OloEngine
             if (scene)
                 scene->GetDialogueVariables().Clear();
         };
-
     }
 } // namespace OloEngine

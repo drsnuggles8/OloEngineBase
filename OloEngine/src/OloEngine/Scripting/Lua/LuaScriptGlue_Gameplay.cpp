@@ -714,6 +714,5 @@ namespace OloEngine
 
             return true;
         };
-
     }
 } // namespace OloEngine

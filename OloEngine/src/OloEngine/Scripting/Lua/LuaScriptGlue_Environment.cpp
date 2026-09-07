@@ -328,6 +328,5 @@ namespace OloEngine
                                                    "halfExtents", sol::property([](const FluidKillVolumeComponent& k)
                                                                                 { return k.m_HalfExtents; }, [](FluidKillVolumeComponent& k, const glm::vec3& v)
                                                                                 { if (IsFiniteVec3(v)) k.m_HalfExtents = glm::clamp(v, glm::vec3(0.01f), glm::vec3(256.0f)); }));
-
     }
 } // namespace OloEngine
