@@ -488,11 +488,14 @@ X/Wayland `-devel` set; creates the `~/.cache/olo/*` directories from §1c; and
 registers `olo-ci-1` and `olo-ci-2` with labels `self-hosted,linux,x64,olo-ci`
 under user systemd, exactly like the GPU runner.
 
-**Both Linux arms build with clang-23** (#1036). Hosted takes it from apt.llvm.org,
-because ubuntu-24.04's default libstdc++ lacks `std::forward_like`; the box takes
-it from the official LLVM release tarball at `/opt/llvm-23.1.0`, installed by
+**Both Linux arms build with clang-23** (#1036, #1095), from the same official LLVM
+release tarball at the same `/opt/llvm-23.1.0` prefix: on the box installed by
 `scripts/setup-olo-ci-host.sh`, because EPEL on Rocky 10 tops out at `clang20` and
-ships no `clang22` or `clang23`. The prefix is versioned and deliberately off the
+ships no `clang22` or `clang23`; on a hosted runner installed per run by
+`.github/actions/setup-llvm-linux`, because apt.llvm.org — which is where the hosted
+arm used to get it — publishes only a rolling *snapshot*, and sccache hashes the
+compiler into every cache key. (ubuntu-24.04's default libstdc++ still supplies
+`std::forward_like`; only the compiler moved.) The prefix is versioned and deliberately off the
 system `PATH`, so Rocky's clang 21 stays the default for everything else on this
 host — including the other repository's runners.
 

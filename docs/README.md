@@ -68,7 +68,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [ops/deployment.md](ops/deployment.md) — OloServer deployment / packaging.
 - [ops/self-hosted-gpu-runner.md](ops/self-hosted-gpu-runner.md) — the self-hosted AMD GPU CI runner.
 - [ops/self-hosted-host-hygiene.md](ops/self-hosted-host-hygiene.md) — the box behind the runners: the update timer must not reboot under a job, the GPU resets during the suite, one host is shared.
-- [ops/self-hosted-linux-toolchain.md](ops/self-hosted-linux-toolchain.md) — both Linux arms pin clang-23 and LLD 23: hosted from apt.llvm.org, the box from an LLVM tarball at `/opt/llvm-23.1.0` with its own ICU 70 beside it; a missing pin or sanitizer runtime warns and falls back, never installs.
+- [ops/self-hosted-linux-toolchain.md](ops/self-hosted-linux-toolchain.md) — both Linux arms take clang-23 and LLD 23 from the same LLVM release tarball at `/opt/llvm-23.1.0` (the box keeps its own ICU 70 beside it); on the box a missing pin or sanitizer runtime warns and falls back, never installs.
 
 ## adr/ — architecture decision records
 
@@ -87,6 +87,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md](adr/0013-destructible-debris-asset-swap-not-runtime-fracture.md) — destructible objects swap in pre-authored debris assets; no runtime mesh fracture.
 - [adr/0017-windows-ci-critical-path-measure-before-a-self-hosted-runner.md](adr/0017-windows-ci-critical-path-measure-before-a-self-hosted-runner.md) — the Windows CI critical path is measured on a writable cache before any self-hosted Windows runner is built, and never on the interactive workstation.
 - [adr/0018-gaussian-splats-gpu-ordering-and-merge-lod.md](adr/0018-gaussian-splats-gpu-ordering-and-merge-lod.md) — Gaussian splats order per view on the GPU and coarsen by merging; a CPU sort and a selection budget are both dead ends.
+- [adr/0019-windows-ci-self-hosted-routing-lands-switched-off.md](adr/0019-windows-ci-self-hosted-routing-lands-switched-off.md) — the Windows jobs can be routed to a self-hosted runner behind a `vars.` kill switch and a fork guard; the switch stays off until a runner exists and both paths are measured.
 
 ## bug-investigations/ — postmortems & deep-dives
 
