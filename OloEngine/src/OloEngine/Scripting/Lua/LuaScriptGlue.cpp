@@ -30,7 +30,10 @@ namespace OloEngine
     }
 
     // clang-format off
-    static const std::unordered_map<std::string_view, ComponentEntry>& GetComponentRegistry()
+    // NOT static: LuaScriptGlueInternal.h declares this with external linkage so
+    // the parts can reach it, and the definition has to agree. clang-cl accepted
+    // the mismatch; Linux clang++ rejects it outright, which is where it surfaced.
+    const std::unordered_map<std::string_view, ComponentEntry>& GetComponentRegistry()
     {
         static const std::unordered_map<std::string_view, ComponentEntry> s_Registry = {
             #define REGISTER_COMPONENT(T) { #T, MakeEntry<T>() }
