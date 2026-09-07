@@ -443,7 +443,9 @@ include(cmake/LinkSemaphore.cmake)
 # host's build memory ceiling — and it's a HANDFUL of TUs that set it, not the
 # lane count. A fresh trace taken while adding this (issue #822) confirms the
 # same two outliers, both roughly unchanged in identity from #759: LuaScriptGlue.cpp
-# (~198s CPU-time, more than 3x the next-heaviest TU) and McpFieldRegistry.cpp
+# (~198s CPU-time, more than 3x the next-heaviest TU -- SINCE SPLIT into
+# LuaScriptGlue_*.cpp, which is what this pool now binds; see
+# OloEngine/src/CMakeLists.txt) and McpFieldRegistry.cpp
 # (~67s, compiled separately into both OloEditor and OloEngine-Tests). Both wrap
 # heavy macro-driven binding-glue generation (Sol2 Lua bindings; the generated MCP
 # writable-field registry) the compiler has to instantiate wholesale, unlike
@@ -460,7 +462,7 @@ include(cmake/LinkSemaphore.cmake)
 # loosen the throttle without reverting the file-set wiring.
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.4 AND CMAKE_GENERATOR MATCHES "Ninja")
     set(OLO_HEAVY_COMPILE_JOBS "2" CACHE STRING
-        "Maximum concurrent compiles of the handful of memory-heavy TUs (LuaScriptGlue.cpp, McpFieldRegistry.cpp — issue #822). Ninja generators only.")
+        "Maximum concurrent compiles of the handful of memory-heavy TUs (the LuaScriptGlue_*.cpp parts, McpFieldRegistry.cpp — issue #822). Ninja generators only.")
     # Same rule, and the same reason, as OLO_LINK_JOBS above: depth 0 or empty
     # passes straight through CMake AND Ninja and leaves the pool silently uncapped.
     if(NOT OLO_HEAVY_COMPILE_JOBS MATCHES "^[1-9][0-9]*$")

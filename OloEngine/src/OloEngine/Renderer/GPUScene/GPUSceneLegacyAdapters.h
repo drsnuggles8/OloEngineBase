@@ -138,7 +138,9 @@ namespace OloEngine::GPUSceneLegacyAdapters
                       "starts static. Stays an adapter.",
         },
         Adapter{
-            .m_File = "OloEngine/src/OloEngine/Scripting/Lua/LuaScriptGlue.cpp",
+            // The Lua glue was split across LuaScriptGlue_*.cpp (issue #822); the instance
+            // authoring that duplicates transform truth lives in the scene-graph part now.
+            .m_File = "OloEngine/src/OloEngine/Scripting/Lua/LuaScriptGlue_SceneGraph.cpp",
             .m_Name = "Lua instance authoring",
             .m_UnsupportedCategory = std::nullopt,
             .m_Exit = "Same as the C# glue: seeding prev from current is the correct no-history "

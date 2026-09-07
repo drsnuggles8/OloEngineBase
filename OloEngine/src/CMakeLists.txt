@@ -1373,6 +1373,16 @@
 		"OloEngine/Scripting/Lua/LuaScriptEngine.h"
 		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue.h"
+		"OloEngine/Scripting/Lua/LuaScriptGlueInternal.h"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Characters.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_SceneGraph.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Effects.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Platform.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_World.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Gameplay.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_EngineApi.cpp"
 		"OloEngine/Scripting/VisualScript/VisualScriptTypes.h"
 		"OloEngine/Scripting/VisualScript/VisualScriptTypes.cpp"
 		"OloEngine/Scripting/VisualScript/VisualScriptGraph.h"
@@ -1878,7 +1888,15 @@ endif()
 # drop the file from SOURCES with nothing re-adding it, silently removing it from the build.
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	list(REMOVE_ITEM SOURCES
-		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Characters.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_SceneGraph.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Effects.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Platform.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_World.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Gameplay.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_EngineApi.cpp"
 	)
 endif()
 
@@ -1967,18 +1985,33 @@ add_library(OloEngineContent  STATIC ${OLO_CONTENT_SOURCES})
 # the PUBLIC usage requirements the other two inherit.
 set(OLO_ENGINE_LIBRARY_PARTS OloEngine OloEngineRenderer OloEngineContent PARENT_SCOPE)
 
-# LuaScriptGlue.cpp lives under OloEngine/Scripting/, so its heavy-compile file set now belongs to
-# OloEngineContent. Binding it to OloEngine instead would add the file to a target that no longer
-# compiles it — a second build edge for an output the other target already owns.
+# The Lua glue lives under OloEngine/Scripting/, so its heavy-compile file set belongs to
+# OloEngineContent. Binding it to OloEngine instead would add the files to a target that no longer
+# compiles them — a second build edge for an output the other target already owns.
+#
+# THE PARTS, not LuaScriptGlue.cpp: the registrations moved out of it when the glue was split
+# (issue #822), and the dispatcher left behind is an ordinary small TU. Measured cold, clang-cl
+# Debug, peak compiler RSS: the old single file 12,439 MB; the heaviest part now 5,043 MB
+# (_World), the lightest 1,308 MB. Two concurrent from this pool is therefore ~10 GB rather than
+# ~25 GB, which is what the 31 GiB CI box could not survive.
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	olo_bind_heavy_compile_pool(OloEngineContent "${CMAKE_CURRENT_SOURCE_DIR}"
-		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Characters.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_SceneGraph.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Effects.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Platform.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_World.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Gameplay.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_EngineApi.cpp"
 	)
 endif()
 
 # Whole-program optimization is what made these objects enormous, and it buys nothing here: every
 # one is one-shot registration or (de)serialization that runs at startup or at scene load, never
-# in a frame loop. Measured IL sizes in Dist, and what the exclusion recovers:
+# in a frame loop. Measured IL sizes in Dist BEFORE the Lua glue was split (issue #822); the
+# LuaScriptGlue row is now spread over LuaScriptGlue_*.cpp, which are all excluded together:
 #
 #     TU                        /GL       /GL-   residual
 #     LuaScriptGlue.cpp     348.4 MiB   94.0 MiB    27.0%
@@ -1991,11 +2024,20 @@ endif()
 #
 # This is NOT what fixes the link — the split above is; 449 MiB does not close a ~1.1 GB gap. It is
 # here because it takes OloEngineContent from ~33% of the ceiling to 23%, and because it removes
-# the single heaviest TU in the tree (issue #822) from the /LTCG link's input.
+# what used to be the single heaviest TU in the tree (issue #822) from the /LTCG link's input.
 #
 # Do not add a hot TU to this list to buy headroom. Cut the archive further instead.
 olo_exclude_from_whole_program_optimization(
 	"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Characters.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_SceneGraph.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Effects.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Platform.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_World.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_Gameplay.cpp"
+	"OloEngine/Scripting/Lua/LuaScriptGlue_EngineApi.cpp"
 	"OloEngine/Scripting/C#/ScriptGlue.cpp"
 	"OloEngine/Scene/SceneSerializer.cpp"
 	"OloEngine/Scene/Prefab.cpp"
@@ -2068,7 +2110,21 @@ if(OLO_ENABLE_UNITY_BUILD)
 		"OloEngine/Animation/Procedural/NoiseSolver.cpp"      # anon IsFiniteVec3
 		"OloEngine/Cinematic/CinematicCurve.cpp"   # anon SafeNormalize
 		"OloEngine/Scripting/C#/ScriptGlue.cpp"    # static IsFiniteVec3 (+ macro-heavy Mono glue)
-		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp" # static IsFiniteVec3 (+ macro-heavy Sol2 glue)
+		# The Sol2 glue. The old "static IsFiniteVec3" reason is gone — that helper is an inline
+		# in LuaScriptGlueInternal.h since the split (issue #822) and no longer collides in a
+		# jumbo — but the macro-heavy Sol2 surface that made these expensive to batch moved into
+		# the parts with the registrations, so the exclusion follows it. Not dropped on the
+		# strength of this comment: see GROUP 2's note above.
+		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Characters.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_SceneGraph.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Effects.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Platform.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_World.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Gameplay.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_EngineApi.cpp"
 		"OloEngine/Audio/DSP/HighPassFilter.cpp"   # namespace-scope consts FilterOrder/Min/MaxFrequencyHz
 		"OloEngine/Audio/DSP/LowPassFilter.cpp"    #   "
 		# Vulkan transient-resource TUs (#691 Phase 9 split): each includes the
