@@ -313,6 +313,8 @@ namespace OloEngine::MCP
                     return "Cloudscape";
                 case TemporalHistoryEffect::RayTracedShadow:
                     return "RayTracedShadow";
+                case TemporalHistoryEffect::PathTracer:
+                    return "PathTracer";
             }
             return "Unknown";
         }
@@ -335,6 +337,8 @@ namespace OloEngine::MCP
                     return "MomentsSecond";
                 case TemporalHistoryPlane::Diagnostics:
                     return "Diagnostics";
+                case TemporalHistoryPlane::Albedo:
+                    return "Albedo";
             }
             return "Unknown";
         }
@@ -399,6 +403,8 @@ namespace OloEngine::MCP
                     return "CopyFailed";
                 case TemporalHistoryInvalidationCause::Manual:
                     return "Manual";
+                case TemporalHistoryInvalidationCause::SceneMutated:
+                    return "SceneMutated";
             }
             return "Unknown";
         }

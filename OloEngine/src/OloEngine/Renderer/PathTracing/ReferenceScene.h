@@ -307,6 +307,14 @@ namespace OloEngine::PathTracing
         {
             return m_Instances;
         }
+        // The geometry an instance references, for a consumer building the
+        // SAME scene for another tracer (the GPU path tracer's device parity
+        // test uploads these exact vertices and indices, issue #1055). Read
+        // only; a scene is immutable once Build()t.
+        [[nodiscard]] const ReferenceGeometry& GetGeometry(u32 index) const
+        {
+            return *m_Geometries.at(index);
+        }
         [[nodiscard]] const std::vector<ReferenceLight>& GetLights() const
         {
             return m_Lights;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
 #include "OloEngine/Renderer/ReflectionTier.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
@@ -407,6 +408,14 @@ namespace OloEngine
         // the tier reports why it stood down and the hierarchy collapses to
         // exactly today's SSR + probe/IBL.
         RayTracedReflectionSettings RayTracedReflection{};
+
+        // The GPU reference path tracer (issue #1055, #979 Phase 2): a
+        // progressive ray-query path tracer whose colour REPLACES the
+        // rasterised scene colour at the top of the pre-Bloom chain. Not a
+        // shipping tier — the oracle the roadmap's later tiers are measured
+        // against. A hardware ray-tracing device only; elsewhere the pass
+        // reports why it stood down and the raster frame shows.
+        GpuPathTracerSettings GpuPathTracer{};
 
         // Screen-Space Global Illumination (SSGI)
         // Deferred-only: one-bounce indirect *diffuse* lighting. For each opaque

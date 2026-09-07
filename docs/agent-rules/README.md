@@ -71,6 +71,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [vulkan-parallel-recording.md](vulkan-parallel-recording.md): a pass forks with `RenderCommand::RecordParallel` and gives every item its own resource objects; per-command-buffer state is per recording context.
 - [vulkan-parallel-graph-recording.md](vulkan-parallel-graph-recording.md): schedule ready prepared passes before compiling resource lifetimes, and publish shared state only after joining.
 - [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md): a BLAS is per geometry and opacity is per instance; acceleration structures reach a shader as a device address, builds ride the frame command buffer, and compaction is a multi-frame handshake because idling is banned.
+- [gpu-path-tracer.md](gpu-path-tracer.md): the GPU reference path tracer mirrors the CPU one term by term, restarts its accumulation on any unjittered camera change or dirty GPU Scene range, and falls back structurally; a change to either tracer's transport is a change to both.
 - [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md): `glColorMask` and `glEnable(GL_BLEND)` are indexed calls for every draw buffer; never port one as a fallback.
 - [lazy-static-release-ownership.md](lazy-static-release-ownership.md): release a shared lazy static from an unconditional teardown, not from `Renderer3D::Shutdown`.
 - [registries-must-outlive-their-registrants.md](registries-must-outlive-their-registrants.md): a process-wide registry a destructor unregisters from must be a deliberately leaked singleton, never a plain static.
@@ -230,6 +231,7 @@ The same fact written in more than one place, with nothing enforcing agreement.
 | [light-path-photometric-parity.md](light-path-photometric-parity.md) | Three light evaluators that can render the same scene. |
 | [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) | The cascade-shift invalidation is derived independently on CPU and GPU, on purpose. |
 | [reference-path-tracer.md](reference-path-tracer.md) | A C++ BRDF port against the GLSL it mirrors. |
+| [gpu-path-tracer.md](gpu-path-tracer.md) | A GLSL path tracer against the C++ one it mirrors: the same Sobol'-Owen sampler to the bit, the same NEE + MIS structure, the same closure, pinned on the device by a written-down disagreement budget. |
 | [baked-lightmap-pipeline.md](baked-lightmap-pipeline.md) | The GI stores' units ledger, and bake-time unwrap parameters mirrored by the runtime resolve. |
 | [lightmap-receiver-identity.md](lightmap-receiver-identity.md) | Four walks that must gather the same lightmap receivers; a mismatch renders with no baked GI and no error. |
 | [lightmap-receiver-identity.md §VirtualGeometry](lightmap-receiver-identity.md#virtualgeometry-the-uv2-rides-the-vertex-arena-because-no-binding-was-available) | A reserved vertex-pull binding resolves from the VAO, so publishing a buffer there is silently ignored. |

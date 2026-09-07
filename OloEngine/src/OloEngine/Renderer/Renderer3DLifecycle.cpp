@@ -450,6 +450,8 @@ namespace OloEngine
             UBOStructures::RayTracingShadowUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
         s_Data.PostProcessGPU.RayTracedReflection = UniformBuffer::Create(
             UBOStructures::RayTracingReflectionUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+        s_Data.PostProcessGPU.GpuPathTracer = UniformBuffer::Create(
+            UBOStructures::RayTracingPathTracerUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
         s_Data.SceneEffectsGPU.Snow = UniformBuffer::Create(SnowUBOData::GetSize(), ShaderBindingLayout::UBO_SNOW);
         s_Data.SceneEffectsGPU.SSS = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
         s_Data.SceneEffectsGPU.Fog = UniformBuffer::Create(FogUBOData::GetSize(), ShaderBindingLayout::UBO_FOG);
@@ -764,6 +766,7 @@ namespace OloEngine
         // Ray tracing before the GPU Scene it keys off, so no acceleration
         // structure outlives the records that named it.
         s_Data.SceneRT.Shutdown();
+        s_Data.PathTracerEmissive.Shutdown();
         s_Data.SceneGPU.Shutdown();
         s_Data.GPUSceneExtractionActive = false;
         // The two-phase GPU culler (#431) owns a pool of StorageBuffers / InstanceBuffers.

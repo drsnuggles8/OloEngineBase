@@ -286,8 +286,15 @@ namespace OloEngine
             RGTextureHandle SSGIColorTexture;    // Color attachment view of SSGIColor
             // The ray-query reflection tier (#1057), one tier BELOW SSR: it
             // runs first and SSR composites over its output (ADR 0020).
-            RGFramebufferHandle RTReflectionColor;        // After the ray-query reflection tier (deferred path, RT device only)
-            RGTextureHandle RTReflectionColorTexture;     // Color attachment view of RTReflectionColor
+            RGFramebufferHandle RTReflectionColor;    // After the ray-query reflection tier (deferred path, RT device only)
+            RGTextureHandle RTReflectionColorTexture; // Color attachment view of RTReflectionColor
+            // The GPU reference path tracer (issue #1055). Declared only when
+            // the tracer is enabled on a ray-tracing device; its colour REPLACES
+            // the rasterised scene colour at the top of the pre-Bloom chain.
+            // The other five attachments are the accumulation and AOV planes
+            // (ResourceHandle.h's PathTracer* names).
+            RGFramebufferHandle PathTracerColor;          // Six attachments; 0 = colour for the post chain
+            RGTextureHandle PathTracerColorTexture;       // Color attachment 0 view of PathTracerColor
             RGFramebufferHandle SSRColor;                 // After SSR composite (only valid when SSR is enabled, deferred path)
             RGTextureHandle SSRColorTexture;              // Color attachment view of SSRColor
             RGFramebufferHandle ContactShadowColor;       // After contact-shadow composite (only valid when ContactShadow is enabled, deferred path)
@@ -365,6 +372,13 @@ namespace OloEngine
             RGTextureHandle RayTracedShadowHistory;
             RGTextureHandle RayTracedShadowSurfaceHistory;
             RGTextureHandle RayTracedShadowMomentsHistory;
+            // GPU path tracer accumulation (issue #1055): last frame's running
+            // sums, all RGBA32F. Invalid on the first frame and after any
+            // invalidation, in which case the pass restarts its sample count.
+            RGTextureHandle PathTracerHistory;
+            RGTextureHandle PathTracerMomentsHistory;
+            RGTextureHandle PathTracerAlbedoHistory;
+            RGTextureHandle PathTracerNormalHistory;
             // (Fog's temporal history moved into VolumetricFogPass's own 3D
             // scatter volume with the froxel fog rework — issue #435.)
         };

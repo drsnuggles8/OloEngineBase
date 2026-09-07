@@ -160,6 +160,12 @@ namespace OloEngine
         // reused between frames is refused rather than silently substituted.
         [[nodiscard]] const GPUSceneGeometry* GetLiveGeometryRecordBySlot(u32 slot, u32 generation) const;
         [[nodiscard]] const GPUSceneMaterial* GetLiveMaterialRecordBySlot(u32 slot, u32 generation) const;
+        // The light table, for a consumer that walks every light rather than
+        // resolving one by key (the GPU path tracer's next-event estimation,
+        // issue #1055). Same liveness rule as the instance variant: nullptr
+        // unless the slot is live AND the record carries the Active flag.
+        [[nodiscard]] u32 GetLightSlotCount() const;
+        [[nodiscard]] const GPUSceneLight* GetLiveLightRecordBySlot(u32 slot) const;
 
         // The camera-relative origin this frame's transforms were ENCODED
         // against (GPUScene.cpp's MakeModelRelative). A consumer that decodes

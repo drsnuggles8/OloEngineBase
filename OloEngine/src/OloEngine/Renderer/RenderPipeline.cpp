@@ -103,6 +103,52 @@ namespace OloEngine
             .Plane = TemporalHistoryPlane::MomentsFirst,
         };
 
+        // The GPU reference path tracer's accumulation (issue #1055): four
+        // RGBA32F planes at the scene band — the radiance sum with the sample
+        // count in alpha, the squared sums, the first-hit albedo sum and the
+        // first-hit normal sum. 32-bit on purpose: a sum of thousands of
+        // samples loses its low bits in half precision, and the sample count
+        // has to stay an exact integer.
+        constexpr u32 kPathTracerHistoryLayoutVersion = 1u;
+        constexpr TemporalHistoryKey kPathTracerHistoryKey{
+            .Effect = TemporalHistoryEffect::PathTracer,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::Signal,
+        };
+        constexpr TemporalHistoryKey kPathTracerMomentsHistoryKey{
+            .Effect = TemporalHistoryEffect::PathTracer,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::MomentsSecond,
+        };
+        constexpr TemporalHistoryKey kPathTracerAlbedoHistoryKey{
+            .Effect = TemporalHistoryEffect::PathTracer,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::Albedo,
+        };
+        constexpr TemporalHistoryKey kPathTracerNormalHistoryKey{
+            .Effect = TemporalHistoryEffect::PathTracer,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::SurfaceGeometry,
+        };
+
+        // The path tracer's accumulation: everything a reprojecting history
+        // depends on EXCEPT the jitter (its rays come from the unjittered
+        // projection, so a TAA / FSR2 toggle must not throw the sum away),
+        // PLUS the scene's content: it cannot reproject a moved object, so a
+        // dirty GPU Scene record restarts it where TAA, SSR and SSGI carry on.
+        constexpr TemporalHistoryDependency kPathTracerHistoryDependencies =
+            TemporalHistoryDependency::ViewTransform |
+            TemporalHistoryDependency::Projection |
+            TemporalHistoryDependency::Viewport |
+            TemporalHistoryDependency::RenderScale |
+            TemporalHistoryDependency::Scene |
+            TemporalHistoryDependency::SceneContent |
+            TemporalHistoryDependency::Backend |
+            TemporalHistoryDependency::FeatureState;
         constexpr TemporalHistoryDependency kSSGIHistoryDependencies =
             TemporalHistoryDependency::ViewTransform |
             TemporalHistoryDependency::Projection |
@@ -1189,6 +1235,42 @@ namespace OloEngine
                                 glm::dot(sunRadiance, sunRadiance) > 0.0f;
             rtReflectionPass.SetSunLight(hasSun ? -glm::normalize(sunTravel) : glm::vec3(0.0f, 1.0f, 0.0f),
                                          sunRadiance, hasSun);
+        }
+        // Wire the GPU reference path tracer (#1055). Not path-gated: it traces
+        // its own primary rays and needs nothing from the G-Buffer, so it runs
+        // on the forward paths as well. On a non-RT device the shader never
+        // loaded, IsReadyForExecution() is false, and the pass reports itself
+        // unavailable rather than quietly producing nothing.
+        if (PostProcessPasses.GpuPathTracer)
+        {
+            auto& pathTracerPass = *PostProcessPasses.GpuPathTracer;
+            const auto& pathTracerSettings = data.PostProcess.GpuPathTracer;
+
+            // UBO before the readiness check, for the reason the tiers above
+            // give: IsReadyForExecution() validates it.
+            pathTracerPass.SetParamsUBO(data.PostProcessGPU.GpuPathTracer);
+            pathTracerPass.SetSettings(pathTracerSettings);
+            pathTracerPass.SetEnabled(pathTracerSettings.Enabled && pathTracerPass.IsReadyForExecution());
+            pathTracerPass.SetEmissiveTable(&data.PathTracerEmissive);
+            // The UNJITTERED projection. TAA's sub-pixel jitter is baked into
+            // data.ProjectionMatrix; to a tracer that restarts on any camera
+            // change it would read as a camera that never holds still.
+            const glm::mat4& unjitteredProjection =
+                data.HasTemporalProjectionMatrix ? data.TemporalProjectionMatrix : data.ProjectionMatrix;
+            pathTracerPass.SetCameraMatrices(data.ViewMatrix, unjitteredProjection, Renderer3D::GetRenderOrigin());
+
+            // A camera move or an integral-changing setting restarts the
+            // accumulation THROUGH THE REGISTRY, scoped to this effect: TAA,
+            // SSR and SSGI reproject a moving camera by design and must keep
+            // their histories. This runs before PopulateBlackboard acquires the
+            // frame's histories, so the restart lands this frame, not next.
+            if (const auto restart = pathTracerPass.ConsumeAccumulationRestartRequest(); restart && data.RGraph)
+                data.RGraph->InvalidateTemporalHistories(*restart, TemporalHistoryEffect::PathTracer);
+            // The verdict and the counters, every frame, whether or not the
+            // graph goes on to declare a target: a culled pass never executes,
+            // and a pass that only reported from Execute would report nothing
+            // on exactly the machines where it stood down.
+            pathTracerPass.ResolveAvailabilityForFrame();
         }
         // Wire SSRPass (screen-space reflections) before Bloom in the dynamic
         // post chain. Deferred-only: when the path is forward / forward+ the
@@ -2471,6 +2553,9 @@ namespace OloEngine
         // in SSR's draw from lanes this pass only writes when it is on, so a
         // stale graph would show the previous frame's answer.
         HashBool(h, data.PostProcess.RayTracedReflection.TierDebugView);
+        // The GPU path tracer (#1055): gates whether PopulateBlackboard declares
+        // PathTracerColor — a topology change, the same trap as the two above.
+        HashBool(h, data.PostProcess.GpuPathTracer.Enabled);
         HashBool(h, data.PostProcess.ContactShadowEnabled);
         // The shadow TECHNIQUE (issue #1056). It gates whether PopulateBlackboard
         // declares RayTracedShadowMask and therefore whether RayTracedShadowPass
@@ -2621,6 +2706,20 @@ namespace OloEngine
                 HashU32(h, rtToken.Generation);
                 HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(rtToken));
             }
+            // ...and the path tracer's four (issue #1055). Load-bearing twice
+            // over here: the first frame's import lands only if the false->true
+            // flip re-runs PopulateBlackboard, AND every invalidation (a camera
+            // move, a scene mutation) bumps a generation, which is what makes
+            // the cached Setup drop the history handles it was bound to. Without
+            // this a restarted accumulation would keep adding to the sums it
+            // was told to forget.
+            for (const auto& ptHistoryKey : { kPathTracerHistoryKey, kPathTracerMomentsHistoryKey,
+                                              kPathTracerAlbedoHistoryKey, kPathTracerNormalHistoryKey })
+            {
+                const auto ptToken = data.RGraph->GetTemporalHistoryRegistry().Find(ptHistoryKey);
+                HashU32(h, ptToken.Generation);
+                HashBool(h, data.RGraph->GetTemporalHistoryRegistry().IsValid(ptToken));
+            }
         }
         else
         {
@@ -2717,6 +2816,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.RayTracedReflection);
         HashPassState(h, PostProcessPasses.SSR);
         HashPassState(h, PostProcessPasses.ContactShadow);
+        HashPassState(h, PostProcessPasses.GpuPathTracer);
         HashPassState(h, PostProcessPasses.FSR2);
         HashPassState(h, PostProcessPasses.Bloom);
         HashPassState(h, PostProcessPasses.DOF);
@@ -3821,6 +3921,51 @@ namespace OloEngine
             }
         }
 
+        // PathTracerColor (issue #1055) exists when the GPU path tracer is
+        // enabled AND its shader loaded — created only on a backend with
+        // GL_EXT_ray_query, so IsReadyForExecution() is also the "this device
+        // can ray trace" test. Not path-gated: the tracer needs nothing from
+        // the G-Buffer. Every non-RT device never declares it, the alias chain
+        // below never sees it, and the output is byte-identical to today's.
+        //
+        // ONE six-attachment framebuffer: colour for the post chain, then the
+        // four accumulation planes the pass extracts into its histories, then
+        // the per-frame variance. Same "not gated on the TLAS" reasoning as the
+        // reflection tier: an empty TLAS is a per-frame runtime state the pass
+        // handles with a zero address, not a graph shape.
+        if (pipeline.PostProcessPasses.GpuPathTracer)
+        {
+            // IsEnabled() already folds in readiness (ConfigurePassesForFrame);
+            // a switched-on tracer whose target is not declared here is one
+            // the pass itself reports every frame from
+            // ResolveAvailabilityForFrame, so nothing is said twice.
+            const bool pathTracerDeclared = pipeline.PostProcessPasses.GpuPathTracer->IsEnabled();
+
+            if (pathTracerDeclared)
+            {
+                RGResourceDesc pathTracerDesc;
+                pathTracerDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+                pathTracerDesc.Format = RGResourceFormat::RGBA16Float;
+                pathTracerDesc.Width = sceneBandWidth;
+                pathTracerDesc.Height = sceneBandHeight;
+                pathTracerDesc.Attachments = {
+                    RGResourceFormat::RGBA16Float, // 0 colour
+                    RGResourceFormat::RGBA32Float, // 1 radiance sum + count
+                    RGResourceFormat::RGBA32Float, // 2 squared sums
+                    RGResourceFormat::RGBA32Float, // 3 first-hit albedo sum
+                    RGResourceFormat::RGBA32Float, // 4 first-hit normal sum
+                    RGResourceFormat::RGBA16Float, // 5 variance of the mean
+                };
+                pathTracerDesc.DebugName = std::string(ResourceNames::PathTracerColor);
+                board.Post.PathTracerColor = declareGraphOnlyFramebuffer(ResourceNames::PathTracerColor, pathTracerDesc);
+                board.Post.PathTracerColorTexture =
+                    board.Post.PathTracerColor.IsValid()
+                        ? graph.CreateFramebufferAttachmentView(ResourceNames::PathTracerColorTexture,
+                                                                board.Post.PathTracerColor, 0u)
+                        : RGTextureHandle{};
+            }
+        }
+
         // SSRColor exists only on the deferred path when SSR is enabled, ready,
         // and the G-Buffer normal + scene depth it ray-marches against are
         // available. Forward / forward+ never declares it, so downstream aliases
@@ -3993,6 +4138,16 @@ namespace OloEngine
             board.Post.PostProcessColorTexture = board.Post.EASUColorTexture;
             postProcessTargetFramebuffer = ResourceNames::EASUColor;
             postProcessTargetTexture = ResourceNames::EASUColorTexture;
+        }
+        else if (board.Post.PathTracerColor.IsValid())
+        {
+            // The GPU path tracer (#1055) REPLACES the rasterised colour: it
+            // runs after the whole screen-space chain, so when no upscaler ran
+            // its output is the freshest pre-Bloom colour by construction.
+            board.Post.PostProcessColor = board.Post.PathTracerColor;
+            board.Post.PostProcessColorTexture = board.Post.PathTracerColorTexture;
+            postProcessTargetFramebuffer = ResourceNames::PathTracerColor;
+            postProcessTargetTexture = ResourceNames::PathTracerColorTexture;
         }
         else if (board.Post.ContactShadowColor.IsValid())
         {
@@ -4547,6 +4702,40 @@ namespace OloEngine
             board.Temporal.RayTracedShadowMomentsHistory = momentsBinding.Previous;
         }
 
+        // The GPU path tracer's accumulation (issue #1055), gated on its target
+        // having been declared this frame for the reason the two above are:
+        // the tracer is off by default and four scene-band RGBA32F planes are
+        // not free. Every plane goes through the registry — no private
+        // mechanism — so a camera cut, a projection change, a resize or a scene
+        // reset restarts the sum the same way it drops every other history,
+        // and the SceneContent dependency is what makes a scene MUTATION
+        // (a dirty record after commit) restart it alone.
+        if (board.Post.PathTracerColor.IsValid())
+        {
+            TemporalHistoryDescriptor descriptor;
+            descriptor.Width = sceneBandWidth;
+            descriptor.Height = sceneBandHeight;
+            descriptor.Format = ImageFormat::RGBA32F;
+            descriptor.LayoutVersion = kPathTracerHistoryLayoutVersion;
+
+            board.Temporal.PathTracerHistory =
+                graph.AcquireTemporalHistory(kPathTracerHistoryKey, descriptor, kPathTracerHistoryDependencies,
+                                             ResourceNames::PathTracerHistory)
+                    .Previous;
+            board.Temporal.PathTracerMomentsHistory =
+                graph.AcquireTemporalHistory(kPathTracerMomentsHistoryKey, descriptor, kPathTracerHistoryDependencies,
+                                             ResourceNames::PathTracerMomentsHistory)
+                    .Previous;
+            board.Temporal.PathTracerAlbedoHistory =
+                graph.AcquireTemporalHistory(kPathTracerAlbedoHistoryKey, descriptor, kPathTracerHistoryDependencies,
+                                             ResourceNames::PathTracerAlbedoHistory)
+                    .Previous;
+            board.Temporal.PathTracerNormalHistory =
+                graph.AcquireTemporalHistory(kPathTracerNormalHistoryKey, descriptor, kPathTracerHistoryDependencies,
+                                             ResourceNames::PathTracerNormalHistory)
+                    .Previous;
+        }
+
         if (board.Scratch.SSRResolved.IsValid())
         {
             EnsureHistoryStorage(pipeline.SSRHistoryTexture, pipeline.SSRHistoryValid, sceneBandWidth, sceneBandHeight);
@@ -4707,6 +4896,7 @@ namespace OloEngine
         inputs.Passes.RayTracedReflection = PostProcessPasses.RayTracedReflection.Raw();
         inputs.Passes.SSR = PostProcessPasses.SSR.Raw();
         inputs.Passes.ContactShadow = PostProcessPasses.ContactShadow.Raw();
+        inputs.Passes.GpuPathTracer = PostProcessPasses.GpuPathTracer.Raw();
         inputs.Passes.EASU = PostProcessPasses.EASU.Raw();
         inputs.Passes.FSR2 = PostProcessPasses.FSR2.Raw();
         inputs.Passes.DepthVelocityUpscale = PostProcessPasses.DepthVelocityUpscale.Raw();
@@ -4944,6 +5134,14 @@ namespace OloEngine
         PostProcessPasses.ContactShadow = Ref<ContactShadowRenderPass>::Create();
         PostProcessPasses.ContactShadow->SetName("ContactShadowPass");
         PostProcessPasses.ContactShadow->Init(finalPassSpec);
+
+        // The GPU reference path tracer (#1055). After the screen-space chain,
+        // before the upscalers; its colour replaces the rasterised one.
+        PostProcessPasses.GpuPathTracer = Ref<GpuPathTracerPass>::Create();
+        PostProcessPasses.GpuPathTracer->SetName("GpuPathTracerPass");
+        PostProcessPasses.GpuPathTracer->Init(finalPassSpec);
+        PostProcessPasses.GpuPathTracer->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
+        PostProcessPasses.GpuPathTracer->SetGPUScene(&Renderer3D::GetGPUScene());
 
         // FSR1 EASU spatial-upscale pass (#480). Sits between the screen-space
         // band and Bloom: it upscales the reduced-resolution HDR scene colour to

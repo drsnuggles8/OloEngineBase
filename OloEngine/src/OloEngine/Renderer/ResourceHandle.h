@@ -401,6 +401,21 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view RayTracedShadowMoments = "RayTracedShadowMoments";
     inline constexpr std::string_view RayTracedShadowMask = "RayTracedShadowMask";
     inline constexpr std::string_view RayTracedShadowMaskTexture = "RayTracedShadowMaskTexture";
+    // The GPU reference path tracer (issue #1055). ONE six-attachment
+    // framebuffer at the scene band, versioned by the pass like the reflection
+    // tier's: attachment 0 is the colour the post chain consumes (RGBA16F),
+    // 1 the radiance sum + sample count, 2 the squared sums, 3 the first-hit
+    // albedo sum, 4 the first-hit normal sum (all RGBA32F, each extracted into
+    // its PathTracer*History plane), 5 the per-frame variance of the mean
+    // (RGBA16F). Every attachment view is capturable by name through a
+    // benchmark manifest — that is how the AOVs reach disk.
+    inline constexpr std::string_view PathTracerColor = "PathTracerColor";
+    inline constexpr std::string_view PathTracerColorTexture = "PathTracerColorTexture";
+    inline constexpr std::string_view PathTracerAccum = "PathTracerAccum";
+    inline constexpr std::string_view PathTracerMoments = "PathTracerMoments";
+    inline constexpr std::string_view PathTracerAlbedo = "PathTracerAlbedo";
+    inline constexpr std::string_view PathTracerNormal = "PathTracerNormal";
+    inline constexpr std::string_view PathTracerVariance = "PathTracerVariance";
     inline constexpr std::string_view SSRSignal = "SSRSignal";                                       // Raw stochastic reflection delta, rgb = (reflection - base) * blend, a = view depth (SSR draw A output, issue #902)
     inline constexpr std::string_view SSRGuide = "SSRGuide";                                         // Surface plane, rg = oct world normal, b = roughness, a = AO (SSRSignal attachment 1, issue #708)
     inline constexpr std::string_view SSRPreBlurred = "SSRPreBlurred";                               // Roughness-scaled pre-blur of the raw reflection delta (issue #708 stage 2)
@@ -474,6 +489,13 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view RayTracedShadowHistory = "RayTracedShadowHistory";
     inline constexpr std::string_view RayTracedShadowSurfaceHistory = "RayTracedShadowSurfaceHistory";
     inline constexpr std::string_view RayTracedShadowMomentsHistory = "RayTracedShadowMomentsHistory";
+    // GPU path tracer accumulation state (issue #1055): last frame's
+    // attachments 1-4 of PathTracerColor, all RGBA32F, handed back to the pass
+    // as the running sums it adds this frame's samples to.
+    inline constexpr std::string_view PathTracerHistory = "PathTracerHistory";
+    inline constexpr std::string_view PathTracerMomentsHistory = "PathTracerMomentsHistory";
+    inline constexpr std::string_view PathTracerAlbedoHistory = "PathTracerAlbedoHistory";
+    inline constexpr std::string_view PathTracerNormalHistory = "PathTracerNormalHistory";
 
     // Weighted-blended OIT accumulation targets (particles and forward
     // transparent decals write these; OITResolvePass reads them and

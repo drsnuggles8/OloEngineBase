@@ -3,6 +3,7 @@
 
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/YAMLConverters.h"
+#include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
 
 #include <yaml-cpp/yaml.h>
 
@@ -325,7 +326,8 @@ namespace OloEngine::Benchmark
         {
             RequireKnownKeys(rs,
                              { "Path", "EnableDDGI", "DepthPrepassEnabled", "OcclusionCullingEnabled",
-                               "HZBOcclusionCullingEnabled", "TAAEnabled" },
+                               "HZBOcclusionCullingEnabled", "TAAEnabled", "GpuPathTracerEnabled",
+                               "GpuPathTracerSamplesPerFrame" },
                              "RendererSettings", errors);
             if (rs["Path"])
             {
@@ -367,6 +369,23 @@ namespace OloEngine::Benchmark
             if (rs["TAAEnabled"])
             {
                 manifest.RendererSettings.TAAEnabled = rs["TAAEnabled"].as<bool>(false);
+            }
+            if (rs["GpuPathTracerEnabled"])
+            {
+                manifest.RendererSettings.GpuPathTracerEnabled = rs["GpuPathTracerEnabled"].as<bool>(false);
+            }
+            if (rs["GpuPathTracerSamplesPerFrame"])
+            {
+                const auto samples = rs["GpuPathTracerSamplesPerFrame"].as<i64>(0);
+                if (samples < 1 || samples > static_cast<i64>(kGpuPathTracerMaxSamplesPerFrame))
+                {
+                    errors.Add("RendererSettings.GpuPathTracerSamplesPerFrame must be in [1, " +
+                               std::to_string(kGpuPathTracerMaxSamplesPerFrame) + "]");
+                }
+                else
+                {
+                    manifest.RendererSettings.GpuPathTracerSamplesPerFrame = static_cast<u32>(samples);
+                }
             }
         }
 

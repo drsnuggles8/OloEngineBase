@@ -238,6 +238,17 @@ namespace OloEngine::MCP::PostProcess
     {                                                                                                                                                                                                                                                                    \
         token, "rtreflection", type, lo, hi, {}, false, desc, &GetPpNested<&PostProcessSettings::RayTracedReflection, &RayTracedReflectionSettings::name>, &SetPpNested<&PostProcessSettings::RayTracedReflection, &RayTracedReflectionSettings::name>, nullptr, nullptr \
     }
+// The GPU reference path tracer's settings (#1055), nested the same way.
+#define OLO_PT_BOOL(token, name, desc)                                                                                                                                                                                                                      \
+    FieldInfo                                                                                                                                                                                                                                               \
+    {                                                                                                                                                                                                                                                       \
+        token, "pathtracer", FieldType::Bool, 0.0, 1.0, {}, false, desc, &GetPpNested<&PostProcessSettings::GpuPathTracer, &GpuPathTracerSettings::name>, &SetPpNested<&PostProcessSettings::GpuPathTracer, &GpuPathTracerSettings::name>, nullptr, nullptr \
+    }
+#define OLO_PT_NUM(token, name, type, lo, hi, desc)                                                                                                                                                                                            \
+    FieldInfo                                                                                                                                                                                                                                  \
+    {                                                                                                                                                                                                                                          \
+        token, "pathtracer", type, lo, hi, {}, false, desc, &GetPpNested<&PostProcessSettings::GpuPathTracer, &GpuPathTracerSettings::name>, &SetPpNested<&PostProcessSettings::GpuPathTracer, &GpuPathTracerSettings::name>, nullptr, nullptr \
+    }
 #define OLO_FOG_BOOL(token, name, desc)                                                                                                      \
     FieldInfo                                                                                                                                \
     {                                                                                                                                        \
@@ -416,6 +427,53 @@ namespace OloEngine::MCP::PostProcess
         OLO_RTR_BOOL("RTReflectionTierDebugView", TierDebugView,
                      "Draw which tier answered each pixel instead of the composite: magenta = planar, green = SSR, orange = ray query, blue = probe/IBL. Needs SSR enabled."),
 
+        // ---- the GPU reference path tracer (#1055) ------------------------------
+        // Not a shipping tier: the progressive ray-query oracle the roadmap's
+        // later tiers are measured against. Its colour REPLACES the rasterised
+        // scene colour. A hardware ray-tracing device only; elsewhere the pass
+        // reports why it stood down and the raster frame shows.
+        OLO_PT_BOOL("GpuPathTracerEnabled", Enabled,
+                    "Run the GPU reference path tracer in place of the rasterised scene colour (a hardware ray-tracing device only)."),
+        OLO_PT_NUM("GpuPathTracerSamplesPerFrame", SamplesPerFrame, FieldType::Int, 1.0,
+                   static_cast<double>(kGpuPathTracerMaxSamplesPerFrame),
+                   "Samples added per pixel per frame; the image converges over frames."),
+        OLO_PT_NUM("GpuPathTracerMaxSamples", MaxSamples, FieldType::Int, 0.0,
+                   static_cast<double>(GpuPathTracerLimits::kMaxSamplesCap),
+                   "Stop once every pixel has this many samples (0 = unbounded). A fixed cap makes a run reproducible."),
+        OLO_PT_NUM("GpuPathTracerMaxBounces", MaxBounces, FieldType::Int, 1.0,
+                   static_cast<double>(kGpuPathTracerMaxBounces),
+                   "Surface interactions per path; 1 = direct lighting only."),
+        OLO_PT_NUM("GpuPathTracerRussianRouletteStartBounce", RussianRouletteStartBounce, FieldType::Int, 0.0,
+                   static_cast<double>(kGpuPathTracerMaxBounces),
+                   "Bounce after which Russian roulette starts; 0 disables it (a furnace test wants 0)."),
+        OLO_PT_NUM("GpuPathTracerSeed", Seed, FieldType::Int, 0.0, 4294967295.0,
+                   "Global sampler seed; changes the noise, not the converged value."),
+        OLO_PT_BOOL("GpuPathTracerNextEventEstimation", EnableNextEventEstimation,
+                    "Next-event estimation. Off is pure BSDF sampling: unbiased, far noisier, the cross-check for the MIS weights."),
+        OLO_PT_NUM("GpuPathTracerMaxRadianceClamp", MaxRadianceClamp, FieldType::Float, 0.0,
+                   static_cast<double>(GpuPathTracerLimits::kMaxRadianceClamp),
+                   "Firefly clamp per path in radiance units; 0 = off. A clamp is a bias, keep it off for ground truth."),
+        OLO_PT_NUM("GpuPathTracerRayEpsilon", RayEpsilon, FieldType::Float,
+                   static_cast<double>(GpuPathTracerLimits::kMinRayEpsilon),
+                   static_cast<double>(GpuPathTracerLimits::kMaxRayEpsilon),
+                   "Ray offset along the geometric normal, in metres."),
+        OLO_PT_NUM("GpuPathTracerMaxRayDistance", MaxRayDistance, FieldType::Float,
+                   static_cast<double>(GpuPathTracerLimits::kMinRayDistance),
+                   static_cast<double>(GpuPathTracerLimits::kMaxRayDistance),
+                   "Metres before a ray is treated as escaped."),
+        OLO_PT_NUM("GpuPathTracerEnvironmentCubeIntensity", EnvironmentCubeIntensity, FieldType::Float, 0.0,
+                   static_cast<double>(GpuPathTracerLimits::kMaxEnvironmentCubeIntensity),
+                   "Scale on the frame's environment cube sampled on escape; 0 leaves only the uniform radiance."),
+        OLO_PT_NUM("GpuPathTracerDebugView", DebugView, FieldType::Int, 0.0,
+                   static_cast<double>(std::to_underlying(GpuPathTracerDebugView::Count) - 1u),
+                   "What the pass outputs: 0 radiance, 1 albedo, 2 normal, 3 variance, 4 sample count."),
+        OLO_PT_NUM("GpuPathTracerSampleCountDisplayScale", SampleCountDisplayScale, FieldType::Float, 0.0,
+                   static_cast<double>(GpuPathTracerLimits::kMaxSampleCountDisplayScale),
+                   "Display scale for the sample-count view."),
+        OLO_PT_NUM("GpuPathTracerVarianceDisplayScale", VarianceDisplayScale, FieldType::Float, 0.0,
+                   static_cast<double>(GpuPathTracerLimits::kMaxVarianceDisplayScale),
+                   "Display scale for the variance view."),
+
         // ---- screen-space global illumination ----------------------------------
         OLO_PP_BOOL(SSGIEnabled, "ssgi", "Run screen-space indirect diffuse (Deferred path only)."),
         OLO_PP_NUM(SSGIIntensity, "ssgi", FieldType::Float, 0.0, 16.0, "Indirect-diffuse strength multiplier."),
@@ -481,6 +539,8 @@ namespace OloEngine::MCP::PostProcess
 #undef OLO_PP_ENUM
 #undef OLO_RTR_BOOL
 #undef OLO_RTR_NUM
+#undef OLO_PT_BOOL
+#undef OLO_PT_NUM
 #undef OLO_FOG_BOOL
 #undef OLO_FOG_NUM
 #undef OLO_FOG_ENUM

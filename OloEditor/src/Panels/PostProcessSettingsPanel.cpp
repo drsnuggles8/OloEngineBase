@@ -4,6 +4,7 @@
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/RayTracedReflectionPass.h"
+#include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
 #include "OloEngine/Renderer/SphereProxyAO.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
@@ -468,6 +469,129 @@ namespace OloEngine
     void PostProcessSettingsPanel::DrawSSGISection() const
     {
         auto& settings = Renderer3D::GetPostProcessSettings();
+
+        // The GPU reference path tracer (issue #1055). Its own header rather
+        // than a tier under SSR: it is not a tier at all, it REPLACES the
+        // rasterised colour with the oracle the tiers are measured against.
+        if (ImGui::CollapsingHeader("GPU Path Tracer (reference)"))
+        {
+            ImGui::Indent();
+            auto& pt = settings.GpuPathTracer;
+            ImGui::Checkbox("Enable##GpuPathTracer", &pt.Enabled);
+            ImGui::TextDisabled("A ray-tracing device only; replaces the scene colour");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A progressive ray-query path tracer structured to match the\n"
+                                  "CPU reference tracer term by term. Not a shipping tier: the\n"
+                                  "oracle the roadmap's later tiers are validated against.\n"
+                                  "Where it is unavailable the rasterised frame shows and the\n"
+                                  "log says why.");
+
+            if (pt.Enabled)
+            {
+                // A u32 drag over the WHOLE u32 range. DragInt would clamp the
+                // default seed (0x9e3779b9 > INT32_MAX) and rewrite it on the
+                // first touch — a silently different sequence from the CPU
+                // reference the seed is meant to share.
+                const auto dragU32 = [](const char* label, u32& value, u32 lo, u32 hi)
+                {
+                    ImGui::DragScalar(label, ImGuiDataType_U32, &value, 1.0f, &lo, &hi, "%u",
+                                      ImGuiSliderFlags_AlwaysClamp);
+                };
+                using namespace GpuPathTracerLimits;
+
+                dragU32("Samples / Frame##GpuPathTracer", pt.SamplesPerFrame, 1u, kGpuPathTracerMaxSamplesPerFrame);
+                dragU32("Max Samples (0 = unbounded)##GpuPathTracer", pt.MaxSamples, 0u, kMaxSamplesCap);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("A fixed cap makes a run reproducible: N frames at 1 spp and\n"
+                                      "1 frame at N spp accumulate the SAME sample indices.");
+                dragU32("Max Bounces##GpuPathTracer", pt.MaxBounces, 1u, kGpuPathTracerMaxBounces);
+                dragU32("Russian Roulette Start (0 = off)##GpuPathTracer", pt.RussianRouletteStartBounce, 0u,
+                        kGpuPathTracerMaxBounces);
+                dragU32("Seed##GpuPathTracer", pt.Seed, 0u, UINT32_MAX);
+                ImGui::Checkbox("Next-Event Estimation##GpuPathTracer", &pt.EnableNextEventEstimation);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Off is pure BSDF sampling: still unbiased, far noisier,\n"
+                                      "and the cross-check that proves the MIS weights are not biased.");
+                ImGui::DragFloat("Radiance Clamp (0 = off)##GpuPathTracer", &pt.MaxRadianceClamp, 0.1f, 0.0f,
+                                 kMaxRadianceClamp, "%.1f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("A clamp is a BIAS. Keep it off for anything that claims to be ground truth.");
+                ImGui::DragFloat("Ray Epsilon##GpuPathTracer", &pt.RayEpsilon, 0.0001f, kMinRayEpsilon, kMaxRayEpsilon,
+                                 "%.5f m");
+                ImGui::DragFloat("Max Ray Distance##GpuPathTracer", &pt.MaxRayDistance, 10.0f, kMinRayDistance,
+                                 kMaxRayDistance, "%.0f m");
+                ImGui::ColorEdit3("Uniform Environment##GpuPathTracer", &pt.UniformEnvironmentRadiance.x,
+                                  ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Radiance arriving from every direction a ray escapes into —\n"
+                                      "the furnace lever, and the only environment the CPU reference has.");
+                ImGui::DragFloat("Environment Cube Intensity##GpuPathTracer", &pt.EnvironmentCubeIntensity, 0.01f,
+                                 0.0f, kMaxEnvironmentCubeIntensity, "%.2f");
+
+                // The names come from the enum's own ToString, so a view added
+                // there shows up here without a second list to keep in step.
+                if (ImGui::BeginCombo("View##GpuPathTracer", std::string(ToString(pt.DebugView)).c_str()))
+                {
+                    for (u32 i = 0; i < std::to_underlying(GpuPathTracerDebugView::Count); ++i)
+                    {
+                        const auto view = static_cast<GpuPathTracerDebugView>(i);
+                        if (ImGui::Selectable(std::string(ToString(view)).c_str(), view == pt.DebugView))
+                            pt.DebugView = view;
+                    }
+                    ImGui::EndCombo();
+                }
+                if (pt.DebugView == GpuPathTracerDebugView::SampleCount)
+                    ImGui::DragFloat("Sample Count Scale##GpuPathTracer", &pt.SampleCountDisplayScale, 0.0001f, 0.0f,
+                                     kMaxSampleCountDisplayScale, "%.5f");
+                if (pt.DebugView == GpuPathTracerDebugView::Variance)
+                    ImGui::DragFloat("Variance Scale##GpuPathTracer", &pt.VarianceDisplayScale, 1.0f, 0.0f,
+                                     kMaxVarianceDisplayScale, "%.0f");
+
+                // What the tracer actually did last frame. Read only while it
+                // is ENABLED, for the reason the tiers give: a disabled pass
+                // may not execute at all and its counters would be stale.
+                if (const GpuPathTracerPass* pass = Renderer3D::GetGpuPathTracerPass(); pass != nullptr)
+                {
+                    const GpuPathTracerStats& stats = pass->GetStats();
+                    ImGui::Separator();
+                    if (stats.Active)
+                    {
+                        ImGui::Text("%u samples / pixel accumulated (+%u this frame)",
+                                    stats.AccumulatedSamplesPerPixel, stats.SamplesTracedThisFrame);
+                        ImGui::Text("rays <= %llu / frame", static_cast<unsigned long long>(stats.RaysDispatchedUpperBound));
+                        ImGui::Text("%u emissive triangles (%.2f m^2), %u punctual lights",
+                                    stats.EmissiveTriangles, stats.EmissiveTotalArea, stats.PunctualLights);
+                        if (stats.ConsecutiveRestarts > 1)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "restarted %u frames in a row - something invalidates it every frame",
+                                               stats.ConsecutiveRestarts);
+                        if (stats.PunctualLightsBeyondShaderBound > 0)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "%u punctual lights past the shader's %u-slot bound are NOT traced",
+                                               stats.PunctualLightsBeyondShaderBound, kGpuPathTracerMaxLights);
+                        if (stats.EmissiveTableUnaddressable)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "emissive table has no device address - NEE sees no area lights");
+                        if (stats.SphereAreaLightsIgnored > 0)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%u sphere-area lights IGNORED (no reference twin)",
+                                               stats.SphereAreaLightsIgnored);
+                        if (stats.LegacyMaterialsShadedAsClosureV2 > 0)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%u Legacy materials shaded as ClosureV2",
+                                               stats.LegacyMaterialsShadedAsClosureV2);
+                        if (stats.HitsShadedUntextured)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "hits shaded UNTEXTURED - blocked on #805");
+                        if (stats.MaskedGeometryTracedAsSolid)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "masked geometry traced as solid");
+                    }
+                    else
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "stood down - %s",
+                                           std::string(ToString(stats.Fallback)).c_str());
+                    }
+                }
+            }
+            ImGui::Unindent();
+        }
 
         if (ImGui::CollapsingHeader("Screen-Space Global Illumination"))
         {

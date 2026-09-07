@@ -53,10 +53,14 @@
 #include "GPUScene.glsl"
 
 // Vertex mirrors OloEngine::Vertex (Vertex.h): 32 bytes, position at 0, normal
-// at 12, texcoord at 24. The C++ side static_asserts those three offsets, and
-// OLO_RT_VERTEX_STRIDE below is asserted against sizeof(Vertex) by
-// RayTracingAlphaParityTest.
+// at 12, texcoord at 24. Vertex.h static_asserts the size and the position
+// offset; the three defines below are parsed out of this file and asserted
+// against sizeof(Vertex) and offsetof(Vertex, Normal / TexCoord) by
+// GpuPathTracerContractTest's RayTracingAlphaParity case (issue #1055). The
+// normal offset is read by GpuPathTracer.glsl (and, as a literal, by
+// RayTracedReflection.glsl's HitWorldNormal).
 #define OLO_RT_VERTEX_STRIDE 32u
+#define OLO_RT_VERTEX_NORMAL_OFFSET 12u
 #define OLO_RT_VERTEX_TEXCOORD_OFFSET 24u
 
 // The triangle's three vertices are fetched through the geometry record's

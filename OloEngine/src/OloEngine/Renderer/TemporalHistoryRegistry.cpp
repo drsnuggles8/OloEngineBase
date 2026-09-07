@@ -175,6 +175,8 @@ namespace OloEngine
                 return TemporalHistoryDependency::RenderScale;
             case TemporalHistoryInvalidationCause::SceneReset:
                 return TemporalHistoryDependency::Scene;
+            case TemporalHistoryInvalidationCause::SceneMutated:
+                return TemporalHistoryDependency::SceneContent;
             case TemporalHistoryInvalidationCause::FeatureToggled:
                 return TemporalHistoryDependency::FeatureState;
             case TemporalHistoryInvalidationCause::BackendChanged:

@@ -18,7 +18,8 @@ namespace OloEngine::Tests
                                               TemporalHistoryDependency::Scene |
                                               TemporalHistoryDependency::Backend |
                                               TemporalHistoryDependency::FeatureState |
-                                              TemporalHistoryDependency::Jitter;
+                                              TemporalHistoryDependency::Jitter |
+                                              TemporalHistoryDependency::SceneContent;
 
         TemporalHistoryDescriptor MakeDescriptor(u32 width = 640, u32 height = 360)
         {
@@ -142,6 +143,7 @@ namespace OloEngine::Tests
             std::pair{ TemporalHistoryInvalidationCause::ViewportResized, TemporalHistoryDependency::Viewport },
             std::pair{ TemporalHistoryInvalidationCause::DynamicResolutionChanged, TemporalHistoryDependency::RenderScale },
             std::pair{ TemporalHistoryInvalidationCause::SceneReset, TemporalHistoryDependency::Scene },
+            std::pair{ TemporalHistoryInvalidationCause::SceneMutated, TemporalHistoryDependency::SceneContent },
             std::pair{ TemporalHistoryInvalidationCause::JitterReset, TemporalHistoryDependency::Jitter },
         };
 

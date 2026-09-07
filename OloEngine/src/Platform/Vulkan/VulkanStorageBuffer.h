@@ -79,9 +79,9 @@ namespace OloEngine
         // root data, indirect-args resolution, copies) use THIS address —
         // their writes must land in the one buffer every later consumer
         // resolves.
-        [[nodiscard]] VkDeviceAddress GetDeviceAddress() const
+        [[nodiscard]] u64 GetDeviceAddress() const override
         {
-            return m_DeviceAddress;
+            return static_cast<u64>(m_DeviceAddress);
         }
         // The address a DRAW's root-data writer embeds (ADR 0011 §4) — the
         // storage twin of VulkanUniformBuffer::GetRootDataAddress. A CPU

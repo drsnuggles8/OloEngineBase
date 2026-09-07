@@ -234,7 +234,12 @@ namespace OloEngine::Tests::PathTracingFixtures
     // emitter, uniform albedo, uniform environment — use MakeCornellFurnaceScene
     // below. Passing `emissiveRadiance = 0` here does NOT produce it: it just
     // removes the only light source and renders black.
-    inline CornellBoxScene MakeCornellBoxScene(f32 emissiveRadiance = 18.0f)
+    // `model` selects the closure every material traces with. Legacy is the
+    // default the existing gates and hashes were pinned on; the GPU path
+    // tracer's parity test (issue #1055) asks for ClosureV2, because the GPU
+    // shades every hit with the v2 closure — that is the model whose
+    // Evaluate / Sample / Pdf triple has GLSL twins.
+    inline CornellBoxScene MakeCornellBoxScene(f32 emissiveRadiance = 18.0f, PBRModel model = PBRModel::Legacy)
     {
         CornellBoxScene fixture;
         ReferenceScene& scene = fixture.Scene;
@@ -242,6 +247,7 @@ namespace OloEngine::Tests::PathTracingFixtures
         ReferenceMaterial white;
         white.BaseColor = glm::vec3(0.73f);
         white.Roughness = 1.0f;
+        white.Model = model;
         fixture.WhiteMaterial = scene.AddMaterial(white);
 
         ReferenceMaterial red = white;
@@ -256,6 +262,7 @@ namespace OloEngine::Tests::PathTracingFixtures
         light.BaseColor = glm::vec3(0.0f); // the emitter is black to reflection
         light.Roughness = 1.0f;
         light.Emissive = glm::vec3(emissiveRadiance);
+        light.Model = model;
         fixture.LightMaterial = scene.AddMaterial(light);
 
         AddFloorQuad(scene, -1.0f, -1.0f, 1.0f, -1.0f, 1.0f, fixture.WhiteMaterial);
