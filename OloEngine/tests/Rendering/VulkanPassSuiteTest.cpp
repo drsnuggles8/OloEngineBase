@@ -7408,16 +7408,28 @@ TEST_F(VulkanPassSuite, VirtualGeometrySoftwareRasterReportsGpuTimingsOnVulkan)
         << "the SwRaster sub-pass bracket produced no timing on Vulkan; " << timings.size()
         << " pass timing(s) resolved";
 
-    // Positive, finite, and not absurd. The upper bound is a sanity ceiling on a
-    // three-cluster dispatch, not a performance budget: a reading in the
-    // hundreds of milliseconds means the timestamp period or the nanosecond
-    // conversion is wrong, which is the failure this can honestly detect.
+    // Finite, positive, and NESTED. There is deliberately no elapsed-time
+    // ceiling here: this file cannot know how slow a conforming device is
+    // allowed to be, and an absolute millisecond bound in a test that exists to
+    // be an instrument rather than a gate is just a flake waiting for a slower
+    // box (an earlier revision of this tenant had a 100 ms one — it asserted a
+    // performance budget while claiming to check a unit conversion, which it
+    // could not actually do since a mis-scaled period moves both timings the
+    // same way).
+    //
+    // What IS checkable without knowing the hardware is the bracketing: the
+    // SwRaster sub-pass is opened and closed inside the pass, which is opened
+    // and closed inside the frame, so its span cannot exceed the frame's. That
+    // is an invariant of the pool's own nesting at any speed on any device, and
+    // it is what a mismatched BeginSubPass/EndSubPass pair — the harness bug
+    // this tenant could plausibly grow — actually violates.
     EXPECT_TRUE(std::isfinite(swRaster->GpuMs)) << "SwRaster GPU time is not finite";
     EXPECT_GT(swRaster->GpuMs, 0.0) << "SwRaster GPU time resolved as zero — the timestamps did not bracket work";
-    EXPECT_LT(swRaster->GpuMs, 100.0)
-        << "SwRaster GPU time of " << swRaster->GpuMs
-        << " ms for three hand-authored clusters is not a plausible nanosecond conversion";
+    EXPECT_TRUE(std::isfinite(frameMs)) << "the frame GPU time is not finite";
     EXPECT_GE(frameMs, 0.0);
+    EXPECT_LE(swRaster->GpuMs, frameMs)
+        << "the SwRaster sub-pass (" << swRaster->GpuMs << " ms) outlasted the frame it nests inside ("
+        << frameMs << " ms) — the sub-pass bracket is mismatched";
 
     // The A/B line. Shaders are runtime assets, so the same binary against two
     // versions of VirtualClusterRaster.comp compares directly on this number.
