@@ -404,43 +404,6 @@ jobs:
         if ($failed) { exit 1 }
         Write-Host 'All shipped binaries passed the launch smoke test.'
 
-    # ============================================================================
-    # TEMPORARY MEASUREMENT SCAFFOLDING (#1083) - DELETE BEFORE THIS PR MERGES.
-    # ============================================================================
-    # The sibling of the sweep in asan.yml; that step's header owns the reasoning
-    # (why one job rather than six runs, why the width order is a palindrome, why
-    # a strided sample, and why a failing pass is recorded instead of fatal).
-    # Read it there. Only the numbers differ: this job is not sanitizer-
-    # instrumented, so its shard width is bounded by the 4 vCPUs rather than by
-    # RAM, and #1083 names 4 / 6 / 8 as the widths to try here.
-    - name: "Measure ctest --parallel widths (#1083, temporary)"
-      working-directory: ${{github.workspace}}/build/OloEngine/tests
-      shell: bash
-      run: |
-        set -u
-        rows=()
-        for w in 4 6 8 8 6 4; do
-          start=$(date +%s)
-          out=$(ctest -I '1,,20' --parallel "$w" --timeout 120 -C "${BUILD_TYPE}" \
-                  --exclude-regex '^NetworkIntegrationTest\.' 2>&1) && code=0 || code=$?
-          elapsed=$(( $(date +%s) - start ))
-          tally=$(printf '%s\n' "$out" | grep -E 'tests passed' | tail -n 1 || true)
-          row="width=${w}  seconds=${elapsed}  exit=${code}  ${tally:-(no ctest summary line)}"
-          echo "::notice title=ctest width sweep::${row}"
-          rows+=("$row")
-          if [ "$code" -ne 0 ]; then
-            # See the asan.yml sibling for why this matches ctest's
-            # "The following tests FAILED:" block and not the `***` progress lines.
-            printf '%s\n' "$out" | grep -E '^[[:space:]]*[0-9]+ - [^ ]+ [(]' \
-              | sed "s/^/    FAILED at width ${w} : /" || true
-          fi
-        done
-        echo
-        echo "=== ctest --parallel sweep, Windows / build - sample: every 20th entry ==="
-        printf '%s\n' "${rows[@]}"
-        # Never fail the job on the sweep: the real test run below is the gate.
-        exit 0
-
     - name: Run tests with CTest
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # Execute tests defined by the CMake configuration.
@@ -535,7 +498,30 @@ jobs:
       # full step on the hosted runner with zero failures. If a physics test ever
       # flakes here again, reinstate `--repeat until-pass:3` AND reopen #281.
       shell: bash
-      run: ctest --parallel 4 --output-on-failure --timeout 120 -C "${BUILD_TYPE}" --exclude-regex '^NetworkIntegrationTest\.'
+      # --parallel 6, RAISED FROM 4 ON A MEASUREMENT (#1083). Six timed passes over
+      # the same 382-case sample in one job (run 34061407328), palindrome order
+      # 4,6,8,8,6,4 so the cold-start warm-up is shared rather than credited to the
+      # widest width:
+      #
+      #     width 4    81 / 76 s     --
+      #     width 6    69 / 69 s    -12.1 %
+      #     width 8    66 / 66 s    -15.9 %
+      #
+      # 100 % passed at every width, 382 of 382, zero flakes.
+      #
+      # 6 AND NOT 8, DELIBERATELY, even though 8 measured fastest. 6 -> 8 is worth
+      # 3 s of 69 (~1 min on the real step) and costs a second full doubling of
+      # oversubscription on a 4-vCPU runner -- the exact condition #281 lived in
+      # (PhysicsLayerFilteringTest SEH 0xc0000005 under core starvation). #281 is
+      # fixed at the root, so this is not a live bug, but the sample cannot prove
+      # the margin: a 1-in-20 stride rarely co-schedules the RESOURCE_LOCK'd
+      # mesh-cache cases, so contention at width 8 is untested rather than shown
+      # safe. Take the 12 % that is cheap; leave the last 4 % that is not.
+      #
+      # The warm-up the palindrome caught is why the order matters: width 4 ran
+      # 81 s early and 76 s late, a 6.2 % drift. An ascending 4,6,8 sweep would
+      # have handed that drift to width 8 and overstated it.
+      run: ctest --parallel 6 --output-on-failure --timeout 120 -C "${BUILD_TYPE}" --exclude-regex '^NetworkIntegrationTest\.'
 
     - name: Upload test results
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

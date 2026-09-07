@@ -188,11 +188,22 @@ jobs:
       # largest in the fleet: ASan instrumentation plus /Z7 (the compiler cache
       # switches MSVC debug info from a shared PDB to embedded — see
       # cmake/CompilerCache.cmake) makes every .obj carry its own debug info.
-      # MEASURE BEFORE TRUSTING THIS NUMBER: the entry that lands in the Actions
-      # cache store is charged against a shared ~9.3 GiB cap, and the measured
-      # entries so far compress to 82-91 % of this cap, not far below it
-      # (docs/agent-rules/actions-cache-budget.md). Raising it raises the bill.
-      SCCACHE_CACHE_SIZE: "3G"
+      # MEASURED, not guessed. The provisional value was 3G, chosen so the first
+      # successful run could report this job's real footprint instead of being
+      # capped at whatever was reserved. Run 34061407329 answered it:
+      #
+      #     Cache size    656 MiB       (du -sm agreed: 660)
+      #     Max cache size  3 GiB       -- nowhere near the cap, so nothing evicted
+      #
+      # Far smaller than the sibling `Windows / build` entry (1825 MiB at a 2G cap,
+      # i.e. capped), because this job builds ONLY the OloEngine-Tests target while
+      # that one also builds the editor, runtime and server.
+      #
+      # 1500M leaves ~2.3x headroom for the tree to grow without reserving budget
+      # this job does not use. Do not raise it to "be safe": measured entries here
+      # land at 82-91 % of their cap when they hit it, so the cap is the bill
+      # (docs/agent-rules/actions-cache-budget.md).
+      SCCACHE_CACHE_SIZE: "1500M"
       # Disable ASan's ODR-violation checker for every instrumented binary run in
       # this job. Vendored protobuf trips a known false positive — its narrow and
       # wide "." string-literal globals (`"."` vs `L"."`, io_win32.cc vs
@@ -500,81 +511,6 @@ jobs:
         key: sccache-asan-windows-2025-${{ github.run_id }}-${{ github.run_attempt }}
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    # ============================================================================
-    # TEMPORARY MEASUREMENT SCAFFOLDING (#1083) — DELETE BEFORE THIS PR MERGES.
-    # ============================================================================
-    # #1083 requires `--parallel` to be "chosen from a measurement across at least
-    # three widths ... not raised on the assumption that startup-bound implies
-    # oversubscribe". This step is that measurement, and it is a step rather than
-    # six workflow runs for one reason: six runs are six different runners. A
-    # windows-2025 runner's disk and CPU vary enough between allocations that a
-    # 15 % difference between two runs says nothing, and the effect being looked
-    # for here is exactly that size at the margin. Timing all widths inside ONE
-    # job removes the runner from the comparison entirely.
-    #
-    # THE ORDER IS A PALINDROME (2,3,4,4,3,2), not 2,3,4 repeated. The first pass
-    # over a subset is measurably slower than the second — the OS file cache is
-    # cold for the test binary, and the engine's repo-relative mesh cache is
-    # empty, so the RESOURCE_LOCK'd cases pay a real cold build. A monotonic drift
-    # like that biases an ascending sweep in favour of the LAST width tried, which
-    # is the answer this measurement most wants to be true. A palindrome cancels
-    # it: each width is sampled once early and once late, so their means carry the
-    # same amount of warm-up.
-    #
-    # `-I 1,,20` samples every 20th ctest entry (~345 of ~6,900) rather than
-    # running the full suite six times, which would add ~9 h to this job. The
-    # sample is strided, not a contiguous block, so it is spread across the whole
-    # ordered test list instead of over-weighting whichever suites happen to sort
-    # first. `-I` intersects with `--exclude-regex` (ctest unions them only under
-    # `-U`), so the exclusions below still apply.
-    #
-    # EXIT CODE AND FAILURE COUNT ARE PART OF THE MEASUREMENT, not noise to
-    # suppress: #1083 asks for flake behaviour at each width, not just the clock,
-    # because a wider `-j` on a 4-vCPU runner is exactly what #281 and the
-    # mesh-cache RESOURCE_LOCK are sensitive to. A width that is 30 % faster and
-    # flaky is not faster. `$ErrorActionPreference = 'Continue'` and the explicit
-    # `exit 0` are what let a failing pass be RECORDED rather than ending the job.
-    - name: "Measure ctest --parallel widths (#1083, temporary)"
-      working-directory: ${{github.workspace}}/build/OloEngine/tests
-      shell: pwsh
-      env:
-        ASAN_OPTIONS: halt_on_error=1:detect_odr_violation=0
-      run: |
-        $ErrorActionPreference = 'Continue'
-        $widths = @(2, 3, 4, 4, 3, 2)
-        $rows = @()
-        foreach ($w in $widths) {
-          $sw = [Diagnostics.Stopwatch]::StartNew()
-          $out = & ctest -I '1,,20' --parallel $w -C Release --timeout 120 `
-                   --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.' 2>&1
-          $sw.Stop()
-          $code = $LASTEXITCODE
-          $tally = ($out | Select-String -Pattern 'tests passed' | Select-Object -Last 1)
-          $tally = if ($tally) { $tally.ToString().Trim() } else { '(no ctest summary line)' }
-          $row = ("width={0}  seconds={1}  exit={2}  {3}" -f `
-                  $w, [math]::Round($sw.Elapsed.TotalSeconds, 1), $code, $tally)
-          Write-Host "::notice title=ctest width sweep::$row"
-          $rows += $row
-          # Name every failing case, so a width that trades speed for flakes is
-          # identifiable rather than just a non-zero exit code.
-          if ($code -ne 0) {
-            # ctest's "The following tests FAILED:" block, whose lines are
-            # "<tab><n> - <Suite.Case> (Failed)". NOT the inline progress lines,
-            # which read "n/N Test #n: Suite.Case ...***Failed" -- an earlier
-            # revision of this step matched on `***` and would have printed
-            # nothing, silently turning "which cases flaked at this width" into
-            # "some did". Checked against real ctest output before it ran.
-            $out | Select-String -Pattern '^\s*\d+ - \S+ \(' | ForEach-Object {
-              Write-Host "    FAILED at width $w : $($_.ToString().Trim())"
-            }
-          }
-        }
-        Write-Host ''
-        Write-Host '=== ctest --parallel sweep, ASan (Windows/clang-cl) - sample: every 20th entry ==='
-        $rows | ForEach-Object { Write-Host $_ }
-        # Never fail the job on the sweep: the real test run below is the gate.
-        exit 0
-
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
       shell: pwsh
@@ -624,15 +560,38 @@ jobs:
       #     stress test that exceeds the 120 s timeout under sanitizer
       #     instrumentation; excluded on every sanitizer job.
       #
-      # --parallel 2: every gtest case is its own ctest entry (gtest_discover_tests),
-      # so serial execution pays the engine's full static-init cost ~3,600× back-to-
-      # back — the same win Windows.yml's non-sanitizer job banks with `--parallel 4`.
+      # --parallel 4, RAISED FROM 2 ON A MEASUREMENT (#1083), not on the theory that
+      # made 2 look conservative. Every gtest case is its own ctest entry
+      # (gtest_discover_tests), so the suite is ~7,600 process launches each paying
+      # full engine static init, and the standing hypothesis was that a workload that
+      # startup-bound would scale well past the runner's 4 vCPUs. IT DOES NOT.
+      #
+      # Six timed passes over the same 380-case sample in ONE job on run 34061407329,
+      # in palindrome order (2,3,4,4,3,2) so the cold-start warm-up is shared equally
+      # rather than credited to the last width tried:
+      #
+      #     width 2   254.0 / 255.6 s     --
+      #     width 3   236.5 / 237.1 s     -7.1 %
+      #     width 4   216.4 / 218.5 s    -14.7 %
+      #
+      # Doubling the width buys ~15 %, not the ~2x "startup-bound" predicted. So this
+      # is much closer to CPU/memory-bandwidth bound than to launch-latency bound, and
+      # anyone tempted to go wider again should re-measure rather than reason.
+      # 100 % passed at every width -- 380 of 380, six passes, zero flakes -- so the
+      # raise costs no stability at this width.
+      #
+      # THE OLD CAP WAS AN ASSUMPTION. It read "capped at 2 (not 4) because ASan shadow
+      # memory inflates each test process's resident footprint; 2-wide stays comfortably
+      # inside the windows-2025 ~16 GB budget" -- plausible, and never measured. 4-wide
+      # ran 380 instrumented cases for 216 s here without incident. If a future run does
+      # start OOMing or timing out, 3 is the measured fallback and buys 7.1 %.
+      #
       # The suite is parallel-safe by construction: tests key their temp paths by
       # PID / gtest case name, and the handful that share the engine's repo-relative
       # mesh cache are serialized against each other with a ctest RESOURCE_LOCK
-      # (OloEngine/tests/CMakeLists.txt). Capped at 2 (not 4) because ASan
-      # shadow memory inflates each test process's resident footprint; 2-wide stays
-      # comfortably inside the windows-2025 ~16 GB budget.
+      # (OloEngine/tests/CMakeLists.txt). Note what the sample could NOT exercise: a
+      # 1-in-20 stride rarely co-schedules the RESOURCE_LOCK'd cases, so lock
+      # contention at this width is validated by the full run, not by the sweep.
       # TEN EH cases used to be excluded here and are not any more (issue #497).
       # They are the tests that trigger a real C++ throw+catch (malformed-input
       # robustness + MCP error handling), and clang-cl + ASan miscompiled MSVC-style
@@ -649,7 +608,7 @@ jobs:
       # again, the question is which clang the job resolved, not whether the engine
       # regressed.
       run: >
-        ctest --parallel 2 -C Release --output-on-failure --timeout 120
+        ctest --parallel 4 -C Release --output-on-failure --timeout 120
         --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       env:
         # detect_odr_violation=0 must be repeated here — a step-level ASAN_OPTIONS

@@ -146,14 +146,22 @@ before compression:
 | `ffmpeg-Windows-n7.1` | 4 MiB |
 | **measured subtotal** | **1216 MiB** (was 4957 MiB with the three Linux entries in it) |
 | `sccache-windows-2025-release` | **1825 MiB** — measured 2026-09-06 17:00 UTC, the day the fix landed. The row that used to sit here said "not measured, no entry has ever existed to measure" and guessed 0.9–2.0 GiB from `sccache-flaky-281`. The guess held; the entry came in at the top of it. |
-| `sccache-asan-windows-2025` | **not yet measured** — the job's first successful run has not banked one. `SCCACHE_CACHE_SIZE` is provisional; the workflow `du -sm`s `SCCACHE_DIR` so the cap can be set from a real footprint. Plan against the cap, per the 82–91 % rule below. |
-| **steady set** | **3041 MiB** measured, plus the pending ASan-Windows entry — against a ~9.3 GiB wall and `cache-prune.yml`'s 8800 MiB working ceiling. Was 6782 MiB before the three Linux entries came out. |
+| `sccache-asan-windows-2025` | **~660 MiB** — the local `SCCACHE_DIR` measured 656 MiB (`--show-stats`) / 660 MiB (`du -sm`) on run 34061407329, well under its 3 GiB provisional cap, so nothing was evicted and this is the true footprint. Cap now set to 1500M. Much smaller than the sibling `sccache-windows-2025-release` because this job builds only `OloEngine-Tests`, not the editor/runtime/server too. |
+| **steady set** | **~3700 MiB** (1216 + 1825 + ~660) against a ~9.3 GiB wall and `cache-prune.yml`'s 8800 MiB working ceiling — **5.1 GiB of headroom**. Was 6782 MiB before the three Linux entries came out, and that was with the ASan Windows job holding nothing. |
 
 `SCCACHE_CACHE_SIZE` bounds the local directory **before** compression, so it is not the
-entry size — but do not read that as "the entry will be much smaller". Every measured
-sccache entry here lands at **82–91 % of its cap**: 2 G → 1825 MiB, 1500M → 1231–1258 MiB.
-sccache already stores each object compressed, so the tarball has almost nothing left to
-squeeze. Treat the cap as the bill, and size a new one by what it is allowed to cost.
+entry size — but do not read that as "the entry will be much smaller". Every sccache entry
+here that **reached** its cap landed at **82–91 % of it**: 2 G → 1825 MiB, 1500M →
+1231–1258 MiB. sccache already stores each object compressed, so the tarball has almost
+nothing left to squeeze. **Treat the cap as the bill for any cache that fills it.**
+
+The corollary, which the ASan Windows job demonstrates: a cache that does **not** reach its
+cap costs what it actually holds, and the only way to know which case you are in is to
+measure the directory. Its cap was set to 3 G deliberately so the first successful run
+would report an *uncapped* footprint — 656 MiB — instead of being clipped to whatever had
+been reserved. Set the provisional cap high, measure, then set it for real. And measure it
+with `du`, not `--show-stats`: if the sccache server has exited, the client silently starts
+a fresh one and reports its zeros (#1082).
 
 That is why `cache-prune.yml` now **fails** when
 the post-sweep store is over 8800 MiB: everything it deletes is provably superseded or
