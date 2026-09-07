@@ -66,6 +66,13 @@ concurrency:
 
 env:
   BUILD_TYPE: Release
+  # ONE DEFINITION OF WHAT THE SHARDED RUN EXCLUDES (#1083). Read in three places --
+  # the `ctest -N` total in the build job, each shard's `ctest -N` count, and each
+  # shard's actual run -- and the coverage proof compares the first against the sum of
+  # the second. A shard filtering differently from the total would present as an
+  # arithmetic failure with no obvious cause, so the regex is not allowed to exist in
+  # three copies. Why NetworkIntegrationTest is excluded: see the run step.
+  OLO_WINDOWS_CTEST_EXCLUDE: '^NetworkIntegrationTest\.'
   # sccache uses a LOCAL-DISK cache (SCCACHE_DIR), persisted across runs as a
   # SINGLE actions/cache entry (see the "Restore/Save sccache storage" steps below).
   # We deliberately do NOT use sccache's GitHub Actions cache backend
@@ -121,6 +128,14 @@ jobs:
     # makes an image bump a deliberate, reviewable commit that we can pair with the
     # cache-key bump below.
     runs-on: windows-2025
+
+    # The unsharded case count, measured after the build and consumed by
+    # `tests-verify` (#1083). A JOB OUTPUT rather than a file inside the test-tree
+    # artifact, so the coverage proof reads it from the job that measured it and not
+    # from the same artifact the shards were fed -- a number that travels with the
+    # thing it is meant to check is not a check.
+    outputs:
+      ctest-total: ${{ steps.ctest-total.outputs.total }}
 
     # `actions: write` is needed by the sccache save (#1073): when the repo's 10 GB
     # cache store is full every save is refused, and the only way to land this job's
@@ -404,6 +419,231 @@ jobs:
         if ($failed) { exit 1 }
         Write-Host 'All shipped binaries passed the launch smoke test.'
 
+    # ---------------------------------------------------------------- #1083
+    #
+    # THE TEST RUN LEFT THIS JOB. It used to be a `Run tests with CTest` step here
+    # that took 28.1 MINUTES of a 236-minute job (measured, #1084's table). It is now
+    # the `tests` matrix below: this job builds and hands the test tree over, and N
+    # separate runners each execute a stride of it.
+    #
+    # WHY THIS JOB TOO, when the ASan job's test step is three times bigger. #1084's
+    # governing fact: the PR is `max()` of these two Windows jobs and they were within
+    # 12 seconds of each other, so ANY PLAN THAT DOES NOT MOVE BOTH MOVES THE PR BY
+    # ZERO. Sharding only the ASan side would make that job finish earlier and leave
+    # the PR waiting exactly as long on this one.
+    #
+    # WHY SHARDING RATHER THAN BATCHING: see the same note in asan.yml. Batching cases
+    # per process is the larger win and removes the isolation that hides cross-test
+    # state corruption; that is #1074's, not this.
+    #
+    # WHAT IT COSTS. Each shard is a whole runner and pays job startup, a checkout and
+    # an artifact download before it runs a case. This TRADES RUNNER-MINUTES FOR
+    # WALL-CLOCK; the exchange rate is stated on the PR.
+    # ---------------------------------------------------------------------------
+
+    # THE NUMBER THE SHARDS HAVE TO ADD UP TO -- measured here, with the same
+    # --exclude-regex the shards use, so the coverage proof compares like with like.
+    # `ctest -N` only LISTS: discovery already happened at build time
+    # (gtest_discover_tests' POST_BUILD mode writes the entries into the generated
+    # *_tests.cmake), so this launches no test process and costs seconds.
+    - name: Measure the unsharded case count
+      id: ctest-total
+      shell: bash
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N -C "${BUILD_TYPE}" --exclude-regex "${OLO_WINDOWS_CTEST_EXCLUDE}")
+        total=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        # A ctest that lists nothing is the same failure archetype the shards guard
+        # against, one level up: it would leave each shard's "count > 0" check as the
+        # only thing between a broken discovery and a green matrix.
+        if [ -z "${total}" ] || [ "${total}" -le 0 ] 2>/dev/null; then
+          echo "::error::ctest -N reported no tests. Discovery did not produce a test list, so nothing below can be trusted."
+          printf '%s\n' "$listing" | tail -20
+          exit 1
+        fi
+        echo "unsharded ctest entries: ${total}"
+        echo "total=${total}" >> "$GITHUB_OUTPUT"
+
+    # WHAT A SHARD NEEDS, AND WHAT IT DOES NOT.
+    #
+    # Needs: the generated ctest lists, the exe, and the DLLs CMake staged beside it
+    # (FFmpeg's av*/sw*, steam_api64) -- OloEngine links those as static PE imports,
+    # so the suite does not start without them.
+    #
+    # Does NOT need `bin/<config>/`: AppLaunchSmoke's three cases take their target
+    # paths from OLO_TEST_OLO{SERVER,EDITOR,RUNTIME}_EXE, which nothing in the build
+    # defines, so they already GTEST_SKIP on every runner -- the explicit
+    # `Smoke-test app launches` step above is what actually covers that ground, and it
+    # stays in this job where the shipped binaries are. Shipping ~1 GB of editor,
+    # runtime and server to every shard to make three cases skip somewhere else would
+    # be paying the whole cost of this change for nothing.
+    #
+    # Records the workspace path because gtest_discover_tests bakes ABSOLUTE paths
+    # into the generated *_tests.cmake (the exe, and the WORKING_DIRECTORY that makes
+    # repo-relative shaders and assets resolvable). Both runners are `windows-2025`
+    # checking out the same repository, so it matches in practice -- and "in practice"
+    # is exactly the assumption that turns into a silent 100 %-skip later, so the
+    # shard asserts it rather than trusting it.
+    - name: Record the build workspace for the shards
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $wsFile = Join-Path '${{github.workspace}}' 'build/OloEngine/tests/olo-build-workspace.txt'
+        Set-Content -Path $wsFile -Value '${{github.workspace}}' -NoNewline
+        Get-ChildItem (Join-Path '${{github.workspace}}' 'build/OloEngine/tests/${{env.BUILD_TYPE}}') |
+          ForEach-Object { '{0,12:N0}  {1}' -f $_.Length, $_.Name }
+
+    # ONLY WHAT CTEST READS. The PDB is deliberately absent -- OloEngine-Tests.pdb is
+    # the largest single file in the tree (the local Debug build measures ~1.9 GB) and
+    # ctest never opens it. The cost is that a crashing test's stack in a shard log is
+    # unsymbolised where the unsharded step's was symbolised; that is the one real
+    # regression here and it is named on the PR. `*.lib` and `CMakeFiles/` go for the
+    # same reason.
+    #
+    # compression-level 1: this transfer happens once up and once per shard down, so
+    # it sits directly on the wall-clock this issue is about. Level 1 on an
+    # already-packed PE gives up little and is several times faster than the default.
+    #
+    # retention-days 1: scratch, not a deliverable.
+    - name: Upload the test tree
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: windows-test-tree
+        path: |
+          build/OloEngine/tests/*.cmake
+          build/OloEngine/tests/olo-build-workspace.txt
+          build/OloEngine/tests/${{env.BUILD_TYPE}}/*.exe
+          build/OloEngine/tests/${{env.BUILD_TYPE}}/*.dll
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 1
+
+    # Issue #908: bake a CI-portable SPIR-V shader pack and publish it as a
+    # build artifact for anyone who wants it (a packaged game's build step
+    # pulls it in explicitly — see docs/agent-rules/shader-pack-bake.md — a
+    # fresh worktree does NOT fetch it automatically). This runs the test
+    # binary's own `--olo-bake-shader-pack` mode rather than a full editor
+    # launch: no GL context is created anywhere in that path (verified — see
+    # ShaderPackBakeTest.cpp), so it needs nothing this hosted, GPU-less
+    # runner doesn't already have. `--gtest_filter` isolates the one test
+    # this flag drives so the rest of the suite (already run above) doesn't
+    # execute a second time.
+    - name: Bake shader pack (issue #908)
+      shell: pwsh
+      working-directory: ${{github.workspace}}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $testExe = Join-Path '${{github.workspace}}' 'build/OloEngine/tests/${{env.BUILD_TYPE}}/OloEngine-Tests.exe'
+        & $testExe --gtest_filter=ShaderPackBakeTest.* --olo-bake-shader-pack="OloEditor/assets/ShaderPack.osp"
+        if ($LASTEXITCODE -ne 0) { throw "Shader pack bake failed (exit $LASTEXITCODE)" }
+
+    - name: Upload shader pack artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ShaderPack
+        path: ${{github.workspace}}/OloEditor/assets/ShaderPack.osp
+        if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # #1083: the CTest run, spread across runners.
+  #
+  # The stride count lives in TWO places that must agree -- `matrix.shard` and the
+  # `-I` stride -- because GitHub offers no way to derive one from the other in an
+  # expression. That hazard is not defended by a comment: every shard reports the
+  # count it believed it was part of, and `tests-verify` fails if they disagree or if
+  # 1..N is not exactly covered. Edit one without the other and the matrix goes red.
+  #
+  # WHY 3. The unsharded step measured 28.1 min, so the per-shard fixed cost (job
+  # startup + checkout + artifact download, a few minutes) is a much larger share here
+  # than on the ASan side, and a fourth shard would buy little for a whole extra
+  # runner. The right number is re-measurable from the shard durations in any run; it
+  # was NOT tuned by a sweep, because a sweep costs a full CI round each.
+  # ---------------------------------------------------------------------------
+  tests:
+    name: Windows tests ${{ matrix.shard }}/3
+    needs: build
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    env:
+      # ONE stride, read by the `ctest -N` count AND by the run below. Keeping them
+      # in separate literals is how a shard comes to COUNT one partition and RUN
+      # another -- the counts would still add up and a third of the suite would never
+      # execute. The matrix list is the other half of the pair; `tests-verify`
+      # catches a drift between the two.
+      OLO_CTEST_SHARDS: 3
+    strategy:
+      # A red shard must not cancel its siblings -- three shards are three independent
+      # samples of the same suite, and cancelling two of them to react to the first
+      # failure is how a run comes back knowing about one bug instead of three.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+    # Not optional, and not for the build: every test's WORKING_DIRECTORY is
+    # <workspace>/OloEditor, and the suite loads shaders, scenes and models from the
+    # source tree by repo-relative path.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Download the test tree
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: windows-test-tree
+        path: build/OloEngine/tests
+
+    # THE ASSERTION THE BAKED ABSOLUTE PATHS DESERVE. A workspace mismatch would make
+    # every add_test() name an exe that is not there; ctest would fail loudly, but it
+    # would fail thousands of times, and a future runner-image or path change would
+    # land as "the Windows tests are all broken" rather than as this one line.
+    - name: Assert this runner matches the build job's layout
+      shell: bash
+      run: |
+        set -euo pipefail
+        built_at=$(cat build/OloEngine/tests/olo-build-workspace.txt)
+        here="${GITHUB_WORKSPACE}"
+        # Both separators normalised: GITHUB_WORKSPACE reaches bash as a Windows path
+        # here, and the recorded value was written by pwsh.
+        if [ "${built_at//\\//}" != "${here//\\//}" ]; then
+          echo "::error::This tree was built at '${built_at}' but this runner checked out at '${here}'. gtest_discover_tests bakes absolute paths into the generated test list, so the tree cannot be moved. Run the shards on the same runner image and path as the build job, or re-run discovery here."
+          exit 1
+        fi
+        exe="build/OloEngine/tests/${BUILD_TYPE}/OloEngine-Tests.exe"
+        test -f "$exe" || { echo "::error::$exe missing from the artifact"; exit 1; }
+        echo "workspace matches: ${here}"
+
+    # GUARD 1 OF 2: A SHARD THAT MATCHED NOTHING MUST FAIL. `ctest -I` selects by
+    # index, so a stride that does not line up with the list silently produces an
+    # empty run -- which passes in about a second and is indistinguishable in the
+    # check list from a shard that ran 2,300 cases. The count is also written out for
+    # guard 2, the union check in `tests-verify`.
+    - name: Select this shard's cases
+      id: select
+      shell: bash
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      env:
+        OLO_CTEST_SHARD: ${{ matrix.shard }}
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N -C "${BUILD_TYPE}" \
+                    -I "${OLO_CTEST_SHARD},,${OLO_CTEST_SHARDS}" \
+                    --exclude-regex "${OLO_WINDOWS_CTEST_EXCLUDE}")
+        count=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        if [ -z "${count}" ] || [ "${count}" -le 0 ] 2>/dev/null; then
+          echo "::error::shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS} matched ZERO ctest entries."
+          printf '%s\n' "$listing" | tail -20
+          exit 1
+        fi
+        echo "shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS}: ${count} ctest entries"
+        mkdir -p "${GITHUB_WORKSPACE}/shard_counts"
+        {
+          echo "shard=${OLO_CTEST_SHARD}"
+          echo "shards=${OLO_CTEST_SHARDS}"
+          echo "count=${count}"
+        } > "${GITHUB_WORKSPACE}/shard_counts/shard-${OLO_CTEST_SHARD}.txt"
+
     - name: Run tests with CTest
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # Execute tests defined by the CMake configuration.
@@ -414,7 +654,9 @@ jobs:
       # on a multi-config generator (here Ninja Multi-Config) — without it CTest
       # can't locate the per-config test binaries.
       #
-      # --exclude-regex skips only one case:
+      # The exclusion lives in OLO_WINDOWS_CTEST_EXCLUDE at the top of this file, in
+      # ONE copy, read by this step and by the `ctest -N` total the coverage proof
+      # compares against. It skips exactly one case:
       #   NetworkIntegrationTest        — drives a live Steam (GameNetworkingSockets)
       #     client/server socket; excluded on every sanitizer job too.
       #
@@ -432,10 +674,11 @@ jobs:
       # seconds — especially in a repo whose dominant failure archetype is exactly
       # that.
       #
-      # The real lever, if this step is ever worth attacking: it is ~6,900 PROCESS
-      # LAUNCHES, one per test, each paying full engine static-init
-      # (gtest_discover_tests). Cutting the test COUNT by a few percent cannot
-      # move that; batching tests per process would. Out of scope for #1009.
+      # THE REAL LEVER, named in that same note, was that this is ~6,900 PROCESS
+      # LAUNCHES each paying full engine static-init, and that cutting the test COUNT
+      # by a few percent cannot move it. #1083 takes the other half of it: keep every
+      # launch, run them on more runners. `-I <shard>,,3` is that split, and it
+      # changes one-process-per-case semantics not at all.
       #
       # CancellationTokenTest.MultipleTasks was previously also excluded (issue
       # #359): it intermittently DEADLOCKED under `--parallel` oversubscription —
@@ -461,11 +704,10 @@ jobs:
       # single genuine fault. See the "Parallel-safety contract" in
       # docs/agent-rules/testing-architecture.md §6.3.
       #
-      # --parallel 4 runs up to 4 test processes at once (windows-2025 has 4
-      # vCPUs). Every test is its own ctest entry (gtest_discover_tests → one
-      # OloEngine-Tests.exe per test), so serial execution pays full engine
-      # static-init ~3,200x back-to-back; a 4-wide run is a large per-PR
-      # wall-clock win.
+      # --parallel 6 runs up to 6 test processes at once on a 4-vCPU windows-2025
+      # runner. Every test is its own ctest entry (gtest_discover_tests → one
+      # OloEngine-Tests.exe per test), so serial execution would pay full engine
+      # static-init thousands of times back-to-back.
       #
       # The suite is parallel-safe, and the property is ENFORCED rather than
       # asserted (issue #789 — this comment previously claimed "tests key their
@@ -477,9 +719,13 @@ jobs:
       # direct temp_directory_path() call in the test tree. The one resource that
       # is not test-controlled and cannot be process-keyed — the engine's
       # repo-relative mesh cache — is serialized with a ctest RESOURCE_LOCK
-      # (OloEngine/tests/CMakeLists.txt). Functional/Jolt tests oversubscribe cores
-      # under -j but run stable (verified to 16x locally). See the "Parallel-safety
-      # contract" in docs/agent-rules/testing-architecture.md and
+      # (OloEngine/tests/CMakeLists.txt). SHARDING DOES NOT WEAKEN THAT LOCK and in
+      # one respect strengthens it: each shard is a separate runner with its own
+      # checkout, so two shards cannot contend over one mesh cache at all, and within
+      # a shard ctest serializes the locked cases exactly as before.
+      # Functional/Jolt tests oversubscribe cores under -j but run stable (verified
+      # to 16x locally). See the "Parallel-safety contract" in
+      # docs/agent-rules/testing-architecture.md and
       # docs/agent-rules/shared-temp-dir-test-isolation.md.
       #
       # --output-on-failure replaces -V: full verbosity interleaves illegibly
@@ -521,37 +767,71 @@ jobs:
       # The warm-up the palindrome caught is why the order matters: width 4 ran
       # 81 s early and 76 s late, a 6.2 % drift. An ascending 4,6,8 sweep would
       # have handed that drift to width 8 and overstated it.
-      run: ctest --parallel 6 --output-on-failure --timeout 120 -C "${BUILD_TYPE}" --exclude-regex '^NetworkIntegrationTest\.'
+      #
+      # THE WIDTH AND THE SHARD COUNT ARE INDEPENDENT KNOBS and measure different
+      # things: the width sweep above says this workload stops scaling on ONE 4-vCPU
+      # runner, which is precisely why the remaining lever is more runners.
+      run: >
+        ctest --parallel 6 --output-on-failure --timeout 120 -C "${BUILD_TYPE}"
+        -I ${{ matrix.shard }},,${OLO_CTEST_SHARDS}
+        --exclude-regex "${OLO_WINDOWS_CTEST_EXCLUDE}"
 
+    # `if: always()` on both uploads: a shard that FAILED is the one whose results
+    # matter most, and its count is what proves the failure was not an empty run.
     - name: Upload test results
+      if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: googletest_results_xml
+        name: googletest_results_xml_shard_${{ matrix.shard }}
         path: ${{runner.workspace}}/OloEngineBase/test_results/*.xml
         if-no-files-found: 'warn'
 
-    # Issue #908: bake a CI-portable SPIR-V shader pack and publish it as a
-    # build artifact for anyone who wants it (a packaged game's build step
-    # pulls it in explicitly — see docs/agent-rules/shader-pack-bake.md — a
-    # fresh worktree does NOT fetch it automatically). This runs the test
-    # binary's own `--olo-bake-shader-pack` mode rather than a full editor
-    # launch: no GL context is created anywhere in that path (verified — see
-    # ShaderPackBakeTest.cpp), so it needs nothing this hosted, GPU-less
-    # runner doesn't already have. `--gtest_filter` isolates the one test
-    # this flag drives so the rest of the suite (already run above) doesn't
-    # execute a second time.
-    - name: Bake shader pack (issue #908)
-      shell: pwsh
-      working-directory: ${{github.workspace}}
-      run: |
-        $ErrorActionPreference = 'Stop'
-        $testExe = Join-Path '${{github.workspace}}' 'build/OloEngine/tests/${{env.BUILD_TYPE}}/OloEngine-Tests.exe'
-        & $testExe --gtest_filter=ShaderPackBakeTest.* --olo-bake-shader-pack="OloEditor/assets/ShaderPack.osp"
-        if ($LASTEXITCODE -ne 0) { throw "Shader pack bake failed (exit $LASTEXITCODE)" }
-
-    - name: Upload shader pack artifact
+    - name: Upload this shard's case count
+      if: always() && steps.select.outcome == 'success'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: ShaderPack
-        path: ${{github.workspace}}/OloEditor/assets/ShaderPack.osp
+        name: windows-shard-count-${{ matrix.shard }}
+        path: ${{github.workspace}}/shard_counts/shard-${{ matrix.shard }}.txt
         if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # #1083 GUARD 2 OF 2.
+  #
+  # `ctest -I <shard>,,3` partitions the list by construction -- on paper. This job
+  # checks that the run which actually happened WAS that partition: every shard
+  # reported, all agreeing on the stride, none empty, and the counts summing to the
+  # unsharded `ctest -N` total the build job measured. Without it, sharding introduces
+  # a way for the suite to shrink silently, which is the failure this repository has
+  # the most history with.
+  #
+  # `if: always()` so a RED shard is still coverage-checked. It cannot launder a
+  # failure: the shard job itself stays red.
+  # ---------------------------------------------------------------------------
+  tests-verify:
+    name: Windows test shard coverage
+    needs: [build, tests]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Download the shard case counts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: windows-shard-count-*
+        path: shard_counts
+      # A shard that died before writing its count uploads nothing, and this step
+      # would then fail on "no artifacts found" -- a worse message than the script's.
+      # Let it through and let the union check name the missing shard.
+      continue-on-error: true
+
+    - name: Prove the shards covered the whole suite
+      run: >
+        python3 scripts/verify_test_shards.py
+        --dir shard_counts
+        --label "Windows / build"
+        --expected-total ${{ needs.build.outputs.ctest-total }}

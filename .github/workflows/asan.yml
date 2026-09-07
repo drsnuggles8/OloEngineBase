@@ -119,6 +119,14 @@ env:
   # slow link, and every job here links sanitizer-instrumented binaries.
   SCCACHE_IDLE_TIMEOUT: "0"
 
+  # ONE DEFINITION OF WHAT THE WINDOWS ASan RUN EXCLUDES (#1083). It is read in three
+  # places -- the `ctest -N` total in the build job, each shard's `ctest -N` count,
+  # and each shard's actual run -- and the coverage proof compares the first against
+  # the sum of the second. A shard filtering differently from the total would present
+  # as an arithmetic failure with no obvious cause, so the regex cannot be allowed to
+  # exist in three copies. The reasoning for each exclusion is on the run step.
+  OLO_ASAN_WINDOWS_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+
 permissions:
   contents: read
   # dorny/paths-filter@v4 falls back to the GitHub REST API for PR-base
@@ -167,16 +175,33 @@ jobs:
             - '.github/sanitizer-suppressions/**'
 
   asan-windows:
-    name: ASan (Windows/clang-cl)
+    # " build" since #1083: this job no longer runs the suite, it builds the tree the
+    # `ASan (Windows) tests N/4` jobs execute. The name says so, because a check named
+    # for a sanitizer run that only compiles is exactly the kind of green nobody reads
+    # twice.
+    name: ASan (Windows/clang-cl) build
     needs: detect-changes
     if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
     runs-on: windows-2025
+
+    # The unsharded case count, measured after the build and consumed by
+    # `asan-windows-tests-verify` (#1083). It is a JOB OUTPUT rather than a file in
+    # the test-tree artifact so that the coverage proof reads it from the job that
+    # measured it, not from the same artifact the shards were fed -- a number that
+    # travels with the thing it is meant to check is not a check.
+    outputs:
+      ctest-total: ${{ steps.ctest-total.outputs.total }}
+
     permissions:
-      # Job-level permissions replace the workflow-level block entirely,
-      # so re-declare contents: read alongside checks: write. Without it
-      # actions/checkout@v6 would fail on fork PRs.
+      # Job-level permissions replace the workflow-level block entirely, so
+      # contents: read is re-declared here. Without it actions/checkout would fail on
+      # fork PRs.
+      #
+      # NO `checks: write` any more (#1083). It was here for dorny/test-reporter, and
+      # the reporter moved to `asan-windows-tests-verify` with the test run. A
+      # permission kept past the step that needed it is a permission nobody will ever
+      # remove.
       contents: read
-      checks: write
       # Needed by the sccache save (#1082, same reason as Windows.yml and the Linux
       # sanitizer jobs): when the repo's Actions cache store is full every save is
       # refused, and the only way to land this job's snapshot is to delete the entry
@@ -424,6 +449,12 @@ jobs:
         }
         Write-Host "clang-cl ASan runtime dir: $rtDir"
         echo "$rtDir" >> $env:GITHUB_PATH
+        # Also exported as a variable because the test SHARDS (#1083) run in
+        # separate jobs that never install LLVM: the packaging step below copies
+        # this DLL next to the instrumented exe so a shard needs nothing but the
+        # artifact. GITHUB_PATH would not survive the job boundary; a DLL beside
+        # the exe does, and Windows resolves it from there first.
+        echo "OLO_ASAN_RUNTIME_DIR=$rtDir" >> $env:GITHUB_ENV
 
     # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
     # is the whole point: the combined actions/cache action saves in a POST-JOB
@@ -511,9 +542,219 @@ jobs:
         key: sccache-asan-windows-2025-${{ github.run_id }}-${{ github.run_attempt }}
         token: ${{ secrets.GITHUB_TOKEN }}
 
+    # ---------------------------------------------------------------- #1083
+    #
+    # THE TEST RUN LEFT THIS JOB. It used to be a `Run tests under ASan` step here
+    # that took 89.0 MINUTES of a 236-minute job (measured, #1084's table). It is now
+    # the `asan-windows-tests` matrix below: this job builds and hands the
+    # instrumented tree over, and N separate runners each execute a stride of it.
+    #
+    # WHY SHARDING RATHER THAN BATCHING. gtest_discover_tests registers every gtest
+    # case as its own ctest entry, so the suite is ~7,600 PROCESS LAUNCHES, each
+    # paying full engine static-init. Batching many cases into one process is the
+    # bigger win and it REMOVES the isolation that currently hides cross-test state
+    # corruption -- that is #1074's territory and must not be done from here.
+    # Sharding splits the same one-process-per-case run across more runners and
+    # changes the semantics not at all.
+    #
+    # WHAT IT COSTS. Each shard is a whole runner: it pays job startup, a checkout
+    # and an artifact download before it runs a single case. This TRADES
+    # RUNNER-MINUTES FOR WALL-CLOCK and the exchange rate is stated on the PR.
+    # ---------------------------------------------------------------------------
+
+    # THE NUMBER THE SHARDS HAVE TO ADD UP TO. Measured here, in the job that owns
+    # the build, with the same --exclude-regex every shard uses -- so the coverage
+    # proof in `asan-windows-tests-verify` compares like with like. `ctest -N` only
+    # LISTS: discovery already happened at build time (gtest_discover_tests'
+    # POST_BUILD mode writes the entries into the generated *_tests.cmake), so this
+    # launches no test process and costs seconds.
+    - name: Measure the unsharded case count
+      id: ctest-total
+      shell: bash
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N -C Release --exclude-regex "${OLO_ASAN_WINDOWS_CTEST_EXCLUDE}")
+        total=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        # A ctest that lists nothing is the same failure archetype the shards guard
+        # against, one level up: it would make each shard's "count > 0" check the only
+        # thing between a broken discovery and a green matrix.
+        if [ -z "${total}" ] || [ "${total}" -le 0 ] 2>/dev/null; then
+          echo "::error::ctest -N reported no tests. Discovery did not produce a test list, so nothing below can be trusted."
+          printf '%s\n' "$listing" | tail -20
+          exit 1
+        fi
+        echo "unsharded ctest entries: ${total}"
+        echo "total=${total}" >> "$GITHUB_OUTPUT"
+
+    # THE SHARDS INSTALL NO TOOLCHAIN, so everything they need to RUN the suite has
+    # to be inside the artifact. Two things are not there by default:
+    #
+    #   * clang_rt.asan_dynamic-x86_64.dll. clang-cl links the DYNAMIC ASan runtime,
+    #     so the instrumented exe does not start without it. This job has it on PATH
+    #     from the LLVM install; a shard job does not, and re-installing a 2 GB LLVM
+    #     four times to obtain one DLL would eat the saving. Windows resolves a DLL
+    #     from the executable's own directory first, so copying it beside the exe is
+    #     both sufficient and version-correct -- it is the runtime of the very
+    #     clang-cl that instrumented these objects.
+    #   * the workspace path this tree was built at. gtest_discover_tests bakes
+    #     ABSOLUTE paths into the generated *_tests.cmake (the exe, and the
+    #     WORKING_DIRECTORY that makes assets/shaders resolvable). Both runners are
+    #     `windows-2025` checking out the same repository, so the path is identical
+    #     in practice -- but "in practice" is exactly the kind of assumption that
+    #     turns into a silent 100 %-skip later, so the shard asserts it.
+    - name: Package the instrumented test tree
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $outDir = Join-Path '${{github.workspace}}' 'build/OloEngine/tests/Release'
+        $dll = Join-Path "$env:OLO_ASAN_RUNTIME_DIR" 'clang_rt.asan_dynamic-x86_64.dll'
+        if (-not (Test-Path $dll)) { Write-Error "ASan runtime DLL not at $dll"; exit 1 }
+        Copy-Item $dll -Destination $outDir -Force
+        Write-Host "copied $(Split-Path -Leaf $dll) next to the test exe"
+        # Recorded, not asserted here -- the shard is where a mismatch matters.
+        $wsFile = Join-Path '${{github.workspace}}' 'build/OloEngine/tests/olo-build-workspace.txt'
+        Set-Content -Path $wsFile -Value '${{github.workspace}}' -NoNewline
+        Get-ChildItem $outDir | ForEach-Object { '{0,12:N0}  {1}' -f $_.Length, $_.Name }
+
+    # ONLY WHAT CTEST READS. The PDB is deliberately absent: the ASan Release tree's
+    # OloEngine-Tests.pdb is the largest single file in the build (the local Debug
+    # tree measures ~1.9 GB) and ctest never opens it. The ASan runtime symbolises
+    # from it when present, so a failing shard's stack is less readable than the
+    # unsharded step's was -- the one real regression in this change, named on the
+    # PR. `*.lib` and `CMakeFiles/` are dropped for the same reason.
+    #
+    # compression-level 1: the exe is a few hundred MB and this transfer happens once
+    # up and once per shard down, so it sits directly on the wall-clock this issue is
+    # about. Level 1 on an already-packed PE gives up little and is several times
+    # faster than the default 6.
+    #
+    # retention-days 1: this is scratch, not a deliverable. A multi-hundred-MB
+    # artifact per run held for 90 days is a storage bill for nothing.
+    - name: Upload the instrumented test tree
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: asan-windows-test-tree
+        path: |
+          build/OloEngine/tests/*.cmake
+          build/OloEngine/tests/olo-build-workspace.txt
+          build/OloEngine/tests/Release/*.exe
+          build/OloEngine/tests/Release/*.dll
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 1
+
+  # ---------------------------------------------------------------------------
+  # #1083: the ASan test run, spread across runners.
+  #
+  # The stride count lives in TWO places that must agree -- `matrix.shard` below and
+  # OLO_CTEST_SHARDS -- because GitHub offers no way to derive one from the other in
+  # an expression. That is a real hazard, so it is not defended by a comment: every
+  # shard reports the count it believed it was part of, and
+  # `asan-windows-tests-verify` fails if they disagree or if 1..N is not exactly
+  # covered. Edit one without the other and the matrix goes red, not green.
+  #
+  # WHY 4. The unsharded step measured 89.0 min. Four shards keeps the per-shard
+  # fixed cost (job startup + checkout + artifact download, a few minutes) small
+  # against the per-shard test time. The right number is re-measurable from the shard
+  # durations in any run; it was NOT tuned by a sweep, because a sweep here costs a
+  # full CI round each.
+  # ---------------------------------------------------------------------------
+  asan-windows-tests:
+    name: ASan (Windows) tests ${{ matrix.shard }}/4
+    needs: asan-windows
+    runs-on: windows-2025
+    strategy:
+      # A red shard must not cancel its siblings. Four shards are four independent
+      # samples of the same suite, and cancelling three of them to react to the
+      # first failure is how a run comes back knowing about one bug instead of four
+      # -- the same reasoning as docs/process/task-loop.md's "do not act on the
+      # first red".
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      # ONE stride, read by the `ctest -N` count AND by the run below. Keeping them in
+      # separate literals is how a shard comes to COUNT one partition and RUN another
+      # -- the counts would still add up and a quarter of the suite would never
+      # execute. The matrix list is the other half of the pair; `asan-windows-tests-verify`
+      # catches a drift between the two.
+      OLO_CTEST_SHARDS: 4
+      # detect_odr_violation=0 for the same reason as the build job: vendored
+      # protobuf trips a known ASan false positive on its narrow/wide "." literals,
+      # which aborts the instrumented exe at startup. Repeated on the run step below,
+      # because a step-level ASAN_OPTIONS REPLACES this rather than merging.
+      ASAN_OPTIONS: detect_odr_violation=0
+    steps:
+    # The checkout is not optional and it is not for the build: every test's
+    # WORKING_DIRECTORY is <workspace>/OloEditor, and the suite loads shaders,
+    # scenes and models from the source tree by repo-relative path.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Download the instrumented test tree
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: asan-windows-test-tree
+        path: build/OloEngine/tests
+
+    # THE ASSERTION THE BAKED ABSOLUTE PATHS DESERVE. If the build job's workspace
+    # differed from this one's, every add_test() would name an exe that is not there
+    # and ctest would fail loudly -- but it would fail thousands of times with a
+    # confusing message, and a future runner-image or path change would land as "the
+    # ASan tests are all broken" rather than as this one line.
+    - name: Assert this runner matches the build job's layout
+      shell: bash
+      run: |
+        set -euo pipefail
+        built_at=$(cat build/OloEngine/tests/olo-build-workspace.txt)
+        here="${GITHUB_WORKSPACE}"
+        # Compare with both separators normalised: GITHUB_WORKSPACE reaches bash as a
+        # Windows path here, and the recorded one was written by pwsh.
+        if [ "${built_at//\\//}" != "${here//\\//}" ]; then
+          echo "::error::This tree was built at '${built_at}' but this runner checked out at '${here}'. gtest_discover_tests bakes absolute paths into the generated test list, so the tree cannot be moved. Run the shards on the same runner image and path as the build job, or re-run discovery here."
+          exit 1
+        fi
+        exe=build/OloEngine/tests/Release/OloEngine-Tests.exe
+        test -f "$exe" || { echo "::error::$exe missing from the artifact"; exit 1; }
+        test -f build/OloEngine/tests/Release/clang_rt.asan_dynamic-x86_64.dll \
+          || { echo "::error::ASan runtime DLL missing from the artifact; the instrumented exe will not start"; exit 1; }
+        echo "workspace matches: ${here}"
+
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
       shell: pwsh
+
+    # GUARD 1 OF 2: A SHARD THAT MATCHED NOTHING MUST FAIL. `ctest -I` selects by
+    # index, so a stride that does not line up with the list silently produces an
+    # empty run -- which passes in about a second and is indistinguishable in the
+    # check list from a shard that ran 1,900 cases. The count is also written out
+    # for guard 2, the union check in `asan-windows-tests-verify`.
+    - name: Select this shard's cases
+      id: select
+      shell: bash
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N -C Release \
+                    -I "${OLO_CTEST_SHARD},,${OLO_CTEST_SHARDS}" \
+                    --exclude-regex "${OLO_ASAN_WINDOWS_CTEST_EXCLUDE}")
+        count=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        if [ -z "${count}" ] || [ "${count}" -le 0 ] 2>/dev/null; then
+          echo "::error::shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS} matched ZERO ctest entries."
+          printf '%s\n' "$listing" | tail -20
+          exit 1
+        fi
+        echo "shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS}: ${count} ctest entries"
+        mkdir -p "${GITHUB_WORKSPACE}/shard_counts"
+        {
+          echo "shard=${OLO_CTEST_SHARD}"
+          echo "shards=${OLO_CTEST_SHARDS}"
+          echo "count=${count}"
+        } > "${GITHUB_WORKSPACE}/shard_counts/shard-${OLO_CTEST_SHARD}.txt"
+      env:
+        OLO_CTEST_SHARD: ${{ matrix.shard }}
 
     - name: Run tests under ASan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
@@ -528,14 +769,14 @@ jobs:
       # FIXED UPSTREAM: ValveSoftware/GameNetworkingSockets#418, by PR #420 (merged
       # to master 2026-08-24). The overlay port now pins a post-1.6.0 master
       # snapshot carrying it (cmake/overlay-ports/gamenetworkingsockets/portfile.cmake
-      # — v1.6.0 is still the newest tag and predates the fix), and both the
+      # -- v1.6.0 is still the newest tag and predates the fix), and both the
       # NetworkManager::Init gate and ServerAuthoritativeLoopTest's GTEST_SKIP are
       # gone, so the live init runs here and ServerAuthoritativeLoopTest's 17 cases
       # execute instead of skipping.
       #
       # BE PRECISE ABOUT WHAT THAT COVERS. GNS is a vcpkg port built with cl.exe and
-      # no sanitizer flags -- see the triplet note on the vcpkg step above, "vcpkg
-      # ports are NOT sanitizer-instrumented", which is deliberate. So ASan
+      # no sanitizer flags -- see the triplet note on the vcpkg step in the build job,
+      # "vcpkg ports are NOT sanitizer-instrumented", which is deliberate. So ASan
       # instruments the engine and the test process, NOT GNS internals: allocations
       # and interceptors crossing the boundary are covered, stack and global redzones
       # inside GNS are not. What this change buys is sanitizer coverage of OloEngine's
@@ -547,16 +788,20 @@ jobs:
       # gate back.
       #
       # The Task* and Shader* suites were excluded here on a since-disproven "the
-      # task system starts the Steam service thread" theory — they never touched
+      # task system starts the Steam service thread" theory -- they never touched
       # GNS (the ICF-folded stacks just looked like it) and all pass under MSVC
       # ASan, so they are no longer excluded. See issue #317.
       #
-      # Remaining exclusions match the Linux ASan job exactly:
-      #   NetworkIntegrationTest — needs real client/server socket plumbing that CI
+      # Remaining exclusions live in OLO_ASAN_WINDOWS_CTEST_EXCLUDE at the top of this
+      # file -- ONE definition, read by this step and by the `ctest -N` total the
+      # coverage proof compares against, because a shard filtering differently from
+      # the total is a coverage hole that presents as an arithmetic bug. They match
+      # the Linux ASan job exactly:
+      #   NetworkIntegrationTest -- needs real client/server socket plumbing that CI
       #     environments do not provide; excluded on EVERY job in this repo, the
       #     non-sanitizer ones included (Windows.yml, gpu-conformance-amd.yml). Not
       #     related to the removed ASan gate, and not something the GNS pin changes.
-      #   WorkerRestartTest — a tight 100-iteration worker-pool teardown/recreate
+      #   WorkerRestartTest -- a tight 100-iteration worker-pool teardown/recreate
       #     stress test that exceeds the 120 s timeout under sanitizer
       #     instrumentation; excluded on every sanitizer job.
       #
@@ -576,22 +821,27 @@ jobs:
       #
       # Doubling the width buys ~15 %, not the ~2x "startup-bound" predicted. So this
       # is much closer to CPU/memory-bandwidth bound than to launch-latency bound, and
-      # anyone tempted to go wider again should re-measure rather than reason.
+      # anyone tempted to go wider again should re-measure rather than reason. THAT
+      # MEASUREMENT IS ALSO WHY SHARDING IS THE REMAINING LEVER: a step that is
+      # CPU-bound on a 4-vCPU runner does not get much faster by asking that runner
+      # for more, it gets faster by adding runners.
       # 100 % passed at every width -- 380 of 380, six passes, zero flakes -- so the
       # raise costs no stability at this width.
       #
       # THE OLD CAP WAS AN ASSUMPTION. It read "capped at 2 (not 4) because ASan shadow
       # memory inflates each test process's resident footprint; 2-wide stays comfortably
       # inside the windows-2025 ~16 GB budget" -- plausible, and never measured. 4-wide
-      # ran 380 instrumented cases for 216 s here without incident. If a future run does
+      # ran 380 instrumented cases for 216 s without incident. If a future run does
       # start OOMing or timing out, 3 is the measured fallback and buys 7.1 %.
       #
       # The suite is parallel-safe by construction: tests key their temp paths by
       # PID / gtest case name, and the handful that share the engine's repo-relative
       # mesh cache are serialized against each other with a ctest RESOURCE_LOCK
-      # (OloEngine/tests/CMakeLists.txt). Note what the sample could NOT exercise: a
-      # 1-in-20 stride rarely co-schedules the RESOURCE_LOCK'd cases, so lock
-      # contention at this width is validated by the full run, not by the sweep.
+      # (OloEngine/tests/CMakeLists.txt). SHARDING DOES NOT WEAKEN THAT LOCK and in
+      # one respect strengthens it: each shard is a separate runner with its own
+      # checkout, so two shards cannot contend over one mesh cache at all, and within
+      # a shard ctest serializes the locked cases exactly as before.
+      #
       # TEN EH cases used to be excluded here and are not any more (issue #497).
       # They are the tests that trigger a real C++ throw+catch (malformed-input
       # robustness + MCP error handling), and clang-cl + ASan miscompiled MSVC-style
@@ -603,18 +853,90 @@ jobs:
       # -asan-globals=0, -fno-strict-aliasing, /Od, detect_stack_use_after_return=0,
       # driver-vs-lld-link), and the old MSVC-cl.exe ASan job passed all of them.
       #
-      # FIXED by the LLVM 23.1.0 pin added above -- see that step for the measured
+      # FIXED by the LLVM 23.1.0 pin in the build job -- see that step for the measured
       # before/after on #497's own three-line repro. If these cases start failing
-      # again, the question is which clang the job resolved, not whether the engine
-      # regressed.
+      # again, the question is which clang the build job resolved, not whether the
+      # engine regressed.
       run: >
         ctest --parallel 4 -C Release --output-on-failure --timeout 120
-        --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+        -I ${{ matrix.shard }},,${OLO_CTEST_SHARDS}
+        --exclude-regex "${OLO_ASAN_WINDOWS_CTEST_EXCLUDE}"
+      shell: bash
       env:
-        # detect_odr_violation=0 must be repeated here — a step-level ASAN_OPTIONS
+        # detect_odr_violation=0 must be repeated here -- a step-level ASAN_OPTIONS
         # replaces the job-level one rather than merging (see the job `env` above).
         ASAN_OPTIONS: halt_on_error=1:detect_odr_violation=0
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
+
+    # `if: always()` on both uploads: a shard that FAILED is the one whose XML the
+    # reporter most needs, and its count is what proves the failure was not simply an
+    # empty run.
+    - name: Upload this shard's test results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: asan-windows-test-results-shard-${{ matrix.shard }}
+        path: ${{github.workspace}}/test_results/*.xml
+        if-no-files-found: 'warn'
+
+    - name: Upload this shard's case count
+      if: always() && steps.select.outcome == 'success'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: asan-windows-shard-count-${{ matrix.shard }}
+        path: ${{github.workspace}}/shard_counts/shard-${{ matrix.shard }}.txt
+        if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # #1083 GUARD 2 OF 2, and the report.
+  #
+  # `ctest -I <shard>,,<N>` partitions the list by construction -- on paper. What
+  # this job checks is that the run that actually happened WAS that partition: every
+  # shard reported, all agreeing on N, none empty, and the counts summing to the
+  # unsharded `ctest -N` total the build job measured. Without it, sharding
+  # introduces a way for the suite to shrink silently, which is the failure this
+  # repository has the most history with.
+  #
+  # `if: always()` so a RED shard still gets reported and still gets its coverage
+  # checked. It cannot launder a failure: the shard job itself stays red.
+  # ---------------------------------------------------------------------------
+  asan-windows-tests-verify:
+    name: ASan (Windows) shard coverage
+    needs: [asan-windows, asan-windows-tests]
+    if: always() && needs.asan-windows.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Download the shard case counts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: asan-windows-shard-count-*
+        path: shard_counts
+      # A shard that died before writing its count uploads nothing, and this step
+      # would then fail on "no artifacts found" -- a worse message than the script's.
+      # Let it through and let the union check name the missing shard.
+      continue-on-error: true
+
+    - name: Prove the shards covered the whole suite
+      run: >
+        python3 scripts/verify_test_shards.py
+        --dir shard_counts
+        --label "ASan (Windows)"
+        --expected-total ${{ needs.asan-windows.outputs.ctest-total }}
+
+    - name: Download the shard test results
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: asan-windows-test-results-shard-*
+        path: test_results
+        merge-multiple: true
+      continue-on-error: true
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded
