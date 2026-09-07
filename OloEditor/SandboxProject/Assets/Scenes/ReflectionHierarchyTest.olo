@@ -26,9 +26,9 @@ Scene: ReflectionHierarchyTest.olo
 # out completely and renders identically with it on or off.
 #
 # HOW TO USE IT (the tier is Deferred + hardware-ray-tracing only):
-#   1. Renderer Settings -> Active Path -> Deferred
-#   2. Post Processing -> Screen-Space Reflections -> Enable
-#   3. ... -> Ray-query tier (hardware RT) -> Enable
+#   1. Renderer Settings -> Active Path -> Deferred  (the ONLY manual step: the
+#      render path lives in editor settings, not in the scene file)
+#   SSR and the ray-query tier are already enabled in PostProcessSettings below.
 #   Then "Tier Debug View" colours each pixel by which tier answered it:
 #   magenta = planar, green = SSR, orange = ray query, blue = probe/IBL.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -47,6 +47,14 @@ PostProcessSettings:
   SSREdgeFade: 0.1
   SSGIEnabled: false
   ContactShadowEnabled: false
+  # The ray-query tier, on by default here — this scene exists to demonstrate it.
+  # It still self-disables off the deferred path or without a ray-tracing device,
+  # and says so in the log, so shipping it enabled cannot break a non-RT machine.
+  RTReflectionEnabled: true
+  RTReflectionIntensity: 1
+  RTReflectionRoughnessGateStart: 0.05
+  RTReflectionRoughnessGateEnd: 0.3
+  RTReflectionTraceSunShadowRay: true
 Entities:
   # -- Camera: low and close to the floor, so the mirror fills much of the frame
   #    and the grazing angles give a strong Fresnel reflection. --

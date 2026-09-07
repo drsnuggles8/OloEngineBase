@@ -6540,6 +6540,18 @@ namespace OloEngine
             out << YAML::Key << "SSRTemporalFeedback" << YAML::Value << pp.SSRTemporalFeedback;
             out << YAML::Key << "SSRPreBlurRadius" << YAML::Value << pp.SSRPreBlurRadius;
             out << YAML::Key << "SSRPostBlurRadius" << YAML::Value << pp.SSRPostBlurRadius;
+            // The ray-query reflection tier (#1057). Nested in its own struct
+            // because the pass takes it whole, so the keys are spelled out
+            // rather than following the flat SSR* naming above.
+            out << YAML::Key << "RTReflectionEnabled" << YAML::Value << pp.RayTracedReflection.Enabled;
+            out << YAML::Key << "RTReflectionIntensity" << YAML::Value << pp.RayTracedReflection.Intensity;
+            out << YAML::Key << "RTReflectionMaxRayDistance" << YAML::Value << pp.RayTracedReflection.MaxRayDistance;
+            out << YAML::Key << "RTReflectionNormalBias" << YAML::Value << pp.RayTracedReflection.RayOriginNormalBias;
+            out << YAML::Key << "RTReflectionRoughnessGateStart" << YAML::Value << pp.RayTracedReflection.RoughnessGateStart;
+            out << YAML::Key << "RTReflectionRoughnessGateEnd" << YAML::Value << pp.RayTracedReflection.RoughnessGateEnd;
+            out << YAML::Key << "RTReflectionTraceSunShadowRay" << YAML::Value << pp.RayTracedReflection.TraceSunShadowRay;
+            out << YAML::Key << "RTReflectionSkyAmbientLod" << YAML::Value << pp.RayTracedReflection.SkyAmbientLod;
+            out << YAML::Key << "RTReflectionTierDebugView" << YAML::Value << pp.RayTracedReflection.TierDebugView;
             out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
             out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
             out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
@@ -6763,6 +6775,18 @@ namespace OloEngine
             TrySet(pp.SSRTemporalFeedback, ppNode["SSRTemporalFeedback"]);
             TrySet(pp.SSRPreBlurRadius, ppNode["SSRPreBlurRadius"]);
             TrySet(pp.SSRPostBlurRadius, ppNode["SSRPostBlurRadius"]);
+            // #1057. TrySet leaves the constructor default in place when the
+            // key is absent, so a scene saved before this tier existed loads
+            // with the tier off rather than failing.
+            TrySet(pp.RayTracedReflection.Enabled, ppNode["RTReflectionEnabled"]);
+            TrySet(pp.RayTracedReflection.Intensity, ppNode["RTReflectionIntensity"]);
+            TrySet(pp.RayTracedReflection.MaxRayDistance, ppNode["RTReflectionMaxRayDistance"]);
+            TrySet(pp.RayTracedReflection.RayOriginNormalBias, ppNode["RTReflectionNormalBias"]);
+            TrySet(pp.RayTracedReflection.RoughnessGateStart, ppNode["RTReflectionRoughnessGateStart"]);
+            TrySet(pp.RayTracedReflection.RoughnessGateEnd, ppNode["RTReflectionRoughnessGateEnd"]);
+            TrySet(pp.RayTracedReflection.TraceSunShadowRay, ppNode["RTReflectionTraceSunShadowRay"]);
+            TrySet(pp.RayTracedReflection.SkyAmbientLod, ppNode["RTReflectionSkyAmbientLod"]);
+            TrySet(pp.RayTracedReflection.TierDebugView, ppNode["RTReflectionTierDebugView"]);
             TrySet(pp.SSGIEnabled, ppNode["SSGIEnabled"]);
             TrySet(pp.SSGIIntensity, ppNode["SSGIIntensity"]);
             TrySet(pp.SSGIMaxDistance, ppNode["SSGIMaxDistance"]);
@@ -7161,6 +7185,18 @@ namespace OloEngine
             out << YAML::Key << "SSRTemporalFeedback" << YAML::Value << pp.SSRTemporalFeedback;
             out << YAML::Key << "SSRPreBlurRadius" << YAML::Value << pp.SSRPreBlurRadius;
             out << YAML::Key << "SSRPostBlurRadius" << YAML::Value << pp.SSRPostBlurRadius;
+            // The ray-query reflection tier (#1057). Nested in its own struct
+            // because the pass takes it whole, so the keys are spelled out
+            // rather than following the flat SSR* naming above.
+            out << YAML::Key << "RTReflectionEnabled" << YAML::Value << pp.RayTracedReflection.Enabled;
+            out << YAML::Key << "RTReflectionIntensity" << YAML::Value << pp.RayTracedReflection.Intensity;
+            out << YAML::Key << "RTReflectionMaxRayDistance" << YAML::Value << pp.RayTracedReflection.MaxRayDistance;
+            out << YAML::Key << "RTReflectionNormalBias" << YAML::Value << pp.RayTracedReflection.RayOriginNormalBias;
+            out << YAML::Key << "RTReflectionRoughnessGateStart" << YAML::Value << pp.RayTracedReflection.RoughnessGateStart;
+            out << YAML::Key << "RTReflectionRoughnessGateEnd" << YAML::Value << pp.RayTracedReflection.RoughnessGateEnd;
+            out << YAML::Key << "RTReflectionTraceSunShadowRay" << YAML::Value << pp.RayTracedReflection.TraceSunShadowRay;
+            out << YAML::Key << "RTReflectionSkyAmbientLod" << YAML::Value << pp.RayTracedReflection.SkyAmbientLod;
+            out << YAML::Key << "RTReflectionTierDebugView" << YAML::Value << pp.RayTracedReflection.TierDebugView;
             out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
             out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
             out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
