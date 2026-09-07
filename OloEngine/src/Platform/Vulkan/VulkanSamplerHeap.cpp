@@ -256,6 +256,21 @@ namespace OloEngine
                 samplerInfo.anisotropyEnable = VK_TRUE;
                 samplerInfo.maxAnisotropy = std::clamp(sampler.MaxAnisotropy, 1.0f, device->GetMaxSamplerAnisotropy());
             }
+            else
+            {
+                // Said once per process, not per sampler: the slot is cached
+                // for the process lifetime, so every later request with the
+                // same description is the same degraded sampler.
+                static std::once_flag s_IsotropicFallbackWarned;
+                std::call_once(s_IsotropicFallbackWarned,
+                               [&sampler]
+                               {
+                                   OLO_CORE_WARN("VulkanSamplerHeap: a sampler asked for {}x anisotropy but this "
+                                                 "device does not enable samplerAnisotropy - filed isotropic (this "
+                                                 "and every later such sampler; reported once)",
+                                                 sampler.MaxAnisotropy);
+                               });
+            }
         }
         switch (sampler.Border)
         {

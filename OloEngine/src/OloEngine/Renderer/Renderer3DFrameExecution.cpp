@@ -234,13 +234,15 @@ namespace OloEngine
             // dependency, which only a history that cannot reproject declares
             // (the path tracer's planes); TAA, SSR and SSGI survive a moving
             // object by design and do not declare it.
-            // The material texture table's bytes are part of the same integrand:
-            // a map that resolves a frame late changes what every hit shades
-            // with, and the material record itself did not change.
+            // The path tracer's two by-address tables are part of the same
+            // integrand: a map that resolves a frame late changes what every
+            // hit shades with, and a table whose upload failed turns a term off,
+            // neither with a dirty range of its own.
             if (s_Data.RGraph &&
                 (!frameUpdate.m_InstanceDirtyRanges.empty() || !frameUpdate.m_GeometryDirtyRanges.empty() ||
                  !frameUpdate.m_MaterialDirtyRanges.empty() || !frameUpdate.m_LightDirtyRanges.empty() ||
-                 !frameUpdate.m_EnvironmentDirtyRanges.empty() || s_Data.PathTracerMaterialTextures.ChangedThisFrame()))
+                 !frameUpdate.m_EnvironmentDirtyRanges.empty() || s_Data.PathTracerMaterialTextures.ChangedThisFrame() ||
+                 s_Data.PathTracerEmissive.ChangedThisFrame()))
             {
                 s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneMutated);
             }

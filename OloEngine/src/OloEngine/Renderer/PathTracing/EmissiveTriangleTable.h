@@ -126,6 +126,13 @@ namespace OloEngine
         {
             return m_TotalArea > 0.0f ? 1.0f / m_TotalArea : 0.0f;
         }
+        // The uploaded bytes differ from last frame's (or the upload failed
+        // and the table is gone): the integrand changed and the accumulation
+        // must restart, the same contract as MaterialTextureTable's.
+        [[nodiscard]] bool ChangedThisFrame() const noexcept
+        {
+            return m_ChangedThisFrame;
+        }
         // The persistent buffer's device address after EndFrame; 0 on a
         // backend without buffer addresses or with nothing uploaded.
         [[nodiscard]] u64 GetDeviceAddress() const noexcept;
@@ -194,6 +201,7 @@ namespace OloEngine
         f32 m_TotalArea = 0.0f;
         u32 m_UploadedCount = 0;
         bool m_Gathering = false;
+        bool m_ChangedThisFrame = false;
         Ref<StorageBuffer> m_Buffer;
     };
 } // namespace OloEngine

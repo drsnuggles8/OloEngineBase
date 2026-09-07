@@ -104,6 +104,10 @@ namespace OloEngine
             const u32 capacityRecords = std::max<u32>(kMinimumRecordCapacity, static_cast<u32>(m_Records.size()));
             const auto capacityBytes = static_cast<u32>(capacityRecords * sizeof(MaterialTextureRecord));
             m_Buffer = StorageBuffer::Create(capacityBytes, StorageBuffer::kNoBinding, StorageBufferUsage::DynamicDraw);
+            // Either way the integrand changed: with the new bytes, or — on a
+            // failed Create, which also destroyed the previous buffer — from
+            // textured hits to untextured ones. Both restart the accumulation.
+            m_ChangedThisFrame = true;
             if (!m_Buffer)
             {
                 m_Uploaded.clear();
@@ -112,7 +116,6 @@ namespace OloEngine
             }
             m_Buffer->SetData(m_Records.data(), requiredBytes);
             m_Uploaded = m_Records;
-            m_ChangedThisFrame = true;
         }
         m_UploadedCount = static_cast<u32>(m_Records.size());
         return m_UploadedCount;

@@ -24,6 +24,7 @@ namespace OloEngine
         m_RenderOrigin = renderOrigin;
         m_TotalArea = 0.0f;
         m_Gathering = gather;
+        m_ChangedThisFrame = false;
     }
 
     void EmissiveTriangleTable::NoteEmissiveMaterial(const GPUSceneMaterialKey& materialKey)
@@ -202,6 +203,12 @@ namespace OloEngine
             // By device address only, never by slot: the shader reaches it
             // through GL_EXT_buffer_reference, so it publishes nowhere.
             m_Buffer = StorageBuffer::Create(capacityBytes, StorageBuffer::kNoBinding, StorageBufferUsage::DynamicDraw);
+            // A changed table restarts the accumulation whichever way the
+            // Create went: the GPU Scene commit that changed the bytes usually
+            // reported a dirty range already, but a failed Create (which also
+            // destroyed the previous buffer) turns next-event estimation off
+            // with no dirty range at all, and the sum must not mix the two.
+            m_ChangedThisFrame = true;
             if (!m_Buffer)
             {
                 m_Uploaded.clear();
