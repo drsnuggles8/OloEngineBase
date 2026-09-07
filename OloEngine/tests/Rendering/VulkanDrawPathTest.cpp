@@ -1448,9 +1448,9 @@ TEST_F(VulkanDrawPath, PartialStorageBufferWriteSnapshotsTheWholeBufferOrNothing
     // The contract, stated as the issue states it: whole buffer, or nothing.
     // Both are safe; a snapshot in between is the out-of-bounds device read.
     EXPECT_TRUE(headWriteSnapshotBytes == kBytes || headWriteSnapshotBytes == 0u)
-        << "a mid-frame partial SetData must snapshot all " << kBytes << " bytes or refuse the snapshot "
-           "outright — it staged " << headWriteSnapshotBytes
-        << ", and the draw's root-data address carries no length to bound the difference (issue #1080)";
+        << "a mid-frame partial SetData must snapshot all " << kBytes << " bytes or refuse the snapshot outright; "
+        << "it staged " << headWriteSnapshotBytes
+        << " and the draw's root-data address carries no length to bound the difference (issue #1080)";
     EXPECT_TRUE(midWriteSnapshotBytes == kBytes || midWriteSnapshotBytes == 0u)
         << "same rule for a write that starts mid-buffer — it staged " << midWriteSnapshotBytes;
 
