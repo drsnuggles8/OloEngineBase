@@ -154,8 +154,8 @@ namespace OloEngine::Tests
 
         struct DiffStats
         {
-            f32 m_Max = 0.0f;      ///< the single strongest pixel, ANYWHERE — a liveness signal only
-            u32 m_PeakX = 0;       ///< centre of the strongest BOX (see AnalyseDiff)
+            f32 m_Max = 0.0f; ///< the single strongest pixel, ANYWHERE — a liveness signal only
+            u32 m_PeakX = 0;  ///< centre of the strongest BOX (see AnalyseDiff)
             u32 m_PeakY = 0;
             f64 m_GlobalMean = 0.0;
             f64 m_LocalMean = 0.0; ///< mean difference inside that box

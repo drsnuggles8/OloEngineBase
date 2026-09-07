@@ -772,7 +772,7 @@ namespace OloEngine
         // that is NOT itself present in the project (so a real "Assets/..." directory
         // can never be eaten), and the stripped remainder to actually exist there.
         [[nodiscard]] std::filesystem::path TryLegacyProjectPrefixedPath(const std::filesystem::path& projectPath,
-                                                                        const std::filesystem::path& filepath)
+                                                                         const std::filesystem::path& filepath)
         {
             if (projectPath.empty() || filepath.empty() || filepath.is_absolute())
                 return {};
