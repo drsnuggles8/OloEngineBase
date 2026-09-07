@@ -8,10 +8,15 @@ namespace OloEngine::EditorUI
 {
     namespace
     {
-        // Sample count for the wire hit-test. 16 is enough that a 2px-wide wire
-        // never has a gap a mouse can slip through at any zoom we allow, and
-        // cheap enough to run for every wire, every frame.
-        constexpr i32 kWireHitSamples = 16;
+        // The wire hit-test walks the curve in fixed-size steps rather than a
+        // fixed NUMBER of steps. A constant 16 samples spaces them wireLength/16
+        // apart, so the gap grows with the wire: a 600px wire developed ~37px
+        // holes that a click fell straight through, and only short wires were
+        // reliably clickable. The bounds keep a short wire cheap and a very long
+        // one from walking hundreds of samples per wire per frame.
+        constexpr f32 kWireHitSampleSpacing = 6.0f;
+        constexpr i32 kWireHitMinSamples = 16;
+        constexpr i32 kWireHitMaxSamples = 256;
 
         ImVec2 Bezier(ImVec2 p0, ImVec2 c0, ImVec2 c1, ImVec2 p1, f32 t)
         {
@@ -284,10 +289,18 @@ namespace OloEngine::EditorUI
         const ImVec2 c0(from.x + offset.x, from.y);
         const ImVec2 c1(to.x - offset.x, to.y);
 
+        // The control polygon bounds the curve's arc length from above, so this
+        // never under-samples however far the wire bows.
+        const f32 chordX = to.x - from.x;
+        const f32 chordY = to.y - from.y;
+        const f32 bound = std::sqrt(chordX * chordX + chordY * chordY) + 2.0f * offset.x;
+        const i32 samples = std::clamp(static_cast<i32>(std::ceil(bound / kWireHitSampleSpacing)),
+                                       kWireHitMinSamples, kWireHitMaxSamples);
+
         f32 best = std::numeric_limits<f32>::max();
-        for (i32 i = 0; i <= kWireHitSamples; ++i)
+        for (i32 i = 0; i <= samples; ++i)
         {
-            const ImVec2 p = Bezier(from, c0, c1, to, static_cast<f32>(i) / static_cast<f32>(kWireHitSamples));
+            const ImVec2 p = Bezier(from, c0, c1, to, static_cast<f32>(i) / static_cast<f32>(samples));
             const f32 ddx = p.x - point.x;
             const f32 ddy = p.y - point.y;
             best = std::min(best, std::sqrt(ddx * ddx + ddy * ddy));
