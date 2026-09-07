@@ -309,7 +309,13 @@ namespace OloEngine
         params.RayParams =
             glm::vec4(maxRayDistance, normalBias, intensity, m_Settings.TraceSunShadowRay ? 1.0f : 0.0f);
 
-        const f32 gateStart = std::clamp(finiteOr(m_Settings.RoughnessGateStart, 0.05f), 0.0f, 1.0f);
+        // UPPER BOUND BELOW 1.0, deliberately. gateEnd below clamps with a lower
+        // bound of gateStart + 1e-4, and std::clamp has UNDEFINED BEHAVIOUR when
+        // lo > hi — so a gateStart of exactly 1.0 would make that call UB rather
+        // than merely degenerate. 1.0 is reachable: the MCP field advertises the
+        // range [0,1] and a scene file can carry it. Capping the START one epsilon
+        // below 1.0 keeps the interval well-formed for every input.
+        const f32 gateStart = std::clamp(finiteOr(m_Settings.RoughnessGateStart, 0.05f), 0.0f, 1.0f - 1e-4f);
         // Strictly above the start: the shader divides the band, and a zero-wide
         // one would make smoothstep a step with an undefined edge case at equal
         // endpoints.

@@ -1026,11 +1026,22 @@ the fallback so a stood-down tier produces confidence exactly 0 rather than a sm
 guarantee is structural.
 
 **Where to put a confidence nobody in the production path reads.** The tier debug view *does* need
-every tier's confidence at one point in the frame. SSR's guide plane (attachment 1 of `SSRSignal`)
-packs `rg` = normal, `b` = roughness, `a` = AO — and the two spatial denoiser stages read only the
-first three. The AO lane had been written on every path and never once sampled, so it carried
-`c_ssr` at zero cost. **Before adding an attachment, check whether an existing one has a lane that
-is written but never read.**
+every tier's confidence at one point in the frame. The SSR chain has TWO alpha lanes and they are
+not interchangeable:
+
+| lane | carries | read by |
+|---|---|---|
+| `SSRSignal` colour `.a` (attachment 0) | view depth | the pre-blur, temporal resolve and post-blur, on every path including the early-outs |
+| `SSRGuide` `.a` (attachment 1) | **`c_ssr`, SSR's arbitration confidence** | `PostProcess_SSRComposite.glsl`, tier debug view only |
+
+The guide's `rg` = octahedral normal and `b` = roughness are what the two spatial stages weight by;
+its alpha used to hold AO, written on every path and never once sampled, which is why #1057 could
+take it for `c_ssr` at zero cost. **It is no longer spare** — that is what the table is for. The
+signal's alpha never was.
+
+**Before adding an attachment, check whether an existing one has a lane that is written but never
+read** — and when you take one, say so where the next person will look, or the next reuse silently
+clobbers a live value.
 
 **A new tier's enable flag MUST go into the render-graph fingerprint.** Whether the flag is set
 decides whether `PopulateBlackboard` declares the tier's target, which is a TOPOLOGY change, and

@@ -1838,6 +1838,14 @@ namespace OloEngine
                 SSR.Reset();
                 SSGI.Reset();
                 ContactShadow.Reset();
+                // Both ray-tracing UBOs. RayTracedShadow was missing since #1056
+                // and RayTracedReflection would have repeated the omission: a Ref
+                // left here outlives Shutdown() and is destroyed at static-
+                // destruction time, when the GPU services it releases through are
+                // already gone. Shutdown runs while they are still alive, which is
+                // the only moment this can be done safely.
+                RayTracedShadow.Reset();
+                RayTracedReflection.Reset();
             }
         };
 

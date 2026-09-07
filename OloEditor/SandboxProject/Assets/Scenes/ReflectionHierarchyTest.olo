@@ -1,6 +1,6 @@
 Scene: ReflectionHierarchyTest.olo
 # ─────────────────────────────────────────────────────────────────────────────
-# Reflection-hierarchy demo scene — issue #1057, the contract is ADR 0019.
+# Reflection-hierarchy demo scene — issue #1057, the contract is ADR 0020.
 #
 # It exists because the two things the ray-query tier adds are exactly the two
 # things SSR structurally CANNOT do, and neither is visible in an ordinary scene:
@@ -181,7 +181,7 @@ Entities:
       Roughness: 0.55
   # -- A control that is ON screen and unoccluded, so SSR answers for it. Its
   #    reflection must be UNCHANGED by the ray tier: SSR is fully confident
-  #    there, so the tier below it is starved to weight zero (ADR 0019 §1). --
+  #    there, so the tier below it is starved to weight zero (ADR 0020 §1). --
   - Entity: 820000000000008
     TagComponent:
       Tag: BlueBoxVisible

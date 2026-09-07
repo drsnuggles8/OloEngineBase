@@ -1197,7 +1197,15 @@ namespace OloEngine
         info.PanelY = m_ViewportBounds[0].y;
         info.LogicalWidth = m_ViewportSize.x;
         info.LogicalHeight = m_ViewportSize.y;
-        info.DpiScale = Window::s_HighDPIScaleFactor;
+        // 1.0 while an MCP viewport override is active, for the same reason
+        // OnUpdate skips the multiply: the override writes PIXELS into
+        // m_ViewportSize, so the framebuffer is already that size. Reporting the
+        // display scale here would make McpInputInject's ViewportPixelWidth() /
+        // ViewportPixelHeight() advertise a framebuffer DpiScale times too large
+        // and mis-map every Space::Viewport coordinate it injects.
+        info.DpiScale = (m_McpViewportSizeOverride.x > 0 && m_McpViewportSizeOverride.y > 0)
+                            ? 1.0f
+                            : Window::s_HighDPIScaleFactor;
 
         // ImGui screen coordinates are DESKTOP coordinates while multi-viewport is on
         // (this editor enables it), so the window's own client-area origin must be
