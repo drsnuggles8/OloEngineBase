@@ -44,6 +44,16 @@ on:
         description: 'Run the Linux sanitizer jobs on GitHub-hosted ubuntu-24.04 even when the self-hosted box is enabled'
         type: boolean
         default: false
+      only:
+        # ONE SANITIZER PER DISPATCH, for a diagnosis loop. Every other job is
+        # skipped at its gate, so a TSan-only run on a warm cache is ~20 min and
+        # banks one sccache entry on the dispatching ref instead of four -- which
+        # matters on a branch, where nothing prunes those entries until the branch
+        # dies (#1111 was diagnosed this way). Default runs everything.
+        description: 'Run only this sanitizer job (and its shards)'
+        type: choice
+        options: [all, asan-lsan, ubsan, tsan, asan-windows]
+        default: all
 
 concurrency:
   # The `force_hosted` input is PART OF THE KEY, not decoration. The parity A/B
@@ -52,7 +62,9 @@ concurrency:
   # most one PENDING run and silently cancels the other. The first attempt at the
   # A/B lost its routed arm exactly this way and looked like an infrastructure
   # flake. Keyed on the input, the two arms are independent runs.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.inputs.force_hosted || 'default' }}
+  # `only` is in the key for the same reason `force_hosted` is (below): a TSan-only
+  # dispatch fired beside a full one on the same ref must not cancel it.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.inputs.force_hosted || 'default' }}-${{ github.event.inputs.only || 'all' }}
   # PULL REQUESTS ONLY. A cancelled run banks no cache -- `actions/cache/save` runs
   # `if: always()`, which survives a cancel, but the run still stops mid-build, so
   # what it banks is a partial snapshot at best. The nightly is this workflow's only
@@ -254,7 +266,8 @@ jobs:
     # twice.
     name: ASan (Windows/clang-cl) build
     needs: detect-changes
-    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+        && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'asan-windows') }}
     # SELF-HOSTED WHEN THE CODE IS OURS AND THE SWITCH IS ON (#1076) -- the same
     # expression, the same kill switch and the same fork boundary as Windows.yml's
     # `build` job, whose comment owns the reasoning. DEFAULT OFF: the variable is
@@ -1129,7 +1142,8 @@ jobs:
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
-    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+        && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'asan-lsan') }}
     # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not -- the same
     # expression as vulkan-off.yml, whose comment owns the security reasoning:
     # the fork boundary is `head.repo.full_name`, never a `pull_request_target`
@@ -1573,7 +1587,8 @@ jobs:
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
-    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+        && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'ubsan') }}
     # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary
     # and the `force_hosted` A/B live on that job. Keep the three expressions
     # byte-identical: a job that drifts onto a label set nobody serves does not
@@ -1929,7 +1944,8 @@ jobs:
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
-    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+        && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'tsan') }}
     # 180, not 120, not 90: the same cold-cache loop, measured twice.
     #
     # A cold sccache restore (concurrent runs evict each other under the 10 GB
@@ -2868,7 +2884,28 @@ jobs:
 
     - name: Run tests under TSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
+      # A MEMORY SAMPLER STREAMS BESIDE CTEST, one line per 10 s (#1111). When the
+      # hosted VM is taken down under memory pressure the job ends with
+      # `The runner has received a shutdown signal` and NO `if: always()` step runs
+      # afterwards -- so anything that is going to explain the kill has to be in the
+      # log already. `MEM` lines carry MemAvailable and the three largest resident
+      # processes; the last one before the shutdown is the measurement. On a run
+      # that does not die they are ~90 lines of noise, which is the price.
+      run: |
+        set -uo pipefail
+        (
+          while sleep 10; do
+            printf 'MEM %s avail=%sMiB top:' "$(date -u +%H:%M:%S)" \
+              "$(awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo)"
+            ps -eo rss=,comm= --sort=-rss | head -3 | awk '{printf " %s=%dMiB", $2, $1/1024}'
+            echo
+          done
+        ) &
+        sampler=$!
+        ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
+        rc=$?
+        kill "$sampler" 2>/dev/null || true
+        exit "$rc"
       env:
         # suppressions: vendored-code races we accept rather than patch — see
         # the rationale comments in tsan.txt (currently: Jolt's assert-build
