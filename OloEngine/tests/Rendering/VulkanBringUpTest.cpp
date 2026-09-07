@@ -28,6 +28,7 @@ TEST(VulkanBringUp, SkipsWhenNotCompiledIn)
 #else
 
 #include "Platform/Vulkan/VulkanCapabilities.h"
+#include "../TestOptions.h"
 
 #include <volk.h>
 
@@ -43,6 +44,19 @@ namespace
       protected:
         void SetUp() override
         {
+            // `--olo-gl-backend=none` is the suite's "this run tests no GPU" contract
+            // (#1015), and a Vulkan device is a GPU: the sanitizer jobs pass the flag
+            // on the self-hosted box so a run there means what the hosted run means.
+            // VulkanTestSupport.h's ProbeVulkanDeviceTestGate has honoured it since
+            // #1015 and says why; this fixture kept its own inline probe ladder and
+            // never picked the check up, which made the largest Vulkan suite the one
+            // place the box still tested hardware the hosted arm did not (#1107).
+            if (OloEngine::Tests::Options().GlBackend == OloEngine::Tests::GlBackend::None)
+            {
+                GTEST_SKIP() << "No GPU available in this environment (GL backend pinned to 'none' by "
+                                "--olo-gl-backend=none; the Vulkan gate honours it too).";
+            }
+
             if (volkInitialize() != VK_SUCCESS)
             {
                 GTEST_SKIP() << "No Vulkan loader on this machine.";
