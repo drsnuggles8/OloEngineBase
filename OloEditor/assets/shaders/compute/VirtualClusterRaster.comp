@@ -154,7 +154,12 @@ layout(std140, binding = 70) uniform VirtualRasterParams
     //         backend #ifdef, so this file stays source-identical.
     float u_DepthScale;
     float u_DepthBias;
-    uint  _vrPad0;          // 28 — std140 rounds the block to a 16-byte multiple.
+    // 28 — +1 on GL, -1 on Vulkan, from RHI::WindowSpaceFrontFaceSign(). This
+    //      shader builds its own window-space area determinant, and on Vulkan
+    //      that space is the FRAMEBUFFER's (y down) instead of GL's window space
+    //      (y up) — one mirror, which negates the sign. Fixed function gets a
+    //      second, cancelling inversion; a manual rasterizer does not.
+    float u_FrontFaceSign;
 };
 
 // Bounded micro-triangle raster: SW-routed clusters have small projected
@@ -211,7 +216,30 @@ void RasterizeTriangle(uint swRecordIndex, uint triangleIndex)
     // geometry we ship — is alpha-masked and never reaches this shader.
     bool twoSided = (inst.Flags & 4u) != 0u;
     float signedArea = OloVirtualSignedArea2(s0, s1, s2);
-    if (signedArea < 0.0 && !twoSided)
+    // The CULL sense is backend-dependent (u_FrontFaceSign); the ORIENT below is
+    // not. On Vulkan this determinant is computed in framebuffer space, whose y
+    // runs opposite to GL's window space, so the same triangle reports the
+    // opposite sign — and culling on the GL sense there throws away the FRONT
+    // faces and keeps the back ones. That does not blank the frame: a closed
+    // mesh still fills its own silhouette, so it reads as missing patches and
+    // inside-out shading (issue #1105).
+    // A SELECT rather than `signedArea * u_FrontFaceSign < 0.0`: multiplying the
+    // determinant is algebraically a no-op on GL (the sign is +1 there) but not
+    // a numerical one, and the select keeps the GL comparison spelled exactly as
+    // it was. The branch is uniform across the dispatch, so it costs no
+    // divergence.
+    //
+    // MEASURED, because "no visual change" was claimed and then checked: reading
+    // this uniform at all shifts the GL path's floating-point codegen slightly.
+    // Against the pre-#1105 shader, 25-126 pixels per 230,400 (0.01-0.06%) move
+    // by a MAXIMUM CHANNEL DELTA OF 1 -- one least-significant bit on
+    // micro-triangle boundaries, no geometry gained or lost, every golden test
+    // still green. Both the multiply and the select forms shift it identically,
+    // so the shift comes from the uniform read, not from the arithmetic; a
+    // compile-time #define per backend would avoid it, at the cost of the
+    // source-identical property this seam exists to preserve.
+    bool backFacing = (u_FrontFaceSign > 0.0) ? (signedArea < 0.0) : (signedArea > 0.0);
+    if (backFacing && !twoSided)
         return; // back-facing, single-sided material
     float orient = (signedArea < 0.0) ? -1.0 : 1.0;
     float area = signedArea * orient;

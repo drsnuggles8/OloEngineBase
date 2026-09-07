@@ -862,6 +862,7 @@ namespace OloEngine
                     argsParams.DepthScale = depthMap.x;
                     argsParams.DepthBias = depthMap.y;
                 }
+                argsParams.FrontFaceSign = RHI::WindowSpaceFrontFaceSign();
                 UploadRasterParams(argsParams);
                 RenderCommand::DispatchCompute(1, 1, 1);
                 // ShaderStorage orders the SSBO write itself; Command is the one
@@ -931,6 +932,10 @@ namespace OloEngine
                 rasterParams.DepthScale = depthMap.x;
                 rasterParams.DepthBias = depthMap.y;
             }
+            // The other half of the same problem: the raster's own window-space
+            // area determinant changes sign with the backend, so the BACKFACE
+            // cull needs the sense told to it too (issue #1105).
+            rasterParams.FrontFaceSign = RHI::WindowSpaceFrontFaceSign();
             if (useInt64)
             {
                 // One atomicMin per covered pixel resolves depth + payload

@@ -59,6 +59,13 @@ namespace OloEngine::RHI
         return glm::inverse(AdjustProjectionForShaderReconstruction(forward));
     }
 
+    f32 WindowSpaceFrontFaceSign()
+    {
+        // Same predicate as the matrices and the depth mapping, so a backend
+        // cannot be flipped in one of the three and not the others.
+        return BackendFlips() ? -1.0f : 1.0f;
+    }
+
     glm::vec2 NdcToWindowDepthScaleBias()
     {
         // Derived from the SAME predicate the matrices use, so the depth mapping

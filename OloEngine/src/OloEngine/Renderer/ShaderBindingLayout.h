@@ -1293,9 +1293,12 @@ namespace OloEngine
             // z to [0, w]). Passed as data so the GLSL stays source-identical.
             f32 DepthScale;
             f32 DepthBias;
-            u32 Pad0; // 28 — std140 rounds the block to a 16-byte multiple; the
-                      //      pad is explicit so this stays a plain struct the
-                      //      GLSL twins mirror byte for byte.
+            // 28 — +1 on GL, -1 on Vulkan, from RHI::WindowSpaceFrontFaceSign().
+            // The software raster computes its own window-space area determinant,
+            // and on Vulkan that space is the framebuffer's (y down) rather than
+            // GL's window space (y up) — one mirror, which negates the sign. A
+            // triangle is front-facing when signedArea * FrontFaceSign > 0.
+            f32 FrontFaceSign;
 
             static constexpr u32 GetSize()
             {

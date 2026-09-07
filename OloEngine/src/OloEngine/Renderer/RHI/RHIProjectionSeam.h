@@ -64,6 +64,8 @@
 // the notes, NOT solved by sprinkling extra flips at call sites.
 // =============================================================================
 
+#include "OloEngine/Core/Base.h"
+
 #include <glm/glm.hpp>
 
 namespace OloEngine::RHI
@@ -127,6 +129,34 @@ namespace OloEngine::RHI
     // ones almost everywhere, and the mesh renders in shredded fragments while
     // every CPU-side counter still reads correct.
     [[nodiscard]] glm::vec2 NdcToWindowDepthScaleBias();
+
+    // The seam's fourth consumer, and the other half of the manual-rasterizer
+    // problem: the SIGN a hand-computed window-space area determinant gives a
+    // FRONT face.
+    //
+    // Fixed function needs no help here and the header's A1 note explains why --
+    // Vulkan evaluates facing in FRAMEBUFFER coordinates, whose y points down
+    // where GL's window y points up, and that inversion composes with the seam's
+    // clip-y negation to identity, so a triangle GL calls front-facing is
+    // front-facing on Vulkan too.
+    //
+    // A shader that computes the determinant ITSELF gets no such composition.
+    // VirtualClusterRaster.comp builds its screen positions as
+    // `(ndc.xy * 0.5 + 0.5) * viewport` from the ALREADY-ADJUSTED matrix, so on
+    // Vulkan its y axis is the framebuffer's (down) while GL's is the window's
+    // (up) -- one mirror, applied once, which negates the determinant. Only the
+    // second inversion is present, so the two no longer cancel.
+    //
+    // Returns +1 on GL and -1 on Vulkan: a triangle is front-facing when
+    // `signedArea * WindowSpaceFrontFaceSign() > 0`. Getting this wrong does not
+    // blank the frame -- it culls the FRONT faces and keeps the back ones, so a
+    // closed mesh still fills roughly its own silhouette and the damage reads as
+    // missing patches and inside-out shading rather than as an obvious failure.
+    //
+    // NOTE this is the CULL sense only. The winding used to orient the edge
+    // functions must stay derived from the raw signed area, or the interior test
+    // inverts and the triangle stops covering anything.
+    [[nodiscard]] f32 WindowSpaceFrontFaceSign();
 
     // The ROW-ORDER half of the same seam (#691, ADR 0011 amendment
     // (85)): every off-screen target is bottom-up on GL and top-down on
