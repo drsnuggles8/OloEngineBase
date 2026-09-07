@@ -255,10 +255,18 @@ namespace OloEngine
                 auto reloadHandle = metadata.Handle;
                 auto reloadType = metadata.Type;
                 auto reloadPath = metadata.FilePath;
-                Tasks::EnqueueGameThreadTask([reloadHandle, reloadType, reloadPath]() mutable
-                                             {
-                    AssetReloadedEvent evt(reloadHandle, reloadType, reloadPath);
-                    Application::Get().OnEvent(evt); }, "AssetReloadedEvent");
+                // TryGet, not Get — see the twin dispatch in ReloadData for why a
+                // queued task must not assume an Application still exists.
+                Tasks::EnqueueGameThreadTask(
+                    [reloadHandle, reloadType, reloadPath]() mutable
+                    {
+                        if (auto* app = Application::TryGet())
+                        {
+                            AssetReloadedEvent evt(reloadHandle, reloadType, reloadPath);
+                            app->OnEvent(evt);
+                        }
+                    },
+                    "AssetReloadedEvent");
             }
 
             return asset;
