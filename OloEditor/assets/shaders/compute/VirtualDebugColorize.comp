@@ -42,9 +42,15 @@ layout(std140, binding = 70) uniform VirtualRasterParams
     //      append, not the counter), so a GPU overflow would inflate the very
     //      number the read is bounded by. 0 = an empty list.
     uint  u_SwListCapacity;
-    uint  _vrPad0;          // 20 — std140 rounds the block to a 16-byte multiple;
-    uint  _vrPad1;          // 24   explicit so the C++ mirror is a plain struct.
-    uint  _vrPad2;          // 28
+    // 20/24 — ndc.z -> window depth as (scale, bias), from
+    //         RHI::NdcToWindowDepthScaleBias(). The software raster does its own
+    //         perspective divide, so it applies the mapping fixed function would
+    //         have: GL 0.5/0.5 (ndc z is [-1,1]); Vulkan 1/0 (the seam already
+    //         mapped clip z to [0,w], so ndc.z IS the window depth). Data, not a
+    //         backend #ifdef, so this file stays source-identical.
+    float u_DepthScale;
+    float u_DepthBias;
+    uint  _vrPad0;          // 28 — std140 rounds the block to a 16-byte multiple.
 };
 
 // blue (low) -> green (mid) -> red (high)

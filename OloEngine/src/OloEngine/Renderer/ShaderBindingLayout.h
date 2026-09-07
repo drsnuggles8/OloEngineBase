@@ -1285,9 +1285,17 @@ namespace OloEngine
             // read is bounded by, and Records[] is reached by a bare device
             // address with no bounds. 0 = an empty list.
             u32 SwListCapacity;
-            u32 Pad0; // 20 — std140 rounds the block to a 16-byte multiple;
-            u32 Pad1; // 24   the pads are explicit so this stays a plain
-            u32 Pad2; // 28   struct the GLSL twins mirror byte for byte.
+            // 20/24 — ndc.z -> window depth, as (scale, bias), from
+            // RHI::NdcToWindowDepthScaleBias(). The software rasterizer does its
+            // own perspective divide, so it must apply the mapping fixed function
+            // would have applied, and that differs per backend (GL 0.5/0.5;
+            // Vulkan 1/0, because AdjustProjectionForBackend already mapped clip
+            // z to [0, w]). Passed as data so the GLSL stays source-identical.
+            f32 DepthScale;
+            f32 DepthBias;
+            u32 Pad0; // 28 — std140 rounds the block to a 16-byte multiple; the
+                      //      pad is explicit so this stays a plain struct the
+                      //      GLSL twins mirror byte for byte.
 
             static constexpr u32 GetSize()
             {

@@ -58,9 +58,9 @@ layout(std140, binding = 70) uniform VirtualRasterParams
     uint  u_Phase;
     float u_OverdrawScale;
     uint  u_SwListCapacity;
+    float u_DepthScale;
+    float u_DepthBias;
     uint  _vrPad0;
-    uint  _vrPad1;
-    uint  _vrPad2;
 };
 
 void main()

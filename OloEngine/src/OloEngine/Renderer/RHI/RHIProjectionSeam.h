@@ -105,6 +105,29 @@ namespace OloEngine::RHI
     // today and is called out here rather than guessed at.
     [[nodiscard]] glm::mat4 AdjustCaptureProjectionForBackend(const glm::mat4& projection);
 
+    // The seam's third consumer: shader code that RASTERIZES BY HAND and has to
+    // reproduce what fixed function would have done to ndc.z.
+    //
+    // The virtual-geometry compute software rasterizer (VirtualClusterRaster.comp)
+    // projects with the SAME adjusted matrix the hardware path uses, then does its
+    // own perspective divide and writes a window depth into the visibility buffer
+    // that the resolve replays through gl_FragDepth. So it must apply exactly the
+    // ndc.z -> window-depth mapping the fixed-function stage would have applied,
+    // and that mapping is NOT the same on the two backends:
+    //
+    //   GL      ndc.z is [-1, 1] (glDepthRange 0..1)  ->  window = ndc.z * 0.5 + 0.5
+    //   Vulkan  AdjustProjectionForBackend already mapped clip z to [0, w], so
+    //           ndc.z IS the window depth                ->  window = ndc.z * 1 + 0
+    //
+    // Returned as (scale, bias) rather than branched on in the shader, so the GLSL
+    // stays source-identical between backends like every other consumer of this
+    // seam. Hard-coding GL's 0.5/0.5 (which the raster did until this existed)
+    // compresses every software-rasterized depth into [0.5, 1] on Vulkan: the
+    // software clusters then lose the depth test against the hardware-rasterized
+    // ones almost everywhere, and the mesh renders in shredded fragments while
+    // every CPU-side counter still reads correct.
+    [[nodiscard]] glm::vec2 NdcToWindowDepthScaleBias();
+
     // The ROW-ORDER half of the same seam (#691, ADR 0011 amendment
     // (85)): every off-screen target is bottom-up on GL and top-down on
     // Vulkan, so this one predicate answers "does a top-left-origin consumer

@@ -855,6 +855,13 @@ namespace OloEngine
                 argsParams.ViewportWidth = registry.GetVisbufferWidth();
                 argsParams.ViewportHeight = registry.GetVisbufferHeight();
                 argsParams.SwListCapacity = maxSwRecords;
+                // Unread by the args kernel; set so every upload of this block
+                // carries a coherent value rather than a zeroed depth mapping.
+                {
+                    const glm::vec2 depthMap = RHI::NdcToWindowDepthScaleBias();
+                    argsParams.DepthScale = depthMap.x;
+                    argsParams.DepthBias = depthMap.y;
+                }
                 UploadRasterParams(argsParams);
                 RenderCommand::DispatchCompute(1, 1, 1);
                 // ShaderStorage orders the SSBO write itself; Command is the one
@@ -915,6 +922,15 @@ namespace OloEngine
             // bounds its work-list index by this rather than by the list's own
             // unguarded Count (issue #1058).
             rasterParams.SwListCapacity = maxSwRecords;
+            // The ndc.z -> window-depth mapping this backend's fixed function
+            // would apply. The software raster does its own perspective divide,
+            // so it has to be told; hard-coding GL's 0.5/0.5 shredded every
+            // Vulkan frame while leaving all the counters correct.
+            {
+                const glm::vec2 depthMap = RHI::NdcToWindowDepthScaleBias();
+                rasterParams.DepthScale = depthMap.x;
+                rasterParams.DepthBias = depthMap.y;
+            }
             if (useInt64)
             {
                 // One atomicMin per covered pixel resolves depth + payload

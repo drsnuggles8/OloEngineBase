@@ -146,9 +146,15 @@ layout(std140, binding = 70) uniform VirtualRasterParams
     //      append, not the counter), so a GPU overflow would inflate the very
     //      number the read is bounded by. 0 = an empty list.
     uint  u_SwListCapacity;
-    uint  _vrPad0;          // 20 — std140 rounds the block to a 16-byte multiple;
-    uint  _vrPad1;          // 24   explicit so the C++ mirror is a plain struct.
-    uint  _vrPad2;          // 28
+    // 20/24 — ndc.z -> window depth as (scale, bias), from
+    //         RHI::NdcToWindowDepthScaleBias(). The software raster does its own
+    //         perspective divide, so it applies the mapping fixed function would
+    //         have: GL 0.5/0.5 (ndc z is [-1,1]); Vulkan 1/0 (the seam already
+    //         mapped clip z to [0,w], so ndc.z IS the window depth). Data, not a
+    //         backend #ifdef, so this file stays source-identical.
+    float u_DepthScale;
+    float u_DepthBias;
+    uint  _vrPad0;          // 28 — std140 rounds the block to a 16-byte multiple.
 };
 
 // Bounded micro-triangle raster: SW-routed clusters have small projected
@@ -243,9 +249,18 @@ void RasterizeTriangle(uint swRecordIndex, uint triangleIndex)
     float invArea = 1.0 / area;
     // Window depth in [0,1], interpolated with screen-space barycentrics —
     // the same interpolation the hardware rasterizer applies to gl_FragCoord.z.
-    float z0 = ndc0.z * 0.5 + 0.5;
-    float z1 = ndc1.z * 0.5 + 0.5;
-    float z2 = ndc2.z * 0.5 + 0.5;
+    // Window depth via the backend's ndc.z mapping (u_DepthScale/u_DepthBias from
+    // RHI::NdcToWindowDepthScaleBias), NOT a hard-coded *0.5+0.5. This shader
+    // projects with the SAME adjusted matrix the hardware path uses, and on
+    // Vulkan that matrix has already mapped clip z into [0, w] — so ndc.z is
+    // ALREADY the window depth there, and remapping it again compressed every
+    // software depth into [0.5, 1]. The software clusters then lost the depth
+    // test against the hardware-rasterized ones almost everywhere and the mesh
+    // rendered in shredded fragments, while every CPU-side counter (cut size,
+    // software-rasterized count, dispatch size) still read exactly right.
+    float z0 = ndc0.z * u_DepthScale + u_DepthBias;
+    float z1 = ndc1.z * u_DepthScale + u_DepthBias;
+    float z2 = ndc2.z * u_DepthScale + u_DepthBias;
 
     uint payload = (swRecordIndex << 9u) | (triangleIndex & 0x1FFu);
 
