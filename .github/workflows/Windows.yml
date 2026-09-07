@@ -726,6 +726,16 @@ jobs:
         test -f "$exe" || { echo "::error::$exe missing from the artifact"; exit 1; }
         echo "workspace matches: ${here}"
 
+        # AND PROVE IT STARTS. OloEngine carries static PE imports on the FFmpeg and
+        # Steam DLLs staged beside the exe, so one missing from the artifact fails in
+        # the OS loader before main() -- arriving as ~2,300 identical ctest failures
+        # with no message worth reading. One launch, seconds, and it names itself.
+        if ! "$exe" --gtest_list_tests > /dev/null; then
+          echo "::error::$exe does not start on this runner. Either the artifact is missing something it needs at load time (a runtime DLL), or the tree does not match this runner."
+          exit 1
+        fi
+        echo "the test binary starts here"
+
     # GUARD 1 OF 2: A SHARD THAT MATCHED NOTHING MUST FAIL. `ctest -I` selects by
     # index, so a stride that does not line up with the list silently produces an
     # empty run -- which passes in about a second and is indistinguishable in the

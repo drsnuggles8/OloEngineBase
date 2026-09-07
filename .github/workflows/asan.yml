@@ -172,6 +172,9 @@ jobs:
             - 'cmake/**'
             - '.github/actions/**'
             - '.github/workflows/asan.yml'
+            # The shard coverage proof is part of this gate (#1083); a change to it
+            # has to run the jobs it guards.
+            - 'scripts/verify_test_shards.py'
             - '.github/sanitizer-suppressions/**'
 
   asan-windows:
@@ -763,6 +766,17 @@ jobs:
         test -f build/OloEngine/tests/Release/clang_rt.asan_dynamic-x86_64.dll \
           || { echo "::error::ASan runtime DLL missing from the artifact; the instrumented exe will not start"; exit 1; }
         echo "workspace matches: ${here}"
+
+        # AND PROVE IT STARTS. A missing runtime DLL fails in the OS loader before
+        # main(), so it would arrive as ~1,900 identical ctest failures with no
+        # message worth reading. One launch, seconds, and the failure names itself.
+        # `--gtest_list_tests` pays the same static-init the real cases do and runs
+        # no test body.
+        if ! "$exe" --gtest_list_tests > /dev/null; then
+          echo "::error::$exe does not start on this runner. Either the artifact is missing something it needs at load time (a runtime DLL), or the tree does not match this runner."
+          exit 1
+        fi
+        echo "the instrumented test binary starts here"
 
     - name: Create test results directory
       run: New-Item -ItemType Directory -Force -Path "${{github.workspace}}/test_results"
