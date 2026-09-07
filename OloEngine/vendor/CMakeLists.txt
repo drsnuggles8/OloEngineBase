@@ -322,7 +322,7 @@ set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG fd13a1e8923a0a7077b404fc36fd063b25a0c0b5  # docking @ 2026-06-05
+	GIT_TAG 7e1b65d26d52e9dd199d889c148c72184de647b4  # docking @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)
@@ -426,7 +426,7 @@ endif()
 # TextureCompression.cpp.
 CPMAddPackage(NAME bcdec
   GIT_REPOSITORY https://github.com/iOrange/bcdec.git
-  GIT_TAG 93628fe5627102fe5187b7eeb99122dec6612c36  # main @ 2025-10-23
+  GIT_TAG 80859ed3b7afb1c527a2a99d70c61457bea72d0c  # main @ 2025-10-23
   GIT_SHALLOW FALSE
   DOWNLOAD_ONLY YES)
 if(bcdec_ADDED)
