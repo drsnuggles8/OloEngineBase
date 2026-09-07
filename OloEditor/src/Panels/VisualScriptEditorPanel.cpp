@@ -1114,18 +1114,10 @@ namespace OloEngine
         }
 
         //-- Context menu ----------------------------------------------------------
-        // Right-CLICK, meaning a press and release that did not move. GraphCanvas
-        // treats a right DRAG as a pan, so the two gestures must be told apart —
-        // and tracking the press position here avoids depending on ImGui's
-        // internal drag bookkeeping, which has moved between versions.
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-        {
-            m_RightPressPos = mouse;
-        }
-        const f32 rightDx = mouse.x - m_RightPressPos.x;
-        const f32 rightDy = mouse.y - m_RightPressPos.y;
-        if (m_Canvas.IsHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
-            (rightDx * rightDx + rightDy * rightDy) < 16.0f)
+        // Right-CLICK, meaning a press and release that did not become a pan.
+        // GraphCanvas owns that distinction now (it owns the drag threshold), so
+        // this no longer tracks its own press position.
+        if (m_Canvas.WasRightClicked())
         {
             m_ContextMenuOpen = true;
             m_ContextMenuGraphPos = m_Canvas.ToGraph(mouse);

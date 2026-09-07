@@ -12,8 +12,8 @@ namespace OloEngine::EditorUI
         // fixed NUMBER of steps. A constant 16 samples spaces them wireLength/16
         // apart, so the gap grows with the wire: a 600px wire developed ~37px
         // holes that a click fell straight through, and only short wires were
-        // reliably clickable. The bounds keep a short wire cheap and a very long
-        // one from walking hundreds of samples per wire per frame.
+        // reliably clickable. Bounds keep a short wire cheap and a very long one
+        // from walking hundreds of samples per wire per frame.
         constexpr f32 kWireHitSampleSpacing = 6.0f;
         constexpr i32 kWireHitMinSamples = 16;
         constexpr i32 kWireHitMaxSamples = 256;
@@ -93,12 +93,25 @@ namespace OloEngine::EditorUI
 
     void GraphCanvas::HandleViewInput()
     {
+        // Cleared before the early return, not after it: a stale true would fire
+        // the consumer's context menu on some later frame in which the pointer
+        // merely happened to be somewhere else.
+        m_WasRightClicked = false;
+
         if (!m_IsHovered && !m_IsPanning)
         {
             return;
         }
 
         const ImGuiIO& io = ImGui::GetIO();
+
+        // Both sampled BEFORE the latch block below clears them. On the release
+        // frame `panHeld` is already false, so that block resets each of these in
+        // this same function — testing them afterwards would report every
+        // right-drag as a right-click and pop the context menu at the end of
+        // every pan.
+        const bool wasPanning = m_IsPanning;
+        const bool hadPressOnCanvas = m_PanButtonDown;
 
         // Pan on middle OR right drag. Right-drag is what most artists reach for;
         // middle exists because some mice/tablets have no usable right-drag.
@@ -115,8 +128,14 @@ namespace OloEngine::EditorUI
             m_PanButtonDown = false;
             m_IsPanning = false;
         }
-        else if (!m_PanButtonDown && m_IsHovered)
+        else if (!m_PanButtonDown && m_IsHovered &&
+                 (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
         {
+            // Latch on the PRESS, not merely on the first frame the button is
+            // held over the canvas. Without the IsMouseClicked test, a press that
+            // began outside the canvas and was dragged in latched here with a
+            // press position already inside it, so releasing counted as a
+            // stationary click and popped the consumer's context menu.
             m_PanButtonDown = true;
             m_PanPressPos = io.MousePos;
         }
@@ -154,6 +173,14 @@ namespace OloEngine::EditorUI
             const glm::vec2 after = ToGraph(io.MousePos);
             m_Pan += after - anchor;
         }
+
+        // A right-click is the release, over the canvas, of a right press that
+        // STARTED on the canvas and never crossed the pan threshold. Reusing the
+        // pan latch rather than a second stored press position keeps ONE
+        // definition of "far enough to be a drag" in the codebase, so the context
+        // menu and the pan can never disagree about which gesture was made.
+        m_WasRightClicked = m_IsHovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
+                            hadPressOnCanvas && !wasPanning;
     }
 
     void GraphCanvas::DrawGrid() const
