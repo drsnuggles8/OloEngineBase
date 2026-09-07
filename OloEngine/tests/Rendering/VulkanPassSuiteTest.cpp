@@ -10292,6 +10292,7 @@ namespace
         "assets/shaders/compute/LightCulling.comp",
         "assets/shaders/compute/VirtualClusterCull.comp",
         "assets/shaders/compute/VirtualClusterRaster.comp",
+        "assets/shaders/compute/VirtualRasterArgs.comp",
         "assets/shaders/compute/VirtualDebugColorize.comp",
         "assets/shaders/compute/InstanceOcclusionCull.comp",
         "assets/shaders/compute/InstanceFrustumCull.comp",

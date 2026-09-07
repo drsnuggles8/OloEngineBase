@@ -2710,11 +2710,17 @@ namespace OloEngine
         static constexpr u32 SSBO_VIRTUAL_DRAW_ARGS = 37;     // VirtualDrawArgs[instance]: draw count (also bound as GL_PARAMETER_BUFFER) + cull stats
         static constexpr u32 SSBO_VIRTUAL_VISIBLE = 38;       // VirtualVisibleCluster[]: per-draw (instance, cluster) records indexed via gl_BaseInstance
         static constexpr u32 SSBO_VIRTUAL_VERTICES = 39;      // VirtualGpuVertex[]: cluster-owned packed vertices (positionU, normalV)
-        static constexpr u32 SSBO_VIRTUAL_SW_LIST = 40;       // { uint Count; pad[3]; VirtualVisibleCluster[] }: clusters routed to the software rasterizer
-        static constexpr u32 SSBO_VIRTUAL_VISBUFFER = 41;     // uvec2[width*height] visibility buffer: .y = depth bits (atomicMin), .x = (visibleSlot << 9 | tri)
-        static constexpr u32 SSBO_VIRTUAL_INDICES = 42;       // u32[]: pooled cluster-local index buffer (same GL buffer the MDI path uses as element array)
-        static constexpr u32 SSBO_VIRTUAL_GROUP_STATES = 43;  // u32[group]: bit0 = page resident (CPU), bit1 = page requested (GPU atomicOr), bit2 = touched for LRU (GPU atomicOr)
-        static constexpr u32 SSBO_VIRTUAL_REJECTED = 44;      // { uint Count; pad[3]; VirtualVisibleCluster[] }: clusters the two-phase cull's phase 1 found hidden by the PREVIOUS frame's Hi-Z, re-tested by phase 2 (issue #682)
+        // { uint Count; uvec3 DispatchArgs; VirtualVisibleCluster[] }: clusters routed to the
+        // software rasterizer. The three words after Count are NOT padding -- they are the
+        // raster's indirect dispatch arguments, written on the GPU by VirtualRasterArgs.comp
+        // and read by DispatchComputeIndirect at byte offset 4 (issue #1048; the offset is
+        // static_asserted in VirtualGeometryPass.cpp). Repurposing them silently drops or
+        // multiplies raster workgroups, and a wrong group count on the GPU raises nothing.
+        static constexpr u32 SSBO_VIRTUAL_SW_LIST = 40;
+        static constexpr u32 SSBO_VIRTUAL_VISBUFFER = 41;    // uvec2[width*height] visibility buffer: .y = depth bits (atomicMin), .x = (visibleSlot << 9 | tri)
+        static constexpr u32 SSBO_VIRTUAL_INDICES = 42;      // u32[]: pooled cluster-local index buffer (same GL buffer the MDI path uses as element array)
+        static constexpr u32 SSBO_VIRTUAL_GROUP_STATES = 43; // u32[group]: bit0 = page resident (CPU), bit1 = page requested (GPU atomicOr), bit2 = touched for LRU (GPU atomicOr)
+        static constexpr u32 SSBO_VIRTUAL_REJECTED = 44;     // { uint Count; pad[3]; VirtualVisibleCluster[] }: clusters the two-phase cull's phase 1 found hidden by the PREVIOUS frame's Hi-Z, re-tested by phase 2 (issue #682)
         // The shader-visible descriptor heap (issue #691). uvec2[] of
         // ARB_bindless_texture handles, indexed by an RHI::HeapOffset that
         // travels to the shader as ordinary UBO data. This is the binding that
