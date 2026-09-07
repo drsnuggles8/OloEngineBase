@@ -140,6 +140,9 @@ OloEditor/cmake_test_discovery_*.json
 # the files exist locally, everything works on this machine, and the repo silently ships
 # a settings.json referencing scripts nobody else has.
 !.claude/hooks/
+# Helper scripts the commands under .claude/commands/ invoke by path. Same reasoning as
+# hooks/: without this the command files reference scripts that exist only on this machine.
+!.claude/scripts/
 !.claude/.markdownlint-cli2.jsonc
 .claude/skills/**/shots/
 

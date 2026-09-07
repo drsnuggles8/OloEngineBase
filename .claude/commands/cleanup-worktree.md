@@ -64,6 +64,43 @@ If it refuses because of leftover build artifacts / untracked files and you've
 confirmed they're disposable, re-run with --force. (Do NOT --force past real WIP — that's
 the §2 trap.)
 
+A worktree that ran the task loop is *normally* dirty with disposable output — `HANDOVER.md`,
+regenerated `OloEditor/assets/tests/visual/*.png`, `OloEditor/SupportedTargetTestGame/`. Those are
+test artifacts, so `--force` is correct there. The §2 trap is about **modified tracked files** and
+new untracked **source/tests**, which these are not.
+
+### 3b. "Permission denied" / "Device or resource busy" on an already-empty directory
+
+`worktree remove` deletes the worktree's CONTENTS and then fails to delete the directory itself:
+
+    error: failed to delete 'C:/repos/OloEngine-<slug>': Permission denied
+    rmdir: failed to remove '...': Device or resource busy
+
+The registration is already gone (`worktree list` no longer shows it) but an empty directory is
+left behind on disk. This means **some process holds that directory as its current working
+directory**. Do not conclude the work is protected — the content is already deleted; only the
+empty shell remains, and leaving it behind makes the next `/start-work` on that slug fail.
+
+**It is almost never the git fsmonitor daemon.** Killing the `git fsmonitor--daemon` processes
+does NOT release the directory (verified on this box: 16 of them killed, both dirs still busy).
+The real holders are leftover `bash.exe` / `sleep.exe` / `pwsh.exe` processes from the removed
+worktree's OWN agent session — a background monitor or polling loop that outlived it.
+
+**Resolve it yourself; don't stop and report a busy directory.** Windows exposes no API for another
+process's cwd, so use the helper, which reads it out of each process's PEB:
+
+    # report which processes hold the paths, change nothing
+    pwsh -NoProfile -File $BASE/.claude/scripts/free-locked-dir.ps1 -Path '<path>' [-Path '<path2>']
+
+    # kill exactly those processes, then delete the directories
+    pwsh -NoProfile -File $BASE/.claude/scripts/free-locked-dir.ps1 -Path '<path>' -Kill
+
+Pass Windows-style paths. `-Kill` terminates ONLY processes whose cwd is inside a path you named,
+and it refuses to touch this session's own process or any of its ancestors, so it cannot kill the
+shell you are running from. Run the report form first and eyeball it; if a holder is something
+that looks live and unrelated — an editor, a running build, an `OloEditor.exe` — stop and report it
+instead of forcing. Exit code 1 means a directory survived; say so rather than claiming success.
+
 ## 4. Delete the merged branch and prune stale registrations
 
     git -C $BASE branch -d feature/<slug>        # -d (safe): refuses if not merged
@@ -89,7 +126,18 @@ keyword like `Closes #N`, GitHub already closed the issue on merge; the gap you'
 the PR that referenced an issue with a bare `#N` and never closed it.)
 
 For each REMOVED worktree, find its merged PR and the issues it touched:
-    gh pr list --state merged --head feature/<slug> --repo <owner/repo> --json number,title,mergedAt,body,closingIssuesReferences
+    gh pr list --state merged --head feature/<slug> --repo <owner/repo> --json number,title,mergedAt,body
+
+**`closingIssuesReferences` is NOT a `gh pr list` / `gh pr view` field on this box** — the installed
+`gh` rejects it and dumps its field list. Get it from the GraphQL API instead, per PR number:
+
+    gh api graphql -f query='query{repository(owner:"<owner>",name:"<repo>"){
+      pullRequest(number:<N>){ title mergedAt
+        closingIssuesReferences(first:20){ nodes{ number title state } } } } }'
+
+The `state` in that result is the issue's CURRENT state, so a PR merged with a closing keyword
+usually shows its issues already `CLOSED` — that is the expected, healthy case and needs no
+comment. Only an issue still `OPEN` needs the §5 treatment below.
 **Two different sources, two different levels of trust — do not merge them:**
 
 - **`closingIssuesReferences`** — GitHub's own resolution of the PR's closing keywords. These are
