@@ -9,8 +9,18 @@ namespace OloEngine
 {
     FrameResourceManager& FrameResourceManager::Get()
     {
-        static FrameResourceManager instance;
-        return instance;
+        // Deliberately leaked (never destroyed), the same rationale as
+        // RHI::ResourceRegistry::Get and the shader-registry map (issue #1088):
+        // ~OpenGLShader and ~OpenGLComputeShader call Get().SubmitForDeletion()
+        // for their GL program, and a shader can be released during STATIC
+        // DESTRUCTION — the ShaderLibrary statics that own them are
+        // namespace-scope, so they are torn down after this lazily-created
+        // singleton would have been.
+        //
+        // The destructor is `= default` and Shutdown() is an explicit call, so
+        // leaking costs nothing and removes the ordering hazard entirely.
+        static auto* s_Instance = new FrameResourceManager();
+        return *s_Instance;
     }
 
     void FrameResourceManager::Init()

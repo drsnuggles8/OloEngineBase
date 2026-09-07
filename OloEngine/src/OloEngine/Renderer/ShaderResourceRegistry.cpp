@@ -15,8 +15,33 @@ namespace OloEngine
     {
         auto GetRegisteredShaderRegistryMap() -> std::unordered_map<u32, ShaderResourceRegistry*>&
         {
-            static std::unordered_map<u32, ShaderResourceRegistry*> s_Registries;
-            return s_Registries;
+            // Deliberately leaked (never destroyed), the same rationale as
+            // RHI::ResourceRegistry::Get and VulkanImageInfoRegistry::Get: a
+            // shader can be released during STATIC DESTRUCTION, and ~OpenGLShader
+            // unregisters from this map on the way out.
+            //
+            // As a plain Meyers singleton it lost that race every time (issue
+            // #1088). This map is first touched at RUNTIME, when a shader is
+            // first linked, so its atexit entry is registered LATER than the one
+            // for Renderer2D::m_ShaderLibrary / Renderer3D::m_ShaderLibrary —
+            // namespace-scope statics registered during dynamic initialisation,
+            // before main. Static destruction is LIFO, so the map went first and
+            // ~ShaderLibrary then released its Ref<Shader>s into freed buckets:
+            //
+            //   READ of size 8 ... _Find_last
+            //     #3 ShaderResourceRegistry::Unregister   ShaderResourceRegistry.cpp
+            //     #4 OloEngine::OpenGLShader::~OpenGLShader
+            //    #16 OloEngine::ShaderLibrary::~ShaderLibrary
+            //   freed by: `dynamic atexit destructor for 's_Registries'`
+            //
+            // Leaking is the fix rather than a workaround: the map holds only
+            // non-owning raw pointers, so nothing it contains needs releasing,
+            // and outliving every shader is exactly the lifetime it must have.
+            // Skipping the Unregister during teardown instead would be a silent
+            // early-out over a map that is genuinely still needed by any shader
+            // released before it (docs/agent-rules/no-silent-fallbacks.md).
+            static auto* s_Registries = new std::unordered_map<u32, ShaderResourceRegistry*>();
+            return *s_Registries;
         }
     } // namespace
 

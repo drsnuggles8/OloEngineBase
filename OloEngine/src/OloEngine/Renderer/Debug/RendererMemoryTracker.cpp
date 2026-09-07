@@ -18,8 +18,18 @@ namespace OloEngine
 {
     RendererMemoryTracker& RendererMemoryTracker::GetInstance()
     {
-        static RendererMemoryTracker s_Instance;
-        return s_Instance;
+        // Deliberately leaked (never destroyed) — issue #1088's shape. Every
+        // OpenGL resource destructor calls OLO_TRACK_DEALLOC, which lands here,
+        // and those destructors run during STATIC DESTRUCTION for anything the
+        // namespace-scope ShaderLibrary statics still own. A lazily-created
+        // Meyers singleton is registered for destruction later than they are
+        // and so is torn down first.
+        //
+        // Leaking also keeps the teardown REPORT trustworthy: Shutdown() is
+        // what enumerates surviving allocations, and it is an explicit call,
+        // not the destructor (which is `= default`).
+        static auto* s_Instance = new RendererMemoryTracker();
+        return *s_Instance;
     }
     void RendererMemoryTracker::Initialize()
     {

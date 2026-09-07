@@ -17,8 +17,19 @@ namespace OloEngine
 {
     ShaderDebugger& ShaderDebugger::GetInstance()
     {
-        static ShaderDebugger instance;
-        return instance;
+        // Deliberately leaked (never destroyed) — issue #1088's shape, and this
+        // one is two statements below the fault that issue reported.
+        // ~OpenGLShader and ~OpenGLComputeShader call OLO_SHADER_UNREGISTER,
+        // which lands here, and those destructors run during STATIC DESTRUCTION
+        // for anything the namespace-scope ShaderLibrary statics still own.
+        //
+        // The macro compiles to nothing outside OLO_DEBUG, which is why the
+        // Release ASan repro stopped at the registry map rather than here — the
+        // hazard is real in Debug and simply not reachable in Release. The
+        // destructor is `= default` and the class holds diagnostic data only
+        // (no Ref<>, no GPU handles), so leaking releases nothing.
+        static auto* s_Instance = new ShaderDebugger();
+        return *s_Instance;
     }
 
     void ShaderDebugger::Initialize()

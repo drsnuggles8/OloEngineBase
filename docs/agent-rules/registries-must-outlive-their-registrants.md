@@ -1,0 +1,139 @@
+# A process-wide registry must outlive everything that unregisters from it
+
+If a destructor calls `SomeRegistry::Unregister(...)`, that registry has to be **immortal** — a
+deliberately leaked heap allocation, never a plain `static T x;`. Otherwise the registry is torn
+down first and the unregister reads freed memory.
+
+```cpp
+// Right. Never destroyed, so it cannot be destroyed too early.
+auto GetRegistry() -> Registry&
+{
+    static auto* s_Instance = new Registry();
+    return *s_Instance;
+}
+```
+
+Issue #1088 is the worked example: an ASan `heap-use-after-free` at process exit whose report named
+both ends at once.
+
+```
+READ of size 8 ... _Find_last
+    #3  ShaderResourceRegistry::Unregister(unsigned int)
+    #4  OloEngine::OpenGLShader::~OpenGLShader
+   #16  OloEngine::ShaderLibrary::~ShaderLibrary
+freed by: `dynamic atexit destructor for 's_Registries'`
+```
+
+## Why the ordering is not a coin flip
+
+It is not "unspecified and we got unlucky". For a Meyers singleton it is **reliably wrong**, and the
+reason is worth knowing because it tells you which statics are at risk:
+
+- A function-local `static` registers its destructor with `atexit` **on first use**, at runtime.
+- A namespace-scope object registers its destructor during **dynamic initialisation**, before `main`.
+- Static destruction runs that list **LIFO**.
+
+So a registry first touched when the first shader links is destroyed *before*
+`Renderer2D::m_ShaderLibrary` and `Renderer3D::m_ShaderLibrary`, which are namespace-scope. Every
+`Ref<Shader>` those libraries release during teardown then unregisters into a destroyed container.
+Lazy creation is exactly what puts the registry at the wrong end of the list.
+
+**The namespace-scope case is worse, not better.** `Shader.cpp`'s two program-capability sets were
+namespace-scope objects in a different translation unit from the shader libraries, and the standard
+does not order dynamic initialisation across translation units *at all*. That is not late, it is
+unspecified: it can work for years and change with an unrelated link-order edit. You cannot fix it
+by moving code around. The registry has to outlive its registrants.
+
+## Leaking is the fix, not a workaround
+
+Two objections come up, and both have answers:
+
+- *"It is a leak."* It is, and it releases nothing, because these registries hold **non-owning**
+  data — raw pointers and `u32` ids keyed to objects that own themselves. There is nothing to free.
+  Outliving every registrant is the lifetime the object should have had. (A registry that owned
+  GPU memory would be a different problem: see
+  [lazy-static-release-ownership.md](lazy-static-release-ownership.md).)
+- *"Just skip the unregister during teardown."* That is a silent early-out over a container that is
+  genuinely still needed by every registrant released *before* it — a correctness change dressed as
+  a lifetime fix, and exactly what [no-silent-fallbacks.md](no-silent-fallbacks.md) is about.
+
+Check the destructor before leaking. All of #1088's were `= default`, and the cleanup that matters
+(`Shutdown()`, and `RendererMemoryTracker`'s survivor report) is an explicit call, not a destructor
+— so leaking loses nothing. If a destructor *does* real work, leaking is the wrong tool.
+
+## ASan finds one member of a set, never the set
+
+`halt_on_error=1` aborts at the first fault, so the report names whichever registry happened to be
+destroyed first and says nothing about the rest. #1088's report named one; walking `~OpenGLShader`
+line by line found **six** with the same defect:
+
+| registry | reached from |
+|---|---|
+| `ShaderResourceRegistry`'s process map | `Unregister` — the one the report named |
+| `FrameResourceManager::Get` | `SubmitForDeletion` for the GL program |
+| `RendererMemoryTracker::GetInstance` | `OLO_TRACK_DEALLOC` |
+| `ShaderDebugger::GetInstance` | `OLO_SHADER_UNREGISTER` |
+| `Shader.cpp`'s `BindlessPrograms` | deletion lambda → `Shader::UnregisterProgram` |
+| `Shader.cpp`'s `MaterialOffsetPrograms` | same |
+
+Fixing the first and re-running gave a **clean full ASan suite**, which is easy to read as "there
+was one bug". **Enumerate the destructor's call graph by reading it — a green sanitizer run after a
+lifetime fix is evidence about one path, not about the class.**
+
+## Not every member of the set can produce a report, and that is the point
+
+A Meyers singleton lives in **static storage, which is never freed** — only heap memory the object
+*owns* is. So the fault needs the call to reach heap-owning state after the destructor ran:
+`unordered_map`'s buckets are heap, and that is what `_Find_last` walked.
+
+Run down the six with that in mind and they split:
+
+| registry | on the teardown call |
+|---|---|
+| `ShaderResourceRegistry`'s map | reaches `find()` on freed buckets — **the observed fault** |
+| `Shader.cpp`'s two sets | reach `erase()` on freed buckets — same shape |
+| `RendererMemoryTracker` | `TrackDeallocation` early-returns on `m_IsShutdown`, true after `Renderer::Shutdown()` |
+| `ShaderDebugger` | `UnregisterShader` early-returns on `!m_IsInitialized`; `Initialize()` runs only from `Application.cpp`, never in the test binary |
+
+All six are unsafe **by construction** — each is touched from a static destructor that runs after
+its own would have. But only some can produce an ASan report, and only in a process that reaches
+past the early-out. That is the honest reason the report named exactly one, and it is a sharper
+lesson than "the others were hidden behind the abort": **an early-out can make a real lifetime bug
+permanently invisible to the sanitizer while leaving it just as wrong.** Fix by reading the
+lifetime, not by waiting for a report.
+
+`ShaderDebugger` is the sharp end of this. `OLO_SHADER_UNREGISTER` compiles to nothing outside
+`OLO_DEBUG`, so a Release ASan run cannot reach it at all; and in a Debug ASan run of the *test*
+binary the debugger is never initialised, so it early-outs. Reproducing it needs an ASan Debug
+**editor** session. Its fix rests on construction and the source guard — say so rather than
+letting a green suite imply coverage it does not have.
+
+## The guard, and why a dynamic one is not enough
+
+`ShaderRegistryTeardownOrderTest` (`OloEngine/tests/Rendering/`) uses two, and the reason is worth
+getting right because the obvious version of it is wrong. `asan.yml` **does** run a Windows
+clang-cl ASan job over the full `ctest` suite. What it does not have is a **GPU**: every test that
+creates a GL shader skips there, so the registries are never populated and the teardown fault
+cannot arise. That — not the absence of an ASan build — is why #1088 reached master.
+
+1. **A source scan** over a seeded roster of all six sites, asserting each accessor keeps the
+   `static auto* x = new ...` form. Runs everywhere, no GPU, no sanitizer. Seeded rather than
+   discovered, for the reason
+   [lazy-static-release-ownership.md](lazy-static-release-ownership.md) gives twice: a scan that
+   discovers its own targets can stop checking. A new registry on this path means a new row.
+2. **A static-destruction probe** — a namespace-scope object whose destructor does a
+   `Register`/`Find`/`Unregister` round trip, so it runs *after* the registry's would-be destructor.
+   It makes the fault deterministic for **any** invocation of the test binary rather than only the
+   process shapes that populated both statics, which is what made #1088 read as a flake. It
+   populates the map itself and needs no GL context, which is precisely what lets it fire in the
+   GPU-less CI ASan job that the original bug walked straight past.
+
+Both were red-checked, and the probe **in the compiled binary** rather than in a scratch copy of the
+scan — the failure mode that shipped once already in this repo's history. Built against pre-fix
+source it faults on a filter that creates no shaders, no GPU and no renderer at all.
+
+One trap the source scan hit in review, worth copying to any scan like it: brace-matching a function
+body over **raw** source is unsafe when the body carries a long comment — here a quoted ASan stack.
+A single `}` written into that comment truncates the extracted body and the guard reports a
+regression that is not there. A false red is the worst outcome for a guard like this, because the
+obvious response is to "fix" correct code. Strip comments and string literals before matching.

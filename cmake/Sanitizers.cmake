@@ -62,6 +62,27 @@ if(OLO_ENABLE_ASAN)
         # (e.g. Vulkan SDK's spirv-cross on CI where debug libs aren't available).
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 
+        # ...and therefore consume RELEASE dependencies in every configuration too.
+        # Forcing /MD above is only half the job (issue #1096): every dependency that
+        # ships BOTH configurations still hands a Debug build its debug tree, which is
+        # compiled against the debug CRT, and lld-link rejects the mix:
+        #
+        #   lld-link: error: /failifmismatch: mismatch for '_ITERATOR_DEBUG_LEVEL':
+        #   >>> OloEngine.lib(AudioEngine.cpp.obj) has value 0
+        #   >>> gtest.lib(gtest-all.cc.obj) has value 2
+        #
+        # Mapping the Debug configuration onto Release for IMPORTED targets is the
+        # documented way to make a debug-config build link release dependencies, and it
+        # covers vcpkg's debug/ tree wholesale rather than one library at a time. The
+        # trailing empty string is the required "then try the unsuffixed location"
+        # fallback for imported targets that declare no per-config location at all.
+        #
+        # The general rule, since this bit twice: once the CRT is forced, anything that
+        # selects a debug variant by CONFIG rather than by CRT is wrong. cmake/vendor/
+        # OpenUSD.cmake had to learn the same lesson for its hand-rolled selector, which
+        # is not an imported target and so is NOT covered by this mapping.
+        set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG "Release" "")
+
         # ASan is incompatible with /RTC1 (runtime checks) and incremental linking.
         string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
         string(REPLACE "/RTCs" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")

@@ -133,6 +133,15 @@ if(WIN32)
     # shipped clang_rt.asan_dynamic-x86_64.lib, which is built /MD-only.
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 
+    # ...so imported dependencies have to come from their RELEASE side too, or a
+    # Debug fuzzing build links vcpkg's debug/ tree (gtest and friends) at
+    # _ITERATOR_DEBUG_LEVEL 2 against these level-0 objects. Same reasoning and
+    # same one-liner as cmake/Sanitizers.cmake (issue #1096) — duplicated rather
+    # than shared because this block forces the CRT independently of
+    # OLO_ENABLE_ASAN, so fuzzing-without-ASan would otherwise miss it. Whoever
+    # forces the CRT owns the matching dependency mapping.
+    set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG "Release" "")
+
     # ASan is incompatible with /RTC1 and /ZI (Edit-and-Continue). Strip the
     # offenders out of the default Debug flags. Fuzzing.cmake is include()-d
     # (not added as a subdirectory) so we mutate the variables in the
