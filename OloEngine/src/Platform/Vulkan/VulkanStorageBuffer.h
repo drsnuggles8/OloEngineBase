@@ -173,7 +173,7 @@ namespace OloEngine
             m_SnapshotCpu = nullptr;
             m_SnapshotBytes = 0;
             m_SnapshotArenaOffset = 0;
-            m_SnapshotConsumed = false;
+            m_SnapshotConsumed.store(false, std::memory_order_relaxed);
         }
 
         VkBuffer m_Buffer = VK_NULL_HANDLE;
@@ -196,7 +196,17 @@ namespace OloEngine
         // what keeps a batch of N scattered writes (GPUScene::Upload issues
         // one SetData per non-adjacent dirty range) costing ONE snapshot
         // rather than N.
-        bool m_SnapshotConsumed = false;
+        //
+        // ATOMIC because GetRootDataAddress SETS it and runs on the parallel
+        // draw-record path: RecordParallel pre-pushes every bound UBO before
+        // the fork precisely so no item pushes a shared object, but storage
+        // buffers get no such warm-up, so N worker threads can resolve the
+        // same buffer at once. Relaxed is enough — the flag only ever moves
+        // false -> true within a frame, the fork/join orders it against the
+        // render-thread writes around it, and a racing reader that misses the
+        // set merely declines the in-place reuse and claims a fresh range,
+        // which is the conservative answer.
+        std::atomic<bool> m_SnapshotConsumed{ false };
         u64 m_GpuWriteFrameGeneration = ~0ull; ///< see NoteGpuWriteThisFrame.
         u32 m_SnapshotBytes = 0;
         // Generation-checked identity for m_Buffer, kept in lockstep by

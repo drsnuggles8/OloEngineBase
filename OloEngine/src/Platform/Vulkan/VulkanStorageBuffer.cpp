@@ -300,7 +300,7 @@ namespace OloEngine
         // exhausting it drops root data for the WHOLE frame, not just for this
         // buffer. With reuse, that batch costs one whole-buffer fill plus N
         // small memcpys.
-        if (liveSnapshot && !m_SnapshotConsumed)
+        if (liveSnapshot && !m_SnapshotConsumed.load(std::memory_order_relaxed))
         {
             std::memcpy(static_cast<u8*>(m_SnapshotCpu) + offset, data, size);
             arena.FlushWrite(VulkanFrameArenaAllocation{ m_SnapshotCpu, m_SnapshotAddress, m_SnapshotArenaOffset },
@@ -383,7 +383,7 @@ namespace OloEngine
         m_SnapshotAddress = allocation.Gpu;
         m_SnapshotCpu = allocation.Cpu;
         m_SnapshotArenaOffset = allocation.Offset;
-        m_SnapshotConsumed = false;
+        m_SnapshotConsumed.store(false, std::memory_order_relaxed);
         m_SnapshotBytes = newBytes;
     }
 
@@ -397,7 +397,7 @@ namespace OloEngine
         // become observable from here on: a later SetData in the same frame
         // must stage a NEW range rather than rewrite this one (see
         // m_SnapshotConsumed).
-        m_SnapshotConsumed = true;
+        m_SnapshotConsumed.store(true, std::memory_order_relaxed);
         return m_SnapshotAddress;
     }
 
@@ -556,12 +556,6 @@ namespace OloEngine
         // after it must observe zeros (persistent buffer), not the pre-clear
         // snapshot bytes. No-op for the GPU-written tenants below, which
         // never SetData mid-frame.
-        //
-        // NoteGpuWriteThisFrame as well, because the recorded-fill path below
-        // never touches m_Mapped: from here to the end of the frame, the host
-        // mapping would hand a later partial SetData exactly the pre-clear
-        // bytes this call is removing.
-        NoteGpuWriteThisFrame();
         InvalidateSnapshot();
 
         // Mid-frame (#691): a ClearData between two GPU uses
@@ -576,6 +570,14 @@ namespace OloEngine
         // Live-object probe, not the static flag — see SubImage's note.
         if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
+            // ONLY this arm marks the mapping stale. The recorded fill executes at
+            // submit and never touches m_Mapped, so from here to the end of the
+            // frame the host mapping would hand a later partial SetData exactly the
+            // pre-clear bytes this call is removing. The mapped arm below, by
+            // contrast, memsets m_Mapped itself — the mapping stays truthful there,
+            // and marking it stale would refuse later snapshots (and bump the
+            // refusal counter) for no reason.
+            NoteGpuWriteThisFrame();
             vk->ClearBufferUInt(m_RHIHandle.Get(), 0u);
             return;
         }
@@ -641,14 +643,13 @@ namespace OloEngine
         {
             return;
         }
-        // Same reasoning as the whole-buffer clear: the recorded fill below
-        // bypasses m_Mapped, so the mapping stops being a truthful fill source
-        // for the rest of the frame.
-        NoteGpuWriteThisFrame();
         InvalidateSnapshot();
 
         if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
+            // Same split as the whole-buffer clear: only the RECORDED fill bypasses
+            // m_Mapped and so invalidates it as a fill source.
+            NoteGpuWriteThisFrame();
             vk->ClearBufferUInt(m_RHIHandle.Get(), 0u, offset, size);
             return;
         }

@@ -1526,7 +1526,10 @@ TEST_F(VulkanDrawPath, ConsecutiveWritesShareOneSnapshotUntilADrawReadsIt)
     VkDeviceAddress firstAddress = 0;
     VkDeviceAddress batchAddress = 0;
     VkDeviceAddress afterDrawAddress = 0;
-    std::array<u32, 4> readback{};
+    // Wide enough to cover every element the batch writes (0, 4, 8, 12) — a
+    // 4-element readback observed only `e` and so could not tell an accumulating
+    // reuse path from one that dropped b, c and d.
+    std::array<u32, 16> readback{};
 
     SubmitFrame(api,
                 [&]()
@@ -1568,9 +1571,14 @@ TEST_F(VulkanDrawPath, ConsecutiveWritesShareOneSnapshotUntilADrawReadsIt)
            "it and command ordering (issue #691) is lost";
     EXPECT_NE(batchAddress, afterDrawAddress) << "the post-draw write must be a different arena range";
 
-    // The reuse path must still accumulate every write, not just the last.
-    EXPECT_EQ(readback[0], 0xEEEEEEEEu);
-    EXPECT_EQ(readback[1], 0u);
+    // The reuse path must accumulate EVERY write, not just the last — and the
+    // fresh range staged after the draw must inherit them, since it is sourced
+    // from the snapshot the draw consumed.
+    EXPECT_EQ(readback[0], 0xEEEEEEEEu) << "the post-draw write must land at element 0";
+    EXPECT_EQ(readback[4], 0xBBBBBBBBu) << "write b was dropped — the batch did not accumulate";
+    EXPECT_EQ(readback[8], 0xCCCCCCCCu) << "write c was dropped — the batch did not accumulate";
+    EXPECT_EQ(readback[12], 0xDDDDDDDDu) << "write d was dropped — the batch did not accumulate";
+    EXPECT_EQ(readback[1], 0u) << "bytes no writer touched must stay as the seeded zeros";
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
@@ -1624,6 +1632,69 @@ TEST_F(VulkanDrawPath, AClearedRangeIsNotResurrectedByALaterPartialWrite)
     EXPECT_EQ(rootAfter, persistent)
         << "and the draw must fall back to the PERSISTENT buffer, which is where the recorded clear actually "
            "lands — a snapshot rebuilt from m_Mapped would undo the clear for every later draw";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+}
+
+// The mirror of the test above: a clear that goes through the MAPPED path
+// updates m_Mapped itself, so the mapping stays a truthful source and a later
+// partial write must still snapshot. Marking the mapping stale for every clear
+// (rather than only for the recorded fill) would silently drop this buffer to
+// last-write-wins ordering — safe, but a needless loss of the #691 guarantee,
+// and it would bump the refusal counter where nothing is wrong.
+TEST_F(VulkanDrawPath, AMappedClearOutsideTheBracketStillAllowsALaterSnapshot)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kElements = 64u;
+    constexpr u32 kBytes = kElements * sizeof(u32);
+    auto buffer = StorageBuffer::Create(kBytes, 31u, StorageBufferUsage::DynamicDraw);
+    ASSERT_TRUE(buffer);
+    auto* vkBuffer = static_cast<VulkanStorageBuffer*>(buffer.Raw());
+    const VkDeviceAddress persistent = vkBuffer->GetDeviceAddress();
+
+    std::array<u32, kElements> seed{};
+    for (u32 i = 0; i < kElements; ++i)
+    {
+        seed[i] = 0xA0000000u | i;
+    }
+    buffer->SetData(seed.data(), kBytes, 0);
+
+    // OUTSIDE any recording bracket: this takes the mapped memset arm, which
+    // writes m_Mapped, so the mapping still tells the truth afterwards.
+    buffer->ClearData(static_cast<u32>(32 * sizeof(u32)), static_cast<u32>(32 * sizeof(u32)));
+
+    auto& api = renderCommandSelection.Get();
+    const u64 refusedBefore = VulkanStorageBuffer::GetSnapshotRefusedCount();
+    u32 snapshotBytes = 0;
+    VkDeviceAddress root = 0;
+    std::array<u32, kElements> readback{};
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    const u32 v = 0xB0000000u;
+                    buffer->SetData(&v, sizeof(v), 0);
+                    snapshotBytes = vkBuffer->GetLiveSnapshotBytes();
+                    root = vkBuffer->GetRootDataAddress();
+                    if (const auto* cpu = vkBuffer->GetLiveSnapshotCpuData(); cpu != nullptr)
+                    {
+                        std::memcpy(readback.data(), cpu, std::min<sizet>(kBytes, snapshotBytes));
+                    }
+                });
+
+    EXPECT_EQ(snapshotBytes, kBytes)
+        << "a mapped clear keeps m_Mapped truthful, so the later partial write must still stage a whole-buffer "
+           "snapshot rather than refuse";
+    EXPECT_NE(root, persistent);
+    EXPECT_EQ(VulkanStorageBuffer::GetSnapshotRefusedCount(), refusedBefore)
+        << "nothing was unsourceable here, so the refusal counter must not move";
+
+    // And the snapshot carries the CLEARED tail, not the pre-clear seed.
+    EXPECT_EQ(readback[0], 0xB0000000u);
+    EXPECT_EQ(readback[8], seed[8]) << "the untouched prefix must survive";
+    EXPECT_EQ(readback[32], 0u) << "the cleared tail must read as zeros, not the pre-clear seed";
+    EXPECT_EQ(readback[63], 0u);
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
