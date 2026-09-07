@@ -398,6 +398,28 @@ TEST_F(VulkanDrawPath, EngineHeapServesShaderReachableSlotsAndPoisonsFreedOnes)
     } restore{ hadPrior, priorDesc, priorBackend };
 
     ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
+
+    // Poison-on-free is a DEBUG diagnostic in both backends' installs
+    // (OpenGLRendererAPI::Init and VulkanDescriptorHeapBackend::
+    // InstallOntoEngineHeap both gate HeapDesc::PoisonOnFree on OLO_DEBUG), so
+    // the install this test just performed leaves it OFF in Release — and the
+    // freed slot below keeps the dead texture's descriptor and samples 0xFF
+    // instead of the poison's 0x00. That is issue #1087's entire Release-vs-
+    // Debug split: not a missing barrier, not robustness2's nullDescriptor
+    // (this backend's nulls are real 1x1 black images precisely because
+    // nullDescriptor is not on the device floor), and not a stale binding.
+    //
+    // Re-initialise with poison ON rather than skipping the assertion in
+    // Release: the contract in this test's name is a property of the heap, not
+    // of the build, and a test that quietly stops checking half its name in
+    // the shipping configuration is the green-run-that-tested-nothing shape.
+    // Legal here because Initialize retires every live slot first and no view
+    // has been minted yet.
+    RHI::HeapDesc poisoningDesc = engineHeap.GetDesc();
+    poisoningDesc.PoisonOnFree = true;
+    RHI::DescriptorHeap::Get().Initialize(poisoningDesc, engineHeap.GetBackend());
+    ASSERT_TRUE(engineHeap.IsPoisonOnFree());
+
     engineHeap.SetEnabled(true);
     ASSERT_TRUE(engineHeap.IsEnabled());
 
@@ -497,8 +519,12 @@ TEST_F(VulkanDrawPath, EngineHeapServesShaderReachableSlotsAndPoisonsFreedOnes)
     // Destroy the view: OffsetOf rejects, and the freed slot reads DETERMINISTIC
     // zeros (null descriptor) — tint x zero = black, never the old texture and
     // never undefined behaviour.
+    const u64 poisonedBefore = engineHeap.GetStats().SlotsPoisoned;
     engineHeap.DestroyView(view);
     EXPECT_FALSE(engineHeap.OffsetOf(view).IsValid()) << "a destroyed view's offset must reject";
+    EXPECT_GT(engineHeap.GetStats().SlotsPoisoned, poisonedBefore)
+        << "poison-on-free must be COUNTED, not just performed — the stat is how a caller learns the slot was "
+           "overwritten (no-silent-fallbacks.md)";
     engineHeap.Flush(); // publish the poison write
 
     drawWithSlot(offset.Value, RHI::Access::ShaderSampleRead);
@@ -1343,6 +1369,333 @@ TEST_F(VulkanDrawPath, GpuProducedStorageBufferNeverServesADrawFromACpuSnapshot)
         << "a snapshot from a previous frame generation must not outlive it — the arena range it points at "
            "has been rewound";
     EXPECT_EQ(vkGpuProduced->GetRootDataAddress(), gpuPersistent);
+}
+
+// A snapshot the draw can index past is the whole point of issue #1080:
+// GetRootDataAddress hands the shader a bare device address with no length, so
+// the ONLY thing that keeps a read inside this buffer is the snapshot spanning
+// all of it. The measured case was a 176-byte snapshot standing in for an
+// 11,264-byte binding-17 buffer — a shader reading element 20 walked into
+// whatever the frame arena handed out next. Note the shape: every write
+// observed in the wild started at offset 0, so the pre-existing prefix guard
+// never engaged and only the TAIL was ever short.
+TEST_F(VulkanDrawPath, PartialStorageBufferWriteSnapshotsTheWholeBufferOrNothing)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kElements = 64u;
+    constexpr u32 kBytes = kElements * sizeof(u32);
+    auto buffer = StorageBuffer::Create(kBytes, 31u, StorageBufferUsage::DynamicDraw);
+    ASSERT_TRUE(buffer);
+    auto* vkBuffer = static_cast<VulkanStorageBuffer*>(buffer.Raw());
+    const VkDeviceAddress persistent = vkBuffer->GetDeviceAddress();
+    ASSERT_NE(persistent, VkDeviceAddress{ 0 });
+
+    // Seed the whole buffer OUTSIDE a recording bracket, so this write is a
+    // plain persistent write-through with no snapshot behind it — the setup
+    // shape PushSnapshot's own no-recording guard describes.
+    std::array<u32, kElements> seed{};
+    for (u32 i = 0; i < kElements; ++i)
+    {
+        seed[i] = 0xA0000000u | i;
+    }
+    buffer->SetData(seed.data(), kBytes, 0);
+    ASSERT_EQ(vkBuffer->GetLiveSnapshotBytes(), 0u)
+        << "a write outside a recording bracket must not stage a snapshot at all";
+
+    auto& api = renderCommandSelection.Get();
+    const u64 refusedBefore = VulkanStorageBuffer::GetSnapshotRefusedCount();
+    constexpr u32 kWrittenElements = 4u;
+    constexpr u32 kWrittenBytes = kWrittenElements * sizeof(u32);
+    const std::array<u32, kWrittenElements> head{ 0xB0000000u, 0xB0000001u, 0xB0000002u, 0xB0000003u };
+
+    u32 headWriteSnapshotBytes = 0;
+    u32 midWriteSnapshotBytes = 0;
+    std::array<u32, kElements> afterHeadWrite{};
+    std::array<u32, kElements> afterMidWrite{};
+    VkDeviceAddress rootAfterHeadWrite = 0;
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    // (1) The measured shape: offset 0, a fraction of the
+                    // buffer. Pre-fix this produced a 16-byte snapshot for a
+                    // 256-byte buffer.
+                    buffer->SetData(head.data(), kWrittenBytes, 0);
+                    headWriteSnapshotBytes = vkBuffer->GetLiveSnapshotBytes();
+                    rootAfterHeadWrite = vkBuffer->GetRootDataAddress();
+                    if (const auto* cpu = vkBuffer->GetLiveSnapshotCpuData(); cpu != nullptr)
+                    {
+                        std::memcpy(afterHeadWrite.data(), cpu,
+                                    std::min<sizet>(kBytes, vkBuffer->GetLiveSnapshotBytes()));
+                    }
+
+                    // (2) A write that starts mid-buffer, layered on the live
+                    // snapshot: the prefix comes from the snapshot, the tail
+                    // must too.
+                    const std::array<u32, 2> mid{ 0xC0000000u, 0xC0000001u };
+                    buffer->SetData(mid.data(), static_cast<u32>(mid.size() * sizeof(u32)),
+                                    static_cast<u32>(8 * sizeof(u32)));
+                    midWriteSnapshotBytes = vkBuffer->GetLiveSnapshotBytes();
+                    if (const auto* cpu = vkBuffer->GetLiveSnapshotCpuData(); cpu != nullptr)
+                    {
+                        std::memcpy(afterMidWrite.data(), cpu,
+                                    std::min<sizet>(kBytes, vkBuffer->GetLiveSnapshotBytes()));
+                    }
+                });
+
+    // The contract, stated as the issue states it: whole buffer, or nothing.
+    // Both are safe; a snapshot in between is the out-of-bounds device read.
+    EXPECT_TRUE(headWriteSnapshotBytes == kBytes || headWriteSnapshotBytes == 0u)
+        << "a mid-frame partial SetData must snapshot all " << kBytes << " bytes or refuse the snapshot outright; "
+        << "it staged " << headWriteSnapshotBytes
+        << " and the draw's root-data address carries no length to bound the difference (issue #1080)";
+    EXPECT_TRUE(midWriteSnapshotBytes == kBytes || midWriteSnapshotBytes == 0u)
+        << "same rule for a write that starts mid-buffer — it staged " << midWriteSnapshotBytes;
+
+    // This device gives DynamicDraw storage buffers a host-visible placement,
+    // so the undefined bytes always have a CPU-readable source and the
+    // snapshot must actually happen. If that ever stops being true the
+    // EXPECT_TRUEs above still hold and this one names why it changed.
+    ASSERT_EQ(headWriteSnapshotBytes, kBytes)
+        << "no snapshot was staged at all — the buffer has no mapped placement and no live snapshot to source "
+           "the undefined bytes from, which is a legal but different outcome than this test set up";
+    EXPECT_NE(rootAfterHeadWrite, persistent);
+
+    // Content, not just extent: bytes the write did not define must carry the
+    // persistent buffer's real values, never a zero fill that only LOOKS
+    // defined to a shader.
+    for (u32 i = 0; i < kWrittenElements; ++i)
+    {
+        EXPECT_EQ(afterHeadWrite[i], head[i]) << "written element " << i;
+    }
+    for (u32 i = kWrittenElements; i < kElements; ++i)
+    {
+        EXPECT_EQ(afterHeadWrite[i], seed[i])
+            << "tail element " << i << " must carry the persistent buffer's value, not a zero fill";
+    }
+
+    ASSERT_EQ(midWriteSnapshotBytes, kBytes);
+    EXPECT_EQ(afterMidWrite[8], 0xC0000000u);
+    EXPECT_EQ(afterMidWrite[9], 0xC0000001u);
+    for (u32 i = 0; i < kWrittenElements; ++i)
+    {
+        EXPECT_EQ(afterMidWrite[i], head[i]) << "prefix element " << i << " must survive from the live snapshot";
+    }
+    for (u32 i = 10; i < kElements; ++i)
+    {
+        EXPECT_EQ(afterMidWrite[i], seed[i]) << "tail element " << i << " must survive from the live snapshot";
+    }
+
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+
+    // The refusal path is the other half of the contract: whole-buffer OR
+    // nothing means the "nothing" branch has to be observable, not just
+    // greppable in a log. This buffer is mapped, so nothing should have been
+    // refused here — and if a future change makes the arena refuse instead,
+    // this says so rather than letting the EXPECT_TRUEs above pass on the
+    // no-snapshot arm.
+    EXPECT_EQ(VulkanStorageBuffer::GetSnapshotRefusedCount(), refusedBefore)
+        << "a mapped DynamicDraw buffer inside a recording bracket must not need the refusal path";
+}
+
+// The whole-buffer rule of #1080 is only affordable because an UNREAD snapshot
+// is rewritten in place. GPUScene::Upload issues one SetData per non-adjacent
+// dirty range, so without reuse a frame that dirties N scattered records would
+// claim N whole-buffer arena ranges — and the arena is where every draw's root
+// data lives, so exhausting it drops root data for the entire frame.
+TEST_F(VulkanDrawPath, ConsecutiveWritesShareOneSnapshotUntilADrawReadsIt)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kElements = 64u;
+    constexpr u32 kBytes = kElements * sizeof(u32);
+    auto buffer = StorageBuffer::Create(kBytes, 31u, StorageBufferUsage::DynamicDraw);
+    ASSERT_TRUE(buffer);
+    auto* vkBuffer = static_cast<VulkanStorageBuffer*>(buffer.Raw());
+
+    std::array<u32, kElements> seed{};
+    buffer->SetData(seed.data(), kBytes, 0);
+
+    auto& api = renderCommandSelection.Get();
+    auto& arena = VulkanFrameArena::Get();
+    u64 allocationsForBatch = 0;
+    u64 allocationsAfterDraw = 0;
+    VkDeviceAddress firstAddress = 0;
+    VkDeviceAddress batchAddress = 0;
+    VkDeviceAddress afterDrawAddress = 0;
+    // Wide enough to cover every element the batch writes (0, 4, 8, 12) — a
+    // 4-element readback observed only `e` and so could not tell an accumulating
+    // reuse path from one that dropped b, c and d.
+    std::array<u32, 16> readback{};
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    // A batch of scattered writes with NO draw between them —
+                    // the GPUScene::Upload shape.
+                    const u64 before = arena.GetAllocationCountThisFrame();
+                    const u32 a = 0xAAAAAAAAu;
+                    buffer->SetData(&a, sizeof(a), 0);
+                    firstAddress = vkBuffer->GetLiveSnapshotBytes() != 0 ? VkDeviceAddress{ 1 } : VkDeviceAddress{ 0 };
+                    const u32 b = 0xBBBBBBBBu;
+                    buffer->SetData(&b, sizeof(b), 4 * sizeof(u32));
+                    const u32 c = 0xCCCCCCCCu;
+                    buffer->SetData(&c, sizeof(c), 8 * sizeof(u32));
+                    const u32 d = 0xDDDDDDDDu;
+                    buffer->SetData(&d, sizeof(d), 12 * sizeof(u32));
+                    allocationsForBatch = arena.GetAllocationCountThisFrame() - before;
+                    batchAddress = vkBuffer->GetRootDataAddress(); // consumes it
+
+                    // Now a write AFTER the address was handed to a draw: it
+                    // must NOT overwrite what that draw is going to read.
+                    const u64 beforeSecond = arena.GetAllocationCountThisFrame();
+                    const u32 e = 0xEEEEEEEEu;
+                    buffer->SetData(&e, sizeof(e), 0);
+                    allocationsAfterDraw = arena.GetAllocationCountThisFrame() - beforeSecond;
+                    afterDrawAddress = vkBuffer->GetRootDataAddress();
+                    if (const auto* cpu = vkBuffer->GetLiveSnapshotCpuData(); cpu != nullptr)
+                    {
+                        std::memcpy(readback.data(), cpu, readback.size() * sizeof(u32));
+                    }
+                });
+
+    EXPECT_EQ(firstAddress, VkDeviceAddress{ 1 }) << "the first write must stage a snapshot at all";
+    EXPECT_EQ(allocationsForBatch, 1u)
+        << "four consecutive SetData calls with no draw between them must share ONE whole-buffer arena range — "
+           "one per write is what exhausts the frame arena and drops root data for the whole frame";
+    EXPECT_EQ(allocationsAfterDraw, 1u)
+        << "a write AFTER a draw embedded the address must stage a NEW range, or that draw's bytes change under "
+           "it and command ordering (issue #691) is lost";
+    EXPECT_NE(batchAddress, afterDrawAddress) << "the post-draw write must be a different arena range";
+
+    // The reuse path must accumulate EVERY write, not just the last — and the
+    // fresh range staged after the draw must inherit them, since it is sourced
+    // from the snapshot the draw consumed.
+    EXPECT_EQ(readback[0], 0xEEEEEEEEu) << "the post-draw write must land at element 0";
+    EXPECT_EQ(readback[4], 0xBBBBBBBBu) << "write b was dropped — the batch did not accumulate";
+    EXPECT_EQ(readback[8], 0xCCCCCCCCu) << "write c was dropped — the batch did not accumulate";
+    EXPECT_EQ(readback[12], 0xDDDDDDDDu) << "write d was dropped — the batch did not accumulate";
+    EXPECT_EQ(readback[1], 0u) << "bytes no writer touched must stay as the seeded zeros";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+}
+
+// A GPU-side write recorded this frame makes the host mapping a liar: it
+// executes at submit and never touches m_Mapped. Sourcing a partial write's
+// undefined bytes from the mapping would put the cleared content straight back
+// for every draw recorded afterwards.
+TEST_F(VulkanDrawPath, AClearedRangeIsNotResurrectedByALaterPartialWrite)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kElements = 64u;
+    constexpr u32 kBytes = kElements * sizeof(u32);
+    auto buffer = StorageBuffer::Create(kBytes, 31u, StorageBufferUsage::DynamicDraw);
+    ASSERT_TRUE(buffer);
+    auto* vkBuffer = static_cast<VulkanStorageBuffer*>(buffer.Raw());
+    const VkDeviceAddress persistent = vkBuffer->GetDeviceAddress();
+
+    std::array<u32, kElements> seed{};
+    for (u32 i = 0; i < kElements; ++i)
+    {
+        seed[i] = 0xA0000000u | i;
+    }
+    buffer->SetData(seed.data(), kBytes, 0);
+
+    auto& api = renderCommandSelection.Get();
+    u64 refusedBefore = 0;
+    u64 refusedAfter = 0;
+    VkDeviceAddress rootAfter = 0;
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    // Clear the tail inside the bracket: this records a fill
+                    // into the frame command buffer and leaves m_Mapped alone.
+                    buffer->ClearData(static_cast<u32>(32 * sizeof(u32)), static_cast<u32>(32 * sizeof(u32)));
+                    refusedBefore = VulkanStorageBuffer::GetSnapshotRefusedCount();
+                    // A partial write now cannot source the cleared tail from
+                    // anywhere truthful, so it must refuse the snapshot rather
+                    // than rebuild the pre-clear bytes out of the mapping.
+                    const u32 v = 0xB0000000u;
+                    buffer->SetData(&v, sizeof(v), 0);
+                    refusedAfter = VulkanStorageBuffer::GetSnapshotRefusedCount();
+                    rootAfter = vkBuffer->GetRootDataAddress();
+                });
+
+    EXPECT_EQ(refusedAfter, refusedBefore + 1)
+        << "the snapshot must be refused, loudly and countably, once the host mapping can no longer supply the "
+           "bytes the write does not define";
+    EXPECT_EQ(rootAfter, persistent)
+        << "and the draw must fall back to the PERSISTENT buffer, which is where the recorded clear actually "
+           "lands — a snapshot rebuilt from m_Mapped would undo the clear for every later draw";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+}
+
+// The mirror of the test above: a clear that goes through the MAPPED path
+// updates m_Mapped itself, so the mapping stays a truthful source and a later
+// partial write must still snapshot. Marking the mapping stale for every clear
+// (rather than only for the recorded fill) would silently drop this buffer to
+// last-write-wins ordering — safe, but a needless loss of the #691 guarantee,
+// and it would bump the refusal counter where nothing is wrong.
+TEST_F(VulkanDrawPath, AMappedClearOutsideTheBracketStillAllowsALaterSnapshot)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kElements = 64u;
+    constexpr u32 kBytes = kElements * sizeof(u32);
+    auto buffer = StorageBuffer::Create(kBytes, 31u, StorageBufferUsage::DynamicDraw);
+    ASSERT_TRUE(buffer);
+    auto* vkBuffer = static_cast<VulkanStorageBuffer*>(buffer.Raw());
+    const VkDeviceAddress persistent = vkBuffer->GetDeviceAddress();
+
+    std::array<u32, kElements> seed{};
+    for (u32 i = 0; i < kElements; ++i)
+    {
+        seed[i] = 0xA0000000u | i;
+    }
+    buffer->SetData(seed.data(), kBytes, 0);
+
+    // OUTSIDE any recording bracket: this takes the mapped memset arm, which
+    // writes m_Mapped, so the mapping still tells the truth afterwards.
+    buffer->ClearData(static_cast<u32>(32 * sizeof(u32)), static_cast<u32>(32 * sizeof(u32)));
+
+    auto& api = renderCommandSelection.Get();
+    const u64 refusedBefore = VulkanStorageBuffer::GetSnapshotRefusedCount();
+    u32 snapshotBytes = 0;
+    VkDeviceAddress root = 0;
+    std::array<u32, kElements> readback{};
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    const u32 v = 0xB0000000u;
+                    buffer->SetData(&v, sizeof(v), 0);
+                    snapshotBytes = vkBuffer->GetLiveSnapshotBytes();
+                    root = vkBuffer->GetRootDataAddress();
+                    if (const auto* cpu = vkBuffer->GetLiveSnapshotCpuData(); cpu != nullptr)
+                    {
+                        std::memcpy(readback.data(), cpu, std::min<sizet>(kBytes, snapshotBytes));
+                    }
+                });
+
+    EXPECT_EQ(snapshotBytes, kBytes)
+        << "a mapped clear keeps m_Mapped truthful, so the later partial write must still stage a whole-buffer "
+           "snapshot rather than refuse";
+    EXPECT_NE(root, persistent);
+    EXPECT_EQ(VulkanStorageBuffer::GetSnapshotRefusedCount(), refusedBefore)
+        << "nothing was unsourceable here, so the refusal counter must not move";
+
+    // And the snapshot carries the CLEARED tail, not the pre-clear seed.
+    EXPECT_EQ(readback[0], 0xB0000000u);
+    EXPECT_EQ(readback[8], seed[8]) << "the untouched prefix must survive";
+    EXPECT_EQ(readback[32], 0u) << "the cleared tail must read as zeros, not the pre-clear seed";
+    EXPECT_EQ(readback[63], 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
 #endif // OLO_WITH_VULKAN

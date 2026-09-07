@@ -43,6 +43,7 @@
 
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Task/NamedThreads.h"
 #include "OloEngine/Renderer/Texture.h"
 
 #define GLFW_INCLUDE_NONE
@@ -290,5 +291,18 @@ namespace OloEngine::Tests
         // still exists (see the note above); ~ProjectScope drops the statics.
         texture.Reset();
         refreshed.Reset();
+
+        // ReloadData queues an AssetReloadedEvent onto the process-wide game-thread
+        // queue. Nothing in this binary runs Application::Run, so that task is never
+        // drained here — it survives into whatever test later calls ProcessAll().
+        // Draining it HERE must therefore be safe with no Application alive; before
+        // the TryGet fix it dereferenced Application::s_Instance (null) and took down
+        // an unrelated test with an access violation (the crash surfaced in
+        // NetworkThreadDispatchTest.EnqueueGameThreadFromNetwork, ~5,700 tests later).
+        Tasks::FNamedThreadManager::Get().AttachToThread(Tasks::ENamedThread::GameThread);
+        EXPECT_NO_FATAL_FAILURE(
+            Tasks::FNamedThreadManager::Get().GetQueue(Tasks::ENamedThread::GameThread).ProcessAll(true))
+            << "a queued AssetReloadedEvent must be safe to drain in a host with no Application";
+        Tasks::FNamedThreadManager::Get().DetachFromThread(Tasks::ENamedThread::GameThread);
     }
 } // namespace OloEngine::Tests

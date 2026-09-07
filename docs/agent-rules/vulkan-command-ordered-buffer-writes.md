@@ -124,8 +124,20 @@ actual defect.
 3. **A buffer whose CPU write is small can be worse than one that is wrong.** The
    16-byte snapshot of the SW list was not a stale value a shader misread; it was
    a whole consumer switched off in a way no counter could see. When auditing this
-   seam, compare the snapshot's SIZE against the buffer's, not just its contents —
-   which is its own open defect, #1080.
+   seam, compare the snapshot's SIZE against the buffer's, not just its contents.
+
+   That comparison is now the mechanism's own invariant rather than a thing to
+   remember: **a snapshot covers the whole buffer, or there is no snapshot**
+   (#1080). `PushSnapshot` sizes every snapshot to `m_Size` and sources the bytes
+   the write does not define from the live snapshot or the mapped persistent
+   buffer; when neither can supply them it refuses, warns once and increments
+   `VulkanStorageBuffer::GetSnapshotRefusedCount()`, dropping that buffer back to
+   last-write-wins rather than handing a draw a short block. This matters because
+   `GetRootDataAddress()` carries no length, so a shorter snapshot makes the
+   shader's own indexing the only bound — and the index routinely comes from a
+   buffer that was fed correctly (see
+   [no-silent-fallbacks.md](no-silent-fallbacks.md) on why an indexable stand-in
+   ranks worse than an unfed UBO).
 
 ## The rule
 

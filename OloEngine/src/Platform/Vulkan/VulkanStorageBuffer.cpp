@@ -220,6 +220,19 @@ namespace OloEngine
         PushSnapshot(data, size, offset);
     }
 
+    namespace
+    {
+        // Process-wide because the condition is a property of the frame's
+        // arena budget and of call-site shapes, not of one buffer — the same
+        // scope the warn-once flags beside it already have.
+        std::atomic<u64> s_SnapshotRefusedCount{ 0 };
+    } // namespace
+
+    u64 VulkanStorageBuffer::GetSnapshotRefusedCount()
+    {
+        return s_SnapshotRefusedCount.load(std::memory_order_relaxed);
+    }
+
     void VulkanStorageBuffer::PushSnapshot(const void* data, u32 size, u32 offset)
     {
         // A GPU-PRODUCED buffer never snapshots (issue #1058). DynamicCopy
@@ -267,30 +280,73 @@ namespace OloEngine
         auto& arena = VulkanFrameArena::Get();
         const u64 generation = arena.GetFrameGeneration();
         const bool liveSnapshot = m_SnapshotAddress != 0 && m_SnapshotFrameGeneration == generation;
+        // Invariant since #1080: every snapshot this function publishes is
+        // whole-buffer, and Resize drops the snapshot alongside the storage,
+        // so a LIVE snapshot always measures exactly m_Size.
+        OLO_CORE_ASSERT(!liveSnapshot || m_SnapshotBytes == m_Size,
+                        "VulkanStorageBuffer: live snapshot is not whole-buffer");
 
-        // Bytes the new snapshot must carry: everything written so far this
-        // frame (a shader may read any prefix the draw's instance count
-        // covers), never less than a live snapshot already promised.
-        // `offset + size` cannot wrap here: SetData is the only caller and its
-        // widened range guard has already proven the sum is <= m_Size.
-        const u32 newBytes = std::max(offset + size, liveSnapshot ? m_SnapshotBytes : 0u);
-
-        // A write that does not start at 0 needs prefix bytes [0, offset)
-        // from somewhere CPU-readable: the live snapshot, or the mapped
-        // persistent buffer (write-combined — a slow read, but no hot path
-        // writes partial ranges). A staged (non-mapped) buffer with no live
-        // snapshot cannot supply them: drop the snapshot and let draws read
-        // the persistent buffer, which is the pre-snapshot behaviour.
-        const void* prefixSource = liveSnapshot ? m_SnapshotCpu : m_Mapped;
-        if (offset > 0 && prefixSource == nullptr)
+        // Nothing has read this snapshot yet: rewrite it in place. A snapshot
+        // is only observable through the address a DRAW embedded, so while
+        // m_SnapshotConsumed is false no recorded work can tell the difference
+        // between "overwritten" and "never staged" — and command ordering is
+        // defined against recorded draws, not against SetData calls.
+        //
+        // This is what keeps whole-buffer snapshots affordable. GPUScene::Upload
+        // issues one SetData per NON-ADJACENT dirty range (CoalesceDirtyRanges
+        // merges only strictly adjacent indices), so a frame that dirties N
+        // scattered records would otherwise claim N whole-buffer arena ranges —
+        // and the frame arena is where every draw's root data lives, so
+        // exhausting it drops root data for the WHOLE frame, not just for this
+        // buffer. With reuse, that batch costs one whole-buffer fill plus N
+        // small memcpys.
+        if (liveSnapshot && !m_SnapshotConsumed.load(std::memory_order_relaxed))
         {
-            static std::atomic<bool> s_WarnedPrefix{ false };
-            if (!s_WarnedPrefix.exchange(true, std::memory_order_relaxed))
+            std::memcpy(static_cast<u8*>(m_SnapshotCpu) + offset, data, size);
+            arena.FlushWrite(VulkanFrameArenaAllocation{ m_SnapshotCpu, m_SnapshotAddress, m_SnapshotArenaOffset },
+                             m_SnapshotBytes);
+            return;
+        }
+
+        // A snapshot covers the WHOLE buffer, or there is no snapshot (#1080).
+        // GetRootDataAddress hands the draw a bare device address with no
+        // length attached, so the shader's own indexing is the only bound: a
+        // read past the snapshot's end lands on whatever the frame arena
+        // handed out next, not on this buffer's bytes. Sizing the snapshot to
+        // the write (an 11,264-byte binding-17 buffer got a 176-byte snapshot)
+        // makes that an out-of-bounds device read under buffer-device-address
+        // root data, not a wrong pixel. The sibling VulkanUniformBuffer has
+        // always pushed its whole shadow for exactly this reason.
+        const u32 newBytes = m_Size;
+
+        // Bytes this write does not define — the prefix [0, offset) and the
+        // tail [offset + size, m_Size) — have to come from somewhere CPU-
+        // readable: the live snapshot (whole-buffer by the rule above), or the
+        // mapped persistent buffer (write-combined — a slow read, but no hot
+        // path writes partial ranges). A staged (non-mapped) buffer with no
+        // live snapshot cannot supply them: drop the snapshot and let draws
+        // read the persistent buffer, which is the pre-snapshot behaviour.
+        // Zero-filling the gap instead would be worse than either — it hands
+        // the shader defined-looking bytes that no writer ever wrote.
+        // ...and m_Mapped only counts while it still tells the truth. A GPU-side
+        // write recorded earlier this frame (a mid-frame ClearData, an external
+        // UploadBufferSubData / CopyBufferSubData) executes at submit and never
+        // touches the host mapping, so filling from it would resurrect the very
+        // bytes that write was issued to replace — a cleared range reappearing
+        // for every draw recorded after the next partial SetData.
+        const void* fillSource = liveSnapshot ? m_SnapshotCpu : (GpuWroteThisFrame() ? nullptr : m_Mapped);
+        const bool coversWholeBuffer = offset == 0 && size == m_Size;
+        if (!coversWholeBuffer && fillSource == nullptr)
+        {
+            static std::atomic<bool> s_WarnedPartial{ false };
+            if (!s_WarnedPartial.exchange(true, std::memory_order_relaxed))
             {
-                OLO_CORE_WARN("[RHI/Vulkan] VulkanStorageBuffer::SetData(offset {}) on a staged buffer with no "
-                              "live snapshot — draw reads fall back to last-write-wins ordering (warn-once)",
-                              offset);
+                OLO_CORE_WARN("[RHI/Vulkan] VulkanStorageBuffer::SetData({}+{} of {} B) on a staged buffer with no "
+                              "live snapshot — cannot source the undefined bytes, so draw reads fall back to "
+                              "last-write-wins ordering (warn-once)",
+                              offset, size, m_Size);
             }
+            s_SnapshotRefusedCount.fetch_add(1, std::memory_order_relaxed);
             InvalidateSnapshot();
             return;
         }
@@ -306,6 +362,7 @@ namespace OloEngine
                               "({} bytes); draw reads fall back to last-write-wins ordering (warn-once)",
                               newBytes);
             }
+            s_SnapshotRefusedCount.fetch_add(1, std::memory_order_relaxed);
             InvalidateSnapshot();
             return;
         }
@@ -313,48 +370,60 @@ namespace OloEngine
         auto* dst = static_cast<u8*>(allocation.Cpu);
         if (offset > 0)
         {
-            // A live snapshot may be SHORTER than this write's offset — clamp
-            // the prefix to what it actually holds and zero the gap (bytes no
-            // writer defined this frame). The mapped persistent buffer always
-            // covers the validated offset, so its copy stays whole.
-            const u64 prefixAvailable = liveSnapshot ? std::min<u64>(offset, m_SnapshotBytes) : offset;
-            std::memcpy(dst, prefixSource, prefixAvailable);
-            if (prefixAvailable < offset)
-            {
-                std::memset(dst + prefixAvailable, 0, offset - prefixAvailable);
-            }
+            std::memcpy(dst, fillSource, offset);
         }
         std::memcpy(dst + offset, data, size);
         if (const u32 writtenEnd = offset + size; writtenEnd < newBytes)
         {
-            // Tail beyond this write: carry the live snapshot's remainder so
-            // earlier-promised content survives, else zero-fill (reads past
-            // the written range were never defined by any writer this frame).
-            if (liveSnapshot)
-            {
-                std::memcpy(dst + writtenEnd, static_cast<const u8*>(m_SnapshotCpu) + writtenEnd,
-                            newBytes - writtenEnd);
-            }
-            else
-            {
-                std::memset(dst + writtenEnd, 0, newBytes - writtenEnd);
-            }
+            std::memcpy(dst + writtenEnd, static_cast<const u8*>(fillSource) + writtenEnd, newBytes - writtenEnd);
         }
         arena.FlushWrite(allocation, newBytes);
 
         m_SnapshotFrameGeneration = generation;
         m_SnapshotAddress = allocation.Gpu;
         m_SnapshotCpu = allocation.Cpu;
+        m_SnapshotArenaOffset = allocation.Offset;
+        m_SnapshotConsumed.store(false, std::memory_order_relaxed);
         m_SnapshotBytes = newBytes;
     }
 
     VkDeviceAddress VulkanStorageBuffer::GetRootDataAddress()
     {
-        if (m_SnapshotAddress != 0 && m_SnapshotFrameGeneration == VulkanFrameArena::Get().GetFrameGeneration())
+        if (!HasLiveSnapshot())
         {
-            return m_SnapshotAddress;
+            return m_DeviceAddress;
         }
-        return m_DeviceAddress;
+        // This draw is about to embed the snapshot's address, so its contents
+        // become observable from here on: a later SetData in the same frame
+        // must stage a NEW range rather than rewrite this one (see
+        // m_SnapshotConsumed).
+        m_SnapshotConsumed.store(true, std::memory_order_relaxed);
+        return m_SnapshotAddress;
+    }
+
+    bool VulkanStorageBuffer::HasLiveSnapshot() const
+    {
+        return m_SnapshotAddress != 0 && m_SnapshotFrameGeneration == VulkanFrameArena::Get().GetFrameGeneration();
+    }
+
+    void VulkanStorageBuffer::NoteGpuWriteThisFrame()
+    {
+        m_GpuWriteFrameGeneration = VulkanFrameArena::Get().GetFrameGeneration();
+    }
+
+    bool VulkanStorageBuffer::GpuWroteThisFrame() const
+    {
+        return m_GpuWriteFrameGeneration == VulkanFrameArena::Get().GetFrameGeneration();
+    }
+
+    u32 VulkanStorageBuffer::GetLiveSnapshotBytes() const
+    {
+        return HasLiveSnapshot() ? m_SnapshotBytes : 0u;
+    }
+
+    const void* VulkanStorageBuffer::GetLiveSnapshotCpuData() const
+    {
+        return HasLiveSnapshot() ? m_SnapshotCpu : nullptr;
     }
 
     void VulkanStorageBuffer::GetData(void* outData, u32 size, u32 offset) const
@@ -501,6 +570,14 @@ namespace OloEngine
         // Live-object probe, not the static flag — see SubImage's note.
         if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
+            // ONLY this arm marks the mapping stale. The recorded fill executes at
+            // submit and never touches m_Mapped, so from here to the end of the
+            // frame the host mapping would hand a later partial SetData exactly the
+            // pre-clear bytes this call is removing. The mapped arm below, by
+            // contrast, memsets m_Mapped itself — the mapping stays truthful there,
+            // and marking it stale would refuse later snapshots (and bump the
+            // refusal counter) for no reason.
+            NoteGpuWriteThisFrame();
             vk->ClearBufferUInt(m_RHIHandle.Get(), 0u);
             return;
         }
@@ -570,6 +647,9 @@ namespace OloEngine
 
         if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
+            // Same split as the whole-buffer clear: only the RECORDED fill bypasses
+            // m_Mapped and so invalidates it as a fill source.
+            NoteGpuWriteThisFrame();
             vk->ClearBufferUInt(m_RHIHandle.Get(), 0u, offset, size);
             return;
         }

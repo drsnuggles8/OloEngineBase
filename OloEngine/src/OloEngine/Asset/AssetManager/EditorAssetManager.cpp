@@ -441,10 +441,25 @@ namespace OloEngine
 
         // Notify listeners via engine event system (on main thread)
         {
-            Tasks::EnqueueGameThreadTask([assetHandle, type, path]() mutable
-                                         {
-                AssetReloadedEvent evt(assetHandle, type, path);
-                Application::Get().OnEvent(evt); }, "AssetReloadedEvent");
+            Tasks::EnqueueGameThreadTask(
+                [assetHandle, type, path]() mutable
+                {
+                    // TryGet, not Get: this task outlives the call that queued it by
+                    // design, and nothing guarantees an Application is alive when the
+                    // game thread finally drains it. Application::Get() is
+                    // `*s_Instance`, so in a host that has none — the test binary,
+                    // which never runs Application::Run and therefore never drains
+                    // this queue either — the task sits in the process-wide named-
+                    // thread queue until some later ProcessAll() executes it and
+                    // dereferences null. That is an access violation attributed to
+                    // whichever unrelated test happened to drain the queue.
+                    if (auto* app = Application::TryGet())
+                    {
+                        AssetReloadedEvent evt(assetHandle, type, path);
+                        app->OnEvent(evt);
+                    }
+                },
+                "AssetReloadedEvent");
         }
 
         OLO_CORE_INFO("Reloaded asset: {}", path.string());
