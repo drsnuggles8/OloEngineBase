@@ -112,6 +112,15 @@ namespace OloEngine
         {
             OLO_CORE_INFO("RayTracedReflectionPass: hardware ray tracing unavailable — the ray-query tier stays "
                           "inert and the hierarchy falls back to SSR + probe/IBL.");
+            // Seed the stats with the REAL reason now. Without a shader the pass
+            // is never armed, so its target is never declared, so the node is
+            // culled and Execute — the only place that fills these — never runs.
+            // The panel would then read the default NotRequested and tell a user
+            // on a non-RT machine that they had switched the tier off. That is
+            // the same lie ResolveAvailabilityForFrame was fixed to stop telling,
+            // arriving by the one path that bypasses it.
+            m_Stats.Fallback = ReflectionTierFallbackReason::ShaderUnavailable;
+            m_Stats.RayQueryTierActive = false;
             return;
         }
 

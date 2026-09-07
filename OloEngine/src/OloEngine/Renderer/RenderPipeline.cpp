@@ -3790,9 +3790,14 @@ namespace OloEngine
                 if (pipeline.m_ReportedRayTracedReflectionVerdict != verdict)
                 {
                     pipeline.m_ReportedRayTracedReflectionVerdict = verdict;
+                    // NOT "silently" — this warning is the report. shaderReady
+                    // false with everything else true is the ordinary non-RT
+                    // machine: the shader is only created where GL_EXT_ray_query
+                    // exists, so that combination means "this GPU cannot ray
+                    // trace", not "something went wrong".
                     OLO_CORE_WARN("RayTracedReflectionPass: the ray-query reflection tier is switched on, but the "
                                   "graph declared no target this frame, so the pass is culled and the hierarchy "
-                                  "silently stays on SSR + probe/IBL. passEnabled={} shaderReady={} sceneDepth={} "
+                                  "stays on SSR + probe/IBL. passEnabled={} shaderReady={} sceneDepth={} "
                                   "gbufferNormal={} gbufferAlbedo={}",
                                   rtReflectionEnabled, rtReflectionReady, rtReflectionHasDepth,
                                   rtReflectionHasNormal, rtReflectionHasAlbedo);
