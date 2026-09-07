@@ -564,8 +564,9 @@ namespace OloEngine
                         ImGui::Text("%u samples / pixel accumulated (+%u this frame)",
                                     stats.AccumulatedSamplesPerPixel, stats.SamplesTracedThisFrame);
                         ImGui::Text("rays <= %llu / frame", static_cast<unsigned long long>(stats.RaysDispatchedUpperBound));
-                        ImGui::Text("%u emissive triangles (%.2f m^2), %u punctual lights",
-                                    stats.EmissiveTriangles, stats.EmissiveTotalArea, stats.PunctualLights);
+                        ImGui::Text("%u emissive triangles (%.2f m^2), %u punctual lights, %u sphere lights",
+                                    stats.EmissiveTriangles, stats.EmissiveTotalArea, stats.PunctualLights,
+                                    stats.SphereAreaLights);
                         if (stats.ConsecutiveRestarts > 1)
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                                                "restarted %u frames in a row - something invalidates it every frame",
@@ -577,9 +578,6 @@ namespace OloEngine
                         if (stats.EmissiveTableUnaddressable)
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                                                "emissive table has no device address - NEE sees no area lights");
-                        if (stats.SphereAreaLightsIgnored > 0)
-                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%u sphere-area lights IGNORED (no reference twin)",
-                                               stats.SphereAreaLightsIgnored);
                         if (stats.LegacyMaterialsShadedAsClosureV2 > 0)
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%u Legacy materials shaded as ClosureV2",
                                                stats.LegacyMaterialsShadedAsClosureV2);

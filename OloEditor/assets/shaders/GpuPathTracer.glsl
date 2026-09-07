@@ -428,7 +428,95 @@ struct PtHit
     // A committed hit on geometry the GPU Scene cannot shade (see
     // UnshadeableHit). The path ends there with no contribution.
     bool Unshadeable;
+    // The light slot of the sphere light the ray stopped at, or -1. Sphere
+    // lights are not in the TLAS; TraceClosest intersects them analytically.
+    int SphereLight;
 };
+
+// ---------------------------------------------------------------------------
+// The sphere-area light model — PathTracer.cpp's ViewSphereLight /
+// SphereConePdf / SphereLightPointDistance, function for function. See the
+// CPU for the derivation: a sphere of radius r at distance d is a uniform
+// emitter whose radiance reproduces the raster's diffuse irradiance at the
+// receiver, sampled by uniform solid angle over the cone it subtends.
+// ---------------------------------------------------------------------------
+struct PtSphereLightView
+{
+    bool Valid;
+    float Distance;
+    float CosThetaMax;
+    vec3 Radiance;
+};
+
+PtSphereLightView PtViewSphereLight(GPUSceneLight light, vec3 from)
+{
+    PtSphereLightView view;
+    view.Valid = false;
+    view.Distance = 0.0;
+    view.CosThetaMax = 1.0;
+    view.Radiance = vec3(0.0);
+    const vec3 toCenter = light.PositionAndRange.xyz - from;
+    const float distance = length(toCenter);
+    const float radius = light.DirectionAndRadius.w;
+    const float range = light.PositionAndRange.w;
+    if (!(radius > 0.0) || !(distance > radius) || distance > range)
+        return view;
+    const float distRatio = distance / max(range, 1e-6);
+    const float window = max(1.0 - distRatio * distRatio, 0.0);
+    const float attenuation = window * window / (distance * distance + 1.0);
+    view.Valid = true;
+    view.Distance = distance;
+    view.CosThetaMax = sqrt(max(0.0, 1.0 - (radius * radius) / (distance * distance)));
+    view.Radiance = light.ColorAndIntensity.rgb * light.ColorAndIntensity.w * attenuation * (distance * distance) /
+                    (PI * radius * radius);
+    return view;
+}
+
+float PtSphereConePdf(float cosThetaMax)
+{
+    const float solidAngle = 2.0 * PI * (1.0 - cosThetaMax);
+    return solidAngle > 0.0 ? 1.0 / solidAngle : 0.0;
+}
+
+float PtSphereLightPointDistance(float distance, float radius, float cosTheta)
+{
+    const float sinThetaSq = max(0.0, 1.0 - cosTheta * cosTheta);
+    return distance * cosTheta - sqrt(max(0.0, radius * radius - distance * distance * sinThetaSq));
+}
+
+// The nearest sphere light the ray reaches before tMax: its light slot, or -1.
+int PtIntersectSphereLights(vec3 origin, vec3 direction, float tMax, out float outT)
+{
+    int found = -1;
+    outT = tMax;
+    const uint lightCount = u_SlotCounts.w;
+    for (uint i = 0u; i < OLO_PT_MAX_LIGHTS; ++i)
+    {
+        if (i >= lightCount)
+            break;
+        const GPUSceneLight light = g_GPUSceneLights[i];
+        if ((light.Flags & OLO_GPU_SCENE_LIGHT_ACTIVE) == 0u || light.Type != OLO_GPU_SCENE_LIGHT_SPHERE_AREA)
+            continue;
+        const float radius = light.DirectionAndRadius.w;
+        if (!(radius > 0.0))
+            continue;
+        const vec3 oc = origin - light.PositionAndRange.xyz;
+        const float b = dot(oc, direction);
+        const float c = dot(oc, oc) - radius * radius;
+        const float discriminant = b * b - c;
+        if (discriminant < 0.0)
+            continue;
+        const float root = sqrt(discriminant);
+        float t = -b - root;
+        if (!(t > 0.0))
+            t = -b + root;
+        if (!(t > 0.0) || !(t < outT))
+            continue;
+        found = int(i);
+        outT = t;
+    }
+    return found;
+}
 
 // A committed intersection whose instance, geometry or material record is
 // out of range, tombstoned or inactive: geometry the TLAS still holds but the
@@ -499,7 +587,7 @@ void FetchTriangle(GPUSceneGeometry geometry, uint primitiveIndex, mat4x3 object
 // a slot the records cannot vouch for (out of range, tombstoned, a dead
 // material) is reported as NO hit: the path then collects the environment,
 // which is a defined value rather than whatever the stale record held.
-bool TraceClosest(vec3 origin, vec3 direction, float tMax, out PtHit hit)
+bool TraceClosestGeometry(vec3 origin, vec3 direction, float tMax, out PtHit hit)
 {
     hit.Hit = false;
     hit.Distance = 0.0;
@@ -512,6 +600,7 @@ bool TraceClosest(vec3 origin, vec3 direction, float tMax, out PtHit hit)
     hit.Emissive = vec3(0.0);
     hit.TwoSidedEmission = false;
     hit.Unshadeable = false;
+    hit.SphereLight = -1;
 
     rayQueryEXT rayQuery;
     // Opaque unless textures are reachable (see PtRayFlags). Every
@@ -618,6 +707,23 @@ bool TraceClosest(vec3 origin, vec3 direction, float tMax, out PtHit hit)
     hit.Roughness = roughness;
     hit.Emissive = emissive;
     hit.TwoSidedEmission = (material.Flags & OLO_GPU_SCENE_MATERIAL_TWO_SIDED) != 0u;
+    return true;
+}
+
+// The geometry, then the sphere lights in front of it: a sphere light nearer
+// than the committed hit (or a miss) is where the path stops.
+bool TraceClosest(vec3 origin, vec3 direction, float tMax, out PtHit hit)
+{
+    const bool hitGeometry = TraceClosestGeometry(origin, direction, tMax, hit);
+    float sphereT;
+    const int sphereLight = PtIntersectSphereLights(origin, direction, hitGeometry ? hit.Distance : tMax, sphereT);
+    if (sphereLight < 0)
+        return hitGeometry;
+    hit.Hit = true;
+    hit.Unshadeable = false;
+    hit.SphereLight = sphereLight;
+    hit.Distance = sphereT;
+    hit.Position = origin + direction * sphereT;
     return true;
 }
 
@@ -819,6 +925,45 @@ vec3 SampleDirectLighting(PtHit hit, vec3 geometricNormal, vec3 n, vec3 v, float
         }
     }
 
+    // ONE MIS-weighted sample per sphere light, in slot order, two dimensions
+    // each — drawn before the validity test so every pixel spends the same
+    // dimensions, in the order the CPU reference draws them.
+    for (uint i = 0u; i < OLO_PT_MAX_LIGHTS; ++i)
+    {
+        if (i >= lightCount)
+            break;
+        const GPUSceneLight light = g_GPUSceneLights[i];
+        if ((light.Flags & OLO_GPU_SCENE_LIGHT_ACTIVE) == 0u || light.Type != OLO_GPU_SCENE_LIGHT_SPHERE_AREA)
+            continue;
+        const vec2 xi = oloPtGet2D(pathSampler);
+        const PtSphereLightView view = PtViewSphereLight(light, hit.Position);
+        if (!view.Valid)
+            continue;
+        const float pdfSolidAngle = PtSphereConePdf(view.CosThetaMax);
+        if (!(pdfSolidAngle > 0.0))
+            continue;
+        const float cosTheta = 1.0 - xi.x * (1.0 - view.CosThetaMax);
+        const float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+        const float phi = 2.0 * PI * xi.y;
+        const vec3 toCenter = (light.PositionAndRange.xyz - hit.Position) / view.Distance;
+        vec3 tangent, bitangent;
+        OrthonormalBasis(toCenter, tangent, bitangent);
+        const vec3 l = tangent * (sinTheta * cos(phi)) + bitangent * (sinTheta * sin(phi)) + toCenter * cosTheta;
+        const float nDotL = dot(n, l);
+        if (!(nDotL > 0.0))
+            continue;
+        const float t = PtSphereLightPointDistance(view.Distance, light.DirectionAndRadius.w, cosTheta);
+        if (!(t > 0.0))
+            continue;
+        const vec3 shadowOrigin = OffsetOrigin(hit.Position, geometricNormal, l, rayEpsilon);
+        if (IsOccluded(shadowOrigin, hit.Position + l * t, rayEpsilon))
+            continue;
+        const vec3 brdf = closureV2Evaluate(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+        const float pdfBsdf = closureV2Pdf(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+        const float misWeight = PowerHeuristic(pdfSolidAngle, pdfBsdf);
+        direct += brdf * nDotL * view.Radiance * (misWeight / pdfSolidAngle);
+    }
+
     return direct;
 }
 
@@ -870,6 +1015,20 @@ vec3 TracePath(vec3 origin, vec3 direction, inout OloPathSampler pathSampler, ou
         {
             // The environment is never NEE-sampled, so it arrives at full weight.
             radiance += throughput * EnvironmentRadiance(direction);
+            break;
+        }
+        // A sphere light: the path's last vertex, weighted against the cone
+        // NEE would have drawn it from at the previous vertex.
+        if (hit.SphereLight >= 0)
+        {
+            const PtSphereLightView view = PtViewSphereLight(g_GPUSceneLights[hit.SphereLight], origin);
+            if (view.Valid)
+            {
+                const float misWeight = (previousScatterWasDelta || !nee)
+                                            ? 1.0
+                                            : PowerHeuristic(previousBsdfPdf, PtSphereConePdf(view.CosThetaMax));
+                radiance += throughput * view.Radiance * misWeight;
+            }
             break;
         }
         // Stopped by geometry the tables cannot shade: a black opaque surface.

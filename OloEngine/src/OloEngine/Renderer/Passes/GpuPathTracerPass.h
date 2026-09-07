@@ -61,9 +61,10 @@ namespace OloEngine
     // TEXTURES come through MaterialTextureTable and the descriptor heap the
     // shader indexes itself (ADR 0011 amendment (95)); where the backend
     // cannot index it, hits shade from the factors and masked geometry traces
-    // as solid, both counted. The other STANDING LIMITS, counted rather than
-    // commented: Legacy materials shaded with the ClosureV2 closure,
-    // sphere-area lights ignored (no reference twin).
+    // as solid, both counted. Sphere-area lights are spherical emitters on
+    // both tracers (PathTracer.cpp's ViewSphereLight). The one STANDING LIMIT,
+    // counted rather than commented: Legacy materials shaded with the
+    // ClosureV2 closure.
     class GpuPathTracerPass : public RenderGraphNode
     {
       public:

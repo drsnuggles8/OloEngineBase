@@ -202,6 +202,7 @@ namespace OloEngine::Tests
             std::vector<GPUSceneInstance> Instances;
             std::vector<RT::BlasBuildRequest> BlasBuilds;
             std::vector<RT::InstanceRecord> TlasInstances;
+            std::vector<GPUSceneLight> Lights;
             std::vector<EmissiveTriangleRecord> Emissive;
             f32 EmissiveArea = 0.0f;
 
@@ -406,7 +407,26 @@ namespace OloEngine::Tests
                                                       GPUSceneBindingLayout::Geometries);
             twin.MaterialSsbo = StorageBuffer::Create(static_cast<u32>(twin.Materials.size() * sizeof(GPUSceneMaterial)),
                                                       GPUSceneBindingLayout::Materials);
-            twin.LightSsbo = StorageBuffer::Create(static_cast<u32>(sizeof(GPUSceneLight)), GPUSceneBindingLayout::Lights);
+            // The scene's lights, in the reference's order: the tracers walk
+            // them in the same order and spend the same sampler dimensions.
+            for (u32 i = 0; i < static_cast<u32>(scene.GetLights().size()); ++i)
+            {
+                const ReferenceLight& light = scene.GetLights()[i];
+                GPUSceneLight record{};
+                record.PositionAndRange = glm::vec4(light.Position, light.AttenuationParams.w);
+                record.DirectionAndRadius = glm::vec4(light.Direction, light.Radius);
+                record.ColorAndIntensity = glm::vec4(light.Color, light.Intensity);
+                record.ShapeParams = glm::vec4(light.SpotParams.x, light.SpotParams.y, light.AttenuationParams.z,
+                                               light.SpotParams.z);
+                record.Type = static_cast<u32>(light.Type);
+                record.Flags = GPUSceneLightFlagActive;
+                record.StableIndex = i;
+                record.Generation = 1;
+                twin.Lights.push_back(record);
+            }
+            twin.LightSsbo = StorageBuffer::Create(
+                static_cast<u32>(std::max<sizet>(twin.Lights.size(), 1u) * sizeof(GPUSceneLight)),
+                GPUSceneBindingLayout::Lights);
             twin.EmissiveSsbo = StorageBuffer::Create(
                 static_cast<u32>(std::max<sizet>(twin.Emissive.size(), 1u) * sizeof(EmissiveTriangleRecord)),
                 GPUSceneBindingLayout::Environments);
@@ -416,8 +436,15 @@ namespace OloEngine::Tests
             twin.InstanceSsbo->SetData(twin.Instances.data(), static_cast<u32>(twin.Instances.size() * sizeof(GPUSceneInstance)));
             twin.GeometrySsbo->SetData(twin.Geometries.data(), static_cast<u32>(twin.Geometries.size() * sizeof(GPUSceneGeometry)));
             twin.MaterialSsbo->SetData(twin.Materials.data(), static_cast<u32>(twin.Materials.size() * sizeof(GPUSceneMaterial)));
-            const GPUSceneLight noLight{};
-            twin.LightSsbo->SetData(&noLight, static_cast<u32>(sizeof(GPUSceneLight)));
+            if (twin.Lights.empty())
+            {
+                const GPUSceneLight noLight{};
+                twin.LightSsbo->SetData(&noLight, static_cast<u32>(sizeof(GPUSceneLight)));
+            }
+            else
+            {
+                twin.LightSsbo->SetData(twin.Lights.data(), static_cast<u32>(twin.Lights.size() * sizeof(GPUSceneLight)));
+            }
             if (!twin.Emissive.empty())
                 twin.EmissiveSsbo->SetData(twin.Emissive.data(), static_cast<u32>(twin.Emissive.size() * sizeof(EmissiveTriangleRecord)));
 
@@ -622,9 +649,27 @@ namespace OloEngine::Tests
             u64 TlasAddress = 0;
         };
 
-        [[nodiscard]] bool BuildRig(Rig& rig, bool textured = false)
+        enum class RigScene
         {
-            rig.Fixture = textured ? MakeTexturedCornellBoxScene(18.0f) : MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
+            Plain,
+            Textured,
+            SphereLight,
+        };
+
+        [[nodiscard]] bool BuildRig(Rig& rig, RigScene which = RigScene::Plain)
+        {
+            switch (which)
+            {
+                case RigScene::Textured:
+                    rig.Fixture = MakeTexturedCornellBoxScene(18.0f);
+                    break;
+                case RigScene::SphereLight:
+                    rig.Fixture = MakeSphereLightCornellBoxScene();
+                    break;
+                case RigScene::Plain:
+                    rig.Fixture = MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
+                    break;
+            }
             if (!BuildTwin(rig.Fixture, rig.Twin))
             {
                 ADD_FAILURE() << "could not upload the Cornell box twin";
@@ -716,7 +761,8 @@ namespace OloEngine::Tests
             params.TlasAddress = glm::uvec4(tlas.x, tlas.y, RT::kInstanceMaskAll, seed);
             params.SlotCounts = glm::uvec4(static_cast<u32>(rig.Twin.Instances.size()),
                                            static_cast<u32>(rig.Twin.Geometries.size()),
-                                           static_cast<u32>(rig.Twin.Materials.size()), 0u);
+                                           static_cast<u32>(rig.Twin.Materials.size()),
+                                           static_cast<u32>(rig.Twin.Lights.size()));
             const auto emissive = SplitAddress(rig.Twin.EmissiveSsbo->GetDeviceAddress());
             const u32 flags = kGpuPathTracerFlagNextEventEstimation | (historyIndex ? kGpuPathTracerFlagHistoryValid : 0u) |
                               (rig.Twin.Textured ? kGpuPathTracerFlagTextures : 0u);
@@ -936,6 +982,33 @@ namespace OloEngine::Tests
         EXPECT_GT(normal.y / static_cast<f32>(kSamples), 0.99f) << "the floor's normal points up";
     }
 
+    // A sphere-area light: the one light kind the tracers model as an area
+    // emitter of their own (PathTracer.cpp's ViewSphereLight). Visible to the
+    // camera, sampled by solid angle with MIS against the BSDF, sharing the
+    // frame with the emissive ceiling quad. The regions include the emitter
+    // itself, the floor it lights across the block's soft shadow, and the
+    // green wall it grazes.
+    TEST_F(GpuPathTracerDevice, SphereLightCornellBoxAgreesWithTheCpuReferenceWithinTheBudget)
+    {
+        ScopedVulkanRenderCommandSelection vulkanBackend;
+        VulkanFrameArena::Get().BeginFrame(0);
+        Rig rig;
+        ASSERT_TRUE(BuildRig(rig, RigScene::SphereLight));
+        ASSERT_EQ(rig.Twin.Lights.size(), 1u);
+
+        const ParityRegion regions[] = {
+            { "floor under the sphere light", glm::vec3(0.45f, -0.99f, 0.35f) },
+            { "floor in the block's shadow", glm::vec3(-0.75f, -0.99f, 0.0f) },
+            { "green wall by the light", glm::vec3(0.99f, 0.1f, 0.35f) },
+            { "the sphere light", glm::vec3(0.45f, 0.1f, 0.47f) },
+            // Clear of the light's disc on screen, which sits over (0.5, 0.3, z).
+            { "back wall", glm::vec3(-0.2f, 0.55f, -0.99f) },
+            { "block top", glm::vec3(-0.3f, -0.2f, -0.3f) },
+        };
+        const TracedFrame gpu = RunParity(*this, rig, "GpuPathTracer_CornellBoxSphereLight", regions);
+        ASSERT_FALSE(gpu.Accum.empty());
+    }
+
     // The textured box: every kind of map the tracers sample, and a slatted
     // alpha-MASK quad whose striped shadow only an alpha-tested trace can
     // cast. The same budgets as the plain box: a texture sampled on one side
@@ -946,7 +1019,7 @@ namespace OloEngine::Tests
         ScopedVulkanRenderCommandSelection vulkanBackend;
         VulkanFrameArena::Get().BeginFrame(0);
         Rig rig;
-        ASSERT_TRUE(BuildRig(rig, /*textured*/ true));
+        ASSERT_TRUE(BuildRig(rig, RigScene::Textured));
         ASSERT_TRUE(rig.Twin.Textured);
 
         const ParityRegion regions[] = {

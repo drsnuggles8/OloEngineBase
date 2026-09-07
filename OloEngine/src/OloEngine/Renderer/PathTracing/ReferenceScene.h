@@ -219,7 +219,12 @@ namespace OloEngine::PathTracing
     {
         Directional = 0,
         Point = 1,
-        Spot = 2
+        Spot = 2,
+        // A spherical emitter (SphereAreaLightComponent). The raster path
+        // shades it with a representative-point approximation; the reference
+        // integrates it as a real sphere of radiance — see PathTracer.cpp's
+        // ViewSphereLight for the model, which GpuPathTracer.glsl mirrors.
+        SphereArea = 3
     };
 
     struct ReferenceLight
@@ -235,6 +240,9 @@ namespace OloEngine::PathTracing
         glm::vec4 AttenuationParams{ 1.0f, 0.09f, 0.032f, 50.0f };
         // (innerCutoff, outerCutoff, falloff, enabled) as cosines.
         glm::vec4 SpotParams{ 0.95f, 0.9f, 1.0f, 1.0f };
+        // SphereArea only: the emitter's radius (LightData::spotParams.z on
+        // the raster side, GPUSceneLight::DirectionAndRadius.w on the GPU).
+        f32 Radius = 0.1f;
     };
 
     // -------------------------------------------------------------------------

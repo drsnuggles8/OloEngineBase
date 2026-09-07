@@ -561,4 +561,25 @@ namespace OloEngine::Tests::PathTracingFixtures
         scene.Build();
         return fixture;
     }
+
+    // The plain box (ClosureV2) plus a small warm sphere light hanging in the
+    // open right half: the emitter is visible to the camera, lights the floor
+    // and the green wall with a soft shadow off the block, and shares the
+    // frame with the ceiling quad, so NEE's two strategies and both emitter
+    // kinds coexist in one MIS.
+    inline CornellBoxScene MakeSphereLightCornellBoxScene(f32 emissiveRadiance = 6.0f)
+    {
+        CornellBoxScene fixture = MakeCornellBoxScene(emissiveRadiance, PBRModel::ClosureV2);
+        // The scene was built by MakeCornellBoxScene; AddLight then Build again.
+        ReferenceLight sphere;
+        sphere.Type = ReferenceLightType::SphereArea;
+        sphere.Position = glm::vec3(0.45f, 0.1f, 0.35f);
+        sphere.Radius = 0.12f;
+        sphere.Color = glm::vec3(1.0f, 0.75f, 0.5f);
+        sphere.Intensity = 6.0f;
+        sphere.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, 10.0f);
+        fixture.Scene.AddLight(sphere);
+        fixture.Scene.Build();
+        return fixture;
+    }
 } // namespace OloEngine::Tests::PathTracingFixtures

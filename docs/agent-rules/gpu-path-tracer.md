@@ -84,11 +84,10 @@ would leave the count claiming a converged image for a one-frame one.
 `GpuPathTracerFallbackReason` is resolved most-fundamental-first and reported once per change, from
 `ResolveAvailabilityForFrame` in the per-frame wiring (`RenderPipeline::ConfigurePassesForFrame`,
 after the GPU Scene commit), so the verdict and the counters are fresh whether or not the graph
-culls the pass. `Execute` adds the one reason only it can see: no target. Two reasons are easy to
-miss: `EmissiveTableNotGathered` (the setting flipped on between `BeginScene`, where the area-light
-gather is decided, and `EndScene`; one frame is skipped rather than traced without its emitters) and
-`PunctualLightsBeyondShaderBound` (a live light at a GPU Scene slot past `OLO_PT_MAX_LIGHTS` lights
-the raster frame and the CPU reference but not this tracer; counted, never silently dropped).
+culls the pass. `Execute` adds the one reason only it can see: no target. Two are easy to miss:
+`EmissiveTableNotGathered` (the setting flipped on between `BeginScene`, where the gather is decided,
+and `EndScene`; one frame is skipped) and `PunctualLightsBeyondShaderBound` (a live light at a slot
+past `OLO_PT_MAX_LIGHTS` lights the raster frame but not this tracer; counted).
 
 A committed hit whose GPU Scene record is out of range or inactive (geometry the TLAS still holds
 but the tables no longer describe) is a hit on a black opaque surface, not a miss: a miss would
@@ -131,5 +130,7 @@ credit the path with environment radiance through an occluder.
   device writes `assets/tests/visual/GpuPathTracer_CornellBox.png` beside the CPU reference frame
   and prints the per-region numbers.
 
-Out of scope, on purpose (issue #1055's scope decisions): textured materials (#805), masked geometry
-as anything but solid, sphere-area lights (no reference twin), an RT pipeline / SBT, a denoiser.
+Sphere-area lights are spherical emitters on both tracers: `PathTracer.cpp`'s `ViewSphereLight`
+defines the model (radiance reproducing the raster's diffuse irradiance at the receiver, sampled by
+solid angle with MIS, visible to camera and bounce rays, non-occluding) and the shader mirrors it.
+Out of scope, on purpose: an RT pipeline / SBT, a denoiser, mip selection (level 0 everywhere).

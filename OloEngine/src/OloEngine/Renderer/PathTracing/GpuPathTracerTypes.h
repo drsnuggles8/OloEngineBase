@@ -103,7 +103,7 @@ namespace OloEngine
 
     // What the tracer did this frame. Counted rather than commented, because
     // the standing limits (untextured hits, masked geometry traced as solid,
-    // Legacy materials shaded as ClosureV2, sphere-area lights ignored) are
+    // Legacy materials shaded as ClosureV2) are
     // invisible in a still frame and would otherwise be discovered by a
     // reviewer instead of reported by the engine.
     struct GpuPathTracerStats
@@ -130,7 +130,7 @@ namespace OloEngine
         // The scene as the tracer saw it.
         u32 EmissiveTriangles = 0;
         u32 PunctualLights = 0;
-        u32 SphereAreaLightsIgnored = 0; ///< No reference twin, so neither oracle sees them.
+        u32 SphereAreaLights = 0; ///< Sampled as spherical emitters (PathTracer.cpp's ViewSphereLight).
         u32 LegacyMaterialsShadedAsClosureV2 = 0;
         f32 EmissiveTotalArea = 0.0f;
 

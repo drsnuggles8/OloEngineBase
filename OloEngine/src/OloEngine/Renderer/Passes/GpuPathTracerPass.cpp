@@ -352,10 +352,10 @@ namespace OloEngine
             const GPUSceneLight* light = m_GPUScene->GetLiveLightRecordBySlot(slot);
             if (light == nullptr)
                 continue;
-            if (light->Type == std::to_underlying(GPUSceneLightType::SphereArea))
-                ++m_Stats.SphereAreaLightsIgnored;
-            else if (slot >= kGpuPathTracerMaxLights)
+            if (slot >= kGpuPathTracerMaxLights)
                 ++m_Stats.PunctualLightsBeyondShaderBound;
+            else if (light->Type == std::to_underlying(GPUSceneLightType::SphereArea))
+                ++m_Stats.SphereAreaLights;
             else
                 ++m_Stats.PunctualLights;
         }
@@ -563,10 +563,13 @@ namespace OloEngine
 
         // The issue's ray telemetry. An UPPER bound, derived: every sample
         // traces at most maxBounces closest-hit rays, plus per bounce one
-        // shadow ray per punctual light and one for the emissive sample.
+        // shadow ray per punctual light, one per sphere light and one for the
+        // emissive sample.
         const u64 pixels = static_cast<u64>(outSpec.Width) * static_cast<u64>(outSpec.Height);
         const u64 raysPerBounce = 1ull + (settings.EnableNextEventEstimation
-                                              ? static_cast<u64>(m_Stats.PunctualLights) + (emissiveCount != 0u ? 1ull : 0ull)
+                                              ? static_cast<u64>(m_Stats.PunctualLights) +
+                                                    static_cast<u64>(m_Stats.SphereAreaLights) +
+                                                    (emissiveCount != 0u ? 1ull : 0ull)
                                               : 0ull);
         m_Stats.RaysDispatchedUpperBound =
             pixels * static_cast<u64>(samplesThisFrame) * static_cast<u64>(settings.MaxBounces) * raysPerBounce;
