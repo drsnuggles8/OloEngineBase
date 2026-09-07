@@ -192,7 +192,7 @@ namespace OloEngine
             // Both are STANDING limitations of this slice rather than occasional
             // ones, so they are true whenever the tier ran at all. Counted
             // instead of commented because neither is visible in a still frame.
-            m_Stats.HitsShadedUntextured = true;      // #805 — untextured material factors
+            m_Stats.HitsShadedUntextured = true;          // #805 — untextured material factors
             m_Stats.MaskedGeometryReflectsAsSolid = true; // no any-hit alpha test without the heap
         }
 
@@ -292,7 +292,8 @@ namespace OloEngine
         // also arrive from a live edit, a script or an MCP write, and the shader
         // cannot be the backstop — a NaN gate would make smoothstep undefined
         // and a NaN confidence would spread through bloom as a black block.
-        const auto finiteOr = [](f32 value, f32 fallback) { return std::isfinite(value) ? value : fallback; };
+        const auto finiteOr = [](f32 value, f32 fallback)
+        { return std::isfinite(value) ? value : fallback; };
         const f32 maxRayDistance = std::max(finiteOr(m_Settings.MaxRayDistance, 60.0f), 0.0f);
         const f32 normalBias = std::max(finiteOr(m_Settings.RayOriginNormalBias, 0.02f), 0.0f);
         const f32 intensity = std::clamp(finiteOr(m_Settings.Intensity, 1.0f), 0.0f, 4.0f);

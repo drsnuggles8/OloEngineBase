@@ -25,8 +25,8 @@ namespace OloEngine
     // tier composites over every tier with a LARGER value.
     enum class ReflectionTier : u32
     {
-        Planar = 0,  ///< A true mirror of one plane. Correct where it applies, and only there.
-        SSR = 1,     ///< Screen-space march. Cannot see off-screen or occluded content.
+        Planar = 0,   ///< A true mirror of one plane. Correct where it applies, and only there.
+        SSR = 1,      ///< Screen-space march. Cannot see off-screen or occluded content.
         RayQuery = 2, ///< #1057's new tier: exactly the off-screen / occluded gap SSR leaves.
         ProbeIBL = 3, ///< DDGI probes over the global prefilter. THE BOTTOM TIER — always confidence 1.
 

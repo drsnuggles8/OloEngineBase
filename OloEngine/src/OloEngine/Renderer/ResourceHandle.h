@@ -377,15 +377,15 @@ namespace OloEngine::ResourceNames
     // The ray-query reflection tier (#1057). It sits BELOW SSR in the
     // hierarchy of ADR 0020, so in the frame it runs BEFORE SSRPass and its
     // output is what SSR then composites over.
-    inline constexpr std::string_view RTReflectionColor = "RTReflectionColor";             // After the ray-query reflection tier (deferred path, RT device only)
+    inline constexpr std::string_view RTReflectionColor = "RTReflectionColor";               // After the ray-query reflection tier (deferred path, RT device only)
     inline constexpr std::string_view RTReflectionColorTexture = "RTReflectionColorTexture"; // Color attachment view of RTReflectionColor
-    inline constexpr std::string_view SSRColor = "SSRColor";                       // After screen-space reflections composite (only valid when SSR is enabled, deferred path)
-    inline constexpr std::string_view SSRColorTexture = "SSRColorTexture";         // Color attachment view of SSRColor
-    inline constexpr std::string_view SSGISignal = "SSGISignal";                   // Raw stochastic indirect-diffuse signal, rgb = radiance, a = view depth (SSGI draw A output, issue #902)
-    inline constexpr std::string_view SSGIGuide = "SSGIGuide";                     // Trace-band surface plane, rg = oct world normal, b = roughness, a = AO (SSGISignal attachment 1, issue #708)
-    inline constexpr std::string_view SSGIPreBlurred = "SSGIPreBlurred";           // Depth/normal-guided pre-blur of the raw signal (issue #708 stage 2; what the resolve accumulates)
-    inline constexpr std::string_view SSGIResolved = "SSGIResolved";               // Temporally-resolved SSGI signal (SSGI draw B output; the SSGIHistory source)
-    inline constexpr std::string_view SSGIDenoised = "SSGIDenoised";               // Variance-guided post-blur of the resolved signal (issue #708 stage 4; what the upscale reads)
+    inline constexpr std::string_view SSRColor = "SSRColor";                                 // After screen-space reflections composite (only valid when SSR is enabled, deferred path)
+    inline constexpr std::string_view SSRColorTexture = "SSRColorTexture";                   // Color attachment view of SSRColor
+    inline constexpr std::string_view SSGISignal = "SSGISignal";                             // Raw stochastic indirect-diffuse signal, rgb = radiance, a = view depth (SSGI draw A output, issue #902)
+    inline constexpr std::string_view SSGIGuide = "SSGIGuide";                               // Trace-band surface plane, rg = oct world normal, b = roughness, a = AO (SSGISignal attachment 1, issue #708)
+    inline constexpr std::string_view SSGIPreBlurred = "SSGIPreBlurred";                     // Depth/normal-guided pre-blur of the raw signal (issue #708 stage 2; what the resolve accumulates)
+    inline constexpr std::string_view SSGIResolved = "SSGIResolved";                         // Temporally-resolved SSGI signal (SSGI draw B output; the SSGIHistory source)
+    inline constexpr std::string_view SSGIDenoised = "SSGIDenoised";                         // Variance-guided post-blur of the resolved signal (issue #708 stage 4; what the upscale reads)
     inline constexpr std::string_view SSGIMomentsFirst = "SSGIMomentsFirst";
     inline constexpr std::string_view SSGIMomentsSecond = "SSGIMomentsSecond";
     inline constexpr std::string_view SSGIHistoryDiagnostics = "SSGIHistoryDiagnostics";
