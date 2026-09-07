@@ -46,6 +46,31 @@ namespace OloEngine
                 return source;
             return source.substr(0, lineEnd + 1) + define + "\n" + source.substr(lineEnd + 1);
         }
+
+        // C++ twin of the `VirtualSwList` header declared in
+        // VirtualClusterCull.comp, VirtualClusterRaster.comp (both variants),
+        // VirtualVisibilityResolve.glsl and VirtualRasterArgs.comp — the 16
+        // bytes that precede the work list's records, and the 16 bytes the CPU
+        // zeroes each frame.
+        //
+        // The three Dispatch words are the software rasterizer's indirect
+        // dispatch arguments (issue #1048), written on the GPU by
+        // VirtualRasterArgs.comp from the GPU-written Count. Their byte offset
+        // is passed straight to DispatchComputeIndirect, so it is part of the
+        // contract rather than an implementation detail — hence the asserts.
+        struct VirtualSwListHeader
+        {
+            u32 Count = 0;
+            u32 DispatchX = 0;
+            u32 DispatchY = 0;
+            u32 DispatchZ = 0;
+        };
+        static_assert(sizeof(VirtualSwListHeader) == 16,
+                      "VirtualSwListHeader must match the std430 VirtualSwList header in the four shaders that declare it");
+        static_assert(offsetof(VirtualSwListHeader, DispatchX) == 4,
+                      "the SW-raster dispatch-args offset is part of the DispatchComputeIndirect contract");
+
+        constexpr u32 kSwDispatchArgsOffset = static_cast<u32>(offsetof(VirtualSwListHeader, DispatchX));
     } // namespace
 
     VirtualGeometryPass::VirtualGeometryPass()
@@ -58,9 +83,26 @@ namespace OloEngine
         m_FramebufferSpec = spec;
         m_CullShader = ComputeShader::Create("assets/shaders/compute/VirtualClusterCull.comp");
         m_RasterShader = ComputeShader::Create("assets/shaders/compute/VirtualClusterRaster.comp");
+        m_RasterArgsShader = ComputeShader::Create("assets/shaders/compute/VirtualRasterArgs.comp");
         m_GBufferShader = Shader::Create("assets/shaders/VirtualMeshGBuffer.glsl");
         m_ResolveShader = Shader::Create("assets/shaders/VirtualVisibilityResolve.glsl");
         m_ColorizeShader = ComputeShader::Create("assets/shaders/compute/VirtualDebugColorize.comp");
+
+        // Same three-layer demotion shape as the int64 raster variant and the
+        // mesh-shader path below: the decision is made ONCE here and logged, so
+        // a frame that silently fell back to the conservative CPU bound cannot
+        // be mistaken for a measurement of the indirect path (issue #1048).
+        if (!m_RasterArgsShader || !m_RasterArgsShader->IsValid())
+        {
+            OLO_CORE_WARN("VirtualGeometryPass: VirtualRasterArgs.comp failed to compile; the software "
+                          "rasterizer falls back to the conservative CPU-side dispatch bound "
+                          "(correct, but ~300-900x overdispatched on a dense scene - issue #1048)");
+            m_RasterArgsShader = nullptr;
+        }
+        else
+        {
+            OLO_CORE_INFO("VirtualGeometryPass: software raster dispatches indirectly from the GPU-written work-list count");
+        }
 
         // Single-pass 64-bit visibility path: only when the driver exposes both
         // 64-bit shader ints and 64-bit atomics. Compiled as a define-injected
@@ -750,16 +792,35 @@ namespace OloEngine
             // bracket below is its CONTROL: the resolve's work is a function of
             // the visibility buffer, which this change leaves identical, so a
             // reading where BOTH moved is the box drifting, not the shader.
-            auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
-            gpuSubTimers.BeginSubPass("SwRaster");
             registry.GetVertexBuffer()->Bind();
             registry.GetVisbufferBuffer()->Bind();
+            // Re-bound explicitly, on the same rule as the three above: SSBO
+            // binding points are process-global state, and the hardware phase-1
+            // draw block between the cull and here rebinds its own set. The args
+            // kernel below WRITES through this binding, so a stale one would
+            // hand the indirect fetch another buffer's bytes as a group count.
+            registry.GetSwListBuffer()->Bind();
             RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VIRTUAL_INDICES,
                                              registry.GetIndexBuffer());
 
             u32 const maxSwRecords = frameClusterCount;
-            u32 const groupsX = std::min(maxSwRecords, 4096u);
-            u32 const groupsY = (maxSwRecords + groupsX - 1u) / std::max(groupsX, 1u);
+            // The CPU-side conservative bound (the #551 idiom), kept ONLY as the
+            // fallback for a frame where the args kernel is unavailable. It is
+            // the number issue #1048 measured as ~300-900x too large on
+            // VirtualGeometryStress: 2,834,448 workgroups for 3,165 records with
+            // work, which the same issue's bracket showed WAS the pass's whole
+            // cost (an empty main() cost the same 0.1321 ms as the real raster).
+            u32 const fallbackGroupsX = std::min(maxSwRecords, 4096u);
+            // BOTH operands guarded, not just the divisor. With maxSwRecords = 0
+            // (instances submitted, no clusters resident yet) fallbackGroupsX is
+            // 0 and `0 + 0 - 1` underflows to 4294967295 — a four-billion-group
+            // dispatch, which GL rejects with GL_INVALID_VALUE and Vulkan hands
+            // straight to vkCmdDispatch. That is the identical bug the phase-2
+            // cull above is explicitly BRACED against, and the one
+            // VirtualRasterDispatchArgsTest.EmptyListDispatchesNothing pins on
+            // the GPU side of the same rule.
+            u32 const fallbackGroupsY =
+                fallbackGroupsX == 0u ? 0u : (maxSwRecords + fallbackGroupsX - 1u) / fallbackGroupsX;
 
             // Single-pass 64-bit atomic path when the driver supports it and the
             // parity/force-portable override is off; the portable two-pass 2x32
@@ -768,6 +829,81 @@ namespace OloEngine
             bool const useInt64 =
                 m_Int64AtomicsSupported && m_RasterShaderInt64 && !registry.GetForcePortableSwRaster();
             const Ref<ComputeShader>& rasterShader = useInt64 ? m_RasterShaderInt64 : m_RasterShader;
+
+            // ── Indirect dispatch arguments, written on the GPU (issue #1048) ──
+            // The SW work-list count is GPU-written and deliberately never read
+            // back — a readback is either a stall or a frame late, and "a frame
+            // late" silently UNDER-dispatches on a camera cut, dropping clusters.
+            // So a 1-thread kernel converts the count into the (x, y, z) triple
+            // living in the work list's own header, and the raster dispatches
+            // from there.
+            //
+            // Nullness is the "unavailable" encoding (the m_RasterShaderInt64
+            // convention): if the args kernel did not compile, the raster still
+            // runs at the conservative CPU bound — slow, but never wrong, and the
+            // demotion is warned once at Init rather than silently rasterizing
+            // nothing.
+            bool const useIndirect = m_RasterArgsShader && m_RasterArgsShader->IsValid();
+            if (useIndirect)
+            {
+                m_RasterArgsShader->Bind();
+                // The kernel reads exactly one field of this block,
+                // u_SwListCapacity, and clamps the count by it — so the upload
+                // has to happen BEFORE the args dispatch, not just before the
+                // raster's.
+                UBOStructures::VirtualRasterUBO argsParams{};
+                argsParams.ViewportWidth = registry.GetVisbufferWidth();
+                argsParams.ViewportHeight = registry.GetVisbufferHeight();
+                argsParams.SwListCapacity = maxSwRecords;
+                UploadRasterParams(argsParams);
+                RenderCommand::DispatchCompute(1, 1, 1);
+                // ShaderStorage orders the SSBO write itself; Command is the one
+                // that matters here — it is what makes the written words visible
+                // to the indirect-command fetch (GL_COMMAND_BARRIER_BIT; on
+                // Vulkan the RHI lowers this to an ALL_COMMANDS /
+                // MEMORY_READ|WRITE global barrier, which covers
+                // VK_ACCESS_INDIRECT_COMMAND_READ_BIT). Dropping Command here is
+                // the classic wrong-but-passing-on-one-API bug: the fetch would
+                // race the write and read a stale group count.
+                RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command);
+            }
+
+            // Every raster dispatch below goes through this, so the indirect and
+            // the fallback path cannot drift apart between the int64 and portable
+            // variants.
+            //
+            // Vulkan note, because this looks like #1080's territory and is not:
+            // the arguments are written through the SSBO binding and read back by
+            // vkCmdDispatchIndirect from the buffer's own VkBuffer, so the two
+            // must agree on WHICH allocation they mean. They do — the SW list is
+            // created StorageBufferUsage::DynamicCopy, and
+            // VulkanStorageBuffer::PushSnapshot returns early for exactly that
+            // usage (issue #1058), so a DynamicCopy buffer is never versioned
+            // into the frame arena and both sides address the persistent
+            // allocation. A snapshotting buffer here would have split in two: the
+            // dispatch writing persistent, the indirect fetch reading a stale CPU
+            // snapshot, and a group count of zero is a legal dispatch with
+            // nothing to name it.
+            RHI::ResourceHandle const swListHandle = registry.GetSwListBuffer()->GetRHIHandle();
+            const auto dispatchRaster = [&]()
+            {
+                if (useIndirect)
+                    RenderCommand::DispatchComputeIndirect(swListHandle, kSwDispatchArgsOffset);
+                else
+                    RenderCommand::DispatchCompute(fallbackGroupsX, fallbackGroupsY, 1);
+            };
+
+            // Bracket opens HERE, after the args kernel and its barrier, not before
+            // them. The barrier above is a Command barrier, which lowers to a
+            // full pipeline flush on both backends (Vulkan issues an
+            // unconditional ALL_COMMANDS -> ALL_COMMANDS vkCmdPipelineBarrier2).
+            // Inside the bracket that flush would charge SwRaster for draining
+            // every pass before it — work the master arm's bracket never sees —
+            // so the A/B would compare a stage cost against a stage cost plus a
+            // serialisation point. The args kernel itself is one workgroup of one
+            // thread; what is excluded here is the flush artefact, not the work.
+            auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
+            gpuSubTimers.BeginSubPass("SwRaster");
 
             rasterShader->Bind();
             // Former bare uniforms, one std140 block (issue #691).
@@ -786,20 +922,23 @@ namespace OloEngine
                 // still carries it (declared verbatim in both), so it simply
                 // stays at its zeroed value.
                 UploadRasterParams(rasterParams);
-                RenderCommand::DispatchCompute(groupsX, groupsY, 1);
+                dispatchRaster();
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
             }
             else
             {
                 // Phase 0 atomic-min-compacts the depth word; phase 1 plain-writes
-                // the winning payload where the depth bits match.
+                // the winning payload where the depth bits match. Both read the
+                // SAME indirect arguments — nothing between them rewrites the
+                // count, so the two phases cover an identical record set, which
+                // is what makes the depth-bits match in phase 1 meaningful.
                 rasterParams.Phase = 0;
                 UploadRasterParams(rasterParams);
-                RenderCommand::DispatchCompute(groupsX, groupsY, 1);
+                dispatchRaster();
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
                 rasterParams.Phase = 1;
                 UploadRasterParams(rasterParams);
-                RenderCommand::DispatchCompute(groupsX, groupsY, 1);
+                dispatchRaster();
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
             }
             gpuSubTimers.EndSubPass();

@@ -1,0 +1,23 @@
+// Layer-2 GPU contract for the virtual-geometry raster's indirect-dispatch
+// flattening (issue #1048) — runs the SHIPPED include, not a copy of it, so a
+// divergence between VirtualRasterDispatchArgs.glsl and the CPU mirror in
+// VirtualRasterDispatchArgsMirror.h fails here rather than as silently dropped
+// clusters in a frame nobody is looking at.
+#version 460 core
+
+#include "../include/VirtualRasterDispatchArgs.glsl"
+
+layout(local_size_x = 1) in;
+
+// One record count per case.
+layout(std430, binding = 0) readonly buffer Inputs { uint counts[]; };
+
+// One per case: xyz = the workgroup grid, w = the clamped count it came from.
+layout(std430, binding = 1) writeonly buffer Args { uvec4 args[]; };
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    uint count = counts[i];
+    args[i] = uvec4(OloVirtualRasterDispatchArgs(count), count);
+}

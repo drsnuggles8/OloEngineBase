@@ -150,6 +150,7 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualClusterTwoPhaseOcclusionTest.cpp
 		Rendering/VirtualMeshletEligibilityTest.cpp
 		Rendering/VirtualRasterCoverageTest.cpp
+		Rendering/VirtualRasterDispatchArgsTest.cpp
 		Rendering/MeshSourceBoundsTest.cpp
 		Rendering/MeshBVHRaycastTest.cpp
 		Rendering/PathTracing/ReferenceBRDFTest.cpp

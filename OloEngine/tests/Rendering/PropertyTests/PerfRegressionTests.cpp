@@ -1835,10 +1835,24 @@ namespace OloEngine::Tests
 
         ::testing::Test::RecordProperty("vg_swraster_subpass_ms", std::to_string(bestSw));
         ::testing::Test::RecordProperty("vg_resolve_subpass_ms", std::to_string(bestResolve));
+        // The overdispatch ratio is issue #1048's headline number and the thing
+        // this bracket is most often used to check, so publish it rather than
+        // leaving it to be recomputed by hand: before the raster dispatched
+        // indirectly it launched one workgroup per TESTED cluster, and only the
+        // SoftwareRasterized ones had any work to do (2,834,448 : 3,165 on
+        // VirtualGeometryStress). With the indirect dispatch live the raster
+        // launches at the second number, so this ratio describes the work the
+        // CPU-side bound WOULD have dispatched, not what it now does.
+        const f64 overdispatch = stats.SoftwareRasterized > 0u
+                                     ? static_cast<f64>(stats.TestedClusters) / static_cast<f64>(stats.SoftwareRasterized)
+                                     : 0.0;
+        ::testing::Test::RecordProperty("vg_swraster_conservative_overdispatch", std::to_string(overdispatch));
         GTEST_LOG_(INFO) << "[nanite] swraster-subpass " << bestSw << " ms GPU (min of " << swSamples
                          << "), resolve-control " << bestResolve << " ms GPU (min of " << resolveSamples
                          << "), swClusters=" << stats.SoftwareRasterized
-                         << ", hwDraws=" << stats.HardwareDraws;
+                         << ", hwDraws=" << stats.HardwareDraws
+                         << ", testedClusters=" << stats.TestedClusters
+                         << ", conservative-bound overdispatch=" << overdispatch << "x";
     }
 
     // =========================================================================
