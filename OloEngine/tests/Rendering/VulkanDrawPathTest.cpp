@@ -1345,4 +1345,133 @@ TEST_F(VulkanDrawPath, GpuProducedStorageBufferNeverServesADrawFromACpuSnapshot)
     EXPECT_EQ(vkGpuProduced->GetRootDataAddress(), gpuPersistent);
 }
 
+// A snapshot the draw can index past is the whole point of issue #1080:
+// GetRootDataAddress hands the shader a bare device address with no length, so
+// the ONLY thing that keeps a read inside this buffer is the snapshot spanning
+// all of it. The measured case was a 176-byte snapshot standing in for an
+// 11,264-byte binding-17 buffer — a shader reading element 20 walked into
+// whatever the frame arena handed out next. Note the shape: every write
+// observed in the wild started at offset 0, so the pre-existing prefix guard
+// never engaged and only the TAIL was ever short.
+TEST_F(VulkanDrawPath, PartialStorageBufferWriteSnapshotsTheWholeBufferOrNothing)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kElements = 64u;
+    constexpr u32 kBytes = kElements * sizeof(u32);
+    auto buffer = StorageBuffer::Create(kBytes, 31u, StorageBufferUsage::DynamicDraw);
+    ASSERT_TRUE(buffer);
+    auto* vkBuffer = static_cast<VulkanStorageBuffer*>(buffer.Raw());
+    const VkDeviceAddress persistent = vkBuffer->GetDeviceAddress();
+    ASSERT_NE(persistent, VkDeviceAddress{ 0 });
+
+    // Seed the whole buffer OUTSIDE a recording bracket, so this write is a
+    // plain persistent write-through with no snapshot behind it — the setup
+    // shape PushSnapshot's own no-recording guard describes.
+    std::array<u32, kElements> seed{};
+    for (u32 i = 0; i < kElements; ++i)
+    {
+        seed[i] = 0xA0000000u | i;
+    }
+    buffer->SetData(seed.data(), kBytes, 0);
+    ASSERT_EQ(vkBuffer->GetLiveSnapshotBytes(), 0u)
+        << "a write outside a recording bracket must not stage a snapshot at all";
+
+    auto& api = renderCommandSelection.Get();
+    const u64 refusedBefore = VulkanStorageBuffer::GetSnapshotRefusedCount();
+    constexpr u32 kWrittenElements = 4u;
+    constexpr u32 kWrittenBytes = kWrittenElements * sizeof(u32);
+    const std::array<u32, kWrittenElements> head{ 0xB0000000u, 0xB0000001u, 0xB0000002u, 0xB0000003u };
+
+    u32 headWriteSnapshotBytes = 0;
+    u32 midWriteSnapshotBytes = 0;
+    std::array<u32, kElements> afterHeadWrite{};
+    std::array<u32, kElements> afterMidWrite{};
+    VkDeviceAddress rootAfterHeadWrite = 0;
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    // (1) The measured shape: offset 0, a fraction of the
+                    // buffer. Pre-fix this produced a 16-byte snapshot for a
+                    // 256-byte buffer.
+                    buffer->SetData(head.data(), kWrittenBytes, 0);
+                    headWriteSnapshotBytes = vkBuffer->GetLiveSnapshotBytes();
+                    rootAfterHeadWrite = vkBuffer->GetRootDataAddress();
+                    if (const auto* cpu = vkBuffer->GetLiveSnapshotCpuData(); cpu != nullptr)
+                    {
+                        std::memcpy(afterHeadWrite.data(), cpu,
+                                    std::min<sizet>(kBytes, vkBuffer->GetLiveSnapshotBytes()));
+                    }
+
+                    // (2) A write that starts mid-buffer, layered on the live
+                    // snapshot: the prefix comes from the snapshot, the tail
+                    // must too.
+                    const std::array<u32, 2> mid{ 0xC0000000u, 0xC0000001u };
+                    buffer->SetData(mid.data(), static_cast<u32>(mid.size() * sizeof(u32)),
+                                    static_cast<u32>(8 * sizeof(u32)));
+                    midWriteSnapshotBytes = vkBuffer->GetLiveSnapshotBytes();
+                    if (const auto* cpu = vkBuffer->GetLiveSnapshotCpuData(); cpu != nullptr)
+                    {
+                        std::memcpy(afterMidWrite.data(), cpu,
+                                    std::min<sizet>(kBytes, vkBuffer->GetLiveSnapshotBytes()));
+                    }
+                });
+
+    // The contract, stated as the issue states it: whole buffer, or nothing.
+    // Both are safe; a snapshot in between is the out-of-bounds device read.
+    EXPECT_TRUE(headWriteSnapshotBytes == kBytes || headWriteSnapshotBytes == 0u)
+        << "a mid-frame partial SetData must snapshot all " << kBytes << " bytes or refuse the snapshot "
+           "outright — it staged " << headWriteSnapshotBytes
+        << ", and the draw's root-data address carries no length to bound the difference (issue #1080)";
+    EXPECT_TRUE(midWriteSnapshotBytes == kBytes || midWriteSnapshotBytes == 0u)
+        << "same rule for a write that starts mid-buffer — it staged " << midWriteSnapshotBytes;
+
+    // This device gives DynamicDraw storage buffers a host-visible placement,
+    // so the undefined bytes always have a CPU-readable source and the
+    // snapshot must actually happen. If that ever stops being true the
+    // EXPECT_TRUEs above still hold and this one names why it changed.
+    ASSERT_EQ(headWriteSnapshotBytes, kBytes)
+        << "no snapshot was staged at all — the buffer has no mapped placement and no live snapshot to source "
+           "the undefined bytes from, which is a legal but different outcome than this test set up";
+    EXPECT_NE(rootAfterHeadWrite, persistent);
+
+    // Content, not just extent: bytes the write did not define must carry the
+    // persistent buffer's real values, never a zero fill that only LOOKS
+    // defined to a shader.
+    for (u32 i = 0; i < kWrittenElements; ++i)
+    {
+        EXPECT_EQ(afterHeadWrite[i], head[i]) << "written element " << i;
+    }
+    for (u32 i = kWrittenElements; i < kElements; ++i)
+    {
+        EXPECT_EQ(afterHeadWrite[i], seed[i])
+            << "tail element " << i << " must carry the persistent buffer's value, not a zero fill";
+    }
+
+    ASSERT_EQ(midWriteSnapshotBytes, kBytes);
+    EXPECT_EQ(afterMidWrite[8], 0xC0000000u);
+    EXPECT_EQ(afterMidWrite[9], 0xC0000001u);
+    for (u32 i = 0; i < kWrittenElements; ++i)
+    {
+        EXPECT_EQ(afterMidWrite[i], head[i]) << "prefix element " << i << " must survive from the live snapshot";
+    }
+    for (u32 i = 10; i < kElements; ++i)
+    {
+        EXPECT_EQ(afterMidWrite[i], seed[i]) << "tail element " << i << " must survive from the live snapshot";
+    }
+
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+
+    // The refusal path is the other half of the contract: whole-buffer OR
+    // nothing means the "nothing" branch has to be observable, not just
+    // greppable in a log. This buffer is mapped, so nothing should have been
+    // refused here — and if a future change makes the arena refuse instead,
+    // this says so rather than letting the EXPECT_TRUEs above pass on the
+    // no-snapshot arm.
+    EXPECT_EQ(VulkanStorageBuffer::GetSnapshotRefusedCount(), refusedBefore)
+        << "a mapped DynamicDraw buffer inside a recording bracket must not need the refusal path";
+}
+
 #endif // OLO_WITH_VULKAN
