@@ -383,6 +383,7 @@ namespace OloEngine
         {
             VkPhysicalDeviceProperties properties{};
             vkGetPhysicalDeviceProperties(m_PhysicalDevice, &properties);
+            m_MaxSamplerAnisotropy = properties.limits.maxSamplerAnisotropy;
             OLO_CORE_INFO("[Vulkan] Device: {} (driver {}.{}.{}, API {}.{}.{})", properties.deviceName,
                           VK_API_VERSION_MAJOR(properties.driverVersion), VK_API_VERSION_MINOR(properties.driverVersion),
                           VK_API_VERSION_PATCH(properties.driverVersion), VK_API_VERSION_MAJOR(properties.apiVersion),
@@ -643,6 +644,13 @@ namespace OloEngine
         // mode matrix's per-RT colour masks). Enabled when supported, never a
         // gate row (#691).
         enabledFeatures.independentBlend = supported.independentBlend;
+        // samplerAnisotropy: a VkSamplerCreateInfo with anisotropyEnable
+        // needs the feature (VUID-VkSamplerCreateInfo-anisotropyEnable-01070)
+        // and a maxAnisotropy within the device limit (-01071); the sampler
+        // heap reads both from here and files an isotropic sampler when the
+        // feature is off. When-supported, never a gate row.
+        enabledFeatures.samplerAnisotropy = supported.samplerAnisotropy;
+        m_SamplerAnisotropyEnabled = supported.samplerAnisotropy == VK_TRUE;
         m_TessellationShaderEnabled = supported.tessellationShader == VK_TRUE;
         m_GeometryShaderEnabled = supported.geometryShader == VK_TRUE;
         m_MultiDrawIndirectEnabled = supported.multiDrawIndirect == VK_TRUE;

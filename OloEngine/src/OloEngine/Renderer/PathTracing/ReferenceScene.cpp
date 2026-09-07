@@ -66,18 +66,33 @@ namespace OloEngine::PathTracing
     {
         if (Width == 0 || Height == 0 || Texels.empty())
             return glm::vec4(1.0f);
+        // REPEAT addressing is applied to the coordinate FIRST, in float:
+        // a UV far outside [0, 1) or a non-finite one would otherwise reach
+        // the float-to-integer conversion below out of i32's range, which is
+        // undefined behaviour. A non-finite coordinate reads texel 0, the
+        // way the GPU's REPEAT wrap of a NaN is some texel rather than a fault.
+        const auto repeat = [](f32 coordinate) -> f32
+        {
+            if (!std::isfinite(coordinate))
+                return 0.0f;
+            const f32 wrapped = coordinate - std::floor(coordinate);
+            return wrapped < 1.0f ? wrapped : 0.0f; // 1 - ulp rounds up to 1.0 for huge inputs
+        };
+        // Texel centres at (i + 0.5) / size.
+        const f32 x = repeat(uv.x) * static_cast<f32>(Width) - 0.5f;
+        const f32 y = repeat(uv.y) * static_cast<f32>(Height) - 0.5f;
+        const f32 x0f = std::floor(x);
+        const f32 y0f = std::floor(y);
+        const f32 fx = x - x0f;
+        const f32 fy = y - y0f;
+        // x0f is in [-1, Width - 1] after the wrap, so the conversion is
+        // in range; the -1 (a coordinate left of the first centre) wraps to
+        // the last texel.
         const auto wrap = [](i32 index, u32 size) -> u32
         {
             const i32 s = static_cast<i32>(size);
             return static_cast<u32>(((index % s) + s) % s);
         };
-        // Texel centres at (i + 0.5) / size; REPEAT addressing.
-        const f32 x = uv.x * static_cast<f32>(Width) - 0.5f;
-        const f32 y = uv.y * static_cast<f32>(Height) - 0.5f;
-        const f32 x0f = std::floor(x);
-        const f32 y0f = std::floor(y);
-        const f32 fx = x - x0f;
-        const f32 fy = y - y0f;
         const auto x0 = static_cast<i32>(x0f);
         const auto y0 = static_cast<i32>(y0f);
         const u32 ix0 = wrap(x0, Width);

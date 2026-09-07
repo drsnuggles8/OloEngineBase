@@ -33,8 +33,9 @@ Two consequences that are easy to break by accident:
   the material's `ClosureVersion` the way `PBRClosureBSDF.h` does: the Legacy sampler (GGX-NDF
   importance sampling plus cosine, the v2 lobe probability) is mirrored in the shader, and both
   closures are pinned by their own Cornell parity test.
-- **Textures follow one convention on both tracers:** level 0, bilinear, REPEAT, sRGB decoded per
-  texel; albedo rgb times the factor, metallic = blue and roughness = green, emissive rgb times the
+- **Textures follow one convention on both tracers:** level 0, bilinear, REPEAT; the colour maps
+  (albedo, emissive) are sRGB-decoded per texel, the data maps (metallic-roughness, normal) are read
+  linear; albedo rgb times the factor, metallic = blue and roughness = green, emissive rgb times the
   factor, the normal map in the triangle's analytic UV tangent frame (`ReferenceScene::ApplyNormalMap`
   and the shader's `PtApplyNormalMap` are one formula). Emissive records carry UVs and the map so NEE
   and the emitter-hit path see one radiance. The GPU indexes the descriptor heap itself
@@ -104,10 +105,12 @@ credit the path with environment radiance through an occluder.
   publication, so it never touches the shared indexed-binding state. Do not park such a buffer on a
   slot some other table owns; an arbitrary out-of-range number is not a way out either, because
   `VulkanBindingState` warns on it.
-- **A by-address buffer written every frame races the previous frame's draw.** `SetData` on Vulkan
+- **Never `SetData` into a by-address buffer a submitted frame may still read.** `SetData` on Vulkan
   writes the persistent allocation the shader's device address points at (the snapshot mechanism
-  serves bound SSBOs, not addresses). The emissive table writes only when its bytes changed; the
-  frame a changed table could tear is the one the `SceneMutated` invalidation discards anyway.
+  serves bound SSBOs, not addresses), so the previous frame's draw would read a torn table. The
+  emissive and material-texture tables therefore publish a *fresh* buffer whenever their bytes change
+  and drop the old `Ref`: the backend's deferred reclaim keeps the old allocation alive until the GPU
+  is past every frame that could reference it, and the pass resolves the address every frame.
 - **Vulkan off-screen targets are top-down; GL's are bottom-up.** The shader derives its pixel seed
   and primary ray from the CPU film's row convention (row 0 = top) under `#ifdef OLO_VULKAN`, and the
   device test's readback needs no flip. The primary ray uses `inverse(P * V)` in the engine's GL

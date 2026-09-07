@@ -7,6 +7,7 @@
 #include <shared_mutex>
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
+#include <algorithm>
 #include <bit>
 #include <mutex>
 
@@ -244,8 +245,17 @@ namespace OloEngine
         }
         if (sampler.MaxAnisotropy > 1.0f)
         {
-            samplerInfo.anisotropyEnable = VK_TRUE;
-            samplerInfo.maxAnisotropy = sampler.MaxAnisotropy;
+            // anisotropyEnable is legal only with the samplerAnisotropy feature
+            // on (VUID-VkSamplerCreateInfo-anisotropyEnable-01070) and a degree
+            // within the device limit (-01071). Without the feature the sampler
+            // is filed isotropic: a valid descriptor that filters less, rather
+            // than a validation error and a null sampler.
+            const auto* device = VulkanDevice::Get();
+            if (device != nullptr && device->IsSamplerAnisotropyEnabled())
+            {
+                samplerInfo.anisotropyEnable = VK_TRUE;
+                samplerInfo.maxAnisotropy = std::clamp(sampler.MaxAnisotropy, 1.0f, device->GetMaxSamplerAnisotropy());
+            }
         }
         switch (sampler.Border)
         {

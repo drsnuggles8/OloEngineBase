@@ -182,6 +182,20 @@ namespace OloEngine::MCP::PostProcess
         return fog.*Mem;
     }
 
+    // The vec3 twins of GetPpNested / SetPpNested, for a colour inside a
+    // nested settings group (the path tracer's uniform environment).
+    template<auto Group, auto Mem>
+    [[nodiscard]] glm::vec3 GetPpNestedVec3(const PostProcessSettings& pp, const FogSettings&)
+    {
+        return (pp.*Group).*Mem;
+    }
+
+    template<auto Group, auto Mem>
+    void SetPpNestedVec3(PostProcessSettings& pp, FogSettings&, const glm::vec3& v)
+    {
+        (pp.*Group).*Mem = v;
+    }
+
     template<auto Mem>
     void SetFogVec3(PostProcessSettings&, FogSettings& fog, const glm::vec3& v)
     {
@@ -243,6 +257,11 @@ namespace OloEngine::MCP::PostProcess
     FieldInfo                                                                                                                                                                                                                                               \
     {                                                                                                                                                                                                                                                       \
         token, "pathtracer", FieldType::Bool, 0.0, 1.0, {}, false, desc, &GetPpNested<&PostProcessSettings::GpuPathTracer, &GpuPathTracerSettings::name>, &SetPpNested<&PostProcessSettings::GpuPathTracer, &GpuPathTracerSettings::name>, nullptr, nullptr \
+    }
+#define OLO_PT_VEC3(token, name, hi, desc)                                                                                                                                                                                                                         \
+    FieldInfo                                                                                                                                                                                                                                                      \
+    {                                                                                                                                                                                                                                                              \
+        token, "pathtracer", FieldType::Vec3, 0.0, hi, {}, false, desc, nullptr, nullptr, &GetPpNestedVec3<&PostProcessSettings::GpuPathTracer, &GpuPathTracerSettings::name>, &SetPpNestedVec3<&PostProcessSettings::GpuPathTracer, &GpuPathTracerSettings::name> \
     }
 #define OLO_PT_NUM(token, name, type, lo, hi, desc)                                                                                                                                                                                            \
     FieldInfo                                                                                                                                                                                                                                  \
@@ -465,6 +484,10 @@ namespace OloEngine::MCP::PostProcess
                    static_cast<double>(GpuPathTracerLimits::kMinRayDistance),
                    static_cast<double>(GpuPathTracerLimits::kMaxRayDistance),
                    "Metres before a ray is treated as escaped."),
+        OLO_PT_VEC3("GpuPathTracerUniformEnvironmentRadiance", UniformEnvironmentRadiance,
+                    static_cast<double>(GpuPathTracerLimits::kMaxUniformEnvironmentRadiance),
+                    "Radiance [r, g, b] arriving from every direction a ray escapes into: the furnace lever, and "
+                    "the only environment the CPU reference has."),
         OLO_PT_NUM("GpuPathTracerEnvironmentCubeIntensity", EnvironmentCubeIntensity, FieldType::Float, 0.0,
                    static_cast<double>(GpuPathTracerLimits::kMaxEnvironmentCubeIntensity),
                    "Scale on the frame's environment cube sampled on escape; 0 leaves only the uniform radiance."),

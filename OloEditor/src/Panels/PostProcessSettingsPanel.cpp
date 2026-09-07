@@ -517,21 +517,24 @@ namespace OloEngine
                     ImGui::SetTooltip("Albedo, metallic-roughness, normal and emissive maps at level 0, and\n"
                                       "alpha MASK on the ray. Off shades from the material factors alone:\n"
                                       "the A/B for a texture disagreement with the CPU reference.");
+                // AlwaysClamp on every drag here: Ctrl+Click text entry must
+                // not push a value past the limits the sanitizer enforces on
+                // load, or the panel would show a number the tracer never uses.
                 ImGui::DragFloat("Radiance Clamp (0 = off)##GpuPathTracer", &pt.MaxRadianceClamp, 0.1f, 0.0f,
-                                 kMaxRadianceClamp, "%.1f");
+                                 kMaxRadianceClamp, "%.1f", ImGuiSliderFlags_AlwaysClamp);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("A clamp is a BIAS. Keep it off for anything that claims to be ground truth.");
                 ImGui::DragFloat("Ray Epsilon##GpuPathTracer", &pt.RayEpsilon, 0.0001f, kMinRayEpsilon, kMaxRayEpsilon,
-                                 "%.5f m");
+                                 "%.5f m", ImGuiSliderFlags_AlwaysClamp);
                 ImGui::DragFloat("Max Ray Distance##GpuPathTracer", &pt.MaxRayDistance, 10.0f, kMinRayDistance,
-                                 kMaxRayDistance, "%.0f m");
+                                 kMaxRayDistance, "%.0f m", ImGuiSliderFlags_AlwaysClamp);
                 ImGui::ColorEdit3("Uniform Environment##GpuPathTracer", &pt.UniformEnvironmentRadiance.x,
                                   ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Radiance arriving from every direction a ray escapes into —\n"
                                       "the furnace lever, and the only environment the CPU reference has.");
                 ImGui::DragFloat("Environment Cube Intensity##GpuPathTracer", &pt.EnvironmentCubeIntensity, 0.01f,
-                                 0.0f, kMaxEnvironmentCubeIntensity, "%.2f");
+                                 0.0f, kMaxEnvironmentCubeIntensity, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 
                 // The names come from the enum's own ToString, so a view added
                 // there shows up here without a second list to keep in step.
@@ -547,10 +550,10 @@ namespace OloEngine
                 }
                 if (pt.DebugView == GpuPathTracerDebugView::SampleCount)
                     ImGui::DragFloat("Sample Count Scale##GpuPathTracer", &pt.SampleCountDisplayScale, 0.0001f, 0.0f,
-                                     kMaxSampleCountDisplayScale, "%.5f");
+                                     kMaxSampleCountDisplayScale, "%.5f", ImGuiSliderFlags_AlwaysClamp);
                 if (pt.DebugView == GpuPathTracerDebugView::Variance)
                     ImGui::DragFloat("Variance Scale##GpuPathTracer", &pt.VarianceDisplayScale, 1.0f, 0.0f,
-                                     kMaxVarianceDisplayScale, "%.0f");
+                                     kMaxVarianceDisplayScale, "%.0f", ImGuiSliderFlags_AlwaysClamp);
 
                 // What the tracer actually did last frame. Read only while it
                 // is ENABLED, for the reason the tiers give: a disabled pass

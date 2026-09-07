@@ -129,11 +129,11 @@ namespace OloEngine::Tests
         auto& settings = Renderer3D::GetPostProcessSettings();
         settings.GpuPathTracer.Enabled = false;
         std::vector<u8> off;
-        Capture(off);
+        ASSERT_NO_FATAL_FAILURE(Capture(off));
 
         settings.GpuPathTracer.Enabled = true;
         std::vector<u8> on;
-        Capture(on);
+        ASSERT_NO_FATAL_FAILURE(Capture(on));
 
         ASSERT_EQ(on.size(), off.size());
         EXPECT_EQ(std::memcmp(on.data(), off.data(), on.size()), 0)

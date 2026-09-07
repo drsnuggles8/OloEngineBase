@@ -636,6 +636,9 @@ namespace OloEngine
         note("DecalVisibilityQueries", s_Data.DecalVisibilityQueries[0].IsValid());
         // Reflection-probe cubemap arrays + UBO + cluster-mask SSBO (#705).
         note("ReflectionProbeArray", s_Data.ReflectionProbes.IsInitialized());
+        // The GPU path tracer's by-address tables (#1055).
+        note("PathTracerEmissive", s_Data.PathTracerEmissive.HasGPUResources());
+        note("PathTracerMaterialTextures", s_Data.PathTracerMaterialTextures.HasGPUResources());
 
         return live;
     }

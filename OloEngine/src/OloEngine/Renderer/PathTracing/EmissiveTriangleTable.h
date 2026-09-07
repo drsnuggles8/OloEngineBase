@@ -130,6 +130,13 @@ namespace OloEngine
         // backend without buffer addresses or with nothing uploaded.
         [[nodiscard]] u64 GetDeviceAddress() const noexcept;
 
+        // Owns a GPU buffer that Shutdown must release (Renderer3D's
+        // live-statics audit).
+        [[nodiscard]] bool HasGPUResources() const noexcept
+        {
+            return m_Buffer != nullptr;
+        }
+
         void Shutdown();
 
         // The triangles to append: `Indices[FirstIndex, FirstIndex + IndexCount)`

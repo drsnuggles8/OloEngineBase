@@ -372,7 +372,19 @@ namespace OloEngine::Benchmark
             }
             if (rs["GpuPathTracerEnabled"])
             {
-                manifest.RendererSettings.GpuPathTracerEnabled = rs["GpuPathTracerEnabled"].as<bool>(false);
+                // Decoded explicitly: `as<bool>(false)` would turn a typo
+                // ("ture", a number) into a silently disabled tracer, and a
+                // benchmark that meant to measure it would measure the raster.
+                bool enabled = false;
+                if (!rs["GpuPathTracerEnabled"].IsScalar() ||
+                    !YAML::convert<bool>::decode(rs["GpuPathTracerEnabled"], enabled))
+                {
+                    errors.Add("RendererSettings.GpuPathTracerEnabled must be true or false");
+                }
+                else
+                {
+                    manifest.RendererSettings.GpuPathTracerEnabled = enabled;
+                }
             }
             if (rs["GpuPathTracerSamplesPerFrame"])
             {

@@ -49,8 +49,8 @@ namespace OloEngine
     // memoised across frames, because a texture reloaded in place keeps its
     // RHI handle while its image and heap slot change (VulkanTexture2D::
     // Invalidate); RHITypes.h's rule for a heap offset is "fetch it, do not
-    // store it". Re-uploaded only when the bytes changed, for the reason
-    // EmissiveTriangleTable gives, and that change is reported through
+    // store it". Uploaded only when the bytes changed, into a fresh buffer
+    // for the reason EmissiveTriangleTable gives, and that change is reported through
     // ChangedThisFrame so the accumulation restarts: a map that resolves a
     // frame late changes what every hit shades with.
     class MaterialTextureTable
@@ -93,6 +93,11 @@ namespace OloEngine
         // Device address of the uploaded table; 0 with nothing uploaded or on
         // a backend without buffer addresses.
         [[nodiscard]] u64 GetDeviceAddress() const noexcept;
+
+        [[nodiscard]] bool HasGPUResources() const noexcept
+        {
+            return m_Buffer != nullptr;
+        }
 
         void Shutdown();
 

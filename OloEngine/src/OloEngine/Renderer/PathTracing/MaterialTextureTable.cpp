@@ -92,25 +92,24 @@ namespace OloEngine
             return 0;
 
         const auto requiredBytes = static_cast<u32>(m_Records.size() * sizeof(MaterialTextureRecord));
-        if (!m_Buffer || m_Buffer->GetSize() < requiredBytes)
-        {
-            const u32 capacityRecords = std::max<u32>(kMinimumRecordCapacity, static_cast<u32>(m_Records.size()) * 2u);
-            const auto capacityBytes = static_cast<u32>(capacityRecords * sizeof(MaterialTextureRecord));
-            if (m_Buffer)
-                m_Buffer->Resize(capacityBytes);
-            else
-                m_Buffer = StorageBuffer::Create(capacityBytes, StorageBuffer::kNoBinding, StorageBufferUsage::DynamicDraw);
-            if (!m_Buffer)
-                return 0;
-            m_Uploaded.clear();
-        }
         // Same write discipline as the emissive table: only when the bytes
-        // changed, because the previous frame's draw reads this buffer by
-        // address and a write would race it.
-        const bool unchanged = m_Uploaded.size() == m_Records.size() &&
+        // changed, and then into a fresh buffer, because the previous frame's
+        // draw reads the old one by address and an in-place write would race
+        // it (EmissiveTriangleTable::EndFrame says why dropping the old Ref
+        // is safe).
+        const bool unchanged = m_Buffer && m_Uploaded.size() == m_Records.size() &&
                                std::memcmp(m_Uploaded.data(), m_Records.data(), requiredBytes) == 0;
         if (!unchanged)
         {
+            const u32 capacityRecords = std::max<u32>(kMinimumRecordCapacity, static_cast<u32>(m_Records.size()));
+            const auto capacityBytes = static_cast<u32>(capacityRecords * sizeof(MaterialTextureRecord));
+            m_Buffer = StorageBuffer::Create(capacityBytes, StorageBuffer::kNoBinding, StorageBufferUsage::DynamicDraw);
+            if (!m_Buffer)
+            {
+                m_Uploaded.clear();
+                m_UploadedCount = 0;
+                return 0;
+            }
             m_Buffer->SetData(m_Records.data(), requiredBytes);
             m_Uploaded = m_Records;
             m_ChangedThisFrame = true;

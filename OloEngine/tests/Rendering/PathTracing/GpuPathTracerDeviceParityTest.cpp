@@ -1167,7 +1167,7 @@ namespace OloEngine::Tests
         TracedFrame frame;
         ASSERT_TRUE(ReadFrame(rig, 0, frame));
         for (const glm::vec4& texel : frame.Accum)
-            ASSERT_EQ(texel.a, 0.0f) << "no sample may be drawn against a zero TLAS address";
+            ASSERT_FLOAT_EQ(texel.a, 0.0f) << "no sample may be drawn against a zero TLAS address";
     }
 
 #endif // OLO_WITH_VULKAN

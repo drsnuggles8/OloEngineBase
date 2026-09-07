@@ -180,40 +180,34 @@ namespace OloEngine
             return 0;
 
         const auto requiredBytes = static_cast<u32>(m_Records.size() * sizeof(EmissiveTriangleRecord));
-        if (!m_Buffer || m_Buffer->GetSize() < requiredBytes)
-        {
-            // Grow geometrically so a scene that adds emitters one at a time
-            // does not re-create the buffer every frame. Resize mints a new
-            // device address, which is why the pass resolves it every frame.
-            const u32 capacityRecords =
-                std::max<u32>(kMinimumRecordCapacity, static_cast<u32>(m_Records.size()) * 2u);
-            const auto capacityBytes = static_cast<u32>(capacityRecords * sizeof(EmissiveTriangleRecord));
-            if (m_Buffer)
-                m_Buffer->Resize(capacityBytes);
-            else
-            {
-                // By device address only, never by slot: the shader reaches it
-                // through GL_EXT_buffer_reference, so it publishes nowhere.
-                m_Buffer = StorageBuffer::Create(capacityBytes, StorageBuffer::kNoBinding,
-                                                 StorageBufferUsage::DynamicDraw);
-            }
-            if (!m_Buffer)
-                return 0;
-            // A new or resized buffer holds nothing the records could match.
-            m_Uploaded.clear();
-        }
 
-        // Written only when the bytes changed. In a static scene the table is
-        // identical every frame, and a write would race the previous frame's
-        // draw, which is still reading the persistent buffer by address (the
-        // in-flight caveat in VulkanStorageBuffer::SetData). When the bytes DO
-        // change, the GPU Scene commit that changed them also reported a dirty
-        // range, and the frame whose draw could read a torn record is the one
-        // the SceneMutated invalidation discards.
-        const bool unchanged = m_Uploaded.size() == m_Records.size() &&
+        // Written only when the bytes changed, and then into a FRESH buffer.
+        // The previous frame's draw may still be reading the old allocation
+        // by device address, and a SetData on Vulkan writes that persistent
+        // allocation in place (the in-flight caveat in VulkanStorageBuffer::
+        // SetData; the snapshot mechanism serves bound SSBOs, not addresses).
+        // Dropping the old Ref hands its allocation to the backend's deferred
+        // reclaim, which destroys it only once the GPU is past every frame
+        // that could reference it, so the old address stays valid for the
+        // frame that holds it and the new one is written before any use. A
+        // new address every change is why the pass resolves it every frame.
+        // In a static scene the table is identical every frame and nothing is
+        // allocated or written.
+        const bool unchanged = m_Buffer && m_Uploaded.size() == m_Records.size() &&
                                std::memcmp(m_Uploaded.data(), m_Records.data(), requiredBytes) == 0;
         if (!unchanged)
         {
+            const u32 capacityRecords = std::max<u32>(kMinimumRecordCapacity, static_cast<u32>(m_Records.size()));
+            const auto capacityBytes = static_cast<u32>(capacityRecords * sizeof(EmissiveTriangleRecord));
+            // By device address only, never by slot: the shader reaches it
+            // through GL_EXT_buffer_reference, so it publishes nowhere.
+            m_Buffer = StorageBuffer::Create(capacityBytes, StorageBuffer::kNoBinding, StorageBufferUsage::DynamicDraw);
+            if (!m_Buffer)
+            {
+                m_Uploaded.clear();
+                m_UploadedCount = 0;
+                return 0;
+            }
             m_Buffer->SetData(m_Records.data(), requiredBytes);
             m_Uploaded = m_Records;
         }

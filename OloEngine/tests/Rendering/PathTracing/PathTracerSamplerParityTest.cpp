@@ -11,8 +11,9 @@
 // here is ZERO. A single differing bit fails the test and names the texel.
 //
 // Renders assets/shaders/tests/PathTracerSamplerProbe.glsl, which dumps the
-// first six dimensions of the sequence for a (sample index x pixel-seed row)
-// grid, and compares against PathSampler on the identical grid.
+// first eight dimensions of the sequence for a (sample index x pixel-seed row)
+// grid across two attachments, one value per channel, and compares against
+// PathSampler on the identical grid.
 //
 // SKIPs cleanly without a GL 4.6 context, like every other GPU test here.
 // =============================================================================
@@ -63,7 +64,7 @@ namespace OloEngine::Tests
                 FramebufferSpecification spec{};
                 spec.Width = kWidth;
                 spec.Height = kHeight;
-                spec.Attachments = { FramebufferTextureFormat::RGBA32F };
+                spec.Attachments = { FramebufferTextureFormat::RGBA32F, FramebufferTextureFormat::RGBA32F };
                 m_OutputFB = Framebuffer::Create(spec);
                 m_Shader = Shader::Create("assets/shaders/tests/PathTracerSamplerProbe.glsl");
             }
@@ -90,9 +91,9 @@ namespace OloEngine::Tests
                 return true;
             }
 
-            void ReadOutput(std::vector<f32>& out) const
+            void ReadOutput(std::vector<f32>& out, u32 attachment = 0) const
             {
-                ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
+                ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentRendererID(attachment), kWidth, kHeight, out);
             }
         };
     } // namespace
@@ -104,8 +105,11 @@ namespace OloEngine::Tests
         SamplerProbeHarness harness;
         ASSERT_TRUE(harness.Draw());
         std::vector<f32> gpu;
-        harness.ReadOutput(gpu);
+        harness.ReadOutput(gpu, 0);
         ASSERT_EQ(gpu.size(), static_cast<sizet>(kWidth) * kHeight * 4);
+        std::vector<f32> gpu1;
+        harness.ReadOutput(gpu1, 1);
+        ASSERT_EQ(gpu1.size(), gpu.size());
 
         u32 mismatches = 0;
         u32 firstX = 0, firstY = 0;
@@ -122,16 +126,18 @@ namespace OloEngine::Tests
                 const f32 first1D = sampler.Get1D();
                 const glm::vec2 second2D = sampler.Get2D();
                 const f32 second1D = sampler.Get1D();
-                // The pack is exact: both terms are below 1 and the multiply
-                // by 4 is a power of two.
-                const f32 packed = second2D.x + second1D * 4.0f;
+                const glm::vec2 third2D = sampler.Get2D();
 
                 // Bit-exact is the contract, so the compare is bitwise, not
-                // a float ==.
+                // a float ==; every dimension has its own channel.
                 const bool equal = Math::BitwiseEqual(gpu[base + 0], first2D.x) &&
                                    Math::BitwiseEqual(gpu[base + 1], first2D.y) &&
                                    Math::BitwiseEqual(gpu[base + 2], first1D) &&
-                                   Math::BitwiseEqual(gpu[base + 3], packed);
+                                   Math::BitwiseEqual(gpu[base + 3], second2D.x) &&
+                                   Math::BitwiseEqual(gpu1[base + 0], second2D.y) &&
+                                   Math::BitwiseEqual(gpu1[base + 1], second1D) &&
+                                   Math::BitwiseEqual(gpu1[base + 2], third2D.x) &&
+                                   Math::BitwiseEqual(gpu1[base + 3], third2D.y);
                 if (!equal)
                 {
                     if (mismatches == 0)

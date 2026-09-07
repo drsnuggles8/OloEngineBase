@@ -148,6 +148,17 @@ namespace OloEngine
         {
             return m_MultiDrawIndirectEnabled;
         }
+        // samplerAnisotropy (core feature) and the device's maxSamplerAnisotropy
+        // limit: VulkanSamplerHeap::CreateInfoFromDesc enables anisotropy only
+        // when the feature is on and clamps the requested degree to the limit.
+        [[nodiscard]] bool IsSamplerAnisotropyEnabled() const
+        {
+            return m_SamplerAnisotropyEnabled;
+        }
+        [[nodiscard]] f32 GetMaxSamplerAnisotropy() const
+        {
+            return m_MaxSamplerAnisotropy;
+        }
         [[nodiscard]] bool IsShaderDrawParametersEnabled() const
         {
             return m_ShaderDrawParametersEnabled;
@@ -325,6 +336,8 @@ namespace OloEngine
         bool m_DrawIndirectCountEnabled = false;
         bool m_SampledImageNonUniformIndexingEnabled = false;
         bool m_MultiDrawIndirectEnabled = false;
+        bool m_SamplerAnisotropyEnabled = false;
+        f32 m_MaxSamplerAnisotropy = 1.0f;
         bool m_ShaderDrawParametersEnabled = false;
         bool m_DeviceFaultEnabled = false;
         bool m_MeshShaderEnabled = false;
