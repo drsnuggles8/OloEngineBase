@@ -167,6 +167,43 @@ namespace OloEngine
         return Texture2D::Create(texPath);
     }
 
+    // The roots a relative scene resource path is written against and read back
+    // from, most specific first.
+    //
+    // ONE list, shared by the writer (MakePortableSceneResourcePath) and the reader
+    // (ResolveSceneFontPath), because the two disagreeing is the whole of the font
+    // defect: the writer made a path relative to either root, the reader only ever
+    // prefixed the first, and every path written against the second was unreadable.
+    // Two functions deriving "the roots" separately is the shape that failure needs.
+    //
+    // The working directory is the STARTUP one where there is an Application, so a
+    // later chdir cannot move what a path means mid-session. There is no Application
+    // in the test binary or in a tool, and the static is then empty — fall back to
+    // the live cwd, which in a process that never chdir'd is the same value the
+    // Application would have captured.
+    static std::vector<std::filesystem::path> SceneResourceRoots()
+    {
+        std::vector<std::filesystem::path> roots;
+        if (Project::GetActive())
+        {
+            if (auto dir = Project::GetProjectDirectory(); !dir.empty())
+                roots.push_back(std::move(dir));
+        }
+
+        std::filesystem::path workingDir = Application::GetStartupWorkingDirectory();
+        if (workingDir.empty())
+        {
+            std::error_code ec;
+            workingDir = std::filesystem::current_path(ec);
+            if (ec)
+                workingDir.clear();
+        }
+        if (!workingDir.empty())
+            roots.push_back(std::move(workingDir));
+
+        return roots;
+    }
+
     // Runtime-facing resource paths must survive moving a project or launching a
     // packaged game on another machine. Font::Create stores the resolved absolute
     // path, so serializing GetPath() directly would rewrite a portable authored
@@ -178,14 +215,7 @@ namespace OloEngine
             return path.generic_string();
         }
 
-        std::vector<std::filesystem::path> roots;
-        if (Project::GetActive())
-        {
-            roots.push_back(Project::GetProjectDirectory());
-        }
-        roots.push_back(Application::GetStartupWorkingDirectory());
-
-        for (const auto& root : roots)
+        for (const auto& root : SceneResourceRoots())
         {
             std::error_code ec;
             const auto relative = std::filesystem::relative(path, root, ec);
@@ -197,14 +227,59 @@ namespace OloEngine
         return path.generic_string();
     }
 
+    // The read side of MakePortableSceneResourcePath, and it has to try the SAME
+    // roots that one writes against.
+    //
+    // The writer makes a font path relative to the project directory OR to the
+    // startup working directory, whichever it matches first. The reader only ever
+    // prefixed the project directory, so every path written against the second root
+    // was unreadable — and that is not a corner: the shipped scenes reference
+    // "assets/fonts/opensans/OpenSans-Regular.ttf", an ENGINE asset under
+    // OloEditor/assets/, which is startup-cwd-relative by construction. Drift,
+    // DriftMenu and FontRenderingTest all failed every font load, and the failure
+    // was quiet — Font::Create logs a miss and the text silently falls back to the
+    // default font, so the UI still draws, in the wrong typeface.
+    //
+    // Existence-checked rather than first-root-wins, because the two roots overlap
+    // (the project lives under the startup directory in this repo) and a path that
+    // exists under only the second one must still resolve. Project first, so a
+    // project-owned font continues to shadow an engine-owned one of the same name —
+    // the same precedence the writer encodes.
+    //
+    // When neither root has it, the project-rooted spelling is returned so
+    // Font::Create's existing error names a concrete path, and a warning here names
+    // every root actually tried — the missing half of the old message, which
+    // reported one root while the file was under another.
     static std::filesystem::path ResolveSceneFontPath(const std::filesystem::path& path)
     {
-        if (path.empty() || path.is_absolute() || !Project::GetActive())
+        if (path.empty() || path.is_absolute())
         {
             return path;
         }
 
-        return Project::GetProjectDirectory() / path;
+        const std::vector<std::filesystem::path> roots = SceneResourceRoots();
+        for (const auto& root : roots)
+        {
+            std::error_code ec;
+            if (std::filesystem::path candidate = root / path;
+                std::filesystem::exists(candidate, ec) && !ec)
+            {
+                return candidate;
+            }
+        }
+
+        std::string tried;
+        for (const auto& root : roots)
+        {
+            if (!tried.empty())
+                tried += "', '";
+            tried += (root / path).generic_string();
+        }
+        OLO_CORE_WARN("SceneSerializer: font '{}' was not found under any scene resource root (tried '{}'). "
+                      "The component will fall back to the default font.",
+                      path.generic_string(), tried);
+
+        return roots.empty() ? path : (roots.front() / path);
     }
 
     // ---------- Sanitization helpers (shared across all Deserialize* functions) ----------

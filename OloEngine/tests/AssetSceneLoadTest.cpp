@@ -682,6 +682,21 @@ namespace OloEngine::Tests
                 return result;
             };
 
+            // THE DECISION (issue #1098), so it is not re-litigated: the legacy
+            // "SandboxProject/Assets/..." spelling STAYS SUPPORTED. It is carried by
+            // eleven shipped scenes and by any user scene authored before #887, and
+            // dropping it loses their textures with only a warning thousands of log
+            // lines away. What changed is WHERE it resolves against: the project
+            // root, not the process working directory. The cwd spelling only ever
+            // worked because OloEditor happens to run one directory above the
+            // project — a property of the launch, not of the project — and under it
+            // this very test resolved to the ORIGINAL repository texture rather than
+            // to the staged copy, and registered the same file under two handles.
+            //
+            // So the assertion is not merely "non-empty": it is that the texture
+            // resolves INSIDE the project it was loaded from. That is the property
+            // the cwd fallback could not provide, and asserting only non-emptiness
+            // is what let it look correct for a year.
             auto [firstPath, secondPath] = loadTwiceAndGetPath(scenePath, findFirstSpriteTexture);
             EXPECT_FALSE(firstPath.empty())
                 << "SpriteRendererComponent::Texture had an empty GetPath() on the FIRST load — "
@@ -689,7 +704,138 @@ namespace OloEngine::Tests
             EXPECT_FALSE(secondPath.empty())
                 << "SpriteRendererComponent::Texture had an empty GetPath() on the SECOND load.";
             EXPECT_EQ(firstPath, secondPath);
+
+            // Project-relative, and pointing at the STAGED tree. A path that is
+            // absolute, or that climbs out with "..", is the cwd resolution coming
+            // back.
+            const fs::path resolved = fs::path(firstPath);
+            EXPECT_FALSE(resolved.is_absolute())
+                << "the sprite texture resolved to an ABSOLUTE path (" << firstPath
+                << ") — scene texture references must stay project-relative to be portable.";
+            EXPECT_EQ(firstPath.find(".."), std::string::npos)
+                << "the sprite texture resolved OUTSIDE the project (" << firstPath
+                << ") — the legacy spelling must resolve against the project root, not the cwd.";
+            EXPECT_TRUE(fs::exists(tempRoot / resolved))
+                << "the sprite texture path '" << firstPath
+                << "' does not name a file inside the staged project at " << tempRoot.string();
         }
+    }
+
+    // -------------------------------------------------------------------------------
+    // A scene's font path resolves against the SAME roots the serializer writes it
+    // against.
+    //
+    // `MakePortableSceneResourcePath` makes a font path relative to the project
+    // directory OR to the process working directory, whichever matches first;
+    // `ResolveSceneFontPath` used to prefix only the project directory. Every path
+    // written against the second root was therefore unreadable — and that is not a
+    // corner case: the shipped scenes reference "assets/fonts/opensans/...", an
+    // ENGINE asset under OloEditor/assets/, which is working-directory-relative by
+    // construction. Drift, DriftMenu and FontRenderingTest failed every font load.
+    //
+    // The failure was quiet, which is why no test caught it: Font::Create returns a
+    // non-null Ref whose IsLoaded() is false, the text still draws in the fallback
+    // typeface, and the only signal is a "Failed to open font file" line naming a
+    // path under the project — a root the font was never under. So this asserts
+    // IsLoaded(), not non-null; non-null was always true.
+    //
+    // AssetContentValidity already checks the scene CONTENT resolves, and passed
+    // throughout, because it tries several candidate roots. That is the gap: the
+    // content was fine and the runtime resolver was not.
+    // -------------------------------------------------------------------------------
+    TEST(AssetSceneLoad, SceneFontPathsResolveAgainstTheWorkingDirectoryRootToo)
+    {
+        // Font::Create rasterises an MSDF atlas into a GPU texture.
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        if (!Renderer3D::IsInitialized())
+        {
+            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
+        }
+
+        GLStateGuard glGuard("AssetSceneLoad.SceneFontPaths", GLStateGuard::Policy::Restore);
+
+        // The engine-owned font tree is reached through the working directory, and
+        // ctest runs this suite with WORKING_DIRECTORY = <repo>/OloEditor (see
+        // OloEngine/tests/CMakeLists.txt). Assert rather than skip: a wrong cwd is an
+        // environment error worth reporting, and silently skipping here would hide
+        // exactly the root this test exists to cover.
+        const fs::path engineFont = fs::path("assets") / "fonts" / "opensans" / "OpenSans-Regular.ttf";
+        ASSERT_TRUE(fs::exists(engineFont))
+            << "Expected the engine font tree relative to the working directory, but '"
+            << engineFont.string() << "' does not exist from cwd '"
+            << fs::current_path().string() << "'. Run this suite from OloEditor/.";
+
+        std::string stageError;
+        const fs::path tempRoot = StageSandboxProjectIntoTemp(stageError);
+        ASSERT_FALSE(tempRoot.empty())
+            << "Failed to stage SandboxProject into temp dir: " << stageError;
+
+        struct Cleanup
+        {
+            fs::path Dir;
+            ~Cleanup()
+            {
+                std::error_code ec;
+                for (int attempt = 0; attempt < 3; ++attempt)
+                {
+                    ec.clear();
+                    fs::remove_all(Dir, ec);
+                    std::error_code existsEc;
+                    if (!fs::exists(Dir, existsEc))
+                        return;
+                }
+                OLO_CORE_WARN("AssetSceneLoad: could not remove staging dir '{}': {}", Dir.string(), ec.message());
+            }
+        } cleanup{ tempRoot };
+
+        const fs::path projectFile = FindProjectFile(tempRoot);
+        ASSERT_FALSE(projectFile.empty())
+            << "No .oloproj found inside staged temp project at " << tempRoot.string();
+        ASSERT_TRUE(Project::Load(projectFile)) << "Project::Load failed on staged temp project.";
+
+        auto assetManager = Ref<EditorAssetManager>::Create();
+        assetManager->Initialize(/*startFileWatcher=*/false);
+        Project::SetAssetManager(assetManager);
+
+        struct AssetManagerShutdown
+        {
+            Ref<EditorAssetManager> Mgr;
+            ~AssetManagerShutdown()
+            {
+                if (Mgr)
+                    Mgr->Shutdown();
+                // See DecalAndSpriteTexturePathsSurviveRoundTrip: a shut-down manager
+                // left installed poisons every later test in the process (#1074).
+                Project::Unload();
+            }
+        } assetManagerShutdown{ assetManager };
+
+        // The staged project's copy is what loads; the FONT it names lives outside it.
+        const fs::path scenePath = tempRoot / "Assets" / "Scenes" / "FontRenderingTest.olo";
+        ASSERT_TRUE(fs::exists(scenePath)) << scenePath.string();
+
+        auto scene = Scene::Create();
+        SceneSerializer serializer(scene);
+        ASSERT_TRUE(serializer.Deserialize(scenePath)) << "Deserialize() of " << scenePath.string() << " failed.";
+
+        u32 checked = 0;
+        auto view = scene->GetAllEntitiesWith<TagComponent, TextComponent>();
+        for (auto entity : view)
+        {
+            const auto& [tag, text] = view.get<TagComponent, TextComponent>(entity);
+            ASSERT_TRUE(text.FontAsset) << "entity '" << tag.Tag << "' has a null font ref";
+            EXPECT_TRUE(text.FontAsset->IsLoaded())
+                << "entity '" << tag.Tag << "': the scene's font did not load. Font::Create hands back a "
+                                            "non-null, UNLOADED Font on a miss and the text falls back to the default typeface, "
+                                            "so a null check would not have caught this. Resolved path: '"
+                << text.FontAsset->GetPath() << "'";
+            ++checked;
+        }
+
+        EXPECT_GT(checked, 0u)
+            << "FontRenderingTest.olo carries no TextComponent any more — this test is asserting nothing. "
+               "Point it at another scene with a FontPath, or delete it.";
     }
 
 } // namespace OloEngine::Tests

@@ -23,6 +23,9 @@
 
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -33,11 +36,13 @@
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
+#include <stb_image/stb_image.h>
 #include <GLFW/glfw3.h>
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <numbers>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -456,6 +461,154 @@ namespace OloEngine::Tests
 
         skybox.Reset();
         FrameResourceManager::Get().FlushAllDeletionQueues();
+    }
+
+    // =========================================================================
+    // Equirectangular bake orientation: a cubemap baked from an HDR panorama
+    // must keep the panorama's OWN vertical mapping.
+    //
+    // SamplingKeepsSkyAboveGround above covers the six-JPG cubemap path, which is
+    // a different loader with a different row convention (it explicitly does NOT
+    // flip). The equirectangular path had no orientation test at all, and it was
+    // upside down: looking up showed the floor, looking down showed the ceiling.
+    //
+    // The cause is worth recording because it is invisible at the call site.
+    // IBLPrecompute asked for a bottom-row-first load with the GLOBAL setter
+    // stbi_set_flip_vertically_on_load, but stb resolves the flag as
+    //     set ? local : global
+    // and `set` latches to 1 the first time ANY code on the thread calls the
+    // THREAD-LOCAL setter, which TextureSerializer, OpenGLTextureCubemap and
+    // TextureCompression all do. By the time a scene baked an environment map the
+    // latch was long since set, so the global call did nothing at all. Toggling it
+    // true/false produces a byte-identical frame, which is what makes this
+    // resistant to being found by experiment.
+    //
+    // Asserted as an A/B rather than against absolute values: each GPU probe is
+    // compared with a CPU lookup of the SOURCE panorama at the same direction, and
+    // with the same lookup at the vertically MIRRORED direction. The upright
+    // reading must fit better. That is immune to exposure, filtering and mip
+    // choice, which an absolute threshold would not be.
+    // =========================================================================
+    TEST(ShaderUnitSkyboxTest, EquirectangularBakeKeepsThePanoramaUpright)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // The bake runs through the renderer's shader library, which
+        // EnvironmentMap::InitializeIBLSystem installs from Renderer3D bring-up.
+        // Without it CreateFromEquirectangular returns a map whose cubemap is null.
+        if (!Renderer3D::IsInitialized())
+        {
+            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
+        }
+
+        const char* kHdrPath = "assets/textures/hdr/newport_loft.hdr";
+        std::error_code ec;
+        ASSERT_TRUE(std::filesystem::exists(kHdrPath, ec)) << "Missing HDR fixture: " << kHdrPath;
+
+        // Read the source WITHOUT any flip: row 0 is the panorama's top row, which
+        // is what "upright" is defined against. Through the thread-local setter,
+        // for the same reason the fix uses it -- the global one may already be
+        // latched out by an earlier loader on this thread.
+        ::stbi_set_flip_vertically_on_load_thread(0);
+        int srcW = 0;
+        int srcH = 0;
+        int srcCh = 0;
+        f32* src = ::stbi_loadf(kHdrPath, &srcW, &srcH, &srcCh, 3);
+        ASSERT_NE(src, nullptr) << "stbi_loadf failed for " << kHdrPath;
+        struct FreeSrc
+        {
+            f32* P;
+            ~FreeSrc()
+            {
+                ::stbi_image_free(P);
+            }
+        } freeSrc{ src };
+        ASSERT_GT(srcW, 0);
+        ASSERT_GT(srcH, 0);
+
+        // The CPU mirror of EquirectangularToCubemap.glsl's SampleSphericalMap,
+        // with row 0 = top (no flip), so v = 1 (up) reads the top of the image.
+        const auto sampleSource = [&](glm::vec3 dir) -> glm::vec3
+        {
+            dir = glm::normalize(dir);
+            const f32 u = 0.5f + std::atan2(dir.z, dir.x) / (2.0f * std::numbers::pi_v<f32>);
+            const f32 v = 0.5f + std::asin(std::clamp(dir.y, -1.0f, 1.0f)) / std::numbers::pi_v<f32>;
+            const int x = std::clamp(static_cast<int>(u * static_cast<f32>(srcW)), 0, srcW - 1);
+            const int y = std::clamp(static_cast<int>((1.0f - v) * static_cast<f32>(srcH)), 0, srcH - 1);
+            const sizet i = (static_cast<sizet>(y) * static_cast<sizet>(srcW) + static_cast<sizet>(x)) * 3u;
+            return { src[i], src[i + 1], src[i + 2] };
+        };
+
+        Ref<EnvironmentMap> env = EnvironmentMap::CreateFromEquirectangular(kHdrPath);
+        ASSERT_TRUE(env != nullptr) << "CreateFromEquirectangular returned null";
+        const Ref<TextureCubemap>& cubemap = env->GetEnvironmentMap();
+        ASSERT_TRUE(cubemap != nullptr) << "environment cubemap is null";
+
+        struct OutputColor
+        {
+            f32 r = 0.0f;
+            f32 g = 0.0f;
+            f32 b = 0.0f;
+            f32 a = 0.0f;
+        };
+
+        constexpr u32 kProbeCount = 4;
+        ScopedBuffer outputBuffer(static_cast<GLsizeiptr>(sizeof(OutputColor) * kProbeCount),
+                                  GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT);
+
+        auto cs = ComputeShader::Create("assets/shaders/tests/ShaderUnit_SkyboxOrientation.glsl");
+        ASSERT_TRUE(cs && cs->IsValid()) << "skybox orientation compute shader failed to compile";
+        cs->Bind();
+        cubemap->Bind(ShaderBindingLayout::TEX_ENVIRONMENT);
+        ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, outputBuffer);
+        ::glDispatchCompute(kProbeCount, 1, 1);
+        ::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT |
+                          GL_TEXTURE_FETCH_BARRIER_BIT);
+
+        std::array<OutputColor, kProbeCount> outputs{};
+        ::glGetNamedBufferSubData(outputBuffer, 0,
+                                  static_cast<GLsizeiptr>(sizeof(OutputColor) * outputs.size()),
+                                  outputs.data());
+
+        // The two WORLD-space probes the shader defines (see its
+        // GetProbeDirection): mostly-up and mostly-down, each nudged off the pole
+        // so neither lands on the degenerate seam where every panorama column meets.
+        const std::array<glm::vec3, 2> probeDirs = { glm::vec3(0.0f, 1.0f, -0.15f),
+                                                     glm::vec3(0.0f, -1.0f, -0.15f) };
+        const std::array<const char*, 2> probeNames = { "mostly-up", "mostly-down" };
+
+        f64 uprightError = 0.0;
+        f64 mirroredError = 0.0;
+        for (sizet probe = 0; probe < probeDirs.size(); ++probe)
+        {
+            const OutputColor& out = outputs[probe + 2u]; // indices 2 and 3 are the world probes
+            const glm::vec3 baked{ out.r, out.g, out.b };
+            const glm::vec3 dir = probeDirs[probe];
+            const glm::vec3 upright = sampleSource(dir);
+            const glm::vec3 mirrored = sampleSource(glm::vec3(dir.x, -dir.y, dir.z));
+
+            const f64 distUpright = static_cast<f64>(glm::length(baked - upright));
+            const f64 distMirrored = static_cast<f64>(glm::length(baked - mirrored));
+            uprightError += distUpright;
+            mirroredError += distMirrored;
+
+            std::cout << "[equirect-orientation] " << probeNames[probe] << " baked=(" << baked.r << ", "
+                      << baked.g << ", " << baked.b << ") upright=(" << upright.r << ", " << upright.g
+                      << ", " << upright.b << ") mirrored=(" << mirrored.r << ", " << mirrored.g << ", "
+                      << mirrored.b << ") distUpright=" << distUpright
+                      << " distMirrored=" << distMirrored << std::endl;
+        }
+
+        // A real separation, not a tie broken by noise: this panorama's ceiling and
+        // floor differ enough that the wrong orientation is far off. Measured on
+        // the fixed bake (RTX 4090, 2026-09-07): upright 0.0045 summed over the two
+        // probes, mirrored 0.142 -- a 31x separation against a 2x bar.
+        EXPECT_LT(uprightError, mirroredError * 0.5)
+            << "the cubemap baked from " << kHdrPath
+            << " matches the panorama sampled UPSIDE DOWN at least as well as upright, so the "
+               "equirectangular bake has lost the source's vertical mapping. Check that "
+               "IBLPrecompute uses stbi_set_flip_vertically_on_load_THREAD: the global setter is "
+               "latched out by every other loader in this engine.";
     }
 
     // =========================================================================

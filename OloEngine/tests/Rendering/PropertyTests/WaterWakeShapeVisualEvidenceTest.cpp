@@ -68,6 +68,8 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Physics3D/BoatWakeSystem.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
+#include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
+#include "OloEngine/Renderer/Water/WaterSpraySystem.h"
 #include "OloEngine/Renderer/Water/WaterWake.h"
 #include "OloEngine/Renderer/Water/WaterWakeSystem.h"
 #include "OloEngine/Scene/Components.h"
@@ -152,11 +154,11 @@ namespace OloEngine::Tests
 
         struct DiffStats
         {
-            f32 m_Max = 0.0f;
-            u32 m_MaxX = 0;
-            u32 m_MaxY = 0;
+            f32 m_Max = 0.0f; ///< the single strongest pixel, ANYWHERE — a liveness signal only
+            u32 m_PeakX = 0;  ///< centre of the strongest BOX (see AnalyseDiff)
+            u32 m_PeakY = 0;
             f64 m_GlobalMean = 0.0;
-            f64 m_LocalMean = 0.0; ///< inside a box around the strongest difference
+            f64 m_LocalMean = 0.0; ///< mean difference inside that box
         };
 
         /// Where the difference is, and how concentrated it is.
@@ -165,6 +167,30 @@ namespace OloEngine::Tests
         /// raised the whole water plane produces a large max AND a large global
         /// mean, so `local / global` is near 1 — while a real, local wake puts
         /// the difference in one place and the ratio is many times that.
+        ///
+        /// WHERE the difference is means the centre of the box with the highest
+        /// MEAN difference, NOT the position of the single brightest pixel.
+        ///
+        /// This distinction is the whole of issue #1094, so it is worth stating
+        /// plainly. The hull footprint's A/B difference is broad and faint —
+        /// hundreds of pixels across, peaking at 3-8 out of 255 on a smoothly
+        /// shaded sea. A single-pixel argmax over a field like that is not an
+        /// estimator of where the footprint is; it is an estimator of where the
+        /// brightest speck is, and any stray speck outranks the real signal.
+        /// EIGHT pixels of foam were enough: with them the argmax sat at
+        /// (644, 327) and the footprint measurement read 0.69 / 1.10 (a pass),
+        /// without them it moved 63 px to (581, 305) and read 1.30 / 0.61 — an
+        /// apparently INVERTED A/B, from frames that are otherwise identical to
+        /// the byte. Both numbers were true; they were measured in different
+        /// places, one of them off the footprint.
+        ///
+        /// A window mean is the estimator that matches what the caller then
+        /// measures (a box of the same size), and eight outlier pixels move it
+        /// by 8/(2*half)^2 of their value — nothing. Computed through a summed-area
+        /// table so the exhaustive search stays O(W*H) rather than O(W*H*half^2).
+        ///
+        /// `m_Max` is still the true global maximum, but it is only ever a
+        /// LIVENESS signal ("the wake changed some pixel"), never a location.
         [[nodiscard]] DiffStats AnalyseDiff(const std::vector<f32>& diff, u32 boxHalfSize = 60)
         {
             DiffStats s;
@@ -175,31 +201,53 @@ namespace OloEngine::Tests
                 {
                     const f32 d = diff[static_cast<std::size_t>(y) * kWidth + x];
                     sum += d;
-                    if (d > s.m_Max)
-                    {
-                        s.m_Max = d;
-                        s.m_MaxX = x;
-                        s.m_MaxY = y;
-                    }
+                    s.m_Max = std::max(s.m_Max, d);
                 }
             }
             s.m_GlobalMean = sum / static_cast<f64>(diff.size());
 
-            const u32 x0 = (s.m_MaxX > boxHalfSize) ? (s.m_MaxX - boxHalfSize) : 0u;
-            const u32 y0 = (s.m_MaxY > boxHalfSize) ? (s.m_MaxY - boxHalfSize) : 0u;
-            const u32 x1 = std::min(kWidth, s.m_MaxX + boxHalfSize);
-            const u32 y1 = std::min(kHeight, s.m_MaxY + boxHalfSize);
-            f64 local = 0.0;
-            u64 count = 0;
-            for (u32 y = y0; y < y1; ++y)
+            // Summed-area table: sat[(y+1)*(W+1) + (x+1)] is the sum over
+            // [0,x] x [0,y]. f64 because kWidth*kHeight*255 overflows f32's
+            // integer-exact range long before the last row.
+            std::vector<f64> sat(static_cast<std::size_t>(kWidth + 1u) * (kHeight + 1u), 0.0);
+            const auto satAt = [&sat](u32 x, u32 y) -> f64&
+            { return sat[static_cast<std::size_t>(y) * (kWidth + 1u) + x]; };
+            for (u32 y = 0; y < kHeight; ++y)
             {
-                for (u32 x = x0; x < x1; ++x)
+                f64 rowSum = 0.0;
+                for (u32 x = 0; x < kWidth; ++x)
                 {
-                    local += diff[static_cast<std::size_t>(y) * kWidth + x];
-                    ++count;
+                    rowSum += diff[static_cast<std::size_t>(y) * kWidth + x];
+                    satAt(x + 1u, y + 1u) = satAt(x + 1u, y) + rowSum;
                 }
             }
-            s.m_LocalMean = count ? local / static_cast<f64>(count) : 0.0;
+            const auto boxMean = [&satAt](u32 x0, u32 y0, u32 x1, u32 y1) -> f64
+            {
+                const f64 area = static_cast<f64>(x1 - x0) * static_cast<f64>(y1 - y0);
+                if (area <= 0.0)
+                    return 0.0;
+                return (satAt(x1, y1) - satAt(x0, y1) - satAt(x1, y0) + satAt(x0, y0)) / area;
+            };
+
+            // Search every FULL-SIZE window, so every candidate is scored over
+            // the same area — a partial window at the frame edge would win on a
+            // smaller denominator rather than on more difference.
+            const u32 half = std::min(boxHalfSize, std::min(kWidth, kHeight) / 2u);
+            f64 bestMean = -1.0;
+            for (u32 cy = half; cy + half <= kHeight; ++cy)
+            {
+                for (u32 cx = half; cx + half <= kWidth; ++cx)
+                {
+                    const f64 m = boxMean(cx - half, cy - half, cx + half, cy + half);
+                    if (m > bestMean)
+                    {
+                        bestMean = m;
+                        s.m_PeakX = cx;
+                        s.m_PeakY = cy;
+                    }
+                }
+            }
+            s.m_LocalMean = (bestMean > 0.0) ? bestMean : 0.0;
             return s;
         }
 
@@ -255,6 +303,34 @@ namespace OloEngine::Tests
     class WaterWakeShapeVisualEvidenceTest : public RendererAttachedTest
     {
       protected:
+        /// Enter on clean water state, and reset ALL FOUR services, not the two
+        /// this file happens to drive.
+        ///
+        /// docs/agent-rules/world-anchored-renderer-state-in-tests.md already
+        /// states both halves of this rule, and this file followed neither: it
+        /// reset WaterWakeSystem and WaterDisturbanceSystem only, and only on the
+        /// way OUT. The other two are world-anchored too, and
+        /// `Scene::OnRuntimeStart` resets the four together for that reason, and
+        /// WaterSpraySystem in particular retains particles across a Scene boundary.
+        ///
+        /// This is a correctness fix on its own terms, NOT the cause of #1094: the
+        /// eight-pixel difference between orderings survives resetting all four
+        /// services, so it is not state these resets hold. What fixed #1094 is the
+        /// box placement in AnalyseDiff. The residual difference is unexplained —
+        /// see the issue.
+        ///
+        /// On the way IN rather than only on the way out, because a test can only
+        /// guarantee the state it starts from — what ran before it in the process
+        /// is not its to control, and `--gtest_filter` reorders it freely.
+        void SetUp() override
+        {
+            WaterDisturbanceSystem::Reset();
+            WaterWakeSystem::Reset();
+            WaterRainRippleSystem::Reset();
+            WaterSpraySystem::Reset();
+            RendererAttachedTest::SetUp();
+        }
+
         void BuildScene() override
         {
             Scene& scene = GetScene();
@@ -548,8 +624,10 @@ namespace OloEngine::Tests
             ~ScopedMockTime()
             {
                 Time::ClearMockTime();
-                WaterWakeSystem::Reset();
                 WaterDisturbanceSystem::Reset();
+                WaterWakeSystem::Reset();
+                WaterRainRippleSystem::Reset();
+                WaterSpraySystem::Reset();
             }
         } scopedClock;
 
@@ -607,14 +685,19 @@ namespace OloEngine::Tests
             // capture looks wrong, and the bands any future assertion should be
             // measured from rather than guessed at (docs/agent-rules/
             // persistent-world-space-fields.md section 4).
-            std::cout << "[wake-shape] pose=" << pose.m_Name << " maxDiff=" << stats.m_Max << " at ("
-                      << stats.m_MaxX << ", " << stats.m_MaxY << ") globalMean=" << stats.m_GlobalMean
+            std::cout << "[wake-shape] pose=" << pose.m_Name << " maxDiff=" << stats.m_Max << " peak at ("
+                      << stats.m_PeakX << ", " << stats.m_PeakY << ") globalMean=" << stats.m_GlobalMean
                       << " localMean=" << stats.m_LocalMean << " ratio="
                       << (stats.m_GlobalMean > 1e-6 ? stats.m_LocalMean / stats.m_GlobalMean : 0.0)
                       << std::endl;
 
-            // 1. The wake changes the frame.
-            EXPECT_GT(stats.m_Max, 4.0f)
+            // 1. The wake changes the frame. On the window MEAN, for the reason
+            //    the footprint case below uses it: `m_Max` is one pixel, and a
+            //    single-pixel statistic against a fixed bar is a flake waiting
+            //    for a quantisation step (issue #1094). Measured across these
+            //    five poses (RTX 4090, 2026-09-07): 1.21 (Stopped, the weakest
+            //    by design) to 8.89 (Close).
+            EXPECT_GT(stats.m_LocalMean, 0.5)
                 << "pose '" << pose.m_Name
                 << "': enabling the wake changed no pixel by more than driver noise — the surface is "
                    "not being displaced at all";
@@ -645,8 +728,10 @@ namespace OloEngine::Tests
             ~ScopedMockTime()
             {
                 Time::ClearMockTime();
-                WaterWakeSystem::Reset();
                 WaterDisturbanceSystem::Reset();
+                WaterWakeSystem::Reset();
+                WaterRainRippleSystem::Reset();
+                WaterSpraySystem::Reset();
             }
         } scopedClock;
 
@@ -682,21 +767,33 @@ namespace OloEngine::Tests
         // persistent-world-space-fields.md section 4. The strongest A/B
         // difference IS the footprint (nothing else in this frame changed), so
         // the box follows it.
+        //
+        // "Strongest" means the strongest BOX, not the strongest pixel — see
+        // AnalyseDiff, and issue #1094, which was nothing but this distinction.
+        constexpr u32 kHalf = 45;
         const std::vector<f32> diff = DiffMap(withWake, withoutWake);
         WriteDiffImage("HullFootprint", diff);
-        const DiffStats stats = AnalyseDiff(diff, 45);
-        std::cout << "[wake-shape] footprint diff max=" << stats.m_Max << " at (" << stats.m_MaxX
-                  << ", " << stats.m_MaxY << ") globalMean=" << stats.m_GlobalMean << std::endl;
+        const DiffStats stats = AnalyseDiff(diff, kHalf);
+        std::cout << "[wake-shape] footprint diff max=" << stats.m_Max << " peak at (" << stats.m_PeakX
+                  << ", " << stats.m_PeakY << ") globalMean=" << stats.m_GlobalMean
+                  << " localMean=" << stats.m_LocalMean << std::endl;
 
-        ASSERT_GT(stats.m_Max, 4.0f)
+        // LIVENESS, on the local mean rather than on the global maximum.
+        //
+        // The old form was ASSERT_GT(m_Max, 4.0f), and m_Max is a single pixel:
+        // measured 4.33 in the ordering issue #1094 reported, i.e. 8% above its
+        // own bar, and 8.0 in the other — a bar that a quantisation step could
+        // cross either way. The window mean over the footprint is the same
+        // quantity the assertions below are about and it is stable to three
+        // digits across orderings: measured 2.90 (RTX 4090, 2026-09-07) in both.
+        ASSERT_GT(stats.m_LocalMean, 1.0)
             << "the hull footprint changes no pixel — the ocean is not being suppressed under the hull, "
                "so a crest can rise through the deck";
 
-        constexpr u32 kHalf = 45;
-        const u32 x0 = (stats.m_MaxX > kHalf) ? stats.m_MaxX - kHalf : 0u;
-        const u32 y0 = (stats.m_MaxY > kHalf) ? stats.m_MaxY - kHalf : 0u;
-        const u32 x1 = std::min(kWidth, stats.m_MaxX + kHalf);
-        const u32 y1 = std::min(kHeight, stats.m_MaxY + kHalf);
+        const u32 x0 = (stats.m_PeakX > kHalf) ? stats.m_PeakX - kHalf : 0u;
+        const u32 y0 = (stats.m_PeakY > kHalf) ? stats.m_PeakY - kHalf : 0u;
+        const u32 x1 = std::min(kWidth, stats.m_PeakX + kHalf);
+        const u32 y1 = std::min(kHeight, stats.m_PeakY + kHalf);
         const f64 insideOn = LumaStdDev(withWake, x0, y0, x1, y1);
         const f64 insideOff = LumaStdDev(withoutWake, x0, y0, x1, y1);
 
@@ -704,7 +801,7 @@ namespace OloEngine::Tests
         // where the footprint cannot reach. Its variance must be UNCHANGED, or
         // what the measurement above found was a global shading difference
         // rather than a locally flattened surface.
-        const u32 cx = (stats.m_MaxX < kWidth / 2u) ? (kWidth - kHalf - 60u) : (kHalf + 60u);
+        const u32 cx = (stats.m_PeakX < kWidth / 2u) ? (kWidth - kHalf - 60u) : (kHalf + 60u);
         const f64 outsideOn = LumaStdDev(withWake, cx - kHalf, y0, cx + kHalf, y1);
         const f64 outsideOff = LumaStdDev(withoutWake, cx - kHalf, y0, cx + kHalf, y1);
 
@@ -713,13 +810,34 @@ namespace OloEngine::Tests
 
         // NEGATIVE CONTROL: a flat-calm fixture would satisfy "variance fell"
         // trivially at 0 -> 0.
-        // Measured on this fixture (RTX 4090, 2026-08-30): inside 1.10 without
-        // the wake, 0.69 with it — a 37% fall — against a control box that is
-        // bit-identical at 1.27. The bar is set from that measurement, not from
-        // a guess: water shades smoothly even at 0.55 m amplitude, so a
-        // stddev of "tens" (which the #967 foam captures see, because foam is
-        // near-white against blue) is not available here and a threshold
-        // borrowed from that test would fail on a working feature.
+        // Measured on this fixture (RTX 4090, 2026-09-07, box placed by window
+        // mean): inside 0.95 without the wake, 0.74 with it — a 22% fall —
+        // against a control box that is bit-identical. The bar is set from that
+        // measurement, not from a guess: water shades smoothly even at 0.55 m
+        // amplitude, so a stddev of "tens" (which the #967 foam captures see,
+        // because foam is near-white against blue) is not available here and a
+        // threshold borrowed from that test would fail on a working feature.
+        //
+        // The earlier recorded figures (1.10 / 0.69, 2026-08-30) came from a box
+        // the single-pixel argmax happened to place, which is why they moved when
+        // the estimator was fixed for #1094. They described the same frames.
+        //
+        // TWO THINGS TO KNOW BEFORE RETUNING THIS, both measured rather than
+        // assumed. The 0.85 bar has less headroom than it did: 0.744 against a
+        // bar of 0.797, ~7%, where the old box gave ~26%. That is deliberate and
+        // it is not a knife edge — the same box on the same frames reproduces to
+        // three significant figures across every test ordering (0.744048 vs
+        // 0.745533, 0.2%), so the margin is ~35x the observed spread. The old
+        // box's larger headroom was not a better test; it was a box that had
+        // landed on the strongest part of the difference by accident.
+        //
+        // And the ratio is NOT monotonic in `kHalf` — measured 0.71 / 0.87 /
+        // 0.78 / 0.73 / 0.88 at half = 20 / 30 / 45 / 60 / 80, because each size
+        // selects a different window and the stddev depends on how much
+        // unflattened sea the window also contains. So kHalf is left at the 45
+        // this test has always used. Do NOT tune it to buy margin: a size picked
+        // because it produced a comfortable number is the same guess this whole
+        // section exists to replace.
         ASSERT_GT(insideOff, 0.5)
             << "the sea has no structure inside the footprint — this test cannot detect flattening";
 
