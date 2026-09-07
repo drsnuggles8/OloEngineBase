@@ -1197,7 +1197,15 @@ namespace OloEngine
         info.PanelY = m_ViewportBounds[0].y;
         info.LogicalWidth = m_ViewportSize.x;
         info.LogicalHeight = m_ViewportSize.y;
-        info.DpiScale = Window::s_HighDPIScaleFactor;
+        // 1.0 while an MCP viewport override is active, for the same reason
+        // OnUpdate skips the multiply: the override writes PIXELS into
+        // m_ViewportSize, so the framebuffer is already that size. Reporting the
+        // display scale here would make McpInputInject's ViewportPixelWidth() /
+        // ViewportPixelHeight() advertise a framebuffer DpiScale times too large
+        // and mis-map every Space::Viewport coordinate it injects.
+        info.DpiScale = (m_McpViewportSizeOverride.x > 0 && m_McpViewportSizeOverride.y > 0)
+                            ? 1.0f
+                            : Window::s_HighDPIScaleFactor;
 
         // ImGui screen coordinates are DESKTOP coordinates while multi-viewport is on
         // (this editor enables it), so the window's own client-area origin must be
@@ -1581,7 +1589,22 @@ namespace OloEngine
 
         // Scale framebuffer dimensions by HiDPI factor so we render at native pixel resolution.
         // Camera and scene use logical (unscaled) coordinates for correct aspect ratio.
-        const f32 dpiScale = Window::s_HighDPIScaleFactor;
+        //
+        // EXCEPT under an MCP viewport override, which is already expressed in
+        // PIXELS — olo_viewport_set_size exists to pin an exact render size for
+        // deterministic captures, so scaling it again would honour neither the
+        // number asked for nor the panel. On a 150% display an override of
+        // 1600x900 became a 2400x1350 scene band: LARGER than the window it has
+        // to fit, which left the render graph unable to service the scene band
+        // at all. Every consumer of scene colour/depth then resolved to null on
+        // every subsequent frame — GTAO, AOApply, SSR, ToneMap — and the
+        // viewport went black and stayed black, with a warning per pass per
+        // frame. A plain window resize on the same display hits the same
+        // multiply, which is why this looked like "resizing the editor breaks
+        // it" rather than an MCP-only fault.
+        const bool viewportSizeIsAlreadyInPixels =
+            m_McpViewportSizeOverride.x > 0 && m_McpViewportSizeOverride.y > 0;
+        const f32 dpiScale = viewportSizeIsAlreadyInPixels ? 1.0f : Window::s_HighDPIScaleFactor;
         const u32 fbWidth = std::max(1u, static_cast<u32>(m_ViewportSize.x * dpiScale));
         const u32 fbHeight = std::max(1u, static_cast<u32>(m_ViewportSize.y * dpiScale));
 

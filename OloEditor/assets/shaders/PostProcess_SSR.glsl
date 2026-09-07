@@ -225,7 +225,18 @@ void main()
     // a texel this pass returned early from would hand them an undefined normal
     // and an undefined roughness to weight by.
     vec4 gN = texture(u_GBufferNormal, v_TexCoord);
-    o_Guide = gN;
+    // ALPHA IS SSR'S ARBITRATION CONFIDENCE (issue #1057), not the G-Buffer AO
+    // it used to copy. The two spatial stages read only .xy (normal) and .z
+    // (roughness) — the AO lane was written and never once sampled, so this
+    // costs nothing and adds no attachment. It is initialised to 0 here so
+    // every early-out below reports "SSR answered none of this pixel", and
+    // overwritten with the real blend at the end of a successful trace.
+    //
+    // Its only consumer is the tier debug view in PostProcess_SSRComposite.glsl,
+    // which needs the whole hierarchy's confidences at one point in the frame.
+    // Nothing in the composite's PRODUCTION path reads it: ADR 0020 evaluates
+    // the hierarchy bottom-up precisely so that no tier has to.
+    o_Guide = vec4(gN.xyz, 0.0);
 
     if (depth >= SKY_DEPTH) // sky / background — nothing to reflect from
     {
@@ -486,4 +497,6 @@ void main()
     // rather than this frame's single noisy sample. Alpha is the view depth the
     // resolve's disocclusion test compares against next frame.
     o_Color = vec4((reflTarget - baseColor) * blend, viewDepth);
+    // The tier debug view's copy of c_ssr. See the o_Guide initialisation above.
+    o_Guide.w = blend;
 }

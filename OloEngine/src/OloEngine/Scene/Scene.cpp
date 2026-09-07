@@ -7900,6 +7900,14 @@ namespace OloEngine
             // fog / atmospheric sun-direction derivation (previously carried by
             // the now-retired single-light SceneLight).
             Renderer3D::SetPrimaryDirectionalLightDirection(directionalLightDir);
+            // ...and its radiance, from the same slot the direction came from.
+            // Lights[0] IS that light: directional lights are packed at the
+            // start of the array, and the direction above was captured at
+            // lightIndex == 0. Colour carries intensity in w.
+            Renderer3D::SetPrimaryDirectionalLightRadiance(
+                directionalLightCount > 0
+                    ? glm::vec3(multiLightData.Lights[0].Color) * multiLightData.Lights[0].Color.w
+                    : glm::vec3(0.0f));
 
             // ── Cloudscape / atmosphere render state (issue #633) ──────────
             // Snapshot the first enabled CloudscapeComponent (weather-director

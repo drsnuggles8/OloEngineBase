@@ -983,3 +983,76 @@ const u32 imageRow = (height - 1u - memoryRow);   // memoryRow 0 == v 0 == pictu
 ```
 
 Found on #646 (2D tilemap / tileset system).
+
+## An ordered hierarchy of light sources must composite BOTTOM-UP, or every tier needs data it cannot reach
+
+**Rule:** when several passes are competing estimates of *one* quantity — reflections, AO, indirect
+diffuse — give each a confidence in `[0,1]`, run the **least** informed one **first**, and let each
+later pass `mix()` over the colour it was handed. Pin the bottom tier's confidence at 1. The weights
+then telescope to exactly 1 and a double-count is impossible by construction.
+
+The tempting alternative reads the same ordering top-down: let the best tier claim its share and
+hand the *residual* down. It is the same algebra and it is much worse to build, because every tier
+then needs the per-pixel confidence of every tier above it — which means transporting that
+confidence through whatever denoiser chain sits between them.
+
+On #1057 that difference decided the whole shape of the work. The reflection hierarchy is
+planar → SSR → ray query → probe/IBL. Read top-down, inserting a ray-query tier under SSR needs
+`c_ssr` carried through SSR's five-stage denoiser chain (#708), whose only spare lane — the signal's
+alpha — deliberately carries view depth on every path including the early-outs. Read bottom-up, the
+new pass simply runs **before** `SSRRenderPass` and writes the colour SSR reads as its base. **Not
+one line of the denoiser chain changed.**
+
+Three facts that make this concrete here, and that are easy to miss:
+
+* **SSR's composite is already an "over", not an add.** `PostProcess_SSR.glsl` writes the signed
+  delta `(reflection - base) * blend` and the composite adds it, because
+  `mix(base, refl, blend) == base + (refl - base) * blend`. So `blend` *is* SSR's confidence and SSR
+  already composites correctly over whatever produced its input. Hand it a different input and it
+  composites over that, for free. Check for this shape before building a blending mechanism — the
+  one you need may already be there under another name.
+* **`DeferredLightingShared.glsl` already does the same at the bottom**, with
+  `mix(globalPrefilter, probeSpecular.rgb, probeSpecular.a)`. Two of the four boundaries were
+  contract-shaped before anyone wrote the contract down.
+* **Adding a tier below an existing one is a change to the FRAME ORDER, not to the existing pass.**
+  The only edit `SSRRenderPass` needed was one extra name at the head of its input-candidate list.
+  Every downstream consumer that names `SSRColor` needs the new name too, though — `Bloom`,
+  `ContactShadow`, `EASU`, `FSR2` and the `PostProcessColor` alias chain in `RenderPipeline.cpp` —
+  or the tier vanishes on any frame where the pass above it is disabled.
+
+**The byte-identical property comes free and should be stated that way.** "Raster output is
+unchanged when the tier is off" is not a test that happens to pass; it is `mix(x, y, 0) == x`. Write
+the fallback so a stood-down tier produces confidence exactly 0 rather than a small number, and the
+guarantee is structural.
+
+**Where to put a confidence nobody in the production path reads.** The tier debug view *does* need
+every tier's confidence at one point in the frame. The SSR chain has TWO alpha lanes and they are
+not interchangeable:
+
+| lane | carries | read by |
+|---|---|---|
+| `SSRSignal` colour `.a` (attachment 0) | view depth | the pre-blur, temporal resolve and post-blur, on every path including the early-outs |
+| `SSRGuide` `.a` (attachment 1) | **`c_ssr`, SSR's arbitration confidence** | `PostProcess_SSRComposite.glsl`, tier debug view only |
+
+The guide's `rg` = octahedral normal and `b` = roughness are what the two spatial stages weight by;
+its alpha used to hold AO, written on every path and never once sampled, which is why #1057 could
+take it for `c_ssr` at zero cost. **It is no longer spare** — that is what the table is for. The
+signal's alpha never was.
+
+**Before adding an attachment, check whether an existing one has a lane that is written but never
+read** — and when you take one, say so where the next person will look, or the next reuse silently
+clobbers a live value.
+
+**A new tier's enable flag MUST go into the render-graph fingerprint.** Whether the flag is set
+decides whether `PopulateBlackboard` declares the tier's target, which is a TOPOLOGY change, and
+`HashPassState` deliberately does not cover per-pass enabled state — its own comment says the
+`data.PostProcess.*` flags carry that. Miss the line and the checkbox arms the pass while the cached
+graph still holds the version where the node declared nothing: the node stays culled, `Execute`
+never runs, every counter reads a truthful zero, and the feature looks simply absent until some
+unrelated resize happens to invalidate the graph. #1056 left a comment warning about exactly this
+and #1057 walked into it anyway — it cost a live-session bisect both times. If a pass declares a
+resource conditionally, hash the condition.
+
+Found on #1057 (hybrid reflection hierarchy). The contract itself is
+[ADR 0020](../adr/0020-reflection-tier-selection-contract.md); `ReflectionTierContractTest` is the
+ratchet that keeps the weights summing to one.

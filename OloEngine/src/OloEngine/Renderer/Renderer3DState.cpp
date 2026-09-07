@@ -137,6 +137,11 @@ namespace OloEngine
         return s_Data.Pipeline ? s_Data.Pipeline->SceneCompositePasses.RayTracedShadow.Raw() : nullptr;
     }
 
+    RayTracedReflectionPass* Renderer3D::GetRayTracedReflectionPass()
+    {
+        return s_Data.Pipeline ? s_Data.Pipeline->PostProcessPasses.RayTracedReflection.Raw() : nullptr;
+    }
+
     void Renderer3D::SetViewPosition(const glm::vec3& position)
     {
         s_Data.ViewPos = position;
@@ -151,6 +156,11 @@ namespace OloEngine
     void Renderer3D::SetPrimaryDirectionalLightDirection(const glm::vec3& direction)
     {
         s_Data.PrimaryDirectionalLightDir = direction;
+    }
+
+    void Renderer3D::SetPrimaryDirectionalLightRadiance(const glm::vec3& radiance)
+    {
+        s_Data.PrimaryDirectionalLightRadiance = radiance;
     }
 
     void Renderer3D::SetRayTracedShadowLightRequests(std::vector<RayTracedShadowLightRequest> requests)

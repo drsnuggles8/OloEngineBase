@@ -326,3 +326,34 @@ Two rules follow:
 30-second answer to a bug that is otherwise invisible.
 
 Found on #646 (2D tilemap / tileset system).
+
+
+## The MCP viewport override is in PIXELS, so it must not be DPI-scaled again
+
+**Rule:** `m_ViewportSize` in `EditorLayer` is normally the ImGui panel size in LOGICAL points and
+is multiplied by `Window::s_HighDPIScaleFactor` to get the framebuffer size. The MCP viewport
+override (`olo_viewport_set_size`, #316) writes *pixels* into that same field, so the DPI multiply
+has to be skipped while an override is active — otherwise the render target is the requested size
+times the display scale.
+
+On a 150% display that turned a requested 1600x900 into a **2400x1350** scene band, which is larger
+than the window it has to fit. The render graph then could not service the scene band at all, and
+every consumer of scene colour/depth resolved to null on that frame **and every frame after it**:
+GTAO published fully-visible AO, `AOApplyRenderPass` hit its
+`OLO_CORE_ASSERT(false, "…enabled without resolved graph input/output")` and killed the Debug
+editor, and with that assertion removed the viewport simply went black with a warning per pass per
+frame. The same multiply is applied on an ordinary window resize, which is why it first looked like
+"resizing the editor crashes it" rather than an MCP-only fault.
+
+Two things worth carrying forward:
+
+- **A smaller override hides it.** 800x450 becomes 1200x675, still inside the window, and renders
+  perfectly. Any test of this path has to use an override large enough to exceed the window, or it
+  proves nothing.
+- **Do not "fix" it by deleting the assertion.** That was tried first and is strictly worse: the
+  crash becomes a permanently black viewport with a warning flood, which is the same failure with
+  the loudest signal removed. The assertions in the post chain (AOApply, SSR, SSGI, ContactShadow,
+  Bloom) are deliberate tripwires for "the graph did not give me what I need"; the bug was upstream
+  of all of them.
+
+Found on #1057, fixed in `EditorLayer::OnImGuiRender`'s framebuffer-size computation.

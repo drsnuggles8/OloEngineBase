@@ -862,6 +862,16 @@ namespace OloEngine
         return static_cast<u32>(m_Impl->m_Instances.m_Slots.size());
     }
 
+    u32 GPUScene::GetGeometrySlotCount() const
+    {
+        return static_cast<u32>(m_Impl->m_Geometries.m_Slots.size());
+    }
+
+    u32 GPUScene::GetMaterialSlotCount() const
+    {
+        return static_cast<u32>(m_Impl->m_Materials.m_Slots.size());
+    }
+
     const GPUSceneInstance* GPUScene::GetLiveInstanceRecordBySlot(u32 slot) const
     {
         const auto& table = m_Impl->m_Instances;

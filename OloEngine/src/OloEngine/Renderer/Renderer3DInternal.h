@@ -48,6 +48,7 @@
 #include "OloEngine/Renderer/Passes/FSR2RenderPass.h"
 #include "OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
 #include "OloEngine/Renderer/Passes/ColorBlindRenderPass.h"
+#include "OloEngine/Renderer/Passes/RayTracedReflectionPass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
@@ -65,6 +66,11 @@ namespace OloEngine
         Ref<SSSRenderPass> SSS;
         Ref<AOApplyRenderPass> AOApply;
         Ref<SSGIRenderPass> SSGI;
+        // The ray-query reflection tier (#1057). Registered BEFORE SSR: ADR 0020
+        // composites the hierarchy bottom-up, so this tier lays its answer down
+        // and SSR — the tier above it — lerps over the result by its own
+        // confidence. Reversing the two would double-count both.
+        Ref<RayTracedReflectionPass> RayTracedReflection;
         Ref<SSRRenderPass> SSR;
         Ref<ContactShadowRenderPass> ContactShadow;
         Ref<EASURenderPass> EASU;
@@ -95,6 +101,7 @@ namespace OloEngine
             SSS.Reset();
             AOApply.Reset();
             SSGI.Reset();
+            RayTracedReflection.Reset();
             SSR.Reset();
             ContactShadow.Reset();
             EASU.Reset();
@@ -302,6 +309,7 @@ namespace OloEngine
             m_PreviousJitterMode = 0u;
             m_ReportedRayTracedShadowGateVerdict = kNoRayTracedShadowVerdict;
             m_ReportedRayTracedShadowMaskVerdict = kNoRayTracedShadowVerdict;
+            m_ReportedRayTracedReflectionVerdict = kNoRayTracedShadowVerdict;
             InvalidateBlackboardCache();
         }
 
@@ -332,6 +340,11 @@ namespace OloEngine
         static constexpr u32 kNoRayTracedShadowVerdict = ~0u;
         u32 m_ReportedRayTracedShadowGateVerdict = kNoRayTracedShadowVerdict;
         u32 m_ReportedRayTracedShadowMaskVerdict = kNoRayTracedShadowVerdict;
+        // Same latch, same reason, for the ray-query REFLECTION tier (#1057):
+        // "I enabled the tier and the frame did not change" has no answer
+        // anywhere else, because a tier whose target is never declared is
+        // culled before it can count anything about itself.
+        u32 m_ReportedRayTracedReflectionVerdict = kNoRayTracedShadowVerdict;
 
       private:
         void ApplyGlobalResources(Renderer3DData& data) const;
