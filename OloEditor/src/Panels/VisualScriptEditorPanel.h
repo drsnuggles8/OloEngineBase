@@ -245,11 +245,6 @@ namespace OloEngine
         /// a hash lookup per node per frame for a value that cannot change
         /// mid-frame.
         const VisualScript::VisualScriptInstance* m_FrameDebugInstance = nullptr;
-        /// Where the right button went down, so a right-DRAG (pan) and a
-        /// right-CLICK (context menu) can be told apart at release without
-        /// reaching into ImGui's internal drag state, which has moved between
-        /// versions.
-        ImVec2 m_RightPressPos{ 0.0f, 0.0f };
         Entity m_DebugEntity;
         bool m_TraceEnabled = true;
         bool m_ShowPinValues = true;

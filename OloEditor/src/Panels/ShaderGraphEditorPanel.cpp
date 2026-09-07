@@ -78,9 +78,7 @@ namespace OloEngine
                                     : availWidth;
 
         // Left: node canvas
-        ImGui::BeginChild("##SGCanvas", ImVec2(canvasWidth, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove);
-        DrawCanvas();
-        ImGui::EndChild();
+        DrawCanvas(canvasWidth);
 
         // Right: property panel + preview
         if (m_SelectedNodeID != 0 || m_LastCompileResult.Success)
@@ -178,72 +176,46 @@ namespace OloEngine
     // Canvas
     // =========================================================================
 
-    void ShaderGraphEditorPanel::DrawCanvas()
+    void ShaderGraphEditorPanel::DrawCanvas(f32 width)
     {
-        ImVec2 const canvasOrigin = ImGui::GetCursorScreenPos();
-        ImVec2 const canvasSize = ImGui::GetContentRegionAvail();
-        ImVec2 const canvasEnd = ImVec2(canvasOrigin.x + canvasSize.x, canvasOrigin.y + canvasSize.y);
+        // Begin() paints the background and grid, consumes pan/zoom, and clips to
+        // its own child region — everything this function used to do by hand.
+        if (!m_Canvas.Begin("##SGCanvas", ImVec2(width, 0.0f)))
+            return;
 
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        DrawConnections();
+        DrawNodes();
+        DrawConnectionInProgress();
 
-        drawList->AddRectFilled(canvasOrigin, canvasEnd, IM_COL32(30, 30, 35, 255));
-        drawList->PushClipRect(canvasOrigin, canvasEnd, true);
+        // A click that cut a wire must not also select or start dragging the
+        // node the wire happened to pass under — wires are drawn behind nodes,
+        // so the two hit-tests can both match the same pixel.
+        if (!HandleCanvasInput())
+            HandleNodeInteraction();
+        HandleConnectionDrag();
+        DrawContextMenu();
 
-        DrawGrid(drawList, canvasOrigin, canvasSize);
-        DrawConnections(drawList, canvasOrigin);
-        DrawNodes(drawList, canvasOrigin);
-        DrawConnectionInProgress(drawList, canvasOrigin);
-
-        drawList->PopClipRect();
-
-        ImGui::SetCursorScreenPos(canvasOrigin);
-        ImGui::InvisibleButton("##sgcanvas", canvasSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
-
-        HandleCanvasInput(canvasOrigin, canvasSize);
-        HandleNodeInteraction(canvasOrigin);
-        HandleConnectionDrag(canvasOrigin);
-        DrawContextMenu(canvasOrigin);
-    }
-
-    void ShaderGraphEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const
-    {
-        f32 const gridStep = s_GridSize * m_Zoom;
-        ImU32 const gridColor = IM_COL32(50, 50, 55, 255);
-        ImU32 const gridColorMajor = IM_COL32(60, 60, 70, 255);
-
-        f32 const offX = std::fmod(m_ScrollOffset.x * m_Zoom, gridStep);
-        f32 const offY = std::fmod(m_ScrollOffset.y * m_Zoom, gridStep);
-
-        for (f32 x = canvasOrigin.x + offX; x < canvasOrigin.x + canvasSize.x; x += gridStep)
-        {
-            int lineIndex = static_cast<int>((x - canvasOrigin.x - offX) / gridStep);
-            drawList->AddLine(ImVec2(x, canvasOrigin.y), ImVec2(x, canvasOrigin.y + canvasSize.y),
-                              (lineIndex % 4 == 0) ? gridColorMajor : gridColor);
-        }
-        for (f32 y = canvasOrigin.y + offY; y < canvasOrigin.y + canvasSize.y; y += gridStep)
-        {
-            int lineIndex = static_cast<int>((y - canvasOrigin.y - offY) / gridStep);
-            drawList->AddLine(ImVec2(canvasOrigin.x, y), ImVec2(canvasOrigin.x + canvasSize.x, y),
-                              (lineIndex % 4 == 0) ? gridColorMajor : gridColor);
-        }
+        m_Canvas.End();
     }
 
     // =========================================================================
     // Node rendering
     // =========================================================================
 
-    void ShaderGraphEditorPanel::DrawNodes(ImDrawList* drawList, const ImVec2& canvasOrigin)
+    void ShaderGraphEditorPanel::DrawNodes()
     {
         if (!m_GraphAsset)
             return;
 
         for (auto& node : m_GraphAsset->GetGraph().GetNodes())
-            DrawNode(drawList, canvasOrigin, *node);
+            DrawNode(*node);
     }
 
-    void ShaderGraphEditorPanel::DrawNode(ImDrawList* drawList, const ImVec2& canvasOrigin, ShaderGraphNode& node)
+    void ShaderGraphEditorPanel::DrawNode(ShaderGraphNode& node)
     {
-        ImVec2 const nodePos = WorldToScreen(node.EditorPosition, canvasOrigin);
+        ImDrawList* drawList = m_Canvas.GetDrawList();
+        f32 const zoom = m_Canvas.GetZoom();
+        ImVec2 const nodePos = m_Canvas.ToScreen(node.EditorPosition);
         ImVec2 const nodeSize = GetNodeSize(node);
         ImVec2 const nodeEnd = ImVec2(nodePos.x + nodeSize.x, nodePos.y + nodeSize.y);
         bool const isSelected = (m_SelectedNodeID == node.ID);
@@ -252,7 +224,7 @@ namespace OloEngine
         drawList->AddRectFilled(nodePos, nodeEnd, GetNodeColor(node.Category), 4.0f);
 
         // Header
-        ImVec2 const headerEnd = ImVec2(nodeEnd.x, nodePos.y + s_HeaderHeight * m_Zoom);
+        ImVec2 const headerEnd = ImVec2(nodeEnd.x, nodePos.y + s_HeaderHeight * zoom);
         drawList->AddRectFilled(nodePos, headerEnd, GetNodeHeaderColor(node.Category), 4.0f, ImDrawFlags_RoundCornersTop);
 
         // Selection border
@@ -260,18 +232,18 @@ namespace OloEngine
             drawList->AddRect(nodePos, nodeEnd, IM_COL32(255, 200, 50, 255), 4.0f, 0, 2.0f);
 
         // Title text
-        f32 const fontSize = 13.0f * m_Zoom;
-        ImVec2 const textPos = ImVec2(nodePos.x + 8.0f * m_Zoom, nodePos.y + 5.0f * m_Zoom);
+        f32 const fontSize = 13.0f * zoom;
+        ImVec2 const textPos = ImVec2(nodePos.x + 8.0f * zoom, nodePos.y + 5.0f * zoom);
         drawList->AddText(nullptr, fontSize, textPos, IM_COL32(255, 255, 255, 255), node.TypeName.c_str());
 
         // Per-node preview thumbnail (color swatch for color/vector parameter nodes)
         if (!node.ParameterName.empty() || node.TypeName == ShaderGraphNodeTypes::CustomFunction)
         {
             constexpr f32 swatchSize = 16.0f;
-            f32 const swatchSizeScaled = swatchSize * m_Zoom;
+            f32 const swatchSizeScaled = swatchSize * zoom;
             ImVec2 const swatchPos = ImVec2(
-                nodeEnd.x - swatchSizeScaled - 4.0f * m_Zoom,
-                nodePos.y + (s_HeaderHeight - swatchSize) * 0.5f * m_Zoom);
+                nodeEnd.x - swatchSizeScaled - 4.0f * zoom,
+                nodePos.y + (s_HeaderHeight - swatchSize) * 0.5f * zoom);
             ImVec2 const swatchEnd = ImVec2(swatchPos.x + swatchSizeScaled, swatchPos.y + swatchSizeScaled);
 
             // Determine preview color from first output or first input default
@@ -315,23 +287,23 @@ namespace OloEngine
         for (const auto& pin : pins)
         {
             ImU32 color = GetPinColor(pin.Type);
-            drawList->AddCircleFilled(pin.Position, s_PinRadius * m_Zoom, color);
-            drawList->AddCircle(pin.Position, s_PinRadius * m_Zoom, IM_COL32(200, 200, 200, 255));
+            drawList->AddCircleFilled(pin.Position, s_PinRadius * zoom, color);
+            drawList->AddCircle(pin.Position, s_PinRadius * zoom, IM_COL32(200, 200, 200, 255));
 
             // Pin label
-            f32 const labelFontSize = 11.0f * m_Zoom;
+            f32 const labelFontSize = 11.0f * zoom;
             if (pin.IsOutput)
             {
                 ImVec2 textSize = ImGui::CalcTextSize(pin.Name.c_str());
                 textSize.x *= (labelFontSize / ImGui::GetFontSize());
                 drawList->AddText(nullptr, labelFontSize,
-                                  ImVec2(pin.Position.x - s_PinRadius * m_Zoom - 4.0f * m_Zoom - textSize.x, pin.Position.y - labelFontSize * 0.5f),
+                                  ImVec2(pin.Position.x - s_PinRadius * zoom - 4.0f * zoom - textSize.x, pin.Position.y - labelFontSize * 0.5f),
                                   IM_COL32(200, 200, 200, 255), pin.Name.c_str());
             }
             else
             {
                 drawList->AddText(nullptr, labelFontSize,
-                                  ImVec2(pin.Position.x + s_PinRadius * m_Zoom + 4.0f * m_Zoom, pin.Position.y - labelFontSize * 0.5f),
+                                  ImVec2(pin.Position.x + s_PinRadius * zoom + 4.0f * zoom, pin.Position.y - labelFontSize * 0.5f),
                                   IM_COL32(200, 200, 200, 255), pin.Name.c_str());
             }
         }
@@ -341,7 +313,7 @@ namespace OloEngine
     {
         f32 const pinCount = static_cast<f32>(std::max(node.Inputs.size(), node.Outputs.size()));
         f32 const bodyHeight = s_HeaderHeight + (pinCount + 1) * s_PinSpacing;
-        return ImVec2(s_NodeWidth * m_Zoom, bodyHeight * m_Zoom);
+        return ImVec2(s_NodeWidth * m_Canvas.GetZoom(), bodyHeight * m_Canvas.GetZoom());
     }
 
     std::vector<ShaderGraphEditorPanel::PinInfo> ShaderGraphEditorPanel::GetNodePins(const ShaderGraphNode& node, const ImVec2& nodeScreenPos) const
@@ -353,7 +325,7 @@ namespace OloEngine
         for (size_t i = 0; i < node.Inputs.size(); ++i)
         {
             PinInfo pin;
-            pin.Position = ImVec2(nodeScreenPos.x, nodeScreenPos.y + (s_HeaderHeight + (static_cast<f32>(i) + 1) * s_PinSpacing) * m_Zoom);
+            pin.Position = ImVec2(nodeScreenPos.x, nodeScreenPos.y + (s_HeaderHeight + (static_cast<f32>(i) + 1) * s_PinSpacing) * m_Canvas.GetZoom());
             pin.PinID = node.Inputs[i].ID;
             pin.NodeID = node.ID;
             pin.Name = node.Inputs[i].Name;
@@ -366,7 +338,7 @@ namespace OloEngine
         for (size_t i = 0; i < node.Outputs.size(); ++i)
         {
             PinInfo pin;
-            pin.Position = ImVec2(nodeScreenPos.x + nodeSize.x, nodeScreenPos.y + (s_HeaderHeight + (static_cast<f32>(i) + 1) * s_PinSpacing) * m_Zoom);
+            pin.Position = ImVec2(nodeScreenPos.x + nodeSize.x, nodeScreenPos.y + (s_HeaderHeight + (static_cast<f32>(i) + 1) * s_PinSpacing) * m_Canvas.GetZoom());
             pin.PinID = node.Outputs[i].ID;
             pin.NodeID = node.ID;
             pin.Name = node.Outputs[i].Name;
@@ -382,61 +354,58 @@ namespace OloEngine
     // Connection rendering
     // =========================================================================
 
-    void ShaderGraphEditorPanel::DrawConnections(ImDrawList* drawList, const ImVec2& canvasOrigin)
+    bool ShaderGraphEditorPanel::GetLinkEndpoints(const ShaderGraphLink& link, WireEndpoints& out) const
+    {
+        const auto* outNode = m_GraphAsset->GetGraph().FindNodeByPinID(link.OutputPinID);
+        const auto* inNode = m_GraphAsset->GetGraph().FindNodeByPinID(link.InputPinID);
+        if (!outNode || !inNode)
+            return false;
+
+        bool foundSrc = false;
+        for (const auto& pin : GetNodePins(*outNode, m_Canvas.ToScreen(outNode->EditorPosition)))
+        {
+            if (pin.PinID == link.OutputPinID)
+            {
+                out.Source = pin.Position;
+                out.SourceType = pin.Type;
+                foundSrc = true;
+                break;
+            }
+        }
+        if (!foundSrc)
+            return false;
+
+        for (const auto& pin : GetNodePins(*inNode, m_Canvas.ToScreen(inNode->EditorPosition)))
+        {
+            if (pin.PinID == link.InputPinID)
+            {
+                out.Target = pin.Position;
+                return true;
+            }
+        }
+        // A link naming a pin its node no longer has: the compiler rejects it
+        // too, and skipping it keeps the canvas readable.
+        return false;
+    }
+
+    void ShaderGraphEditorPanel::DrawConnections()
     {
         if (!m_GraphAsset)
             return;
 
         for (const auto& link : m_GraphAsset->GetGraph().GetLinks())
         {
-            // Find source and target pin positions
-            const auto* outNode = m_GraphAsset->GetGraph().FindNodeByPinID(link.OutputPinID);
-            const auto* inNode = m_GraphAsset->GetGraph().FindNodeByPinID(link.InputPinID);
-            if (!outNode || !inNode)
-                continue;
-
-            ImVec2 srcPos{}, dstPos{};
-            ShaderGraphPinType srcType = ShaderGraphPinType::Float;
-            bool foundSrc = false;
-            bool foundDst = false;
-
-            auto srcPins = GetNodePins(*outNode, WorldToScreen(outNode->EditorPosition, canvasOrigin));
-            for (const auto& pin : srcPins)
+            if (WireEndpoints wire; GetLinkEndpoints(link, wire))
             {
-                if (pin.PinID == link.OutputPinID)
-                {
-                    srcPos = pin.Position;
-                    srcType = pin.Type;
-                    foundSrc = true;
-                    break;
-                }
+                // Thickness in SCREEN pixels, deliberately not scaled by zoom: a
+                // hairline at the canvas' minimum zoom is both invisible and
+                // impossible to click. See GraphCanvas::DrawWire.
+                m_Canvas.DrawWire(wire.Source, wire.Target, GetPinColor(wire.SourceType), 2.0f);
             }
-
-            auto dstPins = GetNodePins(*inNode, WorldToScreen(inNode->EditorPosition, canvasOrigin));
-            for (const auto& pin : dstPins)
-            {
-                if (pin.PinID == link.InputPinID)
-                {
-                    dstPos = pin.Position;
-                    foundDst = true;
-                    break;
-                }
-            }
-
-            if (!foundSrc || !foundDst)
-                continue;
-
-            // Bezier curve
-            f32 const curvature = 50.0f * m_Zoom;
-            ImVec2 const cp1 = ImVec2(srcPos.x + curvature, srcPos.y);
-            ImVec2 const cp2 = ImVec2(dstPos.x - curvature, dstPos.y);
-
-            ImU32 color = GetPinColor(srcType);
-            drawList->AddBezierCubic(srcPos, cp1, cp2, dstPos, color, 2.0f * m_Zoom);
         }
     }
 
-    void ShaderGraphEditorPanel::DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin)
+    void ShaderGraphEditorPanel::DrawConnectionInProgress()
     {
         if (!m_IsDraggingConnection)
             return;
@@ -447,7 +416,7 @@ namespace OloEngine
             const auto* node = m_GraphAsset->GetGraph().FindNodeByPinID(m_DragStartPinID);
             if (node)
             {
-                auto pins = GetNodePins(*node, WorldToScreen(node->EditorPosition, canvasOrigin));
+                auto pins = GetNodePins(*node, m_Canvas.ToScreen(node->EditorPosition));
                 for (const auto& pin : pins)
                 {
                     if (pin.PinID == m_DragStartPinID)
@@ -459,110 +428,131 @@ namespace OloEngine
             }
         }
 
-        ImVec2 endPos = ImGui::GetMousePos();
-        f32 const curvature = 50.0f * m_Zoom;
+        ImVec2 const endPos = ImGui::GetMousePos();
+        constexpr ImU32 pendingColor = IM_COL32(200, 200, 200, 180);
 
+        // DrawWire always leaves `from` rightwards and enters `to` leftwards, so
+        // a wire dragged BACKWARDS out of an input pin is the same curve with the
+        // endpoints swapped rather than a second set of mirrored control points.
         if (m_DragStartIsOutput)
-        {
-            ImVec2 const cp1 = ImVec2(startPos.x + curvature, startPos.y);
-            ImVec2 const cp2 = ImVec2(endPos.x - curvature, endPos.y);
-            drawList->AddBezierCubic(startPos, cp1, cp2, endPos, IM_COL32(200, 200, 200, 180), 2.0f * m_Zoom);
-        }
+            m_Canvas.DrawWire(startPos, endPos, pendingColor, 2.0f);
         else
-        {
-            ImVec2 const cp1 = ImVec2(startPos.x - curvature, startPos.y);
-            ImVec2 const cp2 = ImVec2(endPos.x + curvature, endPos.y);
-            drawList->AddBezierCubic(startPos, cp1, cp2, endPos, IM_COL32(200, 200, 200, 180), 2.0f * m_Zoom);
-        }
+            m_Canvas.DrawWire(endPos, startPos, pendingColor, 2.0f);
     }
 
     // =========================================================================
     // Input handling
     // =========================================================================
 
-    void ShaderGraphEditorPanel::HandleCanvasInput([[maybe_unused]] const ImVec2& canvasOrigin, [[maybe_unused]] const ImVec2& canvasSize)
+    bool ShaderGraphEditorPanel::HandleCanvasInput()
     {
-        bool const isHovered = ImGui::IsItemHovered();
+        // Pan and zoom were handled here by hand; GraphCanvas::Begin has already
+        // consumed both by the time this runs. While a pan is in progress the
+        // panel must keep its hands off the mouse entirely, or a drag of the
+        // background also deselects.
+        if (m_Canvas.IsPanning())
+            return false;
 
-        // Pan with middle mouse
-        if (isHovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
-        {
-            ImVec2 const delta = ImGui::GetIO().MouseDelta;
-            m_ScrollOffset.x += delta.x / m_Zoom;
-            m_ScrollOffset.y += delta.y / m_Zoom;
-        }
+        bool const isHovered = m_Canvas.IsHovered();
 
-        // Zoom with scroll
-        if (isHovered)
-        {
-            f32 const scroll = ImGui::GetIO().MouseWheel;
-            // Bit-exact zero sentinel — see cpp-coding-quality §2a.
-            constexpr f32 noScroll = 0.0f;
-            if (std::memcmp(&scroll, &noScroll, sizeof(f32)) != 0)
-            {
-                f32 const zoomDelta = scroll * 0.1f;
-                m_Zoom = std::clamp(m_Zoom + zoomDelta, 0.25f, 3.0f);
-            }
-        }
-
-        // Deselect on click in empty space
         if (isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_IsDraggingConnection && !m_IsDraggingNode)
         {
+            ImVec2 const mousePos = ImGui::GetMousePos();
+
+            // Alt+click a wire cuts it. The panel had no wire hit-testing at all
+            // before this — DeleteLink existed with no caller — because getting
+            // the bezier distance right per panel is exactly the duplicated maths
+            // the shared canvas exists to hold.
+            if (ImGui::GetIO().KeyAlt)
+            {
+                if (UUID const link = HitTestLink(mousePos); link != 0)
+                {
+                    DeleteLink(link);
+                    return true;
+                }
+            }
+
+            // Deselect on click in empty space. HandleNodeInteraction runs after
+            // this and re-selects if the click actually landed on a node.
             m_SelectedNodeID = 0;
         }
 
-        // Context menu on right click
-        if (isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+        // Right-CLICK, not right-press: the canvas pans on right-DRAG, and only
+        // it knows which gesture this was.
+        if (m_Canvas.WasRightClicked())
         {
             m_ShowContextMenu = true;
-            m_ContextMenuPos = ImGui::GetMousePos();
+            m_ContextMenuGraphPos = m_Canvas.ToGraph(ImGui::GetMousePos());
         }
+        return false;
     }
 
-    void ShaderGraphEditorPanel::HandleNodeInteraction(const ImVec2& canvasOrigin)
+    UUID ShaderGraphEditorPanel::HitTestLink(ImVec2 screenPos) const
+    {
+        if (!m_GraphAsset)
+            return 0;
+
+        UUID best = 0;
+        f32 bestDistance = s_WireHitDistance;
+        for (const auto& link : m_GraphAsset->GetGraph().GetLinks())
+        {
+            WireEndpoints wire;
+            if (!GetLinkEndpoints(link, wire))
+                continue;
+
+            // The canvas samples the SAME curve it drew, so the clickable wire and
+            // the visible wire cannot drift apart at zoom.
+            if (f32 const distance = m_Canvas.DistanceToWire(wire.Source, wire.Target, screenPos); distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = link.ID;
+            }
+        }
+        return best;
+    }
+
+    void ShaderGraphEditorPanel::HandleNodeInteraction()
     {
         if (!m_GraphAsset)
             return;
 
         ImVec2 const mousePos = ImGui::GetMousePos();
 
-        // Check pin hover for connection start
-        for (auto& node : m_GraphAsset->GetGraph().GetNodes())
+        // Only NEW presses are suppressed while the canvas is panning. The
+        // release handling below is what pushes the MoveNodeCommand, so returning
+        // early here would strand an in-flight node drag whenever a pan latched
+        // mid-drag (a second button going down): m_IsDraggingNode would stay true
+        // with a stale start position, and the next left-drag anywhere would
+        // teleport the node.
+        if (!m_Canvas.IsPanning() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         {
-            ImVec2 const nodeScreenPos = WorldToScreen(node->EditorPosition, canvasOrigin);
-            auto pins = GetNodePins(*node, nodeScreenPos);
-
-            for (const auto& pin : pins)
+            if (PinInfo const* pin = HitTestPin(mousePos); pin != nullptr)
             {
-                f32 const dist = std::sqrt(
-                    (mousePos.x - pin.Position.x) * (mousePos.x - pin.Position.x) +
-                    (mousePos.y - pin.Position.y) * (mousePos.y - pin.Position.y));
-
-                if (dist <= s_PinRadius * m_Zoom * 2.0f)
-                {
-                    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-                    {
-                        m_IsDraggingConnection = true;
-                        m_DragStartPinID = pin.PinID;
-                        m_DragStartIsOutput = pin.IsOutput;
-                        return;
-                    }
-                }
+                m_IsDraggingConnection = true;
+                m_DragStartPinID = pin->PinID;
+                m_DragStartIsOutput = pin->IsOutput;
+                return;
             }
 
-            // Node selection and dragging
-            ImVec2 const nodeSize = GetNodeSize(*node);
-            bool const isInNode = mousePos.x >= nodeScreenPos.x && mousePos.x <= nodeScreenPos.x + nodeSize.x &&
-                                  mousePos.y >= nodeScreenPos.y && mousePos.y <= nodeScreenPos.y + nodeSize.y;
-
-            if (isInNode && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_IsDraggingConnection)
+            // The node body, only once no pin matched: pins are drawn on top of
+            // the node and sit on its edge, so a pin has to win over the body
+            // underneath it.
+            for (auto& node : m_GraphAsset->GetGraph().GetNodes())
             {
-                m_SelectedNodeID = node->ID;
-                m_IsDraggingNode = true;
-                m_DragNodeID = node->ID;
-                m_DragNodeStartPos = node->EditorPosition;
-                m_DragMouseStartPos = mousePos;
-                return;
+                ImVec2 const nodeScreenPos = m_Canvas.ToScreen(node->EditorPosition);
+                ImVec2 const nodeSize = GetNodeSize(*node);
+                bool const isInNode = mousePos.x >= nodeScreenPos.x && mousePos.x <= nodeScreenPos.x + nodeSize.x &&
+                                      mousePos.y >= nodeScreenPos.y && mousePos.y <= nodeScreenPos.y + nodeSize.y;
+
+                if (isInNode)
+                {
+                    m_SelectedNodeID = node->ID;
+                    m_IsDraggingNode = true;
+                    m_DragNodeID = node->ID;
+                    m_DragNodeStartPos = node->EditorPosition;
+                    m_DragMouseStartPos = mousePos;
+                    return;
+                }
             }
         }
 
@@ -572,9 +562,12 @@ namespace OloEngine
             auto* node = m_GraphAsset->GetMutableGraph().FindNode(m_DragNodeID);
             if (node)
             {
+                // The drag is a SCREEN delta and EditorPosition is graph space,
+                // so it must be divided by zoom, not applied raw.
                 ImVec2 const delta = ImVec2(mousePos.x - m_DragMouseStartPos.x, mousePos.y - m_DragMouseStartPos.y);
-                node->EditorPosition.x = m_DragNodeStartPos.x + delta.x / m_Zoom;
-                node->EditorPosition.y = m_DragNodeStartPos.y + delta.y / m_Zoom;
+                f32 const zoom = m_Canvas.GetZoom();
+                node->EditorPosition.x = m_DragNodeStartPos.x + delta.x / zoom;
+                node->EditorPosition.y = m_DragNodeStartPos.y + delta.y / zoom;
                 m_IsDirty = true;
             }
         }
@@ -600,42 +593,57 @@ namespace OloEngine
         }
     }
 
-    void ShaderGraphEditorPanel::HandleConnectionDrag(const ImVec2& canvasOrigin)
+    const ShaderGraphEditorPanel::PinInfo* ShaderGraphEditorPanel::HitTestPin(ImVec2 screenPos, PinDirectionFilter filter) const
+    {
+        // The hit radius has a screen-pixel floor, so below roughly 0.8 zoom the
+        // circles of adjacent pins overlap: their spacing scales with zoom, the
+        // floor does not. Taking the FIRST pin inside the radius therefore
+        // grabbed a neighbour at low zoom; the nearest one is what was aimed at.
+        f32 const radius = std::max(s_PinHitRadiusMin, m_Canvas.Scaled(s_PinRadius * 2.0f));
+        f32 bestDistance = radius;
+        m_HitPin.reset();
+
+        for (auto& node : m_GraphAsset->GetGraph().GetNodes())
+        {
+            for (const auto& pin : GetNodePins(*node, m_Canvas.ToScreen(node->EditorPosition)))
+            {
+                if (filter == PinDirectionFilter::OutputsOnly && !pin.IsOutput)
+                    continue;
+                if (filter == PinDirectionFilter::InputsOnly && pin.IsOutput)
+                    continue;
+
+                f32 const dx = screenPos.x - pin.Position.x;
+                f32 const dy = screenPos.y - pin.Position.y;
+                if (f32 const dist = std::sqrt(dx * dx + dy * dy); dist <= bestDistance)
+                {
+                    bestDistance = dist;
+                    m_HitPin = pin;
+                }
+            }
+        }
+        return m_HitPin.has_value() ? &*m_HitPin : nullptr;
+    }
+
+    void ShaderGraphEditorPanel::HandleConnectionDrag()
     {
         if (!m_IsDraggingConnection || !m_GraphAsset)
             return;
 
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
         {
-            ImVec2 const mousePos = ImGui::GetMousePos();
-
-            // Find target pin
-            bool connected = false;
-            for (auto& node : m_GraphAsset->GetGraph().GetNodes())
+            // Only pins facing the other way can terminate the wire, so they are
+            // the only candidates the nearest-pin search may consider: an
+            // unusable pin must not shadow a usable one just behind it.
+            PinDirectionFilter const wanted = m_DragStartIsOutput ? PinDirectionFilter::InputsOnly
+                                                                  : PinDirectionFilter::OutputsOnly;
+            if (PinInfo const* target = HitTestPin(ImGui::GetMousePos(), wanted); target != nullptr)
             {
-                ImVec2 const nodeScreenPos = WorldToScreen(node->EditorPosition, canvasOrigin);
-                auto pins = GetNodePins(*node, nodeScreenPos);
+                UUID const outPin = m_DragStartIsOutput ? m_DragStartPinID : target->PinID;
+                UUID const inPin = m_DragStartIsOutput ? target->PinID : m_DragStartPinID;
 
-                for (const auto& pin : pins)
-                {
-                    f32 const dist = std::sqrt(
-                        (mousePos.x - pin.Position.x) * (mousePos.x - pin.Position.x) +
-                        (mousePos.y - pin.Position.y) * (mousePos.y - pin.Position.y));
-
-                    if (dist <= s_PinRadius * m_Zoom * 2.0f && pin.IsOutput != m_DragStartIsOutput)
-                    {
-                        UUID outPin = m_DragStartIsOutput ? m_DragStartPinID : pin.PinID;
-                        UUID inPin = m_DragStartIsOutput ? pin.PinID : m_DragStartPinID;
-
-                        auto cmd = CreateScope<AddLinkCommand>(outPin, inPin);
-                        m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
-                        m_IsDirty = true;
-                        connected = true;
-                        break;
-                    }
-                }
-                if (connected)
-                    break;
+                auto cmd = CreateScope<AddLinkCommand>(outPin, inPin);
+                m_CommandHistory.Execute(std::move(cmd), m_GraphAsset->GetMutableGraph());
+                m_IsDirty = true;
             }
 
             m_IsDraggingConnection = false;
@@ -647,7 +655,7 @@ namespace OloEngine
     // Context menu
     // =========================================================================
 
-    void ShaderGraphEditorPanel::DrawContextMenu(const ImVec2& canvasOrigin)
+    void ShaderGraphEditorPanel::DrawContextMenu()
     {
         if (m_ShowContextMenu)
         {
@@ -658,7 +666,7 @@ namespace OloEngine
 
         if (ImGui::BeginPopup("##SGContextMenu"))
         {
-            glm::vec2 const worldPos = ScreenToWorld(m_ContextMenuPos, canvasOrigin);
+            glm::vec2 const worldPos = m_ContextMenuGraphPos;
 
             // Search filter
             ImGui::SetNextItemWidth(-1.0f);
@@ -1060,24 +1068,6 @@ namespace OloEngine
     }
 
     // =========================================================================
-    // Coordinate transforms
-    // =========================================================================
-
-    ImVec2 ShaderGraphEditorPanel::WorldToScreen(const glm::vec2& worldPos, const ImVec2& canvasOrigin) const
-    {
-        return ImVec2(
-            canvasOrigin.x + (worldPos.x + m_ScrollOffset.x) * m_Zoom,
-            canvasOrigin.y + (worldPos.y + m_ScrollOffset.y) * m_Zoom);
-    }
-
-    glm::vec2 ShaderGraphEditorPanel::ScreenToWorld(const ImVec2& screenPos, const ImVec2& canvasOrigin) const
-    {
-        return glm::vec2(
-            (screenPos.x - canvasOrigin.x) / m_Zoom - m_ScrollOffset.x,
-            (screenPos.y - canvasOrigin.y) / m_Zoom - m_ScrollOffset.y);
-    }
-
-    // =========================================================================
     // Node operations
     // =========================================================================
 
@@ -1377,8 +1367,7 @@ namespace OloEngine
         m_CurrentAssetHandle = 0;
         m_IsDirty = false;
         m_SelectedNodeID = 0;
-        m_ScrollOffset = { 0.0f, 0.0f };
-        m_Zoom = 1.0f;
+        m_Canvas.ResetView();
         m_LastCompileResult = {};
         m_CommandHistory.Clear();
     }
@@ -1482,8 +1471,7 @@ namespace OloEngine
 
         m_IsDirty = false;
         m_SelectedNodeID = 0;
-        m_ScrollOffset = { 0.0f, 0.0f };
-        m_Zoom = 1.0f;
+        m_Canvas.ResetView();
         m_LastCompileResult = {};
         m_CommandHistory.Clear();
     }

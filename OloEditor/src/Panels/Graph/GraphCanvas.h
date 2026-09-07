@@ -95,6 +95,19 @@ namespace OloEngine::EditorUI
         {
             return m_IsHovered;
         }
+        /// True for the single frame in which a right press-and-release over the
+        /// canvas finished WITHOUT having become a pan. This is how a consumer
+        /// opens its context menu: because the canvas pans on right-drag, the two
+        /// gestures share a button and only the widget knows which one happened —
+        /// it owns the drag threshold that separates them.
+        ///
+        /// Every consumer needs this, so it lives here rather than being
+        /// re-derived per panel against ImGui's internal drag bookkeeping, which
+        /// has moved between versions.
+        [[nodiscard]] bool WasRightClicked() const
+        {
+            return m_WasRightClicked;
+        }
 
         //-- View controls --------------------------------------------------------
         void CenterOn(glm::vec2 graphPos);
@@ -144,6 +157,8 @@ namespace OloEngine::EditorUI
         /// right-CLICK still reaches the consumer's context menu.
         bool m_PanButtonDown = false;
         ImVec2 m_PanPressPos{ 0.0f, 0.0f };
+        /// Set for one frame by HandleViewInput; see WasRightClicked().
+        bool m_WasRightClicked = false;
 
         static constexpr f32 s_MinZoom = 0.15f;
         static constexpr f32 s_MaxZoom = 3.0f;
