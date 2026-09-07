@@ -87,6 +87,14 @@ outputs:
       self-hosted, the CMAKE_PREFIX_PATH and Vulkan_LIBRARY that point at the
       LunarG SDK. Empty on GitHub-hosted.
     value: ${{ steps.toolchain.outputs.extra-cmake-args }}
+  symbolizer:
+    description: >
+      Absolute path to the `llvm-symbolizer` matching the compiler this action
+      chose, for ASAN_SYMBOLIZER_PATH. EMPTY if none was found -- a caller must
+      treat empty as "do not set the variable", because pointing
+      ASAN_SYMBOLIZER_PATH at a nonexistent file makes the sanitizer print
+      unsymbolized frames silently, which is the state this output exists to end.
+    value: ${{ steps.toolchain.outputs.symbolizer }}
 
 runs:
   using: 'composite'
@@ -453,11 +461,41 @@ runs:
           # compiler cache at all and paid a cold full build every run.
           extra="-DCMAKE_PREFIX_PATH=${VULKAN_SDK} -DVulkan_LIBRARY=${OLO_VULKAN_LIBRARY} -DOLO_ENABLE_COMPILER_CACHE=ON"
         fi
+        # THE SYMBOLIZER, BESIDE WHICHEVER COMPILER THE LADDER ABOVE CHOSE.
+        #
+        # Without ASAN_SYMBOLIZER_PATH, every sanitizer report in this repo is a
+        # column of bare hex offsets:
+        #     #1 0x55d5df68f658  (/home/runner/.../OloEngine-Tests+0xf12f658)
+        # The sanitizer runtime looks for `llvm-symbolizer` on PATH, and the pinned
+        # LLVM prefix is deliberately NOT on the system PATH (see the pin above), so
+        # it finds nothing and says nothing -- there is no warning, no non-zero exit,
+        # just an unreadable trace. Measured 2026-09-07: four LSan leaks on master
+        # that could not be attributed to a line of code at all, from run 34108719319.
+        #
+        # Derived from $cxx rather than taken as an input, for the reason the cache
+        # prefix in save-cache-pruned is derived from its key: a second spelling of
+        # the same toolchain drifts from the first, and the failure is silent.
+        symbolizer=""
+        _cxx_bin=$(command -v "$cxx" 2>/dev/null || true)
+        if [ -n "$_cxx_bin" ] && [ -x "$(dirname "$_cxx_bin")/llvm-symbolizer" ]; then
+          symbolizer="$(dirname "$_cxx_bin")/llvm-symbolizer"
+        else
+          # The distro fallback compiler may still have a suffixed symbolizer.
+          for _cand in llvm-symbolizer llvm-symbolizer-23; do
+            _found=$(command -v "$_cand" 2>/dev/null || true)
+            if [ -n "$_found" ]; then symbolizer="$_found"; break; fi
+          done
+        fi
+        if [ -z "$symbolizer" ]; then
+          echo "::warning title=no llvm-symbolizer::Found no llvm-symbolizer beside $cxx or on PATH. Sanitizer reports from this job will print unsymbolized hex offsets, which cannot be attributed to source. Install it beside the pinned prefix (scripts/setup-olo-ci-host.sh) or via the llvm package."
+        fi
         {
           echo "cc=$cc"
           echo "cxx=$cxx"
           echo "python-exe=$python_exe"
           echo "extra-cmake-args=$extra"
+          echo "symbolizer=$symbolizer"
         } >> "$GITHUB_OUTPUT"
         # The one line a same-commit hosted/self-hosted comparison reads first.
         echo "toolchain: $cxx ($("$cxx" --version | head -1)) / $python_exe ${extra:+(+ $extra)}"
+        echo "symbolizer: ${symbolizer:-<none -- sanitizer traces will be unsymbolized>}"
