@@ -687,8 +687,13 @@ namespace OloEngine::Tests
                       << (stats.m_GlobalMean > 1e-6 ? stats.m_LocalMean / stats.m_GlobalMean : 0.0)
                       << std::endl;
 
-            // 1. The wake changes the frame.
-            EXPECT_GT(stats.m_Max, 4.0f)
+            // 1. The wake changes the frame. On the window MEAN, for the reason
+            //    the footprint case below uses it: `m_Max` is one pixel, and a
+            //    single-pixel statistic against a fixed bar is a flake waiting
+            //    for a quantisation step (issue #1094). Measured across these
+            //    five poses (RTX 4090, 2026-09-07): 1.21 (Stopped, the weakest
+            //    by design) to 8.89 (Close).
+            EXPECT_GT(stats.m_LocalMean, 0.5)
                 << "pose '" << pose.m_Name
                 << "': enabling the wake changed no pixel by more than driver noise — the surface is "
                    "not being displaced at all";
@@ -812,6 +817,23 @@ namespace OloEngine::Tests
         // The earlier recorded figures (1.10 / 0.69, 2026-08-30) came from a box
         // the single-pixel argmax happened to place, which is why they moved when
         // the estimator was fixed for #1094. They described the same frames.
+        //
+        // TWO THINGS TO KNOW BEFORE RETUNING THIS, both measured rather than
+        // assumed. The 0.85 bar has less headroom than it did: 0.744 against a
+        // bar of 0.797, ~7%, where the old box gave ~26%. That is deliberate and
+        // it is not a knife edge — the same box on the same frames reproduces to
+        // three significant figures across every test ordering (0.744048 vs
+        // 0.745533, 0.2%), so the margin is ~35x the observed spread. The old
+        // box's larger headroom was not a better test; it was a box that had
+        // landed on the strongest part of the difference by accident.
+        //
+        // And the ratio is NOT monotonic in `kHalf` — measured 0.71 / 0.87 /
+        // 0.78 / 0.73 / 0.88 at half = 20 / 30 / 45 / 60 / 80, because each size
+        // selects a different window and the stddev depends on how much
+        // unflattened sea the window also contains. So kHalf is left at the 45
+        // this test has always used. Do NOT tune it to buy margin: a size picked
+        // because it produced a comfortable number is the same guess this whole
+        // section exists to replace.
         ASSERT_GT(insideOff, 0.5)
             << "the sea has no structure inside the footprint — this test cannot detect flattening";
 
