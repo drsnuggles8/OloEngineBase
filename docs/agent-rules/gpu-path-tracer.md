@@ -29,9 +29,10 @@ Two consequences that are easy to break by accident:
   which triangle was hit. The GPU table (`EmissiveTriangleTable`) is built on the CPU from the same
   mesh sources the raster draw indexes, in extraction order; `GpuPathTracerContractTest` checks it
   against `ReferenceScene::GetEmissiveTriangles()` triangle for triangle.
-- **Every hit shades with ClosureV2.** Only the v2 closure has a GLSL Sample/Pdf twin. A Legacy
-  material is counted (`GpuPathTracerStats::LegacyMaterialsShadedAsClosureV2`), never silently
-  re-modelled, and the parity test builds its CPU scene with `PBRModel::ClosureV2` for that reason.
+- **Every hit shades with ITS closure.** `PtEvaluateBRDF` / `PtBsdfPdf` / `PtSampleBRDF` dispatch on
+  the material's `ClosureVersion` the way `PBRClosureBSDF.h` does: the Legacy sampler (GGX-NDF
+  importance sampling plus cosine, the v2 lobe probability) is mirrored in the shader, and both
+  closures are pinned by their own Cornell parity test.
 - **Textures follow one convention on both tracers:** level 0, bilinear, REPEAT, sRGB decoded per
   texel; albedo rgb times the factor, metallic = blue and roughness = green, emissive rgb times the
   factor, the normal map in the triangle's analytic UV tangent frame (`ReferenceScene::ApplyNormalMap`
@@ -63,9 +64,8 @@ pass's own attachments every frame. Three things about that are load-bearing:
   TAA/SSR/SSGI keep reprojecting by their own declaration rather than by a filter at the call site.
   The planes do not declare `Jitter`: a TAA or FSR2 toggle must not throw the sum away.
 - **An animated scene restarts every frame, and the pass says so.** One moving entity dirties a
-  range every frame, so the accumulation never gets past `SamplesPerFrame`.
-  `GpuPathTracerStats::ConsecutiveRestarts` counts it, the panel shows it, and the log warns once
-  after eight in a row. A benchmark manifest that promises N spp on such a scene captures far fewer.
+  range every frame, so the sum never gets past `SamplesPerFrame`; `ConsecutiveRestarts` counts it,
+  the panel shows it, the log warns once after eight in a row.
 - **The sample index is the accumulated count.** `N` frames at 1 spp and one frame at `N` spp draw
   the same sample indices, which is what makes a capped run reproducible whatever frame it began on
   (`GpuPathTracerDeviceParityTest.AccumulationOverFramesDrawsTheSameSequenceAsOneFrame`).
@@ -95,9 +95,9 @@ credit the path with environment radiance through an occluder.
 
 ## 4. Things that bit while building it
 
-- **`sampler` is a reserved word in GLSL.** A parameter named `sampler` fails with
-  "unexpected SAMPLER, expecting RIGHT_PAREN" at the declaration, not at a use. The include uses
-  `pathSampler`.
+- **`sampler` and `sample` are reserved words in GLSL.** A parameter named `sampler` fails with
+  "unexpected SAMPLER, expecting RIGHT_PAREN", a local named `sample` with "unexpected SAMPLE", at
+  the declaration, not at a use. The code uses `pathSampler` and `result`.
 - **The SSBO namespace is full, and a `StorageBuffer` publishes itself at its binding on
   construction** (both backends). A buffer that is only ever reached by device address is created
   with `StorageBuffer::kNoBinding`: both backends then skip the construction-time and `Bind()`-time

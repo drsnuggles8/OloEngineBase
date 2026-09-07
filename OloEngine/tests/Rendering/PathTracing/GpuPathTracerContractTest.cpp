@@ -28,6 +28,7 @@
 
 #include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
 #include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
+#include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceScene.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
@@ -431,6 +432,9 @@ namespace OloEngine::Tests
         EXPECT_EQ(ParseDefine(source, "OLO_PT_FLAG_ENVIRONMENT_CUBE"), kGpuPathTracerFlagEnvironmentCube);
         EXPECT_EQ(ParseDefine(source, "OLO_PT_FLAG_HISTORY_VALID"), kGpuPathTracerFlagHistoryValid);
         EXPECT_EQ(ParseDefine(source, "OLO_PT_FLAG_TEXTURES"), kGpuPathTracerFlagTextures);
+
+        EXPECT_EQ(ParseDefine(source, "OLO_PT_CLOSURE_LEGACY"), static_cast<u32>(std::to_underlying(PBRModel::Legacy)));
+        EXPECT_EQ(ParseDefine(source, "OLO_PT_CLOSURE_V2"), static_cast<u32>(std::to_underlying(PBRModel::ClosureV2)));
 
         EXPECT_EQ(ParseDefine(source, "OLO_PT_VIEW_RADIANCE"), std::to_underlying(GpuPathTracerDebugView::Radiance));
         EXPECT_EQ(ParseDefine(source, "OLO_PT_VIEW_ALBEDO"), std::to_underlying(GpuPathTracerDebugView::Albedo));

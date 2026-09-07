@@ -62,9 +62,9 @@ namespace OloEngine
     // shader indexes itself (ADR 0011 amendment (95)); where the backend
     // cannot index it, hits shade from the factors and masked geometry traces
     // as solid, both counted. Sphere-area lights are spherical emitters on
-    // both tracers (PathTracer.cpp's ViewSphereLight). The one STANDING LIMIT,
-    // counted rather than commented: Legacy materials shaded with the
-    // ClosureV2 closure.
+    // both tracers (PathTracer.cpp's ViewSphereLight), and each hit is shaded
+    // with its material's own closure (Legacy or ClosureV2), as the CPU
+    // reference dispatches.
     class GpuPathTracerPass : public RenderGraphNode
     {
       public:

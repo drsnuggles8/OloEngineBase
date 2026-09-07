@@ -102,8 +102,8 @@ namespace OloEngine
     }
 
     // What the tracer did this frame. Counted rather than commented, because
-    // the standing limits (untextured hits, masked geometry traced as solid,
-    // Legacy materials shaded as ClosureV2) are
+    // the standing limits (untextured hits, masked geometry traced as solid
+    // where the backend cannot index the heap) are
     // invisible in a still frame and would otherwise be discovered by a
     // reviewer instead of reported by the engine.
     struct GpuPathTracerStats
@@ -131,7 +131,7 @@ namespace OloEngine
         u32 EmissiveTriangles = 0;
         u32 PunctualLights = 0;
         u32 SphereAreaLights = 0; ///< Sampled as spherical emitters (PathTracer.cpp's ViewSphereLight).
-        u32 LegacyMaterialsShadedAsClosureV2 = 0;
+        u32 LegacyMaterials = 0;  ///< Shaded and sampled with the Legacy closure, as the CPU reference does.
         f32 EmissiveTotalArea = 0.0f;
 
         // Whether hits were shaded from the material TEXTURES this frame

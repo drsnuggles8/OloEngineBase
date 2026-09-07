@@ -654,6 +654,7 @@ namespace OloEngine::Tests
             Plain,
             Textured,
             SphereLight,
+            LegacyClosure,
         };
 
         [[nodiscard]] bool BuildRig(Rig& rig, RigScene which = RigScene::Plain)
@@ -665,6 +666,9 @@ namespace OloEngine::Tests
                     break;
                 case RigScene::SphereLight:
                     rig.Fixture = MakeSphereLightCornellBoxScene();
+                    break;
+                case RigScene::LegacyClosure:
+                    rig.Fixture = MakeCornellBoxScene(18.0f, PBRModel::Legacy);
                     break;
                 case RigScene::Plain:
                     rig.Fixture = MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
@@ -980,6 +984,30 @@ namespace OloEngine::Tests
         EXPECT_NEAR(albedo.x / albedo.a, 0.73f, 1e-3f) << "the floor's albedo factor, averaged";
         const glm::vec4 normal = gpu.Normal[static_cast<sizet>(floorPixel.y) * kWidth + floorPixel.x];
         EXPECT_GT(normal.y / static_cast<f32>(kSamples), 0.99f) << "the floor's normal points up";
+    }
+
+    // The Legacy closure: the same box with every material on PBRModel::Legacy,
+    // so the hits are shaded with cookTorranceBRDF and sampled by the Legacy
+    // mixture on both tracers. The regions are the plain box's.
+    TEST_F(GpuPathTracerDevice, LegacyClosureCornellBoxAgreesWithTheCpuReferenceWithinTheBudget)
+    {
+        ScopedVulkanRenderCommandSelection vulkanBackend;
+        VulkanFrameArena::Get().BeginFrame(0);
+        Rig rig;
+        ASSERT_TRUE(BuildRig(rig, RigScene::LegacyClosure));
+        for (const GPUSceneMaterial& material : rig.Twin.Materials)
+            ASSERT_EQ(material.ClosureVersion, static_cast<u32>(PBRModel::Legacy));
+
+        const ParityRegion regions[] = {
+            { "floor by the red wall", glm::vec3(-0.75f, -0.99f, 0.2f) },
+            { "floor by the green wall", glm::vec3(0.75f, -0.99f, 0.2f) },
+            { "back wall", glm::vec3(0.5f, 0.3f, -0.99f) },
+            { "block top", glm::vec3(-0.3f, -0.2f, -0.3f) },
+            { "ceiling (indirect only)", glm::vec3(0.6f, 0.99f, -0.2f) },
+            { "emitter", glm::vec3(0.0f, 0.98f, 0.0f) },
+        };
+        const TracedFrame gpu = RunParity(*this, rig, "GpuPathTracer_CornellBoxLegacy", regions);
+        ASSERT_FALSE(gpu.Accum.empty());
     }
 
     // A sphere-area light: the one light kind the tracers model as an area

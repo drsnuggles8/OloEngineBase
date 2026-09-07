@@ -379,7 +379,7 @@ namespace OloEngine
             const GPUSceneMaterial* material =
                 m_GPUScene->GetLiveMaterialRecordBySlot(instance->MaterialIndex, instance->MaterialGeneration);
             if (material != nullptr && material->ClosureVersion == std::to_underlying(PBRModel::Legacy))
-                ++m_Stats.LegacyMaterialsShadedAsClosureV2;
+                ++m_Stats.LegacyMaterials;
         }
 
         if (m_EmissiveTable != nullptr)

@@ -578,9 +578,8 @@ namespace OloEngine
                         if (stats.EmissiveTableUnaddressable)
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                                                "emissive table has no device address - NEE sees no area lights");
-                        if (stats.LegacyMaterialsShadedAsClosureV2 > 0)
-                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%u Legacy materials shaded as ClosureV2",
-                                               stats.LegacyMaterialsShadedAsClosureV2);
+                        if (stats.LegacyMaterials > 0)
+                            ImGui::Text("%u Legacy-closure materials", stats.LegacyMaterials);
                         if (stats.TexturesAvailable)
                             ImGui::Text("material textures sampled (level 0), alpha mask honoured");
                         if (stats.HitsShadedUntextured)

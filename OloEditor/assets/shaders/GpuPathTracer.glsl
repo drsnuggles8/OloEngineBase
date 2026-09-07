@@ -202,6 +202,12 @@ layout(std140, binding = 65) uniform RayTracingPathTracerParams
 #define OLO_PT_FLAG_HISTORY_VALID 4u
 #define OLO_PT_FLAG_TEXTURES 8u
 
+// GPUSceneMaterial.ClosureVersion — PBRModel (Legacy 0, ClosureV2 1), pinned
+// by GpuPathTracerContractTest. Each hit is shaded with ITS closure, as the
+// CPU reference dispatches (PBRClosureBSDF.h); an unknown version shades v2.
+#define OLO_PT_CLOSURE_LEGACY 0u
+#define OLO_PT_CLOSURE_V2 1u
+
 // Debug views — mirror GpuPathTracerDebugView (GpuPathTracerTypes.h).
 #define OLO_PT_VIEW_RADIANCE 0
 #define OLO_PT_VIEW_ALBEDO 1
@@ -431,7 +437,121 @@ struct PtHit
     // The light slot of the sphere light the ray stopped at, or -1. Sphere
     // lights are not in the TLAS; TraceClosest intersects them analytically.
     int SphereLight;
+    // GPUSceneMaterial.ClosureVersion (OLO_PT_CLOSURE_*): which closure the
+    // hit is shaded and sampled with.
+    uint ClosureVersion;
 };
+
+// ---------------------------------------------------------------------------
+// The Legacy closure's sampler — PBRClosureBSDF.h's Legacy branch, function
+// for function: the frozen cookTorranceBRDF (PBRCommon) evaluated, a
+// one-sample mixture of GGX-NDF importance sampling (ImportanceSampleGGX) and
+// cosine sampling drawn with the same lobe probability the v2 closure uses,
+// and the density that mixture implies. The v2 closure's functions are in
+// PBRCommon.glsl; both are reached through PtEvaluateBRDF / PtBsdfPdf /
+// PtSampleBRDF below, dispatched on the hit's ClosureVersion.
+// ---------------------------------------------------------------------------
+float PtLegacySamplingRoughness(float roughness)
+{
+    return clamp(roughness, MIN_ROUGHNESS, 1.0);
+}
+
+// ReferenceBRDF.h DistributionGGXSamplingDensity: the NDF the Legacy sampler
+// draws from, unclamped in nDotH, guarded against a zero denominator.
+float PtLegacyGGXSamplingDensity(float nDotH, float roughness)
+{
+    const float a = roughness * roughness;
+    const float a2 = a * a;
+    const float c = max(nDotH, 0.0);
+    float denom = (c * c * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+    return a2 / max(denom, 1.17549435e-38);
+}
+
+float PtLegacyPdfGGX(float nDotH, float vDotH, float roughness)
+{
+    if (vDotH <= 0.0)
+        return 0.0;
+    return PtLegacyGGXSamplingDensity(nDotH, roughness) * max(nDotH, 0.0) / (4.0 * vDotH);
+}
+
+vec3 PtLegacyImportanceSampleGGX(vec2 xi, vec3 n, float roughness)
+{
+    const float a = roughness * roughness;
+    const float phi = 2.0 * PI * xi.x;
+    const float cosTheta = sqrt(max(0.0, (1.0 - xi.y) / (1.0 + (a * a - 1.0) * xi.y)));
+    const float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+    const vec3 h = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+    vec3 tangent, bitangent;
+    OrthonormalBasis(n, tangent, bitangent);
+    return normalize(tangent * h.x + bitangent * h.y + n * h.z);
+}
+
+float PtLegacyPdf(vec3 n, vec3 v, vec3 l, vec3 albedo, float metallic, float roughness)
+{
+    const float nDotL = dot(n, l);
+    if (nDotL <= 0.0)
+        return 0.0;
+    const float pdfDiffuse = max(nDotL, 0.0) * INV_PI;
+    const float pSpecular = closureV2SpecularProbability(albedo, metallic);
+    if (!(pSpecular > 0.0))
+        return pdfDiffuse;
+    const vec3 h = normalize(v + l);
+    const float nDotH = dot(n, h);
+    const float vDotH = dot(v, h);
+    const float pdfSpecular = PtLegacyPdfGGX(nDotH, vDotH, PtLegacySamplingRoughness(roughness));
+    return pSpecular * pdfSpecular + (1.0 - pSpecular) * pdfDiffuse;
+}
+
+ClosureV2Sample PtLegacySampleBRDF(vec3 n, vec3 v, vec3 albedo, float metallic, float roughness, float lobeXi,
+                                   vec2 xi)
+{
+    ClosureV2Sample result;
+    result.L = vec3(0.0);
+    result.Value = vec3(0.0);
+    result.Pdf = 0.0;
+    const float pSpecular = closureV2SpecularProbability(albedo, metallic);
+    vec3 l;
+    if (lobeXi < pSpecular)
+    {
+        const vec3 h = PtLegacyImportanceSampleGGX(xi, n, PtLegacySamplingRoughness(roughness));
+        l = reflect(-v, h);
+    }
+    else
+    {
+        l = closureV2CosineSampleHemisphere(xi, n);
+    }
+    if (dot(n, l) <= 0.0)
+        return result;
+    const float pdf = PtLegacyPdf(n, v, l, albedo, metallic, roughness);
+    if (!(pdf > 0.0))
+        return result;
+    result.L = l;
+    result.Value = cookTorranceBRDF(n, v, l, albedo, metallic, roughness);
+    result.Pdf = pdf;
+    return result;
+}
+
+vec3 PtEvaluateBRDF(PtHit hit, vec3 n, vec3 v, vec3 l)
+{
+    if (hit.ClosureVersion == OLO_PT_CLOSURE_LEGACY)
+        return cookTorranceBRDF(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+    return closureV2Evaluate(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+}
+
+float PtBsdfPdf(PtHit hit, vec3 n, vec3 v, vec3 l)
+{
+    if (hit.ClosureVersion == OLO_PT_CLOSURE_LEGACY)
+        return PtLegacyPdf(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+    return closureV2Pdf(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+}
+
+ClosureV2Sample PtSampleBRDF(PtHit hit, vec3 n, vec3 v, float lobeXi, vec2 xi)
+{
+    if (hit.ClosureVersion == OLO_PT_CLOSURE_LEGACY)
+        return PtLegacySampleBRDF(n, v, hit.Albedo, hit.Metallic, hit.Roughness, lobeXi, xi);
+    return closureV2SampleBRDF(n, v, hit.Albedo, hit.Metallic, hit.Roughness, lobeXi, xi);
+}
 
 // ---------------------------------------------------------------------------
 // The sphere-area light model — PathTracer.cpp's ViewSphereLight /
@@ -601,6 +721,7 @@ bool TraceClosestGeometry(vec3 origin, vec3 direction, float tMax, out PtHit hit
     hit.TwoSidedEmission = false;
     hit.Unshadeable = false;
     hit.SphereLight = -1;
+    hit.ClosureVersion = OLO_PT_CLOSURE_V2;
 
     rayQueryEXT rayQuery;
     // Opaque unless textures are reachable (see PtRayFlags). Every
@@ -707,6 +828,7 @@ bool TraceClosestGeometry(vec3 origin, vec3 direction, float tMax, out PtHit hit
     hit.Roughness = roughness;
     hit.Emissive = emissive;
     hit.TwoSidedEmission = (material.Flags & OLO_GPU_SCENE_MATERIAL_TWO_SIDED) != 0u;
+    hit.ClosureVersion = material.ClosureVersion;
     return true;
 }
 
@@ -877,7 +999,7 @@ vec3 SampleDirectLighting(PtHit hit, vec3 geometricNormal, vec3 n, vec3 v, float
             continue;
 
         const vec3 radiance = light.ColorAndIntensity.rgb * light.ColorAndIntensity.w * attenuation;
-        const vec3 brdf = closureV2Evaluate(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+        const vec3 brdf = PtEvaluateBRDF(hit, n, v, l);
         direct += brdf * radiance * nDotL;
     }
 
@@ -914,8 +1036,8 @@ vec3 SampleDirectLighting(PtHit hit, vec3 geometricNormal, vec3 n, vec3 v, float
                         const vec3 shadowOrigin = OffsetOrigin(hit.Position, geometricNormal, l, rayEpsilon);
                         if (!IsOccluded(shadowOrigin, lightPosition, rayEpsilon))
                         {
-                            const vec3 brdf = closureV2Evaluate(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
-                            const float pdfBsdf = closureV2Pdf(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+                            const vec3 brdf = PtEvaluateBRDF(hit, n, v, l);
+                            const float pdfBsdf = PtBsdfPdf(hit, n, v, l);
                             const float misWeight = PowerHeuristic(pdfSolidAngle, pdfBsdf);
                             direct += brdf * nDotL * lightRadiance * (misWeight / pdfSolidAngle);
                         }
@@ -958,8 +1080,8 @@ vec3 SampleDirectLighting(PtHit hit, vec3 geometricNormal, vec3 n, vec3 v, float
         const vec3 shadowOrigin = OffsetOrigin(hit.Position, geometricNormal, l, rayEpsilon);
         if (IsOccluded(shadowOrigin, hit.Position + l * t, rayEpsilon))
             continue;
-        const vec3 brdf = closureV2Evaluate(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
-        const float pdfBsdf = closureV2Pdf(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+        const vec3 brdf = PtEvaluateBRDF(hit, n, v, l);
+        const float pdfBsdf = PtBsdfPdf(hit, n, v, l);
         const float misWeight = PowerHeuristic(pdfSolidAngle, pdfBsdf);
         direct += brdf * nDotL * view.Radiance * (misWeight / pdfSolidAngle);
     }
@@ -1093,7 +1215,7 @@ vec3 TracePath(vec3 origin, vec3 direction, inout OloPathSampler pathSampler, ou
         const float lobeXi = oloPtGet1D(pathSampler);
         const vec2 xi = oloPtGet2D(pathSampler);
         const ClosureV2Sample bsdf =
-            closureV2SampleBRDF(shadingNormal, v, hit.Albedo, hit.Metallic, hit.Roughness, lobeXi, xi);
+            PtSampleBRDF(hit, shadingNormal, v, lobeXi, xi);
         // The documented failure convention: Pdf <= 0 is a terminated path,
         // and Value / Pdf must never be formed there (0/0 is a NaN that would
         // spread through the accumulation).
