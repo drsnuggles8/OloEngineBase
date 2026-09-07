@@ -6,7 +6,9 @@ description: >
   WHY THIS EXISTS (#1073). Every cache key in this repo ends in `-<run_id>-<attempt>`
   so each save writes a fresh, immutable snapshot and `restore-keys` warms from the
   newest one. That shape is right and it is APPEND-ONLY: a save never replaces the
-  entry it supersedes, it sits beside it until the nightly `cache-prune` sweep.
+  entry it supersedes. This action deletes that predecessor as soon as the new entry is
+  VERIFIED present, so each lineage holds one entry per ref without waiting for the
+  `cache-prune` sweep -- which two crons a day could not keep up with (#1073).
 
   The repo's Actions cache store is capped at 10 GB, and past the cap GitHub does not
   evict -- it turns the WHOLE STORE READ-ONLY ("Cache reservation failed: You have
@@ -155,8 +157,23 @@ runs:
     # it -- a PR run's entry is visible to that PR alone, and only default-branch entries
     # are readable fleet-wide. Deleting across refs would let any branch wipe the master
     # snapshot every other branch restores from.
+    # RUNS ON A SUCCESSFUL SAVE TOO, not just a refused one (#1073 follow-up).
+    #
+    # This used to be gated on `landed == 'false'` alone, and the action's own header
+    # said the superseded entry "sits beside it until the nightly `cache-prune` sweep".
+    # Two crons a day cannot keep up with the save rate: measured 2026-09-07, the store
+    # stood at 10863 MiB against a ~9537 MiB measured wall, having accumulated six
+    # 706 MiB vcpkg entries and two 2044 MiB sccache entries since the 07:03 sweep.
+    #
+    # Pruning AFTER a confirmed save is strictly safer than the refusal path this step
+    # was written for. The caution in the header -- "if the retry were then refused
+    # anyway, we would have deleted the warm entry the next run needs" -- is about
+    # deleting BEFORE a save. Here the new entry is already verified present on this
+    # ref by the poll above, so every predecessor of this lineage is genuinely dead.
+    #
+    # `landed == 'unknown'` still prunes nothing: never delete on a guess.
     - name: Free room under this prefix on this ref
-      if: always() && steps.check.outputs.landed == 'false'
+      if: always() && (steps.check.outputs.landed == 'false' || steps.check.outputs.landed == 'true')
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}

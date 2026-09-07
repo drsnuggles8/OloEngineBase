@@ -94,12 +94,28 @@ on:
     # That is fine — this job only deletes SUPERSEDED entries, so running before a
     # save simply means that entry is collected on the next sweep.)
     #
-    # Between sweeps, each heavy job also prunes its own lineage on its own ref if
-    # its save is refused (.github/actions/save-cache-pruned). A twice-daily janitor
-    # cannot fix a breach that happens between two saves thirty minutes apart; that
-    # action can, and this workflow collects everything it does not own.
+    # Between sweeps, each heavy job prunes its own lineage on its own ref as soon as
+    # its save is VERIFIED (.github/actions/save-cache-pruned, widened from refusal-only
+    # in this same change). That is the primary mechanism now: a twice-daily janitor
+    # cannot fix a breach that happens between two saves thirty minutes apart, and on
+    # 2026-09-07 it did not -- the store reached 10863 MiB against a ~9537 MiB wall on
+    # six duplicate vcpkg entries banked after the 07:03 sweep.
+    #
+    # THE EXTRA SWEEPS BELOW COVER WHAT POST-SAVE PRUNING STRUCTURALLY CANNOT: a
+    # lineage whose save is SKIPPED prunes nothing, because no save ran. vcpkg is now
+    # exactly that shape -- setup-vcpkg skips the save whenever the restore matched its
+    # manifest hash -- so its already-banked duplicates have no owner to collect them.
+    # Same for entries on a merged PR's ref, a deleted branch, and the 30-day age-out.
+    #
+    # Four-hourly, not two-hourly: the sweep is ~30 API calls and free, but each run is
+    # a workflow entry in the Actions list, and 12/day is enough noise to bury a real
+    # failure. Six sweeps bound the worst case at ~4 h of accumulation.
     - cron: '5 1 * * *'
+    - cron: '5 5 * * *'
     - cron: '41 6 * * *'
+    - cron: '5 13 * * *'
+    - cron: '5 17 * * *'
+    - cron: '5 21 * * *'
   workflow_dispatch:
 
 # The only write scope this workflow needs, and it needs it: deleting a cache entry

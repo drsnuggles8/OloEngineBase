@@ -154,6 +154,16 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       native: ${{ steps.filter.outputs.native }}
+      # THE ONE PLACE THE LINUX ROUTING DECISION IS MADE (#1083 for Linux).
+      #
+      # The three Linux sanitizer jobs each carry a byte-identical `runs-on`
+      # expression, with a comment on two of them begging the next editor to keep
+      # them in step. Sharding needs the SAME predicate a fourth and fifth time --
+      # once to size the matrix, once to decide whether to stage an artifact at all --
+      # so it is computed once here and read as an output instead.
+      linux-self-hosted: ${{ steps.linuxplan.outputs.self-hosted }}
+      linux-shards: ${{ steps.linuxplan.outputs.shards }}
+      linux-shard-matrix: ${{ steps.linuxplan.outputs.matrix }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -190,6 +200,52 @@ jobs:
             - 'scripts/verify_test_shards.py'
             - 'scripts/Copy-ImportedDlls.ps1'
             - '.github/sanitizer-suppressions/**'
+
+    # SHARD ONLY WHERE THERE ARE RUNNERS TO ABSORB IT.
+    #
+    # Sharding is not free parallelism -- it is parallelism IF a runner slot exists
+    # per shard. The hosted arm has effectively unbounded slots, so 4 shards run
+    # four-wide. The self-hosted box does not: the `olo-ci` label was served by TWO
+    # runners and, measured 2026-09-07, by ONE (olo-ci-2 offline). Three sanitizer
+    # jobs already serialise there; splitting each into four would serialise TWELVE
+    # and hand the whole win back, plus an artifact round-trip per shard.
+    #
+    # So the box keeps the monolithic build-and-test job it has today, byte for byte,
+    # and only the hosted arm shards. `shards == 1` is the signal for that: the build
+    # job runs ctest itself and stages nothing.
+    #
+    # WHY 4 ON HOSTED. Measured on run 34108719319 (ASan + LSan, hosted): build 63 min,
+    # tests 48 min. Four shards take the test half to ~12 min against an artifact
+    # round-trip measured at 0.1 min each way on the Windows shards -- so the fixed
+    # cost is noise and the ceiling is the 63-minute build, which is #1095's problem,
+    # not this one's.
+    - name: Plan the Linux sanitizer sharding
+      id: linuxplan
+      shell: bash
+      env:
+        # Byte-identical to the `runs-on` expression on the three Linux jobs. It is
+        # written here ONCE and those jobs still carry their own copy, because
+        # `runs-on` cannot read a `needs` output on the job that produces it without
+        # making every sanitizer job wait on this one -- which they already do.
+        SELF_HOSTED: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                         && github.event.inputs.force_hosted != 'true'
+                         && github.event_name != 'schedule'
+                         && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+      run: |
+        set -euo pipefail
+        if [ "${SELF_HOSTED}" = "true" ]; then
+          shards=1
+          matrix='[1]'
+        else
+          shards=4
+          matrix='[1,2,3,4]'
+        fi
+        {
+          echo "self-hosted=${SELF_HOSTED}"
+          echo "shards=${shards}"
+          echo "matrix=${matrix}"
+        } >> "$GITHUB_OUTPUT"
+        echo "Linux sanitizer plan: self-hosted=${SELF_HOSTED}, ${shards} shard(s), matrix=${matrix}"
 
   asan-windows:
     # " build" since #1083: this job no longer runs the suite, it builds the tree the
@@ -1067,6 +1123,11 @@ jobs:
 
   asan-lsan-linux:
     name: ASan + LSan (Linux/Clang)
+    outputs:
+      # Read by the shard coverage proof. It comes from THIS job rather than
+      # from the artifact the shards were fed: a number that travels with the
+      # thing it is meant to check is not a check.
+      ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
     if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
     # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not -- the same
@@ -1145,6 +1206,10 @@ jobs:
       actions: write
 
     env:
+      # ONE definition of the exclusion, read by the unsharded run, by the
+      # `ctest -N` total and by every shard's selection. Three literals that
+      # must agree is how a shard comes to COUNT one partition and RUN another.
+      OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
       # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
       # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
       # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
@@ -1357,7 +1422,74 @@ jobs:
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
 
+    # ---- sharded plan: measure, stamp and stage, then let the shards run -----
+    #
+    # All three steps are skipped when `linux-shards == 1` (the self-hosted arm),
+    # where this job runs the suite itself exactly as before.
+
+    # The unsharded total the coverage proof checks the shards against. `ctest -N`
+    # only LISTS -- discovery already happened at build time -- so this costs
+    # seconds and launches no test process. It reads the SAME exclude regex the
+    # shards do, from the job-level env var, because a total measured with a
+    # different filter than the shards ran with would prove nothing.
+    - name: Measure the unsharded case count
+      id: ctest-total
+      if: needs.detect-changes.outputs.linux-shards != '1'
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}")
+        total=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        # Digits-only BEFORE the numeric comparison: `[ "$x" -le 0 ]` on a
+        # non-numeric $x errors rather than returning false, and a command that
+        # errors inside an `if` is exempt from `set -e` -- so anything that is not
+        # a number would fall straight through and get published as the total.
+        case "${total}" in
+          ''|*[!0-9]*)
+            echo "::error::ctest -N did not report a numeric total (got '${total:-<empty>}'); discovery is broken."
+            exit 1 ;;
+        esac
+        if [ "${total}" -le 0 ]; then
+          echo "::error::ctest -N reported ${total} tests; discovery is broken."
+          exit 1
+        fi
+        echo "total=${total}" >> "$GITHUB_OUTPUT"
+        echo "unsharded ctest entries: ${total}"
+
+    # THE EXECUTABLE BIT DOES NOT SURVIVE THE ARTIFACT. actions/upload-artifact
+    # stores POSIX modes as 0644, so the downloaded OloEngine-Tests is not
+    # executable and every one of ~7600 ctest entries would fail to launch. The
+    # Windows shards never hit this because a .exe needs no mode bit; the shard
+    # job below restores it explicitly and asserts the binary starts.
+    - name: Stamp the build workspace
+      if: needs.detect-changes.outputs.linux-shards != '1'
+      run: |
+        set -euo pipefail
+        printf '%s' '${{github.workspace}}' > build/OloEngine/tests/olo-build-workspace.txt
+        ls -l build/OloEngine/tests/OloEngine-Tests
+
+    # ONLY WHAT CTEST READS: the generated *_tests.cmake entries, the workspace
+    # stamp and the instrumented binary. The Linux sanitizer runtimes are linked
+    # statically into the executable, so nothing else has to travel with it.
+    - name: Upload the instrumented test tree
+      if: needs.detect-changes.outputs.linux-shards != '1'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: asan-lsan-linux-test-tree
+        path: |
+          build/OloEngine/tests/*.cmake
+          build/OloEngine/tests/olo-build-workspace.txt
+          build/OloEngine/tests/OloEngine-Tests
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 1
+
     - name: Run tests under ASan + LSan
+      # SHARDED PLAN RUNS THIS ELSEWHERE. `linux-shards` is 1 only on the
+      # self-hosted arm, where one runner cannot absorb a matrix; there this
+      # job stays exactly what it was. On the hosted arm the shards below run
+      # the suite instead and this step is skipped.
+      if: needs.detect-changes.outputs.linux-shards == '1'
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # WorkerRestartTest.RestartWorkersAndOversubscription is a tight-loop
       # stress test of FScheduler::RestartWorkers that the Windows ASan job
@@ -1401,17 +1533,30 @@ jobs:
       # a *compile-time* constraint (~3 GB per TU under clang+sanitizer) and does NOT
       # transfer to the test phase — don't "reconcile" the two numbers; they bound
       # different resources (peak compiler RSS vs. peak instrumented-test RSS).
-      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}"
       env:
-        ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
-        LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt
+        # WITHOUT THIS EVERY SANITIZER TRACE IN THIS JOB IS BARE HEX (#1073 follow-up).
+        #
+        # The sanitizer runtime resolves `llvm-symbolizer` from PATH, and the pinned
+        # LLVM prefix is deliberately kept OFF the system PATH (see setup-linux-build).
+        # It finds nothing, prints `Module+0xf12f658` frames, and exits normally -- no
+        # warning anywhere. Run 34108719319 reported four LSan leaks on master that
+        # could not be attributed to a single line of source because of this.
+        #
+        # setup-linux-build derives the path from the compiler it actually chose and
+        # warns if there is none; an empty value here leaves the variable effectively
+        # unset, which is the same behaviour as before rather than a new failure.
+        ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
+        ASAN_OPTIONS: halt_on_error=1:detect_leaks=1:symbolize=1
+        LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt:symbolize=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded
       # to read for forks). Skip the reporter there; same-repo PRs and
       # push/workflow_dispatch runs retain full permissions.
-      if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      if: always() && needs.detect-changes.outputs.linux-shards == '1'
+        && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
       uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
         name: ASan + LSan (Linux)
@@ -1422,6 +1567,11 @@ jobs:
 
   ubsan-linux:
     name: UBSan (Linux/Clang)
+    outputs:
+      # Read by the shard coverage proof. It comes from THIS job rather than
+      # from the artifact the shards were fed: a number that travels with the
+      # thing it is meant to check is not a check.
+      ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
     if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
     # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary
@@ -1447,6 +1597,10 @@ jobs:
       actions: write
 
     env:
+      # ONE definition of the exclusion, read by the unsharded run, by the
+      # `ctest -N` total and by every shard's selection. Three literals that
+      # must agree is how a shard comes to COUNT one partition and RUN another.
+      OLO_UBSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
       # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
       # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
       # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
@@ -1637,7 +1791,74 @@ jobs:
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
 
+    # ---- sharded plan: measure, stamp and stage, then let the shards run -----
+    #
+    # All three steps are skipped when `linux-shards == 1` (the self-hosted arm),
+    # where this job runs the suite itself exactly as before.
+
+    # The unsharded total the coverage proof checks the shards against. `ctest -N`
+    # only LISTS -- discovery already happened at build time -- so this costs
+    # seconds and launches no test process. It reads the SAME exclude regex the
+    # shards do, from the job-level env var, because a total measured with a
+    # different filter than the shards ran with would prove nothing.
+    - name: Measure the unsharded case count
+      id: ctest-total
+      if: needs.detect-changes.outputs.linux-shards != '1'
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}")
+        total=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        # Digits-only BEFORE the numeric comparison: `[ "$x" -le 0 ]` on a
+        # non-numeric $x errors rather than returning false, and a command that
+        # errors inside an `if` is exempt from `set -e` -- so anything that is not
+        # a number would fall straight through and get published as the total.
+        case "${total}" in
+          ''|*[!0-9]*)
+            echo "::error::ctest -N did not report a numeric total (got '${total:-<empty>}'); discovery is broken."
+            exit 1 ;;
+        esac
+        if [ "${total}" -le 0 ]; then
+          echo "::error::ctest -N reported ${total} tests; discovery is broken."
+          exit 1
+        fi
+        echo "total=${total}" >> "$GITHUB_OUTPUT"
+        echo "unsharded ctest entries: ${total}"
+
+    # THE EXECUTABLE BIT DOES NOT SURVIVE THE ARTIFACT. actions/upload-artifact
+    # stores POSIX modes as 0644, so the downloaded OloEngine-Tests is not
+    # executable and every one of ~7600 ctest entries would fail to launch. The
+    # Windows shards never hit this because a .exe needs no mode bit; the shard
+    # job below restores it explicitly and asserts the binary starts.
+    - name: Stamp the build workspace
+      if: needs.detect-changes.outputs.linux-shards != '1'
+      run: |
+        set -euo pipefail
+        printf '%s' '${{github.workspace}}' > build/OloEngine/tests/olo-build-workspace.txt
+        ls -l build/OloEngine/tests/OloEngine-Tests
+
+    # ONLY WHAT CTEST READS: the generated *_tests.cmake entries, the workspace
+    # stamp and the instrumented binary. The Linux sanitizer runtimes are linked
+    # statically into the executable, so nothing else has to travel with it.
+    - name: Upload the instrumented test tree
+      if: needs.detect-changes.outputs.linux-shards != '1'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ubsan-linux-test-tree
+        path: |
+          build/OloEngine/tests/*.cmake
+          build/OloEngine/tests/olo-build-workspace.txt
+          build/OloEngine/tests/OloEngine-Tests
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 1
+
     - name: Run tests under UBSan
+      # SHARDED PLAN RUNS THIS ELSEWHERE. `linux-shards` is 1 only on the
+      # self-hosted arm, where one runner cannot absorb a matrix; there this
+      # job stays exactly what it was. On the hosted arm the shards below run
+      # the suite instead and this step is skipped.
+      if: needs.detect-changes.outputs.linux-shards == '1'
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # WorkerRestartTest.RestartWorkersAndOversubscription joins the
       # exclude list (matching ASan + TSan) — 100 iterations of a full
@@ -1669,16 +1890,29 @@ jobs:
       # UBSan now enables only the curated eight checks rather than the whole
       # `undefined` group, so vptr is no longer asked of `-fno-rtti` vendor code.
       # This exclusion covers the remaining, genuinely-GNS-side gap. See #636.
-      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}"
       env:
-        UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        # WITHOUT THIS EVERY SANITIZER TRACE IN THIS JOB IS BARE HEX (#1073 follow-up).
+        #
+        # The sanitizer runtime resolves `llvm-symbolizer` from PATH, and the pinned
+        # LLVM prefix is deliberately kept OFF the system PATH (see setup-linux-build).
+        # It finds nothing, prints `Module+0xf12f658` frames, and exits normally -- no
+        # warning anywhere. Run 34108719319 reported four LSan leaks on master that
+        # could not be attributed to a single line of source because of this.
+        #
+        # setup-linux-build derives the path from the compiler it actually chose and
+        # warns if there is none; an empty value here leaves the variable effectively
+        # unset, which is the same behaviour as before rather than a new failure.
+        ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
+        UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:symbolize=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded
       # to read for forks). Skip the reporter there; same-repo PRs and
       # push/workflow_dispatch runs retain full permissions.
-      if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      if: always() && needs.detect-changes.outputs.linux-shards == '1'
+        && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
       uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
         name: UBSan (Linux)
@@ -1689,6 +1923,11 @@ jobs:
 
   tsan-linux:
     name: TSan (Linux/Clang)
+    outputs:
+      # Read by the shard coverage proof. It comes from THIS job rather than
+      # from the artifact the shards were fed: a number that travels with the
+      # thing it is meant to check is not a check.
+      ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
     if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
     # 180, not 120, not 90: the same cold-cache loop, measured twice.
@@ -1737,6 +1976,10 @@ jobs:
       actions: write
 
     env:
+      # ONE definition of the exclusion, read by the unsharded run, by the
+      # `ctest -N` total and by every shard's selection. Three literals that
+      # must agree is how a shard comes to COUNT one partition and RUN another.
+      OLO_TSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
       # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
       # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
       # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
@@ -1927,7 +2170,74 @@ jobs:
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
 
+    # ---- sharded plan: measure, stamp and stage, then let the shards run -----
+    #
+    # All three steps are skipped when `linux-shards == 1` (the self-hosted arm),
+    # where this job runs the suite itself exactly as before.
+
+    # The unsharded total the coverage proof checks the shards against. `ctest -N`
+    # only LISTS -- discovery already happened at build time -- so this costs
+    # seconds and launches no test process. It reads the SAME exclude regex the
+    # shards do, from the job-level env var, because a total measured with a
+    # different filter than the shards ran with would prove nothing.
+    - name: Measure the unsharded case count
+      id: ctest-total
+      if: needs.detect-changes.outputs.linux-shards != '1'
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}")
+        total=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        # Digits-only BEFORE the numeric comparison: `[ "$x" -le 0 ]` on a
+        # non-numeric $x errors rather than returning false, and a command that
+        # errors inside an `if` is exempt from `set -e` -- so anything that is not
+        # a number would fall straight through and get published as the total.
+        case "${total}" in
+          ''|*[!0-9]*)
+            echo "::error::ctest -N did not report a numeric total (got '${total:-<empty>}'); discovery is broken."
+            exit 1 ;;
+        esac
+        if [ "${total}" -le 0 ]; then
+          echo "::error::ctest -N reported ${total} tests; discovery is broken."
+          exit 1
+        fi
+        echo "total=${total}" >> "$GITHUB_OUTPUT"
+        echo "unsharded ctest entries: ${total}"
+
+    # THE EXECUTABLE BIT DOES NOT SURVIVE THE ARTIFACT. actions/upload-artifact
+    # stores POSIX modes as 0644, so the downloaded OloEngine-Tests is not
+    # executable and every one of ~7600 ctest entries would fail to launch. The
+    # Windows shards never hit this because a .exe needs no mode bit; the shard
+    # job below restores it explicitly and asserts the binary starts.
+    - name: Stamp the build workspace
+      if: needs.detect-changes.outputs.linux-shards != '1'
+      run: |
+        set -euo pipefail
+        printf '%s' '${{github.workspace}}' > build/OloEngine/tests/olo-build-workspace.txt
+        ls -l build/OloEngine/tests/OloEngine-Tests
+
+    # ONLY WHAT CTEST READS: the generated *_tests.cmake entries, the workspace
+    # stamp and the instrumented binary. The Linux sanitizer runtimes are linked
+    # statically into the executable, so nothing else has to travel with it.
+    - name: Upload the instrumented test tree
+      if: needs.detect-changes.outputs.linux-shards != '1'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: tsan-linux-test-tree
+        path: |
+          build/OloEngine/tests/*.cmake
+          build/OloEngine/tests/olo-build-workspace.txt
+          build/OloEngine/tests/OloEngine-Tests
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 1
+
     - name: Run tests under TSan
+      # SHARDED PLAN RUNS THIS ELSEWHERE. `linux-shards` is 1 only on the
+      # self-hosted arm, where one runner cannot absorb a matrix; there this
+      # job stays exactly what it was. On the hosted arm the shards below run
+      # the suite instead and this step is skipped.
+      if: needs.detect-changes.outputs.linux-shards == '1'
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # --timeout 600: covers two known-slow buckets under TSan instrumentation:
       #   1. AssetContentValidity.SandboxAssetRegistryDeserialisesAndPathsResolve
@@ -1976,23 +2286,678 @@ jobs:
       # ThreadState and its first intercepted malloc faults inside TSan's own
       # allocator — a bare SIGSEGV with no report. OloEngine/vendor/CMakeLists.txt
       # now filters that definition off the imported target; see the comment there.
-      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
       env:
         # suppressions: vendored-code races we accept rather than patch — see
         # the rationale comments in tsan.txt (currently: Jolt's assert-build
         # lock-ownership bookkeeping in JPH::Mutex/SharedMutex).
-        TSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=1:second_deadlock_stack=1
+        TSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=1:second_deadlock_stack=1:symbolize=1
+        # See the ASAN_SYMBOLIZER_PATH note in the ASan+LSan job: the variable is
+        # read by every sanitizer runtime, TSan included, and without it this job's
+        # race reports are unsymbolized too.
+        ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded
       # to read for forks). Skip the reporter there; same-repo PRs and
       # push/workflow_dispatch runs retain full permissions.
-      if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      if: always() && needs.detect-changes.outputs.linux-shards == '1'
+        && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
       uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
         name: TSan (Linux)
         path: test_results/*.xml
+        reporter: java-junit
+        fail-on-error: false
+        list-tests: 'failed'
+
+  # ---------------------------------------------------------------------------
+  # ASan + LSan (Linux) test run, spread across runners (#1083, Linux).
+  #
+  # EXISTS ONLY ON THE HOSTED ARM. `detect-changes` sets `linux-shards` to 1 when
+  # the run routes to the self-hosted box, and this whole job is skipped there --
+  # the `olo-ci` label is served by at most two runners and three sanitizer jobs
+  # already queue against them, so a matrix would serialise rather than parallelise.
+  # On the hosted arm the shard count is 4; see the plan step for the measurement.
+  #
+  # `runs-on` is a plain literal rather than the routing expression the build jobs
+  # carry, and that is not a shortcut: this job cannot run at all unless the plan
+  # already chose the hosted arm, so any other value would be unreachable.
+  # ---------------------------------------------------------------------------
+  asan-lsan-linux-tests:
+    name: ASan + LSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.linux-shards }}
+    needs: [detect-changes, asan-lsan-linux]
+    if: ${{ !cancelled() && needs.asan-lsan-linux.result == 'success'
+        && needs.detect-changes.outputs.linux-shards != '1' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      checks: write
+    strategy:
+      # A red shard must not cancel its siblings: they are independent partitions
+      # and the coverage proof wants every one of their counts.
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.detect-changes.outputs.linux-shard-matrix) }}
+    env:
+      OLO_CTEST_SHARDS: ${{ needs.detect-changes.outputs.linux-shards }}
+      # The SAME exclusion the build job measured its total with. Copied from the
+      # build job's literal by construction -- see the note on that env var.
+      OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # The shards need the Vulkan loader the instrumented binary links against and
+    # the llvm-symbolizer the sanitizer runtime resolves reports through, and the
+    # cheapest way to get exactly the build job's environment is to run the same
+    # action. Measured ~4 min, in parallel across shards, against ~36 min saved.
+    - name: Setup Linux build environment
+      id: linux
+      uses: ./.github/actions/setup-linux-build
+      with:
+        vulkan-sdk: 'false'
+        cache-name: asan-lsan-shard
+
+    - name: Download the instrumented test tree
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: asan-lsan-linux-test-tree
+        path: build/OloEngine/tests
+
+    # gtest_discover_tests bakes ABSOLUTE paths into the generated *_tests.cmake,
+    # so the tree cannot be moved between the build job and this one. If it were,
+    # every add_test() would name a binary that is not there and ctest would fail
+    # thousands of times with a confusing message instead of once with this one.
+    - name: Assert this runner matches the build job's layout
+      run: |
+        set -euo pipefail
+        built_at=$(cat build/OloEngine/tests/olo-build-workspace.txt)
+        here='${{github.workspace}}'
+        if [ "$built_at" != "$here" ]; then
+          echo "::error::This tree was built at '${built_at}' but this runner checked out at '${here}'. gtest_discover_tests bakes absolute paths into the generated test list, so the tree cannot be moved."
+          exit 1
+        fi
+        exe=build/OloEngine/tests/OloEngine-Tests
+        test -f "$exe" || { echo "::error::$exe missing from the artifact"; exit 1; }
+        # RESTORE THE EXECUTABLE BIT. actions/upload-artifact stores POSIX modes as
+        # 0644, so the binary arrives non-executable and all ~7600 ctest entries
+        # would fail to launch with a permission error that names no cause.
+        chmod +x "$exe"
+        # Prove it starts before running a shard against it (#1083). An instrumented
+        # binary that cannot load its runtime dies before main(), which would arrive
+        # as thousands of identical ctest failures rather than one readable line.
+        if ! "$exe" --gtest_list_tests > /dev/null 2>&1; then
+          echo "::error::$exe does not start on this runner. Either the artifact is missing something it needs at load time, or the environment does not match the build job."
+          "$exe" --gtest_list_tests || true
+          exit 1
+        fi
+
+    - name: Create test results directory
+      run: mkdir -p '${{github.workspace}}/test_results'
+
+    # A SHARD THAT MATCHED NOTHING MUST FAIL. `ctest -I` selects by stride and
+    # silently yields an empty set if the stride is wrong, which would otherwise
+    # look like a green shard. The count is also written out for the coverage proof.
+    - name: Select this shard's cases
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      env:
+        OLO_CTEST_SHARD: ${{ matrix.shard }}
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N \
+                    -I "${OLO_CTEST_SHARD},,${OLO_CTEST_SHARDS}" \
+                    --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}")
+        count=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        # Digits-only before the numeric test, for the reason the build job's total
+        # spells out: a non-numeric value makes `[ -le ]` error, and an erroring
+        # command inside an `if` is exempt from `set -e`.
+        case "${count}" in
+          ''|*[!0-9]*)
+            echo "::error::shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS} got a non-numeric ctest count ('${count:-<empty>}')."
+            exit 1 ;;
+        esac
+        if [ "${count}" -le 0 ]; then
+          echo "::error::shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS} did not match a positive number of ctest entries."
+          exit 1
+        fi
+        echo "shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS}: ${count} ctest entries"
+        mkdir -p '${{github.workspace}}/shard_counts'
+        {
+          echo "shard=${OLO_CTEST_SHARD}"
+          echo "shards=${OLO_CTEST_SHARDS}"
+          echo "count=${count}"
+        } > '${{github.workspace}}/shard_counts/shard-'"${OLO_CTEST_SHARD}"'.txt'
+
+    - name: Run tests under ASan + LSan
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}"
+      env:
+        # WITHOUT THIS EVERY SANITIZER TRACE IN THIS JOB IS BARE HEX (#1073 follow-up).
+        #
+        # The sanitizer runtime resolves `llvm-symbolizer` from PATH, and the pinned
+        # LLVM prefix is deliberately kept OFF the system PATH (see setup-linux-build).
+        # It finds nothing, prints `Module+0xf12f658` frames, and exits normally -- no
+        # warning anywhere. Run 34108719319 reported four LSan leaks on master that
+        # could not be attributed to a single line of source because of this.
+        #
+        # setup-linux-build derives the path from the compiler it actually chose and
+        # warns if there is none; an empty value here leaves the variable effectively
+        # unset, which is the same behaviour as before rather than a new failure.
+        ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
+        ASAN_OPTIONS: halt_on_error=1:detect_leaks=1:symbolize=1
+        LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt:symbolize=1
+        GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
+
+    - name: Upload this shard's test results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: asan-lsan-linux-test-results-shard-${{ matrix.shard }}
+        path: test_results/*.xml
+        if-no-files-found: warn
+        retention-days: 1
+
+    - name: Upload this shard's case count
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: asan-lsan-linux-shard-count-${{ matrix.shard }}
+        path: shard_counts/shard-${{ matrix.shard }}.txt
+        if-no-files-found: warn
+        retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Proof that the shards partitioned the whole suite: every shard reported, all
+  # agreeing on N, none empty, and the counts summing to the unsharded total the
+  # build job measured. Without it, sharding introduces a way for the suite to
+  # shrink silently.
+  # ---------------------------------------------------------------------------
+  asan-lsan-linux-tests-verify:
+    name: ASan + LSan (Linux) shard coverage
+    needs: [detect-changes, asan-lsan-linux, asan-lsan-linux-tests]
+    # `!cancelled()` rather than `always()`: a cancelled run can leave the build
+    # job 'success' while the shards were killed mid-flight, and `always()` would
+    # then post a red "a shard did not complete" on a run nobody abandoned for a
+    # reason worth reading. Braced because a bare leading `!` is a YAML tag.
+    if: ${{ !cancelled() && needs.asan-lsan-linux.result == 'success'
+        && needs.detect-changes.outputs.linux-shards != '1' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Download the shard case counts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: asan-lsan-linux-shard-count-*
+        path: shard_counts
+      # A shard that died before writing its count uploads nothing, and this step
+      # would then fail on "no artifacts found" -- a worse message than the
+      # script's. Let it through and let the union check name the missing shard.
+      continue-on-error: true
+
+    - name: Prove the shards covered the whole suite
+      run: >
+        python3 scripts/verify_test_shards.py
+        --dir shard_counts
+        --label "ASan + LSan (Linux)"
+        --expected-total ${{ needs.asan-lsan-linux.outputs.ctest-total }}
+
+    # NO `merge-multiple`. GTEST_OUTPUT writes into a directory and gtest names the
+    # files itself, so every shard produces the SAME filenames; merging would have
+    # them overwrite each other and the report would look complete while missing
+    # real failures. One directory per artifact, and a `**` glob below.
+    - name: Download the shard test results
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: asan-lsan-linux-test-results-shard-*
+        path: test_results
+      continue-on-error: true
+
+    - name: Test report
+      # Fork PRs can't write checks (job-level `checks: write` is downgraded to
+      # read for forks). Skip the reporter there.
+      if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+      with:
+        name: ASan + LSan (Linux)
+        path: test_results/**/*.xml
+        reporter: java-junit
+        fail-on-error: false
+        list-tests: 'failed'
+
+  # ---------------------------------------------------------------------------
+  # UBSan (Linux) test run, spread across runners (#1083, Linux).
+  #
+  # EXISTS ONLY ON THE HOSTED ARM. `detect-changes` sets `linux-shards` to 1 when
+  # the run routes to the self-hosted box, and this whole job is skipped there --
+  # the `olo-ci` label is served by at most two runners and three sanitizer jobs
+  # already queue against them, so a matrix would serialise rather than parallelise.
+  # On the hosted arm the shard count is 4; see the plan step for the measurement.
+  #
+  # `runs-on` is a plain literal rather than the routing expression the build jobs
+  # carry, and that is not a shortcut: this job cannot run at all unless the plan
+  # already chose the hosted arm, so any other value would be unreachable.
+  # ---------------------------------------------------------------------------
+  ubsan-linux-tests:
+    name: UBSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.linux-shards }}
+    needs: [detect-changes, ubsan-linux]
+    if: ${{ !cancelled() && needs.ubsan-linux.result == 'success'
+        && needs.detect-changes.outputs.linux-shards != '1' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      checks: write
+    strategy:
+      # A red shard must not cancel its siblings: they are independent partitions
+      # and the coverage proof wants every one of their counts.
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.detect-changes.outputs.linux-shard-matrix) }}
+    env:
+      OLO_CTEST_SHARDS: ${{ needs.detect-changes.outputs.linux-shards }}
+      # The SAME exclusion the build job measured its total with. Copied from the
+      # build job's literal by construction -- see the note on that env var.
+      OLO_UBSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # The shards need the Vulkan loader the instrumented binary links against and
+    # the llvm-symbolizer the sanitizer runtime resolves reports through, and the
+    # cheapest way to get exactly the build job's environment is to run the same
+    # action. Measured ~4 min, in parallel across shards, against ~36 min saved.
+    - name: Setup Linux build environment
+      id: linux
+      uses: ./.github/actions/setup-linux-build
+      with:
+        vulkan-sdk: 'false'
+        cache-name: ubsan-shard
+
+    - name: Download the instrumented test tree
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ubsan-linux-test-tree
+        path: build/OloEngine/tests
+
+    # gtest_discover_tests bakes ABSOLUTE paths into the generated *_tests.cmake,
+    # so the tree cannot be moved between the build job and this one. If it were,
+    # every add_test() would name a binary that is not there and ctest would fail
+    # thousands of times with a confusing message instead of once with this one.
+    - name: Assert this runner matches the build job's layout
+      run: |
+        set -euo pipefail
+        built_at=$(cat build/OloEngine/tests/olo-build-workspace.txt)
+        here='${{github.workspace}}'
+        if [ "$built_at" != "$here" ]; then
+          echo "::error::This tree was built at '${built_at}' but this runner checked out at '${here}'. gtest_discover_tests bakes absolute paths into the generated test list, so the tree cannot be moved."
+          exit 1
+        fi
+        exe=build/OloEngine/tests/OloEngine-Tests
+        test -f "$exe" || { echo "::error::$exe missing from the artifact"; exit 1; }
+        # RESTORE THE EXECUTABLE BIT. actions/upload-artifact stores POSIX modes as
+        # 0644, so the binary arrives non-executable and all ~7600 ctest entries
+        # would fail to launch with a permission error that names no cause.
+        chmod +x "$exe"
+        # Prove it starts before running a shard against it (#1083). An instrumented
+        # binary that cannot load its runtime dies before main(), which would arrive
+        # as thousands of identical ctest failures rather than one readable line.
+        if ! "$exe" --gtest_list_tests > /dev/null 2>&1; then
+          echo "::error::$exe does not start on this runner. Either the artifact is missing something it needs at load time, or the environment does not match the build job."
+          "$exe" --gtest_list_tests || true
+          exit 1
+        fi
+
+    - name: Create test results directory
+      run: mkdir -p '${{github.workspace}}/test_results'
+
+    # A SHARD THAT MATCHED NOTHING MUST FAIL. `ctest -I` selects by stride and
+    # silently yields an empty set if the stride is wrong, which would otherwise
+    # look like a green shard. The count is also written out for the coverage proof.
+    - name: Select this shard's cases
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      env:
+        OLO_CTEST_SHARD: ${{ matrix.shard }}
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N \
+                    -I "${OLO_CTEST_SHARD},,${OLO_CTEST_SHARDS}" \
+                    --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}")
+        count=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        # Digits-only before the numeric test, for the reason the build job's total
+        # spells out: a non-numeric value makes `[ -le ]` error, and an erroring
+        # command inside an `if` is exempt from `set -e`.
+        case "${count}" in
+          ''|*[!0-9]*)
+            echo "::error::shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS} got a non-numeric ctest count ('${count:-<empty>}')."
+            exit 1 ;;
+        esac
+        if [ "${count}" -le 0 ]; then
+          echo "::error::shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS} did not match a positive number of ctest entries."
+          exit 1
+        fi
+        echo "shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS}: ${count} ctest entries"
+        mkdir -p '${{github.workspace}}/shard_counts'
+        {
+          echo "shard=${OLO_CTEST_SHARD}"
+          echo "shards=${OLO_CTEST_SHARDS}"
+          echo "count=${count}"
+        } > '${{github.workspace}}/shard_counts/shard-'"${OLO_CTEST_SHARD}"'.txt'
+
+    - name: Run tests under UBSan
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}"
+      env:
+        # WITHOUT THIS EVERY SANITIZER TRACE IN THIS JOB IS BARE HEX (#1073 follow-up).
+        #
+        # The sanitizer runtime resolves `llvm-symbolizer` from PATH, and the pinned
+        # LLVM prefix is deliberately kept OFF the system PATH (see setup-linux-build).
+        # It finds nothing, prints `Module+0xf12f658` frames, and exits normally -- no
+        # warning anywhere. Run 34108719319 reported four LSan leaks on master that
+        # could not be attributed to a single line of source because of this.
+        #
+        # setup-linux-build derives the path from the compiler it actually chose and
+        # warns if there is none; an empty value here leaves the variable effectively
+        # unset, which is the same behaviour as before rather than a new failure.
+        ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
+        UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:symbolize=1
+        GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
+
+    - name: Upload this shard's test results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ubsan-linux-test-results-shard-${{ matrix.shard }}
+        path: test_results/*.xml
+        if-no-files-found: warn
+        retention-days: 1
+
+    - name: Upload this shard's case count
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ubsan-linux-shard-count-${{ matrix.shard }}
+        path: shard_counts/shard-${{ matrix.shard }}.txt
+        if-no-files-found: warn
+        retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Proof that the shards partitioned the whole suite: every shard reported, all
+  # agreeing on N, none empty, and the counts summing to the unsharded total the
+  # build job measured. Without it, sharding introduces a way for the suite to
+  # shrink silently.
+  # ---------------------------------------------------------------------------
+  ubsan-linux-tests-verify:
+    name: UBSan (Linux) shard coverage
+    needs: [detect-changes, ubsan-linux, ubsan-linux-tests]
+    # `!cancelled()` rather than `always()`: a cancelled run can leave the build
+    # job 'success' while the shards were killed mid-flight, and `always()` would
+    # then post a red "a shard did not complete" on a run nobody abandoned for a
+    # reason worth reading. Braced because a bare leading `!` is a YAML tag.
+    if: ${{ !cancelled() && needs.ubsan-linux.result == 'success'
+        && needs.detect-changes.outputs.linux-shards != '1' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Download the shard case counts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: ubsan-linux-shard-count-*
+        path: shard_counts
+      # A shard that died before writing its count uploads nothing, and this step
+      # would then fail on "no artifacts found" -- a worse message than the
+      # script's. Let it through and let the union check name the missing shard.
+      continue-on-error: true
+
+    - name: Prove the shards covered the whole suite
+      run: >
+        python3 scripts/verify_test_shards.py
+        --dir shard_counts
+        --label "UBSan (Linux)"
+        --expected-total ${{ needs.ubsan-linux.outputs.ctest-total }}
+
+    # NO `merge-multiple`. GTEST_OUTPUT writes into a directory and gtest names the
+    # files itself, so every shard produces the SAME filenames; merging would have
+    # them overwrite each other and the report would look complete while missing
+    # real failures. One directory per artifact, and a `**` glob below.
+    - name: Download the shard test results
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: ubsan-linux-test-results-shard-*
+        path: test_results
+      continue-on-error: true
+
+    - name: Test report
+      # Fork PRs can't write checks (job-level `checks: write` is downgraded to
+      # read for forks). Skip the reporter there.
+      if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+      with:
+        name: UBSan (Linux)
+        path: test_results/**/*.xml
+        reporter: java-junit
+        fail-on-error: false
+        list-tests: 'failed'
+
+  # ---------------------------------------------------------------------------
+  # TSan (Linux) test run, spread across runners (#1083, Linux).
+  #
+  # EXISTS ONLY ON THE HOSTED ARM. `detect-changes` sets `linux-shards` to 1 when
+  # the run routes to the self-hosted box, and this whole job is skipped there --
+  # the `olo-ci` label is served by at most two runners and three sanitizer jobs
+  # already queue against them, so a matrix would serialise rather than parallelise.
+  # On the hosted arm the shard count is 4; see the plan step for the measurement.
+  #
+  # `runs-on` is a plain literal rather than the routing expression the build jobs
+  # carry, and that is not a shortcut: this job cannot run at all unless the plan
+  # already chose the hosted arm, so any other value would be unreachable.
+  # ---------------------------------------------------------------------------
+  tsan-linux-tests:
+    name: TSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.linux-shards }}
+    needs: [detect-changes, tsan-linux]
+    if: ${{ !cancelled() && needs.tsan-linux.result == 'success'
+        && needs.detect-changes.outputs.linux-shards != '1' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      checks: write
+    strategy:
+      # A red shard must not cancel its siblings: they are independent partitions
+      # and the coverage proof wants every one of their counts.
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.detect-changes.outputs.linux-shard-matrix) }}
+    env:
+      OLO_CTEST_SHARDS: ${{ needs.detect-changes.outputs.linux-shards }}
+      # The SAME exclusion the build job measured its total with. Copied from the
+      # build job's literal by construction -- see the note on that env var.
+      OLO_TSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # The shards need the Vulkan loader the instrumented binary links against and
+    # the llvm-symbolizer the sanitizer runtime resolves reports through, and the
+    # cheapest way to get exactly the build job's environment is to run the same
+    # action. Measured ~4 min, in parallel across shards, against ~36 min saved.
+    - name: Setup Linux build environment
+      id: linux
+      uses: ./.github/actions/setup-linux-build
+      with:
+        vulkan-sdk: 'false'
+        cache-name: tsan-shard
+
+    - name: Download the instrumented test tree
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: tsan-linux-test-tree
+        path: build/OloEngine/tests
+
+    # gtest_discover_tests bakes ABSOLUTE paths into the generated *_tests.cmake,
+    # so the tree cannot be moved between the build job and this one. If it were,
+    # every add_test() would name a binary that is not there and ctest would fail
+    # thousands of times with a confusing message instead of once with this one.
+    - name: Assert this runner matches the build job's layout
+      run: |
+        set -euo pipefail
+        built_at=$(cat build/OloEngine/tests/olo-build-workspace.txt)
+        here='${{github.workspace}}'
+        if [ "$built_at" != "$here" ]; then
+          echo "::error::This tree was built at '${built_at}' but this runner checked out at '${here}'. gtest_discover_tests bakes absolute paths into the generated test list, so the tree cannot be moved."
+          exit 1
+        fi
+        exe=build/OloEngine/tests/OloEngine-Tests
+        test -f "$exe" || { echo "::error::$exe missing from the artifact"; exit 1; }
+        # RESTORE THE EXECUTABLE BIT. actions/upload-artifact stores POSIX modes as
+        # 0644, so the binary arrives non-executable and all ~7600 ctest entries
+        # would fail to launch with a permission error that names no cause.
+        chmod +x "$exe"
+        # Prove it starts before running a shard against it (#1083). An instrumented
+        # binary that cannot load its runtime dies before main(), which would arrive
+        # as thousands of identical ctest failures rather than one readable line.
+        if ! "$exe" --gtest_list_tests > /dev/null 2>&1; then
+          echo "::error::$exe does not start on this runner. Either the artifact is missing something it needs at load time, or the environment does not match the build job."
+          "$exe" --gtest_list_tests || true
+          exit 1
+        fi
+
+    - name: Create test results directory
+      run: mkdir -p '${{github.workspace}}/test_results'
+
+    # A SHARD THAT MATCHED NOTHING MUST FAIL. `ctest -I` selects by stride and
+    # silently yields an empty set if the stride is wrong, which would otherwise
+    # look like a green shard. The count is also written out for the coverage proof.
+    - name: Select this shard's cases
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      env:
+        OLO_CTEST_SHARD: ${{ matrix.shard }}
+      run: |
+        set -euo pipefail
+        listing=$(ctest -N \
+                    -I "${OLO_CTEST_SHARD},,${OLO_CTEST_SHARDS}" \
+                    --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}")
+        count=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
+        # Digits-only before the numeric test, for the reason the build job's total
+        # spells out: a non-numeric value makes `[ -le ]` error, and an erroring
+        # command inside an `if` is exempt from `set -e`.
+        case "${count}" in
+          ''|*[!0-9]*)
+            echo "::error::shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS} got a non-numeric ctest count ('${count:-<empty>}')."
+            exit 1 ;;
+        esac
+        if [ "${count}" -le 0 ]; then
+          echo "::error::shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS} did not match a positive number of ctest entries."
+          exit 1
+        fi
+        echo "shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS}: ${count} ctest entries"
+        mkdir -p '${{github.workspace}}/shard_counts'
+        {
+          echo "shard=${OLO_CTEST_SHARD}"
+          echo "shards=${OLO_CTEST_SHARDS}"
+          echo "count=${count}"
+        } > '${{github.workspace}}/shard_counts/shard-'"${OLO_CTEST_SHARD}"'.txt'
+
+    - name: Run tests under TSan
+      working-directory: ${{github.workspace}}/build/OloEngine/tests
+      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
+      env:
+        # suppressions: vendored-code races we accept rather than patch — see
+        # the rationale comments in tsan.txt (currently: Jolt's assert-build
+        # lock-ownership bookkeeping in JPH::Mutex/SharedMutex).
+        TSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=1:second_deadlock_stack=1:symbolize=1
+        # See the ASAN_SYMBOLIZER_PATH note in the ASan+LSan job: the variable is
+        # read by every sanitizer runtime, TSan included, and without it this job's
+        # race reports are unsymbolized too.
+        ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
+        GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
+
+    - name: Upload this shard's test results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: tsan-linux-test-results-shard-${{ matrix.shard }}
+        path: test_results/*.xml
+        if-no-files-found: warn
+        retention-days: 1
+
+    - name: Upload this shard's case count
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: tsan-linux-shard-count-${{ matrix.shard }}
+        path: shard_counts/shard-${{ matrix.shard }}.txt
+        if-no-files-found: warn
+        retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Proof that the shards partitioned the whole suite: every shard reported, all
+  # agreeing on N, none empty, and the counts summing to the unsharded total the
+  # build job measured. Without it, sharding introduces a way for the suite to
+  # shrink silently.
+  # ---------------------------------------------------------------------------
+  tsan-linux-tests-verify:
+    name: TSan (Linux) shard coverage
+    needs: [detect-changes, tsan-linux, tsan-linux-tests]
+    # `!cancelled()` rather than `always()`: a cancelled run can leave the build
+    # job 'success' while the shards were killed mid-flight, and `always()` would
+    # then post a red "a shard did not complete" on a run nobody abandoned for a
+    # reason worth reading. Braced because a bare leading `!` is a YAML tag.
+    if: ${{ !cancelled() && needs.tsan-linux.result == 'success'
+        && needs.detect-changes.outputs.linux-shards != '1' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Download the shard case counts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: tsan-linux-shard-count-*
+        path: shard_counts
+      # A shard that died before writing its count uploads nothing, and this step
+      # would then fail on "no artifacts found" -- a worse message than the
+      # script's. Let it through and let the union check name the missing shard.
+      continue-on-error: true
+
+    - name: Prove the shards covered the whole suite
+      run: >
+        python3 scripts/verify_test_shards.py
+        --dir shard_counts
+        --label "TSan (Linux)"
+        --expected-total ${{ needs.tsan-linux.outputs.ctest-total }}
+
+    # NO `merge-multiple`. GTEST_OUTPUT writes into a directory and gtest names the
+    # files itself, so every shard produces the SAME filenames; merging would have
+    # them overwrite each other and the report would look complete while missing
+    # real failures. One directory per artifact, and a `**` glob below.
+    - name: Download the shard test results
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: tsan-linux-test-results-shard-*
+        path: test_results
+      continue-on-error: true
+
+    - name: Test report
+      # Fork PRs can't write checks (job-level `checks: write` is downgraded to
+      # read for forks). Skip the reporter there.
+      if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+      with:
+        name: TSan (Linux)
+        path: test_results/**/*.xml
         reporter: java-junit
         fail-on-error: false
         list-tests: 'failed'
