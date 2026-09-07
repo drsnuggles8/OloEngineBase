@@ -172,9 +172,10 @@ jobs:
             - 'cmake/**'
             - '.github/actions/**'
             - '.github/workflows/asan.yml'
-            # The shard coverage proof is part of this gate (#1083); a change to it
-            # has to run the jobs it guards.
+            # The shard coverage proof and the artifact's DLL staging are part of this
+            # gate (#1083); a change to either has to run the jobs it guards.
             - 'scripts/verify_test_shards.py'
+            - 'scripts/Copy-ImportedDlls.ps1'
             - '.github/sanitizer-suppressions/**'
 
   asan-windows:
@@ -648,6 +649,9 @@ jobs:
         if (-not (Test-Path $dll)) { Write-Error "ASan runtime DLL not at $dll"; exit 1 }
         Copy-Item $dll -Destination $outDir -Force
         Write-Host "copied $(Split-Path -Leaf $dll) next to the test exe"
+        & "${{github.workspace}}/scripts/Copy-ImportedDlls.ps1" `
+            -Exe (Join-Path $outDir 'OloEngine-Tests.exe') -Destination $outDir
+        if ($LASTEXITCODE -ne 0) { throw "could not stage the exe's imported DLLs" }
         # Recorded, not asserted here -- the shard is where a mismatch matters.
         $wsFile = Join-Path '${{github.workspace}}' 'build/OloEngine/tests/olo-build-workspace.txt'
         Set-Content -Path $wsFile -Value '${{github.workspace}}' -NoNewline
@@ -986,12 +990,17 @@ jobs:
         --label "ASan (Windows)"
         --expected-total ${{ needs.asan-windows.outputs.ctest-total }}
 
+    # NO `merge-multiple`, deliberately. GTEST_OUTPUT writes into a directory and
+    # gtest names the files itself -- OloEngine-Tests.xml, then _1, _2, ... per
+    # process -- so all four shards produce the SAME filenames. Merging them into one
+    # directory would have shards silently overwrite each other and the report would
+    # be missing real failures while looking complete. One directory per artifact,
+    # and a `**` glob below.
     - name: Download the shard test results
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         pattern: asan-windows-test-results-shard-*
         path: test_results
-        merge-multiple: true
       continue-on-error: true
 
     - name: Test report
@@ -1002,10 +1011,22 @@ jobs:
       uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
         name: ASan (Windows)
-        path: test_results/*.xml
+        path: test_results/**/*.xml
         reporter: java-junit
         fail-on-error: false
         list-tests: 'failed'
+
+    # THE COUNTS ARE RECORDED BEFORE THE RUN, so the check above proves the shards'
+    # SELECTIONS partition the suite -- not that every selected case executed. A shard
+    # whose ctest died a third of the way through still uploaded a full count. The
+    # shard job is red in that case and so is the run, but this check must not read
+    # green beside it, because "shard coverage" going green is precisely the sentence
+    # someone will trust later. Last step, so the report above still gets posted.
+    - name: Fail if any shard did not complete
+      if: needs.asan-windows-tests.result != 'success'
+      run: |
+        echo "::error::A test shard did not complete (matrix result: ${{ needs.asan-windows-tests.result }}). The counts prove the selection partitioned the suite; they cannot prove every selected case ran."
+        exit 1
 
   asan-lsan-linux:
     name: ASan + LSan (Linux/Clang)

@@ -56,8 +56,15 @@ inputs:
       suffixed per major, so no soname bridge exists. It surfaces at the FIRST LINK
       as `clang++: error: unable to execute command`, forty minutes into a build,
       not at configure -- which is exactly why this action checks it up front.
+
+      DEFAULTS TO `/usr/bin/ld.lld-<major of `version`>`, derived rather than
+      written down, because the two must not be able to drift: apt's `lld-NN` comes
+      from setup-llvm-apt's own `version` default, and pairing clang 24 with LLD 23
+      because one literal moved and another did not is the exact class of silent
+      mismatch this action exists to remove. Override only to point at an lld that
+      is not from apt.llvm.org.
     required: false
-    default: '/usr/bin/ld.lld-23'
+    default: ''
 
 outputs:
   prefix:
@@ -76,6 +83,9 @@ runs:
         OLO_FALLBACK_LLD: ${{ inputs.fallback-lld }}
       run: |
         set -euo pipefail
+        major="${OLO_LLVM_VERSION%%.*}"
+        # Derived, not written down -- see the input's description.
+        fallback_lld="${OLO_FALLBACK_LLD:-/usr/bin/ld.lld-${major}}"
         dirname="LLVM-${OLO_LLVM_VERSION}-Linux-X64"
         tarball="${dirname}.tar.xz"
         url="https://github.com/llvm/llvm-project/releases/download/llvmorg-${OLO_LLVM_VERSION}/${tarball}"
@@ -91,7 +101,14 @@ runs:
         fi
 
         df -h / /mnt || true
-        work=$(mktemp -d /mnt/.olo-llvm.XXXXXX)
+        # /mnt IS ROOT-OWNED on this image, so the staging directory has to be made
+        # with sudo and handed over -- an unprivileged `mktemp -d /mnt/...` fails, and
+        # under `set -e` that takes out every hosted Linux job in the fleet at once.
+        # Staging under /mnt rather than $RUNNER_TEMP is what makes the final move a
+        # rename on one filesystem instead of a 12 GB copy that can half-finish.
+        sudo mkdir -p /mnt/olo-work
+        sudo chown "$(id -u):$(id -g)" /mnt/olo-work
+        work=$(mktemp -d /mnt/olo-work/llvm.XXXXXX)
         trap 'rm -rf "$work"' EXIT
 
         echo "downloading ${url} (~2 GB) ..."
@@ -134,12 +151,12 @@ runs:
           # nothing. LLD from apt.llvm.org is the same major as this clang, so it
           # accepts its bitcode; the mismatch that cost the self-hosted box LTO
           # (LLD 21 against clang 23) does not apply.
-          if [ ! -x "${OLO_FALLBACK_LLD}" ]; then
-            echo "::error::${prefix}/bin/ld.lld does not run (the release links ICU 70; this image has a newer one) and the fallback ${OLO_FALLBACK_LLD} is not installed. Every -fuse-ld=lld link would fail at the first link, ~40 minutes in."
+          if [ ! -x "${fallback_lld}" ]; then
+            echo "::error::${prefix}/bin/ld.lld does not run (the release links ICU 70; this image has a newer one) and the fallback ${fallback_lld} is not installed. Every -fuse-ld=lld link would fail at the first link, ~40 minutes in. setup-llvm-apt installs lld-${major}; if its version default no longer matches ${OLO_LLVM_VERSION}, that is the mismatch to fix."
             exit 1
           fi
-          echo "the release's ld.lld does not start here; pointing ${prefix}/bin/ld.lld at ${OLO_FALLBACK_LLD}"
-          sudo ln -sfn "${OLO_FALLBACK_LLD}" "${prefix}/bin/ld.lld"
+          echo "the release's ld.lld does not start here; pointing ${prefix}/bin/ld.lld at ${fallback_lld}"
+          sudo ln -sfn "${fallback_lld}" "${prefix}/bin/ld.lld"
           "${prefix}/bin/ld.lld" --version
         fi
 

@@ -164,7 +164,12 @@ its `llvm_sha256` (take the digest from the release's `.jsonl` sigstore bundle, 
 against a `sha256sum` of the download); `llvm_prefix` and `llvm_major` in
 [`setup-linux-build`](../../.github/actions/setup-linux-build/action.yml), which is also where
 the hosted arm's `version` + `sha256` inputs to
-[`setup-llvm-linux`](../../.github/actions/setup-llvm-linux/action.yml) live. Move all of them
+[`setup-llvm-linux`](../../.github/actions/setup-llvm-linux/action.yml) live; and the `version`
+default in [`setup-llvm-apt`](../../.github/actions/setup-llvm-apt/action.yml), which is where
+the hosted arm's `lld-NN` package comes from — the fallback linker
+`setup-llvm-linux` falls back to when the release tarball's own `ld.lld` will not start on the
+runner image. (That fallback path is *derived* from the LLVM version rather than written down,
+so it cannot silently drift from this one; the apt `version` still has to move.) Move all of them
 together: the two arms sharing one prefix is what makes a hosted/self-hosted A/B mean anything,
 and a half-done bump splits them silently. The version is in the Linux sccache **cache key**
 too — that is deliberate, so a bump is a reviewable commit rather than a run that quietly

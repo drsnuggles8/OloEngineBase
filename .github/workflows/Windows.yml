@@ -591,6 +591,15 @@ jobs:
         $ErrorActionPreference = 'Stop'
         $wsFile = Join-Path '${{github.workspace}}' 'build/OloEngine/tests/olo-build-workspace.txt'
         Set-Content -Path $wsFile -Value '${{github.workspace}}' -NoNewline
+        # NOT every DLL the exe needs is already beside it. CMake stages FFmpeg and
+        # steam_api64 there, but `shaderc_shared.dll` is a static PE import resolved
+        # from the Vulkan SDK's bin directory on PATH -- which a shard job does not
+        # have. The list is read out of the binary rather than written down here,
+        # because a written list would have missed exactly that one.
+        $outDir = Join-Path '${{github.workspace}}' 'build/OloEngine/tests/${{env.BUILD_TYPE}}'
+        & "${{github.workspace}}/scripts/Copy-ImportedDlls.ps1" `
+            -Exe (Join-Path $outDir 'OloEngine-Tests.exe') -Destination $outDir
+        if ($LASTEXITCODE -ne 0) { throw "could not stage the exe's imported DLLs" }
         Get-ChildItem (Join-Path '${{github.workspace}}' 'build/OloEngine/tests/${{env.BUILD_TYPE}}') |
           ForEach-Object { '{0,12:N0}  {1}' -f $_.Length, $_.Name }
 
@@ -957,3 +966,15 @@ jobs:
         --dir shard_counts
         --label "Windows / build"
         --expected-total ${{ needs.build.outputs.ctest-total }}
+
+    # THE COUNTS ARE RECORDED BEFORE THE RUN, so the check above proves the shards'
+    # SELECTIONS partition the suite -- not that every selected case executed. A shard
+    # whose ctest died a third of the way through still uploaded a full count. The
+    # shard job is red in that case and so is the run, but this check must not read
+    # green beside it, because "shard coverage" going green is precisely the sentence
+    # someone will trust later.
+    - name: Fail if any shard did not complete
+      if: needs.tests.result != 'success'
+      run: |
+        echo "::error::A test shard did not complete (matrix result: ${{ needs.tests.result }}). The counts prove the selection partitioned the suite; they cannot prove every selected case ran."
+        exit 1

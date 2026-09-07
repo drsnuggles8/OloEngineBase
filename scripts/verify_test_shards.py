@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove that a sharded ctest run covered every case the unsharded run would have.
+"""Prove that a sharded ctest run SELECTED every case the unsharded run would have.
 
 Issue #1083 split the two Windows test steps across a matrix of runners. That trades
 runner-minutes for wall-clock, and it introduces one failure mode the unsharded step
@@ -20,8 +20,15 @@ matched. This script reads them all and fails unless:
   * no shard matched zero cases -- the guard the issue names explicitly;
   * the counts sum to the total the build job measured with a plain ``ctest -N``.
 
-The last one is the real coverage proof. The first three are there so that when it
-fails, the message says which shard is wrong instead of only that the arithmetic is.
+The last one is the partition proof. The first three are there so that when it fails,
+the message says which shard is wrong instead of only that the arithmetic is.
+
+WHAT THIS DOES NOT PROVE, stated here because the distinction is the whole point of
+the check: each count comes from ``ctest -N`` BEFORE that shard runs anything, so a
+shard whose ctest died a third of the way through still uploaded a full count. This
+proves the SELECTION was a partition, not that every selected case executed. The
+calling job pairs it with a check on the shard matrix's own result, which covers the
+other half.
 """
 
 from __future__ import annotations
@@ -113,7 +120,12 @@ def main() -> int:
               f"{'skipped' if total < args.expected_total else 'double-counted'}.")
         return 1
 
-    print(f"{args.label}: coverage proven -- the shards partition all {total} ctest entries.")
+    print(f"{args.label}: the shards' selections partition all {total} ctest entries.")
+    # Deliberately NOT "coverage proven". Each count is recorded from "ctest -N"
+    # BEFORE that shard runs anything, so this proves the partition and not the
+    # execution: a shard whose ctest died a third of the way through still uploaded a
+    # full count. The workflow pairs this with a check on the shard matrix's own
+    # result, which is what covers the other half.
     return 0
 
 
