@@ -237,3 +237,57 @@ because the deserializer eagerly builds GPU resources (`MeshSource::Build`, `Tex
 refactor; that was wrong. The one real bug it found: `ScriptEngine::GetEntityClass` dereferenced a
 null `s_Data` when the C# engine was not initialised, so a scene with a `ScriptComponent` crashed
 deserialise. It is now null-guarded and such scenes load with scripting off.
+
+## 9. A GPU test for the Vulkan backend goes in `VulkanPassSuiteTest.cpp`, not in a parameterised `RendererAttachedTest` (issue #1107)
+
+**Rule:** when a renderer contract has to hold on **both** backends, write the GL half on
+`RendererAttachedTest` and the Vulkan half as a `VulkanPassSuite` tenant, and anchor both to the
+same **analytic** reference. Do not try to make one fixture run twice, once per backend.
+
+The question is real — a whole backend having no visual or perf coverage is what let both #1106
+bugs ship — so here is why the answer is two fixtures:
+
+- **A process holds one backend at a time.** `RendererAttachedTest` sits on `RenderPropertyFixture`,
+  which brings up a GL 4.6 context and a process-wide `Renderer::Init` whose `Renderer3D::s_Data`
+  is a static full of GL handles. `VulkanPassSuite::SetUp` gets a Vulkan device by *displacing* that
+  — `RenderCommand::ShutdownGpuResources()`, `RendererAPI::SetAPI(Vulkan)`,
+  `RenderCommand::RecreateForSelectedBackend()` — and restores it in `TearDown`. A parameterised
+  fixture would have to do that swap per test case, and the swap is the expensive, fragile part.
+- **The blast radius is 118 files.** That many test files inherit `RendererAttachedTest` today.
+  Parameterising it makes every one of them a two-instantiation suite, of which the Vulkan
+  instantiation would `SKIP` for nearly all of them (they drive `Scene::OnUpdateRuntime`, which
+  needs the Renderer3D statics the swap just tore down).
+- **What actually blocks Vulkan coverage is not the fixture.** It is that `Scene::OnUpdateRuntime`
+  is unreachable on a displaced backend, so a Vulkan tenant hand-drives the passes it wants. That
+  cost does not change if the fixture is parameterised.
+
+**Anchor both halves to an analytic reference, not to each other.** "Vulkan matches GL" cannot be
+asserted inside one process, and passing numbers between two runs is a golden file with none of a
+golden file's tooling. Instead compute the expected answer on the CPU from **GL-convention**
+matrices — the engine authors every projection that way — and have each backend's tenant match it.
+That pins the absolute answer, so the pair cannot go green by being wrong in the same direction.
+
+**Cross the production seam, and fill seam-derived shader inputs from the production helpers.**
+Both #1106 bugs were reachable only because the geometry went through
+`RHI::AdjustProjectionForBackend` the way production does. A tenant that authors NDC directly, or
+that hard-codes the values `RHI::NdcToWindowDepthScaleBias()` / `RHI::WindowSpaceFrontFaceSign()`
+return, is green on exactly the frames that shipped broken. When the comparison itself needs a
+backend fact (row order), take it from a *different consumer* of the seam than
+the one under test — here `RHI::RenderTargetRowsAreBottomUp()`.
+
+**And pin the seam's answers absolutely, because those consumers are not
+independent.** Every member of `RHIProjectionSeam` — the projection adjust, the
+depth mapping, the front-face sign, the row order — is a ternary on one private
+`BackendFlips()`. Reading the reference through one of them catches a wrong
+answer *inside a consumer*, which is what #1106 was, but a regression in
+`BackendFlips()` itself flips all of them together and slides the comparison
+along with it. So assert the expected per-backend values outright
+(`WindowSpaceFrontFaceSign() == -1` on Vulkan, and so on) alongside the pixel
+comparison. That is the one thing a seam-read reference cannot self-check.
+
+Worked example: `VulkanPassSuite.VirtualGeometrySoftwareRasterMatchesTheGLReference` in
+`OloEngine/tests/Rendering/VulkanPassSuiteTest.cpp`.
+
+**Classification.** The coverage half is a CI-shaped gate (it skips cleanly with no device, so it
+costs nothing on a runner without one) and carries the file's `plumbing` layer. The perf half stays
+a workstation instrument — see `oloengine-perf-tests-are-dev-workstation-only`.
