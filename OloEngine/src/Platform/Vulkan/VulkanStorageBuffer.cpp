@@ -286,6 +286,28 @@ namespace OloEngine
         OLO_CORE_ASSERT(!liveSnapshot || m_SnapshotBytes == m_Size,
                         "VulkanStorageBuffer: live snapshot is not whole-buffer");
 
+        // Nothing has read this snapshot yet: rewrite it in place. A snapshot
+        // is only observable through the address a DRAW embedded, so while
+        // m_SnapshotConsumed is false no recorded work can tell the difference
+        // between "overwritten" and "never staged" — and command ordering is
+        // defined against recorded draws, not against SetData calls.
+        //
+        // This is what keeps whole-buffer snapshots affordable. GPUScene::Upload
+        // issues one SetData per NON-ADJACENT dirty range (CoalesceDirtyRanges
+        // merges only strictly adjacent indices), so a frame that dirties N
+        // scattered records would otherwise claim N whole-buffer arena ranges —
+        // and the frame arena is where every draw's root data lives, so
+        // exhausting it drops root data for the WHOLE frame, not just for this
+        // buffer. With reuse, that batch costs one whole-buffer fill plus N
+        // small memcpys.
+        if (liveSnapshot && !m_SnapshotConsumed)
+        {
+            std::memcpy(static_cast<u8*>(m_SnapshotCpu) + offset, data, size);
+            arena.FlushWrite(VulkanFrameArenaAllocation{ m_SnapshotCpu, m_SnapshotAddress, m_SnapshotArenaOffset },
+                             m_SnapshotBytes);
+            return;
+        }
+
         // A snapshot covers the WHOLE buffer, or there is no snapshot (#1080).
         // GetRootDataAddress hands the draw a bare device address with no
         // length attached, so the shader's own indexing is the only bound: a
@@ -306,7 +328,13 @@ namespace OloEngine
         // read the persistent buffer, which is the pre-snapshot behaviour.
         // Zero-filling the gap instead would be worse than either — it hands
         // the shader defined-looking bytes that no writer ever wrote.
-        const void* fillSource = liveSnapshot ? m_SnapshotCpu : m_Mapped;
+        // ...and m_Mapped only counts while it still tells the truth. A GPU-side
+        // write recorded earlier this frame (a mid-frame ClearData, an external
+        // UploadBufferSubData / CopyBufferSubData) executes at submit and never
+        // touches the host mapping, so filling from it would resurrect the very
+        // bytes that write was issued to replace — a cleared range reappearing
+        // for every draw recorded after the next partial SetData.
+        const void* fillSource = liveSnapshot ? m_SnapshotCpu : (GpuWroteThisFrame() ? nullptr : m_Mapped);
         const bool coversWholeBuffer = offset == 0 && size == m_Size;
         if (!coversWholeBuffer && fillSource == nullptr)
         {
@@ -354,17 +382,38 @@ namespace OloEngine
         m_SnapshotFrameGeneration = generation;
         m_SnapshotAddress = allocation.Gpu;
         m_SnapshotCpu = allocation.Cpu;
+        m_SnapshotArenaOffset = allocation.Offset;
+        m_SnapshotConsumed = false;
         m_SnapshotBytes = newBytes;
     }
 
     VkDeviceAddress VulkanStorageBuffer::GetRootDataAddress()
     {
-        return HasLiveSnapshot() ? m_SnapshotAddress : m_DeviceAddress;
+        if (!HasLiveSnapshot())
+        {
+            return m_DeviceAddress;
+        }
+        // This draw is about to embed the snapshot's address, so its contents
+        // become observable from here on: a later SetData in the same frame
+        // must stage a NEW range rather than rewrite this one (see
+        // m_SnapshotConsumed).
+        m_SnapshotConsumed = true;
+        return m_SnapshotAddress;
     }
 
     bool VulkanStorageBuffer::HasLiveSnapshot() const
     {
         return m_SnapshotAddress != 0 && m_SnapshotFrameGeneration == VulkanFrameArena::Get().GetFrameGeneration();
+    }
+
+    void VulkanStorageBuffer::NoteGpuWriteThisFrame()
+    {
+        m_GpuWriteFrameGeneration = VulkanFrameArena::Get().GetFrameGeneration();
+    }
+
+    bool VulkanStorageBuffer::GpuWroteThisFrame() const
+    {
+        return m_GpuWriteFrameGeneration == VulkanFrameArena::Get().GetFrameGeneration();
     }
 
     u32 VulkanStorageBuffer::GetLiveSnapshotBytes() const
@@ -507,6 +556,12 @@ namespace OloEngine
         // after it must observe zeros (persistent buffer), not the pre-clear
         // snapshot bytes. No-op for the GPU-written tenants below, which
         // never SetData mid-frame.
+        //
+        // NoteGpuWriteThisFrame as well, because the recorded-fill path below
+        // never touches m_Mapped: from here to the end of the frame, the host
+        // mapping would hand a later partial SetData exactly the pre-clear
+        // bytes this call is removing.
+        NoteGpuWriteThisFrame();
         InvalidateSnapshot();
 
         // Mid-frame (#691): a ClearData between two GPU uses
@@ -586,6 +641,10 @@ namespace OloEngine
         {
             return;
         }
+        // Same reasoning as the whole-buffer clear: the recorded fill below
+        // bypasses m_Mapped, so the mapping stops being a truthful fill source
+        // for the rest of the frame.
+        NoteGpuWriteThisFrame();
         InvalidateSnapshot();
 
         if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)

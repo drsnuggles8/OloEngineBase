@@ -1500,4 +1500,131 @@ TEST_F(VulkanDrawPath, PartialStorageBufferWriteSnapshotsTheWholeBufferOrNothing
         << "a mapped DynamicDraw buffer inside a recording bracket must not need the refusal path";
 }
 
+// The whole-buffer rule of #1080 is only affordable because an UNREAD snapshot
+// is rewritten in place. GPUScene::Upload issues one SetData per non-adjacent
+// dirty range, so without reuse a frame that dirties N scattered records would
+// claim N whole-buffer arena ranges — and the arena is where every draw's root
+// data lives, so exhausting it drops root data for the entire frame.
+TEST_F(VulkanDrawPath, ConsecutiveWritesShareOneSnapshotUntilADrawReadsIt)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kElements = 64u;
+    constexpr u32 kBytes = kElements * sizeof(u32);
+    auto buffer = StorageBuffer::Create(kBytes, 31u, StorageBufferUsage::DynamicDraw);
+    ASSERT_TRUE(buffer);
+    auto* vkBuffer = static_cast<VulkanStorageBuffer*>(buffer.Raw());
+
+    std::array<u32, kElements> seed{};
+    buffer->SetData(seed.data(), kBytes, 0);
+
+    auto& api = renderCommandSelection.Get();
+    auto& arena = VulkanFrameArena::Get();
+    u64 allocationsForBatch = 0;
+    u64 allocationsAfterDraw = 0;
+    VkDeviceAddress firstAddress = 0;
+    VkDeviceAddress batchAddress = 0;
+    VkDeviceAddress afterDrawAddress = 0;
+    std::array<u32, 4> readback{};
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    // A batch of scattered writes with NO draw between them —
+                    // the GPUScene::Upload shape.
+                    const u64 before = arena.GetAllocationCountThisFrame();
+                    const u32 a = 0xAAAAAAAAu;
+                    buffer->SetData(&a, sizeof(a), 0);
+                    firstAddress = vkBuffer->GetLiveSnapshotBytes() != 0 ? VkDeviceAddress{ 1 } : VkDeviceAddress{ 0 };
+                    const u32 b = 0xBBBBBBBBu;
+                    buffer->SetData(&b, sizeof(b), 4 * sizeof(u32));
+                    const u32 c = 0xCCCCCCCCu;
+                    buffer->SetData(&c, sizeof(c), 8 * sizeof(u32));
+                    const u32 d = 0xDDDDDDDDu;
+                    buffer->SetData(&d, sizeof(d), 12 * sizeof(u32));
+                    allocationsForBatch = arena.GetAllocationCountThisFrame() - before;
+                    batchAddress = vkBuffer->GetRootDataAddress(); // consumes it
+
+                    // Now a write AFTER the address was handed to a draw: it
+                    // must NOT overwrite what that draw is going to read.
+                    const u64 beforeSecond = arena.GetAllocationCountThisFrame();
+                    const u32 e = 0xEEEEEEEEu;
+                    buffer->SetData(&e, sizeof(e), 0);
+                    allocationsAfterDraw = arena.GetAllocationCountThisFrame() - beforeSecond;
+                    afterDrawAddress = vkBuffer->GetRootDataAddress();
+                    if (const auto* cpu = vkBuffer->GetLiveSnapshotCpuData(); cpu != nullptr)
+                    {
+                        std::memcpy(readback.data(), cpu, readback.size() * sizeof(u32));
+                    }
+                });
+
+    EXPECT_EQ(firstAddress, VkDeviceAddress{ 1 }) << "the first write must stage a snapshot at all";
+    EXPECT_EQ(allocationsForBatch, 1u)
+        << "four consecutive SetData calls with no draw between them must share ONE whole-buffer arena range — "
+           "one per write is what exhausts the frame arena and drops root data for the whole frame";
+    EXPECT_EQ(allocationsAfterDraw, 1u)
+        << "a write AFTER a draw embedded the address must stage a NEW range, or that draw's bytes change under "
+           "it and command ordering (issue #691) is lost";
+    EXPECT_NE(batchAddress, afterDrawAddress) << "the post-draw write must be a different arena range";
+
+    // The reuse path must still accumulate every write, not just the last.
+    EXPECT_EQ(readback[0], 0xEEEEEEEEu);
+    EXPECT_EQ(readback[1], 0u);
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+}
+
+// A GPU-side write recorded this frame makes the host mapping a liar: it
+// executes at submit and never touches m_Mapped. Sourcing a partial write's
+// undefined bytes from the mapping would put the cleared content straight back
+// for every draw recorded afterwards.
+TEST_F(VulkanDrawPath, AClearedRangeIsNotResurrectedByALaterPartialWrite)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    constexpr u32 kElements = 64u;
+    constexpr u32 kBytes = kElements * sizeof(u32);
+    auto buffer = StorageBuffer::Create(kBytes, 31u, StorageBufferUsage::DynamicDraw);
+    ASSERT_TRUE(buffer);
+    auto* vkBuffer = static_cast<VulkanStorageBuffer*>(buffer.Raw());
+    const VkDeviceAddress persistent = vkBuffer->GetDeviceAddress();
+
+    std::array<u32, kElements> seed{};
+    for (u32 i = 0; i < kElements; ++i)
+    {
+        seed[i] = 0xA0000000u | i;
+    }
+    buffer->SetData(seed.data(), kBytes, 0);
+
+    auto& api = renderCommandSelection.Get();
+    u64 refusedBefore = 0;
+    u64 refusedAfter = 0;
+    VkDeviceAddress rootAfter = 0;
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    // Clear the tail inside the bracket: this records a fill
+                    // into the frame command buffer and leaves m_Mapped alone.
+                    buffer->ClearData(static_cast<u32>(32 * sizeof(u32)), static_cast<u32>(32 * sizeof(u32)));
+                    refusedBefore = VulkanStorageBuffer::GetSnapshotRefusedCount();
+                    // A partial write now cannot source the cleared tail from
+                    // anywhere truthful, so it must refuse the snapshot rather
+                    // than rebuild the pre-clear bytes out of the mapping.
+                    const u32 v = 0xB0000000u;
+                    buffer->SetData(&v, sizeof(v), 0);
+                    refusedAfter = VulkanStorageBuffer::GetSnapshotRefusedCount();
+                    rootAfter = vkBuffer->GetRootDataAddress();
+                });
+
+    EXPECT_EQ(refusedAfter, refusedBefore + 1)
+        << "the snapshot must be refused, loudly and countably, once the host mapping can no longer supply the "
+           "bytes the write does not define";
+    EXPECT_EQ(rootAfter, persistent)
+        << "and the draw must fall back to the PERSISTENT buffer, which is where the recorded clear actually "
+           "lands — a snapshot rebuilt from m_Mapped would undo the clear for every later draw";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
+}
+
 #endif // OLO_WITH_VULKAN

@@ -136,6 +136,7 @@ namespace OloEngine
         // write went.
         void InvalidateSnapshotForExternalWrite()
         {
+            NoteGpuWriteThisFrame();
             InvalidateSnapshot();
         }
 
@@ -143,6 +144,16 @@ namespace OloEngine
         // Shared liveness predicate behind GetRootDataAddress and the two
         // GetLiveSnapshot* accessors — a snapshot expires with its arena frame.
         [[nodiscard]] bool HasLiveSnapshot() const;
+        // Record that a GPU-SIDE write to the PERSISTENT buffer was enqueued
+        // this frame — a ranged/whole ClearData inside a recording bracket, or
+        // an external UploadBufferSubData / CopyBufferSubData. Those writes
+        // execute at submit and never touch m_Mapped, so from here to the end
+        // of the frame the mapping no longer tells the truth about this
+        // buffer's contents and must not be used to fill the bytes a partial
+        // write leaves undefined — doing so resurrects exactly the content the
+        // clear was issued to remove.
+        void NoteGpuWriteThisFrame();
+        [[nodiscard]] bool GpuWroteThisFrame() const;
         void CreateBuffer();
         void ReleaseBuffer();
         // Copies the WHOLE buffer — the just-written range, with every byte
@@ -161,6 +172,8 @@ namespace OloEngine
             m_SnapshotAddress = 0;
             m_SnapshotCpu = nullptr;
             m_SnapshotBytes = 0;
+            m_SnapshotArenaOffset = 0;
+            m_SnapshotConsumed = false;
         }
 
         VkBuffer m_Buffer = VK_NULL_HANDLE;
@@ -175,6 +188,16 @@ namespace OloEngine
         u64 m_SnapshotFrameGeneration = ~0ull;
         VkDeviceAddress m_SnapshotAddress = 0;
         void* m_SnapshotCpu = nullptr;
+        u64 m_SnapshotArenaOffset = 0; ///< the live snapshot's offset in the slot buffer, for FlushWrite on the reuse path.
+        // Whether a DRAW has already embedded the live snapshot's address
+        // (GetRootDataAddress). Until one has, nothing can observe the
+        // snapshot's contents, so a further SetData may overwrite it in place
+        // instead of claiming a second whole-buffer arena range — which is
+        // what keeps a batch of N scattered writes (GPUScene::Upload issues
+        // one SetData per non-adjacent dirty range) costing ONE snapshot
+        // rather than N.
+        bool m_SnapshotConsumed = false;
+        u64 m_GpuWriteFrameGeneration = ~0ull; ///< see NoteGpuWriteThisFrame.
         u32 m_SnapshotBytes = 0;
         // Generation-checked identity for m_Buffer, kept in lockstep by
         // m_RHIHandle.Sync — same pattern as the GL twin (issue #691).
