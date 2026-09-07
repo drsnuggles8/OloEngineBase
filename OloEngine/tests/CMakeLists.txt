@@ -1371,57 +1371,6 @@ if(OLO_TESTS_CTEST_ARGS)
 	message(STATUS "OloEngine-Tests: ctest will launch every test with: ${OLO_TESTS_CTEST_ARGS}")
 endif()
 
-# UNDER TSAN, THE FUNCTIONAL PHYSICS TESTS RUN ONE AT A TIME (issue #1111).
-#
-# Every fixture in tests/Functional/AnimationPhysics/ drives a real JoltScene
-# through Scene::OnUpdateRuntime -- a height-field or cloth, a job system on the
-# engine's worker pool, and a per-step temp allocator. Under TSan each of those
-# processes carries shadow memory and per-thread history on top, and the hosted
-# CI runner has 16 GB with no swap. Two of them side by side is the whole VM:
-# the runner is killed with `The runner has received a shutdown signal` and no
-# sanitizer output, on every hosted run since 2026-09-06, always with two of
-# these fixtures in flight. The self-hosted box (31 GB) passes the same block.
-#
-# `PROCESSORS 2` says "this test occupies two of ctest's --parallel slots". On
-# the hosted arm (--parallel 2) that is "alone"; on the box (--parallel 4) two
-# may still overlap, which is the scaling the two machines actually have. It is
-# NOT an exclusion: every case still runs, and the property is only applied to
-# the TSan tree -- the ASan tree runs the same block at the same width and
-# fits.
-#
-# THE FIXTURE LIST IS DERIVED, NOT MAINTAINED. Every TEST/TEST_F/TEST_P in that
-# directory is read at configure time and its suite becomes `Suite.*` in the
-# filter, so a new physics fixture is covered by being put in the directory.
-# The two lists this file already keeps by hand (OLO_MESH_CACHE_TESTS above) are
-# small and cross-cutting; this one is 50+ names in one directory, which is a
-# list nobody would keep in sync.
-set(OLO_TSAN_HEAVY_TESTS "")
-if(OLO_ENABLE_TSAN)
-	file(GLOB _olo_physics_sources CONFIGURE_DEPENDS
-		"${CMAKE_CURRENT_SOURCE_DIR}/Functional/AnimationPhysics/*.cpp")
-	set(_olo_physics_fixtures "")
-	foreach(_src IN LISTS _olo_physics_sources)
-		file(STRINGS "${_src}" _lines REGEX "^[ \t]*TEST(_F|_P)?\\([A-Za-z_][A-Za-z0-9_]*,")
-		foreach(_line IN LISTS _lines)
-			string(REGEX REPLACE "^[ \t]*TEST(_F|_P)?\\(([A-Za-z_][A-Za-z0-9_]*),.*$" "\\2" _fixture "${_line}")
-			list(APPEND _olo_physics_fixtures "${_fixture}")
-		endforeach()
-	endforeach()
-	list(REMOVE_DUPLICATES _olo_physics_fixtures)
-	list(SORT _olo_physics_fixtures)
-	list(LENGTH _olo_physics_fixtures _olo_physics_count)
-	if(_olo_physics_count EQUAL 0)
-		# A glob that finds nothing is the property silently no longer applying.
-		message(FATAL_ERROR "OloEngine-Tests: OLO_ENABLE_TSAN is ON but no fixtures were found under tests/Functional/AnimationPhysics/ -- the PROCESSORS guard for #1111 would apply to nothing.")
-	endif()
-	set(_olo_physics_patterns "")
-	foreach(_f IN LISTS _olo_physics_fixtures)
-		list(APPEND _olo_physics_patterns "${_f}.*")
-	endforeach()
-	list(JOIN _olo_physics_patterns ":" OLO_TSAN_HEAVY_TESTS)
-	message(STATUS "OloEngine-Tests: TSan -- ${_olo_physics_count} physics fixtures get PROCESSORS 2 (#1111)")
-endif()
-
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
 	DISCOVERY_TIMEOUT 120
@@ -1429,26 +1378,10 @@ gtest_discover_tests(OloEngine-Tests
 	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
 	PROPERTIES RESOURCE_LOCK "olo_mesh_cache"
 )
-if(OLO_TSAN_HEAVY_TESTS)
-	gtest_discover_tests(OloEngine-Tests
-		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
-		DISCOVERY_TIMEOUT 120
-		TEST_FILTER "${OLO_TSAN_HEAVY_TESTS}"
-		EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
-		PROPERTIES PROCESSORS 2
-	)
-	gtest_discover_tests(OloEngine-Tests
-		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
-		DISCOVERY_TIMEOUT 120
-		TEST_FILTER "-${OLO_MESH_CACHE_TESTS}:${OLO_TSAN_HEAVY_TESTS}"
-		EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
-	)
-else()
-	gtest_discover_tests(OloEngine-Tests
-		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
-		DISCOVERY_TIMEOUT 120
-		TEST_FILTER "-${OLO_MESH_CACHE_TESTS}"
-		EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
-	)
-endif()
+gtest_discover_tests(OloEngine-Tests
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
+	DISCOVERY_TIMEOUT 120
+	TEST_FILTER "-${OLO_MESH_CACHE_TESTS}"
+	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
+)
 
