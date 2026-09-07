@@ -25,10 +25,14 @@ namespace OloEngine
         RGB8,
         RGBA8,
         RGBA16F,
-        RGBA32F, // Unsupported
-        R32F,    // Unsupported
-        RG32F,   // Unsupported
-        RGB32F,  // Unsupported
+        // The four float formats below were once marked unsupported. All four
+        // are created, rendered into and read back on both backends today (the
+        // IBL bakes, the ocean FFT tables, the GPU path tracer's RGBA32F
+        // accumulation planes), so treat them as any other colour format.
+        RGBA32F,
+        R32F,
+        RG32F,
+        RGB32F,
         DEPTH24STENCIL8,
         RG16F, // Keep appended to preserve legacy serialized enum values
         R32I,
