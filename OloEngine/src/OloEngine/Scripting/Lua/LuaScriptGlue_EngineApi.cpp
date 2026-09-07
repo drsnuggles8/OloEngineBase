@@ -15,7 +15,16 @@ namespace OloEngine
         // Created by RegisterGameplayTypes, which runs first. Re-fetched from
         // the global table rather than passed along: the parts share Lua state,
         // not C++ locals, and this keeps their signatures uniform.
-        sol::table entityUtilsTable = lua["entity_utils"];
+        //
+        // ASSERTED, not assumed: this is the one ordering dependency between two
+        // parts, so if RegisterAllTypes is ever reordered the failure has to be
+        // loud here rather than a handful of entity_utils entries silently
+        // landing on a fresh nil-indexed table and vanishing.
+        sol::object entityUtilsObject = lua["entity_utils"];
+        OLO_CORE_ASSERT(entityUtilsObject.is<sol::table>(),
+                        "entity_utils must exist before RegisterEngineApiTypes runs — it is created by "
+                        "RegisterGameplayTypes, which RegisterAllTypes calls first");
+        sol::table entityUtilsTable = entityUtilsObject.as<sol::table>();
 
         // --- ShaderLibrary3D (global table) ---
         auto shaderLib3D = lua.create_named_table("ShaderLibrary3D");
@@ -593,8 +602,11 @@ namespace OloEngine
             {
                 for (const auto& kv : *params)
                 {
-                    // Skip keys/values that aren't strings — Lua callers
-                    // sometimes pass numbers; we coerce those via tostring.
+                    // Non-string KEYS are skipped outright. Values are accepted
+                    // for the four types spelled out below (string, i32, f64,
+                    // bool) and any other type is DROPPED, not coerced — there is
+                    // no tostring fallback here, whatever an earlier version of
+                    // this comment claimed.
                     std::string keyStr;
                     if (kv.first.is<std::string>())
                         keyStr = kv.first.as<std::string>();
@@ -744,7 +756,12 @@ namespace OloEngine
         };
         localizationTable["FormatRelativeTime"] = [](i64 epochSeconds, sol::optional<std::string> localeCode) -> std::string
         {
-            const auto tp = std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
+            // 0 means now(), the same as FormatDate and FormatTime above — the
+            // shared comment on that block always said so, but this one binding
+            // fed 0 straight to from_time_t and rendered "56 years ago".
+            const auto tp = (epochSeconds == 0)
+                                ? std::chrono::system_clock::now()
+                                : std::chrono::system_clock::from_time_t(static_cast<std::time_t>(epochSeconds));
             return LocalizationManager::FormatRelativeTime(tp, localeCode.value_or(std::string{}));
         };
         localizationTable["GetAvailableLocales"] = [](sol::this_state s) -> sol::table

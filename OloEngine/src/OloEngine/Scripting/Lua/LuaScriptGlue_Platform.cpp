@@ -44,6 +44,11 @@ namespace OloEngine
                                                "priority", sol::property([](const AudioSourceComponent& c)
                                                                          { return c.GetConfig().Priority; }, [](AudioSourceComponent& c, f32 v)
                                                                          {
+                    // Documented as [0, 1] on the line above, so hold it to that:
+                    // a NaN here silently loses every voice-stealing comparison
+                    // it takes part in, which reads as a sound that never plays.
+                    if (!std::isfinite(v)) { return; }
+                    v = std::clamp(v, 0.0f, 1.0f);
                     c.GetConfig().Priority = v;
                     if (c.Source) { c.Source->SetPriority(v); } }),
                                                // True while registered with the voice budget but inaudible because
@@ -640,9 +645,23 @@ namespace OloEngine
         // Action-map contexts (gameplay/menu/vehicle). Pass an InputContext.* constant.
         // Switching contexts swaps the active action map and resets transient press state.
         // SetInputContext is a hard switch; Push/Pop nest (e.g. push Menu over Gameplay).
-        inputTable["SetInputContext"] = [](i32 context)
+        // The context arrives as a bare integer from script, so it is range-checked
+        // before the cast — casting an arbitrary i32 to a scoped enum and handing it
+        // to the action map is UB with a plausible-looking value.
+        const auto toInputContext = [](i32 context, const char* who) -> sol::optional<InputContextType>
         {
-            InputActionManager::SetInputContext(static_cast<InputContextType>(context));
+            for (const InputContextType candidate : AllInputContextTypes)
+            {
+                if (static_cast<i32>(candidate) == context)
+                    return candidate;
+            }
+            OLO_CORE_WARN("[Lua Input] {} got out-of-range InputContext {} — ignored", who, context);
+            return sol::nullopt;
+        };
+        inputTable["SetInputContext"] = [toInputContext](i32 context)
+        {
+            if (const auto ctx = toInputContext(context, "SetInputContext"))
+                InputActionManager::SetInputContext(*ctx);
         };
         inputTable["GetInputContext"] = []() -> i32
         {

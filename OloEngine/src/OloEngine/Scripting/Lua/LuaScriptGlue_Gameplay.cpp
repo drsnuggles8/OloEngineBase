@@ -34,7 +34,7 @@ namespace OloEngine
                     const double d = valObj.as<double>();
                     constexpr double kI32Min = -2147483648.0;
                     constexpr double kI32Max = 2147483647.0;
-                    if (d >= kI32Min && d <= kI32Max && d == std::floor(d)) // exact integrality check
+                    if (d >= kI32Min && d <= kI32Max && Math::BitwiseEqual(std::floor(d), d)) // exact integrality check
                         ws.Set(key, static_cast<i32>(d));
                     else
                         OLO_CORE_WARN("[Lua GOAP] fact '{}' = {} is not a 32-bit integer — skipped (GOAP facts must be bool or integer)", key, d);
@@ -132,7 +132,20 @@ namespace OloEngine
 
             GoapGoal goal;
             goal.Name = def.get_or<std::string>("name", "");
-            goal.Priority = def.get_or("priority", 1.0f);
+            // Same validation LuaGoapAddAction applies to Cost ten lines up: a
+            // non-finite or negative priority poisons the planner's ordering,
+            // and the two halves of one API should not disagree about whether
+            // script input is checked.
+            if (const f32 priority = def.get_or("priority", 1.0f); std::isfinite(priority) && priority >= 0.0f)
+            {
+                goal.Priority = priority;
+            }
+            else
+            {
+                OLO_CORE_WARN("[Lua GOAP] goal '{}' has invalid priority {} — using 1.0 (priority must be finite and >= 0)",
+                              goal.Name, def.get_or("priority", 1.0f));
+                goal.Priority = 1.0f;
+            }
             if (sol::optional<sol::table> desired = def["desired"]; desired)
                 goal.DesiredState = LuaTableToWorldState(*desired);
             if (sol::optional<sol::protected_function> fn = def["isValid"]; fn && fn->valid())
@@ -353,7 +366,13 @@ namespace OloEngine
                                                  i32 maxStack = std::max(def->MaxStackSize, 1);
                                                  // Route through InventorySystem so each add publishes ItemAdded.
                                                  auto [scene, entity] = LuaOwnerContext(comp);
+                                                 // ALL OR NOTHING. This used to add stack by stack and
+                                                 // `return false` on the first refusal, which left every
+                                                 // earlier stack in the inventory while telling the script
+                                                 // nothing had happened — the worst of both answers. Roll
+                                                 // the successful adds back so the return value is true.
                                                  i32 remaining = total;
+                                                 std::vector<UUID> addedIds;
                                                  while (remaining > 0)
                                                  {
                                                      ItemInstance instance;
@@ -363,7 +382,17 @@ namespace OloEngine
                                                      bool added = entity ? InventorySystem::AddItem(scene, entity, instance)
                                                                          : comp.PlayerInventory.AddItem(instance);
                                                      if (!added)
+                                                     {
+                                                         for (const UUID& id : addedIds)
+                                                         {
+                                                             if (entity)
+                                                                 InventorySystem::RemoveItem(scene, entity, id);
+                                                             else
+                                                                 comp.PlayerInventory.RemoveItem(id);
+                                                         }
                                                          return false;
+                                                     }
+                                                     addedIds.push_back(instance.InstanceID);
                                                      remaining -= instance.StackCount;
                                                  }
                                                  return true; }, "RemoveItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)
@@ -540,6 +569,16 @@ namespace OloEngine
             JoltScene* joltScene = scene->GetPhysicsScene();
             if (!joltScene)
                 return sol::make_object(s, sol::nil);
+
+            // Script-supplied floats reach Jolt here, so they get the same
+            // finiteness treatment CLAUDE.md requires of every other external
+            // float source. A zero-length direction has no ray to cast, and a
+            // NaN anywhere propagates into the broadphase.
+            if (!IsFiniteVec3(origin) || !IsFiniteVec3(direction) || !std::isfinite(maxDistance) ||
+                maxDistance < 0.0f || glm::length2(direction) <= 0.0f)
+            {
+                return sol::make_object(s, sol::nil);
+            }
 
             RayCastInfo rayInfo(origin, direction, maxDistance);
             SceneQueryHit hit;

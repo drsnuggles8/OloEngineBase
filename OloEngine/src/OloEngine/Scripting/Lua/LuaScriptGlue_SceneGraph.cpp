@@ -125,7 +125,17 @@ namespace OloEngine
                                            "generateColliders", &TilemapComponent::GenerateColliders, "layerCount", sol::readonly_property([](const TilemapComponent& c)
                                                                                                                                            { return static_cast<u32>(c.Layers.size()); }),
                                            "resize", [](TilemapComponent& c, u32 w, u32 h)
-                                           { c.Resize(w, h); }, "addLayer", [](TilemapComponent& c, const std::string& name)
+                                           {
+                                               // A tile grid is w*h entries, so an unbounded pair from script
+                                               // is an allocation request with no ceiling. 4096 per axis is
+                                               // far past any authored map and still only ~16M cells.
+                                               constexpr u32 kMaxTilemapAxis = 4096;
+                                               if (w > kMaxTilemapAxis || h > kMaxTilemapAxis)
+                                               {
+                                                   OLO_CORE_WARN("[Lua Tilemap] resize({}, {}) exceeds the {} per-axis limit — ignored", w, h, kMaxTilemapAxis);
+                                                   return;
+                                               }
+                                               c.Resize(w, h); }, "addLayer", [](TilemapComponent& c, const std::string& name)
                                            { return static_cast<u32>(c.AddLayer(name)); },
                                            // Lua indexes are 1-based by convention, but a tile grid is not a
                                            // Lua table — these stay 0-based so they match the editor's tile
@@ -173,6 +183,26 @@ namespace OloEngine
                                                  "clear_instances", [](InstancedMeshComponent& c)
                                                  { c.Instances.clear(); }, "add_instance", [](InstancedMeshComponent& c, f32 px, f32 py, f32 pz, f32 ex, f32 ey, f32 ez, f32 sx, f32 sy, f32 sz, f32 cr, f32 cg, f32 cb, f32 ca, f32 custom, i32 instanceEntityID)
                                                  {
+                                // Fifteen raw floats straight from script. A NaN in any of
+                                // them, or a zero scale component, makes the transform
+                                // singular — and inst.Normal is transpose(inverse(Transform)),
+                                // so the NaN would be baked into the instance buffer and
+                                // spread through every lighting term that touches it.
+                                const glm::vec3 position{ px, py, pz };
+                                const glm::vec3 euler{ ex, ey, ez };
+                                const glm::vec3 scale{ sx, sy, sz };
+                                const glm::vec4 color{ cr, cg, cb, ca };
+                                if (!IsFiniteVec3(position) || !IsFiniteVec3(euler) || !IsFiniteVec3(scale) ||
+                                    !IsFiniteVec4(color) || !std::isfinite(custom))
+                                {
+                                    OLO_CORE_WARN("[Lua InstancedMesh] add_instance got a non-finite value — ignored");
+                                    return;
+                                }
+                                if (scale.x == 0.0f || scale.y == 0.0f || scale.z == 0.0f)
+                                {
+                                    OLO_CORE_WARN("[Lua InstancedMesh] add_instance got a zero scale component — ignored (the transform would be singular)");
+                                    return;
+                                }
                                 glm::mat4 t = glm::translate(glm::mat4(1.0f), glm::vec3(px, py, pz));
                                 glm::mat4 r = glm::toMat4(glm::quat(glm::vec3(ex, ey, ez)));
                                 glm::mat4 s = glm::scale(glm::mat4(1.0f), glm::vec3(sx, sy, sz));
