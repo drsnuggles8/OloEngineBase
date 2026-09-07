@@ -164,12 +164,31 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_INFO("Converting equirectangular HDR to cubemap: {}", filePath);
 
-        // Load HDR image
-        stbi_set_flip_vertically_on_load(true);
-
+        // Load HDR image, bottom row first.
+        //
+        // The THREAD-LOCAL setter, not the global one, and that is the whole of
+        // this fix. stb resolves the flag as
+        //     set ? local : global
+        // where `set` latches to 1 the first time ANY code on this thread calls
+        // stbi_set_flip_vertically_on_load_thread — permanently, for the life of
+        // the thread. Every other loader in this engine uses the _thread setter
+        // (TextureSerializer, OpenGLTextureCubemap, TextureCompression), so by the
+        // time a scene bakes an environment map the latch is long since set and
+        // the global call here did nothing at all. The HDR loaded top-row-first,
+        // SampleSphericalMap maps +Y to v = 1, and the baked cubemap came out
+        // UPSIDE DOWN: looking up showed the floor and looking down the ceiling.
+        //
+        // It was intermittent in exactly the way that is hardest to place. A
+        // process that baked the environment before it loaded any other texture
+        // still saw the global flag, so the same scene rendered correctly or
+        // inverted depending only on load order — "some scenes look wrong".
+        //
+        // Toggling the global flag is not a way to test this: with the latch set,
+        // true and false produce a byte-identical frame.
         i32 width, height, channels;
+        stbi_set_flip_vertically_on_load_thread(1);
         f32* data = stbi_loadf(filePath.c_str(), &width, &height, &channels, 0);
-        stbi_set_flip_vertically_on_load(false); // reset global flag to avoid polluting later stbi calls
+        stbi_set_flip_vertically_on_load_thread(0); // restore; the latch stays set either way
 
         // OLO_ENV_BAKE_DUMP diagnostics (#797): CPU-side ground truth of the loaded HDR.
         if (data != nullptr && Levers::EnvironmentBakeDump())

@@ -40,7 +40,17 @@ namespace OloEngine
     // invalidates) an entry whose stored timestamp no longer matches the
     // source, so an in-place edit re-bakes on next load. The layout change
     // also makes older v1–v5 files unreadable, which is the intended reset.
-    constexpr u32 kIBLCacheVersion = 6;
+    // Version 7 invalidates every cubemap baked from an EQUIRECTANGULAR HDR
+    // before the vertical-flip fix. IBLPrecompute asked stb for a bottom-row-
+    // first load with the GLOBAL setter, and stb resolves that flag as
+    // `set ? local : global` where `set` latches the first time any code on the
+    // thread touches the thread-local setter — which every other loader in this
+    // engine does. The request was therefore ignored, the HDR loaded top-row-
+    // first, and the baked environment/irradiance/prefilter cubemaps came out
+    // UPSIDE DOWN: looking up showed the floor. Without this bump an existing
+    // cache keeps serving the inverted bake forever, because the key is
+    // source-path + config and neither changed.
+    constexpr u32 kIBLCacheVersion = 7;
 
     // Cache file header for version tracking
     // Use pragma pack to ensure consistent binary layout across compilers
