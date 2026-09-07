@@ -76,7 +76,10 @@ after an unconditional `sudo apt-get` once kept the nightly red for days.
 1. **The routing lands switched off.** It is reviewable now, alongside the sharding and cache work
    it interacts with, rather than as a separate change later against a moved target.
 2. **Enabling it is the maintainer's call, not CI's.** Setting `vars.OLO_WINDOWS_SELF_HOSTED` and
-   registering a runner are the two acts this ADR does not perform.
+   registering a runner are the two acts this ADR does not perform. **Asked and answered on
+   2026-09-07: no spare machine is available, so it stays off.** That is a hardware answer, not a
+   verdict on the idea — §4 is the bill it would have to be worth, and §5 is what would make it
+   worth reopening.
 3. **Nothing here is measured on a self-hosted Windows runner, and none of it can be until one
    exists.** #1076's acceptance — build-step duration and sccache hit rate on both paths, and the
    Windows cache entries gone from the store — is unmet by construction. The issue stays open.
@@ -106,6 +109,25 @@ after an unconditional `sudo apt-get` once kept the nightly red for days.
   first client to start it fixes the server's environment and every later client on that account is
   served by it whatever `SCCACHE_DIR` that client set. The Linux box sidesteps this by using
   ccache, which has no daemon; there is no equivalent drop-in for clang-cl here.
+
+## 5. What would make this worth reopening
+
+Not a principle — a number. ADR 0017 deferred the runner on the arithmetic that *a runner which
+takes 40 minutes off one workflow while its sibling sits at 170 does not move the PR*, and two
+things have happened since that make the old figure unusable in either direction:
+[#1073](https://github.com/drsnuggles8/OloEngineBase/issues/1073) fixed the caches the 236-minute
+measurement was taken against, and #1083 has just changed the shape of both Windows jobs. **Whatever
+#1076 is worth, it is worth less than the measurement it was filed against, and by an unknown
+amount.**
+
+So reopen it when all three hold:
+
+1. Several PRs have run through the sharded jobs, and #1084's table carries a current per-PR
+   wall-clock and a current sccache hit rate for **both** Windows jobs.
+2. Windows is still the ceiling by a margin a persistent runner would plausibly close — judged
+   against `max()` of the two jobs, never against one of them.
+3. There is hardware that can hold the shard count, or a decision to lower the shard count on the
+   self-hosted path. §4 is why that is not an afterthought.
 
 ## Considered options
 
