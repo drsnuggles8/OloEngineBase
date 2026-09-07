@@ -89,6 +89,21 @@ env:
   # The budget arithmetic and the rules that keep it solvent:
   # docs/agent-rules/actions-cache-budget.md.
   SCCACHE_CACHE_SIZE: "2G"
+  # PREVENTIVE, and copied from asan.yml where the same setting is a bug fix (#1082 --
+  # that file's env block carries the full mechanism and the measurement).
+  #
+  # In short: sccache's server exits after SCCACHE_IDLE_TIMEOUT seconds with no client
+  # request (default 600), link steps do not go through sccache, and a link longer than
+  # ten minutes therefore shuts the server down mid-build. The next compile connects to
+  # the socket the exiting server still holds, gets dropped, and fails the build with
+  # "os error 10054". sccache starts a server when none is running; it does not recover
+  # from one that accepts and then closes.
+  #
+  # This job has not hit it. That is a margin, not an immunity -- it links the same
+  # binaries, just without ASan inflating the link -- and the margin is unmeasured. The
+  # failure is silent until it is fatal and costs a whole ~3 h round to diagnose, so
+  # spend the one line.
+  SCCACHE_IDLE_TIMEOUT: "0"
 
 jobs:
   build:
@@ -483,7 +498,30 @@ jobs:
       # full step on the hosted runner with zero failures. If a physics test ever
       # flakes here again, reinstate `--repeat until-pass:3` AND reopen #281.
       shell: bash
-      run: ctest --parallel 4 --output-on-failure --timeout 120 -C "${BUILD_TYPE}" --exclude-regex '^NetworkIntegrationTest\.'
+      # --parallel 6, RAISED FROM 4 ON A MEASUREMENT (#1083). Six timed passes over
+      # the same 382-case sample in one job (run 34061407328), palindrome order
+      # 4,6,8,8,6,4 so the cold-start warm-up is shared rather than credited to the
+      # widest width:
+      #
+      #     width 4    81 / 76 s     --
+      #     width 6    69 / 69 s    -12.1 %
+      #     width 8    66 / 66 s    -15.9 %
+      #
+      # 100 % passed at every width, 382 of 382, zero flakes.
+      #
+      # 6 AND NOT 8, DELIBERATELY, even though 8 measured fastest. 6 -> 8 is worth
+      # 3 s of 69 (~1 min on the real step) and costs a second full doubling of
+      # oversubscription on a 4-vCPU runner -- the exact condition #281 lived in
+      # (PhysicsLayerFilteringTest SEH 0xc0000005 under core starvation). #281 is
+      # fixed at the root, so this is not a live bug, but the sample cannot prove
+      # the margin: a 1-in-20 stride rarely co-schedules the RESOURCE_LOCK'd
+      # mesh-cache cases, so contention at width 8 is untested rather than shown
+      # safe. Take the 12 % that is cheap; leave the last 4 % that is not.
+      #
+      # The warm-up the palindrome caught is why the order matters: width 4 ran
+      # 81 s early and 76 s late, a 6.2 % drift. An ascending 4,6,8 sweep would
+      # have handed that drift to width 8 and overstated it.
+      run: ctest --parallel 6 --output-on-failure --timeout 120 -C "${BUILD_TYPE}" --exclude-regex '^NetworkIntegrationTest\.'
 
     - name: Upload test results
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
