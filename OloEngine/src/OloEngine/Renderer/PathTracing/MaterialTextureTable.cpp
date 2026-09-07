@@ -12,16 +12,12 @@ namespace OloEngine
     namespace
     {
         constexpr u32 kMinimumRecordCapacity = 16u;
-
-        [[nodiscard]] u64 HandleKey(u32 index, u32 generation) noexcept
-        {
-            return (static_cast<u64>(generation) << 32u) | index;
-        }
     } // namespace
 
     void MaterialTextureTable::BeginFrame(bool gather)
     {
         m_Gathering = gather;
+        m_ChangedThisFrame = false;
         m_Records.clear();
         m_Unresolved = 0;
     }
@@ -31,16 +27,11 @@ namespace OloEngine
         const RHI::ResourceHandle handle{ handleIndex, handleGeneration };
         if (!handle.IsValid())
             return RHI::HeapOffset::Invalid;
-        const u64 key = HandleKey(handleIndex, handleGeneration);
-        if (const auto it = m_ResolvedByHandle.find(key); it != m_ResolvedByHandle.end())
-            return it->second;
+        // Resolved EVERY frame, never memoised by handle: an in-place reload
+        // keeps the handle and replaces the image and its slot. The backend's
+        // slot cache is the memo; this is a registry lookup and a hash probe.
         const u32 offset = HeapBinding::ResolveShaderHeapTexture(handle).Value;
-        // An unresolved texture is retried next frame (its upload may not have
-        // landed yet); a resolved one is stable for the handle's lifetime,
-        // because the backend's slot is persistent and keyed by the image.
-        if (offset != RHI::HeapOffset::Invalid)
-            m_ResolvedByHandle.emplace(key, offset);
-        else
+        if (offset == RHI::HeapOffset::Invalid)
             ++m_Unresolved;
         return offset;
     }
@@ -87,14 +78,14 @@ namespace OloEngine
             // GPU-scene path applies (PBR_GBuffer.glsl reads them, not the
             // legacy UseTextureMaps bit, which a PBR material need not set).
             MaterialTextureRecord& record = m_Records[instance->MaterialIndex];
-            if (material->Flags & GPUSceneMaterialFlagAlbedoMap)
+            if ((material->Flags & GPUSceneMaterialFlagAlbedoMap) != 0u)
                 record.Albedo = ResolveTexture(material->AlbedoTextureIndex, material->AlbedoTextureGeneration);
-            if (material->Flags & GPUSceneMaterialFlagMetallicRoughnessMap)
+            if ((material->Flags & GPUSceneMaterialFlagMetallicRoughnessMap) != 0u)
                 record.MetallicRoughness =
                     ResolveTexture(material->MetallicRoughnessTextureIndex, material->MetallicRoughnessTextureGeneration);
-            if (material->Flags & GPUSceneMaterialFlagNormalMap)
+            if ((material->Flags & GPUSceneMaterialFlagNormalMap) != 0u)
                 record.Normal = ResolveTexture(material->NormalTextureIndex, material->NormalTextureGeneration);
-            if (material->Flags & GPUSceneMaterialFlagEmissiveMap)
+            if ((material->Flags & GPUSceneMaterialFlagEmissiveMap) != 0u)
                 record.Emissive = ResolveTexture(material->EmissiveTextureIndex, material->EmissiveTextureGeneration);
         }
         if (m_Records.empty())
@@ -122,6 +113,7 @@ namespace OloEngine
         {
             m_Buffer->SetData(m_Records.data(), requiredBytes);
             m_Uploaded = m_Records;
+            m_ChangedThisFrame = true;
         }
         m_UploadedCount = static_cast<u32>(m_Records.size());
         return m_UploadedCount;
@@ -148,7 +140,7 @@ namespace OloEngine
         m_Records.shrink_to_fit();
         m_Uploaded.clear();
         m_Uploaded.shrink_to_fit();
-        m_ResolvedByHandle.clear();
+        m_ChangedThisFrame = false;
         m_SamplerOffset = RHI::HeapOffset::Invalid;
         m_SamplerResolved = false;
         m_Unresolved = 0;

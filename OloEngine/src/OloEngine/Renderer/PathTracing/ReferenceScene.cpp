@@ -197,7 +197,16 @@ namespace OloEngine::PathTracing
         // from just past it; the bound stops a pathological mesh (thousands
         // of coplanar cut-out layers) from looping.
         constexpr u32 kMaxMaskedRecasts = 64u;
+        // The advance past a rejected triangle: an absolute floor plus a
+        // relative term, because an absolute 1e-5 is below half an ulp of a
+        // local distance past ~170 and would re-find the same triangle forever.
         constexpr f32 kMaskedRecastEpsilon = 1e-5f;
+        constexpr f32 kMaskedRecastRelative = 1e-6f;
+
+        [[nodiscard]] f32 MaskedRecastStart(f32 distance) noexcept
+        {
+            return distance + std::max(kMaskedRecastEpsilon, distance * kMaskedRecastRelative);
+        }
     } // namespace
 
     u32 ReferenceScene::AddQuadGeometry(const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3)
@@ -535,14 +544,18 @@ namespace OloEngine::PathTracing
         {
             if (!geometry.GetBVH().CastRay(localRay, localHit))
                 return false;
-            if (!material.AlphaMask || attempt >= kMaxMaskedRecasts)
+            if (!material.AlphaMask)
                 break;
+            // Past the bound the surface is treated as passed through, never
+            // as a hit whose alpha was not tested.
+            if (attempt >= kMaxMaskedRecasts)
+                return false;
             f32 alpha = material.BaseAlpha;
             if (material.AlbedoMap)
                 alpha *= material.AlbedoMap->SampleBilinear(geometry.InterpolateUV(localHit.TriangleIndex, localHit.U, localHit.V)).a;
             if (alpha >= material.AlphaCutoff)
                 break;
-            localRay.TMin = localHit.Distance + kMaskedRecastEpsilon;
+            localRay.TMin = MaskedRecastStart(localHit.Distance);
             if (localRay.TMin >= localRay.TMax)
                 return false;
         }
@@ -637,8 +650,9 @@ namespace OloEngine::PathTracing
         if (!material.AlphaMask)
             return geometry.GetBVH().CastRayAny(localRay);
 
-        // Masked: an occluder is the first triangle whose alpha passes.
-        for (u32 attempt = 0; attempt <= kMaxMaskedRecasts; ++attempt)
+        // Masked: an occluder is the first triangle whose alpha passes. Past
+        // the bound the surface is treated as passed through.
+        for (u32 attempt = 0; attempt < kMaxMaskedRecasts; ++attempt)
         {
             RayHit localHit;
             if (!geometry.GetBVH().CastRay(localRay, localHit))
@@ -648,11 +662,11 @@ namespace OloEngine::PathTracing
                 alpha *= material.AlbedoMap->SampleBilinear(geometry.InterpolateUV(localHit.TriangleIndex, localHit.U, localHit.V)).a;
             if (alpha >= material.AlphaCutoff)
                 return true;
-            localRay.TMin = localHit.Distance + kMaskedRecastEpsilon;
+            localRay.TMin = MaskedRecastStart(localHit.Distance);
             if (localRay.TMin >= localRay.TMax)
                 return false;
         }
-        return true;
+        return false;
     }
 
     bool ReferenceScene::Intersect(const Ray& ray, SurfaceInteraction& outHit) const

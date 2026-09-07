@@ -132,8 +132,9 @@ namespace OloEngine
         Manual,
         // A record in the GPU Scene changed this frame (an instance moved, a
         // material factor was edited, a light changed) without the scene being
-        // reloaded. Maps to the Scene dependency like SceneReset; kept distinct
-        // so a snapshot names which of the two it was (issue #1055).
+        // reloaded. Maps to the SceneContent dependency, which only a history
+        // that cannot reproject declares — a reprojecting history survives a
+        // moving object by design (issue #1055).
         SceneMutated,
     };
 

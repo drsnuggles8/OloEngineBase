@@ -8,7 +8,6 @@
 
 #include <glm/glm.hpp>
 
-#include <unordered_map>
 #include <vector>
 
 namespace OloEngine
@@ -17,7 +16,8 @@ namespace OloEngine
 
     // Mirrors OloPtMaterialTextures' record in GpuPathTracer.glsl (std430, 16
     // bytes): the BYTE offset of each material texture's descriptor in the
-    // resource heap, or kUnresolved. Indexed by GPU Scene material SLOT.
+    // resource heap, or RHI::HeapOffset::Invalid. Indexed by GPU Scene
+    // material SLOT.
     struct alignas(16) MaterialTextureRecord
     {
         u32 Albedo = RHI::HeapOffset::Invalid;
@@ -45,8 +45,14 @@ namespace OloEngine
     //
     // WHEN IT RUNS. EndFrame after the GPU Scene commit, before the emissive
     // table resolves (an emitter's texture offset comes from here). Records
-    // are rebuilt every frame the tracer gathers and re-uploaded only when
-    // their bytes changed, for the reason EmissiveTriangleTable gives.
+    // are rebuilt AND re-resolved every frame the tracer gathers — never
+    // memoised across frames, because a texture reloaded in place keeps its
+    // RHI handle while its image and heap slot change (VulkanTexture2D::
+    // Invalidate); RHITypes.h's rule for a heap offset is "fetch it, do not
+    // store it". Re-uploaded only when the bytes changed, for the reason
+    // EmissiveTriangleTable gives, and that change is reported through
+    // ChangedThisFrame so the accumulation restarts: a map that resolves a
+    // frame late changes what every hit shades with.
     class MaterialTextureTable
     {
       public:
@@ -72,6 +78,12 @@ namespace OloEngine
         {
             return m_Unresolved;
         }
+        // The uploaded bytes differ from last frame's: a texture resolved or
+        // changed slot, so the integrand changed and the sum must restart.
+        [[nodiscard]] bool ChangedThisFrame() const noexcept
+        {
+            return m_ChangedThisFrame;
+        }
         // The material sampler's heap byte offset (HeapBinding::
         // MaterialTexture2DSampler), Invalid where the backend cannot index.
         [[nodiscard]] u32 GetSamplerHeapOffset() const noexcept
@@ -88,11 +100,9 @@ namespace OloEngine
         [[nodiscard]] u32 ResolveTexture(u32 handleIndex, u32 handleGeneration);
 
         bool m_Gathering = false;
+        bool m_ChangedThisFrame = false;
         std::vector<MaterialTextureRecord> m_Records;
         std::vector<MaterialTextureRecord> m_Uploaded;
-        // Handle -> byte offset, kept across frames: the slot cache is
-        // persistent and a resolve is a registry lookup plus a mutex.
-        std::unordered_map<u64, u32> m_ResolvedByHandle;
         u32 m_SamplerOffset = RHI::HeapOffset::Invalid;
         bool m_SamplerResolved = false;
         u32 m_Unresolved = 0;

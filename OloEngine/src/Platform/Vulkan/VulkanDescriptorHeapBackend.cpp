@@ -104,13 +104,21 @@ namespace OloEngine
             return RHI::HeapOffset::Invalid;
         }
 
+        // Only a texture AT REST: content uploaded by a load-time one-shot
+        // rests in SHADER_READ_ONLY_OPTIMAL (VulkanTexture.cpp) and registers
+        // that as its initial layout; an attachment or storage image registers
+        // UNDEFINED, sits in whatever layout the last pass left, and only a
+        // recording can move it — the draw path does that at bind time
+        // (EnsureImageLayoutForDescriptor), this resolver cannot, so it
+        // refuses rather than bake a descriptor that lies about the layout.
+        if (info->InitialLayout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        {
+            return RHI::HeapOffset::Invalid;
+        }
+
         // The draw path's whole-image sampled view (VulkanRendererAPI::
         // BindTexture), so the slot cache hands back the SAME slot the raster
-        // frame binds this texture through. Textures at rest sit in
-        // SHADER_READ_ONLY_OPTIMAL (the upload ends there, VulkanTexture.cpp);
-        // a render target is not a material texture and is not resolvable
-        // here — its layout is whatever the last pass left, and only a
-        // recording can move it.
+        // frame binds this texture through.
         VkImageViewCreateInfo view{};
         view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         view.image = image;

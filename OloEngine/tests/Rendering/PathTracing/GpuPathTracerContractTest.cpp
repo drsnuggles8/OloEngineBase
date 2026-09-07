@@ -75,9 +75,20 @@ namespace OloEngine::Tests
                     continue;
                 const ReferenceGeometry& geometry = scene.GetGeometry(instance.GeometryIndex);
                 built.TotalArea = EmissiveTriangleTable::AppendTriangles(
-                    std::span<const Vertex>(geometry.GetVertices()), std::span<const u32>(geometry.GetIndices()), 0u,
-                    static_cast<u32>(geometry.GetIndices().size()), 0, instance.Transform, renderOrigin,
-                    material.Emissive, material.TwoSidedEmission, built.TotalArea, built.Records);
+                    EmissiveTriangleTable::TriangleRange{
+                        .Vertices = std::span<const Vertex>(geometry.GetVertices()),
+                        .Indices = std::span<const u32>(geometry.GetIndices()),
+                        .FirstIndex = 0u,
+                        .IndexCount = static_cast<u32>(geometry.GetIndices().size()),
+                        .BaseVertex = 0,
+                    },
+                    EmissiveTriangleTable::Emitter{
+                        .WorldTransform = instance.Transform,
+                        .RenderOrigin = renderOrigin,
+                        .Radiance = material.Emissive,
+                        .TwoSided = material.TwoSidedEmission,
+                    },
+                    built.TotalArea, built.Records);
             }
             EmissiveTriangleTable::Finalize(built.Records, built.TotalArea);
             return built;
@@ -212,16 +223,22 @@ namespace OloEngine::Tests
 
         std::vector<EmissiveTriangleRecord> records;
         const f32 area = EmissiveTriangleTable::AppendTriangles(
-            vertices, indices, 0u, static_cast<u32>(indices.size()), 0, glm::mat4(1.0f), glm::vec3(0.0f),
-            glm::vec3(1.0f), false, 0.0f, records);
+            EmissiveTriangleTable::TriangleRange{ .Vertices = vertices,
+                                                  .Indices = indices,
+                                                  .FirstIndex = 0u,
+                                                  .IndexCount = static_cast<u32>(indices.size()),
+                                                  .BaseVertex = 0 },
+            EmissiveTriangleTable::Emitter{ .Radiance = glm::vec3(1.0f) }, 0.0f, records);
         ASSERT_EQ(records.size(), 1u);
         EXPECT_NEAR(area, 0.5f, 1e-6f);
         EXPECT_TRUE(Near(glm::vec3(records[0].NormalAndCdf), glm::vec3(0.0f, 0.0f, 1.0f), 1e-6f));
 
         // A range past the index buffer, or a non-multiple of three, appends nothing.
         std::vector<EmissiveTriangleRecord> none;
-        EXPECT_EQ(EmissiveTriangleTable::AppendTriangles(vertices, indices, 6u, 6u, 0, glm::mat4(1.0f), glm::vec3(0.0f),
-                                                         glm::vec3(1.0f), false, 0.0f, none),
+        EXPECT_EQ(EmissiveTriangleTable::AppendTriangles(
+                      EmissiveTriangleTable::TriangleRange{
+                          .Vertices = vertices, .Indices = indices, .FirstIndex = 6u, .IndexCount = 6u, .BaseVertex = 0 },
+                      EmissiveTriangleTable::Emitter{ .Radiance = glm::vec3(1.0f) }, 0.0f, none),
                   0.0f);
         EXPECT_TRUE(none.empty());
 
@@ -571,8 +588,10 @@ namespace OloEngine::Tests
         };
         const std::vector<u32> indices = { 0, 1, 2 };
         std::vector<EmissiveTriangleRecord> records;
-        EmissiveTriangleTable::AppendTriangles(vertices, indices, 0u, 3u, 0, glm::mat4(1.0f), glm::vec3(0.0f),
-                                               glm::vec3(2.0f), false, 0.0f, records, 1234u);
+        EmissiveTriangleTable::AppendTriangles(
+            EmissiveTriangleTable::TriangleRange{
+                .Vertices = vertices, .Indices = indices, .FirstIndex = 0u, .IndexCount = 3u, .BaseVertex = 0 },
+            EmissiveTriangleTable::Emitter{ .Radiance = glm::vec3(2.0f), .EmissiveTexture = 1234u }, 0.0f, records);
         ASSERT_EQ(records.size(), 1u);
         const EmissiveTriangleRecord& record = records.front();
         EXPECT_NEAR(record.Uv01.x, 0.1f, 1e-6f);
@@ -584,8 +603,10 @@ namespace OloEngine::Tests
         EXPECT_EQ(record.Texture.x, 1234u);
         // Without a map the record says so, with the value the shader tests.
         std::vector<EmissiveTriangleRecord> untextured;
-        EmissiveTriangleTable::AppendTriangles(vertices, indices, 0u, 3u, 0, glm::mat4(1.0f), glm::vec3(0.0f),
-                                               glm::vec3(2.0f), false, 0.0f, untextured);
+        EmissiveTriangleTable::AppendTriangles(
+            EmissiveTriangleTable::TriangleRange{
+                .Vertices = vertices, .Indices = indices, .FirstIndex = 0u, .IndexCount = 3u, .BaseVertex = 0 },
+            EmissiveTriangleTable::Emitter{ .Radiance = glm::vec3(2.0f) }, 0.0f, untextured);
         ASSERT_EQ(untextured.size(), 1u);
         EXPECT_EQ(untextured.front().Texture.x, RHI::HeapOffset::Invalid);
         static_assert(sizeof(EmissiveTriangleRecord) == 112);

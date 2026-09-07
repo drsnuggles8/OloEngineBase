@@ -27,6 +27,7 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/PathTracing/PathSampler.h"
@@ -125,8 +126,12 @@ namespace OloEngine::Tests
                 // by 4 is a power of two.
                 const f32 packed = second2D.x + second1D * 4.0f;
 
-                const bool equal = gpu[base + 0] == first2D.x && gpu[base + 1] == first2D.y &&
-                                   gpu[base + 2] == first1D && gpu[base + 3] == packed;
+                // Bit-exact is the contract, so the compare is bitwise, not
+                // a float ==.
+                const bool equal = Math::BitwiseEqual(gpu[base + 0], first2D.x) &&
+                                   Math::BitwiseEqual(gpu[base + 1], first2D.y) &&
+                                   Math::BitwiseEqual(gpu[base + 2], first1D) &&
+                                   Math::BitwiseEqual(gpu[base + 3], packed);
                 if (!equal)
                 {
                     if (mismatches == 0)

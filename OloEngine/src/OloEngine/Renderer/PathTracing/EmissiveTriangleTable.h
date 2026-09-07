@@ -29,7 +29,7 @@
 // table therefore describes exactly the emitters the shader shades, from the
 // same bytes.
 //
-// THE RECORD IS THE GLSL STRUCT. Five vec4, uploaded verbatim; the shader
+// THE RECORD IS THE GLSL STRUCT. Six vec4 and one uvec4 (112 bytes), uploaded verbatim; the shader
 // reaches it through a device address in the ray-tracing UBO because the
 // buffer-binding namespace is full (#978). The cumulative area fraction rides
 // each record's NormalAndCdf.w, with the last entry forced to exactly 1 so a
@@ -39,6 +39,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Vertex.h"
 
@@ -131,20 +132,36 @@ namespace OloEngine
 
         void Shutdown();
 
-        // The pure half, exposed for the headless test: append the triangles
-        // of `indices[first, first + count)` (with `baseVertex` applied,
-        // exactly as the raster draw does) that have a non-degenerate area,
-        // transformed by `worldTransform` into the render-relative frame, and
-        // return the running area. Records carry the raw running area in
-        // NormalAndCdf.w until Finalize normalises it.
-        // `emissiveTexture` is the material's emissive map as a resource-heap
-        // byte offset (RHI::HeapOffset::Invalid for none); every record of the
-        // range carries it together with its vertices' UVs.
-        static f32 AppendTriangles(std::span<const Vertex> vertices, std::span<const u32> indices, u32 firstIndex,
-                                   u32 indexCount, i32 baseVertex, const glm::mat4& worldTransform,
-                                   const glm::vec3& renderOrigin, const glm::vec3& radiance, bool twoSided,
-                                   f32 runningArea, std::vector<EmissiveTriangleRecord>& out,
-                                   u32 emissiveTexture = RHI::HeapOffset::Invalid);
+        // The triangles to append: `Indices[FirstIndex, FirstIndex + IndexCount)`
+        // with `BaseVertex` applied, exactly as the raster draw does.
+        struct TriangleRange
+        {
+            std::span<const Vertex> Vertices;
+            std::span<const u32> Indices;
+            u32 FirstIndex = 0;
+            u32 IndexCount = 0;
+            i32 BaseVertex = 0;
+        };
+        // The emitter they belong to: the instance transform into the
+        // render-relative frame, the material's radiance factor, its
+        // two-sidedness, and its emissive map as a resource-heap byte offset
+        // (RHI::HeapOffset::Invalid for none) — every record of the range
+        // carries the map together with its vertices' UVs.
+        struct Emitter
+        {
+            glm::mat4 WorldTransform{ 1.0f };
+            glm::vec3 RenderOrigin{ 0.0f };
+            glm::vec3 Radiance{ 0.0f };
+            bool TwoSided = false;
+            u32 EmissiveTexture = RHI::HeapOffset::Invalid;
+        };
+
+        // The pure half, exposed for the headless test: append the range's
+        // triangles that have a non-degenerate area and return the running
+        // area. Records carry the raw running area in NormalAndCdf.w until
+        // Finalize normalises it.
+        static f32 AppendTriangles(const TriangleRange& range, const Emitter& emitter, f32 runningArea,
+                                   std::vector<EmissiveTriangleRecord>& out);
         // Turn the running area sums into cumulative fractions; the last
         // entry is forced to exactly 1.
         static void Finalize(std::vector<EmissiveTriangleRecord>& records, f32 totalArea);

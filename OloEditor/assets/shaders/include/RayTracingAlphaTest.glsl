@@ -152,10 +152,10 @@ bool oloRayTracingConfirmCandidate(GPUSceneGeometry geometry, GPUSceneMaterial m
     {
         return true;
     }
-    if ((material.Flags & OLO_GPU_SCENE_MATERIAL_ALBEDO_MAP) == 0u)
-    {
-        return true;
-    }
+    // No early-out on a missing albedo map: the raster path tests
+    // baseColorFactor.a against the cutoff regardless (PBR_GBuffer.glsl), and
+    // the consumer's OLO_RT_SAMPLE_ALPHA is what folds the map in when there
+    // is one — the CPU reference does the same (ReferenceScene::Intersect).
     const vec2 uv = oloRayTracingHitUV(geometry, primitiveIndex, barycentrics);
     // Explicit LOD 0 — see the LOD POLICY note at the top of this file.
     const float sampledAlpha = OLO_RT_SAMPLE_ALPHA(materialIndex, uv);

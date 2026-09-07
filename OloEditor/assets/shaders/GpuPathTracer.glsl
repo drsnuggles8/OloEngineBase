@@ -204,7 +204,9 @@ layout(std140, binding = 65) uniform RayTracingPathTracerParams
 
 // GPUSceneMaterial.ClosureVersion — PBRModel (Legacy 0, ClosureV2 1), pinned
 // by GpuPathTracerContractTest. Each hit is shaded with ITS closure, as the
-// CPU reference dispatches (PBRClosureBSDF.h); an unknown version shades v2.
+// CPU reference dispatches (PBRClosureBSDF.h): ClosureV2 when the version says
+// so, Legacy otherwise — the CPU's default arm, so an unknown version lands
+// on the same closure on both.
 #define OLO_PT_CLOSURE_LEGACY 0u
 #define OLO_PT_CLOSURE_V2 1u
 
@@ -534,23 +536,23 @@ ClosureV2Sample PtLegacySampleBRDF(vec3 n, vec3 v, vec3 albedo, float metallic, 
 
 vec3 PtEvaluateBRDF(PtHit hit, vec3 n, vec3 v, vec3 l)
 {
-    if (hit.ClosureVersion == OLO_PT_CLOSURE_LEGACY)
-        return cookTorranceBRDF(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
-    return closureV2Evaluate(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+    if (hit.ClosureVersion == OLO_PT_CLOSURE_V2)
+        return closureV2Evaluate(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+    return cookTorranceBRDF(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
 }
 
 float PtBsdfPdf(PtHit hit, vec3 n, vec3 v, vec3 l)
 {
-    if (hit.ClosureVersion == OLO_PT_CLOSURE_LEGACY)
-        return PtLegacyPdf(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
-    return closureV2Pdf(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+    if (hit.ClosureVersion == OLO_PT_CLOSURE_V2)
+        return closureV2Pdf(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
+    return PtLegacyPdf(n, v, l, hit.Albedo, hit.Metallic, hit.Roughness);
 }
 
 ClosureV2Sample PtSampleBRDF(PtHit hit, vec3 n, vec3 v, float lobeXi, vec2 xi)
 {
-    if (hit.ClosureVersion == OLO_PT_CLOSURE_LEGACY)
-        return PtLegacySampleBRDF(n, v, hit.Albedo, hit.Metallic, hit.Roughness, lobeXi, xi);
-    return closureV2SampleBRDF(n, v, hit.Albedo, hit.Metallic, hit.Roughness, lobeXi, xi);
+    if (hit.ClosureVersion == OLO_PT_CLOSURE_V2)
+        return closureV2SampleBRDF(n, v, hit.Albedo, hit.Metallic, hit.Roughness, lobeXi, xi);
+    return PtLegacySampleBRDF(n, v, hit.Albedo, hit.Metallic, hit.Roughness, lobeXi, xi);
 }
 
 // ---------------------------------------------------------------------------
@@ -620,7 +622,11 @@ int PtIntersectSphereLights(vec3 origin, vec3 direction, float tMax, out float o
         const float radius = light.DirectionAndRadius.w;
         if (!(radius > 0.0))
             continue;
+        // Inside or past the range: transparent (PathTracer.cpp's rule).
         const vec3 oc = origin - light.PositionAndRange.xyz;
+        const float centreDistance = length(oc);
+        if (!(centreDistance > radius) || centreDistance > light.PositionAndRange.w)
+            continue;
         const float b = dot(oc, direction);
         const float c = dot(oc, oc) - radius * radius;
         const float discriminant = b * b - c;
@@ -705,8 +711,8 @@ void FetchTriangle(GPUSceneGeometry geometry, uint primitiveIndex, mat4x3 object
 
 // Closest hit along the ray, resolved through the GPU Scene records. A hit on
 // a slot the records cannot vouch for (out of range, tombstoned, a dead
-// material) is reported as NO hit: the path then collects the environment,
-// which is a defined value rather than whatever the stale record held.
+// material) is an UnshadeableHit: the ray did stop there, so the path ends
+// with no contribution rather than collecting the environment through it.
 bool TraceClosestGeometry(vec3 origin, vec3 direction, float tMax, out PtHit hit)
 {
     hit.Hit = false;
@@ -872,7 +878,17 @@ bool IsOccluded(vec3 from, vec3 to, float epsilon)
             rayQueryConfirmIntersectionEXT(shadowQuery);
         }
     }
-    return rayQueryGetIntersectionTypeEXT(shadowQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+    if (rayQueryGetIntersectionTypeEXT(shadowQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT)
+        return true;
+    // A sphere light in the way blocks the ray too (PathTracer.cpp's
+    // ShadowRayBlocked): closest-hit rays stop at spheres, so shadow rays
+    // must, or the two MIS strategies disagree about what is visible. The
+    // segment ends epsilon short of its target, so a ray aimed AT a sphere
+    // light's surface does not count that sphere.
+    if (!(dist > 2.0 * epsilon))
+        return false;
+    float sphereT;
+    return PtIntersectSphereLights(from + delta / dist * epsilon, delta / dist, dist - 2.0 * epsilon, sphereT) >= 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -983,8 +999,7 @@ vec3 SampleDirectLighting(PtHit hit, vec3 geometricNormal, vec3 n, vec3 v, float
         }
         else
         {
-            // Sphere-area lights have no reference twin (ReferenceLightType has
-            // three rows), so neither oracle sees them. Counted on the CPU side.
+            // A sphere light is an AREA light: sampled below with its own dimensions.
             continue;
         }
 
@@ -1047,9 +1062,10 @@ vec3 SampleDirectLighting(PtHit hit, vec3 geometricNormal, vec3 n, vec3 v, float
         }
     }
 
-    // ONE MIS-weighted sample per sphere light, in slot order, two dimensions
-    // each — drawn before the validity test so every pixel spends the same
-    // dimensions, in the order the CPU reference draws them.
+    // ONE MIS-weighted sample per ACTIVE sphere light, in slot order, two
+    // dimensions each — drawn before the validity test so every pixel spends
+    // the same dimensions, in the order the CPU reference draws them (its
+    // light list holds exactly the active lights).
     for (uint i = 0u; i < OLO_PT_MAX_LIGHTS; ++i)
     {
         if (i >= lightCount)
@@ -1119,6 +1135,8 @@ vec3 TracePath(vec3 origin, vec3 direction, inout OloPathSampler pathSampler, ou
     // is added at full weight because NEE never had a chance to sample it.
     bool previousScatterWasDelta = true;
     float previousBsdfPdf = 0.0;
+    // The vertex the current ray left, UN-offset (PathTracer.cpp's rule).
+    vec3 previousVertex = origin;
 
     const bool nee = (u_EmissiveTable.w & OLO_PT_FLAG_NEE) != 0u;
     const bool neeSamplesEmitters = nee && u_EmissiveTable.z != 0u;
@@ -1143,13 +1161,22 @@ vec3 TracePath(vec3 origin, vec3 direction, inout OloPathSampler pathSampler, ou
         // NEE would have drawn it from at the previous vertex.
         if (hit.SphereLight >= 0)
         {
-            const PtSphereLightView view = PtViewSphereLight(g_GPUSceneLights[hit.SphereLight], origin);
+            const GPUSceneLight sphereLight = g_GPUSceneLights[hit.SphereLight];
+            const PtSphereLightView view = PtViewSphereLight(sphereLight, previousVertex);
             if (view.Valid)
             {
                 const float misWeight = (previousScatterWasDelta || !nee)
                                             ? 1.0
                                             : PowerHeuristic(previousBsdfPdf, PtSphereConePdf(view.CosThetaMax));
                 radiance += throughput * view.Radiance * misWeight;
+            }
+            if (bounce == 0u)
+            {
+                // The AOVs see the emitter's disc as a black surface facing
+                // out, not as background.
+                firstHitAlbedo = vec3(0.0);
+                firstHitNormal = normalize(hit.Position - sphereLight.PositionAndRange.xyz);
+                firstHitFlag = 1.0;
             }
             break;
         }
@@ -1241,6 +1268,7 @@ vec3 TracePath(vec3 origin, vec3 direction, inout OloPathSampler pathSampler, ou
             throughput /= survival;
         }
 
+        previousVertex = hit.Position;
         origin = OffsetOrigin(hit.Position, geometricNormal, bsdf.L, rayEpsilon);
         direction = bsdf.L;
     }

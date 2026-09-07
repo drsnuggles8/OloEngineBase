@@ -121,7 +121,14 @@ namespace OloEngine::PathTracing
                 const ReferenceLight& light = lights[i];
                 if (light.Type != ReferenceLightType::SphereArea || !(light.Radius > 0.0f))
                     continue;
+                // A sphere the origin is inside of, or past the range of, is
+                // transparent — it has no radiance to give this ray, and a
+                // black disc where a light stopped contributing is not what
+                // the raster shows either.
                 const glm::vec3 oc = origin - light.Position;
+                const f32 centreDistance = glm::length(oc);
+                if (!(centreDistance > light.Radius) || centreDistance > light.AttenuationParams.w)
+                    continue;
                 const f32 b = glm::dot(oc, direction);
                 const f32 c = glm::dot(oc, oc) - light.Radius * light.Radius;
                 const f32 discriminant = b * b - c;
@@ -139,6 +146,26 @@ namespace OloEngine::PathTracing
                 outT = t;
             }
             return found;
+        }
+
+        // A shadow ray is blocked by geometry OR by a sphere light in the way:
+        // closest-hit rays stop at a sphere, so shadow rays must too, or the
+        // two MIS strategies would disagree about what is visible along one
+        // direction. The segment ends `epsilon` short of its target, so a ray
+        // aimed AT a sphere light's surface does not count that sphere.
+        [[nodiscard]] bool ShadowRayBlocked(const ReferenceScene& scene, const glm::vec3& from, const glm::vec3& to,
+                                            f32 epsilon) noexcept
+        {
+            if (scene.IsOccluded(from, to, epsilon))
+                return true;
+            const glm::vec3 delta = to - from;
+            const f32 distance = glm::length(delta);
+            if (!(distance > 2.0f * epsilon))
+                return false;
+            u32 light = 0;
+            f32 t = 0.0f;
+            return IntersectSphereLights(scene, from + delta / distance * epsilon, delta / distance,
+                                         distance - 2.0f * epsilon, light, t);
         }
 
         [[nodiscard]] glm::vec3 OffsetOrigin(const glm::vec3& position, const glm::vec3& geometricNormal,
@@ -216,7 +243,7 @@ namespace OloEngine::PathTracing
                     continue;
 
                 const glm::vec3 shadowOrigin = OffsetOrigin(position, geometricNormal, l, settings.RayEpsilon);
-                if (scene.IsOccluded(shadowOrigin, shadowTarget, settings.RayEpsilon))
+                if (ShadowRayBlocked(scene, shadowOrigin, shadowTarget, settings.RayEpsilon))
                     continue;
 
                 const glm::vec3 radiance = light.Color * light.Intensity * attenuation;
@@ -255,7 +282,7 @@ namespace OloEngine::PathTracing
                             {
                                 const glm::vec3 shadowOrigin =
                                     OffsetOrigin(position, geometricNormal, l, settings.RayEpsilon);
-                                if (!scene.IsOccluded(shadowOrigin, lightSample.Position, settings.RayEpsilon))
+                                if (!ShadowRayBlocked(scene, shadowOrigin, lightSample.Position, settings.RayEpsilon))
                                 {
                                     const glm::vec3 brdf = EvaluateBRDF(material, n, v, l);
                                     const f32 pdfBsdf = BsdfPdf(n, v, l, material);
@@ -298,7 +325,7 @@ namespace OloEngine::PathTracing
                 if (!(t > 0.0f))
                     continue;
                 const glm::vec3 shadowOrigin = OffsetOrigin(position, geometricNormal, l, settings.RayEpsilon);
-                if (scene.IsOccluded(shadowOrigin, position + l * t, settings.RayEpsilon))
+                if (ShadowRayBlocked(scene, shadowOrigin, position + l * t, settings.RayEpsilon))
                     continue;
                 const glm::vec3 brdf = EvaluateBRDF(material, n, v, l);
                 const f32 pdfBsdf = BsdfPdf(n, v, l, material);
@@ -474,6 +501,10 @@ namespace OloEngine::PathTracing
         // sample it for this vertex.
         bool previousScatterWasDelta = true;
         f32 previousBsdfPdf = 0.0f;
+        // The vertex the current ray left, UN-offset: the cone density and
+        // radiance a sphere-light hit is weighted with must be the ones NEE
+        // evaluated at that shading point, not at the epsilon-offset origin.
+        glm::vec3 previousVertex = ray.Origin;
 
         const bool hasEmissiveGeometry = !scene.GetEmissiveTriangles().empty();
         const bool neeSamplesEmitters = settings.EnableNextEventEstimation && hasEmissiveGeometry;
@@ -493,7 +524,7 @@ namespace OloEngine::PathTracing
                                       hitGeometry ? hit.Distance : std::numeric_limits<f32>::max(), sphereLight,
                                       sphereT))
             {
-                const SphereLightView view = ViewSphereLight(scene.GetLights()[sphereLight], ray.Origin);
+                const SphereLightView view = ViewSphereLight(scene.GetLights()[sphereLight], previousVertex);
                 if (view.Valid)
                 {
                     const f32 misWeight = (previousScatterWasDelta || !settings.EnableNextEventEstimation)
@@ -586,6 +617,7 @@ namespace OloEngine::PathTracing
                 throughput /= survival;
             }
 
+            previousVertex = hit.Position;
             ray = Ray(OffsetOrigin(hit.Position, geometricNormal, bsdf.Direction, settings.RayEpsilon),
                       bsdf.Direction, 0.0f, std::numeric_limits<f32>::max());
         }

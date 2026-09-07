@@ -389,10 +389,21 @@ namespace OloEngine::Tests
                 {
                     const ReferenceGeometry& geometry = scene.GetGeometry(instance.GeometryIndex);
                     twin.EmissiveArea = EmissiveTriangleTable::AppendTriangles(
-                        std::span<const Vertex>(geometry.GetVertices()), std::span<const u32>(geometry.GetIndices()), 0u,
-                        static_cast<u32>(geometry.GetIndices().size()), 0, instance.Transform, glm::vec3(0.0f),
-                        material.Emissive, material.TwoSidedEmission, twin.EmissiveArea, twin.Emissive,
-                        twin.MaterialTextures[instance.MaterialIndex].Emissive);
+                        EmissiveTriangleTable::TriangleRange{
+                            .Vertices = std::span<const Vertex>(geometry.GetVertices()),
+                            .Indices = std::span<const u32>(geometry.GetIndices()),
+                            .FirstIndex = 0u,
+                            .IndexCount = static_cast<u32>(geometry.GetIndices().size()),
+                            .BaseVertex = 0,
+                        },
+                        EmissiveTriangleTable::Emitter{
+                            .WorldTransform = instance.Transform,
+                            .RenderOrigin = glm::vec3(0.0f),
+                            .Radiance = material.Emissive,
+                            .TwoSided = material.TwoSidedEmission,
+                            .EmissiveTexture = twin.MaterialTextures[instance.MaterialIndex].Emissive,
+                        },
+                        twin.EmissiveArea, twin.Emissive);
                 }
             }
             EmissiveTriangleTable::Finalize(twin.Emissive, twin.EmissiveArea);

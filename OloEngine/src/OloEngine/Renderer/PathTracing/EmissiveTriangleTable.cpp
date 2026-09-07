@@ -46,12 +46,20 @@ namespace OloEngine
         });
     }
 
-    f32 EmissiveTriangleTable::AppendTriangles(std::span<const Vertex> vertices, std::span<const u32> indices,
-                                               u32 firstIndex, u32 indexCount, i32 baseVertex,
-                                               const glm::mat4& worldTransform, const glm::vec3& renderOrigin,
-                                               const glm::vec3& radiance, bool twoSided, f32 runningArea,
-                                               std::vector<EmissiveTriangleRecord>& out, u32 emissiveTexture)
+    f32 EmissiveTriangleTable::AppendTriangles(const TriangleRange& range, const Emitter& emitter, f32 runningArea,
+                                               std::vector<EmissiveTriangleRecord>& out)
     {
+        const std::span<const Vertex> vertices = range.Vertices;
+        const std::span<const u32> indices = range.Indices;
+        const u32 firstIndex = range.FirstIndex;
+        const u32 indexCount = range.IndexCount;
+        const i32 baseVertex = range.BaseVertex;
+        const glm::mat4& worldTransform = emitter.WorldTransform;
+        const glm::vec3& renderOrigin = emitter.RenderOrigin;
+        const glm::vec3& radiance = emitter.Radiance;
+        const bool twoSided = emitter.TwoSided;
+        const u32 emissiveTexture = emitter.EmissiveTexture;
+
         const sizet indexEnd = static_cast<sizet>(firstIndex) + indexCount;
         if (indexEnd > indices.size() || indexCount < 3u)
             return runningArea;
@@ -149,10 +157,21 @@ namespace OloEngine
             const auto& indices = source.GetIndices();
 
             m_TotalArea = AppendTriangles(
-                std::span<const Vertex>(vertices.GetData(), static_cast<sizet>(vertices.Num())),
-                std::span<const u32>(indices.GetData(), static_cast<sizet>(indices.Num())), submesh.m_BaseIndex,
-                submesh.m_IndexCount, static_cast<i32>(submesh.m_BaseVertex), pending.m_WorldTransform,
-                m_RenderOrigin, radiance, twoSided, m_TotalArea, m_Records, emissiveTexture);
+                TriangleRange{
+                    .Vertices = std::span<const Vertex>(vertices.GetData(), static_cast<sizet>(vertices.Num())),
+                    .Indices = std::span<const u32>(indices.GetData(), static_cast<sizet>(indices.Num())),
+                    .FirstIndex = submesh.m_BaseIndex,
+                    .IndexCount = submesh.m_IndexCount,
+                    .BaseVertex = static_cast<i32>(submesh.m_BaseVertex),
+                },
+                Emitter{
+                    .WorldTransform = pending.m_WorldTransform,
+                    .RenderOrigin = m_RenderOrigin,
+                    .Radiance = radiance,
+                    .TwoSided = twoSided,
+                    .EmissiveTexture = emissiveTexture,
+                },
+                m_TotalArea, m_Records);
         }
         m_Pending.clear();
 
