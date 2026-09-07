@@ -897,11 +897,18 @@ namespace OloEngine
         metadata.FilePath = relativePath;
         metadata.Type = type;
 
+        // Stamped from the RESOLVED path, not from the caller's spelling. `filepath`
+        // may be project-relative, and this call resolves a relative path against the
+        // process working directory — which is the project's parent in the editor and
+        // anything at all elsewhere. Every such read failed and stored the epoch, and
+        // an epoch timestamp is never "current", so EnsureCurrent and the watcher scan
+        // both force a reload of that asset on every check. `absolutePath` is the path
+        // the existence check three lines above already passed.
         // Use error_code overload to avoid exceptions (reuse existing ec variable)
-        metadata.LastWriteTime = std::filesystem::last_write_time(filepath, ec);
+        metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath, ec);
         if (ec)
         {
-            OLO_CORE_WARN("Failed to get last write time for asset {}: {}", filepath.string(), ec.message());
+            OLO_CORE_WARN("Failed to get last write time for asset {}: {}", absolutePath.string(), ec.message());
             metadata.LastWriteTime = std::filesystem::file_time_type{}; // Default/empty timestamp
         }
 
