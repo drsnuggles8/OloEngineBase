@@ -310,10 +310,14 @@ namespace OloEngine::Tests
         /// states both halves of this rule, and this file followed neither: it
         /// reset WaterWakeSystem and WaterDisturbanceSystem only, and only on the
         /// way OUT. The other two are world-anchored too, and
-        /// `Scene::OnRuntimeStart` resets the four together for that reason.
-        /// WaterSpraySystem in particular retains particles across a Scene
-        /// boundary, and eight of the sibling test's spray specks surviving into
-        /// this one is what made issue #1094's two orderings disagree at all.
+        /// `Scene::OnRuntimeStart` resets the four together for that reason, and
+        /// WaterSpraySystem in particular retains particles across a Scene boundary.
+        ///
+        /// This is a correctness fix on its own terms, NOT the cause of #1094: the
+        /// eight-pixel difference between orderings survives resetting all four
+        /// services, so it is not state these resets hold. What fixed #1094 is the
+        /// box placement in AnalyseDiff. The residual difference is unexplained —
+        /// see the issue.
         ///
         /// On the way IN rather than only on the way out, because a test can only
         /// guarantee the state it starts from — what ran before it in the process

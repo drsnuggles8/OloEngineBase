@@ -1278,14 +1278,33 @@ namespace OloEngine
         if (!ec && !relativePath.empty())
             return relativePath;
 
-        // Say so, and say it once per import rather than per read: an asset that
-        // cannot be named relative to the project is not portable — moving or
-        // packing the project will not bring it along — and that is worth a line
-        // in the log even though the load itself now succeeds.
-        OLO_CORE_WARN("EditorAssetManager: '{}' has no path relative to the project root '{}' "
-                      "(a different drive, on Windows). Registering it under its ABSOLUTE path, "
-                      "which is machine-specific: move the file inside the project to make it portable.",
-                      canonicalFile.string(), canonicalProject.string());
+        // Say so: an asset that cannot be named relative to the project is not
+        // portable — moving or packing the project will not bring it along — and
+        // that is worth a line in the log even though the load itself now succeeds.
+        //
+        // Once per file, not once per call. This is not only reached from import:
+        // GetAssetHandleFromFilePath routes every ABSOLUTE-path lookup through here,
+        // and that is called from the script glue and the imported-material codec,
+        // so a cross-drive asset queried in a script would otherwise print on every
+        // frame. Same warned-set idiom as the missing-file report below.
+        //
+        // The dedupe is on the LOG only; the return value stays a pure function of
+        // the two inputs, which is what the unit tests pin.
+        static FMutex s_CrossDriveWarnMutex;
+        static std::unordered_set<std::string> s_CrossDriveWarned;
+        bool firstWarn = false;
+        {
+            TUniqueLock<FMutex> lock(s_CrossDriveWarnMutex);
+            firstWarn = s_CrossDriveWarned.insert(canonicalFile.string()).second;
+        }
+        if (firstWarn)
+        {
+            OLO_CORE_WARN("EditorAssetManager: '{}' has no path relative to the project root '{}' "
+                          "(a different drive, on Windows). Registering it under its ABSOLUTE path, "
+                          "which is machine-specific: move the file inside the project to make it "
+                          "portable. Reported once per file.",
+                          canonicalFile.string(), canonicalProject.string());
+        }
         return canonicalFile;
     }
 

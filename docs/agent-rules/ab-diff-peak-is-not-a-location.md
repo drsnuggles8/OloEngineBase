@@ -82,6 +82,7 @@ about the estimator changes; only the margin does.
 Related: [persistent-world-space-fields.md](persistent-world-space-fields.md) §4 (where
 to sample), [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md)
 (reset all four water services in the fixture — this file's test reset two, on the way
-out only, and that is what let the two orderings differ at all),
+out only; fixed alongside #1094, though it is not what made the orderings differ: the
+residual eight pixels survive resetting all four),
 [live-verification-noise-floor.md](live-verification-noise-floor.md) (the A/B exists to
 put the noise floor at zero; a fragile box puts it back).
