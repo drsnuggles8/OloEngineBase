@@ -450,6 +450,10 @@ namespace OloEngine::MCP::PostProcess
                    "Global sampler seed; changes the noise, not the converged value."),
         OLO_PT_BOOL("GpuPathTracerNextEventEstimation", EnableNextEventEstimation,
                     "Next-event estimation. Off is pure BSDF sampling: unbiased, far noisier, the cross-check for the MIS weights."),
+        OLO_PT_BOOL("GpuPathTracerSampleTextures", SampleTextures,
+                    "Shade hits from the material textures (albedo, metallic-roughness, normal, emissive; alpha MASK on the ray) "
+                    "where the backend can index the descriptor heap. Off shades from the factors alone: the A/B for a "
+                    "texture disagreement with the CPU reference."),
         OLO_PT_NUM("GpuPathTracerMaxRadianceClamp", MaxRadianceClamp, FieldType::Float, 0.0,
                    static_cast<double>(GpuPathTracerLimits::kMaxRadianceClamp),
                    "Firefly clamp per path in radiance units; 0 = off. A clamp is a bias, keep it off for ground truth."),

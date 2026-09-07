@@ -29,6 +29,7 @@
 #include "OloEngine/Renderer/HZBGenerator.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
+#include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
 #include "OloEngine/Wind/WindSystem.h"
@@ -2063,6 +2064,9 @@ namespace OloEngine
             // it in EndScene. Value-owned beside the scene for the same reason
             // the acceleration structures are.
             EmissiveTriangleTable PathTracerEmissive;
+            // ...and its per-material texture table (the #805 capability for
+            // ray-query shaders), resolved before the emissive table reads it.
+            MaterialTextureTable PathTracerMaterialTextures;
             // Acceleration structures over SceneGPU (#978). Value-owned beside
             // it for the same reason: a renderer restart must not strand the
             // BLAS table behind a dangling scene.

@@ -133,9 +133,11 @@ namespace OloEngine
         // to compile, or OLO_VULKAN_NO_RAY_TRACING=1 on a capable device, would
         // otherwise build a table every frame that nothing reads.
         const GpuPathTracerPass* pathTracer = GetGpuPathTracerPass();
-        s_Data.PathTracerEmissive.BeginFrame(s_Data.RenderOrigin, s_Data.PostProcess.GpuPathTracer.Enabled &&
-                                                                      pathTracer != nullptr &&
-                                                                      pathTracer->IsShaderLoaded());
+        const bool gatherForPathTracer =
+            s_Data.PostProcess.GpuPathTracer.Enabled && pathTracer != nullptr && pathTracer->IsShaderLoaded();
+        s_Data.PathTracerEmissive.BeginFrame(s_Data.RenderOrigin, gatherForPathTracer);
+        s_Data.PathTracerMaterialTextures.BeginFrame(gatherForPathTracer &&
+                                                     s_Data.PostProcess.GpuPathTracer.SampleTextures);
         // The link table is per frame and indices into it are handed to draw
         // packets, so it is cleared here and nowhere else: a stale entry would
         // give this frame's draw last frame's record.

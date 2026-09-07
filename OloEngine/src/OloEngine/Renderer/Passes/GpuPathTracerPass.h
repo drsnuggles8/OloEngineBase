@@ -17,6 +17,7 @@ namespace OloEngine
 {
     class EmissiveTriangleTable;
     class GPUScene;
+    class MaterialTextureTable;
 
     namespace RayTracing
     {
@@ -57,9 +58,12 @@ namespace OloEngine
     // early-out passes the input through. The reason is counted in GetStats()
     // and reported once per change (docs/agent-rules/no-silent-fallbacks.md).
     //
-    // STANDING LIMITS, each counted rather than commented: untextured hits
-    // (#805), masked geometry traced as solid, Legacy materials shaded with
-    // the ClosureV2 closure, sphere-area lights ignored (no reference twin).
+    // TEXTURES come through MaterialTextureTable and the descriptor heap the
+    // shader indexes itself (ADR 0011 amendment (95)); where the backend
+    // cannot index it, hits shade from the factors and masked geometry traces
+    // as solid, both counted. The other STANDING LIMITS, counted rather than
+    // commented: Legacy materials shaded with the ClosureV2 closure,
+    // sphere-area lights ignored (no reference twin).
     class GpuPathTracerPass : public RenderGraphNode
     {
       public:
@@ -103,6 +107,10 @@ namespace OloEngine
         void SetEmissiveTable(const EmissiveTriangleTable* table) noexcept
         {
             m_EmissiveTable = table;
+        }
+        void SetMaterialTextureTable(const MaterialTextureTable* table) noexcept
+        {
+            m_MaterialTextures = table;
         }
         void SetParamsUBO(const Ref<UniformBuffer>& ubo) noexcept
         {
@@ -160,6 +168,8 @@ namespace OloEngine
         // Sets the verdict in m_Stats and logs it once per change.
         void ReportFallback(GpuPathTracerFallbackReason reason);
         void CountSceneForStats();
+        // Logs whether hits shade from textures, once per change, with why not.
+        void ReportTextureAvailability();
 
         bool m_Enabled = false;
 
@@ -169,6 +179,7 @@ namespace OloEngine
         const RayTracing::RayTracingScene* m_RayTracingScene = nullptr;
         const GPUScene* m_GPUScene = nullptr;
         const EmissiveTriangleTable* m_EmissiveTable = nullptr;
+        const MaterialTextureTable* m_MaterialTextures = nullptr;
 
         GpuPathTracerSettings m_Settings{};
         bool m_HasSettings = false;
@@ -189,6 +200,7 @@ namespace OloEngine
         GpuPathTracerFallbackReason m_LastReportedFallback = GpuPathTracerFallbackReason::Count;
         bool m_ReportedLightsBeyondShaderBound = false;
         bool m_ReportedEmissiveTableUnaddressable = false;
+        std::optional<bool> m_ReportedTexturesAvailable;
 
         RGTextureHandle m_SelectedHistoryTexture{};
         RGTextureHandle m_SelectedMomentsHistoryTexture{};

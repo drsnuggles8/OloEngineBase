@@ -357,7 +357,9 @@ namespace OloEngine::PathTracing
                 break;
             }
 
-            const ReferenceMaterial& material = scene.GetMaterial(hit.MaterialIndex);
+            // The material as the hit sees it: factors times maps at the hit's
+            // UV (the normal map is already in hit.ShadingNormal).
+            const ReferenceMaterial material = scene.ResolveMaterial(hit);
             const glm::vec3 v = -ray.Direction;
 
             // ---- emitted radiance --------------------------------------------

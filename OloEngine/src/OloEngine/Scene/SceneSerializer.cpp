@@ -6636,6 +6636,7 @@ namespace OloEngine
             out << YAML::Key << "GpuPathTracerRussianRouletteStartBounce" << YAML::Value << pp.GpuPathTracer.RussianRouletteStartBounce;
             out << YAML::Key << "GpuPathTracerSeed" << YAML::Value << pp.GpuPathTracer.Seed;
             out << YAML::Key << "GpuPathTracerNextEventEstimation" << YAML::Value << pp.GpuPathTracer.EnableNextEventEstimation;
+            out << YAML::Key << "GpuPathTracerSampleTextures" << YAML::Value << pp.GpuPathTracer.SampleTextures;
             out << YAML::Key << "GpuPathTracerMaxRadianceClamp" << YAML::Value << pp.GpuPathTracer.MaxRadianceClamp;
             out << YAML::Key << "GpuPathTracerRayEpsilon" << YAML::Value << pp.GpuPathTracer.RayEpsilon;
             out << YAML::Key << "GpuPathTracerMaxRayDistance" << YAML::Value << pp.GpuPathTracer.MaxRayDistance;
@@ -6891,6 +6892,7 @@ namespace OloEngine
                 TrySet(pt.RussianRouletteStartBounce, ppNode["GpuPathTracerRussianRouletteStartBounce"]);
                 TrySet(pt.Seed, ppNode["GpuPathTracerSeed"]);
                 TrySet(pt.EnableNextEventEstimation, ppNode["GpuPathTracerNextEventEstimation"]);
+                TrySet(pt.SampleTextures, ppNode["GpuPathTracerSampleTextures"]);
                 TrySet(pt.MaxRadianceClamp, ppNode["GpuPathTracerMaxRadianceClamp"]);
                 TrySet(pt.RayEpsilon, ppNode["GpuPathTracerRayEpsilon"]);
                 TrySet(pt.MaxRayDistance, ppNode["GpuPathTracerMaxRayDistance"]);
@@ -7327,6 +7329,7 @@ namespace OloEngine
             out << YAML::Key << "GpuPathTracerRussianRouletteStartBounce" << YAML::Value << pp.GpuPathTracer.RussianRouletteStartBounce;
             out << YAML::Key << "GpuPathTracerSeed" << YAML::Value << pp.GpuPathTracer.Seed;
             out << YAML::Key << "GpuPathTracerNextEventEstimation" << YAML::Value << pp.GpuPathTracer.EnableNextEventEstimation;
+            out << YAML::Key << "GpuPathTracerSampleTextures" << YAML::Value << pp.GpuPathTracer.SampleTextures;
             out << YAML::Key << "GpuPathTracerMaxRadianceClamp" << YAML::Value << pp.GpuPathTracer.MaxRadianceClamp;
             out << YAML::Key << "GpuPathTracerRayEpsilon" << YAML::Value << pp.GpuPathTracer.RayEpsilon;
             out << YAML::Key << "GpuPathTracerMaxRayDistance" << YAML::Value << pp.GpuPathTracer.MaxRayDistance;

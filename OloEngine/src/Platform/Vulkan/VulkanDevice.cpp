@@ -692,6 +692,12 @@ namespace OloEngine
             supportedAtomics.shaderBufferInt64Atomics == VK_TRUE && supported.shaderInt64 == VK_TRUE;
         vulkan12Features.drawIndirectCount = supported12.drawIndirectCount;
         m_DrawIndirectCountEnabled = supported12.drawIndirectCount == VK_TRUE;
+        // Divergent descriptor-heap indices (a ray-query hit's material,
+        // amendment (95)) carry the NonUniform decoration; both array kinds
+        // the heap arrays can be, gated like drawIndirectCount.
+        vulkan12Features.shaderSampledImageArrayNonUniformIndexing = supported12.shaderSampledImageArrayNonUniformIndexing;
+        vulkan12Features.shaderStorageImageArrayNonUniformIndexing = supported12.shaderStorageImageArrayNonUniformIndexing;
+        m_SampledImageNonUniformIndexingEnabled = supported12.shaderSampledImageArrayNonUniformIndexing == VK_TRUE;
         vulkan11Features.shaderDrawParameters = supported11.shaderDrawParameters;
         m_ShaderDrawParametersEnabled = supported11.shaderDrawParameters == VK_TRUE;
 

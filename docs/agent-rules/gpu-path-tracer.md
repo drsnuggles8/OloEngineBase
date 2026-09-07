@@ -32,6 +32,13 @@ Two consequences that are easy to break by accident:
 - **Every hit shades with ClosureV2.** Only the v2 closure has a GLSL Sample/Pdf twin. A Legacy
   material is counted (`GpuPathTracerStats::LegacyMaterialsShadedAsClosureV2`), never silently
   re-modelled, and the parity test builds its CPU scene with `PBRModel::ClosureV2` for that reason.
+- **Textures follow one convention on both tracers:** level 0, bilinear, REPEAT, sRGB decoded per
+  texel; albedo rgb times the factor, metallic = blue and roughness = green, emissive rgb times the
+  factor, the normal map in the triangle's analytic UV tangent frame (`ReferenceScene::ApplyNormalMap`
+  and the shader's `PtApplyNormalMap` are one formula). Emissive records carry UVs and the map so NEE
+  and the emitter-hit path see one radiance. The GPU indexes the descriptor heap itself
+  ([vulkan-shader-heap-indexing.md](vulkan-shader-heap-indexing.md)); where it cannot, hits shade
+  from the factors and masked geometry traces as solid, both counted.
 
 ## 2. Accumulation goes through the temporal-history registry and restarts on any camera change
 
@@ -102,18 +109,14 @@ credit the path with environment radiance through an occluder.
   writes the persistent allocation the shader's device address points at (the snapshot mechanism
   serves bound SSBOs, not addresses). The emissive table writes only when its bytes changed; the
   frame a changed table could tear is the one the `SceneMutated` invalidation discards anyway.
-- **`Texture.h` marks `RGBA32F` "Unsupported"; it is not.** Both backends create, render into and
-  read back RGBA32F today (IBL bakes, the ocean FFT, this tracer's history planes). The comment
-  predates them.
 - **Vulkan off-screen targets are top-down; GL's are bottom-up.** The shader derives its pixel seed
   and primary ray from the CPU film's row convention (row 0 = top) under `#ifdef OLO_VULKAN`, and the
   device test's readback needs no flip. The primary ray uses `inverse(P * V)` in the engine's GL
   clip convention, deliberately *not* `RHIProjectionSeam`'s adjusted inverse: it never derives a ray
   from a backend texture coordinate.
 - **A `.glsl` test probe in `assets/shaders/tests/` includes `include/…` relative to the shader
-  ROOT**, unlike a production shader in `compute/`, which names `../include/…`. Validating a probe
-  with glslc therefore needs `-I <root>`; validating a production shader must not pass one
-  (`validate-shaders-with-glslc-first` memory).
+  ROOT** (a production shader in `compute/` names `../include/…`), so validating a probe with glslc
+  needs `-I <root>` and validating a production shader must not pass one.
 
 ## 5. Running it
 

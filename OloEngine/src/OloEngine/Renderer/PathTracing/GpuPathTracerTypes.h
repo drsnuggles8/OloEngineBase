@@ -134,10 +134,19 @@ namespace OloEngine
         u32 LegacyMaterialsShadedAsClosureV2 = 0;
         f32 EmissiveTotalArea = 0.0f;
 
-        // #805: hits are shaded from untextured material factors. True whenever
-        // the tracer ran at all — a standing limitation, not an occasional one.
+        // Whether hits were shaded from the material TEXTURES this frame
+        // (albedo, metallic-roughness, normal, emissive maps; alpha MASK
+        // honoured on the ray). Needs a backend whose shaders can index the
+        // descriptor heap (ADR 0011 amendment (95)) and the SampleTextures
+        // setting. Where it is false the two limits below are true and
+        // counted: hits shade from the material factors and masked geometry
+        // traces as solid.
+        bool TexturesAvailable = false;
         bool HitsShadedUntextured = false;
         bool MaskedGeometryTracedAsSolid = false;
+        // Material textures a live material referenced that the backend could
+        // not resolve to a heap descriptor this frame; those maps shade flat.
+        u32 MaterialTexturesUnresolved = 0;
 
         // How many frames in a row the accumulation restarted from zero. One
         // is a camera move or an edit; a count that keeps climbing means
@@ -193,6 +202,12 @@ namespace OloEngine
         // still unbiased, far noisier, and the cross-check that proves the NEE
         // + MIS machinery did not introduce a bias.
         bool EnableNextEventEstimation = true;
+        // Shade hits from the material textures (albedo, metallic-roughness,
+        // normal and emissive maps, alpha MASK on the ray) where the backend
+        // can index the descriptor heap. Off shades from the material FACTORS
+        // alone: the A/B for a texture-related disagreement with the CPU
+        // reference, which samples the same maps at LOD 0.
+        bool SampleTextures = true;
         // Firefly clamp on a single path's contribution, in radiance units.
         // <= 0 disables it. A clamp is a BIAS — it stays off for anything that
         // claims to be ground truth; it exists for eyeballing a noisy preview.
@@ -243,6 +258,8 @@ namespace OloEngine
     inline constexpr u32 kGpuPathTracerFlagNextEventEstimation = 1u;
     inline constexpr u32 kGpuPathTracerFlagEnvironmentCube = 2u;
     inline constexpr u32 kGpuPathTracerFlagHistoryValid = 4u;
+    // The material texture table is addressable and the shader may sample it.
+    inline constexpr u32 kGpuPathTracerFlagTextures = 8u;
 
     // The range every knob is held to, in ONE place: the scene loader, the
     // pass's upload, the MCP registry and the editor panel all take their

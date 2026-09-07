@@ -37,6 +37,110 @@ namespace OloEngine::PathTracing
         m_LocalBounds = m_BVH.IsBuilt() ? m_BVH.GetBounds() : BoundingBox(glm::vec3(0.0f), glm::vec3(0.0f));
     }
 
+    ReferenceTexture ReferenceTexture::FromRgba8(u32 width, u32 height, std::span<const u8> rgba, bool srgb)
+    {
+        ReferenceTexture texture;
+        if (width == 0 || height == 0 || rgba.size() < static_cast<sizet>(width) * height * 4u)
+            return texture;
+        texture.Width = width;
+        texture.Height = height;
+        texture.Texels.resize(static_cast<sizet>(width) * height);
+        // The sRGB EOTF, per channel, alpha untouched: what an sRGB image
+        // format decodes to on the way into the filter.
+        const auto decode = [srgb](u8 value) -> f32
+        {
+            const f32 c = static_cast<f32>(value) / 255.0f;
+            if (!srgb)
+                return c;
+            return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+        };
+        for (sizet i = 0; i < texture.Texels.size(); ++i)
+        {
+            texture.Texels[i] = glm::vec4(decode(rgba[i * 4 + 0]), decode(rgba[i * 4 + 1]), decode(rgba[i * 4 + 2]),
+                                          static_cast<f32>(rgba[i * 4 + 3]) / 255.0f);
+        }
+        return texture;
+    }
+
+    glm::vec4 ReferenceTexture::SampleBilinear(const glm::vec2& uv) const
+    {
+        if (Width == 0 || Height == 0 || Texels.empty())
+            return glm::vec4(1.0f);
+        const auto wrap = [](i32 index, u32 size) -> u32
+        {
+            const i32 s = static_cast<i32>(size);
+            return static_cast<u32>(((index % s) + s) % s);
+        };
+        // Texel centres at (i + 0.5) / size; REPEAT addressing.
+        const f32 x = uv.x * static_cast<f32>(Width) - 0.5f;
+        const f32 y = uv.y * static_cast<f32>(Height) - 0.5f;
+        const f32 x0f = std::floor(x);
+        const f32 y0f = std::floor(y);
+        const f32 fx = x - x0f;
+        const f32 fy = y - y0f;
+        const auto x0 = static_cast<i32>(x0f);
+        const auto y0 = static_cast<i32>(y0f);
+        const u32 ix0 = wrap(x0, Width);
+        const u32 ix1 = wrap(x0 + 1, Width);
+        const u32 iy0 = wrap(y0, Height);
+        const u32 iy1 = wrap(y0 + 1, Height);
+        const glm::vec4& t00 = Texels[static_cast<sizet>(iy0) * Width + ix0];
+        const glm::vec4& t10 = Texels[static_cast<sizet>(iy0) * Width + ix1];
+        const glm::vec4& t01 = Texels[static_cast<sizet>(iy1) * Width + ix0];
+        const glm::vec4& t11 = Texels[static_cast<sizet>(iy1) * Width + ix1];
+        return glm::mix(glm::mix(t00, t10, fx), glm::mix(t01, t11, fx), fy);
+    }
+
+    bool ReferenceGeometry::GetTriangleVertices(u32 triangleIndex, u32& i0, u32& i1, u32& i2) const
+    {
+        const sizet base = static_cast<sizet>(triangleIndex) * 3;
+        if (base + 2 >= m_Indices.size())
+            return false;
+        i0 = m_Indices[base + 0];
+        i1 = m_Indices[base + 1];
+        i2 = m_Indices[base + 2];
+        return i0 < m_Vertices.size() && i1 < m_Vertices.size() && i2 < m_Vertices.size();
+    }
+
+    glm::vec2 ReferenceGeometry::InterpolateUV(u32 triangleIndex, f32 u, f32 v) const
+    {
+        u32 i0, i1, i2;
+        if (!GetTriangleVertices(triangleIndex, i0, i1, i2))
+            return glm::vec2(0.0f);
+        const f32 w = 1.0f - u - v;
+        return m_Vertices[i0].TexCoord * w + m_Vertices[i1].TexCoord * u + m_Vertices[i2].TexCoord * v;
+    }
+
+    glm::vec3 ReferenceScene::ApplyNormalMap(const glm::vec3& n, const glm::vec3& p0, const glm::vec3& p1,
+                                             const glm::vec3& p2, const glm::vec2& uv0, const glm::vec2& uv1,
+                                             const glm::vec2& uv2, const glm::vec2& sampledXY, f32 normalScale)
+    {
+        const glm::vec3 e1 = p1 - p0;
+        const glm::vec3 e2 = p2 - p0;
+        const glm::vec2 d1 = uv1 - uv0;
+        const glm::vec2 d2 = uv2 - uv0;
+        const f32 det = d1.x * d2.y - d2.x * d1.y;
+        if (std::abs(det) < 1e-12f)
+            return n;
+        const f32 inv = 1.0f / det;
+        glm::vec3 t = (e1 * d2.y - e2 * d1.y) * inv;
+        const glm::vec3 bRaw = (e2 * d1.x - e1 * d2.x) * inv;
+        t -= n * glm::dot(n, t);
+        const f32 tLen = glm::length(t);
+        if (!(tLen > 1e-12f))
+            return n;
+        t /= tLen;
+        const glm::vec3 nCrossT = glm::cross(n, t);
+        const glm::vec3 b = glm::dot(nCrossT, bRaw) < 0.0f ? -nCrossT : nCrossT;
+        // PBRCommon.glsl's decodeTangentNormal.
+        glm::vec2 nxy = sampledXY * 2.0f - 1.0f;
+        nxy *= normalScale;
+        const f32 nz = std::sqrt(std::max(0.0f, 1.0f - std::min(1.0f, glm::dot(nxy, nxy))));
+        const glm::vec3 result = t * nxy.x + b * nxy.y + n * nz;
+        const f32 len = glm::length(result);
+        return (len > 1e-12f) ? result / len : n;
+    }
+
     glm::vec3 ReferenceGeometry::InterpolateNormal(u32 triangleIndex, f32 u, f32 v) const
     {
         const sizet base = static_cast<sizet>(triangleIndex) * 3;
@@ -86,6 +190,15 @@ namespace OloEngine::PathTracing
         m_Built = false;
         return static_cast<u32>(m_Geometries.size() - 1);
     }
+
+    namespace
+    {
+        // A masked triangle the ray passes through is skipped by re-casting
+        // from just past it; the bound stops a pathological mesh (thousands
+        // of coplanar cut-out layers) from looping.
+        constexpr u32 kMaxMaskedRecasts = 64u;
+        constexpr f32 kMaskedRecastEpsilon = 1e-5f;
+    } // namespace
 
     u32 ReferenceScene::AddQuadGeometry(const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3)
     {
@@ -363,6 +476,9 @@ namespace OloEngine::PathTracing
 
                 emitter.Area = 0.5f * crossLength;
                 emitter.Normal = cross / crossLength;
+                emitter.Uv0 = vertices[i0].TexCoord;
+                emitter.Uv1 = vertices[i1].TexCoord;
+                emitter.Uv2 = vertices[i2].TexCoord;
                 emitter.InstanceIndex = instanceIndex;
                 emitter.MaterialIndex = instance.MaterialIndex;
                 emitter.TriangleIndex = static_cast<u32>(triangle / 3);
@@ -408,9 +524,28 @@ namespace OloEngine::PathTracing
                             ? ray.TMax
                             : ray.TMax * localDirLength;
 
+        const ReferenceMaterial& material = GetMaterial(instance.MaterialIndex);
+
+        // A masked material is not a hit where its alpha falls below the
+        // cutoff: the ray continues past that triangle. The BVH returns the
+        // closest hit only, so a rejected one is skipped by re-casting from
+        // just beyond it — the CPU twin of the ray query's candidate loop.
         RayHit localHit;
-        if (!geometry.GetBVH().CastRay(localRay, localHit))
-            return false;
+        for (u32 attempt = 0;; ++attempt)
+        {
+            if (!geometry.GetBVH().CastRay(localRay, localHit))
+                return false;
+            if (!material.AlphaMask || attempt >= kMaxMaskedRecasts)
+                break;
+            f32 alpha = material.BaseAlpha;
+            if (material.AlbedoMap)
+                alpha *= material.AlbedoMap->SampleBilinear(geometry.InterpolateUV(localHit.TriangleIndex, localHit.U, localHit.V)).a;
+            if (alpha >= material.AlphaCutoff)
+                break;
+            localRay.TMin = localHit.Distance + kMaskedRecastEpsilon;
+            if (localRay.TMin >= localRay.TMax)
+                return false;
+        }
 
         const f32 worldDistance = localHit.Distance / localDirLength;
 
@@ -421,6 +556,7 @@ namespace OloEngine::PathTracing
         outHit.MaterialIndex = instance.MaterialIndex;
         outHit.TriangleIndex = localHit.TriangleIndex;
         outHit.FrontFace = localHit.FrontFace;
+        outHit.Uv = geometry.InterpolateUV(localHit.TriangleIndex, localHit.U, localHit.V);
 
         // RayHit::Normal is flipped to oppose the ray. Undo that so the caller
         // sees the true winding orientation (an emitter's front/back test needs
@@ -441,7 +577,43 @@ namespace OloEngine::PathTracing
         if (glm::dot(outHit.ShadingNormal, outHit.GeometricNormal) < 0.0f)
             outHit.ShadingNormal = outHit.GeometricNormal;
 
+        // The normal map, in the triangle's world-space UV tangent frame —
+        // after the snap and re-snapped, in the GPU's order.
+        if (material.NormalMap)
+        {
+            u32 i0, i1, i2;
+            if (geometry.GetTriangleVertices(localHit.TriangleIndex, i0, i1, i2))
+            {
+                const auto& vertices = geometry.GetVertices();
+                const glm::vec3 p0 = glm::vec3(instance.Transform * glm::vec4(vertices[i0].Position, 1.0f));
+                const glm::vec3 p1 = glm::vec3(instance.Transform * glm::vec4(vertices[i1].Position, 1.0f));
+                const glm::vec3 p2 = glm::vec3(instance.Transform * glm::vec4(vertices[i2].Position, 1.0f));
+                const glm::vec2 sampled = glm::vec2(material.NormalMap->SampleBilinear(outHit.Uv));
+                outHit.ShadingNormal =
+                    ApplyNormalMap(outHit.ShadingNormal, p0, p1, p2, vertices[i0].TexCoord, vertices[i1].TexCoord,
+                                   vertices[i2].TexCoord, sampled, material.NormalScale);
+                if (glm::dot(outHit.ShadingNormal, outHit.GeometricNormal) < 0.0f)
+                    outHit.ShadingNormal = outHit.GeometricNormal;
+            }
+        }
+
         return true;
+    }
+
+    ReferenceMaterial ReferenceScene::ResolveMaterial(const SurfaceInteraction& hit) const
+    {
+        ReferenceMaterial material = GetMaterial(hit.MaterialIndex);
+        if (material.AlbedoMap)
+            material.BaseColor *= glm::vec3(material.AlbedoMap->SampleBilinear(hit.Uv));
+        if (material.MetallicRoughnessMap)
+        {
+            const glm::vec4 metallicRoughness = material.MetallicRoughnessMap->SampleBilinear(hit.Uv);
+            material.Metallic *= metallicRoughness.b;
+            material.Roughness *= metallicRoughness.g;
+        }
+        if (material.EmissiveMap)
+            material.Emissive *= glm::vec3(material.EmissiveMap->SampleBilinear(hit.Uv));
+        return material;
     }
 
     bool ReferenceScene::OccludedInstance(u32 instanceIndex, const Ray& ray) const
@@ -461,7 +633,26 @@ namespace OloEngine::PathTracing
         localRay.TMin = ray.TMin * localDirLength;
         localRay.TMax = ray.TMax * localDirLength;
 
-        return geometry.GetBVH().CastRayAny(localRay);
+        const ReferenceMaterial& material = GetMaterial(instance.MaterialIndex);
+        if (!material.AlphaMask)
+            return geometry.GetBVH().CastRayAny(localRay);
+
+        // Masked: an occluder is the first triangle whose alpha passes.
+        for (u32 attempt = 0; attempt <= kMaxMaskedRecasts; ++attempt)
+        {
+            RayHit localHit;
+            if (!geometry.GetBVH().CastRay(localRay, localHit))
+                return false;
+            f32 alpha = material.BaseAlpha;
+            if (material.AlbedoMap)
+                alpha *= material.AlbedoMap->SampleBilinear(geometry.InterpolateUV(localHit.TriangleIndex, localHit.U, localHit.V)).a;
+            if (alpha >= material.AlphaCutoff)
+                return true;
+            localRay.TMin = localHit.Distance + kMaskedRecastEpsilon;
+            if (localRay.TMin >= localRay.TMax)
+                return false;
+        }
+        return true;
     }
 
     bool ReferenceScene::Intersect(const Ray& ray, SurfaceInteraction& outHit) const
@@ -616,6 +807,13 @@ namespace OloEngine::PathTracing
         outSample.Position = emitter.V0 * b0 + emitter.V1 * b1 + emitter.V2 * b2;
         outSample.Normal = emitter.Normal;
         outSample.Radiance = material.Emissive;
+        // The emissive map at the sampled point, so NEE and the emitter-hit
+        // path see one radiance and MIS weights the same integrand twice.
+        if (material.EmissiveMap)
+        {
+            const glm::vec2 uv = emitter.Uv0 * b0 + emitter.Uv1 * b1 + emitter.Uv2 * b2;
+            outSample.Radiance *= glm::vec3(material.EmissiveMap->SampleBilinear(uv));
+        }
         outSample.PdfArea = EmissivePdfArea();
         outSample.TwoSided = material.TwoSidedEmission;
         return true;

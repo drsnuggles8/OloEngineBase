@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
+#include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
@@ -69,6 +70,7 @@ namespace OloEngine
                previous.RussianRouletteStartBounce != next.RussianRouletteStartBounce ||
                previous.Seed != next.Seed ||
                previous.EnableNextEventEstimation != next.EnableNextEventEstimation ||
+               previous.SampleTextures != next.SampleTextures ||
                !Math::BitwiseEqual(previous.MaxRadianceClamp, next.MaxRadianceClamp) ||
                !Math::BitwiseEqual(previous.RayEpsilon, next.RayEpsilon) ||
                !Math::BitwiseEqual(previous.MaxRayDistance, next.MaxRayDistance) ||
@@ -295,11 +297,44 @@ namespace OloEngine
 
         if (m_Stats.Active)
         {
-            // Standing limitations of this slice, true whenever it ran at all.
-            m_Stats.HitsShadedUntextured = true;
-            m_Stats.MaskedGeometryTracedAsSolid = true;
+            // Textures need a table with an address AND a sampler the shader
+            // can index; where either is missing every hit shades from the
+            // material factors and masked geometry traces as solid — counted.
+            m_Stats.TexturesAvailable = m_Settings.SampleTextures && m_MaterialTextures != nullptr &&
+                                        m_MaterialTextures->GetDeviceAddress() != 0u &&
+                                        m_MaterialTextures->GetSamplerHeapOffset() != RHI::HeapOffset::Invalid;
+            m_Stats.HitsShadedUntextured = !m_Stats.TexturesAvailable;
+            m_Stats.MaskedGeometryTracedAsSolid = !m_Stats.TexturesAvailable;
+            m_Stats.MaterialTexturesUnresolved =
+                m_MaterialTextures != nullptr ? m_MaterialTextures->GetUnresolvedCount() : 0u;
             CountSceneForStats();
+            ReportTextureAvailability();
         }
+    }
+
+    void GpuPathTracerPass::ReportTextureAvailability()
+    {
+        // Once per change, with the reason: an untextured trace on a textured
+        // scene must never be a surprise read off a screenshot.
+        if (m_ReportedTexturesAvailable.has_value() && *m_ReportedTexturesAvailable == m_Stats.TexturesAvailable)
+            return;
+        m_ReportedTexturesAvailable = m_Stats.TexturesAvailable;
+        if (m_Stats.TexturesAvailable)
+        {
+            OLO_CORE_INFO("GpuPathTracerPass: material textures are sampled ({} material records, {} unresolved).",
+                          m_MaterialTextures->GetRecordCount(), m_Stats.MaterialTexturesUnresolved);
+            return;
+        }
+        const char* reason = !m_Settings.SampleTextures                     ? "SampleTextures is off"
+                             : m_MaterialTextures == nullptr                ? "no material texture table is wired"
+                             : m_MaterialTextures->GetDeviceAddress() == 0u ? "the material texture table has no address "
+                                                                              "(no textured material, or the backend cannot "
+                                                                              "index the heap)"
+                             : m_MaterialTextures->GetSamplerHeapOffset() ==
+                                     RHI::HeapOffset::Invalid
+                                 ? "the material sampler has no heap offset"
+                                 : "unknown";
+        OLO_CORE_WARN("GpuPathTracerPass: hits shade UNTEXTURED and masked geometry traces as solid — {}.", reason);
     }
 
     void GpuPathTracerPass::CountSceneForStats()
@@ -461,6 +496,8 @@ namespace OloEngine
             flags |= kGpuPathTracerFlagEnvironmentCube;
         if (historyValid)
             flags |= kGpuPathTracerFlagHistoryValid;
+        if (active && m_Stats.TexturesAvailable)
+            flags |= kGpuPathTracerFlagTextures;
         params.EmissiveTable = glm::uvec4(static_cast<u32>(emissiveAddress & 0xFFFFFFFFull),
                                           static_cast<u32>(emissiveAddress >> 32u), emissiveCount, flags);
 
@@ -478,6 +515,17 @@ namespace OloEngine
 
         params.DebugParams = glm::vec4(static_cast<f32>(std::to_underlying(settings.DebugView)),
                                        settings.SampleCountDisplayScale, settings.VarianceDisplayScale, 0.0f);
+
+        // The material texture table by address, like the emissive one; zero
+        // when textures are off or unavailable, which the shader's flag test
+        // already covers — the address is belt and braces against a stale bit.
+        const u64 materialTableAddress =
+            (active && m_Stats.TexturesAvailable) ? m_MaterialTextures->GetDeviceAddress() : 0u;
+        params.MaterialTable = glm::uvec4(static_cast<u32>(materialTableAddress & 0xFFFFFFFFull),
+                                          static_cast<u32>(materialTableAddress >> 32u),
+                                          materialTableAddress != 0u ? m_MaterialTextures->GetRecordCount() : 0u,
+                                          materialTableAddress != 0u ? m_MaterialTextures->GetSamplerHeapOffset()
+                                                                     : RHI::HeapOffset::Invalid);
 
         // The accumulation state as the shader will read it. The per-pixel
         // count is uniform across the image by construction (every pixel
@@ -624,6 +672,7 @@ namespace OloEngine
         m_LastReportedFallback = GpuPathTracerFallbackReason::Count;
         m_ReportedLightsBeyondShaderBound = false;
         m_ReportedEmissiveTableUnaddressable = false;
+        m_ReportedTexturesAvailable.reset();
     }
 
 } // namespace OloEngine

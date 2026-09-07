@@ -52,7 +52,9 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/PBRModel.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
+#include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 #include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
 #include "OloEngine/Renderer/PathTracing/PathTracer.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceScene.h"
@@ -74,6 +76,9 @@
 #if OLO_WITH_VULKAN
 #include "../VulkanTestSupport.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
+#include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
+#include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
+#include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanFramebuffer.h"
@@ -96,6 +101,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <span>
 #include <string>
 #include <vector>
@@ -141,6 +147,7 @@ namespace OloEngine::Tests
             glm::vec4 Environment{ 0.0f };
             glm::vec4 ScreenParams{ 0.0f };
             glm::vec4 DebugParams{ 0.0f };
+            glm::uvec4 MaterialTable{ 0u };
         };
         static_assert(sizeof(PathTracerParams) == sizeof(UBOStructures::RayTracingPathTracerUBO));
 
@@ -198,6 +205,15 @@ namespace OloEngine::Tests
             std::vector<EmissiveTriangleRecord> Emissive;
             f32 EmissiveArea = 0.0f;
 
+            // The textured twin: one Texture2D per fixture image, uploaded
+            // from the same 8-bit pixels the CPU reference decoded, and the
+            // material texture table the shader indexes the heap with.
+            std::vector<Ref<Texture2D>> Textures;
+            std::vector<MaterialTextureRecord> MaterialTextures;
+            Ref<StorageBuffer> MaterialTextureSsbo;
+            u32 SamplerOffset = RHI::HeapOffset::Invalid;
+            bool Textured = false;
+
             Ref<StorageBuffer> InstanceSsbo;
             Ref<StorageBuffer> GeometrySsbo;
             Ref<StorageBuffer> MaterialSsbo;
@@ -205,8 +221,46 @@ namespace OloEngine::Tests
             Ref<StorageBuffer> EmissiveSsbo;
         };
 
-        [[nodiscard]] bool BuildTwin(const ReferenceScene& scene, GpuSceneTwin& twin)
+        // A fixture image as a Texture2D on this device plus its resource-heap
+        // byte offset, resolved through the same seam the engine's material
+        // texture table uses. Textures are kept alive by the twin.
+        [[nodiscard]] u32 UploadImage(const CornellBoxScene& fixture, GpuSceneTwin& twin,
+                                      const std::shared_ptr<const ReferenceTexture>& reference,
+                                      std::unordered_map<const ReferenceTexture*, u32>& resolved)
         {
+            if (!reference)
+                return RHI::HeapOffset::Invalid;
+            if (const auto it = resolved.find(reference.get()); it != resolved.end())
+                return it->second;
+            const FixtureImage* image = fixture.FindImage(reference.get());
+            if (image == nullptr)
+            {
+                ADD_FAILURE() << "a material references a texture the fixture does not own";
+                return RHI::HeapOffset::Invalid;
+            }
+            TextureSpecification spec;
+            spec.Width = image->Width;
+            spec.Height = image->Height;
+            spec.Format = ImageFormat::RGBA8;
+            spec.SRGB = image->Srgb;
+            spec.GenerateMips = false;
+            Ref<Texture2D> texture = Texture2D::Create(spec);
+            if (!texture)
+            {
+                ADD_FAILURE() << "Texture2D::Create refused a " << image->Width << "x" << image->Height << " RGBA8";
+                return RHI::HeapOffset::Invalid;
+            }
+            texture->SetData(const_cast<u8*>(image->Rgba.data()), static_cast<u32>(image->Rgba.size()));
+            twin.Textures.push_back(texture);
+            const u32 offset = HeapBinding::ResolveShaderHeapTexture(texture->GetRHIHandle()).Value;
+            EXPECT_NE(offset, RHI::HeapOffset::Invalid) << "the backend could not resolve a freshly uploaded texture";
+            resolved.emplace(reference.get(), offset);
+            return offset;
+        }
+
+        [[nodiscard]] bool BuildTwin(const CornellBoxScene& fixture, GpuSceneTwin& twin)
+        {
+            const ReferenceScene& scene = fixture.Scene;
             const u32 geometryCount = scene.GetGeometryCount();
             for (u32 g = 0; g < geometryCount; ++g)
             {
@@ -249,23 +303,51 @@ namespace OloEngine::Tests
                 twin.IndexBuffers.push_back(indexBuffer);
             }
 
+            // The textured half needs the backend's shader-side heap indexing;
+            // the fixture that owns no images needs nothing.
+            twin.Textured = !fixture.Images.empty();
+            if (twin.Textured && !HeapBinding::ShaderHeapIndexingSupported())
+                (void)VulkanDescriptorHeapBackend::InstallOntoEngineHeap();
+            std::unordered_map<const ReferenceTexture*, u32> resolved;
+
             const auto& materials = scene.GetMaterials();
             for (u32 m = 0; m < static_cast<u32>(materials.size()); ++m)
             {
                 const ReferenceMaterial& material = materials[m];
                 GPUSceneMaterial record{};
-                record.BaseColorFactor = glm::vec4(material.BaseColor, 1.0f);
+                record.BaseColorFactor = glm::vec4(material.BaseColor, material.BaseAlpha);
                 record.EmissiveFactor = glm::vec4(material.Emissive, 0.0f);
                 record.MetallicFactor = material.Metallic;
                 record.RoughnessFactor = material.Roughness;
-                record.AlphaCutoff = 0.5f;
-                record.AlphaMode = static_cast<u32>(AlphaMode::Opaque);
+                record.NormalScale = material.NormalScale;
+                record.AlphaCutoff = material.AlphaCutoff;
+                record.AlphaMode = static_cast<u32>(material.AlphaMask ? AlphaMode::Mask : AlphaMode::Opaque);
                 record.ClosureVersion = static_cast<u32>(material.Model);
                 record.Flags = GPUSceneMaterialFlagActive | GPUSceneMaterialFlagPBR |
                                (material.TwoSidedEmission ? GPUSceneMaterialFlagTwoSided : 0u);
+                MaterialTextureRecord textures;
+                const bool hasMaps = material.AlbedoMap || material.MetallicRoughnessMap || material.NormalMap ||
+                                     material.EmissiveMap;
+                if (hasMaps)
+                {
+                    record.Flags |= GPUSceneMaterialFlagUseTextureMaps;
+                    textures.Albedo = UploadImage(fixture, twin, material.AlbedoMap, resolved);
+                    textures.MetallicRoughness = UploadImage(fixture, twin, material.MetallicRoughnessMap, resolved);
+                    textures.Normal = UploadImage(fixture, twin, material.NormalMap, resolved);
+                    textures.Emissive = UploadImage(fixture, twin, material.EmissiveMap, resolved);
+                    if (material.AlbedoMap)
+                        record.Flags |= GPUSceneMaterialFlagAlbedoMap;
+                    if (material.MetallicRoughnessMap)
+                        record.Flags |= GPUSceneMaterialFlagMetallicRoughnessMap;
+                    if (material.NormalMap)
+                        record.Flags |= GPUSceneMaterialFlagNormalMap;
+                    if (material.EmissiveMap)
+                        record.Flags |= GPUSceneMaterialFlagEmissiveMap;
+                }
                 record.StableIndex = m;
                 record.Generation = 1;
                 twin.Materials.push_back(record);
+                twin.MaterialTextures.push_back(textures);
             }
 
             const auto& instances = scene.GetInstances();
@@ -289,24 +371,27 @@ namespace OloEngine::Tests
                 record.Generation = 1;
                 twin.Instances.push_back(record);
 
+                const ReferenceMaterial& material = materials[instance.MaterialIndex];
                 RT::InstanceRecord tlasInstance{};
                 tlasInstance.Transform = rows;
                 tlasInstance.CustomIndex = i;
                 tlasInstance.Mask = RT::kInstanceMaskAll;
-                tlasInstance.ForceOpaque = true;
+                // A masked instance surfaces candidates for the alpha test —
+                // the same rule RayTracingScene applies to the Masked class.
+                tlasInstance.ForceOpaque = !material.AlphaMask;
                 tlasInstance.Geometry = RT::GeometryKey{ instance.GeometryIndex, 1u };
                 twin.TlasInstances.push_back(tlasInstance);
 
                 // The emissive table, from the same instances in the same
                 // order the reference walks them.
-                const ReferenceMaterial& material = materials[instance.MaterialIndex];
                 if (std::max({ material.Emissive.x, material.Emissive.y, material.Emissive.z }) > 0.0f)
                 {
                     const ReferenceGeometry& geometry = scene.GetGeometry(instance.GeometryIndex);
                     twin.EmissiveArea = EmissiveTriangleTable::AppendTriangles(
                         std::span<const Vertex>(geometry.GetVertices()), std::span<const u32>(geometry.GetIndices()), 0u,
                         static_cast<u32>(geometry.GetIndices().size()), 0, instance.Transform, glm::vec3(0.0f),
-                        material.Emissive, material.TwoSidedEmission, twin.EmissiveArea, twin.Emissive);
+                        material.Emissive, material.TwoSidedEmission, twin.EmissiveArea, twin.Emissive,
+                        twin.MaterialTextures[instance.MaterialIndex].Emissive);
                 }
             }
             EmissiveTriangleTable::Finalize(twin.Emissive, twin.EmissiveArea);
@@ -335,6 +420,23 @@ namespace OloEngine::Tests
             twin.LightSsbo->SetData(&noLight, static_cast<u32>(sizeof(GPUSceneLight)));
             if (!twin.Emissive.empty())
                 twin.EmissiveSsbo->SetData(twin.Emissive.data(), static_cast<u32>(twin.Emissive.size() * sizeof(EmissiveTriangleRecord)));
+
+            if (twin.Textured)
+            {
+                twin.MaterialTextureSsbo = StorageBuffer::Create(
+                    static_cast<u32>(twin.MaterialTextures.size() * sizeof(MaterialTextureRecord)),
+                    StorageBuffer::kNoBinding);
+                if (!twin.MaterialTextureSsbo)
+                    return false;
+                twin.MaterialTextureSsbo->SetData(twin.MaterialTextures.data(),
+                                                  static_cast<u32>(twin.MaterialTextures.size() * sizeof(MaterialTextureRecord)));
+                twin.SamplerOffset = HeapBinding::ResolveShaderHeapSampler(HeapBinding::MaterialTexture2DSampler()).Value;
+                if (twin.SamplerOffset == RHI::HeapOffset::Invalid || twin.MaterialTextureSsbo->GetDeviceAddress() == 0u)
+                {
+                    ADD_FAILURE() << "the material sampler or the texture table could not be reached by the shader";
+                    return false;
+                }
+            }
             return true;
         }
 
@@ -410,7 +512,7 @@ namespace OloEngine::Tests
 
     class GpuPathTracerDevice : public ::testing::Test
     {
-      protected:
+      public:
         void SetUp() override
         {
             const auto gate = ProbeVulkanDeviceTestGate();
@@ -459,6 +561,10 @@ namespace OloEngine::Tests
             VulkanPipelineBuilder::Get().ReleaseAll();
             VulkanPipelineCache::Get().SaveAndDestroy();
             VulkanFrameArena::Get().ReleaseBuffers();
+            // The slot cache and the sampler heap outlive a device only as
+            // stale handles; both are lazily re-creatable, like the heap.
+            VulkanDescriptorSlotCache::Get().Reset();
+            VulkanSamplerHeap::Get().Release();
             VulkanResourceHeap::Get().Release();
             VulkanDeferredReclaim::Get().FlushAll();
             if (m_Fence != VK_NULL_HANDLE)
@@ -516,10 +622,10 @@ namespace OloEngine::Tests
             u64 TlasAddress = 0;
         };
 
-        [[nodiscard]] bool BuildRig(Rig& rig)
+        [[nodiscard]] bool BuildRig(Rig& rig, bool textured = false)
         {
-            rig.Fixture = MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
-            if (!BuildTwin(rig.Fixture.Scene, rig.Twin))
+            rig.Fixture = textured ? MakeTexturedCornellBoxScene(18.0f) : MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
+            if (!BuildTwin(rig.Fixture, rig.Twin))
             {
                 ADD_FAILURE() << "could not upload the Cornell box twin";
                 return false;
@@ -612,7 +718,8 @@ namespace OloEngine::Tests
                                            static_cast<u32>(rig.Twin.Geometries.size()),
                                            static_cast<u32>(rig.Twin.Materials.size()), 0u);
             const auto emissive = SplitAddress(rig.Twin.EmissiveSsbo->GetDeviceAddress());
-            const u32 flags = kGpuPathTracerFlagNextEventEstimation | (historyIndex ? kGpuPathTracerFlagHistoryValid : 0u);
+            const u32 flags = kGpuPathTracerFlagNextEventEstimation | (historyIndex ? kGpuPathTracerFlagHistoryValid : 0u) |
+                              (rig.Twin.Textured ? kGpuPathTracerFlagTextures : 0u);
             params.EmissiveTable = glm::uvec4(emissive.x, emissive.y, static_cast<u32>(rig.Twin.Emissive.size()), flags);
             params.PathParams = glm::uvec4(kMaxBounces, kRussianRouletteStart, samplesPerFrame, 0u);
             params.RayParams = glm::vec4(1e-3f, 0.0f, 1.0e5f, 0.0f);
@@ -620,6 +727,12 @@ namespace OloEngine::Tests
                                            rig.Twin.EmissiveArea > 0.0f ? 1.0f / rig.Twin.EmissiveArea : 0.0f);
             params.ScreenParams = glm::vec4(static_cast<f32>(kWidth), static_cast<f32>(kHeight), 1.0f / kWidth, 1.0f / kHeight);
             params.DebugParams = glm::vec4(0.0f, 1.0f / 256.0f, 100.0f, 0.0f);
+            if (rig.Twin.Textured)
+            {
+                const auto table = SplitAddress(rig.Twin.MaterialTextureSsbo->GetDeviceAddress());
+                params.MaterialTable = glm::uvec4(table.x, table.y, static_cast<u32>(rig.Twin.MaterialTextures.size()),
+                                                  rig.Twin.SamplerOffset);
+            }
             rig.Params->SetData(&params, static_cast<u32>(sizeof(params)));
 
             Ref<Framebuffer> target = rig.Targets[targetIndex];
@@ -703,22 +816,30 @@ namespace OloEngine::Tests
     // CPU vs GPU on the Cornell box, plus determinism and accumulation
     // =========================================================================
 
-    TEST_F(GpuPathTracerDevice, CornellBoxAgreesWithTheCpuReferenceWithinTheBudget)
+    struct ParityRegion
     {
-        ScopedVulkanRenderCommandSelection vulkanBackend;
-        VulkanFrameArena::Get().BeginFrame(0);
+        const char* Name;
+        glm::vec3 World;
+    };
 
-        Rig rig;
-        ASSERT_TRUE(BuildRig(rig));
-
+    // The parity method, shared by the plain and the textured box: one GPU
+    // frame and one CPU frame at the same seed and sample count, compared as
+    // a frame mean and as region means at world-anchored points, with the
+    // budgets at the top of the file. Returns the traced GPU frame for the
+    // per-fixture AOV checks.
+    static TracedFrame RunParity(GpuPathTracerDevice& fixture, GpuPathTracerDevice::Rig& rig, const char* evidenceName,
+                                 std::span<const ParityRegion> regions)
+    {
         // --- the GPU frame ------------------------------------------------
-        TraceFrame(rig, 0, std::nullopt, kSamples, kSeed);
+        fixture.TraceFrame(rig, 0, std::nullopt, kSamples, kSeed);
         TracedFrame gpu;
-        ASSERT_TRUE(ReadFrame(rig, 0, gpu));
+        EXPECT_TRUE(fixture.ReadFrame(rig, 0, gpu));
+        if (gpu.Accum.empty())
+            return gpu;
         for (const glm::vec4& texel : gpu.Accum)
         {
-            ASSERT_EQ(texel.a, static_cast<f32>(kSamples)) << "every pixel draws exactly the samples asked for";
-            ASSERT_TRUE(std::isfinite(texel.x) && std::isfinite(texel.y) && std::isfinite(texel.z));
+            EXPECT_EQ(std::lround(texel.a), static_cast<long>(kSamples)) << "every pixel draws exactly the samples asked for";
+            EXPECT_TRUE(std::isfinite(texel.x) && std::isfinite(texel.y) && std::isfinite(texel.z));
         }
         const std::vector<glm::vec3> gpuImage = MeanImage(gpu.Accum);
 
@@ -733,8 +854,8 @@ namespace OloEngine::Tests
         PathTracer::Render(rig.Fixture.Scene, rig.Fixture.MakeCamera(kWidth, kHeight), settings, film);
         const std::vector<glm::vec3>& cpuImage = film.GetPixels();
 
-        WriteEvidencePng(gpuImage, "GpuPathTracer_CornellBox");
-        WriteEvidencePng(cpuImage, "GpuPathTracer_CornellBox_CpuReference");
+        WriteEvidencePng(gpuImage, evidenceName);
+        WriteEvidencePng(cpuImage, (std::string(evidenceName) + "_CpuReference").c_str());
 
         // --- whole-frame agreement ----------------------------------------
         glm::dvec3 gpuSum(0.0), cpuSum(0.0);
@@ -755,8 +876,8 @@ namespace OloEngine::Tests
         }
         const glm::vec3 gpuMean = glm::vec3(gpuSum / static_cast<f64>(gpuImage.size()));
         const glm::vec3 cpuMean = glm::vec3(cpuSum / static_cast<f64>(cpuImage.size()));
-        std::cout << "[parity] frame mean GPU " << gpuMean.x << " " << gpuMean.y << " " << gpuMean.z << " | CPU "
-                  << cpuMean.x << " " << cpuMean.y << " " << cpuMean.z << " | mean abs pixel gap "
+        std::cout << "[parity] " << evidenceName << " frame mean GPU " << gpuMean.x << " " << gpuMean.y << " " << gpuMean.z
+                  << " | CPU " << cpuMean.x << " " << cpuMean.y << " " << cpuMean.z << " | mean abs pixel gap "
                   << absoluteDifference / static_cast<f64>(gpuImage.size()) << " | worst pixel " << worstPixel
                   << " | pixels over 10%: " << pixelsOverTenPercent << " / " << gpuImage.size() << "\n";
         for (int c = 0; c < 3; ++c)
@@ -767,23 +888,12 @@ namespace OloEngine::Tests
         }
 
         // --- region means at world-anchored points ------------------------
-        struct Region
-        {
-            const char* Name;
-            glm::vec3 World;
-        };
-        const Region regions[] = {
-            { "floor by the red wall", glm::vec3(-0.75f, -0.99f, 0.2f) },
-            { "floor by the green wall", glm::vec3(0.75f, -0.99f, 0.2f) },
-            { "back wall", glm::vec3(0.5f, 0.3f, -0.99f) },
-            { "block top", glm::vec3(-0.3f, -0.2f, -0.3f) },
-            { "ceiling (indirect only)", glm::vec3(0.6f, 0.99f, -0.2f) },
-            { "emitter", glm::vec3(0.0f, 0.98f, 0.0f) },
-        };
-        for (const Region& region : regions)
+        for (const ParityRegion& region : regions)
         {
             const glm::ivec2 pixel = CornellBoxScene::ProjectToPixel(region.World, kWidth, kHeight);
-            ASSERT_GE(pixel.x, 0) << region.Name;
+            EXPECT_GE(pixel.x, 0) << region.Name;
+            if (pixel.x < 0)
+                continue;
             const glm::vec3 gpuRegion = RegionMean(gpuImage, pixel, kRegionRadius);
             const glm::vec3 cpuRegion = RegionMean(cpuImage, pixel, kRegionRadius);
             std::cout << "[parity] " << region.Name << " @ " << pixel.x << "," << pixel.y << " GPU " << gpuRegion.x << " "
@@ -796,6 +906,26 @@ namespace OloEngine::Tests
                     << region.Name << " channel " << c << " GPU " << gpuRegion[c] << " CPU " << cpuRegion[c];
             }
         }
+        return gpu;
+    }
+
+    TEST_F(GpuPathTracerDevice, CornellBoxAgreesWithTheCpuReferenceWithinTheBudget)
+    {
+        ScopedVulkanRenderCommandSelection vulkanBackend;
+        VulkanFrameArena::Get().BeginFrame(0);
+        Rig rig;
+        ASSERT_TRUE(BuildRig(rig));
+
+        const ParityRegion regions[] = {
+            { "floor by the red wall", glm::vec3(-0.75f, -0.99f, 0.2f) },
+            { "floor by the green wall", glm::vec3(0.75f, -0.99f, 0.2f) },
+            { "back wall", glm::vec3(0.5f, 0.3f, -0.99f) },
+            { "block top", glm::vec3(-0.3f, -0.2f, -0.3f) },
+            { "ceiling (indirect only)", glm::vec3(0.6f, 0.99f, -0.2f) },
+            { "emitter", glm::vec3(0.0f, 0.98f, 0.0f) },
+        };
+        const TracedFrame gpu = RunParity(*this, rig, "GpuPathTracer_CornellBox", regions);
+        ASSERT_FALSE(gpu.Accum.empty());
 
         // --- the AOVs are the first hit, not the radiance ------------------
         const glm::ivec2 floorPixel = CornellBoxScene::ProjectToPixel(regions[0].World, kWidth, kHeight);
@@ -804,6 +934,43 @@ namespace OloEngine::Tests
         EXPECT_NEAR(albedo.x / albedo.a, 0.73f, 1e-3f) << "the floor's albedo factor, averaged";
         const glm::vec4 normal = gpu.Normal[static_cast<sizet>(floorPixel.y) * kWidth + floorPixel.x];
         EXPECT_GT(normal.y / static_cast<f32>(kSamples), 0.99f) << "the floor's normal points up";
+    }
+
+    // The textured box: every kind of map the tracers sample, and a slatted
+    // alpha-MASK quad whose striped shadow only an alpha-tested trace can
+    // cast. The same budgets as the plain box: a texture sampled on one side
+    // only, a swapped UV axis, a wrong wrap, an sRGB decode missing on one
+    // side, or an opaque trace of the mask all move a region far past them.
+    TEST_F(GpuPathTracerDevice, TexturedCornellBoxAgreesWithTheCpuReferenceWithinTheBudget)
+    {
+        ScopedVulkanRenderCommandSelection vulkanBackend;
+        VulkanFrameArena::Get().BeginFrame(0);
+        Rig rig;
+        ASSERT_TRUE(BuildRig(rig, /*textured*/ true));
+        ASSERT_TRUE(rig.Twin.Textured);
+
+        const ParityRegion regions[] = {
+            { "checker floor by the red wall", glm::vec3(-0.75f, -0.99f, 0.2f) },
+            { "checker floor by the green wall", glm::vec3(0.75f, -0.99f, 0.2f) },
+            { "floor under the slats", glm::vec3(0.2f, -0.99f, 0.0f) },
+            { "back wall", glm::vec3(0.5f, 0.3f, -0.99f) },
+            { "bumped block top", glm::vec3(-0.3f, -0.2f, -0.3f) },
+            { "ramp emitter, dim side", glm::vec3(-0.2f, 0.98f, 0.0f) },
+            { "ramp emitter, bright side", glm::vec3(0.2f, 0.98f, 0.0f) },
+        };
+        const TracedFrame gpu = RunParity(*this, rig, "GpuPathTracer_CornellBoxTextured", regions);
+        ASSERT_FALSE(gpu.Accum.empty());
+
+        // The albedo AOV carries the SAMPLED albedo, so a checker floor pixel
+        // averages a dark or a light cell, never the factor 1.0.
+        const glm::ivec2 floorPixel = CornellBoxScene::ProjectToPixel(regions[0].World, kWidth, kHeight);
+        const glm::vec4 albedo = gpu.Albedo[static_cast<sizet>(floorPixel.y) * kWidth + floorPixel.x];
+        EXPECT_NEAR(albedo.a, static_cast<f32>(kSamples), 0.5f) << "every sample of a floor pixel hits something";
+        EXPECT_LT(albedo.x / albedo.a, 0.95f) << "a textured floor's albedo is the checker's, not the factor";
+        // The bumped block's normal AOV is not the flat +Y of the plain box.
+        const glm::ivec2 blockPixel = CornellBoxScene::ProjectToPixel(regions[4].World, kWidth, kHeight);
+        const glm::vec4 normal = gpu.Normal[static_cast<sizet>(blockPixel.y) * kWidth + blockPixel.x];
+        EXPECT_GT(normal.y / static_cast<f32>(kSamples), 0.6f) << "the bumped top still faces mostly up";
     }
 
     TEST_F(GpuPathTracerDevice, AFixedSeedAndSampleCountIsDeterministicRunToRun)

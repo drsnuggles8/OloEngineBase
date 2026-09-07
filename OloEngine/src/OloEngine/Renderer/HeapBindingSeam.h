@@ -248,4 +248,18 @@ namespace OloEngine::HeapBinding
     // two sampler states. Cubemaps use the default SamplerDesc{} (the object's
     // own CLAMP_TO_EDGE state).
     [[nodiscard]] auto MaterialTexture2DSampler() -> const RHI::SamplerDesc&;
+
+    // Shader-side heap indexing (ADR 0011 amendment (95); the capability
+    // issue #805 asked for, scoped to Vulkan-only shaders). A ray-query shader
+    // that indexes the descriptor heap itself with GL_EXT_descriptor_heap
+    // (`descriptor_stride = 1`, so its index is a BYTE offset) gets its
+    // offsets from these three. They fork on the BACKEND, not on the engine
+    // heap's enablement lever: the offsets name the backend's own persistent
+    // slots, the ones the draw path binds through, so a texture the raster
+    // frame samples and one a ray-query shader samples are one descriptor.
+    // OpenGL answers "unsupported" / Invalid to all three; a consumer that
+    // gets Invalid shades untextured and counts it.
+    [[nodiscard]] auto ShaderHeapIndexingSupported() -> bool;
+    [[nodiscard]] auto ResolveShaderHeapTexture(RHI::ResourceHandle texture) -> RHI::HeapOffset;
+    [[nodiscard]] auto ResolveShaderHeapSampler(const RHI::SamplerDesc& sampler) -> RHI::HeapOffset;
 } // namespace OloEngine::HeapBinding

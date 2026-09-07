@@ -1252,6 +1252,7 @@ namespace OloEngine
             pathTracerPass.SetSettings(pathTracerSettings);
             pathTracerPass.SetEnabled(pathTracerSettings.Enabled && pathTracerPass.IsReadyForExecution());
             pathTracerPass.SetEmissiveTable(&data.PathTracerEmissive);
+            pathTracerPass.SetMaterialTextureTable(&data.PathTracerMaterialTextures);
             // The UNJITTERED projection. TAA's sub-pixel jitter is baked into
             // data.ProjectionMatrix; to a tracer that restarts on any camera
             // change it would read as a camera that never holds still.

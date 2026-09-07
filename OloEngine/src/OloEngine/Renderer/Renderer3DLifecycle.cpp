@@ -767,6 +767,7 @@ namespace OloEngine
         // structure outlives the records that named it.
         s_Data.SceneRT.Shutdown();
         s_Data.PathTracerEmissive.Shutdown();
+        s_Data.PathTracerMaterialTextures.Shutdown();
         s_Data.SceneGPU.Shutdown();
         s_Data.GPUSceneExtractionActive = false;
         // The two-phase GPU culler (#431) owns a pool of StorageBuffers / InstanceBuffers.

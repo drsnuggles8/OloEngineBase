@@ -28,6 +28,7 @@
 
 #include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
 #include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
+#include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceScene.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
 #include "OloEngine/Renderer/TemporalHistoryRegistry.h"
@@ -429,6 +430,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(ParseDefine(source, "OLO_PT_FLAG_NEE"), kGpuPathTracerFlagNextEventEstimation);
         EXPECT_EQ(ParseDefine(source, "OLO_PT_FLAG_ENVIRONMENT_CUBE"), kGpuPathTracerFlagEnvironmentCube);
         EXPECT_EQ(ParseDefine(source, "OLO_PT_FLAG_HISTORY_VALID"), kGpuPathTracerFlagHistoryValid);
+        EXPECT_EQ(ParseDefine(source, "OLO_PT_FLAG_TEXTURES"), kGpuPathTracerFlagTextures);
 
         EXPECT_EQ(ParseDefine(source, "OLO_PT_VIEW_RADIANCE"), std::to_underlying(GpuPathTracerDebugView::Radiance));
         EXPECT_EQ(ParseDefine(source, "OLO_PT_VIEW_ALBEDO"), std::to_underlying(GpuPathTracerDebugView::Albedo));
@@ -481,5 +483,147 @@ namespace OloEngine::Tests
         // not allowed to move a legal setting.
         const GpuPathTracerSettings legal = defaults;
         EXPECT_TRUE(SanitizeGpuPathTracerSettings(legal) == legal);
+    }
+
+    // -------------------------------------------------------------------------
+    // Textures (the #805 capability scoped to the ray-query shaders, ADR 0011
+    // amendment (95)). The CPU reference samples the same maps the GPU does,
+    // at level 0, bilinear, REPEAT, sRGB decoded per texel — pinned here so a
+    // convention drift shows up headless before the device parity notices.
+    // -------------------------------------------------------------------------
+
+    TEST(GpuPathTracerContract, ReferenceTextureSamplesLikeTheMaterialSampler)
+    {
+        // 2x2: (0,0) black, (1,0) white, (0,1) red, (1,1) green; alpha 255, 128, 64, 0.
+        const u8 rgba[] = { 0, 0, 0, 255, 255, 255, 255, 128, 255, 0, 0, 64, 0, 255, 0, 0 };
+        const ReferenceTexture linear = ReferenceTexture::FromRgba8(2, 2, std::span<const u8>(rgba), /*srgb*/ false);
+        ASSERT_EQ(linear.Texels.size(), 4u);
+
+        // Texel centres: (0.25, 0.25) is exactly texel (0, 0).
+        const glm::vec4 c00 = linear.SampleBilinear(glm::vec2(0.25f, 0.25f));
+        EXPECT_NEAR(c00.r, 0.0f, 1e-6f);
+        EXPECT_NEAR(c00.a, 1.0f, 1e-6f);
+        const glm::vec4 c10 = linear.SampleBilinear(glm::vec2(0.75f, 0.25f));
+        EXPECT_NEAR(c10.r, 1.0f, 1e-6f);
+        EXPECT_NEAR(c10.a, 128.0f / 255.0f, 1e-6f);
+        // Halfway between (0,0) and (1,0): the bilinear mean.
+        const glm::vec4 mid = linear.SampleBilinear(glm::vec2(0.5f, 0.25f));
+        EXPECT_NEAR(mid.r, 0.5f, 1e-6f);
+        EXPECT_NEAR(mid.a, 0.5f * (1.0f + 128.0f / 255.0f), 1e-6f);
+        // REPEAT: u = 1.25 is u = 0.25 again; u = -0.25 is u = 0.75.
+        EXPECT_NEAR(linear.SampleBilinear(glm::vec2(1.25f, 0.25f)).r, 0.0f, 1e-6f);
+        EXPECT_NEAR(linear.SampleBilinear(glm::vec2(-0.25f, 0.25f)).r, 1.0f, 1e-6f);
+        // Row 1 is the second uploaded row: v = 0.75 lands on red.
+        const glm::vec4 c01 = linear.SampleBilinear(glm::vec2(0.25f, 0.75f));
+        EXPECT_NEAR(c01.r, 1.0f, 1e-6f);
+        EXPECT_NEAR(c01.g, 0.0f, 1e-6f);
+
+        // sRGB decodes BEFORE filtering: the mean of decoded black and white
+        // is 0.5 (not the decode of the 8-bit mean), and 128 decodes below 0.5.
+        const ReferenceTexture srgb = ReferenceTexture::FromRgba8(2, 2, std::span<const u8>(rgba), /*srgb*/ true);
+        EXPECT_NEAR(srgb.SampleBilinear(glm::vec2(0.5f, 0.25f)).r, 0.5f, 1e-6f);
+        const u8 grey[] = { 128, 128, 128, 255 };
+        const ReferenceTexture greySrgb = ReferenceTexture::FromRgba8(1, 1, std::span<const u8>(grey), true);
+        EXPECT_NEAR(greySrgb.SampleBilinear(glm::vec2(0.5f)).r, 0.2158605f, 1e-5f) << "the sRGB EOTF of 128/255";
+        EXPECT_NEAR(greySrgb.SampleBilinear(glm::vec2(0.5f)).a, 1.0f, 1e-6f) << "alpha is never decoded";
+    }
+
+    TEST(GpuPathTracerContract, NormalMapTangentFrameFollowsTheTriangleUVs)
+    {
+        // A unit quad's first triangle in the XZ plane, UVs u along +X and v
+        // along +Z, normal +Y.
+        const glm::vec3 p0(0.0f, 0.0f, 0.0f), p1(1.0f, 0.0f, 0.0f), p2(1.0f, 0.0f, 1.0f);
+        const glm::vec2 uv0(0.0f, 0.0f), uv1(1.0f, 0.0f), uv2(1.0f, 1.0f);
+        const glm::vec3 n(0.0f, 1.0f, 0.0f);
+
+        // A flat sample (0.5, 0.5 -> (0, 0, 1)) leaves the normal alone.
+        const glm::vec3 flat = ReferenceScene::ApplyNormalMap(n, p0, p1, p2, uv0, uv1, uv2, glm::vec2(0.5f), 1.0f);
+        EXPECT_TRUE(Near(flat, n, 1e-6f));
+        // A tilt towards +x in tangent space tilts the world normal towards
+        // +X: the tangent follows the u direction.
+        const glm::vec3 tiltU = ReferenceScene::ApplyNormalMap(n, p0, p1, p2, uv0, uv1, uv2, glm::vec2(0.75f, 0.5f), 1.0f);
+        EXPECT_GT(tiltU.x, 0.3f);
+        EXPECT_NEAR(tiltU.z, 0.0f, 1e-5f);
+        EXPECT_NEAR(glm::length(tiltU), 1.0f, 1e-5f);
+        // ...and +y in tangent space along the v direction (+Z).
+        const glm::vec3 tiltV = ReferenceScene::ApplyNormalMap(n, p0, p1, p2, uv0, uv1, uv2, glm::vec2(0.5f, 0.75f), 1.0f);
+        EXPECT_GT(tiltV.z, 0.3f);
+        EXPECT_NEAR(tiltV.x, 0.0f, 1e-5f);
+        // NormalScale 0 flattens any sample.
+        const glm::vec3 scaled = ReferenceScene::ApplyNormalMap(n, p0, p1, p2, uv0, uv1, uv2, glm::vec2(0.9f, 0.1f), 0.0f);
+        EXPECT_TRUE(Near(scaled, n, 1e-6f));
+        // Degenerate UVs (all three corners at one texcoord) return the input.
+        const glm::vec3 degenerate =
+            ReferenceScene::ApplyNormalMap(n, p0, p1, p2, uv0, uv0, uv0, glm::vec2(0.9f, 0.1f), 1.0f);
+        EXPECT_TRUE(Near(degenerate, n, 1e-6f));
+    }
+
+    TEST(GpuPathTracerContract, EmissiveRecordsCarryTheirUvsAndTheEmitterMap)
+    {
+        const std::vector<Vertex> vertices = {
+            Vertex(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(0.1f, 0.2f)),
+            Vertex(glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(0.9f, 0.2f)),
+            Vertex(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(0.1f, 0.8f)),
+        };
+        const std::vector<u32> indices = { 0, 1, 2 };
+        std::vector<EmissiveTriangleRecord> records;
+        EmissiveTriangleTable::AppendTriangles(vertices, indices, 0u, 3u, 0, glm::mat4(1.0f), glm::vec3(0.0f),
+                                               glm::vec3(2.0f), false, 0.0f, records, 1234u);
+        ASSERT_EQ(records.size(), 1u);
+        const EmissiveTriangleRecord& record = records.front();
+        EXPECT_NEAR(record.Uv01.x, 0.1f, 1e-6f);
+        EXPECT_NEAR(record.Uv01.y, 0.2f, 1e-6f);
+        EXPECT_NEAR(record.Uv01.z, 0.9f, 1e-6f);
+        EXPECT_NEAR(record.Uv01.w, 0.2f, 1e-6f);
+        EXPECT_NEAR(record.V1.w, 0.1f, 1e-6f);
+        EXPECT_NEAR(record.V2.w, 0.8f, 1e-6f);
+        EXPECT_EQ(record.Texture.x, 1234u);
+        // Without a map the record says so, with the value the shader tests.
+        std::vector<EmissiveTriangleRecord> untextured;
+        EmissiveTriangleTable::AppendTriangles(vertices, indices, 0u, 3u, 0, glm::mat4(1.0f), glm::vec3(0.0f),
+                                               glm::vec3(2.0f), false, 0.0f, untextured);
+        ASSERT_EQ(untextured.size(), 1u);
+        EXPECT_EQ(untextured.front().Texture.x, RHI::HeapOffset::Invalid);
+        static_assert(sizeof(EmissiveTriangleRecord) == 112);
+        static_assert(sizeof(MaterialTextureRecord) == 16);
+    }
+
+    TEST(GpuPathTracerContract, TheTexturedCornellBoxShadesItsMapsOnTheCpu)
+    {
+        // A hit on the checker floor sees the checker, not the factor; a hit
+        // on the block sees the map's metallic half and roughness stripes.
+        const CornellBoxScene fixture = MakeTexturedCornellBoxScene();
+        const ReferenceScene& scene = fixture.Scene;
+
+        Ray down;
+        down.Origin = glm::vec3(-0.75f, 0.0f, 0.2f);
+        down.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
+        SurfaceInteraction floorHit;
+        ASSERT_TRUE(scene.Intersect(down, floorHit));
+        EXPECT_EQ(floorHit.MaterialIndex, fixture.FloorMaterial);
+        const ReferenceMaterial floor = scene.ResolveMaterial(floorHit);
+        const f32 luma = (floor.BaseColor.r + floor.BaseColor.g + floor.BaseColor.b) / 3.0f;
+        EXPECT_LT(luma, 0.95f) << "the checker darkened a unit base colour";
+        EXPECT_GT(luma, 0.01f);
+
+        // The slatted mask: a ray through an open slat passes, one through a
+        // closed band stops. The mask hangs at y = 0.55 over the floor; its
+        // quad spans x, z in [-0.4, 0.4] with v along z (AddCeilingQuad's UVs).
+        u32 passed = 0, blocked = 0;
+        for (u32 i = 0; i < 32; ++i)
+        {
+            Ray probe;
+            probe.Origin = glm::vec3(0.0f, 0.9f, -0.39f + 0.78f * (static_cast<f32>(i) + 0.5f) / 32.0f);
+            probe.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
+            SurfaceInteraction hit;
+            ASSERT_TRUE(scene.Intersect(probe, hit));
+            if (hit.MaterialIndex == fixture.MaskMaterial)
+                ++blocked;
+            else
+                ++passed;
+        }
+        EXPECT_GT(passed, 0u) << "the open slats let rays through to the floor";
+        EXPECT_GT(blocked, 0u) << "the closed bands stop rays";
+        EXPECT_NEAR(static_cast<f32>(passed) / 32.0f, 0.25f, 0.1f) << "two of eight bands are open";
     }
 } // namespace OloEngine::Tests

@@ -51,18 +51,24 @@
 namespace OloEngine
 {
     class GPUScene;
+    class MaterialTextureTable;
     class MeshSource;
 
-    // Mirrors OloPtEmissiveTriangle in GpuPathTracer.glsl (std430, 80 bytes).
+    // Mirrors OloPtEmissiveTriangle in GpuPathTracer.glsl (std430, 112 bytes).
+    // The UVs and the emissive map are what let next-event estimation see the
+    // SAME textured radiance the emitter-hit path sees; a table without them
+    // would weight the two strategies against different emitters and bias MIS.
     struct alignas(16) EmissiveTriangleRecord
     {
         glm::vec4 V0{ 0.0f };               // xyz vertex 0, w = area
-        glm::vec4 V1{ 0.0f };               // xyz vertex 1, w unused
-        glm::vec4 V2{ 0.0f };               // xyz vertex 2, w unused
+        glm::vec4 V1{ 0.0f };               // xyz vertex 1, w = uv2.x
+        glm::vec4 V2{ 0.0f };               // xyz vertex 2, w = uv2.y
         glm::vec4 NormalAndCdf{ 0.0f };     // xyz winding normal, w = cumulative area fraction
-        glm::vec4 RadianceAndFlags{ 0.0f }; // rgb radiance, w = 1 when two-sided
+        glm::vec4 RadianceAndFlags{ 0.0f }; // rgb radiance factor, w = 1 when two-sided
+        glm::vec4 Uv01{ 0.0f };             // xy = uv0, zw = uv1
+        glm::uvec4 Texture{ 0u };           // x = emissive map heap byte offset (Invalid = none), yzw pad
     };
-    static_assert(sizeof(EmissiveTriangleRecord) == 80, "EmissiveTriangleRecord must match the 80-byte GLSL struct");
+    static_assert(sizeof(EmissiveTriangleRecord) == 112, "EmissiveTriangleRecord must match the 112-byte GLSL struct");
 
     class EmissiveTriangleTable
     {
@@ -96,13 +102,15 @@ namespace OloEngine
         void QueueSubmesh(const Ref<MeshSource>& meshSource, u32 submeshIndex, const glm::mat4& worldTransform,
                           const GPUSceneMaterialKey& materialKey);
 
-        // Close the frame AFTER the GPU Scene commit: resolve every queued
-        // submesh against its committed material record, walk the emitting
-        // ones, normalise the running area into the CDF and upload. Returns
-        // the triangle count. Safe with nothing queued — the table then reports
-        // zero triangles and a zero address, which the shader treats as "no
-        // emitters".
-        u32 EndFrame(const GPUScene& scene);
+        // Close the frame AFTER the GPU Scene commit and AFTER the material
+        // texture table resolved: resolve every queued submesh against its
+        // committed material record, walk the emitting ones (each triangle
+        // carrying its UVs and the material's emissive map offset from
+        // `textures`), normalise the running area into the CDF and upload.
+        // Returns the triangle count. Safe with nothing queued — the table
+        // then reports zero triangles and a zero address, which the shader
+        // treats as "no emitters".
+        u32 EndFrame(const GPUScene& scene, const MaterialTextureTable& textures);
 
         [[nodiscard]] u32 GetTriangleCount() const noexcept
         {
@@ -129,10 +137,14 @@ namespace OloEngine
         // transformed by `worldTransform` into the render-relative frame, and
         // return the running area. Records carry the raw running area in
         // NormalAndCdf.w until Finalize normalises it.
+        // `emissiveTexture` is the material's emissive map as a resource-heap
+        // byte offset (RHI::HeapOffset::Invalid for none); every record of the
+        // range carries it together with its vertices' UVs.
         static f32 AppendTriangles(std::span<const Vertex> vertices, std::span<const u32> indices, u32 firstIndex,
                                    u32 indexCount, i32 baseVertex, const glm::mat4& worldTransform,
                                    const glm::vec3& renderOrigin, const glm::vec3& radiance, bool twoSided,
-                                   f32 runningArea, std::vector<EmissiveTriangleRecord>& out);
+                                   f32 runningArea, std::vector<EmissiveTriangleRecord>& out,
+                                   u32 emissiveTexture = RHI::HeapOffset::Invalid);
         // Turn the running area sums into cumulative fractions; the last
         // entry is forced to exactly 1.
         static void Finalize(std::vector<EmissiveTriangleRecord>& records, f32 totalArea);

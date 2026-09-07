@@ -611,6 +611,7 @@ namespace OloEngine
             glm::vec4 Environment;       // 160 — rgb = uniform environment radiance, a = emissive area pdf
             glm::vec4 ScreenParams;      // 176 — x = width, y = height, z = 1/width, w = 1/height
             glm::vec4 DebugParams;       // 192 — x = debug view, y = sample-count scale, z = variance scale, w pad
+            glm::uvec4 MaterialTable;    // 208 — xy = material texture table device address, z = record count, w = sampler heap byte offset
 
             static constexpr u32 GetSize()
             {
@@ -619,8 +620,8 @@ namespace OloEngine
         };
         static_assert(sizeof(RayTracingPathTracerUBO) % 16 == 0,
                       "RayTracingPathTracerUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(RayTracingPathTracerUBO) == 208,
-                      "RayTracingPathTracerUBO std140 size drifted from the GLSL RayTracingPathTracerParams block (208 B)");
+        static_assert(sizeof(RayTracingPathTracerUBO) == 224,
+                      "RayTracingPathTracerUBO std140 size drifted from the GLSL RayTracingPathTracerParams block (224 B)");
 
         // @brief Decal projection parameters
         struct DecalUBO

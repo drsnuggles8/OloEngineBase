@@ -554,4 +554,29 @@ namespace OloEngine::HeapBinding
         }
         return RHI::HeapOffset{ OffsetTable().Scratch[tableIndex] };
     }
+    auto ShaderHeapIndexingSupported() -> bool
+    {
+        RHI::IDescriptorHeapBackend* backend = RHI::DescriptorHeap::Get().GetBackend();
+        return backend != nullptr && backend->IsShaderHeapIndexingSupported();
+    }
+
+    auto ResolveShaderHeapTexture(const RHI::ResourceHandle texture) -> RHI::HeapOffset
+    {
+        RHI::IDescriptorHeapBackend* backend = RHI::DescriptorHeap::Get().GetBackend();
+        if (backend == nullptr || !texture.IsValid())
+        {
+            return {};
+        }
+        return RHI::HeapOffset{ backend->ResolveShaderHeapTexture(texture) };
+    }
+
+    auto ResolveShaderHeapSampler(const RHI::SamplerDesc& sampler) -> RHI::HeapOffset
+    {
+        RHI::IDescriptorHeapBackend* backend = RHI::DescriptorHeap::Get().GetBackend();
+        if (backend == nullptr)
+        {
+            return {};
+        }
+        return RHI::HeapOffset{ backend->ResolveShaderHeapSampler(sampler) };
+    }
 } // namespace OloEngine::HeapBinding

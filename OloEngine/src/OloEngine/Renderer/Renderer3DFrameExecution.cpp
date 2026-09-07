@@ -218,9 +218,12 @@ namespace OloEngine
             ExtractGPUSceneEnvironment();
             const GPUSceneFrameUpdate& frameUpdate = s_Data.SceneGPU.EndExtraction();
             s_Data.SceneGPU.Upload();
-            // The path tracer's area-light table (#1055), committed right after
-            // the records it resolves against and before any pass can read it.
-            s_Data.PathTracerEmissive.EndFrame(s_Data.SceneGPU);
+            // The path tracer's tables (#1055), committed right after the
+            // records they resolve against and before any pass can read them:
+            // the material texture table first (the emissive table reads an
+            // emitter's map offset from it), then the area-light table.
+            s_Data.PathTracerMaterialTextures.EndFrame(s_Data.SceneGPU);
+            s_Data.PathTracerEmissive.EndFrame(s_Data.SceneGPU, s_Data.PathTracerMaterialTextures);
             // A DIRTY RECORD IS A SCENE MUTATION. RecordTable::Commit marks a
             // slot dirty only when its bytes changed (or it is new), so any
             // non-empty range after commit means something the tracer shades —

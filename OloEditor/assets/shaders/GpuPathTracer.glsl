@@ -93,19 +93,23 @@ void main()
 // declares no VSM sampler; 9 is also SSBO_FPLUS_POINT_LIGHTS and this shader
 // includes nothing from ForwardPlusCommon.glsl.
 //
-// TWO STANDING LIMITS, both deliberate (issue #1055 scope decisions):
-//   * UNTEXTURED (#805). A hit is shaded from BaseColorFactor / MetallicFactor
-//     / RoughnessFactor / EmissiveFactor; sampling a material's textures needs
-//     the shader-visible sampler heap. The parity scenes are untextured by
-//     construction, so the oracle is reachable without it.
-//   * MASKED GEOMETRY TRACES AS SOLID, the same trade the shadow and
-//     reflection tiers make: an alpha test needs the texture fetch #805 gates.
+// TEXTURES (ADR 0011 amendment (95), the #805 capability scoped to this
+// Vulkan-only shader): a hit shades from the material's albedo, metallic-
+// roughness, normal and emissive maps at level 0, and a MASK material is
+// confirmed per candidate by its alpha, through the descriptor heap indexed
+// directly (DescriptorHeapTextures.glsl, MaterialTextureTable). Where the
+// pass cannot reach the heap it clears OLO_PT_FLAG_TEXTURES, every hit shades
+// from the factors, masked geometry traces as solid, and the stats say so.
 // =============================================================================
 
 #extension GL_EXT_ray_query : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_buffer_reference_uvec2 : require
+// Runtime-indexed material textures (ADR 0011 amendment (95)); the directives
+// must sit here, before any other token — see DescriptorHeapTextures.glsl.
+#extension GL_EXT_descriptor_heap : require
+#extension GL_EXT_nonuniform_qualifier : require
 
 // Attachment 0: the colour the post chain consumes (RGBA16F). The debug view
 // selects what lands here; radiance by default.
@@ -151,7 +155,6 @@ layout(binding = 11) uniform samplerCube u_PrefilterMap;          // TEX_USER_1:
 // The vertex/index stream references and the 32-byte Vertex layout live in the
 // #978 helper; including it reuses those types rather than declaring a second,
 // drift-prone copy. Its include guard makes that safe.
-#include "include/RayTracingAlphaTest.glsl"
 #include "include/GPUSceneInstances.glsl"
 #include "include/GPUSceneGeometries.glsl"
 #include "include/GPUSceneMaterials.glsl"
@@ -164,10 +167,12 @@ layout(binding = 11) uniform samplerCube u_PrefilterMap;          // TEX_USER_1:
 struct OloPtEmissiveTriangle
 {
     vec4 V0;              // xyz vertex 0, w = area
-    vec4 V1;              // xyz vertex 1, w unused
-    vec4 V2;              // xyz vertex 2, w unused
+    vec4 V1;              // xyz vertex 1, w = uv2.x
+    vec4 V2;              // xyz vertex 2, w = uv2.y
     vec4 NormalAndCdf;    // xyz winding normal, w = cumulative area fraction (last entry exactly 1)
-    vec4 RadianceAndFlags; // rgb emitted radiance, w = 1 when the emitter is two-sided
+    vec4 RadianceAndFlags; // rgb emitted radiance FACTOR, w = 1 when the emitter is two-sided
+    vec4 Uv01;            // xy = uv0, zw = uv1 — with the map below, NEE sees the textured radiance
+    uvec4 Texture;        // x = emissive map heap byte offset (OLO_HEAP_OFFSET_INVALID = none), yzw pad
 };
 
 layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer OloPtEmissiveTable
@@ -189,11 +194,13 @@ layout(std140, binding = 65) uniform RayTracingPathTracerParams
     vec4 u_Environment;        // rgb = uniform environment radiance, a = emissive area pdf (1 / total area)
     vec4 u_ScreenParams;       // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_DebugParams;        // x = debug view, y = sample-count display scale, z = variance display scale, w unused
+    uvec4 u_MaterialTable;     // xy = material texture table device address, z = record count, w = sampler heap byte offset
 };
 
 #define OLO_PT_FLAG_NEE 1u
 #define OLO_PT_FLAG_ENVIRONMENT_CUBE 2u
 #define OLO_PT_FLAG_HISTORY_VALID 4u
+#define OLO_PT_FLAG_TEXTURES 8u
 
 // Debug views — mirror GpuPathTracerDebugView (GpuPathTracerTypes.h).
 #define OLO_PT_VIEW_RADIANCE 0
@@ -214,6 +221,125 @@ layout(std140, binding = 65) uniform RayTracingPathTracerParams
 // mirror calculateLightContribution's, so the two agree on which lights
 // contribute at all.
 #define OLO_PT_LIGHT_EPSILON 0.0001
+
+// ---------------------------------------------------------------------------
+// Material textures (ADR 0011 amendment (95); the #805 capability scoped to
+// this Vulkan-only shader). MaterialTextureTable hands every material SLOT the
+// heap byte offsets of its maps; the shader indexes the descriptor heap with
+// them directly. Level 0 everywhere, as the CPU reference samples: a ray hit
+// has no screen-space derivatives, and a reference does not filter.
+// ---------------------------------------------------------------------------
+struct OloPtMaterialTextures
+{
+    uint Albedo;
+    uint MetallicRoughness;
+    uint Normal;
+    uint Emissive;
+};
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer OloPtMaterialTextureTable
+{
+    OloPtMaterialTextures Records[];
+};
+
+#include "include/DescriptorHeapTextures.glsl"
+
+bool PtTexturesEnabled()
+{
+    return (u_EmissiveTable.w & OLO_PT_FLAG_TEXTURES) != 0u && (u_MaterialTable.x | u_MaterialTable.y) != 0u &&
+           u_MaterialTable.w != OLO_HEAP_OFFSET_INVALID;
+}
+
+OloPtMaterialTextures PtMaterialTextures(uint materialIndex)
+{
+    OloPtMaterialTextures none;
+    none.Albedo = OLO_HEAP_OFFSET_INVALID;
+    none.MetallicRoughness = OLO_HEAP_OFFSET_INVALID;
+    none.Normal = OLO_HEAP_OFFSET_INVALID;
+    none.Emissive = OLO_HEAP_OFFSET_INVALID;
+    if (!PtTexturesEnabled() || materialIndex >= u_MaterialTable.z)
+        return none;
+    return OloPtMaterialTextureTable(u_MaterialTable.xy).Records[materialIndex];
+}
+
+vec4 PtSampleMaterialTexture(uint textureByteOffset, vec2 uv)
+{
+    return oloHeapSampleLod(textureByteOffset, u_MaterialTable.w, uv, 0.0);
+}
+
+// glTF MASK alpha: baseColorFactor.a times the albedo map's alpha — the
+// raster path's own definition (PBR_GBuffer.glsl).
+float PtSampleAlpha(uint materialIndex, vec2 uv)
+{
+    const GPUSceneMaterial material = g_GPUSceneMaterials[materialIndex];
+    float alpha = material.BaseColorFactor.a;
+    const OloPtMaterialTextures maps = PtMaterialTextures(materialIndex);
+    if (maps.Albedo != OLO_HEAP_OFFSET_INVALID)
+        alpha *= PtSampleMaterialTexture(maps.Albedo, uv).a;
+    return alpha;
+}
+#define OLO_RT_SAMPLE_ALPHA(materialIndex, uv) PtSampleAlpha(materialIndex, uv)
+#include "include/RayTracingAlphaTest.glsl"
+
+// A candidate (non-opaque) intersection the ray query reports: solid when the
+// GPU Scene cannot describe it (the same unshadeable-is-opaque rule as the
+// committed path) or when the alpha test confirms it. Only masked instances
+// are built non-opaque (RayTracingScene's geometry classes), so this runs
+// for masked geometry alone.
+bool PtCandidateIsSolid(uint instanceSlot, uint primitiveIndex, vec2 barycentrics)
+{
+    if (instanceSlot >= u_SlotCounts.x)
+        return true;
+    const GPUSceneInstance instance = g_GPUSceneInstances[instanceSlot];
+    if ((instance.Flags & OLO_GPU_SCENE_INSTANCE_ACTIVE) == 0u)
+        return true;
+    if (instance.MaterialIndex >= u_SlotCounts.z || instance.GeometryIndex >= u_SlotCounts.y)
+        return true;
+    const GPUSceneGeometry geometry = g_GPUSceneGeometries[instance.GeometryIndex];
+    const GPUSceneMaterial material = g_GPUSceneMaterials[instance.MaterialIndex];
+    if ((geometry.Flags & OLO_GPU_SCENE_GEOMETRY_ACTIVE) == 0u ||
+        (material.Flags & OLO_GPU_SCENE_MATERIAL_ACTIVE) == 0u)
+        return true;
+    return oloRayTracingConfirmCandidate(geometry, material, instance.MaterialIndex, primitiveIndex, barycentrics);
+}
+
+// The ray flags: masked geometry is confirmed per candidate only when the
+// textures it needs are reachable; otherwise everything traces as opaque and
+// the pass counts MaskedGeometryTracedAsSolid.
+uint PtRayFlags(uint extra)
+{
+    return (PtTexturesEnabled() ? gl_RayFlagsNoneEXT : gl_RayFlagsOpaqueEXT) | extra;
+}
+
+// The analytic tangent frame of the hit triangle from its UV gradients — the
+// derivative-free twin of PBRCommon's applyNormalMapTBN, and the SAME formula
+// the CPU reference uses (ReferenceScene::ApplyNormalMap), so a normal-mapped
+// hit shades identically on both. Degenerate UVs (a constant texcoord over
+// the triangle) leave the interpolated normal alone.
+vec3 PtApplyNormalMap(vec3 n, vec3 p0, vec3 p1, vec3 p2, vec2 uv0, vec2 uv1, vec2 uv2, vec2 sampledXY,
+                      float normalScale)
+{
+    const vec3 e1 = p1 - p0;
+    const vec3 e2 = p2 - p0;
+    const vec2 d1 = uv1 - uv0;
+    const vec2 d2 = uv2 - uv0;
+    const float det = d1.x * d2.y - d2.x * d1.y;
+    if (abs(det) < 1e-12)
+        return n;
+    const float inv = 1.0 / det;
+    vec3 t = (e1 * d2.y - e2 * d1.y) * inv;
+    const vec3 bRaw = (e2 * d1.x - e1 * d2.x) * inv;
+    t -= n * dot(n, t);
+    const float tLen = length(t);
+    if (!(tLen > 1e-12))
+        return n;
+    t /= tLen;
+    const vec3 nCrossT = cross(n, t);
+    const vec3 b = dot(nCrossT, bRaw) < 0.0 ? -nCrossT : nCrossT;
+    const vec3 tn = decodeTangentNormal(sampledXY, normalScale);
+    const vec3 result = t * tn.x + b * tn.y + n * tn.z;
+    const float len = length(result);
+    return (len > 1e-12) ? result / len : n;
+}
 
 // ---------------------------------------------------------------------------
 // Camera — ReferenceCamera::GenerateRay, transcribed.
@@ -329,7 +455,8 @@ bool UnshadeableHit(vec3 origin, vec3 direction, float t, inout PtHit hit)
 // the TLAS was built in, and deriving the basis from a second source is how a
 // transpose bug gets in.
 void FetchTriangle(GPUSceneGeometry geometry, uint primitiveIndex, mat4x3 objectToWorld,
-                   out vec3 p0, out vec3 p1, out vec3 p2, out vec3 n0, out vec3 n1, out vec3 n2)
+                   out vec3 p0, out vec3 p1, out vec3 p2, out vec3 n0, out vec3 n1, out vec3 n2,
+                   out vec2 uv0, out vec2 uv1, out vec2 uv2)
 {
     OloRtIndexStream indices = OloRtIndexStream(geometry.IndexAddress);
     OloRtVertexUVStream vertices = OloRtVertexUVStream(geometry.VertexAddress);
@@ -341,6 +468,7 @@ void FetchTriangle(GPUSceneGeometry geometry, uint primitiveIndex, mat4x3 object
 
     const uint stride = OLO_RT_VERTEX_STRIDE / 4u;
     const uint normalOffset = OLO_RT_VERTEX_NORMAL_OFFSET / 4u;
+    const uint uvOffset = OLO_RT_VERTEX_TEXCOORD_OFFSET / 4u;
 
     const vec3 lp0 = vec3(vertices.Floats[i0 * stride + 0u], vertices.Floats[i0 * stride + 1u], vertices.Floats[i0 * stride + 2u]);
     const vec3 lp1 = vec3(vertices.Floats[i1 * stride + 0u], vertices.Floats[i1 * stride + 1u], vertices.Floats[i1 * stride + 2u]);
@@ -348,6 +476,10 @@ void FetchTriangle(GPUSceneGeometry geometry, uint primitiveIndex, mat4x3 object
     const vec3 ln0 = vec3(vertices.Floats[i0 * stride + normalOffset + 0u], vertices.Floats[i0 * stride + normalOffset + 1u], vertices.Floats[i0 * stride + normalOffset + 2u]);
     const vec3 ln1 = vec3(vertices.Floats[i1 * stride + normalOffset + 0u], vertices.Floats[i1 * stride + normalOffset + 1u], vertices.Floats[i1 * stride + normalOffset + 2u]);
     const vec3 ln2 = vec3(vertices.Floats[i2 * stride + normalOffset + 0u], vertices.Floats[i2 * stride + normalOffset + 1u], vertices.Floats[i2 * stride + normalOffset + 2u]);
+
+    uv0 = vec2(vertices.Floats[i0 * stride + uvOffset + 0u], vertices.Floats[i0 * stride + uvOffset + 1u]);
+    uv1 = vec2(vertices.Floats[i1 * stride + uvOffset + 0u], vertices.Floats[i1 * stride + uvOffset + 1u]);
+    uv2 = vec2(vertices.Floats[i2 * stride + uvOffset + 0u], vertices.Floats[i2 * stride + uvOffset + 1u]);
 
     p0 = objectToWorld * vec4(lp0, 1.0);
     p1 = objectToWorld * vec4(lp1, 1.0);
@@ -382,11 +514,22 @@ bool TraceClosest(vec3 origin, vec3 direction, float tMax, out PtHit hit)
     hit.Unshadeable = false;
 
     rayQueryEXT rayQuery;
-    // Opaque: masked geometry traces as solid (see the header). Every
+    // Opaque unless textures are reachable (see PtRayFlags). Every
     // non-Masked class is already flagged opaque by the builder.
-    rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(u_TlasAddress.xy), gl_RayFlagsOpaqueEXT,
+    rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(u_TlasAddress.xy), PtRayFlags(0u),
                           u_TlasAddress.z & 0xFFu, origin, 0.0, direction, tMax);
-    rayQueryProceedEXT(rayQuery);
+    // Opaque instances commit inside the traversal; a masked instance surfaces
+    // as a candidate and is confirmed by its alpha test.
+    while (rayQueryProceedEXT(rayQuery))
+    {
+        if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT &&
+            PtCandidateIsSolid(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, false)),
+                               uint(rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, false)),
+                               rayQueryGetIntersectionBarycentricsEXT(rayQuery, false)))
+        {
+            rayQueryConfirmIntersectionEXT(rayQuery);
+        }
+    }
 
     if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionNoneEXT)
         return false;
@@ -413,7 +556,8 @@ bool TraceClosest(vec3 origin, vec3 direction, float tMax, out PtHit hit)
     const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true);
 
     vec3 p0, p1, p2, n0, n1, n2;
-    FetchTriangle(geometry, primitiveIndex, objectToWorld, p0, p1, p2, n0, n1, n2);
+    vec2 uv0, uv1, uv2;
+    FetchTriangle(geometry, primitiveIndex, objectToWorld, p0, p1, p2, n0, n1, n2, uv0, uv1, uv2);
 
     // The geometric normal from the WORLD-space winding, so it is exact under
     // any affine instance transform; the CPU derives it from the same cross
@@ -432,16 +576,47 @@ bool TraceClosest(vec3 origin, vec3 direction, float tMax, out PtHit hit)
     if (dot(shadingNormal, geometricNormal) < 0.0)
         shadingNormal = geometricNormal;
 
+    // The material's factors, then its maps where they are reachable: the
+    // raster conventions (albedo rgb, metallic = blue, roughness = green,
+    // emissive rgb, normal xy), level 0, the CPU reference's definitions.
+    vec3 albedo = material.BaseColorFactor.rgb;
+    float metallic = material.MetallicFactor;
+    float roughness = material.RoughnessFactor;
+    vec3 emissive = material.EmissiveFactor.rgb;
+    const OloPtMaterialTextures maps = PtMaterialTextures(instance.MaterialIndex);
+    if (maps.Albedo != OLO_HEAP_OFFSET_INVALID || maps.MetallicRoughness != OLO_HEAP_OFFSET_INVALID ||
+        maps.Normal != OLO_HEAP_OFFSET_INVALID || maps.Emissive != OLO_HEAP_OFFSET_INVALID)
+    {
+        const vec2 uv = uv0 * b0 + uv1 * barycentrics.x + uv2 * barycentrics.y;
+        if (maps.Albedo != OLO_HEAP_OFFSET_INVALID)
+            albedo *= PtSampleMaterialTexture(maps.Albedo, uv).rgb;
+        if (maps.MetallicRoughness != OLO_HEAP_OFFSET_INVALID)
+        {
+            const vec3 metallicRoughness = PtSampleMaterialTexture(maps.MetallicRoughness, uv).rgb;
+            metallic *= metallicRoughness.b;
+            roughness *= metallicRoughness.g;
+        }
+        if (maps.Emissive != OLO_HEAP_OFFSET_INVALID)
+            emissive *= PtSampleMaterialTexture(maps.Emissive, uv).rgb;
+        if (maps.Normal != OLO_HEAP_OFFSET_INVALID)
+        {
+            shadingNormal = PtApplyNormalMap(shadingNormal, p0, p1, p2, uv0, uv1, uv2,
+                                             PtSampleMaterialTexture(maps.Normal, uv).xy, material.NormalScale);
+            // Re-snapped: a map can tilt the normal past the geometric plane.
+            if (dot(shadingNormal, geometricNormal) < 0.0)
+                shadingNormal = geometricNormal;
+        }
+    }
+
     hit.Hit = true;
     hit.Distance = t;
     hit.Position = origin + direction * t;
     hit.GeometricNormal = geometricNormal;
     hit.ShadingNormal = shadingNormal;
-    // Untextured, per #805: these are the material's FACTORS. See the header.
-    hit.Albedo = material.BaseColorFactor.rgb;
-    hit.Metallic = material.MetallicFactor;
-    hit.Roughness = material.RoughnessFactor;
-    hit.Emissive = material.EmissiveFactor.rgb;
+    hit.Albedo = albedo;
+    hit.Metallic = metallic;
+    hit.Roughness = roughness;
+    hit.Emissive = emissive;
     hit.TwoSidedEmission = (material.Flags & OLO_GPU_SCENE_MATERIAL_TWO_SIDED) != 0u;
     return true;
 }
@@ -457,9 +632,18 @@ bool IsOccluded(vec3 from, vec3 to, float epsilon)
 
     rayQueryEXT shadowQuery;
     rayQueryInitializeEXT(shadowQuery, accelerationStructureEXT(u_TlasAddress.xy),
-                          gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, u_TlasAddress.z & 0xFFu,
+                          PtRayFlags(gl_RayFlagsTerminateOnFirstHitEXT), u_TlasAddress.z & 0xFFu,
                           from, epsilon, delta / dist, dist - epsilon);
-    rayQueryProceedEXT(shadowQuery);
+    while (rayQueryProceedEXT(shadowQuery))
+    {
+        if (rayQueryGetIntersectionTypeEXT(shadowQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT &&
+            PtCandidateIsSolid(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(shadowQuery, false)),
+                               uint(rayQueryGetIntersectionPrimitiveIndexEXT(shadowQuery, false)),
+                               rayQueryGetIntersectionBarycentricsEXT(shadowQuery, false)))
+        {
+            rayQueryConfirmIntersectionEXT(shadowQuery);
+        }
+    }
     return rayQueryGetIntersectionTypeEXT(shadowQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT;
 }
 
@@ -506,6 +690,13 @@ bool SampleEmissive(float xiSelect, vec2 xiPoint, out vec3 position, out vec3 no
     position = emitter.V0.xyz * b0 + emitter.V1.xyz * b1 + emitter.V2.xyz * b2;
     normal = emitter.NormalAndCdf.xyz;
     radiance = emitter.RadianceAndFlags.rgb;
+    // The emitter's map at the sampled point, so NEE and the emitter-hit path
+    // see one radiance and MIS weights the same integrand twice.
+    if (emitter.Texture.x != OLO_HEAP_OFFSET_INVALID && PtTexturesEnabled())
+    {
+        const vec2 uv = emitter.Uv01.xy * b0 + emitter.Uv01.zw * b1 + vec2(emitter.V1.w, emitter.V2.w) * b2;
+        radiance *= PtSampleMaterialTexture(emitter.Texture.x, uv).rgb;
+    }
     twoSided = emitter.RadianceAndFlags.w > 0.5;
     return true;
 }

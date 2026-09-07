@@ -512,6 +512,11 @@ namespace OloEngine
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Off is pure BSDF sampling: still unbiased, far noisier,\n"
                                       "and the cross-check that proves the MIS weights are not biased.");
+                ImGui::Checkbox("Sample Material Textures##GpuPathTracer", &pt.SampleTextures);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Albedo, metallic-roughness, normal and emissive maps at level 0, and\n"
+                                      "alpha MASK on the ray. Off shades from the material factors alone:\n"
+                                      "the A/B for a texture disagreement with the CPU reference.");
                 ImGui::DragFloat("Radiance Clamp (0 = off)##GpuPathTracer", &pt.MaxRadianceClamp, 0.1f, 0.0f,
                                  kMaxRadianceClamp, "%.1f");
                 if (ImGui::IsItemHovered())
@@ -578,10 +583,17 @@ namespace OloEngine
                         if (stats.LegacyMaterialsShadedAsClosureV2 > 0)
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%u Legacy materials shaded as ClosureV2",
                                                stats.LegacyMaterialsShadedAsClosureV2);
+                        if (stats.TexturesAvailable)
+                            ImGui::Text("material textures sampled (level 0), alpha mask honoured");
                         if (stats.HitsShadedUntextured)
-                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "hits shaded UNTEXTURED - blocked on #805");
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "hits shaded UNTEXTURED - textures off or the backend cannot index the heap");
                         if (stats.MaskedGeometryTracedAsSolid)
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "masked geometry traced as solid");
+                        if (stats.MaterialTexturesUnresolved > 0)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "%u material textures could not be resolved to the heap and shade flat",
+                                               stats.MaterialTexturesUnresolved);
                     }
                     else
                     {

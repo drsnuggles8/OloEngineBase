@@ -135,6 +135,15 @@ namespace OloEngine
         {
             return m_DrawIndirectCountEnabled;
         }
+        // shaderSampledImageArrayNonUniformIndexing (Vulkan 1.2) gates the
+        // SPIR-V SampledImageArrayNonUniformIndexing capability a shader
+        // declares when it indexes the descriptor heap with nonuniformEXT
+        // (ADR 0011 amendment (95)); module creation fails validation
+        // without it, so the heap-indexing resolvers refuse when it is off.
+        [[nodiscard]] bool IsSampledImageNonUniformIndexingEnabled() const
+        {
+            return m_SampledImageNonUniformIndexingEnabled;
+        }
         [[nodiscard]] bool IsMultiDrawIndirectEnabled() const
         {
             return m_MultiDrawIndirectEnabled;
@@ -314,6 +323,7 @@ namespace OloEngine
         bool m_ShaderBufferInt64AtomicsEnabled = false;
         bool m_DynamicBlendStateEnabled = false;
         bool m_DrawIndirectCountEnabled = false;
+        bool m_SampledImageNonUniformIndexingEnabled = false;
         bool m_MultiDrawIndirectEnabled = false;
         bool m_ShaderDrawParametersEnabled = false;
         bool m_DeviceFaultEnabled = false;

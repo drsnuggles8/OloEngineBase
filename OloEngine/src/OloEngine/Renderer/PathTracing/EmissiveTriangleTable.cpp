@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 
 #include <algorithm>
 #include <cmath>
@@ -49,20 +50,21 @@ namespace OloEngine
                                                u32 firstIndex, u32 indexCount, i32 baseVertex,
                                                const glm::mat4& worldTransform, const glm::vec3& renderOrigin,
                                                const glm::vec3& radiance, bool twoSided, f32 runningArea,
-                                               std::vector<EmissiveTriangleRecord>& out)
+                                               std::vector<EmissiveTriangleRecord>& out, u32 emissiveTexture)
     {
         const sizet indexEnd = static_cast<sizet>(firstIndex) + indexCount;
         if (indexEnd > indices.size() || indexCount < 3u)
             return runningArea;
 
         const sizet vertexCount = vertices.size();
-        const auto resolveVertex = [&](sizet indexSlot, glm::vec3& outPosition) -> bool
+        const auto resolveVertex = [&](sizet indexSlot, glm::vec3& outPosition, glm::vec2& outUv) -> bool
         {
             const i64 vertexIndex = static_cast<i64>(indices[indexSlot]) + baseVertex;
             if (vertexIndex < 0 || static_cast<sizet>(vertexIndex) >= vertexCount)
                 return false;
-            const glm::vec3 local = vertices[static_cast<sizet>(vertexIndex)].Position;
-            outPosition = glm::vec3(worldTransform * glm::vec4(local, 1.0f)) - renderOrigin;
+            const Vertex& vertex = vertices[static_cast<sizet>(vertexIndex)];
+            outPosition = glm::vec3(worldTransform * glm::vec4(vertex.Position, 1.0f)) - renderOrigin;
+            outUv = vertex.TexCoord;
             return true;
         };
 
@@ -71,7 +73,9 @@ namespace OloEngine
         {
             const sizet base = static_cast<sizet>(firstIndex) + triangle * 3u;
             glm::vec3 p0, p1, p2;
-            if (!resolveVertex(base + 0u, p0) || !resolveVertex(base + 1u, p1) || !resolveVertex(base + 2u, p2))
+            glm::vec2 uv0, uv1, uv2;
+            if (!resolveVertex(base + 0u, p0, uv0) || !resolveVertex(base + 1u, p1, uv1) ||
+                !resolveVertex(base + 2u, p2, uv2))
                 continue;
             if (!std::isfinite(p0.x + p0.y + p0.z + p1.x + p1.y + p1.z + p2.x + p2.y + p2.z))
                 continue;
@@ -89,10 +93,12 @@ namespace OloEngine
 
             EmissiveTriangleRecord record;
             record.V0 = glm::vec4(p0, area);
-            record.V1 = glm::vec4(p1, 0.0f);
-            record.V2 = glm::vec4(p2, 0.0f);
+            record.V1 = glm::vec4(p1, uv2.x);
+            record.V2 = glm::vec4(p2, uv2.y);
             record.NormalAndCdf = glm::vec4(crossProduct / crossLength, runningArea);
             record.RadianceAndFlags = glm::vec4(radiance, twoSided ? 1.0f : 0.0f);
+            record.Uv01 = glm::vec4(uv0, uv1);
+            record.Texture = glm::uvec4(emissiveTexture, 0u, 0u, 0u);
             out.push_back(record);
         }
         return runningArea;
@@ -111,7 +117,7 @@ namespace OloEngine
         records.back().NormalAndCdf.w = 1.0f;
     }
 
-    u32 EmissiveTriangleTable::EndFrame(const GPUScene& scene)
+    u32 EmissiveTriangleTable::EndFrame(const GPUScene& scene, const MaterialTextureTable& textures)
     {
         m_Records.clear();
         m_TotalArea = 0.0f;
@@ -129,6 +135,10 @@ namespace OloEngine
             if (!(std::max({ radiance.x, radiance.y, radiance.z }) > 0.0f))
                 continue;
             const bool twoSided = (material->Flags & GPUSceneMaterialFlagTwoSided) != 0u;
+            // The emissive map the hit path multiplies the factor by, so NEE
+            // samples the same emitter. Invalid where the material has none
+            // or the backend cannot index the heap.
+            const u32 emissiveTexture = textures.GetRecord(handle.m_Index).Emissive;
 
             const MeshSource& source = *pending.m_MeshSource;
             const auto& submeshes = source.GetSubmeshes();
@@ -142,7 +152,7 @@ namespace OloEngine
                 std::span<const Vertex>(vertices.GetData(), static_cast<sizet>(vertices.Num())),
                 std::span<const u32>(indices.GetData(), static_cast<sizet>(indices.Num())), submesh.m_BaseIndex,
                 submesh.m_IndexCount, static_cast<i32>(submesh.m_BaseVertex), pending.m_WorldTransform,
-                m_RenderOrigin, radiance, twoSided, m_TotalArea, m_Records);
+                m_RenderOrigin, radiance, twoSided, m_TotalArea, m_Records, emissiveTexture);
         }
         m_Pending.clear();
 
