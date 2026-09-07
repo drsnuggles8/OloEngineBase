@@ -41,6 +41,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/Camera/Camera.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
@@ -50,6 +51,8 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Task/NamedThreads.h"
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
+#include "VirtualRasterCoverageMirror.h"
+#include "../TestOptions.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/Passes/BloomRenderPass.h"
 #include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
@@ -150,6 +153,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include <fstream>
 #include <string>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
@@ -486,6 +490,19 @@ class VulkanPassSuite : public ::testing::Test
   protected:
     void SetUp() override
     {
+        // `--olo-gl-backend=none` is the suite's "this run tests no GPU" contract
+        // (#1015), and a Vulkan device is a GPU: the sanitizer jobs pass the flag
+        // on the self-hosted box so a run there means what the hosted run means.
+        // VulkanTestSupport.h's ProbeVulkanDeviceTestGate has honoured it since
+        // #1015 and says why; this fixture kept its own inline probe ladder and
+        // never picked the check up, which made the largest Vulkan suite the one
+        // place the box still tested hardware the hosted arm did not (#1107).
+        if (OloEngine::Tests::Options().GlBackend == OloEngine::Tests::GlBackend::None)
+        {
+            GTEST_SKIP() << "No GPU available in this environment (GL backend pinned to 'none' by "
+                            "--olo-gl-backend=none; the Vulkan gate honours it too).";
+        }
+
         if (volkInitialize() != VK_SUCCESS)
             GTEST_SKIP() << "No Vulkan loader on this machine.";
 
@@ -6017,14 +6034,36 @@ namespace
 // =============================================================================
 // VirtualGeometry (#691): the MDI-count indirect-draw entry.
 //
-// The FULL VirtualGeometryPass is disproportionate headlessly: its cull/raster
-// compute shaders drive ~15 bare uniforms through ComputeShader::Set* calls
-// (no-ops on the SPIR-V route — they need the "bare uniforms -> UBO"
-// migration first), VirtualMeshRegistry seeding needs cooked VirtualMeshAssets
-// (the VirtualMeshBuilder cook, not reachable from a plain run), and the
-// material loop rides CommandDispatch::UploadMaterialForDirectDraw (port-order
-// item 10's machinery). So per the survey's fallback this tenant pins the
-// INDIRECT-DRAW ENTRY itself — with the REAL VirtualMeshGBuffer.glsl and a
+// BLOCKER LIST, RE-CHECKED AGAINST THE CODE (issue #1107). This comment used to
+// give three reasons the FULL VirtualGeometryPass stays out, and a stale
+// blocker list is what kept the gap open for a release cycle — so it is now
+// written as what is true today, with the two that expired named as expired:
+//
+//   * EXPIRED — "the cull/raster compute shaders drive ~15 bare uniforms
+//     through ComputeShader::Set* (no-ops on the SPIR-V route)". Issue #691
+//     migrated them: VirtualClusterCull.comp reads the std140
+//     VirtualClusterCullParams block at binding 69 and VirtualClusterRaster.comp
+//     the VirtualRasterParams block at 70, with C++ twins
+//     UBOStructures::VirtualClusterCullUBO / VirtualRasterUBO.
+//     MigratedComputeShadersCompileOnVulkan proves both compile here, and
+//     VirtualGeometrySoftwareRasterMatchesTheGLReference below now DRIVES the
+//     raster through those blocks on the device.
+//   * EXPIRED for a hand-authored tenant — "the material loop rides
+//     CommandDispatch::UploadMaterialForDirectDraw". That call only forwards a
+//     PODMaterialData into the shared material UBO; a tenant that fills
+//     ShaderBindingLayout::PBRMaterialUBO itself reaches the same shader state,
+//     which THIS tenant already does below. It remains a blocker for driving
+//     VirtualGeometryPass::Execute unmodified, because that reads its materials
+//     out of FrameDataBufferManager, which is Renderer3D-owned GL currency here
+//     (the same reason SceneRenderPass's opaque bucket stays out — see its
+//     tenant's note).
+//   * STILL REAL — VirtualMeshRegistry seeding needs cooked VirtualMeshAssets
+//     (the VirtualMeshBuilder cook, not reachable from a plain run). Both
+//     virtual-geometry tenants here therefore hand-author a cluster set in the
+//     pooled shape the registry produces, which is what the issue suggested and
+//     is enough for everything below.
+//
+// So this tenant pins the INDIRECT-DRAW ENTRY itself — with the REAL VirtualMeshGBuffer.glsl and a
 // hand-authored cluster set, which is strictly stronger than a V1 stand-in:
 //
 //   * vkCmdDrawIndexedIndirectCount from a hand-built 2-command buffer
@@ -6624,6 +6663,768 @@ namespace
         return count;
     }
 } // namespace
+
+// =============================================================================
+// VirtualGeometry SOFTWARE rasterizer (#1107): the real VirtualClusterRaster.comp
+// on the device, against a GL-convention reference computed on the CPU.
+//
+// WHY THIS TENANT EXISTS. Both bugs #1106 fixed lived in this shader, and both
+// were invisible to every gate the project had:
+//
+//   * the ndc.z -> window-depth mapping was hard-coded to GL's 0.5/0.5, so on
+//     Vulkan — where AdjustProjectionForBackend has ALREADY mapped clip z into
+//     [0, w] — every software depth was compressed into [0.5, 1];
+//   * the backface cull used GL's window-space determinant sense, so on Vulkan,
+//     whose framebuffer y runs the other way, the FRONT faces were culled and
+//     the back ones kept.
+//
+// Neither is a math error an L1-L5 contract test can reach: they are CONVENTION
+// errors, and every CPU-side counter (DAG cut, software-rasterized cluster
+// count, dispatch size, shader-error count) read identical on both backends.
+// The only gate that catches them is one that rasterizes on the device and
+// looks at the pixels — which is what this does, and it is the acceptance bar
+// the issue set: reverting either fix must turn this red.
+//
+// HOW THE REFERENCE IS ANCHORED. The camera is authored in GL clip conventions
+// and uploaded through RHI::AdjustProjectionForBackend, exactly as production
+// does — so the geometry crosses the SAME seam the hardware path crosses, and
+// the two bugs are reachable. The expected coverage and the expected window
+// depths are then computed on the CPU from the UNADJUSTED GL matrices, using
+// GL's own ndc.z * 0.5 + 0.5. That is the "GL reference" the issue asks for,
+// spelled analytically rather than taken from a second live context: a Vulkan
+// device and a GL context cannot both be current in this process (the fixture
+// swaps the process-global backend wholesale), and an analytic reference is
+// stronger anyway — it pins the ABSOLUTE answer instead of pinning two backends
+// to each other, so it cannot go green by both being wrong the same way.
+//
+// The one backend-dependent step in the comparison is ROW ORDER: the seam's y
+// flip mirrors which visibility-buffer row a world point lands in, exactly as
+// it mirrors every other render target, so the reference is read through
+// RHI::RenderTargetRowsAreBottomUp(). That is a DIFFERENT consumer of the seam
+// from the two under test, which is what makes it useful here — #1106 was two
+// independent hard-codings inside individual consumers, and a wrong answer in
+// either one still moves the picture against this reference.
+//
+// It is NOT an independent predicate, and saying so would be false: every
+// member of the seam — the projection adjust, the depth mapping, the front-face
+// sign and the row order — is a ternary on one private BackendFlips() in
+// RHIProjectionSeam.cpp. A regression in THAT flips all four together and the
+// comparison would slide along with it. So the block below pins the seam's
+// answers absolutely against the backend the fixture selected, which is the
+// part the reference genuinely cannot self-check.
+//
+// TOLERANCE, stated rather than tuned: interior pixels (the reference-covered
+// set eroded by one pixel) must match the reference EXACTLY in coverage, and
+// their depths to 1e-5. The covered COUNT is allowed to differ by up to 1% of
+// the reference, which is the edge-pixel band — the GPU is free to contract the
+// edge functions into FMAs, so a pixel centre sitting within an ulp of an edge
+// may land either way. Both #1106 bugs move far more than that: the depth bug
+// moves every depth by about 0.5, the winding bug moves 100% of the covered set.
+// =============================================================================
+namespace
+{
+    // A quad cluster in WORLD space. `FrontFacing` is the authored winding:
+    // counter-clockwise seen from the camera (which sits on +z looking at the
+    // origin), i.e. what GL and Vulkan must BOTH agree is a front face.
+    struct VgSwQuad
+    {
+        f32 X0;
+        f32 X1;
+        f32 Y0;
+        f32 Y1;
+        f32 Z;
+        bool FrontFacing;
+    };
+
+    // Three clusters, chosen so each assertion below has a single cause:
+    //   0 — front-facing, LEFT, at z = 0;
+    //   1 — BACK-facing, RIGHT, same size and depth as 0. It must contribute
+    //       nothing. Under the #1105 winding bug this is the one that survives
+    //       and cluster 0 is the one that vanishes, so the covered set does not
+    //       merely shrink — it MOVES, which no tolerance can absorb;
+    //   2 — front-facing, TOP-LEFT, at z = 1 (nearer the camera than 0). It sits
+    //       wholly inside the LEFT half and clear of cluster 0 in y, so the
+    //       half-count assertion below stays a clean statement about cluster 1
+    //       alone. Its window
+    //       depth must be strictly smaller than cluster 0's, and both must hit
+    //       their absolute reference values — the #1106 depth bug remaps both
+    //       into [0.5, 1] while preserving their ORDER, so an ordering-only
+    //       assertion would miss it and an absolute one does not.
+    constexpr std::array<VgSwQuad, 3> kVgSwQuads{
+        VgSwQuad{ -0.80f, -0.20f, -0.30f, 0.30f, 0.0f, true },
+        VgSwQuad{ 0.20f, 0.80f, -0.30f, 0.30f, 0.0f, false },
+        VgSwQuad{ -0.80f, -0.40f, 0.50f, 0.80f, 1.0f, true },
+    };
+
+    // The camera, in GL clip conventions (glm RH_NO — the engine authors every
+    // projection this way; see RHIProjectionSeam.h). Orthographic so a pixel's
+    // expected depth is a plain lerp of the corner depths and the reference has
+    // no perspective-divide precision story of its own.
+    [[nodiscard]] glm::mat4 VgSwReferenceViewProjection()
+    {
+        const glm::mat4 projection = glm::ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 10.0f);
+        const glm::mat4 view =
+            glm::lookAt(glm::vec3(0.0f, 0.0f, 3.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        return projection * view;
+    }
+
+    // The quad's four corners, in the pooled-vertex order the cluster carries.
+    [[nodiscard]] std::array<glm::vec3, 4> VgSwCorners(const VgSwQuad& quad)
+    {
+        return { glm::vec3{ quad.X0, quad.Y0, quad.Z }, glm::vec3{ quad.X1, quad.Y0, quad.Z },
+                 glm::vec3{ quad.X1, quad.Y1, quad.Z }, glm::vec3{ quad.X0, quad.Y1, quad.Z } };
+    }
+
+    // The cluster-local index pair. Corner order is CCW seen from +z, so the
+    // straight winding is the front face and the reversal is the back one —
+    // the SAME six values the GPU index pool carries for this cluster.
+    [[nodiscard]] std::array<std::array<u32, 3>, 2> VgSwTriangles(bool frontFacing)
+    {
+        if (frontFacing)
+            return { std::array<u32, 3>{ 0u, 1u, 2u }, std::array<u32, 3>{ 2u, 3u, 0u } };
+        return { std::array<u32, 3>{ 2u, 1u, 0u }, std::array<u32, 3>{ 0u, 3u, 2u } };
+    }
+
+    // The CPU reference: VirtualClusterRaster.comp's coverage and depth rules
+    // replayed in GL window space, expression for expression. Returns the
+    // winning window depth per pixel, +inf where nothing covers.
+    //
+    // Deliberately NOT shared with the shader through any generated artefact:
+    // the point is that this is an INDEPENDENT statement of the same contract.
+    // The one piece that IS shared is the sub-sample-miss rule, which already
+    // has a mirror header precisely because it must not drift (issue #712).
+    struct VgSwReference
+    {
+        // Winning window depth per pixel, +inf where nothing covers.
+        std::vector<f32> Depth;
+        // Largest barycentric slack any accepted triangle had at this pixel:
+        // min(b0, b1, b2), in [0, 1/3]. A pixel sitting ON an edge scores ~0.
+        //
+        // This exists because two triangles sharing an edge is not a
+        // numerically settled case. Quad 0's shared diagonal passes through
+        // pixel centres whose edge functions are ~1e-5 against an f32 rounding
+        // ulp of ~1e-4 at that magnitude, and the GPU is free to contract the
+        // products into FMAs — at which point the two triangles' edge functions
+        // stop being exact negations of each other and BOTH can reject the same
+        // pixel. That is a legitimate hardware freedom, not a raster bug, so
+        // the exact interior comparison excludes such pixels by slack instead
+        // of absorbing them into a tolerance that would also hide real damage.
+        std::vector<f32> Slack;
+    };
+
+    [[nodiscard]] VgSwReference RasterizeVgSwReference(u32 size)
+    {
+        namespace Coverage = OloEngine::Tests::VirtualRasterCoverage;
+
+        const glm::mat4 viewProjection = VgSwReferenceViewProjection();
+        const glm::vec2 viewport{ static_cast<f32>(size), static_cast<f32>(size) };
+        VgSwReference out;
+        out.Depth.assign(static_cast<sizet>(size) * size, std::numeric_limits<f32>::infinity());
+        out.Slack.assign(static_cast<sizet>(size) * size, 0.0f);
+
+        for (const auto& quad : kVgSwQuads)
+        {
+            const auto corners = VgSwCorners(quad);
+            for (const auto& triangle : VgSwTriangles(quad.FrontFacing))
+            {
+                std::array<glm::vec2, 3> screen{};
+                std::array<f32, 3> vertexDepth{};
+                for (u32 k = 0; k < 3; ++k)
+                {
+                    const glm::vec4 clip = viewProjection * glm::vec4(corners[triangle[k]], 1.0f);
+                    const glm::vec3 ndc = glm::vec3(clip) / clip.w;
+                    screen[k] = ((glm::vec2(ndc) * 0.5f) + 0.5f) * viewport;
+                    // GL's window-depth mapping. THE reference value: on Vulkan
+                    // the adjusted projection must reach the same number by a
+                    // different route (scale 1, bias 0 over an already-[0,1] z).
+                    vertexDepth[k] = (ndc.z * 0.5f) + 0.5f;
+                }
+
+                // GL window space: a front face has a positive determinant.
+                const f32 signedArea = Coverage::SignedArea2(screen[0], screen[1], screen[2]);
+                if (signedArea <= 0.0f)
+                    continue;
+
+                // The shader's PIXEL-ALIGNED work cap, mirrored before the
+                // sample-tight range so the reference rejects exactly the
+                // triangles the shader rejects. Inert at today's sizes; without
+                // it, a larger kSize or quad would make the reference
+                // over-cover and point the failure at the wrong seam.
+                const glm::vec2 boxMinF = glm::min(screen[0], glm::min(screen[1], screen[2]));
+                const glm::vec2 boxMaxF = glm::max(screen[0], glm::max(screen[1], screen[2]));
+                const glm::ivec2 boxMin = glm::ivec2(glm::max(glm::floor(boxMinF), glm::vec2(0.0f)));
+                const glm::ivec2 boxMax = glm::ivec2(glm::min(glm::ceil(boxMaxF), viewport - 1.0f));
+                if (boxMax.x < boxMin.x || boxMax.y < boxMin.y)
+                    continue;
+                constexpr i32 kMaxTriangleBBox = 128; // VirtualClusterRaster.comp's own constant
+                if (boxMax.x - boxMin.x > kMaxTriangleBBox || boxMax.y - boxMin.y > kMaxTriangleBBox)
+                    continue;
+
+                const auto range =
+                    Coverage::SampleRangeFromTriangle(screen[0], screen[1], screen[2], viewport);
+                if (!range.Covers)
+                    continue;
+
+                const f32 invArea = 1.0f / signedArea;
+                for (i32 y = range.Min.y; y <= range.Max.y; ++y)
+                {
+                    for (i32 x = range.Min.x; x <= range.Max.x; ++x)
+                    {
+                        const glm::vec2 pixel{ static_cast<f32>(x) + 0.5f, static_cast<f32>(y) + 0.5f };
+                        const f32 w0 = ((screen[1].x - pixel.x) * (screen[2].y - pixel.y)) -
+                                       ((screen[2].x - pixel.x) * (screen[1].y - pixel.y));
+                        const f32 w1 = ((screen[2].x - pixel.x) * (screen[0].y - pixel.y)) -
+                                       ((screen[0].x - pixel.x) * (screen[2].y - pixel.y));
+                        const f32 w2 = ((screen[0].x - pixel.x) * (screen[1].y - pixel.y)) -
+                                       ((screen[1].x - pixel.x) * (screen[0].y - pixel.y));
+                        if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f)
+                            continue;
+
+                        const f32 pixelDepth = std::clamp((vertexDepth[0] * w0 * invArea) +
+                                                              (vertexDepth[1] * w1 * invArea) +
+                                                              (vertexDepth[2] * w2 * invArea),
+                                                          0.0f, 1.0f);
+                        const sizet index = (static_cast<sizet>(y) * size) + static_cast<sizet>(x);
+                        out.Depth[index] = std::min(out.Depth[index], pixelDepth);
+                        out.Slack[index] =
+                            std::max(out.Slack[index], std::min({ w0, w1, w2 }) * invArea);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    // Every GPU-side resource VirtualClusterRaster.comp reads or writes, built
+    // once and shared by the correctness tenant and the perf bracket below —
+    // so the two cannot drift into measuring different scenes.
+    struct VgSwScene
+    {
+        Ref<StorageBuffer> Vertices;
+        Ref<StorageBuffer> Indices;
+        Ref<StorageBuffer> Clusters;
+        Ref<StorageBuffer> Instances;
+        Ref<StorageBuffer> SwList;
+        Ref<StorageBuffer> Visbuffer;
+        Ref<UniformBuffer> Camera;
+        Ref<UniformBuffer> RasterUbo;
+        UBOStructures::VirtualRasterUBO RasterParams{};
+        glm::mat4 ReferenceViewProjection{ 1.0f };
+
+        [[nodiscard]] bool IsComplete() const
+        {
+            return Vertices && Indices && Clusters && Instances && SwList && Visbuffer && Camera && RasterUbo;
+        }
+
+        // SSBO binding points are process-global state and the fixture's other
+        // tenants rebind them, so every dispatch re-publishes the whole set.
+        void BindAll() const
+        {
+            Vertices->Bind();
+            Indices->Bind();
+            Clusters->Bind();
+            Instances->Bind();
+            SwList->Bind();
+            Visbuffer->Bind();
+            Camera->Bind();
+        }
+    };
+
+    [[nodiscard]] VgSwScene CreateVgSwScene(u32 size)
+    {
+        constexpr u32 kClusterCount = static_cast<u32>(kVgSwQuads.size());
+        VgSwScene scene;
+
+        // Pooled exactly the way VirtualMeshRegistry pools a cooked mesh: one
+        // vertex arena, one CLUSTER-LOCAL index arena, and per-cluster
+        // VertexBase/IndexBase windows into them. Cluster-local indices are what
+        // make the bases load-bearing — a raster that ignored VertexBase would
+        // draw cluster 0 three times over.
+        std::array<VirtualGpuVertex, 4 * kClusterCount> vertices{};
+        std::array<u32, 6 * kClusterCount> indices{};
+        std::array<VirtualClusterGpuRecord, kClusterCount> clusters{};
+        for (u32 c = 0; c < kClusterCount; ++c)
+        {
+            const auto corners = VgSwCorners(kVgSwQuads[c]);
+            for (u32 k = 0; k < 4; ++k)
+            {
+                vertices[(c * 4u) + k].PositionU = glm::vec4(corners[k], 0.0f);
+                vertices[(c * 4u) + k].NormalV = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+            }
+            const auto triangles = VgSwTriangles(kVgSwQuads[c].FrontFacing);
+            for (u32 t = 0; t < 2; ++t)
+            {
+                for (u32 k = 0; k < 3; ++k)
+                    indices[(c * 6u) + (t * 3u) + k] = triangles[t][k];
+            }
+            clusters[c].VertexBase = c * 4u;
+            clusters[c].IndexBase = c * 6u;
+            clusters[c].IndexCount = 6u;
+            clusters[c].VertexCount = 4u;
+        }
+
+        scene.Vertices =
+            StorageBuffer::Create(static_cast<u32>(sizeof(vertices)), ShaderBindingLayout::SSBO_VIRTUAL_VERTICES);
+        scene.Indices =
+            StorageBuffer::Create(static_cast<u32>(sizeof(indices)), ShaderBindingLayout::SSBO_VIRTUAL_INDICES);
+        scene.Clusters =
+            StorageBuffer::Create(static_cast<u32>(sizeof(clusters)), ShaderBindingLayout::SSBO_VIRTUAL_CLUSTERS);
+        if (!scene.Vertices || !scene.Indices || !scene.Clusters)
+            return scene;
+        scene.Vertices->SetData(vertices.data(), static_cast<u32>(sizeof(vertices)));
+        scene.Indices->SetData(indices.data(), static_cast<u32>(sizeof(indices)));
+        scene.Clusters->SetData(clusters.data(), static_cast<u32>(sizeof(clusters)));
+
+        VirtualInstanceGpuRecord instance{}; // identity transform, Flags 0 => single-sided
+        instance.EntityID = 11;
+        instance.ClusterCount = kClusterCount;
+        scene.Instances =
+            StorageBuffer::Create(sizeof(VirtualInstanceGpuRecord), ShaderBindingLayout::SSBO_VIRTUAL_INSTANCES);
+        if (!scene.Instances)
+            return scene;
+        scene.Instances->SetData(&instance, sizeof(instance));
+
+        // The software work list, in the shape the cull writes:
+        // { uint Count; uint DispatchX, DispatchY, DispatchZ; VisibleCluster[] }.
+        // The header's dispatch triple is what VirtualRasterArgs.comp authors in
+        // production; seeded here because these tenants dispatch directly.
+        struct VgSwListHeader
+        {
+            u32 Count;
+            u32 DispatchX;
+            u32 DispatchY;
+            u32 DispatchZ;
+        };
+        static_assert(sizeof(VgSwListHeader) == 16, "the SW list header is four words");
+
+        std::vector<u8> swListBytes(sizeof(VgSwListHeader) + (kClusterCount * sizeof(VirtualVisibleCluster)));
+        {
+            const VgSwListHeader header{ kClusterCount, kClusterCount, 1u, 1u };
+            std::memcpy(swListBytes.data(), &header, sizeof(header));
+            std::array<VirtualVisibleCluster, kClusterCount> records{};
+            for (u32 c = 0; c < kClusterCount; ++c)
+            {
+                records[c].InstanceIndex = 0u;
+                records[c].ClusterIndex = c;
+            }
+            std::memcpy(swListBytes.data() + sizeof(header), records.data(), sizeof(records));
+        }
+        // DynamicCopy, matching VirtualMeshRegistry: the usage decides the VMA
+        // memory class, and DynamicDraw would put the buffer every inner-loop
+        // atomicMin targets in host-visible memory rather than the device-local
+        // one production rasterizes into — which would quietly make the perf
+        // bracket below measure a different buffer than the one that ships.
+        scene.SwList =
+            StorageBuffer::Create(static_cast<u32>(swListBytes.size()), ShaderBindingLayout::SSBO_VIRTUAL_SW_LIST,
+                                  StorageBufferUsage::DynamicCopy);
+        if (!scene.SwList)
+            return scene;
+        scene.SwList->SetData(swListBytes.data(), static_cast<u32>(swListBytes.size()));
+
+        // uvec2 per pixel: .y = depth bits (atomicMin), .x = payload.
+        scene.Visbuffer = StorageBuffer::Create(size * size * 2u * static_cast<u32>(sizeof(u32)),
+                                                ShaderBindingLayout::SSBO_VIRTUAL_VISBUFFER,
+                                                StorageBufferUsage::DynamicCopy);
+        if (!scene.Visbuffer)
+            return scene;
+
+        // The camera, across the production seam: authored in GL clip
+        // conventions and uploaded through RHI::AdjustProjectionForBackend,
+        // exactly as production does. Without that crossing neither #1106 bug
+        // is reachable from a test.
+        scene.ReferenceViewProjection = VgSwReferenceViewProjection();
+        ShaderBindingLayout::CameraUBO cameraData{};
+        cameraData.ViewProjection = RHI::AdjustProjectionForBackend(scene.ReferenceViewProjection);
+        cameraData.View = glm::mat4(1.0f);
+        cameraData.Projection = cameraData.ViewProjection;
+        cameraData.Position = glm::vec3(0.0f, 0.0f, 3.0f);
+        cameraData.PrevViewProjection = cameraData.ViewProjection;
+        scene.Camera =
+            UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+        if (!scene.Camera)
+            return scene;
+        scene.Camera->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+        // The raster parameters, filled by the PRODUCTION helpers. This is the
+        // load-bearing line of the whole harness: DepthScale/DepthBias/
+        // FrontFaceSign come from RHI::NdcToWindowDepthScaleBias() and
+        // RHI::WindowSpaceFrontFaceSign(), not from constants written here.
+        // Revert either helper's Vulkan branch and the tenant below goes red;
+        // hard-coding them here would have made it green on the very frames
+        // #1106 shipped broken.
+        scene.RasterParams.ViewportWidth = size;
+        scene.RasterParams.ViewportHeight = size;
+        scene.RasterParams.Phase = 0;
+        scene.RasterParams.OverdrawScale = 0.0f;
+        scene.RasterParams.SwListCapacity = kClusterCount;
+        {
+            const glm::vec2 depthMap = RHI::NdcToWindowDepthScaleBias();
+            scene.RasterParams.DepthScale = depthMap.x;
+            scene.RasterParams.DepthBias = depthMap.y;
+        }
+        scene.RasterParams.FrontFaceSign = RHI::WindowSpaceFrontFaceSign();
+        scene.RasterUbo = UniformBuffer::Create(UBOStructures::VirtualRasterUBO::GetSize(),
+                                                ShaderBindingLayout::UBO_VIRTUAL_RASTER);
+        return scene;
+    }
+} // namespace
+
+TEST_F(VulkanPassSuite, VirtualGeometrySoftwareRasterMatchesTheGLReference)
+{
+    constexpr u32 kSize = 128;
+    constexpr u32 kClusterCount = static_cast<u32>(kVgSwQuads.size());
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
+    const u64 unfedBefore = api.GetUnfedStorageBindingCount();
+
+    // --- the seam itself, pinned absolutely ----------------------------------
+    // Everything below compares the GPU against a reference that is READ through
+    // the seam, so a seam that flipped as a whole would move both sides
+    // together. These four are the seam's whole surface and they all answer one
+    // private BackendFlips(); asserting the Vulkan answers here is what stops a
+    // regression in that predicate from passing silently.
+    ASSERT_EQ(RendererAPI::GetAPI(), RendererAPI::API::Vulkan)
+        << "the fixture must have switched the process-global backend to Vulkan";
+    EXPECT_FLOAT_EQ(RHI::WindowSpaceFrontFaceSign(), -1.0f) << "Vulkan's window-space front-face sign is -1";
+    EXPECT_FLOAT_EQ(RHI::NdcToWindowDepthScaleBias().x, 1.0f)
+        << "on Vulkan the adjusted projection already put ndc.z in [0,1], so the scale is 1";
+    EXPECT_FLOAT_EQ(RHI::NdcToWindowDepthScaleBias().y, 0.0f) << "...and the bias is 0";
+    EXPECT_FALSE(RHI::RenderTargetRowsAreBottomUp()) << "Vulkan render targets are top-down";
+
+    // --- the REAL software rasterizer ---------------------------------------
+    // The portable two-pass variant, not the INT64 one: this device enables
+    // shaderBufferInt64Atomics but not shaderInt64, so the 64-bit module would
+    // fail vkCreateShaderModule and trip the fixture's zero-validation-error
+    // gate for a reason that has nothing to do with this test (the long note on
+    // MigratedComputeShadersCompileOnVulkan owns that gap). Production demotes
+    // to exactly this variant on the same device, so this IS the shipped path here.
+    auto rasterShader = ComputeShader::Create("assets/shaders/compute/VirtualClusterRaster.comp");
+    ASSERT_TRUE(rasterShader);
+    ASSERT_TRUE(rasterShader->IsValid())
+        << "VirtualClusterRaster.comp must compile through shaderc for the Vulkan target";
+
+    VgSwScene scene = CreateVgSwScene(kSize);
+    ASSERT_TRUE(scene.IsComplete()) << "the hand-authored cluster set failed to allocate on the device";
+
+    SubmitFrame(
+        [&]()
+        {
+            RenderCommand::ClearBufferUInt(scene.Visbuffer->GetRHIHandle(), 0xFFFFFFFFu);
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+
+            rasterShader->Bind();
+            scene.BindAll();
+
+            // The portable variant's two phases, exactly as the pass drives
+            // them: phase 0 atomic-min-compacts the depth word, phase 1
+            // plain-writes the winning payload where the depth bits match.
+            for (const u32 phase : { 0u, 1u })
+            {
+                scene.RasterParams.Phase = phase;
+                scene.RasterUbo->SetData(&scene.RasterParams, sizeof(scene.RasterParams));
+                scene.RasterUbo->Bind();
+                RenderCommand::DispatchCompute(kClusterCount, 1, 1);
+                RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+            }
+        });
+
+    // --- readback ------------------------------------------------------------
+    std::vector<u32> visbuffer(static_cast<sizet>(kSize) * kSize * 2u);
+    scene.Visbuffer->GetData(visbuffer.data(), scene.Visbuffer->GetSize());
+
+    const VgSwReference reference = RasterizeVgSwReference(kSize);
+
+    // The seam's y flip mirrors which row a world point lands in, exactly as it
+    // does for every other render target. Read the GL-space reference through
+    // the row-order predicate rather than through either seam under test.
+    const bool bottomUp = RHI::RenderTargetRowsAreBottomUp();
+    const auto referenceAt = [&](u32 x, u32 y)
+    {
+        const u32 row = bottomUp ? y : (kSize - 1u - y);
+        return reference.Depth[(static_cast<sizet>(row) * kSize) + x];
+    };
+    const auto slackAt = [&](u32 x, u32 y)
+    {
+        const u32 row = bottomUp ? y : (kSize - 1u - y);
+        return reference.Slack[(static_cast<sizet>(row) * kSize) + x];
+    };
+    const auto depthBitsAt = [&](u32 x, u32 y)
+    {
+        return visbuffer[(((static_cast<sizet>(y) * kSize) + x) * 2u) + 1u];
+    };
+    const auto coveredAt = [&](u32 x, u32 y)
+    {
+        return depthBitsAt(x, y) != 0xFFFFFFFFu;
+    };
+
+    // --- the raster ran at all ----------------------------------------------
+    u32 covered = 0;
+    u32 referenceCovered = 0;
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 0; x < kSize; ++x)
+        {
+            covered += coveredAt(x, y) ? 1u : 0u;
+            referenceCovered += std::isfinite(referenceAt(x, y)) ? 1u : 0u;
+        }
+    }
+    ASSERT_GT(referenceCovered, 0u)
+        << "the reference itself covers nothing — the fixture is wrong, not the shader";
+    ASSERT_GT(covered, 0u) << "the visibility buffer is empty: the software rasterizer wrote nothing on Vulkan";
+
+    // --- coverage against the GL reference ----------------------------------
+    // The count carries a 1% band for the edge-pixel ulp story (see the header);
+    // the interior comparison below carries none.
+    const u32 countTolerance = std::max(1u, referenceCovered / 100u);
+    EXPECT_NEAR(static_cast<f64>(covered), static_cast<f64>(referenceCovered),
+                static_cast<f64>(countTolerance))
+        << "covered-pixel count drifted from the GL reference (" << covered << " vs " << referenceCovered
+        << ")";
+
+    // Interior pixels — reference-covered with all four reference neighbours
+    // covered too — must match exactly, in coverage AND in depth. This is the
+    // assertion both #1106 bugs fail: the winding bug empties the left half and
+    // fills the right, the depth bug leaves coverage alone and moves every
+    // depth by about 0.5.
+    // Slack below this is "on a shared edge": ~1e-7 is the barycentric
+    // uncertainty an f32 ulp buys at these triangle areas, so 1e-4 is three
+    // orders clear of it — while a pixel one whole pixel inside an edge of
+    // these ~38 px triangles scores ~0.05, five hundred times the threshold.
+    // So this cannot swallow real damage, and the count below is asserted to
+    // stay a small minority in case a future geometry change makes it try.
+    constexpr f32 kEdgeSlackFloor = 1e-4f;
+    u32 interiorChecked = 0;
+    u32 interiorMisses = 0;
+    u32 edgeAmbiguous = 0;
+    f64 worstDepthError = 0.0;
+    for (u32 y = 1; y + 1 < kSize; ++y)
+    {
+        for (u32 x = 1; x + 1 < kSize; ++x)
+        {
+            const f32 expected = referenceAt(x, y);
+            if (!std::isfinite(expected))
+                continue;
+            if (!std::isfinite(referenceAt(x - 1u, y)) || !std::isfinite(referenceAt(x + 1u, y)) ||
+                !std::isfinite(referenceAt(x, y - 1u)) || !std::isfinite(referenceAt(x, y + 1u)))
+            {
+                continue;
+            }
+            // A pixel the reference only just accepts sits on the diagonal two
+            // triangles share; under FMA contraction both may reject it. Not a
+            // raster defect — excluded, and counted so the exclusion is visible.
+            if (slackAt(x, y) < kEdgeSlackFloor)
+            {
+                ++edgeAmbiguous;
+                continue;
+            }
+            ++interiorChecked;
+            if (!coveredAt(x, y))
+            {
+                ++interiorMisses;
+                continue;
+            }
+            const f32 actual = std::bit_cast<f32>(depthBitsAt(x, y));
+            worstDepthError = std::max(worstDepthError, std::abs(static_cast<f64>(actual - expected)));
+        }
+    }
+    ASSERT_GT(interiorChecked, 100u) << "too few interior pixels to be a meaningful comparison";
+    EXPECT_LT(edgeAmbiguous, interiorChecked / 10u)
+        << edgeAmbiguous << " of " << (edgeAmbiguous + interiorChecked)
+        << " interior pixels were excluded as shared-edge ambiguous — the exclusion is meant to be a "
+           "thin diagonal, not a way to avoid comparing the picture";
+    EXPECT_EQ(interiorMisses, 0u)
+        << interiorMisses << " of " << interiorChecked
+        << " interior pixels the GL reference covers are empty in the Vulkan visibility buffer";
+    EXPECT_LT(worstDepthError, 1e-5)
+        << "window depths disagree with the GL reference by " << worstDepthError
+        << " — RHI::NdcToWindowDepthScaleBias() is the seam that decides this (issue #1106)";
+
+    // --- the backface half, spelled as its own contract ----------------------
+    // Cluster 1 is the mirror image of cluster 0 on the other side of centre.
+    // Under the correct cull sense the left half carries every covered pixel of
+    // the pair and the right half carries none; under GL's sense on Vulkan the
+    // two swap. Counting halves makes the failure name itself instead of showing
+    // up as a large but anonymous coverage delta.
+    u32 leftCovered = 0;
+    u32 rightCovered = 0;
+    for (u32 y = 0; y < kSize; ++y)
+    {
+        for (u32 x = 0; x < kSize / 2u; ++x)
+            leftCovered += coveredAt(x, y) ? 1u : 0u;
+        for (u32 x = kSize / 2u; x < kSize; ++x)
+            rightCovered += coveredAt(x, y) ? 1u : 0u;
+    }
+    EXPECT_GT(leftCovered, 0u) << "the FRONT-facing cluster was culled — the backface sense is inverted "
+                                  "(RHI::WindowSpaceFrontFaceSign(), issue #1105)";
+    EXPECT_EQ(rightCovered, 0u) << rightCovered
+                                << " pixels came from the BACK-facing cluster: the software raster is "
+                                   "keeping back faces and dropping front ones (issue #1105)";
+
+    // --- the depth half, as absolute values ---------------------------------
+    // Cluster 2 sits one unit nearer the camera than cluster 0, so its window
+    // depth must be both SMALLER and equal to its own reference. The #1106 bug
+    // preserves the ordering, so only the absolute check catches it.
+    const auto probeDepth = [&](f32 worldX, f32 worldY, f32 worldZ) -> std::pair<f32, f32>
+    {
+        const glm::vec4 clip = scene.ReferenceViewProjection * glm::vec4(worldX, worldY, worldZ, 1.0f);
+        const glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        const glm::vec2 screen = ((glm::vec2(ndc) * 0.5f) + 0.5f) * glm::vec2(kSize, kSize);
+        const u32 x = static_cast<u32>(std::clamp(screen.x, 0.0f, static_cast<f32>(kSize - 1u)));
+        const u32 glRow = static_cast<u32>(std::clamp(screen.y, 0.0f, static_cast<f32>(kSize - 1u)));
+        const u32 y = bottomUp ? glRow : (kSize - 1u - glRow);
+        return { std::bit_cast<f32>(depthBitsAt(x, y)), referenceAt(x, y) };
+    };
+    const auto [nearDepth, nearExpected] = probeDepth(-0.6f, 0.65f, 1.0f); // cluster 2
+    const auto [farDepth, farExpected] = probeDepth(-0.5f, 0.0f, 0.0f);    // cluster 0
+    ASSERT_TRUE(std::isfinite(nearExpected) && std::isfinite(farExpected))
+        << "the probes missed the authored clusters — the fixture is wrong, not the shader";
+    EXPECT_NEAR(nearDepth, nearExpected, 1e-5f) << "cluster 2's window depth";
+    EXPECT_NEAR(farDepth, farExpected, 1e-5f) << "cluster 0's window depth";
+    EXPECT_LT(nearDepth, farDepth) << "the nearer cluster must own the smaller window depth";
+
+    // --- the backend-shaped nets this suite runs everywhere ------------------
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
+        << "the compute dispatch, the buffer clear and the SSBO readback must ride real "
+           "implementations, not stubs";
+    EXPECT_EQ(api.GetUnfedStorageBindingCount(), unfedBefore)
+        << "a storage binding published the frame arena's null block — the raster read a zero-filled "
+           "stand-in";
+}
+
+// =============================================================================
+// VirtualGeometry software raster — the PERF BRACKET on Vulkan (#1107 step 2).
+//
+// GPUPassTimerPool already stamps RHI::QueryType::Timestamp on both backends
+// (glQueryCounter / vkCmdWriteTimestamp, nanoseconds either way), and
+// VirtualGeometryPass already opens "SwRaster" and "Resolve" sub-passes inside
+// its own bracket — so the instrument exists and the sub-passes show up in
+// olo_perf_pass_timings on a live Vulkan editor. What was missing was a HARNESS:
+// something that drives the bracket on a Vulkan device from the test suite, so
+// an A/B on the software rasterizer can be measured here instead of by hand.
+//
+// WHAT THIS ASSERTS, AND WHAT IT DELIBERATELY DOES NOT. It asserts that the
+// bracket RESOLVES on Vulkan and reports a finite, positive, sanely-bounded
+// GPU time under the production sub-pass name. It pins no threshold and no
+// baseline: per `oloengine-perf-tests-are-dev-workstation-only` the perf half is
+// a workstation instrument rather than a CI gate, and a number measured on one
+// box in a shared-runner process is not a contract. The measured value is
+// printed on a `vg-sw-raster-timing` line so the same binary run against two
+// versions of VirtualClusterRaster.comp — shaders are runtime assets — gives a
+// direct A/B, the way VirtualRasterSubSampleEvidenceTest's `visbuffer-digest`
+// line does for correctness.
+//
+// POLLUTION GUARD. GPUPassTimerPool is a process singleton whose query objects
+// are minted through RenderCommand::CreateQueries, i.e. on whichever backend was
+// selected at Initialize time. In a full single-process run the GL renderer has
+// usually already initialised it, and re-arming it here would hand the GL
+// renderer Vulkan query handles for the rest of the run — the singleton
+// re-arming class #1074 / #1090 exist about. So this tenant only runs when the
+// pool is cold, and SKIPs (never fails, never silently no-ops) when it is not.
+// That makes it an isolated-run instrument, which is exactly what it is for.
+// =============================================================================
+TEST_F(VulkanPassSuite, VirtualGeometrySoftwareRasterReportsGpuTimingsOnVulkan)
+{
+    auto& timers = GPUPassTimerPool::GetInstance();
+    if (timers.IsInitialized())
+    {
+        GTEST_SKIP() << "GPUPassTimerPool is already armed by another backend in this process — its "
+                        "query objects belong to that backend. Run this test in isolation "
+                        "(--gtest_filter=VulkanPassSuite.VirtualGeometrySoftwareRasterReportsGpuTimingsOnVulkan).";
+    }
+
+    constexpr u32 kSize = 128;
+    constexpr u32 kClusterCount = static_cast<u32>(kVgSwQuads.size());
+    // Enough frames that the pool's 4-slot ring has resolved at least one full
+    // frame by the time the results are read (results land 1-3 frames after
+    // issue and are never waited on).
+    constexpr u32 kFrames = GPUPassTimerPool::kSlotCount * 2u;
+
+    auto rasterShader = ComputeShader::Create("assets/shaders/compute/VirtualClusterRaster.comp");
+    ASSERT_TRUE(rasterShader && rasterShader->IsValid());
+
+    VgSwScene scene = CreateVgSwScene(kSize);
+    ASSERT_TRUE(scene.IsComplete()) << "the hand-authored cluster set failed to allocate on the device";
+
+    timers.Initialize(16);
+    ASSERT_TRUE(timers.IsInitialized());
+
+    for (u32 frame = 0; frame < kFrames; ++frame)
+    {
+        // A SLOT index, not a frame counter: the arena holds kFramesInFlight (2)
+        // slots and asserts on anything past them. Alternating slots is also the
+        // honest thing to drive — it exercises the same reuse-after-two-frames
+        // lifetime a real frame loop gives every arena allocation.
+        VulkanFrameArena::Get().BeginFrame(frame % 2u);
+        SubmitFrame(
+            [&]()
+            {
+                timers.BeginFrame();
+                timers.BeginPass("VirtualGeometryPass");
+
+                RenderCommand::ClearBufferUInt(scene.Visbuffer->GetRHIHandle(), 0xFFFFFFFFu);
+                RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+
+                // The bracket opens where the pass opens it: after the clear and
+                // its barrier, around the dispatches only.
+                timers.BeginSubPass("SwRaster");
+                rasterShader->Bind();
+                scene.BindAll();
+                for (const u32 phase : { 0u, 1u })
+                {
+                    scene.RasterParams.Phase = phase;
+                    scene.RasterUbo->SetData(&scene.RasterParams, sizeof(scene.RasterParams));
+                    scene.RasterUbo->Bind();
+                    RenderCommand::DispatchCompute(kClusterCount, 1, 1);
+                    RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+                }
+                timers.EndSubPass();
+
+                timers.EndPass();
+                timers.EndFrame();
+            });
+    }
+
+    const std::vector<GPUPassTimerPool::PassTiming> timings = timers.GetLastPassTimingsCopy();
+    const u64 resolvedFrame = timers.GetLastResolvedFrameNumber();
+    const f64 frameMs = timers.GetLastFrameGpuMs();
+
+    // Retire the query objects while this fixture's device is still alive — a
+    // VkQueryPool outliving vkDestroyDevice is a validation error the suite's
+    // zero-error gate reports, and the pool must go back to cold for the next
+    // test in the process either way.
+    vkDeviceWaitIdle(m_Device->GetDevice());
+    timers.Shutdown();
+    EXPECT_FALSE(timers.IsInitialized()) << "the pool must be left cold for the rest of the process";
+
+    ASSERT_GT(resolvedFrame, 0u)
+        << "GPUPassTimerPool resolved no frame at all on Vulkan after " << kFrames
+        << " submitted frames — vkCmdWriteTimestamp or the result readback is not reaching the device";
+
+    const auto swRaster = std::ranges::find_if(timings, [](const GPUPassTimerPool::PassTiming& timing)
+                                               { return timing.Name == "VirtualGeometryPass/SwRaster"; });
+    ASSERT_NE(swRaster, timings.end())
+        << "the SwRaster sub-pass bracket produced no timing on Vulkan; " << timings.size()
+        << " pass timing(s) resolved";
+
+    // Positive, finite, and not absurd. The upper bound is a sanity ceiling on a
+    // three-cluster dispatch, not a performance budget: a reading in the
+    // hundreds of milliseconds means the timestamp period or the nanosecond
+    // conversion is wrong, which is the failure this can honestly detect.
+    EXPECT_TRUE(std::isfinite(swRaster->GpuMs)) << "SwRaster GPU time is not finite";
+    EXPECT_GT(swRaster->GpuMs, 0.0) << "SwRaster GPU time resolved as zero — the timestamps did not bracket work";
+    EXPECT_LT(swRaster->GpuMs, 100.0)
+        << "SwRaster GPU time of " << swRaster->GpuMs
+        << " ms for three hand-authored clusters is not a plausible nanosecond conversion";
+    EXPECT_GE(frameMs, 0.0);
+
+    // The A/B line. Shaders are runtime assets, so the same binary against two
+    // versions of VirtualClusterRaster.comp compares directly on this number.
+    std::cout << "vg-sw-raster-timing clusters=" << kClusterCount << " viewport=" << kSize << "x" << kSize
+              << " sw_raster_ms=" << swRaster->GpuMs << " frame_ms=" << frameMs
+              << " resolved_frame=" << resolvedFrame << std::endl;
+}
 
 // =============================================================================
 // ShaderDebugDraw (#691): the GPU-pushable debug channels'
