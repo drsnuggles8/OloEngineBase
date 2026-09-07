@@ -544,26 +544,39 @@ runs:
           vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-
           vcpkg-${{ runner.os }}-${{ inputs.triplet }}-
 
-    # A PULL REQUEST THAT ALREADY GOT ITS MANIFEST DOES NOT NEED TO BANK IT AGAIN (#1073).
+    # A RUN THAT ALREADY GOT ITS MANIFEST DOES NOT NEED TO BANK IT AGAIN (#1073).
     #
-    # A cache entry written by a PR run is scoped to `refs/pull/N/merge` and readable by
-    # that one PR; a PR run restores from the default branch anyway. So when the restore
-    # matched the HASH-SPECIFIC prefix, this run's binary cache is byte-for-byte what it
-    # read: the manifest, triplets and overlay ports are all in that hash, so the port set
-    # cannot differ. Saving it writes ~700 MiB of nothing.
+    # When the restore matched the HASH-SPECIFIC prefix, this run's binary cache is
+    # byte-for-byte what it read: the manifest, triplets and overlay ports are all in
+    # that hash, so the port set cannot differ. Saving it writes ~700 MiB of nothing.
     #
-    # Measured on this very PR: eight vcpkg entries on `refs/pull/1075/merge` inside two
-    # hours -- two per push, because Windows.yml and asan.yml each save one -- totalling
-    # ~3.0 GiB of a ~9.3 GiB store, all of them copies of a snapshot master already held.
-    # That alone can put the store back into the read-only state this issue is about.
+    # THIS APPLIES TO EVERY EVENT, NOT JUST PULL REQUESTS. It used to be gated on
+    # `pull_request`, on the reasoning that "the nightly and dispatch runs write the
+    # default-branch snapshot the whole fleet restores from, and that one is refreshed
+    # unconditionally so a missing archive always gets banked." The premise is wrong in
+    # a way that cost more than it bought: a MISSING archive is exactly the case where
+    # the restore does NOT match the hash prefix, so the condition below already
+    # discriminates it. Refreshing unconditionally never banked a missing archive; it
+    # only ever re-banked a present one.
     #
-    # Kept for the cases that genuinely produce something new:
-    #   * a PR that BUMPS the manifest -- the restore then falls back to the bare
-    #     `vcpkg-<os>-<triplet>-` prefix or misses outright, this run really did build
-    #     ports, and its successors should not build them again;
-    #   * every non-PR event -- the nightly and dispatch runs write the default-branch
-    #     snapshot the whole fleet restores from, and that one is refreshed unconditionally
-    #     so a missing archive always gets banked.
+    # Measured 2026-09-07, the morning after the gate landed: SIX entries of the
+    # identical manifest hash `7d9ae677...`, 706 MiB each, created between 06:41 and
+    # 10:53 by six master-ref runs (pushes and dispatches). 4236 MiB of one 706 MiB
+    # snapshot, in a store whose measured read-only wall is ~9537 MiB and which stood
+    # at 10863 MiB when this was written. The vcpkg duplication WAS the overage.
+    #
+    # The append-only `-<run_id>-<attempt>` key shape is right for sccache, where each
+    # run's cache is a genuine superset of the last. vcpkg is not that: its content is
+    # fully determined by the manifest hash already IN the key, so a second save of the
+    # same hash is redundant by construction.
+    #
+    # Kept for the case that genuinely produces something new: a run that BUMPS the
+    # manifest. The restore then falls back to the bare `vcpkg-<os>-<triplet>-` prefix
+    # or misses outright, this run really did build ports, and its successors should not
+    # build them again.
+    #
+    # SELF-HEALING, so a stale skip cannot wedge the fleet: if the matched entry is ever
+    # evicted or pruned away, the next run's restore misses the hash prefix and banks it.
     - name: Decide whether there is anything new to save
       id: savedecision
       shell: bash
@@ -571,15 +584,14 @@ runs:
         CFG_KEY: ${{ steps.cachecfg.outputs.save-key }}
         MATCHED: ${{ steps.restore.outputs.cache-matched-key }}
         HASH_PREFIX: vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-
-        EVENT: ${{ github.event_name }}
       run: |
         set -euo pipefail
         key="${CFG_KEY}"
-        if [ -n "$key" ] && [ "$EVENT" = "pull_request" ] && [ -n "${MATCHED:-}" ]; then
+        if [ -n "$key" ] && [ -n "${MATCHED:-}" ]; then
           case "$MATCHED" in
             "${HASH_PREFIX}"*)
               echo "restore matched '${MATCHED}', which carries this exact manifest hash;"
-              echo "a pull-request save would re-bank what it just read -- skipping."
+              echo "saving would re-bank what it just read -- skipping."
               key=""
               ;;
             *)
