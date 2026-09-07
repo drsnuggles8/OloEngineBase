@@ -30,6 +30,7 @@
 
 #include <gtest/gtest.h>
 
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetMetadata.h"
 
@@ -180,4 +181,60 @@ namespace OloEngine::Tests
         EXPECT_EQ(textures.size(), 1u);
         EXPECT_EQ(static_cast<u64>(textures.front().Handle), 20ULL);
     }
+
+    // -------------------------------------------------------------------------
+    // The registry KEY itself (issue #1098).
+    //
+    // EditorAssetManager stores every asset under a path relative to the project
+    // root, and computes it with std::filesystem::relative — which returns an
+    // EMPTY path, not an error, when no relative path exists. On Windows that is
+    // any file on a different drive from the project: a project on D: and a
+    // texture on C: have no common root to be relative to.
+    //
+    // An empty key is silent at every consumer. GetHandleFromPath never matches
+    // it, so a fresh handle is minted per import; the readers all spell
+    // `projectDir / key`, and `dir / ""` is the DIRECTORY, so the loader is asked
+    // to read pixels out of a folder and substitutes a placeholder whose
+    // GetPath() is empty; SceneSerializer round-trips that empty path into the
+    // scene, and the NEXT load drops the reference entirely. That is exactly the
+    // two-different-sentinels failure #1098 reported
+    // ("" then "<null texture ref>").
+    //
+    // Pure and lexical, so the drive-crossing case needs no second volume.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryKey, ProjectRelativeWhenARelativePathExists)
+    {
+        const auto key = EditorAssetManager::MakeRegistryKey(
+            std::filesystem::path{ "C:/proj/Assets/Textures/Foo.png" },
+            std::filesystem::path{ "C:/proj" });
+        EXPECT_EQ(key.generic_string(), "Assets/Textures/Foo.png");
+    }
+
+    TEST(AssetRegistryKey, NeverEmptyForAFileWithNoRelativePathToTheProject)
+    {
+#ifdef OLO_PLATFORM_WINDOWS
+        // Two different drive roots: there is no relative path between them.
+        const std::filesystem::path file{ "C:/elsewhere/Textures/Foo.png" };
+        const auto key = EditorAssetManager::MakeRegistryKey(file, std::filesystem::path{ "D:/proj" });
+
+        ASSERT_FALSE(key.empty())
+            << "an empty registry key resolves to the PROJECT DIRECTORY at every reader "
+               "(`projectDir / \"\"`), so the asset loads as a folder and its path round-trips "
+               "as empty — issue #1098";
+        EXPECT_TRUE(key.is_absolute())
+            << "with no relative spelling available the absolute path is the only correct key: "
+               "`projectDir / absolute` yields the absolute path unchanged at every reader";
+        EXPECT_EQ(key.filename().generic_string(), "Foo.png");
+#else
+        GTEST_SKIP() << "POSIX has a single filesystem root, so every pair of paths has a "
+                        "relative spelling and this case cannot be constructed.";
+#endif
+    }
+
+    TEST(AssetRegistryKey, EmptyProjectPathLeavesTheInputAlone)
+    {
+        const std::filesystem::path file{ "Assets/Textures/Foo.png" };
+        EXPECT_EQ(EditorAssetManager::MakeRegistryKey(file, {}), file);
+    }
+
 } // namespace OloEngine::Tests

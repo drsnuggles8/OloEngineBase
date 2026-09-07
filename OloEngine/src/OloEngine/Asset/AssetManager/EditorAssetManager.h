@@ -189,6 +189,22 @@ namespace OloEngine
         std::filesystem::path GetRelativePath(const std::filesystem::path& filepath) const;
 
         /**
+         * @brief The registry key for a file, given a project root.
+         *
+         * Project-relative when a relative path exists, and the ABSOLUTE path
+         * when one does not — which on Windows is any file on a different
+         * drive from the project. Never empty for a non-empty input: an empty
+         * key is what issue #1098 was, and it is silent, because every consumer
+         * spells the read `projectDir / key` and an empty key resolves to the
+         * project directory itself rather than to nothing.
+         *
+         * Static and pure so the drive-crossing case is unit-testable without a
+         * second volume — `std::filesystem::relative` decides it lexically.
+         */
+        [[nodiscard]] static std::filesystem::path MakeRegistryKey(const std::filesystem::path& filepath,
+                                                                   const std::filesystem::path& projectPath);
+
+        /**
          * @brief Check if file exists for given metadata
          * @param metadata Asset metadata to check
          * @return True if file exists on disk

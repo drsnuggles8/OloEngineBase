@@ -682,6 +682,21 @@ namespace OloEngine::Tests
                 return result;
             };
 
+            // THE DECISION (issue #1098), so it is not re-litigated: the legacy
+            // "SandboxProject/Assets/..." spelling STAYS SUPPORTED. It is carried by
+            // eleven shipped scenes and by any user scene authored before #887, and
+            // dropping it loses their textures with only a warning thousands of log
+            // lines away. What changed is WHERE it resolves against: the project
+            // root, not the process working directory. The cwd spelling only ever
+            // worked because OloEditor happens to run one directory above the
+            // project — a property of the launch, not of the project — and under it
+            // this very test resolved to the ORIGINAL repository texture rather than
+            // to the staged copy, and registered the same file under two handles.
+            //
+            // So the assertion is not merely "non-empty": it is that the texture
+            // resolves INSIDE the project it was loaded from. That is the property
+            // the cwd fallback could not provide, and asserting only non-emptiness
+            // is what let it look correct for a year.
             auto [firstPath, secondPath] = loadTwiceAndGetPath(scenePath, findFirstSpriteTexture);
             EXPECT_FALSE(firstPath.empty())
                 << "SpriteRendererComponent::Texture had an empty GetPath() on the FIRST load — "
@@ -689,6 +704,20 @@ namespace OloEngine::Tests
             EXPECT_FALSE(secondPath.empty())
                 << "SpriteRendererComponent::Texture had an empty GetPath() on the SECOND load.";
             EXPECT_EQ(firstPath, secondPath);
+
+            // Project-relative, and pointing at the STAGED tree. A path that is
+            // absolute, or that climbs out with "..", is the cwd resolution coming
+            // back.
+            const fs::path resolved = fs::path(firstPath);
+            EXPECT_FALSE(resolved.is_absolute())
+                << "the sprite texture resolved to an ABSOLUTE path (" << firstPath
+                << ") — scene texture references must stay project-relative to be portable.";
+            EXPECT_EQ(firstPath.find(".."), std::string::npos)
+                << "the sprite texture resolved OUTSIDE the project (" << firstPath
+                << ") — the legacy spelling must resolve against the project root, not the cwd.";
+            EXPECT_TRUE(fs::exists(tempRoot / resolved))
+                << "the sprite texture path '" << firstPath
+                << "' does not name a file inside the staged project at " << tempRoot.string();
         }
     }
 

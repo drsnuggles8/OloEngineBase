@@ -743,6 +743,74 @@ namespace OloEngine
         return result;
     }
 
+    namespace
+    {
+        // The pre-#887 spelling, resolved against the PROJECT instead of the process
+        // working directory.
+        //
+        // Several shipped scenes still store a texture as
+        // "SandboxProject/Assets/Textures/Otter.png" — the project directory's own
+        // folder name, then the project-relative path. That spelling used to resolve
+        // only by coincidence: OloEditor runs with cwd = OloEditor/, which happens to
+        // be the parent of OloEditor/SandboxProject/, so std::filesystem::absolute()
+        // landed on the right file. Two things are wrong with leaning on that.
+        //
+        // First, it is not a property of the project, it is a property of where the
+        // process was started. Any tool, test or packaged runtime whose cwd is
+        // elsewhere resolves the same scene to nothing — or, worse, to a same-named
+        // file somewhere else on disk. The AssetSceneLoad round-trip test stages the
+        // project into a temp directory and the cwd fallback quietly resolved the
+        // texture to the ORIGINAL repository copy, outside the staged project entirely.
+        //
+        // Second, it registers the same file twice: once under "Assets/Textures/Otter.png"
+        // from a correctly-spelled reference and again under a cwd-derived key, so the
+        // two references never dedupe to one handle.
+        //
+        // So strip the leading component and retry against the project. Deliberately
+        // narrow, because a heuristic that fires when it should not is worse than one
+        // that does not fire: it needs at least two components, a leading component
+        // that is NOT itself present in the project (so a real "Assets/..." directory
+        // can never be eaten), and the stripped remainder to actually exist there.
+        [[nodiscard]] std::filesystem::path TryLegacyProjectPrefixedPath(const std::filesystem::path& projectPath,
+                                                                        const std::filesystem::path& filepath)
+        {
+            if (projectPath.empty() || filepath.empty() || filepath.is_absolute())
+                return {};
+
+            auto it = filepath.begin();
+            const auto end = filepath.end();
+            if (it == end)
+                return {};
+
+            const std::filesystem::path leading = *it;
+            if (leading.empty() || leading == "." || leading == "..")
+                return {};
+
+            std::filesystem::path remainder;
+            for (++it; it != end; ++it)
+                remainder /= *it;
+            if (remainder.empty())
+                return {};
+
+            std::error_code ec;
+            // A leading component that IS in the project is a real directory name, not
+            // a stale prefix — never strip it.
+            if (std::filesystem::exists(projectPath / leading, ec) || ec)
+                return {};
+
+            ec.clear();
+            std::filesystem::path candidate = projectPath / remainder;
+            if (!std::filesystem::exists(candidate, ec) || ec)
+                return {};
+
+            OLO_CORE_WARN("EditorAssetManager: asset path '{}' uses the legacy project-prefixed spelling; "
+                          "resolved it against the project root as '{}'. Re-save the scene to store the "
+                          "project-relative path instead.",
+                          filepath.generic_string(), remainder.generic_string());
+            return candidate;
+        }
+    } // namespace
+
     AssetHandle EditorAssetManager::ImportAsset(const std::filesystem::path& filepath)
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::ImportAsset");
@@ -752,20 +820,21 @@ namespace OloEngine
         //   - project-relative ("Assets/Textures/Foo.png") — the current, documented
         //     contract (SceneSerializer::LoadSceneTexture resolves scene texture paths
         //     against the project asset root), used by newly-authored references.
-        //   - working-directory-relative ("SandboxProject/Assets/Textures/Foo.png") — an
-        //     older spelling several existing scenes still carry (PinkCubeWithTextures,
-        //     the Sponza scenes, VehiclesTest, Drift), which happens to resolve correctly
-        //     because OloEditor's actual cwd is OloEditor/, one level above the project
-        //     directory (OloEditor/SandboxProject/).
-        // Try the documented project-relative form first; only a path that doesn't exist
-        // there falls back to plain std::filesystem::absolute() (cwd-relative), so those
-        // older scenes keep resolving exactly as before until they're resaved. Resolving
-        // unconditionally against cwd (the previous behaviour) silently walked a
-        // project-relative input into the engine's own OloEditor/assets/ tree instead
-        // whenever a same-named file happened to exist there too — found, but keyed under
-        // a bogus "../assets/..." relative path that never matched a subsequent
-        // correctly-spelled lookup, and whose own load then failed because *that* path
-        // isn't valid from cwd either.
+        //   - project-PREFIXED ("SandboxProject/Assets/Textures/Foo.png") — an older
+        //     spelling several existing scenes still carry (PinkCubeWithTextures, the
+        //     Sponza scenes, VehiclesTest, Drift). It used to resolve only because
+        //     OloEditor's cwd is OloEditor/, one level above the project directory
+        //     (OloEditor/SandboxProject/) — a property of the launch, not the project.
+        //     It is now resolved against the project root instead (issue #1098).
+        // Try the documented project-relative form first. A path that doesn't exist
+        // there is then tried as the LEGACY project-prefixed spelling (see
+        // TryLegacyProjectPrefixedPath below), and only then falls back to plain
+        // std::filesystem::absolute() (cwd-relative). Resolving unconditionally against
+        // cwd (the pre-#887 behaviour) silently walked a project-relative input into the
+        // engine's own OloEditor/assets/ tree instead whenever a same-named file happened
+        // to exist there too — found, but keyed under a bogus "../assets/..." relative
+        // path that never matched a subsequent correctly-spelled lookup, and whose own
+        // load then failed because *that* path isn't valid from cwd either.
         std::filesystem::path absolutePath;
         if (filepath.is_absolute())
         {
@@ -775,9 +844,19 @@ namespace OloEngine
         {
             std::filesystem::path projectRelative = m_ProjectPath / filepath;
             std::error_code existsEc;
-            absolutePath = (std::filesystem::exists(projectRelative, existsEc) && !existsEc)
-                               ? projectRelative
-                               : std::filesystem::absolute(filepath);
+            if (std::filesystem::exists(projectRelative, existsEc) && !existsEc)
+            {
+                absolutePath = projectRelative;
+            }
+            else if (std::filesystem::path legacy = TryLegacyProjectPrefixedPath(m_ProjectPath, filepath);
+                     !legacy.empty())
+            {
+                absolutePath = legacy;
+            }
+            else
+            {
+                absolutePath = std::filesystem::absolute(filepath);
+            }
         }
 
         // Use error_code overload to handle filesystem errors gracefully
@@ -1147,18 +1226,65 @@ namespace OloEngine
     }
 #endif
 
-    std::filesystem::path EditorAssetManager::GetRelativePath(const std::filesystem::path& filepath) const
+    std::filesystem::path EditorAssetManager::MakeRegistryKey(const std::filesystem::path& filepath,
+                                                              const std::filesystem::path& projectPath)
     {
         // If the project path is empty, return the filepath as-is
-        if (m_ProjectPath.empty())
+        if (projectPath.empty())
             return filepath;
 
-        // Use weakly_canonical for robust path resolution with symlinks and ".." components
-        auto canonicalFile = std::filesystem::weakly_canonical(filepath);
-        auto canonicalProject = std::filesystem::weakly_canonical(m_ProjectPath);
+        // Use weakly_canonical for robust path resolution with symlinks and ".." components.
+        // The error_code overloads: a canonicalisation failure (a path on a
+        // disconnected network share, a permission error mid-walk) must degrade to
+        // the input rather than throw out of an import.
+        std::error_code ec;
+        std::filesystem::path canonicalFile = std::filesystem::weakly_canonical(filepath, ec);
+        if (ec || canonicalFile.empty())
+            canonicalFile = filepath;
+        ec.clear();
+        std::filesystem::path canonicalProject = std::filesystem::weakly_canonical(projectPath, ec);
+        if (ec || canonicalProject.empty())
+            canonicalProject = projectPath;
 
-        // Return relative path from project root
-        return std::filesystem::relative(canonicalFile, canonicalProject);
+        // Relative path from the project root — when one exists at all.
+        //
+        // std::filesystem::relative returns an EMPTY path when no relative path
+        // does exist, which on Windows means the two are on different drives:
+        // a project on D: and a texture on C: have no common root, so there is
+        // nothing to be relative to. That empty key was issue #1098, and every
+        // symptom of it is silent:
+        //   - the registry key is "", so GetHandleFromPath never matches and a
+        //     FRESH handle is minted on every import of the same file;
+        //   - every consumer spells the read `m_ProjectPath / metadata.FilePath`,
+        //     and `dir / ""` is the DIRECTORY, so the loader is handed a folder
+        //     to read pixels from and substitutes a placeholder texture whose
+        //     GetPath() is empty;
+        //   - SceneSerializer then round-trips that empty path into the scene,
+        //     and the next load drops the reference entirely.
+        // Keeping the absolute path is correct at every one of those consumers,
+        // because `dir / absolute` yields the absolute path unchanged — and
+        // three call sites in this file already branch on
+        // `metadata.FilePath.is_absolute()`, so an absolute key is a shape the
+        // registry was already written to carry.
+        ec.clear();
+        std::filesystem::path relativePath = std::filesystem::relative(canonicalFile, canonicalProject, ec);
+        if (!ec && !relativePath.empty())
+            return relativePath;
+
+        // Say so, and say it once per import rather than per read: an asset that
+        // cannot be named relative to the project is not portable — moving or
+        // packing the project will not bring it along — and that is worth a line
+        // in the log even though the load itself now succeeds.
+        OLO_CORE_WARN("EditorAssetManager: '{}' has no path relative to the project root '{}' "
+                      "(a different drive, on Windows). Registering it under its ABSOLUTE path, "
+                      "which is machine-specific: move the file inside the project to make it portable.",
+                      canonicalFile.string(), canonicalProject.string());
+        return canonicalFile;
+    }
+
+    std::filesystem::path EditorAssetManager::GetRelativePath(const std::filesystem::path& filepath) const
+    {
+        return MakeRegistryKey(filepath, m_ProjectPath);
     }
 
     AssetHandle EditorAssetManager::GetAssetHandleFromFilePath(const std::filesystem::path& filepath)
