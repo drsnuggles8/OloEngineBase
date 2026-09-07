@@ -171,9 +171,16 @@ the hosted arm's `lld-NN` package comes from — the fallback linker
 runner image. (That fallback path is *derived* from the LLVM version rather than written down,
 so it cannot silently drift from this one; the apt `version` still has to move.) Move all of them
 together: the two arms sharing one prefix is what makes a hosted/self-hosted A/B mean anything,
-and a half-done bump splits them silently. The version is in the Linux sccache **cache key**
-too — that is deliberate, so a bump is a reviewable commit rather than a run that quietly
-returns 0 %. Run the script on the box **before** merging the action change: the old prefix keeps working
+and a half-done bump splits them silently.
+
+**And `OLO_LINUX_LLVM_VERSION` in [`asan.yml`](../../.github/workflows/asan.yml)'s workflow
+`env`.** The three Linux sccache keys carry the LLVM version, deliberately — sccache hashes the
+compiler binary, so an entry taken with a different clang is a guaranteed miss that still
+restores, still downloads 1.2 GB and still holds quota, which is exactly the 0.00 % #1095 fixed.
+It is one value rather than the nine literals it started as (a restore key, a `restore-keys`
+prefix and a save key per job), so this is one line — but **forgetting it re-creates the bug the
+pin exists to remove, and the run stays green while it does.** Run the script on the box
+**before** merging the action change: the old prefix keeps working
 until then, and the warn-and-fall-back path means a mismatch degrades rather than breaks.
 
 A bump changes the prefix path, so the previous one is orphaned rather than replaced — 12 GB

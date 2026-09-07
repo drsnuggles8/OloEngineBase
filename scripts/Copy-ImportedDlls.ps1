@@ -48,21 +48,37 @@ if (-not (Get-Command dumpbin -ErrorAction SilentlyContinue)) {
 # `dumpbin /dependents` prints one indented DLL name per line inside an
 # "Image has the following dependencies:" block. Matching the names directly is
 # simpler and just as precise: nothing else in that output looks like `*.dll`.
-$out = & dumpbin /nologo /dependents $Exe 2>&1
-if ($LASTEXITCODE -ne 0) { throw "dumpbin failed on ${Exe}:`n$out" }
-
-$imports = $out |
-    Select-String -Pattern '^\s{4}(\S+\.dll)\s*$' |
-    ForEach-Object { $_.Matches[0].Groups[1].Value } |
-    Sort-Object -Unique
-
-if (-not $imports) { throw "dumpbin reported no imports for $Exe -- that cannot be right" }
+function Get-Dependents([string] $Image) {
+    $out = & dumpbin /nologo /dependents $Image 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "dumpbin failed on ${Image}:`n$out" }
+    $names = $out |
+        Select-String -Pattern '^\s{4}(\S+\.dll)\s*$' |
+        ForEach-Object { $_.Matches[0].Groups[1].Value } |
+        Sort-Object -Unique
+    if (-not $names) { throw "dumpbin reported no imports for $Image -- that cannot be right" }
+    return $names
+}
 
 $system = [Environment]::GetFolderPath('Windows')
 $copied = @()
 $missing = @()
 
-foreach ($name in $imports) {
+# TRANSITIVE, via a worklist. A copied DLL has imports of its own, and one of those
+# resolving only on the build runner's PATH would fail in the shard's loader exactly
+# as the direct case did -- with the same unreadable symptom, one level deeper. Today
+# this changes nothing (shaderc_shared.dll imports only KERNEL32, the MSVC redist and
+# api-set CRT names, all of them system), and that is the point: the direct list was
+# also fine right up until it was not, and reasoning about a dependency graph is the
+# thing this script exists to stop doing.
+$queue = [System.Collections.Generic.Queue[string]]::new()
+$queue.Enqueue((Resolve-Path -LiteralPath $Exe).Path)
+$seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+
+while ($queue.Count -gt 0) {
+$image = $queue.Dequeue()
+if (-not $seen.Add($image)) { continue }
+
+foreach ($name in (Get-Dependents $image)) {
     # An api-ms-win-* / ext-ms-* name is an API SET, not a file: the loader resolves
     # it through the OS's api-set schema to whatever system DLL currently implements
     # it. Skipped BEFORE resolution, not after -- stray physical copies of these do
@@ -72,8 +88,10 @@ foreach ($name in $imports) {
     if ($name -like 'api-ms-*' -or $name -like 'ext-ms-*') { continue }
 
     # The loader looks in the exe's own directory first; anything already there
-    # (CMake stages FFmpeg and steam_api64 there) needs no help.
-    if (Test-Path -LiteralPath (Join-Path $exeDir $name)) { continue }
+    # (CMake stages FFmpeg and steam_api64 there) needs no help -- but it still has
+    # imports of its own, so it goes on the queue rather than being dropped.
+    $beside = Join-Path $exeDir $name
+    if (Test-Path -LiteralPath $beside) { $queue.Enqueue((Resolve-Path -LiteralPath $beside).Path); continue }
 
     $resolved = (Get-Command $name -CommandType Application -ErrorAction SilentlyContinue |
                  Select-Object -First 1).Source
@@ -81,10 +99,14 @@ foreach ($name in $imports) {
         $missing += $name
         continue
     }
+    # A system DLL is on the runner already and its own dependencies are the OS's
+    # problem, so it is neither copied nor walked.
     if ($resolved.StartsWith($system, [StringComparison]::OrdinalIgnoreCase)) { continue }
 
     Copy-Item -LiteralPath $resolved -Destination $Destination -Force
     $copied += "$name  <- $resolved"
+    $queue.Enqueue($resolved)
+}
 }
 
 if ($missing.Count -gt 0) {

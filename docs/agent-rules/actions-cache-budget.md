@@ -224,7 +224,11 @@ over holds still, and the version is in the cache key so a bump is a reviewable 
 rather than a silent 0 % run. Two things came back smaller than they went out: the cap is
 900M rather than 1500M, because rule 5 says these jobs have no claim on the cap and a
 2400 MiB share leaves the fleet 2.7 GiB of headroom rather than 1.4; and the save is
-gated on `github.event_name != 'pull_request'`, so only the nightly writes. **The
+gated on `github.event_name != 'pull_request'`, so **hosted non-PR runs write** — in
+practice the nightly, plus a `workflow_dispatch` when someone is measuring a cold/warm
+A/B on a branch, which is deliberately kept open because that is how #1073's fix was
+verified and how this one has to be. It is *not* nightly-only, and the difference
+matters when you are counting who can fill the store. **The
 acceptance is the "Cache hits rate" line on the second nightly after it lands, not a
 green check** — this section is what happens when that distinction is not made.
 

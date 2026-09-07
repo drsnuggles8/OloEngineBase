@@ -125,6 +125,19 @@ env:
   # the sum of the second. A shard filtering differently from the total would present
   # as an arithmetic failure with no obvious cause, so the regex cannot be allowed to
   # exist in three copies. The reasoning for each exclusion is on the run step.
+  # THE LLVM VERSION THE THREE LINUX sccache KEYS CARRY (#1095), in ONE place.
+  # sccache hashes the compiler binary into every key, so an entry taken with a
+  # different clang is a guaranteed miss that still restores, still downloads 1.2 GB
+  # and still holds quota -- the exact 0.00 % this issue is about. Putting the version
+  # in the key makes a toolchain bump a deliberate, reviewable commit instead of a run
+  # that quietly returns nothing.
+  #
+  # It was NINE literals (a restore key, a restore-keys prefix and a save key for each
+  # of the three jobs) and is now one, because a bump that moves setup-linux-build and
+  # forgets these keys reintroduces the bug it fixes. Move it WITH the version/sha256
+  # inputs in .github/actions/setup-linux-build; the full bump checklist is in
+  # docs/ops/self-hosted-linux-toolchain.md.
+  OLO_LINUX_LLVM_VERSION: "23.1.0"
   OLO_ASAN_WINDOWS_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
 
 permissions:
@@ -616,8 +629,19 @@ jobs:
         # A ctest that lists nothing is the same failure archetype the shards guard
         # against, one level up: it would make each shard's "count > 0" check the only
         # thing between a broken discovery and a green matrix.
-        if [ -z "${total}" ] || [ "${total}" -le 0 ] 2>/dev/null; then
-          echo "::error::ctest -N reported no tests. Discovery did not produce a test list, so nothing below can be trusted."
+        #
+        # DIGITS-ONLY BEFORE THE NUMERIC COMPARISON, and the order is the whole point:
+        # `[ "$x" -le 0 ]` on a non-numeric $x ERRORS rather than returning false, and
+        # a command that errors inside an `if` condition is exempt from `set -e` -- so
+        # anything that is not a number fell straight through this guard and got
+        # published as the total. A guard that exists for the case where discovery
+        # printed something unexpected must not be the thing that trusts its output.
+        case "${total}" in
+          ''|*[!0-9]*) valid=no ;;
+          *) if [ "${total}" -gt 0 ]; then valid=yes; else valid=no; fi ;;
+        esac
+        if [ "${valid}" != yes ]; then
+          echo "::error::ctest -N did not report a positive test count (got '${total}'). Discovery did not produce a usable test list, so nothing below can be trusted."
           printf '%s\n' "$listing" | tail -20
           exit 1
         fi
@@ -801,8 +825,16 @@ jobs:
                     -I "${OLO_CTEST_SHARD},,${OLO_CTEST_SHARDS}" \
                     --exclude-regex "${OLO_ASAN_WINDOWS_CTEST_EXCLUDE}")
         count=$(printf '%s\n' "$listing" | sed -n 's/^Total Tests: *//p' | tail -1)
-        if [ -z "${count}" ] || [ "${count}" -le 0 ] 2>/dev/null; then
-          echo "::error::shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS} matched ZERO ctest entries."
+        # Digits-only before the numeric comparison -- see the same guard on the build
+        # job's total. `[ "$x" -le 0 ]` errors on a non-number and an erroring `if`
+        # condition is exempt from `set -e`, so garbage would pass this check and then
+        # be written into the shard count the coverage proof adds up.
+        case "${count}" in
+          ''|*[!0-9]*) valid=no ;;
+          *) if [ "${count}" -gt 0 ]; then valid=yes; else valid=no; fi ;;
+        esac
+        if [ "${valid}" != yes ]; then
+          echo "::error::shard ${OLO_CTEST_SHARD}/${OLO_CTEST_SHARDS} did not match a positive number of ctest entries (got '${count}')."
           printf '%s\n' "$listing" | tail -20
           exit 1
         fi
@@ -963,7 +995,12 @@ jobs:
   asan-windows-tests-verify:
     name: ASan (Windows) shard coverage
     needs: [asan-windows, asan-windows-tests]
-    if: always() && needs.asan-windows.result == 'success'
+    # `!cancelled()` rather than `always()`: a cancelled run (cancel-in-progress on
+    # the next push) can leave asan-windows already 'success' while the shards were
+    # killed mid-flight, and `always()` would then run this job and post a red
+    # "a shard did not complete" on a run nobody abandoned for a reason worth
+    # reading. Braced because a bare leading `!` is a YAML tag indicator.
+    if: ${{ !cancelled() && needs.asan-windows.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1206,9 +1243,9 @@ jobs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-asan-lsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        key: sccache-asan-lsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
-          sccache-asan-lsan-linux-llvm-23.1.0-
+          sccache-asan-lsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-
 
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
@@ -1314,7 +1351,7 @@ jobs:
       uses: ./.github/actions/save-cache-pruned
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-asan-lsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        key: sccache-asan-lsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
         token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
@@ -1499,9 +1536,9 @@ jobs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-ubsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        key: sccache-ubsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
-          sccache-ubsan-linux-llvm-23.1.0-
+          sccache-ubsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-
 
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
@@ -1594,7 +1631,7 @@ jobs:
       uses: ./.github/actions/save-cache-pruned
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-ubsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        key: sccache-ubsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
         token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
@@ -1789,9 +1826,9 @@ jobs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-tsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        key: sccache-tsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
-          sccache-tsan-linux-llvm-23.1.0-
+          sccache-tsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-
 
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
@@ -1884,7 +1921,7 @@ jobs:
       uses: ./.github/actions/save-cache-pruned
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-tsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        key: sccache-tsan-linux-llvm-${{ env.OLO_LINUX_LLVM_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
         token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
