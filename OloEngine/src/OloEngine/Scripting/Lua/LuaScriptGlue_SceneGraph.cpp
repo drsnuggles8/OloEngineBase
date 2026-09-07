@@ -198,7 +198,13 @@ namespace OloEngine
                                     OLO_CORE_WARN("[Lua InstancedMesh] add_instance got a non-finite value — ignored");
                                     return;
                                 }
-                                if (scale.x == 0.0f || scale.y == 0.0f || scale.z == 0.0f)
+                                // fpclassify, not `== 0.0f` (house rule: no bare float
+                                // equality) and not Math::BitwiseEqual either — a NEGATIVE
+                                // zero has a different bit pattern from +0.0f and would slip
+                                // straight through a bitwise test while still making the
+                                // transform singular.
+                                if (std::fpclassify(scale.x) == FP_ZERO || std::fpclassify(scale.y) == FP_ZERO ||
+                                    std::fpclassify(scale.z) == FP_ZERO)
                                 {
                                     OLO_CORE_WARN("[Lua InstancedMesh] add_instance got a zero scale component — ignored (the transform would be singular)");
                                     return;

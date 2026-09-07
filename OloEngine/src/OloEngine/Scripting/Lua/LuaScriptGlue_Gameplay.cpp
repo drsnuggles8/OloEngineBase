@@ -366,36 +366,45 @@ namespace OloEngine
                                                  i32 maxStack = std::max(def->MaxStackSize, 1);
                                                  // Route through InventorySystem so each add publishes ItemAdded.
                                                  auto [scene, entity] = LuaOwnerContext(comp);
-                                                 // ALL OR NOTHING. This used to add stack by stack and
-                                                 // `return false` on the first refusal, which left every
+                                                 // ALL OR NOTHING, and decided BEFORE anything is
+                                                 // published. This used to add stack by stack and
+                                                 // `return false` on the first refusal, leaving every
                                                  // earlier stack in the inventory while telling the script
-                                                 // nothing had happened — the worst of both answers. Roll
-                                                 // the successful adds back so the return value is true.
-                                                 i32 remaining = total;
-                                                 std::vector<UUID> addedIds;
-                                                 while (remaining > 0)
+                                                 // nothing had happened. Rolling those back fixed the state
+                                                 // but not the observers: InventorySystem::AddItem publishes
+                                                 // ItemAddedEvent as it goes, so a listener counting adds
+                                                 // still saw the stacks that were about to be removed again.
+                                                 //
+                                                 // So the fit is settled on a COPY first. The copy is a
+                                                 // plain value with no scene attached, so nothing it does
+                                                 // is observable; only once every stack is known to fit do
+                                                 // the real adds run, and those publish exactly the events
+                                                 // that correspond to items that stayed.
+                                                 const auto buildStacks = [&](auto&& target) -> bool
                                                  {
-                                                     ItemInstance instance;
-                                                     instance.InstanceID = UUID();
-                                                     instance.ItemDefinitionID = itemId;
-                                                     instance.StackCount = std::min(remaining, maxStack);
-                                                     bool added = entity ? InventorySystem::AddItem(scene, entity, instance)
-                                                                         : comp.PlayerInventory.AddItem(instance);
-                                                     if (!added)
+                                                     i32 left = total;
+                                                     while (left > 0)
                                                      {
-                                                         for (const UUID& id : addedIds)
-                                                         {
-                                                             if (entity)
-                                                                 InventorySystem::RemoveItem(scene, entity, id);
-                                                             else
-                                                                 comp.PlayerInventory.RemoveItem(id);
-                                                         }
-                                                         return false;
+                                                         ItemInstance instance;
+                                                         instance.InstanceID = UUID();
+                                                         instance.ItemDefinitionID = itemId;
+                                                         instance.StackCount = std::min(left, maxStack);
+                                                         if (!target(instance))
+                                                             return false;
+                                                         left -= instance.StackCount;
                                                      }
-                                                     addedIds.push_back(instance.InstanceID);
-                                                     remaining -= instance.StackCount;
+                                                     return true;
+                                                 };
+
+                                                 Inventory probe = comp.PlayerInventory;
+                                                 if (!buildStacks([&probe](const ItemInstance& i)
+                                                                  { return probe.AddItem(i); }))
+                                                 {
+                                                     return false;
                                                  }
-                                                 return true; }, "RemoveItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)
+                                                 return buildStacks([&](const ItemInstance& i)
+                                                                    { return entity ? InventorySystem::AddItem(scene, entity, i)
+                                                                                    : comp.PlayerInventory.AddItem(i); }); }, "RemoveItem", [](InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count)
                                              { auto [scene, entity] = LuaOwnerContext(comp); i32 cnt = count.value_or(1); return entity ? InventorySystem::RemoveItemByDefinition(scene, entity, itemId, cnt) : comp.PlayerInventory.RemoveItemByDefinition(itemId, cnt); }, "HasItem", [](const InventoryComponent& comp, const std::string& itemId, sol::optional<i32> count) -> bool
                                              { return comp.PlayerInventory.HasItem(itemId, count.value_or(1)); }, "CountItem", [](const InventoryComponent& comp, const std::string& itemId) -> i32
                                              { return comp.PlayerInventory.CountItem(itemId); }, "GetUsedSlots", [](const InventoryComponent& comp) -> i32
