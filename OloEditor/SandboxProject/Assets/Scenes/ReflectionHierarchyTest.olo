@@ -1,0 +1,189 @@
+Scene: ReflectionHierarchyTest.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Reflection-hierarchy demo scene — issue #1057, the contract is ADR 0019.
+#
+# It exists because the two things the ray-query tier adds are exactly the two
+# things SSR structurally CANNOT do, and neither is visible in an ordinary scene:
+#
+#   1. OFF-SCREEN reflections. `RedPillarBehind` stands BEHIND the camera. It is
+#      in no frame the camera renders, so SSR can never find it — its screen-space
+#      march has nothing to march against. In the mirror floor it must appear.
+#   2. OCCLUDED reflections. `GreenSphereHidden` sits behind `Occluder`, hidden
+#      from the camera. SSR marches against the DEPTH BUFFER, which only stores
+#      the nearest surface, so a ray that should pass behind the occluder is
+#      stopped by it. In the mirror floor the sphere must appear anyway.
+#
+# Everything is a MeshComponent primitive on purpose. A `ModelComponent` never
+# reaches GPU Scene and so never gets a BLAS (issue #1065), which would leave the
+# TLAS empty — and an empty TLAS looks exactly like a tier correctly falling
+# through to the probes. Check `olo_rt_scene_stats` before believing any frame:
+# this scene should report 5 static BLAS and 5 TLAS instances, notStagedTotal 0.
+#
+# The floor is a near-mirror METAL (Roughness 0.05, Metallic 1) because the tier
+# is roughness-gated by design: rays are spent only where the specular lobe is
+# narrow enough for one to mean something, and rough surfaces stay on the probes.
+# A roughness-1 floor — which is what every other test scene has — gates the tier
+# out completely and renders identically with it on or off.
+#
+# HOW TO USE IT (the tier is Deferred + hardware-ray-tracing only):
+#   1. Renderer Settings -> Active Path -> Deferred
+#   2. Post Processing -> Screen-Space Reflections -> Enable
+#   3. ... -> Ray-query tier (hardware RT) -> Enable
+#   Then "Tier Debug View" colours each pixel by which tier answered it:
+#   magenta = planar, green = SSR, orange = ray query, blue = probe/IBL.
+# ─────────────────────────────────────────────────────────────────────────────
+PostProcessSettings:
+  TonemapOperator: 2
+  Exposure: 0.7
+  Gamma: 2.2
+  BloomEnabled: false
+  ColorGradingEnabled: false
+  FXAAEnabled: true
+  SSAOEnabled: false
+  GTAOEnabled: false
+  SSREnabled: true
+  SSRIntensity: 1
+  SSRMaxRoughness: 0.8
+  SSREdgeFade: 0.1
+  SSGIEnabled: false
+  ContactShadowEnabled: false
+Entities:
+  # -- Camera: low and close to the floor, so the mirror fills much of the frame
+  #    and the grazing angles give a strong Fresnel reflection. --
+  - Entity: 820000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 1.6, 9]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # -- Skybox + IBL. This is the BOTTOM tier of the hierarchy: whatever the ray
+  #    tier and SSR do not answer for falls through to this. --
+  - Entity: 820000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 0.5
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.35
+      Tint: [1, 1, 1]
+  # -- Sun, high enough to light the tops of the props that get reflected. --
+  - Entity: 820000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0.35, -0.75, -0.3]
+      Color: [1, 0.98, 0.95]
+      Intensity: 3
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 50
+      CascadeSplitLambda: 0.95
+  # -- THE MIRROR. Metal + near-zero roughness, so the tier's roughness gate is
+  #    wide open here and Fresnel is high. Metals tint their reflection by
+  #    albedo, so this stays a light neutral rather than a colour. --
+  - Entity: 820000000000004
+    TagComponent:
+      Tag: MirrorFloor
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [40, 1, 40]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.9, 0.92]
+      Metallic: 1
+      Roughness: 0.05
+  # -- CRITERION 1: OFF SCREEN. High ABOVE the top of the frame, not behind the
+  #    camera: for a FLOOR mirror the reflected ray goes up and forward, so the
+  #    off-screen content a floor can show you is what is above the view, and an
+  #    object behind the camera is reflected only by floor that is itself behind
+  #    the camera. Getting that backwards is an easy way to build a scene that
+  #    proves nothing. Strongly coloured so its presence in the mirror is
+  #    unambiguous rather than a judgement call. --
+  - Entity: 820000000000005
+    TagComponent:
+      Tag: RedPillarBehind
+    TransformComponent:
+      Translation: [-2.5, 9, -9]
+      Rotation: [0, 0, 0]
+      Scale: [2.5, 3, 2.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.06, 0.06]
+      Metallic: 0
+      Roughness: 0.6
+  # -- CRITERION 2, part A: the occluder. Hides the sphere behind it from the
+  #    camera, which is what makes the depth buffer unable to answer for it. --
+  - Entity: 820000000000006
+    TagComponent:
+      Tag: Occluder
+    TransformComponent:
+      Translation: [3.5, 2.5, -14]
+      Rotation: [0, 0, 0]
+      Scale: [2.5, 2.5, 0.3]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.82, 0.8, 0.75]
+      Metallic: 0
+      Roughness: 0.75
+  # -- CRITERION 2, part B: hidden behind the occluder from the camera, but on a
+  #    clear line from the floor. SSR's march stops at the occluder's depth; a
+  #    ray query passes behind it and finds this. --
+  - Entity: 820000000000007
+    TagComponent:
+      Tag: GreenSphereHidden
+    TransformComponent:
+      Translation: [3.5, 1.6, -19]
+      Rotation: [0, 0, 0]
+      Scale: [1.6, 1.6, 1.6]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.05, 0.85, 0.15]
+      Metallic: 0
+      Roughness: 0.55
+  # -- A control that is ON screen and unoccluded, so SSR answers for it. Its
+  #    reflection must be UNCHANGED by the ray tier: SSR is fully confident
+  #    there, so the tier below it is starved to weight zero (ADR 0019 §1). --
+  - Entity: 820000000000008
+    TagComponent:
+      Tag: BlueBoxVisible
+    TransformComponent:
+      Translation: [-5, 1.6, -12]
+      Rotation: [0, 0.3, 0]
+      Scale: [1.2, 1.6, 1.2]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.1, 0.25, 0.9]
+      Metallic: 0
+      Roughness: 0.5

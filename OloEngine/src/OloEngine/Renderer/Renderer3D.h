@@ -786,12 +786,24 @@ namespace OloEngine
         // Scene::ProcessScene3DSharedLogic; replaces the retired single-light
         // SceneLight as the sun-direction source.
         static void SetPrimaryDirectionalLightDirection(const glm::vec3& direction);
+        // The same light's RADIANCE (colour * intensity), published alongside
+        // the direction from the same capture site so the two can never
+        // describe different lights. The ray-query reflection tier (#1057)
+        // shades its hits with it: a reflected surface lit by a guessed sun
+        // colour would disagree with the same surface seen directly, which is
+        // exactly the "reflections change character" artefact the tier exists
+        // to remove. Zero when the scene has no directional light.
+        static void SetPrimaryDirectionalLightRadiance(const glm::vec3& radiance);
         // The direction set above (travel direction of the sun's light). Consumed
         // by the underwater caustics term to fade caustics as the sun drops toward
         // the horizon (§7.1). Defaults to straight down before any light is seen.
         [[nodiscard]] static const glm::vec3& GetPrimaryDirectionalLightDirection()
         {
             return s_Data.PrimaryDirectionalLightDir;
+        }
+        [[nodiscard]] static const glm::vec3& GetPrimaryDirectionalLightRadiance()
+        {
+            return s_Data.PrimaryDirectionalLightRadiance;
         }
         static void SetCameraClipPlanes(f32 nearClip, f32 farClip);
 
@@ -1795,6 +1807,12 @@ namespace OloEngine
             // the TLAS device address, the resolved channel routing, whether a
             // history exists — is only known once the graph is executing.
             Ref<UniformBuffer> RayTracedShadow;
+            // The ray-query reflection tier (#1057). A SEPARATE buffer from
+            // RayTracedShadow even though both bind at UBO_RAY_TRACING (65):
+            // the two passes run in the same frame, each rebinding its own
+            // buffer before its own draws, so one shared allocation would have
+            // whichever uploaded last win.
+            Ref<UniformBuffer> RayTracedReflection;
 
             PostProcessUBOData PostProcessData{};
             MotionBlurUBOData MotionBlurData{};
@@ -2124,6 +2142,7 @@ namespace OloEngine
             // by the fog/atmosphere sun-direction derivation; defaults to
             // straight-down when the scene has no directional light.
             glm::vec3 PrimaryDirectionalLightDir = glm::vec3(0.0f, -1.0f, 0.0f);
+            glm::vec3 PrimaryDirectionalLightRadiance = glm::vec3(0.0f);
             f32 CameraNearClip = 0.1f;
             f32 CameraFarClip = 1000.0f;
 

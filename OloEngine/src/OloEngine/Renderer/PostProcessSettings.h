@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/ReflectionTier.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Math/Math.h"
@@ -395,6 +396,17 @@ namespace OloEngine
         // say. 0 disables the stage outright.
         f32 SSRPreBlurRadius = 2.0f;
         f32 SSRPostBlurRadius = 3.0f;
+
+        // The RAY-QUERY reflection tier (issue #1057), one tier BELOW SSR in the
+        // hierarchy ADR 0019 specifies: planar > SSR > ray query > probe/IBL.
+        // It fills exactly the gap SSR structurally cannot — off-screen and
+        // occluded hits — and it composites UNDER SSR, so enabling it changes
+        // nothing on a pixel SSR was already confident about.
+        //
+        // Deferred path + a hardware ray-tracing device only. Everywhere else
+        // the tier reports why it stood down and the hierarchy collapses to
+        // exactly today's SSR + probe/IBL.
+        RayTracedReflectionSettings RayTracedReflection{};
 
         // Screen-Space Global Illumination (SSGI)
         // Deferred-only: one-bounce indirect *diffuse* lighting. For each opaque
@@ -910,7 +922,16 @@ namespace OloEngine
         glm::vec4 ShadeParams = glm::vec4(1.0f, 0.6f, 0.1f, 6.0f);
         // x = width, y = height, z = 1/width, w = 1/height
         glm::vec4 ScreenParams = glm::vec4(0.0f);
-        // x = DebugView (0/1), y = StochasticFrameIndex, zw = pad
+        // x = DebugView (0/1), y = StochasticFrameIndex,
+        // z = TierDebugView (0/1), w = RayTierActive (0/1).
+        //
+        // The last two are the reflection-hierarchy tier debug view (#1057). It
+        // is composited in SSR's composite draw because that draw is the only
+        // point in the frame where every tier's confidence is reachable at once:
+        // SSR's own from the guide plane's alpha, the ray-query tier's from the
+        // alpha of the colour it handed SSR, and probe/IBL's as the residual.
+        // w says whether that alpha means anything — every other pass in the
+        // chain writes 1.0 there.
         glm::vec4 Flags = glm::vec4(0.0f);
         // Min-depth HZB acceleration (#284). x = HZB UVFactor.x, y = HZB
         // UVFactor.y (hzbUV = screenUV * UVFactor), z = HZB mip count, w =

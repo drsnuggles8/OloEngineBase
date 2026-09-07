@@ -284,6 +284,10 @@ namespace OloEngine
             RGTextureHandle AOApplyColorTexture;          // Color attachment view of AOApplyColor
             RGFramebufferHandle SSGIColor;                // After SSGI composite (only valid when SSGI is enabled, deferred path)
             RGTextureHandle SSGIColorTexture;             // Color attachment view of SSGIColor
+            // The ray-query reflection tier (#1057), one tier BELOW SSR: it
+            // runs first and SSR composites over its output (ADR 0019).
+            RGFramebufferHandle RTReflectionColor;        // After the ray-query reflection tier (deferred path, RT device only)
+            RGTextureHandle RTReflectionColorTexture;     // Color attachment view of RTReflectionColor
             RGFramebufferHandle SSRColor;                 // After SSR composite (only valid when SSR is enabled, deferred path)
             RGTextureHandle SSRColorTexture;              // Color attachment view of SSRColor
             RGFramebufferHandle ContactShadowColor;       // After contact-shadow composite (only valid when ContactShadow is enabled, deferred path)

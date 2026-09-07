@@ -153,6 +153,11 @@ namespace OloEngine
         s_Data.PrimaryDirectionalLightDir = direction;
     }
 
+    void Renderer3D::SetPrimaryDirectionalLightRadiance(const glm::vec3& radiance)
+    {
+        s_Data.PrimaryDirectionalLightRadiance = radiance;
+    }
+
     void Renderer3D::SetRayTracedShadowLightRequests(std::vector<RayTracedShadowLightRequest> requests)
     {
         s_Data.RayTracedShadowLightRequests = std::move(requests);

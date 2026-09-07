@@ -1151,6 +1151,45 @@ namespace OloEngine
                 data.PostProcessGPU.SSGI->Bind();
             }
         }
+        // Wire the ray-query reflection tier (#1057) — registered BEFORE SSR,
+        // because ADR 0019 composites the hierarchy bottom-up and SSR lerps over
+        // this tier's output. Deferred-only for the same reason SSR is: it reads
+        // the G-Buffer. On a non-RT device the pass's shader never loaded, so
+        // IsReadyForExecution() is false and the tier reports itself unavailable
+        // rather than quietly producing nothing.
+        if (PostProcessPasses.RayTracedReflection)
+        {
+            auto& rtReflectionPass = *PostProcessPasses.RayTracedReflection;
+            const bool deferredPath = data.Settings.Path == RenderingPath::Deferred;
+            const auto& rtReflectionSettings = data.PostProcess.RayTracedReflection;
+
+            // Bind the UBO BEFORE the readiness check, the same ordering (and
+            // for the same reason) as SSR: IsReadyForExecution() validates the
+            // UBO, so setting it afterwards would drop the first frame the tier
+            // is enabled. It cannot be done at pass-construction time because
+            // CreatePostProcessPasses has no frame data to take it from.
+            rtReflectionPass.SetParamsUBO(data.PostProcessGPU.RayTracedReflection);
+            rtReflectionPass.SetSettings(rtReflectionSettings);
+            rtReflectionPass.SetEnabled(rtReflectionSettings.Enabled && deferredPath &&
+                                        rtReflectionPass.IsReadyForExecution());
+            rtReflectionPass.SetCameraMatrices(data.ViewMatrix, data.ProjectionMatrix,
+                                               Renderer3D::GetRenderOrigin());
+            rtReflectionPass.SetFrameIndex(data.StochasticFrameIndex);
+
+            // PrimaryDirectionalLightDir is the light's TRAVEL direction (it
+            // points away from the sun), and the shader wants the direction
+            // TOWARD it — the same negation FogRenderPass's scatter term makes.
+            // Getting this backwards lights every reflected surface from below,
+            // which reads as "the reflections are strangely flat" rather than as
+            // an error.
+            const glm::vec3& sunTravel = Renderer3D::GetPrimaryDirectionalLightDirection();
+            const glm::vec3& sunRadiance = Renderer3D::GetPrimaryDirectionalLightRadiance();
+            const f32 sunLen2 = glm::dot(sunTravel, sunTravel);
+            const bool hasSun = std::isfinite(sunLen2) && sunLen2 > 1e-8f &&
+                                glm::dot(sunRadiance, sunRadiance) > 0.0f;
+            rtReflectionPass.SetSunLight(hasSun ? -glm::normalize(sunTravel) : glm::vec3(0.0f, 1.0f, 0.0f),
+                                         sunRadiance, hasSun);
+        }
         // Wire SSRPass (screen-space reflections) before Bloom in the dynamic
         // post chain. Deferred-only: when the path is forward / forward+ the
         // SSRColor resource is never declared (see PopulateBlackboard), so the
@@ -1190,9 +1229,31 @@ namespace OloEngine
                     ssrHeight = spec.Height > 0 ? static_cast<f32>(spec.Height) : 1.0f;
                 }
                 ssr.ScreenParams = glm::vec4(ssrWidth, ssrHeight, 1.0f / ssrWidth, 1.0f / ssrHeight);
+                // z/w carry the reflection-hierarchy tier debug view (#1057).
+                // It is composited in SSR's composite draw because that is the
+                // only point in the frame where every tier's confidence is
+                // reachable at once. w says whether the ray-query tier's pass
+                // WROTE the colour SSR is about to read: without it the
+                // composite would read the alpha of an upstream colour that
+                // every other pass writes as 1.0 and paint the whole frame as
+                // "the ray tier answered".
+                //
+                // It is the pass's ENABLED state, deliberately, and not its
+                // GetStats().RayQueryTierActive: the stats are produced during
+                // Execute, which runs AFTER this upload, so reading them here
+                // would report the PREVIOUS frame. Enabled is the honest
+                // question anyway — it is exactly the condition under which
+                // RTReflectionColor was declared, and therefore the condition
+                // under which that alpha means anything at all. A tier that is
+                // enabled but internally standing down writes confidence 0 on
+                // every pixel, which the debug view then shows correctly.
+                const bool tierDebugView = data.PostProcess.RayTracedReflection.TierDebugView;
+                const bool rayTierActive = PostProcessPasses.RayTracedReflection &&
+                                           PostProcessPasses.RayTracedReflection->IsEnabled();
                 ssr.Flags = glm::vec4(data.PostProcess.SSRDebugView ? 1.0f : 0.0f,
                                       stochasticFrameIndexFor(data.PostProcess.SSRTemporalResolve),
-                                      0.0f, 0.0f);
+                                      tierDebugView ? 1.0f : 0.0f,
+                                      rayTierActive ? 1.0f : 0.0f);
 
                 // Min-depth HZB acceleration (#284). UVFactor + mip count come
                 // straight from the SSR pass so they always describe the very
@@ -2397,6 +2458,19 @@ namespace OloEngine
         HashBool(h, data.PostProcess.VRCSEnabled);
         HashBool(h, data.PostProcess.VRCSGTAO);
         HashBool(h, data.PostProcess.SSREnabled);
+        // The ray-query reflection tier (#1057). Same reason as the shadow
+        // technique below, and it cost the same bisect to rediscover: this
+        // flag gates whether PopulateBlackboard declares RTReflectionColor,
+        // which is a TOPOLOGY change rather than a uniform. Without it the
+        // checkbox arms the pass, the cached graph still holds the version
+        // where the node declared nothing, the node stays culled, and the
+        // tier looks simply absent until some unrelated resize happens to
+        // invalidate the graph.
+        HashBool(h, data.PostProcess.RayTracedReflection.Enabled);
+        // Not a topology change on its own, but the debug view is composited
+        // in SSR's draw from lanes this pass only writes when it is on, so a
+        // stale graph would show the previous frame's answer.
+        HashBool(h, data.PostProcess.RayTracedReflection.TierDebugView);
         HashBool(h, data.PostProcess.ContactShadowEnabled);
         // The shadow TECHNIQUE (issue #1056). It gates whether PopulateBlackboard
         // declares RayTracedShadowMask and therefore whether RayTracedShadowPass
@@ -2640,6 +2714,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.SSS);
         HashPassState(h, PostProcessPasses.AOApply);
         HashPassState(h, PostProcessPasses.SSGI);
+        HashPassState(h, PostProcessPasses.RayTracedReflection);
         HashPassState(h, PostProcessPasses.SSR);
         HashPassState(h, PostProcessPasses.ContactShadow);
         HashPassState(h, PostProcessPasses.FSR2);
@@ -3671,6 +3746,76 @@ namespace OloEngine
             }
         }
 
+        // RTReflectionColor exists only on the deferred path when the ray-query
+        // tier is enabled AND its shader loaded — the shader is created only on
+        // a backend with GL_EXT_ray_query, so IsReadyForExecution() is also the
+        // "this device can ray trace" test. Forward / forward+ and every non-RT
+        // device never declare it, so the chain aliases straight back to the
+        // upstream colour and the output is byte-identical to today's.
+        //
+        // Deliberately NOT gated on the TLAS being built: that is a per-frame
+        // runtime state, and making the GRAPH SHAPE depend on it would rebuild
+        // the graph on the frame geometry first appears. The pass handles an
+        // empty TLAS instead, by uploading a zero address the shader treats as
+        // "trace nothing" — a pass-through, counted as
+        // ReflectionTierFallbackReason::AccelerationStructureEmpty.
+        if (pipeline.PostProcessPasses.RayTracedReflection)
+        {
+            const auto& rtReflection = *pipeline.PostProcessPasses.RayTracedReflection;
+            const bool rtReflectionEnabled = rtReflection.IsEnabled();
+            const bool rtReflectionReady = rtReflection.IsReadyForExecution();
+            const bool rtReflectionHasDepth = board.Scene.SceneDepth.IsValid();
+            const bool rtReflectionHasNormal = board.GBuffer.GBufferNormal.IsValid();
+            const bool rtReflectionHasAlbedo = board.GBuffer.GBufferAlbedo.IsValid();
+            const bool rtReflectionDeclared = rtReflectionEnabled && rtReflectionReady &&
+                                              rtReflectionHasDepth && rtReflectionHasNormal &&
+                                              rtReflectionHasAlbedo;
+
+            // WHEN THE TIER IS ARMED AND THE GRAPH DECLARES NOTHING, SAY WHY —
+            // with the values, not a verdict. This is upstream of the pass's own
+            // counters and has to be: a pass whose output was never declared is
+            // CULLED, so it never executes, never fills ReflectionTierStats, and
+            // "I ticked the box and the frame did not change" has no answer
+            // anywhere in the log. Naming the five inputs turns that into a
+            // five-second diagnosis instead of a bisect. Same shape, and the
+            // same lesson, as the RayTracedShadowPass mask verdict above.
+            //
+            // Keyed on the VERDICT, not a one-shot bool: a user who fixes one
+            // half of the gate and trips another must get the second message.
+            if (data.PostProcess.RayTracedReflection.Enabled && !rtReflectionDeclared)
+            {
+                const u32 verdict = (rtReflectionEnabled ? 1u : 0u) | (rtReflectionReady ? 2u : 0u) |
+                                    (rtReflectionHasDepth ? 4u : 0u) | (rtReflectionHasNormal ? 8u : 0u) |
+                                    (rtReflectionHasAlbedo ? 16u : 0u);
+                if (pipeline.m_ReportedRayTracedReflectionVerdict != verdict)
+                {
+                    pipeline.m_ReportedRayTracedReflectionVerdict = verdict;
+                    OLO_CORE_WARN("RayTracedReflectionPass: the ray-query reflection tier is switched on, but the "
+                                  "graph declared no target this frame, so the pass is culled and the hierarchy "
+                                  "silently stays on SSR + probe/IBL. passEnabled={} shaderReady={} sceneDepth={} "
+                                  "gbufferNormal={} gbufferAlbedo={}",
+                                  rtReflectionEnabled, rtReflectionReady, rtReflectionHasDepth,
+                                  rtReflectionHasNormal, rtReflectionHasAlbedo);
+                }
+            }
+            else
+            {
+                // The gate is healthy (or the tier is off), so a later failure is
+                // a new event and must warn again rather than be swallowed.
+                pipeline.m_ReportedRayTracedReflectionVerdict = kNoRayTracedShadowVerdict;
+            }
+
+            if (rtReflectionDeclared)
+            {
+                const auto rtReflectionOutput = declareSceneBandOutput(
+                    ResourceNames::RTReflectionColor,
+                    ResourceNames::RTReflectionColorTexture,
+                    RGResourceFormat::RGBA16Float);
+                board.Post.RTReflectionColor = rtReflectionOutput.Framebuffer;
+                board.Post.RTReflectionColorTexture = rtReflectionOutput.Texture;
+            }
+        }
+
         // SSRColor exists only on the deferred path when SSR is enabled, ready,
         // and the G-Buffer normal + scene depth it ray-marches against are
         // available. Forward / forward+ never declares it, so downstream aliases
@@ -3865,10 +4010,23 @@ namespace OloEngine
             postProcessTargetFramebuffer = ResourceNames::SSRColor;
             postProcessTargetTexture = ResourceNames::SSRColorTexture;
         }
+        else if (board.Post.RTReflectionColor.IsValid())
+        {
+            // The ray-query reflection tier runs after SSGI and before SSR, so
+            // when SSR is off its output is the freshest pre-Bloom colour. It
+            // ranks directly below SSRColor for the same reason it runs before
+            // it: SSR composites OVER this tier, so an SSRColor that exists has
+            // already absorbed it.
+            board.Post.PostProcessColor = board.Post.RTReflectionColor;
+            board.Post.PostProcessColorTexture = board.Post.RTReflectionColorTexture;
+            postProcessTargetFramebuffer = ResourceNames::RTReflectionColor;
+            postProcessTargetTexture = ResourceNames::RTReflectionColorTexture;
+        }
         else if (board.Post.SSGIColor.IsValid())
         {
-            // SSGI runs after AOApply (and before SSR); when SSR is off its
-            // indirect-diffuse composite is the freshest pre-Bloom colour.
+            // SSGI runs after AOApply (and before the ray tier and SSR); when
+            // both of those are off its indirect-diffuse composite is the
+            // freshest pre-Bloom colour.
             board.Post.PostProcessColor = board.Post.SSGIColor;
             board.Post.PostProcessColorTexture = board.Post.SSGIColorTexture;
             postProcessTargetFramebuffer = ResourceNames::SSGIColor;
@@ -4541,6 +4699,7 @@ namespace OloEngine
         inputs.Passes.SSS = PostProcessPasses.SSS.Raw();
         inputs.Passes.AOApply = PostProcessPasses.AOApply.Raw();
         inputs.Passes.SSGI = PostProcessPasses.SSGI.Raw();
+        inputs.Passes.RayTracedReflection = PostProcessPasses.RayTracedReflection.Raw();
         inputs.Passes.SSR = PostProcessPasses.SSR.Raw();
         inputs.Passes.ContactShadow = PostProcessPasses.ContactShadow.Raw();
         inputs.Passes.EASU = PostProcessPasses.EASU.Raw();
@@ -4760,8 +4919,17 @@ namespace OloEngine
         PostProcessPasses.SSGI->SetName("SSGIPass");
         PostProcessPasses.SSGI->Init(finalPassSpec);
 
+        // The ray-query reflection tier (#1057). Sits between SSGI and SSR:
+        // ADR 0019 composites the hierarchy bottom-up, so the LOWER tier runs
+        // FIRST and SSR lerps over its output.
+        PostProcessPasses.RayTracedReflection = Ref<RayTracedReflectionPass>::Create();
+        PostProcessPasses.RayTracedReflection->SetName("RayTracedReflectionPass");
+        PostProcessPasses.RayTracedReflection->Init(finalPassSpec);
+        PostProcessPasses.RayTracedReflection->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
+        PostProcessPasses.RayTracedReflection->SetGPUScene(&Renderer3D::GetGPUScene());
+
         // Screen-space reflections standalone pass.
-        // Sits between SSGI and ContactShadow in dynamic mode (deferred path only).
+        // Sits between the ray-query tier and ContactShadow in dynamic mode (deferred path only).
         PostProcessPasses.SSR = Ref<SSRRenderPass>::Create();
         PostProcessPasses.SSR->SetName("SSRPass");
         PostProcessPasses.SSR->Init(finalPassSpec);

@@ -41,14 +41,25 @@ namespace OloEngine
         m_SelectedResolvedFramebuffer = {};
         m_SelectedDenoisedFramebuffer = {};
 
-        // Pick the latest upstream colour to reflect: SSGI (if the indirect-diffuse
-        // bounce ran), AOApply (if AO ran), SSS, else raw SceneColor.
-        // PostProcessColor is intentionally NOT a candidate — its alias is
-        // repointed to SSRColor downstream, so reading it here would form a cycle.
+        // Pick the latest upstream colour to reflect: the ray-query reflection
+        // tier (if it ran), SSGI (if the indirect-diffuse bounce ran), AOApply
+        // (if AO ran), SSS, else raw SceneColor. PostProcessColor is
+        // intentionally NOT a candidate — its alias is repointed to SSRColor
+        // downstream, so reading it here would form a cycle.
+        //
+        // RTReflectionColor FIRST is what makes ADR 0019's hierarchy work.
+        // SSR's composite is `base + (reflection - base) * blend`, which is a
+        // lerp toward the reflection by SSR's own confidence — i.e. an "over".
+        // Handing it the ray-query tier's output as `base` therefore composites
+        // SSR OVER the ray tier for free, with no confidence transported and no
+        // change to any of the five draws below. Reading the pre-ray-tier colour
+        // instead would silently discard the tier on every pixel SSR is
+        // confident about.
         [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
             builder,
             this,
             {
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::RTReflectionColor, ResourceNames::RTReflectionColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SSGIColor, ResourceNames::SSGIColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::AOApplyColor, ResourceNames::AOApplyColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SSSColor, ResourceNames::SSSColorTexture),
@@ -467,6 +478,12 @@ namespace OloEngine
         m_SSRCompositeShader->Bind();
         context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
         context.BindTextureOrHeapOffset(1, compositeSignalTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        // The guide plane, for its ALPHA alone: SSR's own arbitration confidence
+        // (#1057). Only the reflection-hierarchy tier debug view reads it, but
+        // the unit is bound unconditionally — a sampler declared by the shader
+        // and left unbound is undefined behaviour, not a zero read, whether or
+        // not the branch that samples it is taken.
+        context.BindTextureOrHeapOffset(2, guideTextureID, RHI::HeapSlotLifetime::FrameTransient);
         drawFullscreen();
 
         RenderCommand::SetDepthMask(true);

@@ -148,6 +148,12 @@ namespace OloEngine
         // That is exactly the stale-record hole #978's acceptance criterion is
         // about, and answering it here means every consumer gets it right.
         [[nodiscard]] u32 GetInstanceSlotCount() const;
+        // The geometry / material table sizes, for a consumer that resolves a
+        // record by slot and must bounds-check first. A ray-query shader
+        // reaches these tables through an instanceCustomIndex it cannot
+        // validate itself (issue #1057).
+        [[nodiscard]] u32 GetGeometrySlotCount() const;
+        [[nodiscard]] u32 GetMaterialSlotCount() const;
         [[nodiscard]] const GPUSceneInstance* GetLiveInstanceRecordBySlot(u32 slot) const;
         // The geometry/material variants additionally take the generation the
         // referring instance recorded, so a record that died and had its slot

@@ -448,6 +448,8 @@ namespace OloEngine
         s_Data.PostProcessGPU.ContactShadow = UniformBuffer::Create(ContactShadowUBOData::GetSize(), ShaderBindingLayout::UBO_CONTACT_SHADOW);
         s_Data.PostProcessGPU.RayTracedShadow = UniformBuffer::Create(
             UBOStructures::RayTracingShadowUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+        s_Data.PostProcessGPU.RayTracedReflection = UniformBuffer::Create(
+            UBOStructures::RayTracingReflectionUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
         s_Data.SceneEffectsGPU.Snow = UniformBuffer::Create(SnowUBOData::GetSize(), ShaderBindingLayout::UBO_SNOW);
         s_Data.SceneEffectsGPU.SSS = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
         s_Data.SceneEffectsGPU.Fog = UniformBuffer::Create(FogUBOData::GetSize(), ShaderBindingLayout::UBO_FOG);

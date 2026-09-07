@@ -59,9 +59,13 @@ layout(location = 0) in vec2 v_TexCoord;
 #ifdef OLO_BINDLESS
 #define u_SceneColor OLO_HEAP_TEX_2D(0)
 #define u_ResolvedSignal OLO_HEAP_TEX_2D(1)
+#define u_Guide OLO_HEAP_TEX_2D(2)
 #else
 layout(binding = 0) uniform sampler2D u_SceneColor; // upstream lit HDR colour
 layout(binding = 1) uniform sampler2D u_ResolvedSignal;   // resolved reflection delta (rgb)
+// The SSR guide plane. Only its ALPHA is read here, and only by the tier debug
+// view: SSR's own arbitration confidence (issue #1057). See PostProcess_SSR.glsl.
+layout(binding = 2) uniform sampler2D u_Guide;
 #endif
 
 // The SAME std140 block PostProcess_SSR.glsl declares (SSRUBOData).
@@ -73,17 +77,88 @@ layout(std140, binding = 38) uniform SSRParams
     vec4 u_RayParams;
     vec4 u_ShadeParams;
     vec4 u_ScreenParams;
-    vec4 u_Flags;        // x = DebugView (0/1), y = FrameIndex, zw = pad
+    vec4 u_Flags;        // x = DebugView (0/1), y = FrameIndex, z = TierDebugView (0/1), w = RayTierActive (0/1)
     vec4 u_HZBParams;
     vec4 u_TemporalParams;
     vec4 u_DenoiseParams; // #708: x = PreBlurRadius (px), y = unused, z = PostBlurMaxRadius, w = unused
     vec4 u_DenoiseGuide;  // #708: x = PlaneTolerance, y = NormalPower, z = RoughnessKnee, w = MaxRoughness
 };
 
+// The reflection hierarchy's debug view (issue #1057, ADR 0019 7): which tier
+// answered this pixel. It lives HERE and nowhere else because this draw is the
+// only point in the frame where every tier's confidence is simultaneously
+// reachable — SSR's from the guide plane's alpha, the ray tier's from the alpha
+// of the colour it handed us, and the probe/IBL tier's as whatever residual the
+// two above them left.
+//
+// Colours are flat and maximally distinct on purpose; this is an inspection
+// tool, not a shaded image.
+const vec3 kTierColorPlanar = vec3(1.0, 0.0, 1.0);   // magenta - reserved, see below
+const vec3 kTierColorSSR = vec3(0.0, 1.0, 0.0);      // green
+const vec3 kTierColorRayQuery = vec3(1.0, 0.25, 0.0); // orange
+const vec3 kTierColorProbeIBL = vec3(0.0, 0.35, 1.0); // blue
+
+vec3 OloReflectionTierDebugColor(float ssrConfidence, float rayConfidence)
+{
+    // PLANAR IS STRUCTURALLY ZERO ON THIS PATH and that is a finding, not an
+    // omission: PlanarReflectionRenderPass disables itself on the deferred path
+    // (a replayed opaque bucket would capture the G-Buffer, not lit colour) and
+    // its result is consumed only by Water.glsl, while SSR is deferred-only. So
+    // the two never coexist in a frame. The tier keeps its seat and its colour
+    // so the view does not silently renumber if a deferred planar resolve ever
+    // lands. ADR 0019 6 is the long version.
+    const float planarConfidence = 0.0;
+
+    // ADR 0019 1's weights, top tier first:
+    //     w_t = c_t * PRODUCT over the tiers ABOVE t of (1 - c_u)
+    // with the bottom tier taking the entire remaining residual, which is what
+    // makes the four weights sum to exactly one.
+    float residual = 1.0;
+    float wPlanar = residual * clamp(planarConfidence, 0.0, 1.0);
+    residual -= wPlanar;
+    float wSSR = residual * clamp(ssrConfidence, 0.0, 1.0);
+    residual -= wSSR;
+    float wRay = residual * clamp(rayConfidence, 0.0, 1.0);
+    residual -= wRay;
+    float wProbeIBL = residual;
+
+    // The dominant tier, ties going to the higher one (it claimed first).
+    vec3 color = kTierColorProbeIBL;
+    float best = wProbeIBL;
+    if (wRay > best)
+    {
+        best = wRay;
+        color = kTierColorRayQuery;
+    }
+    if (wSSR > best)
+    {
+        best = wSSR;
+        color = kTierColorSSR;
+    }
+    if (wPlanar > best)
+    {
+        color = kTierColorPlanar;
+    }
+    return color;
+}
+
 void main()
 {
-    vec3 baseColor = texture(u_SceneColor, v_TexCoord).rgb;
+    vec4 sceneSample = texture(u_SceneColor, v_TexCoord);
+    vec3 baseColor = sceneSample.rgb;
     vec3 reflectionDelta = texture(u_ResolvedSignal, v_TexCoord).rgb;
+
+    if (u_Flags.z > 0.5) // the tier debug view
+    {
+        // c_ray rides in the ALPHA of the colour the ray-query tier handed us,
+        // and ONLY while its own debug flag is set — every other pass in the
+        // chain writes alpha 1.0, so reading it unconditionally would paint the
+        // whole frame as "the ray tier answered". u_Flags.w is that guard.
+        float rayConfidence = (u_Flags.w > 0.5) ? clamp(sceneSample.a, 0.0, 1.0) : 0.0;
+        float ssrConfidence = clamp(texture(u_Guide, v_TexCoord).a, 0.0, 1.0);
+        o_Color = vec4(OloReflectionTierDebugColor(ssrConfidence, rayConfidence), 1.0);
+        return;
+    }
 
     if (u_Flags.x > 0.5) // debug: the resolved reflection delta in isolation
     {

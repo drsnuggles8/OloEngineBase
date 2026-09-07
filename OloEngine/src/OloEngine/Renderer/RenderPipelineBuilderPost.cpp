@@ -17,6 +17,21 @@ namespace OloEngine::RenderPipelineBuilderInternal
         {
             graph.AddNode(PrepareGraphNode("SSGIPass", inputs.Passes->SSGI));
         }
+        // The ray-query reflection tier (#1057), registered BEFORE SSR and after
+        // SSGI. ADR 0019 composites the reflection hierarchy BOTTOM-UP — planar >
+        // SSR > ray query > probe/IBL — and evaluating it in that direction is
+        // what lets each tier lerp over the colour it was handed without ever
+        // needing the confidence of a tier above it. So the LOWER tier runs
+        // FIRST: this pass lays its answer over the probe/IBL specular already
+        // baked into the lit colour, and SSR then lerps over this pass's output
+        // by its own blend. Swapping the two would make SSR the thing being
+        // composited over, which is the double-count #979's non-goal names.
+        // Self-skips on the forward path and on a non-RT device (its
+        // RTReflectionColor resource is never declared).
+        if (inputs.Passes->RayTracedReflection)
+        {
+            graph.AddNode(PrepareGraphNode("RayTracedReflectionPass", inputs.Passes->RayTracedReflection));
+        }
         // SSR (deferred-only) reflects the AO-applied (and SSGI-lit) scene colour,
         // so it is registered ahead of Bloom. It self-skips on the forward path
         // (its SSRColor resource is never declared).

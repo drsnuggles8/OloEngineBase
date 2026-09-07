@@ -372,6 +372,64 @@ namespace OloEngine
                                       "never filtered no matter what these say.");
             }
 
+            // The ray-query tier (issue #1057) lives under the SSR header
+            // because it is the tier immediately BELOW SSR in the hierarchy of
+            // ADR 0019, and it only means anything next to it: it answers
+            // exactly the pixels SSR cannot (off-screen and occluded) and
+            // composites UNDER SSR, so a pixel SSR already owns is untouched.
+            ImGui::SeparatorText("Ray-query tier (hardware RT)");
+            auto& rt = settings.RayTracedReflection;
+            ImGui::Checkbox("Enable##RTReflection", &rt.Enabled);
+            ImGui::TextDisabled("Deferred path + a ray-tracing device only");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Fills the gap SSR structurally cannot: reflections of\n"
+                                  "geometry that is off screen or hidden behind something.\n"
+                                  "Where it is unavailable the hierarchy collapses to exactly\n"
+                                  "today's SSR + probe/IBL and says why in the log.");
+
+            if (rt.Enabled)
+            {
+                ImGui::DragFloat("Intensity##RTReflection", &rt.Intensity, 0.01f, 0.0f, 4.0f, "%.2f");
+                ImGui::DragFloat("Max Ray Distance##RTReflection", &rt.MaxRayDistance, 0.5f, 0.1f, 500.0f, "%.1f m");
+                ImGui::DragFloat("Normal Bias##RTReflection", &rt.RayOriginNormalBias, 0.001f, 0.0f, 1.0f, "%.3f m");
+
+                ImGui::SliderFloat("Roughness Gate Start##RTReflection", &rt.RoughnessGateStart, 0.0f, 1.0f,
+                                   "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                ImGui::SliderFloat("Roughness Gate End##RTReflection", &rt.RoughnessGateEnd, 0.0f, 1.0f,
+                                   "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Rays are spent only where the specular lobe is narrow\n"
+                                      "enough for one of them to mean something. Above the end\n"
+                                      "of the gate the tier reports zero confidence and the\n"
+                                      "probes answer, which is the right trade: a ray budget\n"
+                                      "buys nothing on a rough surface.");
+
+                ImGui::Checkbox("Trace Sun Shadow Ray##RTReflection", &rt.TraceSunShadowRay);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("A second visibility ray per hit, so a reflected surface\n"
+                                      "standing in shadow is not lit as if it were in the open.\n"
+                                      "Off roughly halves the tier's ray count.");
+
+                ImGui::SliderFloat("Sky Ambient LOD##RTReflection", &rt.SkyAmbientLod, 0.0f, 8.0f, "%.1f",
+                                   ImGuiSliderFlags_AlwaysClamp);
+
+                ImGui::Checkbox("Tier Debug View##RTReflection", &rt.TierDebugView);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Which tier answered each pixel:\n"
+                                      "  magenta = planar     green = SSR\n"
+                                      "  orange  = ray query  blue  = probe/IBL\n"
+                                      "Needs SSR enabled: the view is composited in SSR's\n"
+                                      "composite draw, the one point in the frame where every\n"
+                                      "tier's confidence is known at once.");
+
+                ImGui::TextDisabled("Hits are shaded UNTEXTURED (blocked on #805)");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("A ray hit is shaded from its material's base-colour,\n"
+                                      "metallic, roughness and emissive FACTORS. Sampling its\n"
+                                      "TEXTURES needs the shader-visible sampler heap (#805),\n"
+                                      "so a brick wall currently reflects flat brick-red.");
+            }
+
             ImGui::Unindent();
         }
     }

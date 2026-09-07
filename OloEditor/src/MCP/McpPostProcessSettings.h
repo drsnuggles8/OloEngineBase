@@ -132,6 +132,30 @@ namespace OloEngine::MCP::PostProcess
             pp.*Mem = static_cast<T>(v);
     }
 
+    // The nested twins. A few setting groups are their own struct rather than a
+    // flat run of PostProcessSettings members — RayTracedReflection (#1057) is
+    // the first — because the pass they configure takes the struct whole. Two
+    // member pointers instead of one is the entire difference.
+    template<auto Group, auto Mem>
+    [[nodiscard]] f64 GetPpNested(const PostProcessSettings& pp, const FogSettings&)
+    {
+        using T = std::remove_cvref_t<decltype((pp.*Group).*Mem)>;
+        if constexpr (std::is_enum_v<T>)
+            return static_cast<f64>(static_cast<std::underlying_type_t<T>>((pp.*Group).*Mem));
+        else
+            return static_cast<f64>((pp.*Group).*Mem);
+    }
+
+    template<auto Group, auto Mem>
+    void SetPpNested(PostProcessSettings& pp, FogSettings&, f64 v)
+    {
+        using T = std::remove_cvref_t<decltype((pp.*Group).*Mem)>;
+        if constexpr (std::is_enum_v<T>)
+            (pp.*Group).*Mem = static_cast<T>(static_cast<std::underlying_type_t<T>>(v));
+        else
+            (pp.*Group).*Mem = static_cast<T>(v);
+    }
+
     template<auto Mem>
     [[nodiscard]] f64 GetFog(const PostProcessSettings&, const FogSettings& fog)
     {
@@ -201,6 +225,11 @@ namespace OloEngine::MCP::PostProcess
     {                                                                                                                                                          \
         #name, group, FieldType::Enum, 0.0, 0.0, values, apply, desc, &GetPp<&PostProcessSettings::name>, &SetPp<&PostProcessSettings::name>, nullptr, nullptr \
     }
+// The ray-query reflection tier's settings live in their own struct
+// (PostProcessSettings::RayTracedReflection), so the token is spelled out rather
+// than derived from the member name.
+#define OLO_RTR_BOOL(token, name, desc)                                                                            FieldInfo                                                                                                      {                                                                                                                  token, "rtreflection", FieldType::Bool, 0.0, 1.0, {}, false, desc,                                                 &GetPpNested<&PostProcessSettings::RayTracedReflection, &RayTracedReflectionSettings::name>,                    &SetPpNested<&PostProcessSettings::RayTracedReflection, &RayTracedReflectionSettings::name>,                    nullptr, nullptr                                                                                       }
+#define OLO_RTR_NUM(token, name, type, lo, hi, desc)                                                               FieldInfo                                                                                                      {                                                                                                                  token, "rtreflection", type, lo, hi, {}, false, desc,                                                              &GetPpNested<&PostProcessSettings::RayTracedReflection, &RayTracedReflectionSettings::name>,                    &SetPpNested<&PostProcessSettings::RayTracedReflection, &RayTracedReflectionSettings::name>,                    nullptr, nullptr                                                                                       }
 #define OLO_FOG_BOOL(token, name, desc)                                                                                                      \
     FieldInfo                                                                                                                                \
     {                                                                                                                                        \
@@ -356,6 +385,29 @@ namespace OloEngine::MCP::PostProcess
         OLO_PP_NUM(SSRPostBlurRadius, "ssr", FieldType::Float, 0.0, static_cast<f64>(kScreenSpaceMaxDenoiseRadius), "Post-blur radius in pixels, scaled per pixel by roughness; 0 disables the stage."),
         OLO_PP_NUM(SSRTemporalFeedback, "ssr", FieldType::Float, 0.0, 0.98, "History weight per frame for the SSR temporal resolve."),
 
+        // ---- the ray-query reflection tier (#1057) -----------------------------
+        // One tier BELOW SSR in the hierarchy of ADR 0019: it answers exactly the
+        // pixels SSR structurally cannot (off screen, or hidden behind geometry)
+        // and composites UNDER SSR, so it cannot change a pixel SSR already owns.
+        OLO_RTR_BOOL("RTReflectionEnabled", Enabled,
+                     "Run the ray-query reflection tier (Deferred path + a hardware ray-tracing device only)."),
+        OLO_RTR_NUM("RTReflectionIntensity", Intensity, FieldType::Float, 0.0, 4.0,
+                    "Overall strength of the ray-query tier; folds into its per-pixel confidence."),
+        OLO_RTR_NUM("RTReflectionMaxRayDistance", MaxRayDistance, FieldType::Float, 0.1, 10000.0,
+                    "Metres before a reflection ray is abandoned."),
+        OLO_RTR_NUM("RTReflectionNormalBias", RayOriginNormalBias, FieldType::Float, 0.0, 1.0,
+                    "Metres along the surface normal the ray starts at, to escape the surface."),
+        OLO_RTR_NUM("RTReflectionRoughnessGateStart", RoughnessGateStart, FieldType::Float, 0.0, 1.0,
+                    "Roughness at which the tier starts fading out."),
+        OLO_RTR_NUM("RTReflectionRoughnessGateEnd", RoughnessGateEnd, FieldType::Float, 0.0, 1.0,
+                    "Roughness above which the tier reports zero confidence and the probes answer."),
+        OLO_RTR_BOOL("RTReflectionTraceSunShadowRay", TraceSunShadowRay,
+                     "Trace a second visibility ray per hit so a reflected surface in shadow is not lit as if in the open."),
+        OLO_RTR_NUM("RTReflectionSkyAmbientLod", SkyAmbientLod, FieldType::Float, 0.0, 8.0,
+                    "Prefilter mip the hit's ambient is read from; high on purpose, it stands in for irradiance."),
+        OLO_RTR_BOOL("RTReflectionTierDebugView", TierDebugView,
+                     "Draw which tier answered each pixel instead of the composite: magenta = planar, green = SSR, orange = ray query, blue = probe/IBL. Needs SSR enabled."),
+
         // ---- screen-space global illumination ----------------------------------
         OLO_PP_BOOL(SSGIEnabled, "ssgi", "Run screen-space indirect diffuse (Deferred path only)."),
         OLO_PP_NUM(SSGIIntensity, "ssgi", FieldType::Float, 0.0, 16.0, "Indirect-diffuse strength multiplier."),
@@ -419,6 +471,8 @@ namespace OloEngine::MCP::PostProcess
 #undef OLO_PP_BOOL
 #undef OLO_PP_NUM
 #undef OLO_PP_ENUM
+#undef OLO_RTR_BOOL
+#undef OLO_RTR_NUM
 #undef OLO_FOG_BOOL
 #undef OLO_FOG_NUM
 #undef OLO_FOG_ENUM

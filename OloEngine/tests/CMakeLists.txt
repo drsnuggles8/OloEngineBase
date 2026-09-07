@@ -222,6 +222,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/DriftWeatherVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricShadowVisualEvidenceTest.cpp
 		Rendering/AutoExposureMathTest.cpp
+		Rendering/ReflectionTierContractTest.cpp
 		Rendering/ScreenSpaceReflectionMathTest.cpp
 		Rendering/ScreenSpaceDenoiseMathTest.cpp
 		Rendering/ScreenSpaceGIMathTest.cpp

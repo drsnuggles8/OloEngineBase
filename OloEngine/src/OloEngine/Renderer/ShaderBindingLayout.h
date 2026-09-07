@@ -539,6 +539,49 @@ namespace OloEngine
         static_assert(sizeof(RayTracingShadowUBO) == 400,
                       "RayTracingShadowUBO std140 size drifted from the GLSL RayTracingShadowParams block (400 B)");
 
+        // @brief Ray-query reflection tier parameters (issue #1057), uploaded at
+        // UBO_RAY_TRACING (65). GLSL twin: the RayTracingReflectionParams block
+        // in RayTracedReflection.glsl.
+        //
+        // IT SHARES BINDING 65 with RayTracingShadowParams and
+        // RayTracingProbe.comp's block, which is this engine's established idiom
+        // rather than an oversight: the buffer-binding namespace has been full
+        // since #978, each owner rebinds its own buffer before its own draws,
+        // and no shader declares two of the three blocks. The within-shader rule
+        // still holds — 65 is also TEX_VSM_PHYSICAL, and RayTracedReflection.glsl
+        // declares no VSM sampler.
+        //
+        // The TLAS travels as a DEVICE ADDRESS (GL_EXT_buffer_reference) rather
+        // than a descriptor, so it costs no binding at all. The three GPU Scene
+        // tables are read from their CANONICAL SSBO bindings (15/16/17) instead
+        // of by address: a table is refilled by a CPU SetData every frame, and a
+        // mid-frame SetData snapshots into the frame arena, so a draw resolving
+        // the PERSISTENT device address would read the pre-snapshot records.
+        // Only the SLOT COUNTS travel here, for the bounds checks.
+        struct RayTracingReflectionUBO
+        {
+            glm::mat4 InvProjection; //   0 — clip -> view, for the depth reconstruction
+            glm::mat4 InvView;       //  64 — view -> world, where the ray starts
+            glm::mat4 View;          // 128
+            glm::uvec4 TlasAddress;  // 192 — xy = TLAS device address, z = instance mask, w = frame index
+            glm::uvec4 SlotCounts;   // 208 — x = instance slots, y = geometry slots, z = material slots, w = pad
+            glm::vec4 SunDirection;  // 224 — xyz = world direction TOWARD the sun, w = 1 when a sun exists
+            glm::vec4 SunColor;      // 240 — rgb = radiance, a unused
+            glm::vec4 RayParams;     // 256 — x = maxRayDistance, y = normalBias, z = intensity, w = traceShadowRay
+            glm::vec4 RoughnessGate; // 272 — x = gateStart, y = gateEnd, z = skyAmbientLod, w = maxPrefilterLod
+            glm::vec4 ScreenParams;  // 288 — x = width, y = height, z = 1/width, w = 1/height
+            glm::vec4 Flags;         // 304 — x = tierDebugView (0/1), yzw pad
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(RayTracingReflectionUBO);
+            }
+        };
+        static_assert(sizeof(RayTracingReflectionUBO) % 16 == 0,
+                      "RayTracingReflectionUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(RayTracingReflectionUBO) == 320,
+                      "RayTracingReflectionUBO std140 size drifted from the GLSL RayTracingReflectionParams block (320 B)");
+
         // @brief Decal projection parameters
         struct DecalUBO
         {
