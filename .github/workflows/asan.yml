@@ -977,17 +977,24 @@ jobs:
     #      a separate scheduled job with its own baseline (gpu-sanitizers-amd.yml).
     #   2. The box's compiler was clang 21 against gcc-toolset-15's libstdc++,
     #      not the hosted arm's clang, and UBSan reported inside the standard
-    #      library. Both arms now build with clang-23 (#1036): hosted from
-    #      apt.llvm.org, the box from an LLVM release tarball pinned by absolute
-    #      path at /opt/llvm-23.1.0, since Rocky 10's EPEL tops out at clang20
-    #      and no package can match. setup-linux-build ASSERTS that pin -- present,
-    #      executable, reporting major 23 -- and warns down to the system clang
-    #      rather than failing when it is not, because a hard failure would block
-    #      every same-repo PR's sanitizer jobs. It also verifies compiler-rt for
+    #      library. Both arms now build with THE SAME clang -- the official LLVM
+    #      23.1.0 release tarball at /opt/llvm-23.1.0, on the box since #1036 and
+    #      on the hosted runner since #1095. Rocky 10's EPEL tops out at clang20,
+    #      so no package pin was ever possible on the box; and apt.llvm.org, which
+    #      the hosted arm used to install from, publishes only the newest SNAPSHOT
+    #      of a branch, so no package pin was possible there either. The tarball is
+    #      what both can hold still.
+    #
+    #      setup-linux-build ASSERTS that pin on the box -- present, executable,
+    #      reporting major 23 -- and warns down to the system clang rather than
+    #      failing when it is not, because a hard failure would block every
+    #      same-repo PR's sanitizer jobs. It also verifies compiler-rt for
     #      whichever compiler it chose: an incomplete asan/tsan/ubsan set WARNS
-    #      too. Read the "toolchain:" line of a self-hosted job before comparing
-    #      it with a hosted one -- it names the absolute path when the pin is in
-    #      effect, and a bare clang++ when it fell back.
+    #      too. The hosted arm has no ladder: the prefix is installed in the same
+    #      run and its absence is a hard error. Read the "toolchain:" line of a
+    #      self-hosted job before comparing it with a hosted one -- it names the
+    #      absolute path when the pin is in effect, and a bare clang++ when it fell
+    #      back. Since #1095 the two lines should be identical on a green run.
     #
     # The acceptance test for this routing is a same-commit A/B: dispatch the
     # workflow once normally and once with `force_hosted: true`, then compare
@@ -1016,10 +1023,33 @@ jobs:
       # actions/checkout@v6 would fail on fork PRs.
       contents: read
       checks: write
-      # No `actions: write` here. It was granted for the sccache save, and that
-      # save is gone (#1082 -- see the note above this job's Setup sccache step).
-      # A permission kept past the step that needed it is a permission nobody will
-      # ever remove, so it goes with the step.
+      # `actions: write` is BACK (#1095), with the sccache save it belongs to.
+      # #1082 removed both when the entries were measured returning 0.00 %; the
+      # compiler underneath them is pinned now, so the save is worth having again
+      # and `save-cache-pruned` needs the permission to delete the entry it
+      # supersedes when the store is full.
+      actions: write
+
+    env:
+      # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
+      # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
+      # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
+      # of docs/agent-rules/actions-cache-budget.md is that the store exists for
+      # GITHUB-HOSTED jobs on a PULL REQUEST, and these are neither: same-repo PRs
+      # route them to the box, so only the nightly and fork PRs read these entries and
+      # nobody waits on either.
+      #
+      # So they come back at a smaller share: ~800 MiB each, ~2400 MiB for the set,
+      # leaving the fleet ~2.7 GiB under the ceiling instead of ~1.4.
+      #
+      # BE HONEST ABOUT WHAT THAT COSTS. sccache evicts LRU at the cap, and the object
+      # set at 1500M filled 1500M, so a 900M cache cannot hold all of it and the
+      # ACHIEVABLE hit rate is capped below 100 % by this line, not by the pin. That is
+      # a budget decision, not a measurement, and the entry to watch is "Cache size" vs
+      # "Max cache size" in the stats step. If a measured run shows the eviction is
+      # costing more than the room is worth, the argument to make is which existing
+      # entry gives way -- not that this one should quietly grow.
+      SCCACHE_CACHE_SIZE: "900M"
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1060,53 +1090,49 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # NO ACTIONS-CACHE ENTRY FOR THIS JOB (#1082). There used to be a restore here and
-    # a `save-cache-pruned` after the build, persisting SCCACHE_DIR as a ~1.25 GiB
-    # entry. They are gone, and the reason is measured rather than assumed.
+    # THE ACTIONS-CACHE ENTRY IS BACK, AND THE REASON IT WAS GONE IS FIXED (#1095).
     #
-    # Nightly 34004436875, all three Linux sanitizer jobs, the ONLY runs that read
-    # these entries:
+    # #1082 deleted the restore and the save here after measuring what they returned
+    # on nightly 34004436875 -- all three Linux sanitizer jobs, the only runs that read
+    # them:
     #
     #     Compile requests   1558      Cache hits          0
     #     Cache misses       1558      Cache hits rate     0.00 %
-    #     Cache read errors     0      Cache write errors  0
     #
-    # The restore was not broken -- "Cache restored from key: sccache-ubsan-linux-...",
-    # 1232 MB pulled at 180 MB/s. It restored perfectly and hit NOTHING, three jobs out
-    # of three.
+    # The restore was healthy: 1232 MB at 180 MB/s, "Cache restored from key: ...".
+    # It restored perfectly and hit NOTHING, three jobs out of three. THE COMPILER WAS
+    # ROLLING UNDERNEATH THE KEY -- sccache hashes the compiler binary into every key
+    # and the hosted arm built with apt.llvm.org's SNAPSHOT clang-23, whose build id
+    # moves every few days.
     #
-    # WHY: sccache hashes the compiler binary into every cache key, and the hosted arm
-    # compiles with apt.llvm.org's SNAPSHOT clang-23, which rolls every few days:
+    # WHAT CHANGED: setup-linux-build now installs the official LLVM 23.1.0 release
+    # tarball at /opt/llvm-23.1.0 on the hosted arm -- the same build, at the same
+    # path, as the self-hosted box. Re-adding these steps WITHOUT that would reproduce
+    # the 0.00 % exactly, which is why #1082's note said not to.
     #
-    #     nightly 09-04   Ubuntu clang 23.1.1 (++20260901122056+5340f7cc8814)
-    #     nightly 09-05   Ubuntu clang 23.1.1 (++20260903063729+47bafb752202)
+    # THE LLVM VERSION IS IN THE KEY, on the same rule Windows.yml applies to the
+    # runner image: put whatever the key is hashed over into the key, so a bump is a
+    # deliberate, reviewable commit and not a silent 0 % run. Bumping it starts a new
+    # prefix and orphans the old entry; cache-prune.yml's 30-day unread age-out
+    # collects that.
     #
-    # Every entry is therefore invalidated by the next apt refresh while still
-    # restoring, still downloading 1.2 GB, and still occupying the shared quota. It is
-    # the same failure Windows.yml's own header documents for `windows-latest` image
-    # rolls, reproduced here by an unpinned rolling compiler.
+    # HOSTED ONLY. On the self-hosted box this job caches to a persistent local ccache
+    # directory with no save step, no ref scoping and no cap -- and a self-hosted
+    # runner still talks to the REMOTE Actions cache service, so an actions/cache step
+    # there would spend the shared ~9.3 GiB cap for nothing.
     #
-    # AND ALMOST NOTHING READ THEM ANYWAY. `OLO_LINUX_SELF_HOSTED` is true, so a
-    # same-repo PR routes this job to the box, where it uses local-disk ccache and
-    # skips every sccache step. Only the nightly (a `schedule` run forces hosted) and
-    # fork PRs ever touched the store -- neither is on the per-PR critical path.
-    #
-    # THE BUDGET IS THE POINT. Three entries, 3741 MiB, 55 % of a 6782 MiB steady set
-    # against a ~9.3 GiB wall, buying a measured zero -- while the Windows ASan job
-    # that IS on the critical path had no cache at all for want of room (#1082).
-    # docs/agent-rules/actions-cache-budget.md has the arithmetic.
-    #
-    # THIS IS NOT "THE LINUX CACHE IS WORTHLESS". At 1558 compilations x 6.283 s
-    # average, a WORKING cache here would remove most of ~2 h 43 m of compiler time per
-    # job. That value is real and it is currently unreachable, because the key cannot
-    # be stable while the compiler underneath it is a rolling snapshot. Recovering it
-    # means pinning the hosted clang (the self-hosted box already pins /opt/llvm-23.1.0
-    # by absolute path) or keying the entry on the clang build id -- issue #1095.
-    # Do NOT simply re-add the restore/save: that is what measured 0.00 %.
-    #
-    # sccache itself is still the launcher on the hosted arm, so `Show compiler cache
-    # stats` below keeps working and keeps printing the hit rate. It will read 0 % on
-    # every hosted run now, by construction rather than by accident.
+    # NOT ON PULL REQUESTS: a PR-run entry is scoped to refs/pull/N/merge, readable by
+    # that one PR, and charged to the repository for as long as the PR stays open.
+    # These jobs route to the box for same-repo PRs anyway; the writer is the nightly.
+    - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-lsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          sccache-asan-lsan-linux-llvm-23.1.0-
+
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
     # sanitizer-instrumented, which is what these jobs want — see the note in the
@@ -1191,6 +1217,28 @@ jobs:
         else
           ccache --show-stats
         fi
+
+    # THE NUMBER THIS CHANGE IS JUDGED ON is the "Cache hits rate" line printed
+    # immediately above, on the SECOND nightly after this lands -- not on a green
+    # check. #1095's whole subject is an entry that restored perfectly, went green
+    # every run and returned zero; see docs/agent-rules/ci-cache-that-looks-alive.md.
+    #
+    # `save-cache-pruned` rather than a bare save: actions/cache/save reports a
+    # REFUSED write (the store past its cap goes read-only) as a warning and exits
+    # zero, so the step's own status cannot tell you. This one asks the API whether
+    # the save landed and, if it did not, deletes this ref's superseded entries under
+    # the same prefix and retries.
+    #
+    # `if: always()` because most PR runs here are cancelled and a post-job step is
+    # skipped on a cancel -- though on this gate that mostly matters for the
+    # workflow_dispatch A/B, since pull_request runs do not save at all.
+    - name: Save sccache storage
+      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
+      uses: ./.github/actions/save-cache-pruned
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-asan-lsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -1277,10 +1325,33 @@ jobs:
       # actions/checkout@v6 would fail on fork PRs.
       contents: read
       checks: write
-      # No `actions: write` here. It was granted for the sccache save, and that
-      # save is gone (#1082 -- see the note above this job's Setup sccache step).
-      # A permission kept past the step that needed it is a permission nobody will
-      # ever remove, so it goes with the step.
+      # `actions: write` is BACK (#1095), with the sccache save it belongs to.
+      # #1082 removed both when the entries were measured returning 0.00 %; the
+      # compiler underneath them is pinned now, so the save is worth having again
+      # and `save-cache-pruned` needs the permission to delete the entry it
+      # supersedes when the store is full.
+      actions: write
+
+    env:
+      # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
+      # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
+      # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
+      # of docs/agent-rules/actions-cache-budget.md is that the store exists for
+      # GITHUB-HOSTED jobs on a PULL REQUEST, and these are neither: same-repo PRs
+      # route them to the box, so only the nightly and fork PRs read these entries and
+      # nobody waits on either.
+      #
+      # So they come back at a smaller share: ~800 MiB each, ~2400 MiB for the set,
+      # leaving the fleet ~2.7 GiB under the ceiling instead of ~1.4.
+      #
+      # BE HONEST ABOUT WHAT THAT COSTS. sccache evicts LRU at the cap, and the object
+      # set at 1500M filled 1500M, so a 900M cache cannot hold all of it and the
+      # ACHIEVABLE hit rate is capped below 100 % by this line, not by the pin. That is
+      # a budget decision, not a measurement, and the entry to watch is "Cache size" vs
+      # "Max cache size" in the stats step. If a measured run shows the eviction is
+      # costing more than the room is worth, the argument to make is which existing
+      # entry gives way -- not that this one should quietly grow.
+      SCCACHE_CACHE_SIZE: "900M"
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1312,53 +1383,49 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # NO ACTIONS-CACHE ENTRY FOR THIS JOB (#1082). There used to be a restore here and
-    # a `save-cache-pruned` after the build, persisting SCCACHE_DIR as a ~1.25 GiB
-    # entry. They are gone, and the reason is measured rather than assumed.
+    # THE ACTIONS-CACHE ENTRY IS BACK, AND THE REASON IT WAS GONE IS FIXED (#1095).
     #
-    # Nightly 34004436875, all three Linux sanitizer jobs, the ONLY runs that read
-    # these entries:
+    # #1082 deleted the restore and the save here after measuring what they returned
+    # on nightly 34004436875 -- all three Linux sanitizer jobs, the only runs that read
+    # them:
     #
     #     Compile requests   1558      Cache hits          0
     #     Cache misses       1558      Cache hits rate     0.00 %
-    #     Cache read errors     0      Cache write errors  0
     #
-    # The restore was not broken -- "Cache restored from key: sccache-ubsan-linux-...",
-    # 1232 MB pulled at 180 MB/s. It restored perfectly and hit NOTHING, three jobs out
-    # of three.
+    # The restore was healthy: 1232 MB at 180 MB/s, "Cache restored from key: ...".
+    # It restored perfectly and hit NOTHING, three jobs out of three. THE COMPILER WAS
+    # ROLLING UNDERNEATH THE KEY -- sccache hashes the compiler binary into every key
+    # and the hosted arm built with apt.llvm.org's SNAPSHOT clang-23, whose build id
+    # moves every few days.
     #
-    # WHY: sccache hashes the compiler binary into every cache key, and the hosted arm
-    # compiles with apt.llvm.org's SNAPSHOT clang-23, which rolls every few days:
+    # WHAT CHANGED: setup-linux-build now installs the official LLVM 23.1.0 release
+    # tarball at /opt/llvm-23.1.0 on the hosted arm -- the same build, at the same
+    # path, as the self-hosted box. Re-adding these steps WITHOUT that would reproduce
+    # the 0.00 % exactly, which is why #1082's note said not to.
     #
-    #     nightly 09-04   Ubuntu clang 23.1.1 (++20260901122056+5340f7cc8814)
-    #     nightly 09-05   Ubuntu clang 23.1.1 (++20260903063729+47bafb752202)
+    # THE LLVM VERSION IS IN THE KEY, on the same rule Windows.yml applies to the
+    # runner image: put whatever the key is hashed over into the key, so a bump is a
+    # deliberate, reviewable commit and not a silent 0 % run. Bumping it starts a new
+    # prefix and orphans the old entry; cache-prune.yml's 30-day unread age-out
+    # collects that.
     #
-    # Every entry is therefore invalidated by the next apt refresh while still
-    # restoring, still downloading 1.2 GB, and still occupying the shared quota. It is
-    # the same failure Windows.yml's own header documents for `windows-latest` image
-    # rolls, reproduced here by an unpinned rolling compiler.
+    # HOSTED ONLY. On the self-hosted box this job caches to a persistent local ccache
+    # directory with no save step, no ref scoping and no cap -- and a self-hosted
+    # runner still talks to the REMOTE Actions cache service, so an actions/cache step
+    # there would spend the shared ~9.3 GiB cap for nothing.
     #
-    # AND ALMOST NOTHING READ THEM ANYWAY. `OLO_LINUX_SELF_HOSTED` is true, so a
-    # same-repo PR routes this job to the box, where it uses local-disk ccache and
-    # skips every sccache step. Only the nightly (a `schedule` run forces hosted) and
-    # fork PRs ever touched the store -- neither is on the per-PR critical path.
-    #
-    # THE BUDGET IS THE POINT. Three entries, 3741 MiB, 55 % of a 6782 MiB steady set
-    # against a ~9.3 GiB wall, buying a measured zero -- while the Windows ASan job
-    # that IS on the critical path had no cache at all for want of room (#1082).
-    # docs/agent-rules/actions-cache-budget.md has the arithmetic.
-    #
-    # THIS IS NOT "THE LINUX CACHE IS WORTHLESS". At 1558 compilations x 6.283 s
-    # average, a WORKING cache here would remove most of ~2 h 43 m of compiler time per
-    # job. That value is real and it is currently unreachable, because the key cannot
-    # be stable while the compiler underneath it is a rolling snapshot. Recovering it
-    # means pinning the hosted clang (the self-hosted box already pins /opt/llvm-23.1.0
-    # by absolute path) or keying the entry on the clang build id -- issue #1095.
-    # Do NOT simply re-add the restore/save: that is what measured 0.00 %.
-    #
-    # sccache itself is still the launcher on the hosted arm, so `Show compiler cache
-    # stats` below keeps working and keeps printing the hit rate. It will read 0 % on
-    # every hosted run now, by construction rather than by accident.
+    # NOT ON PULL REQUESTS: a PR-run entry is scoped to refs/pull/N/merge, readable by
+    # that one PR, and charged to the repository for as long as the PR stays open.
+    # These jobs route to the box for same-repo PRs anyway; the writer is the nightly.
+    - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-ubsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          sccache-ubsan-linux-llvm-23.1.0-
+
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
     # sanitizer-instrumented, which is what these jobs want — see the note in the
@@ -1430,6 +1497,28 @@ jobs:
         else
           ccache --show-stats
         fi
+
+    # THE NUMBER THIS CHANGE IS JUDGED ON is the "Cache hits rate" line printed
+    # immediately above, on the SECOND nightly after this lands -- not on a green
+    # check. #1095's whole subject is an entry that restored perfectly, went green
+    # every run and returned zero; see docs/agent-rules/ci-cache-that-looks-alive.md.
+    #
+    # `save-cache-pruned` rather than a bare save: actions/cache/save reports a
+    # REFUSED write (the store past its cap goes read-only) as a warning and exits
+    # zero, so the step's own status cannot tell you. This one asks the API whether
+    # the save landed and, if it did not, deletes this ref's superseded entries under
+    # the same prefix and retries.
+    #
+    # `if: always()` because most PR runs here are cancelled and a post-job step is
+    # skipped on a cancel -- though on this gate that mostly matters for the
+    # workflow_dispatch A/B, since pull_request runs do not save at all.
+    - name: Save sccache storage
+      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
+      uses: ./.github/actions/save-cache-pruned
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-ubsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"
@@ -1526,10 +1615,33 @@ jobs:
       # actions/checkout@v6 would fail on fork PRs.
       contents: read
       checks: write
-      # No `actions: write` here. It was granted for the sccache save, and that
-      # save is gone (#1082 -- see the note above this job's Setup sccache step).
-      # A permission kept past the step that needed it is a permission nobody will
-      # ever remove, so it goes with the step.
+      # `actions: write` is BACK (#1095), with the sccache save it belongs to.
+      # #1082 removed both when the entries were measured returning 0.00 %; the
+      # compiler underneath them is pinned now, so the save is worth having again
+      # and `save-cache-pruned` needs the permission to delete the entry it
+      # supersedes when the store is full.
+      actions: write
+
+    env:
+      # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
+      # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
+      # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
+      # of docs/agent-rules/actions-cache-budget.md is that the store exists for
+      # GITHUB-HOSTED jobs on a PULL REQUEST, and these are neither: same-repo PRs
+      # route them to the box, so only the nightly and fork PRs read these entries and
+      # nobody waits on either.
+      #
+      # So they come back at a smaller share: ~800 MiB each, ~2400 MiB for the set,
+      # leaving the fleet ~2.7 GiB under the ceiling instead of ~1.4.
+      #
+      # BE HONEST ABOUT WHAT THAT COSTS. sccache evicts LRU at the cap, and the object
+      # set at 1500M filled 1500M, so a 900M cache cannot hold all of it and the
+      # ACHIEVABLE hit rate is capped below 100 % by this line, not by the pin. That is
+      # a budget decision, not a measurement, and the entry to watch is "Cache size" vs
+      # "Max cache size" in the stats step. If a measured run shows the eviction is
+      # costing more than the room is worth, the argument to make is which existing
+      # entry gives way -- not that this one should quietly grow.
+      SCCACHE_CACHE_SIZE: "900M"
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1561,53 +1673,49 @@ jobs:
       with:
         version: "v0.15.0"
 
-    # NO ACTIONS-CACHE ENTRY FOR THIS JOB (#1082). There used to be a restore here and
-    # a `save-cache-pruned` after the build, persisting SCCACHE_DIR as a ~1.25 GiB
-    # entry. They are gone, and the reason is measured rather than assumed.
+    # THE ACTIONS-CACHE ENTRY IS BACK, AND THE REASON IT WAS GONE IS FIXED (#1095).
     #
-    # Nightly 34004436875, all three Linux sanitizer jobs, the ONLY runs that read
-    # these entries:
+    # #1082 deleted the restore and the save here after measuring what they returned
+    # on nightly 34004436875 -- all three Linux sanitizer jobs, the only runs that read
+    # them:
     #
     #     Compile requests   1558      Cache hits          0
     #     Cache misses       1558      Cache hits rate     0.00 %
-    #     Cache read errors     0      Cache write errors  0
     #
-    # The restore was not broken -- "Cache restored from key: sccache-ubsan-linux-...",
-    # 1232 MB pulled at 180 MB/s. It restored perfectly and hit NOTHING, three jobs out
-    # of three.
+    # The restore was healthy: 1232 MB at 180 MB/s, "Cache restored from key: ...".
+    # It restored perfectly and hit NOTHING, three jobs out of three. THE COMPILER WAS
+    # ROLLING UNDERNEATH THE KEY -- sccache hashes the compiler binary into every key
+    # and the hosted arm built with apt.llvm.org's SNAPSHOT clang-23, whose build id
+    # moves every few days.
     #
-    # WHY: sccache hashes the compiler binary into every cache key, and the hosted arm
-    # compiles with apt.llvm.org's SNAPSHOT clang-23, which rolls every few days:
+    # WHAT CHANGED: setup-linux-build now installs the official LLVM 23.1.0 release
+    # tarball at /opt/llvm-23.1.0 on the hosted arm -- the same build, at the same
+    # path, as the self-hosted box. Re-adding these steps WITHOUT that would reproduce
+    # the 0.00 % exactly, which is why #1082's note said not to.
     #
-    #     nightly 09-04   Ubuntu clang 23.1.1 (++20260901122056+5340f7cc8814)
-    #     nightly 09-05   Ubuntu clang 23.1.1 (++20260903063729+47bafb752202)
+    # THE LLVM VERSION IS IN THE KEY, on the same rule Windows.yml applies to the
+    # runner image: put whatever the key is hashed over into the key, so a bump is a
+    # deliberate, reviewable commit and not a silent 0 % run. Bumping it starts a new
+    # prefix and orphans the old entry; cache-prune.yml's 30-day unread age-out
+    # collects that.
     #
-    # Every entry is therefore invalidated by the next apt refresh while still
-    # restoring, still downloading 1.2 GB, and still occupying the shared quota. It is
-    # the same failure Windows.yml's own header documents for `windows-latest` image
-    # rolls, reproduced here by an unpinned rolling compiler.
+    # HOSTED ONLY. On the self-hosted box this job caches to a persistent local ccache
+    # directory with no save step, no ref scoping and no cap -- and a self-hosted
+    # runner still talks to the REMOTE Actions cache service, so an actions/cache step
+    # there would spend the shared ~9.3 GiB cap for nothing.
     #
-    # AND ALMOST NOTHING READ THEM ANYWAY. `OLO_LINUX_SELF_HOSTED` is true, so a
-    # same-repo PR routes this job to the box, where it uses local-disk ccache and
-    # skips every sccache step. Only the nightly (a `schedule` run forces hosted) and
-    # fork PRs ever touched the store -- neither is on the per-PR critical path.
-    #
-    # THE BUDGET IS THE POINT. Three entries, 3741 MiB, 55 % of a 6782 MiB steady set
-    # against a ~9.3 GiB wall, buying a measured zero -- while the Windows ASan job
-    # that IS on the critical path had no cache at all for want of room (#1082).
-    # docs/agent-rules/actions-cache-budget.md has the arithmetic.
-    #
-    # THIS IS NOT "THE LINUX CACHE IS WORTHLESS". At 1558 compilations x 6.283 s
-    # average, a WORKING cache here would remove most of ~2 h 43 m of compiler time per
-    # job. That value is real and it is currently unreachable, because the key cannot
-    # be stable while the compiler underneath it is a rolling snapshot. Recovering it
-    # means pinning the hosted clang (the self-hosted box already pins /opt/llvm-23.1.0
-    # by absolute path) or keying the entry on the clang build id -- issue #1095.
-    # Do NOT simply re-add the restore/save: that is what measured 0.00 %.
-    #
-    # sccache itself is still the launcher on the hosted arm, so `Show compiler cache
-    # stats` below keeps working and keeps printing the hit rate. It will read 0 % on
-    # every hosted run now, by construction rather than by accident.
+    # NOT ON PULL REQUESTS: a PR-run entry is scoped to refs/pull/N/merge, readable by
+    # that one PR, and charged to the repository for as long as the PR stays open.
+    # These jobs route to the box for same-repo PRs anyway; the writer is the nightly.
+    - name: Restore sccache storage
+      if: runner.environment == 'github-hosted'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-tsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          sccache-tsan-linux-llvm-23.1.0-
+
 
     # Third-party deps come from the vcpkg manifest (issue #773). Ports are not
     # sanitizer-instrumented, which is what these jobs want — see the note in the
@@ -1679,6 +1787,28 @@ jobs:
         else
           ccache --show-stats
         fi
+
+    # THE NUMBER THIS CHANGE IS JUDGED ON is the "Cache hits rate" line printed
+    # immediately above, on the SECOND nightly after this lands -- not on a green
+    # check. #1095's whole subject is an entry that restored perfectly, went green
+    # every run and returned zero; see docs/agent-rules/ci-cache-that-looks-alive.md.
+    #
+    # `save-cache-pruned` rather than a bare save: actions/cache/save reports a
+    # REFUSED write (the store past its cap goes read-only) as a warning and exits
+    # zero, so the step's own status cannot tell you. This one asks the API whether
+    # the save landed and, if it did not, deletes this ref's superseded entries under
+    # the same prefix and retries.
+    #
+    # `if: always()` because most PR runs here are cancelled and a post-job step is
+    # skipped on a cancel -- though on this gate that mostly matters for the
+    # workflow_dispatch A/B, since pull_request runs do not save at all.
+    - name: Save sccache storage
+      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request'
+      uses: ./.github/actions/save-cache-pruned
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: sccache-tsan-linux-llvm-23.1.0-${{ github.run_id }}-${{ github.run_attempt }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create test results directory
       run: mkdir -p "${GITHUB_WORKSPACE}/test_results"

@@ -140,14 +140,14 @@ before compression:
 
 | Entry | Size |
 |---|---|
-| ~~`sccache-asan-lsan-linux` / `sccache-ubsan-linux` / `sccache-tsan-linux`~~ | ~~1252 / 1231 / 1258 MiB~~ — **removed 2026-09-06 (#1082)**, see *A cache can be worth removing* below |
+| `sccache-asan-lsan-linux-llvm-23.1.0` / `-ubsan-` / `-tsan-` | **~800 MiB each, ~2400 MiB — reserved, not yet measured (#1095)**. Removed 2026-09-06 by #1082 at 1252 / 1231 / 1258 MiB returning 0.00 % (see *A cache can be worth removing*), and re-added once the compiler underneath the key stopped rolling. Cap lowered 1500M → 900M because these jobs are neither hosted nor PR-waited-on (rule 5): the smaller share is deliberate and caps the achievable hit rate. Replace this row with the measured entry sizes on the second nightly after it lands. |
 | `vcpkg-Windows-x64-windows-static-md` | 692 MiB |
 | `Linux-` / `Windows-vulkan-prebuilt-sdk` | 291 + 229 MiB |
 | `ffmpeg-Windows-n7.1` | 4 MiB |
-| **measured subtotal** | **1216 MiB** (was 4957 MiB with the three Linux entries in it) |
+| **measured subtotal** | **1216 MiB** (excluding the three Linux entries, whose new size is reserved rather than measured) |
 | `sccache-windows-2025-release` | **1825 MiB** — measured 2026-09-06 17:00 UTC, the day the fix landed. The row that used to sit here said "not measured, no entry has ever existed to measure" and guessed 0.9–2.0 GiB from `sccache-flaky-281`. The guess held; the entry came in at the top of it. |
 | `sccache-asan-windows-2025` | **~660 MiB** — the local `SCCACHE_DIR` measured 656 MiB (`--show-stats`) / 660 MiB (`du -sm`) on run 34061407329, well under its 3 GiB provisional cap, so nothing was evicted and this is the true footprint. Cap now set to 1500M. Much smaller than the sibling `sccache-windows-2025-release` because this job builds only `OloEngine-Tests`, not the editor/runtime/server too. |
-| **steady set** | **~3700 MiB** (1216 + 1825 + ~660) against a ~9.3 GiB wall and `cache-prune.yml`'s 8800 MiB working ceiling — **5.1 GiB of headroom**. Was 6782 MiB before the three Linux entries came out, and that was with the ASan Windows job holding nothing. |
+| **steady set** | **~6100 MiB** (1216 + 1825 + ~660 + ~2400) against a ~9.3 GiB wall and `cache-prune.yml`'s 8800 MiB working ceiling — **~2.7 GiB of headroom**. It was 3700 MiB with the Linux entries gone and 6782 MiB with them at their old 1500M cap; the 900M cap is what buys the difference. The ~2400 MiB is the only reserved number in this table, so re-measure it before spending the headroom on anything else. |
 
 `SCCACHE_CACHE_SIZE` bounds the local directory **before** compression, so it is not the
 entry size — but do not read that as "the entry will be much smaller". Every sccache entry
@@ -216,6 +216,17 @@ a rolling snapshot. Recovering it means pinning the hosted clang — the self-ho
 already pins `/opt/llvm-23.1.0` by absolute path — or keying the entry on the clang build
 id. That is issue [#1095](https://github.com/drsnuggles8/OloEngineBase/issues/1095).
 Re-adding the restore/save without doing one of those reproduces the 0.00 %.
+
+**#1095 did the first one, and the entries are back.** `setup-linux-build` now installs
+the official LLVM 23.1.0 release tarball at `/opt/llvm-23.1.0` on the hosted arm — the
+same build, at the same path, as the self-hosted box — so the compiler the key is hashed
+over holds still, and the version is in the cache key so a bump is a reviewable commit
+rather than a silent 0 % run. Two things came back smaller than they went out: the cap is
+900M rather than 1500M, because rule 5 says these jobs have no claim on the cap and a
+2400 MiB share leaves the fleet 2.7 GiB of headroom rather than 1.4; and the save is
+gated on `github.event_name != 'pull_request'`, so only the nightly writes. **The
+acceptance is the "Cache hits rate" line on the second nightly after it lands, not a
+green check** — this section is what happens when that distinction is not made.
 
 **The rule:** before adding a cache, check what the existing ones actually return. A
 0 %-hit entry is not neutral; it costs quota, download time, and the room a working cache
