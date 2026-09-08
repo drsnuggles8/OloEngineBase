@@ -5,9 +5,26 @@
 # matching block in OloEngine/src/CMakeLists.txt for why the exclusion must stay conditional. This
 # variable holds the one line so the huge inline source list below needs a single line touched,
 # not restructured into a separate variable (a collision point for parallel branches on its own).
+#
+# MEASURED, not inferred from compile time (issue #822 follow-up). Peak compiler RSS, cold,
+# clang-cl Debug with no sanitizer:
+#
+#     ComponentRoundTripTest.cpp   12,389 MB   <- the heaviest TU in the tree
+#     RenderGraphTest.cpp           8,619 MB
+#     McpToolsRender.cpp            7,838 MB
+#     McpFieldRegistry.cpp          5,065 MB   <- the only one #822 originally caught
+#
+# Compile TIME is a poor proxy for this and is how the first three were missed: they rank
+# 15th, 18th and 13th by duration. The pool is what bounds how many run at once.
 set(_olo_mcp_field_registry_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpFieldRegistry.cpp)
+set(_olo_mcp_tools_render_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsRender.cpp)
+set(_olo_component_round_trip_src ComponentRoundTripTest.cpp)
+set(_olo_render_graph_test_src Rendering/RenderGraphTest.cpp)
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	set(_olo_mcp_field_registry_src "")
+	set(_olo_mcp_tools_render_src "")
+	set(_olo_component_round_trip_src "")
+	set(_olo_render_graph_test_src "")
 endif()
 
 add_executable(OloEngine-Tests
@@ -58,7 +75,7 @@ add_executable(OloEngine-Tests
 		AssetRegistryInvariantsTest.cpp
 		RuntimeAssetManagerTest.cpp
 		AssetLoadedEventTest.cpp
-		ComponentRoundTripTest.cpp
+		${_olo_component_round_trip_src}
 		TilemapTest.cpp
 		TilesetSerializerTest.cpp
 		ComponentSerializerCoverageTest.cpp
@@ -261,7 +278,7 @@ add_executable(OloEngine-Tests
 		Rendering/RenderGraphParallelRecordingTest.cpp
 		Rendering/PODRenderStateChannelMaskTest.cpp
 		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
-		Rendering/RenderGraphTest.cpp
+		${_olo_render_graph_test_src}
 		# Phase 2 ratchet for the Vulkan-RHI epic (#691, ADR 0011): counts raw
 		# glXxx() outside Platform/OpenGL/ and fails when it rises above
 		# Rendering/rhi_boundary_baseline.json. Also the only TU that compiles the
@@ -779,7 +796,7 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsInput.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPerf.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPhysics.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsRender.cpp
+		${_olo_mcp_tools_render_src}
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScene.cpp
 		# The generated writable-field registry TU (McpGenericFieldWrite.h's
 		# Registry() definition). Compiled once here instead of inline in every
@@ -1232,6 +1249,13 @@ add_executable(OloEngine-Tests
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	olo_bind_heavy_compile_pool(OloEngine-Tests "${CMAKE_SOURCE_DIR}/OloEditor/src"
 		"MCP/McpFieldRegistry.cpp"
+		"MCP/McpToolsRender.cpp"
+	)
+	# A second call for this target's OWN sources: a file set's FILES must sit under its
+	# BASE_DIRS, and these live here rather than under OloEditor/src.
+	olo_bind_heavy_compile_pool(OloEngine-Tests "${CMAKE_CURRENT_SOURCE_DIR}"
+		"ComponentRoundTripTest.cpp"
+		"Rendering/RenderGraphTest.cpp"
 	)
 endif()
 

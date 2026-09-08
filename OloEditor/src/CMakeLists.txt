@@ -140,7 +140,7 @@ endif()
 # Heavy-TU compile pool (issue #822): see the matching block in OloEngine/src/CMakeLists.txt for
 # why the removal must stay conditional on the pool actually being available.
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-	list(REMOVE_ITEM EDITOR_SOURCES "MCP/McpFieldRegistry.cpp")
+	list(REMOVE_ITEM EDITOR_SOURCES "MCP/McpFieldRegistry.cpp" "MCP/McpToolsRender.cpp")
 endif()
 
 add_executable(OloEditor
@@ -156,6 +156,9 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	olo_bind_heavy_compile_pool(OloEditor "${CMAKE_CURRENT_SOURCE_DIR}"
 		"MCP/McpFieldRegistry.cpp"
+		# 7,838 MB peak compiler RSS measured cold (issue #822 follow-up), and like
+		# McpFieldRegistry it is compiled into OloEngine-Tests as well, so the cost is paid twice.
+		"MCP/McpToolsRender.cpp"
 	)
 endif()
 

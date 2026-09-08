@@ -1888,6 +1888,7 @@ endif()
 # drop the file from SOURCES with nothing re-adding it, silently removing it from the build.
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	list(REMOVE_ITEM SOURCES
+		"OloEngine/Scene/Prefab.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Characters.cpp"
@@ -1996,6 +1997,10 @@ set(OLO_ENGINE_LIBRARY_PARTS OloEngine OloEngineRenderer OloEngineContent PARENT
 # ~25 GB, which is what the 31 GiB CI box could not survive.
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	olo_bind_heavy_compile_pool(OloEngineContent "${CMAKE_CURRENT_SOURCE_DIR}"
+		# 6,400 MB peak compiler RSS in 22 s — 573 lines, so the cost is header and template
+		# instantiation, not file size. It ranks 17th by compile time and 4th by memory, which
+		# is exactly why a duration-ranked survey missed it (issue #822 follow-up).
+		"OloEngine/Scene/Prefab.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Characters.cpp"
