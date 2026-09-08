@@ -7,17 +7,21 @@
 namespace OloEngine
 {
 
-    static const std::string s_AlbedoColorUniform = "u_MaterialUniforms.AlbedoColor";
-    static const std::string s_UseNormalMapUniform = "u_MaterialUniforms.UseNormalMap";
-    static const std::string s_MetalnessUniform = "u_MaterialUniforms.Metalness";
-    static const std::string s_RoughnessUniform = "u_MaterialUniforms.Roughness";
-    static const std::string s_EmissionUniform = "u_MaterialUniforms.Emission";
-    static const std::string s_TransparencyUniform = "u_MaterialUniforms.Transparency";
+    // Uniform names are compile-time literals; `const char*` keeps them constant-initialised
+    // so they cost no global constructor and no exit-time destructor (issue #763).
+    // Not `std::string_view`: every consumer below takes `const std::string&`, and
+    // std::string's converting constructor from a string_view is explicit.
+    constexpr const char* s_AlbedoColorUniform = "u_MaterialUniforms.AlbedoColor";
+    constexpr const char* s_UseNormalMapUniform = "u_MaterialUniforms.UseNormalMap";
+    constexpr const char* s_MetalnessUniform = "u_MaterialUniforms.Metalness";
+    constexpr const char* s_RoughnessUniform = "u_MaterialUniforms.Roughness";
+    constexpr const char* s_EmissionUniform = "u_MaterialUniforms.Emission";
+    constexpr const char* s_TransparencyUniform = "u_MaterialUniforms.Transparency";
 
-    static const std::string s_AlbedoMapUniform = "u_AlbedoTexture";
-    static const std::string s_NormalMapUniform = "u_NormalTexture";
-    static const std::string s_MetalnessMapUniform = "u_MetalnessTexture";
-    static const std::string s_RoughnessMapUniform = "u_RoughnessTexture";
+    constexpr const char* s_AlbedoMapUniform = "u_AlbedoTexture";
+    constexpr const char* s_NormalMapUniform = "u_NormalTexture";
+    constexpr const char* s_MetalnessMapUniform = "u_MetalnessTexture";
+    constexpr const char* s_RoughnessMapUniform = "u_RoughnessTexture";
 
     MaterialAsset::MaterialAsset(bool transparent)
         : m_Transparent(transparent)

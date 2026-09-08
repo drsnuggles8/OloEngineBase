@@ -13,9 +13,4 @@ namespace OloEngine
         : m_UUID(s_UniformDistribution(s_Engine))
     {
     }
-
-    UUID::UUID(const u64 uuid)
-        : m_UUID(uuid)
-    {
-    }
 } // namespace OloEngine
