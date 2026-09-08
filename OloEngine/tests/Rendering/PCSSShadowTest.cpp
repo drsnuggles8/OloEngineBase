@@ -239,14 +239,47 @@ TEST(PCSSShadow, LocalLightAtlasDoesNotShareTheCSMDepthBias)
                                   "shaders/PBR_MultiLight.glsl",
                                   "shaders/PBR_MultiLight_Skinned.glsl",
                                   "shaders/Terrain_PBR.glsl",
-                                  "shaders/DDGI_Relight.glsl",
-                                  "shaders/compute/FroxelFogScatter.comp" })
+                                  "shaders/Terrain_Voxel.glsl",
+                                  "shaders/Terrain_VoxelGreedy.glsl",
+                                  "shaders/DDGI_Relight.glsl" })
     {
         std::ifstream in(root / relative, std::ios::binary);
         ASSERT_TRUE(in) << "could not read " << relative;
         const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         EXPECT_NE(text.find("u_AtlasDepthBias"), std::string::npos)
             << relative << " does not use the dedicated atlas depth bias";
+        // The load-bearing half. Merely MENTIONING u_AtlasDepthBias is satisfied
+        // by the UBO declaration alone, so one reverted call site would slip
+        // through; ShadowParams.x is the CSM's texel count and means nothing in
+        // an atlas entry's perspective depth, so no lookup in these files may
+        // name it. Each reaches the CSM through
+        // calculateCascadedShadowFactorCSM, which takes the whole vec4 as a
+        // parameter and so never spells this out.
+        EXPECT_EQ(text.find("u_ShadowParams.x"), std::string::npos)
+            << relative << " still reads the CSM texel bias as an atlas depth bias";
+    }
+
+    // The fog scatter pass is the exception: it carries its OWN inline cascade
+    // lookup rather than calling PBRCommon's, so it is the one shader that may
+    // name ShadowParams.x — exactly once, in the texel conversion. Its atlas
+    // tap must still take the separate lane.
+    {
+        std::ifstream in(root / "shaders/compute/FroxelFogScatter.comp", std::ios::binary);
+        ASSERT_TRUE(in) << "could not read FroxelFogScatter.comp";
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        EXPECT_NE(text.find("projCoords.z - u_AtlasDepthBias"), std::string::npos)
+            << "the fog atlas tap does not use the dedicated atlas depth bias";
+        EXPECT_NE(
+            text.find("u_ShadowParams.x * 2.0 * lenRow2 / (float(u_ShadowMapResolution) * lenRow0)"),
+            std::string::npos)
+            << "the fog cascade tap no longer converts ShadowParams.x from texels";
+        std::size_t uses = 0;
+        for (std::size_t at = text.find("u_ShadowParams.x"); at != std::string::npos;
+             at = text.find("u_ShadowParams.x", at + 1))
+        {
+            ++uses;
+        }
+        EXPECT_EQ(uses, 1u) << "FroxelFogScatter.comp reads ShadowParams.x somewhere other than its cascade tap";
     }
 }
 

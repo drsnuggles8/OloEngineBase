@@ -555,6 +555,63 @@ namespace
     {
         return 2.0f / RowLength(lightSpace, 2);
     }
+
+    // An INDEPENDENT derivation of the cascade's half-extent, replicating
+    // ComputeCSMCascades from the camera alone. Without it the assertions below
+    // are algebra: biasNDC carries length(row 2) and CascadeDepthRange divides
+    // it straight back out, so "the bias is N texels" would hold for any matrix
+    // at all, including one ComputeCSMCascades got wrong. Comparing the
+    // matrix-derived texel size against this is what makes them a test of the
+    // cascade rather than of the identity.
+    [[nodiscard]] f32 ExpectedCascadeRadius(u32 cascade, const glm::mat4& view, const glm::mat4& projection,
+                                            f32 cameraNear, f32 cameraFar, f32 maxShadowDistance, f32 lambda,
+                                            u32 resolution)
+    {
+        constexpr u32 kCascades = ShadowMap::MAX_CSM_CASCADES;
+        const f32 effectiveFar = std::min(cameraFar, maxShadowDistance);
+
+        std::array<f32, kCascades + 1> splits{};
+        splits[0] = cameraNear;
+        for (u32 i = 1; i <= kCascades; ++i)
+        {
+            const f32 p = static_cast<f32>(i) / static_cast<f32>(kCascades);
+            const f32 logSplit = cameraNear * std::pow(effectiveFar / cameraNear, p);
+            const f32 uniformSplit = cameraNear + (effectiveFar - cameraNear) * p;
+            splits[i] = std::lerp(uniformSplit, logSplit, lambda);
+        }
+
+        const glm::mat4 invVP = glm::inverse(projection * view);
+        std::array<glm::vec3, 8> corners{};
+        u32 idx = 0;
+        for (i32 z = 0; z <= 1; ++z)
+        {
+            for (i32 y = 0; y <= 1; ++y)
+            {
+                for (i32 x = 0; x <= 1; ++x)
+                {
+                    const glm::vec4 ndc(2.0f * static_cast<f32>(x) - 1.0f, 2.0f * static_cast<f32>(y) - 1.0f,
+                                        2.0f * static_cast<f32>(z) - 1.0f, 1.0f);
+                    const glm::vec4 world = invVP * ndc;
+                    corners[idx++] = glm::vec3(world) / world.w;
+                }
+            }
+        }
+
+        const glm::vec3 cameraWorldPos = glm::vec3(glm::inverse(view)[3]);
+        const f32 fullRange = cameraFar - cameraNear;
+        const f32 nearT = (splits[cascade] - cameraNear) / fullRange;
+        const f32 farT = (splits[cascade + 1] - cameraNear) / fullRange;
+
+        f32 radius = 0.0f;
+        for (u32 i = 0; i < 4; ++i)
+        {
+            const glm::vec3 ray = corners[i + 4] - corners[i];
+            radius = std::max(radius, glm::length(corners[i] + ray * nearT - cameraWorldPos));
+            radius = std::max(radius, glm::length(corners[i] + ray * farT - cameraWorldPos));
+        }
+        const f32 texelsPerUnit = static_cast<f32>(resolution) / (radius * 2.0f);
+        return std::ceil(radius * texelsPerUnit) / texelsPerUnit;
+    }
 }
 
 TEST_F(ShadowMapMatrixTest, CSMDepthBiasIsExactlyTheAuthoredNumberOfTexels)
@@ -572,10 +629,20 @@ TEST_F(ShadowMapMatrixTest, CSMDepthBiasIsExactlyTheAuthoredNumberOfTexels)
     for (u32 i = 0; i < ShadowMap::MAX_CSM_CASCADES; ++i)
     {
         const glm::mat4& m = shadowMap.GetCSMMatrix(i);
+
+        // The texel size the shader will derive must be the cascade the CPU
+        // actually built — checked against a replication of ComputeCSMCascades
+        // that never looks at the matrix.
+        const f32 expectedTexel =
+            2.0f * ExpectedCascadeRadius(i, view, proj, 0.1f, 1000.0f, 200.0f, 0.5f, kResolution) /
+            static_cast<f32>(kResolution);
+        const f32 texel = TexelWorldSize(m, kResolution);
+        EXPECT_NEAR(texel, expectedTexel, expectedTexel * 1.0e-3f)
+            << "cascade " << i << ": the matrix's texel size does not match the cascade the splits describe";
+
         const f32 biasNDC = CascadeBiasNDC(m, kResolution, kBiasTexels);
         const f32 biasWorld = biasNDC * CascadeDepthRange(m);
-        const f32 texel = TexelWorldSize(m, kResolution);
-        EXPECT_NEAR(biasWorld, kBiasTexels * texel, kBiasTexels * texel * 1.0e-4f)
+        EXPECT_NEAR(biasWorld, kBiasTexels * expectedTexel, kBiasTexels * expectedTexel * 1.0e-3f)
             << "cascade " << i << ": the bias is not " << kBiasTexels << " texels of world depth";
     }
 }
@@ -634,8 +701,15 @@ TEST_F(ShadowMapMatrixTest, CSMDepthBiasIsIndependentOfMaxShadowDistance)
 
         const glm::mat4& m = shadowMap.GetCSMMatrix(0);
         const f32 biasWorld = CascadeBiasNDC(m, kResolution, kBiasTexels) * CascadeDepthRange(m);
-        const f32 texel = TexelWorldSize(m, kResolution);
-        EXPECT_NEAR(biasWorld / texel, kBiasTexels, 1.0e-3f)
+        const f32 expectedTexel =
+            2.0f * ExpectedCascadeRadius(0, view, proj, 0.1f, 1000.0f, maxDistance, 0.5f, kResolution) /
+            static_cast<f32>(kResolution);
+        // Both halves matter: the cascade the CPU built must be the one the
+        // matrix describes, AND the authored number must still buy the same
+        // count of that cascade's texels however far the shadows reach.
+        EXPECT_NEAR(TexelWorldSize(m, kResolution), expectedTexel, expectedTexel * 1.0e-3f)
+            << "MaxShadowDistance " << maxDistance << ": the cascade's texel size is not the one the splits imply";
+        EXPECT_NEAR(biasWorld / expectedTexel, kBiasTexels, 1.0e-2f)
             << "MaxShadowDistance " << maxDistance << " changed what one authored texel means";
     }
 }

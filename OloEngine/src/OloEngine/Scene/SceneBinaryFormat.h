@@ -93,8 +93,18 @@ namespace OloEngine
         // byte to a u32 field and slide the rest of the entity. Reordering a
         // serialized component is therefore a version bump, exactly like adding
         // a field.
-        constexpr u32 CurrentVersion = 4;
-        constexpr u32 MinSupportedVersion = 4;
+        //
+        // v5 (issue #1119): DirectionalLightComponent's shadow depth bias
+        // changed UNIT — a normalized cascade depth became a count of
+        // shadow-map texels — and the field kept its size and position. This is
+        // the v4 case in a subtler form: the byte count and the `.olo`'s
+        // size + timestamp are all unchanged, so nothing else can tell a stale
+        // sidecar from a fresh one, and reading it back would take 0.005 as
+        // 0.005 TEXELS (no bias at all) where the YAML path gives the default
+        // and a warning. A value's unit changing is a version bump for the same
+        // reason a reordered field is.
+        constexpr u32 CurrentVersion = 5;
+        constexpr u32 MinSupportedVersion = 5;
 
         // Per-entity storage kind (the u8 that prefixes each EntityRecord).
         enum EntityKind : u8
