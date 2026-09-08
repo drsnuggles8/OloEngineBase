@@ -54,6 +54,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -636,6 +638,166 @@ namespace OloEngine::Tests
             SurfaceInteraction hit;
             EXPECT_FALSE(built.Intersect(Ray(glm::vec3(0.0f, 5.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)), hit))
                 << "the NaN-transform entity leaked into the built world";
+        }
+    }
+    // -------------------------------------------------------------------------
+    // The richer population (issue #869, ADR 0022): what the ADAPTER carries
+    // across, and — just as load-bearing — what it does not carry unless asked.
+    // -------------------------------------------------------------------------
+
+    namespace
+    {
+        [[nodiscard]] std::shared_ptr<const ReferenceTexture> MakeOneTexel(u8 r, u8 g, u8 b)
+        {
+            const std::vector<u8> pixels{ r, g, b, 255u };
+            return std::make_shared<const ReferenceTexture>(
+                ReferenceTexture::FromRgba8(1, 1, std::span<const u8>(pixels), /*srgb=*/false));
+        }
+
+        // One cube entity with an override material.
+        [[nodiscard]] Ref<Scene> MakeOneCubeScene(const Ref<Material>& material)
+        {
+            Ref<Scene> scene = Ref<Scene>::Create();
+            Entity entity = scene->CreateEntity("Cube");
+            Ref<Mesh> cube = MeshPrimitives::CreateCube();
+            entity.AddComponent<MeshComponent>().m_MeshSource = cube->GetMeshSource();
+            entity.AddComponent<MaterialComponent>().m_Material = *material;
+            return scene;
+        }
+    } // namespace
+
+    TEST(ReferenceSceneBuilderMaps, NoProviderLeavesEveryMaterialFactorOnly)
+    {
+        // The claim ADR 0022 rests on: a build that does not opt in emits the
+        // pre-#869 world. Every raster-vs-reference parity fixture in the repo
+        // is such a build, so if this fails they have all quietly changed
+        // meaning.
+        Ref<Material> material = Material::CreatePBR("Plain", glm::vec3(0.5f), 0.0f, 0.8f);
+        Ref<Scene> scene = MakeOneCubeScene(material);
+
+        ReferenceSceneBuilder builder;
+        builder.AddScene(*scene, {});
+        const ReferenceScene built = builder.Build(ReferenceSceneBuildOptions{});
+
+        ASSERT_FALSE(built.GetMaterials().empty());
+        for (const ReferenceMaterial& emitted : built.GetMaterials())
+        {
+            EXPECT_EQ(emitted.AlbedoMap, nullptr);
+            EXPECT_EQ(emitted.MetallicRoughnessMap, nullptr);
+            EXPECT_EQ(emitted.NormalMap, nullptr);
+            EXPECT_EQ(emitted.EmissiveMap, nullptr);
+        }
+        EXPECT_FALSE(built.GetEnvironment().IsDirectional());
+    }
+
+    TEST(ReferenceSceneBuilderMaps, ProviderMapsReachTheEmittedMaterialAndAreSampledAtTheHit)
+    {
+        Ref<Material> material = Material::CreatePBR("Mapped", glm::vec3(1.0f), 0.0f, 0.8f);
+        Ref<Scene> scene = MakeOneCubeScene(material);
+
+        u32 providerCalls = 0;
+        ReferenceSceneBuildOptions options;
+        options.MaterialMapProvider = [&providerCalls](const Material&) -> ReferenceMaterialMaps
+        {
+            ++providerCalls;
+            ReferenceMaterialMaps maps;
+            maps.Albedo = MakeOneTexel(255, 0, 0);
+            return maps;
+        };
+
+        ReferenceSceneBuilder builder;
+        builder.AddScene(*scene, {});
+        const ReferenceScene built = builder.Build(options);
+
+        // Called once per DISTINCT material, not once per submesh: the builder
+        // caches by pointer identity, and a provider that does a GPU readback
+        // must not be asked twice for one image.
+        EXPECT_EQ(static_cast<sizet>(providerCalls), built.GetMaterials().size());
+        ASSERT_FALSE(built.GetMaterials().empty());
+        ASSERT_NE(built.GetMaterials()[0].AlbedoMap, nullptr);
+
+        // And it is actually consumed: the map multiplies the white factor, so
+        // the material AS THE HIT SEES IT is red.
+        SurfaceInteraction hit;
+        ASSERT_TRUE(built.Intersect(Ray(glm::vec3(0.0f, 5.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)), hit));
+        const ReferenceMaterial resolved = built.ResolveMaterial(hit);
+        EXPECT_NEAR(resolved.BaseColor.r, 1.0f, 1e-5f);
+        EXPECT_NEAR(resolved.BaseColor.g, 0.0f, 1e-5f);
+        EXPECT_NEAR(resolved.BaseColor.b, 0.0f, 1e-5f);
+    }
+
+    TEST(ReferenceSceneBuilderMaps, AlphaMaskAndNormalScaleAreMirroredFromTheMaterial)
+    {
+        // A cut-out material traced as SOLID is not "less bounce than
+        // reality" — it is a wrong occluder that casts a shadow the raster
+        // path does not.
+        Ref<Material> material = Material::CreatePBR("Foliage", glm::vec3(1.0f), 0.0f, 0.8f);
+        material->SetAlphaMode(AlphaMode::Mask);
+        material->SetAlphaCutoff(0.25f);
+        material->SetNormalScale(0.5f);
+        Ref<Scene> scene = MakeOneCubeScene(material);
+
+        ReferenceSceneBuilder builder;
+        builder.AddScene(*scene, {});
+        const ReferenceScene built = builder.Build(ReferenceSceneBuildOptions{});
+
+        ASSERT_FALSE(built.GetMaterials().empty());
+        EXPECT_TRUE(built.GetMaterials()[0].AlphaMask);
+        EXPECT_FLOAT_EQ(built.GetMaterials()[0].AlphaCutoff, 0.25f);
+        EXPECT_FLOAT_EQ(built.GetMaterials()[0].NormalScale, 0.5f);
+        // With no albedo map the cutoff sees BaseAlpha alone, which is 1.0 for
+        // every opaque import — so opting out of maps still traces a solid
+        // surface and nothing regressed for the scenes that do.
+        EXPECT_FLOAT_EQ(built.GetMaterials()[0].BaseAlpha, 1.0f);
+    }
+
+    TEST(ReferenceSceneBuilderMaps, EnvironmentCubemapIsInstalledAndAMalformedOneFallsBackLoudly)
+    {
+        Ref<Material> material = Material::CreatePBR("Plain", glm::vec3(0.5f), 0.0f, 0.8f);
+
+        {
+            Ref<Scene> scene = MakeOneCubeScene(material);
+            ReferenceSceneBuilder builder;
+            builder.AddScene(*scene, {});
+            ReferenceSceneBuildOptions options;
+            options.EnvironmentRadiance = glm::vec3(0.25f);
+            options.EnvironmentCubemap = std::make_shared<const ReferenceEnvironmentCubemap>(
+                ReferenceEnvironmentCubemap::Constant(glm::vec3(2.0f)));
+            options.EnvironmentIntensity = 3.0f;
+            const ReferenceScene built = builder.Build(options);
+
+            EXPECT_TRUE(built.GetEnvironment().IsDirectional());
+            // The cubemap OVERRIDES the uniform radiance rather than adding to
+            // it, and Intensity scales the winner.
+            EXPECT_EQ(built.GetEnvironment().Evaluate(glm::vec3(0.0f, 1.0f, 0.0f)), glm::vec3(6.0f));
+        }
+
+        {
+            // An empty cubemap would trace as "there IS a sky and it is
+            // black", which is a silent fidelity loss dressed up as a result.
+            // It must fall back to the uniform radiance instead.
+            Ref<Scene> scene = MakeOneCubeScene(material);
+            ReferenceSceneBuilder builder;
+            builder.AddScene(*scene, {});
+            ReferenceSceneBuildOptions options;
+            options.EnvironmentRadiance = glm::vec3(0.25f);
+            options.EnvironmentCubemap = std::make_shared<const ReferenceEnvironmentCubemap>();
+            const ReferenceScene built = builder.Build(options);
+
+            EXPECT_FALSE(built.GetEnvironment().IsDirectional());
+            EXPECT_EQ(built.GetEnvironment().Evaluate(glm::vec3(0.0f, 1.0f, 0.0f)), glm::vec3(0.25f));
+        }
+
+        {
+            // Same rule for a nonsense intensity.
+            Ref<Scene> scene = MakeOneCubeScene(material);
+            ReferenceSceneBuilder builder;
+            builder.AddScene(*scene, {});
+            ReferenceSceneBuildOptions options;
+            options.EnvironmentRadiance = glm::vec3(0.25f);
+            options.EnvironmentIntensity = std::numeric_limits<f32>::quiet_NaN();
+            const ReferenceScene built = builder.Build(options);
+            EXPECT_EQ(built.GetEnvironment().Evaluate(glm::vec3(0.0f, 1.0f, 0.0f)), glm::vec3(0.25f));
         }
     }
 } // namespace OloEngine::Tests

@@ -42,9 +42,21 @@
 // BUILD IS DEFERRED AND THE BUILDER IS SINGLE-USE
 // -----------------------------------------------
 // Add* calls only accumulate. `Build(options)` materialises the ReferenceScene
-// (applying LambertianDiffuseOnly to every material and installing the uniform
-// environment) and consumes the builder — geometry buffers are moved out, and
-// every later call is a logged no-op. Build a new builder per snapshot.
+// (stamping LambertianDiffuseOnly onto every material, asking the injected
+// provider for their texture maps, and installing the environment) and consumes
+// the builder — geometry buffers are moved out, and every later call is a logged
+// no-op. Build a new builder per snapshot.
+//
+// WHICH POPULATION A BUILD IS IN (issue #869, ADR 0022)
+// -----------------------------------------------------
+// The options carry two fields that make the emitted world richer than the
+// literal-constructible fixtures: a material-map provider and a sky cubemap.
+// Both default to absent, and absent reproduces the pre-#869 factor-only,
+// uniform-environment world exactly. A build that will be COMPARED against a
+// raster path leaves them absent — it must stay inside the subset both worlds
+// express, or the comparison starts measuring the scene description instead of
+// the transport. A BAKE, whose output is consumed rather than compared, takes
+// the richer one.
 //
 // DETERMINISM
 // -----------
@@ -68,6 +80,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <span>
 #include <utility>
 #include <vector>
@@ -82,12 +95,50 @@ namespace OloEngine
 
 namespace OloEngine::PathTracing
 {
+    // The maps one resolved Material contributes to its reference twin, in
+    // the reference's OWN sampling convention (level 0, bilinear, REPEAT —
+    // ADR 0022). Any field may stay null; a null one leaves that slot
+    // factor-only.
+    struct ReferenceMaterialMaps
+    {
+        std::shared_ptr<const ReferenceTexture> Albedo;
+        std::shared_ptr<const ReferenceTexture> MetallicRoughness;
+        std::shared_ptr<const ReferenceTexture> Normal;
+        std::shared_ptr<const ReferenceTexture> Emissive;
+    };
+
+    // Decodes one Material's textures into ReferenceTextures. Injected rather
+    // than called directly because reading a Texture2D's texels means a GPU
+    // readback, and ReferenceSceneBuilder must stay GL-free: a headless test
+    // supplies synthetic images, the editor supplies
+    // ReferenceTextureCapture::MakeMaterialMapProvider(), and a null provider
+    // reproduces the pre-#869 factor-only world exactly.
+    //
+    // Called at most once per distinct resolved Material (the builder caches
+    // by pointer identity), so caching one image shared by many materials is
+    // the provider's job.
+    using ReferenceMaterialMapProvider = std::function<ReferenceMaterialMaps(const Material&)>;
+
     struct ReferenceSceneBuildOptions
     {
-        // Uniform environment radiance — the only environment ReferenceScene
-        // supports (on purpose; see its header). A raster scene's sky/IBL has
-        // no exact reference twin, so the caller picks the approximation.
+        // Uniform environment radiance, used when EnvironmentCubemap is null.
         glm::vec3 EnvironmentRadiance{ 0.0f };
+
+        // The scene's sky, as radiance, captured into the reference's own
+        // cubemap sampler (issue #869). Null keeps the uniform environment
+        // above — which is what every raster-vs-reference PARITY fixture
+        // wants, because it stays inside the subset both worlds express
+        // (ADR 0022). A bake wants the real sky.
+        std::shared_ptr<const ReferenceEnvironmentCubemap> EnvironmentCubemap;
+
+        // Scales whichever environment applies. Mirrors the raster path's
+        // `u_IBLIntensity` — the only environment knob the lit passes consume.
+        f32 EnvironmentIntensity = 1.0f;
+
+        // Fills each material's texture slots. Null (the default) leaves every
+        // material factor-only, so a fixture that does not opt in is
+        // bit-identical to the pre-#869 builder.
+        ReferenceMaterialMapProvider MaterialMapProvider;
 
         // Forwarded to EVERY emitted material. Transport-isolation mode: see
         // ReferenceMaterial::LambertianDiffuseOnly for when this is legitimate
@@ -232,6 +283,11 @@ namespace OloEngine::PathTracing
         // LambertianDiffuseOnly stays at its default here — that is a
         // Build-time option, stamped onto every entry when Build() runs.
         std::vector<ReferenceMaterial> m_Materials;
+        // The Material each entry was resolved from, parallel to m_Materials.
+        // Build() hands these to ReferenceSceneBuildOptions::MaterialMapProvider;
+        // m_MaterialCache already keys on the same pointers, so this stores no
+        // reference the builder did not already hold.
+        std::vector<const Material*> m_MaterialSources;
         std::vector<PendingGeometry> m_Geometries;
         std::vector<PendingInstance> m_Instances;
         std::vector<ReferenceLight> m_Lights;

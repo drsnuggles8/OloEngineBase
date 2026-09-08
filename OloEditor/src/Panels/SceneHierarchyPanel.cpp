@@ -35,6 +35,7 @@
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Asset/InstancePlacementAsset.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
+#include "OloEngine/Renderer/PathTracing/ReferenceTextureCapture.h"
 #include "OloEngine/Scene/SceneLightmapGather.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
@@ -7958,7 +7959,22 @@ None = reuse this object's own mesh scaled down, else a cube.");
                         }
                         else
                         {
-                            PathTracing::ReferenceScene const world = builder.Build(PathTracing::ReferenceSceneBuildOptions{});
+                            // The same richer population the lightmap bake
+                            // takes (issue #869, ADR 0022) — and it must be
+                            // the same, or the two bake buttons disagree
+                            // photometrically for no visible reason, which is
+                            // the whole point of sharing the receiver gather.
+                            PathTracing::ReferenceTextureCaptor captor;
+                            const PathTracing::CapturedSky sky = PathTracing::CaptureSceneSky(*m_Context);
+                            PathTracing::ReferenceSceneBuildOptions buildOptions;
+                            buildOptions.MaterialMapProvider = captor.MakeMaterialMapProvider();
+                            buildOptions.EnvironmentCubemap = sky.Cubemap;
+                            buildOptions.EnvironmentIntensity = sky.Intensity;
+                            PathTracing::ReferenceScene const world = builder.Build(buildOptions);
+                            OLO_CORE_INFO("Path-traced probe bake reference world: {} material texture(s) "
+                                          "captured, {} unreadable, sky {}",
+                                          captor.GetStats().Captured, captor.GetStats().Failed,
+                                          sky.Cubemap ? "captured" : "absent");
                             LightProbePathTracedBakeSettings const bakeSettings{};
                             baked = LightProbeBaker::BakeVolumePathTraced(
                                 world,

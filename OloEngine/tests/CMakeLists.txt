@@ -176,12 +176,14 @@ add_executable(OloEngine-Tests
 		Rendering/PathTracing/PathTracerFurnaceTest.cpp
 		Rendering/PathTracing/PathTracerCornellBoxTest.cpp
 		Rendering/PathTracing/ReferenceSceneBuilderTest.cpp
+		Rendering/PathTracing/ReferenceEnvironmentTest.cpp
 		# #1055: the GPU reference path tracer's headless half — the emissive
 		# table against the reference emitter set, the accumulation-restart
 		# rules, and the vertex layout the ray-query helpers hard-code.
 		Rendering/PathTracing/GpuPathTracerContractTest.cpp
 		Rendering/Baking/LightmapUnwrapTest.cpp
 		Rendering/Baking/LightmapBakeParityTest.cpp
+		Rendering/Baking/LightmapSkyAndTextureBakeTest.cpp
 		Rendering/Baking/LightmapAtlasPagingTest.cpp
 		Rendering/Baking/LightProbePathTracedBakeTest.cpp
 		Asset/LightmapAssetSerializationTest.cpp

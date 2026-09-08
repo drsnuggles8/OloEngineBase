@@ -159,9 +159,24 @@ namespace OloEngine::PathTracing
         // Carry the versioned closure across (issue #975) — a v2 material must
         // trace as v2 or the reference silently measures the wrong closure.
         pending.Model = material.GetPBRModel();
+        // glTF MASK, mirrored (issue #869). Without it a cut-out material —
+        // foliage, a grating — traces as a SOLID quad, which is not "less
+        // bounce than reality" but a wrong occluder: it casts a shadow the
+        // raster path does not. With no albedo map supplied the cutoff sees
+        // BaseAlpha alone, which is 1.0 for every opaque import, so a scene
+        // that opts out of maps is unchanged.
+        pending.BaseAlpha = material.GetBaseColorFactor().a;
+        pending.AlphaMask = material.GetAlphaMode() == AlphaMode::Mask;
+        pending.AlphaCutoff = material.GetAlphaCutoff();
+        pending.NormalScale = material.GetNormalScale();
 
         const u32 index = static_cast<u32>(m_Materials.size());
         m_Materials.push_back(pending);
+        // Parallel to m_Materials: Build() needs the Material back to ask the
+        // map provider for its textures. The pointer is already held by
+        // m_MaterialCache for the builder's whole life, so this adds no
+        // lifetime requirement that was not there before.
+        m_MaterialSources.push_back(&material);
         m_MaterialCache.emplace(&material, index);
         return index;
     }
@@ -662,12 +677,27 @@ namespace OloEngine::PathTracing
         }
         m_Consumed = true;
 
-        for (ReferenceMaterial& material : m_Materials)
+        for (sizet i = 0; i < m_Materials.size(); ++i)
         {
+            ReferenceMaterial& material = m_Materials[i];
             // LambertianDiffuseOnly is a Build-time option, not a per-material
             // property here — stamp it on the way out (the builder is consumed
             // anyway, so mutating in place is fine).
             material.LambertianDiffuseOnly = options.LambertianDiffuseOnly;
+            // So are the texture maps (issue #869): decoding a Texture2D needs
+            // a GPU readback, so the caller injects a provider rather than the
+            // builder reaching for one. A null provider leaves every slot
+            // empty and the emitted scene factor-only — bit-identical to the
+            // pre-#869 builder, which is what keeps the parity fixtures
+            // pinning what they always pinned (ADR 0022).
+            if (options.MaterialMapProvider && i < m_MaterialSources.size() && m_MaterialSources[i] != nullptr)
+            {
+                const ReferenceMaterialMaps maps = options.MaterialMapProvider(*m_MaterialSources[i]);
+                material.AlbedoMap = maps.Albedo;
+                material.MetallicRoughnessMap = maps.MetallicRoughness;
+                material.NormalMap = maps.Normal;
+                material.EmissiveMap = maps.Emissive;
+            }
             scene.AddMaterial(material);
         }
 
@@ -697,6 +727,26 @@ namespace OloEngine::PathTracing
 
         ReferenceEnvironment environment;
         environment.Radiance = options.EnvironmentRadiance;
+        environment.Cubemap = options.EnvironmentCubemap;
+        // A non-finite or negative intensity would scale the whole sky into
+        // garbage on every escaping ray; fall back to neutral and say so
+        // rather than baking NaN into an atlas.
+        if (std::isfinite(options.EnvironmentIntensity) && options.EnvironmentIntensity >= 0.0f)
+        {
+            environment.Intensity = options.EnvironmentIntensity;
+        }
+        else
+        {
+            OLO_CORE_WARN("ReferenceSceneBuilder::Build: EnvironmentIntensity {} is not a usable scale — "
+                          "tracing at 1.0",
+                          options.EnvironmentIntensity);
+        }
+        if (environment.Cubemap && !environment.Cubemap->IsValid())
+        {
+            OLO_CORE_WARN("ReferenceSceneBuilder::Build: the supplied environment cubemap is empty or "
+                          "malformed — the sky would trace black; falling back to the uniform radiance");
+            environment.Cubemap.reset();
+        }
         scene.SetEnvironment(environment);
 
         scene.Build();

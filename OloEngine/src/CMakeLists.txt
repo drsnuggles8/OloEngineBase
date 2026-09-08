@@ -557,6 +557,8 @@
 		"OloEngine/Renderer/PathTracing/ReferenceScene.h"
 		"OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.cpp"
 		"OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
+		"OloEngine/Renderer/PathTracing/ReferenceTextureCapture.cpp"
+		"OloEngine/Renderer/PathTracing/ReferenceTextureCapture.h"
 		"OloEngine/Renderer/Baking/LightmapBaker.cpp"
 		"OloEngine/Renderer/Baking/LightmapBaker.h"
 		"OloEngine/Renderer/Baking/LightmapUnwrap.cpp"

@@ -50,10 +50,19 @@ namespace OloEngine::PathTracing
 {
     // -------------------------------------------------------------------------
     // Material — the parameter set `CookTorranceBRDF` consumes, plus emission.
-    // Textures are deliberately absent: the reference validates TRANSPORT and
-    // the BRDF, and a texture fetch would drag in the asset manager and the
-    // sampler/mip conventions, which is a separate (and much larger) parity
-    // problem. Every consumer here is a factor-only material.
+    //
+    // Textures ARE modelled, and the sampler below is the reference's own —
+    // never the raster path's (ADR 0022). Level 0, bilinear, REPEAT: a path
+    // tracer's hit points are already spread over the surface, so level-0
+    // sampling converges to the footprint-averaged albedo and a mip lookup
+    // would pre-average it a second time. Declining the mip chain is what
+    // keeps a raster filtering bug visible as raster-vs-reference divergence.
+    //
+    // Whether a given scene HAS maps is the caller's choice, not a mode: a
+    // parity fixture builds both worlds from one description that uses none,
+    // so those suites pin what they always pinned; a bake may take the richer
+    // population. `ReferenceSceneBuildOptions::MaterialMapProvider` is where
+    // that choice appears at the call site.
     // -------------------------------------------------------------------------
     // A texture the reference can sample: linear RGBA texels, row 0 first as
     // uploaded (the Vulkan convention: uv (0, 0) is the first texel of the
@@ -246,14 +255,83 @@ namespace OloEngine::PathTracing
     };
 
     // -------------------------------------------------------------------------
-    // Environment — a uniform radiance arriving from every direction (the
-    // classic white-furnace setup, and the only environment the reference
-    // supports on purpose: a cubemap would re-introduce the sampling/mip
-    // conventions this instrument is supposed to sit outside of).
+    // A DIRECTIONAL environment: the scene's sky cubemap, as radiance (issue
+    // #869, ADR 0022).
+    //
+    // Sampled the way the skybox samples it — `GetSkyboxSampleDirection` in
+    // include/SkyboxSampling.glsl is the identity, so the world direction
+    // addresses the cube directly — at LEVEL 0, bilinear inside a face,
+    // clamp-to-edge at the face borders. Level 0 rather than the raster's
+    // prefiltered mip chain because the two are not doing the same thing: the
+    // raster's diffuse ambient is a 32^2 irradiance convolution of this image,
+    // and the reference computes the integral that convolution approximates.
+    // Seam filtering is deliberately absent — it is a sub-texel effect and
+    // cannot move a hemisphere integral.
+    //
+    // The environment is collected only when a ray ESCAPES; it is never
+    // next-event-estimated. That is unbiased for any environment and
+    // low-variance for a smooth sky, which is what this engine puts here (the
+    // sun is a DirectionalLightComponent, not a disc painted into the
+    // cubemap). An environment carrying a concentrated emitter needs
+    // environment NEE + MIS before it can be trusted; see
+    // reference-path-tracer.md §6.
+    // -------------------------------------------------------------------------
+    struct ReferenceEnvironmentCubemap
+    {
+        // GL cubemap face order: +X, -X, +Y, -Y, +Z, -Z. Texels are
+        // face-major, and within a face row 0 comes first as uploaded — the
+        // order glGetTextureImage hands back.
+        static constexpr u32 kFaceCount = 6;
+
+        u32 FaceSize = 0;
+        std::vector<glm::vec3> Texels;
+
+        // `rgbaFaces` is kFaceCount * faceSize * faceSize RGBA float texels in
+        // face order, i.e. what a TextureCubemap readback of an RGBA32F sky
+        // produces. Alpha is discarded: an environment is radiance.
+        [[nodiscard]] static ReferenceEnvironmentCubemap FromFacesRgba32F(u32 faceSize, std::span<const f32> rgbaFaces);
+
+        // A 1x1-per-face cube of one radiance. Exists so "a constant cubemap
+        // must reproduce the uniform-environment furnace" is a reduction the
+        // tests can actually take, rather than a claim.
+        [[nodiscard]] static ReferenceEnvironmentCubemap Constant(const glm::vec3& radiance);
+
+        [[nodiscard]] bool IsValid() const
+        {
+            return FaceSize > 0 && Texels.size() == static_cast<sizet>(kFaceCount) * FaceSize * FaceSize;
+        }
+
+        // Radiance arriving from `direction` (need not be normalized; only its
+        // major axis and ratios matter). A zero or non-finite direction reads
+        // black rather than indexing out of range.
+        [[nodiscard]] glm::vec3 Sample(const glm::vec3& direction) const;
+    };
+
+    // -------------------------------------------------------------------------
+    // Environment — what a ray that escapes the scene collects.
+    //
+    // Uniform radiance (the classic white-furnace setup) unless a cubemap is
+    // attached, in which case the cubemap answers instead. `Intensity` scales
+    // whichever applies, mirroring the raster path's `u_IBLIntensity`, which
+    // is the only environment knob the lit passes actually consume — the
+    // component's tint/rotation/exposure/blur fields reach neither the IBL
+    // ladder nor the skybox draw.
     // -------------------------------------------------------------------------
     struct ReferenceEnvironment
     {
         glm::vec3 Radiance{ 0.0f };
+        std::shared_ptr<const ReferenceEnvironmentCubemap> Cubemap;
+        f32 Intensity = 1.0f;
+
+        // True when this environment is directional. A consumer that mirrors a
+        // ReferenceScene into ANOTHER tracer must check it rather than reading
+        // Radiance and silently tracing a different sky (ADR 0022 §5).
+        [[nodiscard]] bool IsDirectional() const
+        {
+            return Cubemap != nullptr;
+        }
+
+        [[nodiscard]] glm::vec3 Evaluate(const glm::vec3& direction) const;
     };
 
     // -------------------------------------------------------------------------

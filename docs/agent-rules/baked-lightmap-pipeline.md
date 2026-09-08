@@ -202,17 +202,28 @@ its acceptance criteria live there. Read the issue before re-deriving the design
 - **Multi-page atlas (#868) — DONE.** The bake packs across pages before it degrades anything, the
   runtime uploads a `Texture2DArray` layer per page, and the `Page != 0` rejection is gone. See §8
   for the encoding, the budget policy and what replaced that guard.
-- **Albedo textures in the bounce, and sky/HDRI environments (#869)** — filed as ONE issue,
-  because they are one architectural decision rather than two tasks. `ReferenceScene` materials
-  are factor-only and its environment is uniform radiance, both by explicit design
-  (reference-path-tracer.md): the oracle's value is that it sits *outside* the raster's sampling
-  and mip conventions, so when the two disagree you know it is transport and not filtering.
-  Teaching it to sample a texture or a cubemap makes the instrument share a failure mode with the
-  thing it validates, weakening every parity suite at once. Sky has a second blocker — with no
-  directional environment model there is no ground truth to validate an HDRI bake *against*, so
-  it is not merely unimplemented, it is unverifiable. Consequences meanwhile: bounce colour comes
-  from base-colour factors, and an exterior bakes with no sky contribution (that ambient stays
-  realtime IBL). Both failure modes are "less bounce than reality", never "wrong bounce".
+- **Albedo textures in the bounce, and sky/HDRI environments (#869) — DONE.** Settled as the
+  issue's option 2, recorded in
+  [ADR 0022](../adr/0022-reference-tracer-owns-its-sampling-model.md): the reference's scene
+  description may be as rich as the bake needs, but its **sampling model is its own** — level 0,
+  never the raster's mip chain — so the oracle does not acquire the raster's filtering failure
+  mode. It declines it. The bake now carries the materials' maps and the scene's sky across
+  (`ReferenceSceneBuildOptions::MaterialMapProvider` / `::EnvironmentCubemap`, captured on the GL
+  thread by `ReferenceTextureCapture`); every raster-vs-reference PARITY fixture passes neither, so
+  it stays in the subset both worlds express and pins exactly what it pinned before —
+  bit-exactly, which `LightmapSkyAndTextureBake.AProviderThatSuppliesNoMapsChangesNothingBitForBit` asserts
+  with `memcmp`.
+
+  The issue's second blocker — "no ground truth to validate an HDRI bake against" — held only if
+  the candidate ground truth was the engine's own IBL. Three checks replace it, none touching the
+  raster path: a constant cubemap must reproduce the uniform-environment furnace; an unoccluded
+  surface under a uniform sky must bake the closed form `E = pi * L`; and for a directional sky the
+  traced estimate must land on a deterministic `(theta, phi)` quadrature of the same `Evaluate()`.
+  See `ReferenceEnvironmentTest` and `LightmapSkyAndTextureBakeTest`.
+
+  **This makes §3's replace-don't-add rule load-bearing rather than theoretical.** A lightmapped
+  exterior pixel whose bake now contains the sky bounce must not also take the realtime IBL rung,
+  or the sky is counted twice.
 
 ---
 

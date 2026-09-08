@@ -685,6 +685,19 @@ namespace OloEngine::Tests
                     rig.Fixture = MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
                     break;
             }
+            // The GPU tracer's environment is a single uniform radiance
+            // (OloPtParams::Environment.xyz reads GetEnvironment().Radiance
+            // below), so a fixture carrying a DIRECTIONAL sky would have the
+            // two tracers integrating different worlds while this test kept
+            // reporting parity — the silent-fallback failure ADR 0022 §5
+            // forbids. Checked once, here, rather than per frame.
+            if (rig.Fixture.Scene.GetEnvironment().IsDirectional())
+            {
+                ADD_FAILURE() << "this fixture has a sky cubemap, which the GPU path tracer cannot "
+                                 "represent — the two sides would trace different environments and "
+                                 "'parity' would mean nothing";
+                return false;
+            }
             if (!BuildTwin(rig.Fixture, rig.Twin))
             {
                 ADD_FAILURE() << "could not upload the Cornell box twin";
