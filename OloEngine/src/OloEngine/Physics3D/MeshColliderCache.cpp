@@ -432,7 +432,10 @@ namespace OloEngine
         auto now = std::chrono::system_clock::now();
         auto entryAge = std::chrono::duration_cast<std::chrono::milliseconds>(now - data.m_LastAccessed);
 
-        return entryAge.count() > s_MinCacheEntryLifetimeMs;
+        // Signed comparison on purpose. system_clock is not monotonic, so a backwards clock
+        // step makes entryAge NEGATIVE; against an unsigned sizet that converted to a huge
+        // value and reported every fresh entry as evictable.
+        return entryAge.count() > static_cast<i64>(s_MinCacheEntryLifetimeMs);
     }
 
     sizet MeshColliderCache::CalculateDataSize(const CachedColliderData& data) const
