@@ -426,10 +426,14 @@ namespace OloEngine::MCP
                 "the discovery loop: olo_tool_search to find candidates, olo_tool_describe for the one or two you "
                 "will actually call. The entries are byte-identical to what tools/list emits, so a tool can be "
                 "called straight from a describe hit.";
+            // Hoisted rather than inlined into the .Prop() chain: .clang-format sets
+            // ColumnLimit 0, so it JOINS a hand-wrapped sub-expression back into one
+            // long line instead of reflowing it, and the hook then rewrites the file.
+            Schema::Node describeNames = Schema::Array(Schema::String()).MinItems(1).MaxItems(25);
+            describeNames.Desc("Tool names to describe, e.g. [\"olo_shader_errors\"].");
             tool.InputSchema =
                 Schema::Object()
-                    .Prop("names", Schema::Array(Schema::String()).MinItems(1).MaxItems(25).Desc(
-                                       "Tool names to describe, e.g. [\"olo_shader_errors\"]."))
+                    .Prop("names", describeNames)
                     .Prop("name", Schema::String().Desc("Convenience single-name form; combines with 'names'."))
                     .NoAdditional();
             tool.OutputSchema =
