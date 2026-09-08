@@ -179,8 +179,13 @@ TEST(PCSSShadow, CSMNormalBiasOffsetsTheReceiverInWorldSpace)
     const std::size_t biasAssignment = csm.find("vec3 biasedWorldPos = worldPos + normalize(surfaceNormal) * shadowParams.y;");
     ASSERT_NE(biasAssignment, std::string::npos)
         << "CSM stopped consuming ShadowParams.y as a world-space normal offset";
-    const std::size_t primaryProjection = csm.find("lightSpaceMatrices[cascadeIndex] * vec4(biasedWorldPos, 1.0)");
-    const std::size_t nextCascadeProjection = csm.find("lightSpaceMatrices[cascadeIndex + 1] * vec4(biasedWorldPos, 1.0)");
+    // The cascade matrix is bound to a local (M / nextM) so the bias conversion
+    // can read its rows (#1119); what this test pins is the ORDER — the offset
+    // receiver is what gets projected, in both the primary and the blended tap.
+    ASSERT_NE(csm.find("mat4 M = lightSpaceMatrices[cascadeIndex];"), std::string::npos);
+    ASSERT_NE(csm.find("mat4 nextM = lightSpaceMatrices[cascadeIndex + 1];"), std::string::npos);
+    const std::size_t primaryProjection = csm.find("M * vec4(biasedWorldPos, 1.0)");
+    const std::size_t nextCascadeProjection = csm.find("nextM * vec4(biasedWorldPos, 1.0)");
     EXPECT_NE(primaryProjection, std::string::npos)
         << "the primary CSM cascade does not project the biased receiver";
     EXPECT_NE(nextCascadeProjection, std::string::npos)
@@ -189,6 +194,60 @@ TEST(PCSSShadow, CSMNormalBiasOffsetsTheReceiverInWorldSpace)
         EXPECT_LT(biasAssignment, primaryProjection) << "the primary CSM projection precedes receiver bias";
     if (nextCascadeProjection != std::string::npos)
         EXPECT_LT(biasAssignment, nextCascadeProjection) << "the next CSM projection precedes receiver bias";
+}
+
+TEST(PCSSShadow, CSMDepthBiasIsScaledByTheCascadeTexelSize)
+{
+    // Issue #1119. ShadowParams.x is a bias in shadow-map TEXELS, and the CSM
+    // must convert it to the sampling cascade's normalized depth using that
+    // cascade's own light-space matrix. Consuming it as normalized depth
+    // directly is the defect: a cascade's orthographic range is 400 m of
+    // z-padding plus its extent, so the engine default meant metres of world
+    // offset and every ground shadow detached from its caster. The numeric
+    // half of this contract lives in ShadowMapTest's CSMDepthBias* tests.
+    const std::string source = ReadPbrCommon();
+    ASSERT_FALSE(source.empty()) << "PBRCommon.glsl was not found under OLO_TEST_EDITOR_ROOT";
+
+    const std::size_t csmBegin = source.find("float calculateCascadedShadowFactorCSM(");
+    const std::size_t csmEnd = source.find("// SHADOW ATLAS SAMPLING", csmBegin);
+    ASSERT_NE(csmBegin, std::string::npos);
+    ASSERT_NE(csmEnd, std::string::npos);
+    const std::string csm = source.substr(csmBegin, csmEnd - csmBegin);
+
+    EXPECT_NE(csm.find("float cascadeBias = shadowParams.x * lenRow2 / (float(shadowMapResolution) * lenRow0);"),
+              std::string::npos)
+        << "the CSM no longer converts ShadowParams.x from texels to this cascade's normalized depth";
+    EXPECT_EQ(csm.find("float cascadeBias = baseBias * float(cascadeIndex + 1);"), std::string::npos)
+        << "the CSM is back on the raw normalized-depth bias that issue #1119 removed";
+    // The cross-fade tap into the next cascade must be converted with the NEXT
+    // cascade's matrix, not the current one — its texels are larger.
+    EXPECT_NE(csm.find("float nextBias = shadowParams.x * nextLenRow2 / (float(shadowMapResolution) * nextLenRow0);"),
+              std::string::npos)
+        << "the blended next cascade does not scale the bias by its own texel size";
+}
+
+TEST(PCSSShadow, LocalLightAtlasDoesNotShareTheCSMDepthBias)
+{
+    // Issue #1119 split the two: the atlas entries are perspective and the CSM
+    // cascades orthographic, so one number cannot serve both, and the atlas
+    // lookups used to take theirs from whatever the scene's FIRST DIRECTIONAL
+    // LIGHT had authored. Every atlas call site reads u_AtlasDepthBias now.
+    const std::filesystem::path root = std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "assets";
+
+    for (const char* relative : { "shaders/include/DeferredLightingShared.glsl",
+                                  "shaders/include/ForwardPlusCommon.glsl",
+                                  "shaders/PBR_MultiLight.glsl",
+                                  "shaders/PBR_MultiLight_Skinned.glsl",
+                                  "shaders/Terrain_PBR.glsl",
+                                  "shaders/DDGI_Relight.glsl",
+                                  "shaders/compute/FroxelFogScatter.comp" })
+    {
+        std::ifstream in(root / relative, std::ios::binary);
+        ASSERT_TRUE(in) << "could not read " << relative;
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        EXPECT_NE(text.find("u_AtlasDepthBias"), std::string::npos)
+            << relative << " does not use the dedicated atlas depth bias";
+    }
 }
 
 // =============================================================================

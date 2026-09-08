@@ -100,8 +100,8 @@ def make_scene():
         "      Color: [1, 1, 1]\n"
         "      Intensity: 3\n"
         "      CastShadows: true\n"
-        "      ShadowBias: 0.0015\n"
-        "      ShadowNormalBias: 0.1\n"
+        "      ShadowDepthBiasTexels: 2\n"
+        "      ShadowNormalBias: 0.01\n"
         "      MaxShadowDistance: 180\n"
         "      CascadeSplitLambda: 0.8\n"))
     for i, x in enumerate((-24, 24)):

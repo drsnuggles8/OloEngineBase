@@ -30,8 +30,8 @@ Entities:
       Color: [1.0, 0.95, 0.85]
       Intensity: 3.0
       CastShadows: true
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.4
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
   - Entity: 1000000000003
     TagComponent:
       Tag: Ground Plane

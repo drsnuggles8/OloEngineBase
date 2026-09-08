@@ -1575,7 +1575,8 @@ float sampleShadowLayer(sampler2DArrayShadow shadowMap, sampler2DArray rawMap,
 // viewDepth: fragment view-space depth (needed for cascade selection)
 // lightSpaceMatrices[4]: per-cascade light VP matrices
 // cascadePlaneDistances: view-space far distances for each cascade
-// shadowParams: x=bias, y=normalBias, z=softness, w=maxShadowDistance
+// shadowParams: x=csmDepthBiasTexels, y=normalBias (world metres),
+//               z=softness, w=maxShadowDistance
 // shadowMapResolution: shadow map size in pixels
 float calculateCascadedShadowFactorCSM(
     sampler2DArrayShadow shadowMap,
@@ -1627,7 +1628,8 @@ float calculateCascadedShadowFactorCSM(
     vec3 biasedWorldPos = worldPos + normalize(surfaceNormal) * shadowParams.y;
 
     // Transform to light space
-    vec4 lightSpacePos = lightSpaceMatrices[cascadeIndex] * vec4(biasedWorldPos, 1.0);
+    mat4 M = lightSpaceMatrices[cascadeIndex];
+    vec4 lightSpacePos = M * vec4(biasedWorldPos, 1.0);
     vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
     projCoords = projCoords * 0.5 + 0.5; // NDC [-1,1] -> [0,1]
 
@@ -1639,9 +1641,32 @@ float calculateCascadedShadowFactorCSM(
         return 1.0;
     }
 
-    // Scale bias by cascade (farther cascades need more bias)
-    float baseBias = shadowParams.x;
-    float cascadeBias = baseBias * float(cascadeIndex + 1);
+    // Constant depth bias, authored in TEXELS of the sampling cascade and
+    // converted here to that cascade's normalized [0,1] depth (issue #1119).
+    //
+    // Both factors come out of the light-space matrix, so nothing extra is
+    // uploaded and the conversion cannot drift from the cascade it describes.
+    // The matrix is an orthographic projection composed with a lookAt, whose
+    // rotation is orthonormal, so
+    //   length(row 0) = 1 / half-extent  -> one texel spans
+    //                   2 / (resolution * length(row 0)) world metres
+    //   length(row 2) = 2 / (far - near) -> one world metre along the light
+    //                   spans length(row 2) * 0.5 of the [0,1] depth
+    // and the two collapse to the single ratio below. Texel snapping and the
+    // camera-relative translate only touch the translation column, so neither
+    // affects these lengths.
+    //
+    // This is why the previous formulation was wrong rather than merely
+    // mistuned: it took shadowParams.x as normalized depth directly, and the
+    // cascade's orthographic range is 400 m of fixed z-padding plus the
+    // cascade's own extent. A bias of 0.005 was therefore 2 m of world depth
+    // in cascade 0 and 13 m in cascade 3, which lifts a ground shadow clear of
+    // its caster. The per-cascade scaling the old `* (cascadeIndex + 1)`
+    // approximated is now exact: a farther cascade has larger texels, and the
+    // texel size is what the bias is measured in.
+    float lenRow0 = max(length(vec3(M[0][0], M[1][0], M[2][0])), 1e-8);
+    float lenRow2 = length(vec3(M[0][2], M[1][2], M[2][2]));
+    float cascadeBias = shadowParams.x * lenRow2 / (float(shadowMapResolution) * lenRow0);
 
     // PCSS only for the two nearest cascades: distant fragments cover too few
     // shadow-map texels for contact hardening to read, while the blocker
@@ -1663,10 +1688,13 @@ float calculateCascadedShadowFactorCSM(
         if (blendFactor > 0.0)
         {
             // Sample next cascade
-            vec4 nextLightSpacePos = lightSpaceMatrices[cascadeIndex + 1] * vec4(biasedWorldPos, 1.0);
+            mat4 nextM = lightSpaceMatrices[cascadeIndex + 1];
+            vec4 nextLightSpacePos = nextM * vec4(biasedWorldPos, 1.0);
             vec3 nextProjCoords = nextLightSpacePos.xyz / nextLightSpacePos.w;
             nextProjCoords = nextProjCoords * 0.5 + 0.5;
-            float nextBias = baseBias * float(cascadeIndex + 2);
+            float nextLenRow0 = max(length(vec3(nextM[0][0], nextM[1][0], nextM[2][0])), 1e-8);
+            float nextLenRow2 = length(vec3(nextM[0][2], nextM[1][2], nextM[2][2]));
+            float nextBias = shadowParams.x * nextLenRow2 / (float(shadowMapResolution) * nextLenRow0);
             int nextSoftMode = (cascadeIndex + 1 < 2) ? softMode : 0;
             float nextShadow = sampleShadowLayer(shadowMap, rawShadowMap, nextProjCoords, float(cascadeIndex + 1),
                                                  nextBias, shadowMapResolution, nextSoftMode, softness, shadowRot);

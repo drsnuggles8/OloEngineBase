@@ -54,8 +54,8 @@ Entities:
       Color: [1, 1, 1]
       Intensity: 3
       CastShadows: true
-      ShadowBias: 0.0015
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 180
       CascadeSplitLambda: 0.8
   - Entity: 1013000001000004
@@ -72,7 +72,7 @@ Entities:
       Attenuation: 1
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 1013000001000005
     TagComponent:
       Tag: SpotShadow0
@@ -90,7 +90,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 1013000001000006
     TagComponent:
       Tag: PointShadow1
@@ -105,7 +105,7 @@ Entities:
       Attenuation: 1
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 1013000001000007
     TagComponent:
       Tag: SpotShadow1
@@ -123,4 +123,4 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01

@@ -108,8 +108,8 @@ Entities:
       Color: [1, 0.98, 0.95]
       Intensity: 3
       CastShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 50
       CascadeSplitLambda: 0.95
   # -- THE MIRROR. Metal + near-zero roughness, so the tier's roughness gate is

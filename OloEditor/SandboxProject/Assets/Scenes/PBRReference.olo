@@ -78,8 +78,8 @@ Entities:
       Color: [1, 0.97, 0.92]
       Intensity: 0.5
       CastShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 50
       CascadeSplitLambda: 0.95
   # ── DamagedHelmet (Khronos PBR reference, left) ──

@@ -101,7 +101,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
-    int _shadowPad1;
+    float u_AtlasDepthBias; // local-light atlas constant depth bias, normalized [0,1] (#1119)
     int _shadowPad2;
     // Hybrid ray-traced shadow routing (issue #1056). Which light index reads
     // which channel of u_RayTracedShadowMask; -1 = the channel is unassigned.

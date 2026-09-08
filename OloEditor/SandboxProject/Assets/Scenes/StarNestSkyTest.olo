@@ -90,8 +90,8 @@ Entities:
       Color: [0.6, 0.65, 0.8]
       Intensity: 0.8
       CastShadows: true
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 80
       CascadeSplitLambda: 0.9
   # ── Metallic row (Metallic=1): mirror-reflects the nebula. Roughness sweeps

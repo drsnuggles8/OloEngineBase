@@ -273,7 +273,7 @@ if (entity.HasComponent<DirectionalLightComponent>())
     out << YAML::Key << "CastShadows" << YAML::Value << comp.m_CastShadows;
     out << YAML::Key << "CascadeDebugVisualization" << YAML::Value << comp.m_CascadeDebugVisualization;
     out << YAML::Key << "RayTracedShadows" << YAML::Value << comp.m_RayTracedShadows;
-    out << YAML::Key << "ShadowBias" << YAML::Value << comp.m_ShadowBias;
+    out << YAML::Key << "ShadowDepthBiasTexels" << YAML::Value << comp.m_ShadowDepthBiasTexels;
     out << YAML::Key << "ShadowNormalBias" << YAML::Value << comp.m_ShadowNormalBias;
     out << YAML::Key << "MaxShadowDistance" << YAML::Value << comp.m_MaxShadowDistance;
     out << YAML::Key << "CascadeSplitLambda" << YAML::Value << comp.m_CascadeSplitLambda;

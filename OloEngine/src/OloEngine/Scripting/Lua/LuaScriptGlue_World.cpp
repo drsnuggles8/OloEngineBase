@@ -140,9 +140,9 @@ namespace OloEngine
                                                                                { if (std::isfinite(v) && v >= 0.0f) l.m_Intensity = v; }),
                                                     "castShadows", &DirectionalLightComponent::m_CastShadows,
                                                     "rayTracedShadows", &DirectionalLightComponent::m_RayTracedShadows,
-                                                    "shadowBias", sol::property([](const DirectionalLightComponent& l)
-                                                                                { return l.m_ShadowBias; }, [](DirectionalLightComponent& l, f32 v)
-                                                                                { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowBias = v; }),
+                                                    "shadowDepthBiasTexels", sol::property([](const DirectionalLightComponent& l)
+                                                                                { return l.m_ShadowDepthBiasTexels; }, [](DirectionalLightComponent& l, f32 v)
+                                                                                { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowDepthBiasTexels = v; }),
                                                     "shadowNormalBias", sol::property([](const DirectionalLightComponent& l)
                                                                                       { return l.m_ShadowNormalBias; }, [](DirectionalLightComponent& l, f32 v)
                                                                                       { if (std::isfinite(v) && v >= 0.0f) l.m_ShadowNormalBias = v; }),

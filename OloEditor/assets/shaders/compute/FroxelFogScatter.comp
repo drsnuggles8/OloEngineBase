@@ -64,7 +64,7 @@ layout(std140, binding = 6) uniform ShadowData
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;
-    int _shadowPad1;
+    float u_AtlasDepthBias; // local-light atlas constant depth bias, normalized [0,1] (#1119)
     int _shadowPad2;
 };
 
@@ -185,14 +185,22 @@ float fogCsmShadowTap(vec3 relPos, float viewDepth)
         }
     }
 
-    vec4 lightSpacePos = u_DirectionalLightSpaceMatrices[cascade] * vec4(relPos, 1.0);
+    mat4 M = u_DirectionalLightSpaceMatrices[cascade];
+    vec4 lightSpacePos = M * vec4(relPos, 1.0);
     vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w * 0.5 + 0.5;
     if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
         projCoords.y < 0.0 || projCoords.y > 1.0 ||
         projCoords.z > 1.0)
         return 1.0;
 
-    float bias = u_ShadowParams.x * float(cascade + 1) * 2.0;
+    // Same texel -> normalized-depth conversion as PBRCommon.glsl's
+    // calculateCascadedShadowFactorCSM (issue #1119); keep the two in sync.
+    // The doubling is this pass's own: a froxel samples a single tap with no
+    // PCF kernel to average away a marginal comparison, and fog light shafts
+    // read acne as visible banding through the volume.
+    float lenRow0 = max(length(vec3(M[0][0], M[1][0], M[2][0])), 1e-8);
+    float lenRow2 = length(vec3(M[0][2], M[1][2], M[2][2]));
+    float bias = u_ShadowParams.x * 2.0 * lenRow2 / (float(u_ShadowMapResolution) * lenRow0);
     return texture(u_ShadowMapCSM, vec4(projCoords.xy, float(cascade), projCoords.z - bias));
 }
 
@@ -210,7 +218,7 @@ float fogAtlasShadowTap(vec3 relPos, int entry)
 
     vec4 so = u_AtlasEntryScaleOffset[entry];
     vec2 uv = projCoords.xy * so.xy + so.zw;
-    return texture(u_ShadowAtlas, vec4(uv, 0.0, projCoords.z - u_ShadowParams.x));
+    return texture(u_ShadowAtlas, vec4(uv, 0.0, projCoords.z - u_AtlasDepthBias));
 }
 
 // Dominant-axis cube face — order matches ShadowMap::BuildPointLightFaceMatrices

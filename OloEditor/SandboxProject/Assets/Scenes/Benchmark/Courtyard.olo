@@ -169,8 +169,8 @@ Entities:
       Color: [1, 0.88, 0.72]
       Intensity: 5.5
       CastShadows: true
-      ShadowBias: 0.0015
-      ShadowNormalBias: 0.15
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 900
       CascadeSplitLambda: 0.92
       CascadeDebugVisualization: false
@@ -597,7 +597,7 @@ Entities:
       Attenuation: 1
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000013
     TagComponent:
       Tag: PLight Shadow 1
@@ -612,7 +612,7 @@ Entities:
       Attenuation: 1
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000014
     TagComponent:
       Tag: PLight Shadow 2
@@ -627,7 +627,7 @@ Entities:
       Attenuation: 1
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000015
     TagComponent:
       Tag: PLight Shadow 3
@@ -642,7 +642,7 @@ Entities:
       Attenuation: 1
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000016
     TagComponent:
       Tag: PLight Shadow 4
@@ -657,7 +657,7 @@ Entities:
       Attenuation: 1
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000017
     TagComponent:
       Tag: PLight Shadow 5
@@ -672,7 +672,7 @@ Entities:
       Attenuation: 1
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   # ── 8 gallery spots aimed into the atrium (alternating CastShadows) ──
   - Entity: 974000002000018
     TagComponent:
@@ -691,7 +691,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000019
     TagComponent:
       Tag: Spot Gallery 1
@@ -709,7 +709,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000020
     TagComponent:
       Tag: Spot Gallery 2
@@ -727,7 +727,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000021
     TagComponent:
       Tag: Spot Gallery 3
@@ -745,7 +745,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000022
     TagComponent:
       Tag: Spot Gallery 4
@@ -763,7 +763,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000023
     TagComponent:
       Tag: Spot Gallery 5
@@ -781,7 +781,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000024
     TagComponent:
       Tag: Spot Gallery 6
@@ -799,7 +799,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000025
     TagComponent:
       Tag: Spot Gallery 7
@@ -817,7 +817,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   # ── 4 garden spots over the foliage terrain ──
   - Entity: 974000002000026
     TagComponent:
@@ -836,7 +836,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000027
     TagComponent:
       Tag: Spot Garden 1
@@ -854,7 +854,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000028
     TagComponent:
       Tag: Spot Garden 2
@@ -872,7 +872,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000029
     TagComponent:
       Tag: Spot Garden 3
@@ -890,7 +890,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   # ── 16 colored garden points over the foliage ──
   - Entity: 974000002000030
     TagComponent:
@@ -906,7 +906,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000031
     TagComponent:
       Tag: PLight Garden 1
@@ -921,7 +921,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000032
     TagComponent:
       Tag: PLight Garden 2
@@ -936,7 +936,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000033
     TagComponent:
       Tag: PLight Garden 3
@@ -951,7 +951,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000034
     TagComponent:
       Tag: PLight Garden 4
@@ -966,7 +966,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000035
     TagComponent:
       Tag: PLight Garden 5
@@ -981,7 +981,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000036
     TagComponent:
       Tag: PLight Garden 6
@@ -996,7 +996,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000037
     TagComponent:
       Tag: PLight Garden 7
@@ -1011,7 +1011,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000038
     TagComponent:
       Tag: PLight Garden 8
@@ -1026,7 +1026,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000039
     TagComponent:
       Tag: PLight Garden 9
@@ -1041,7 +1041,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000040
     TagComponent:
       Tag: PLight Garden 10
@@ -1056,7 +1056,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000041
     TagComponent:
       Tag: PLight Garden 11
@@ -1071,7 +1071,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000042
     TagComponent:
       Tag: PLight Garden 12
@@ -1086,7 +1086,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000043
     TagComponent:
       Tag: PLight Garden 13
@@ -1101,7 +1101,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000044
     TagComponent:
       Tag: PLight Garden 14
@@ -1116,7 +1116,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000045
     TagComponent:
       Tag: PLight Garden 15
@@ -1131,7 +1131,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   # ── 120 colored points: 6x4x5 atrium grid (SponzaForwardPlus layout) ──
   - Entity: 974000002000046
     TagComponent:
@@ -1147,7 +1147,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000047
     TagComponent:
       Tag: PLight Grid 1
@@ -1162,7 +1162,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000048
     TagComponent:
       Tag: PLight Grid 2
@@ -1177,7 +1177,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000049
     TagComponent:
       Tag: PLight Grid 3
@@ -1192,7 +1192,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000050
     TagComponent:
       Tag: PLight Grid 4
@@ -1207,7 +1207,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000051
     TagComponent:
       Tag: PLight Grid 5
@@ -1222,7 +1222,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000052
     TagComponent:
       Tag: PLight Grid 6
@@ -1237,7 +1237,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000053
     TagComponent:
       Tag: PLight Grid 7
@@ -1252,7 +1252,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000054
     TagComponent:
       Tag: PLight Grid 8
@@ -1267,7 +1267,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000055
     TagComponent:
       Tag: PLight Grid 9
@@ -1282,7 +1282,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000056
     TagComponent:
       Tag: PLight Grid 10
@@ -1297,7 +1297,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000057
     TagComponent:
       Tag: PLight Grid 11
@@ -1312,7 +1312,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000058
     TagComponent:
       Tag: PLight Grid 12
@@ -1327,7 +1327,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000059
     TagComponent:
       Tag: PLight Grid 13
@@ -1342,7 +1342,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000060
     TagComponent:
       Tag: PLight Grid 14
@@ -1357,7 +1357,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000061
     TagComponent:
       Tag: PLight Grid 15
@@ -1372,7 +1372,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000062
     TagComponent:
       Tag: PLight Grid 16
@@ -1387,7 +1387,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000063
     TagComponent:
       Tag: PLight Grid 17
@@ -1402,7 +1402,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000064
     TagComponent:
       Tag: PLight Grid 18
@@ -1417,7 +1417,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000065
     TagComponent:
       Tag: PLight Grid 19
@@ -1432,7 +1432,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000066
     TagComponent:
       Tag: PLight Grid 20
@@ -1447,7 +1447,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000067
     TagComponent:
       Tag: PLight Grid 21
@@ -1462,7 +1462,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000068
     TagComponent:
       Tag: PLight Grid 22
@@ -1477,7 +1477,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000069
     TagComponent:
       Tag: PLight Grid 23
@@ -1492,7 +1492,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000070
     TagComponent:
       Tag: PLight Grid 24
@@ -1507,7 +1507,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000071
     TagComponent:
       Tag: PLight Grid 25
@@ -1522,7 +1522,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000072
     TagComponent:
       Tag: PLight Grid 26
@@ -1537,7 +1537,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000073
     TagComponent:
       Tag: PLight Grid 27
@@ -1552,7 +1552,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000074
     TagComponent:
       Tag: PLight Grid 28
@@ -1567,7 +1567,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000075
     TagComponent:
       Tag: PLight Grid 29
@@ -1582,7 +1582,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000076
     TagComponent:
       Tag: PLight Grid 30
@@ -1597,7 +1597,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000077
     TagComponent:
       Tag: PLight Grid 31
@@ -1612,7 +1612,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000078
     TagComponent:
       Tag: PLight Grid 32
@@ -1627,7 +1627,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000079
     TagComponent:
       Tag: PLight Grid 33
@@ -1642,7 +1642,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000080
     TagComponent:
       Tag: PLight Grid 34
@@ -1657,7 +1657,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000081
     TagComponent:
       Tag: PLight Grid 35
@@ -1672,7 +1672,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000082
     TagComponent:
       Tag: PLight Grid 36
@@ -1687,7 +1687,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000083
     TagComponent:
       Tag: PLight Grid 37
@@ -1702,7 +1702,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000084
     TagComponent:
       Tag: PLight Grid 38
@@ -1717,7 +1717,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000085
     TagComponent:
       Tag: PLight Grid 39
@@ -1732,7 +1732,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000086
     TagComponent:
       Tag: PLight Grid 40
@@ -1747,7 +1747,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000087
     TagComponent:
       Tag: PLight Grid 41
@@ -1762,7 +1762,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000088
     TagComponent:
       Tag: PLight Grid 42
@@ -1777,7 +1777,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000089
     TagComponent:
       Tag: PLight Grid 43
@@ -1792,7 +1792,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000090
     TagComponent:
       Tag: PLight Grid 44
@@ -1807,7 +1807,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000091
     TagComponent:
       Tag: PLight Grid 45
@@ -1822,7 +1822,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000092
     TagComponent:
       Tag: PLight Grid 46
@@ -1837,7 +1837,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000093
     TagComponent:
       Tag: PLight Grid 47
@@ -1852,7 +1852,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000094
     TagComponent:
       Tag: PLight Grid 48
@@ -1867,7 +1867,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000095
     TagComponent:
       Tag: PLight Grid 49
@@ -1882,7 +1882,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000096
     TagComponent:
       Tag: PLight Grid 50
@@ -1897,7 +1897,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000097
     TagComponent:
       Tag: PLight Grid 51
@@ -1912,7 +1912,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000098
     TagComponent:
       Tag: PLight Grid 52
@@ -1927,7 +1927,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000099
     TagComponent:
       Tag: PLight Grid 53
@@ -1942,7 +1942,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000100
     TagComponent:
       Tag: PLight Grid 54
@@ -1957,7 +1957,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000101
     TagComponent:
       Tag: PLight Grid 55
@@ -1972,7 +1972,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000102
     TagComponent:
       Tag: PLight Grid 56
@@ -1987,7 +1987,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000103
     TagComponent:
       Tag: PLight Grid 57
@@ -2002,7 +2002,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000104
     TagComponent:
       Tag: PLight Grid 58
@@ -2017,7 +2017,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000105
     TagComponent:
       Tag: PLight Grid 59
@@ -2032,7 +2032,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000106
     TagComponent:
       Tag: PLight Grid 60
@@ -2047,7 +2047,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000107
     TagComponent:
       Tag: PLight Grid 61
@@ -2062,7 +2062,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000108
     TagComponent:
       Tag: PLight Grid 62
@@ -2077,7 +2077,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000109
     TagComponent:
       Tag: PLight Grid 63
@@ -2092,7 +2092,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000110
     TagComponent:
       Tag: PLight Grid 64
@@ -2107,7 +2107,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000111
     TagComponent:
       Tag: PLight Grid 65
@@ -2122,7 +2122,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000112
     TagComponent:
       Tag: PLight Grid 66
@@ -2137,7 +2137,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000113
     TagComponent:
       Tag: PLight Grid 67
@@ -2152,7 +2152,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000114
     TagComponent:
       Tag: PLight Grid 68
@@ -2167,7 +2167,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000115
     TagComponent:
       Tag: PLight Grid 69
@@ -2182,7 +2182,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000116
     TagComponent:
       Tag: PLight Grid 70
@@ -2197,7 +2197,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000117
     TagComponent:
       Tag: PLight Grid 71
@@ -2212,7 +2212,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000118
     TagComponent:
       Tag: PLight Grid 72
@@ -2227,7 +2227,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000119
     TagComponent:
       Tag: PLight Grid 73
@@ -2242,7 +2242,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000120
     TagComponent:
       Tag: PLight Grid 74
@@ -2257,7 +2257,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000121
     TagComponent:
       Tag: PLight Grid 75
@@ -2272,7 +2272,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000122
     TagComponent:
       Tag: PLight Grid 76
@@ -2287,7 +2287,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000123
     TagComponent:
       Tag: PLight Grid 77
@@ -2302,7 +2302,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000124
     TagComponent:
       Tag: PLight Grid 78
@@ -2317,7 +2317,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000125
     TagComponent:
       Tag: PLight Grid 79
@@ -2332,7 +2332,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000126
     TagComponent:
       Tag: PLight Grid 80
@@ -2347,7 +2347,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000127
     TagComponent:
       Tag: PLight Grid 81
@@ -2362,7 +2362,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000128
     TagComponent:
       Tag: PLight Grid 82
@@ -2377,7 +2377,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000129
     TagComponent:
       Tag: PLight Grid 83
@@ -2392,7 +2392,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000130
     TagComponent:
       Tag: PLight Grid 84
@@ -2407,7 +2407,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000131
     TagComponent:
       Tag: PLight Grid 85
@@ -2422,7 +2422,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000132
     TagComponent:
       Tag: PLight Grid 86
@@ -2437,7 +2437,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000133
     TagComponent:
       Tag: PLight Grid 87
@@ -2452,7 +2452,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000134
     TagComponent:
       Tag: PLight Grid 88
@@ -2467,7 +2467,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000135
     TagComponent:
       Tag: PLight Grid 89
@@ -2482,7 +2482,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000136
     TagComponent:
       Tag: PLight Grid 90
@@ -2497,7 +2497,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000137
     TagComponent:
       Tag: PLight Grid 91
@@ -2512,7 +2512,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000138
     TagComponent:
       Tag: PLight Grid 92
@@ -2527,7 +2527,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000139
     TagComponent:
       Tag: PLight Grid 93
@@ -2542,7 +2542,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000140
     TagComponent:
       Tag: PLight Grid 94
@@ -2557,7 +2557,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000141
     TagComponent:
       Tag: PLight Grid 95
@@ -2572,7 +2572,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000142
     TagComponent:
       Tag: PLight Grid 96
@@ -2587,7 +2587,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000143
     TagComponent:
       Tag: PLight Grid 97
@@ -2602,7 +2602,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000144
     TagComponent:
       Tag: PLight Grid 98
@@ -2617,7 +2617,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000145
     TagComponent:
       Tag: PLight Grid 99
@@ -2632,7 +2632,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000146
     TagComponent:
       Tag: PLight Grid 100
@@ -2647,7 +2647,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000147
     TagComponent:
       Tag: PLight Grid 101
@@ -2662,7 +2662,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000148
     TagComponent:
       Tag: PLight Grid 102
@@ -2677,7 +2677,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000149
     TagComponent:
       Tag: PLight Grid 103
@@ -2692,7 +2692,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000150
     TagComponent:
       Tag: PLight Grid 104
@@ -2707,7 +2707,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000151
     TagComponent:
       Tag: PLight Grid 105
@@ -2722,7 +2722,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000152
     TagComponent:
       Tag: PLight Grid 106
@@ -2737,7 +2737,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000153
     TagComponent:
       Tag: PLight Grid 107
@@ -2752,7 +2752,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000154
     TagComponent:
       Tag: PLight Grid 108
@@ -2767,7 +2767,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000155
     TagComponent:
       Tag: PLight Grid 109
@@ -2782,7 +2782,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000156
     TagComponent:
       Tag: PLight Grid 110
@@ -2797,7 +2797,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000157
     TagComponent:
       Tag: PLight Grid 111
@@ -2812,7 +2812,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000158
     TagComponent:
       Tag: PLight Grid 112
@@ -2827,7 +2827,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000159
     TagComponent:
       Tag: PLight Grid 113
@@ -2842,7 +2842,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000160
     TagComponent:
       Tag: PLight Grid 114
@@ -2857,7 +2857,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000161
     TagComponent:
       Tag: PLight Grid 115
@@ -2872,7 +2872,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000162
     TagComponent:
       Tag: PLight Grid 116
@@ -2887,7 +2887,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000163
     TagComponent:
       Tag: PLight Grid 117
@@ -2902,7 +2902,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000164
     TagComponent:
       Tag: PLight Grid 118
@@ -2917,7 +2917,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 974000002000165
     TagComponent:
       Tag: PLight Grid 119
@@ -2932,4 +2932,4 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01

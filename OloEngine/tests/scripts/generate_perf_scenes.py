@@ -160,8 +160,8 @@ def dir_light(cast_shadows=False, intensity=2.0):
         "      Color: [1, 1, 1]\n"
         f"      Intensity: {f(intensity)}\n"
         f"      CastShadows: {'true' if cast_shadows else 'false'}\n"
-        "      ShadowBias: 0.005\n"
-        "      ShadowNormalBias: 0.1\n"
+        "      ShadowDepthBiasTexels: 2\n"
+        "      ShadowNormalBias: 0.01\n"
         "      MaxShadowDistance: 300\n"
         "      CascadeSplitLambda: 0.95\n"
     )
@@ -223,7 +223,7 @@ def point_light(color, intensity=3.0, range_=6.0, cast_shadows=False):
         "      Attenuation: 1\n"
         f"      CastShadows: {'true' if cast_shadows else 'false'}\n"
         "      ShadowBias: 0.005\n"
-        "      ShadowNormalBias: 0.1\n"
+        "      ShadowNormalBias: 0.01\n"
     )
 
 

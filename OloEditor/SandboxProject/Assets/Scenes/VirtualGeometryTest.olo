@@ -98,8 +98,8 @@ Entities:
       Color: [1, 0.96, 0.88]
       Intensity: 5
       CastShadows: true
-      ShadowBias: 0.0015
-      ShadowNormalBias: 0.15
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 300
       CascadeSplitLambda: 0.92
   # ── Ground plane (classic mesh): receives the virtual meshes' shadows, and

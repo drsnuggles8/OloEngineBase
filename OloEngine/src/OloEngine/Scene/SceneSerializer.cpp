@@ -4222,6 +4222,23 @@ namespace OloEngine
         // #380) — the read-side complement of SceneSerializeComponents.Generated.inl.
         // Floats are validated with std::isfinite; a missing key keeps the default.
 #include "OloEngine/Scene/Generated/SceneDeserializeComponents.Generated.inl"
+
+        // Legacy-key report (issue #1119). DirectionalLightComponent's
+        // `ShadowBias` was a raw normalized cascade depth; it is now
+        // `ShadowDepthBiasTexels`, a count of shadow-map texels. The two are
+        // not convertible without the cascade the number was authored against,
+        // so the generated block above deliberately does not read the old key
+        // and the light keeps the engine default. Say so rather than letting a
+        // scene lose its authored bias without a word - the old value was the
+        // cause of the peter-panning this issue fixed, so the default is what
+        // the author wanted, but it is still a value being dropped.
+        if (const auto lightNode = entity["DirectionalLightComponent"];
+            lightNode && lightNode["ShadowBias"] && !lightNode["ShadowDepthBiasTexels"])
+        {
+            OLO_CORE_WARN("[SceneSerializer] Directional light carries the retired 'ShadowBias' key "
+                          "(normalized cascade depth). Ignoring it and using the default "
+                          "ShadowDepthBiasTexels; re-save the scene to adopt the texel unit (#1119).");
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)

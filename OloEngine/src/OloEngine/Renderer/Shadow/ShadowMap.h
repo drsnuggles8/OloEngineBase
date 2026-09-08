@@ -30,7 +30,26 @@ namespace OloEngine
         // DEPTH32F texture shared by every shadowed spot / point light; tiles
         // are allocated by priority (see ShadowAtlas.h). 4096² ≈ 64 MB.
         u32 AtlasResolution = 4096;
-        f32 Bias = ShaderConstants::SHADOW_BIAS;
+        // Directional CSM constant depth bias, in SHADOW-MAP TEXELS of the
+        // cascade doing the lookup (issue #1119). The shader converts it to
+        // that cascade's normalized depth from the light-space matrix, so one
+        // authored number means the same physical offset in every cascade and
+        // at every MaxShadowDistance. It used to be a raw normalized-depth
+        // number, which is why the sample scenes rendered ground shadows 2-13 m
+        // clear of their casters at the engine default.
+        f32 DepthBiasTexels = ShaderConstants::SHADOW_CSM_DEPTH_BIAS_TEXELS;
+        // Local-light ATLAS constant depth bias, in the atlas entry's own
+        // normalized [0,1] depth. Separate from DepthBiasTexels because the two
+        // live in different spaces (perspective entry vs orthographic cascade)
+        // and because routing the directional light's number into the spot /
+        // point lookups - which is what a single shared field did - made an
+        // unrelated light's authoring decide how local shadows biased.
+        f32 AtlasBias = ShaderConstants::SHADOW_BIAS;
+        // Receiver offset along the shading normal, in WORLD METRES, applied
+        // before the light-space projection (the VSM normal offset's unit).
+        // It does NOT scale with the cascade - 0.01 is one centimetre in every
+        // scene - and it is not what displaces a shadow from its caster; see
+        // DepthBiasTexels for that.
         f32 NormalBias = 0.01f;
         // With SoftShadows (PCSS) on, Softness is the light's apparent size — it
         // scales both the blocker-search region and the penumbra width, so larger

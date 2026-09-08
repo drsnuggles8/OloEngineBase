@@ -278,7 +278,7 @@ vec3 ComputeDeferredLit(
                     u_AtlasEntryScaleOffset[atlasEntry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_ShadowParams.x,
+                    u_AtlasDepthBias,
                     u_AtlasResolution,
                     u_SoftShadowMode,
                     u_ShadowParams.z);
@@ -310,7 +310,7 @@ vec3 ComputeDeferredLit(
                     u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_ShadowParams.x,
+                    u_AtlasDepthBias,
                     u_AtlasResolution,
                     0, // PCF only on cube faces (matches the old cubemap path)
                     u_ShadowParams.z);

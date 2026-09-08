@@ -106,7 +106,13 @@ namespace OloEngine
     //      losing its opt-in is indistinguishable from one that never had it.
     //      v26 and older omit it and keep the default false, which is the
     //      pre-#1056 behaviour exactly.
-    static constexpr u32 kSaveGameFormatVersion = 27; // 27: per-light ray-traced shadow opt-in (#1056)
+    // v28: DirectionalLightComponent's shadow depth bias changed UNIT, from a
+    //      raw normalized cascade depth to a count of shadow-map texels
+    //      (#1119). The field keeps its slot and its size, so a pre-v28 save
+    //      still parses; the old number is read and dropped for the default,
+    //      because the two units are not convertible without the cascade the
+    //      value was authored against.
+    static constexpr u32 kSaveGameFormatVersion = 28; // 28: CSM depth bias is in texels (#1119)
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

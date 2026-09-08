@@ -342,10 +342,10 @@ if (auto node = entity["DirectionalLightComponent"]; node)
     comp.m_CastShadows = node["CastShadows"].as<bool>(comp.m_CastShadows);
     comp.m_CascadeDebugVisualization = node["CascadeDebugVisualization"].as<bool>(comp.m_CascadeDebugVisualization);
     comp.m_RayTracedShadows = node["RayTracedShadows"].as<bool>(comp.m_RayTracedShadows);
-    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowBias"], v))
-        comp.m_ShadowBias = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowDepthBiasTexels"], v))
+        comp.m_ShadowDepthBiasTexels = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(16.0f));
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowNormalBias"], v))
-        comp.m_ShadowNormalBias = v;
+        comp.m_ShadowNormalBias = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxShadowDistance"], v))
         comp.m_MaxShadowDistance = v;
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["CascadeSplitLambda"], v))

@@ -80,8 +80,8 @@ Entities:
       Color: [0.8, 0.85, 1]
       Intensity: 0.3
       CastShadows: true
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 200
       CascadeSplitLambda: 0.95
 
@@ -187,7 +187,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000011
     TagComponent:
@@ -203,7 +203,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000012
     TagComponent:
@@ -219,7 +219,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000013
     TagComponent:
@@ -235,7 +235,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000014
     TagComponent:
@@ -251,7 +251,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000015
     TagComponent:
@@ -267,7 +267,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000016
     TagComponent:
@@ -283,7 +283,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000017
     TagComponent:
@@ -299,7 +299,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000018
     TagComponent:
@@ -315,7 +315,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000019
     TagComponent:
@@ -331,7 +331,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000020
     TagComponent:
@@ -347,7 +347,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000021
     TagComponent:
@@ -363,7 +363,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   # ── Spot Lights (4 corners, pointing at center) ──
   - Entity: 800000000000022
@@ -383,7 +383,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000023
     TagComponent:
@@ -402,7 +402,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000024
     TagComponent:
@@ -421,7 +421,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
 
   - Entity: 800000000000025
     TagComponent:
@@ -440,4 +440,4 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01

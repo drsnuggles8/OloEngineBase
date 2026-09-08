@@ -3633,8 +3633,17 @@ namespace OloEngine
             if (component.m_CastShadows)
             {
                 ImGui::Indent();
-                ImGui::DragFloat("Shadow Bias##DirLight", &component.m_ShadowBias, 0.0001f, 0.0f, 0.05f, "%.4f");
-                ImGui::DragFloat("Normal Bias##DirLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 0.1f, "%.3f");
+                ImGui::DragFloat("Depth Bias##DirLight", &component.m_ShadowDepthBiasTexels, 0.05f, 0.0f, 16.0f,
+                                 "%.2f texels");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Constant depth bias in shadow-map TEXELS of the cascade doing the\n"
+                                      "lookup, so one number behaves the same in every cascade and at any\n"
+                                      "Max Shadow Distance. 2 is the engine default; raising it far past\n"
+                                      "that lifts the shadow off its caster (issue #1119).");
+                ImGui::DragFloat("Normal Bias##DirLight", &component.m_ShadowNormalBias, 0.001f, 0.0f, 1.0f, "%.3f m");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Receiver offset along the shading normal, in world METRES. Does not\n"
+                                      "scale with the cascade.");
                 ImGui::DragFloat("Max Shadow Distance##DirLight", &component.m_MaxShadowDistance, 1.0f, 10.0f, 1000.0f);
                 ImGui::DragFloat("Cascade Split Lambda##DirLight", &component.m_CascadeSplitLambda, 0.01f, 0.0f, 1.0f, "%.2f");
                 ImGui::Checkbox("Cascade Debug Visualization##DirLight", &component.m_CascadeDebugVisualization);

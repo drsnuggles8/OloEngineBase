@@ -283,8 +283,8 @@ registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "Intensity", m_Inten
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CastShadows", m_CastShadows));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CascadeDebugVisualization", m_CascadeDebugVisualization));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "RayTracedShadows", m_RayTracedShadows));
-registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "ShadowBias", m_ShadowBias));
-registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "ShadowNormalBias", m_ShadowNormalBias));
+registry.push_back(OLO_GFW_FIELD_RANGE(DirectionalLightComponent, "ShadowDepthBiasTexels", m_ShadowDepthBiasTexels, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(16.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(DirectionalLightComponent, "ShadowNormalBias", m_ShadowNormalBias, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "MaxShadowDistance", m_MaxShadowDistance));
 registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CascadeSplitLambda", m_CascadeSplitLambda));
 

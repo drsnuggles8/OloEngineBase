@@ -446,7 +446,11 @@ namespace OloEngine
 
             glm::mat4 DirectionalLightSpaceMatrices[MAX_CSM_CASCADES]; // Light VP per cascade
             glm::vec4 CascadePlaneDistances;                           // View-space far plane per cascade
-            glm::vec4 ShadowParams;                                    // x=bias, y=normalBias, z=softness, w=maxShadowDistance
+            // x = CSM constant depth bias in TEXELS of the sampling cascade
+            // (issue #1119 - the shader converts it to that cascade's
+            // normalized depth), y = receiver normal offset in world metres,
+            // z = softness, w = maxShadowDistance.
+            glm::vec4 ShadowParams;
             glm::mat4 AtlasEntryMatrices[MAX_SHADOW_ATLAS_ENTRIES];    // Light VP per atlas entry
             glm::vec4 AtlasEntryScaleOffset[MAX_SHADOW_ATLAS_ENTRIES]; // xy = UV scale, zw = UV offset of the entry's atlas tile
             i32 DirectionalShadowEnabled = 0;
@@ -455,7 +459,17 @@ namespace OloEngine
             i32 AtlasResolution = 0;     // Atlas texture resolution
             i32 CascadeDebugEnabled = 0; // Visualize cascade boundaries
             i32 SoftShadowMode = 0;      // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
-            i32 Pad1 = 0;
+            // Local-light ATLAS constant depth bias, in the entry's own
+            // normalized [0,1] depth (issue #1119). It takes the former Pad1
+            // int rather than growing the block, so the std140 size and every
+            // offset after it are unchanged. It is a SEPARATE number from
+            // ShadowParams.x: the atlas entries are perspective and the CSM
+            // cascades orthographic, so one value cannot serve both.
+            // The literal mirrors ShaderConstants::SHADOW_BIAS, which cannot be
+            // named here: ShaderConstants.h includes THIS header, not the other
+            // way round. ShadowMap::Init/UploadUBO always overwrite it from
+            // ShadowSettings::AtlasBias, which does use the named constant.
+            f32 AtlasDepthBias = 0.005f;
             i32 Pad2 = 0;
 
             // Ray-traced shadow technique routing (issue #1056). Which light
@@ -3873,7 +3887,7 @@ layout(binding = 12) uniform sampler2D u_BRDFLutMap;)";
 layout(std140, binding = 6) uniform ShadowData {
     mat4 u_DirectionalLightSpaceMatrices[4];
     vec4 u_CascadePlaneDistances;
-    vec4 u_ShadowParams;  // x=bias, y=normalBias, z=softness, w=maxShadowDistance
+    vec4 u_ShadowParams;  // x=csmDepthBiasTexels, y=normalBias (m), z=softness, w=maxShadowDistance
     mat4 u_AtlasEntryMatrices[)") +
                 std::to_string(UBOStructures::ShadowUBO::MAX_SHADOW_ATLAS_ENTRIES) +
                 R"(];    // light VP per shadow-atlas entry (spot = 1 entry, point = 6 face entries)
@@ -3886,7 +3900,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
-    int _shadowPad1;
+    float u_AtlasDepthBias; // local-light atlas constant depth bias, normalized [0,1] (#1119)
     int _shadowPad2;
     ivec4 u_RayTracedShadowLightIndices; // light index per mask channel, -1 = unassigned (#1056)
     vec4 u_RayTracedShadowParams;        // x = mask active, yzw reserved (#1056)

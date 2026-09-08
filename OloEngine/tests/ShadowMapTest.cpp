@@ -473,7 +473,8 @@ TEST(ShadowSettingsTest, DefaultValues)
 {
     ShadowSettings settings;
     EXPECT_EQ(settings.Resolution, static_cast<u32>(ShaderConstants::SHADOW_MAP_SIZE));
-    EXPECT_FLOAT_EQ(settings.Bias, ShaderConstants::SHADOW_BIAS);
+    EXPECT_FLOAT_EQ(settings.DepthBiasTexels, ShaderConstants::SHADOW_CSM_DEPTH_BIAS_TEXELS);
+    EXPECT_FLOAT_EQ(settings.AtlasBias, ShaderConstants::SHADOW_BIAS);
     EXPECT_FLOAT_EQ(settings.NormalBias, 0.01f);
     EXPECT_FLOAT_EQ(settings.Softness, 1.0f);
     EXPECT_FLOAT_EQ(settings.MaxShadowDistance, 200.0f);
@@ -486,14 +487,14 @@ TEST(ShadowSettingsTest, SetSettingsUpdatesValues)
     ShadowMap sm;
     ShadowSettings custom;
     custom.Resolution = 2048;
-    custom.Bias = 0.01f;
+    custom.DepthBiasTexels = 3.0f;
     custom.MaxShadowDistance = 500.0f;
     custom.CascadeSplitLambda = 0.7f;
 
     sm.SetSettings(custom);
 
     EXPECT_EQ(sm.GetResolution(), 2048u);
-    EXPECT_FLOAT_EQ(sm.GetSettings().Bias, 0.01f);
+    EXPECT_FLOAT_EQ(sm.GetSettings().DepthBiasTexels, 3.0f);
     EXPECT_FLOAT_EQ(sm.GetSettings().MaxShadowDistance, 500.0f);
     EXPECT_FLOAT_EQ(sm.GetSettings().CascadeSplitLambda, 0.7f);
 }
@@ -508,6 +509,135 @@ TEST(ShadowSettingsTest, EnableDisableToggle)
 
     sm.SetEnabled(true);
     EXPECT_TRUE(sm.IsEnabled());
+}
+
+// =============================================================================
+// CSM depth bias — the texel unit (issue #1119)
+// =============================================================================
+// ShadowParams.x is a constant depth bias in SHADOW-MAP TEXELS of the cascade
+// doing the lookup, and calculateCascadedShadowFactorCSM turns it into that
+// cascade's normalized [0,1] depth using only the light-space matrix:
+//
+//   biasNDC = biasTexels * length(row 2) / (resolution * length(row 0))
+//
+// These tests MIRROR that expression. They exist because the previous
+// formulation used the authored number as normalized depth directly, and a
+// cascade's orthographic depth range is 400 m of z-padding plus its own
+// extent — so the engine default meant 2 m of world depth in cascade 0 and
+// 13 m in cascade 3, and every sample scene rendered its ground shadows clear
+// of their casters.
+
+namespace
+{
+    // The shader's conversion, in C++. Rows of a column-major mat4: row r is
+    // (m[0][r], m[1][r], m[2][r]).
+    [[nodiscard]] f32 RowLength(const glm::mat4& m, int row)
+    {
+        return glm::length(glm::vec3(m[0][row], m[1][row], m[2][row]));
+    }
+
+    [[nodiscard]] f32 CascadeBiasNDC(const glm::mat4& lightSpace, u32 resolution, f32 biasTexels)
+    {
+        const f32 lenRow0 = std::max(RowLength(lightSpace, 0), 1.0e-8f);
+        const f32 lenRow2 = RowLength(lightSpace, 2);
+        return biasTexels * lenRow2 / (static_cast<f32>(resolution) * lenRow0);
+    }
+
+    // One shadow-map texel of this cascade, in world metres: the ortho maps
+    // [-radius, radius] to [-1, 1], so length(row 0) == 1 / radius.
+    [[nodiscard]] f32 TexelWorldSize(const glm::mat4& lightSpace, u32 resolution)
+    {
+        return 2.0f / (static_cast<f32>(resolution) * RowLength(lightSpace, 0));
+    }
+
+    // The cascade's orthographic depth range in metres: length(row 2) == 2 / (far - near).
+    [[nodiscard]] f32 CascadeDepthRange(const glm::mat4& lightSpace)
+    {
+        return 2.0f / RowLength(lightSpace, 2);
+    }
+}
+
+TEST_F(ShadowMapMatrixTest, CSMDepthBiasIsExactlyTheAuthoredNumberOfTexels)
+{
+    // The whole point of the texel unit: converting the bias back to world
+    // metres must give N texels of THIS cascade, in every cascade.
+    constexpr f32 kBiasTexels = 2.0f;
+    constexpr u32 kResolution = 1024; // the fixture's ShadowSettings::Resolution
+
+    const glm::vec3 lightDir = glm::normalize(glm::vec3(0.55f, -0.62f, 0.56f));
+    const glm::mat4 view = glm::lookAt(glm::vec3(-16, 11, 16), glm::vec3(2, 1, 1), glm::vec3(0, 1, 0));
+    const glm::mat4 proj = glm::perspective(glm::radians(45.0f), 16.0f / 9.0f, 0.1f, 1000.0f);
+    shadowMap.ComputeCSMCascades(lightDir, view, proj, 0.1f, 1000.0f);
+
+    for (u32 i = 0; i < ShadowMap::MAX_CSM_CASCADES; ++i)
+    {
+        const glm::mat4& m = shadowMap.GetCSMMatrix(i);
+        const f32 biasNDC = CascadeBiasNDC(m, kResolution, kBiasTexels);
+        const f32 biasWorld = biasNDC * CascadeDepthRange(m);
+        const f32 texel = TexelWorldSize(m, kResolution);
+        EXPECT_NEAR(biasWorld, kBiasTexels * texel, kBiasTexels * texel * 1.0e-4f)
+            << "cascade " << i << ": the bias is not " << kBiasTexels << " texels of world depth";
+    }
+}
+
+TEST_F(ShadowMapMatrixTest, CSMDepthBiasStaysCentimetreScaleAcrossEveryCascade)
+{
+    // The #1119 regression guard, stated in the units the bug was reported in:
+    // a box standing on the ground casts a shadow that touches its base, which
+    // it cannot do while the depth bias is metres of world offset. The old
+    // formulation produced 2.0 m in cascade 0 and 13.3 m in cascade 3 for a
+    // 200 m MaxShadowDistance; the ceilings below are far below that and far
+    // above anything the texel unit can produce at a sane resolution.
+    constexpr f32 kBiasTexels = ShaderConstants::SHADOW_CSM_DEPTH_BIAS_TEXELS;
+    constexpr u32 kResolution = 1024;
+
+    const glm::vec3 lightDir = glm::normalize(glm::vec3(0.55f, -0.62f, 0.56f));
+    const glm::mat4 view = glm::lookAt(glm::vec3(-16, 11, 16), glm::vec3(2, 1, 1), glm::vec3(0, 1, 0));
+    const glm::mat4 proj = glm::perspective(glm::radians(45.0f), 16.0f / 9.0f, 0.1f, 1000.0f);
+    shadowMap.ComputeCSMCascades(lightDir, view, proj, 0.1f, 1000.0f);
+
+    // Cascade 0 covers a few metres around the camera; a caster standing on the
+    // ground there must not be separated from its shadow by a visible gap.
+    const glm::mat4& nearCascade = shadowMap.GetCSMMatrix(0);
+    const f32 nearBiasWorld =
+        CascadeBiasNDC(nearCascade, kResolution, kBiasTexels) * CascadeDepthRange(nearCascade);
+    EXPECT_LT(nearBiasWorld, 0.25f) << "cascade 0 depth bias is " << nearBiasWorld << " m of world depth";
+
+    // Even the farthest cascade, whose texels are the largest, stays inside a
+    // fraction of the caster scale these scenes use.
+    const glm::mat4& farCascade = shadowMap.GetCSMMatrix(ShadowMap::MAX_CSM_CASCADES - 1);
+    const f32 farBiasWorld =
+        CascadeBiasNDC(farCascade, kResolution, kBiasTexels) * CascadeDepthRange(farCascade);
+    EXPECT_LT(farBiasWorld, 2.0f) << "cascade 3 depth bias is " << farBiasWorld << " m of world depth";
+}
+
+TEST_F(ShadowMapMatrixTest, CSMDepthBiasIsIndependentOfMaxShadowDistance)
+{
+    // The property the authored number lacked before: the same value must mean
+    // the same thing in a 50 m scene and a 2000 m one. Measured in texels it
+    // does; measured in normalized depth it did not, because the cascade's
+    // depth range grows with MaxShadowDistance.
+    constexpr f32 kBiasTexels = 2.0f;
+    constexpr u32 kResolution = 1024;
+
+    const glm::vec3 lightDir = glm::normalize(glm::vec3(0.4f, -0.8f, 0.45f));
+    const glm::mat4 view = glm::lookAt(glm::vec3(0, 4, 12), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+    const glm::mat4 proj = glm::perspective(glm::radians(45.0f), 16.0f / 9.0f, 0.1f, 1000.0f);
+
+    for (const f32 maxDistance : { 50.0f, 200.0f, 2000.0f })
+    {
+        ShadowSettings settings = shadowMap.GetSettings();
+        settings.Resolution = kResolution;
+        settings.MaxShadowDistance = maxDistance;
+        shadowMap.SetSettings(settings);
+        shadowMap.ComputeCSMCascades(lightDir, view, proj, 0.1f, 1000.0f);
+
+        const glm::mat4& m = shadowMap.GetCSMMatrix(0);
+        const f32 biasWorld = CascadeBiasNDC(m, kResolution, kBiasTexels) * CascadeDepthRange(m);
+        const f32 texel = TexelWorldSize(m, kResolution);
+        EXPECT_NEAR(biasWorld / texel, kBiasTexels, 1.0e-3f)
+            << "MaxShadowDistance " << maxDistance << " changed what one authored texel means";
+    }
 }
 
 // =============================================================================

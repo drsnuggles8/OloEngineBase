@@ -317,8 +317,10 @@ case 2327397916u: // DirectionalLightComponent
     if (!SceneBinIO::Read(reader, comp.m_CastShadows)) return false;
     if (!SceneBinIO::Read(reader, comp.m_CascadeDebugVisualization)) return false;
     if (!SceneBinIO::Read(reader, comp.m_RayTracedShadows)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_ShadowBias)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ShadowDepthBiasTexels)) return false;
+    comp.m_ShadowDepthBiasTexels = std::clamp(comp.m_ShadowDepthBiasTexels, static_cast<f32>(0.0f), static_cast<f32>(16.0f));
     if (!SceneBinIO::Read(reader, comp.m_ShadowNormalBias)) return false;
+    comp.m_ShadowNormalBias = std::clamp(comp.m_ShadowNormalBias, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     if (!SceneBinIO::Read(reader, comp.m_MaxShadowDistance)) return false;
     if (!SceneBinIO::Read(reader, comp.m_CascadeSplitLambda)) return false;
     break;

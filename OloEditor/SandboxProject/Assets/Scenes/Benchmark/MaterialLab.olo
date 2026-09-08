@@ -108,8 +108,8 @@ Entities:
       Color: [1, 1, 1]
       Intensity: 3
       CastShadows: true
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 60
       CascadeSplitLambda: 0.95
   # -- Ground plane (neutral mid-dark; see single-mesh-visual-test-lighting.md) --

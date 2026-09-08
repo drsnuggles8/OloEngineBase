@@ -142,8 +142,8 @@ def dir_light():
         "      Color: [1, 1, 1]\n"
         "      Intensity: 3\n"
         "      CastShadows: true\n"
-        "      ShadowBias: 0.005\n"
-        "      ShadowNormalBias: 0.1\n"
+        "      ShadowDepthBiasTexels: 2\n"
+        "      ShadowNormalBias: 0.01\n"
         "      MaxShadowDistance: 60\n"
         "      CascadeSplitLambda: 0.95\n"
     )
