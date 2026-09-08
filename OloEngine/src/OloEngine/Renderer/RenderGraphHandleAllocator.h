@@ -74,8 +74,6 @@ namespace OloEngine::RenderGraphHandleAllocator
                   std::vector<u32>& freeIndices,
                   MakeHandleFn makeHandle)
     {
-        // HandleT is deduced from the lambda's return type.
-        using HandleT = std::invoke_result_t<MakeHandleFn, u32, u32>;
         const auto ensurePhysicalCapacity = [&physicals](const u32 index)
         {
             if (index >= physicals.size())

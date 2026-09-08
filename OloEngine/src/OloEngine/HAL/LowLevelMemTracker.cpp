@@ -316,20 +316,19 @@ namespace OloEngine
 
     i64 FLowLevelMemTracker::GetTagSize(ELLMTag Tag) const
     {
-        if (u8 Index = static_cast<u8>(std::to_underlying(Tag)); Index < LLM_TAG_COUNT)
-        {
-            return m_TagData[Index].CurrentSize.load(std::memory_order_relaxed);
-        }
-        return 0;
+        // A u8 index cannot leave the table: the bound is the whole u8 range, so the old
+        // `Index < LLM_TAG_COUNT` test was always true. The static_assert keeps that an
+        // enforced property rather than a silent assumption if the count ever shrinks.
+        static_assert(LLM_TAG_COUNT == 256, "a u8 tag index is only in range by construction while the table spans the full u8 range");
+        const u8 Index = static_cast<u8>(std::to_underlying(Tag));
+        return m_TagData[Index].CurrentSize.load(std::memory_order_relaxed);
     }
 
     i64 FLowLevelMemTracker::GetTagPeakSize(ELLMTag Tag) const
     {
-        if (u8 Index = static_cast<u8>(std::to_underlying(Tag)); Index < LLM_TAG_COUNT)
-        {
-            return m_TagData[Index].PeakSize.load(std::memory_order_relaxed);
-        }
-        return 0;
+        static_assert(LLM_TAG_COUNT == 256, "a u8 tag index is only in range by construction while the table spans the full u8 range");
+        const u8 Index = static_cast<u8>(std::to_underlying(Tag));
+        return m_TagData[Index].PeakSize.load(std::memory_order_relaxed);
     }
 
     void FLowLevelMemTracker::GetAllTagSizes(i64* OutSizes, u32 MaxTags) const

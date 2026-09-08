@@ -1910,7 +1910,7 @@ namespace OloEngine
             }
 
             [[nodiscard]] OLO_FINLINE explicit FReverseIterator(TBitArray& InArray, i32 StartIndex)
-                : FRelativeBitReference(-1), Array(InArray), Index(-1)
+                : FRelativeBitReference(StartIndex), Array(InArray), Index(StartIndex)
             {
             }
 
@@ -1970,7 +1970,7 @@ namespace OloEngine
             }
 
             [[nodiscard]] OLO_FINLINE explicit FConstReverseIterator(const TBitArray& InArray, i32 StartIndex)
-                : FRelativeBitReference(-1), Array(InArray), Index(-1)
+                : FRelativeBitReference(StartIndex), Array(InArray), Index(StartIndex)
             {
             }
 
@@ -2049,11 +2049,17 @@ namespace OloEngine
         }
         [[nodiscard]] OLO_FINLINE FReverseIterator rend()
         {
-            return FReverseIterator(*this, 0);
+            // INDEX_NONE, not 0: FRelativeBitReference::operator== compares WordIndex and
+            // Mask, never Index, and FRelativeBitReference(0) IS the representation of bit 0.
+            // Passing 0 here would make rend() compare equal to the bit-0 iterator, ending a
+            // reverse loop one bit early. -1 gives (WordIndex -1, Mask 1<<31), which is exactly
+            // what operator++ produces after it steps off bit 0.
+            return FReverseIterator(*this, INDEX_NONE);
         }
         [[nodiscard]] OLO_FINLINE FConstReverseIterator rend() const
         {
-            return FConstReverseIterator(*this, 0);
+            // See the non-const rend() above for why this is INDEX_NONE and not 0.
+            return FConstReverseIterator(*this, INDEX_NONE);
         }
 
         // ========================================================================

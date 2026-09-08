@@ -100,7 +100,7 @@ namespace OloEngine
       protected:
         // Protected constructor for derived classes to initialize all common parameters
         ShapeCastInfo(ShapeCastType castType, const glm::vec3& origin, const glm::vec3& direction, f32 maxDistance)
-            : m_Type(castType), m_Origin(origin), m_Direction(direction), m_MaxDistance(maxDistance) {}
+            : m_Origin(origin), m_Direction(direction), m_MaxDistance(maxDistance), m_Type(castType) {}
 
       private:
         ShapeCastType m_Type;
@@ -167,7 +167,7 @@ namespace OloEngine
         }
 
       protected:
-        ShapeOverlapInfo(ShapeCastType castType, const glm::vec3& origin) : m_Type(castType), m_Origin(origin) {}
+        ShapeOverlapInfo(ShapeCastType castType, const glm::vec3& origin) : m_Origin(origin), m_Type(castType) {}
 
       private:
         ShapeCastType m_Type;

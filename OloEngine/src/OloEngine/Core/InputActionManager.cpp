@@ -400,7 +400,7 @@ namespace OloEngine
     bool InputActionManager::IsActionJustReleased(std::string_view actionName)
     {
         auto currentIt = s_CurrentState.find(actionName);
-        if (bool currentlyPressed = (currentIt != s_CurrentState.end()) && currentIt->second)
+        if ((currentIt != s_CurrentState.end()) && currentIt->second)
         {
             return false;
         }

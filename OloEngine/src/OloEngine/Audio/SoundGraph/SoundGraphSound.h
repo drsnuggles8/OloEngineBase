@@ -366,7 +366,12 @@ namespace OloEngine
                 void SyncSpatialPositionToSource();
 
               private:
-                friend class AudioEngine;
+                // Qualified deliberately: AudioEngine lives in ::OloEngine, not in this
+                // nested namespace. Unqualified, it declares a NEW SoundGraph-local class on
+                // a conforming compiler and only reaches the outer one through an MSVC
+                // extension (-Wmicrosoft-unqualified-friend), so the friendship silently
+                // would not apply off-MSVC.
+                friend class OloEngine::AudioEngine;
                 friend class SourceManager;
 
                 std::function<void()> m_OnPlaybackComplete;

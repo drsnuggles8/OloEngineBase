@@ -2608,7 +2608,18 @@ namespace OloEngine
         AudioListenerComponent() = default;
         AudioListenerComponent(const AudioListenerComponent&) = default;
 
-        auto operator==(const AudioListenerComponent&) const -> bool = default;
+        // Equality for undo/redo -- compares serialized/editor-visible fields only.
+        // This was `= default`, which AudioListenerConfig (three bare floats, no
+        // operator==) silently made a DELETED function, dropping the component to
+        // SceneHierarchyPanel::DrawComponent's "no undo" tier: edits to a listener were
+        // not undoable and nothing said so. Ref<AudioListener> is runtime state
+        // (OLO_SERIALIZE(Skip)) and stays out of the comparison, per
+        // cpp-coding-quality.md section 7; Config goes through Math::BitwiseEqual because
+        // it is float-valued and this is bit-exact change detection, not tolerance.
+        auto operator==(const AudioListenerComponent& other) const -> bool
+        {
+            return Active == other.Active && Math::BitwiseEqual(Config, other.Config);
+        }
     };
 
     // Plays a sound graph (.olosoundgraph) asset on an entity. Mirrors the AudioSourceComponent

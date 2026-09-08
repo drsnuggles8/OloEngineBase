@@ -758,7 +758,7 @@ namespace OloEngine::Audio::SoundGraph
                 file.write(reinterpret_cast<const char*>(bytes), 8);
             };
 
-            auto write_f64 = [&file, &write_u64](f64 value)
+            auto write_f64 = [&write_u64](f64 value)
             {
                 // Reinterpret double as u64 bit pattern, then write in little-endian
                 u64 bits;
@@ -858,7 +858,7 @@ namespace OloEngine::Audio::SoundGraph
                        (static_cast<u64>(bytes[7]) << 56);
             };
 
-            auto read_f64 = [&file, &read_u64]() -> f64
+            auto read_f64 = [&read_u64]() -> f64
             {
                 // Read u64 bit pattern in little-endian, then reinterpret as double
                 u64 bits = read_u64();

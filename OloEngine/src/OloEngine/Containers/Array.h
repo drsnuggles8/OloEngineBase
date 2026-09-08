@@ -360,15 +360,25 @@ namespace OloEngine
          *
          * Uses overload resolution to detect inheritance from TArray.
          */
-        template<typename ElementType, typename AllocatorType>
-        static char (&ResolveIsTArrayPtr(const volatile TArray<ElementType, AllocatorType>*))[2];
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
+#elif defined(__clang__)
+// Both overloads exist only to be named inside sizeof(): never called, never defined.
+// Every TU therefore reports them as unused, so the guard has to wrap BOTH declarations
+// (the template included) rather than just the varargs one.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-function"
+#pragma clang diagnostic ignored "-Wunused-template"
+#pragma clang diagnostic ignored "-Wunneeded-internal-declaration"
 #endif
+        template<typename ElementType, typename AllocatorType>
+        static char (&ResolveIsTArrayPtr(const volatile TArray<ElementType, AllocatorType>*))[2];
         static char (&ResolveIsTArrayPtr(...))[1];
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
+#elif defined(__clang__)
+#pragma clang diagnostic pop
 #endif
 
         /**
@@ -661,7 +671,7 @@ namespace OloEngine
          * Only callable by TOptional. Creates an array in the "unset" state
          * using ArrayMax == -1 as a sentinel value.
          */
-        [[nodiscard]] explicit TArray(FIntrusiveUnsetOptionalState Tag)
+        [[nodiscard]] explicit TArray(FIntrusiveUnsetOptionalState)
             : m_ArrayNum(0), m_ArrayMax(-1)
         {
             // Use ArrayMax == -1 as our intrusive state.
@@ -675,7 +685,7 @@ namespace OloEngine
          *
          * Only used by TOptional to check if the optional is set.
          */
-        [[nodiscard]] bool operator==(FIntrusiveUnsetOptionalState Tag) const
+        [[nodiscard]] bool operator==(FIntrusiveUnsetOptionalState) const
         {
             return m_ArrayMax == -1;
         }

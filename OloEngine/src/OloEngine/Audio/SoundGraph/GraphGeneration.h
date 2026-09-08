@@ -37,7 +37,7 @@ namespace OloEngine::Audio::SoundGraph
     // pseudo-node; the compiler turns these into the appropriate typed Prototype
     // connection (NodeValue_GraphValue etc.).
     inline constexpr u64 kGraphPseudoNodeIDValue = 0ULL;
-    inline const UUID kGraphPseudoNodeID{ kGraphPseudoNodeIDValue };
+    inline constexpr UUID kGraphPseudoNodeID{ kGraphPseudoNodeIDValue };
 
     /** Compile a SoundGraphAsset's node + connection data into an executable Prototype.
         This is what the editor calls on Save and what Scene::InitAudioRuntime calls

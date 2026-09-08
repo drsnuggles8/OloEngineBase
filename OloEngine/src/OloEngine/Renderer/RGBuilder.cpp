@@ -94,8 +94,6 @@ namespace OloEngine
     void RGBuilder::RecordRead(std::string_view resourceName, const RGReadUsage usage, const RGSubresourceRange& range)
     {
         // Defensive: validate the builder references are sane
-        OLO_CORE_ASSERT(&m_Graph != nullptr, "RGBuilder::RecordRead: m_Graph reference is null");
-        OLO_CORE_ASSERT(&m_Blackboard != nullptr, "RGBuilder::RecordRead: m_Blackboard reference is null");
 
         if (resourceName.empty())
             return;
@@ -115,8 +113,6 @@ namespace OloEngine
     void RGBuilder::RecordWrite(std::string_view resourceName, const RGWriteUsage usage, const RGSubresourceRange& range)
     {
         // Defensive: validate the builder references are sane
-        OLO_CORE_ASSERT(&m_Graph != nullptr, "RGBuilder::RecordWrite: m_Graph reference is null");
-        OLO_CORE_ASSERT(&m_Blackboard != nullptr, "RGBuilder::RecordWrite: m_Blackboard reference is null");
 
         if (resourceName.empty())
             return;

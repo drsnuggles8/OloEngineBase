@@ -23,7 +23,6 @@ namespace OloEngine::WaterSurface
     {
         constexpr f32 kPi = 3.14159265f;
         constexpr f32 kTwoPi = 2.0f * kPi;
-        constexpr f32 kGravity = 9.81f;        // dispersion relation constant (matches gerstnerWave)
         constexpr f32 kGoldenAngle = 2.39996f; // pi * (3 - sqrt(5))
 
         [[nodiscard]] f32 Fract(f32 x)

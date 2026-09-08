@@ -7307,7 +7307,7 @@ namespace OloEngine
 
     void Scene::ProcessScene3DSharedLogic(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix,
                                           const glm::vec3& cameraPosition,
-                                          f32 cameraNearClip, f32 cameraFarClip)
+                                          [[maybe_unused]] f32 cameraNearClip, [[maybe_unused]] f32 cameraFarClip)
     {
         OLO_PROFILE_FUNCTION();
 

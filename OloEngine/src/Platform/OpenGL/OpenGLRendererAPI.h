@@ -108,6 +108,10 @@ namespace OloEngine
 
         void BindDefaultFramebuffer() override;
         void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height) override;
+        // Un-hide the base overloads. The raw-GL-handle overload below is a name in this
+        // scope, which otherwise hides RendererAPI::BindTexture(slot, handle, sampler)
+        // from lookup on an OpenGLRendererAPI* (-Woverloaded-virtual).
+        using RendererAPI::BindTexture;
         void BindTexture(u32 slot, u32 textureID);
         void BindTexture(u32 slot, RHI::ResourceHandle texture) override;
         void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,

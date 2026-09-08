@@ -16,7 +16,7 @@ namespace OloEngine
 
         BoundingBox() = default;
 
-        BoundingBox(const glm::vec3& min, const glm::vec3& max)
+        constexpr BoundingBox(const glm::vec3& min, const glm::vec3& max)
             : Min(min), Max(max) {}
 
         // Create a bounding box from an array of points
@@ -92,7 +92,7 @@ namespace OloEngine
     };
 
     // Sentinel value: WorldBounds.Min == FLT_MAX means "no bounds — include in every view".
-    inline const BoundingBox NoBounds{
+    inline constexpr BoundingBox NoBounds{
         glm::vec3(std::numeric_limits<f32>::max()),
         glm::vec3(-std::numeric_limits<f32>::max())
     };

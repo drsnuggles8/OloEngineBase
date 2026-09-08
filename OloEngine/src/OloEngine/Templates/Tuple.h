@@ -114,7 +114,7 @@ namespace OloEngine
         struct TTupleElementGetterByIndex
         {
             template<typename DeducedType, typename TupleType>
-            static inline decltype(auto) GetImpl(const volatile TTupleBaseElement<DeducedType, Index, TupleSize>& Element, TupleType&& Tuple)
+            static inline decltype(auto) GetImpl(const volatile TTupleBaseElement<DeducedType, Index, TupleSize>&, TupleType&& Tuple)
             {
                 // Brackets are important here - we want a reference type to be returned, not object type
                 decltype(auto) Result = (ForwardAsBase<TupleType, TTupleBaseElement<DeducedType, Index, TupleSize>>(Tuple).Value);
@@ -137,8 +137,6 @@ namespace OloEngine
             template<typename TupleType>
             static inline decltype(auto) Get(TupleType&& Tuple)
             {
-                using KeyType = decltype(std::decay_t<TupleType>::Key);
-
                 // Brackets are important here - we want a reference type to be returned, not object type
                 decltype(auto) Result = (ForwardAsBase<TupleType, TTupleBaseElement<decltype(Tuple.Key), 0, 2>>(Tuple).Key);
 
@@ -154,8 +152,6 @@ namespace OloEngine
             template<typename TupleType>
             static inline decltype(auto) Get(TupleType&& Tuple)
             {
-                using ValueType = decltype(std::decay_t<TupleType>::Value);
-
                 // Brackets are important here - we want a reference type to be returned, not object type
                 decltype(auto) Result = (ForwardAsBase<TupleType, TTupleBaseElement<decltype(Tuple.Value), 1, 2>>(Tuple).Value);
 
@@ -202,7 +198,7 @@ namespace OloEngine
         struct FEqualityHelper<ArgCount, ArgCount>
         {
             template<typename TupleType>
-            OLO_FINLINE static bool Compare(const TupleType& Lhs, const TupleType& Rhs)
+            OLO_FINLINE static bool Compare(const TupleType&, const TupleType&)
             {
                 return true;
             }
@@ -232,7 +228,7 @@ namespace OloEngine
         struct TLessThanHelper<NumArgs, NumArgs, false>
         {
             template<typename TupleType>
-            OLO_FINLINE static bool Do(const TupleType& Lhs, const TupleType& Rhs)
+            OLO_FINLINE static bool Do(const TupleType&, const TupleType&)
             {
                 return false;
             }
@@ -487,7 +483,7 @@ namespace OloEngine
         // ========================================================================
 
         template<typename LhsType, typename RhsType, u32... Indices>
-        static void Assign(LhsType& Lhs, RhsType&& Rhs, TIntegerSequence<u32, Indices...>)
+        void Assign(LhsType& Lhs, RhsType&& Rhs, TIntegerSequence<u32, Indices...>)
         {
             int Temp[] = { 0, (Lhs.template Get<Indices>() = Forward<RhsType>(Rhs).template Get<Indices>(), 0)... };
             (void)Temp;
@@ -610,7 +606,7 @@ namespace OloEngine
         struct TGetTupleHashHelper<ArgIndex, ArgIndex>
         {
             template<typename TupleType>
-            OLO_FINLINE static u32 Do(u32 Hash, const TupleType& Tuple)
+            OLO_FINLINE static u32 Do(u32 Hash, const TupleType&)
             {
                 return Hash;
             }

@@ -53,7 +53,6 @@ namespace OloEngine
         // Anchor-based layout resolution (Unity-style)
         const glm::vec2 anchorMinPos = parentPos + rt.m_AnchorMin * parentSize;
         const glm::vec2 anchorMaxPos = parentPos + rt.m_AnchorMax * parentSize;
-        const glm::vec2 anchorSize = anchorMaxPos - anchorMinPos;
 
         glm::vec2 resolvedSize;
         glm::vec2 resolvedPos;

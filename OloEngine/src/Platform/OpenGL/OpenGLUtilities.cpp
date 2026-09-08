@@ -45,7 +45,7 @@ namespace OloEngine
                              format == GL_DEPTH24_STENCIL8 || format == GL_DEPTH_COMPONENT32F),
                             "Invalid format.");
 
-            if (const bool multisampled = samples > 1)
+            if (samples > 1)
             {
                 glTextureStorage2DMultisample(id, samples, format, width, height, GL_FALSE);
             }

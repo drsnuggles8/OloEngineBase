@@ -177,7 +177,10 @@ namespace OloEngine
         bool m_IsThreadListDirty = false;
 
         /** Static empty string for unknown threads */
-        inline static std::string s_UnknownThreadName = "UnknownThread";
+        // const, and short enough for the SSO buffer, so it is constant-initialised:
+        // no global constructor and no exit-time destructor (issue #763). It is only
+        // ever returned by reference, never written.
+        inline static const std::string s_UnknownThreadName = "UnknownThread";
     };
 
 } // namespace OloEngine

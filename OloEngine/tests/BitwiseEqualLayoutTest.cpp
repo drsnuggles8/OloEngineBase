@@ -6,6 +6,7 @@
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/NoiseAnimationComponent.h"
 #include "OloEngine/Animation/SpringBoneComponent.h"
+#include "OloEngine/Audio/AudioListener.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Physics3D/ColliderMaterial.h"
@@ -87,6 +88,8 @@ namespace
     X(OloEngine::SpringBoneComponent)                       \
     /* Audio (nested in AudioSourceColdData::operator==) */ \
     X(OloEngine::AudioSourceConfig)                         \
+    /* Audio (nested in AudioListenerComponent) */          \
+    X(OloEngine::AudioListenerConfig)                       \
     /* Physics3D */                                         \
     X(OloEngine::ColliderMaterial)                          \
     /* Renderer/GPUScene (GPUScene::RecordsEqual) */        \

@@ -103,7 +103,7 @@ namespace OloEngine
         }
     }
 
-    void PlanarReflectionRenderPass::Execute(RGCommandContext& context)
+    void PlanarReflectionRenderPass::Execute([[maybe_unused]] RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 

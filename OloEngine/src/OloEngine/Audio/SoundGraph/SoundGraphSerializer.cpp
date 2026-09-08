@@ -504,7 +504,7 @@ namespace OloEngine::Audio::SoundGraph
     void SoundGraphFactory::ApplyNodeProperties(NodeProcessor* node, const SoundGraphNodeData& nodeData)
     {
         // Apply type-specific properties
-        if (auto wavePlayer = dynamic_cast<WavePlayer*>(node))
+        if (dynamic_cast<WavePlayer*>(node) != nullptr)
         {
             auto it = nodeData.m_Properties.find("WaveAsset");
             if (it != nodeData.m_Properties.end())

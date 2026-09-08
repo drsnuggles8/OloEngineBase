@@ -8,7 +8,13 @@ namespace OloEngine
     {
       public:
         UUID();
-        explicit(false) UUID(u64 uuid);
+        // constexpr and defined inline so a UUID constant can be constant-initialised
+        // rather than needing a global constructor (issue #763). The default ctor stays
+        // out of line: it needs real OS entropy and cannot be constexpr.
+        explicit(false) constexpr UUID(u64 uuid)
+            : m_UUID(uuid)
+        {
+        }
         UUID(const UUID&) = default;
 
         operator u64()

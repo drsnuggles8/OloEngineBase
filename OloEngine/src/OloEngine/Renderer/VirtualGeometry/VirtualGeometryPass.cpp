@@ -404,7 +404,7 @@ namespace OloEngine
         // slot 0 still holds the last albedo it bound — and then SKIP the real bind for any
         // material whose albedo has that same GL ID, leaving the HZB depth pyramid live in
         // u_AlbedoMap. Tell the cache the slot is dirty so the next material bind is real.
-        const auto bindOcclusionInputs = [this, &cullParams](const GPUFrustumCuller::HZBOcclusionInputs& hzb)
+        const auto bindOcclusionInputs = [&cullParams](const GPUFrustumCuller::HZBOcclusionInputs& hzb)
         {
             cullParams.OcclusionEnabled = hzb.IsUsable() ? 1 : 0;
             if (!hzb.IsUsable())

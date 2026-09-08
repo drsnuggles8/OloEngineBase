@@ -140,16 +140,16 @@ namespace OloEngine::Levers
         // All four are constant-initialized, so there is no static-init order
         // question between them and no lever can be read before its storage
         // exists.
-        Storage s_Values;
-        Overridden s_Overridden;
-        Handles s_Handles;
-        std::once_flag s_SeedOnce;
+        constinit Storage s_Values;
+        constinit Overridden s_Overridden;
+        constinit Handles s_Handles;
+        constinit std::once_flag s_SeedOnce;
 
         // Seeding is LAZY — first access — which can be arbitrarily early,
         // possibly before Log::Initialize(). So a malformed value is recorded
         // here and reported by LogActive() once the logger is definitely up,
         // rather than logged from inside the seed.
-        std::vector<std::string> s_SeedWarnings;
+        constinit std::vector<std::string> s_SeedWarnings;
 
         // "0"/"false" off, "1"/"true" on, anything else leaves the caller's own
         // computed default alone. Deliberately NOT Env::IsTruthy: for these the

@@ -165,20 +165,15 @@ namespace OloEngine
         // Remove cloth soft bodies while m_JoltSystem is still alive.
         DestroyAllClothBodies();
 
-        // Destroy all bodies
-        for (const auto& [entityID, body] : m_Bodies)
-        {
-            // Body destructor will handle Jolt cleanup
-        }
+        // Release all bodies. clear() drops this container's Ref to each JoltBody, which
+        // destroys it (and runs the Jolt cleanup) as long as nothing else still holds one;
+        // every other holder is a short-lived local. The empty range-for that used to sit
+        // here did nothing at all -- it was never what performed the cleanup.
         m_Bodies.clear();
         m_BodyIDToEntity.clear(); // Clear reverse lookup map
         m_BodiesToSync.clear();
 
-        // Destroy all character controllers
-        for (const auto& [entityID, characterController] : m_CharacterControllers)
-        {
-            // Character controller destructor will handle Jolt cleanup
-        }
+        // Same here: clear() is what runs the character-controller destructors.
         m_CharacterControllers.clear();
         m_CharacterControllersToUpdate.clear();
 

@@ -831,7 +831,7 @@ namespace OloEngine
             const FConstCompactHashTableView HashTable = GetConstHashTableView();
 
             for (u32 Index = HashTable.GetFirst(KeyHash);
-                 Index != INDEX_NONE;
+                 Index != static_cast<u32>(INDEX_NONE);
                  Index = HashTable.GetNext(Index, this->NumElements))
             {
                 if (KeyFuncs::Matches(KeyFuncs::GetSetKey(GetData()[Index]), Key))
@@ -1535,7 +1535,7 @@ namespace OloEngine
             const ElementType* Data = GetData();
 
             for (u32 Index = HashTable.GetFirst(KeyHash);
-                 Index != INDEX_NONE;
+                 Index != static_cast<u32>(INDEX_NONE);
                  Index = HashTable.GetNext(Index, this->NumElements))
             {
                 if (KeyFuncs::Matches(KeyFuncs::GetSetKey(Data[Index]), Key))
@@ -1572,7 +1572,7 @@ namespace OloEngine
                 const FConstCompactHashTableView HashTable = GetConstHashTableView();
 
                 for (u32 Index = HashTable.GetFirst(KeyHash);
-                     Index != INDEX_NONE;
+                     Index != static_cast<u32>(INDEX_NONE);
                      Index = HashTable.GetNext(Index, this->NumElements))
                 {
                     // Skip the element we just added
@@ -1795,7 +1795,7 @@ namespace OloEngine
         }
 
         template<typename ElementType, typename KeyFuncs, typename Allocator>
-        u32 IntrinsicAppendHash(const TCompactSet<ElementType, KeyFuncs, Allocator>* DummyObject,
+        u32 IntrinsicAppendHash(const TCompactSet<ElementType, KeyFuncs, Allocator>*,
                                 const FTypeLayoutDesc& TypeDesc,
                                 const FPlatformTypeLayoutParameters& LayoutParams,
                                 FSHA1& Hasher)

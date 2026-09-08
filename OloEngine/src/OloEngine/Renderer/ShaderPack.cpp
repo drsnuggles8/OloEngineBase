@@ -33,24 +33,6 @@ namespace OloEngine
             }
         }
 
-        constexpr unsigned int U8ToStage(u8 packed)
-        {
-            switch (packed)
-            {
-                case 1:
-                    return 0x8B31; // GL_VERTEX_SHADER
-                case 2:
-                    return 0x8B30; // GL_FRAGMENT_SHADER
-                case 3:
-                    return 0x8E88; // GL_TESS_CONTROL_SHADER
-                case 4:
-                    return 0x8E87; // GL_TESS_EVALUATION_SHADER
-                case 5:
-                    return 0x91B9; // GL_COMPUTE_SHADER
-                default:
-                    return 0;
-            }
-        }
     } // namespace
 
     // =========================================================================
@@ -78,39 +60,6 @@ namespace OloEngine
         bool ReadRaw(std::ifstream& in, T& value)
         {
             in.read(reinterpret_cast<char*>(&value), sizeof(T));
-            return in.good();
-        }
-
-        void WriteU32Array(std::ofstream& out, const std::vector<u32>& data)
-        {
-            u64 count = data.size();
-            WriteRaw(out, count);
-            if (count > 0)
-            {
-                out.write(reinterpret_cast<const char*>(data.data()),
-                          static_cast<std::streamsize>(count * sizeof(u32)));
-            }
-        }
-
-        bool ReadU32Array(std::ifstream& in, std::vector<u32>& data)
-        {
-            u64 count = 0;
-            if (!ReadRaw(in, count))
-            {
-                return false;
-            }
-            // Sanity check: reject absurdly large arrays
-            constexpr u64 maxWords = 64 * 1024 * 1024; // 256 MB of SPIR-V
-            if (count > maxWords)
-            {
-                return false;
-            }
-            data.resize(static_cast<size_t>(count));
-            if (count > 0)
-            {
-                in.read(reinterpret_cast<char*>(data.data()),
-                        static_cast<std::streamsize>(count * sizeof(u32)));
-            }
             return in.good();
         }
 
