@@ -28,6 +28,19 @@ Issue [#1073](https://github.com/drsnuggles8/OloEngineBase/issues/1073).
    0.00 % (see *A cache can be worth removing*). Work out which jobs are hosted **and**
    PR-triggered before allocating anything; that list is much shorter than the workflow
    list.
+6. **Set the cap ABOVE the object set, and measure the object set with `du`.** A cap a
+   little under what a build produces does not cost you a little. `SCCACHE_CACHE_SIZE:
+   900M` against object sets measured at 945 / 994 / 1084 MiB returned **94 / 71 / 32 %**
+   hit rates on identical source, and the arm that was 20 % over the cap was the one
+   that built for **38 minutes**; clearing all three took them to **99.94 %** and
+   1.4-1.7 min. sccache evicts LRU while a build reads its objects in a broadly stable
+   order, so a set that does not fit evicts entries this run is about to need, each miss
+   writes an object and evicts another, and the shortfall compounds. Measure the set
+   with `du -sm "$SCCACHE_DIR"` at a deliberately oversized probe cap — `--show-stats`
+   **rounds**, and printed "Cache size 1 GiB" for the 1084 MiB arm, a range that covers
+   1024 to 2047 MiB and therefore cannot pick a cap. Then set the cap from the store's
+   worst case, not from the set. Both halves, measured, with the arithmetic:
+   [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md).
 
 ---
 
@@ -140,14 +153,14 @@ before compression:
 
 | Entry | Size |
 |---|---|
-| `sccache-asan-lsan-linux-llvm-23.1.0` / `-ubsan-` / `-tsan-` | **~800 MiB each, ~2400 MiB — reserved, not yet measured (#1095)**. Removed 2026-09-06 by #1082 at 1252 / 1231 / 1258 MiB returning 0.00 % (see *A cache can be worth removing*), and re-added once the compiler underneath the key stopped rolling. Cap lowered 1500M → 900M because these jobs are neither hosted nor PR-waited-on (rule 5): the smaller share is deliberate and caps the achievable hit rate. Replace this row with the measured entry sizes on the second nightly after it lands. |
+| `sccache-asan-lsan-linux-llvm-23.1.0` / `-ubsan-` / `-tsan-` | **686 + 727 + 818 = 2231 MiB measured** 2026-09-08, banked by nightly run 34177309834 at the 900M cap. The reservation this row used to carry (~800 each) was close. **Their cap is 1300M as of 2026-09-08, not 900M** — the object sets `du` at 945 / 994 / 1084 MiB, so 900M was under all three and cost 94 / 71 / 32 % hit rates; see *Picking a cap* below. Removed entirely 2026-09-06 by #1082 at 1252 / 1231 / 1258 MiB returning 0.00 % (see *A cache can be worth removing*), and re-added by #1095 once the compiler underneath the key stopped rolling — those 1500M-era sizes are **not** evidence about the object set, because a rolling compiler was banking a fresh object set nightly into one dir. |
 | `vcpkg-Windows-x64-windows-static-md` | 692 MiB |
 | `Linux-` / `Windows-vulkan-prebuilt-sdk` | 291 + 229 MiB |
 | `ffmpeg-Windows-n7.1` | 4 MiB |
-| **measured subtotal** | **1216 MiB** (excluding the three Linux entries, whose new size is reserved rather than measured) |
-| `sccache-windows-2025-release` | **1825 MiB** — measured 2026-09-06 17:00 UTC, the day the fix landed. The row that used to sit here said "not measured, no entry has ever existed to measure" and guessed 0.9–2.0 GiB from `sccache-flaky-281`. The guess held; the entry came in at the top of it. |
-| `sccache-asan-windows-2025` | **~660 MiB** — the local `SCCACHE_DIR` measured 656 MiB (`--show-stats`) / 660 MiB (`du -sm`) on run 34061407329, well under its 3 GiB provisional cap, so nothing was evicted and this is the true footprint. Cap now set to 1500M. Much smaller than the sibling `sccache-windows-2025-release` because this job builds only `OloEngine-Tests`, not the editor/runtime/server too. |
-| **steady set** | **~6100 MiB** (1216 + 1825 + ~660 + ~2400) against a ~9.3 GiB wall and `cache-prune.yml`'s 8800 MiB working ceiling — **~2.7 GiB of headroom**. It was 3700 MiB with the Linux entries gone and 6782 MiB with them at their old 1500M cap; the 900M cap is what buys the difference. The ~2400 MiB is the only reserved number in this table, so re-measure it before spending the headroom on anything else. |
+| **measured subtotal** | **1230 MiB** (4 + 229 + 291 + 706, measured 2026-09-08; the vcpkg entry is 706, not 692) |
+| `sccache-windows-2025-release` | **2044 MiB** — measured 2026-09-08. It was 1825 MiB on 2026-09-06, the day the fix landed, against a 2 G cap; it is growing into that cap, so treat 2 G (~1700-1850 MiB compressed) as the bill. |
+| `sccache-asan-windows-2025` | **1230 MiB** — measured 2026-09-08, which is 82 % of its 1500M cap, so **it now fills that cap and is evicting**. The 656 / 660 MiB footprint measured on run 34061407329 was real at the time and the cap was set from it; the object set has since outgrown it. By rule 6 this entry is the next one to re-measure with `du` — a job on the PR critical path is the worst place to leave a cap under its object set. |
+| **steady set** | **7062 MiB measured** 2026-09-08 (1230 + 2044 + 1230 + 2231), by summing the API listing — every row above is now measured, none reserved. Against a ~9537 MiB wall and `cache-prune.yml`'s 8800 MiB working ceiling that is **1738 MiB of headroom to the ceiling**, and it is what the 1300M Linux cap is sized against rather than against the object sets. |
 
 `SCCACHE_CACHE_SIZE` bounds the local directory **before** compression, so it is not the
 entry size — but do not read that as "the entry will be much smaller". Every sccache entry
@@ -314,6 +327,8 @@ read?) separately.
 
 ## See also
 
+- [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md) — how to pick a
+  `SCCACHE_CACHE_SIZE`, and what a cap 20 % under its object set actually costs.
 - [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) — the same store, one
   layer up: four ways a cache restores, logs a hit, and rebuilds everything anyway.
   Read §3b first; this file is what happened when only §3b's *rule* was written down and

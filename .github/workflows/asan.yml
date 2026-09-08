@@ -1224,24 +1224,48 @@ jobs:
       # `ctest -N` total and by every shard's selection. Three literals that
       # must agree is how a shard comes to COUNT one partition and RUN another.
       OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
-      # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
-      # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
-      # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
-      # of docs/agent-rules/actions-cache-budget.md is that the store exists for
-      # GITHUB-HOSTED jobs on a PULL REQUEST, and these are neither: same-repo PRs
-      # route them to the box, so only the nightly and fork PRs read these entries and
-      # nobody waits on either.
+      # THE ARGUMENT THIS COMMENT USED TO DEMAND, MEASURED -- and then not acted on
+      # here. It said the case to make later was "which existing entry gives way, not
+      # that this one should quietly grow". Both halves are now numbers. Keep the three
+      # Linux values identical; the measurement is not repeated on the other two jobs.
       #
-      # So they come back at a smaller share: ~800 MiB each, ~2400 MiB for the set,
-      # leaving the fleet ~2.7 GiB under the ceiling instead of ~1.4.
+      # The object sets, `du -sm` on the sccache dir at a 3G probe cap, identical
+      # source, hosted, saves disabled (runs 34202164224 / 34202166194 / 34202168014):
       #
-      # BE HONEST ABOUT WHAT THAT COSTS. sccache evicts LRU at the cap, and the object
-      # set at 1500M filled 1500M, so a 900M cache cannot hold all of it and the
-      # ACHIEVABLE hit rate is capped below 100 % by this line, not by the pin. That is
-      # a budget decision, not a measurement, and the entry to watch is "Cache size" vs
-      # "Max cache size" in the stats step. If a measured run shows the eviction is
-      # costing more than the room is worth, the argument to make is which existing
-      # entry gives way -- not that this one should quietly grow.
+      #     TSan 945 MiB    ASan+LSan 994 MiB    UBSan 1084 MiB
+      #
+      # So 900M is UNDER all three -- by 5 / 10 / 20 %. That small shortfall is not a
+      # small cost. The same source, restoring the same master entries, measured:
+      #
+      #                         at 900M                 at 3G
+      #     TSan          94 %  /  2 min        99.94 %  /  1.7 min
+      #     ASan+LSan     71 %  / 17 min        99.94 %  /  1.5 min
+      #     UBSan         32 %  / 38 min        99.94 %  /  1.4 min
+      #
+      # sccache evicts LRU while a build reads its objects in a broadly stable order,
+      # so a set that does not fit evicts entries this run is about to need, each miss
+      # writes an object and evicts another, and the shortfall compounds. Being 20 %
+      # over the cap costs 68 points of hit rate, not 20.
+      #
+      # WHY THE VALUE IS STILL 900M. The bill is the compressed entry, not the cap, and
+      # a cache that does not fill its cap costs what it holds -- these three cost
+      # 686 / 727 / 818 MiB today at a 900 MiB dir, so clearing the sets would cost
+      # roughly 200 MiB more. That is affordable in isolation: the store measured
+      # 7062 MiB on 2026-09-08 against a ~9537 MiB wall. It is not affordable against
+      # the OTHER claim on the same room. `sccache-asan-windows-2025` is 1230 MiB at a
+      # 1500M cap, i.e. it fills its cap and is evicting too -- and that job is on the
+      # PR critical path, which by rule 5 of docs/agent-rules/actions-cache-budget.md
+      # is what the store exists for, while these three are read only by the nightly
+      # and by fork PRs. Same-repo PRs route them to the box and its local ccache.
+      #
+      # So the room goes there and this stays where it is, deliberately and with the
+      # cost written down rather than unmeasured. What ultimately happens to these
+      # three entries -- cleared, or dropped altogether to fund the Windows cap -- is
+      # open; it is tracked on #1084 with these numbers.
+      #
+      # The line to watch is "Cache size" against "Max cache size" in the stats step,
+      # and the `du -sm` step beside it, which is there because --show-stats ROUNDS: it
+      # printed "1 GiB" for the arm that measured 1084 MiB.
       SCCACHE_CACHE_SIZE: "900M"
 
     steps:
@@ -1410,6 +1434,21 @@ jobs:
         else
           ccache --show-stats
         fi
+
+    # THE SIZE THIS ENTRY WILL COST THE STORE, measured off the directory rather than
+    # asked of sccache -- the step the asan-windows job has had since #1082, here for
+    # the same two reasons plus a third. `--show-stats` ROUNDS: it printed "1 GiB" for
+    # this job while the sibling arms printed "973 MiB" and "923 MiB", and "1 GiB"
+    # covers everything from 1024 to 2047 MiB, which is the difference between a cap
+    # that clears the object set and one that does not. It also reports a FRESH
+    # server's zeros if the old one exited (run 34048670103). The directory is on disk
+    # either way, and its size is what the compressed entry is charged against the
+    # store's ~9537 MiB wall.
+    - name: Measure the sccache directory
+      if: always() && runner.environment == 'github-hosted'
+      shell: bash
+      run: |
+        du -sm "${SCCACHE_DIR}" 2>/dev/null || echo "SCCACHE_DIR not present"
 
     # THE NUMBER THIS CHANGE IS JUDGED ON is the "Cache hits rate" line printed
     # immediately above, on the SECOND nightly after this lands -- not on a green
@@ -1627,25 +1666,23 @@ jobs:
       # ONE definition of the exclusion, read by the unsharded run, by the
       # `ctest -N` total and by every shard's selection. Three literals that
       # must agree is how a shard comes to COUNT one partition and RUN another.
-      OLO_UBSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
-      # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
-      # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
-      # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
-      # of docs/agent-rules/actions-cache-budget.md is that the store exists for
-      # GITHUB-HOSTED jobs on a PULL REQUEST, and these are neither: same-repo PRs
-      # route them to the box, so only the nightly and fork PRs read these entries and
-      # nobody waits on either.
+      # A FOURTH copy is gpu-sanitizers-amd.yml's `ubsan` arm, which says in its
+      # own comment that it is copied from here -- change it in the same commit.
       #
-      # So they come back at a smaller share: ~800 MiB each, ~2400 MiB for the set,
-      # leaving the fleet ~2.7 GiB under the ceiling instead of ~1.4.
-      #
-      # BE HONEST ABOUT WHAT THAT COSTS. sccache evicts LRU at the cap, and the object
-      # set at 1500M filled 1500M, so a 900M cache cannot hold all of it and the
-      # ACHIEVABLE hit rate is capped below 100 % by this line, not by the pin. That is
-      # a budget decision, not a measurement, and the entry to watch is "Cache size" vs
-      # "Max cache size" in the stats step. If a measured run shows the eviction is
-      # costing more than the room is worth, the argument to make is which existing
-      # entry gives way -- not that this one should quietly grow.
+      # TaskConcurrencyLimiterTest and LowLevelTaskUserDataTest came OFF this
+      # list. They arrived in the #317 era, when the whole Task/Async family was
+      # excluded wholesale on a "Timeouts + SEGFAULTs" note, and were never
+      # re-tried; Windows.yml has since re-enabled that same family after
+      # classifying each suite (see the note above its `--parallel 6`), and the
+      # asan-lsan-linux and tsan-linux jobs here have been running both cases
+      # green all along -- neither one is in their exclusion. Nothing UBSan-
+      # specific was ever recorded about them. Measured green on the hosted
+      # 4-shard arm before this landed; if either ever trips UBSan, the finding
+      # is a scored issue, not a re-exclusion.
+      OLO_UBSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
+      # Keep this byte-identical to asan-lsan-linux's, where the measurement behind it
+      # is written down. Still 900M, and now known to be UNDER all three object sets
+      # (945 / 994 / 1084 MiB), which is why the arms report 94 / 71 / 32 % hit rates.
       SCCACHE_CACHE_SIZE: "900M"
 
     steps:
@@ -1792,6 +1829,21 @@ jobs:
         else
           ccache --show-stats
         fi
+
+    # THE SIZE THIS ENTRY WILL COST THE STORE, measured off the directory rather than
+    # asked of sccache -- the step the asan-windows job has had since #1082, here for
+    # the same two reasons plus a third. `--show-stats` ROUNDS: it printed "1 GiB" for
+    # this job while the sibling arms printed "973 MiB" and "923 MiB", and "1 GiB"
+    # covers everything from 1024 to 2047 MiB, which is the difference between a cap
+    # that clears the object set and one that does not. It also reports a FRESH
+    # server's zeros if the old one exited (run 34048670103). The directory is on disk
+    # either way, and its size is what the compressed entry is charged against the
+    # store's ~9537 MiB wall.
+    - name: Measure the sccache directory
+      if: always() && runner.environment == 'github-hosted'
+      shell: bash
+      run: |
+        du -sm "${SCCACHE_DIR}" 2>/dev/null || echo "SCCACHE_DIR not present"
 
     # THE NUMBER THIS CHANGE IS JUDGED ON is the "Cache hits rate" line printed
     # immediately above, on the SECOND nightly after this lands -- not on a green
@@ -2020,24 +2072,9 @@ jobs:
       # `ctest -N` total and by every shard's selection. Three literals that
       # must agree is how a shard comes to COUNT one partition and RUN another.
       OLO_TSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
-      # OVERRIDES the workflow-level 1500M, DOWNWARDS (#1095). These three entries
-      # were 1252 / 1231 / 1258 MiB at that cap -- 3741 MiB, 55 % of the steady set --
-      # against a ~9.3 GiB wall and cache-prune.yml's 8800 MiB working ceiling. Rule 5
-      # of docs/agent-rules/actions-cache-budget.md is that the store exists for
-      # GITHUB-HOSTED jobs on a PULL REQUEST, and these are neither: same-repo PRs
-      # route them to the box, so only the nightly and fork PRs read these entries and
-      # nobody waits on either.
-      #
-      # So they come back at a smaller share: ~800 MiB each, ~2400 MiB for the set,
-      # leaving the fleet ~2.7 GiB under the ceiling instead of ~1.4.
-      #
-      # BE HONEST ABOUT WHAT THAT COSTS. sccache evicts LRU at the cap, and the object
-      # set at 1500M filled 1500M, so a 900M cache cannot hold all of it and the
-      # ACHIEVABLE hit rate is capped below 100 % by this line, not by the pin. That is
-      # a budget decision, not a measurement, and the entry to watch is "Cache size" vs
-      # "Max cache size" in the stats step. If a measured run shows the eviction is
-      # costing more than the room is worth, the argument to make is which existing
-      # entry gives way -- not that this one should quietly grow.
+      # Keep this byte-identical to asan-lsan-linux's, where the measurement behind it
+      # is written down. Still 900M, and now known to be UNDER all three object sets
+      # (945 / 994 / 1084 MiB), which is why the arms report 94 / 71 / 32 % hit rates.
       SCCACHE_CACHE_SIZE: "900M"
 
     steps:
@@ -2184,6 +2221,21 @@ jobs:
         else
           ccache --show-stats
         fi
+
+    # THE SIZE THIS ENTRY WILL COST THE STORE, measured off the directory rather than
+    # asked of sccache -- the step the asan-windows job has had since #1082, here for
+    # the same two reasons plus a third. `--show-stats` ROUNDS: it printed "1 GiB" for
+    # this job while the sibling arms printed "973 MiB" and "923 MiB", and "1 GiB"
+    # covers everything from 1024 to 2047 MiB, which is the difference between a cap
+    # that clears the object set and one that does not. It also reports a FRESH
+    # server's zeros if the old one exited (run 34048670103). The directory is on disk
+    # either way, and its size is what the compressed entry is charged against the
+    # store's ~9537 MiB wall.
+    - name: Measure the sccache directory
+      if: always() && runner.environment == 'github-hosted'
+      shell: bash
+      run: |
+        du -sm "${SCCACHE_DIR}" 2>/dev/null || echo "SCCACHE_DIR not present"
 
     # THE NUMBER THIS CHANGE IS JUDGED ON is the "Cache hits rate" line printed
     # immediately above, on the SECOND nightly after this lands -- not on a green
@@ -2617,7 +2669,7 @@ jobs:
       OLO_CTEST_SHARDS: ${{ needs.detect-changes.outputs.linux-shards }}
       # The SAME exclusion the build job measured its total with. Copied from the
       # build job's literal by construction -- see the note on that env var.
-      OLO_UBSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
+      OLO_UBSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

@@ -54,6 +54,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md): a CI cache that restores is not
   one that works.
 - [actions-cache-budget.md](actions-cache-budget.md): the Actions cache store is a fixed budget every key must fit in; past the cap it goes read-only and refuses every save in the repo, silently.
+- [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md): set a compiler cache's size cap above the object set it has to hold, measured with `du`, then let the store's worst case overrule the number.
 - [cache-entry-version-is-the-path-string.md](cache-entry-version-is-the-path-string.md): a cache's restore and its save must be handed the same path string, character for character; two spellings of one directory are two caches.
 - [compiler-cache-uncacheable-compiles.md](compiler-cache-uncacheable-compiles.md): print the cache statistics after every CI build and read the uncacheable line; a PCH without `CCACHE_SLOPPINESS` and a per-commit macro each made every engine object a miss.
 - [shader-pack-bake.md](shader-pack-bake.md): the CI-baked `.osp` pack, its content-hash invalidation, and why a fresh worktree does not fetch it.
@@ -307,6 +308,7 @@ The check passes for a correct implementation and for a broken one.
 | [pch-masked-missing-includes.md](pch-masked-missing-includes.md) | A green Windows build says nothing about a header's self-containment: the PCH is in scope everywhere, so 18 of 31 headers that failed a standalone compile built clean. |
 | [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) | A cache has no wrong-looking failure state: it fails by being slow. Every save in the repo had been refused for six days and every run stayed green. |
 | [actions-cache-budget.md](actions-cache-budget.md) | The Windows sccache entry had not existed for weeks. Restore said "Cache not found", save said "your cache is now read only" and exited 0, and the only visible symptom was a build that took four hours. |
+| [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md) | A healthy restore of a current entry that still hits 32 %: `SCCACHE_CACHE_SIZE` was 20 % under the object set. `--show-stats` rounds the size that would have shown it — "1 GiB" for a 1084 MiB directory — and the entry sizes the cap had been argued from were measured while the compiler was still rolling. |
 | [cache-entry-version-is-the-path-string.md](cache-entry-version-is-the-path-string.md) | The vcpkg key matched exactly and the entry was still invisible: restore and save spelled the same directory two ways, so every entry ever written had `last_accessed_at == created_at`. |
 | [compiler-cache-uncacheable-compiles.md](compiler-cache-uncacheable-compiles.md) | The build step takes compile time on a shader-only change while the cache directory is warm. A PCH-using compile is uncacheable without `CCACHE_SLOPPINESS`; a per-commit macro on every TU misses every run. |
 
