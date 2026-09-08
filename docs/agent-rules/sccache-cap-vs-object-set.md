@@ -4,7 +4,6 @@ Issue [#1084](https://github.com/drsnuggles8/OloEngineBase/issues/1084). Compani
 [actions-cache-budget.md](actions-cache-budget.md), which owns the store's arithmetic;
 this file owns the one number that file does not: how big to make a cap.
 
-
 Two numbers, in this order, and the second one wins.
 
 **1. The object set.** Set the cap deliberately too high, run once with the save step
