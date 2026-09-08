@@ -123,7 +123,7 @@ namespace OloEngine
             return ResolveInputExpression(graph, *pin, pinVarNames);
         };
 
-        auto emitOutputVar = [this, &node, &code, &pinVarNames](const std::string& pinName, ShaderGraphPinType type, const std::string& expr)
+        auto emitOutputVar = [&node, &code, &pinVarNames](const std::string& pinName, ShaderGraphPinType type, const std::string& expr)
         {
             const auto* pin = node.FindPinByName(pinName, ShaderGraphPinDirection::Output);
             if (!pin)
@@ -274,7 +274,7 @@ namespace OloEngine
 
             // If the Texture input is unconnected, tex resolves to a non-sampler fallback — emit zero
             const auto* texPin = node.FindPinByName("Texture", ShaderGraphPinDirection::Input);
-            if (bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID))
+            if (texPin != nullptr && graph.GetLinkForInputPin(texPin->ID))
                 code << "    vec4 " << sampleVar << " = texture(" << tex << ", " << uv << ");\n";
             else
                 code << "    vec4 " << sampleVar << " = vec4(0.0);\n";
@@ -301,7 +301,7 @@ namespace OloEngine
             std::string var = MakeVarName(node, *node.FindPinByName("Normal", ShaderGraphPinDirection::Output));
 
             const auto* texPin = node.FindPinByName("Texture", ShaderGraphPinDirection::Input);
-            if (bool texConnected = texPin && graph.GetLinkForInputPin(texPin->ID))
+            if (texPin != nullptr && graph.GetLinkForInputPin(texPin->ID))
             {
                 code << "    vec3 " << var << " = normalize(texture(" << tex << ", " << uv << ").rgb * 2.0 - 1.0);\n";
                 code << "    " << var << ".xy *= " << strength << ";\n";

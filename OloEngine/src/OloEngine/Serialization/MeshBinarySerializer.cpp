@@ -139,11 +139,6 @@ namespace OloEngine
             return static_cast<u64>(out.tellp());
         }
 
-        u64 StreamPos(std::istream& in)
-        {
-            return static_cast<u64>(in.tellg());
-        }
-
         // ── zlib compression ────────────────────────────────────────
         // Deflate/inflate lives in the shared, allocation-hardened
         // Serialization/ZlibSection helper (also used by the .olmap
@@ -344,7 +339,7 @@ namespace OloEngine
             }
 
             // Validate skeleton array sizes — reject mismatches
-            auto const validateSize = [&boneCount, &path](sizet actual, const char* name) -> bool
+            auto const validateSize = [&boneCount](sizet actual, const char* name) -> bool
             {
                 if (static_cast<u32>(actual) != boneCount)
                 {

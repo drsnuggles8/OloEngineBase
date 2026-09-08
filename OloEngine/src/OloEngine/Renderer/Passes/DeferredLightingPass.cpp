@@ -51,7 +51,7 @@ namespace OloEngine
             return;
 
         m_UseMSAAShading = m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1u && static_cast<bool>(m_ShaderMSAA);
-        if (const bool useMSAAShading = m_UseMSAAShading)
+        if (m_UseMSAAShading)
         {
             m_SelectedInputs.GBufferAlbedo = blackboard.GBuffer.GBufferAlbedoMS;
             m_SelectedInputs.GBufferNormal = blackboard.GBuffer.GBufferNormalMS;

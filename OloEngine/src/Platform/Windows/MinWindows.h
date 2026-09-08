@@ -28,13 +28,15 @@
 #endif
 
 // Exclude additional unused services
-#define NOGDICAPMASKS    // CC_*, LC_*, PC_*, CP_*, TC_*, RC_
-#define OEMRESOURCE      // OEM Resource values
-#define NOATOM           // Atom Manager routines
-#define NOKERNEL         // All KERNEL #defines and routines
-#define NOMEMMGR         // GMEM_*, LMEM_*, GHND, LHND, associated routines
-#define NOMETAFILE       // typedef METAFILEPICT
-#define NOMINMAX         // Macros min(a,b) and max(a,b)
+#define NOGDICAPMASKS // CC_*, LC_*, PC_*, CP_*, TC_*, RC_
+#define OEMRESOURCE   // OEM Resource values
+#define NOATOM        // Atom Manager routines
+#define NOKERNEL      // All KERNEL #defines and routines
+#define NOMEMMGR      // GMEM_*, LMEM_*, GHND, LHND, associated routines
+#define NOMETAFILE    // typedef METAFILEPICT
+#ifndef NOMINMAX
+#define NOMINMAX // Macros min(a,b) and max(a,b)
+#endif
 #define NOOPENFILE       // OpenFile(), OemToAnsi, AnsiToOem, and OF_*
 #define NOSCROLL         // SB_* and scrolling routines
 #define NOSERVICE        // All Service Controller routines, SERVICE_ equates, etc.

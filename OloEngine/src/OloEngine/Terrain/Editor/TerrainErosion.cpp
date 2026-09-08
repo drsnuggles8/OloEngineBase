@@ -12,7 +12,10 @@
 namespace OloEngine
 {
     TerrainErosion::TerrainErosion()
-        : m_IterationSeed(static_cast<u32>(RandomUtils::Int32(0, std::numeric_limits<i32>::max()))), m_ErosionShader(ComputeShader::Create("assets/shaders/compute/Terrain_Erosion.comp"))
+        // Declaration order is m_ErosionShader then m_IterationSeed, and that is the order
+        // members are actually initialised in; the list now says so.
+        : m_ErosionShader(ComputeShader::Create("assets/shaders/compute/Terrain_Erosion.comp")),
+          m_IterationSeed(static_cast<u32>(RandomUtils::Int32(0, std::numeric_limits<i32>::max())))
     {
         OLO_PROFILE_FUNCTION();
     }

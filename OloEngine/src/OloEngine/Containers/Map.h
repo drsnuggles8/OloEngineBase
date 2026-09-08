@@ -2123,7 +2123,7 @@ namespace OloEngine
         }
 
         template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
-        u32 IntrinsicAppendHash(const TMap<KeyType, ValueType, SetAllocator, KeyFuncs>* DummyObject, const FTypeLayoutDesc& TypeDesc, const FPlatformTypeLayoutParameters& LayoutParams, FSHA1& Hasher)
+        u32 IntrinsicAppendHash(const TMap<KeyType, ValueType, SetAllocator, KeyFuncs>*, const FTypeLayoutDesc& TypeDesc, const FPlatformTypeLayoutParameters& LayoutParams, FSHA1& Hasher)
         {
             TMap<KeyType, ValueType, SetAllocator, KeyFuncs>::AppendHash(LayoutParams, Hasher);
             return DefaultAppendHash(TypeDesc, LayoutParams, Hasher);
@@ -2143,7 +2143,7 @@ namespace OloEngine
         }
 
         template<typename KeyType, typename ValueType, typename SetAllocator, typename KeyFuncs>
-        u32 IntrinsicAppendHash(const TMultiMap<KeyType, ValueType, SetAllocator, KeyFuncs>* DummyObject, const FTypeLayoutDesc& TypeDesc, const FPlatformTypeLayoutParameters& LayoutParams, FSHA1& Hasher)
+        u32 IntrinsicAppendHash(const TMultiMap<KeyType, ValueType, SetAllocator, KeyFuncs>*, const FTypeLayoutDesc& TypeDesc, const FPlatformTypeLayoutParameters& LayoutParams, FSHA1& Hasher)
         {
             TMultiMap<KeyType, ValueType, SetAllocator, KeyFuncs>::AppendHash(LayoutParams, Hasher);
             return DefaultAppendHash(TypeDesc, LayoutParams, Hasher);

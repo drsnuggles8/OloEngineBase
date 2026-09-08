@@ -126,7 +126,7 @@ namespace OloEngine
         {
             return m_Projection * m_ViewMatrix;
         }
-        [[nodiscard("Store this!")]] const f32 GetDistance() const
+        [[nodiscard("Store this!")]] f32 GetDistance() const
         {
             return m_Distance;
         }
@@ -134,11 +134,11 @@ namespace OloEngine
         {
             return m_Position;
         }
-        [[nodiscard("Store this!")]] const f32 GetPitch() const
+        [[nodiscard("Store this!")]] f32 GetPitch() const
         {
             return m_Pitch;
         }
-        [[nodiscard("Store this!")]] const f32 GetYaw() const
+        [[nodiscard("Store this!")]] f32 GetYaw() const
         {
             return m_Yaw;
         }

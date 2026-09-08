@@ -273,10 +273,9 @@ namespace OloEngine::Tasks
             template<typename PrerequisiteCollectionType, decltype(std::declval<PrerequisiteCollectionType>().begin())* = nullptr>
             void AddPrerequisites(const PrerequisiteCollectionType& InPrerequisites)
             {
-                i32 NumAdded = 0;
                 i32 NumPrereqs = 0;
 
-                for (const auto& Prereq : InPrerequisites)
+                for ([[maybe_unused]] const auto& Prereq : InPrerequisites)
                 {
                     ++NumPrereqs;
                 }

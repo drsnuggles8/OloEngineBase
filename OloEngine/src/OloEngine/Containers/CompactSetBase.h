@@ -54,7 +54,7 @@ namespace OloEngine
         /**
          * @brief Check if set is in unset optional state
          */
-        [[nodiscard]] bool operator==(FIntrusiveUnsetOptionalState Tag) const
+        [[nodiscard]] bool operator==(FIntrusiveUnsetOptionalState) const
         {
             return MaxElements == INDEX_NONE;
         }
@@ -129,7 +129,7 @@ namespace OloEngine
         /**
          * @brief Constructor for intrusive optional unset state
          */
-        [[nodiscard]] explicit TCompactSetBase(FIntrusiveUnsetOptionalState Tag)
+        [[nodiscard]] explicit TCompactSetBase(FIntrusiveUnsetOptionalState)
             : NumElements(0), MaxElements(INDEX_NONE)
         {
         }

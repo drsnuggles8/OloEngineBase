@@ -78,7 +78,7 @@ namespace OloEngine
     // seeds the version field, no schema has changed yet -- but this is
     // where a future breaking change adds a Migrate_VN_to_VNplus1(node) step
     // and a matching `case N:` below.
-    static void MigrateSceneYAML(YAML::Node& data, u32 fromVersion)
+    static void MigrateSceneYAML([[maybe_unused]] YAML::Node& data, u32 fromVersion)
     {
         if (fromVersion >= SceneSerializer::CurrentVersion)
             return;

@@ -9,7 +9,6 @@ namespace OloEngine
     namespace
     {
         constexpr u32 CS = VoxelNeighbourhood::CS;
-        constexpr u32 CS_P = VoxelNeighbourhood::CS_P;
 
         // Which axis each face direction runs along: X = 0, Y = 1, Z = 2.
         constexpr u32 kFaceAxis[6] = { 0, 0, 1, 1, 2, 2 };
