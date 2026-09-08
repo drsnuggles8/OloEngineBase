@@ -6,10 +6,13 @@
 #include "OloEngine/Core/Environment.h"
 #include "OloEngine/Core/Log.h"
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <format>
 #include <limits>
 #include <mutex>
@@ -149,7 +152,40 @@ namespace OloEngine::Levers
         // possibly before Log::Initialize(). So a malformed value is recorded
         // here and reported by LogActive() once the logger is definitely up,
         // rather than logged from inside the seed.
-        constinit std::vector<std::string> s_SeedWarnings;
+        //
+        // Fixed capacity rather than a std::vector<std::string> because this
+        // sink must be constant-initialised for the same reason the four
+        // objects above are: Seed() can run from ANOTHER TU's global
+        // initialiser, and a dynamically-initialised container may not exist
+        // yet at that point. A std::vector cannot be constinit under the MSVC
+        // STL: its default constructor allocates the debug _Container_proxy
+        // (xmemory's _Alloc_proxy, unguarded by is_constant_evaluated), so the
+        // object would have to retain a pointer to heap storage. cl.exe does
+        // not diagnose that; clang-cl does, and is right — which is how this
+        // shape reached master compiling under one Windows compiler only.
+        constexpr sizet kMaxSeedWarnings = 16;
+        constexpr sizet kMaxSeedWarningLength = 256;
+        constinit std::array<std::array<char, kMaxSeedWarningLength>, kMaxSeedWarnings> s_SeedWarnings{};
+        constinit sizet s_SeedWarningCount = 0;
+        // Dropping a warning is itself reported — a lever the environment set
+        // to garbage must never go unmentioned.
+        constinit sizet s_SeedWarningsDropped = 0;
+
+        // Records one seed-time warning. Truncates rather than allocating; the
+        // messages are single-line lever diagnostics well under the cap.
+        void AddSeedWarning(std::string_view message)
+        {
+            if (s_SeedWarningCount >= kMaxSeedWarnings)
+            {
+                ++s_SeedWarningsDropped;
+                return;
+            }
+            std::array<char, kMaxSeedWarningLength>& slot = s_SeedWarnings[s_SeedWarningCount];
+            const sizet length = (std::min)(message.size(), kMaxSeedWarningLength - 1);
+            std::memcpy(slot.data(), message.data(), length);
+            slot[length] = '\0';
+            ++s_SeedWarningCount;
+        }
 
         // "0"/"false" off, "1"/"true" on, anything else leaves the caller's own
         // computed default alone. Deliberately NOT Env::IsTruthy: for these the
@@ -184,8 +220,8 @@ namespace OloEngine::Levers
             {
                 return *parsed;
             }
-            s_SeedWarnings.push_back(std::string(name) + "='" + *raw + "' ignored (must be finite and within [" +
-                                     std::to_string(minValue) + ", " + std::to_string(maxValue) + "])");
+            AddSeedWarning(std::string(name) + "='" + *raw + "' ignored (must be finite and within [" +
+                           std::to_string(minValue) + ", " + std::to_string(maxValue) + "])");
             return kUnsetNumber;
         }
 
@@ -409,11 +445,17 @@ namespace OloEngine::Levers
     {
         Seed();
         // Deferred from the seed, which can run before the logger exists.
-        for (const std::string& warning : s_SeedWarnings)
+        for (sizet i = 0; i < s_SeedWarningCount; ++i)
         {
-            OLO_CORE_WARN("[Levers] {}", warning);
+            OLO_CORE_WARN("[Levers] {}", s_SeedWarnings[i].data());
         }
-        s_SeedWarnings.clear();
+        if (s_SeedWarningsDropped > 0)
+        {
+            OLO_CORE_WARN("[Levers] {} further seed warning(s) dropped (sink holds {})", s_SeedWarningsDropped,
+                          kMaxSeedWarnings);
+        }
+        s_SeedWarningCount = 0;
+        s_SeedWarningsDropped = 0;
 
         if (const std::string summary = ActiveSummary(); !summary.empty())
         {
