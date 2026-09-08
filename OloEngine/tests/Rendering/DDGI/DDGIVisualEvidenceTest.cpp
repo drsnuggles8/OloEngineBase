@@ -202,7 +202,29 @@ namespace OloEngine::Tests
         // red excess by 0.7 grey levels while nearly tripling the margin on
         // the lit side, so the leak contract got RELATIVELY stronger, not
         // weaker. Neither threshold was touched.
-        constexpr f64 kDarkRedExcessCeiling = 5.0;
+        //
+        // #1119 raised the ceiling from 5.0 to 9.0, and the reason is that the
+        // dark side got DARKER, not redder. Fixing the CSM depth bias (it was
+        // metres of world offset, so the sun's shadow sat clear of its caster)
+        // stopped white sunlight spilling past the divider. Measured on the
+        // same box, same seed, bit-identical across three runs:
+        //
+        //   before  dark RGB (39.59, 35.31, 36.52)  red excess 3.07
+        //   after   dark RGB (38.24, 32.86, 32.80)  red excess 5.39
+        //
+        // Dark-side RED fell (39.59 -> 38.24) — no extra red arrived. Green
+        // and blue fell further because the neutral pedestal masking the leak
+        // was itself a rendering error. The lit-side control is unmoved
+        // (43.14 -> 43.22), which is what says the red light's own path — the
+        // local-light ATLAS, whose bias #1119 deliberately left alone — did
+        // not change. So the leak is the same size and the instrument now has
+        // less neutral light diluting it.
+        //
+        // 9.0 keeps the original 1.7x margin over the measurement (5.0 was set
+        // against 2.9). A genuine leak is nowhere near this: the positive
+        // control shows what the red light looks like when it does reach a
+        // band, at +43.
+        constexpr f64 kDarkRedExcessCeiling = 9.0;
         constexpr f64 kLitRedExcessFloor = 15.0;
 
         // --- Test 3 thresholds ----------------------------------------------
