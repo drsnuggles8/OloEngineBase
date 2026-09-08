@@ -442,7 +442,7 @@ void main()
         }
 
         [[nodiscard]] std::vector<SamplerDecl> ActiveSamplerDeclarations(const std::string& source,
-                                                                        RouteMentions routeMentions)
+                                                                         RouteMentions routeMentions)
         {
             struct Frame
             {
@@ -987,8 +987,10 @@ void main()
         // The set CommandDispatch::BindPBRTextures withholds when
         // Shader::ReadsMaterialHeapOffsets() is true.
         static const std::set<u32> kMaterialLocalSlots{
-            ShaderBindingLayout::TEX_DIFFUSE,  ShaderBindingLayout::TEX_SPECULAR,
-            ShaderBindingLayout::TEX_NORMAL,   ShaderBindingLayout::TEX_AMBIENT,
+            ShaderBindingLayout::TEX_DIFFUSE,
+            ShaderBindingLayout::TEX_SPECULAR,
+            ShaderBindingLayout::TEX_NORMAL,
+            ShaderBindingLayout::TEX_AMBIENT,
             ShaderBindingLayout::TEX_EMISSIVE,
         };
 
