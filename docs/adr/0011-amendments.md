@@ -2544,10 +2544,22 @@ per-declaration. (Recorded from the same disassembly: glslang merges every typed
 **two** builtin variables, `resource_heap` and `sampler_heap`, one runtime-array type per element
 type, all `ArrayStrideIdEXT 1`.)
 
-**What changes in the source is one more arm, not a rewrite.** The PBR family's material texture
-block already has two arms behind `#ifdef OLO_BINDLESS`, and the shader BODY is byte-identical
-between them because the maps are reached through macros. The Vulkan arm is a third case in the same
-`#ifdef` redefining the same five names. No shader body changes.
+**What changes in the source is one more arm plus four call sites per shader.** The PBR family's
+material texture block already has two arms behind `#ifdef OLO_BINDLESS`, and the Vulkan arm is a
+third case in the same `#ifdef` redefining the same five names. The BODY is *not* byte-identical
+across all three, and the reason is a GLSL rule rather than a choice: **a combined sampler built from
+a separate texture and sampler must appear at its point of use and cannot cross a function call.**
+glslc rejects `sampleAlbedo(u_AlbedoMap, ...)` on the Vulkan arm with `'call argument' : sampler
+constructor must appear at point of use`, and `PBRCommon.glsl`'s four sample helpers all take a
+`sampler2D` parameter. The GL arm has no such restriction — `GL_ARB_bindless_texture`'s
+`sampler2D(uvec2)` passes as an argument like any sampler — so this is the one place where the two
+bindless arms genuinely cannot share a spelling.
+
+The resolution keeps the fetch at the point of use and leaves GL bit-identical: the four helper
+CALLS become per-arm macros (`OLO_MAT_ALBEDO` and friends). On GL and the slot path they expand to
+the existing `sampleAlbedo(...)` call unchanged; on the Vulkan arm they expand to the same
+expression with the `texture()` inlined, which is `spirv-val` clean and carries `NonUniform` on both
+indices. Four lines per shader, and the helpers themselves are untouched.
 
 **One structural difference from the GL arm, and it costs a lane.** `GL_ARB_bindless_texture` bakes
 sampler state into the `uvec2` handle, so a GL offset is a complete descriptor.
