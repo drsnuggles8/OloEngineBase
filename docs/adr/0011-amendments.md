@@ -7,7 +7,7 @@ a reader, the amendments are what a reader *seeks into*, and keeping ~1,900
 lines of the second in front of the first made every agent pay for the whole
 corpus to read one contract.
 
-**Start with the index in the parent ADR** — it lists all 88 amendments, one
+**Start with the index in the parent ADR** — it lists all 91 amendments, one
 line each, with whether each still binds. Come here for the body of the one you
 need. `#691 amendment (N)` in a code comment means the entry numbered `(N)`
 here.
