@@ -6627,6 +6627,24 @@ namespace OloEngine
             out << YAML::Key << "RTReflectionTraceSunShadowRay" << YAML::Value << pp.RayTracedReflection.TraceSunShadowRay;
             out << YAML::Key << "RTReflectionSkyAmbientLod" << YAML::Value << pp.RayTracedReflection.SkyAmbientLod;
             out << YAML::Key << "RTReflectionTierDebugView" << YAML::Value << pp.RayTracedReflection.TierDebugView;
+            // The GPU reference path tracer (#1055). Nested struct, flat keys,
+            // like the reflection tier above.
+            out << YAML::Key << "GpuPathTracerEnabled" << YAML::Value << pp.GpuPathTracer.Enabled;
+            out << YAML::Key << "GpuPathTracerSamplesPerFrame" << YAML::Value << pp.GpuPathTracer.SamplesPerFrame;
+            out << YAML::Key << "GpuPathTracerMaxSamples" << YAML::Value << pp.GpuPathTracer.MaxSamples;
+            out << YAML::Key << "GpuPathTracerMaxBounces" << YAML::Value << pp.GpuPathTracer.MaxBounces;
+            out << YAML::Key << "GpuPathTracerRussianRouletteStartBounce" << YAML::Value << pp.GpuPathTracer.RussianRouletteStartBounce;
+            out << YAML::Key << "GpuPathTracerSeed" << YAML::Value << pp.GpuPathTracer.Seed;
+            out << YAML::Key << "GpuPathTracerNextEventEstimation" << YAML::Value << pp.GpuPathTracer.EnableNextEventEstimation;
+            out << YAML::Key << "GpuPathTracerSampleTextures" << YAML::Value << pp.GpuPathTracer.SampleTextures;
+            out << YAML::Key << "GpuPathTracerMaxRadianceClamp" << YAML::Value << pp.GpuPathTracer.MaxRadianceClamp;
+            out << YAML::Key << "GpuPathTracerRayEpsilon" << YAML::Value << pp.GpuPathTracer.RayEpsilon;
+            out << YAML::Key << "GpuPathTracerMaxRayDistance" << YAML::Value << pp.GpuPathTracer.MaxRayDistance;
+            out << YAML::Key << "GpuPathTracerUniformEnvironmentRadiance" << YAML::Value << pp.GpuPathTracer.UniformEnvironmentRadiance;
+            out << YAML::Key << "GpuPathTracerEnvironmentCubeIntensity" << YAML::Value << pp.GpuPathTracer.EnvironmentCubeIntensity;
+            out << YAML::Key << "GpuPathTracerDebugView" << YAML::Value << static_cast<u32>(pp.GpuPathTracer.DebugView);
+            out << YAML::Key << "GpuPathTracerSampleCountDisplayScale" << YAML::Value << pp.GpuPathTracer.SampleCountDisplayScale;
+            out << YAML::Key << "GpuPathTracerVarianceDisplayScale" << YAML::Value << pp.GpuPathTracer.VarianceDisplayScale;
             out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
             out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
             out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
@@ -6862,6 +6880,36 @@ namespace OloEngine
             TrySet(pp.RayTracedReflection.TraceSunShadowRay, ppNode["RTReflectionTraceSunShadowRay"]);
             TrySet(pp.RayTracedReflection.SkyAmbientLod, ppNode["RTReflectionSkyAmbientLod"]);
             TrySet(pp.RayTracedReflection.TierDebugView, ppNode["RTReflectionTierDebugView"]);
+            // #1055. Same absent-key rule; every float is sanitized below, the
+            // integers are clamped to the shader's compile-time loop bounds,
+            // and an out-of-range debug view falls back to radiance.
+            {
+                auto& pt = pp.GpuPathTracer;
+                TrySet(pt.Enabled, ppNode["GpuPathTracerEnabled"]);
+                TrySet(pt.SamplesPerFrame, ppNode["GpuPathTracerSamplesPerFrame"]);
+                TrySet(pt.MaxSamples, ppNode["GpuPathTracerMaxSamples"]);
+                TrySet(pt.MaxBounces, ppNode["GpuPathTracerMaxBounces"]);
+                TrySet(pt.RussianRouletteStartBounce, ppNode["GpuPathTracerRussianRouletteStartBounce"]);
+                TrySet(pt.Seed, ppNode["GpuPathTracerSeed"]);
+                TrySet(pt.EnableNextEventEstimation, ppNode["GpuPathTracerNextEventEstimation"]);
+                TrySet(pt.SampleTextures, ppNode["GpuPathTracerSampleTextures"]);
+                TrySet(pt.MaxRadianceClamp, ppNode["GpuPathTracerMaxRadianceClamp"]);
+                TrySet(pt.RayEpsilon, ppNode["GpuPathTracerRayEpsilon"]);
+                TrySet(pt.MaxRayDistance, ppNode["GpuPathTracerMaxRayDistance"]);
+                TrySet(pt.UniformEnvironmentRadiance, ppNode["GpuPathTracerUniformEnvironmentRadiance"]);
+                TrySet(pt.EnvironmentCubeIntensity, ppNode["GpuPathTracerEnvironmentCubeIntensity"]);
+                u32 debugView = static_cast<u32>(pt.DebugView);
+                TrySet(debugView, ppNode["GpuPathTracerDebugView"]);
+                // An out-of-range value is turned back into Radiance by the
+                // sanitizer below; the cast itself is defined for any u32.
+                pt.DebugView = static_cast<GpuPathTracerDebugView>(debugView);
+                TrySet(pt.SampleCountDisplayScale, ppNode["GpuPathTracerSampleCountDisplayScale"]);
+                TrySet(pt.VarianceDisplayScale, ppNode["GpuPathTracerVarianceDisplayScale"]);
+
+                // The ONE sanitizer every path shares (GpuPathTracerTypes.h):
+                // loop bounds, finite floats, ranges, the enum's range.
+                pt = SanitizeGpuPathTracerSettings(pt);
+            }
             TrySet(pp.SSGIEnabled, ppNode["SSGIEnabled"]);
             TrySet(pp.SSGIIntensity, ppNode["SSGIIntensity"]);
             TrySet(pp.SSGIMaxDistance, ppNode["SSGIMaxDistance"]);
@@ -7272,6 +7320,24 @@ namespace OloEngine
             out << YAML::Key << "RTReflectionTraceSunShadowRay" << YAML::Value << pp.RayTracedReflection.TraceSunShadowRay;
             out << YAML::Key << "RTReflectionSkyAmbientLod" << YAML::Value << pp.RayTracedReflection.SkyAmbientLod;
             out << YAML::Key << "RTReflectionTierDebugView" << YAML::Value << pp.RayTracedReflection.TierDebugView;
+            // The GPU reference path tracer (#1055). Nested struct, flat keys,
+            // like the reflection tier above.
+            out << YAML::Key << "GpuPathTracerEnabled" << YAML::Value << pp.GpuPathTracer.Enabled;
+            out << YAML::Key << "GpuPathTracerSamplesPerFrame" << YAML::Value << pp.GpuPathTracer.SamplesPerFrame;
+            out << YAML::Key << "GpuPathTracerMaxSamples" << YAML::Value << pp.GpuPathTracer.MaxSamples;
+            out << YAML::Key << "GpuPathTracerMaxBounces" << YAML::Value << pp.GpuPathTracer.MaxBounces;
+            out << YAML::Key << "GpuPathTracerRussianRouletteStartBounce" << YAML::Value << pp.GpuPathTracer.RussianRouletteStartBounce;
+            out << YAML::Key << "GpuPathTracerSeed" << YAML::Value << pp.GpuPathTracer.Seed;
+            out << YAML::Key << "GpuPathTracerNextEventEstimation" << YAML::Value << pp.GpuPathTracer.EnableNextEventEstimation;
+            out << YAML::Key << "GpuPathTracerSampleTextures" << YAML::Value << pp.GpuPathTracer.SampleTextures;
+            out << YAML::Key << "GpuPathTracerMaxRadianceClamp" << YAML::Value << pp.GpuPathTracer.MaxRadianceClamp;
+            out << YAML::Key << "GpuPathTracerRayEpsilon" << YAML::Value << pp.GpuPathTracer.RayEpsilon;
+            out << YAML::Key << "GpuPathTracerMaxRayDistance" << YAML::Value << pp.GpuPathTracer.MaxRayDistance;
+            out << YAML::Key << "GpuPathTracerUniformEnvironmentRadiance" << YAML::Value << pp.GpuPathTracer.UniformEnvironmentRadiance;
+            out << YAML::Key << "GpuPathTracerEnvironmentCubeIntensity" << YAML::Value << pp.GpuPathTracer.EnvironmentCubeIntensity;
+            out << YAML::Key << "GpuPathTracerDebugView" << YAML::Value << static_cast<u32>(pp.GpuPathTracer.DebugView);
+            out << YAML::Key << "GpuPathTracerSampleCountDisplayScale" << YAML::Value << pp.GpuPathTracer.SampleCountDisplayScale;
+            out << YAML::Key << "GpuPathTracerVarianceDisplayScale" << YAML::Value << pp.GpuPathTracer.VarianceDisplayScale;
             out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
             out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
             out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;

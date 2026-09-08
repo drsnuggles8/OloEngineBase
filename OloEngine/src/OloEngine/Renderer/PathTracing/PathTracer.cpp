@@ -49,6 +49,125 @@ namespace OloEngine::PathTracing
         // whichever side the outgoing direction leaves. Using the GEOMETRIC
         // normal (not the shading one) is what actually prevents self-hits: an
         // interpolated normal can point into the triangle plane.
+        // ---- the sphere-area light model ---------------------------------
+        // Defined HERE and mirrored function for function by GpuPathTracer.glsl
+        // (PtViewSphereLight, PtSphereConePdf, PtSphereLightPoint): a sphere of
+        // radius r at c, seen from x at distance d, is a uniform emitter whose
+        // radiance reproduces the raster path's diffuse irradiance at x:
+        //
+        //     E(x) = C * I * window(d)     with window(d) = ((1 - (d/range)^2)+)^2 / (d^2 + 1)
+        //
+        // (calculateSphereAreaLightContribution's attenuation). A sphere of
+        // radiance L fully above the horizon delivers E = pi * L * r^2 / d^2, so
+        // L(x) = E(x) * d^2 / (pi * r^2). The radiance depends on the RECEIVER's
+        // distance, exactly as the point light's attenuation does — the
+        // reference mirrors the engine's light definitions, it does not replace
+        // them. Sampled by uniform solid angle over the subtended cone; a
+        // BSDF-sampled ray that hits the sphere is weighted against that cone.
+        // Sphere lights are visible emitters to camera and bounce rays and do
+        // not occlude shadow rays (the raster's lights are not geometry).
+        struct SphereLightView
+        {
+            bool Valid = false;
+            f32 Distance = 0.0f;
+            f32 CosThetaMax = 1.0f;
+            glm::vec3 Radiance{ 0.0f };
+        };
+
+        [[nodiscard]] SphereLightView ViewSphereLight(const ReferenceLight& light, const glm::vec3& from) noexcept
+        {
+            SphereLightView view;
+            const glm::vec3 toCenter = light.Position - from;
+            const f32 distance = glm::length(toCenter);
+            const f32 radius = light.Radius;
+            const f32 range = light.AttenuationParams.w;
+            if (!(radius > 0.0f) || !(distance > radius) || distance > range)
+                return view;
+            const f32 distRatio = distance / std::max(range, 1e-6f);
+            const f32 window = std::max(1.0f - distRatio * distRatio, 0.0f);
+            const f32 attenuation = window * window / (distance * distance + 1.0f);
+            view.Valid = true;
+            view.Distance = distance;
+            view.CosThetaMax = std::sqrt(std::max(0.0f, 1.0f - (radius * radius) / (distance * distance)));
+            view.Radiance = light.Color * light.Intensity * attenuation * (distance * distance) / (kPi * radius * radius);
+            return view;
+        }
+
+        // Density of a uniform direction inside the cone, per solid angle.
+        [[nodiscard]] f32 SphereConePdf(f32 cosThetaMax) noexcept
+        {
+            const f32 solidAngle = 2.0f * kPi * (1.0f - cosThetaMax);
+            return solidAngle > 0.0f ? 1.0f / solidAngle : 0.0f;
+        }
+
+        // Distance along a cone direction (cos theta from the centre direction)
+        // to the sphere's near surface, by the law of cosines — no
+        // intersection test, so a boundary sample never "misses" on one tracer
+        // and hits on the other.
+        [[nodiscard]] f32 SphereLightPointDistance(f32 distance, f32 radius, f32 cosTheta) noexcept
+        {
+            const f32 sinThetaSq = std::max(0.0f, 1.0f - cosTheta * cosTheta);
+            return distance * cosTheta - std::sqrt(std::max(0.0f, radius * radius - distance * distance * sinThetaSq));
+        }
+
+        // Nearest sphere light a ray reaches before `tMax`, or none.
+        [[nodiscard]] bool IntersectSphereLights(const ReferenceScene& scene, const glm::vec3& origin,
+                                                 const glm::vec3& direction, f32 tMax, u32& outLight, f32& outT) noexcept
+        {
+            bool found = false;
+            const auto& lights = scene.GetLights();
+            for (u32 i = 0; i < static_cast<u32>(lights.size()); ++i)
+            {
+                const ReferenceLight& light = lights[i];
+                if (light.Type != ReferenceLightType::SphereArea || !(light.Radius > 0.0f))
+                    continue;
+                // A sphere the origin is inside of, or past the range of, is
+                // transparent — it has no radiance to give this ray, and a
+                // black disc where a light stopped contributing is not what
+                // the raster shows either.
+                const glm::vec3 oc = origin - light.Position;
+                const f32 centreDistance = glm::length(oc);
+                if (!(centreDistance > light.Radius) || centreDistance > light.AttenuationParams.w)
+                    continue;
+                const f32 b = glm::dot(oc, direction);
+                const f32 c = glm::dot(oc, oc) - light.Radius * light.Radius;
+                const f32 discriminant = b * b - c;
+                if (discriminant < 0.0f)
+                    continue;
+                const f32 root = std::sqrt(discriminant);
+                f32 t = -b - root;
+                if (!(t > 0.0f))
+                    t = -b + root;
+                if (!(t > 0.0f) || !(t < tMax))
+                    continue;
+                found = true;
+                tMax = t;
+                outLight = i;
+                outT = t;
+            }
+            return found;
+        }
+
+        // A shadow ray is blocked by geometry OR by a sphere light in the way:
+        // closest-hit rays stop at a sphere, so shadow rays must too, or the
+        // two MIS strategies would disagree about what is visible along one
+        // direction. The segment ends `epsilon` short of its target, so a ray
+        // aimed AT a sphere light's surface does not count that sphere.
+        [[nodiscard]] bool ShadowRayBlocked(const ReferenceScene& scene, const glm::vec3& from, const glm::vec3& to,
+                                            f32 epsilon) noexcept
+        {
+            if (scene.IsOccluded(from, to, epsilon))
+                return true;
+            const glm::vec3 delta = to - from;
+            const f32 distance = glm::length(delta);
+            if (!(distance > 2.0f * epsilon))
+                return false;
+            u32 light = 0;
+            f32 t = 0.0f;
+            return IntersectSphereLights(scene, from + delta / distance * epsilon, delta / distance,
+                                         distance - 2.0f * epsilon, light, t);
+        }
+
         [[nodiscard]] glm::vec3 OffsetOrigin(const glm::vec3& position, const glm::vec3& geometricNormal,
                                              const glm::vec3& direction, f32 epsilon)
         {
@@ -108,6 +227,9 @@ namespace OloEngine::PathTracing
                         shadowTarget = light.Position;
                         break;
                     }
+                    case ReferenceLightType::SphereArea:
+                        // An AREA light: sampled below with its own dimensions.
+                        continue;
                 }
 
                 // Mirrors calculateLightContribution's early-outs, epsilon and
@@ -121,7 +243,7 @@ namespace OloEngine::PathTracing
                     continue;
 
                 const glm::vec3 shadowOrigin = OffsetOrigin(position, geometricNormal, l, settings.RayEpsilon);
-                if (scene.IsOccluded(shadowOrigin, shadowTarget, settings.RayEpsilon))
+                if (ShadowRayBlocked(scene, shadowOrigin, shadowTarget, settings.RayEpsilon))
                     continue;
 
                 const glm::vec3 radiance = light.Color * light.Intensity * attenuation;
@@ -160,7 +282,7 @@ namespace OloEngine::PathTracing
                             {
                                 const glm::vec3 shadowOrigin =
                                     OffsetOrigin(position, geometricNormal, l, settings.RayEpsilon);
-                                if (!scene.IsOccluded(shadowOrigin, lightSample.Position, settings.RayEpsilon))
+                                if (!ShadowRayBlocked(scene, shadowOrigin, lightSample.Position, settings.RayEpsilon))
                                 {
                                     const glm::vec3 brdf = EvaluateBRDF(material, n, v, l);
                                     const f32 pdfBsdf = BsdfPdf(n, v, l, material);
@@ -173,6 +295,43 @@ namespace OloEngine::PathTracing
                 }
             }
 
+            // ONE MIS-weighted sample per sphere light, in light order, two
+            // dimensions each — drawn before the validity test so every pixel
+            // spends the same dimensions (the GPU twin walks the same order).
+            for (const ReferenceLight& light : scene.GetLights())
+            {
+                if (light.Type != ReferenceLightType::SphereArea)
+                    continue;
+                const glm::vec2 xi = sampler.Get2D();
+                const SphereLightView view = ViewSphereLight(light, position);
+                if (!view.Valid)
+                    continue;
+                const f32 pdfSolidAngle = SphereConePdf(view.CosThetaMax);
+                if (!(pdfSolidAngle > 0.0f))
+                    continue;
+                // Uniform in the cone around the centre direction.
+                const f32 cosTheta = 1.0f - xi.x * (1.0f - view.CosThetaMax);
+                const f32 sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+                const f32 phi = 2.0f * kPi * xi.y;
+                const glm::vec3 toCenter = (light.Position - position) / view.Distance;
+                glm::vec3 tangent, bitangent;
+                OrthonormalBasis(toCenter, tangent, bitangent);
+                const glm::vec3 l = tangent * (sinTheta * std::cos(phi)) + bitangent * (sinTheta * std::sin(phi)) +
+                                    toCenter * cosTheta;
+                const f32 nDotL = glm::dot(n, l);
+                if (!(nDotL > 0.0f))
+                    continue;
+                const f32 t = SphereLightPointDistance(view.Distance, light.Radius, cosTheta);
+                if (!(t > 0.0f))
+                    continue;
+                const glm::vec3 shadowOrigin = OffsetOrigin(position, geometricNormal, l, settings.RayEpsilon);
+                if (ShadowRayBlocked(scene, shadowOrigin, position + l * t, settings.RayEpsilon))
+                    continue;
+                const glm::vec3 brdf = EvaluateBRDF(material, n, v, l);
+                const f32 pdfBsdf = BsdfPdf(n, v, l, material);
+                const f32 misWeight = PowerHeuristic(pdfSolidAngle, pdfBsdf);
+                direct += brdf * nDotL * view.Radiance * (misWeight / pdfSolidAngle);
+            }
             return direct;
         }
     } // namespace
@@ -342,6 +501,10 @@ namespace OloEngine::PathTracing
         // sample it for this vertex.
         bool previousScatterWasDelta = true;
         f32 previousBsdfPdf = 0.0f;
+        // The vertex the current ray left, UN-offset: the cone density and
+        // radiance a sphere-light hit is weighted with must be the ones NEE
+        // evaluated at that shading point, not at the epsilon-offset origin.
+        glm::vec3 previousVertex = ray.Origin;
 
         const bool hasEmissiveGeometry = !scene.GetEmissiveTriangles().empty();
         const bool neeSamplesEmitters = settings.EnableNextEventEstimation && hasEmissiveGeometry;
@@ -349,7 +512,30 @@ namespace OloEngine::PathTracing
         for (u32 bounce = 0; bounce < settings.MaxBounces; ++bounce)
         {
             SurfaceInteraction hit;
-            if (!scene.Intersect(ray, hit))
+            const bool hitGeometry = scene.Intersect(ray, hit);
+
+            // A sphere light nearer than the geometry is the path's last
+            // vertex: its radiance, weighted against the cone NEE would have
+            // drawn it from at the previous vertex, and the path ends there
+            // (the emitter is black to reflection). Not in the BVH: analytic.
+            u32 sphereLight = 0;
+            f32 sphereT = 0.0f;
+            if (IntersectSphereLights(scene, ray.Origin, ray.Direction,
+                                      hitGeometry ? hit.Distance : std::numeric_limits<f32>::max(), sphereLight,
+                                      sphereT))
+            {
+                const SphereLightView view = ViewSphereLight(scene.GetLights()[sphereLight], previousVertex);
+                if (view.Valid)
+                {
+                    const f32 misWeight = (previousScatterWasDelta || !settings.EnableNextEventEstimation)
+                                              ? 1.0f
+                                              : PowerHeuristic(previousBsdfPdf, SphereConePdf(view.CosThetaMax));
+                    radiance += throughput * view.Radiance * misWeight;
+                }
+                break;
+            }
+
+            if (!hitGeometry)
             {
                 // The environment is uniform and is never NEE-sampled, so it
                 // always arrives at full weight.
@@ -357,7 +543,9 @@ namespace OloEngine::PathTracing
                 break;
             }
 
-            const ReferenceMaterial& material = scene.GetMaterial(hit.MaterialIndex);
+            // The material as the hit sees it: factors times maps at the hit's
+            // UV (the normal map is already in hit.ShadingNormal).
+            const ReferenceMaterial material = scene.ResolveMaterial(hit);
             const glm::vec3 v = -ray.Direction;
 
             // ---- emitted radiance --------------------------------------------
@@ -429,6 +617,7 @@ namespace OloEngine::PathTracing
                 throughput /= survival;
             }
 
+            previousVertex = hit.Position;
             ray = Ray(OffsetOrigin(hit.Position, geometricNormal, bsdf.Direction, settings.RayEpsilon),
                       bsdf.Direction, 0.0f, std::numeric_limits<f32>::max());
         }

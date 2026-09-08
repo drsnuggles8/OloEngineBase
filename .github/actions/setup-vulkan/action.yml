@@ -2,9 +2,19 @@ name: 'Setup Vulkan SDK'
 description: 'Install Vulkan SDK with centralized version management'
 inputs:
   version:
+    # 1.4.357.0 (#1055): an SDK whose glslang/shaderc compiles
+    # GL_EXT_descriptor_heap, which the ray-query path tracer's shaders
+    # declare (ADR 0011 amendment (95)); it is also the SDK the engine is
+    # developed against. On 1.4.321.0 the SDK's shaderc
+    # rejected the extension and ShaderCompilation.AllProductionShaders-
+    # CompileUnderVulkanTarget failed on every hosted Windows job. The
+    # self-hosted runners carry their own SDK (docs/ops/self-hosted-gpu-runner.md)
+    # and ignore this default. Bumping it mints new
+    # `<OS>-vulkan-prebuilt-sdk-true-<version>` cache entries; the old ones
+    # age out through cache-prune.yml's 30-day rule.
     description: 'Vulkan SDK version'
     required: false
-    default: '1.4.321.0'
+    default: '1.4.357.0'
   cache:
     description: 'Enable caching'
     required: false

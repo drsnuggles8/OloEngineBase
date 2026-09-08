@@ -91,6 +91,16 @@ namespace OloEngine
         [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage, RHI::NullSamplerKind kind) const -> u64 override;
         [[nodiscard]] auto NullStorageDescriptor(RHI::Format format) const -> u64 override;
 
+        // Shader-side heap indexing (amendment (95)): byte offsets into the
+        // resource / sampler heap for a shader that declares
+        // `layout(descriptor_heap, descriptor_stride = 1)` arrays. Resolved
+        // through the same slot cache the draw path binds textures through
+        // (VulkanRendererAPI::BindTexture), so a texture the raster frame
+        // samples and one a ray-query shader samples are one descriptor.
+        [[nodiscard]] auto IsShaderHeapIndexingSupported() const -> bool override;
+        [[nodiscard]] auto ResolveShaderHeapTexture(RHI::ResourceHandle texture) -> u32 override;
+        [[nodiscard]] auto ResolveShaderHeapSampler(const RHI::SamplerDesc& sampler) -> u32 override;
+
         // Write the null descriptor of `type` at an arbitrary heap slot —
         // the poison/prefill primitive the slot cache and the install path
         // share (a freed or never-written slot must read deterministic

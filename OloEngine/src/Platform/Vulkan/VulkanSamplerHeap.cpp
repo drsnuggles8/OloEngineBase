@@ -7,6 +7,7 @@
 #include <shared_mutex>
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
+#include <algorithm>
 #include <bit>
 #include <mutex>
 
@@ -179,6 +180,111 @@ namespace OloEngine
         OLO_CORE_INFO("[Vulkan] Sampler heap created: {} slots x {} B stride (+{} B reserved)", kSlotCapacity,
                       m_DescriptorStride, m_SlotRegionOffset);
         return true;
+    }
+
+    VkSamplerCreateInfo VulkanSamplerHeap::CreateInfoFromDesc(const RHI::SamplerDesc& sampler)
+    {
+        VkSamplerCreateInfo samplerInfo{};
+        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter = sampler.MagFilter == RHI::Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+        samplerInfo.minFilter = sampler.MinFilter == RHI::Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+        samplerInfo.mipmapMode =
+            sampler.LinearMipFilter ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        const auto toAddressMode = [](const RHI::AddressMode mode)
+        {
+            switch (mode)
+            {
+                case RHI::AddressMode::Repeat:
+                    return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                case RHI::AddressMode::MirroredRepeat:
+                    return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+                case RHI::AddressMode::ClampToEdge:
+                    return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                case RHI::AddressMode::ClampToBorder:
+                    return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+            }
+            return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        };
+        samplerInfo.addressModeU = toAddressMode(sampler.AddressU);
+        samplerInfo.addressModeV = toAddressMode(sampler.AddressV);
+        samplerInfo.addressModeW = toAddressMode(sampler.AddressW);
+        samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+        // Compare::Never means "comparison disabled", not "compare with NEVER"
+        // — the SamplerDesc contract. This is what makes sampler2DArrayShadow
+        // reads legal on this backend: the ShadowDepthSampler desc carries the
+        // comparison the GLSL declaration requires.
+        if (sampler.Compare != RHI::CompareOp::Never)
+        {
+            samplerInfo.compareEnable = VK_TRUE;
+            switch (sampler.Compare)
+            {
+                case RHI::CompareOp::Never: // unreachable — guarded above
+                    break;
+                case RHI::CompareOp::Less:
+                    samplerInfo.compareOp = VK_COMPARE_OP_LESS;
+                    break;
+                case RHI::CompareOp::Equal:
+                    samplerInfo.compareOp = VK_COMPARE_OP_EQUAL;
+                    break;
+                case RHI::CompareOp::LessOrEqual:
+                    samplerInfo.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+                    break;
+                case RHI::CompareOp::Greater:
+                    samplerInfo.compareOp = VK_COMPARE_OP_GREATER;
+                    break;
+                case RHI::CompareOp::NotEqual:
+                    samplerInfo.compareOp = VK_COMPARE_OP_NOT_EQUAL;
+                    break;
+                case RHI::CompareOp::GreaterOrEqual:
+                    samplerInfo.compareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+                    break;
+                case RHI::CompareOp::Always:
+                    samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+                    break;
+            }
+        }
+        if (sampler.MaxAnisotropy > 1.0f)
+        {
+            // anisotropyEnable is legal only with the samplerAnisotropy feature
+            // on (VUID-VkSamplerCreateInfo-anisotropyEnable-01070) and a degree
+            // within the device limit (-01071). Without the feature the sampler
+            // is filed isotropic: a valid descriptor that filters less, rather
+            // than a validation error and a null sampler.
+            const auto* device = VulkanDevice::Get();
+            if (device != nullptr && device->IsSamplerAnisotropyEnabled())
+            {
+                samplerInfo.anisotropyEnable = VK_TRUE;
+                samplerInfo.maxAnisotropy = std::clamp(sampler.MaxAnisotropy, 1.0f, device->GetMaxSamplerAnisotropy());
+            }
+            else
+            {
+                // Said once per process, not per sampler: the slot is cached
+                // for the process lifetime, so every later request with the
+                // same description is the same degraded sampler.
+                static std::once_flag s_IsotropicFallbackWarned;
+                std::call_once(s_IsotropicFallbackWarned,
+                               [&sampler]
+                               {
+                                   OLO_CORE_WARN("VulkanSamplerHeap: a sampler asked for {}x anisotropy but this "
+                                                 "device does not enable samplerAnisotropy - filed isotropic (this "
+                                                 "and every later such sampler; reported once)",
+                                                 sampler.MaxAnisotropy);
+                               });
+            }
+        }
+        switch (sampler.Border)
+        {
+            case RHI::BorderColor::TransparentBlack:
+                samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+                break;
+            case RHI::BorderColor::OpaqueBlack:
+                samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+                break;
+            case RHI::BorderColor::OpaqueWhite:
+                samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+                break;
+        }
+        return samplerInfo;
     }
 
     u32 VulkanSamplerHeap::GetOrCreateSlot(const VkSamplerCreateInfo& info)

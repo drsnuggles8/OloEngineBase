@@ -912,6 +912,22 @@ namespace OloEngine
         return (record.Flags & GPUSceneMaterialFlagActive) != 0u ? &record : nullptr;
     }
 
+    u32 GPUScene::GetLightSlotCount() const
+    {
+        return static_cast<u32>(m_Impl->m_Lights.m_Slots.size());
+    }
+
+    const GPUSceneLight* GPUScene::GetLiveLightRecordBySlot(u32 slot) const
+    {
+        const auto& table = m_Impl->m_Lights;
+        if (slot >= table.m_Slots.size() || !table.m_Slots[slot].m_Live)
+        {
+            return nullptr;
+        }
+        const GPUSceneLight& record = table.m_Records[slot];
+        return (record.Flags & GPUSceneLightFlagActive) != 0u ? &record : nullptr;
+    }
+
     const glm::vec3& GPUScene::GetRenderOrigin() const
     {
         return m_Impl->m_RenderOrigin;

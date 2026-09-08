@@ -74,6 +74,26 @@ namespace OloEngine
         [[nodiscard]] virtual u32 GetSize() const = 0;
         [[nodiscard]] virtual u32 GetBinding() const = 0;
 
+        // The PERSISTENT buffer's device address, for a shader that reaches
+        // this buffer through GL_EXT_buffer_reference rather than a binding
+        // slot (issue #1055's emissive-triangle table is the first consumer).
+        // Zero when the active backend does not expose buffer device addresses
+        // (OpenGL) — the same contract VertexBuffer / IndexBuffer::GetDeviceAddress
+        // carry. Resize mints a new one, so resolve it every frame after the
+        // last SetData rather than caching it.
+        [[nodiscard]] virtual u64 GetDeviceAddress() const
+        {
+            return 0;
+        }
+
+        // A binding number meaning "publish at no slot". For a buffer that is
+        // only ever reached by device address (GL_EXT_buffer_reference): both
+        // backends skip the construction-time and Bind()-time publication, so
+        // the buffer never touches the shared indexed-binding state. The
+        // portable SSBO namespace is full (ShaderBindingLayout.h); this is how
+        // a by-address buffer stays out of it rather than squatting on a slot.
+        static constexpr u32 kNoBinding = 0xFFFFFFFFu;
+
         static Ref<StorageBuffer> Create(u32 size, u32 binding, StorageBufferUsage usage = StorageBufferUsage::DynamicDraw);
     };
 } // namespace OloEngine

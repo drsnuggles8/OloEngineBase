@@ -4,9 +4,11 @@
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace OloEngine
@@ -124,6 +126,18 @@ namespace OloEngine
                         "Renderer3D::BeginGPUSceneExtraction called twice before EndScene");
         s_Data.SceneGPU.BeginExtraction(ownerToken, s_Data.RenderOrigin);
         s_Data.GPUSceneExtractionActive = true;
+        // The path tracer's area-light gather (#1055) rides the same
+        // extraction; it costs nothing while the tracer is off or its shader
+        // never loaded, which is the state every CI runner is in. Keyed on the
+        // PASS having a shader, not on the device query: a shader that failed
+        // to compile, or OLO_VULKAN_NO_RAY_TRACING=1 on a capable device, would
+        // otherwise build a table every frame that nothing reads.
+        const GpuPathTracerPass* pathTracer = GetGpuPathTracerPass();
+        const bool gatherForPathTracer =
+            s_Data.PostProcess.GpuPathTracer.Enabled && pathTracer != nullptr && pathTracer->IsShaderLoaded();
+        s_Data.PathTracerEmissive.BeginFrame(s_Data.RenderOrigin, gatherForPathTracer);
+        s_Data.PathTracerMaterialTextures.BeginFrame(gatherForPathTracer &&
+                                                     s_Data.PostProcess.GpuPathTracer.SampleTextures);
         // The link table is per frame and indices into it are handed to draw
         // packets, so it is cleared here and nowhere else: a stale entry would
         // give this frame's draw last frame's record.
@@ -189,6 +203,16 @@ namespace OloEngine
 
     void Renderer3D::ExtractGPUSceneMaterial(const GPUSceneMaterialKey& key, const Material& material)
     {
+        // The path tracer's gather learns HERE, where the Material is in hand,
+        // which keys emit; its QueueSubmesh drops every other key. Before the
+        // staged-already return: the note is per frame, the staging may not be.
+        if (s_Data.GPUSceneExtractionActive)
+        {
+            const glm::vec3 emissive(material.GetEmissiveFactor());
+            if (std::max({ emissive.x, emissive.y, emissive.z }) > 0.0f)
+                s_Data.PathTracerEmissive.NoteEmissiveMaterial(key);
+        }
+
         if (!s_Data.GPUSceneExtractionActive ||
             key.m_Source == std::to_underlying(GPUSceneMaterialSource::Unresolvable) ||
             s_Data.SceneGPU.IsMaterialStaged(key))
@@ -265,6 +289,9 @@ namespace OloEngine
                                             .m_WorldTransform = worldTransform,
                                             .m_Material = materialKey,
                                         });
+        // Queued, not walked: the material record this submesh emits with does
+        // not exist until the commit at EndScene, where the table resolves it.
+        s_Data.PathTracerEmissive.QueueSubmesh(meshSource, submeshIndex, worldTransform, materialKey);
 
         if (linkRequest == GPUSceneDrawLinkRequest::None)
         {

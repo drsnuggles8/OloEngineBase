@@ -49,6 +49,7 @@
 #include "OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
 #include "OloEngine/Renderer/Passes/ColorBlindRenderPass.h"
 #include "OloEngine/Renderer/Passes/RayTracedReflectionPass.h"
+#include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
@@ -73,6 +74,10 @@ namespace OloEngine
         Ref<RayTracedReflectionPass> RayTracedReflection;
         Ref<SSRRenderPass> SSR;
         Ref<ContactShadowRenderPass> ContactShadow;
+        // The GPU reference path tracer (#1055). Registered AFTER the whole
+        // screen-space chain and BEFORE the upscalers: its colour replaces the
+        // rasterised one at the top of the pre-Bloom alias chain.
+        Ref<GpuPathTracerPass> GpuPathTracer;
         Ref<EASURenderPass> EASU;
         Ref<FSR2RenderPass> FSR2; // #684 temporal upscale; the Technique setting picks it OR EASU, never both
         Ref<DepthVelocityUpscalePass> DepthVelocityUpscale;
@@ -104,6 +109,7 @@ namespace OloEngine
             RayTracedReflection.Reset();
             SSR.Reset();
             ContactShadow.Reset();
+            GpuPathTracer.Reset();
             EASU.Reset();
             FSR2.Reset();
             DepthVelocityUpscale.Reset();

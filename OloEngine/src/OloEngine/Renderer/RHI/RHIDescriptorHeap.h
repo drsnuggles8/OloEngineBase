@@ -296,6 +296,41 @@ namespace OloEngine::RHI
         // treatment, not one axis with more cases.
         [[nodiscard("a cleared image binding reads this — dropping it leaves the slot undefined")]] virtual auto
         NullStorageDescriptor(Format format) const -> u64 = 0;
+
+        // ---------------------------------------------------------------------
+        // Shader-side heap indexing (ADR 0011 amendment (95)). A shader that
+        // has no OpenGL twin (one that already needs a Vulkan-only extension,
+        // such as GL_EXT_ray_query) may index the descriptor heap ITSELF with
+        // GL_EXT_descriptor_heap instead of declaring classic bindings — the
+        // capability issue #805 asked for, scoped to the shaders where it costs
+        // the "one SPIR-V, both backends" property nothing. The two resolvers
+        // hand such a shader the BYTE offset of a descriptor in the resource /
+        // sampler heap (the shader declares `descriptor_stride = 1`, so a byte
+        // offset is the index it wants; the heap's slot region and descriptor
+        // size are then the backend's business alone). Independent of the
+        // engine heap's enablement lever: these are the backend's own
+        // persistent slots, the ones the draw path binds through.
+        //
+        // Default: unsupported. OpenGL never indexes a heap from a shader.
+        // ---------------------------------------------------------------------
+        [[nodiscard]] virtual auto IsShaderHeapIndexingSupported() const -> bool
+        {
+            return false;
+        }
+        // A persistent sampled-image descriptor for `texture` (whole image, all
+        // mips), or HeapOffset::Invalid when the resource is dead, not an image
+        // of this backend, or the heap is unavailable.
+        [[nodiscard]] virtual auto ResolveShaderHeapTexture(ResourceHandle texture) -> u32
+        {
+            (void)texture;
+            return HeapOffset::Invalid;
+        }
+        // A sampler descriptor for `sampler`, deduplicated by state.
+        [[nodiscard]] virtual auto ResolveShaderHeapSampler(const SamplerDesc& sampler) -> u32
+        {
+            (void)sampler;
+            return HeapOffset::Invalid;
+        }
     };
 
     // -------------------------------------------------------------------------

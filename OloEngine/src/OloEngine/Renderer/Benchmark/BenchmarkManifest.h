@@ -120,6 +120,13 @@ namespace OloEngine::Benchmark
         // TAA is exactly that (the PostProcessSettings scene deserializer does
         // not carry TAAEnabled) — the temporal-history axis needs it pinned.
         std::optional<bool> TAAEnabled;
+        // The GPU reference path tracer (#1055), stored in PostProcessSettings
+        // like TAA but pinned here because a capture of its AOVs is only
+        // meaningful with the tracer on and a stated sample budget: the warm-up
+        // frames ARE the accumulation, so the per-frame sample count decides
+        // how converged the captured planes are.
+        std::optional<bool> GpuPathTracerEnabled;
+        std::optional<u32> GpuPathTracerSamplesPerFrame;
     };
 
     struct BenchmarkManifest

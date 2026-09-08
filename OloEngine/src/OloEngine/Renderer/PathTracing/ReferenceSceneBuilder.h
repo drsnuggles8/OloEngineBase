@@ -145,6 +145,7 @@ namespace OloEngine::PathTracing
         void AddDirectionalLight(const DirectionalLightComponent& light);
         void AddPointLight(const PointLightComponent& light, const glm::vec3& position);
         void AddSpotLight(const SpotLightComponent& light, const glm::vec3& position);
+        void AddSphereAreaLight(const SphereAreaLightComponent& light, const glm::vec3& position);
 
         // Convenience: walk a live Scene. Every entity carrying a
         // MeshComponent with a set m_MeshSource — minus skinned entities
