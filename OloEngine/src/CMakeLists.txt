@@ -1603,6 +1603,8 @@
 
 		"OloEngine/Gameplay/Destruction/DestructibleSystem.h"
 		"OloEngine/Gameplay/Destruction/DestructibleSystem.cpp"
+		"OloEngine/Gameplay/Destruction/StructuralGraph.h"
+		"OloEngine/Gameplay/Destruction/StructuralGraph.cpp"
 
 		"OloEngine/Gameplay/Quest/QuestObjective.h"
 		"OloEngine/Gameplay/Quest/QuestRequirement.h"

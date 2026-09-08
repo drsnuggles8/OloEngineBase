@@ -133,6 +133,7 @@
 #include "OloEngine/AI/Flocking/FlockingSystem.h"
 #include "OloEngine/AI/Perception/PerceptionSystem.h"
 #include "OloEngine/Gameplay/Destruction/DestructibleSystem.h"
+#include "OloEngine/Gameplay/Destruction/StructuralGraph.h"
 #include "OloEngine/Gameplay/Discovery/DiscoverySystem.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
@@ -349,7 +350,8 @@ namespace OloEngine
     Scene::Scene()
         : m_JoltScene(std::make_unique<JoltScene>(this)), m_GameplayEventBus(std::make_unique<GameplayEventBus>()),
           m_UINavigation(std::make_unique<UINavigation>()),
-          m_FlockingWorkspace(std::make_unique<FlockingWorkspace>())
+          m_FlockingWorkspace(std::make_unique<FlockingWorkspace>()),
+          m_StructuralGraph(std::make_unique<StructuralGraph>())
     {
         // Pre-create every EnTT storage/group the Parallelizable gameplay systems
         // (issue #453: Abilities, Audio) touch, on the constructing thread. EnTT's
@@ -3498,15 +3500,22 @@ namespace OloEngine
                             { s.UpdateDiscovery(ts); })
                 .Reads(kLocalTransforms);
 
-            // Destructibles (issue #459): shatter breakables into debris and age
-            // out / budget-evict existing debris. Reads source transforms (hence
-            // kLocalTransforms — the read-after-write edge from PhysicsFence pins it
-            // post-physics, so a break spawned this tick uses settled positions, and
-            // a JointBrokeEvent published inside the fence is visible in time). It
-            // makes STRUCTURAL registry changes (spawns/destroys entities directly,
-            // Inventory-style: accumulate during the view walk, act after it), so it
-            // MUST stay unmarked — a Parallelizable mark would apply EnTT structural
-            // changes on a worker, exactly the corruption the audit table forbids.
+            // Destructibles (issues #459 / #786): advance progressive collapse,
+            // shatter breakables into debris, and age out / budget-evict existing
+            // debris. Reads source transforms (hence kLocalTransforms — the
+            // read-after-write edge from PhysicsFence pins it post-physics, so a
+            // break spawned this tick uses settled positions, and a JointBrokeEvent
+            // published inside the fence is visible in time). It makes STRUCTURAL
+            // registry changes (spawns/destroys entities directly, Inventory-style:
+            // accumulate during the view walk, act after it), so it MUST stay
+            // unmarked — a Parallelizable mark would apply EnTT structural changes
+            // on a worker, exactly the corruption the audit table forbids.
+            //
+            // Collapse (#786) lives on THIS node rather than its own: a break, the
+            // loss of support it causes and the debris the collapse produces are
+            // three steps of one tick's story, and it needs the same post-fence pin
+            // — switching a condemned piece's rigidbody to Dynamic is a body-
+            // interface write, which must not race the physics step.
             sched.AddSystem("Destructible", [](Scene& s, Timestep ts)
                             { s.UpdateDestructibles(ts); })
                 .Reads(kLocalTransforms);

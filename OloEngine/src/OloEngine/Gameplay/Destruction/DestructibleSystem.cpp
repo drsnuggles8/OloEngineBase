@@ -8,6 +8,7 @@
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Gameplay/Abilities/Damage/CombatEvents.h" // EntityKilledEvent
 #include "OloEngine/Gameplay/GameplayEventBus.h"
+#include "OloEngine/Gameplay/Destruction/StructuralGraph.h"
 #include "OloEngine/Physics3D/JoltBody.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h" // EForceMode
@@ -141,6 +142,165 @@ namespace OloEngine
             }
         }
 
+        // ── Progressive collapse (issue #786) ───────────────────────────────
+        // Three helpers, all field-writes only: the collapse state machine never
+        // creates or destroys an entity, so it is safe to run inside the
+        // StructuralNodeComponent view walk. Everything structural still happens
+        // in OnUpdate's phases 3 and 4.
+
+        [[nodiscard]] f32 SanitizeSeconds(f32 seconds, f32 fallback)
+        {
+            return (std::isfinite(seconds) && seconds >= 0.0f) ? seconds : fallback;
+        }
+
+        // Hand a condemned piece to physics: it stops being part of the building
+        // and starts being a falling object. Returns true if a rigidbody actually
+        // took over — a piece with no body cannot fall, and shatters immediately
+        // instead of pretending to.
+        [[nodiscard]] bool ReleaseToPhysics(Scene* scene, Entity entity)
+        {
+            JoltScene* physics = scene->GetPhysicsScene();
+            if (!physics || !entity.HasComponent<Rigidbody3DComponent>())
+                return false;
+
+            auto body = physics->GetBody(entity);
+            if (!body)
+                return false;
+
+            if (body->GetBodyType() != EBodyType::Dynamic)
+            {
+                if (!body->CanBecomeDynamic())
+                {
+                    // The body was built before this entity had a
+                    // StructuralNodeComponent, so Jolt allocated it no
+                    // MotionProperties and switching its motion type would
+                    // assert. That happens whenever a piece is assembled
+                    // rigidbody-first at runtime (a prefab spawn, a test), and
+                    // making it an ordering rule would be a trap. Rebuild the
+                    // body instead: CreateBodySettings now sees the structural
+                    // component and asks Jolt for a body that can move.
+                    entity.GetComponent<Rigidbody3DComponent>().m_Type = BodyType3D::Dynamic;
+                    // Drop our own reference BEFORE the replacement exists.
+                    // ~JoltBody removes the Jolt body and zeroes the entity's
+                    // m_RuntimeBodyToken; if the old one is still referenced here
+                    // it destructs after CreateBody and wipes the NEW body's
+                    // token, leaving a live Jolt body nothing can find again.
+                    body = nullptr;
+                    physics->DestroyBody(entity);
+                    body = physics->CreateBody(entity);
+                    if (!body)
+                    {
+                        OLO_CORE_WARN("StructuralCollapse: entity {} lost its rigidbody while detaching; the piece "
+                                      "will shatter in place instead of falling",
+                                      static_cast<u64>(entity.GetUUID()));
+                        return false;
+                    }
+                }
+                else
+                {
+                    body->SetBodyType(EBodyType::Dynamic);
+                }
+
+                // Re-derive the OBJECT layer from the body type that is now
+                // current. Without this the piece keeps the NON_MOVING layer it
+                // was created on, and NON_MOVING pairs do not collide — a
+                // collapsing wall would fall through itself and through the
+                // ground. Deliberately NOT the DEBRIS layer: rubble that piles up
+                // and can knock the player over is the point of a collapse; the
+                // debris this piece eventually shatters into is what goes to
+                // DEBRIS, through the #459 path.
+                body->SetCollisionLayer(body->GetCollisionLayer());
+            }
+            body->Activate();
+            return true;
+        }
+
+        // Advance every condemned piece one tick. Appends the UUID of each piece
+        // that LEFT the structure this tick — those are the seeds for the
+        // re-solve, and re-solving is what makes the collapse cascade rather than
+        // stop at the first ring.
+        void AdvanceCollapse(Scene* scene, StructuralGraph& graph, f32 dtSeconds, std::vector<UUID>& detached)
+        {
+            OLO_PROFILE_FUNCTION();
+
+            for (auto view = scene->GetAllEntitiesWith<StructuralNodeComponent>(); auto e : view)
+            {
+                Entity ent{ e, scene };
+                auto& node = ent.GetComponent<StructuralNodeComponent>();
+                if (node.m_State == StructuralState::Stable || node.m_State == StructuralState::Collapsed)
+                    continue;
+
+                node.m_StateTimer -= dtSeconds;
+                if (node.m_StateTimer > 0.0f)
+                    continue;
+
+                if (node.m_State == StructuralState::Detaching)
+                {
+                    // Until this moment the piece was still standing and still
+                    // holding up whatever rested on it. THIS is where it stops —
+                    // which is why the next ring up only becomes unsupported now,
+                    // and the wall peels instead of vanishing.
+                    const UUID id = ent.GetUUID();
+                    graph.MarkRemoved(id);
+                    detached.push_back(id);
+
+                    const bool falling = ReleaseToPhysics(scene, ent);
+                    node.m_State = StructuralState::Falling;
+                    node.m_StateTimer = falling ? SanitizeSeconds(node.m_FallDuration, 0.0f) : 0.0f;
+                    if (node.m_StateTimer > 0.0f)
+                        continue;
+                }
+
+                // The fall is over (or there was never a body to fall with).
+                node.m_State = StructuralState::Collapsed;
+                node.m_StateTimer = 0.0f;
+                if (!node.m_ShatterOnCollapse || !ent.HasComponent<DestructibleComponent>())
+                    continue;
+
+                // Hand off to the #459 break path: the shatter, the DEBRIS layer
+                // and the global live-debris budget are all already there, and a
+                // collapse that spawned unbudgeted debris would be a frame-time
+                // bug wearing a feature's clothes.
+                auto& dc = ent.GetComponent<DestructibleComponent>();
+                if (!dc.m_Broken)
+                {
+                    dc.m_Health = 0.0f;
+                    dc.m_PendingBreak = true;
+                }
+            }
+        }
+
+        // Re-run the support flood over the islands that lost a piece, and put
+        // every newly unsupported piece on the clock.
+        void PropagateLostSupport(Scene* scene, StructuralGraph& graph, const std::vector<UUID>& removed)
+        {
+            OLO_PROFILE_FUNCTION();
+
+            std::vector<UUID> unsupported;
+            std::vector<u32> hops;
+            graph.SolveUnsupported(removed, unsupported, hops);
+
+            for (sizet i = 0; i < unsupported.size(); ++i)
+            {
+                auto opt = scene->TryGetEntityWithUUID(unsupported[i]);
+                if (!opt)
+                    continue;
+                Entity ent = *opt;
+                if (!ent.HasComponent<StructuralNodeComponent>())
+                    continue;
+                auto& node = ent.GetComponent<StructuralNodeComponent>();
+                if (node.m_State != StructuralState::Stable)
+                    continue;
+
+                // Stagger by hop distance from the break so the collapse ripples
+                // outwards. A zero delay is a legitimate authoring choice (drop
+                // the whole unsupported set at once); it just is not the default.
+                node.m_State = StructuralState::Detaching;
+                node.m_CollapseHops = hops[i];
+                node.m_StateTimer = SanitizeSeconds(node.m_CollapseDelay, 0.0f) * static_cast<f32>(hops[i] + 1u);
+            }
+        }
+
         // Flag a destructible for shattering. Called from bus handlers, so it does a
         // field write only (no structural change) — safe mid-iteration.
         void MarkForBreak(Scene* scene, UUID id, bool viaJoint)
@@ -209,6 +369,15 @@ namespace OloEngine
 
         OLO_PROFILE_FUNCTION();
 
+        // ── Phase 0: progressive collapse (issue #786) ──
+        // Advance the collapse state machine before breaks are collected, so a
+        // piece whose fall ended this tick shatters on this tick rather than the
+        // next one. Field writes only; nothing structural happens here.
+        StructuralGraph& graph = scene->GetStructuralGraph();
+        graph.EnsureBuilt(scene);
+        std::vector<UUID> leftTheStructure;
+        AdvanceCollapse(scene, graph, dtSeconds, leftTheStructure);
+
         // ── Phase 1: collect breaks (field writes only — no structural change) ──
         std::vector<BreakRequest> breaks;
         std::vector<entt::entity> sourcesToDestroy;
@@ -225,6 +394,23 @@ namespace OloEngine
             dc.m_Broken = true;
             dc.m_PendingBreak = false;
             dc.m_Health = 0.0f;
+
+            // A shattered piece is out of the structure whatever put it there —
+            // a direct hit, a combat kill, or the end of its own fall. Seeding
+            // the re-solve from here is what makes a hit on the base of a wall
+            // bring the wall down.
+            if (ent.HasComponent<StructuralNodeComponent>())
+            {
+                auto& node = ent.GetComponent<StructuralNodeComponent>();
+                if (node.m_State != StructuralState::Collapsed)
+                {
+                    node.m_State = StructuralState::Collapsed;
+                    node.m_StateTimer = 0.0f;
+                }
+                const UUID id = ent.GetUUID();
+                graph.MarkRemoved(id);
+                leftTheStructure.push_back(id);
+            }
 
             // Sanitize authored physics inputs to finite values before they reach
             // Jolt. The OLO_SERIALIZE(Clamp) annotations only guard the deserialize
@@ -257,6 +443,14 @@ namespace OloEngine
             if (dc.m_DestroyOnBreak)
                 sourcesToDestroy.push_back(e);
         }
+
+        // ── Phase 1b: propagate the loss of support ──
+        // Only the islands that actually lost a piece are re-flooded; the rest of
+        // the scene is not touched. Newly unsupported pieces start their collapse
+        // delay now and come down on a later tick, which is what turns one break
+        // into a cascade rather than a single simultaneous drop.
+        if (!leftTheStructure.empty())
+            PropagateLostSupport(scene, graph, leftTheStructure);
 
         // ── Phase 2: age debris; collect expired + surviving (age, entity) ──
         std::vector<entt::entity> debrisToDestroy;

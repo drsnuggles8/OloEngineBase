@@ -941,6 +941,14 @@ registry.push_back(OLO_VSF_FIELD(StreamingVolumeComponent, "UnloadRadius", Unloa
 
 static void BuildRegistryChunk12(std::vector<ComponentFieldEntry>& registry)
 {
+// StructuralNodeComponent
+registry.push_back(OLO_VSF_FIELD(StructuralNodeComponent, "Anchor", m_Anchor, Bool));
+registry.push_back(OLO_VSF_FIELD_RANGE(StructuralNodeComponent, "ContactMargin", m_ContactMargin, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(10.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(StructuralNodeComponent, "MaxLateralSpan", m_MaxLateralSpan, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(64)));
+registry.push_back(OLO_VSF_FIELD_RANGE(StructuralNodeComponent, "CollapseDelay", m_CollapseDelay, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(60.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(StructuralNodeComponent, "FallDuration", m_FallDuration, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(60.0f)));
+registry.push_back(OLO_VSF_FIELD(StructuralNodeComponent, "ShatterOnCollapse", m_ShatterOnCollapse, Bool));
+
 // SubmeshComponent
 registry.push_back(OLO_VSF_FIELD(SubmeshComponent, "SubmeshIndex", m_SubmeshIndex, Int));
 registry.push_back(OLO_VSF_FIELD(SubmeshComponent, "Visible", m_Visible, Bool));

@@ -108,6 +108,7 @@ TRY_LOAD_COMPONENT(SpriteRendererComponent);
 TRY_LOAD_COMPONENT(StarNestSkyComponent);
 TRY_LOAD_COMPONENT(StateMachineComponent);
 TRY_LOAD_COMPONENT(StreamingVolumeComponent);
+TRY_LOAD_COMPONENT(StructuralNodeComponent);
 TRY_LOAD_COMPONENT(SubmeshComponent);
 TRY_LOAD_COMPONENT(TagComponent);
 TRY_LOAD_COMPONENT(TerrainComponent);

@@ -108,6 +108,7 @@ SAVE_COMPONENT(SpriteRendererComponent, entity, writer);
 SAVE_COMPONENT(StarNestSkyComponent, entity, writer);
 SAVE_COMPONENT(StateMachineComponent, entity, writer);
 SAVE_COMPONENT(StreamingVolumeComponent, entity, writer);
+SAVE_COMPONENT(StructuralNodeComponent, entity, writer);
 SAVE_COMPONENT(SubmeshComponent, entity, writer);
 SAVE_COMPONENT(TagComponent, entity, writer);
 SAVE_COMPONENT(TerrainComponent, entity, writer);

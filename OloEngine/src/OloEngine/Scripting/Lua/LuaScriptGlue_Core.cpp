@@ -426,6 +426,32 @@ namespace OloEngine
                                                 "destroyOnBreak", &DestructibleComponent::m_DestroyOnBreak,
                                                 "broken", sol::readonly(&DestructibleComponent::m_Broken));
 
+        // --- StructuralNodeComponent (issue #786) ---
+        // Membership in a support graph. A script can ground a piece (`anchor`),
+        // retune the collapse timing, or read how far through the collapse a piece
+        // is. `state` is read-only and numeric — 0 Stable, 1 Detaching, 2 Falling,
+        // 3 Collapsed — because the solver owns it; a script that wants a piece to
+        // come down should damage its Destructible instead, which is the seam the
+        // whole system is built on.
+        lua.new_usertype<StructuralNodeComponent>("StructuralNodeComponent",
+                                                  "anchor", &StructuralNodeComponent::m_Anchor,
+                                                  "contactMargin", sol::property([](const StructuralNodeComponent& c)
+                                                                                 { return c.m_ContactMargin; }, [](StructuralNodeComponent& c, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.0f && v <= 10.0f) c.m_ContactMargin = v; }),
+                                                  "maxLateralSpan", sol::property([](const StructuralNodeComponent& c)
+                                                                                  { return static_cast<int>(c.m_MaxLateralSpan); }, [](StructuralNodeComponent& c, int v)
+                                                                                  { if (v >= 0) c.m_MaxLateralSpan = static_cast<u32>(v > 64 ? 64 : v); }),
+                                                  "collapseDelay", sol::property([](const StructuralNodeComponent& c)
+                                                                                 { return c.m_CollapseDelay; }, [](StructuralNodeComponent& c, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.0f && v <= 60.0f) c.m_CollapseDelay = v; }),
+                                                  "fallDuration", sol::property([](const StructuralNodeComponent& c)
+                                                                                { return c.m_FallDuration; }, [](StructuralNodeComponent& c, f32 v)
+                                                                                { if (std::isfinite(v) && v >= 0.0f && v <= 60.0f) c.m_FallDuration = v; }),
+                                                  "shatterOnCollapse", &StructuralNodeComponent::m_ShatterOnCollapse,
+                                                  "state", sol::readonly_property([](const StructuralNodeComponent& c)
+                                                                                  { return static_cast<int>(c.m_State); }),
+                                                  "collapseHops", sol::readonly(&StructuralNodeComponent::m_CollapseHops));
+
         // --- BoxCollider3DComponent ---
         lua.new_usertype<BoxCollider3DComponent>("BoxCollider3DComponent",
                                                  "halfExtents", sol::property([](const BoxCollider3DComponent& c)

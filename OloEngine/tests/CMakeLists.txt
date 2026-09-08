@@ -1166,6 +1166,7 @@ add_executable(OloEngine-Tests
 		Functional/Gameplay/DamageKillsEntityAndFlipsDeathTagTest.cpp
 		Functional/Gameplay/WeaponImpactUsesGameplayDamageTest.cpp
 		Functional/Gameplay/DestructibleDebrisTest.cpp
+		Functional/Gameplay/StructuralCollapseTest.cpp
 		Functional/Gameplay/QuestObjectiveCompletionAdvancesStageTest.cpp
 		Functional/Gameplay/PeriodicDamageEffectTicksHealthDownTest.cpp
 		Functional/AI/StateMachineTransitionsViaSceneTickTest.cpp

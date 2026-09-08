@@ -1816,6 +1816,33 @@ namespace OloEngine
 		internal static extern void StreamingVolumeComponent_SetUnloadRadius(ulong entityID, float value);
 		#endregion
 
+		#region StructuralNodeComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool StructuralNodeComponent_GetAnchor(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StructuralNodeComponent_SetAnchor(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StructuralNodeComponent_GetContactMargin(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StructuralNodeComponent_SetContactMargin(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint StructuralNodeComponent_GetMaxLateralSpan(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StructuralNodeComponent_SetMaxLateralSpan(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StructuralNodeComponent_GetCollapseDelay(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StructuralNodeComponent_SetCollapseDelay(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float StructuralNodeComponent_GetFallDuration(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StructuralNodeComponent_SetFallDuration(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool StructuralNodeComponent_GetShatterOnCollapse(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void StructuralNodeComponent_SetShatterOnCollapse(ulong entityID, bool value);
+		#endregion
+
 		#region TerrainComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float TerrainComponent_GetWorldSizeX(ulong entityID);

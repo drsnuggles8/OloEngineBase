@@ -9114,6 +9114,136 @@ static void StreamingVolumeComponent_SetUnloadRadius(UUID entityID, float value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// StructuralNodeComponent                                                        //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool StructuralNodeComponent_GetAnchor(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    return comp.m_Anchor;
+}
+
+static void StructuralNodeComponent_SetAnchor(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    comp.m_Anchor = value;
+}
+
+static float StructuralNodeComponent_GetContactMargin(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    return comp.m_ContactMargin;
+}
+
+static void StructuralNodeComponent_SetContactMargin(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    comp.m_ContactMargin = value;
+}
+
+static unsigned int StructuralNodeComponent_GetMaxLateralSpan(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    return comp.m_MaxLateralSpan;
+}
+
+static void StructuralNodeComponent_SetMaxLateralSpan(UUID entityID, unsigned int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    comp.m_MaxLateralSpan = value;
+}
+
+static float StructuralNodeComponent_GetCollapseDelay(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    return comp.m_CollapseDelay;
+}
+
+static void StructuralNodeComponent_SetCollapseDelay(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    comp.m_CollapseDelay = value;
+}
+
+static float StructuralNodeComponent_GetFallDuration(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    return comp.m_FallDuration;
+}
+
+static void StructuralNodeComponent_SetFallDuration(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    comp.m_FallDuration = value;
+}
+
+static bool StructuralNodeComponent_GetShatterOnCollapse(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    return comp.m_ShatterOnCollapse;
+}
+
+static void StructuralNodeComponent_SetShatterOnCollapse(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<StructuralNodeComponent>();
+    comp.m_ShatterOnCollapse = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // TerrainComponent                                                               //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

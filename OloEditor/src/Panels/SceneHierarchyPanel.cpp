@@ -2124,9 +2124,11 @@ namespace OloEngine
             DisplayAddComponentEntry<DiscoverableComponent>("Discoverable");
             DisplayAddComponentEntry<DiscoveredSetComponent>("Discovered Set");
 
-            // Destructible (issue #459). Shipped without an editor entry, so the
-            // component could only be attached through YAML or a script.
+            // Destruction (issues #459 / #786). Destructible turns an object into
+            // debris on damage; Structural Node makes a set of destructibles hold
+            // each other up, so removing one brings down what it was carrying.
             DisplayAddComponentEntry<DestructibleComponent>("Destructible");
+            DisplayAddComponentEntry<StructuralNodeComponent>("Structural Node");
 
             ImGui::Separator();
 
@@ -7228,6 +7230,42 @@ namespace OloEngine
                 ImGui::Checkbox("Broken (runtime)", &broken);
                 ImGui::EndDisabled(); });
 
+        // Structural node (issue #786) — membership in a support graph. Adjacency
+        // is DERIVED from collider bounds at runtime, so there is nothing to author
+        // here but the anchor flag and the timing of the collapse.
+        DrawComponent<StructuralNodeComponent>("Structural Node", entity, [](auto& component)
+                                               {
+                ImGui::Checkbox("Anchor", &component.m_Anchor);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Ground piece: the support flood starts here and this piece never collapses.\nA structure with no anchor comes down entirely on the first break (and says so in the log).");
+
+                ImGui::DragFloat("Contact Margin", &component.m_ContactMargin, 0.005f, 0.0f, 10.0f, "%.3f m");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Slack added to this piece's bounds when deciding what it touches. Authored blocks rarely sit exactly flush.");
+
+                int maxSpan = static_cast<int>(component.m_MaxLateralSpan);
+                if (ImGui::DragInt("Max Lateral Span", &maxSpan, 0.1f, 0, 64))
+                    component.m_MaxLateralSpan = static_cast<u32>(std::clamp(maxSpan, 0, 64));
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How many sideways steps along a bonded course load may travel before it needs something underneath again.\n0 = no cantilever: a piece must sit on something. Without a limit a wall never partially collapses.");
+
+                ImGui::SeparatorText("Collapse");
+                ImGui::DragFloat("Collapse Delay", &component.m_CollapseDelay, 0.01f, 0.0f, 60.0f, "%.3f s");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Per hop of distance from the break. 0 drops the whole unsupported set on one tick.");
+                ImGui::DragFloat("Fall Duration", &component.m_FallDuration, 0.05f, 0.0f, 60.0f, "%.2f s");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How long a detached piece falls as one rigidbody before it shatters. Needs a Rigidbody 3D; without one the piece shatters as soon as it detaches.");
+                ImGui::Checkbox("Shatter On Collapse", &component.m_ShatterOnCollapse);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Needs a Destructible on this entity. Off = the piece just keeps falling as one body.");
+
+                ImGui::SeparatorText("Runtime");
+                const char* stateNames[] = { "Stable", "Detaching", "Falling", "Collapsed" };
+                const u8 stateIndex = static_cast<u8>(component.m_State);
+                ImGui::Text("State: %s", stateIndex < IM_ARRAYSIZE(stateNames) ? stateNames[stateIndex] : "?");
+                ImGui::Text("Timer: %.3f s", static_cast<double>(component.m_StateTimer));
+                ImGui::Text("Hops from break: %u", component.m_CollapseHops); });
 
         // Aircraft (issue #438) — a force-based fixed-wing flight model.
         DrawComponent<AircraftComponent>("Aircraft", entity, [](auto& component)

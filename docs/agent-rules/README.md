@@ -132,6 +132,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [terrain-collision-streaming-sculpt.md](terrain-collision-streaming-sculpt.md): streamed tile bodies live in a second `JoltScene` map, and tile pose must match the draw transform exactly.
 - [procedural-skinned-mesh-primitives.md](procedural-skinned-mesh-primitives.md): code-built test meshes need a live GL context and a shared bind-pose origin.
 - [destructible-debris.md](destructible-debris.md): pre-authored debris chunks, and two unrelated physics layer numberings.
+- [structural-collapse.md](structural-collapse.md): anchors are explicit, sideways load transfer is charged for so a wall can partially collapse, and a static piece can only be made dynamic if its body was built expecting it.
 - [audio-voice-budget.md](audio-voice-budget.md): admit the voice cap inside `Play()`, because sounds start from six call sites.
 
 ## Scripting, networking and tooling
@@ -242,6 +243,7 @@ The same fact written in more than one place, with nothing enforcing agreement.
 | [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | Four subsystems hold world-space state outside the rebased set. |
 | [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md) | The packed-quad layout lives in `VoxelQuad.h` and `VoxelQuadUnpack.glsl`, and a mismatch compiles. |
 | [destructible-debris.md](destructible-debris.md) | Two unrelated physics layer numberings; `SetCollisionLayer(Debris)` never reaches Jolt's `DEBRIS`. |
+| [structural-collapse.md](structural-collapse.md) | Jolt allocates `MotionProperties` at body-creation time, so a `Static` body cannot become `Dynamic` unless it was created with `mAllowDynamicOrKinematic`; an unanchored structure stands until the first break and then vanishes entirely. |
 | [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | Four uint packings in C++ and four GLSL files; a wrong bit renders plausible wrong content. |
 | [gpu-scene-record-contract.md](gpu-scene-record-contract.md) | Five records in `GPUSceneTypes.h` and `include/GPUScene.glsl`, pinned by `static_assert` and a SPIRV-Cross reflection test over member names, offsets and stride. |
 | [gpu-scene-record-contract.md §7](gpu-scene-record-contract.md#7-the-raster-consumer-a-draw-link-resolved-once-per-frame) | Every raster path that has not migrated keeps its own previous-frame transform, and a second scene representation grows one convenient copy at a time. Pinned by `GPUSceneAntiDuplicationRatchetTest`, which requires every duplicating source file to be named in `GPUSceneLegacyAdapters.h` and every name there to still duplicate. |

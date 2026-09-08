@@ -691,6 +691,18 @@ if (entity.HasComponent<SpringBoneComponent>())
     SceneBinIO::Write(out, comp.Weight);
 }
 
+if (entity.HasComponent<StructuralNodeComponent>())
+{
+    SceneBinIO::WriteU32(out, 2489598917u); // StructuralNodeComponent
+    auto const& comp = entity.GetComponent<StructuralNodeComponent>();
+    SceneBinIO::Write(out, comp.m_Anchor);
+    SceneBinIO::Write(out, comp.m_ContactMargin);
+    SceneBinIO::Write(out, comp.m_MaxLateralSpan);
+    SceneBinIO::Write(out, comp.m_CollapseDelay);
+    SceneBinIO::Write(out, comp.m_FallDuration);
+    SceneBinIO::Write(out, comp.m_ShatterOnCollapse);
+}
+
 if (entity.HasComponent<TilemapComponent>())
 {
     SceneBinIO::WriteU32(out, 4161997664u); // TilemapComponent

@@ -1339,6 +1339,117 @@ namespace OloEngine
         }
     };
 
+    // Where a structural piece is in the collapse sequence (issue #786). Runtime
+    // only — an authored scene always starts every piece Stable.
+    enum class StructuralState : u8
+    {
+        // Standing, with a support path to an anchor.
+        Stable = 0,
+        // The solver found no support path. Condemned, but still standing (and
+        // still supporting its neighbours) until m_StateTimer runs out — that
+        // delay is what turns a simultaneous drop into a progressive crumble.
+        Detaching = 1,
+        // Cut loose from the structure: it no longer supports anything, and its
+        // rigidbody (if it has one) has been switched to Dynamic so it topples.
+        Falling = 2,
+        // Done — handed to the DestructibleComponent break path, or left falling
+        // because m_ShatterOnCollapse is false. Never re-enters the graph.
+        Collapsed = 3
+    };
+
+    // A piece of a destructible structure (issue #786). Pieces carrying this form
+    // a support graph — derived from collider adjacency, not authored, see
+    // docs/adr/0021 — and a piece with no path through that graph to an m_Anchor
+    // piece loses integrity and comes down. That is what makes a wall crumble
+    // progressively instead of each block shattering in isolation.
+    //
+    // Composes with, and does not replace, DestructibleComponent: this decides
+    // WHICH pieces come down, the DestructibleComponent on the same entity decides
+    // what a piece turns into when it does (the #459 debris path and its global
+    // live-debris budget). A piece with no DestructibleComponent detaches and
+    // falls but never shatters.
+    //
+    // All-trivial, so scene YAML round-trips automatically; the runtime collapse
+    // state is Skip'd out of scene YAML but IS persisted in save-games (a
+    // half-collapsed structure must reload half-collapsed).
+    struct StructuralNodeComponent
+    {
+        // Ground/anchor piece: the support flood starts here and this piece never
+        // collapses. Every structure needs at least one, or the whole thing comes
+        // down on the first break (the solver warns when it finds an island with
+        // none).
+        OLO_PROPERTY()
+        bool m_Anchor = false;
+
+        // Extra distance (metres) added to this piece's bounds when testing which
+        // pieces it touches. Authored structures rarely sit exactly flush; this is
+        // the slack that keeps a 1 mm gap from severing the graph.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_ContactMargin = 0.05f;
+
+        // How far load may travel SIDEWAYS along a bonded course before it has to
+        // find something underneath it again. 0 = no cantilever at all: a piece
+        // must sit on something. 3 = a piece may be up to three same-course steps
+        // from the nearest piece that is itself vertically supported.
+        //
+        // Without this limit a bonded row transfers load indefinitely, so a wall
+        // that still has ONE base block standing never partially collapses — it
+        // is intact until it is entirely unsupported, which is not what a wall
+        // does. This is the knob that turns the flood into a structural-integrity
+        // model rather than a connectivity model.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 64)
+        u32 m_MaxLateralSpan = 3;
+
+        // Seconds between losing support and actually detaching, multiplied by the
+        // piece's hop distance from the break. This is the knob that spreads a
+        // collapse over time; 0 drops the whole unsupported set on one tick.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 60.0f)
+        f32 m_CollapseDelay = 0.12f;
+
+        // Seconds a detached piece falls as a whole rigidbody before it shatters.
+        // Only has an effect when the piece has a rigidbody to switch to Dynamic;
+        // a body-less piece shatters as soon as it detaches.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 60.0f)
+        f32 m_FallDuration = 1.25f;
+
+        // Shatter into debris at the end of the fall (needs a DestructibleComponent
+        // on the same entity). False = the piece just keeps falling as one body.
+        OLO_PROPERTY()
+        bool m_ShatterOnCollapse = true;
+
+        // Runtime: collapse state machine. Persisted in save-games, never in scene
+        // YAML (an authored scene is always intact).
+        OLO_SERIALIZE(Skip)
+        StructuralState m_State = StructuralState::Stable;
+
+        // Runtime: seconds left in the current state (the Detaching delay, then the
+        // Falling duration).
+        OLO_SERIALIZE(Skip)
+        f32 m_StateTimer = 0.0f;
+
+        // Runtime: hop distance from the break that condemned this piece, at the
+        // moment it was condemned. Staggers the collapse and is worth reading in
+        // the inspector when a structure comes down in the wrong order.
+        OLO_SERIALIZE(Skip)
+        u32 m_CollapseHops = 0;
+
+        StructuralNodeComponent() = default;
+        StructuralNodeComponent(const StructuralNodeComponent&) = default;
+
+        // Compare AUTHORED fields only, field-by-field (the DestructibleComponent
+        // pattern). Excludes m_State / m_StateTimer / m_CollapseHops so a play-mode
+        // enter/exit is not seen as an authored change, and avoids a whole-struct
+        // BitwiseEqual that would compare indeterminate padding bytes.
+        auto operator==(const StructuralNodeComponent& other) const -> bool
+        {
+            return m_Anchor == other.m_Anchor && Math::BitwiseEqual(m_ContactMargin, other.m_ContactMargin) && m_MaxLateralSpan == other.m_MaxLateralSpan && Math::BitwiseEqual(m_CollapseDelay, other.m_CollapseDelay) && Math::BitwiseEqual(m_FallDuration, other.m_FallDuration) && m_ShatterOnCollapse == other.m_ShatterOnCollapse;
+        }
+    };
+
     // Which axle(s) the engine drives (issue #438). Selects how
     // JoltScene::CreateVehicle builds the WheeledVehicleController's differential
     // list from the standard 0=FL, 1=FR, 2=RL, 3=RR wheel layout:

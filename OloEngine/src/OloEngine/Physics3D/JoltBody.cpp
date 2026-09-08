@@ -117,6 +117,18 @@ namespace OloEngine
         GetBodyInterface().SetObjectLayer(m_BodyID, ObjectLayers::DEBRIS);
     }
 
+    bool JoltBody::CanBecomeDynamic() const
+    {
+        if (m_BodyID.IsInvalid())
+            return false;
+        if (GetBodyType() != EBodyType::Static)
+            return true;
+
+        const auto& bodyLockInterface = GetBodyLockInterface();
+        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
+        return lock.Succeeded() && lock.GetBody().CanBeKinematicOrDynamic();
+    }
+
     u32 JoltBody::GetCollisionLayer() const
     {
         if (m_BodyID.IsInvalid())
@@ -927,8 +939,29 @@ namespace OloEngine
         // Apply material properties from collider components
         ApplyMaterialProperties(bodySettings);
 
+        // A structural piece (issue #786) is authored Static so it holds the
+        // building up, and is switched to Dynamic the instant the support solver
+        // condemns it. Jolt allocates MotionProperties at CREATION time only, and
+        // a Static body has none — SetMotionType(Dynamic) on one asserts. So a
+        // piece that opts into collapse pays for the ability up front. Scoped to
+        // exactly those entities: every other static body in the scene keeps its
+        // current, cheaper layout.
+        const bool allowLaterMotion = motionType != JPH::EMotionType::Dynamic && m_Entity && m_Entity.HasComponent<StructuralNodeComponent>();
+        bodySettings.mAllowDynamicOrKinematic = allowLaterMotion;
+
         if (motionType == JPH::EMotionType::Dynamic)
         {
+            bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+            bodySettings.mMassPropertiesOverride.mMass = rigidBodyComponent.m_Mass;
+        }
+        else if (allowLaterMotion && std::isfinite(rigidBodyComponent.m_Mass) && rigidBodyComponent.m_Mass > 0.0f)
+        {
+            // Honour the authored mass on the body this piece will BECOME.
+            // Without it the mass properties come from the shape's density, and
+            // a heavy block would fall as if it were made of the default
+            // material. Guarded because a Static body's m_Mass is never
+            // validated by anything today, and CalculateInertia with a zero or
+            // NaN mass is a Jolt assert.
             bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
             bodySettings.mMassPropertiesOverride.mMass = rigidBodyComponent.m_Mass;
         }

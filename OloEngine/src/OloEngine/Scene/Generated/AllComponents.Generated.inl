@@ -108,6 +108,7 @@ using AllComponents = ComponentGroup<
     StarNestSkyComponent,
     StateMachineComponent,
     StreamingVolumeComponent,
+    StructuralNodeComponent,
     SubmeshComponent,
     TerrainComponent,
     TextComponent,

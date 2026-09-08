@@ -50,8 +50,16 @@ namespace OloEngine
         // m_DamageThreshold).
         static bool ApplyDamage(Scene* scene, Entity entity, f32 amount);
 
-        // Per-tick: shatter every pending/health-depleted destructible, then age
-        // out and budget-evict existing debris. dtSeconds is the frame timestep.
+        // Per-tick: advance progressive collapse, shatter every pending /
+        // health-depleted destructible, then age out and budget-evict existing
+        // debris. dtSeconds is the frame timestep.
+        //
+        // Structural collapse (issue #786) runs HERE rather than as its own
+        // scheduler node, and that is deliberate: a break, the loss of support it
+        // causes, and the debris the collapse produces are three steps of one
+        // tick's story. Splitting them across two nodes would put a frame of
+        // latency between each step and would need the two to agree on which
+        // half of the tick owned m_PendingBreak. One node, strictly phased.
         static void OnUpdate(Scene* scene, f32 dtSeconds);
     };
 } // namespace OloEngine
