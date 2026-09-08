@@ -124,6 +124,26 @@ function(olo_set_compiler_options target_name)
             /Zc:inline        # Remove unreferenced COMDAT functions (reduces linker work)
             /bigobj           # Increase COFF section limit for large translation units
         )
+        # Static-initialisation audit (issue #763), OPT-IN and off by default.
+        #
+        # Why opt-in rather than always on: the audit measured 220 distinct sites that
+        # survive after every free fix has been taken, because the engine legitimately
+        # keeps process-lifetime singletons, caches and warn-once sets (Task/, Networking/,
+        # Renderer/, Project/). These flags cannot tell those apart from an accidental
+        # global, so leaving them on would add ~4900 raw warnings to every clang-cl build
+        # -- signal that trains people to ignore the log rather than read it.
+        #
+        # Turn it on to repeat the audit:
+        #   cmake --preset dev-cached -DOLO_WARN_STATIC_INIT=ON
+        # Warnings only, never -Werror, and clang-cl only: clang-cl reports as MSVC, so
+        # this nests inside the MSVC branch and never reaches the cl.exe path, which has
+        # no equivalent flag.
+        if(OLO_WARN_STATIC_INIT AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            target_compile_options(${target_name} PRIVATE
+                -Wglobal-constructors
+                -Wexit-time-destructors
+            )
+        endif()
         # Use multi-threaded DLL runtime library.
         # When ASan or fuzzing is on, force the release CRT (/MD) for ALL
         # configurations — MSVC ASan's runtime links against release CRT,

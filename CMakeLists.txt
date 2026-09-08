@@ -239,6 +239,12 @@ option(OLO_ENABLE_LTO "Enable Link Time Optimization" ON)
 option(OLO_ENABLE_PCH "Enable Precompiled Headers" ON)
 option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilation" OFF)
 
+# Static-initialisation audit (issue #763). clang-cl only, warnings only, never -Werror.
+# OFF by default: ~220 distinct sites are deliberate process-lifetime singletons, so
+# always-on would be noise rather than signal. See cmake/CommonProperties.cmake and
+# docs/agent-rules/static-initialisation.md.
+option(OLO_WARN_STATIC_INIT "Warn on global constructors / exit-time destructors (clang-cl only)" OFF)
+
 # Asset-import format options (#655). All default ON — importing USD / Alembic / MaterialX works
 # out of the box, matching UE5's USD-by-default posture. Alembic + MaterialX are small static
 # FetchContent builds. OpenUSD is large + install-centric: it is built from source once via
